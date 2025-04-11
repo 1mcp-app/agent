@@ -1,3 +1,4 @@
+import { vi, describe, it, expect, beforeEach, MockInstance } from 'vitest';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
 import {
@@ -14,20 +15,20 @@ import { ClientConnectionError, ClientNotFoundError, MCPError } from '../utils/e
 import { MCP_SERVER_NAME, CONNECTION_RETRY } from '../constants.js';
 
 // Mock dependencies
-jest.mock('@modelcontextprotocol/sdk/client/index.js', () => ({
-  Client: jest.fn(),
+vi.mock('@modelcontextprotocol/sdk/client/index.js', () => ({
+  Client: vi.fn(),
 }));
 
-jest.mock('../client.js', () => ({
+vi.mock('../client.js', () => ({
   __esModule: true,
-  default: jest.fn(),
+  default: vi.fn(),
 }));
 
-jest.mock('../logger/logger.js', () => ({
+vi.mock('../logger/logger.js', () => ({
   __esModule: true,
   default: {
-    info: jest.fn(),
-    error: jest.fn(),
+    info: vi.fn(),
+    error: vi.fn(),
   },
 }));
 
@@ -37,39 +38,42 @@ describe('clientManager', () => {
   let mockTransports: Record<string, Transport>;
 
   beforeEach(() => {
-    jest.clearAllMocks();
-    jest.useFakeTimers();
+    vi.clearAllMocks();
+    vi.useFakeTimers();
 
     mockTransport = {
       name: 'test-transport',
-      start: jest.fn(),
-      send: jest.fn(),
-      close: jest.fn(),
+      start: vi.fn(),
+      send: vi.fn(),
+      close: vi.fn(),
     } as Transport;
 
     mockClient = {
-      connect: jest.fn(),
-      getServerVersion: jest.fn(),
+      connect: vi.fn(),
+      getServerVersion: vi.fn(),
     };
 
     mockTransports = {
       'test-client': mockTransport,
     };
 
-    (createClientFn as jest.Mock).mockResolvedValue(mockClient);
+    (createClientFn as unknown as MockInstance).mockResolvedValue(mockClient);
   });
 
   afterEach(() => {
-    jest.useRealTimers();
+    vi.useRealTimers();
   });
 
   describe('createClients', () => {
     it('should create clients successfully', async () => {
-      (mockClient.connect as jest.Mock).mockResolvedValue(undefined);
-      (mockClient.getServerVersion as jest.Mock).mockResolvedValue({ name: 'test-server', version: '1.0.0' });
+      (mockClient.connect as unknown as MockInstance).mockResolvedValue(undefined);
+      (mockClient.getServerVersion as unknown as MockInstance).mockResolvedValue({
+        name: 'test-server',
+        version: '1.0.0',
+      });
 
       const clientsPromise = createClients(mockTransports);
-      await jest.runAllTimersAsync();
+      await vi.runAllTimersAsync();
       const clients = await clientsPromise;
 
       expect(clients['test-client']).toBeDefined();
@@ -80,13 +84,13 @@ describe('clientManager', () => {
 
     it('should handle client connection failure after retries', async () => {
       const error = new Error('Connection failed');
-      (mockClient.connect as jest.Mock).mockRejectedValue(error);
+      (mockClient.connect as unknown as MockInstance).mockRejectedValue(error);
 
       const clientsPromise = createClients(mockTransports);
 
       // Run through all retry attempts
       for (let i = 0; i < CONNECTION_RETRY.MAX_ATTEMPTS; i++) {
-        await jest.advanceTimersByTimeAsync(CONNECTION_RETRY.INITIAL_DELAY_MS * Math.pow(2, i));
+        await vi.advanceTimersByTimeAsync(CONNECTION_RETRY.INITIAL_DELAY_MS * Math.pow(2, i));
       }
 
       const clients = await clientsPromise;
@@ -98,11 +102,14 @@ describe('clientManager', () => {
     });
 
     it('should prevent circular dependency with MCP server', async () => {
-      (mockClient.connect as jest.Mock).mockResolvedValue(undefined);
-      (mockClient.getServerVersion as jest.Mock).mockResolvedValue({ name: MCP_SERVER_NAME, version: '1.0.0' });
+      (mockClient.connect as unknown as MockInstance).mockResolvedValue(undefined);
+      (mockClient.getServerVersion as unknown as MockInstance).mockResolvedValue({
+        name: MCP_SERVER_NAME,
+        version: '1.0.0',
+      });
 
       const clientsPromise = createClients(mockTransports);
-      await jest.runAllTimersAsync();
+      await vi.runAllTimersAsync();
       const clients = await clientsPromise;
 
       expect(clients['test-client'].status).toBe(ClientStatus.Error);
@@ -131,7 +138,7 @@ describe('clientManager', () => {
 
   describe('executeOperation', () => {
     it('should execute operation successfully', async () => {
-      const operation = jest.fn().mockResolvedValue('result');
+      const operation = vi.fn().mockResolvedValue('result');
 
       const result = await executeOperation(operation, 'test-context');
 
@@ -141,12 +148,12 @@ describe('clientManager', () => {
 
     it('should retry failed operations', async () => {
       const error = new Error('Operation failed');
-      const operation = jest.fn().mockRejectedValueOnce(error).mockResolvedValueOnce('result');
+      const operation = vi.fn().mockRejectedValueOnce(error).mockResolvedValueOnce('result');
 
       const operationPromise = executeOperation(operation, 'test-context', { retryCount: 1, retryDelay: 1000 });
 
       // Advance timer by retry delay
-      await jest.advanceTimersByTimeAsync(1000);
+      await vi.advanceTimersByTimeAsync(1000);
 
       const result = await operationPromise;
 
@@ -157,7 +164,7 @@ describe('clientManager', () => {
 
     it('should throw error after max retries', async () => {
       const error = new Error('Operation failed');
-      const operation = jest.fn().mockRejectedValue(error);
+      const operation = vi.fn().mockRejectedValue(error);
 
       const operationPromise = executeOperation(operation, 'test-context', { retryCount: 2, retryDelay: 1000 });
 
@@ -169,7 +176,7 @@ describe('clientManager', () => {
 
       // Advance timer for each retry
       for (let i = 0; i < 2; i++) {
-        await jest.advanceTimersByTimeAsync(1000);
+        await vi.advanceTimersByTimeAsync(1000);
       }
 
       // Wait for the rejection assertion
@@ -188,7 +195,7 @@ describe('clientManager', () => {
     });
 
     it('should execute client operation successfully', async () => {
-      const operation = jest.fn().mockResolvedValue('result');
+      const operation = vi.fn().mockResolvedValue('result');
 
       const result = await executeClientOperation(clients, 'test-client', operation);
 
@@ -197,7 +204,7 @@ describe('clientManager', () => {
     });
 
     it('should throw error for non-existent client', async () => {
-      const operation = jest.fn();
+      const operation = vi.fn();
 
       await expect(executeClientOperation(clients, 'non-existent', operation)).rejects.toThrow(ClientNotFoundError);
     });
@@ -209,13 +216,13 @@ describe('clientManager', () => {
     beforeEach(() => {
       mockServer = {
         server: {
-          request: jest.fn().mockResolvedValue('result'),
+          request: vi.fn().mockResolvedValue('result'),
         },
       } as unknown as ServerInfo;
     });
 
     it('should execute server operation successfully', async () => {
-      const operation = jest.fn().mockResolvedValue('result');
+      const operation = vi.fn().mockResolvedValue('result');
 
       const result = await executeServerOperation(mockServer, operation);
 
@@ -225,7 +232,7 @@ describe('clientManager', () => {
 
     it('should handle server operation failure', async () => {
       const error = new Error('Server operation failed');
-      const operation = jest.fn().mockRejectedValue(error);
+      const operation = vi.fn().mockRejectedValue(error);
 
       await expect(executeServerOperation(mockServer, operation)).rejects.toThrow(MCPError);
     });

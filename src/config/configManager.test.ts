@@ -2,41 +2,56 @@ import fs from 'fs';
 import path from 'path';
 import { ConfigManager, ConfigChangeEvent } from './configManager.js';
 import { DEFAULT_CONFIG } from '../constants.js';
-import { setupCommonJestMocks } from '../test-utils/mocks/commonMocks.js';
-import { testConfig } from '../test-utils/fixtures/commonFixtures.js';
-import { clearAllMocks, createEventEmitterSpy } from '../test-utils/helpers/testHelpers.js';
+import { vi, describe, it, expect, beforeEach, MockInstance } from 'vitest';
+
+// Test data
+const testConfig = {
+  mcpServers: {
+    server1: { url: 'http://test1.com' },
+    server2: { url: 'http://test2.com' },
+  },
+};
+
+// Helper function to create an event emitter spy
+const createEventEmitterSpy = (instance: ConfigManager) => {
+  return vi.spyOn(instance, 'emit');
+};
 
 // Mock modules
-jest.mock('fs', () => ({
-  existsSync: jest.fn(),
-  mkdirSync: jest.fn(),
-  writeFileSync: jest.fn(),
-  readFileSync: jest.fn(),
-  watch: jest.fn(() => ({ close: jest.fn() })),
-}));
-
-// Setup common mocks
-setupCommonJestMocks();
+vi.mock('fs', async () => {
+  return {
+    default: {
+      existsSync: vi.fn(),
+      mkdirSync: vi.fn(),
+      writeFileSync: vi.fn(),
+      readFileSync: vi.fn(),
+      watch: vi.fn(() => ({ close: vi.fn() })),
+    },
+    existsSync: vi.fn(),
+    mkdirSync: vi.fn(),
+    writeFileSync: vi.fn(),
+    readFileSync: vi.fn(),
+    watch: vi.fn(() => ({ close: vi.fn() })),
+  };
+});
 
 // Mock constants
-jest.mock('../constants.js', () => ({
+vi.mock('../constants.js', () => ({
   __esModule: true,
   DEFAULT_CONFIG: { mcpServers: {} },
-  getGlobalConfigPath: jest.fn(),
-  getGlobalConfigDir: jest.fn().mockReturnValue('/test'),
+  getGlobalConfigPath: vi.fn(),
+  getGlobalConfigDir: vi.fn().mockReturnValue('/test'),
 }));
 
 describe('ConfigManager', () => {
   const testConfigPath = '/test/config.json';
 
   beforeEach(() => {
-    // Reset all mocks and timers
-    clearAllMocks();
     // Reset singleton instance
     (ConfigManager as any).instance = undefined;
     // Default mock implementations
-    (fs.existsSync as jest.Mock).mockReturnValue(true);
-    (fs.readFileSync as jest.Mock).mockReturnValue(JSON.stringify({ mcpServers: {} }));
+    (fs.existsSync as unknown as MockInstance).mockReturnValue(true);
+    (fs.readFileSync as unknown as MockInstance).mockReturnValue(JSON.stringify({ mcpServers: {} }));
   });
 
   describe('getInstance', () => {
@@ -54,7 +69,7 @@ describe('ConfigManager', () => {
 
   describe('ensureConfigExists', () => {
     it('should create config directory and file if they do not exist', () => {
-      (fs.existsSync as jest.Mock)
+      (fs.existsSync as unknown as MockInstance)
         .mockReturnValueOnce(false) // Directory doesn't exist
         .mockReturnValueOnce(false); // File doesn't exist
 
@@ -78,10 +93,10 @@ describe('ConfigManager', () => {
 
     it('should reload config on file change', () => {
       const instance = ConfigManager.getInstance(testConfigPath);
-      const mockWatcher = { close: jest.fn() };
+      const mockWatcher = { close: vi.fn() };
       let watchCallback: Function = () => {};
 
-      (fs.watch as jest.Mock).mockImplementation((path, callback) => {
+      (fs.watch as unknown as MockInstance).mockImplementation((path, callback) => {
         watchCallback = callback;
         return mockWatcher;
       });
@@ -92,7 +107,7 @@ describe('ConfigManager', () => {
       const emitSpy = createEventEmitterSpy(instance);
 
       // Mock new config data
-      (fs.readFileSync as jest.Mock).mockReturnValueOnce(JSON.stringify(testConfig));
+      (fs.readFileSync as unknown as MockInstance).mockReturnValueOnce(JSON.stringify(testConfig));
 
       // Simulate file change
       watchCallback('change', path.basename(testConfigPath));
@@ -103,7 +118,7 @@ describe('ConfigManager', () => {
 
   describe('getTransportConfig', () => {
     it('should return copy of transport config', () => {
-      (fs.readFileSync as jest.Mock).mockReturnValueOnce(JSON.stringify(testConfig));
+      (fs.readFileSync as unknown as MockInstance).mockReturnValueOnce(JSON.stringify(testConfig));
 
       const instance = ConfigManager.getInstance(testConfigPath);
       const config = instance.getTransportConfig();

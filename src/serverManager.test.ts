@@ -1,3 +1,4 @@
+import { vi, describe, it, expect, beforeEach, MockInstance } from 'vitest';
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
 import { ServerManager } from './serverManager.js';
@@ -8,38 +9,40 @@ import { enhanceServerWithLogging } from './middleware/loggingMiddleware.js';
 import { Clients } from './types.js';
 
 // Mock dependencies
-jest.mock('@modelcontextprotocol/sdk/server/index.js', () => ({
-  Server: jest.fn(),
+vi.mock('@modelcontextprotocol/sdk/server/index.js', () => ({
+  Server: vi.fn(),
 }));
 
-jest.mock('@modelcontextprotocol/sdk/shared/transport.js', () => ({
-  Transport: jest.fn(),
+vi.mock('@modelcontextprotocol/sdk/shared/transport.js', () => ({
+  Transport: vi.fn(),
 }));
 
-jest.mock('./logger/logger.js', () => {
+vi.mock('./logger/logger.js', () => {
   const mockLogger = {
-    info: jest.fn(),
-    error: jest.fn(),
+    info: vi.fn(),
+    error: vi.fn(),
+    addMCPTransport: vi.fn(),
   };
   return {
     __esModule: true,
     default: mockLogger,
+    addMCPTransport: vi.fn(),
   };
 });
 
-jest.mock('./services/configReloadService.js', () => ({
+vi.mock('./services/configReloadService.js', () => ({
   __esModule: true,
   default: {
-    initialize: jest.fn(),
+    initialize: vi.fn(),
   },
 }));
 
-jest.mock('./capabilities/capabilityManager.js', () => ({
-  setupCapabilities: jest.fn(),
+vi.mock('./capabilities/capabilityManager.js', () => ({
+  setupCapabilities: vi.fn(),
 }));
 
-jest.mock('./middleware/loggingMiddleware.js', () => ({
-  enhanceServerWithLogging: jest.fn(),
+vi.mock('./middleware/loggingMiddleware.js', () => ({
+  enhanceServerWithLogging: vi.fn(),
 }));
 
 describe('ServerManager', () => {
@@ -52,7 +55,7 @@ describe('ServerManager', () => {
 
   beforeEach(() => {
     // Reset all mocks
-    jest.clearAllMocks();
+    vi.clearAllMocks();
 
     // Setup test data
     mockConfig = { name: 'test-server', version: '1.0.0' };
@@ -63,15 +66,15 @@ describe('ServerManager', () => {
       // Add any required Transport properties here
     } as Transport;
     mockServer = {
-      connect: jest.fn().mockResolvedValue(undefined),
+      connect: vi.fn().mockResolvedValue(undefined),
       transport: mockTransport,
     } as unknown as Server;
 
     // Setup mocks
-    (Server as jest.Mock).mockImplementation(() => mockServer);
-    (setupCapabilities as jest.Mock).mockResolvedValue(undefined);
-    (enhanceServerWithLogging as jest.Mock).mockReturnValue(undefined);
-    (configReloadService.initialize as jest.Mock).mockImplementation(() => undefined);
+    (Server as unknown as MockInstance).mockImplementation(() => mockServer);
+    (setupCapabilities as unknown as MockInstance).mockResolvedValue(undefined);
+    (enhanceServerWithLogging as unknown as MockInstance).mockReturnValue(undefined);
+    (configReloadService.initialize as unknown as MockInstance).mockImplementation(() => undefined);
   });
 
   describe('getInstance', () => {
@@ -105,7 +108,7 @@ describe('ServerManager', () => {
 
     it('should handle connection errors', async () => {
       const error = new Error('Connection failed');
-      (mockServer.connect as jest.Mock).mockRejectedValueOnce(error);
+      (mockServer.connect as unknown as MockInstance).mockRejectedValueOnce(error);
 
       await expect(serverManager.connectTransport(mockTransport, sessionId, tags)).rejects.toThrow('Connection failed');
       expect(logger.error).toHaveBeenCalled();
@@ -122,7 +125,7 @@ describe('ServerManager', () => {
 
     it('should successfully disconnect a transport', async () => {
       await serverManager.connectTransport(mockTransport, sessionId);
-      jest.clearAllMocks(); // Clear the logs from connectTransport
+      vi.clearAllMocks(); // Clear the logs from connectTransport
       serverManager.disconnectTransport(sessionId);
       expect(logger.info).toHaveBeenCalledWith(`Disconnected transport for session ${sessionId}`);
     });
