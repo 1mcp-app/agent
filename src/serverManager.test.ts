@@ -21,12 +21,10 @@ vi.mock('./logger/logger.js', () => {
   const mockLogger = {
     info: vi.fn(),
     error: vi.fn(),
-    addMCPTransport: vi.fn(),
   };
   return {
     __esModule: true,
     default: mockLogger,
-    addMCPTransport: vi.fn(),
   };
 });
 

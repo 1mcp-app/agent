@@ -1,6 +1,4 @@
 import winston from 'winston';
-import { MCPTransport } from './mcpTransport.js';
-import { ServerInfo } from '../types.js';
 
 // Map MCP log levels to Winston log levels
 const MCP_TO_WINSTON_LEVEL: Record<string, string> = {
@@ -48,60 +46,11 @@ const logger = winston.createLogger({
 });
 
 /**
- * Creates and adds an MCP transport to the logger
- * @param serverInfo The server info instance
- * @param loggerName Optional name for the logger in MCP notifications
- */
-export function addMCPTransport(serverInfo: ServerInfo, loggerName?: string): void {
-  // Create a new MCP transport for this server
-  const transport = new MCPTransport({
-    server: serverInfo.server,
-    loggerName: loggerName || '1mcp',
-    level: 'info',
-  });
-
-  // Add to winston logger
-  logger.add(transport);
-
-  // Store in server info
-  serverInfo.mcpTransport = transport;
-}
-
-/**
- * Removes the MCP transport from the logger if it exists
- * @param serverInfo The server info instance
- */
-export function removeMCPTransport(serverInfo: ServerInfo): void {
-  const transport = serverInfo.mcpTransport;
-  if (transport) {
-    logger.remove(transport);
-    serverInfo.mcpTransport = undefined;
-  }
-}
-
-/**
  * Enable the console transport
  */
 export function enableConsoleTransport(): void {
   if (logger.transports.length > 0) {
     logger.transports[0].silent = false;
-  }
-}
-
-/**
- * Set the connection status of the MCP transport
- * @param serverInfo The server info instance
- * @param connected Whether the server is connected
- */
-export function setMCPTransportConnected(serverInfo: ServerInfo, connected: boolean): void {
-  const transport = serverInfo.mcpTransport;
-  if (transport) {
-    if (connected) {
-      transport.setConnected(connected);
-    } else {
-      transport.setConnected(connected);
-      removeMCPTransport(serverInfo);
-    }
   }
 }
 
