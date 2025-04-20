@@ -1,8 +1,9 @@
-import { Server } from '@modelcontextprotocol/sdk/server/index.js';
-import { v4 as uuidv4 } from 'uuid';
-import logger from '../logger/logger.js';
 import { z } from 'zod';
 import type { RequestHandlerExtra } from '@modelcontextprotocol/sdk/shared/protocol.js';
+import { v4 as uuidv4 } from 'uuid';
+import { Server } from '@modelcontextprotocol/sdk/server/index.js';
+import { ServerRequest, ServerNotification } from '@modelcontextprotocol/sdk/types.js';
+import logger from '../logger/logger.js';
 
 interface LogContext {
   requestId: string;
@@ -100,8 +101,18 @@ function wrapRequestHandler<T extends RequestSchema>(
     logRequest(requestId, method, request.params);
 
     try {
-      // Execute original handler
-      const result = await originalHandler(request, extra);
+      // Execute original handler with the original extra object
+      const result = await originalHandler(request, {
+        ...extra,
+        sendNotification: async (notification) => {
+          logger.info('Sending notification', { requestId, notification });
+          return extra.sendNotification(notification);
+        },
+        sendRequest: async (request, resultSchema, options) => {
+          logger.info('Sending request', { requestId, request });
+          return extra.sendRequest(request, resultSchema, options);
+        },
+      });
 
       // Log response
       const duration = Date.now() - startTime;

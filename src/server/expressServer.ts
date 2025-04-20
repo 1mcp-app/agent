@@ -41,7 +41,7 @@ export class ExpressServer {
           transport = new StreamableHTTPServerTransport({
             sessionIdGenerator: () => randomUUID(),
           });
-          await this.serverManager.connectTransport(transport, transport.sessionId);
+          await this.serverManager.connectTransport(transport, transport.sessionId || '');
         } else {
           transport = this.serverManager.getTransport(sessionId) as StreamableHTTPServerTransport;
         }
