@@ -100,24 +100,32 @@ async function main() {
     // Set up graceful shutdown handling
     setupGracefulShutdown(serverManager);
 
-    if (argv.transport === 'stdio') {
-      // Use stdio transport
-      const transport = new StdioServerTransport();
-      // Parse and validate tags from CLI if provided
-      let tags: string[] | undefined;
-      if (argv.tags) {
-        tags = argv.tags.split(',').filter((tag) => tag.trim().length > 0);
-        if (tags.length === 0) {
-          logger.warn('No valid tags provided, ignoring tags parameter');
-          tags = undefined;
+    switch (argv.transport) {
+      case 'stdio': {
+        // Use stdio transport
+        const transport = new StdioServerTransport();
+        // Parse and validate tags from CLI if provided
+        let tags: string[] | undefined;
+        if (argv.tags) {
+          tags = argv.tags.split(',').filter((tag) => tag.trim().length > 0);
+          if (tags.length === 0) {
+            logger.warn('No valid tags provided, ignoring tags parameter');
+            tags = undefined;
+          }
         }
+        await serverManager.connectTransport(transport, 'stdio', tags);
+        logger.info('Server started with stdio transport');
+        break;
       }
-      await serverManager.connectTransport(transport, 'stdio', tags);
-      logger.info('Server started with stdio transport');
-    } else {
-      // Use HTTP/SSE transport
-      const expressServer = new ExpressServer(serverManager);
-      expressServer.start(argv.port, argv.host);
+      case 'sse': {
+        // Use HTTP/SSE transport
+        const expressServer = new ExpressServer(serverManager);
+        expressServer.start(argv.port, argv.host);
+        break;
+      }
+      default:
+        logger.error(`Invalid transport: ${argv.transport}`);
+        process.exit(1);
     }
   } catch (error) {
     logger.error('Server error:', error);

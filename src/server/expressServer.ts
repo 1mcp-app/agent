@@ -1,8 +1,10 @@
+import { randomUUID } from 'node:crypto';
 import express from 'express';
+import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { SSEServerTransport } from '@modelcontextprotocol/sdk/server/sse.js';
 import { ServerManager } from '../serverManager.js';
 import logger from '../logger/logger.js';
-import { SSE_ENDPOINT, MESSAGES_ENDPOINT, ERROR_CODES } from '../constants.js';
+import { SSE_ENDPOINT, MESSAGES_ENDPOINT, ERROR_CODES, STREAMABLE_HTTP_ENDPOINT } from '../constants.js';
 
 export class ExpressServer {
   private app: express.Application;
@@ -12,7 +14,8 @@ export class ExpressServer {
     this.app = express();
     this.serverManager = serverManager;
     this.setupMiddleware();
-    this.setupRoutes();
+    this.setupStreamableHttpRoutes();
+    this.setupSseRoutes();
   }
 
   private setupMiddleware(): void {
@@ -28,10 +31,74 @@ export class ExpressServer {
     });
   }
 
-  private setupRoutes(): void {
+  private setupStreamableHttpRoutes(): void {
+    this.app.post(STREAMABLE_HTTP_ENDPOINT, async (req: express.Request, res: express.Response) => {
+      try {
+        logger.info('[POST] streamable-http', { query: req.query, body: req.body, headers: req.headers });
+        let transport: StreamableHTTPServerTransport;
+        const sessionId = req.headers['mcp-session-id'] as string | undefined;
+        if (!sessionId) {
+          transport = new StreamableHTTPServerTransport({
+            sessionIdGenerator: () => randomUUID(),
+          });
+          await this.serverManager.connectTransport(transport, transport.sessionId);
+        } else {
+          transport = this.serverManager.getTransport(sessionId) as StreamableHTTPServerTransport;
+        }
+        await transport.handleRequest(req, res);
+      } catch (error) {
+        logger.error('Streamable HTTP error:', error);
+        res.status(500).end();
+      }
+    });
+
+    this.app.get(STREAMABLE_HTTP_ENDPOINT, async (req: express.Request, res: express.Response) => {
+      try {
+        logger.info('[GET] streamable-http', { query: req.query, headers: req.headers });
+        const sessionId = req.headers['mcp-session-id'] as string | undefined;
+        if (!sessionId) {
+          res.status(400).json({
+            error: {
+              code: ERROR_CODES.INVALID_PARAMS,
+              message: 'Invalid params: sessionId is required',
+            },
+          });
+          return;
+        }
+        const transport = this.serverManager.getTransport(sessionId) as StreamableHTTPServerTransport;
+        await transport.handleRequest(req, res);
+      } catch (error) {
+        logger.error('Streamable HTTP error:', error);
+        res.status(500).end();
+      }
+    });
+
+    this.app.delete(STREAMABLE_HTTP_ENDPOINT, async (req: express.Request, res: express.Response) => {
+      try {
+        logger.info('[DELETE] streamable-http', { query: req.query, headers: req.headers });
+        const sessionId = req.headers['mcp-session-id'] as string | undefined;
+        if (!sessionId) {
+          res.status(400).json({
+            error: {
+              code: ERROR_CODES.INVALID_PARAMS,
+              message: 'Invalid params: sessionId is required',
+            },
+          });
+          return;
+        }
+        const transport = this.serverManager.getTransport(sessionId) as StreamableHTTPServerTransport;
+        await transport.handleRequest(req, res);
+      } catch (error) {
+        logger.error('Streamable HTTP error:', error);
+        res.status(500).end();
+      }
+    });
+  }
+
+  private setupSseRoutes(): void {
     this.app.get(SSE_ENDPOINT, async (req: express.Request, res: express.Response) => {
       try {
-        logger.info('sse', { query: req.query, headers: req.headers });
+        logger.info('[GET] sse', { query: req.query, headers: req.headers });
         const transport = new SSEServerTransport(MESSAGES_ENDPOINT, res);
 
         // Extract and validate tags from query parameters

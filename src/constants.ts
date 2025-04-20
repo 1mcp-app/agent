@@ -11,6 +11,7 @@ export const HOST = '127.0.0.1';
 // API endpoints
 export const SSE_ENDPOINT = '/sse';
 export const MESSAGES_ENDPOINT = '/messages';
+export const STREAMABLE_HTTP_ENDPOINT = '/mcp';
 
 // Error codes
 export const ERROR_CODES = {
