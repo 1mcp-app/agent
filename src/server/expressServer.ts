@@ -35,15 +35,33 @@ export class ExpressServer {
     this.app.post(STREAMABLE_HTTP_ENDPOINT, async (req: express.Request, res: express.Response) => {
       try {
         logger.info('[POST] streamable-http', { query: req.query, body: req.body, headers: req.headers });
+
         let transport: StreamableHTTPServerTransport;
         const sessionId = req.headers['mcp-session-id'] as string | undefined;
         if (!sessionId) {
+          const id = randomUUID();
           transport = new StreamableHTTPServerTransport({
-            sessionIdGenerator: () => randomUUID(),
+            sessionIdGenerator: () => id,
           });
-          await this.serverManager.connectTransport(transport, transport.sessionId || '');
+          await this.serverManager.connectTransport(transport, id);
+
+          transport.onclose = () => {
+            this.serverManager.disconnectTransport(id);
+            logger.info('transport closed', transport.sessionId);
+          };
         } else {
-          transport = this.serverManager.getTransport(sessionId) as StreamableHTTPServerTransport;
+          const existingTransport = this.serverManager.getTransport(sessionId);
+          if (existingTransport instanceof StreamableHTTPServerTransport) {
+            transport = existingTransport;
+          } else {
+            res.status(400).json({
+              error: {
+                code: ERROR_CODES.INVALID_PARAMS,
+                message: 'Session already exists but uses a different transport protocol',
+              },
+            });
+            return;
+          }
         }
         await transport.handleRequest(req, res);
       } catch (error) {
