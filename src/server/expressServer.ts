@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import express from 'express';
+import bodyParser from 'body-parser';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { SSEServerTransport } from '@modelcontextprotocol/sdk/server/sse.js';
 import { ServerManager } from '../serverManager.js';
@@ -19,6 +20,8 @@ export class ExpressServer {
   }
 
   private setupMiddleware(): void {
+    this.app.use(bodyParser.json());
+
     // Add error handling middleware
     this.app.use((err: Error, req: express.Request, res: express.Response, _next: express.NextFunction) => {
       logger.error('Express error:', err);
@@ -63,7 +66,7 @@ export class ExpressServer {
             return;
           }
         }
-        await transport.handleRequest(req, res);
+        await transport.handleRequest(req, res, req.body);
       } catch (error) {
         logger.error('Streamable HTTP error:', error);
         res.status(500).end();
@@ -84,7 +87,7 @@ export class ExpressServer {
           return;
         }
         const transport = this.serverManager.getTransport(sessionId) as StreamableHTTPServerTransport;
-        await transport.handleRequest(req, res);
+        await transport.handleRequest(req, res, req.body);
       } catch (error) {
         logger.error('Streamable HTTP error:', error);
         res.status(500).end();
