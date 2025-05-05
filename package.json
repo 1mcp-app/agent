@@ -48,7 +48,7 @@
     ]
   },
   "scripts": {
-    "dev": "tsc-watch --onSuccess \"node build/index.js\"",
+    "dev": "tsc-watch --onSuccess \"node build/index.js --config ./mcp.json\"",
     "build": "tsc && node -e \"require('fs').chmodSync('build/index.js', '755')\"",
     "prepare": "husky || true",
     "watch": "tsc --watch",
