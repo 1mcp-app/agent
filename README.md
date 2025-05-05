@@ -59,10 +59,10 @@ npx -y @1mcp/agent --help
 ```
 
 Available options:
-- `--transport, -t`: Choose transport type ("stdio" or "sse", default: "sse")
+- `--transport, -t`: Choose transport type ("stdio" or "http", default: "http")
 - `--config, -c`: Use a specific config file
-- `--port, -P`: Change SSE port (default: 3050)
-- `--host, -H`: Change SSE host (default: localhost)
+- `--port, -P`: Change HTTP port (default: 3050)
+- `--host, -H`: Change HTTP host (default: localhost)
 - `--tags, -g`: Filter servers by tags (see Tags section below)
 - `--help, -h`: Show help
 
@@ -85,7 +85,7 @@ You can also run 1MCP using Docker:
 # Pull the latest image
 docker pull ghcr.io/1mcp-app/agent:latest
 
-# Run with SSE transport (default)
+# Run with HTTP transport (default)
 docker run -p 3050:3050 ghcr.io/1mcp-app/agent
 
 # Run with a custom config file
@@ -103,9 +103,9 @@ Available image tags:
 ### Environment Variables
 
 You can configure 1MCP using environment variables prefixed with `ONE_MCP_`:
-- `ONE_MCP_TRANSPORT`: Transport type ("stdio" or "sse", default: "sse")
-- `ONE_MCP_PORT`: SSE port (default: 3050)
-- `ONE_MCP_HOST`: SSE host (default: "localhost")
+- `ONE_MCP_TRANSPORT`: Transport type ("stdio" or "http", default: "http")
+- `ONE_MCP_PORT`: HTTP port (default: 3050)
+- `ONE_MCP_HOST`: HTTP host (default: "localhost")
 - `ONE_MCP_CONFIG`: Path to config file
 - `ONE_MCP_TAGS`: Comma-separated list of tags to filter servers
 
@@ -227,12 +227,12 @@ graph TB
         S3[Server 3]
     end
 
-    A1 -->|sse| MCP
-    A2 -->|sse| MCP
-    A3 -->|sse| MCP
-    A4 -->|sse| MCP
+    A1 -->|http| MCP
+    A2 -->|http| MCP
+    A3 -->|http| MCP
+    A4 -->|http| MCP
 
-    MCP --> |sse| S1
+    MCP --> |http| S1
     MCP --> |stdio| S2
     MCP --> |stdio| S3
 ```
