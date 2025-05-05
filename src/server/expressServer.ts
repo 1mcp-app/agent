@@ -6,6 +6,8 @@ import { SSEServerTransport } from '@modelcontextprotocol/sdk/server/sse.js';
 import { ServerManager } from '../serverManager.js';
 import logger from '../logger/logger.js';
 import { SSE_ENDPOINT, MESSAGES_ENDPOINT, ERROR_CODES, STREAMABLE_HTTP_ENDPOINT } from '../constants.js';
+import tagsExtractor from './tagsExtractor.js';
+import errorHandler from './errorHandler.js';
 
 export class ExpressServer {
   private app: express.Application;
@@ -23,19 +25,11 @@ export class ExpressServer {
     this.app.use(bodyParser.json());
 
     // Add error handling middleware
-    this.app.use((err: Error, req: express.Request, res: express.Response, _next: express.NextFunction) => {
-      logger.error('Express error:', err);
-      res.status(500).json({
-        error: {
-          code: ERROR_CODES.INTERNAL_SERVER_ERROR,
-          message: 'Internal server error',
-        },
-      });
-    });
+    this.app.use(errorHandler);
   }
 
   private setupStreamableHttpRoutes(): void {
-    this.app.post(STREAMABLE_HTTP_ENDPOINT, async (req: express.Request, res: express.Response) => {
+    this.app.post(STREAMABLE_HTTP_ENDPOINT, tagsExtractor, async (req: express.Request, res: express.Response) => {
       try {
         logger.info('[POST] streamable-http', { query: req.query, body: req.body, headers: req.headers });
 
@@ -46,7 +40,11 @@ export class ExpressServer {
           transport = new StreamableHTTPServerTransport({
             sessionIdGenerator: () => id,
           });
-          await this.serverManager.connectTransport(transport, id);
+
+          // Use tags from middleware
+          const tags = res.locals.tags;
+
+          await this.serverManager.connectTransport(transport, id, tags);
 
           transport.onclose = () => {
             this.serverManager.disconnectTransport(id);
@@ -117,26 +115,13 @@ export class ExpressServer {
   }
 
   private setupSseRoutes(): void {
-    this.app.get(SSE_ENDPOINT, async (req: express.Request, res: express.Response) => {
+    this.app.get(SSE_ENDPOINT, tagsExtractor, async (req: express.Request, res: express.Response) => {
       try {
         logger.info('[GET] sse', { query: req.query, headers: req.headers });
         const transport = new SSEServerTransport(MESSAGES_ENDPOINT, res);
 
-        // Extract and validate tags from query parameters
-        let tags: string[] | undefined;
-        if (req.query.tags) {
-          const tagsStr = req.query.tags as string;
-          if (typeof tagsStr !== 'string') {
-            res.status(400).json({
-              error: {
-                code: ERROR_CODES.INVALID_PARAMS,
-                message: 'Invalid params: tags must be a string',
-              },
-            });
-            return;
-          }
-          tags = tagsStr.split(',').filter((tag) => tag.trim().length > 0);
-        }
+        // Use tags from middleware
+        const tags = res.locals.tags;
 
         // Connect the transport using the server manager
         await this.serverManager.connectTransport(transport, transport.sessionId, tags);
