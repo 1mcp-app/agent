@@ -19,20 +19,20 @@ const argv = yargs(hideBin(process.argv))
   .options({
     transport: {
       alias: 't',
-      describe: 'Transport type to use (stdio or sse)',
+      describe: 'Transport type to use (stdio or http)',
       type: 'string',
-      choices: ['stdio', 'sse'],
-      default: 'sse',
+      choices: ['stdio', 'http', 'sse'],
+      default: 'http',
     },
     port: {
       alias: 'P',
-      describe: 'SSE port to listen on, applicable when transport is sse',
+      describe: 'HTTP port to listen on, applicable when transport is http',
       type: 'number',
       default: PORT,
     },
     host: {
       alias: 'H',
-      describe: 'SSE host to listen on, applicable when transport is sse',
+      describe: 'HTTP host to listen on, applicable when transport is http',
       type: 'string',
       default: HOST,
     },
@@ -117,7 +117,8 @@ async function main() {
         logger.info('Server started with stdio transport');
         break;
       }
-      case 'sse': {
+      case 'sse':
+      case 'http': {
         // Use HTTP/SSE transport
         const expressServer = new ExpressServer(serverManager);
         expressServer.start(argv.port, argv.host);
