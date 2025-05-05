@@ -2,7 +2,6 @@ import { z } from 'zod';
 import type { RequestHandlerExtra } from '@modelcontextprotocol/sdk/shared/protocol.js';
 import { v4 as uuidv4 } from 'uuid';
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
-import { ServerRequest, ServerNotification } from '@modelcontextprotocol/sdk/types.js';
 import logger from '../logger/logger.js';
 
 interface LogContext {
