@@ -174,6 +174,12 @@ export function enhanceServerWithLogging(server: Server): void {
     params?: { [key: string]: unknown; _meta?: { [key: string]: unknown } };
   }) => {
     logNotification(notification.method, notification.params);
+    // Check for SSE connection before sending
+    const transport = (server as any).transport;
+    if (transport && typeof transport.send === 'function' && '_sseResponse' in transport && !transport._sseResponse) {
+      logger.warn('Attempted to send notification on disconnected SSE transport');
+      return Promise.resolve();
+    }
     return originalNotification(notification);
   };
 }
