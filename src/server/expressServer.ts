@@ -175,7 +175,7 @@ export class ExpressServer {
 
   public start(port: number, host: string): void {
     this.app.listen(port, host, () => {
-      logger.info(`Server is running on port ${port} with HTTP/SSE transport`);
+      logger.info(`Server is running on port ${port} with HTTP/SSE and Streamable HTTP transport`);
     });
   }
 }
