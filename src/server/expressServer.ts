@@ -152,7 +152,7 @@ export class ExpressServer {
         logger.info('message', { body: req.body, sessionId });
         const transport = this.serverManager.getTransport(sessionId);
         if (transport instanceof SSEServerTransport) {
-          await transport.handlePostMessage(req, res);
+          await transport.handlePostMessage(req, res, req.body);
           return;
         }
         res.status(404).json({
