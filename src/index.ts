@@ -88,7 +88,7 @@ function setupGracefulShutdown(serverManager: ServerManager): void {
  */
 async function main() {
   try {
-    if (argv.transport === 'sse') {
+    if (argv.transport !== 'stdio') {
       enableConsoleTransport();
     }
 
@@ -117,7 +117,10 @@ async function main() {
         logger.info('Server started with stdio transport');
         break;
       }
-      case 'sse':
+      case 'sse': {
+        logger.warning('sse option is deprecated, use http instead');
+      }
+      // eslint-disable-next-line no-fallthrough
       case 'http': {
         // Use HTTP/SSE transport
         const expressServer = new ExpressServer(serverManager);
