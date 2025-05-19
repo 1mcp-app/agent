@@ -38,7 +38,7 @@ importers:
     devDependencies:
       '@eslint/js':
         specifier: ^9.22.0
-        version: 9.25.1
+        version: 9.27.0
       '@testing-library/jest-dom':
         specifier: ^6.6.3
         version: 6.6.3
@@ -309,6 +309,10 @@ packages:
 
   '@eslint/js@9.25.1':
     resolution: {integrity: sha512-dEIwmjntEx8u3Uvv+kr3PDeeArL8Hw07H9kyYxCjnM9pBjfEhk6uLXSchxxzgiwtRhhzVzqmUSDFBOi1TuZ7qg==}
+    engines: {node: ^18.18.0 || ^20.9.0 || >=21.1.0}
+
+  '@eslint/js@9.27.0':
+    resolution: {integrity: sha512-G5JD9Tu5HJEu4z2Uo4aHY2sLV64B7CDMXxFzqzjl3NKd6RVzSXNoE80jk7Y0lJkTTkjiIhBAqmlYwjuBY3tvpA==}
     engines: {node: ^18.18.0 || ^20.9.0 || >=21.1.0}
 
   '@eslint/object-schema@2.1.6':
@@ -2105,6 +2109,8 @@ snapshots:
       - supports-color
 
   '@eslint/js@9.25.1': {}
+
+  '@eslint/js@9.27.0': {}
 
   '@eslint/object-schema@2.1.6': {}
 
