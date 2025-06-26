@@ -118,7 +118,12 @@ export class SessionManager {
    * @returns Full file path for the auth code file
    */
   private getAuthCodeFilePath(code: string): string {
-    return path.join(this.sessionStoragePath, `auth_code_${code}${AUTH_CONFIG.SESSION_FILE_EXTENSION}`);
+    const unsafePath = path.join(this.sessionStoragePath, `auth_code_${code}${AUTH_CONFIG.SESSION_FILE_EXTENSION}`);
+    const normalizedPath = fs.realpathSync(path.resolve(unsafePath));
+    if (!normalizedPath.startsWith(this.sessionStoragePath)) {
+      throw new Error('Invalid authorization code path');
+    }
+    return normalizedPath;
   }
 
   /**
