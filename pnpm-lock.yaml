@@ -22,6 +22,9 @@ importers:
       express-rate-limit:
         specifier: ^7.5.1
         version: 7.5.1(express@5.1.0)
+      json5:
+        specifier: ^2.2.3
+        version: 2.2.3
       source-map-support:
         specifier: ^0.5.21
         version: 0.5.21
@@ -2617,6 +2620,12 @@ packages:
   json-stable-stringify-without-jsonify@1.0.1:
     resolution:
       { integrity: sha512-Bdboy+l7tA3OGW6FjyFHWkP5LuByj1Tk33Ljyq0axyzdk9//JSi2u3fP1QSmd1KNwq6VOKYGlAu87CisVir6Pw== }
+
+  json5@2.2.3:
+    resolution:
+      { integrity: sha512-XmOWe7eyHYH14cLdVPoyg+GOH3rYX++KpzrylJwSW98t3Nk+U8XOl8FWKOgwtzdb8lXGf6zYwDUzeHMWfxasyg== }
+    engines: { node: '>=6' }
+    hasBin: true
 
   katex@0.16.22:
     resolution:
@@ -5942,6 +5951,8 @@ snapshots:
   json-schema-traverse@0.4.1: {}
 
   json-stable-stringify-without-jsonify@1.0.1: {}
+
+  json5@2.2.3: {}
 
   katex@0.16.22:
     dependencies:

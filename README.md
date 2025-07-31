@@ -11,6 +11,7 @@ A unified Model Context Protocol server implementation that aggregates multiple 
 - [Overview](#overview)
 - [Features](#features)
 - [Quick Start](#quick-start)
+- [Commands](#commands)
 - [Prerequisites](#prerequisites)
 - [Usage](#usage)
 - [Docker](#docker)
@@ -64,6 +65,37 @@ npx -y @1mcp/agent --config ~/Library/Application\ Support/Claude/claude_desktop
 ```
 
 3. Enjoy it!
+
+## Commands
+
+1MCP provides several commands to manage your MCP server configuration:
+
+### Core Commands
+
+- **`1mcp [serve]`** - Start the 1MCP server (default command)
+  - `--transport` - Choose transport type (stdio, http, sse)
+  - `--config` - Use specific config file
+  - `--port` - Change HTTP port
+
+### MCP Management
+
+- **`1mcp mcp add <name>`** - Add a new MCP server to configuration
+- **`1mcp mcp remove <name>`** - Remove an MCP server
+- **`1mcp mcp list`** - List all configured MCP servers
+- **`1mcp mcp status [name]`** - Show server status and details
+- **`1mcp mcp enable/disable <name>`** - Enable or disable servers
+- **`1mcp mcp update <name>`** - Update server configuration
+
+### App Integration
+
+- **`1mcp app consolidate`** - Consolidate configurations from other MCP apps
+- **`1mcp app discover`** - Discover MCP servers from installed applications
+- **`1mcp app list`** - List discovered applications
+- **`1mcp app status`** - Show consolidation status
+
+For detailed command usage, run: `1mcp <command> --help`
+
+Full documentation: [Commands Reference](https://docs.1mcp.app/commands/)
 
 ## Prerequisites
 

@@ -23,6 +23,7 @@ export const MCP_URI_SEPARATOR = '_1mcp_';
 
 // Global config paths
 export const CONFIG_DIR_NAME = '1mcp';
+export const BACKUP_DIR_NAME = 'backups';
 export const DEFAULT_CONFIG = {
   mcpServers: {},
 };
@@ -49,6 +50,20 @@ export function getGlobalConfigDir(): string {
  */
 export function getGlobalConfigPath(): string {
   return `${getGlobalConfigDir()}/${MCP_CONFIG_FILE}`;
+}
+
+/**
+ * Get the global backup directory path
+ */
+export function getGlobalBackupDir(): string {
+  return `${getGlobalConfigDir()}/${BACKUP_DIR_NAME}`;
+}
+
+/**
+ * Get app-specific backup directory path
+ */
+export function getAppBackupDir(appName: string): string {
+  return `${getGlobalBackupDir()}/${appName}`;
 }
 
 // Connection retry settings

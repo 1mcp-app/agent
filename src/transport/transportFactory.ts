@@ -15,7 +15,7 @@ import { AgentConfigManager } from '../core/server/agentConfig.js';
 /**
  * Infers transport type from configuration parameters
  */
-function inferTransportType(params: MCPServerParams, name: string): MCPServerParams {
+export function inferTransportType(params: MCPServerParams, name: string): MCPServerParams {
   const inferredParams = { ...params };
 
   if (inferredParams.type) {
