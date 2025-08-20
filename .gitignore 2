@@ -1,0 +1,23 @@
+coverage
+node_modules/
+build/
+logs/
+*.log
+.env*
+!.env.example
+.cursorrules
+.cursorignore
+.cursor/
+.vscode/
+.claude/
+mcp.json
+
+# VitePress build artifacts
+docs/.vitepress/dist
+docs/.vitepress/cache
+
+/.ai
+/xnotes
+/notes
+CLAUDE.md
+GEMINI.md
