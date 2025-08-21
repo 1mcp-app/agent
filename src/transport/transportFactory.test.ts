@@ -11,6 +11,10 @@ vi.mock('@modelcontextprotocol/sdk/client/stdio.js', () => ({
     type: 'stdio',
     close: vi.fn(),
   })),
+  getDefaultEnvironment: vi.fn().mockReturnValue({
+    HOME: '/home/user',
+    PATH: '/usr/bin',
+  }),
 }));
 
 vi.mock('@modelcontextprotocol/sdk/client/sse.js', () => ({
@@ -369,6 +373,69 @@ describe('TransportFactory', () => {
       createTransports(config);
 
       expect(logger.debug).toHaveBeenCalledWith('Created transport: test-server');
+    });
+
+    it('should create restartable transport with custom maxRestarts and restartDelay', () => {
+      const config: Record<string, MCPServerParams> = {
+        'restartable-server': {
+          type: 'stdio',
+          command: 'node',
+          args: ['server.js'],
+          restartOnExit: true,
+          maxRestarts: 5,
+          restartDelay: 2000,
+        },
+      };
+
+      const mockTransportConfigSchema = transportConfigSchema;
+      (mockTransportConfigSchema.parse as any).mockReturnValueOnce(config['restartable-server']);
+
+      const transports = createTransports(config);
+
+      expect(Object.keys(transports)).toEqual(['restartable-server']);
+      expect(logger.info).toHaveBeenCalledWith('Creating restartable stdio transport for: restartable-server');
+    });
+
+    it('should use default restartDelay when not specified', () => {
+      const config: Record<string, MCPServerParams> = {
+        'restartable-server-default': {
+          type: 'stdio',
+          command: 'node',
+          args: ['server.js'],
+          restartOnExit: true,
+          maxRestarts: 3,
+          // restartDelay not specified, should use default of 1000ms
+        },
+      };
+
+      const mockTransportConfigSchema = transportConfigSchema;
+      (mockTransportConfigSchema.parse as any).mockReturnValueOnce(config['restartable-server-default']);
+
+      const transports = createTransports(config);
+
+      expect(Object.keys(transports)).toEqual(['restartable-server-default']);
+      expect(logger.info).toHaveBeenCalledWith('Creating restartable stdio transport for: restartable-server-default');
+    });
+
+    it('should use unlimited restarts when maxRestarts not specified', () => {
+      const config: Record<string, MCPServerParams> = {
+        'unlimited-restarts': {
+          type: 'stdio',
+          command: 'node',
+          args: ['server.js'],
+          restartOnExit: true,
+          restartDelay: 500,
+          // maxRestarts not specified, should be undefined (unlimited)
+        },
+      };
+
+      const mockTransportConfigSchema = transportConfigSchema;
+      (mockTransportConfigSchema.parse as any).mockReturnValueOnce(config['unlimited-restarts']);
+
+      const transports = createTransports(config);
+
+      expect(Object.keys(transports)).toEqual(['unlimited-restarts']);
+      expect(logger.info).toHaveBeenCalledWith('Creating restartable stdio transport for: unlimited-restarts');
     });
   });
 });

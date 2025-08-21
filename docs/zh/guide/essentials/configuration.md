@@ -41,16 +41,32 @@
 
 #### 服务器属性
 
-- `command`（字符串，`stdio` 必需）：要执行的命令。
-- `args`（字符串数组，可选）：命令的参数。
-- `url`（字符串，`http` 必需）：远程 MCP 服务器的 URL。
+**通用属性：**
+
 - `transport`（字符串，可选）：`stdio` 或 `http`。如果存在 `command`，则默认为 `stdio`；如果存在 `url`，则默认为 `http`。
 - `tags`（字符串数组，必需）：用于路由和访问控制的标签。
-- `env`（对象，可选）：`stdio` 服务器的环境变量。
 - `timeout`（数字，可选）：连接超时（以毫秒为单位）。
 - `enabled`（布尔值，可选）：设置为 `false` 以禁用服务器。默认为 `true`。
 
+**HTTP 传输属性：**
+
+- `url`（字符串，`http` 必需）：远程 MCP 服务器的 URL。
+
+**Stdio 传输属性：**
+
+- `command`（字符串，`stdio` 必需）：要执行的命令。
+- `args`（字符串数组，可选）：命令的参数。
+- `cwd`（字符串，可选）：进程的工作目录。
+- `env`（对象或数组，可选）：环境变量。可以是对象 `{"KEY": "value"}` 或数组 `["KEY=value", "PATH"]`。
+- `inheritParentEnv`（布尔值，可选）：从父进程继承环境变量。默认为 `false`。
+- `envFilter`（字符串数组，可选）：过滤继承环境变量的模式。支持 `*` 通配符和 `!` 排除。
+- `restartOnExit`（布尔值，可选）：进程退出时自动重启。默认为 `false`。
+- `maxRestarts`（数字，可选）：最大重启尝试次数。如果未指定，则允许无限制重启。
+- `restartDelay`（数字，可选）：重启尝试之间的延迟（以毫秒为单位）。默认为 `1000`（1 秒）。
+
 #### `mcpServers` 示例
+
+**基本配置：**
 
 ```json
 {
@@ -70,9 +86,210 @@
 }
 ```
 
+**增强的 Stdio 配置：**
+
+```json
+{
+  "mcpServers": {
+    "enhanced-server": {
+      "command": "node",
+      "args": ["server.js"],
+      "cwd": "/app",
+      "inheritParentEnv": true,
+      "envFilter": ["PATH", "HOME", "NODE_*", "!SECRET_*", "!BASH_FUNC_*"],
+      "env": {
+        "NODE_ENV": "production",
+        "API_KEY": "${MCP_API_KEY}",
+        "DEBUG": "false"
+      },
+      "restartOnExit": true,
+      "maxRestarts": 5,
+      "restartDelay": 2000,
+      "tags": ["production", "api"],
+      "timeout": 30000
+    }
+  }
+}
+```
+
+**数组环境格式：**
+
+```json
+{
+  "mcpServers": {
+    "array-env-server": {
+      "command": "python",
+      "args": ["server.py"],
+      "env": ["PATH", "NODE_ENV=production", "API_KEY=${SECRET_KEY}"],
+      "tags": ["python", "api"]
+    }
+  }
+}
+```
+
 ---
 
-## 2. 命令行标志
+## 2. 增强的环境变量功能
+
+1MCP 代理为 stdio 传输服务器提供高级环境变量管理。
+
+### 环境变量替换
+
+在配置中使用 `${VARIABLE_NAME}` 语法在运行时替换环境变量：
+
+```json
+{
+  "mcpServers": {
+    "dynamic-server": {
+      "command": "${SERVER_COMMAND}",
+      "args": ["--port", "${SERVER_PORT}"],
+      "env": {
+        "API_KEY": "${SECRET_API_KEY}",
+        "DATABASE_URL": "${DB_CONNECTION_STRING}"
+      },
+      "tags": ["dynamic"]
+    }
+  }
+}
+```
+
+### 环境继承和过滤
+
+**继承父环境：**
+设置 `inheritParentEnv: true` 从父进程继承环境变量：
+
+```json
+{
+  "inheritParentEnv": true
+}
+```
+
+**环境过滤：**
+使用 `envFilter` 通过模式匹配控制继承哪些变量：
+
+```json
+{
+  "inheritParentEnv": true,
+  "envFilter": [
+    "PATH", // 允许 PATH 变量
+    "HOME", // 允许 HOME 变量
+    "NODE_*", // 允许所有 NODE_* 变量
+    "NPM_*", // 允许所有 NPM_* 变量
+    "!SECRET_*", // 阻止所有 SECRET_* 变量
+    "!BASH_FUNC_*" // 阻止 bash 函数定义
+  ]
+}
+```
+
+**过滤模式：**
+
+- `VARIABLE_NAME`：包含特定变量
+- `PREFIX_*`：包含所有以 PREFIX\_ 开头的变量
+- `!VARIABLE_NAME`：排除特定变量
+- `!PREFIX_*`：排除所有以 PREFIX\_ 开头的变量
+
+### 灵活的环境格式
+
+**对象格式（传统）：**
+
+```json
+{
+  "env": {
+    "NODE_ENV": "production",
+    "DEBUG": "false",
+    "API_TIMEOUT": "30000"
+  }
+}
+```
+
+**数组格式（Docker 风格）：**
+
+```json
+{
+  "env": [
+    "NODE_ENV=production",
+    "DEBUG=false",
+    "PATH", // 从父进程继承 PATH
+    "API_TIMEOUT=${TIMEOUT_VALUE}"
+  ]
+}
+```
+
+### 进程管理
+
+**自动重启：**
+在服务器意外退出时启用自动进程重启：
+
+```json
+{
+  "restartOnExit": true,
+  "maxRestarts": 5,
+  "restartDelay": 2000
+}
+```
+
+**重启配置选项：**
+
+- `restartOnExit`：启用自动重启功能
+- `maxRestarts`：限制重启尝试次数（省略表示无限制重启）
+- `restartDelay`：重启尝试之间等待的毫秒数（默认：1000ms）
+
+**工作目录：**
+为进程设置自定义工作目录：
+
+```json
+{
+  "cwd": "/path/to/server/directory"
+}
+```
+
+### 完整示例
+
+```json
+{
+  "mcpServers": {
+    "production-server": {
+      "command": "node",
+      "args": ["dist/server.js"],
+      "cwd": "/app",
+
+      // 带安全过滤的环境继承
+      "inheritParentEnv": true,
+      "envFilter": [
+        "PATH",
+        "HOME",
+        "USER", // 基本系统变量
+        "NODE_*",
+        "NPM_*", // Node.js 相关
+        "!SECRET_*",
+        "!KEY_*", // 阻止密钥
+        "!BASH_FUNC_*" // 阻止函数
+      ],
+
+      // 带替换的自定义环境
+      "env": {
+        "NODE_ENV": "production",
+        "API_KEY": "${PROD_API_KEY}",
+        "DB_URL": "${DATABASE_CONNECTION}",
+        "LOG_LEVEL": "info"
+      },
+
+      // 进程管理
+      "restartOnExit": true,
+      "maxRestarts": 3,
+      "restartDelay": 1500,
+
+      // 标准 MCP 属性
+      "tags": ["production", "api"],
+      "timeout": 30000
+    }
+  }
+}
+```
+
+---
+
+## 3. 命令行标志
 
 标志会覆盖 JSON 配置文件中的设置。
 
@@ -156,7 +373,7 @@ npx -y @1mcp/agent --log-level debug
 
 ---
 
-## 3. 环境变量
+## 4. 环境变量
 
 环境变量以 `ONE_MCP_` 为前缀，对容器化环境非常有用。它们会覆盖 JSON 和 CLI 设置。
 

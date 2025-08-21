@@ -47,6 +47,21 @@ npx -y @1mcp/agent mcp add <name> [options] -- <command> [args...]
 - **`--timeout <ms>`**
   - Connection timeout in milliseconds.
 
+- **`--disabled`**
+  - Add the server in disabled state. Use `mcp enable <name>` to activate later.
+
+- **`--cwd <path>`**
+  - Working directory for `stdio` servers. The process will be started in this directory.
+
+- **`--restart-on-exit`**
+  - Enable automatic restart when the process exits (for `stdio` servers only).
+
+- **`--max-restarts <number>`**
+  - Maximum number of restart attempts (for `stdio` servers only). If not specified, unlimited restarts are allowed.
+
+- **`--restart-delay <ms>`**
+  - Delay in milliseconds between restart attempts (for `stdio` servers only). Default: 1000ms.
+
 ## Examples
 
 ### Standard Syntax
@@ -70,6 +85,12 @@ npx -y @1mcp/agent mcp add my-server -- cmd /c npx -y @some/package
 
 # Combine environment variables with " -- " pattern
 npx -y @1mcp/agent mcp add context7 --env API_TOKEN=secret --tags=ai,tools -- npx -y @context7/server
+
+# Add server with restart configuration
+npx -y @1mcp/agent mcp add robust-server --type=stdio --command=node --args=unstable-server.js --restart-on-exit --max-restarts=5 --restart-delay=2000
+
+# Add disabled server with custom working directory
+npx -y @1mcp/agent mcp add dev-server --type=stdio --command=python --args=dev-server.py --cwd=/app/development --disabled
 ```
 
 ## See Also

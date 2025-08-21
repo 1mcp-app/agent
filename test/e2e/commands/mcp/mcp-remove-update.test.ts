@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { readFile } from 'fs/promises';
 import { CommandTestEnvironment, CliTestRunner } from '../../utils/index.js';
 import { TestFixtures } from '../../fixtures/TestFixtures.js';
 
@@ -200,6 +201,43 @@ describe('MCP Remove & Update Commands E2E', () => {
       // Verify the update
       const listResult = await runner.runMcpCommand('list', { args: ['--verbose'] });
       runner.assertOutputContains(listResult, 'Timeout: 10000ms');
+    });
+
+    it('should update server restart configuration', async () => {
+      // First add a server with restart configuration
+      await runner.runMcpCommand('add', {
+        args: [
+          'restart-update-server',
+          '--type',
+          'stdio',
+          '--command',
+          'echo',
+          '--args',
+          'initial',
+          '--restart-on-exit',
+          '--max-restarts',
+          '1',
+          '--restart-delay',
+          '500',
+        ],
+      });
+
+      // Then update the restart configuration
+      const result = await runner.runMcpCommand('update', {
+        args: ['restart-update-server', '--max-restarts', '3', '--restart-delay', '1500'],
+      });
+
+      runner.assertSuccess(result);
+      runner.assertOutputContains(result, 'Successfully updated server');
+      runner.assertOutputContains(result, 'maxRestarts: 1 → 3');
+      runner.assertOutputContains(result, 'restartDelay: 500 → 1500ms');
+
+      // Verify the configuration was persisted
+      const configContent = await readFile(environment.getConfigPath(), 'utf-8');
+      const config = JSON.parse(configContent);
+      expect(config.mcpServers['restart-update-server'].restartOnExit).toBe(true);
+      expect(config.mcpServers['restart-update-server'].maxRestarts).toBe(3);
+      expect(config.mcpServers['restart-update-server'].restartDelay).toBe(1500);
     });
 
     it('should update multiple properties at once', async () => {

@@ -31,8 +31,27 @@ npx -y @1mcp/agent mcp update <name> [options] -- <command> [args...]
 - **`--timeout <ms>`**
   - A new connection timeout in milliseconds.
 
+- **`--type <type>`**
+  - Change the transport type for the server.
+  - **Values**: `stdio`, `http`, `sse`
+
 - **`--command <command>`**, **`--args <args>`**, **`--url <url>`**
   - You can also update the core properties of the server.
+
+- **`--cwd <path>`**
+  - Update the working directory for `stdio` servers.
+
+- **`--headers <key=value>`**
+  - Update HTTP headers for `http`/`sse` servers. Can be specified multiple times.
+
+- **`--restart-on-exit`**
+  - Enable or disable automatic restart when the process exits (for `stdio` servers only).
+
+- **`--max-restarts <number>`**
+  - Update the maximum number of restart attempts (for `stdio` servers only).
+
+- **`--restart-delay <ms>`**
+  - Update the delay in milliseconds between restart attempts (for `stdio` servers only).
 
 ## Examples
 
@@ -60,6 +79,13 @@ npx -y @1mcp/agent mcp update airtable -- npx -y @airtable/mcp-server-v2
 
 # Update with additional options
 npx -y @1mcp/agent mcp update my-server --timeout=10000 -- node updated-server.js
+
+# Update restart configuration
+npx -y @1mcp/agent mcp update my-server --restart-on-exit --max-restarts=3 --restart-delay=1500
+
+# Update working directory and HTTP headers
+npx -y @1mcp/agent mcp update stdio-server --cwd=/new/path
+npx -y @1mcp/agent mcp update http-server --headers="Authorization=Bearer newtoken" --timeout=5000
 ```
 
 ## See Also

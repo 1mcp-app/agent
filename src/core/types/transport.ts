@@ -1,5 +1,7 @@
 import { z } from 'zod';
 import { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
+import { IOType } from 'node:child_process';
+import { Stream } from 'node:stream';
 
 /**
  * Enhanced transport interface that includes MCP-specific properties
@@ -46,9 +48,14 @@ export interface StdioTransportConfig extends BaseTransportConfig {
   readonly type: 'stdio';
   readonly command: string;
   readonly args?: string[];
-  readonly stderr?: string | number;
+  readonly stderr?: IOType | Stream | number;
   readonly cwd?: string;
-  readonly env?: Record<string, string>;
+  readonly env?: Record<string, string> | string[];
+  readonly inheritParentEnv?: boolean;
+  readonly envFilter?: string[];
+  readonly restartOnExit?: boolean;
+  readonly maxRestarts?: number;
+  readonly restartDelay?: number;
 }
 
 /**
@@ -78,9 +85,14 @@ export const transportConfigSchema = z.object({
   // StdioServerParameters fields
   command: z.string().optional(),
   args: z.array(z.string()).optional(),
-  stderr: z.union([z.string(), z.number()]).optional(),
+  stderr: z.union([z.string(), z.number()]).optional(), // Note: IOType validation is complex, keeping simple validation
   cwd: z.string().optional(),
-  env: z.record(z.string()).optional(),
+  env: z.union([z.record(z.string()), z.array(z.string())]).optional(),
+  inheritParentEnv: z.boolean().optional(),
+  envFilter: z.array(z.string()).optional(),
+  restartOnExit: z.boolean().optional(),
+  maxRestarts: z.number().min(0).optional(),
+  restartDelay: z.number().min(0).optional(),
 });
 
 /**

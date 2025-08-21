@@ -31,6 +31,9 @@ export interface AddCommandArgs {
   disabled?: boolean;
   cwd?: string;
   headers?: string[];
+  restartOnExit?: boolean;
+  maxRestarts?: number;
+  restartDelay?: number;
 }
 
 /**
@@ -103,6 +106,15 @@ export async function addCommand(argv: AddCommandArgs): Promise<void> {
         if (argv.cwd) {
           serverConfig.cwd = argv.cwd;
         }
+        if (argv.restartOnExit !== undefined) {
+          serverConfig.restartOnExit = argv.restartOnExit;
+        }
+        if (argv.maxRestarts !== undefined) {
+          serverConfig.maxRestarts = argv.maxRestarts;
+        }
+        if (argv.restartDelay !== undefined) {
+          serverConfig.restartDelay = argv.restartDelay;
+        }
         break;
 
       case 'http':
@@ -149,6 +161,19 @@ export async function addCommand(argv: AddCommandArgs): Promise<void> {
       }
       if (serverConfig.cwd) {
         console.log(`   Working Directory: ${serverConfig.cwd}`);
+      }
+      if (serverConfig.restartOnExit) {
+        console.log(`   Restart on Exit: Enabled`);
+        if (serverConfig.maxRestarts !== undefined) {
+          console.log(`   Max Restarts: ${serverConfig.maxRestarts}`);
+        } else {
+          console.log(`   Max Restarts: Unlimited`);
+        }
+        if (serverConfig.restartDelay !== undefined) {
+          console.log(`   Restart Delay: ${serverConfig.restartDelay}ms`);
+        } else {
+          console.log(`   Restart Delay: 1000ms (default)`);
+        }
       }
     } else {
       console.log(`   URL: ${serverConfig.url}`);

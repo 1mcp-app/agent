@@ -31,6 +31,9 @@ export interface UpdateCommandArgs {
   timeout?: number;
   cwd?: string;
   headers?: string[];
+  restartOnExit?: boolean;
+  maxRestarts?: number;
+  restartDelay?: number;
 }
 
 /**
@@ -79,6 +82,9 @@ export async function updateCommand(argv: UpdateCommandArgs): Promise<void> {
         delete updatedConfig.command;
         delete updatedConfig.args;
         delete updatedConfig.cwd;
+        delete updatedConfig.restartOnExit;
+        delete updatedConfig.maxRestarts;
+        delete updatedConfig.restartDelay;
         if (!argv.url) {
           throw new Error(`URL is required when changing to ${argv.type} server`);
         }
@@ -117,6 +123,27 @@ export async function updateCommand(argv: UpdateCommandArgs): Promise<void> {
           changes.push(`cwd: ${currentConfig.cwd || '(none)'} → ${argv.cwd}`);
         }
         updatedConfig.cwd = argv.cwd;
+      }
+
+      if (argv.restartOnExit !== undefined) {
+        if (argv.restartOnExit !== currentConfig.restartOnExit) {
+          changes.push(`restartOnExit: ${currentConfig.restartOnExit || false} → ${argv.restartOnExit}`);
+        }
+        updatedConfig.restartOnExit = argv.restartOnExit;
+      }
+
+      if (argv.maxRestarts !== undefined) {
+        if (argv.maxRestarts !== currentConfig.maxRestarts) {
+          changes.push(`maxRestarts: ${currentConfig.maxRestarts || '(unlimited)'} → ${argv.maxRestarts}`);
+        }
+        updatedConfig.maxRestarts = argv.maxRestarts;
+      }
+
+      if (argv.restartDelay !== undefined) {
+        if (argv.restartDelay !== currentConfig.restartDelay) {
+          changes.push(`restartDelay: ${currentConfig.restartDelay || '1000 (default)'} → ${argv.restartDelay}ms`);
+        }
+        updatedConfig.restartDelay = argv.restartDelay;
       }
     } else if (effectiveType === 'http' || effectiveType === 'sse') {
       if (argv.url !== undefined) {

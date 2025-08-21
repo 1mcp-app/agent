@@ -11,6 +11,8 @@ import { MCPServerParams } from '../core/types/index.js';
 import { OAuthClientConfig, SDKOAuthClientProvider } from '../auth/sdkOAuthClientProvider.js';
 import { AUTH_CONFIG } from '../constants.js';
 import { AgentConfigManager } from '../core/server/agentConfig.js';
+import { processEnvironment } from '../utils/envProcessor.js';
+import { RestartableStdioTransport } from './restartableStdioTransport.js';
 
 /**
  * Infers transport type from configuration parameters
@@ -115,7 +117,7 @@ function createHTTPTransport(
 }
 
 /**
- * Creates stdio transport
+ * Creates stdio transport with enhanced environment processing and optional restart capability
  */
 function createStdioTransport(
   name: string,
@@ -125,7 +127,46 @@ function createStdioTransport(
     throw new Error(`Command is required for stdio transport: ${name}`);
   }
 
-  return new StdioClientTransport(validatedTransport as StdioServerParameters) as AuthProviderTransport;
+  // Process environment variables with new features
+  const envResult = processEnvironment({
+    inheritParentEnv: validatedTransport.inheritParentEnv,
+    envFilter: validatedTransport.envFilter,
+    env: validatedTransport.env,
+  });
+
+  logger.debug(`Environment processing for ${name}:`, {
+    totalVariables: Object.keys(envResult.processedEnv).length,
+    sdkDefaults: envResult.sources.sdkDefaults.length,
+    inherited: envResult.sources.inherited.length,
+    custom: envResult.sources.custom.length,
+    filtered: envResult.sources.filtered.length,
+  });
+
+  // Create SDK-compatible parameters with processed environment
+  const stdioParams: StdioServerParameters = {
+    command: validatedTransport.command,
+    args: validatedTransport.args,
+    stderr: validatedTransport.stderr as any, // IOType validation is complex, trust Zod validation
+    cwd: validatedTransport.cwd,
+    env: envResult.processedEnv,
+  };
+
+  // Create transport with restart capability if enabled
+  if (validatedTransport.restartOnExit) {
+    logger.info(`Creating restartable stdio transport for: ${name}`);
+    const restartableTransport = new RestartableStdioTransport(stdioParams, {
+      restartOnExit: true,
+      maxRestarts: validatedTransport.maxRestarts, // Use config value or undefined for unlimited
+      restartDelay: validatedTransport.restartDelay ?? 1000, // Use config value or default to 1 second
+    });
+
+    // Add AuthProviderTransport properties
+    return restartableTransport as unknown as AuthProviderTransport;
+  }
+
+  // Create standard stdio transport
+  logger.debug(`Creating standard stdio transport for: ${name}`);
+  return new StdioClientTransport(stdioParams) as AuthProviderTransport;
 }
 
 /**

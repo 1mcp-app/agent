@@ -4,6 +4,7 @@ import { EventEmitter } from 'events';
 import { getGlobalConfigPath, getGlobalConfigDir, DEFAULT_CONFIG } from '../constants.js';
 import logger from '../logger/logger.js';
 import { MCPServerParams } from '../core/types/index.js';
+import { substituteEnvVarsInConfig } from '../utils/envProcessor.js';
 
 /**
  * Configuration change event types
@@ -75,9 +76,14 @@ export class McpConfigManager extends EventEmitter {
       const stats = fs.statSync(this.configFilePath);
       this.lastModified = stats.mtime.getTime();
 
-      const configData = JSON.parse(fs.readFileSync(this.configFilePath, 'utf8'));
-      this.transportConfig = configData.mcpServers || {};
-      logger.info('Configuration loaded successfully');
+      const rawConfigData = fs.readFileSync(this.configFilePath, 'utf8');
+
+      // Parse JSON and apply environment variable substitution
+      const configData = JSON.parse(rawConfigData);
+      const processedConfig = substituteEnvVarsInConfig(configData);
+
+      this.transportConfig = processedConfig.mcpServers || {};
+      logger.info('Configuration loaded successfully with environment variable substitution');
     } catch (error) {
       logger.error(`Failed to load configuration: ${error}`);
       this.transportConfig = {};

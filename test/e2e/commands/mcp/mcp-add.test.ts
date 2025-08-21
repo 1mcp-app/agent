@@ -171,6 +171,92 @@ describe('MCP Add Command E2E', () => {
       runner.assertOutputContains(listResult, 'disabled-server');
       runner.assertOutputContains(listResult, '🔴'); // Disabled icon
     });
+
+    it('should add server with restart configuration', async () => {
+      const result = await runner.runMcpCommand('add', {
+        args: [
+          'restart-server',
+          '--type',
+          'stdio',
+          '--command',
+          'node',
+          '--args',
+          'server.js',
+          '--restart-on-exit',
+          '--max-restarts',
+          '5',
+          '--restart-delay',
+          '2000',
+        ],
+      });
+
+      runner.assertSuccess(result);
+      runner.assertOutputContains(result, 'Restart on Exit: Enabled');
+      runner.assertOutputContains(result, 'Max Restarts: 5');
+      runner.assertOutputContains(result, 'Restart Delay: 2000ms');
+
+      // Verify configuration was persisted
+      const configContent = await readFile(environment.getConfigPath(), 'utf-8');
+      const config = JSON.parse(configContent);
+      expect(config.mcpServers['restart-server'].restartOnExit).toBe(true);
+      expect(config.mcpServers['restart-server'].maxRestarts).toBe(5);
+      expect(config.mcpServers['restart-server'].restartDelay).toBe(2000);
+    });
+
+    it('should add server with restart enabled but no limits', async () => {
+      const result = await runner.runMcpCommand('add', {
+        args: [
+          'unlimited-restart-server',
+          '--type',
+          'stdio',
+          '--command',
+          'echo',
+          '--args',
+          'test',
+          '--restart-on-exit',
+        ],
+      });
+
+      runner.assertSuccess(result);
+      runner.assertOutputContains(result, 'Restart on Exit: Enabled');
+      runner.assertOutputContains(result, 'Max Restarts: Unlimited');
+      runner.assertOutputContains(result, 'Restart Delay: 1000ms (default)');
+
+      // Verify configuration
+      const configContent = await readFile(environment.getConfigPath(), 'utf-8');
+      const config = JSON.parse(configContent);
+      expect(config.mcpServers['unlimited-restart-server'].restartOnExit).toBe(true);
+      expect(config.mcpServers['unlimited-restart-server'].maxRestarts).toBeUndefined();
+      expect(config.mcpServers['unlimited-restart-server'].restartDelay).toBeUndefined();
+    });
+
+    it('should display restart configuration in list command', async () => {
+      // Add a server with restart configuration
+      await runner.runMcpCommand('add', {
+        args: [
+          'list-restart-server',
+          '--type',
+          'stdio',
+          '--command',
+          'node',
+          '--args',
+          'server.js',
+          '--restart-on-exit',
+          '--max-restarts',
+          '3',
+          '--restart-delay',
+          '1500',
+        ],
+      });
+
+      // Check that restart configuration is displayed in list command
+      const listResult = await runner.runMcpCommand('list', { args: ['--verbose'] });
+      runner.assertSuccess(listResult);
+      runner.assertOutputContains(listResult, 'list-restart-server');
+      runner.assertOutputContains(listResult, 'Restart on Exit: Enabled');
+      runner.assertOutputContains(listResult, 'Max Restarts: 3');
+      runner.assertOutputContains(listResult, 'Restart Delay: 1500ms');
+    });
   });
 
   describe('Error Scenarios', () => {

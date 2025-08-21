@@ -151,6 +151,18 @@ function displayServer(name: string, config: MCPServerParams, verbose: boolean):
     if (inferredConfig.cwd) {
       console.log(`   Working Directory: ${inferredConfig.cwd}`);
     }
+
+    // Restart configuration (stdio only)
+    if (inferredConfig.restartOnExit) {
+      console.log(`   Restart on Exit: Enabled`);
+      if (inferredConfig.maxRestarts !== undefined) {
+        console.log(`   Max Restarts: ${inferredConfig.maxRestarts}`);
+      } else {
+        console.log(`   Max Restarts: Unlimited`);
+      }
+      const delay = inferredConfig.restartDelay ?? 1000;
+      console.log(`   Restart Delay: ${delay}ms`);
+    }
   } else if (inferredConfig.type === 'http' || inferredConfig.type === 'sse') {
     console.log(`   URL: ${inferredConfig.url}`);
     if (inferredConfig.headers && Object.keys(inferredConfig.headers).length > 0) {

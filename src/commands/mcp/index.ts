@@ -80,6 +80,18 @@ export function setupMcpCommands(yargs: Argv): Argv {
                 type: 'array',
                 string: true,
               })
+              .option('restart-on-exit', {
+                describe: 'Enable automatic restart when process exits (stdio only)',
+                type: 'boolean',
+              })
+              .option('max-restarts', {
+                describe: 'Maximum number of restart attempts (stdio only, unlimited if not specified)',
+                type: 'number',
+              })
+              .option('restart-delay', {
+                describe: 'Delay in milliseconds between restart attempts (stdio only, default: 1000)',
+                type: 'number',
+              })
               .example([
                 ['$0 mcp add myserver --type=stdio --command=node --args=server.js', 'Add stdio server (explicit)'],
                 ['$0 mcp add webserver --type=http --url=http://localhost:3000/mcp', 'Add HTTP server'],
@@ -199,6 +211,18 @@ export function setupMcpCommands(yargs: Argv): Argv {
                 describe: 'HTTP headers in key=value format (HTTP/SSE only)',
                 type: 'array',
                 string: true,
+              })
+              .option('restart-on-exit', {
+                describe: 'Enable automatic restart when process exits (stdio only)',
+                type: 'boolean',
+              })
+              .option('max-restarts', {
+                describe: 'Maximum number of restart attempts (stdio only, unlimited if not specified)',
+                type: 'number',
+              })
+              .option('restart-delay', {
+                describe: 'Delay in milliseconds between restart attempts (stdio only, default: 1000)',
+                type: 'number',
               })
               .example([
                 ['$0 mcp update myserver --tags=prod,api', 'Update server tags'],
