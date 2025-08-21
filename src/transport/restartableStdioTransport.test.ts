@@ -3,8 +3,8 @@ import { RestartableStdioTransport } from './restartableStdioTransport.js';
 import { StdioServerParameters } from '@modelcontextprotocol/sdk/client/stdio.js';
 
 // Mock the StdioClientTransport
-vi.mock('@modelcontextprotocol/sdk/client/stdio.js', () => ({
-  StdioClientTransport: vi.fn().mockImplementation(() => ({
+const mockStdioClientTransport = vi.hoisted(() =>
+  vi.fn().mockImplementation(() => ({
     start: vi.fn().mockResolvedValue(undefined),
     close: vi.fn().mockResolvedValue(undefined),
     send: vi.fn().mockResolvedValue(undefined),
@@ -14,6 +14,10 @@ vi.mock('@modelcontextprotocol/sdk/client/stdio.js', () => ({
     onerror: undefined,
     onmessage: undefined,
   })),
+);
+
+vi.mock('@modelcontextprotocol/sdk/client/stdio.js', () => ({
+  StdioClientTransport: mockStdioClientTransport,
   getDefaultEnvironment: vi.fn().mockReturnValue({ HOME: '/home/user', PATH: '/usr/bin' }),
 }));
 
@@ -238,11 +242,20 @@ describe('RestartableStdioTransport', () => {
 
       await transport.start();
 
-      // Mock a start failure on restart
-      const mockTransport = (transport as any)._currentTransport;
-      mockTransport.start = vi.fn().mockRejectedValue(new Error('Start failed'));
+      // Set up the mock to fail on the next instantiation (restart)
+      mockStdioClientTransport.mockImplementationOnce(() => ({
+        start: vi.fn().mockRejectedValue(new Error('Start failed')),
+        close: vi.fn().mockResolvedValue(undefined),
+        send: vi.fn().mockResolvedValue(undefined),
+        stderr: null,
+        pid: 1234,
+        onclose: undefined,
+        onerror: undefined,
+        onmessage: undefined,
+      }));
 
       // Trigger restart
+      const mockTransport = (transport as any)._currentTransport;
       mockTransport.onclose();
 
       // Wait for restart attempt
