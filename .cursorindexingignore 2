@@ -1,6 +1,0 @@
-/xnotes
-.cursor/templates/*.md
-/node_modules
-.cursor/rules/*
-.cursor/modes.json
-.cursor/mcp.json
