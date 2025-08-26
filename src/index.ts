@@ -18,6 +18,7 @@ import { displayLogo } from './utils/logo.js';
 import { setupAppCommands } from './commands/app/index.js';
 import { setupMcpCommands } from './commands/mcp/index.js';
 import { McpLoadingManager } from './core/loading/mcpLoadingManager.js';
+import { TagQueryParser, TagExpression } from './utils/tagQueryParser.js';
 
 // Define server options that should only be available for serve commands
 const serverOptions = {
@@ -54,9 +55,17 @@ const serverOptions = {
   },
   tags: {
     alias: 'g',
-    describe: 'Tags to filter clients (comma-separated)',
+    describe: 'Tags to filter clients (comma-separated, OR logic)',
     type: 'string' as const,
     default: undefined,
+    conflicts: 'tag-filter',
+  },
+  'tag-filter': {
+    alias: 'f',
+    describe: 'Advanced tag filter expression (and/or/not logic)',
+    type: 'string' as const,
+    default: undefined,
+    conflicts: 'tags',
   },
   pagination: {
     alias: 'p',
@@ -318,16 +327,41 @@ async function main() {
       case 'stdio': {
         // Use stdio transport
         const transport = new StdioServerTransport();
-        // Parse and validate tags from CLI if provided
+        // Parse and validate tags/tag-filter from CLI if provided
         let tags: string[] | undefined;
+        let tagExpression: TagExpression | undefined;
+        let tagFilterMode: 'simple-or' | 'advanced' | 'none' = 'none';
+
         if (parsedArgv.tags) {
-          tags = parsedArgv.tags.split(',').filter((tag: string) => tag.trim().length > 0);
-          if (tags && tags.length === 0) {
+          // Legacy simple OR filtering
+          tags = TagQueryParser.parseSimple(parsedArgv.tags);
+          tagFilterMode = 'simple-or';
+          if (!tags || tags.length === 0) {
             logger.warn('No valid tags provided, ignoring tags parameter');
             tags = undefined;
+            tagFilterMode = 'none';
+          }
+        } else if (parsedArgv['tag-filter']) {
+          // New advanced expression filtering
+          try {
+            tagExpression = TagQueryParser.parseAdvanced(parsedArgv['tag-filter']);
+            tagFilterMode = 'advanced';
+            // Provide simple tags for backward compat where possible
+            if (tagExpression.type === 'tag') {
+              tags = [tagExpression.value!];
+            }
+          } catch (error) {
+            logger.error(`Invalid tag-filter expression: ${error instanceof Error ? error.message : 'Unknown error'}`);
+            process.exit(1);
           }
         }
-        await serverManager.connectTransport(transport, 'stdio', { tags, enablePagination: parsedArgv.pagination });
+
+        await serverManager.connectTransport(transport, 'stdio', {
+          tags,
+          tagExpression,
+          tagFilterMode,
+          enablePagination: parsedArgv.pagination,
+        });
 
         // Initialize notifications for async loading if enabled
         if (asyncOrchestrator) {

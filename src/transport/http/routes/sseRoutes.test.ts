@@ -37,6 +37,8 @@ vi.mock('../middlewares/scopeAuthMiddleware.js', () => ({
   getValidatedTags: vi.fn((res: any) => {
     return res.locals?.validatedTags || [];
   }),
+  getTagExpression: vi.fn((res: any) => res?.locals?.tagExpression),
+  getTagFilterMode: vi.fn((res: any) => res?.locals?.tagFilterMode || 'none'),
 }));
 
 vi.mock('../../../utils/sanitization.js', () => ({
@@ -143,7 +145,9 @@ describe('SSE Routes', () => {
 
     it('should handle SSE connection successfully', async () => {
       const { SSEServerTransport } = await import('@modelcontextprotocol/sdk/server/sse.js');
-      const { getValidatedTags } = await import('../middlewares/scopeAuthMiddleware.js');
+      const { getValidatedTags, getTagExpression, getTagFilterMode } = await import(
+        '../middlewares/scopeAuthMiddleware.js'
+      );
 
       const mockTransport = {
         sessionId: 'test-session-123',
@@ -151,6 +155,8 @@ describe('SSE Routes', () => {
       };
       vi.mocked(SSEServerTransport).mockReturnValue(mockTransport as any);
       vi.mocked(getValidatedTags).mockReturnValue(['test-tag']);
+      vi.mocked(getTagExpression).mockReturnValue(undefined);
+      vi.mocked(getTagFilterMode).mockReturnValue('none');
 
       mockRequest.query = { pagination: 'true' };
       mockResponse.locals = { validatedTags: ['test-tag'] };
@@ -160,13 +166,17 @@ describe('SSE Routes', () => {
       expect(SSEServerTransport).toHaveBeenCalledWith(MESSAGES_ENDPOINT, mockResponse);
       expect(mockServerManager.connectTransport).toHaveBeenCalledWith(mockTransport, 'test-session-123', {
         tags: ['test-tag'],
+        tagExpression: undefined,
+        tagFilterMode: 'none',
         enablePagination: true,
       });
     });
 
     it('should handle SSE connection with pagination disabled', async () => {
       const { SSEServerTransport } = await import('@modelcontextprotocol/sdk/server/sse.js');
-      const { getValidatedTags } = await import('../middlewares/scopeAuthMiddleware.js');
+      const { getValidatedTags, getTagExpression, getTagFilterMode } = await import(
+        '../middlewares/scopeAuthMiddleware.js'
+      );
 
       const mockTransport = {
         sessionId: 'test-session-456',
@@ -174,6 +184,8 @@ describe('SSE Routes', () => {
       };
       vi.mocked(SSEServerTransport).mockReturnValue(mockTransport as any);
       vi.mocked(getValidatedTags).mockReturnValue(['another-tag']);
+      vi.mocked(getTagExpression).mockReturnValue(undefined);
+      vi.mocked(getTagFilterMode).mockReturnValue('none');
 
       mockRequest.query = { pagination: 'false' };
       mockResponse.locals = { validatedTags: ['another-tag'] };
@@ -182,6 +194,8 @@ describe('SSE Routes', () => {
 
       expect(mockServerManager.connectTransport).toHaveBeenCalledWith(mockTransport, 'test-session-456', {
         tags: ['another-tag'],
+        tagExpression: undefined,
+        tagFilterMode: 'none',
         enablePagination: false,
       });
     });
@@ -235,20 +249,27 @@ describe('SSE Routes', () => {
 
     it('should handle empty validated tags', async () => {
       const { SSEServerTransport } = await import('@modelcontextprotocol/sdk/server/sse.js');
+      const { getValidatedTags, getTagExpression, getTagFilterMode } = await import(
+        '../middlewares/scopeAuthMiddleware.js'
+      );
+
       const mockTransport = {
         sessionId: 'test-session-no-tags',
         onclose: null,
       };
       vi.mocked(SSEServerTransport).mockReturnValue(mockTransport as any);
+      vi.mocked(getValidatedTags).mockReturnValue([]);
+      vi.mocked(getTagExpression).mockReturnValue(undefined);
+      vi.mocked(getTagFilterMode).mockReturnValue('none');
 
       mockResponse.locals = {};
-      const { getValidatedTags } = await import('../middlewares/scopeAuthMiddleware.js');
-      vi.mocked(getValidatedTags).mockReturnValue([]);
 
       await getHandler(mockRequest, mockResponse);
 
       expect(mockServerManager.connectTransport).toHaveBeenCalledWith(mockTransport, 'test-session-no-tags', {
         tags: [],
+        tagExpression: undefined,
+        tagFilterMode: 'none',
         enablePagination: false,
       });
     });

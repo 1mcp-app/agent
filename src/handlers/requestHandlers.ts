@@ -30,10 +30,24 @@ import { ClientManager } from '../core/client/clientManager.js';
 import { ServerManager } from '../core/server/serverManager.js';
 import { parseUri } from '../utils/parsing.js';
 import { withErrorHandling } from '../utils/errorHandling.js';
-import { filterClients, byCapabilities, byTags } from '../utils/clientFiltering.js';
+import { filterClients, byCapabilities, byTags, byTagExpression } from '../utils/clientFiltering.js';
 import { OutboundConnections, InboundConnection, ClientStatus } from '../core/types/index.js';
 import { handlePagination } from '../utils/pagination.js';
 import logger from '../logger/logger.js';
+
+/**
+ * Get the appropriate tag filter for the inbound connection based on its tag filter mode
+ */
+function getTagFilter(inboundConn: InboundConnection) {
+  if (inboundConn.tagFilterMode === 'advanced' && inboundConn.tagExpression) {
+    return byTagExpression(inboundConn.tagExpression);
+  } else if (inboundConn.tagFilterMode === 'simple-or' || inboundConn.tags) {
+    return getTagFilter(inboundConn);
+  } else {
+    // No filtering - return function that passes all clients through
+    return byTags(undefined);
+  }
+}
 
 /**
  * Registers server-specific request handlers
@@ -150,7 +164,10 @@ function registerResourceHandlers(outboundConns: OutboundConnections, inboundCon
   inboundConn.server.setRequestHandler(
     ListResourcesRequestSchema,
     withErrorHandling(async (request: ListResourcesRequest) => {
-      const filteredClients = filterClients(byCapabilities({ resources: {} }), byTags(inboundConn.tags))(outboundConns);
+      const filteredClients = filterClients(
+        byCapabilities({ resources: {} }),
+        getTagFilter(inboundConn),
+      )(outboundConns);
 
       const result = await handlePagination(
         filteredClients,
@@ -177,7 +194,10 @@ function registerResourceHandlers(outboundConns: OutboundConnections, inboundCon
   inboundConn.server.setRequestHandler(
     ListResourceTemplatesRequestSchema,
     withErrorHandling(async (request: ListResourceTemplatesRequest) => {
-      const filteredClients = filterClients(byCapabilities({ resources: {} }), byTags(inboundConn.tags))(outboundConns);
+      const filteredClients = filterClients(
+        byCapabilities({ resources: {} }),
+        getTagFilter(inboundConn),
+      )(outboundConns);
 
       const result = await handlePagination(
         filteredClients,
@@ -259,7 +279,7 @@ function registerToolHandlers(outboundConns: OutboundConnections, inboundConn: I
   inboundConn.server.setRequestHandler(
     ListToolsRequestSchema,
     withErrorHandling(async (request: ListToolsRequest) => {
-      const filteredClients = filterClients(byCapabilities({ tools: {} }), byTags(inboundConn.tags))(outboundConns);
+      const filteredClients = filterClients(byCapabilities({ tools: {} }), getTagFilter(inboundConn))(outboundConns);
 
       const result = await handlePagination(
         filteredClients,
@@ -307,7 +327,7 @@ function registerPromptHandlers(outboundConns: OutboundConnections, inboundConn:
   inboundConn.server.setRequestHandler(
     ListPromptsRequestSchema,
     withErrorHandling(async (request: ListPromptsRequest) => {
-      const filteredClients = filterClients(byCapabilities({ prompts: {} }), byTags(inboundConn.tags))(outboundConns);
+      const filteredClients = filterClients(byCapabilities({ prompts: {} }), getTagFilter(inboundConn))(outboundConns);
 
       const result = await handlePagination(
         filteredClients,

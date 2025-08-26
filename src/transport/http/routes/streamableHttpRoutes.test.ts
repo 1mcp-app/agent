@@ -41,6 +41,8 @@ vi.mock('../middlewares/scopeAuthMiddleware.js', () => ({
   getValidatedTags: vi.fn((res: any) => {
     return res.locals?.validatedTags || [];
   }),
+  getTagExpression: vi.fn((res: any) => res?.locals?.tagExpression),
+  getTagFilterMode: vi.fn((res: any) => res?.locals?.tagFilterMode || 'none'),
 }));
 
 vi.mock('../../../utils/sanitization.js', () => ({
@@ -162,10 +164,14 @@ describe('Streamable HTTP Routes', () => {
 
     it('should create new session when no sessionId header', async () => {
       const { StreamableHTTPServerTransport } = await import('@modelcontextprotocol/sdk/server/streamableHttp.js');
-      const { getValidatedTags } = await import('../middlewares/scopeAuthMiddleware.js');
+      const { getValidatedTags, getTagExpression, getTagFilterMode } = await import(
+        '../middlewares/scopeAuthMiddleware.js'
+      );
       const { randomUUID } = await import('node:crypto');
 
       vi.mocked(getValidatedTags).mockReturnValue(['test-tag']);
+      vi.mocked(getTagExpression).mockReturnValue(undefined);
+      vi.mocked(getTagFilterMode).mockReturnValue('none');
       vi.mocked(randomUUID).mockReturnValue('550e8400-e29b-41d4-a716-446655440000');
 
       const mockTransport = {
@@ -189,6 +195,8 @@ describe('Streamable HTTP Routes', () => {
         '550e8400-e29b-41d4-a716-446655440000',
         {
           tags: ['test-tag'],
+          tagExpression: undefined,
+          tagFilterMode: 'none',
           enablePagination: true,
         },
       );
@@ -223,10 +231,14 @@ describe('Streamable HTTP Routes', () => {
 
     it('should handle pagination disabled', async () => {
       const { StreamableHTTPServerTransport } = await import('@modelcontextprotocol/sdk/server/streamableHttp.js');
-      const { getValidatedTags } = await import('../middlewares/scopeAuthMiddleware.js');
+      const { getValidatedTags, getTagExpression, getTagFilterMode } = await import(
+        '../middlewares/scopeAuthMiddleware.js'
+      );
       const { randomUUID } = await import('node:crypto');
 
       vi.mocked(getValidatedTags).mockReturnValue(['tag1', 'tag2']);
+      vi.mocked(getTagExpression).mockReturnValue(undefined);
+      vi.mocked(getTagFilterMode).mockReturnValue('none');
       vi.mocked(randomUUID).mockReturnValue('550e8400-e29b-41d4-a716-446655440002');
 
       const mockTransport = {
@@ -245,6 +257,8 @@ describe('Streamable HTTP Routes', () => {
         '550e8400-e29b-41d4-a716-446655440002',
         {
           tags: ['tag1', 'tag2'],
+          tagExpression: undefined,
+          tagFilterMode: 'none',
           enablePagination: false,
         },
       );

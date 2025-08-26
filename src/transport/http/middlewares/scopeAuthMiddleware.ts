@@ -4,6 +4,7 @@ import logger from '../../../logger/logger.js';
 import { AgentConfigManager } from '../../../core/server/agentConfig.js';
 import { SDKOAuthServerProvider } from '../../../auth/sdkOAuthServerProvider.js';
 import { hasRequiredScopes, scopesToTags, auditScopeOperation } from '../../../utils/scopeValidation.js';
+import { TagExpression } from '../../../utils/tagQueryParser.js';
 
 /**
  * Authentication information structure
@@ -73,14 +74,27 @@ export function createScopeAuthMiddleware(oauthProvider?: SDKOAuthServerProvider
       const grantedScopes = authInfo.scopes || [];
       const grantedTags = scopesToTags(grantedScopes);
 
-      // Get requested tags from previous middleware (tagsExtractor)
+      // Get requested tags and tag expression from previous middleware (tagsExtractor)
       const requestedTags = res.locals.tags || [];
+      const tagExpression = res.locals.tagExpression;
+      const tagFilterMode = res.locals.tagFilterMode || 'none';
+
+      let allRequestedTags: string[] = [];
+
+      // Determine all tags that need validation based on filter mode
+      if (tagFilterMode === 'advanced' && tagExpression) {
+        // For advanced expressions, extract all referenced tags
+        allRequestedTags = extractTagsFromExpression(tagExpression);
+      } else if (tagFilterMode === 'simple-or') {
+        // For simple mode, use the parsed tags
+        allRequestedTags = requestedTags;
+      }
 
       // Validate that all requested tags are covered by granted scopes
-      if (!hasRequiredScopes(grantedScopes, requestedTags)) {
+      if (allRequestedTags.length > 0 && !hasRequiredScopes(grantedScopes, allRequestedTags)) {
         auditScopeOperation('insufficient_scopes', {
           clientId: authInfo.clientId,
-          requestedScopes: requestedTags.map((tag: string) => `tag:${tag}`),
+          requestedScopes: allRequestedTags.map((tag: string) => `tag:${tag}`),
           grantedScopes,
           success: false,
           error: 'Insufficient scopes for requested tags',
@@ -88,7 +102,7 @@ export function createScopeAuthMiddleware(oauthProvider?: SDKOAuthServerProvider
 
         res.status(403).json({
           error: 'insufficient_scope',
-          error_description: `Insufficient scopes. Required: ${requestedTags.join(', ')}, Granted: ${grantedTags.join(', ')}`,
+          error_description: `Insufficient scopes. Required: ${allRequestedTags.join(', ')}, Granted: ${grantedTags.join(', ')}`,
         });
         return;
       }
@@ -103,11 +117,11 @@ export function createScopeAuthMiddleware(oauthProvider?: SDKOAuthServerProvider
 
       // Provide validated tags to downstream handlers
       // If no specific tags requested, use all granted tags
-      res.locals.validatedTags = requestedTags.length > 0 ? requestedTags : grantedTags;
+      res.locals.validatedTags = allRequestedTags.length > 0 ? allRequestedTags : grantedTags;
 
       auditScopeOperation('scope_validation_success', {
         clientId: authInfo.clientId,
-        requestedScopes: requestedTags.map((tag: string) => `tag:${tag}`),
+        requestedScopes: allRequestedTags.map((tag: string) => `tag:${tag}`),
         grantedScopes,
         success: true,
       });
@@ -121,6 +135,34 @@ export function createScopeAuthMiddleware(oauthProvider?: SDKOAuthServerProvider
       });
     }
   };
+}
+
+/**
+ * Extract all tag names from a tag expression (for scope validation)
+ */
+function extractTagsFromExpression(expression: TagExpression): string[] {
+  const tags: string[] = [];
+
+  function traverse(expr: TagExpression) {
+    switch (expr.type) {
+      case 'tag':
+        if (expr.value && !tags.includes(expr.value)) {
+          tags.push(expr.value);
+        }
+        break;
+      case 'and':
+      case 'or':
+      case 'not':
+      case 'group':
+        if (expr.children) {
+          expr.children.forEach(traverse);
+        }
+        break;
+    }
+  }
+
+  traverse(expression);
+  return tags;
 }
 
 /**
@@ -140,6 +182,20 @@ export function getValidatedTags(res: Response): string[] {
   }
 
   return res.locals.validatedTags;
+}
+
+/**
+ * Utility function to get tag expression from response locals
+ */
+export function getTagExpression(res: Response): TagExpression | undefined {
+  return res?.locals?.tagExpression;
+}
+
+/**
+ * Utility function to get tag filter mode from response locals
+ */
+export function getTagFilterMode(res: Response): 'simple-or' | 'advanced' | 'none' {
+  return res?.locals?.tagFilterMode || 'none';
 }
 
 /**

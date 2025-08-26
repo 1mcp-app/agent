@@ -1,5 +1,6 @@
 import { ServerCapabilities } from '@modelcontextprotocol/sdk/types.js';
 import { OutboundConnections, OutboundConnection } from '../core/types/index.js';
+import { TagQueryParser, TagExpression } from './tagQueryParser.js';
 import logger from '../logger/logger.js';
 
 /**
@@ -135,7 +136,7 @@ export function byCapabilities(requiredCapabilities: ServerCapabilities): Client
 }
 
 /**
- * Filters clients by tags
+ * Filters clients by tags using OR logic (backward compatible)
  * @param tags Array of tags to filter by
  * @returns Filtered record of client instances
  */
@@ -159,6 +160,33 @@ export function byTags(tags?: string[]): ClientFilter {
       });
 
       if (hasMatchingTags) {
+        filtered.set(name, clientInfo);
+      }
+      return filtered;
+    }, new Map<string, OutboundConnection>());
+  };
+}
+
+/**
+ * Filters clients by advanced tag expression (new)
+ * @param expression Parsed tag expression to evaluate
+ * @returns Filtered record of client instances
+ */
+export function byTagExpression(expression: TagExpression): ClientFilter {
+  return (clients: OutboundConnections) => {
+    logger.debug(`byTagExpression: Filtering with expression: ${TagQueryParser.expressionToString(expression)}`);
+
+    return Array.from(clients.entries()).reduce((filtered, [name, clientInfo]) => {
+      const clientTags = clientInfo.transport.tags || [];
+      const matches = TagQueryParser.evaluate(expression, clientTags);
+
+      logger.debug(`byTagExpression: Client ${name}`, {
+        clientTags,
+        expression: TagQueryParser.expressionToString(expression),
+        matches,
+      });
+
+      if (matches) {
         filtered.set(name, clientInfo);
       }
       return filtered;

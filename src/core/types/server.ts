@@ -1,5 +1,6 @@
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { ServerCapabilities } from '@modelcontextprotocol/sdk/types.js';
+import { TagExpression } from '../../utils/tagQueryParser.js';
 
 /**
  * Enum representing possible server connection states
@@ -17,6 +18,8 @@ export enum ServerStatus {
 
 export interface InboundConnectionConfig {
   readonly tags?: string[];
+  readonly tagExpression?: TagExpression;
+  readonly tagFilterMode?: 'simple-or' | 'advanced' | 'none';
   readonly enablePagination?: boolean;
 }
 

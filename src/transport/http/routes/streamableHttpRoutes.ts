@@ -8,7 +8,7 @@ import { ServerManager } from '../../../core/server/serverManager.js';
 import { ServerStatus } from '../../../core/types/index.js';
 import { AsyncLoadingOrchestrator } from '../../../core/capabilities/asyncLoadingOrchestrator.js';
 import tagsExtractor from '../middlewares/tagsExtractor.js';
-import { getValidatedTags } from '../middlewares/scopeAuthMiddleware.js';
+import { getValidatedTags, getTagExpression, getTagFilterMode } from '../middlewares/scopeAuthMiddleware.js';
 
 export function setupStreamableHttpRoutes(
   router: Router,
@@ -35,11 +35,15 @@ export function setupStreamableHttpRoutes(
           sessionIdGenerator: () => id,
         });
 
-        // Use validated tags from scope auth middleware
+        // Use validated tags and tag expression from scope auth middleware
         const tags = getValidatedTags(res);
+        const tagExpression = getTagExpression(res);
+        const tagFilterMode = getTagFilterMode(res);
 
         await serverManager.connectTransport(transport, id, {
           tags,
+          tagExpression,
+          tagFilterMode,
           enablePagination: req.query.pagination === 'true',
         });
 
