@@ -135,3 +135,89 @@ curl "http://localhost:3050/sse?tag-filter=%28web%2Capi%29%2Bprod"  # (web,api)+
 ### 互斥性
 
 `--tags` 和 `--tag-filter` 参数是互斥的 - 您不能同时使用两者。如果两者都指定，代理将返回错误。
+
+## 标签字符处理
+
+1MCP 代理提供强大的特殊字符处理功能，并提供自动验证和用户警告。
+
+### 支持的字符
+
+标签可以包含：
+
+- **字母数字字符**: `a-z`, `A-Z`, `0-9`
+- **连字符和下划线**: `web-api`, `file_system`
+- **点号**: `v1.0`, `api.core`
+- **国际字符**: `wëb`, `ăpi`, `мобильный`（会显示警告）
+
+### 问题字符
+
+代理会对可能导致问题的字符发出警告：
+
+| 字符            | 警告        | 原因                         |
+| --------------- | ----------- | ---------------------------- |
+| `,`             | 逗号干扰    | 可能干扰标签列表解析         |
+| `&`             | URL参数冲突 | 可能干扰URL参数              |
+| `=`             | URL参数冲突 | 可能干扰URL参数              |
+| `?` `#`         | URL解析问题 | 可能干扰URL解析              |
+| `/` `\`         | 路径冲突    | 可能导致解析问题             |
+| `<` `>`         | HTML注入    | 可能导致HTML注入问题         |
+| `"` `'` `` ` `` | 引号问题    | 可能导致解析问题             |
+| 控制字符        | 格式问题    | 换行符、制表符等可能导致问题 |
+
+### URL编码
+
+标签会自动解码URL编码：
+
+- `web%20api` → `web api`（会显示URL解码警告）
+- `mobile%2Dapp` → `mobile-app`
+
+### 验证限制
+
+- **最大标签长度**: 100个字符
+- **每个请求的最大标签数**: 50个标签
+- **大小写处理**: 标签会被标准化为小写以进行匹配
+- **空白字符**: 自动删除前导和尾随空白字符
+
+### 错误响应
+
+当提供无效标签时，API会返回详细的错误信息：
+
+```json
+{
+  "error": {
+    "code": "INVALID_PARAMS",
+    "message": "Invalid tags: Tag 1 \"very-long-tag...\": Tag length cannot exceed 100 characters",
+    "details": {
+      "errors": ["Tag 1 \"very-long-tag...\": Tag length cannot exceed 100 characters"],
+      "warnings": ["Tag \"web&api\": Contains '&' - ampersands can interfere with URL parameters"],
+      "invalidTags": ["very-long-tag..."]
+    }
+  }
+}
+```
+
+### 最佳实践
+
+1. **使用简单标签**: 坚持使用字母数字字符、连字符和下划线
+2. **避免特殊字符**: 使用 `web-api` 而不是 `web&api`
+3. **保持标签简短**: 每个标签尽量控制在20个字符以内
+4. **使用一致的命名**: 为您的标签建立命名约定
+5. **测试URL编码**: 如果使用HTTP端点，确保标签在URL编码时正常工作
+
+### 示例
+
+```bash
+# 良好的标签示例
+--tag-filter "web-api+production"
+--tag-filter "database,cache,redis"
+--tag-filter "v1.2+stable"
+
+# 带有警告的标签（可以工作但会产生警告）
+--tag-filter "web&api"           # 警告：&符号
+--tag-filter "mobile,responsive" # 警告：标签名中的逗号
+--tag-filter "test<prod"         # 警告：HTML字符
+
+# 无效标签（会被拒绝）
+--tag-filter "$(very-long-tag-name-that-exceeds-100-characters...)"  # 太长
+--tag-filter ""                  # 空标签
+```
