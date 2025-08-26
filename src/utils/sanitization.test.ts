@@ -7,6 +7,9 @@ import {
   sanitizeErrorMessage,
   sanitizeServerNameForContext,
   sanitizeHeaders,
+  validateAndSanitizeTag,
+  validateAndSanitizeTags,
+  normalizeTag,
 } from './sanitization.js';
 
 describe('escapeHtml', () => {
@@ -211,5 +214,226 @@ describe('sanitizeHeaders', () => {
     const sanitized = sanitizeHeaders(headers);
 
     expect(sanitized).toEqual(headers);
+  });
+});
+
+describe('validateAndSanitizeTag', () => {
+  describe('valid tags', () => {
+    it('should accept simple alphanumeric tags', () => {
+      const result = validateAndSanitizeTag('web');
+      expect(result.isValid).toBe(true);
+      expect(result.sanitizedTag).toBe('web');
+      expect(result.warnings).toHaveLength(0);
+      expect(result.errors).toHaveLength(0);
+    });
+
+    it('should accept tags with hyphens and underscores', () => {
+      const result = validateAndSanitizeTag('web-api_v1');
+      expect(result.isValid).toBe(true);
+      expect(result.sanitizedTag).toBe('web-api_v1');
+      expect(result.warnings).toHaveLength(0);
+      expect(result.errors).toHaveLength(0);
+    });
+
+    it('should normalize case', () => {
+      const result = validateAndSanitizeTag('WEB-API');
+      expect(result.isValid).toBe(true);
+      expect(result.sanitizedTag).toBe('web-api');
+      expect(result.warnings).toHaveLength(0);
+      expect(result.errors).toHaveLength(0);
+    });
+
+    it('should trim whitespace', () => {
+      const result = validateAndSanitizeTag('  web-api  ');
+      expect(result.isValid).toBe(true);
+      expect(result.sanitizedTag).toBe('web-api');
+      expect(result.warnings).toHaveLength(0);
+      expect(result.errors).toHaveLength(0);
+    });
+  });
+
+  describe('URL encoded tags', () => {
+    it('should decode URL encoded tags', () => {
+      const result = validateAndSanitizeTag('web%20api');
+      expect(result.isValid).toBe(true);
+      expect(result.sanitizedTag).toBe('web api');
+      expect(result.warnings).toContain('Tag was URL decoded');
+    });
+
+    it('should handle invalid URL encoding gracefully', () => {
+      const result = validateAndSanitizeTag('web%ZZ');
+      expect(result.isValid).toBe(true);
+      expect(result.warnings).toContain('Tag contains invalid URL encoding');
+    });
+  });
+
+  describe('problematic characters', () => {
+    it('should warn about commas', () => {
+      const result = validateAndSanitizeTag('web,api');
+      expect(result.isValid).toBe(true);
+      expect(result.sanitizedTag).toBe('web,api');
+      expect(result.warnings).toContain("Contains ',' - commas can interfere with tag list parsing");
+    });
+
+    it('should warn about ampersands', () => {
+      const result = validateAndSanitizeTag('web&api');
+      expect(result.isValid).toBe(true);
+      expect(result.warnings).toContain("Contains '&' - ampersands can interfere with URL parameters");
+    });
+
+    it('should warn about HTML injection characters', () => {
+      const result = validateAndSanitizeTag('web<script>');
+      expect(result.isValid).toBe(true);
+      expect(result.warnings).toContain("Contains '<' - less-than symbols can cause HTML injection issues");
+      expect(result.warnings).toContain("Contains '>' - greater-than symbols can cause HTML injection issues");
+    });
+
+    it('should warn about quotes', () => {
+      const result = validateAndSanitizeTag('web"api');
+      expect(result.isValid).toBe(true);
+      expect(result.warnings).toContain("Contains '\"' - double quotes can cause parsing issues");
+    });
+
+    it('should warn about control characters', () => {
+      const result = validateAndSanitizeTag('web\napi');
+      expect(result.isValid).toBe(true);
+      expect(result.warnings).toContain('Contains control characters that may cause issues');
+    });
+
+    it('should warn about non-ASCII characters', () => {
+      const result = validateAndSanitizeTag('wëb-äpi');
+      expect(result.isValid).toBe(true);
+      expect(result.sanitizedTag).toBe('wëb-äpi');
+      expect(result.warnings).toContain('Contains non-ASCII characters (international characters)');
+    });
+  });
+
+  describe('invalid tags', () => {
+    it('should reject empty strings', () => {
+      const result = validateAndSanitizeTag('');
+      expect(result.isValid).toBe(false);
+      expect(result.errors).toContain('Tag cannot be empty or whitespace only');
+    });
+
+    it('should reject null/undefined', () => {
+      const result1 = validateAndSanitizeTag(null as any);
+      expect(result1.isValid).toBe(false);
+      expect(result1.errors).toContain('Tag cannot be empty or null');
+
+      const result2 = validateAndSanitizeTag(undefined as any);
+      expect(result2.isValid).toBe(false);
+      expect(result2.errors).toContain('Tag cannot be empty or null');
+    });
+
+    it('should reject whitespace-only strings', () => {
+      const result = validateAndSanitizeTag('   ');
+      expect(result.isValid).toBe(false);
+      expect(result.errors).toContain('Tag cannot be empty or whitespace only');
+    });
+
+    it('should reject very long tags', () => {
+      const longTag = 'a'.repeat(101);
+      const result = validateAndSanitizeTag(longTag);
+      expect(result.isValid).toBe(false);
+      expect(result.errors).toContain('Tag length cannot exceed 100 characters');
+    });
+  });
+});
+
+describe('validateAndSanitizeTags', () => {
+  describe('valid tag arrays', () => {
+    it('should process array of valid tags', () => {
+      const result = validateAndSanitizeTags(['web', 'API', '  mobile  ']);
+      expect(result.validTags).toEqual(['web', 'api', 'mobile']);
+      expect(result.errors).toHaveLength(0);
+      expect(result.warnings).toHaveLength(0);
+      expect(result.invalidTags).toHaveLength(0);
+    });
+
+    it('should remove duplicates after normalization', () => {
+      const result = validateAndSanitizeTags(['web', 'WEB', '  Web  ']);
+      expect(result.validTags).toEqual(['web']);
+      expect(result.warnings).toContain('Duplicate tag after normalization: "WEB"');
+      expect(result.warnings).toContain('Duplicate tag after normalization: "  Web  "');
+    });
+
+    it('should handle empty array', () => {
+      const result = validateAndSanitizeTags([]);
+      expect(result.validTags).toEqual([]);
+      expect(result.errors).toHaveLength(0);
+      expect(result.warnings).toHaveLength(0);
+    });
+  });
+
+  describe('invalid inputs', () => {
+    it('should reject non-arrays', () => {
+      const result = validateAndSanitizeTags('not-array' as any);
+      expect(result.validTags).toEqual([]);
+      expect(result.errors).toContain('Tags must be an array');
+    });
+
+    it('should reject too many tags', () => {
+      const manyTags = Array(51).fill('tag');
+      const result = validateAndSanitizeTags(manyTags);
+      expect(result.validTags).toEqual([]);
+      expect(result.errors).toContain('Too many tags: maximum 50 allowed, got 51');
+    });
+  });
+
+  describe('mixed valid and invalid tags', () => {
+    it('should filter out invalid tags and keep valid ones', () => {
+      const result = validateAndSanitizeTags(['web', '', 'api', null as any, 'mobile']);
+      expect(result.validTags).toEqual(['web', 'api', 'mobile']);
+      expect(result.invalidTags).toEqual(['', null]);
+      expect(result.errors).toContain('Tag 2 "": Tag cannot be empty or whitespace only');
+      expect(result.errors).toContain('Tag 4 "null": Tag cannot be empty or null');
+    });
+
+    it('should collect warnings for problematic characters', () => {
+      const result = validateAndSanitizeTags(['web', 'api&test', 'mobile,responsive']);
+      expect(result.validTags).toEqual(['web', 'api&test', 'mobile,responsive']);
+      expect(result.warnings).toContain(
+        'Tag "api&test": Contains \'&\' - ampersands can interfere with URL parameters',
+      );
+      expect(result.warnings).toContain(
+        'Tag "mobile,responsive": Contains \',\' - commas can interfere with tag list parsing',
+      );
+    });
+  });
+
+  describe('custom max tags limit', () => {
+    it('should respect custom max tags limit', () => {
+      const result = validateAndSanitizeTags(['web', 'api', 'mobile'], 2);
+      expect(result.validTags).toEqual([]);
+      expect(result.errors).toContain('Too many tags: maximum 2 allowed, got 3');
+    });
+  });
+});
+
+describe('normalizeTag', () => {
+  it('should normalize simple tags', () => {
+    expect(normalizeTag('WEB')).toBe('web');
+    expect(normalizeTag('  API  ')).toBe('api');
+    expect(normalizeTag('Mobile-App')).toBe('mobile-app');
+  });
+
+  it('should handle URL encoded tags', () => {
+    expect(normalizeTag('web%20api')).toBe('web api');
+    expect(normalizeTag('mobile%2Dapp')).toBe('mobile-app');
+  });
+
+  it('should handle invalid URL encoding gracefully', () => {
+    expect(normalizeTag('web%ZZ')).toBe('web%zz');
+  });
+
+  it('should handle empty/null inputs', () => {
+    expect(normalizeTag('')).toBe('');
+    expect(normalizeTag(null as any)).toBe('');
+    expect(normalizeTag(undefined as any)).toBe('');
+  });
+
+  it('should preserve special characters after normalization', () => {
+    expect(normalizeTag('Web&Api')).toBe('web&api');
+    expect(normalizeTag('Mobile,Responsive')).toBe('mobile,responsive');
   });
 });

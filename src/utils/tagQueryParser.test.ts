@@ -558,4 +558,89 @@ describe('TagQueryParser', () => {
       expect(TagQueryParser.expressionToString(expr3)).toBe('web and api');
     });
   });
+
+  describe('Special Character Handling', () => {
+    describe('parseSimple with special characters', () => {
+      it('should parse basic comma-separated tags', () => {
+        // Note: URL decoding and validation are handled at middleware level
+        const result = TagQueryParser.parseSimple('web%20api,mobile%2Dapp');
+        expect(result).toEqual(['web%20api', 'mobile%2Dapp']);
+      });
+
+      it('should handle tags with commas by splitting them', () => {
+        // Commas are used as separators, so they split the tags
+        const result = TagQueryParser.parseSimple('web&api,mobile,responsive');
+        expect(result).toEqual(['web&api', 'mobile', 'responsive']);
+      });
+
+      it('should include all tags - validation is handled at middleware level', () => {
+        const longTag = 'a'.repeat(101);
+        const result = TagQueryParser.parseSimple(`web,${longTag},api`);
+        expect(result).toEqual(['web', longTag, 'api']);
+      });
+
+      it('should handle international characters', () => {
+        const result = TagQueryParser.parseSimple('wëb,ăpi,мобильный');
+        expect(result).toEqual(['wëb', 'ăpi', 'мобильный']);
+      });
+    });
+
+    describe('parseAdvanced with special characters', () => {
+      it('should parse URL encoded tag names as literals', () => {
+        // URL decoding handled at middleware level
+        expect(() => TagQueryParser.parseAdvanced('web%20api')).toThrow('Unexpected character');
+      });
+
+      it('should handle case normalization', () => {
+        const expr = TagQueryParser.parseAdvanced('WEB+API');
+        expect(expr).toEqual({
+          type: 'and',
+          children: [
+            { type: 'tag', value: 'web' },
+            { type: 'tag', value: 'api' },
+          ],
+        });
+      });
+
+      it('should reject invalid characters like @ symbol', () => {
+        expect(() => TagQueryParser.parseAdvanced('web@api')).toThrow('Unexpected character');
+      });
+
+      it('should handle basic alphanumeric tags', () => {
+        const expr = TagQueryParser.parseAdvanced('web123+api456');
+        expect(expr).toEqual({
+          type: 'and',
+          children: [
+            { type: 'tag', value: 'web123' },
+            { type: 'tag', value: 'api456' },
+          ],
+        });
+      });
+    });
+
+    describe('evaluate with normalized comparison', () => {
+      it('should match tags case-insensitively', () => {
+        const expr: TagExpression = { type: 'tag', value: 'WEB' };
+        expect(TagQueryParser.evaluate(expr, ['web', 'api'])).toBe(true);
+        expect(TagQueryParser.evaluate(expr, ['Web', 'API'])).toBe(true);
+      });
+
+      it('should match URL-encoded vs decoded tags', () => {
+        const expr: TagExpression = { type: 'tag', value: 'web%20api' };
+        expect(TagQueryParser.evaluate(expr, ['web api', 'mobile'])).toBe(true);
+        expect(TagQueryParser.evaluate(expr, ['web%20api', 'mobile'])).toBe(true);
+      });
+
+      it('should handle whitespace normalization', () => {
+        const expr: TagExpression = { type: 'tag', value: '  web  ' };
+        expect(TagQueryParser.evaluate(expr, ['web', 'api'])).toBe(true);
+        expect(TagQueryParser.evaluate(expr, ['  WEB  ', 'api'])).toBe(true);
+      });
+
+      it('should handle international characters consistently', () => {
+        const expr: TagExpression = { type: 'tag', value: 'WËB' };
+        expect(TagQueryParser.evaluate(expr, ['wëb', 'api'])).toBe(true);
+      });
+    });
+  });
 });

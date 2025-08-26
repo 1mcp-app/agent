@@ -141,6 +141,209 @@ export function sanitizeHeaders(headers: Record<string, any>): Record<string, an
 }
 
 /**
+ * Tag validation result interface
+ */
+export interface TagValidationResult {
+  isValid: boolean;
+  sanitizedTag: string;
+  warnings: string[];
+  errors: string[];
+}
+
+/**
+ * Validates and sanitizes a single tag
+ * Checks for problematic characters and provides warnings/errors
+ *
+ * @param tag - The tag to validate and sanitize
+ * @returns Validation result with sanitized tag and any warnings/errors
+ */
+export function validateAndSanitizeTag(tag: string): TagValidationResult {
+  const result: TagValidationResult = {
+    isValid: true,
+    sanitizedTag: '',
+    warnings: [],
+    errors: [],
+  };
+
+  // Handle null/undefined tags
+  if (tag === null || tag === undefined || typeof tag !== 'string') {
+    result.isValid = false;
+    result.errors.push('Tag cannot be empty or null');
+    return result;
+  }
+
+  // Trim whitespace
+  const trimmedTag = tag.trim();
+
+  if (trimmedTag.length === 0) {
+    result.isValid = false;
+    result.errors.push('Tag cannot be empty or whitespace only');
+    return result;
+  }
+
+  // Check length limits
+  if (trimmedTag.length > 100) {
+    result.isValid = false;
+    result.errors.push('Tag length cannot exceed 100 characters');
+    return result;
+  }
+
+  if (trimmedTag.length < 1) {
+    result.isValid = false;
+    result.errors.push('Tag must be at least 1 character long');
+    return result;
+  }
+
+  // Decode URL encoding if present
+  let decodedTag = trimmedTag;
+  try {
+    // Check if it's URL encoded and decode it
+    if (trimmedTag.includes('%')) {
+      decodedTag = decodeURIComponent(trimmedTag);
+      if (decodedTag !== trimmedTag) {
+        result.warnings.push('Tag was URL decoded');
+      }
+    }
+  } catch (_e) {
+    result.warnings.push('Tag contains invalid URL encoding');
+    decodedTag = trimmedTag; // Keep original if decode fails
+  }
+
+  // Check for problematic characters and warn
+  const problematicChars = {
+    ',': 'commas can interfere with tag list parsing',
+    '&': 'ampersands can interfere with URL parameters',
+    '=': 'equals signs can interfere with URL parameters',
+    '?': 'question marks can interfere with URL parsing',
+    '#': 'hash symbols can interfere with URL fragments',
+    '/': 'slashes can interfere with URL paths',
+    '\\': 'backslashes can cause parsing issues',
+    '<': 'less-than symbols can cause HTML injection issues',
+    '>': 'greater-than symbols can cause HTML injection issues',
+    '"': 'double quotes can cause parsing issues',
+    "'": 'single quotes can cause parsing issues',
+    '`': 'backticks can cause script injection issues',
+    '\n': 'newlines can cause parsing issues',
+    '\r': 'carriage returns can cause parsing issues',
+    '\t': 'tabs can cause formatting issues',
+  };
+
+  // Check each character for problems
+  for (const [char, reason] of Object.entries(problematicChars)) {
+    if (decodedTag.includes(char)) {
+      result.warnings.push(`Contains '${char}' - ${reason}`);
+    }
+  }
+
+  // Check for control characters
+  // eslint-disable-next-line no-control-regex
+  const controlCharRegex = /[\x00-\x1f\x7f]/;
+  if (controlCharRegex.test(decodedTag)) {
+    result.warnings.push('Contains control characters that may cause issues');
+  }
+
+  // Check for non-ASCII characters (international characters are OK, but warn)
+  // eslint-disable-next-line no-control-regex
+  const nonAsciiRegex = /[^\x00-\x7f]/;
+  if (nonAsciiRegex.test(decodedTag)) {
+    result.warnings.push('Contains non-ASCII characters (international characters)');
+  }
+
+  // Normalize the tag for consistent comparison
+  result.sanitizedTag = decodedTag.trim().toLowerCase();
+
+  return result;
+}
+
+/**
+ * Validates and sanitizes an array of tags
+ * Filters out invalid tags and provides consolidated warnings
+ *
+ * @param tags - Array of tags to validate
+ * @param maxTags - Maximum number of tags allowed (default: 50)
+ * @returns Object with valid tags, warnings, and errors
+ */
+export function validateAndSanitizeTags(
+  tags: string[],
+  maxTags: number = 50,
+): {
+  validTags: string[];
+  warnings: string[];
+  errors: string[];
+  invalidTags: string[];
+} {
+  const result = {
+    validTags: [] as string[],
+    warnings: [] as string[],
+    errors: [] as string[],
+    invalidTags: [] as string[],
+  };
+
+  if (!Array.isArray(tags)) {
+    result.errors.push('Tags must be an array');
+    return result;
+  }
+
+  if (tags.length > maxTags) {
+    result.errors.push(`Too many tags: maximum ${maxTags} allowed, got ${tags.length}`);
+    return result;
+  }
+
+  const seenTags = new Set<string>();
+
+  for (let i = 0; i < tags.length; i++) {
+    const tag = tags[i];
+    const validation = validateAndSanitizeTag(tag);
+
+    if (!validation.isValid) {
+      result.invalidTags.push(tag);
+      validation.errors.forEach((error) => {
+        result.errors.push(`Tag ${i + 1} "${tag}": ${error}`);
+      });
+      continue;
+    }
+
+    // Check for duplicates
+    if (seenTags.has(validation.sanitizedTag)) {
+      result.warnings.push(`Duplicate tag after normalization: "${tag}"`);
+      continue;
+    }
+
+    seenTags.add(validation.sanitizedTag);
+    result.validTags.push(validation.sanitizedTag);
+
+    // Add warnings with tag context
+    validation.warnings.forEach((warning) => {
+      result.warnings.push(`Tag "${tag}": ${warning}`);
+    });
+  }
+
+  return result;
+}
+
+/**
+ * Normalizes a tag for consistent comparison
+ * Applies the same normalization used in validation
+ *
+ * @param tag - The tag to normalize
+ * @returns Normalized tag
+ */
+export function normalizeTag(tag: string): string {
+  if (!tag || typeof tag !== 'string') {
+    return '';
+  }
+
+  try {
+    // Decode URL encoding if present
+    let normalized = tag.includes('%') ? decodeURIComponent(tag) : tag;
+    return normalized.trim().toLowerCase();
+  } catch (_e) {
+    // If decode fails, just normalize without decoding
+    return tag.trim().toLowerCase();
+  }
+}
+
+/**
  * Comprehensive sanitization for server configuration data
  * Applies appropriate sanitization based on the context
  *

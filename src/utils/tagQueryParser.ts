@@ -33,10 +33,18 @@ export class TagQueryParser {
       return [];
     }
 
-    return tags
+    const rawTags = tags
       .split(',')
       .map((t) => t.trim())
       .filter((t) => t.length > 0);
+
+    if (rawTags.length === 0) {
+      return [];
+    }
+
+    // For now, return basic parsing to avoid circular dependencies
+    // Advanced validation will be handled at the middleware level
+    return rawTags;
   }
 
   /**
@@ -85,10 +93,28 @@ export class TagQueryParser {
       serverTags = [];
     }
 
-    switch (expr.type) {
-      case 'tag':
-        return serverTags.includes(expr.value!);
+    // Simple normalization without external dependencies
+    const normalizeTag = (tag: string): string => {
+      if (!tag || typeof tag !== 'string') {
+        return '';
+      }
+      try {
+        // Decode URL encoding if present
+        let normalized = tag.includes('%') ? decodeURIComponent(tag) : tag;
+        return normalized.trim().toLowerCase();
+      } catch (_e) {
+        // If decode fails, just normalize without decoding
+        return tag.trim().toLowerCase();
+      }
+    };
 
+    switch (expr.type) {
+      case 'tag': {
+        // Normalize both the expression tag and server tags for comparison
+        const normalizedExprTag = normalizeTag(expr.value!);
+        const normalizedServerTags = serverTags.map((tag) => normalizeTag(tag));
+        return normalizedServerTags.includes(normalizedExprTag);
+      }
       case 'not':
         if (!expr.children || expr.children.length !== 1) {
           throw new Error('NOT expression must have exactly one child');
@@ -201,11 +227,15 @@ export class TagQueryParser {
         continue;
       }
 
-      // Tag name
-      const tagMatch = remaining.match(/^[a-zA-Z0-9_-]+/);
+      // Tag name - handle alphanumeric, hyphens, underscores, dots
+      const tagMatch = remaining.match(/^[a-zA-Z0-9_.-]+/);
       if (tagMatch) {
         const tagName = tagMatch[0];
-        tokens.push({ type: 'tag', value: tagName, position: i });
+
+        // Simple normalization - just lowercase and trim
+        const normalizedTag = tagName.trim().toLowerCase();
+
+        tokens.push({ type: 'tag', value: normalizedTag, position: i });
         i += tagName.length;
         continue;
       }

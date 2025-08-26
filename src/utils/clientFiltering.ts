@@ -1,6 +1,7 @@
 import { ServerCapabilities } from '@modelcontextprotocol/sdk/types.js';
 import { OutboundConnections, OutboundConnection } from '../core/types/index.js';
 import { TagQueryParser, TagExpression } from './tagQueryParser.js';
+import { normalizeTag } from './sanitization.js';
 import logger from '../logger/logger.js';
 
 /**
@@ -17,9 +18,14 @@ export function filterClientsByTags(clients: OutboundConnections, tags?: string[
   const filteredClients = new Map<string, OutboundConnection>();
   let matchedClients = 0;
 
+  // Normalize the filter tags for consistent comparison
+  const normalizedFilterTags = tags.map((tag) => normalizeTag(tag));
+
   for (const [name, clientInfo] of clients.entries()) {
     const clientTags = clientInfo.transport.tags || [];
-    const hasMatchingTags = clientTags.some((clientTag) => tags.includes(clientTag));
+    // Normalize client tags for comparison
+    const normalizedClientTags = clientTags.map((tag) => normalizeTag(tag));
+    const hasMatchingTags = normalizedClientTags.some((clientTag) => normalizedFilterTags.includes(clientTag));
 
     if (hasMatchingTags) {
       filteredClients.set(name, clientInfo);
@@ -149,13 +155,20 @@ export function byTags(tags?: string[]): ClientFilter {
       return clients;
     }
 
+    // Normalize the filter tags for consistent comparison
+    const normalizedFilterTags = tags.map((tag) => normalizeTag(tag));
+
     return Array.from(clients.entries()).reduce((filtered, [name, clientInfo]) => {
       const clientTags = clientInfo.transport.tags || [];
-      const hasMatchingTags = clientTags.some((clientTag) => tags.includes(clientTag));
+      // Normalize client tags for comparison
+      const normalizedClientTags = clientTags.map((tag) => normalizeTag(tag));
+      const hasMatchingTags = normalizedClientTags.some((clientTag) => normalizedFilterTags.includes(clientTag));
 
       logger.debug(`byTags: Client ${name}`, {
         clientTags,
+        normalizedClientTags,
         requiredTags: tags,
+        normalizedRequiredTags: normalizedFilterTags,
         hasMatchingTags,
       });
 

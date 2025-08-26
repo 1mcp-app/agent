@@ -1,6 +1,8 @@
 import { Request, Response, NextFunction } from 'express';
 import { ErrorCode } from '@modelcontextprotocol/sdk/types.js';
 import { TagQueryParser } from '../../../utils/tagQueryParser.js';
+import { validateAndSanitizeTags } from '../../../utils/sanitization.js';
+import logger from '../../../logger/logger.js';
 
 /**
  * Middleware to extract and validate tag filters from query parameters.
@@ -41,8 +43,52 @@ export default function tagsExtractor(req: Request, res: Response, next: NextFun
       return;
     }
 
-    const tags = TagQueryParser.parseSimple(tagsStr);
-    res.locals.tags = tags;
+    // Parse basic comma-separated tags
+    const rawTags = TagQueryParser.parseSimple(tagsStr);
+
+    if (rawTags.length > 0) {
+      // Validate and sanitize the tags
+      const validation = validateAndSanitizeTags(rawTags);
+
+      // If there are validation errors, return 400
+      if (validation.errors.length > 0) {
+        logger.warn('Tag validation failed', {
+          errors: validation.errors,
+          warnings: validation.warnings,
+          originalTags: rawTags,
+          invalidTags: validation.invalidTags,
+        });
+
+        res.status(400).json({
+          error: {
+            code: ErrorCode.InvalidParams,
+            message: `Invalid tags: ${validation.errors.join('; ')}`,
+            details: {
+              errors: validation.errors,
+              warnings: validation.warnings,
+              invalidTags: validation.invalidTags,
+            },
+          },
+        });
+        return;
+      }
+
+      // Log warnings if any
+      if (validation.warnings.length > 0) {
+        logger.warn('Tag validation warnings', {
+          warnings: validation.warnings,
+          originalTags: rawTags,
+          sanitizedTags: validation.validTags,
+        });
+      }
+
+      res.locals.tags = validation.validTags.length > 0 ? validation.validTags : undefined;
+      res.locals.tagWarnings = validation.warnings;
+    } else {
+      res.locals.tags = undefined;
+      res.locals.tagWarnings = [];
+    }
+
     res.locals.tagFilterMode = 'simple-or';
     next();
     return;
