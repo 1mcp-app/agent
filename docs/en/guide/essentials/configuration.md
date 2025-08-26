@@ -324,7 +324,8 @@ Flags override settings from the JSON configuration file.
 
 ### Filtering Options
 
-- `--tags, -g <tags>`: Tags to filter clients (comma-separated).
+- `--tags, -g <tags>`: Tags to filter clients (comma-separated, OR logic). ⚠️ **Deprecated - use --tag-filter**.
+- `--tag-filter, -f <expression>`: Advanced tag filter expression (boolean AND/OR/NOT logic).
 - `--pagination, -p`: Enable pagination. Default: `false`.
 
 ### Health Check Options
@@ -339,6 +340,20 @@ Flags override settings from the JSON configuration file.
 
 - `--log-level <level>`: Set the log level (`debug`, `info`, `warn`, `error`). Default: `info`.
 - `--log-file <path>`: Write logs to a file in addition to console. When specified, console logging is disabled only for stdio transport.
+
+#### Tag Filtering Examples
+
+```bash
+# Simple tag filtering (OR logic) - ⚠️ Deprecated
+npx -y @1mcp/agent --tags "web,api"
+ONE_MCP_TAGS="web,api" npx -y @1mcp/agent
+
+# Advanced tag filtering (boolean expressions) - Recommended
+npx -y @1mcp/agent --tag-filter "web+api"
+npx -y @1mcp/agent --tag-filter "(web,api)+prod-test"
+npx -y @1mcp/agent --tag-filter "web and api and not test"
+ONE_MCP_TAG_FILTER="web+api" npx -y @1mcp/agent
+```
 
 #### Logging Examples
 
@@ -385,6 +400,7 @@ Environment variables are prefixed with `ONE_MCP_` and are useful for containeri
 - `ONE_MCP_LOG_LEVEL`
 - `ONE_MCP_LOG_FILE`
 - `ONE_MCP_TAGS`
+- `ONE_MCP_TAG_FILTER`
 - `ONE_MCP_PAGINATION`
 - `ONE_MCP_AUTH`
 - `ONE_MCP_ENABLE_AUTH`

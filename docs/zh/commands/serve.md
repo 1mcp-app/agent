@@ -66,6 +66,18 @@ npx -y @1mcp/agent serve \
   --health-info-level=full
 ```
 
+### 标签过滤
+
+```bash
+# 简单标签过滤（OR 逻辑）
+npx -y @1mcp/agent serve --transport=stdio --tags="network,filesystem"
+
+# 高级标签过滤（布尔表达式）
+npx -y @1mcp/agent serve --transport=stdio --tag-filter="network+api"
+npx -y @1mcp/agent serve --transport=stdio --tag-filter="(web,api)+prod-test"
+npx -y @1mcp/agent serve --transport=stdio --tag-filter="web and api and not test"
+```
+
 ## 另请参阅
 
 - **[配置深入探讨](../guide/essentials/configuration)**

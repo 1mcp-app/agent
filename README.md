@@ -192,7 +192,8 @@ Available options:
 | `--host`, `-H`               | `ONE_MCP_HOST`                     | Change HTTP host                                                                                | localhost  |
 | `--external-url`, `-u`       | `ONE_MCP_EXTERNAL_URL`             | External URL for OAuth callbacks and public URLs (e.g., https://example.com)                    |            |
 | `--trust-proxy`              | `ONE_MCP_TRUST_PROXY`              | Trust proxy configuration for client IP detection (boolean, IP, CIDR, preset)                   | "loopback" |
-| `--tags`, `-g`               | `ONE_MCP_TAGS`                     | Filter servers by tags                                                                          |            |
+| `--tags`, `-g`               | `ONE_MCP_TAGS`                     | Filter servers by tags (comma-separated, OR logic) ⚠️ **Deprecated - use --tag-filter**         |            |
+| `--tag-filter`, `-f`         | `ONE_MCP_TAG_FILTER`               | Advanced tag filter expression (and/or/not logic)                                               |            |
 | `--pagination`, `-p`         | `ONE_MCP_PAGINATION`               | Enable pagination for client/server lists (boolean)                                             |   false    |
 | `--enable-auth`              | `ONE_MCP_ENABLE_AUTH`              | Enable authentication (OAuth 2.1)                                                               |   false    |
 | `--enable-scope-validation`  | `ONE_MCP_ENABLE_SCOPE_VALIDATION`  | Enable tag-based scope validation (boolean)                                                     |    true    |
@@ -294,6 +295,8 @@ Tags help you control which MCP servers are available to different clients. Thin
 
 2. **When starting 1MCP in stdio mode**: You can filter servers by tags
 
+**Simple Tag Filtering (OR logic) - ⚠️ Deprecated:**
+
 ```bash
 # Only start servers with the "network" tag
 npx -y @1mcp/agent --transport stdio --tags "network"
@@ -302,7 +305,27 @@ npx -y @1mcp/agent --transport stdio --tags "network"
 npx -y @1mcp/agent --transport stdio --tags "network,filesystem"
 ```
 
-3. **When using SSE transport**: Clients can request servers with specific tags
+> **Note:** The `--tags` parameter is deprecated and will be removed in a future version. Use `--tag-filter` instead for both simple and advanced filtering.
+
+**Advanced Tag Filtering (Boolean expressions):**
+
+```bash
+# Servers with both "network" AND "api" tags
+npx -y @1mcp/agent --transport stdio --tag-filter "network+api"
+
+# Servers with "network" OR "filesystem" tags
+npx -y @1mcp/agent --transport stdio --tag-filter "network,filesystem"
+
+# Complex expression: (web OR api) AND production, but NOT test
+npx -y @1mcp/agent --transport stdio --tag-filter "(web,api)+production-test"
+
+# Natural language syntax also supported
+npx -y @1mcp/agent --transport stdio --tag-filter "web and api and not test"
+```
+
+3. **When using HTTP/SSE transport**: Clients can request servers with specific tags
+
+**Simple tag filtering:**
 
 ```json
 {
@@ -310,6 +333,19 @@ npx -y @1mcp/agent --transport stdio --tags "network,filesystem"
     "1mcp": {
       "type": "http",
       "url": "http://localhost:3050/sse?tags=network" // Only connect to network-capable servers
+    }
+  }
+}
+```
+
+**Advanced tag filtering:**
+
+```json
+{
+  "mcpServers": {
+    "1mcp": {
+      "type": "http",
+      "url": "http://localhost:3050/sse?tag-filter=network%2Bapi" // network AND api (URL-encoded)
     }
   }
 }

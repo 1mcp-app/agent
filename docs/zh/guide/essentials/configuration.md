@@ -324,7 +324,8 @@
 
 ### 过滤选项
 
-- `--tags, -g <tags>`：过滤客户端的标签（逗号分隔）。
+- `--tags, -g <tags>`：过滤客户端的标签（逗号分隔，OR 逻辑）。⚠️ **已弃用 - 请使用 --tag-filter**。
+- `--tag-filter, -f <expression>`：高级标签过滤表达式（布尔 AND/OR/NOT 逻辑）。
 - `--pagination, -p`：启用分页。默认值：`false`。
 
 ### 健康检查选项
@@ -339,6 +340,20 @@
 
 - `--log-level <level>`：设置日志级别（`debug`、`info`、`warn`、`error`）。默认值：`info`。
 - `--log-file <path>`：将日志写入文件跟控制台。指定后，除 stdio 传输外，控制台日志将被禁用。
+
+#### 标签筛选示例
+
+```bash
+# 简单标签筛选（OR 逻辑）- 已弃用
+npx -y @1mcp/agent --tags "web,api"
+ONE_MCP_TAGS="web,api" npx -y @1mcp/agent
+
+# 高级标签筛选（布尔表达式）- 推荐
+npx -y @1mcp/agent --tag-filter "web+api"
+npx -y @1mcp/agent --tag-filter "(web,api)+prod-test"
+npx -y @1mcp/agent --tag-filter "web and api and not test"
+ONE_MCP_TAG_FILTER="web+api" npx -y @1mcp/agent
+```
 
 #### 日志示例
 
@@ -385,6 +400,7 @@ npx -y @1mcp/agent --log-level debug
 - `ONE_MCP_LOG_LEVEL`
 - `ONE_MCP_LOG_FILE`
 - `ONE_MCP_TAGS`
+- `ONE_MCP_TAG_FILTER`
 - `ONE_MCP_PAGINATION`
 - `ONE_MCP_AUTH`
 - `ONE_MCP_ENABLE_AUTH`

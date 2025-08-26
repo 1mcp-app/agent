@@ -66,6 +66,20 @@ npx -y @1mcp/agent serve \
   --health-info-level=full
 ```
 
+### Tag Filtering
+
+```bash
+# Simple tag filtering (OR logic) - ⚠️ Deprecated
+npx -y @1mcp/agent serve --transport=stdio --tags="network,filesystem"
+
+# Advanced tag filtering (boolean expressions) - Recommended
+npx -y @1mcp/agent serve --transport=stdio --tag-filter="network+api"
+npx -y @1mcp/agent serve --transport=stdio --tag-filter="(web,api)+prod-test"
+npx -y @1mcp/agent serve --transport=stdio --tag-filter="web and api and not test"
+```
+
+> **Note:** The `--tags` parameter is deprecated. Use `--tag-filter` for both simple and advanced filtering.
+
 ## See Also
 
 - **[Configuration Deep Dive](../guide/essentials/configuration)**
