@@ -360,6 +360,43 @@ export function setupMcpCommands(yargs: Argv): Argv {
             await statusCommand(argv);
           },
         })
+        .command({
+          command: 'tokens',
+          describe: 'Estimate MCP token usage for server capabilities',
+          builder: (yargs) => {
+            return yargs
+              .option('config', {
+                describe: 'Path to the config file',
+                type: 'string',
+                alias: 'c',
+              })
+              .option('tag-filter', {
+                describe: 'Filter servers by advanced tag expression (and/or/not logic)',
+                type: 'string',
+                alias: 'f',
+              })
+              .option('format', {
+                describe: 'Output format',
+                type: 'string',
+                choices: ['table', 'json', 'summary'],
+                default: 'table',
+              })
+              .example([
+                ['$0 mcp tokens', 'Estimate tokens for all MCP servers'],
+                [
+                  '$0 mcp tokens --tag-filter="context7 or playwright"',
+                  'Estimate tokens for servers with specific tags',
+                ],
+                ['$0 mcp tokens --format=json', 'Output in JSON format for programmatic use'],
+                ['$0 mcp tokens --format=summary', 'Show concise summary'],
+                ['$0 mcp tokens --tag-filter="ai and not experimental" --format=table', 'Filter and format output'],
+              ]);
+          },
+          handler: async (argv) => {
+            const { tokensCommand } = await import('./tokens.js');
+            await tokensCommand(argv);
+          },
+        })
         .demandCommand(1, 'You must specify a subcommand')
         .help().epilogue(`
 MCP Command Group - MCP Server Configuration Management
@@ -373,6 +410,7 @@ This allows you to:
 • Enable/disable servers without removing them
 • List and filter servers by tags or status
 • Check the status and details of configured servers
+• Estimate token usage for server capabilities and tools
 
 For more information about each command, use: $0 mcp <command> --help
         `);
