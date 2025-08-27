@@ -218,6 +218,135 @@ describe('MCP List Command E2E', () => {
     });
   });
 
+  describe('Secret Display', () => {
+    it('should redact sensitive information by default', async () => {
+      // Update config to include a server with sensitive data
+      await environment.updateConfig({
+        servers: [
+          {
+            name: 'sensitive-server',
+            type: 'stdio',
+            command: 'node',
+            args: ['--api-key=sk-1234567890abcdef', '--host', 'example.com'],
+            env: {
+              API_KEY: 'sk-secret123456789',
+              DATABASE_URL: 'postgres://user:pass@host:5432/db',
+              NORMAL_VAR: 'safe-value',
+            },
+            tags: ['test'],
+          },
+        ],
+        addServers: true,
+      });
+
+      const result = await runner.runMcpCommand('list', {
+        args: ['--verbose'],
+      });
+
+      runner.assertSuccess(result);
+      // Should redact sensitive arguments
+      runner.assertOutputContains(result, '--api-key=[REDACTED]');
+      runner.assertOutputContains(result, '--host example.com'); // Non-sensitive should remain
+
+      // Environment variables would only show if they were actually configured on the server
+      // For this test, we focus on the args redaction which is visible
+    });
+
+    it('should show sensitive information when --show-secrets flag is used', async () => {
+      // Update config to include a server with sensitive data
+      await environment.updateConfig({
+        servers: [
+          {
+            name: 'sensitive-server',
+            type: 'stdio',
+            command: 'node',
+            args: ['--api-key=sk-1234567890abcdef', '--token', 'secret123'],
+            env: {
+              API_KEY: 'sk-secret123456789',
+              NORMAL_VAR: 'safe-value',
+            },
+            tags: ['test'],
+          },
+        ],
+        addServers: true,
+      });
+
+      const result = await runner.runMcpCommand('list', {
+        args: ['--verbose', '--show-secrets'],
+      });
+
+      runner.assertSuccess(result);
+      // Should show actual sensitive values in arguments
+      runner.assertOutputContains(result, '--api-key=sk-1234567890abcdef');
+      runner.assertOutputContains(result, '--token secret123');
+
+      // Should show warning about sensitive information
+      runner.assertOutputContains(result, '⚠️  Sensitive information is being displayed');
+    });
+
+    it('should redact URLs with credentials by default', async () => {
+      // Update config to include HTTP server with credentials in URL
+      await environment.updateConfig({
+        servers: [
+          {
+            name: 'http-server',
+            type: 'http',
+            command: 'http-server', // Required for MockMcpServer interface
+            url: 'https://user:password@api.example.com/v1?token=secret123&data=safe',
+            headers: {
+              Authorization: 'Bearer secret-token',
+              'Content-Type': 'application/json',
+            },
+            tags: ['test'],
+          },
+        ],
+        addServers: true,
+      });
+
+      const result = await runner.runMcpCommand('list', {
+        args: ['--verbose'],
+      });
+
+      runner.assertSuccess(result);
+      // Should redact URL credentials
+      runner.assertOutputContains(result, 'https://REDACTED:REDACTED@api.example.com');
+      runner.assertOutputContains(result, 'token=REDACTED');
+      runner.assertOutputContains(result, 'data=safe'); // Non-sensitive should remain
+    });
+
+    it('should show URLs with credentials when --show-secrets flag is used', async () => {
+      // Update config to include HTTP server with credentials in URL
+      await environment.updateConfig({
+        servers: [
+          {
+            name: 'http-server',
+            type: 'http',
+            command: 'http-server', // Required for MockMcpServer interface
+            url: 'https://apiuser:secretpass@api.example.com/v1?token=abc123',
+            headers: {
+              Authorization: 'Bearer secret-token',
+              'X-API-Key': 'api-key-123',
+            },
+            tags: ['test'],
+          },
+        ],
+        addServers: true,
+      });
+
+      const result = await runner.runMcpCommand('list', {
+        args: ['--verbose', '--show-secrets'],
+      });
+
+      runner.assertSuccess(result);
+      // Should show actual URL with credentials
+      runner.assertOutputContains(result, 'https://apiuser:secretpass@api.example.com');
+      runner.assertOutputContains(result, 'token=abc123');
+
+      // Should show warning about sensitive information
+      runner.assertOutputContains(result, '⚠️  Sensitive information is being displayed');
+    });
+  });
+
   describe('Output Formatting', () => {
     it('should use consistent formatting for server names', async () => {
       const result = await runner.runMcpCommand('list');

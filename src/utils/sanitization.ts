@@ -344,6 +344,174 @@ export function normalizeTag(tag: string): string {
 }
 
 /**
+ * Redacts sensitive values using pattern matching
+ * Identifies and redacts common sensitive patterns like API keys, tokens, passwords
+ *
+ * @param value - The value to check and potentially redact
+ * @returns Redacted value if sensitive patterns are found, otherwise original value
+ */
+export function redactSensitiveValue(value: string): string {
+  if (!value || typeof value !== 'string') {
+    return value;
+  }
+
+  // Define patterns for sensitive data
+  const sensitivePatterns = [
+    /^(sk-|pk-|rk-|ak-)[a-zA-Z0-9]{10,}$/i, // API keys (common prefixes, reduced min length)
+    /^[A-Za-z0-9_-]{32,}$/, // Long tokens/keys (32+ chars, alphanumeric + _-)
+    /^[A-Fa-f0-9]{32,}$/, // Hex tokens (32+ chars)
+    /^ghp_[a-zA-Z0-9]{36}$/, // GitHub personal access tokens
+    /^gho_[a-zA-Z0-9]{36}$/, // GitHub OAuth tokens
+    /^(AKIA|ASIA)[A-Z0-9]{16}$/, // AWS access keys
+    /^[a-zA-Z0-9+/]{40}==$/, // Base64 encoded secrets (common lengths)
+    /^bearer\s+.{10,}$/i, // Bearer tokens
+    /^[a-zA-Z0-9]{64}$/, // 64 character hex tokens
+  ];
+
+  // Check for sensitive patterns
+  const isSensitive = sensitivePatterns.some((pattern) => pattern.test(value));
+
+  if (isSensitive) {
+    return '[REDACTED]';
+  }
+
+  // Check for sensitive environment variable names
+  const envVarName = value.includes('=') ? value.split('=')[0] : '';
+  if (envVarName && isSensitiveEnvVar(envVarName)) {
+    return '[REDACTED]';
+  }
+
+  return value;
+}
+
+/**
+ * Checks if an environment variable name indicates sensitive content
+ *
+ * @param name - The environment variable name to check
+ * @returns True if the name suggests sensitive content
+ */
+function isSensitiveEnvVar(name: string): boolean {
+  const sensitiveEnvPatterns = [
+    /password/i,
+    /secret/i,
+    /key/i,
+    /token/i,
+    /auth/i,
+    /credential/i,
+    /private/i,
+    /api[_-]?key/i,
+    /access[_-]?token/i,
+    /client[_-]?secret/i,
+    /database[_-]?url/i,
+    /db[_-]?url/i,
+    /connection[_-]?string/i,
+  ];
+
+  return sensitiveEnvPatterns.some((pattern) => pattern.test(name));
+}
+
+/**
+ * Redacts sensitive information from command line arguments
+ * Handles both --key=value and --key value formats
+ *
+ * @param args - Array of command line arguments
+ * @returns Array with sensitive values redacted
+ */
+export function redactCommandArgs(args: string[]): string[] {
+  if (!args || !Array.isArray(args)) {
+    return args;
+  }
+
+  const redactedArgs: string[] = [];
+  const sensitiveFlags = [/^-{1,2}(api[_-]?key|token|password|secret|auth|credential|private[_-]?key)$/i];
+
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i];
+
+    // Handle --key=value format
+    if (arg.includes('=')) {
+      const [flag, value] = arg.split('=', 2);
+      const isSensitiveFlag = sensitiveFlags.some((pattern) => pattern.test(flag));
+
+      if (isSensitiveFlag || redactSensitiveValue(value) === '[REDACTED]') {
+        redactedArgs.push(`${flag}=[REDACTED]`);
+      } else {
+        redactedArgs.push(arg);
+      }
+    }
+    // Handle --key value format
+    else if (i < args.length - 1) {
+      const isSensitiveFlag = sensitiveFlags.some((pattern) => pattern.test(arg));
+      const nextArg = args[i + 1];
+
+      if (isSensitiveFlag || (!nextArg.startsWith('-') && redactSensitiveValue(nextArg) === '[REDACTED]')) {
+        redactedArgs.push(arg);
+        redactedArgs.push('[REDACTED]');
+        i++; // Skip the next argument since we processed it
+      } else {
+        redactedArgs.push(arg);
+      }
+    }
+    // Regular argument or flag without value
+    else {
+      redactedArgs.push(arg);
+    }
+  }
+
+  return redactedArgs;
+}
+
+/**
+ * Redacts sensitive information from URLs
+ * Handles basic auth, query parameters with sensitive data
+ *
+ * @param url - The URL to sanitize
+ * @returns URL with sensitive information redacted
+ */
+export function redactUrl(url: string): string {
+  if (!url || typeof url !== 'string') {
+    return url;
+  }
+
+  try {
+    const urlObj = new URL(url);
+
+    // Redact basic authentication
+    if (urlObj.username || urlObj.password) {
+      urlObj.username = 'REDACTED';
+      urlObj.password = 'REDACTED';
+    }
+
+    // Redact sensitive query parameters
+    const sensitiveQueryParams = [/^(api[_-]?key|token|password|secret|auth|access[_-]?token|client[_-]?secret)$/i];
+
+    const params = new URLSearchParams(urlObj.search);
+    let hasChanges = false;
+
+    for (const [key, value] of params.entries()) {
+      const isSensitive =
+        sensitiveQueryParams.some((pattern) => pattern.test(key)) || redactSensitiveValue(value) === '[REDACTED]';
+
+      if (isSensitive) {
+        params.set(key, 'REDACTED');
+        hasChanges = true;
+      }
+    }
+
+    if (hasChanges) {
+      urlObj.search = params.toString();
+    }
+
+    return urlObj.toString();
+  } catch (_error) {
+    // If URL parsing fails, try basic string replacement for common patterns
+    return url
+      .replace(/(https?:\/\/)[^:]+:[^@]+@/i, '$1REDACTED:REDACTED@')
+      .replace(/([?&])(api[_-]?key|token|password|secret|auth)=([^&]*)/gi, '$1$2=REDACTED');
+  }
+}
+
+/**
  * Comprehensive sanitization for server configuration data
  * Applies appropriate sanitization based on the context
  *

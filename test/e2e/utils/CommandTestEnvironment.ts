@@ -26,6 +26,8 @@ export interface MockMcpServer {
   disabled?: boolean;
   type?: 'stdio' | 'http' | 'sse';
   url?: string;
+  env?: Record<string, string>;
+  headers?: Record<string, string>;
 }
 
 /**

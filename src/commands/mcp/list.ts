@@ -2,10 +2,12 @@ import { MCPServerParams } from '../../core/types/index.js';
 import { getAllServers, validateConfigPath, parseTags } from './utils/configUtils.js';
 import { validateTags } from './utils/validation.js';
 import { inferTransportType } from '../../transport/transportFactory.js';
+import { redactCommandArgs, redactUrl, redactSensitiveValue, sanitizeHeaders } from '../../utils/sanitization.js';
 
 export interface ListCommandArgs {
   config?: string;
   'show-disabled'?: boolean;
+  'show-secrets'?: boolean;
   tags?: string;
   verbose?: boolean;
 }
@@ -15,7 +17,13 @@ export interface ListCommandArgs {
  */
 export async function listCommand(argv: ListCommandArgs): Promise<void> {
   try {
-    const { config: configPath, 'show-disabled': showDisabled = false, tags: tagsFilter, verbose = false } = argv;
+    const {
+      config: configPath,
+      'show-disabled': showDisabled = false,
+      'show-secrets': showSecrets = false,
+      tags: tagsFilter,
+      verbose = false,
+    } = argv;
 
     // Validate config path
     validateConfigPath(configPath);
@@ -61,7 +69,7 @@ export async function listCommand(argv: ListCommandArgs): Promise<void> {
 
     for (const serverName of sortedServerNames) {
       const config = filteredServers[serverName];
-      displayServer(serverName, config, verbose);
+      displayServer(serverName, config, verbose, showSecrets);
       console.log(); // Empty line between servers
     }
 
@@ -78,6 +86,10 @@ export async function listCommand(argv: ListCommandArgs): Promise<void> {
 
     if (tagsFilter) {
       console.log(`   Filtered by tags: ${tagsFilter}`);
+    }
+
+    if (showSecrets) {
+      console.log(`\n⚠️  Sensitive information is being displayed. Use with caution.`);
     }
 
     if (!showDisabled && disabledCount > 0) {
@@ -131,7 +143,7 @@ function filterServers(
 /**
  * Display a single server's information
  */
-function displayServer(name: string, config: MCPServerParams, verbose: boolean): void {
+function displayServer(name: string, config: MCPServerParams, verbose: boolean, showSecrets: boolean = false): void {
   const statusIcon = config.disabled ? '🔴' : '🟢';
   const statusText = config.disabled ? 'Disabled' : 'Enabled';
 
@@ -146,7 +158,8 @@ function displayServer(name: string, config: MCPServerParams, verbose: boolean):
   if (inferredConfig.type === 'stdio') {
     console.log(`   Command: ${inferredConfig.command}`);
     if (inferredConfig.args && inferredConfig.args.length > 0) {
-      console.log(`   Args: ${inferredConfig.args.join(' ')}`);
+      const displayArgs = showSecrets ? inferredConfig.args : redactCommandArgs(inferredConfig.args);
+      console.log(`   Args: ${displayArgs.join(' ')}`);
     }
     if (inferredConfig.cwd) {
       console.log(`   Working Directory: ${inferredConfig.cwd}`);
@@ -164,13 +177,15 @@ function displayServer(name: string, config: MCPServerParams, verbose: boolean):
       console.log(`   Restart Delay: ${delay}ms`);
     }
   } else if (inferredConfig.type === 'http' || inferredConfig.type === 'sse') {
-    console.log(`   URL: ${inferredConfig.url}`);
+    const displayUrl = showSecrets ? inferredConfig.url || '' : redactUrl(inferredConfig.url || '');
+    console.log(`   URL: ${displayUrl}`);
     if (inferredConfig.headers && Object.keys(inferredConfig.headers).length > 0) {
       const headerCount = Object.keys(inferredConfig.headers).length;
       console.log(`   Headers: ${headerCount} header${headerCount === 1 ? '' : 's'}`);
 
       if (verbose) {
-        for (const [key, value] of Object.entries(inferredConfig.headers)) {
+        const displayHeaders = showSecrets ? inferredConfig.headers : sanitizeHeaders(inferredConfig.headers);
+        for (const [key, value] of Object.entries(displayHeaders)) {
           console.log(`     ${key}: ${value}`);
         }
       }
@@ -192,8 +207,7 @@ function displayServer(name: string, config: MCPServerParams, verbose: boolean):
 
     if (verbose) {
       for (const [key, value] of Object.entries(inferredConfig.env)) {
-        // Don't show full values of environment variables for security
-        const displayValue = value.length > 20 ? `${value.substring(0, 20)}...` : value;
+        const displayValue = showSecrets ? value : redactSensitiveValue(value);
         console.log(`     ${key}=${displayValue}`);
       }
     }

@@ -10,6 +10,9 @@ import {
   validateAndSanitizeTag,
   validateAndSanitizeTags,
   normalizeTag,
+  redactSensitiveValue,
+  redactCommandArgs,
+  redactUrl,
 } from './sanitization.js';
 
 describe('escapeHtml', () => {
@@ -435,5 +438,195 @@ describe('normalizeTag', () => {
   it('should preserve special characters after normalization', () => {
     expect(normalizeTag('Web&Api')).toBe('web&api');
     expect(normalizeTag('Mobile,Responsive')).toBe('mobile,responsive');
+  });
+});
+
+describe('redactSensitiveValue', () => {
+  it('should redact API keys with common prefixes', () => {
+    expect(redactSensitiveValue('sk-1234567890abcdef')).toBe('[REDACTED]');
+    expect(redactSensitiveValue('pk-abcdef1234567890')).toBe('[REDACTED]');
+    expect(redactSensitiveValue('ak-xyz123456789012')).toBe('[REDACTED]');
+    expect(redactSensitiveValue('rk-def456789012abc')).toBe('[REDACTED]');
+  });
+
+  it('should redact GitHub tokens', () => {
+    expect(redactSensitiveValue('ghp_1234567890abcdef1234567890abcdef123456')).toBe('[REDACTED]');
+    expect(redactSensitiveValue('gho_1234567890abcdef1234567890abcdef123456')).toBe('[REDACTED]');
+  });
+
+  it('should redact AWS access keys', () => {
+    expect(redactSensitiveValue('AKIA1234567890ABCDEF')).toBe('[REDACTED]');
+    expect(redactSensitiveValue('ASIA1234567890ABCDEF')).toBe('[REDACTED]');
+  });
+
+  it('should redact long tokens', () => {
+    expect(redactSensitiveValue('a'.repeat(32))).toBe('[REDACTED]');
+    expect(redactSensitiveValue('A1b2C3d4E5f6'.repeat(6))).toBe('[REDACTED]'); // 72 chars
+  });
+
+  it('should redact hex tokens', () => {
+    expect(redactSensitiveValue('abcdef1234567890'.repeat(2))).toBe('[REDACTED]'); // 32 hex chars
+  });
+
+  it('should redact Bearer tokens', () => {
+    expect(redactSensitiveValue('Bearer token123456789')).toBe('[REDACTED]');
+    expect(redactSensitiveValue('bearer ABC123456789XYZ')).toBe('[REDACTED]');
+  });
+
+  it('should redact base64-like tokens', () => {
+    expect(redactSensitiveValue('YWJjZGVmZ2hpams1Njc4OTAxMjM0NTY3ODkwMTIzNDU2Nzg5')).toBe('[REDACTED]');
+  });
+
+  it('should NOT redact normal values', () => {
+    expect(redactSensitiveValue('hello')).toBe('hello');
+    expect(redactSensitiveValue('my-server')).toBe('my-server');
+    expect(redactSensitiveValue('123')).toBe('123');
+    expect(redactSensitiveValue('short')).toBe('short');
+  });
+
+  it('should handle empty or invalid input', () => {
+    expect(redactSensitiveValue('')).toBe('');
+    expect(redactSensitiveValue(null as any)).toBe(null);
+    expect(redactSensitiveValue(undefined as any)).toBe(undefined);
+  });
+});
+
+describe('redactCommandArgs', () => {
+  it('should redact --key=value format for sensitive flags', () => {
+    const args = ['--api-key=sk-1234567890abcdef', '--host=example.com'];
+    const result = redactCommandArgs(args);
+    expect(result).toEqual(['--api-key=[REDACTED]', '--host=example.com']);
+  });
+
+  it('should redact --key value format for sensitive flags', () => {
+    const args = ['--token', 'abc123456789', '--host', 'example.com'];
+    const result = redactCommandArgs(args);
+    expect(result).toEqual(['--token', '[REDACTED]', '--host', 'example.com']);
+  });
+
+  it('should redact various sensitive flag names', () => {
+    const args = [
+      '--api-key=secret1',
+      '--password=secret2',
+      '--auth=secret3',
+      '--credential=secret4',
+      '--private-key=secret5',
+    ];
+    const result = redactCommandArgs(args);
+    expect(result).toEqual([
+      '--api-key=[REDACTED]',
+      '--password=[REDACTED]',
+      '--auth=[REDACTED]',
+      '--credential=[REDACTED]',
+      '--private-key=[REDACTED]',
+    ]);
+  });
+
+  it('should redact based on value patterns even with non-sensitive flags', () => {
+    const args = ['--config', 'sk-1234567890abcdef', '--debug'];
+    const result = redactCommandArgs(args);
+    expect(result).toEqual(['--config', '[REDACTED]', '--debug']);
+  });
+
+  it('should handle mixed scenarios', () => {
+    const args = [
+      '--api-key=sk-secret123456',
+      '--host',
+      'example.com',
+      '--token',
+      'ghp_1234567890abcdef1234567890abcdef123456',
+      '--verbose',
+    ];
+    const result = redactCommandArgs(args);
+    expect(result).toEqual(['--api-key=[REDACTED]', '--host', 'example.com', '--token', '[REDACTED]', '--verbose']);
+  });
+
+  it('should handle single-dash flags', () => {
+    const args = ['-k', 'secret123', '-h', 'example.com'];
+    const result = redactCommandArgs(args);
+    expect(result).toEqual(['-k', 'secret123', '-h', 'example.com']); // Single dash flags not detected as sensitive
+  });
+
+  it('should handle empty or invalid input', () => {
+    expect(redactCommandArgs([])).toEqual([]);
+    expect(redactCommandArgs(null as any)).toBe(null);
+    expect(redactCommandArgs(undefined as any)).toBe(undefined);
+  });
+
+  it('should preserve non-sensitive arguments', () => {
+    const args = ['--host', 'example.com', '--port', '8080', '--verbose'];
+    const result = redactCommandArgs(args);
+    expect(result).toEqual(['--host', 'example.com', '--port', '8080', '--verbose']);
+  });
+});
+
+describe('redactUrl', () => {
+  it('should redact basic authentication', () => {
+    const url = 'https://user:password@api.example.com/v1';
+    const result = redactUrl(url);
+    expect(result).toBe('https://REDACTED:REDACTED@api.example.com/v1');
+  });
+
+  it('should redact sensitive query parameters', () => {
+    const url = 'https://api.example.com/v1?api_key=secret123&token=abc456&data=safe';
+    const result = redactUrl(url);
+    expect(result).toBe('https://api.example.com/v1?api_key=REDACTED&token=REDACTED&data=safe');
+  });
+
+  it('should redact both auth and query parameters', () => {
+    const url = 'https://user:pass@api.example.com/v1?token=secret&safe=value';
+    const result = redactUrl(url);
+    expect(result).toBe('https://REDACTED:REDACTED@api.example.com/v1?token=REDACTED&safe=value');
+  });
+
+  it('should handle various sensitive parameter names', () => {
+    const url = 'https://api.com/v1?api-key=s1&access_token=s2&client_secret=s3&password=s4&auth=s5&normal=safe';
+    const result = redactUrl(url);
+    expect(result).toBe(
+      'https://api.com/v1?api-key=REDACTED&access_token=REDACTED&client_secret=REDACTED&password=REDACTED&auth=REDACTED&normal=safe',
+    );
+  });
+
+  it('should redact based on sensitive values in parameters', () => {
+    const url = 'https://api.example.com/v1?config=sk-1234567890abcdef&data=normal';
+    const result = redactUrl(url);
+    expect(result).toBe('https://api.example.com/v1?config=REDACTED&data=normal');
+  });
+
+  it('should preserve non-sensitive URLs', () => {
+    const url = 'https://api.example.com/v1?page=1&limit=10&sort=name';
+    const result = redactUrl(url);
+    expect(result).toBe('https://api.example.com/v1?page=1&limit=10&sort=name');
+  });
+
+  it('should handle malformed URLs with fallback patterns', () => {
+    const url = 'not-a-url://user:password@host?api_key=secret';
+    const result = redactUrl(url);
+    expect(result).toBe('not-a-url://REDACTED:REDACTED@host?api_key=REDACTED');
+  });
+
+  it('should handle URLs without protocols', () => {
+    const url = 'user:password@host.com/path?token=secret';
+    const result = redactUrl(url);
+    // This will fail URL parsing and fall back to regex
+    expect(result).toBe('user:password@host.com/path?token=REDACTED');
+  });
+
+  it('should handle empty or invalid input', () => {
+    expect(redactUrl('')).toBe('');
+    expect(redactUrl(null as any)).toBe(null);
+    expect(redactUrl(undefined as any)).toBe(undefined);
+  });
+
+  it('should handle URLs with only basic auth', () => {
+    const url = 'https://apikey:secret@api.example.com/';
+    const result = redactUrl(url);
+    expect(result).toBe('https://REDACTED:REDACTED@api.example.com/');
+  });
+
+  it('should handle URLs with only query parameters', () => {
+    const url = 'https://api.example.com/v1?secret=abc123&normal=value';
+    const result = redactUrl(url);
+    expect(result).toBe('https://api.example.com/v1?secret=REDACTED&normal=value');
   });
 });
