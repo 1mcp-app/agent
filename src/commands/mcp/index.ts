@@ -382,7 +382,7 @@ export function setupMcpCommands(yargs: Argv): Argv {
                 default: 'table',
               })
               .example([
-                ['$0 mcp tokens', 'Estimate tokens for all MCP servers'],
+                ['$0 mcp tokens', 'Estimate tokens for all MCP servers by connecting to them'],
                 [
                   '$0 mcp tokens --tag-filter="context7 or playwright"',
                   'Estimate tokens for servers with specific tags',

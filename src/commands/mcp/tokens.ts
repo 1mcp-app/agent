@@ -4,6 +4,7 @@ import { TokenEstimationService, type ServerTokenEstimate } from '../../services
 import { TagQueryParser, type TagExpression } from '../../utils/tagQueryParser.js';
 import { loadConfig, type ServerConfig } from './utils/configUtils.js';
 import type { MCPServerParams } from '../../core/types/index.js';
+import { McpConnectionHelper } from './utils/connectionHelper.js';
 
 interface TokensCommandArgs {
   config?: string;
@@ -53,7 +54,7 @@ function formatTableOutput(estimates: ServerTokenEstimate[], stats: any): void {
       if (est.breakdown.tools.length > 0) {
         console.log(`${est.serverName} (Connected):`);
         est.breakdown.tools.forEach((tool) => {
-          const desc = tool.description ? ` - ${tool.description}` : '';
+          const desc = tool.description ? ` - ${tool.description.slice(0, 50)}...` : '';
           console.log(`├── ${tool.name}: ~${tool.tokens} tokens${desc}`);
         });
         const toolTotal = est.breakdown.tools.reduce((sum, tool) => sum + tool.tokens, 0);
@@ -203,107 +204,47 @@ function formatSummaryOutput(estimates: ServerTokenEstimate[], stats: any): void
 }
 
 /**
- * Mock server capabilities collection for token estimation
- * In a real implementation, this would connect to servers and query their capabilities
+ * Connect to MCP servers and collect their capabilities for token estimation
  */
 async function collectServerCapabilities(
   serverConfigs: Array<{ name: string } & MCPServerParams>,
-  _tagExpression?: TagExpression,
 ): Promise<ServerTokenEstimate[]> {
   const tokenService = new TokenEstimationService();
-  const estimates: ServerTokenEstimate[] = [];
+  const connectionHelper = new McpConnectionHelper();
 
   try {
+    logger.debug(`Connecting to ${serverConfigs.length} MCP servers for capability discovery`);
+
+    // Convert to server configuration format expected by connection helper
+    const servers: Record<string, MCPServerParams> = {};
     for (const config of serverConfigs) {
-      logger.debug(`Collecting capabilities for server: ${config.name}`);
-
-      try {
-        // For now, we'll simulate the capability discovery since we can't easily connect to servers
-        // In a full implementation, this would establish temporary connections to query capabilities
-
-        // Mock capabilities based on server configuration hints
-        const mockTools: any[] = [];
-        const mockResources: any[] = [];
-        const mockPrompts: any[] = [];
-
-        // Add some mock capabilities for demonstration
-        if (config.tags?.includes('ai') || config.tags?.includes('context7')) {
-          mockTools.push({
-            name: 'get-library-docs',
-            description: 'Get documentation for a library',
-            inputSchema: {
-              type: 'object' as const,
-              properties: {
-                library: { type: 'string' as const, description: 'Library name' },
-              },
-            },
-          });
-          mockTools.push({
-            name: 'resolve-library-id',
-            description: 'Resolve library ID',
-            inputSchema: {
-              type: 'object' as const,
-              properties: {
-                name: { type: 'string' as const, description: 'Library name' },
-              },
-            },
-          });
-        }
-
-        if (config.tags?.includes('playwright') || config.tags?.includes('automation')) {
-          mockTools.push({
-            name: 'navigate',
-            description: 'Navigate to a URL',
-            inputSchema: {
-              type: 'object' as const,
-              properties: {
-                url: { type: 'string' as const, description: 'URL to navigate to' },
-              },
-            },
-          });
-          mockTools.push({
-            name: 'click',
-            description: 'Click an element',
-            inputSchema: {
-              type: 'object' as const,
-              properties: {
-                selector: { type: 'string' as const, description: 'CSS selector' },
-              },
-            },
-          });
-        }
-
-        // Estimate tokens for this server
-        const estimate = tokenService.estimateServerTokens(
-          config.name,
-          mockTools,
-          mockResources,
-          mockPrompts,
-          true, // Assume connected for demonstration
-        );
-
-        estimates.push(estimate);
-      } catch (error) {
-        logger.warn(`Error collecting capabilities for server ${config.name}:`, error);
-        estimates.push({
-          serverName: config.name,
-          connected: false,
-          breakdown: {
-            tools: [],
-            resources: [],
-            prompts: [],
-            serverOverhead: 75,
-            totalTokens: 75,
-          },
-          error: error instanceof Error ? error.message : 'Connection failed',
-        });
-      }
+      const { name, ...serverParams } = config;
+      servers[name] = serverParams;
     }
+
+    // Connect to all servers and get their capabilities
+    const serverCapabilities = await connectionHelper.connectToServers(servers, 15000); // 15s timeout
+
+    // Convert server capabilities to token estimates
+    const estimates: ServerTokenEstimate[] = serverCapabilities.map((capability) => {
+      return tokenService.estimateServerTokens(
+        capability.serverName,
+        capability.tools,
+        capability.resources,
+        capability.prompts,
+        capability.connected,
+      );
+    });
+
+    return estimates;
+  } catch (error) {
+    logger.error('Error collecting server capabilities:', error);
+    throw error;
   } finally {
+    // Clean up connections
+    await connectionHelper.cleanup();
     tokenService.dispose();
   }
-
-  return estimates;
 }
 
 /**
@@ -363,14 +304,14 @@ export async function tokensCommand(argv: Arguments<TokensCommandArgs>): Promise
       return;
     }
 
-    // Only show analyzing message for non-JSON formats
+    // Only show connecting message for non-JSON formats
     const format = argv.format || 'table';
     if (format !== 'json') {
-      console.log(`Analyzing ${serverConfigs.length} MCP server(s) for token estimation...`);
+      console.log(`Connecting to ${serverConfigs.length} MCP server(s) to analyze token usage...`);
     }
 
     // Collect server capabilities and estimate tokens
-    const estimates = await collectServerCapabilities(serverConfigs, tagExpression);
+    const estimates = await collectServerCapabilities(serverConfigs);
 
     // Calculate aggregate statistics
     const tokenService = new TokenEstimationService();

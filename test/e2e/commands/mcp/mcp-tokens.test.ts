@@ -93,9 +93,9 @@ describe('mcp tokens command', () => {
     });
   });
 
-  describe('with mock servers', () => {
+  describe('with test servers', () => {
     beforeEach(async () => {
-      // Create a test configuration with mock servers
+      // Create a test configuration with test servers (these will fail to connect since they're not real MCP servers)
       const testConfig: ServerConfig = {
         mcpServers: {
           'test-server-1': {
@@ -130,12 +130,12 @@ describe('mcp tokens command', () => {
       await fs.writeFile(tempConfigFile, JSON.stringify(testConfig, null, 2));
     });
 
-    it('should analyze all servers by default', async () => {
+    it('should try to connect to all servers by default', async () => {
       const result = runCli(`mcp tokens --config="${tempConfigFile}"`);
 
       expect(result.exitCode).toBe(0);
-      expect(result.stdout).toContain('Analyzing');
-      expect(result.stdout).toContain('MCP server(s) for token estimation');
+      expect(result.stdout).toContain('Connecting to');
+      expect(result.stdout).toContain('MCP server(s) to analyze token usage');
       expect(result.stdout).toContain('MCP Server Token Estimates');
     });
 
@@ -143,8 +143,8 @@ describe('mcp tokens command', () => {
       const result = runCli(`mcp tokens --config="${tempConfigFile}" --tag-filter="ai or playwright"`);
 
       expect(result.exitCode).toBe(0);
-      expect(result.stdout).toContain('Analyzing');
-      expect(result.stdout).toContain('MCP server(s) for token estimation');
+      expect(result.stdout).toContain('Connecting to');
+      expect(result.stdout).toContain('MCP server(s) to analyze token usage');
       // Should analyze servers with 'ai' or 'playwright' tags
       expect(result.stdout).toContain('MCP Server Token Estimates');
     });
@@ -198,8 +198,8 @@ describe('mcp tokens command', () => {
       const result = runCli(`mcp tokens --config="${tempConfigFile}" --tag-filter="(ai or playwright) and test"`);
 
       expect(result.exitCode).toBe(0);
-      expect(result.stdout).toContain('Analyzing');
-      expect(result.stdout).toContain('MCP server(s) for token estimation');
+      expect(result.stdout).toContain('Connecting to');
+      expect(result.stdout).toContain('MCP server(s) to analyze token usage');
     });
   });
 
