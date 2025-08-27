@@ -18,8 +18,11 @@ npx -y @1mcp/agent mcp list [options]
 - **`--show-disabled`**
   - 在列表中包括禁用的服务器。
 
-- **环境变量 `ONE_MCP_LOG_LEVEL=debug`**
-  - 设置 `ONE_MCP_LOG_LEVEL=debug` 以显示详细信息，包括命令/URL、参数和环境变量。
+- **`--show-secrets`**
+  - 显示敏感信息，如命令参数、URL 和环境变量。默认情况下，敏感数据会被隐藏以确保安全。
+
+- **`--verbose`**
+  - 显示详细信息，包括请求头和环境变量。
 
 ## 示例
 
@@ -30,11 +33,14 @@ npx -y @1mcp/agent mcp list
 # 列出所有服务器，包括禁用的服务器
 npx -y @1mcp/agent mcp list --show-disabled
 
-# 列出所有带有“prod”标签的服务器
+# 列出所有带有"prod"标签的服务器
 npx -y @1mcp/agent mcp list --tags=prod
 
-# 显示所有服务器的详细信息
-ONE_MCP_LOG_LEVEL=debug npx -y @1mcp/agent mcp list
+# 显示所有服务器的详细信息（详细模式）
+npx -y @1mcp/agent mcp list --verbose
+
+# 显示包括敏感数据在内的详细信息
+npx -y @1mcp/agent mcp list --verbose --show-secrets
 ```
 
 ## 另请参阅
