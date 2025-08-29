@@ -188,7 +188,7 @@ jobs:
           images: ghcr.io/${{ github.repository }}
           tags: |
             type=sha,format=long,suffix=-lite
-            type=raw,value=lite,enable={{is_default_branch}}
+            type=raw,value=lite
             type=semver,pattern=v{{version}}-lite
             type=semver,pattern=v{{major}}.{{minor}}-lite
             type=semver,pattern=v{{major}}-lite
@@ -200,7 +200,7 @@ jobs:
           images: ghcr.io/${{ github.repository }}
           tags: |
             type=sha,format=long
-            type=raw,value=latest,enable={{is_default_branch}}
+            type=raw,value=latest
             type=semver,pattern=v{{version}}
             type=semver,pattern=v{{major}}.{{minor}}
             type=semver,pattern=v{{major}}
