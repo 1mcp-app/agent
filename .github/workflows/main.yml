@@ -245,3 +245,89 @@ jobs:
           platforms: linux/amd64,linux/arm64
           provenance: true
           sbom: true
+
+  binaries:
+    runs-on: ${{ matrix.os }}
+    if: startsWith(github.ref, 'refs/tags/v')
+    environment: release
+    needs: build
+
+    permissions:
+      contents: write
+
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            platform: linux
+            script: sea:binary:linux
+            artifact: 1mcp-linux-x64
+          - os: windows-latest
+            platform: win32
+            script: sea:binary:win
+            artifact: 1mcp-win32-x64.exe
+          - os: macos-latest
+            platform: darwin
+            script: sea:binary:macos
+            artifact: 1mcp-darwin-arm64
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: latest
+          run_install: false
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: .node-version
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build and create SEA binary
+        run: pnpm build:binaries
+
+      - name: Rename binary to artifact name
+        run: |
+          if [ "${{ matrix.platform }}" = "win32" ]; then
+            mv 1mcp.exe ${{ matrix.artifact }}
+          else
+            mv 1mcp ${{ matrix.artifact }}
+          fi
+        shell: bash
+
+      - name: Upload binary artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: ${{ matrix.artifact }}
+          retention-days: 1
+
+  release-binaries:
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v')
+    environment: release
+    needs: binaries
+
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download all binary artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: binaries/
+
+      - name: Attach binaries to release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: binaries/*/*
+          tag_name: ${{ github.ref_name }}
+          token: ${{ secrets.GITHUB_TOKEN }}
