@@ -66,7 +66,7 @@ jobs:
     runs-on: ubuntu-latest
     if: startsWith(github.ref, 'refs/tags/v')
     environment: release
-    needs: build
+    needs: [build, binaries]
 
     permissions:
       contents: write
@@ -142,16 +142,22 @@ jobs:
         uses: orhun/git-cliff-action@v4
         id: git-cliff
         with:
-          config: cliff.toml
+          config: cliff-release.toml
           args: -vv --latest --strip header
         env:
           GITHUB_REPO: ${{ github.repository }}
+
+      - name: Download all binary artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: binaries/
 
       - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
           name: Release ${{ github.ref_name }}
           body: ${{ steps.git-cliff.outputs.content }}
+          files: binaries/*/*
           draft: false
           prerelease: false
           token: ${{ secrets.GITHUB_TOKEN }}
@@ -307,27 +313,3 @@ jobs:
           name: ${{ matrix.artifact }}
           path: ${{ matrix.artifact }}
           retention-days: 1
-
-  release-binaries:
-    runs-on: ubuntu-latest
-    if: startsWith(github.ref, 'refs/tags/v')
-    environment: release
-    needs: binaries
-
-    permissions:
-      contents: write
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Download all binary artifacts
-        uses: actions/download-artifact@v4
-        with:
-          path: binaries/
-
-      - name: Attach binaries to release
-        uses: softprops/action-gh-release@v2
-        with:
-          files: binaries/*/*
-          tag_name: ${{ github.ref_name }}
-          token: ${{ secrets.GITHUB_TOKEN }}
