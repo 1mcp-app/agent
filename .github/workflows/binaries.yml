@@ -1,0 +1,61 @@
+name: Binaries
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  HUSKY: 0
+
+jobs:
+  binaries:
+    runs-on: ${{ matrix.os }}
+    environment: release
+    permissions:
+      contents: write
+
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            platform: linux
+            script: sea:binary:linux
+            artifact: 1mcp-linux-x64
+          - os: windows-latest
+            platform: win32
+            script: sea:binary:win
+            artifact: 1mcp-win32-x64.exe
+          - os: macos-latest
+            platform: darwin
+            script: sea:binary:macos
+            artifact: 1mcp-darwin-arm64
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js and pnpm
+        uses: ./.github/actions/setup-node-pnpm
+
+      - name: Build and create SEA binary
+        run: pnpm build:binaries
+
+      - name: Rename binary to artifact name
+        run: |
+          if [ "${{ matrix.platform }}" = "win32" ]; then
+            mv 1mcp.exe ${{ matrix.artifact }}
+          else
+            mv 1mcp ${{ matrix.artifact }}
+          fi
+        shell: bash
+
+      - name: Upload binary artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: ${{ matrix.artifact }}
+          retention-days: 1

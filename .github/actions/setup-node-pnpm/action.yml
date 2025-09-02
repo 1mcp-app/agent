@@ -1,0 +1,31 @@
+name: 'Setup Node.js and pnpm'
+description: 'Reusable setup for Node.js and pnpm with dependency installation'
+inputs:
+  registry-url:
+    description: 'Registry URL for npm'
+    required: false
+    default: 'https://registry.npmjs.org'
+  install-deps:
+    description: 'Whether to install dependencies'
+    required: false
+    default: 'true'
+runs:
+  using: composite
+  steps:
+    - name: Setup pnpm
+      uses: pnpm/action-setup@v4
+      with:
+        version: latest
+        run_install: false
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version-file: .node-version
+        cache: pnpm
+        registry-url: ${{ inputs.registry-url }}
+
+    - name: Install dependencies
+      if: inputs.install-deps == 'true'
+      run: pnpm install --frozen-lockfile
+      shell: bash
