@@ -8,6 +8,8 @@ import { AgentConfigManager } from './core/server/agentConfig.js';
 import configReloadService from './services/configReloadService.js';
 import { McpLoadingManager } from './core/loading/mcpLoadingManager.js';
 import { AsyncLoadingOrchestrator } from './core/capabilities/asyncLoadingOrchestrator.js';
+import { PresetManager } from './utils/presetManager.js';
+import { PresetNotificationService } from './utils/presetNotificationService.js';
 
 /**
  * Result of server setup including both sync and async components
@@ -32,6 +34,9 @@ async function setupServer(): Promise<ServerSetupResult> {
     const mcpConfig = McpConfigManager.getInstance().getTransportConfig();
     const agentConfig = AgentConfigManager.getInstance();
     const asyncLoadingEnabled = agentConfig.isAsyncLoadingEnabled();
+
+    // Initialize preset management system
+    await initializePresetSystem();
 
     // Create transports from configuration
     const transports = createTransports(mcpConfig);
@@ -130,6 +135,31 @@ async function setupServerSync(transports: Record<string, any>): Promise<ServerS
     loadingManager,
     loadingPromise,
   };
+}
+
+/**
+ * Initialize the preset management system
+ */
+async function initializePresetSystem(): Promise<void> {
+  try {
+    // Initialize preset manager with file watching
+    const presetManager = PresetManager.getInstance();
+    await presetManager.initialize();
+
+    // Initialize notification service
+    const notificationService = PresetNotificationService.getInstance();
+
+    // Connect preset changes to client notifications
+    presetManager.onPresetChange(async (presetName: string) => {
+      logger.debug('Preset changed, sending notifications', { presetName });
+      await notificationService.notifyPresetChange(presetName);
+    });
+
+    logger.info('Preset management system initialized successfully');
+  } catch (error) {
+    logger.error('Failed to initialize preset system', { error });
+    throw error;
+  }
 }
 
 /**

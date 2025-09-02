@@ -17,6 +17,7 @@ import { PORT, HOST } from './constants.js';
 import { displayLogo } from './utils/logo.js';
 import { setupAppCommands } from './commands/app/index.js';
 import { setupMcpCommands } from './commands/mcp/index.js';
+import { setupSelectCommand } from './commands/select.js';
 import { McpLoadingManager } from './core/loading/mcpLoadingManager.js';
 import { TagQueryParser, TagExpression } from './utils/tagQueryParser.js';
 
@@ -162,6 +163,7 @@ yargsInstance = yargsInstance
 // Register command groups (these will have clean option lists without server options)
 yargsInstance = setupAppCommands(yargsInstance);
 yargsInstance = setupMcpCommands(yargsInstance);
+yargsInstance = setupSelectCommand(yargsInstance);
 
 /**
  * Set up graceful shutdown handling
@@ -221,7 +223,7 @@ function setupGracefulShutdown(
  * Check if the command is a CLI command that should not start the server
  */
 function isCliCommand(argv: string[]): boolean {
-  return argv.length >= 3 && (argv[2] === 'app' || argv[2] === 'mcp');
+  return argv.length >= 3 && (argv[2] === 'app' || argv[2] === 'mcp' || argv[2] === 'select');
 }
 
 /**
