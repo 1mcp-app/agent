@@ -223,7 +223,9 @@ async function collectServerCapabilities(
     }
 
     // Connect to all servers and get their capabilities
-    const serverCapabilities = await connectionHelper.connectToServers(servers, 15000); // 15s timeout
+    // Use shorter timeout for tests to improve performance
+    const timeout = process.env.NODE_ENV === 'test' ? 500 : 15000; // 0.5s for tests, 15s for normal use
+    const serverCapabilities = await connectionHelper.connectToServers(servers, timeout);
 
     // Convert server capabilities to token estimates
     const estimates: ServerTokenEstimate[] = serverCapabilities.map((capability) => {

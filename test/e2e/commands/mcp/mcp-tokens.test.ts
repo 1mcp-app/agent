@@ -42,8 +42,10 @@ describe('mcp tokens command', () => {
   let tempConfigFile: string;
 
   beforeEach(async () => {
-    // Create a temporary directory for test configuration
-    tempDir = await fs.mkdtemp(path.join(process.cwd(), 'test-temp-tokens-'));
+    // Create a temporary directory for test configuration in build/ folder
+    const buildDir = path.join(process.cwd(), 'build');
+    await fs.mkdir(buildDir, { recursive: true });
+    tempDir = await fs.mkdtemp(path.join(buildDir, 'test-temp-tokens-'));
     tempConfigFile = path.join(tempDir, 'test-config.json');
   });
 
@@ -95,34 +97,34 @@ describe('mcp tokens command', () => {
 
   describe('with test servers', () => {
     beforeEach(async () => {
-      // Create a test configuration with test servers (these will fail to connect since they're not real MCP servers)
+      // Create a test configuration with test servers that fail fast
       const testConfig: ServerConfig = {
         mcpServers: {
           'test-server-1': {
-            command: 'echo',
-            args: ['Hello from test server 1'],
+            command: 'nonexistent-command-for-testing', // Command that doesn't exist for fast fail
+            args: [],
             tags: ['test', 'ai', 'development'],
             env: {
               TEST_ENV: 'test1',
             },
           },
           'test-server-2': {
-            command: 'echo',
-            args: ['Hello from test server 2'],
+            command: 'nonexistent-command-for-testing', // Command that doesn't exist for fast fail
+            args: [],
             tags: ['test', 'playwright', 'automation'],
             env: {
               TEST_ENV: 'test2',
             },
           },
           'disabled-server': {
-            command: 'echo',
-            args: ['Hello from disabled server'],
+            command: 'nonexistent-command-for-testing',
+            args: [],
             tags: ['test', 'disabled'],
             disabled: true,
           },
           'untagged-server': {
-            command: 'echo',
-            args: ['Hello from untagged server'],
+            command: 'nonexistent-command-for-testing',
+            args: [],
           },
         },
       };
@@ -136,7 +138,8 @@ describe('mcp tokens command', () => {
       expect(result.exitCode).toBe(0);
       expect(result.stdout).toContain('Connecting to');
       expect(result.stdout).toContain('MCP server(s) to analyze token usage');
-      expect(result.stdout).toContain('MCP Server Token Estimates');
+      // Should show no connected servers since all fail
+      expect(result.stdout).toContain('No connected MCP servers found');
     });
 
     it('should filter servers by tag expression', async () => {
@@ -145,8 +148,8 @@ describe('mcp tokens command', () => {
       expect(result.exitCode).toBe(0);
       expect(result.stdout).toContain('Connecting to');
       expect(result.stdout).toContain('MCP server(s) to analyze token usage');
-      // Should analyze servers with 'ai' or 'playwright' tags
-      expect(result.stdout).toContain('MCP Server Token Estimates');
+      // Should show connection attempts for filtered servers
+      expect(result.stdout).toContain('No connected MCP servers found');
     });
 
     it('should handle empty tag filter results', async () => {
@@ -175,6 +178,9 @@ describe('mcp tokens command', () => {
       expect(parsedOutput.summary).toHaveProperty('connectedServers');
       expect(parsedOutput.summary).toHaveProperty('overallTokens');
       expect(Array.isArray(parsedOutput.servers)).toBe(true);
+      // All test servers should fail connection
+      expect(parsedOutput.summary.connectedServers).toBe(0);
+      expect(parsedOutput.summary.overallTokens).toBe(0);
     });
 
     it('should output in summary format', async () => {
@@ -182,9 +188,9 @@ describe('mcp tokens command', () => {
 
       expect(result.exitCode).toBe(0);
       expect(result.stdout).toContain('MCP Token Usage Summary:');
-      expect(result.stdout).toContain('Connected Servers:');
-      expect(result.stdout).toContain('Total Capabilities:');
-      expect(result.stdout).toContain('Estimated Token Usage:');
+      expect(result.stdout).toContain('Connected Servers: 0/');
+      expect(result.stdout).toContain('Total Capabilities: 0');
+      expect(result.stdout).toContain('Estimated Token Usage: ~0 tokens');
     });
 
     it('should handle invalid tag filter syntax', async () => {
@@ -200,6 +206,7 @@ describe('mcp tokens command', () => {
       expect(result.exitCode).toBe(0);
       expect(result.stdout).toContain('Connecting to');
       expect(result.stdout).toContain('MCP server(s) to analyze token usage');
+      expect(result.stdout).toContain('No connected MCP servers found');
     });
   });
 
@@ -208,8 +215,8 @@ describe('mcp tokens command', () => {
       const minimalConfig: ServerConfig = {
         mcpServers: {
           'minimal-server': {
-            command: 'echo',
-            args: ['minimal test'],
+            command: 'nonexistent-command-for-testing', // Fast-failing command
+            args: [],
             tags: ['minimal'],
           },
         },
@@ -222,7 +229,7 @@ describe('mcp tokens command', () => {
       const result = runCli(`mcp tokens --config="${tempConfigFile}"`);
 
       expect(result.exitCode).toBe(0);
-      expect(result.stdout).toContain('MCP Server Token Estimates');
+      expect(result.stdout).toContain('No connected MCP servers found');
       // Should not be JSON format
       expect(() => JSON.parse(result.stdout)).toThrow();
     });
@@ -250,18 +257,18 @@ describe('mcp tokens command', () => {
       const taggedConfig: ServerConfig = {
         mcpServers: {
           'server-a': {
-            command: 'echo',
-            args: ['server a'],
+            command: 'nonexistent-command-for-testing', // Fast-failing command
+            args: [],
             tags: ['frontend', 'react', 'development'],
           },
           'server-b': {
-            command: 'echo',
-            args: ['server b'],
+            command: 'nonexistent-command-for-testing',
+            args: [],
             tags: ['backend', 'api', 'production'],
           },
           'server-c': {
-            command: 'echo',
-            args: ['server c'],
+            command: 'nonexistent-command-for-testing',
+            args: [],
             tags: ['database', 'production'],
           },
         },
@@ -274,28 +281,28 @@ describe('mcp tokens command', () => {
       const result = runCli(`mcp tokens --config="${tempConfigFile}" --tag-filter="production"`);
 
       expect(result.exitCode).toBe(0);
-      expect(result.stdout).toContain('Analyzing');
+      expect(result.stdout).toContain('Connecting to 2 MCP server(s)');
     });
 
     it('should support OR expressions', async () => {
       const result = runCli(`mcp tokens --config="${tempConfigFile}" --tag-filter="frontend or backend"`);
 
       expect(result.exitCode).toBe(0);
-      expect(result.stdout).toContain('Analyzing');
+      expect(result.stdout).toContain('Connecting to 2 MCP server(s)');
     });
 
     it('should support AND expressions', async () => {
       const result = runCli(`mcp tokens --config="${tempConfigFile}" --tag-filter="api and production"`);
 
       expect(result.exitCode).toBe(0);
-      expect(result.stdout).toContain('Analyzing');
+      expect(result.stdout).toContain('Connecting to 1 MCP server(s)');
     });
 
     it('should support NOT expressions', async () => {
       const result = runCli(`mcp tokens --config="${tempConfigFile}" --tag-filter="not development"`);
 
       expect(result.exitCode).toBe(0);
-      expect(result.stdout).toContain('Analyzing');
+      expect(result.stdout).toContain('Connecting to 2 MCP server(s)');
     });
 
     it('should support complex expressions with parentheses', async () => {
@@ -304,7 +311,7 @@ describe('mcp tokens command', () => {
       );
 
       expect(result.exitCode).toBe(0);
-      expect(result.stdout).toContain('Analyzing');
+      expect(result.stdout).toContain('Connecting to 1 MCP server(s)');
     });
   });
 
@@ -343,8 +350,8 @@ describe('mcp tokens command', () => {
       const minimalConfig: ServerConfig = {
         mcpServers: {
           minimal: {
-            command: 'echo',
-            args: ['hello'],
+            command: 'nonexistent-command-for-testing',
+            args: [],
           },
         },
       };
@@ -354,15 +361,15 @@ describe('mcp tokens command', () => {
       const result = runCli(`mcp tokens --config="${tempConfigFile}"`);
 
       expect(result.exitCode).toBe(0);
-      expect(result.stdout).toContain('Analyzing 1 MCP server(s)');
+      expect(result.stdout).toContain('Connecting to 1 MCP server(s)');
     });
 
     it('should work with fully configured servers', async () => {
       const fullConfig: ServerConfig = {
         mcpServers: {
           'full-server': {
-            command: 'node',
-            args: ['server.js'],
+            command: 'nonexistent-command-for-testing',
+            args: [],
             cwd: '/app',
             env: {
               NODE_ENV: 'production',
@@ -380,19 +387,19 @@ describe('mcp tokens command', () => {
       const result = runCli(`mcp tokens --config="${tempConfigFile}"`);
 
       expect(result.exitCode).toBe(0);
-      expect(result.stdout).toContain('Analyzing 1 MCP server(s)');
+      expect(result.stdout).toContain('Connecting to 1 MCP server(s)');
     });
 
     it('should skip disabled servers', async () => {
       const configWithDisabled: ServerConfig = {
         mcpServers: {
           'enabled-server': {
-            command: 'echo',
-            args: ['enabled'],
+            command: 'nonexistent-command-for-testing',
+            args: [],
           },
           'disabled-server': {
-            command: 'echo',
-            args: ['disabled'],
+            command: 'nonexistent-command-for-testing',
+            args: [],
             disabled: true,
           },
         },
@@ -403,7 +410,7 @@ describe('mcp tokens command', () => {
       const result = runCli(`mcp tokens --config="${tempConfigFile}"`);
 
       expect(result.exitCode).toBe(0);
-      expect(result.stdout).toContain('Analyzing 1 MCP server(s)');
+      expect(result.stdout).toContain('Connecting to 1 MCP server(s)');
     });
   });
 });
