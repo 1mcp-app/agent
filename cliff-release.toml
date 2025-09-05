@@ -14,11 +14,14 @@ body = """
 ## 📦 Downloads
 
 ### Binary Downloads
-Platform-specific binaries are available for download:
+Compressed archives containing platform-specific binaries:
 
-- **Linux (x64)**: [`1mcp-linux-x64`]({{ self::remote_url() }}/releases/download/v{{ version | trim_start_matches(pat="v") }}/1mcp-linux-x64)
-- **Windows (x64)**: [`1mcp-win32-x64.exe`]({{ self::remote_url() }}/releases/download/v{{ version | trim_start_matches(pat="v") }}/1mcp-win32-x64.exe)
-- **macOS (ARM64)**: [`1mcp-darwin-arm64`]({{ self::remote_url() }}/releases/download/v{{ version | trim_start_matches(pat="v") }}/1mcp-darwin-arm64)
+- **Linux (x64)**: [`1mcp-linux-x64.tar.gz`]({{ self::remote_url() }}/releases/download/v{{ version | trim_start_matches(pat="v") }}/1mcp-linux-x64.tar.gz)
+- **Linux (ARM64)**: [`1mcp-linux-arm64.tar.gz`]({{ self::remote_url() }}/releases/download/v{{ version | trim_start_matches(pat="v") }}/1mcp-linux-arm64.tar.gz)
+- **Windows (x64)**: [`1mcp-win32-x64.zip`]({{ self::remote_url() }}/releases/download/v{{ version | trim_start_matches(pat="v") }}/1mcp-win32-x64.zip)
+- **Windows (ARM64)**: [`1mcp-win32-arm64.zip`]({{ self::remote_url() }}/releases/download/v{{ version | trim_start_matches(pat="v") }}/1mcp-win32-arm64.zip)
+- **macOS (ARM64)**: [`1mcp-darwin-arm64.tar.gz`]({{ self::remote_url() }}/releases/download/v{{ version | trim_start_matches(pat="v") }}/1mcp-darwin-arm64.tar.gz)
+- **macOS (Intel)**: [`1mcp-darwin-x64.tar.gz`]({{ self::remote_url() }}/releases/download/v{{ version | trim_start_matches(pat="v") }}/1mcp-darwin-x64.tar.gz)
 
 ### Docker Images
 ```bash
