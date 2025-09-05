@@ -198,9 +198,18 @@ function formatSummaryOutput(estimates: ServerTokenEstimate[], stats: any): void
     });
   }
 
-  const disconnectedCount = stats.totalServers - stats.connectedServers;
-  if (disconnectedCount > 0) {
-    console.log(`  Note: ${disconnectedCount} server(s) not connected`);
+  // Show disconnected servers with error details if any
+  const disconnectedServers = estimates.filter((est) => !est.connected || est.error);
+  if (disconnectedServers.length > 0) {
+    console.log(`  Note: ${disconnectedServers.length} server(s) not connected`);
+    if (disconnectedServers.some((est) => est.error)) {
+      console.log(`  Errors:`);
+      disconnectedServers
+        .filter((est) => est.error)
+        .forEach((est) => {
+          console.log(`    - ${est.serverName}: ${est.error}`);
+        });
+    }
   }
 }
 
