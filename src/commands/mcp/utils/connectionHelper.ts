@@ -29,34 +29,43 @@ export class McpConnectionHelper {
   ): Promise<ServerCapabilities[]> {
     logger.info(`Connecting to ${Object.keys(servers).length} MCP servers`);
 
+    const serverNames = Object.keys(servers);
+    if (serverNames.length === 0) {
+      return [];
+    }
+
     // Create transports from server configurations
     const transports = createTransports(servers);
     logger.debug(`Created ${Object.keys(transports).length} transports`);
 
     const results: ServerCapabilities[] = [];
 
-    // Connect to servers in parallel with timeout
-    const connectionPromises = Object.keys(servers).map(async (serverName) => {
+    // Connect to servers in parallel with individual timeouts
+    const connectionPromises = serverNames.map(async (serverName) => {
       try {
         logger.debug(`Connecting to server: ${serverName}`);
 
-        // Create clients with timeout
+        // Create a timeout promise
         const timeoutPromise = new Promise<never>((_, reject) => {
-          setTimeout(() => reject(new Error(`Connection timeout after ${timeoutMs}ms`)), timeoutMs);
+          setTimeout(() => {
+            reject(new Error(`Connection timeout after ${timeoutMs}ms`));
+          }, timeoutMs);
         });
 
-        // For now, we'll create a single transport and try to connect
+        // Get transport for this server
         const transport = transports[serverName];
         if (!transport) {
           throw new Error('Transport not found');
         }
 
-        // Create a temporary client manager for this connection
+        // Create clients with timeout
         const tempClientManager = ClientManager.getOrCreateInstance();
         const tempTransports = { [serverName]: transport };
 
         // Connect with timeout
         const connectPromise = tempClientManager.createClients(tempTransports);
+
+        // Race between connection and timeout
         const clients = await Promise.race([connectPromise, timeoutPromise]);
 
         const connection = clients.get(serverName);
@@ -77,22 +86,24 @@ export class McpConnectionHelper {
 
         logger.debug(`Successfully connected to ${serverName}`);
       } catch (error) {
-        logger.warn(`Failed to connect to server ${serverName}: ${error instanceof Error ? error.message : error}`);
+        const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+        logger.warn(`Failed to connect to server ${serverName}: ${errorMessage}`);
         results.push({
           serverName,
           connected: false,
           tools: [],
           resources: [],
           prompts: [],
-          error: error instanceof Error ? error.message : 'Unknown error',
+          error: errorMessage,
         });
       }
     });
 
+    // Wait for all connections to complete (success or failure)
     await Promise.allSettled(connectionPromises);
 
     const connectedCount = results.filter((r) => r.connected).length;
-    logger.info(`Connected to ${connectedCount}/${Object.keys(servers).length} MCP servers`);
+    logger.info(`Connected to ${connectedCount}/${serverNames.length} MCP servers`);
 
     return results;
   }
@@ -113,9 +124,13 @@ export class McpConnectionHelper {
     const prompts: Prompt[] = [];
 
     try {
-      // Get tools
+      // Get tools with timeout
       try {
-        const toolsResult = await connection.client.listTools({});
+        const toolsResult = await Promise.race([
+          connection.client.listTools({}),
+          new Promise<never>((_, reject) => setTimeout(() => reject(new Error('Tools listing timeout')), 5000)),
+        ]);
+
         if (toolsResult && toolsResult.tools) {
           tools.push(...toolsResult.tools);
           logger.debug(`Got ${toolsResult.tools.length} tools from ${serverName}`);
@@ -124,9 +139,13 @@ export class McpConnectionHelper {
         logger.debug(`Failed to get tools from ${serverName}: ${error instanceof Error ? error.message : error}`);
       }
 
-      // Get resources
+      // Get resources with timeout
       try {
-        const resourcesResult = await connection.client.listResources({});
+        const resourcesResult = await Promise.race([
+          connection.client.listResources({}),
+          new Promise<never>((_, reject) => setTimeout(() => reject(new Error('Resources listing timeout')), 5000)),
+        ]);
+
         if (resourcesResult && resourcesResult.resources) {
           resources.push(...resourcesResult.resources);
           logger.debug(`Got ${resourcesResult.resources.length} resources from ${serverName}`);
@@ -135,9 +154,13 @@ export class McpConnectionHelper {
         logger.debug(`Failed to get resources from ${serverName}: ${error instanceof Error ? error.message : error}`);
       }
 
-      // Get prompts
+      // Get prompts with timeout
       try {
-        const promptsResult = await connection.client.listPrompts({});
+        const promptsResult = await Promise.race([
+          connection.client.listPrompts({}),
+          new Promise<never>((_, reject) => setTimeout(() => reject(new Error('Prompts listing timeout')), 5000)),
+        ]);
+
         if (promptsResult && promptsResult.prompts) {
           prompts.push(...promptsResult.prompts);
           logger.debug(`Got ${promptsResult.prompts.length} prompts from ${serverName}`);
@@ -158,17 +181,29 @@ export class McpConnectionHelper {
   async cleanup(): Promise<void> {
     logger.debug('Cleaning up MCP connections');
 
+    const cleanupPromises: Promise<void>[] = [];
+
     for (const [serverName, connection] of this.connections) {
-      try {
-        if (connection.client && typeof connection.client.close === 'function') {
-          await connection.client.close();
+      const cleanupPromise = (async () => {
+        try {
+          if (connection.client && typeof connection.client.close === 'function') {
+            // Add timeout to close operation
+            await Promise.race([
+              connection.client.close(),
+              new Promise<never>((_, reject) => setTimeout(() => reject(new Error('Close operation timeout')), 3000)),
+            ]);
+          }
+          logger.debug(`Closed connection to ${serverName}`);
+        } catch (error) {
+          logger.warn(`Error closing connection to ${serverName}: ${error instanceof Error ? error.message : error}`);
         }
-        logger.debug(`Closed connection to ${serverName}`);
-      } catch (error) {
-        logger.warn(`Error closing connection to ${serverName}: ${error instanceof Error ? error.message : error}`);
-      }
+      })();
+
+      cleanupPromises.push(cleanupPromise);
     }
 
+    // Wait for all cleanup operations to complete
+    await Promise.allSettled(cleanupPromises);
     this.connections.clear();
   }
 }
