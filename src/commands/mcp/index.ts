@@ -381,6 +381,12 @@ export function setupMcpCommands(yargs: Argv): Argv {
                 choices: ['table', 'json', 'summary'],
                 default: 'table',
               })
+              .option('model', {
+                describe: 'Model to use for token estimation',
+                type: 'string',
+                alias: 'm',
+                default: 'gpt-4o',
+              })
               .example([
                 ['$0 mcp tokens', 'Estimate tokens for all MCP servers by connecting to them'],
                 [
@@ -389,6 +395,7 @@ export function setupMcpCommands(yargs: Argv): Argv {
                 ],
                 ['$0 mcp tokens --format=json', 'Output in JSON format for programmatic use'],
                 ['$0 mcp tokens --format=summary', 'Show concise summary'],
+                ['$0 mcp tokens --model=gpt-3.5-turbo', 'Use gpt-3.5-turbo for token estimation'],
                 ['$0 mcp tokens --tag-filter="ai and not experimental" --format=table', 'Filter and format output'],
               ]);
           },

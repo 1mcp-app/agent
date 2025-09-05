@@ -1,4 +1,4 @@
-import { encoding_for_model } from 'tiktoken';
+import { encoding_for_model, type TiktokenModel } from 'tiktoken';
 import type { Tool, Resource, Prompt, PromptArgument } from '@modelcontextprotocol/sdk/types.js';
 import logger from '../logger/logger.js';
 
@@ -57,17 +57,31 @@ export interface ServerTokenEstimate {
  */
 export class TokenEstimationService {
   private encoder: any;
+  private model: TiktokenModel;
   private static readonly BASE_SERVER_OVERHEAD = 75; // Base overhead for server connection
   private static readonly FALLBACK_CHARS_PER_TOKEN = 3.5; // Character-based fallback estimation
 
-  constructor() {
+  constructor(model: string = 'gpt-4o') {
     try {
-      // Initialize GPT-4 encoder for accurate tokenization
-      this.encoder = encoding_for_model('gpt-4');
-      logger.debug('TokenEstimationService initialized with tiktoken gpt-4 encoding');
+      // Validate and cast the model to TiktokenModel
+      this.model = model as TiktokenModel;
+
+      // Initialize encoder for the specified model
+      this.encoder = encoding_for_model(this.model);
+      logger.debug(`TokenEstimationService initialized with tiktoken ${this.model} encoding`);
     } catch (error) {
-      logger.error('Failed to initialize tiktoken encoder:', error);
-      this.encoder = null;
+      logger.error(`Failed to initialize tiktoken encoder for model ${model}:`, error);
+      logger.warn(`Falling back to gpt-4o encoding`);
+
+      // Fallback to gpt-4o if the provided model fails
+      try {
+        this.model = 'gpt-4o';
+        this.encoder = encoding_for_model(this.model);
+      } catch (fallbackError) {
+        logger.error('Failed to initialize fallback encoder:', fallbackError);
+        this.encoder = null;
+        this.model = 'gpt-4o'; // Keep default for logging purposes
+      }
     }
   }
 

@@ -10,6 +10,7 @@ interface TokensCommandArgs {
   config?: string;
   'tag-filter'?: string;
   format?: string; // Will be validated at runtime
+  model?: string;
 }
 
 /**
@@ -208,8 +209,9 @@ function formatSummaryOutput(estimates: ServerTokenEstimate[], stats: any): void
  */
 async function collectServerCapabilities(
   serverConfigs: Array<{ name: string } & MCPServerParams>,
+  model?: string,
 ): Promise<ServerTokenEstimate[]> {
-  const tokenService = new TokenEstimationService();
+  const tokenService = new TokenEstimationService(model);
   const connectionHelper = new McpConnectionHelper();
 
   try {
@@ -313,10 +315,10 @@ export async function tokensCommand(argv: Arguments<TokensCommandArgs>): Promise
     }
 
     // Collect server capabilities and estimate tokens
-    const estimates = await collectServerCapabilities(serverConfigs);
+    const estimates = await collectServerCapabilities(serverConfigs, argv.model);
 
     // Calculate aggregate statistics
-    const tokenService = new TokenEstimationService();
+    const tokenService = new TokenEstimationService(argv.model);
     const stats = tokenService.calculateAggregateStats(estimates);
     tokenService.dispose();
 
