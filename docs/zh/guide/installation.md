@@ -1,6 +1,67 @@
 # 安装
 
-## 包管理器 (推荐)
+## 二进制下载 (推荐)
+
+下载适合您平台的独立二进制文件 - 无需安装 Node.js！
+
+### 支持的平台
+
+- **Linux (x64)**: `1mcp-linux-x64`
+- **Windows (x64)**: `1mcp-win32-x64.exe`
+- **macOS (ARM64)**: `1mcp-darwin-arm64`
+
+### 快速安装
+
+**Linux:**
+
+```bash
+# 一步下载并安装
+curl -L -o 1mcp https://github.com/1mcp-app/agent/releases/latest/download/1mcp-linux-x64
+sudo mv 1mcp /usr/local/bin/
+sudo chmod +x /usr/local/bin/1mcp
+
+# 验证安装
+1mcp --version
+```
+
+**macOS:**
+
+```bash
+# 一步下载并安装
+curl -L -o 1mcp https://github.com/1mcp-app/agent/releases/latest/download/1mcp-darwin-arm64
+sudo mv 1mcp /usr/local/bin/
+sudo chmod +x /usr/local/bin/1mcp
+
+# 验证安装
+1mcp --version
+```
+
+**Windows (PowerShell):**
+
+```powershell
+# 下载二进制文件
+Invoke-WebRequest -Uri "https://github.com/1mcp-app/agent/releases/latest/download/1mcp-win32-x64.exe" -OutFile "1mcp.exe"
+
+# 选项 1：直接使用
+.\1mcp.exe --version
+
+# 选项 2：添加到 PATH 以获得全局访问权限
+# 移动到 PATH 中的目录（如 C:\Windows\System32 或创建新目录）
+# 然后您可以使用：1mcp --version
+```
+
+**手动下载:**
+
+访问[最新发布页面](https://github.com/1mcp-app/agent/releases/latest)并下载适合您平台的二进制文件。
+
+### 优势
+
+- ✅ **无依赖**: 无需安装 Node.js
+- ✅ **快速启动**: 即时执行，无包解析过程
+- ✅ **便携性**: 单文件随处可运行
+- ✅ **安全性**: 由 GitHub Actions 预构建和签名
+
+## 包管理器
 
 ### npm/pnpm
 
@@ -115,16 +176,29 @@ node build/index.js --config mcp.json
 验证安装：
 
 ```bash
+# 二进制安装:
+1mcp --version
+
+# NPM 安装:
 npx @1mcp/agent --version
-# 应输出：@1mcp/agent v0.15.0
 ```
 
 ## 系统要求
 
+**二进制安装:**
+
+- **内存**：最低 256MB RAM，推荐 1GB
+- **磁盘**：最小空间（单一二进制文件 + 配置文件）
+- **网络**：MCP 服务器的 HTTP/HTTPS 出站访问
+- **操作系统**：Linux (x64)、Windows (x64)、macOS (ARM64)
+
+**NPM 安装:**
+
 - **内存**：最低 512MB RAM，推荐 2GB
-- **磁盘**：用于依赖和日志的空间
+- **磁盘**：用于 Node.js 依赖和日志的空间
 - **网络**：MCP 服务器的 HTTP/HTTPS 出站访问
 - **操作系统**：Linux、macOS、Windows (x64/ARM64)
+- **运行时**：Node.js 21+
 
 ## 下一步
 

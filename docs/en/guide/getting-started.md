@@ -65,7 +65,27 @@ ls ~/.config/*/mcp.json 2>/dev/null || echo "ℹ️ No existing MCP config found
 - ✅ Automatic connection management and retry logic
 - ✅ One endpoint for your AI assistant to connect to
 
-### **Step 1: No Installation Needed** (0 minutes)
+### **Step 1: Get 1MCP** (1 minute)
+
+**Option A: Binary Download (Fastest - No Node.js Required)**
+
+```bash
+# Linux:
+curl -L -o 1mcp https://github.com/1mcp-app/agent/releases/latest/download/1mcp-linux-x64
+sudo mv 1mcp /usr/local/bin/ && sudo chmod +x /usr/local/bin/1mcp
+1mcp --help
+
+# macOS:
+curl -L -o 1mcp https://github.com/1mcp-app/agent/releases/latest/download/1mcp-darwin-arm64
+sudo mv 1mcp /usr/local/bin/ && sudo chmod +x /usr/local/bin/1mcp
+1mcp --help
+
+# Windows (PowerShell):
+Invoke-WebRequest -Uri "https://github.com/1mcp-app/agent/releases/latest/download/1mcp-win32-x64.exe" -OutFile "1mcp.exe"
+.\1mcp.exe --help
+```
+
+**Option B: NPM (No Installation Needed)**
 
 ```bash
 # 1MCP runs via npx - no global installation required
@@ -101,7 +121,10 @@ EOF
 ### **Step 3: Start 1MCP** (1 minute)
 
 ```bash
-# Start with your config
+# Binary option:
+1mcp --config ~/.config/1mcp/mcp.json --port 3050
+
+# NPM option:
 npx -y @1mcp/agent --config ~/.config/1mcp/mcp.json --port 3050
 
 # You should see:
@@ -165,6 +188,10 @@ curl http://localhost:3050/health
 # Stop your existing 1MCP instance (Ctrl+C)
 
 # Start with authentication enabled
+# Binary option:
+1mcp --config ~/.config/1mcp/mcp.json --port 3050 --enable-auth
+
+# NPM option:
 npx -y @1mcp/agent --config ~/.config/1mcp/mcp.json --port 3050 --enable-auth
 
 # New output shows:
@@ -292,6 +319,10 @@ EOF
 ### **Step 2: Create Systemd Service** (5 minutes)
 
 ```bash
+# First, install the binary system-wide (if not already done)
+sudo curl -L -o /usr/local/bin/1mcp https://github.com/1mcp-app/agent/releases/latest/download/1mcp-linux-x64
+sudo chmod +x /usr/local/bin/1mcp
+
 # Create systemd service file
 sudo tee /etc/systemd/system/1mcp.service << 'EOF'
 [Unit]
@@ -302,7 +333,7 @@ After=network.target
 Type=simple
 User=$USER
 WorkingDirectory=/home/$USER
-ExecStart=/usr/bin/npx -y @1mcp/agent --config /etc/1mcp/mcp.json --port 3050 --enable-auth
+ExecStart=/usr/local/bin/1mcp --config /etc/1mcp/mcp.json --port 3050 --enable-auth
 Restart=always
 RestartSec=5
 StandardOutput=journal
@@ -524,7 +555,10 @@ systemctl status 1mcp
 # Check application logs for server status
 
 # Problem: "MCP server not responding"
-# Solution: Check individual server health
+# Solution: Check individual server health (debug mode)
+# Binary:
+ONE_MCP_LOG_LEVEL=debug 1mcp --config ~/.config/1mcp/mcp.json
+# NPM:
 ONE_MCP_LOG_LEVEL=debug npx -y @1mcp/agent --config ~/.config/1mcp/mcp.json
 ```
 

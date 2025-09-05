@@ -49,24 +49,70 @@ A unified Model Context Protocol server implementation that aggregates multiple 
 
 Get up and running with 1MCP in just a few steps:
 
+### 0. Install 1MCP (Choose One Method)
+
+#### Binary Downloads (Recommended - No Node.js Required)
+
+Download the pre-built binary for your platform from the [latest release](https://github.com/1mcp-app/agent/releases/latest):
+
+- **Linux (x64)**: `1mcp-linux-x64`
+- **Windows (x64)**: `1mcp-win32-x64.exe`
+- **macOS (ARM64)**: `1mcp-darwin-arm64`
+
+```bash
+# Linux example:
+curl -L -o 1mcp https://github.com/1mcp-app/agent/releases/latest/download/1mcp-linux-x64
+sudo mv 1mcp /usr/local/bin/
+sudo chmod +x /usr/local/bin/1mcp
+1mcp --version
+
+# macOS example:
+curl -L -o 1mcp https://github.com/1mcp-app/agent/releases/latest/download/1mcp-darwin-arm64
+sudo mv 1mcp /usr/local/bin/
+sudo chmod +x /usr/local/bin/1mcp
+1mcp --version
+
+# Windows example (PowerShell):
+Invoke-WebRequest -Uri "https://github.com/1mcp-app/agent/releases/latest/download/1mcp-win32-x64.exe" -OutFile "1mcp.exe"
+# Move to a directory in your PATH or use directly
+.\1mcp.exe --version
+```
+
+#### NPM/Node.js Method
+
+If you prefer using Node.js package managers:
+
+```bash
+# No installation needed - run directly
+npx -y @1mcp/agent --help
+
+# Or install globally
+npm install -g @1mcp/agent
+```
+
 ### 1. Add MCP Servers
 
 Add the MCP servers you want to use. Here are some popular examples:
 
 ```bash
-# Add Context7 for documentation and code examples
+# Using binary:
+1mcp mcp add context7 -- npx -y @upstash/context7-mcp
+1mcp mcp add sequential -- npx -y @modelcontextprotocol/server-sequential-thinking
+1mcp mcp add filesystem -- npx -y @modelcontextprotocol/server-filesystem ~/Documents
+
+# Using NPM:
 npx -y @1mcp/agent mcp add context7 -- npx -y @upstash/context7-mcp
-
-# Add Sequential Thinking for complex analysis
 npx -y @1mcp/agent mcp add sequential -- npx -y @modelcontextprotocol/server-sequential-thinking
-
-# Add Filesystem for file operations
 npx -y @1mcp/agent mcp add filesystem -- npx -y @modelcontextprotocol/server-filesystem ~/Documents
 ```
 
 ### 2. Start the 1MCP Server
 
 ```bash
+# Using binary:
+1mcp
+
+# Using NPM:
 npx -y @1mcp/agent
 ```
 
@@ -113,6 +159,10 @@ claude mcp add -t http 1mcp "http://127.0.0.1:3050/mcp?app=claude-code"
 Check server status and connected MCP servers:
 
 ```bash
+# Using binary:
+1mcp mcp status
+
+# Using NPM:
 npx -y @1mcp/agent mcp status
 ```
 
@@ -126,58 +176,73 @@ That's it! All your MCP servers are now available through one unified endpoint. 
 
 ### Core Commands
 
-- **`npx -y @1mcp/agent [serve]`** - Start the 1MCP server (default command)
+- **`1mcp [serve]`** or **`npx -y @1mcp/agent [serve]`** - Start the 1MCP server (default command)
   - `--transport` - Choose transport type (stdio, http, sse)
   - `--config` - Use specific config file
   - `--port` - Change HTTP port
 
 ### MCP Management
 
-- **`npx -y @1mcp/agent mcp add <name>`** - Add a new MCP server to configuration
-- **`npx -y @1mcp/agent mcp remove <name>`** - Remove an MCP server
-- **`npx -y @1mcp/agent mcp list`** - List all configured MCP servers
-- **`npx -y @1mcp/agent mcp status [name]`** - Show server status and details
-- **`npx -y @1mcp/agent mcp enable/disable <name>`** - Enable or disable servers
-- **`npx -y @1mcp/agent mcp update <name>`** - Update server configuration
-- **`npx -y @1mcp/agent mcp tokens`** - Estimate MCP token usage for server capabilities
+- **`1mcp mcp add <name>`** - Add a new MCP server to configuration
+- **`1mcp mcp remove <name>`** - Remove an MCP server
+- **`1mcp mcp list`** - List all configured MCP servers
+- **`1mcp mcp status [name]`** - Show server status and details
+- **`1mcp mcp enable/disable <name>`** - Enable or disable servers
+- **`1mcp mcp update <name>`** - Update server configuration
 
 ### App Integration
 
-- **`npx -y @1mcp/agent app consolidate`** - Consolidate configurations from other MCP apps
-- **`npx -y @1mcp/agent app discover`** - Discover MCP servers from installed applications
-- **`npx -y @1mcp/agent app list`** - List discovered applications
-- **`npx -y @1mcp/agent app status`** - Show consolidation status
+- **`1mcp app consolidate`** - Consolidate configurations from other MCP apps
+- **`1mcp app discover`** - Discover MCP servers from installed applications
+- **`1mcp app list`** - List discovered applications
+- **`1mcp app status`** - Show consolidation status
 
-For detailed command usage, run: `1mcp <command> --help`
+For detailed command usage, run: `1mcp <command> --help` or `npx -y @1mcp/agent <command> --help`
 
 Full documentation: [Commands Reference](https://docs.1mcp.app/commands/)
 
 ## Prerequisites
 
+**For Binary Installation (Recommended):**
+
+- None! The binary is self-contained and requires no dependencies.
+
+**For NPM/Node.js Installation:**
+
 - [Node.js](https://nodejs.org/) (version 21 or higher)
-- [pnpm](https://pnpm.io/)
+- [pnpm](https://pnpm.io/) or npm
 
 ## Usage
 
-You can run the server directly using `npx`:
+You can run the server using the binary or NPM:
 
 ```bash
-# Basic usage (starts server with SSE transport)
-npx -y @1mcp/agent
+# Binary usage examples:
+# Basic usage (starts server with HTTP transport)
+1mcp
 
 # Use existing Claude Desktop config
-npx -y @1mcp/agent --config ~/Library/Application\ Support/Claude/claude_desktop_config.json
+1mcp --config ~/Library/Application\ Support/Claude/claude_desktop_config.json
 
-# Use stdio transport instead of SSE
-npx -y @1mcp/agent --transport stdio
+# Use stdio transport instead of HTTP
+1mcp --transport stdio
 
 # Use external URL for reverse proxy setup (nginx, etc.)
-npx -y @1mcp/agent --external-url https://example.com
+1mcp --external-url https://example.com
 
 # Configure trust proxy for reverse proxy setup
-npx -y @1mcp/agent --trust-proxy=192.168.1.1
+1mcp --trust-proxy=192.168.1.1
 
 # Show all available options
+1mcp --help
+
+# NPM usage (if you prefer Node.js):
+# Basic usage (starts server with HTTP transport)
+npx -y @1mcp/agent
+
+# All other options work the same way:
+npx -y @1mcp/agent --config ~/Library/Application\ Support/Claude/claude_desktop_config.json
+npx -y @1mcp/agent --transport stdio
 npx -y @1mcp/agent --help
 ```
 
@@ -290,10 +355,12 @@ Tags help you control which MCP servers are available to different clients. Thin
 **Simple Tag Filtering (OR logic) - ⚠️ Deprecated:**
 
 ```bash
-# Only start servers with the "network" tag
-npx -y @1mcp/agent --transport stdio --tags "network"
+# Binary usage:
+1mcp --transport stdio --tags "network"
+1mcp --transport stdio --tags "network,filesystem"
 
-# Start servers with either "network" or "filesystem" tags
+# NPM usage:
+npx -y @1mcp/agent --transport stdio --tags "network"
 npx -y @1mcp/agent --transport stdio --tags "network,filesystem"
 ```
 
@@ -302,16 +369,16 @@ npx -y @1mcp/agent --transport stdio --tags "network,filesystem"
 **Advanced Tag Filtering (Boolean expressions):**
 
 ```bash
-# Servers with both "network" AND "api" tags
+# Binary usage:
+1mcp --transport stdio --tag-filter "network+api"
+1mcp --transport stdio --tag-filter "network,filesystem"
+1mcp --transport stdio --tag-filter "(web,api)+production-test"
+1mcp --transport stdio --tag-filter "web and api and not test"
+
+# NPM usage:
 npx -y @1mcp/agent --transport stdio --tag-filter "network+api"
-
-# Servers with "network" OR "filesystem" tags
 npx -y @1mcp/agent --transport stdio --tag-filter "network,filesystem"
-
-# Complex expression: (web OR api) AND production, but NOT test
 npx -y @1mcp/agent --transport stdio --tag-filter "(web,api)+production-test"
-
-# Natural language syntax also supported
 npx -y @1mcp/agent --transport stdio --tag-filter "web and api and not test"
 ```
 
