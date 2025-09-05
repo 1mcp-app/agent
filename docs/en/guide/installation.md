@@ -1,6 +1,67 @@
 # Installation
 
-## Package Managers (Recommended)
+## Binary Downloads (Recommended)
+
+Download the standalone binary for your platform - no Node.js required!
+
+### Supported Platforms
+
+- **Linux (x64)**: `1mcp-linux-x64`
+- **Windows (x64)**: `1mcp-win32-x64.exe`
+- **macOS (ARM64)**: `1mcp-darwin-arm64`
+
+### Quick Installation
+
+**Linux:**
+
+```bash
+# Download and install in one step
+curl -L -o 1mcp https://github.com/1mcp-app/agent/releases/latest/download/1mcp-linux-x64
+sudo mv 1mcp /usr/local/bin/
+sudo chmod +x /usr/local/bin/1mcp
+
+# Verify installation
+1mcp --version
+```
+
+**macOS:**
+
+```bash
+# Download and install in one step
+curl -L -o 1mcp https://github.com/1mcp-app/agent/releases/latest/download/1mcp-darwin-arm64
+sudo mv 1mcp /usr/local/bin/
+sudo chmod +x /usr/local/bin/1mcp
+
+# Verify installation
+1mcp --version
+```
+
+**Windows (PowerShell):**
+
+```powershell
+# Download binary
+Invoke-WebRequest -Uri "https://github.com/1mcp-app/agent/releases/latest/download/1mcp-win32-x64.exe" -OutFile "1mcp.exe"
+
+# Option 1: Use directly
+.\1mcp.exe --version
+
+# Option 2: Add to PATH for global access
+# Move to a directory in PATH (e.g., C:\Windows\System32 or create a new directory)
+# Then you can use: 1mcp --version
+```
+
+**Manual Download:**
+
+Visit the [latest release page](https://github.com/1mcp-app/agent/releases/latest) and download the appropriate binary for your platform.
+
+### Benefits
+
+- ✅ **No Dependencies**: No Node.js installation required
+- ✅ **Fast Startup**: Instant execution, no package resolution
+- ✅ **Portable**: Single file that works anywhere
+- ✅ **Secure**: Pre-built and signed by GitHub Actions
+
+## Package Managers
 
 ### npm/pnpm
 
@@ -115,16 +176,29 @@ node build/index.js --config mcp.json
 Verify installation:
 
 ```bash
+# Binary installation:
+1mcp --version
+
+# NPM installation:
 npx @1mcp/agent --version
-# Should output: @1mcp/agent v0.15.0
 ```
 
 ## System Requirements
 
+**For Binary Installation:**
+
+- **Memory**: 256MB RAM minimum, 1GB recommended
+- **Disk**: Minimal space (single binary + config files)
+- **Network**: HTTP/HTTPS outbound access for MCP servers
+- **OS**: Linux (x64), Windows (x64), macOS (ARM64)
+
+**For NPM Installation:**
+
 - **Memory**: 512MB RAM minimum, 2GB recommended
-- **Disk**: Space for dependencies and logs
+- **Disk**: Space for Node.js dependencies and logs
 - **Network**: HTTP/HTTPS outbound access for MCP servers
 - **OS**: Linux, macOS, Windows (x64/ARM64)
+- **Runtime**: Node.js 21+
 
 ## Next Steps
 
