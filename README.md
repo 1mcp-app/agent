@@ -141,6 +141,7 @@ That's it! All your MCP servers are now available through one unified endpoint. 
 - **`npx -y @1mcp/agent mcp status [name]`** - Show server status and details
 - **`npx -y @1mcp/agent mcp enable/disable <name>`** - Enable or disable servers
 - **`npx -y @1mcp/agent mcp update <name>`** - Update server configuration
+- **`npx -y @1mcp/agent mcp tokens`** - Estimate MCP token usage for server capabilities
 
 ### App Integration
 

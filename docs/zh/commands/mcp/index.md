@@ -56,6 +56,14 @@ npx -y @1mcp/agent mcp list --tags=prod
 npx -y @1mcp/agent mcp status my-server
 ```
 
+### [tokens](./tokens)
+
+通过连接到服务器并分析其工具、资源和提示来估算 MCP 令牌使用量。
+
+```bash
+npx -y @1mcp/agent mcp tokens --model=gpt-3.5-turbo --format=summary
+```
+
 ## 另请参阅
 
 - **[服务器管理指南](../../guide/essentials/server-management)**

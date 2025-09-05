@@ -56,6 +56,14 @@ Check the status and details of configured servers.
 npx -y @1mcp/agent mcp status my-server
 ```
 
+### [tokens](./tokens)
+
+Estimate MCP token usage for server capabilities by connecting to servers and analyzing their tools, resources, and prompts.
+
+```bash
+npx -y @1mcp/agent mcp tokens --model=gpt-3.5-turbo --format=summary
+```
+
 ## See Also
 
 - **[Server Management Guide](../../guide/essentials/server-management)**

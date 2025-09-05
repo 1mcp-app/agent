@@ -80,11 +80,13 @@ Start with a simple configuration:
 {
   "mcpServers": {
     "filesystem": {
-      "command": ["npx", "-y", "@modelcontextprotocol/server-filesystem", "/tmp"],
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-filesystem", "/tmp"],
       "description": "File system access"
     },
     "search": {
-      "command": ["npx", "-y", "@modelcontextprotocol/server-web-search"],
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-web-search"],
       "description": "Web search capabilities"
     }
   }
