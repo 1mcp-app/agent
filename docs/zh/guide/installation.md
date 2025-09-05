@@ -7,40 +7,84 @@
 ### 支持的平台
 
 - **Linux (x64)**: `1mcp-linux-x64`
+- **Linux (ARM64)**: `1mcp-linux-arm64`
 - **Windows (x64)**: `1mcp-win32-x64.exe`
+- **Windows (ARM64)**: `1mcp-win32-arm64.exe`
 - **macOS (ARM64)**: `1mcp-darwin-arm64`
+- **macOS (Intel)**: `1mcp-darwin-x64`
 
 ### 快速安装
 
-**Linux:**
+**Linux (x64):**
 
 ```bash
-# 一步下载并安装
-curl -L -o 1mcp https://github.com/1mcp-app/agent/releases/latest/download/1mcp-linux-x64
+# 下载并解压归档文件
+curl -L -o 1mcp-linux-x64.tar.gz https://github.com/1mcp-app/agent/releases/latest/download/1mcp-linux-x64.tar.gz
+tar -xzf 1mcp-linux-x64.tar.gz
 sudo mv 1mcp /usr/local/bin/
 sudo chmod +x /usr/local/bin/1mcp
+
+# 清理文件
+rm 1mcp-linux-x64.tar.gz
 
 # 验证安装
 1mcp --version
 ```
 
-**macOS:**
+**Linux (ARM64 - 树莓派、AWS Graviton):**
 
 ```bash
-# 一步下载并安装
-curl -L -o 1mcp https://github.com/1mcp-app/agent/releases/latest/download/1mcp-darwin-arm64
+# 下载并解压归档文件
+curl -L -o 1mcp-linux-arm64.tar.gz https://github.com/1mcp-app/agent/releases/latest/download/1mcp-linux-arm64.tar.gz
+tar -xzf 1mcp-linux-arm64.tar.gz
 sudo mv 1mcp /usr/local/bin/
 sudo chmod +x /usr/local/bin/1mcp
+
+# 清理文件
+rm 1mcp-linux-arm64.tar.gz
 
 # 验证安装
 1mcp --version
 ```
 
-**Windows (PowerShell):**
+**macOS (Apple Silicon - M1/M2/M3):**
+
+```bash
+# 下载并解压归档文件
+curl -L -o 1mcp-darwin-arm64.tar.gz https://github.com/1mcp-app/agent/releases/latest/download/1mcp-darwin-arm64.tar.gz
+tar -xzf 1mcp-darwin-arm64.tar.gz
+sudo mv 1mcp /usr/local/bin/
+sudo chmod +x /usr/local/bin/1mcp
+
+# 清理文件
+rm 1mcp-darwin-arm64.tar.gz
+
+# 验证安装
+1mcp --version
+```
+
+**macOS (Intel):**
+
+```bash
+# 下载并解压归档文件
+curl -L -o 1mcp-darwin-x64.tar.gz https://github.com/1mcp-app/agent/releases/latest/download/1mcp-darwin-x64.tar.gz
+tar -xzf 1mcp-darwin-x64.tar.gz
+sudo mv 1mcp /usr/local/bin/
+sudo chmod +x /usr/local/bin/1mcp
+
+# 清理文件
+rm 1mcp-darwin-x64.tar.gz
+
+# 验证安装
+1mcp --version
+```
+
+**Windows (x64 - PowerShell):**
 
 ```powershell
-# 下载二进制文件
-Invoke-WebRequest -Uri "https://github.com/1mcp-app/agent/releases/latest/download/1mcp-win32-x64.exe" -OutFile "1mcp.exe"
+# 下载并解压归档文件
+Invoke-WebRequest -Uri "https://github.com/1mcp-app/agent/releases/latest/download/1mcp-win32-x64.zip" -OutFile "1mcp-win32-x64.zip"
+Expand-Archive -Path "1mcp-win32-x64.zip" -DestinationPath "."
 
 # 选项 1：直接使用
 .\1mcp.exe --version
@@ -48,6 +92,27 @@ Invoke-WebRequest -Uri "https://github.com/1mcp-app/agent/releases/latest/downlo
 # 选项 2：添加到 PATH 以获得全局访问权限
 # 移动到 PATH 中的目录（如 C:\Windows\System32 或创建新目录）
 # 然后您可以使用：1mcp --version
+
+# 清理文件
+Remove-Item "1mcp-win32-x64.zip"
+```
+
+**Windows (ARM64 - PowerShell):**
+
+```powershell
+# 下载并解压归档文件
+Invoke-WebRequest -Uri "https://github.com/1mcp-app/agent/releases/latest/download/1mcp-win32-arm64.zip" -OutFile "1mcp-win32-arm64.zip"
+Expand-Archive -Path "1mcp-win32-arm64.zip" -DestinationPath "."
+
+# 选项 1：直接使用
+.\1mcp.exe --version
+
+# 选项 2：添加到 PATH 以获得全局访问权限
+# 移动到 PATH 中的目录（如 C:\Windows\System32 或创建新目录）
+# 然后您可以使用：1mcp --version
+
+# 清理文件
+Remove-Item "1mcp-win32-arm64.zip"
 ```
 
 **手动下载:**
@@ -60,6 +125,9 @@ Invoke-WebRequest -Uri "https://github.com/1mcp-app/agent/releases/latest/downlo
 - ✅ **快速启动**: 即时执行，无包解析过程
 - ✅ **便携性**: 单文件随处可运行
 - ✅ **安全性**: 由 GitHub Actions 预构建和签名
+- ✅ **压缩归档**: tar.gz/zip 格式，下载速度提升 67%
+- ✅ **多架构**: 支持所有平台的 x64 和 ARM64 架构
+- ✅ **标准格式**: 无需特殊解压工具，适用于所有系统
 
 ## 包管理器
 
