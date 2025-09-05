@@ -4,6 +4,7 @@ import { homedir } from 'os';
 import { PresetManager } from './presetManager.js';
 import { McpConfigManager } from '../config/mcpConfigManager.js';
 import { TagQueryParser } from './tagQueryParser.js';
+import { TagQueryEvaluator } from './tagQueryEvaluator.js';
 import logger from '../logger/logger.js';
 
 // Mock dependencies
@@ -22,12 +23,14 @@ vi.mock('os', () => ({
 
 vi.mock('../config/mcpConfigManager.js');
 vi.mock('./tagQueryParser.js');
+vi.mock('./tagQueryEvaluator.js');
 vi.mock('../logger/logger.js');
 
 const mockFs = fs as any;
 const mockHomedir = homedir as Mock;
 const mockMcpConfig = McpConfigManager as any;
 const mockTagQueryParser = TagQueryParser as any;
+const mockTagQueryEvaluator = TagQueryEvaluator as any;
 
 describe('PresetManager', () => {
   let presetManager: PresetManager;
@@ -65,6 +68,14 @@ describe('PresetManager', () => {
       ],
     });
     mockTagQueryParser.evaluate = vi.fn().mockReturnValue(true);
+
+    // Mock TagQueryEvaluator
+    mockTagQueryEvaluator.validateQuery = vi.fn().mockReturnValue({
+      isValid: true,
+      errors: [],
+    });
+    mockTagQueryEvaluator.queryToString = vi.fn().mockReturnValue('');
+    mockTagQueryEvaluator.evaluate = vi.fn().mockReturnValue(true);
 
     // Mock fs operations
     mockFs.mkdir = vi.fn().mockResolvedValue(undefined);
@@ -164,8 +175,7 @@ describe('PresetManager', () => {
         name: 'test',
         description: 'Test preset',
         strategy: 'or',
-        servers: ['server1', 'server2'],
-        tagExpression: 'web,api',
+        tagQuery: { $or: [{ tag: 'web' }, { tag: 'api' }] },
       });
       expect(savedData.presets.test.created).toBeDefined();
       expect(savedData.presets.test.lastModified).toBeDefined();
@@ -291,16 +301,14 @@ describe('PresetManager', () => {
           dev: {
             name: 'dev',
             strategy: 'or' as const,
-            servers: ['server1'],
-            tagExpression: 'web',
+            tagQuery: { tag: 'web' },
             created: '2025-01-01T00:00:00Z',
             lastModified: '2025-01-01T00:00:00Z',
           },
           prod: {
             name: 'prod',
             strategy: 'and' as const,
-            servers: ['server2'],
-            tagExpression: 'database',
+            tagQuery: { tag: 'database' },
             created: '2025-01-01T00:00:00Z',
             lastModified: '2025-01-01T00:00:00Z',
           },
@@ -378,36 +386,35 @@ describe('PresetManager', () => {
       expect(result.errors).toContain('Strategy must be one of: or, and, advanced');
     });
 
-    it('should warn about non-existent servers', async () => {
-      const config = {
-        strategy: 'or' as const,
-        servers: ['server1', 'nonexistent-server'],
-        tagExpression: 'web',
-        tagQuery: { tag: 'web' },
-      };
-
-      const result = await presetManager.validatePreset('test', config);
-
-      expect(result.isValid).toBe(true);
-      expect(result.warnings).toContain("Server 'nonexistent-server' not found in MCP configuration");
-    });
-
-    it('should validate advanced tag expressions', async () => {
-      mockTagQueryParser.parseAdvanced.mockImplementation(() => {
-        throw new Error('Invalid expression syntax');
+    it('should validate tag query structure', async () => {
+      mockTagQueryEvaluator.validateQuery.mockReturnValue({
+        isValid: false,
+        errors: ['Invalid query structure'],
       });
 
       const config = {
-        strategy: 'advanced' as const,
-        servers: ['server1'],
-        tagExpression: 'invalid(syntax',
-        tagQuery: { tag: 'invalid' },
+        strategy: 'or' as const,
+        tagQuery: { invalid: 'structure' },
       };
 
       const result = await presetManager.validatePreset('test', config);
 
       expect(result.isValid).toBe(false);
-      expect(result.errors).toContain('Invalid tag expression: Invalid expression syntax');
+      expect(result.errors).toContain('Tag query: Invalid query structure');
+    });
+
+    it('should validate empty tag queries with warning', async () => {
+      mockTagQueryEvaluator.queryToString.mockReturnValue('');
+
+      const config = {
+        strategy: 'advanced' as const,
+        tagQuery: {},
+      };
+
+      const result = await presetManager.validatePreset('test', config);
+
+      expect(result.isValid).toBe(true);
+      expect(result.warnings).toContain('Tag query produces no meaningful filter');
     });
   });
 
@@ -419,8 +426,7 @@ describe('PresetManager', () => {
           'web-preset': {
             name: 'web-preset',
             strategy: 'or' as const,
-            servers: ['server1', 'server3'],
-            tagExpression: 'web,frontend',
+            tagQuery: { $or: [{ tag: 'web' }, { tag: 'frontend' }] },
             created: '2025-01-01T00:00:00Z',
             lastModified: '2025-01-01T00:00:00Z',
           },
@@ -430,7 +436,7 @@ describe('PresetManager', () => {
       await presetManager.initialize();
 
       // Mock evaluate to return true for servers with web or frontend tags
-      mockTagQueryParser.evaluate.mockImplementation((expr: any, serverTags: string[]) => {
+      mockTagQueryEvaluator.evaluate.mockImplementation((query: any, serverTags: string[]) => {
         return serverTags.includes('web') || serverTags.includes('frontend');
       });
     });
@@ -455,8 +461,7 @@ describe('PresetManager', () => {
           dev: {
             name: 'dev',
             strategy: 'or' as const,
-            servers: ['server1'],
-            tagExpression: 'web,api',
+            tagQuery: { $or: [{ tag: 'web' }, { tag: 'api' }] },
             created: '2025-01-01T00:00:00Z',
             lastModified: '2025-01-01T00:00:00Z',
           },
@@ -467,8 +472,9 @@ describe('PresetManager', () => {
     });
 
     it('should resolve existing preset to expression', () => {
+      mockTagQueryEvaluator.queryToString.mockReturnValue('web OR api');
       const expression = presetManager.resolvePresetToExpression('dev');
-      expect(expression).toBe('web,api');
+      expect(expression).toBe('web OR api');
     });
 
     it('should return null for non-existent preset', () => {
@@ -547,16 +553,14 @@ describe('PresetManager', () => {
           dev: {
             name: 'dev',
             strategy: 'or' as const,
-            servers: ['server1'],
-            tagExpression: 'web',
+            tagQuery: { tag: 'web' },
             created: '2025-01-01T00:00:00Z',
             lastModified: '2025-01-01T00:00:00Z',
           },
           prod: {
             name: 'prod',
             strategy: 'and' as const,
-            servers: ['server2'],
-            tagExpression: 'database',
+            tagQuery: { tag: 'database' },
             created: '2025-01-01T00:00:00Z',
             lastModified: '2025-01-01T00:00:00Z',
           },
@@ -582,8 +586,7 @@ describe('PresetManager', () => {
       expect(list[0]).toMatchObject({
         name: 'dev',
         strategy: 'or',
-        serverCount: 1,
-        tagExpression: 'web',
+        tagQuery: { tag: 'web' },
       });
     });
 
