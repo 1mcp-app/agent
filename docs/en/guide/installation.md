@@ -7,40 +7,84 @@ Download the standalone binary for your platform - no Node.js required!
 ### Supported Platforms
 
 - **Linux (x64)**: `1mcp-linux-x64`
+- **Linux (ARM64)**: `1mcp-linux-arm64`
 - **Windows (x64)**: `1mcp-win32-x64.exe`
+- **Windows (ARM64)**: `1mcp-win32-arm64.exe`
 - **macOS (ARM64)**: `1mcp-darwin-arm64`
+- **macOS (Intel)**: `1mcp-darwin-x64`
 
 ### Quick Installation
 
-**Linux:**
+**Linux (x64):**
 
 ```bash
-# Download and install in one step
-curl -L -o 1mcp https://github.com/1mcp-app/agent/releases/latest/download/1mcp-linux-x64
+# Download and extract archive
+curl -L -o 1mcp-linux-x64.tar.gz https://github.com/1mcp-app/agent/releases/latest/download/1mcp-linux-x64.tar.gz
+tar -xzf 1mcp-linux-x64.tar.gz
 sudo mv 1mcp /usr/local/bin/
 sudo chmod +x /usr/local/bin/1mcp
+
+# Clean up
+rm 1mcp-linux-x64.tar.gz
 
 # Verify installation
 1mcp --version
 ```
 
-**macOS:**
+**Linux (ARM64 - Raspberry Pi, AWS Graviton):**
 
 ```bash
-# Download and install in one step
-curl -L -o 1mcp https://github.com/1mcp-app/agent/releases/latest/download/1mcp-darwin-arm64
+# Download and extract archive
+curl -L -o 1mcp-linux-arm64.tar.gz https://github.com/1mcp-app/agent/releases/latest/download/1mcp-linux-arm64.tar.gz
+tar -xzf 1mcp-linux-arm64.tar.gz
 sudo mv 1mcp /usr/local/bin/
 sudo chmod +x /usr/local/bin/1mcp
+
+# Clean up
+rm 1mcp-linux-arm64.tar.gz
 
 # Verify installation
 1mcp --version
 ```
 
-**Windows (PowerShell):**
+**macOS (Apple Silicon - M1/M2/M3):**
+
+```bash
+# Download and extract archive
+curl -L -o 1mcp-darwin-arm64.tar.gz https://github.com/1mcp-app/agent/releases/latest/download/1mcp-darwin-arm64.tar.gz
+tar -xzf 1mcp-darwin-arm64.tar.gz
+sudo mv 1mcp /usr/local/bin/
+sudo chmod +x /usr/local/bin/1mcp
+
+# Clean up
+rm 1mcp-darwin-arm64.tar.gz
+
+# Verify installation
+1mcp --version
+```
+
+**macOS (Intel):**
+
+```bash
+# Download and extract archive
+curl -L -o 1mcp-darwin-x64.tar.gz https://github.com/1mcp-app/agent/releases/latest/download/1mcp-darwin-x64.tar.gz
+tar -xzf 1mcp-darwin-x64.tar.gz
+sudo mv 1mcp /usr/local/bin/
+sudo chmod +x /usr/local/bin/1mcp
+
+# Clean up
+rm 1mcp-darwin-x64.tar.gz
+
+# Verify installation
+1mcp --version
+```
+
+**Windows (x64 - PowerShell):**
 
 ```powershell
-# Download binary
-Invoke-WebRequest -Uri "https://github.com/1mcp-app/agent/releases/latest/download/1mcp-win32-x64.exe" -OutFile "1mcp.exe"
+# Download and extract archive
+Invoke-WebRequest -Uri "https://github.com/1mcp-app/agent/releases/latest/download/1mcp-win32-x64.zip" -OutFile "1mcp-win32-x64.zip"
+Expand-Archive -Path "1mcp-win32-x64.zip" -DestinationPath "."
 
 # Option 1: Use directly
 .\1mcp.exe --version
@@ -48,6 +92,27 @@ Invoke-WebRequest -Uri "https://github.com/1mcp-app/agent/releases/latest/downlo
 # Option 2: Add to PATH for global access
 # Move to a directory in PATH (e.g., C:\Windows\System32 or create a new directory)
 # Then you can use: 1mcp --version
+
+# Clean up
+Remove-Item "1mcp-win32-x64.zip"
+```
+
+**Windows (ARM64 - PowerShell):**
+
+```powershell
+# Download and extract archive
+Invoke-WebRequest -Uri "https://github.com/1mcp-app/agent/releases/latest/download/1mcp-win32-arm64.zip" -OutFile "1mcp-win32-arm64.zip"
+Expand-Archive -Path "1mcp-win32-arm64.zip" -DestinationPath "."
+
+# Option 1: Use directly
+.\1mcp.exe --version
+
+# Option 2: Add to PATH for global access
+# Move to a directory in PATH (e.g., C:\Windows\System32 or create a new directory)
+# Then you can use: 1mcp --version
+
+# Clean up
+Remove-Item "1mcp-win32-arm64.zip"
 ```
 
 **Manual Download:**
@@ -60,6 +125,9 @@ Visit the [latest release page](https://github.com/1mcp-app/agent/releases/lates
 - ✅ **Fast Startup**: Instant execution, no package resolution
 - ✅ **Portable**: Single file that works anywhere
 - ✅ **Secure**: Pre-built and signed by GitHub Actions
+- ✅ **Compressed Archives**: tar.gz/zip format for faster downloads (~67% smaller)
+- ✅ **Multi-Architecture**: Supports x64 and ARM64 on all platforms
+- ✅ **Standard Formats**: No special extraction tools needed, works everywhere
 
 ## Package Managers
 

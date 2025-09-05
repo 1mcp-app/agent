@@ -53,29 +53,46 @@ Get up and running with 1MCP in just a few steps:
 
 #### Binary Downloads (Recommended - No Node.js Required)
 
-Download the pre-built binary for your platform from the [latest release](https://github.com/1mcp-app/agent/releases/latest):
+Download the compressed archive for your platform from the [latest release](https://github.com/1mcp-app/agent/releases/latest):
 
 - **Linux (x64)**: `1mcp-linux-x64`
+- **Linux (ARM64)**: `1mcp-linux-arm64`
 - **Windows (x64)**: `1mcp-win32-x64.exe`
+- **Windows (ARM64)**: `1mcp-win32-arm64.exe`
 - **macOS (ARM64)**: `1mcp-darwin-arm64`
+- **macOS (Intel)**: `1mcp-darwin-x64`
 
 ```bash
 # Linux example:
-curl -L -o 1mcp https://github.com/1mcp-app/agent/releases/latest/download/1mcp-linux-x64
+curl -L -o 1mcp-linux-x64.tar.gz https://github.com/1mcp-app/agent/releases/latest/download/1mcp-linux-x64.tar.gz
+tar -xzf 1mcp-linux-x64.tar.gz
 sudo mv 1mcp /usr/local/bin/
 sudo chmod +x /usr/local/bin/1mcp
+rm 1mcp-linux-x64.tar.gz
 1mcp --version
 
-# macOS example:
-curl -L -o 1mcp https://github.com/1mcp-app/agent/releases/latest/download/1mcp-darwin-arm64
+# macOS example (Apple Silicon):
+curl -L -o 1mcp-darwin-arm64.tar.gz https://github.com/1mcp-app/agent/releases/latest/download/1mcp-darwin-arm64.tar.gz
+tar -xzf 1mcp-darwin-arm64.tar.gz
 sudo mv 1mcp /usr/local/bin/
 sudo chmod +x /usr/local/bin/1mcp
+rm 1mcp-darwin-arm64.tar.gz
+1mcp --version
+
+# macOS example (Intel):
+curl -L -o 1mcp-darwin-x64.tar.gz https://github.com/1mcp-app/agent/releases/latest/download/1mcp-darwin-x64.tar.gz
+tar -xzf 1mcp-darwin-x64.tar.gz
+sudo mv 1mcp /usr/local/bin/
+sudo chmod +x /usr/local/bin/1mcp
+rm 1mcp-darwin-x64.tar.gz
 1mcp --version
 
 # Windows example (PowerShell):
-Invoke-WebRequest -Uri "https://github.com/1mcp-app/agent/releases/latest/download/1mcp-win32-x64.exe" -OutFile "1mcp.exe"
+Invoke-WebRequest -Uri "https://github.com/1mcp-app/agent/releases/latest/download/1mcp-win32-x64.zip" -OutFile "1mcp-win32-x64.zip"
+Expand-Archive -Path "1mcp-win32-x64.zip" -DestinationPath "."
 # Move to a directory in your PATH or use directly
 .\1mcp.exe --version
+Remove-Item "1mcp-win32-x64.zip"
 ```
 
 #### NPM/Node.js Method
