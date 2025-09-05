@@ -234,8 +234,7 @@ describe('selectCommand', () => {
       expect(mockPresetManagerInstance.savePreset).toHaveBeenCalledWith('development', {
         description: 'Dev preset',
         strategy: 'or',
-        servers: ['server1', 'server2'],
-        tagExpression: 'web,api,database',
+        tagQuery: undefined,
       });
     });
 
@@ -279,8 +278,7 @@ describe('selectCommand', () => {
       expect(mockPresetManagerInstance.savePreset).toHaveBeenCalledWith('new-preset', {
         description: 'New preset description',
         strategy: 'or',
-        servers: ['server1', 'server2'],
-        tagExpression: 'web,api',
+        tagQuery: undefined,
       });
       expect(mockSelectorInstance.showSaveSuccess).toHaveBeenCalledWith(
         'new-preset',
@@ -315,8 +313,7 @@ describe('selectCommand', () => {
       expect(mockPresetManagerInstance.savePreset).toHaveBeenCalledWith('interactive-preset', {
         description: 'Interactive description',
         strategy: 'or',
-        servers: ['server1'],
-        tagExpression: 'web',
+        tagQuery: undefined,
       });
     });
 
@@ -357,9 +354,8 @@ describe('selectCommand', () => {
       await selectCommand({ _: ['select'] });
 
       expect(mockConsoleLog).toHaveBeenCalledWith('\n📋 Selection Summary:');
-      expect(mockConsoleLog).toHaveBeenCalledWith('   Servers: server1, server2');
       expect(mockConsoleLog).toHaveBeenCalledWith('   Strategy: and');
-      expect(mockConsoleLog).toHaveBeenCalledWith('   Expression: web+api');
+      expect(mockConsoleLog).toHaveBeenCalledWith('   Query: undefined');
       expect(mockConsoleLog).toHaveBeenCalledWith('\nTo save this selection, use --save <name> or --url flags.');
     });
 
@@ -375,11 +371,11 @@ describe('selectCommand', () => {
 
       await selectCommand({ _: ['select'] });
 
-      expect(mockConsoleLog).toHaveBeenCalledWith('Operation cancelled or no servers selected.');
+      expect(mockConsoleLog).toHaveBeenCalledWith('Operation cancelled.');
       expect(mockProcessExit).toHaveBeenCalledWith(0);
     });
 
-    it('should exit when no servers selected', async () => {
+    it('should show summary when no servers selected but not cancelled', async () => {
       const selectionResult = {
         servers: [],
         strategy: 'or' as const,
@@ -391,8 +387,10 @@ describe('selectCommand', () => {
 
       await selectCommand({ _: ['select'] });
 
-      expect(mockConsoleLog).toHaveBeenCalledWith('Operation cancelled or no servers selected.');
-      expect(mockProcessExit).toHaveBeenCalledWith(0);
+      expect(mockConsoleLog).toHaveBeenCalledWith('\n📋 Selection Summary:');
+      expect(mockConsoleLog).toHaveBeenCalledWith('   Strategy: or');
+      expect(mockConsoleLog).toHaveBeenCalledWith('   Query: undefined');
+      expect(mockConsoleLog).toHaveBeenCalledWith('\nTo save this selection, use --save <name> or --url flags.');
     });
   });
 
