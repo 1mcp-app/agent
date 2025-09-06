@@ -1,0 +1,129 @@
+import { PresetManager } from '../../utils/presetManager.js';
+import { InteractiveSelector } from '../../utils/interactiveSelector.js';
+import { UrlGenerator } from '../../utils/urlGenerator.js';
+import logger from '../../logger/logger.js';
+import boxen from 'boxen';
+import chalk from 'chalk';
+
+/**
+ * Command arguments for the show command
+ */
+interface ShowArguments {
+  name: string;
+}
+
+/**
+ * Show detailed information about a specific preset
+ */
+export async function showCommand(argv: ShowArguments): Promise<void> {
+  try {
+    const presetManager = PresetManager.getInstance();
+    await presetManager.initialize();
+    const selector = new InteractiveSelector();
+    const urlGenerator = new UrlGenerator();
+
+    await showPresetDetails(argv.name, presetManager, selector, urlGenerator);
+  } catch (error) {
+    logger.error('Preset show command failed', { error });
+    console.error(`❌ Command failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    process.exit(1);
+  }
+}
+
+/**
+ * Display detailed preset information
+ */
+async function showPresetDetails(
+  name: string,
+  presetManager: PresetManager,
+  selector: InteractiveSelector,
+  urlGenerator: UrlGenerator,
+): Promise<void> {
+  if (!presetManager.hasPreset(name)) {
+    selector.showError(`Preset '${name}' not found`);
+    return;
+  }
+
+  const preset = presetManager.getPreset(name);
+  if (!preset) {
+    selector.showError(`Failed to load preset '${name}'`);
+    return;
+  }
+
+  // Main preset information in a single comprehensive box
+  let mainContent = '';
+
+  // Basic info section
+  mainContent += chalk.cyan.bold(`📋 ${preset.name}\n`);
+  mainContent += chalk.blue(`Strategy: ${getStrategyDescription(preset.strategy)}\n`);
+  if (preset.description) {
+    mainContent += chalk.gray(`Description: ${preset.description}\n`);
+  }
+  mainContent += chalk.dim(`Created: ${new Date(preset.created).toLocaleDateString()}\n`);
+  mainContent += chalk.dim(
+    `Last Used: ${preset.lastUsed ? new Date(preset.lastUsed).toLocaleDateString() : 'Never'}\n`,
+  );
+
+  // URL section
+  const urlResult = await urlGenerator.validateAndGeneratePresetUrl(name);
+  if (urlResult.valid) {
+    mainContent += '\n';
+    mainContent += chalk.yellow.bold('Client URL:\n');
+    mainContent += chalk.cyan(`${urlResult.url}\n`);
+  }
+
+  // Query section
+  mainContent += '\n';
+  mainContent += chalk.yellow.bold('Tag Query:\n');
+  const queryStr = JSON.stringify(preset.tagQuery, null, 2);
+  mainContent += chalk.green(queryStr);
+
+  // Test results section
+  try {
+    const testResult = await presetManager.testPreset(name);
+    const matchingServers = testResult.servers;
+
+    mainContent += '\n\n';
+    mainContent += chalk.yellow.bold(`Matching Servers (${matchingServers.length}):\n`);
+    if (matchingServers.length > 0) {
+      mainContent += chalk.green(matchingServers.map((server) => `• ${server}`).join(', '));
+    } else {
+      mainContent += chalk.red('No servers match this preset');
+    }
+
+    mainContent += '\n\n';
+    mainContent += chalk.yellow.bold('Quick Actions:\n');
+    mainContent += chalk.white(`• Test: ${chalk.green(`1mcp preset test ${name}`)}\n`);
+    mainContent += chalk.white(`• Edit: ${chalk.green(`1mcp preset select --load ${name}`)}\n`);
+    mainContent += chalk.white(`• URL:  ${chalk.green(`1mcp preset url ${name}`)}`);
+  } catch (error) {
+    mainContent += '\n\n';
+    mainContent += chalk.red(`Test failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+  }
+
+  console.log(
+    boxen(mainContent, {
+      padding: 1,
+      borderStyle: 'round',
+      borderColor: 'blue',
+      title: 'Preset Details',
+      titleAlignment: 'center',
+    }),
+  );
+}
+
+/**
+ * Get human-readable strategy description
+ */
+function getStrategyDescription(strategy: string): string {
+  switch (strategy) {
+    case 'or':
+      return 'OR logic - Match ANY selected tags';
+    case 'and':
+      return 'AND logic - Match ALL selected tags';
+    case 'advanced':
+      return 'Advanced - Custom JSON query';
+    default:
+      return strategy;
+  }
+}

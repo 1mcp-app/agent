@@ -17,7 +17,7 @@ import { PORT, HOST } from './constants.js';
 import { displayLogo } from './utils/logo.js';
 import { setupAppCommands } from './commands/app/index.js';
 import { setupMcpCommands } from './commands/mcp/index.js';
-import { setupSelectCommand } from './commands/select.js';
+import { setupPresetCommands } from './commands/preset/index.js';
 import { McpLoadingManager } from './core/loading/mcpLoadingManager.js';
 import { TagQueryParser, TagExpression } from './utils/tagQueryParser.js';
 
@@ -54,19 +54,11 @@ const serverOptions = {
     type: 'string' as const,
     default: undefined,
   },
-  tags: {
-    alias: 'g',
-    describe: 'Tags to filter clients (comma-separated, OR logic)',
-    type: 'string' as const,
-    default: undefined,
-    conflicts: 'tag-filter',
-  },
-  'tag-filter': {
+  filter: {
     alias: 'f',
-    describe: 'Advanced tag filter expression (and/or/not logic)',
+    describe: 'Filter expression for server selection (supports simple comma-separated or advanced boolean logic)',
     type: 'string' as const,
     default: undefined,
-    conflicts: 'tags',
   },
   pagination: {
     alias: 'p',
@@ -163,7 +155,7 @@ yargsInstance = yargsInstance
 // Register command groups (these will have clean option lists without server options)
 yargsInstance = setupAppCommands(yargsInstance);
 yargsInstance = setupMcpCommands(yargsInstance);
-yargsInstance = setupSelectCommand(yargsInstance);
+yargsInstance = setupPresetCommands(yargsInstance);
 
 /**
  * Set up graceful shutdown handling
@@ -223,7 +215,7 @@ function setupGracefulShutdown(
  * Check if the command is a CLI command that should not start the server
  */
 function isCliCommand(argv: string[]): boolean {
-  return argv.length >= 3 && (argv[2] === 'app' || argv[2] === 'mcp' || argv[2] === 'select');
+  return argv.length >= 3 && (argv[2] === 'app' || argv[2] === 'mcp' || argv[2] === 'preset');
 }
 
 /**
@@ -329,32 +321,40 @@ async function main() {
       case 'stdio': {
         // Use stdio transport
         const transport = new StdioServerTransport();
-        // Parse and validate tags/tag-filter from CLI if provided
+        // Parse and validate filter from CLI if provided
         let tags: string[] | undefined;
         let tagExpression: TagExpression | undefined;
         let tagFilterMode: 'simple-or' | 'advanced' | 'none' = 'none';
 
-        if (parsedArgv.tags) {
-          // Legacy simple OR filtering
-          tags = TagQueryParser.parseSimple(parsedArgv.tags);
-          tagFilterMode = 'simple-or';
-          if (!tags || tags.length === 0) {
-            logger.warn('No valid tags provided, ignoring tags parameter');
-            tags = undefined;
-            tagFilterMode = 'none';
-          }
-        } else if (parsedArgv['tag-filter']) {
-          // New advanced expression filtering
+        if (parsedArgv.filter) {
           try {
-            tagExpression = TagQueryParser.parseAdvanced(parsedArgv['tag-filter']);
+            // First try to parse as advanced expression
+            tagExpression = TagQueryParser.parseAdvanced(parsedArgv.filter);
             tagFilterMode = 'advanced';
             // Provide simple tags for backward compat where possible
             if (tagExpression.type === 'tag') {
               tags = [tagExpression.value!];
             }
-          } catch (error) {
-            logger.error(`Invalid tag-filter expression: ${error instanceof Error ? error.message : 'Unknown error'}`);
-            process.exit(1);
+          } catch (_advancedError) {
+            // Fall back to simple parsing for comma-separated tags
+            try {
+              tags = TagQueryParser.parseSimple(parsedArgv.filter);
+              tagFilterMode = 'simple-or';
+              if (!tags || tags.length === 0) {
+                logger.warn('No valid tags provided, ignoring filter parameter');
+                tags = undefined;
+                tagFilterMode = 'none';
+              }
+            } catch (simpleError) {
+              logger.error(
+                `Invalid filter expression: ${simpleError instanceof Error ? simpleError.message : 'Unknown error'}`,
+              );
+              logger.error('Examples:');
+              logger.error('  --filter "web,api,database"           # OR logic (comma-separated)');
+              logger.error('  --filter "web AND database"           # AND logic');
+              logger.error('  --filter "(web OR api) AND database"  # Complex expressions');
+              process.exit(1);
+            }
           }
         }
 

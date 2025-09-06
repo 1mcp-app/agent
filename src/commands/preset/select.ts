@@ -1,15 +1,15 @@
-import type { Argv } from 'yargs';
-import { PresetManager } from '../utils/presetManager.js';
-import { InteractiveSelector } from '../utils/interactiveSelector.js';
-import { UrlGenerator } from '../utils/urlGenerator.js';
-import logger from '../logger/logger.js';
+// Command functionality for preset select
+import { PresetManager } from '../../utils/presetManager.js';
+import { InteractiveSelector } from '../../utils/interactiveSelector.js';
+import { UrlGenerator } from '../../utils/urlGenerator.js';
+import logger from '../../logger/logger.js';
 
 /**
  * Command arguments for the select command
  */
 interface SelectArguments {
   _: string[];
-  'preset-name'?: string;
+  name?: string;
   save?: string;
   load?: string;
   'url-only'?: boolean;
@@ -21,7 +21,7 @@ interface SelectArguments {
 }
 
 /**
- * Unified select command for interactive server selection and preset management
+ * Preset select command (interactive TUI)
  */
 export async function selectCommand(argv: SelectArguments): Promise<void> {
   try {
@@ -33,7 +33,7 @@ export async function selectCommand(argv: SelectArguments): Promise<void> {
     const urlGenerator = new UrlGenerator();
 
     // Handle different operation modes
-    const presetName = argv['preset-name'] as string | undefined;
+    const presetName = argv.name;
 
     // Mode: List presets
     if (argv.list) {
@@ -102,7 +102,7 @@ export async function selectCommand(argv: SelectArguments): Promise<void> {
       console.log('\nTo save this selection, use --save <name> or --url flags.');
     }
   } catch (error) {
-    logger.error('Select command failed', { error });
+    logger.error('Preset select command failed', { error });
     console.error(`❌ Command failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
     process.exit(1);
   }
@@ -115,7 +115,7 @@ async function listPresets(presetManager: PresetManager, selector: InteractiveSe
   const presets = presetManager.getPresetList();
 
   if (presets.length === 0) {
-    selector.showError('No presets found. Create one with: 1mcp select --save <name>');
+    selector.showError('No presets found. Create one with: 1mcp preset create <name> --filter "tags"');
     return;
   }
 
@@ -126,7 +126,7 @@ async function listPresets(presetManager: PresetManager, selector: InteractiveSe
     const lastUsed = preset.lastUsed ? new Date(preset.lastUsed).toLocaleDateString() : 'never';
     const strategyDesc = getStrategyDescription(preset.strategy);
 
-    const queryStr = JSON.stringify(preset.tagQuery);
+    const queryStr = JSON.stringify(preset.tagQuery) || '{}';
     console.log(`│ ${preset.name.padEnd(20)} ${strategyDesc.padEnd(12)} query-based │`);
     console.log(`│ │ ${queryStr.slice(0, 54).padEnd(54)} │`);
     console.log(`│ │ Last used: ${lastUsed.padEnd(41)} │`);
@@ -138,10 +138,10 @@ async function listPresets(presetManager: PresetManager, selector: InteractiveSe
 
   console.log('│                                                          │');
   console.log('│ Commands:                                                │');
-  console.log('│   1mcp select <name> --url-only    Generate URL         │');
-  console.log('│   1mcp select --load <name>        Edit preset          │');
-  console.log('│   1mcp select --delete <name>      Delete preset        │');
-  console.log('│   1mcp select <name> --preview     Test preset          │');
+  console.log('│   1mcp preset url <name>         Generate URL           │');
+  console.log('│   1mcp preset select --load <name>  Edit preset         │');
+  console.log('│   1mcp preset delete <name>     Delete preset           │');
+  console.log('│   1mcp preset test <name>       Test preset             │');
   console.log('└──────────────────────────────────────────────────────────┘\n');
 }
 
@@ -266,111 +266,4 @@ function getStrategyDescription(strategy: string): string {
     default:
       return strategy;
   }
-}
-
-/**
- * Setup select command configuration for yargs
- */
-export function setupSelectCommand(yargs: Argv): Argv {
-  return yargs.command(
-    'select [preset-name]',
-    'Interactive server selection and preset management',
-    (yargs) => {
-      return yargs
-        .positional('preset-name', {
-          describe: 'Preset name to use with --url-only, --preview, etc.',
-          type: 'string',
-        })
-        .option('save', {
-          describe: 'Save selection as preset with specified name',
-          type: 'string',
-          alias: 's',
-          conflicts: ['load'],
-        })
-        .option('load', {
-          describe: 'Load existing preset for editing',
-          type: 'string',
-          alias: 'l',
-          conflicts: ['save'],
-        })
-        .option('url-only', {
-          describe: 'Generate URL from existing preset (non-interactive)',
-          type: 'boolean',
-          implies: 'preset-name',
-        })
-        .option('url', {
-          describe: 'Show URL after interactive selection and save',
-          type: 'boolean',
-          alias: 'u',
-          conflicts: ['url-only', 'list', 'delete', 'preview'],
-        })
-        .option('list', {
-          describe: 'List available presets',
-          type: 'boolean',
-          conflicts: ['save', 'load', 'url', 'url-only', 'delete', 'preview'],
-        })
-        .option('delete', {
-          describe: 'Delete preset by name',
-          type: 'string',
-          alias: 'd',
-          conflicts: ['save', 'load', 'url', 'url-only', 'list', 'preview'],
-        })
-        .option('preview', {
-          describe: 'Test/preview preset without starting server',
-          type: 'boolean',
-          alias: 'p',
-          implies: 'preset-name',
-          conflicts: ['save', 'load', 'url', 'url-only', 'list', 'delete'],
-        })
-        .option('description', {
-          describe: 'Description for saved preset',
-          type: 'string',
-          implies: 'save',
-        })
-        .example([
-          ['$0 select', 'Interactive server selection (temporary)'],
-          ['$0 select --save development', 'Interactive selection and save as "development"'],
-          ['$0 select --save dev --url', 'Select, save, and show URL'],
-          ['$0 select --load development', 'Edit existing "development" preset'],
-          ['$0 select development --url-only', 'Generate URL for existing preset'],
-          ['$0 select --list', 'List all available presets'],
-          ['$0 select --delete staging', 'Delete "staging" preset'],
-          ['$0 select development --preview', 'Test "development" preset'],
-        ])
-        .group(['save', 'load', 'url', 'description'], 'Selection and Save Options:')
-        .group(['list', 'delete', 'preview', 'url-only'], 'Preset Management Options:').epilogue(`
-INTERACTIVE PRESET SYSTEM:
-
-The select command provides an interactive interface for choosing MCP servers and
-creating dynamic presets. Presets generate URLs like http://localhost:3050?preset=development
-that automatically update when you modify the preset configuration.
-
-WORKFLOW EXAMPLES:
-
-1. Quick preset creation:
-   1mcp select --save dev --url
-   → Interactive selection → Save as 'dev' → Show URL
-
-2. Update existing preset:
-   1mcp select --load prod
-   → Load 'prod' preset → Interactive modification → Save
-
-3. Generate URL:
-   1mcp select dev --url-only
-   → http://localhost:3050?preset=dev
-
-4. Manage presets:
-   1mcp select --list           # List all presets
-   1mcp select dev --preview    # Test preset
-   1mcp select --delete old     # Delete preset
-
-DYNAMIC UPDATES:
-When you modify a preset, all clients using that preset's URL automatically
-receive updated server configurations without needing to change their URLs.
-        `);
-    },
-    async (argv) => {
-      await selectCommand(argv as SelectArguments);
-    },
-  );
 }

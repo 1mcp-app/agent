@@ -1,15 +1,15 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { selectCommand } from './select.js';
-import { PresetManager } from '../utils/presetManager.js';
-import { InteractiveSelector } from '../utils/interactiveSelector.js';
-import { UrlGenerator } from '../utils/urlGenerator.js';
-import logger from '../logger/logger.js';
+import { PresetManager } from '../../utils/presetManager.js';
+import { InteractiveSelector } from '../../utils/interactiveSelector.js';
+import { UrlGenerator } from '../../utils/urlGenerator.js';
+import logger from '../../logger/logger.js';
 
 // Mock dependencies
-vi.mock('../utils/presetManager.js');
-vi.mock('../utils/interactiveSelector.js');
-vi.mock('../utils/urlGenerator.js');
-vi.mock('../logger/logger.js');
+vi.mock('../../utils/presetManager.js');
+vi.mock('../../utils/interactiveSelector.js');
+vi.mock('../../utils/urlGenerator.js');
+vi.mock('../../logger/logger.js');
 
 // Mock console methods
 const mockConsoleLog = vi.spyOn(console, 'log').mockImplementation(() => {});
@@ -95,7 +95,7 @@ describe('selectCommand', () => {
       await selectCommand({ _: ['select'], list: true });
 
       expect(mockSelectorInstance.showError).toHaveBeenCalledWith(
-        'No presets found. Create one with: 1mcp select --save <name>',
+        'No presets found. Create one with: 1mcp preset create <name> --filter "tags"',
       );
     });
   });
@@ -137,7 +137,7 @@ describe('selectCommand', () => {
         url: 'http://localhost:3050/?preset=development',
       });
 
-      await selectCommand({ _: ['select'], 'preset-name': 'development', 'url-only': true });
+      await selectCommand({ _: ['select'], name: 'development', 'url-only': true });
 
       expect(mockUrlGeneratorInstance.validateAndGeneratePresetUrl).toHaveBeenCalledWith('development');
       expect(mockSelectorInstance.showUrl).toHaveBeenCalledWith(
@@ -149,7 +149,7 @@ describe('selectCommand', () => {
     it('should show error for non-existent preset', async () => {
       mockPresetManagerInstance.hasPreset.mockReturnValue(false);
 
-      await selectCommand({ _: ['select'], 'preset-name': 'nonexistent', 'url-only': true });
+      await selectCommand({ _: ['select'], name: 'nonexistent', 'url-only': true });
 
       expect(mockSelectorInstance.showError).toHaveBeenCalledWith("Preset 'nonexistent' not found");
     });
@@ -162,7 +162,7 @@ describe('selectCommand', () => {
         error: 'Validation failed',
       });
 
-      await selectCommand({ _: ['select'], 'preset-name': 'invalid', 'url-only': true });
+      await selectCommand({ _: ['select'], name: 'invalid', 'url-only': true });
 
       expect(mockSelectorInstance.showError).toHaveBeenCalledWith('Validation failed');
     });
@@ -178,7 +178,7 @@ describe('selectCommand', () => {
       mockPresetManagerInstance.hasPreset.mockReturnValue(true);
       mockPresetManagerInstance.testPreset.mockResolvedValue(testResult);
 
-      await selectCommand({ _: ['select'], 'preset-name': 'development', preview: true });
+      await selectCommand({ _: ['select'], name: 'development', preview: true });
 
       expect(mockPresetManagerInstance.testPreset).toHaveBeenCalledWith('development');
       expect(mockSelectorInstance.testPreset).toHaveBeenCalledWith('development', testResult);
@@ -187,7 +187,7 @@ describe('selectCommand', () => {
     it('should show error for non-existent preset', async () => {
       mockPresetManagerInstance.hasPreset.mockReturnValue(false);
 
-      await selectCommand({ _: ['select'], 'preset-name': 'nonexistent', preview: true });
+      await selectCommand({ _: ['select'], name: 'nonexistent', preview: true });
 
       expect(mockSelectorInstance.showError).toHaveBeenCalledWith("Preset 'nonexistent' not found");
     });
@@ -196,7 +196,7 @@ describe('selectCommand', () => {
       mockPresetManagerInstance.hasPreset.mockReturnValue(true);
       mockPresetManagerInstance.testPreset.mockRejectedValue(new Error('Test failed'));
 
-      await selectCommand({ _: ['select'], 'preset-name': 'error-preset', preview: true });
+      await selectCommand({ _: ['select'], name: 'error-preset', preview: true });
 
       expect(mockSelectorInstance.showError).toHaveBeenCalledWith('Failed to test preset: Test failed');
     });
@@ -400,7 +400,7 @@ describe('selectCommand', () => {
 
       await selectCommand({ _: ['select'], list: true });
 
-      expect(logger.error).toHaveBeenCalledWith('Select command failed', {
+      expect(logger.error).toHaveBeenCalledWith('Preset select command failed', {
         error: expect.any(Error),
       });
       expect(mockProcessExit).toHaveBeenCalledWith(1);
@@ -411,7 +411,7 @@ describe('selectCommand', () => {
 
       await selectCommand({ _: ['select'] });
 
-      expect(logger.error).toHaveBeenCalledWith('Select command failed', {
+      expect(logger.error).toHaveBeenCalledWith('Preset select command failed', {
         error: expect.any(Error),
       });
       expect(mockProcessExit).toHaveBeenCalledWith(1);
@@ -430,7 +430,7 @@ describe('selectCommand', () => {
 
       await selectCommand({ _: ['select'], save: 'error-preset' });
 
-      expect(logger.error).toHaveBeenCalledWith('Select command failed', {
+      expect(logger.error).toHaveBeenCalledWith('Preset select command failed', {
         error: expect.any(Error),
       });
       expect(mockProcessExit).toHaveBeenCalledWith(1);
