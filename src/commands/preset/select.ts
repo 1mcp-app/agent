@@ -18,6 +18,7 @@ interface SelectArguments {
   delete?: string;
   preview?: boolean;
   description?: string;
+  'config-dir'?: string;
 }
 
 /**
@@ -26,7 +27,7 @@ interface SelectArguments {
 export async function selectCommand(argv: SelectArguments): Promise<void> {
   try {
     // Initialize preset manager
-    const presetManager = PresetManager.getInstance();
+    const presetManager = PresetManager.getInstance(argv['config-dir']);
     await presetManager.initialize();
 
     const selector = new InteractiveSelector();

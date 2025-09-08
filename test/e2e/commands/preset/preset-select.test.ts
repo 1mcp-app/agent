@@ -1,12 +1,14 @@
 import { describe, it, beforeEach, afterEach } from 'vitest';
 import { CommandTestEnvironment, CliTestRunner } from '../../utils/index.js';
 import { TestFixtures } from '../../fixtures/TestFixtures.js';
+import { PresetManager } from '../../../../src/utils/presetManager.js';
 
 describe('Preset Select Command E2E', () => {
   let environment: CommandTestEnvironment;
   let runner: CliTestRunner;
 
   beforeEach(async () => {
+    PresetManager.resetInstance();
     environment = new CommandTestEnvironment(TestFixtures.createTestScenario('preset-select-test', 'empty'));
     await environment.setup();
     runner = new CliTestRunner(environment);

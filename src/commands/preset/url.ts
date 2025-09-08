@@ -9,6 +9,7 @@ import logger from '../../logger/logger.js';
 interface UrlArguments {
   _: string[];
   name: string;
+  'config-dir'?: string;
 }
 
 /**
@@ -16,7 +17,7 @@ interface UrlArguments {
  */
 export async function urlCommand(argv: UrlArguments): Promise<void> {
   try {
-    const presetManager = PresetManager.getInstance();
+    const presetManager = PresetManager.getInstance(argv['config-dir']);
     await presetManager.initialize();
     const selector = new InteractiveSelector();
     const urlGenerator = new UrlGenerator();

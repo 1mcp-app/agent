@@ -1,12 +1,14 @@
 import { describe, it, beforeEach, afterEach } from 'vitest';
 import { CommandTestEnvironment, CliTestRunner } from '../../utils/index.js';
 import { TestFixtures } from '../../fixtures/TestFixtures.js';
+import { PresetManager } from '../../../../src/utils/presetManager.js';
 
 describe('Preset URL Command E2E', () => {
   let environment: CommandTestEnvironment;
   let runner: CliTestRunner;
 
   beforeEach(async () => {
+    PresetManager.resetInstance();
     environment = new CommandTestEnvironment(TestFixtures.createTestScenario('preset-url-test', 'empty'));
     await environment.setup();
     runner = new CliTestRunner(environment);
@@ -59,7 +61,7 @@ describe('Preset URL Command E2E', () => {
       });
 
       runner.assertSuccess(result); // Command succeeds but shows error message
-      runner.assertOutputContains(result, "Preset 'nonexistent-preset' not found");
+      runner.assertOutputContains(result, "Preset 'nonexistent-preset' not found", true);
     });
   });
 

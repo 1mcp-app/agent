@@ -1,5 +1,5 @@
 import { spawn } from 'child_process';
-import { join } from 'path';
+import { join, dirname } from 'path';
 import { CommandTestEnvironment } from './CommandTestEnvironment.js';
 
 export interface CommandExecutionOptions {
@@ -34,7 +34,22 @@ export class CliTestRunner {
    * Execute a CLI command with the given arguments
    */
   async runCommand(command: string, subcommand: string, options: CommandExecutionOptions = {}): Promise<CommandResult> {
-    const args = [command, subcommand, ...(options.args || [])];
+    const args = [command, subcommand];
+
+    // Add user-specified args first
+    if (options.args) {
+      args.push(...options.args);
+    }
+
+    // For preset commands, inject config-dir at the end if not already specified
+    if (command === 'preset') {
+      if (!args.includes('--config-dir') && !args.includes('-d')) {
+        // For preset commands, we need the directory containing the config file, not the file itself
+        const configDir = dirname(this.environment.getConfigPath());
+        args.push('--config-dir', configDir);
+      }
+    }
+
     return this.executeCommand(args, options);
   }
 

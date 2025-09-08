@@ -55,7 +55,6 @@ export function setupPresetCommands(yargs: Argv): Argv {
               .option('delete', {
                 describe: 'Delete preset by name',
                 type: 'string',
-                alias: 'd',
                 conflicts: ['save', 'load', 'url', 'url-only', 'list', 'preview'],
               })
               .option('preview', {
@@ -95,7 +94,6 @@ export function setupPresetCommands(yargs: Argv): Argv {
               .option('description', {
                 describe: 'Description for the preset',
                 type: 'string',
-                alias: 'd',
               });
           },
           handler: async (argv) => {
@@ -205,7 +203,7 @@ WORKFLOW EXAMPLES:
 3. Complex expressions:
    1mcp preset create prod --filter "web AND database AND monitoring"
    → AND logic for strict requirements
-   
+
    1mcp preset create flexible --filter "(web OR api) AND database"
    → Mixed boolean expressions
 

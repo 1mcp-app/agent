@@ -10,6 +10,7 @@ import chalk from 'chalk';
  */
 interface ShowArguments {
   name: string;
+  'config-dir'?: string;
 }
 
 /**
@@ -17,7 +18,7 @@ interface ShowArguments {
  */
 export async function showCommand(argv: ShowArguments): Promise<void> {
   try {
-    const presetManager = PresetManager.getInstance();
+    const presetManager = PresetManager.getInstance(argv['config-dir']);
     await presetManager.initialize();
     const selector = new InteractiveSelector();
     const urlGenerator = new UrlGenerator();

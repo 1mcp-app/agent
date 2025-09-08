@@ -8,6 +8,7 @@ import logger from '../../logger/logger.js';
 interface DeleteArguments {
   _: string[];
   name: string;
+  'config-dir'?: string;
 }
 
 /**
@@ -15,7 +16,7 @@ interface DeleteArguments {
  */
 export async function deleteCommand(argv: DeleteArguments): Promise<void> {
   try {
-    const presetManager = PresetManager.getInstance();
+    const presetManager = PresetManager.getInstance(argv['config-dir']);
     await presetManager.initialize();
     const selector = new InteractiveSelector();
 

@@ -11,6 +11,7 @@ interface CreateArguments {
   name: string;
   filter: string;
   description?: string;
+  'config-dir'?: string;
 }
 
 /**
@@ -29,47 +30,82 @@ export async function createCommand(argv: CreateArguments): Promise<void> {
     }
 
     // Initialize preset manager
-    const presetManager = PresetManager.getInstance();
+    const presetManager = PresetManager.getInstance(argv['config-dir']);
     await presetManager.initialize();
 
     // Parse filter expression
     let tagQuery;
     let strategy: 'or' | 'and' | 'advanced' = 'or';
 
-    try {
-      // First try to parse as advanced expression
-      const expression = TagQueryParser.parseAdvanced(argv.filter);
-      // For advanced expressions, we need to convert to our TagQuery format
-      // This is a simplified conversion - in production you might want more sophisticated logic
-      if (expression.type === 'tag') {
-        tagQuery = { tag: expression.value };
-      } else if (expression.type === 'or') {
-        tagQuery = { $or: expression.children?.map((child) => ({ tag: child.value })) || [] };
-      } else if (expression.type === 'and') {
-        tagQuery = { $and: expression.children?.map((child) => ({ tag: child.value })) || [] };
-      } else {
-        // For complex expressions, store the original filter string in a special field
-        tagQuery = { $advanced: argv.filter };
+    // Determine if this is a complex expression or simple tags
+    const filterUpper = argv.filter.toUpperCase();
+    const hasAdvancedSyntax =
+      argv.filter.includes('(') ||
+      argv.filter.includes(')') ||
+      filterUpper.includes(' AND ') ||
+      filterUpper.includes(' OR ') ||
+      filterUpper.includes(' NOT ') ||
+      argv.filter.includes('&&') ||
+      argv.filter.includes('||') ||
+      argv.filter.includes('!');
+
+    if (hasAdvancedSyntax) {
+      // Use advanced parsing for complex expressions
+      try {
+        const expression = TagQueryParser.parseAdvanced(argv.filter);
+        strategy = 'advanced';
+
+        // Convert expression to TagQuery format
+        if (expression.type === 'tag') {
+          tagQuery = { tag: expression.value };
+        } else if (expression.type === 'or') {
+          tagQuery = { $or: expression.children?.map((child) => ({ tag: child.value })) || [] };
+        } else if (expression.type === 'and') {
+          tagQuery = { $and: expression.children?.map((child) => ({ tag: child.value })) || [] };
+        } else {
+          // For complex expressions, store as advanced query
+          tagQuery = { $advanced: argv.filter };
+        }
+      } catch (_error) {
+        console.error(`❌ Invalid filter expression: ${argv.filter}`);
+        console.error('Examples:');
+        console.error('  --filter "web,api,database"           # OR logic (comma-separated)');
+        console.error('  --filter "web AND database"           # AND logic');
+        console.error('  --filter "(web OR api) AND database"  # Complex expressions');
+        process.exit(1);
       }
-      strategy = 'advanced';
-    } catch (_advancedError) {
-      // Fall back to simple parsing
+    } else {
+      // Use simple parsing for basic comma-separated or single tags
       try {
         const tags = TagQueryParser.parseSimple(argv.filter);
         if (tags.length === 0) {
           throw new Error('No valid tags found in filter expression');
         }
 
-        // Determine strategy based on presence of AND/OR keywords
-        const filterUpper = argv.filter.toUpperCase();
-        if (filterUpper.includes(' AND ')) {
-          strategy = 'and';
-          tagQuery = { $and: tags.map((tag) => ({ tag })) };
+        // Validate that tags don't contain suspicious patterns
+        for (const tag of tags) {
+          // Check for spaces in tag names (likely indicates missing quotes or improper syntax)
+          if (tag.includes(' ')) {
+            throw new Error(
+              `Invalid tag "${tag}": tag names cannot contain spaces. Use quotes for multi-word tags or AND/OR operators for logic.`,
+            );
+          }
+          // Check for invalid characters
+          if (!/^[a-zA-Z0-9_.-]+$/.test(tag)) {
+            throw new Error(
+              `Invalid tag "${tag}": tags can only contain letters, numbers, hyphens, underscores, and dots.`,
+            );
+          }
+        }
+
+        if (tags.length === 1) {
+          strategy = 'or';
+          tagQuery = { tag: tags[0] };
         } else {
           strategy = 'or';
-          tagQuery = tags.length === 1 ? { tag: tags[0] } : { $or: tags.map((tag) => ({ tag })) };
+          tagQuery = { $or: tags.map((tag) => ({ tag })) };
         }
-      } catch (_simpleError) {
+      } catch (_error) {
         console.error(`❌ Invalid filter expression: ${argv.filter}`);
         console.error('Examples:');
         console.error('  --filter "web,api,database"           # OR logic (comma-separated)');

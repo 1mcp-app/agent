@@ -8,6 +8,7 @@ import logger from '../../logger/logger.js';
 interface TestArguments {
   _: string[];
   name: string;
+  'config-dir'?: string;
 }
 
 /**
@@ -15,7 +16,7 @@ interface TestArguments {
  */
 export async function testCommand(argv: TestArguments): Promise<void> {
   try {
-    const presetManager = PresetManager.getInstance();
+    const presetManager = PresetManager.getInstance(argv['config-dir']);
     await presetManager.initialize();
     const selector = new InteractiveSelector();
 

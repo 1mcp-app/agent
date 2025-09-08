@@ -1,12 +1,14 @@
 import { describe, it, beforeEach, afterEach } from 'vitest';
 import { CommandTestEnvironment, CliTestRunner } from '../../utils/index.js';
 import { TestFixtures } from '../../fixtures/TestFixtures.js';
+import { PresetManager } from '../../../../src/utils/presetManager.js';
 
 describe('Preset Basic Commands E2E', () => {
   let environment: CommandTestEnvironment;
   let runner: CliTestRunner;
 
   beforeEach(async () => {
+    PresetManager.resetInstance();
     environment = new CommandTestEnvironment(TestFixtures.createTestScenario('preset-basic-test', 'empty'));
     await environment.setup();
     runner = new CliTestRunner(environment);
@@ -24,7 +26,7 @@ describe('Preset Basic Commands E2E', () => {
 
       runner.assertSuccess(result);
       runner.assertOutputContains(result, "✅ Preset 'test-preset' created successfully!");
-      runner.assertOutputContains(result, '📋 Strategy: advanced');
+      runner.assertOutputContains(result, '📋 Strategy: or');
     });
 
     it('should create a preset with AND logic', async () => {
@@ -61,7 +63,7 @@ describe('Preset Basic Commands E2E', () => {
       runner.assertSuccess(result);
       runner.assertOutputContains(result, '📋 Available Presets');
       runner.assertOutputContains(result, 'list-test');
-      runner.assertOutputContains(result, 'Advanced');
+      runner.assertOutputContains(result, 'OR logic');
     });
 
     it('should handle empty preset list', async () => {
