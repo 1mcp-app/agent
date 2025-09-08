@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi, Mock } from 'vitest';
 import { promises as fs } from 'fs';
-import { homedir } from 'os';
+import os from 'os';
 import { PresetManager } from './presetManager.js';
 import { McpConfigManager } from '../config/mcpConfigManager.js';
 import { TagQueryParser } from './tagQueryParser.js';
@@ -18,6 +18,9 @@ vi.mock('fs', () => ({
 }));
 
 vi.mock('os', () => ({
+  default: {
+    homedir: vi.fn(),
+  },
   homedir: vi.fn(),
 }));
 
@@ -27,7 +30,7 @@ vi.mock('./tagQueryEvaluator.js');
 vi.mock('../logger/logger.js');
 
 const mockFs = fs as any;
-const mockHomedir = homedir as Mock;
+const mockHomedir = os.homedir as Mock;
 const mockMcpConfig = McpConfigManager as any;
 const mockTagQueryParser = TagQueryParser as any;
 const mockTagQueryEvaluator = TagQueryEvaluator as any;

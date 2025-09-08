@@ -48,7 +48,7 @@ export function getGlobalConfigDir(): string {
  * Priority: CLI option (includes env var via yargs ONE_MCP prefix) -> Default global config dir
  */
 export function getConfigDir(configDirOption?: string): string {
-  if (configDirOption) {
+  if (configDirOption !== undefined) {
     return configDirOption;
   }
 

@@ -1,29 +1,32 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import fs from 'fs';
 import path from 'path';
 import os from 'os';
+
+// Mock os module to control home directory
+vi.mock('os', () => ({
+  default: {
+    homedir: vi.fn(),
+    tmpdir: vi.fn(() => '/tmp'),
+  },
+  tmpdir: vi.fn(() => '/tmp'),
+}));
 import { createBackup, listAppBackups, rollbackFromBackupPath, findBackupByMetaPath } from './backupManager.js';
 import { getAppBackupDir } from '../constants.js';
 
 describe('backupManager', () => {
   let tempDir: string;
   let testConfigPath: string;
-  let originalConfigDir: string;
+  let mockHomedir: any;
 
   beforeEach(() => {
     // Create a temporary directory for testing
-    tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'backup-test-'));
+    tempDir = fs.mkdtempSync(path.join('/tmp', 'backup-test-'));
     testConfigPath = path.join(tempDir, 'test-config.json');
 
-    // Mock the config directory to use our temp directory
-    originalConfigDir = process.env.HOME || process.env.USERPROFILE || '';
-    const mockHome = tempDir;
-    if (process.env.HOME) {
-      process.env.HOME = mockHome;
-    }
-    if (process.env.USERPROFILE) {
-      process.env.USERPROFILE = mockHome;
-    }
+    // Mock os.homedir to return our temp directory
+    mockHomedir = vi.mocked(os.homedir);
+    mockHomedir.mockReturnValue(tempDir);
 
     // Create a test config file
     const testConfig = { mcpServers: { 'test-server': { command: 'node', args: ['test.js'] } } };
@@ -31,15 +34,8 @@ describe('backupManager', () => {
   });
 
   afterEach(() => {
-    // Restore original environment
-    if (originalConfigDir) {
-      if (process.env.HOME) {
-        process.env.HOME = originalConfigDir;
-      }
-      if (process.env.USERPROFILE) {
-        process.env.USERPROFILE = originalConfigDir;
-      }
-    }
+    // Restore mocks
+    vi.restoreAllMocks();
 
     // Clean up temp directory
     if (fs.existsSync(tempDir)) {

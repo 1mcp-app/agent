@@ -1,5 +1,6 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { getGlobalConfigDir, getGlobalConfigPath } from './constants.js';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import os from 'os';
+import { getGlobalConfigDir, getGlobalConfigPath, getConfigDir } from './constants.js';
 
 describe('constants', () => {
   let originalEnv: typeof process.env;
@@ -20,7 +21,7 @@ describe('constants', () => {
 
   describe('getGlobalConfigDir', () => {
     it('should return config directory for macOS', () => {
-      process.env.HOME = '/Users/testuser';
+      vi.spyOn(os, 'homedir').mockReturnValue('/Users/testuser');
       Object.defineProperty(process, 'platform', {
         value: 'darwin',
         writable: true,
@@ -28,10 +29,11 @@ describe('constants', () => {
 
       const result = getGlobalConfigDir();
       expect(result).toBe('/Users/testuser/.config/1mcp');
+      vi.restoreAllMocks();
     });
 
     it('should return config directory for Linux', () => {
-      process.env.HOME = '/home/testuser';
+      vi.spyOn(os, 'homedir').mockReturnValue('/home/testuser');
       Object.defineProperty(process, 'platform', {
         value: 'linux',
         writable: true,
@@ -39,11 +41,11 @@ describe('constants', () => {
 
       const result = getGlobalConfigDir();
       expect(result).toBe('/home/testuser/.config/1mcp');
+      vi.restoreAllMocks();
     });
 
     it('should return config directory for Windows', () => {
-      delete process.env.HOME;
-      process.env.USERPROFILE = 'C:\\Users\\testuser';
+      vi.spyOn(os, 'homedir').mockReturnValue('C:\\Users\\testuser');
       Object.defineProperty(process, 'platform', {
         value: 'win32',
         writable: true,
@@ -51,11 +53,11 @@ describe('constants', () => {
 
       const result = getGlobalConfigDir();
       expect(result).toBe('C:\\Users\\testuser/AppData/Roaming/1mcp');
+      vi.restoreAllMocks();
     });
 
-    it('should prioritize HOME over USERPROFILE', () => {
-      process.env.HOME = '/home/testuser';
-      process.env.USERPROFILE = 'C:\\Users\\testuser';
+    it('should use os.homedir() for home directory detection', () => {
+      vi.spyOn(os, 'homedir').mockReturnValue('/home/testuser');
       Object.defineProperty(process, 'platform', {
         value: 'linux',
         writable: true,
@@ -63,11 +65,12 @@ describe('constants', () => {
 
       const result = getGlobalConfigDir();
       expect(result).toBe('/home/testuser/.config/1mcp');
+      expect(os.homedir).toHaveBeenCalled();
+      vi.restoreAllMocks();
     });
 
-    it('should use USERPROFILE when HOME is not available', () => {
-      delete process.env.HOME;
-      process.env.USERPROFILE = 'C:\\Users\\testuser';
+    it('should handle different platforms correctly', () => {
+      vi.spyOn(os, 'homedir').mockReturnValue('C:\\Users\\testuser');
       Object.defineProperty(process, 'platform', {
         value: 'win32',
         writable: true,
@@ -75,33 +78,46 @@ describe('constants', () => {
 
       const result = getGlobalConfigDir();
       expect(result).toBe('C:\\Users\\testuser/AppData/Roaming/1mcp');
+      vi.restoreAllMocks();
     });
 
-    it('should throw error when no home directory is found', () => {
-      delete process.env.HOME;
-      delete process.env.USERPROFILE;
+    it('should throw error when os.homedir() fails', () => {
+      vi.spyOn(os, 'homedir').mockImplementation(() => {
+        throw new Error('Unable to determine home directory');
+      });
 
-      expect(() => getGlobalConfigDir()).toThrow('Could not determine home directory');
+      expect(() => getGlobalConfigDir()).toThrow('Unable to determine home directory');
+      vi.restoreAllMocks();
     });
 
-    it('should handle empty HOME environment variable', () => {
-      process.env.HOME = '';
-      delete process.env.USERPROFILE;
+    it('should handle os.homedir() returning empty string', () => {
+      vi.spyOn(os, 'homedir').mockReturnValue('');
+      Object.defineProperty(process, 'platform', {
+        value: 'darwin',
+        writable: true,
+      });
 
-      expect(() => getGlobalConfigDir()).toThrow('Could not determine home directory');
+      const result = getGlobalConfigDir();
+      expect(result).toBe('/.config/1mcp');
+      vi.restoreAllMocks();
     });
 
-    it('should handle empty USERPROFILE environment variable', () => {
-      delete process.env.HOME;
-      process.env.USERPROFILE = '';
+    it('should work with any valid home directory path', () => {
+      vi.spyOn(os, 'homedir').mockReturnValue('/custom/home/path');
+      Object.defineProperty(process, 'platform', {
+        value: 'linux',
+        writable: true,
+      });
 
-      expect(() => getGlobalConfigDir()).toThrow('Could not determine home directory');
+      const result = getGlobalConfigDir();
+      expect(result).toBe('/custom/home/path/.config/1mcp');
+      vi.restoreAllMocks();
     });
   });
 
   describe('getGlobalConfigPath', () => {
     it('should return config file path for macOS', () => {
-      process.env.HOME = '/Users/testuser';
+      vi.spyOn(os, 'homedir').mockReturnValue('/Users/testuser');
       Object.defineProperty(process, 'platform', {
         value: 'darwin',
         writable: true,
@@ -109,10 +125,11 @@ describe('constants', () => {
 
       const result = getGlobalConfigPath();
       expect(result).toBe('/Users/testuser/.config/1mcp/mcp.json');
+      vi.restoreAllMocks();
     });
 
     it('should return config file path for Linux', () => {
-      process.env.HOME = '/home/testuser';
+      vi.spyOn(os, 'homedir').mockReturnValue('/home/testuser');
       Object.defineProperty(process, 'platform', {
         value: 'linux',
         writable: true,
@@ -120,11 +137,11 @@ describe('constants', () => {
 
       const result = getGlobalConfigPath();
       expect(result).toBe('/home/testuser/.config/1mcp/mcp.json');
+      vi.restoreAllMocks();
     });
 
     it('should return config file path for Windows', () => {
-      delete process.env.HOME;
-      process.env.USERPROFILE = 'C:\\Users\\testuser';
+      vi.spyOn(os, 'homedir').mockReturnValue('C:\\Users\\testuser');
       Object.defineProperty(process, 'platform', {
         value: 'win32',
         writable: true,
@@ -132,10 +149,11 @@ describe('constants', () => {
 
       const result = getGlobalConfigPath();
       expect(result).toBe('C:\\Users\\testuser/AppData/Roaming/1mcp/mcp.json');
+      vi.restoreAllMocks();
     });
 
     it('should use getGlobalConfigDir internally', () => {
-      process.env.HOME = '/custom/config/path';
+      vi.spyOn(os, 'homedir').mockReturnValue('/custom/config/path');
       Object.defineProperty(process, 'platform', {
         value: 'darwin',
         writable: true,
@@ -143,10 +161,11 @@ describe('constants', () => {
 
       const result = getGlobalConfigPath();
       expect(result).toBe('/custom/config/path/.config/1mcp/mcp.json');
+      vi.restoreAllMocks();
     });
 
     it('should handle path with spaces', () => {
-      process.env.HOME = '/Users/test user';
+      vi.spyOn(os, 'homedir').mockReturnValue('/Users/test user');
       Object.defineProperty(process, 'platform', {
         value: 'darwin',
         writable: true,
@@ -154,10 +173,11 @@ describe('constants', () => {
 
       const result = getGlobalConfigPath();
       expect(result).toBe('/Users/test user/.config/1mcp/mcp.json');
+      vi.restoreAllMocks();
     });
 
     it('should handle path with special characters', () => {
-      process.env.HOME = '/Users/test-user_123';
+      vi.spyOn(os, 'homedir').mockReturnValue('/Users/test-user_123');
       Object.defineProperty(process, 'platform', {
         value: 'darwin',
         writable: true,
@@ -165,12 +185,13 @@ describe('constants', () => {
 
       const result = getGlobalConfigPath();
       expect(result).toBe('/Users/test-user_123/.config/1mcp/mcp.json');
+      vi.restoreAllMocks();
     });
   });
 
   describe('platform detection', () => {
     it('should handle unknown platform as non-Unix', () => {
-      process.env.HOME = '/home/testuser';
+      vi.spyOn(os, 'homedir').mockReturnValue('/home/testuser');
       Object.defineProperty(process, 'platform', {
         value: 'unknown',
         writable: true,
@@ -178,10 +199,11 @@ describe('constants', () => {
 
       const result = getGlobalConfigDir();
       expect(result).toBe('/home/testuser/AppData/Roaming/1mcp');
+      vi.restoreAllMocks();
     });
 
     it('should handle freebsd as Unix-like', () => {
-      process.env.HOME = '/home/testuser';
+      vi.spyOn(os, 'homedir').mockReturnValue('/home/testuser');
       Object.defineProperty(process, 'platform', {
         value: 'freebsd',
         writable: true,
@@ -189,10 +211,11 @@ describe('constants', () => {
 
       const result = getGlobalConfigDir();
       expect(result).toBe('/home/testuser/AppData/Roaming/1mcp');
+      vi.restoreAllMocks();
     });
 
     it('should handle openbsd as Unix-like', () => {
-      process.env.HOME = '/home/testuser';
+      vi.spyOn(os, 'homedir').mockReturnValue('/home/testuser');
       Object.defineProperty(process, 'platform', {
         value: 'openbsd',
         writable: true,
@@ -200,28 +223,33 @@ describe('constants', () => {
 
       const result = getGlobalConfigDir();
       expect(result).toBe('/home/testuser/AppData/Roaming/1mcp');
+      vi.restoreAllMocks();
     });
   });
 
   describe('error handling', () => {
     it('should throw descriptive error message', () => {
-      delete process.env.HOME;
-      delete process.env.USERPROFILE;
+      vi.spyOn(os, 'homedir').mockImplementation(() => {
+        throw new Error('Unable to determine home directory');
+      });
 
-      expect(() => getGlobalConfigDir()).toThrow('Could not determine home directory');
+      expect(() => getGlobalConfigDir()).toThrow('Unable to determine home directory');
+      vi.restoreAllMocks();
     });
 
     it('should propagate error from getGlobalConfigDir to getGlobalConfigPath', () => {
-      delete process.env.HOME;
-      delete process.env.USERPROFILE;
+      vi.spyOn(os, 'homedir').mockImplementation(() => {
+        throw new Error('Unable to determine home directory');
+      });
 
-      expect(() => getGlobalConfigPath()).toThrow('Could not determine home directory');
+      expect(() => getGlobalConfigPath()).toThrow('Unable to determine home directory');
+      vi.restoreAllMocks();
     });
   });
 
   describe('path construction', () => {
     it('should use correct path separators', () => {
-      process.env.HOME = '/Users/testuser';
+      vi.spyOn(os, 'homedir').mockReturnValue('/Users/testuser');
       Object.defineProperty(process, 'platform', {
         value: 'darwin',
         writable: true,
@@ -235,10 +263,11 @@ describe('constants', () => {
       expect(configPath).toContain('.config');
       expect(configPath).toContain('1mcp');
       expect(configPath).toContain('mcp.json');
+      vi.restoreAllMocks();
     });
 
     it('should maintain consistent directory structure', () => {
-      process.env.HOME = '/Users/testuser';
+      vi.spyOn(os, 'homedir').mockReturnValue('/Users/testuser');
       Object.defineProperty(process, 'platform', {
         value: 'darwin',
         writable: true,
@@ -249,6 +278,64 @@ describe('constants', () => {
 
       expect(configPath.startsWith(configDir)).toBe(true);
       expect(configPath.endsWith('/mcp.json')).toBe(true);
+      vi.restoreAllMocks();
+    });
+  });
+
+  describe('getConfigDir', () => {
+    it('should return configDirOption when provided', () => {
+      vi.spyOn(os, 'homedir').mockReturnValue('/Users/testuser');
+      Object.defineProperty(process, 'platform', {
+        value: 'darwin',
+        writable: true,
+      });
+
+      const result = getConfigDir('/custom/config/dir');
+      expect(result).toBe('/custom/config/dir');
+      // os.homedir should not be called when configDirOption is provided
+      expect(os.homedir).not.toHaveBeenCalled();
+      vi.restoreAllMocks();
+    });
+
+    it('should return global config dir when no option provided', () => {
+      vi.spyOn(os, 'homedir').mockReturnValue('/Users/testuser');
+      Object.defineProperty(process, 'platform', {
+        value: 'darwin',
+        writable: true,
+      });
+
+      const result = getConfigDir();
+      expect(result).toBe('/Users/testuser/.config/1mcp');
+      expect(os.homedir).toHaveBeenCalled();
+      vi.restoreAllMocks();
+    });
+
+    it('should return global config dir when undefined option provided', () => {
+      vi.spyOn(os, 'homedir').mockReturnValue('/Users/testuser');
+      Object.defineProperty(process, 'platform', {
+        value: 'darwin',
+        writable: true,
+      });
+
+      const result = getConfigDir(undefined);
+      expect(result).toBe('/Users/testuser/.config/1mcp');
+      expect(os.homedir).toHaveBeenCalled();
+      vi.restoreAllMocks();
+    });
+
+    it('should handle empty string as valid config dir option', () => {
+      const result = getConfigDir('');
+      expect(result).toBe('');
+    });
+
+    it('should handle relative paths as config dir option', () => {
+      const result = getConfigDir('./config');
+      expect(result).toBe('./config');
+    });
+
+    it('should handle absolute paths as config dir option', () => {
+      const result = getConfigDir('/absolute/path/to/config');
+      expect(result).toBe('/absolute/path/to/config');
     });
   });
 });
