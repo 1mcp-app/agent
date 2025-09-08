@@ -22,6 +22,44 @@ The agent uses a JSON file (e.g., `mcp.json`) to define backend servers and glob
 
 You can override the path using the `--config` flag.
 
+### Config Directory Override
+
+The agent supports overriding the entire config directory location, which affects where the configuration file, backups, and other related files are stored.
+
+**Default Locations:**
+
+- **macOS**: `~/.config/1mcp/`
+- **Linux**: `~/.config/1mcp/`
+- **Windows**: `%APPDATA%\1mcp\`
+
+**Override Methods:**
+
+1. **Command Line Flag:**
+
+   ```bash
+   npx -y @1mcp/agent --config-dir /custom/config/path
+   ```
+
+2. **Environment Variable:**
+   ```bash
+   ONE_MCP_CONFIG_DIR=/custom/config/path npx -y @1mcp/agent
+   ```
+
+When you override the config directory, the agent will:
+
+- Look for `mcp.json` in the specified directory
+- Store backups in a `backups` subdirectory
+- Store presets and other configuration files in the specified directory
+
+**Example:**
+
+```bash
+# Use a project-specific config directory
+npx -y @1mcp/agent --config-dir ./project-config
+```
+
+This creates a self-contained configuration setup for projects that need isolated configurations.
+
 ### Top-Level Structure
 
 ```json
@@ -306,6 +344,7 @@ Flags override settings from the JSON configuration file.
 ### Configuration Options
 
 - `--config, -c <path>`: Path to configuration file.
+- `--config-dir, -d <path>`: Path to the config directory (overrides ONE_MCP_CONFIG_DIR environment variable).
 
 ### Security Options
 
@@ -397,6 +436,7 @@ Environment variables are prefixed with `ONE_MCP_` and are useful for containeri
 - `ONE_MCP_EXTERNAL_URL`
 - `ONE_MCP_CONFIG_PATH`
 - `ONE_MCP_CONFIG_WATCH`
+- `ONE_MCP_CONFIG_DIR`
 - `ONE_MCP_LOG_LEVEL`
 - `ONE_MCP_LOG_FILE`
 - `ONE_MCP_TAGS`

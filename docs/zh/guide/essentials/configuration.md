@@ -22,6 +22,44 @@
 
 您可以使用 `--config` 标志覆盖路径。
 
+### 配置目录覆盖
+
+代理支持覆盖整个配置目录位置，这会影响配置文件、备份和其他相关文件的存储位置。
+
+**默认位置：**
+
+- **macOS**：`~/.config/1mcp/`
+- **Linux**：`~/.config/1mcp/`
+- **Windows**：`%APPDATA%\1mcp\`
+
+**覆盖方法：**
+
+1. **命令行标志：**
+
+   ```bash
+   npx -y @1mcp/agent --config-dir /custom/config/path
+   ```
+
+2. **环境变量：**
+   ```bash
+   ONE_MCP_CONFIG_DIR=/custom/config/path npx -y @1mcp/agent
+   ```
+
+当您覆盖配置目录时，代理将：
+
+- 在指定目录中查找 `mcp.json`
+- 在 `backups` 子目录中存储备份
+- 在指定目录中存储预设和其他配置文件
+
+**示例：**
+
+```bash
+# 使用项目特定的配置目录
+npx -y @1mcp/agent --config-dir ./project-config
+```
+
+这为需要隔离配置的项目创建了一个独立的配置设置。
+
 ### 顶级结构
 
 ```json
@@ -306,6 +344,7 @@
 ### 配置选项
 
 - `--config, -c <path>`：配置文件的路径。
+- `--config-dir, -d <path>`：配置目录的路径（覆盖 ONE_MCP_CONFIG_DIR 环境变量）。
 
 ### 安全选项
 
@@ -397,6 +436,7 @@ npx -y @1mcp/agent --log-level debug
 - `ONE_MCP_EXTERNAL_URL`
 - `ONE_MCP_CONFIG_PATH`
 - `ONE_MCP_CONFIG_WATCH`
+- `ONE_MCP_CONFIG_DIR`
 - `ONE_MCP_LOG_LEVEL`
 - `ONE_MCP_LOG_FILE`
 - `ONE_MCP_TAGS`

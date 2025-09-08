@@ -188,6 +188,7 @@ Available options:
 | :--------------------------- | :--------------------------------- | :---------------------------------------------------------------------------------------------- | :--------: |
 | `--transport`, `-t`          | `ONE_MCP_TRANSPORT`                | Choose transport type ("stdio", "http", or "sse")                                               |   "http"   |
 | `--config`, `-c`             | `ONE_MCP_CONFIG`                   | Use a specific config file                                                                      |            |
+| `--config-dir`, `-d`         | `ONE_MCP_CONFIG_DIR`               | Path to the config directory (overrides default config location)                                |            |
 | `--port`, `-P`               | `ONE_MCP_PORT`                     | Change HTTP port                                                                                |    3050    |
 | `--host`, `-H`               | `ONE_MCP_HOST`                     | Change HTTP host                                                                                | localhost  |
 | `--external-url`, `-u`       | `ONE_MCP_EXTERNAL_URL`             | External URL for OAuth callbacks and public URLs (e.g., https://example.com)                    |            |
