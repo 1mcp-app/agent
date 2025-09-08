@@ -1,0 +1,120 @@
+import { describe, it, beforeEach, afterEach } from 'vitest';
+import { CommandTestEnvironment, CliTestRunner } from '../../utils/index.js';
+import { TestFixtures } from '../../fixtures/TestFixtures.js';
+
+describe('Preset Show Command E2E', () => {
+  let environment: CommandTestEnvironment;
+  let runner: CliTestRunner;
+
+  beforeEach(async () => {
+    environment = new CommandTestEnvironment(TestFixtures.createTestScenario('preset-show-test', 'empty'));
+    await environment.setup();
+    runner = new CliTestRunner(environment);
+  });
+
+  afterEach(async () => {
+    await environment.cleanup();
+  });
+
+  describe('Basic Display', () => {
+    it('should show detailed information about a preset', async () => {
+      // Create a preset
+      await runner.runCommand('preset', 'create', {
+        args: ['show-test', '--filter', 'web,api,database', '--description', 'Detailed preset description'],
+      });
+
+      const result = await runner.runCommand('preset', 'show', {
+        args: ['show-test'],
+      });
+
+      runner.assertSuccess(result);
+      runner.assertOutputContains(result, '📋 show-test');
+      runner.assertOutputContains(result, 'Strategy: OR logic');
+      runner.assertOutputContains(result, 'Description: Detailed preset description');
+      runner.assertOutputContains(result, 'Client URL:');
+      runner.assertOutputContains(result, 'Tag Query:');
+      runner.assertOutputContains(result, '"tag": "web"');
+      runner.assertOutputContains(result, '"tag": "api"');
+      runner.assertOutputContains(result, '"tag": "database"');
+    });
+
+    it('should show preset with AND strategy', async () => {
+      // Create a preset with AND strategy
+      await runner.runCommand('preset', 'create', {
+        args: ['and-show-test', '--filter', 'web AND api', '--description', 'AND strategy preset'],
+      });
+
+      const result = await runner.runCommand('preset', 'show', {
+        args: ['and-show-test'],
+      });
+
+      runner.assertSuccess(result);
+      runner.assertOutputContains(result, '📋 and-show-test');
+      runner.assertOutputContains(result, 'Strategy: AND logic');
+      runner.assertOutputContains(result, 'AND strategy preset');
+      runner.assertOutputContains(result, '"$and"');
+    });
+
+    it('should show preset with advanced strategy', async () => {
+      // Create a preset with advanced strategy
+      await runner.runCommand('preset', 'create', {
+        args: ['advanced-show-test', '--filter', '(web OR api) AND database'],
+      });
+
+      const result = await runner.runCommand('preset', 'show', {
+        args: ['advanced-show-test'],
+      });
+
+      runner.assertSuccess(result);
+      runner.assertOutputContains(result, '📋 advanced-show-test');
+      runner.assertOutputContains(result, 'Strategy: Advanced');
+      runner.assertOutputContains(result, '"$advanced"');
+    });
+  });
+
+  describe('Error Handling', () => {
+    it('should handle showing non-existent preset', async () => {
+      const result = await runner.runCommand('preset', 'show', {
+        args: ['nonexistent-preset'],
+        expectError: true,
+      });
+
+      runner.assertSuccess(result); // Command succeeds but shows error message
+      runner.assertOutputContains(result, "Preset 'nonexistent-preset' not found");
+    });
+  });
+
+  describe('Help and Usage', () => {
+    it('should show help for show command', async () => {
+      const result = await runner.runCommand('preset', 'show', {
+        args: ['--help'],
+      });
+
+      runner.assertSuccess(result);
+      runner.assertOutputContains(result, 'Show detailed information about a preset');
+      runner.assertOutputContains(result, '<name>');
+    });
+  });
+
+  describe('Integration Testing', () => {
+    it('should show consistent information between list and show commands', async () => {
+      // Create a preset
+      await runner.runCommand('preset', 'create', {
+        args: ['consistency-test', '--filter', 'web,api', '--description', 'Consistency test'],
+      });
+
+      // Get list output
+      const listResult = await runner.runCommand('preset', 'list');
+      runner.assertOutputContains(listResult, 'consistency-test');
+      runner.assertOutputContains(listResult, 'OR logic');
+
+      // Get show output
+      const showResult = await runner.runCommand('preset', 'show', {
+        args: ['consistency-test'],
+      });
+      runner.assertOutputContains(showResult, 'consistency-test');
+      runner.assertOutputContains(showResult, 'Strategy: OR logic');
+      runner.assertOutputContains(showResult, 'Consistency test');
+    });
+  });
+});

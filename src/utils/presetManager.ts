@@ -1,7 +1,7 @@
 import { promises as fs } from 'fs';
 import { join } from 'path';
 import { watch, FSWatcher } from 'fs';
-import { homedir } from 'os';
+import { getGlobalConfigDir } from '../constants.js';
 import { TagQueryParser } from './tagQueryParser.js';
 import { TagQueryEvaluator } from './tagQueryEvaluator.js';
 import { McpConfigManager } from '../config/mcpConfigManager.js';
@@ -13,15 +13,15 @@ import logger from '../logger/logger.js';
  * Integrates with client notification system for real-time updates.
  */
 export class PresetManager {
-  private static instance: PresetManager;
+  private static instance: PresetManager | null = null;
   private presets: Map<string, PresetConfig> = new Map();
   private configPath: string;
   private watcher: FSWatcher | null = null;
   private notificationCallbacks: Set<(presetName: string) => Promise<void>> = new Set();
 
   private constructor() {
-    // Store presets in ~/.config/1mcp/presets.json
-    const configDir = join(homedir(), '.config', '1mcp');
+    // Store presets in config directory based on environment
+    const configDir = process.env.ONE_MCP_CONFIG_DIR || getGlobalConfigDir();
     this.configPath = join(configDir, 'presets.json');
   }
 
@@ -30,6 +30,18 @@ export class PresetManager {
       PresetManager.instance = new PresetManager();
     }
     return PresetManager.instance;
+  }
+
+  /**
+   * Reset the singleton instance. Primarily for testing.
+   */
+  public static resetInstance(): void {
+    if (PresetManager.instance) {
+      PresetManager.instance.cleanup().catch((error) => {
+        console.warn('Failed to cleanup PresetManager during reset:', error);
+      });
+      PresetManager.instance = null;
+    }
   }
 
   /**
@@ -128,7 +140,7 @@ export class PresetManager {
    * Ensure config directory exists
    */
   private async ensureConfigDirectory(): Promise<void> {
-    const configDir = join(homedir(), '.config', '1mcp');
+    const configDir = process.env.ONE_MCP_CONFIG_DIR || getGlobalConfigDir();
     try {
       await fs.mkdir(configDir, { recursive: true });
     } catch (error: any) {

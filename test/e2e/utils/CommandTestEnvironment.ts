@@ -55,6 +55,14 @@ export class CommandTestEnvironment {
     await mkdir(join(this.tempDir, 'backups'), { recursive: true });
     await mkdir(join(this.tempDir, 'logs'), { recursive: true });
 
+    // Remove any existing preset file to ensure clean test state
+    const presetFile = join(this.getConfigDir(), 'presets.json');
+    try {
+      await rm(presetFile, { force: true });
+    } catch {
+      // Ignore errors if file doesn't exist
+    }
+
     // Create mock config file if requested
     if (this.config.createConfigFile) {
       await this.createMockConfigFile();
