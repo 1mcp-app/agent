@@ -54,6 +54,12 @@ const serverOptions = {
     type: 'string' as const,
     default: undefined,
   },
+  'config-dir': {
+    alias: 'd',
+    describe: 'Path to the config directory (overrides ONE_MCP_CONFIG_DIR environment variable)',
+    type: 'string' as const,
+    default: undefined,
+  },
   filter: {
     alias: 'f',
     describe: 'Filter expression for server selection (supports simple comma-separated or advanced boolean logic)',
@@ -311,6 +317,11 @@ async function main() {
         },
       }),
     });
+
+    // Initialize PresetManager with config directory option before server setup
+    // This ensures the singleton is created with the correct config directory
+    const PresetManager = (await import('./utils/presetManager.js')).PresetManager;
+    PresetManager.getInstance(parsedArgv['config-dir']);
 
     // Initialize server and get server manager with custom config path if provided
     const { serverManager, loadingManager, asyncOrchestrator } = await setupServer();

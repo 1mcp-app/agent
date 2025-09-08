@@ -9,6 +9,12 @@ export function setupPresetCommands(yargs: Argv): Argv {
     'Manage server presets for dynamic filtering',
     (yargs) => {
       return yargs
+        .option('config-dir', {
+          alias: 'd',
+          describe: 'Path to the config directory (overrides ONE_MCP_CONFIG_DIR environment variable)',
+          type: 'string' as const,
+          default: undefined,
+        })
         .command({
           command: 'select [name]',
           describe: 'Interactive server selection with TUI',
@@ -116,9 +122,9 @@ export function setupPresetCommands(yargs: Argv): Argv {
           command: 'list',
           describe: 'List all available presets',
           builder: (yargs) => yargs,
-          handler: async () => {
+          handler: async (argv) => {
             const { listCommand } = await import('./list.js');
-            await listCommand();
+            await listCommand(argv as any);
           },
         })
         .command({

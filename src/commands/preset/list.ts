@@ -7,9 +7,9 @@ import chalk from 'chalk';
 /**
  * List available presets
  */
-export async function listCommand(): Promise<void> {
+export async function listCommand(argv?: { 'config-dir'?: string }): Promise<void> {
   try {
-    const presetManager = PresetManager.getInstance();
+    const presetManager = PresetManager.getInstance(argv?.['config-dir']);
     await presetManager.initialize();
     const selector = new InteractiveSelector();
     await listPresets(presetManager, selector);

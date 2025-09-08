@@ -2,6 +2,7 @@
  * Application constants
  */
 
+import os from 'os';
 import { ClientCapabilities, ServerCapabilities } from '@modelcontextprotocol/sdk/types.js';
 
 // Server configuration
@@ -32,10 +33,7 @@ export const DEFAULT_CONFIG = {
  * Get the global config directory path based on OS
  */
 export function getGlobalConfigDir(): string {
-  const homeDir = process.env.HOME || process.env.USERPROFILE;
-  if (!homeDir) {
-    throw new Error('Could not determine home directory');
-  }
+  const homeDir = os.homedir();
 
   const configDir =
     process.platform === 'darwin' || process.platform === 'linux'
@@ -43,6 +41,18 @@ export function getGlobalConfigDir(): string {
       : `${homeDir}/AppData/Roaming/${CONFIG_DIR_NAME}`;
 
   return configDir;
+}
+
+/**
+ * Get the config directory path with CLI option override support
+ * Priority: CLI option (includes env var via yargs ONE_MCP prefix) -> Default global config dir
+ */
+export function getConfigDir(configDirOption?: string): string {
+  if (configDirOption) {
+    return configDirOption;
+  }
+
+  return getGlobalConfigDir();
 }
 
 /**

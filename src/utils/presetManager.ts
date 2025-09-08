@@ -1,7 +1,7 @@
 import { promises as fs } from 'fs';
 import { join } from 'path';
 import { watch, FSWatcher } from 'fs';
-import { getGlobalConfigDir } from '../constants.js';
+import { getConfigDir } from '../constants.js';
 import { TagQueryParser } from './tagQueryParser.js';
 import { TagQueryEvaluator } from './tagQueryEvaluator.js';
 import { McpConfigManager } from '../config/mcpConfigManager.js';
@@ -18,16 +18,18 @@ export class PresetManager {
   private configPath: string;
   private watcher: FSWatcher | null = null;
   private notificationCallbacks: Set<(presetName: string) => Promise<void>> = new Set();
+  private configDirOption?: string;
 
-  private constructor() {
-    // Store presets in config directory based on environment
-    const configDir = process.env.ONE_MCP_CONFIG_DIR || getGlobalConfigDir();
+  private constructor(configDirOption?: string) {
+    // Store presets in config directory based on CLI option, environment, or default
+    this.configDirOption = configDirOption;
+    const configDir = getConfigDir(configDirOption);
     this.configPath = join(configDir, 'presets.json');
   }
 
-  public static getInstance(): PresetManager {
+  public static getInstance(configDirOption?: string): PresetManager {
     if (!PresetManager.instance) {
-      PresetManager.instance = new PresetManager();
+      PresetManager.instance = new PresetManager(configDirOption);
     }
     return PresetManager.instance;
   }
@@ -140,7 +142,7 @@ export class PresetManager {
    * Ensure config directory exists
    */
   private async ensureConfigDirectory(): Promise<void> {
-    const configDir = process.env.ONE_MCP_CONFIG_DIR || getGlobalConfigDir();
+    const configDir = getConfigDir(this.configDirOption);
     try {
       await fs.mkdir(configDir, { recursive: true });
     } catch (error: any) {
