@@ -8,7 +8,12 @@ import { ServerManager } from '../../../core/server/serverManager.js';
 import { ServerStatus } from '../../../core/types/index.js';
 import { AsyncLoadingOrchestrator } from '../../../core/capabilities/asyncLoadingOrchestrator.js';
 import tagsExtractor from '../middlewares/tagsExtractor.js';
-import { getValidatedTags, getTagExpression, getTagFilterMode } from '../middlewares/scopeAuthMiddleware.js';
+import {
+  getValidatedTags,
+  getTagExpression,
+  getTagFilterMode,
+  getPresetName,
+} from '../middlewares/scopeAuthMiddleware.js';
 
 export function setupStreamableHttpRoutes(
   router: Router,
@@ -39,11 +44,13 @@ export function setupStreamableHttpRoutes(
         const tags = getValidatedTags(res);
         const tagExpression = getTagExpression(res);
         const tagFilterMode = getTagFilterMode(res);
+        const presetName = getPresetName(res);
 
         await serverManager.connectTransport(transport, id, {
           tags,
           tagExpression,
           tagFilterMode,
+          presetName,
           enablePagination: req.query.pagination === 'true',
         });
 

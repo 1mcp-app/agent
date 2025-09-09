@@ -6,6 +6,7 @@ import { TagQueryParser } from './tagQueryParser.js';
 import { TagQueryEvaluator } from './tagQueryEvaluator.js';
 import { McpConfigManager } from '../config/mcpConfigManager.js';
 import { PresetConfig, PresetStorage, PresetValidationResult, PresetListItem } from './presetTypes.js';
+import { PresetServerChangeDetector } from './presetServerChangeDetector.js';
 import logger from '../logger/logger.js';
 
 /**
@@ -19,6 +20,7 @@ export class PresetManager {
   private watcher: FSWatcher | null = null;
   private notificationCallbacks: Set<(presetName: string) => Promise<void>> = new Set();
   private configDirOption?: string;
+  private changeDetector: PresetServerChangeDetector = new PresetServerChangeDetector();
 
   private constructor(configDirOption?: string) {
     // Store presets in config directory based on CLI option, environment, or default
@@ -80,7 +82,7 @@ export class PresetManager {
   /**
    * Load presets from storage file
    */
-  private async loadPresets(): Promise<void> {
+  private async loadPresets(skipChangeDetectorInit: boolean = false): Promise<void> {
     try {
       await this.ensureConfigDirectory();
 
@@ -100,6 +102,11 @@ export class PresetManager {
           presetCount: this.presets.size,
           presetNames: Array.from(this.presets.keys()),
         });
+
+        // Initialize change detector with current server lists
+        if (!skipChangeDetectorInit) {
+          await this.initializeChangeDetector();
+        }
       } catch (error: any) {
         if (error.code === 'ENOENT') {
           // File doesn't exist, start with empty presets
@@ -112,6 +119,92 @@ export class PresetManager {
     } catch (error) {
       logger.error('Failed to load presets', { error });
       throw new Error(`Failed to load presets: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+  }
+
+  /**
+   * Reload presets and notify clients of any server list changes
+   */
+  private async reloadAndNotifyChanges(): Promise<void> {
+    // Reload presets from file (skip change detector initialization)
+    await this.loadPresets(true);
+
+    // Check for changes and notify affected presets
+    const changedPresets: string[] = [];
+
+    for (const presetName of this.presets.keys()) {
+      try {
+        const newTestResult = await this.testPreset(presetName);
+        const changes = this.changeDetector.detectChanges(presetName, newTestResult.servers);
+
+        if (changes.hasChanged) {
+          logger.info('Detected server list changes for preset', {
+            presetName,
+            added: changes.added,
+            removed: changes.removed,
+            unchanged: changes.unchanged.length,
+          });
+
+          changedPresets.push(presetName);
+        }
+
+        // Update the detector with the new server list
+        this.changeDetector.updateServerList(presetName, newTestResult.servers);
+      } catch (error) {
+        logger.error('Failed to check for preset changes', {
+          presetName,
+          error: error instanceof Error ? error.message : 'Unknown error',
+        });
+      }
+    }
+
+    // Handle deleted presets
+    const currentPresetNames = new Set(this.presets.keys());
+    const trackedPresetNames = this.changeDetector.getTrackedPresets();
+
+    for (const trackedPresetName of trackedPresetNames) {
+      if (!currentPresetNames.has(trackedPresetName)) {
+        logger.info('Preset was deleted, cleaning up tracking', { presetName: trackedPresetName });
+        this.changeDetector.removePreset(trackedPresetName);
+        // Note: We don't need to notify for deleted presets as clients will get errors
+        // when trying to use them and will handle gracefully
+      }
+    }
+
+    // Notify clients for presets with server list changes
+    if (changedPresets.length > 0) {
+      logger.info('Notifying clients of preset changes', {
+        changedPresets,
+        totalChangedPresets: changedPresets.length,
+      });
+
+      for (const presetName of changedPresets) {
+        await this.notifyPresetChange(presetName);
+      }
+    } else {
+      logger.debug('No preset server list changes detected, skipping notifications');
+    }
+  }
+
+  /**
+   * Initialize change detector with current preset server lists
+   */
+  private async initializeChangeDetector(): Promise<void> {
+    for (const presetName of this.presets.keys()) {
+      try {
+        const testResult = await this.testPreset(presetName);
+        this.changeDetector.updateServerList(presetName, testResult.servers);
+        logger.debug('Initialized change detector for preset', {
+          presetName,
+          serverCount: testResult.servers.length,
+        });
+      } catch (error) {
+        logger.warn('Failed to initialize change detector for preset', {
+          presetName,
+          error: error instanceof Error ? error.message : 'Unknown error',
+        });
+        this.changeDetector.updateServerList(presetName, []);
+      }
     }
   }
 
@@ -165,7 +258,7 @@ export class PresetManager {
         if (eventType === 'change') {
           logger.debug('Preset file changed, reloading...');
           try {
-            await this.loadPresets();
+            await this.reloadAndNotifyChanges();
             logger.info('Presets reloaded successfully');
           } catch (error) {
             logger.error('Failed to reload presets', { error });

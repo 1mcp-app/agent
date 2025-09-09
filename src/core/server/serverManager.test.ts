@@ -22,6 +22,7 @@ vi.mock('../../logger/logger.js', () => {
     info: vi.fn(),
     error: vi.fn(),
     warn: vi.fn(),
+    debug: vi.fn(),
   };
   return {
     __esModule: true,
@@ -43,6 +44,15 @@ vi.mock('../../capabilities/capabilityManager.js', () => ({
 
 vi.mock('../../logger/mcpLoggingEnhancer.js', () => ({
   enhanceServerWithLogging: vi.fn(),
+}));
+
+vi.mock('../../utils/presetNotificationService.js', () => ({
+  PresetNotificationService: {
+    getInstance: vi.fn().mockReturnValue({
+      trackClient: vi.fn(),
+      untrackClient: vi.fn(),
+    }),
+  },
 }));
 
 describe('ServerManager', () => {

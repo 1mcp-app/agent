@@ -21,6 +21,7 @@ export interface InboundConnectionConfig {
   readonly tagExpression?: TagExpression;
   readonly tagFilterMode?: 'simple-or' | 'advanced' | 'none';
   readonly enablePagination?: boolean;
+  readonly presetName?: string;
 }
 
 /**

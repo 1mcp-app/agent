@@ -199,6 +199,13 @@ export function getTagFilterMode(res: Response): 'simple-or' | 'advanced' | 'non
 }
 
 /**
+ * Utility function to get preset name from response locals
+ */
+export function getPresetName(res: Response): string | undefined {
+  return res?.locals?.presetName;
+}
+
+/**
  * Utility function to get authentication information from response locals
  */
 export function getAuthInfo(res: Response): AuthInfo | undefined {

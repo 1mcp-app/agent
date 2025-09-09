@@ -4,6 +4,7 @@ import logger from '../../logger/logger.js';
 import configReloadService from '../../services/configReloadService.js';
 import { setupCapabilities } from '../../capabilities/capabilityManager.js';
 import { enhanceServerWithLogging } from '../../logger/mcpLoggingEnhancer.js';
+import { PresetNotificationService, type ClientConnection } from '../../utils/presetNotificationService.js';
 import {
   OutboundConnections,
   InboundConnection,
@@ -152,6 +153,39 @@ export class ServerManager {
     serverInfo.status = ServerStatus.Connected;
     serverInfo.lastConnected = new Date();
 
+    // Register client with preset notification service if preset is used
+    if (opts.presetName) {
+      const notificationService = PresetNotificationService.getInstance();
+      const clientConnection: ClientConnection = {
+        id: sessionId,
+        presetName: opts.presetName,
+        sendNotification: async (method: string, params?: any) => {
+          try {
+            if (serverInfo.status === ServerStatus.Connected && serverInfo.server.transport) {
+              await serverInfo.server.notification({ method, params: params || {} });
+              logger.debug('Sent notification to client', { sessionId, method });
+            } else {
+              logger.warn('Cannot send notification to disconnected client', { sessionId, method });
+            }
+          } catch (error) {
+            logger.error('Failed to send notification to client', {
+              sessionId,
+              method,
+              error: error instanceof Error ? error.message : 'Unknown error',
+            });
+            throw error;
+          }
+        },
+        isConnected: () => serverInfo.status === ServerStatus.Connected && !!serverInfo.server.transport,
+      };
+
+      notificationService.trackClient(clientConnection, opts.presetName);
+      logger.info('Registered client for preset notifications', {
+        sessionId,
+        presetName: opts.presetName,
+      });
+    }
+
     logger.info(`Connected transport for session ${sessionId}`);
   }
 
@@ -178,6 +212,11 @@ export class ServerManager {
             logger.error(`Error closing transport for session ${sessionId}:`, error);
           }
         }
+
+        // Untrack client from preset notification service
+        const notificationService = PresetNotificationService.getInstance();
+        notificationService.untrackClient(sessionId);
+        logger.debug('Untracked client from preset notifications', { sessionId });
 
         this.inboundConns.delete(sessionId);
         configReloadService.removeServerInfo(sessionId);

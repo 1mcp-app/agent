@@ -7,7 +7,12 @@ import { ServerManager } from '../../../core/server/serverManager.js';
 import { ServerStatus } from '../../../core/types/index.js';
 import { AsyncLoadingOrchestrator } from '../../../core/capabilities/asyncLoadingOrchestrator.js';
 import tagsExtractor from '../middlewares/tagsExtractor.js';
-import { getValidatedTags, getTagExpression, getTagFilterMode } from '../middlewares/scopeAuthMiddleware.js';
+import {
+  getValidatedTags,
+  getTagExpression,
+  getTagFilterMode,
+  getPresetName,
+} from '../middlewares/scopeAuthMiddleware.js';
 
 export function setupSseRoutes(
   router: Router,
@@ -31,12 +36,14 @@ export function setupSseRoutes(
       const tags = getValidatedTags(res);
       const tagExpression = getTagExpression(res);
       const tagFilterMode = getTagFilterMode(res);
+      const presetName = getPresetName(res);
 
       // Connect the transport using the server manager
       await serverManager.connectTransport(transport, transport.sessionId, {
         tags,
         tagExpression,
         tagFilterMode,
+        presetName,
         enablePagination: req.query.pagination === 'true',
       });
 
