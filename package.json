@@ -55,6 +55,7 @@
   },
   "scripts": {
     "dev": "tsc-watch --project tsconfig.build.json --onSuccess \"node --env-file=.env build/index.js\"",
+    "start": "node --env-file=.env build/index.js",
     "build": "tsc --project tsconfig.build.json && node -e \"require('fs').chmodSync('build/index.js', '755')\"",
     "clean": "rm -rf build",
     "clean:sea": "rm -f 1mcp 1mcp.exe sea-prep.blob build/bundled.cjs",
