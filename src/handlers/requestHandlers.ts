@@ -34,6 +34,7 @@ import { FilteringService } from '../core/filtering/filteringService.js';
 import { byCapabilities } from '../utils/clientFiltering.js';
 import { OutboundConnections, InboundConnection, ClientStatus } from '../core/types/index.js';
 import { handlePagination } from '../utils/pagination.js';
+import { registerSearchTools } from '../core/tools/mcpSearchTools.js';
 import logger from '../logger/logger.js';
 
 /**
@@ -136,6 +137,9 @@ export function registerRequestHandlers(outboundConns: OutboundConnections, inbo
 
   // Register completion-related handlers
   registerCompletionHandlers(outboundConns, inboundConn);
+
+  // Register MCP registry search tools
+  registerSearchTools(inboundConn.server);
 
   // Register server-specific request handlers
   registerServerRequestHandlers(outboundConns, inboundConn);
