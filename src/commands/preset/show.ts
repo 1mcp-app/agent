@@ -1,6 +1,7 @@
 import { PresetManager } from '../../utils/presetManager.js';
 import { InteractiveSelector } from '../../utils/interactiveSelector.js';
 import { UrlGenerator } from '../../utils/urlGenerator.js';
+import { GlobalOptions } from '../../globalOptions.js';
 import logger from '../../logger/logger.js';
 import boxen from 'boxen';
 import chalk from 'chalk';
@@ -8,9 +9,8 @@ import chalk from 'chalk';
 /**
  * Command arguments for the show command
  */
-interface ShowArguments {
+interface ShowArguments extends GlobalOptions {
   name: string;
-  'config-dir'?: string;
 }
 
 /**

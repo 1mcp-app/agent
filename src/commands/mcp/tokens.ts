@@ -4,10 +4,10 @@ import { TokenEstimationService, type ServerTokenEstimate } from '../../services
 import { TagQueryParser, type TagExpression } from '../../utils/tagQueryParser.js';
 import { loadConfig, type ServerConfig } from './utils/configUtils.js';
 import type { MCPServerParams } from '../../core/types/index.js';
+import { GlobalOptions } from '../../globalOptions.js';
 import { McpConnectionHelper } from './utils/connectionHelper.js';
 
-interface TokensCommandArgs {
-  config?: string;
+interface TokensCommandArgs extends GlobalOptions {
   'tag-filter'?: string;
   format?: string; // Will be validated at runtime
   model?: string;

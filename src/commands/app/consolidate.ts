@@ -22,6 +22,7 @@ import { getAppBackupDir } from '../../constants.js';
 import { McpConfigManager } from '../../config/mcpConfigManager.js';
 import { setServer } from '../mcp/utils/configUtils.js';
 import { MCPServerParams } from '../../core/types/index.js';
+import { GlobalOptions } from '../../globalOptions.js';
 
 /**
  * Consolidate command - Main consolidation logic for MCP servers.
@@ -30,7 +31,7 @@ import { MCPServerParams } from '../../core/types/index.js';
  * them into 1mcp with safe backup and validation.
  */
 
-interface ConsolidateOptions {
+interface ConsolidateOptions extends GlobalOptions {
   'app-name': string[];
   url?: string;
   'dry-run': boolean;

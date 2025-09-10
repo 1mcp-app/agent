@@ -4,6 +4,7 @@ import {
   getManualOnlyApps,
   showPlatformWarningIfNeeded,
 } from '../../utils/appPresets.js';
+import { GlobalOptions } from '../../globalOptions.js';
 
 /**
  * List command - Display supported desktop applications.
@@ -12,7 +13,7 @@ import {
  * (automatic vs manual setup required).
  */
 
-interface ListOptions {
+interface ListOptions extends GlobalOptions {
   'configurable-only': boolean;
   'manual-only': boolean;
 }

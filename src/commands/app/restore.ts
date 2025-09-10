@@ -1,6 +1,7 @@
 import readline from 'readline';
 import { listAppBackups, rollbackFromBackupPath, findBackupByMetaPath } from '../../utils/backupManager.js';
 import { getAppPreset, isAppSupported } from '../../utils/appPresets.js';
+import { GlobalOptions } from '../../globalOptions.js';
 
 /**
  * Restore command - Restore desktop applications to pre-consolidation state.
@@ -9,7 +10,7 @@ import { getAppPreset, isAppSupported } from '../../utils/appPresets.js';
  * during the consolidation process.
  */
 
-interface RestoreOptions {
+interface RestoreOptions extends GlobalOptions {
   'app-name'?: string;
   backup?: string;
   list: boolean;

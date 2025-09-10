@@ -1,4 +1,5 @@
 import type { Argv } from 'yargs';
+import { globalOptions } from '../../globalOptions.js';
 
 /**
  * MCP command group entry point.
@@ -16,6 +17,7 @@ export function setupMcpCommands(yargs: Argv): Argv {
     'Manage MCP server configurations',
     (yargs) => {
       return yargs
+        .options(globalOptions || {})
         .command({
           command: 'add <name>',
           describe: 'Add a new MCP server to the configuration',
@@ -25,11 +27,6 @@ export function setupMcpCommands(yargs: Argv): Argv {
                 describe: 'Name of the MCP server',
                 type: 'string',
                 demandOption: true,
-              })
-              .option('config', {
-                describe: 'Path to the config file',
-                type: 'string',
-                alias: 'c',
               })
               .option('type', {
                 describe: 'Transport type for the server (auto-detected when using " -- " pattern)',
@@ -117,9 +114,9 @@ export function setupMcpCommands(yargs: Argv): Argv {
             if (hasDoubleHyphen(process.argv)) {
               const doubleHyphenResult = parseDoubleHyphenArgs(process.argv);
               const mergedArgv = mergeDoubleHyphenArgs(argv, doubleHyphenResult);
-              await addCommand(mergedArgv);
+              await addCommand(mergedArgv as any);
             } else {
-              await addCommand(argv);
+              await addCommand(argv as any);
             }
           },
         })
@@ -132,11 +129,6 @@ export function setupMcpCommands(yargs: Argv): Argv {
                 describe: 'Name of the MCP server to remove',
                 type: 'string',
                 demandOption: true,
-              })
-              .option('config', {
-                describe: 'Path to the config file',
-                type: 'string',
-                alias: 'c',
               })
               .option('yes', {
                 describe: 'Skip confirmation prompt',
@@ -151,7 +143,7 @@ export function setupMcpCommands(yargs: Argv): Argv {
           },
           handler: async (argv) => {
             const { removeCommand } = await import('./remove.js');
-            await removeCommand(argv);
+            await removeCommand(argv as any);
           },
         })
         .command({
@@ -163,11 +155,6 @@ export function setupMcpCommands(yargs: Argv): Argv {
                 describe: 'Name of the MCP server to update',
                 type: 'string',
                 demandOption: true,
-              })
-              .option('config', {
-                describe: 'Path to the config file',
-                type: 'string',
-                alias: 'c',
               })
               .option('type', {
                 describe: 'Transport type for the server (auto-detected when using " -- " pattern)',
@@ -241,9 +228,9 @@ export function setupMcpCommands(yargs: Argv): Argv {
             if (hasDoubleHyphen(process.argv)) {
               const doubleHyphenResult = parseDoubleHyphenArgs(process.argv);
               const mergedArgv = mergeDoubleHyphenArgs(argv, doubleHyphenResult);
-              await updateCommand(mergedArgv);
+              await updateCommand(mergedArgv as any);
             } else {
-              await updateCommand(argv);
+              await updateCommand(argv as any);
             }
           },
         })
@@ -257,16 +244,11 @@ export function setupMcpCommands(yargs: Argv): Argv {
                 type: 'string',
                 demandOption: true,
               })
-              .option('config', {
-                describe: 'Path to the config file',
-                type: 'string',
-                alias: 'c',
-              })
               .example([['$0 mcp enable myserver', 'Enable a disabled server']]);
           },
           handler: async (argv) => {
             const { enableCommand } = await import('./enable.js');
-            await enableCommand(argv);
+            await enableCommand(argv as any);
           },
         })
         .command({
@@ -279,16 +261,11 @@ export function setupMcpCommands(yargs: Argv): Argv {
                 type: 'string',
                 demandOption: true,
               })
-              .option('config', {
-                describe: 'Path to the config file',
-                type: 'string',
-                alias: 'c',
-              })
               .example([['$0 mcp disable myserver', 'Disable a server temporarily']]);
           },
           handler: async (argv) => {
             const { disableCommand } = await import('./enable.js');
-            await disableCommand(argv);
+            await disableCommand(argv as any);
           },
         })
         .command({
@@ -296,11 +273,6 @@ export function setupMcpCommands(yargs: Argv): Argv {
           describe: 'List all configured MCP servers',
           builder: (yargs) => {
             return yargs
-              .option('config', {
-                describe: 'Path to the config file',
-                type: 'string',
-                alias: 'c',
-              })
               .option('show-disabled', {
                 describe: 'Include disabled servers in the list',
                 type: 'boolean',
@@ -326,7 +298,7 @@ export function setupMcpCommands(yargs: Argv): Argv {
           },
           handler: async (argv) => {
             const { listCommand } = await import('./list.js');
-            await listCommand(argv);
+            await listCommand(argv as any);
           },
         })
         .command({
@@ -337,11 +309,6 @@ export function setupMcpCommands(yargs: Argv): Argv {
               .positional('name', {
                 describe: 'Name of specific server to check (optional)',
                 type: 'string',
-              })
-              .option('config', {
-                describe: 'Path to the config file',
-                type: 'string',
-                alias: 'c',
               })
               .option('verbose', {
                 describe: 'Show detailed status information',
@@ -357,7 +324,7 @@ export function setupMcpCommands(yargs: Argv): Argv {
           },
           handler: async (argv) => {
             const { statusCommand } = await import('./status.js');
-            await statusCommand(argv);
+            await statusCommand(argv as any);
           },
         })
         .command({
@@ -365,11 +332,6 @@ export function setupMcpCommands(yargs: Argv): Argv {
           describe: 'Estimate MCP token usage for server capabilities',
           builder: (yargs) => {
             return yargs
-              .option('config', {
-                describe: 'Path to the config file',
-                type: 'string',
-                alias: 'c',
-              })
               .option('tag-filter', {
                 describe: 'Filter servers by advanced tag expression (and/or/not logic)',
                 type: 'string',
@@ -401,7 +363,7 @@ export function setupMcpCommands(yargs: Argv): Argv {
           },
           handler: async (argv) => {
             const { tokensCommand } = await import('./tokens.js');
-            await tokensCommand(argv);
+            await tokensCommand(argv as any);
           },
         })
         .demandCommand(1, 'You must specify a subcommand')

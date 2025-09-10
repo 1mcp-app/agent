@@ -18,10 +18,10 @@ import {
   validateTags,
   validateTimeout,
 } from './utils/validation.js';
+import { GlobalOptions } from '../../globalOptions.js';
 
-export interface UpdateCommandArgs {
+export interface UpdateCommandArgs extends GlobalOptions {
   name: string;
-  config?: string;
   type?: string; // Will be validated as 'stdio' | 'http' | 'sse'
   command?: string;
   args?: string[];

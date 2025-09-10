@@ -3,11 +3,17 @@ import { InteractiveSelector } from '../../utils/interactiveSelector.js';
 import logger from '../../logger/logger.js';
 import boxen from 'boxen';
 import chalk from 'chalk';
+import { GlobalOptions } from '@src/globalOptions.js';
+
+/**
+ * Command arguments for the list command
+ */
+interface ListArguments extends GlobalOptions {}
 
 /**
  * List available presets
  */
-export async function listCommand(argv?: { 'config-dir'?: string }): Promise<void> {
+export async function listCommand(argv?: ListArguments): Promise<void> {
   try {
     const presetManager = PresetManager.getInstance(argv?.['config-dir']);
     await presetManager.initialize();

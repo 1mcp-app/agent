@@ -1,5 +1,6 @@
 import type { Argv } from 'yargs';
 import { generateSupportedAppsHelp } from '../../utils/appPresets.js';
+import { globalOptions } from '../../globalOptions.js';
 
 /**
  * App command group entry point.
@@ -17,6 +18,7 @@ export function setupAppCommands(yargs: Argv): Argv {
     'Manage desktop application MCP configurations',
     (yargs) => {
       return yargs
+        .options(globalOptions || {})
         .command({
           command: 'consolidate [app-name..]',
           describe: 'Consolidate MCP servers from desktop applications into 1mcp',
@@ -68,7 +70,7 @@ export function setupAppCommands(yargs: Argv): Argv {
               ]).epilogue(`
 WHAT IT DOES:
   1. Extracts MCP server configurations from app config files
-  2. Imports those servers into your 1mcp configuration  
+  2. Imports those servers into your 1mcp configuration
   3. Replaces app config with single 1mcp connection
   4. Creates backup of original app configuration
 
@@ -81,7 +83,7 @@ ${generateSupportedAppsHelp()}
           },
           handler: async (argv) => {
             const { consolidateCommand } = await import('./consolidate.js');
-            await consolidateCommand(argv);
+            await consolidateCommand(argv as any);
           },
         })
         .command({
@@ -145,7 +147,7 @@ EXAMPLE WORKFLOW:
           },
           handler: async (argv) => {
             const { restoreCommand } = await import('./restore.js');
-            await restoreCommand(argv);
+            await restoreCommand(argv as any);
           },
         })
         .command({
@@ -171,7 +173,7 @@ EXAMPLE WORKFLOW:
           },
           handler: async (argv) => {
             const { listCommand } = await import('./list.js');
-            await listCommand(argv);
+            await listCommand(argv as any);
           },
         })
         .command({
@@ -197,7 +199,7 @@ EXAMPLE WORKFLOW:
           },
           handler: async (argv) => {
             const { discoverCommand } = await import('./discover.js');
-            await discoverCommand(argv);
+            await discoverCommand(argv as any);
           },
         })
         .command({
@@ -223,7 +225,7 @@ EXAMPLE WORKFLOW:
           },
           handler: async (argv) => {
             const { statusCommand } = await import('./status.js');
-            await statusCommand(argv);
+            await statusCommand(argv as any);
           },
         })
         .command({
@@ -253,14 +255,14 @@ EXAMPLE WORKFLOW:
           },
           handler: async (argv) => {
             const { backupsCommand } = await import('./backups.js');
-            await backupsCommand(argv);
+            await backupsCommand(argv as any);
           },
         })
         .demandCommand(1, 'You must specify a subcommand')
         .help().epilogue(`
 App Command Group - Desktop Application MCP Configuration Management
 
-The app command group helps you consolidate MCP servers from various desktop 
+The app command group helps you consolidate MCP servers from various desktop
 applications (Claude Desktop, Cursor, VS Code, etc.) into a unified 1mcp proxy.
 
 This simplifies configuration management by:

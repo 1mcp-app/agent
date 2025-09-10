@@ -1,17 +1,17 @@
 import { PresetManager } from '../../utils/presetManager.js';
 import { UrlGenerator } from '../../utils/urlGenerator.js';
 import { TagQueryParser } from '../../utils/tagQueryParser.js';
+import { GlobalOptions } from '../../globalOptions.js';
 import logger from '../../logger/logger.js';
 
 /**
  * Command arguments for preset create command
  */
-interface CreateArguments {
+interface CreateArguments extends GlobalOptions {
   _: string[];
   name: string;
   filter: string;
   description?: string;
-  'config-dir'?: string;
 }
 
 /**

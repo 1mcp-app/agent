@@ -5,6 +5,7 @@ import {
   findBackupByMetaPath,
 } from '../../utils/backupManager.js';
 import { getAppPreset } from '../../utils/appPresets.js';
+import { GlobalOptions } from '../../globalOptions.js';
 
 /**
  * Backups command - Manage and list backup files.
@@ -13,7 +14,7 @@ import { getAppPreset } from '../../utils/appPresets.js';
  * verification, and cleanup of old backup files.
  */
 
-interface BackupsOptions {
+interface BackupsOptions extends GlobalOptions {
   'app-name'?: string;
   cleanup?: number;
   verify: boolean;

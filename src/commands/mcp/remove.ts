@@ -8,10 +8,10 @@ import {
   reloadMcpConfig,
 } from './utils/configUtils.js';
 import { validateServerName } from './utils/validation.js';
+import { GlobalOptions } from '../../globalOptions.js';
 
-export interface RemoveCommandArgs {
+export interface RemoveCommandArgs extends GlobalOptions {
   name: string;
-  config?: string;
   yes?: boolean;
 }
 

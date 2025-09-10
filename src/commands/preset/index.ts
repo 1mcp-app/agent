@@ -1,25 +1,28 @@
 import type { Argv } from 'yargs';
+import { globalOptions } from '../../globalOptions.js';
 
 /**
  * Setup preset command configuration for yargs
  */
 export function setupPresetCommands(yargs: Argv): Argv {
+  // Merge global options with existing config-dir structure
+  const mergedOptions = {
+    ...(globalOptions || {}),
+    // config-dir is already included in globalOptions, so no need to duplicate
+  };
+
   return yargs.command(
     'preset',
     'Manage server presets for dynamic filtering',
     (yargs) => {
       return yargs
-        .option('config-dir', {
-          alias: 'd',
-          describe: 'Path to the config directory (overrides ONE_MCP_CONFIG_DIR environment variable)',
-          type: 'string' as const,
-          default: undefined,
-        })
+        .options(mergedOptions)
         .command({
           command: 'select [name]',
           describe: 'Interactive server selection with TUI',
           builder: (yargs) => {
             return yargs
+              .options(mergedOptions)
               .positional('name', {
                 describe: 'Preset name to use with --url-only, --preview, etc.',
                 type: 'string',
@@ -80,6 +83,7 @@ export function setupPresetCommands(yargs: Argv): Argv {
           describe: 'Create preset with filter expression',
           builder: (yargs) => {
             return yargs
+              .options(mergedOptions)
               .positional('name', {
                 describe: 'Name for the new preset',
                 type: 'string',
@@ -105,7 +109,7 @@ export function setupPresetCommands(yargs: Argv): Argv {
           command: 'show <name>',
           describe: 'Show detailed information about a preset',
           builder: (yargs) => {
-            return yargs.positional('name', {
+            return yargs.options(mergedOptions).positional('name', {
               describe: 'Name of the preset to show details for',
               type: 'string',
               demandOption: true,
@@ -119,7 +123,7 @@ export function setupPresetCommands(yargs: Argv): Argv {
         .command({
           command: 'list',
           describe: 'List all available presets',
-          builder: (yargs) => yargs,
+          builder: (yargs) => yargs.options(mergedOptions),
           handler: async (argv) => {
             const { listCommand } = await import('./list.js');
             await listCommand(argv as any);
@@ -129,7 +133,7 @@ export function setupPresetCommands(yargs: Argv): Argv {
           command: 'url <name>',
           describe: 'Generate URL for existing preset',
           builder: (yargs) => {
-            return yargs.positional('name', {
+            return yargs.options(mergedOptions).positional('name', {
               describe: 'Name of the preset to generate URL for',
               type: 'string',
               demandOption: true,
@@ -144,7 +148,7 @@ export function setupPresetCommands(yargs: Argv): Argv {
           command: 'delete <name>',
           describe: 'Delete an existing preset',
           builder: (yargs) => {
-            return yargs.positional('name', {
+            return yargs.options(mergedOptions).positional('name', {
               describe: 'Name of the preset to delete',
               type: 'string',
               demandOption: true,
@@ -159,7 +163,7 @@ export function setupPresetCommands(yargs: Argv): Argv {
           command: 'test <name>',
           describe: 'Test preset against current server configuration',
           builder: (yargs) => {
-            return yargs.positional('name', {
+            return yargs.options(mergedOptions).positional('name', {
               describe: 'Name of the preset to test',
               type: 'string',
               demandOption: true,

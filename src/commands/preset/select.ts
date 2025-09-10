@@ -2,12 +2,13 @@
 import { PresetManager } from '../../utils/presetManager.js';
 import { InteractiveSelector } from '../../utils/interactiveSelector.js';
 import { UrlGenerator } from '../../utils/urlGenerator.js';
+import { GlobalOptions } from '../../globalOptions.js';
 import logger from '../../logger/logger.js';
 
 /**
  * Command arguments for the select command
  */
-interface SelectArguments {
+interface SelectArguments extends GlobalOptions {
   _: string[];
   name?: string;
   save?: string;
@@ -18,7 +19,6 @@ interface SelectArguments {
   delete?: string;
   preview?: boolean;
   description?: string;
-  'config-dir'?: string;
 }
 
 /**

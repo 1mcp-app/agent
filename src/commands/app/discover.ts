@@ -1,5 +1,6 @@
 import { discoverInstalledApps } from '../../utils/appDiscovery.js';
 import { getAppPreset, showPlatformWarningIfNeeded } from '../../utils/appPresets.js';
+import { GlobalOptions } from '../../globalOptions.js';
 
 /**
  * Discover command - Find installed desktop applications with MCP configurations.
@@ -8,7 +9,7 @@ import { getAppPreset, showPlatformWarningIfNeeded } from '../../utils/appPreset
  * MCP server configurations.
  */
 
-interface DiscoverOptions {
+interface DiscoverOptions extends GlobalOptions {
   'show-empty': boolean;
   'show-paths': boolean;
 }

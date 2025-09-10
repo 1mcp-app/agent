@@ -1,6 +1,7 @@
 import { discoverAppConfigs, checkConsolidationStatus } from '../../utils/appDiscovery.js';
 import { getAppPreset, getSupportedApps, isAppConfigurable } from '../../utils/appPresets.js';
 import { listAppBackups } from '../../utils/backupManager.js';
+import { GlobalOptions } from '../../globalOptions.js';
 
 /**
  * Status command - Show current status of application configurations.
@@ -9,7 +10,7 @@ import { listAppBackups } from '../../utils/backupManager.js';
  * including whether they're consolidated, have backups, etc.
  */
 
-interface StatusOptions {
+interface StatusOptions extends GlobalOptions {
   'app-name'?: string;
   verbose: boolean;
 }

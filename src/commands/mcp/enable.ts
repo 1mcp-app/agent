@@ -1,4 +1,5 @@
 import { MCPServerParams } from '../../core/types/index.js';
+import { GlobalOptions } from '../../globalOptions.js';
 import {
   serverExists,
   getServer,
@@ -9,9 +10,8 @@ import {
 } from './utils/configUtils.js';
 import { validateServerName } from './utils/validation.js';
 
-export interface EnableDisableCommandArgs {
+export interface EnableDisableCommandArgs extends GlobalOptions {
   name: string;
-  config?: string;
 }
 
 /**

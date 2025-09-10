@@ -1,11 +1,11 @@
 import { MCPServerParams } from '../../core/types/index.js';
+import { GlobalOptions } from '../../globalOptions.js';
 import { getAllServers, getServer, validateConfigPath } from './utils/configUtils.js';
 import { validateServerName } from './utils/validation.js';
 import { inferTransportType } from '../../transport/transportFactory.js';
 
-export interface StatusCommandArgs {
+export interface StatusCommandArgs extends GlobalOptions {
   name?: string;
-  config?: string;
   verbose?: boolean;
 }
 

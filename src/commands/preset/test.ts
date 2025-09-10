@@ -1,14 +1,14 @@
 import { PresetManager } from '../../utils/presetManager.js';
 import { InteractiveSelector } from '../../utils/interactiveSelector.js';
+import { GlobalOptions } from '../../globalOptions.js';
 import logger from '../../logger/logger.js';
 
 /**
  * Command arguments for test command
  */
-interface TestArguments {
+interface TestArguments extends GlobalOptions {
   _: string[];
   name: string;
-  'config-dir'?: string;
 }
 
 /**
