@@ -329,21 +329,16 @@ describe('tagsExtractor middleware', () => {
       mockPresetManager.getPreset.mockReturnValue({
         name: 'development',
         strategy: 'or',
-        tagExpression: 'web,api',
-        servers: ['server1', 'server2'],
+        tagQuery: { $or: [{ tag: 'web' }, { tag: 'api' }] },
+        created: '2024-01-01T00:00:00.000Z',
+        lastModified: '2024-01-01T00:00:00.000Z',
       });
 
       mockRequest.query = { preset: 'development' };
 
       tagsExtractor(mockRequest as Request, mockResponse as Response, mockNext);
 
-      expect(getLocals().tagExpression).toEqual({
-        type: 'or',
-        children: [
-          { type: 'tag', value: 'web' },
-          { type: 'tag', value: 'api' },
-        ],
-      });
+      expect(getLocals().tagQuery).toEqual({ $or: [{ tag: 'web' }, { tag: 'api' }] });
       expect(getLocals().tagFilterMode).toBe('preset');
       expect(getLocals().presetName).toBe('development');
       expect(getLocals().tags).toEqual(['web', 'api']);
@@ -355,18 +350,16 @@ describe('tagsExtractor middleware', () => {
       mockPresetManager.getPreset.mockReturnValue({
         name: 'web-only',
         strategy: 'or',
-        tagExpression: 'web',
-        servers: ['server1'],
+        tagQuery: { tag: 'web' },
+        created: '2024-01-01T00:00:00.000Z',
+        lastModified: '2024-01-01T00:00:00.000Z',
       });
 
       mockRequest.query = { preset: 'web-only' };
 
       tagsExtractor(mockRequest as Request, mockResponse as Response, mockNext);
 
-      expect(getLocals().tagExpression).toEqual({
-        type: 'tag',
-        value: 'web',
-      });
+      expect(getLocals().tagQuery).toEqual({ tag: 'web' });
       expect(getLocals().tags).toEqual(['web']);
       expect(mockNext).toHaveBeenCalled();
     });
@@ -376,21 +369,16 @@ describe('tagsExtractor middleware', () => {
       mockPresetManager.getPreset.mockReturnValue({
         name: 'secure-web',
         strategy: 'and',
-        tagExpression: 'web,secure',
-        servers: ['server1'],
+        tagQuery: { $and: [{ tag: 'web' }, { tag: 'secure' }] },
+        created: '2024-01-01T00:00:00.000Z',
+        lastModified: '2024-01-01T00:00:00.000Z',
       });
 
       mockRequest.query = { preset: 'secure-web' };
 
       tagsExtractor(mockRequest as Request, mockResponse as Response, mockNext);
 
-      expect(getLocals().tagExpression).toEqual({
-        type: 'and',
-        children: [
-          { type: 'tag', value: 'web' },
-          { type: 'tag', value: 'secure' },
-        ],
-      });
+      expect(getLocals().tagQuery).toEqual({ $and: [{ tag: 'web' }, { tag: 'secure' }] });
       expect(getLocals().tagFilterMode).toBe('preset');
       expect(mockNext).toHaveBeenCalled();
     });
@@ -400,32 +388,16 @@ describe('tagsExtractor middleware', () => {
       mockPresetManager.getPreset.mockReturnValue({
         name: 'complex',
         strategy: 'advanced',
-        tagExpression: '(web+api) or database',
-        servers: ['server1', 'server2'],
+        tagQuery: { $or: [{ $and: [{ tag: 'web' }, { tag: 'api' }] }, { tag: 'database' }] },
+        created: '2024-01-01T00:00:00.000Z',
+        lastModified: '2024-01-01T00:00:00.000Z',
       });
 
       mockRequest.query = { preset: 'complex' };
 
       tagsExtractor(mockRequest as Request, mockResponse as Response, mockNext);
 
-      expect(getLocals().tagExpression).toEqual({
-        type: 'or',
-        children: [
-          {
-            type: 'group',
-            children: [
-              {
-                type: 'and',
-                children: [
-                  { type: 'tag', value: 'web' },
-                  { type: 'tag', value: 'api' },
-                ],
-              },
-            ],
-          },
-          { type: 'tag', value: 'database' },
-        ],
-      });
+      expect(getLocals().tagQuery).toEqual({ $or: [{ $and: [{ tag: 'web' }, { tag: 'api' }] }, { tag: 'database' }] });
       expect(getLocals().tagFilterMode).toBe('preset');
       expect(mockNext).toHaveBeenCalled();
     });
@@ -481,24 +453,22 @@ describe('tagsExtractor middleware', () => {
       expect(mockNext).not.toHaveBeenCalled();
     });
 
-    it('should return 400 for preset with invalid tag expression', () => {
-      mockPresetManager.resolvePresetToExpression.mockReturnValue('invalid(syntax');
-      mockPresetManager.getPreset.mockReturnValue({
-        name: 'broken',
-        strategy: 'advanced',
-        tagExpression: 'invalid(syntax',
-        servers: ['server1'],
+    it('should return 500 for preset manager errors', () => {
+      mockPresetManager.resolvePresetToExpression.mockReturnValue('valid,expression');
+      // Mock getPreset to throw an error to trigger the outer error handling path
+      mockPresetManager.getPreset.mockImplementation(() => {
+        throw new Error('Preset manager error');
       });
 
       mockRequest.query = { preset: 'broken' };
 
       tagsExtractor(mockRequest as Request, mockResponse as Response, mockNext);
 
-      expect(mockResponse.status).toHaveBeenCalledWith(400);
+      expect(mockResponse.status).toHaveBeenCalledWith(500);
       expect(mockResponse.json).toHaveBeenCalledWith({
         error: {
-          code: ErrorCode.InvalidParams,
-          message: "Preset 'broken' has invalid tag expression",
+          code: ErrorCode.InternalError,
+          message: 'Failed to resolve preset configuration',
         },
       });
       expect(mockNext).not.toHaveBeenCalled();

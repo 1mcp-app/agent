@@ -5,11 +5,15 @@ import { SSE_ENDPOINT, MESSAGES_ENDPOINT } from '../../../constants.js';
 
 // Mock all external dependencies
 vi.mock('@modelcontextprotocol/sdk/server/sse.js', () => ({
-  SSEServerTransport: vi.fn().mockImplementation((_endpoint, _res) => ({
-    sessionId: 'test-session-123',
-    onclose: null,
-    handlePostMessage: vi.fn().mockResolvedValue(undefined),
-  })),
+  SSEServerTransport: vi.fn().mockImplementation((_endpoint, _res) => {
+    const transport = {
+      sessionId: 'test-session-123',
+      onclose: null,
+      onerror: null,
+      handlePostMessage: vi.fn().mockResolvedValue(undefined),
+    };
+    return transport;
+  }),
 }));
 
 vi.mock('../../../logger/logger.js', () => ({
@@ -39,6 +43,8 @@ vi.mock('../middlewares/scopeAuthMiddleware.js', () => ({
   }),
   getTagExpression: vi.fn((res: any) => res?.locals?.tagExpression),
   getTagFilterMode: vi.fn((res: any) => res?.locals?.tagFilterMode || 'none'),
+  getTagQuery: vi.fn((res: any) => res?.locals?.tagQuery),
+  getPresetName: vi.fn((res: any) => res?.locals?.presetName),
 }));
 
 vi.mock('../../../utils/sanitization.js', () => ({
@@ -63,7 +69,7 @@ describe('SSE Routes', () => {
   let postHandler: any;
 
   beforeEach(async () => {
-    vi.clearAllMocks();
+    vi.resetAllMocks();
 
     // Mock router
     mockRouter = {
@@ -141,6 +147,9 @@ describe('SSE Routes', () => {
       const mockAuthMiddleware = vi.fn((req, res, next) => next());
       setupSseRoutes(mockRouter, mockServerManager, mockAuthMiddleware);
       getHandler = mockRouter.get.mock.calls[0][3]; // Get the actual handler function
+
+      // Reset the serverManager mock after getting the handler but keep it available
+      vi.mocked(mockServerManager.connectTransport).mockClear();
     });
 
     it('should handle SSE connection successfully', async () => {
@@ -152,6 +161,8 @@ describe('SSE Routes', () => {
       const mockTransport = {
         sessionId: 'test-session-123',
         onclose: null,
+        onerror: null,
+        handlePostMessage: vi.fn().mockResolvedValue(undefined),
       };
       vi.mocked(SSEServerTransport).mockReturnValue(mockTransport as any);
       vi.mocked(getValidatedTags).mockReturnValue(['test-tag']);
@@ -181,6 +192,8 @@ describe('SSE Routes', () => {
       const mockTransport = {
         sessionId: 'test-session-456',
         onclose: null,
+        onerror: null,
+        handlePostMessage: vi.fn().mockResolvedValue(undefined),
       };
       vi.mocked(SSEServerTransport).mockReturnValue(mockTransport as any);
       vi.mocked(getValidatedTags).mockReturnValue(['another-tag']);
@@ -233,6 +246,8 @@ describe('SSE Routes', () => {
       const mockTransport = {
         sessionId: 'test-session-onclose',
         onclose: null,
+        onerror: null,
+        handlePostMessage: vi.fn().mockResolvedValue(undefined),
       };
       vi.mocked(SSEServerTransport).mockReturnValue(mockTransport as any);
 
@@ -256,6 +271,8 @@ describe('SSE Routes', () => {
       const mockTransport = {
         sessionId: 'test-session-no-tags',
         onclose: null,
+        onerror: null,
+        handlePostMessage: vi.fn().mockResolvedValue(undefined),
       };
       vi.mocked(SSEServerTransport).mockReturnValue(mockTransport as any);
       vi.mocked(getValidatedTags).mockReturnValue([]);

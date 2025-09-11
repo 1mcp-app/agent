@@ -9,11 +9,15 @@ vi.mock('node:crypto', () => ({
 }));
 
 vi.mock('@modelcontextprotocol/sdk/server/streamableHttp.js', () => ({
-  StreamableHTTPServerTransport: vi.fn().mockImplementation((options) => ({
-    sessionId: options?.sessionIdGenerator?.() || 'mock-session-id',
-    onclose: null,
-    handleRequest: vi.fn().mockResolvedValue(undefined),
-  })),
+  StreamableHTTPServerTransport: vi.fn().mockImplementation((options) => {
+    const transport = {
+      sessionId: options?.sessionIdGenerator?.() || 'mock-session-id',
+      onclose: null,
+      onerror: null,
+      handleRequest: vi.fn().mockResolvedValue(undefined),
+    };
+    return transport;
+  }),
 }));
 
 vi.mock('../../../logger/logger.js', () => ({
@@ -43,6 +47,8 @@ vi.mock('../middlewares/scopeAuthMiddleware.js', () => ({
   }),
   getTagExpression: vi.fn((res: any) => res?.locals?.tagExpression),
   getTagFilterMode: vi.fn((res: any) => res?.locals?.tagFilterMode || 'none'),
+  getTagQuery: vi.fn((res: any) => res?.locals?.tagQuery),
+  getPresetName: vi.fn((res: any) => res?.locals?.presetName),
 }));
 
 vi.mock('../../../utils/sanitization.js', () => ({
@@ -68,7 +74,7 @@ describe('Streamable HTTP Routes', () => {
   let deleteHandler: any;
 
   beforeEach(async () => {
-    vi.clearAllMocks();
+    vi.resetAllMocks();
 
     // Mock router
     mockRouter = {
@@ -160,6 +166,9 @@ describe('Streamable HTTP Routes', () => {
       const mockAuthMiddleware = vi.fn((req, res, next) => next());
       setupStreamableHttpRoutes(mockRouter, mockServerManager, mockAuthMiddleware);
       postHandler = mockRouter.post.mock.calls[0][3]; // Get the actual handler function (4th arg after endpoint, tagsExtractor, authMiddleware)
+
+      // Reset the serverManager mock after getting the handler but keep it available
+      vi.mocked(mockServerManager.connectTransport).mockClear();
     });
 
     it('should create new session when no sessionId header', async () => {
