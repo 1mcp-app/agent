@@ -139,7 +139,7 @@ describe('Preset Reload Notification Integration', () => {
 
     // 5. Wait for file watcher to detect changes and process them
     let attempts = 0;
-    const maxAttempts = 20; // 2 seconds max wait
+    const maxAttempts = 50; // 5 seconds max wait
 
     while (clientNotifications.length === 0 && attempts < maxAttempts) {
       await new Promise((resolve) => setTimeout(resolve, 100));
@@ -245,7 +245,7 @@ describe('Preset Reload Notification Integration', () => {
     await fs.writeFile(presetsFilePath, JSON.stringify(emptyPresetData, null, 2));
 
     // 3. Wait for file watcher to detect changes
-    await new Promise((resolve) => setTimeout(resolve, 100));
+    await new Promise((resolve) => setTimeout(resolve, 1000));
 
     // 4. Verify preset no longer exists
     expect(presetManager.hasPreset('staging')).toBe(false);

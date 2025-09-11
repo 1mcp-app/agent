@@ -7,6 +7,7 @@ import { TagQueryEvaluator } from './tagQueryEvaluator.js';
 import { McpConfigManager } from '../config/mcpConfigManager.js';
 import { PresetConfig, PresetStorage, PresetValidationResult, PresetListItem } from './presetTypes.js';
 import { PresetServerChangeDetector } from './presetServerChangeDetector.js';
+import { PresetErrorHandler } from './presetErrorHandler.js';
 import logger from '../logger/logger.js';
 
 /**
@@ -18,6 +19,8 @@ export class PresetManager {
   private presets: Map<string, PresetConfig> = new Map();
   private configPath: string;
   private watcher: FSWatcher | null = null;
+  private reloadTimeout: ReturnType<typeof setTimeout> | null = null;
+  private readonly DEBOUNCE_DELAY = 500; // 500ms debounce delay
   private notificationCallbacks: Set<(presetName: string) => Promise<void>> = new Set();
   private configDirOption?: string;
   private changeDetector: PresetServerChangeDetector = new PresetServerChangeDetector();
@@ -118,7 +121,10 @@ export class PresetManager {
       }
     } catch (error) {
       logger.error('Failed to load presets', { error });
-      throw new Error(`Failed to load presets: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      PresetErrorHandler.throwError(
+        `Failed to load presets: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        { context: 'preset loading', exitCode: 2 },
+      );
     }
   }
 
@@ -126,6 +132,18 @@ export class PresetManager {
    * Reload presets and notify clients of any server list changes
    */
   private async reloadAndNotifyChanges(): Promise<void> {
+    // Store current server lists before reloading
+    const previousServerLists = new Map<string, string[]>();
+    for (const presetName of this.presets.keys()) {
+      try {
+        const testResult = await this.testPreset(presetName);
+        previousServerLists.set(presetName, testResult.servers);
+      } catch (error) {
+        logger.warn('Failed to get server list before reload', { presetName, error });
+        previousServerLists.set(presetName, []);
+      }
+    }
+
     // Reload presets from file (skip change detector initialization)
     await this.loadPresets(true);
 
@@ -135,14 +153,26 @@ export class PresetManager {
     for (const presetName of this.presets.keys()) {
       try {
         const newTestResult = await this.testPreset(presetName);
-        const changes = this.changeDetector.detectChanges(presetName, newTestResult.servers);
+        const previousServers = previousServerLists.get(presetName) || [];
 
-        if (changes.hasChanged) {
+        // Manually check for changes by comparing server lists
+        const previousSet = new Set(previousServers);
+        const currentSet = new Set(newTestResult.servers);
+
+        const hasChanged =
+          previousServers.length !== newTestResult.servers.length ||
+          !newTestResult.servers.every((server) => previousSet.has(server));
+
+        if (hasChanged) {
+          const added = newTestResult.servers.filter((s) => !previousSet.has(s));
+          const removed = previousServers.filter((s) => !currentSet.has(s));
+
           logger.info('Detected server list changes for preset', {
             presetName,
-            added: changes.added,
-            removed: changes.removed,
-            unchanged: changes.unchanged.length,
+            added,
+            removed,
+            previousCount: previousServers.length,
+            currentCount: newTestResult.servers.length,
           });
 
           changedPresets.push(presetName);
@@ -227,7 +257,10 @@ export class PresetManager {
       });
     } catch (error) {
       logger.error('Failed to save presets', { error });
-      throw new Error(`Failed to save presets: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      PresetErrorHandler.throwError(
+        `Failed to save presets: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        { context: 'preset saving', exitCode: 3 },
+      );
     }
   }
 
@@ -256,17 +289,28 @@ export class PresetManager {
     try {
       this.watcher = watch(this.configPath, { persistent: false }, async (eventType) => {
         if (eventType === 'change') {
-          logger.debug('Preset file changed, reloading...');
-          try {
-            await this.reloadAndNotifyChanges();
-            logger.info('Presets reloaded successfully');
-          } catch (error) {
-            logger.error('Failed to reload presets', { error });
+          logger.debug('Preset file changed, scheduling reload...');
+
+          // Clear any existing debounce timeout
+          if (this.reloadTimeout) {
+            clearTimeout(this.reloadTimeout);
           }
+
+          // Schedule debounced reload
+          this.reloadTimeout = setTimeout(async () => {
+            try {
+              await this.reloadAndNotifyChanges();
+              logger.info('Presets reloaded successfully');
+            } catch (error) {
+              logger.error('Failed to reload presets', { error });
+            } finally {
+              this.reloadTimeout = null;
+            }
+          }, this.DEBOUNCE_DELAY);
         }
       });
 
-      logger.debug('Started watching preset file', { path: this.configPath });
+      logger.debug('Started watching preset file', { path: this.configPath, debounceDelay: this.DEBOUNCE_DELAY });
     } catch (error) {
       logger.warn('Failed to start preset file watching', { error });
     }
@@ -276,10 +320,50 @@ export class PresetManager {
    * Stop watching preset file
    */
   public async cleanup(): Promise<void> {
-    if (this.watcher) {
-      this.watcher.close();
-      this.watcher = null;
-      logger.debug('Stopped watching preset file');
+    logger.debug('Starting PresetManager cleanup');
+
+    try {
+      // Clear any pending debounce timeout
+      if (this.reloadTimeout) {
+        clearTimeout(this.reloadTimeout);
+        this.reloadTimeout = null;
+        logger.debug('Cleared pending reload timeout');
+      }
+
+      // Stop file watching
+      if (this.watcher) {
+        this.watcher.close();
+        this.watcher = null;
+        logger.debug('Stopped watching preset file');
+      }
+
+      // Clear all notification callbacks to prevent memory leaks
+      if (this.notificationCallbacks.size > 0) {
+        const callbackCount = this.notificationCallbacks.size;
+        this.notificationCallbacks.clear();
+        logger.debug('Cleared notification callbacks', { count: callbackCount });
+      }
+
+      // Clean up change detector
+      if (this.changeDetector) {
+        // Check if change detector has cleanup method
+        if (typeof this.changeDetector.clear === 'function') {
+          this.changeDetector.clear();
+          logger.debug('Cleared change detector');
+        }
+      }
+
+      // Clear presets from memory
+      if (this.presets.size > 0) {
+        const presetCount = this.presets.size;
+        this.presets.clear();
+        logger.debug('Cleared presets from memory', { count: presetCount });
+      }
+
+      logger.debug('PresetManager cleanup completed successfully');
+    } catch (error) {
+      logger.error('Error during PresetManager cleanup', { error });
+      // Don't throw during cleanup to prevent cascading failures
     }
   }
 
@@ -462,14 +546,15 @@ export class PresetManager {
       let matches = false;
 
       try {
+        // Use unified JSON query evaluator
+        // Convert any legacy $advanced expressions to JSON format first
+        let jsonQuery = preset.tagQuery;
         if (preset.strategy === 'advanced' && preset.tagQuery.$advanced) {
-          // Handle advanced expressions using the old parser for now
-          const expression = TagQueryParser.parseAdvanced(preset.tagQuery.$advanced);
-          matches = TagQueryParser.evaluate(expression, serverTags);
-        } else {
-          // Use JSON query evaluator
-          matches = TagQueryEvaluator.evaluate(preset.tagQuery, serverTags);
+          // Convert legacy advanced expression to JSON format
+          jsonQuery = TagQueryParser.advancedQueryToJSON(preset.tagQuery.$advanced);
         }
+
+        matches = TagQueryEvaluator.evaluate(jsonQuery, serverTags);
       } catch (error) {
         logger.warn('Failed to evaluate preset against server', {
           preset: name,

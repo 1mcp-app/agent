@@ -186,6 +186,18 @@ function setupGracefulShutdown(
       }
     }
 
+    // Cleanup PresetManager if it exists
+    try {
+      const PresetManager = (await import('./utils/presetManager.js')).PresetManager;
+      const presetManager = PresetManager.getInstance();
+      if (presetManager && typeof presetManager.cleanup === 'function') {
+        await presetManager.cleanup();
+        logger.info('PresetManager cleanup complete');
+      }
+    } catch (error) {
+      logger.error(`Error cleaning up PresetManager: ${error}`);
+    }
+
     logger.info('Server shutdown complete');
     process.exit(0);
   };

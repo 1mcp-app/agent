@@ -3,6 +3,8 @@
  * Supports multiple syntax variants: compact, natural language, and symbols
  */
 
+import { TagQuery } from './presetTypes.js';
+
 export interface TagExpression {
   type: 'and' | 'or' | 'not' | 'tag' | 'group';
   value?: string;
@@ -425,5 +427,58 @@ export class TagQueryParser {
       default:
         return 'unknown';
     }
+  }
+
+  /**
+   * Convert TagExpression to JSON TagQuery format
+   * This enables unifying the dual query system by converting parser expressions to JSON queries
+   */
+  static expressionToJSON(expr: TagExpression): TagQuery {
+    switch (expr.type) {
+      case 'tag':
+        return { tag: expr.value! };
+
+      case 'not':
+        if (!expr.children || expr.children.length !== 1) {
+          throw new Error('NOT expression must have exactly one child');
+        }
+        return { $not: this.expressionToJSON(expr.children[0]) };
+
+      case 'and':
+        if (!expr.children || expr.children.length === 0) {
+          return { tag: '' }; // Empty AND matches nothing
+        }
+        if (expr.children.length === 1) {
+          return this.expressionToJSON(expr.children[0]);
+        }
+        return { $and: expr.children.map((c) => this.expressionToJSON(c)) };
+
+      case 'or':
+        if (!expr.children || expr.children.length === 0) {
+          return { tag: '' }; // Empty OR matches nothing
+        }
+        if (expr.children.length === 1) {
+          return this.expressionToJSON(expr.children[0]);
+        }
+        return { $or: expr.children.map((c) => this.expressionToJSON(c)) };
+
+      case 'group':
+        if (!expr.children || expr.children.length !== 1) {
+          throw new Error('Group expression must have exactly one child');
+        }
+        return this.expressionToJSON(expr.children[0]);
+
+      default:
+        throw new Error(`Unknown expression type: ${(expr as any).type}`);
+    }
+  }
+
+  /**
+   * Convert advanced string query directly to JSON TagQuery
+   * This provides a unified entry point for converting string queries to JSON format
+   */
+  static advancedQueryToJSON(query: string): TagQuery {
+    const expression = this.parseAdvanced(query);
+    return this.expressionToJSON(expression);
   }
 }

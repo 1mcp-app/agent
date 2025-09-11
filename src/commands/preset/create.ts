@@ -1,6 +1,7 @@
 import { PresetManager } from '../../utils/presetManager.js';
 import { UrlGenerator } from '../../utils/urlGenerator.js';
 import { TagQueryParser } from '../../utils/tagQueryParser.js';
+import { PresetErrorHandler } from '../../utils/presetErrorHandler.js';
 import { GlobalOptions } from '../../globalOptions.js';
 import logger from '../../logger/logger.js';
 
@@ -20,13 +21,14 @@ interface CreateArguments extends GlobalOptions {
 export async function createCommand(argv: CreateArguments): Promise<void> {
   try {
     if (!argv.name) {
-      console.error('❌ Preset name is required');
-      process.exit(1);
+      PresetErrorHandler.validationError('Preset name is required', 'name');
     }
 
     if (!argv.filter) {
-      console.error('❌ Filter expression is required. Use --filter "web,api" or --filter "web AND api"');
-      process.exit(1);
+      PresetErrorHandler.validationError(
+        'Filter expression is required. Use --filter "web,api" or --filter "web AND api"',
+        'filter',
+      );
     }
 
     // Initialize preset manager
@@ -52,27 +54,11 @@ export async function createCommand(argv: CreateArguments): Promise<void> {
     if (hasAdvancedSyntax) {
       // Use advanced parsing for complex expressions
       try {
-        const expression = TagQueryParser.parseAdvanced(argv.filter);
+        // Use unified conversion to JSON format
+        tagQuery = TagQueryParser.advancedQueryToJSON(argv.filter);
         strategy = 'advanced';
-
-        // Convert expression to TagQuery format
-        if (expression.type === 'tag') {
-          tagQuery = { tag: expression.value };
-        } else if (expression.type === 'or') {
-          tagQuery = { $or: expression.children?.map((child) => ({ tag: child.value })) || [] };
-        } else if (expression.type === 'and') {
-          tagQuery = { $and: expression.children?.map((child) => ({ tag: child.value })) || [] };
-        } else {
-          // For complex expressions, store as advanced query
-          tagQuery = { $advanced: argv.filter };
-        }
       } catch (_error) {
-        console.error(`❌ Invalid filter expression: ${argv.filter}`);
-        console.error('Examples:');
-        console.error('  --filter "web,api,database"           # OR logic (comma-separated)');
-        console.error('  --filter "web AND database"           # AND logic');
-        console.error('  --filter "(web OR api) AND database"  # Complex expressions');
-        process.exit(1);
+        PresetErrorHandler.createFilterError(argv.filter);
       }
     } else {
       // Use simple parsing for basic comma-separated or single tags
@@ -106,12 +92,7 @@ export async function createCommand(argv: CreateArguments): Promise<void> {
           tagQuery = { $or: tags.map((tag) => ({ tag })) };
         }
       } catch (_error) {
-        console.error(`❌ Invalid filter expression: ${argv.filter}`);
-        console.error('Examples:');
-        console.error('  --filter "web,api,database"           # OR logic (comma-separated)');
-        console.error('  --filter "web AND database"           # AND logic');
-        console.error('  --filter "(web OR api) AND database"  # Complex expressions');
-        process.exit(1);
+        PresetErrorHandler.createFilterError(argv.filter);
       }
     }
 
@@ -135,7 +116,6 @@ export async function createCommand(argv: CreateArguments): Promise<void> {
     }
   } catch (error) {
     logger.error('Preset create command failed', { error });
-    console.error(`❌ Command failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
-    process.exit(1);
+    PresetErrorHandler.handleCliError(error, 'preset create');
   }
 }
