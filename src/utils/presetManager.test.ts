@@ -439,7 +439,7 @@ describe('PresetManager', () => {
       await presetManager.initialize();
 
       // Mock evaluate to return true for servers with web or frontend tags
-      mockTagQueryEvaluator.evaluate.mockImplementation((query: any, serverTags: string[]) => {
+      mockTagQueryEvaluator.evaluate.mockImplementation((_query: any, serverTags: string[]) => {
         return serverTags.includes('web') || serverTags.includes('frontend');
       });
     });
@@ -548,6 +548,319 @@ describe('PresetManager', () => {
     });
   });
 
+  describe('error handling improvements', () => {
+    beforeEach(async () => {
+      const mockPresetData = {
+        version: '1.0.0',
+        presets: {
+          'valid-preset': {
+            name: 'valid-preset',
+            strategy: 'or' as const,
+            tagQuery: { $or: [{ tag: 'web' }, { tag: 'api' }] },
+            created: '2025-01-01T00:00:00Z',
+            lastModified: '2025-01-01T00:00:00Z',
+          },
+          'error-preset': {
+            name: 'error-preset',
+            strategy: 'advanced' as const,
+            tagQuery: { $advanced: 'invalid_expression' },
+            created: '2025-01-01T00:00:00Z',
+            lastModified: '2025-01-01T00:00:00Z',
+          },
+          'empty-query-preset': {
+            name: 'empty-query-preset',
+            strategy: 'or' as const,
+            tagQuery: {},
+            created: '2025-01-01T00:00:00Z',
+            lastModified: '2025-01-01T00:00:00Z',
+          },
+        },
+      };
+      mockFs.readFile.mockResolvedValue(JSON.stringify(mockPresetData));
+      await presetManager.initialize();
+    });
+
+    describe('testPreset error handling', () => {
+      it('should handle TagQueryEvaluator evaluation errors gracefully', async () => {
+        // Mock TagQueryEvaluator.evaluate to throw an error
+        mockTagQueryEvaluator.evaluate.mockImplementation((_query: any, _serverTags: string[]) => {
+          throw new Error('Invalid query expression');
+        });
+
+        // Mock TagQueryParser for legacy advanced query conversion
+        mockTagQueryParser.advancedQueryToJSON = vi.fn().mockImplementation(() => {
+          throw new Error('Invalid advanced query');
+        });
+
+        const result = await presetManager.testPreset('error-preset');
+
+        // Should return empty servers list when evaluation fails
+        expect(result.servers).toEqual([]);
+        expect(result.tags).toEqual(['api', 'database', 'frontend', 'sql', 'web']);
+
+        // Should log warning about failed evaluation
+        expect(logger.warn).toHaveBeenCalledWith('Failed to evaluate preset against server', {
+          preset: 'error-preset',
+          server: expect.any(String),
+          error: 'Invalid advanced query',
+          tagQuery: { $advanced: 'invalid_expression' },
+          serverTags: expect.any(Array),
+        });
+      });
+
+      it('should handle individual server evaluation failures', async () => {
+        let callCount = 0;
+        mockTagQueryEvaluator.evaluate.mockImplementation((_query: any, serverTags: string[]) => {
+          callCount++;
+          if (callCount === 2) {
+            // Fail on second server evaluation
+            throw new Error('Evaluation error on server2');
+          }
+          return serverTags.includes('web');
+        });
+
+        const result = await presetManager.testPreset('valid-preset');
+
+        // Should still return results for servers that evaluated successfully
+        expect(result.servers).toEqual(['server1', 'server3']);
+
+        // Should log warning for failed server evaluation
+        expect(logger.warn).toHaveBeenCalledWith('Failed to evaluate preset against server', {
+          preset: 'valid-preset',
+          server: 'server2',
+          error: 'Evaluation error on server2',
+          tagQuery: { $or: [{ tag: 'web' }, { tag: 'api' }] },
+          serverTags: ['database', 'sql'],
+        });
+      });
+    });
+
+    describe('resolvePresetToExpression error handling', () => {
+      it('should handle non-existent preset gracefully', () => {
+        const result = presetManager.resolvePresetToExpression('non-existent');
+        expect(result).toBeNull();
+        expect(logger.warn).toHaveBeenCalledWith('Attempted to resolve non-existent preset', {
+          name: 'non-existent',
+        });
+      });
+
+      it('should handle TagQueryEvaluator.queryToString errors', () => {
+        mockTagQueryEvaluator.queryToString.mockImplementation(() => {
+          throw new Error('Query to string conversion failed');
+        });
+
+        const result = presetManager.resolvePresetToExpression('valid-preset');
+        expect(result).toBeNull();
+
+        expect(logger.error).toHaveBeenCalledWith('Failed to resolve preset to expression', {
+          name: 'valid-preset',
+          error: 'Query to string conversion failed',
+          tagQuery: { $or: [{ tag: 'web' }, { tag: 'api' }] },
+        });
+      });
+
+      it('should handle empty query expressions', () => {
+        mockTagQueryEvaluator.queryToString.mockReturnValue('');
+
+        const result = presetManager.resolvePresetToExpression('empty-query-preset');
+        expect(result).toBeNull();
+
+        expect(logger.warn).toHaveBeenCalledWith('Preset resolved to empty expression', {
+          name: 'empty-query-preset',
+          tagQuery: {},
+        });
+      });
+
+      it('should handle whitespace-only query expressions', () => {
+        mockTagQueryEvaluator.queryToString.mockReturnValue('   \t\n   ');
+
+        const result = presetManager.resolvePresetToExpression('valid-preset');
+        expect(result).toBeNull();
+
+        expect(logger.warn).toHaveBeenCalledWith('Preset resolved to empty expression', {
+          name: 'valid-preset',
+          tagQuery: { $or: [{ tag: 'web' }, { tag: 'api' }] },
+        });
+      });
+    });
+
+    describe('change detector error handling', () => {
+      it('should handle change detector updateServerList errors', async () => {
+        // Create a mock change detector with failing updateServerList
+        const mockChangeDetector = {
+          updateServerList: vi.fn().mockImplementation((presetName: string, _servers: string[]) => {
+            if (presetName === 'valid-preset') {
+              throw new Error('Change detector update failed');
+            }
+          }),
+          getTrackedPresets: vi.fn().mockReturnValue(['valid-preset']),
+          removePreset: vi.fn(),
+          clear: vi.fn(),
+        };
+
+        // Replace the change detector in the preset manager instance
+        (presetManager as any).changeDetector = mockChangeDetector;
+
+        // Mock testPreset to succeed
+        mockTagQueryEvaluator.evaluate.mockReturnValue(true);
+
+        // Trigger a file change to test error handling
+        await (presetManager as any).reloadAndNotifyChanges();
+
+        expect(logger.error).toHaveBeenCalledWith('Failed to update change detector for preset', {
+          presetName: 'valid-preset',
+          error: 'Change detector update failed',
+        });
+      });
+    });
+  });
+
+  describe('memory leak prevention', () => {
+    let cleanupManager: PresetManager;
+
+    beforeEach(async () => {
+      mockFs.readFile.mockResolvedValue('{"version":"1.0.0","presets":{}}');
+      (PresetManager as any).instance = null;
+      cleanupManager = PresetManager.getInstance();
+      await cleanupManager.initialize();
+    });
+
+    it('should clean up all resources during cleanup', async () => {
+      const callback1 = vi.fn().mockResolvedValue(undefined);
+      const callback2 = vi.fn().mockResolvedValue(undefined);
+
+      // Add notification callbacks
+      cleanupManager.onPresetChange(callback1);
+      cleanupManager.onPresetChange(callback2);
+
+      // Mock the change detector with clear method
+      const mockChangeDetector = {
+        clear: vi.fn(),
+        updateServerList: vi.fn(),
+        getTrackedPresets: vi.fn().mockReturnValue([]),
+        removePreset: vi.fn(),
+      };
+      (cleanupManager as any).changeDetector = mockChangeDetector;
+
+      // Mock watcher
+      const mockWatcher = {
+        close: vi.fn(),
+      };
+      (cleanupManager as any).watcher = mockWatcher;
+
+      // Set a timeout to simulate pending operation
+      (cleanupManager as any).reloadTimeout = setTimeout(() => {}, 1000);
+
+      await cleanupManager.cleanup();
+
+      // Verify all resources were cleaned up
+      expect(mockWatcher.close).toHaveBeenCalled();
+      expect(mockChangeDetector.clear).toHaveBeenCalled();
+      expect((cleanupManager as any).watcher).toBeNull();
+      expect((cleanupManager as any).reloadTimeout).toBeNull();
+      expect((cleanupManager as any).notificationCallbacks.size).toBe(0);
+      expect((cleanupManager as any).presets.size).toBe(0);
+
+      expect(logger.debug).toHaveBeenCalledWith('PresetManager cleanup completed successfully');
+    });
+
+    it('should handle cleanup errors gracefully', async () => {
+      const mockChangeDetector = {
+        clear: vi.fn().mockImplementation(() => {
+          throw new Error('Cleanup failed');
+        }),
+        updateServerList: vi.fn(),
+        getTrackedPresets: vi.fn().mockReturnValue([]),
+        removePreset: vi.fn(),
+      };
+      (cleanupManager as any).changeDetector = mockChangeDetector;
+
+      // Should not throw despite internal cleanup errors
+      await expect(cleanupManager.cleanup()).resolves.not.toThrow();
+
+      expect(logger.error).toHaveBeenCalledWith('Error during PresetManager cleanup', {
+        error: expect.any(Error),
+      });
+    });
+
+    it('should handle change detector without clear method', async () => {
+      const mockChangeDetector = {
+        updateServerList: vi.fn(),
+        getTrackedPresets: vi.fn().mockReturnValue([]),
+        removePreset: vi.fn(),
+        // No clear method
+      };
+      (cleanupManager as any).changeDetector = mockChangeDetector;
+
+      // Should not throw when clear method doesn't exist
+      await expect(cleanupManager.cleanup()).resolves.not.toThrow();
+
+      expect(logger.debug).toHaveBeenCalledWith('PresetManager cleanup completed successfully');
+    });
+  });
+
+  describe('resetInstance for testing', () => {
+    it('should reset singleton instance and cleanup resources', async () => {
+      // Setup mock data for initialization
+      mockFs.readFile.mockResolvedValue(
+        JSON.stringify({
+          version: '1.0.0',
+          presets: {},
+        }),
+      );
+
+      // Initialize a preset manager
+      const instance = PresetManager.getInstance();
+      await instance.initialize();
+
+      // Add some state
+      const callback = vi.fn();
+      instance.onPresetChange(callback);
+
+      // Spy on cleanup method
+      const cleanupSpy = vi.spyOn(instance, 'cleanup').mockResolvedValue();
+
+      // Reset instance
+      PresetManager.resetInstance();
+
+      expect(cleanupSpy).toHaveBeenCalled();
+
+      // Verify new instance is different
+      const newInstance = PresetManager.getInstance();
+      expect(newInstance).not.toBe(instance);
+    });
+
+    it('should handle cleanup failure during reset gracefully', async () => {
+      // Setup mock data for initialization
+      mockFs.readFile.mockResolvedValue(
+        JSON.stringify({
+          version: '1.0.0',
+          presets: {},
+        }),
+      );
+
+      const instance = PresetManager.getInstance();
+      await instance.initialize();
+
+      // Mock cleanup to fail
+      vi.spyOn(instance, 'cleanup').mockRejectedValue(new Error('Cleanup failed'));
+
+      // Mock console.warn
+      const mockWarn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+      // Should not throw despite cleanup failure
+      expect(() => PresetManager.resetInstance()).not.toThrow();
+
+      // Wait for the async cleanup promise to reject and console.warn to be called
+      await new Promise((resolve) => setTimeout(resolve, 0));
+
+      // Should log warning about cleanup failure
+      expect(mockWarn).toHaveBeenCalledWith('Failed to cleanup PresetManager during reset:', expect.any(Error));
+
+      mockWarn.mockRestore();
+    });
+  });
+
   describe('utility methods', () => {
     beforeEach(async () => {
       const mockPresetData = {
@@ -603,6 +916,11 @@ describe('PresetManager', () => {
 
       expect(savedData.presets.dev.lastUsed).toBeDefined();
       expect(new Date(savedData.presets.dev.lastUsed)).toBeInstanceOf(Date);
+    });
+
+    it('should get configuration path', () => {
+      const configPath = presetManager.getConfigPath();
+      expect(configPath).toBe('/mock/home/.config/1mcp/presets.json');
     });
   });
 });

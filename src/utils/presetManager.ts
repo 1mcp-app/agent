@@ -179,7 +179,14 @@ export class PresetManager {
         }
 
         // Update the detector with the new server list
-        this.changeDetector.updateServerList(presetName, newTestResult.servers);
+        try {
+          this.changeDetector.updateServerList(presetName, newTestResult.servers);
+        } catch (error) {
+          logger.error('Failed to update change detector for preset', {
+            presetName,
+            error: error instanceof Error ? error.message : 'Unknown error',
+          });
+        }
       } catch (error) {
         logger.error('Failed to check for preset changes', {
           presetName,
@@ -508,16 +515,33 @@ export class PresetManager {
   public resolvePresetToExpression(name: string): string | null {
     const preset = this.presets.get(name);
     if (!preset) {
+      logger.warn('Attempted to resolve non-existent preset', { name });
       return null;
     }
 
-    // Mark preset as used
-    this.markPresetUsed(name).catch((error) => {
-      logger.warn('Failed to update preset usage', { name, error });
-    });
+    try {
+      // Mark preset as used
+      this.markPresetUsed(name).catch((error) => {
+        logger.warn('Failed to update preset usage', { name, error });
+      });
 
-    // Convert JSON query to string representation for backward compatibility
-    return TagQueryEvaluator.queryToString(preset.tagQuery);
+      // Convert JSON query to string representation for backward compatibility
+      const expression = TagQueryEvaluator.queryToString(preset.tagQuery);
+
+      if (!expression || expression.trim() === '') {
+        logger.warn('Preset resolved to empty expression', { name, tagQuery: preset.tagQuery });
+        return null;
+      }
+
+      return expression;
+    } catch (error) {
+      logger.error('Failed to resolve preset to expression', {
+        name,
+        error: error instanceof Error ? error.message : 'Unknown error',
+        tagQuery: preset.tagQuery,
+      });
+      return null;
+    }
   }
 
   /**
@@ -559,8 +583,12 @@ export class PresetManager {
         logger.warn('Failed to evaluate preset against server', {
           preset: name,
           server: serverName,
-          error,
+          error: error instanceof Error ? error.message : 'Unknown error',
+          tagQuery: preset.tagQuery,
+          serverTags,
         });
+        // Ensure failed evaluation doesn't match any servers
+        matches = false;
       }
 
       if (matches) {

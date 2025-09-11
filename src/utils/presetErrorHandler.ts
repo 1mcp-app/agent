@@ -96,10 +96,10 @@ export class PresetErrorHandler {
     const errorMessage = error instanceof Error ? error.message : 'Unknown error';
 
     this.throwError(`Failed to parse filter expression: ${errorMessage}`, {
-      ...options,
       context: 'filter parsing',
       userMessage: `Invalid filter expression: "${expression}"`,
-      exitCode: options.exitCode || 1,
+      exitCode: 1,
+      ...options,
     });
   }
 
@@ -108,10 +108,10 @@ export class PresetErrorHandler {
    */
   static notFoundError(type: 'preset' | 'server' | 'config', name: string, options: PresetErrorOptions = {}): never {
     this.throwError(`${type} '${name}' not found`, {
-      ...options,
       context: `${type} lookup`,
       userMessage: `No ${type} found with name: ${name}`,
       exitCode: 4,
+      ...options,
     });
   }
 
