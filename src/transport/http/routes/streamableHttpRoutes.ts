@@ -12,6 +12,7 @@ import {
   getValidatedTags,
   getTagExpression,
   getTagFilterMode,
+  getTagQuery,
   getPresetName,
 } from '../middlewares/scopeAuthMiddleware.js';
 
@@ -44,12 +45,14 @@ export function setupStreamableHttpRoutes(
         const tags = getValidatedTags(res);
         const tagExpression = getTagExpression(res);
         const tagFilterMode = getTagFilterMode(res);
+        const tagQuery = getTagQuery(res);
         const presetName = getPresetName(res);
 
         await serverManager.connectTransport(transport, id, {
           tags,
           tagExpression,
           tagFilterMode,
+          tagQuery,
           presetName,
           enablePagination: req.query.pagination === 'true',
         });

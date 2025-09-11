@@ -31,15 +31,38 @@ import { ServerManager } from '../core/server/serverManager.js';
 import { parseUri } from '../utils/parsing.js';
 import { withErrorHandling } from '../utils/errorHandling.js';
 import { filterClients, byCapabilities, byTags, byTagExpression } from '../utils/clientFiltering.js';
-import { OutboundConnections, InboundConnection, ClientStatus } from '../core/types/index.js';
+import { TagQueryEvaluator } from '../utils/tagQueryEvaluator.js';
+import { TagQuery } from '../utils/presetTypes.js';
+import { OutboundConnections, OutboundConnection, InboundConnection, ClientStatus } from '../core/types/index.js';
 import { handlePagination } from '../utils/pagination.js';
 import logger from '../logger/logger.js';
+
+/**
+ * Create a filter function for MongoDB-style tag queries
+ */
+function byTagQuery(query: TagQuery) {
+  return (clients: OutboundConnections) => {
+    const filtered = new Map<string, OutboundConnection>();
+    for (const [clientId, conn] of clients.entries()) {
+      if (conn.status !== ClientStatus.Connected) {
+        continue;
+      }
+      const clientTags = conn.transport.tags || [];
+      if (TagQueryEvaluator.evaluate(query, clientTags)) {
+        filtered.set(clientId, conn);
+      }
+    }
+    return filtered;
+  };
+}
 
 /**
  * Get the appropriate tag filter for the inbound connection based on its tag filter mode
  */
 function getTagFilter(inboundConn: InboundConnection) {
-  if (inboundConn.tagFilterMode === 'advanced' && inboundConn.tagExpression) {
+  if (inboundConn.tagFilterMode === 'preset' && inboundConn.tagQuery) {
+    return byTagQuery(inboundConn.tagQuery);
+  } else if (inboundConn.tagFilterMode === 'advanced' && inboundConn.tagExpression) {
     return byTagExpression(inboundConn.tagExpression);
   } else if (inboundConn.tagFilterMode === 'simple-or' || inboundConn.tags) {
     return byTags(inboundConn.tags);

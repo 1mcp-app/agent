@@ -11,6 +11,7 @@ import {
   getValidatedTags,
   getTagExpression,
   getTagFilterMode,
+  getTagQuery,
   getPresetName,
 } from '../middlewares/scopeAuthMiddleware.js';
 
@@ -36,6 +37,7 @@ export function setupSseRoutes(
       const tags = getValidatedTags(res);
       const tagExpression = getTagExpression(res);
       const tagFilterMode = getTagFilterMode(res);
+      const tagQuery = getTagQuery(res);
       const presetName = getPresetName(res);
 
       // Connect the transport using the server manager
@@ -43,6 +45,7 @@ export function setupSseRoutes(
         tags,
         tagExpression,
         tagFilterMode,
+        tagQuery,
         presetName,
         enablePagination: req.query.pagination === 'true',
       });

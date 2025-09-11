@@ -5,6 +5,7 @@ import { AgentConfigManager } from '../../../core/server/agentConfig.js';
 import { SDKOAuthServerProvider } from '../../../auth/sdkOAuthServerProvider.js';
 import { hasRequiredScopes, scopesToTags, auditScopeOperation } from '../../../utils/scopeValidation.js';
 import { TagExpression } from '../../../utils/tagQueryParser.js';
+import { TagQuery } from '../../../utils/presetTypes.js';
 
 /**
  * Authentication information structure
@@ -194,10 +195,16 @@ export function getTagExpression(res: Response): TagExpression | undefined {
 /**
  * Utility function to get tag filter mode from response locals
  */
-export function getTagFilterMode(res: Response): 'simple-or' | 'advanced' | 'none' {
+export function getTagFilterMode(res: Response): 'simple-or' | 'advanced' | 'preset' | 'none' {
   return res?.locals?.tagFilterMode || 'none';
 }
 
+/**
+ * Utility function to get tag query from response locals
+ */
+export function getTagQuery(res: Response): TagQuery | undefined {
+  return res?.locals?.tagQuery;
+}
 /**
  * Utility function to get preset name from response locals
  */
