@@ -66,7 +66,7 @@ npx -y @1mcp/agent preset show production
 │                                       │
 │ Quick Actions:                        │
 │ • Test: preset test development       │
-│ • Edit: preset select --load dev      │
+│ • Edit: 1mcp preset edit dev         │
 │ • URL:  preset url development        │
 └───────────────────────────────────────┘
 ```
@@ -110,7 +110,7 @@ Real-time results of applying the preset to your current configuration:
 Convenient commands related to this preset:
 
 - **Test**: `preset test <name>` - Validate server matching
-- **Edit**: `preset select --load <name>` - Modify the preset
+- **Edit**: `1mcp preset edit <name>` - Modify the preset
 - **URL**: `preset url <name>` - Get just the client URL
 
 ## Use Cases
@@ -179,4 +179,4 @@ npx -y @1mcp/agent preset test staging
 - **[preset list](./list)** - Overview of all presets in table format
 - **[preset test](./test)** - Test preset server matching with additional details
 - **[preset url](./url)** - Get just the client URL for a preset
-- **[preset select](./select)** - Edit preset with interactive TUI
+- **[preset edit](./edit)** - Edit preset with interactive TUI

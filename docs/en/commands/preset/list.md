@@ -41,27 +41,28 @@ npx -y @1mcp/agent preset list
 ### Example Output
 
 ```
-┌─────────────── Preset Manager ──────────────┐
-│   📋 Available Presets                      │
-│   Found 3 presets in your configuration     │
+┌─────────────────────────────────────────────┐
+│  📋 Available Presets                      │
+│  Found 3 presets in your configuration     │
 └─────────────────────────────────────────────┘
 
-┌──────────── Preset Overview ─────────────┐
-│  Name         Strategy  Query      Last  │
-│  ─────────    ────────  ─────────  ────  │
-│  dev          OR logic  {"$or"...  never │
-│  production   Advanced  {"$and"... never │
-│  staging      OR logic  {"tag":"...9/6   │
-└──────────────────────────────────────────┘
+┌─────────────────────────────────────────────┐
+│  Name              Strategy   Query                               Last Used  │
+│  ────────────────  ─────────  ──────────────────────────────────  ─────────  │
+│  dev              OR logic   {"$or":[...                        never      │
+│  production       Advanced  {"$and":[...                       never      │
+│  staging          OR logic   {"tag":"staging"}                 9/6/2025   │
+└─────────────────────────────────────────────────────────────────────────────┘
 
-┌──────────── Quick Reference ─────────────┐
-│  Available Commands:                     │
-│                                          │
-│  • preset show <name>    Show details   │
-│  • preset url <name>     Generate URL   │
-│  • preset test <name>    Test preset    │
-│  • preset delete <name>  Delete preset  │
-└──────────────────────────────────────────┘
+┌─────────────────────────────────────────────┐
+│  Available Commands:                        │
+│                                             │
+│  • 1mcp preset show <name>         Show details   │
+│  • 1mcp preset url <name>          Generate URL   │
+│  • 1mcp preset edit <name>        Edit preset   │
+│  • 1mcp preset test <name>         Test preset    │
+│  • 1mcp preset delete <name>       Delete preset  │
+└─────────────────────────────────────────────┘
 ```
 
 ## Understanding the Output
@@ -76,8 +77,8 @@ If no presets exist, the command shows helpful guidance:
 └───────────────────────────────┘
 
 Create your first preset with:
-  preset create <name> --filter "web,api"
-  preset select --save <name>
+  1mcp preset create <name> --filter "web,api,database"
+  1mcp preset
 ```
 
 ### Strategy Types
@@ -124,5 +125,5 @@ npx -y @1mcp/agent preset url production
 
 - **[preset show](./show)** - Show detailed preset information (full queries, matching servers)
 - **[preset create](./create)** - Create new presets from command line
-- **[preset select](./select)** - Create presets with interactive TUI
+- **[Smart Interactive Mode](./)** - Create presets with interactive TUI
 - **[preset delete](./delete)** - Remove unused presets

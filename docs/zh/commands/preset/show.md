@@ -66,7 +66,7 @@ npx -y @1mcp/agent preset show production
 │                                       │
 │ Quick Actions:                        │
 │ • Test: preset test development       │
-│ • Edit: preset select --load dev      │
+│ • Edit: 1mcp preset edit dev         │
 │ • URL:  preset url development        │
 └───────────────────────────────────────┘
 ```
@@ -110,7 +110,7 @@ npx -y @1mcp/agent preset show production
 与此预设相关的便捷命令：
 
 - **测试**：`preset test <name>` - 验证服务器匹配
-- **编辑**：`preset select --load <name>` - 修改预设
+- **编辑**：`1mcp preset edit <name>` - 修改预设
 - **URL**：`preset url <name>` - 仅获取客户端 URL
 
 ## 用例
@@ -179,4 +179,4 @@ npx -y @1mcp/agent preset test staging
 - **[preset list](./list)** - 表格格式的所有预设概览
 - **[preset test](./test)** - 测试预设服务器匹配，包含其他详细信息
 - **[preset url](./url)** - 仅获取预设的客户端 URL
-- **[preset select](./select)** - 使用交互式 TUI 编辑预设
+- **[智能交互模式](./)** - 自动检测现有预设并提供编辑选项

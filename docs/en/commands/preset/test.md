@@ -133,7 +133,7 @@ npx -y @1mcp/agent mcp add newserver --type=stdio --tags=web,api
 npx -y @1mcp/agent preset test web-services
 
 # 3. Update presets if needed
-npx -y @1mcp/agent preset select --load web-services
+npx -y @1mcp/agent preset edit web-services
 ```
 
 ### Before Client Configuration
@@ -200,5 +200,5 @@ npx -y @1mcp/agent preset test development
 
 - **[preset show](./show)** - Show detailed preset information including server matching
 - **[preset create](./create)** - Create presets with specific tag criteria
-- **[preset select](./select)** - Interactively modify presets based on test results
+- **[preset edit](./edit)** - Interactively modify presets based on test results
 - **[mcp status](../mcp/status)** - Check overall server configuration health

@@ -181,7 +181,7 @@ Error: Filter expression cannot be empty
 
 ## 另请参阅
 
-- **[preset select](./select)** - 基于 TUI 的交互式预设创建
+- **[智能交互模式](./)** - 基于 TUI 的交互式预设创建
 - **[preset list](./list)** - 列出所有可用的预设
 - **[preset show](./show)** - 显示详细的预设信息
 - **[preset test](./test)** - 测试预设服务器匹配

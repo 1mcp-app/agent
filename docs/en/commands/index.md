@@ -50,7 +50,7 @@ Manage server presets for dynamic filtering and context switching.
 npx -y @1mcp/agent preset create dev --filter "web,api,database"
 npx -y @1mcp/agent preset list                    # List all presets
 npx -y @1mcp/agent preset show development        # Show preset details
-npx -y @1mcp/agent preset select --save staging   # Interactive preset creation
+npx -y @1mcp/agent preset edit staging           # Edit preset configuration
 ```
 
 ### [Serve Command](./serve)

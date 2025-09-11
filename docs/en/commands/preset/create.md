@@ -181,7 +181,7 @@ Error: Filter expression cannot be empty
 
 ## See Also
 
-- **[preset select](./select)** - Interactive TUI-based preset creation
+- **[Smart Interactive Mode](./)** - Interactive TUI-based preset creation
 - **[preset list](./list)** - List all available presets
 - **[preset show](./show)** - Show detailed preset information
 - **[preset test](./test)** - Test preset server matching

@@ -133,7 +133,7 @@ npx -y @1mcp/agent mcp add newserver --type=stdio --tags=web,api
 npx -y @1mcp/agent preset test web-services
 
 # 3. 根据需要更新预设
-npx -y @1mcp/agent preset select --load web-services
+npx -y @1mcp/agent preset edit web-services
 ```
 
 ### 客户端配置前
@@ -200,5 +200,5 @@ npx -y @1mcp/agent preset test development
 
 - **[preset show](./show)** - 显示详细的预设信息，包括服务器匹配
 - **[preset create](./create)** - 创建具有特定标签条件的预设
-- **[preset select](./select)** - 根据测试结果交互式修改预设
+- **[智能交互模式](./)** - 根据测试结果交互式修改预设
 - **[mcp status](../mcp/status)** - 检查整体服务器配置健康状况

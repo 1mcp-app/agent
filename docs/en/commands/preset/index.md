@@ -14,9 +14,9 @@ Preset commands allow you to:
 ## Quick Reference
 
 ```bash
-# Interactive preset creation (TUI-based)
-1mcp preset select --save development
-1mcp preset select --load development    # Edit existing
+# Smart interactive mode (auto-detects existing presets)
+1mcp preset                              # Create new or edit existing
+1mcp preset edit development              # Edit existing preset
 
 # Command-line preset creation
 1mcp preset create dev --filter "web,api,database"
@@ -65,13 +65,20 @@ Once created, presets can be used via URL query parameters:
 
 ## Commands
 
-### [select](./select)
+### [Smart Interactive Mode](./) (no subcommand)
 
-Interactive TUI-based preset creation and editing with visual server selection.
+Smart interactive mode that auto-detects existing presets and offers options to create new or edit existing ones.
 
 ```bash
-1mcp preset select --save development
-1mcp preset select --load development    # Edit existing
+1mcp preset                              # Auto-detects and offers options
+```
+
+### [edit](./edit)
+
+Edit existing preset interactively with visual server selection.
+
+```bash
+1mcp preset edit development              # Edit existing preset
 ```
 
 ### [create](./create)
@@ -129,11 +136,11 @@ Remove a preset from your configuration.
 
 Best for users who prefer visual selection and exploration:
 
-1. **Create preset**: `1mcp preset select --save development`
-2. **Visual server selection** with three-state checkboxes
-3. **Choose strategy** (OR/AND/Advanced) with live preview
-4. **Save and get URL** for client configuration
-5. **Edit later**: `1mcp preset select --load development`
+1. **Smart interactive mode**: `1mcp preset` - Auto-detects existing presets
+2. **Direct editing**: `1mcp preset edit development` - Edit existing presets
+3. **Visual server selection** with three-state checkboxes
+4. **Choose strategy** (OR/AND/Advanced) with live preview
+5. **Save and get URL** for client configuration
 
 ### Command-Line Workflow
 
@@ -181,6 +188,23 @@ Create sophisticated server selection rules:
 
 # Environment-specific with monitoring
 1mcp preset create prod-monitored --filter "production AND (web OR api) AND monitoring"
+```
+
+### Smart Interactive Mode
+
+The most powerful approach for preset management:
+
+```bash
+# Smart mode - auto-detects existing presets and offers options
+1mcp preset
+
+# When no subcommand is provided:
+# 1. Shows config directory path
+# 2. Detects existing presets
+# 3. Offers menu: Edit existing, Create new, or Cancel
+# 4. Loads existing preset for editing or creates new one
+# 5. Interactive server selection with TUI
+# 6. Automatic saving with generated URL
 ```
 
 ### URL Configuration Examples

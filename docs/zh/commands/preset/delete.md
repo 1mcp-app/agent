@@ -210,7 +210,7 @@ npx -y @1mcp/agent preset delete preset2
 
 一旦预设被删除，无法通过 CLI 恢复。但是：
 
-1. **手动重新创建**：使用 `preset create` 或 `preset select` 重新创建
+1. **手动重新创建**：使用 `preset create` 或 `1mcp preset` 重新创建
 2. **备份文件**：如果您之前导出了预设详细信息
 3. **版本控制**：如果您的配置受版本控制
 4. **团队知识**：其他团队成员可能具有相同的预设
@@ -228,4 +228,4 @@ npx -y @1mcp/agent preset delete critical-preset
 - **[preset list](./list)** - 删除前审查预设
 - **[preset show](./show)** - 导出预设详细信息以备份
 - **[preset create](./create)** - 重新创建已删除的预设
-- **[preset select](./select)** - 交互式重新创建已删除的预设
+- **[智能交互模式](./)** - 交互式重新创建已删除的预设

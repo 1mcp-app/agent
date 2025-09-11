@@ -14,9 +14,9 @@
 ## 快速参考
 
 ```bash
-# 交互式预设创建（基于 TUI）
-1mcp preset select --save development
-1mcp preset select --load development    # 编辑现有预设
+# 智能交互模式（自动检测现有预设）
+1mcp preset                              # 创建新的或编辑现有的
+1mcp preset edit development              # 编辑现有预设
 
 # 命令行预设创建
 1mcp preset create dev --filter "web,api,database"
@@ -65,13 +65,20 @@
 
 ## 命令
 
-### [select](./select)
+### [智能交互模式](./)（无子命令）
 
-基于 TUI 的交互式预设创建和编辑，具有可视化服务器选择功能。
+智能交互模式，自动检测现有预设并提供创建新或编辑现有预设的选项。
 
 ```bash
-1mcp preset select --save development
-1mcp preset select --load development    # 编辑现有预设
+1mcp preset                              # 自动检测并提供选项
+```
+
+### [edit](./edit)
+
+以可视化服务器选择交互式编辑现有预设。
+
+```bash
+1mcp preset edit development              # 编辑现有预设
 ```
 
 ### [create](./create)
@@ -129,11 +136,11 @@
 
 适合偏好可视化选择和探索的用户：
 
-1. **创建预设**：`1mcp preset select --save development`
-2. **使用三态复选框进行可视化服务器选择**
-3. **选择策略**（OR/AND/Advanced）并实时预览
-4. **保存并获取 URL** 用于客户端配置
-5. **稍后编辑**：`1mcp preset select --load development`
+1. **智能交互模式**：`1mcp preset` - 自动检测现有预设
+2. **直接编辑**：`1mcp preset edit development` - 编辑现有预设
+3. **可视化服务器选择**，使用三态复选框
+4. **选择策略**（OR/AND/Advanced）并实时预览
+5. **保存并获取 URL** 用于客户端配置
 
 ### 命令行工作流程
 

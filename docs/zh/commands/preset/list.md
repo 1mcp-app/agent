@@ -77,7 +77,7 @@ npx -y @1mcp/agent preset list
 
 Create your first preset with:
   preset create <name> --filter "web,api"
-  preset select --save <name>
+  1mcp preset
 ```
 
 ### 策略类型
@@ -124,5 +124,5 @@ npx -y @1mcp/agent preset url production
 
 - **[preset show](./show)** - 显示详细的预设信息（完整查询、匹配服务器）
 - **[preset create](./create)** - 从命令行创建新预设
-- **[preset select](./select)** - 使用交互式 TUI 创建预设
+- **[智能交互模式](./)** - 使用交互式 TUI 创建预设
 - **[preset delete](./delete)** - 删除未使用的预设

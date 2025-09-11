@@ -210,7 +210,7 @@ npx -y @1mcp/agent preset delete preset2
 
 Once a preset is deleted, it cannot be recovered through the CLI. However:
 
-1. **Manual Recreation**: Use `preset create` or `preset select` to recreate
+1. **Manual Recreation**: Use `preset create` or `1mcp preset` to recreate
 2. **Backup Files**: If you exported preset details beforehand
 3. **Version Control**: If your configuration is version controlled
 4. **Team Knowledge**: Other team members may have the same preset
@@ -228,4 +228,4 @@ npx -y @1mcp/agent preset delete critical-preset
 - **[preset list](./list)** - Review presets before deletion
 - **[preset show](./show)** - Export preset details for backup
 - **[preset create](./create)** - Recreate deleted presets
-- **[preset select](./select)** - Recreate deleted presets interactively
+- **[Smart Interactive Mode](./)** - Recreate deleted presets interactively
