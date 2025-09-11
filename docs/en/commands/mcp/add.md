@@ -20,7 +20,14 @@ npx -y @1mcp/agent mcp add <name> [options] -- <command> [args...]
   - A unique name for the new server.
   - **Required**: Yes
 
-## Options
+## Global Options
+
+This command supports all global options:
+
+- **`--config, -c <path>`** - Specify configuration file path
+- **`--config-dir, -d <path>`** - Path to the config directory
+
+## Command-Specific Options
 
 - **`--type <type>`**
   - The transport type for the server.

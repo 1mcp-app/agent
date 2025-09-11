@@ -17,7 +17,14 @@ npx -y @1mcp/agent preset create <name> --filter <expression> [options]
   - **Required**: Yes
   - **Format**: Letters, numbers, hyphens, and underscores only
 
-## Options
+## Global Options
+
+This command supports all global options:
+
+- **`--config, -c <path>`** - Specify configuration file path
+- **`--config-dir, -d <path>`** - Path to the config directory
+
+## Command-Specific Options
 
 - **`--filter, -f <expression>`**
   - Filter expression for server selection.

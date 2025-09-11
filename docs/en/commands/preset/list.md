@@ -10,6 +10,13 @@ For a complete overview of preset management, see the **[Preset Commands Overvie
 npx -y @1mcp/agent preset list
 ```
 
+## Global Options
+
+This command supports all global options:
+
+- **`--config, -c <path>`** - Specify configuration file path
+- **`--config-dir, -d <path>`** - Path to the config directory
+
 ## Description
 
 The `preset list` command displays all configured presets in a compact, organized table format. This provides a quick overview of your preset configurations, including names, strategies, query summaries, and usage information.

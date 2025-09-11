@@ -13,12 +13,27 @@
 
 ### Global Options
 
+All 1MCP commands support the following global options:
+
 - **`--help, -h`** - Show help information
 - **`--version`** - Show version information
 - **`--config, -c <path>`** - Specify configuration file path
-- **`--transport, -t <type>`** - Transport type (stdio, http, sse)
-- **`--port, -P <port>`** - HTTP port (default: 3051)
-- **`--host, -H <host>`** - HTTP host (default: localhost)
+- **`--config-dir, -d <path>`** - Path to the config directory
+
+**Environment Variables**: All global options can be set via environment variables with the `ONE_MCP_` prefix:
+
+- `ONE_MCP_CONFIG=/path/to/config.json`
+- `ONE_MCP_CONFIG_DIR=/path/to/config/dir`
+
+### Command-Specific Options
+
+In addition to global options, each command may have specific options. Use `--help` with any command to see all available options:
+
+```bash
+npx -y @1mcp/agent mcp add --help
+npx -y @1mcp/agent preset create --help
+npx -y @1mcp/agent serve --help
+```
 
 ## Command Groups
 

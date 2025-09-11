@@ -20,7 +20,14 @@ npx -y @1mcp/agent mcp update <name> [options] -- <command> [args...]
   - 要更新的服务器的名称。
   - **必需**：是
 
-## 选项
+## 全局选项
+
+此命令支持所有全局选项：
+
+- **`--config, -c <path>`** - 指定配置文件路径
+- **`--config-dir, -d <path>`** - 配置目录路径
+
+## 命令特定选项
 
 - **`--tags <tags>`**
   - 新的逗号分隔的标签列表。这将覆盖现有的标签。

@@ -9,6 +9,13 @@ npx -y @1mcp/agent [serve] [options]
 npx -y @1mcp/agent [options]  # serve 是默认命令
 ```
 
+## 全局选项
+
+此命令支持所有全局选项：
+
+- **`--config, -c <path>`** - 指定配置文件路径
+- **`--config-dir, -d <path>`** - 配置目录路径
+
 ## 描述
 
 `serve` 命令启动 1MCP 服务器，该服务器充当多个 MCP 服务器的统一代理/多路复用器。它可以在不同的传输模式下运行，并为 MCP 客户端提供统一的接口。

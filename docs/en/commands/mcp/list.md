@@ -10,7 +10,14 @@ For a complete overview of server management, see the **[Server Management Guide
 npx -y @1mcp/agent mcp list [options]
 ```
 
-## Options
+## Global Options
+
+This command supports all global options:
+
+- **`--config, -c <path>`** - Specify configuration file path
+- **`--config-dir, -d <path>`** - Path to the config directory
+
+## Command-Specific Options
 
 - **`--tags <tags>`**
   - Filter the list to only show servers with the specified comma-separated tags.

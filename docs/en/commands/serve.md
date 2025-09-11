@@ -15,6 +15,13 @@ The `serve` command starts the 1MCP server, which acts as a unified proxy/multip
 
 For a complete list of command-line flags, environment variables, and JSON configuration options, please see the \*\*[Configuration Deep Dive](../guide/essentials/configuration.md)
 
+## Global Options
+
+This command supports all global options:
+
+- **`--config, -c <path>`** - Specify configuration file path
+- **`--config-dir, -d <path>`** - Path to the config directory
+
 ## Examples
 
 ### Basic Usage
@@ -37,7 +44,7 @@ npx -y @1mcp/agent serve --transport=stdio
 npx -y @1mcp/agent serve --config=/path/to/config.json
 
 # Start with debug logging
-npx -y @1mcp/agent serve --log-level=debug --log-file=/var/log/npx -y @1mcp/agent.log
+npx -y @1mcp/agent serve --log-level=debug
 ```
 
 ### Production Deployment
@@ -60,9 +67,8 @@ npx -y @1mcp/agent serve \
 ### Development
 
 ```bash
-# Development with debug logging and file watching
+# Development with file watching
 npx -y @1mcp/agent serve \
-  --log-level=debug \
   --health-info-level=full
 ```
 

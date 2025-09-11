@@ -15,7 +15,14 @@ npx -y @1mcp/agent mcp status [name] [options]
 - **`[name]`**
   - 要检查的特定服务器的名称。如果省略，则检查所有服务器。
 
-## 选项
+## 全局选项
+
+此命令支持所有全局选项：
+
+- **`--config, -c <path>`** - 指定配置文件路径
+- **`--config-dir, -d <path>`** - 配置目录路径
+
+## 命令特定选项
 
 - **环境变量 `ONE_MCP_LOG_LEVEL=debug`**
   - 设置 `ONE_MCP_LOG_LEVEL=debug` 以显示详细的配置信息。

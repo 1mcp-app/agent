@@ -15,10 +15,17 @@ npx -y @1mcp/agent mcp status [name] [options]
 - **`[name]`**
   - The name of a specific server to check. If omitted, checks all servers.
 
-## Options
+## Global Options
 
-- **Environment Variable `ONE_MCP_LOG_LEVEL=debug`**
-  - Set `ONE_MCP_LOG_LEVEL=debug` to show detailed configuration information.
+This command supports all global options:
+
+- **`--config, -c <path>`** - Specify configuration file path
+- **`--config-dir, -d <path>`** - Path to the config directory
+
+## Command-Specific Options
+
+- **`--verbose`**
+  - Show detailed configuration information.
 
 ## Description
 
@@ -34,7 +41,7 @@ npx -y @1mcp/agent mcp status
 npx -y @1mcp/agent mcp status my-server
 
 # Get detailed status information
-ONE_MCP_LOG_LEVEL=debug npx -y @1mcp/agent mcp status
+npx -y @1mcp/agent mcp status --verbose
 ```
 
 ## See Also

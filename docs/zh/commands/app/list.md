@@ -10,7 +10,14 @@
 npx -y @1mcp/agent app list [options]
 ```
 
-## 选项
+## 全局选项
+
+此命令支持所有全局选项：
+
+- **`--config, -c <path>`** - 指定配置文件路径
+- **`--config-dir, -d <path>`** - 配置目录路径
+
+## 命令特定选项
 
 - **`--configurable-only`**
   - 仅显示支持自动整合的应用程序。

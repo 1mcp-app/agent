@@ -16,6 +16,13 @@ npx -y @1mcp/agent preset show <name>
   - The name of the preset to display details for.
   - **Required**: Yes
 
+## Global Options
+
+This command supports all global options:
+
+- **`--config, -c <path>`** - Specify configuration file path
+- **`--config-dir, -d <path>`** - Path to the config directory
+
 ## Description
 
 The `preset show` command provides comprehensive information about a specific preset in a single, organized display. This complements the compact `preset list` table by showing complete details without truncation.

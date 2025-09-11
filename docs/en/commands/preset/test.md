@@ -16,6 +16,13 @@ npx -y @1mcp/agent preset test <name>
   - The name of the preset to test.
   - **Required**: Yes
 
+## Global Options
+
+This command supports all global options:
+
+- **`--config, -c <path>`** - Specify configuration file path
+- **`--config-dir, -d <path>`** - Path to the config directory
+
 ## Description
 
 The `preset test` command validates a preset against your current server configuration, showing which servers match the preset's filtering criteria. This is essential for verifying that presets work as expected before using them in client configurations.

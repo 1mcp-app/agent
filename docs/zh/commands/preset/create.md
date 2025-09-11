@@ -17,7 +17,14 @@ npx -y @1mcp/agent preset create <name> --filter <expression> [options]
   - **必需**：是
   - **格式**：仅限字母、数字、连字符和下划线
 
-## 选项
+## 全局选项
+
+此命令支持所有全局选项：
+
+- **`--config, -c <path>`** - 指定配置文件路径
+- **`--config-dir, -d <path>`** - 配置目录路径
+
+## 命令特定选项
 
 - **`--filter, -f <expression>`**
   - 服务器选择的过滤表达式。

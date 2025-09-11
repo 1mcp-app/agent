@@ -16,7 +16,14 @@ npx -y @1mcp/agent mcp remove <name> [options]
   - The name of the server to remove.
   - **Required**: Yes
 
-## Options
+## Global Options
+
+This command supports all global options:
+
+- **`--config, -c <path>`** - Specify configuration file path
+- **`--config-dir, -d <path>`** - Path to the config directory
+
+## Command-Specific Options
 
 - **`--yes, -y`**
   - Skip the confirmation prompt.

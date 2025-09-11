@@ -10,7 +10,14 @@ For a complete list of applications and their status, see the **[App Consolidati
 npx -y @1mcp/agent app list [options]
 ```
 
-## Options
+## Global Options
+
+This command supports all global options:
+
+- **`--config, -c <path>`** - Specify configuration file path
+- **`--config-dir, -d <path>`** - Path to the config directory
+
+## Command-Specific Options
 
 - **`--configurable-only`**
   - Show only applications that support automatic consolidation.

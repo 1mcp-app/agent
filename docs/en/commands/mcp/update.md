@@ -20,7 +20,14 @@ npx -y @1mcp/agent mcp update <name> [options] -- <command> [args...]
   - The name of the server to update.
   - **Required**: Yes
 
-## Options
+## Global Options
+
+This command supports all global options:
+
+- **`--config, -c <path>`** - Specify configuration file path
+- **`--config-dir, -d <path>`** - Path to the config directory
+
+## Command-Specific Options
 
 - **`--tags <tags>`**
   - A new comma-separated list of tags. This will overwrite the existing tags.
