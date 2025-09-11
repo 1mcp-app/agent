@@ -18,64 +18,24 @@ export function setupPresetCommands(yargs: Argv): Argv {
       return yargs
         .options(mergedOptions)
         .command({
-          command: 'select [name]',
-          describe: 'Interactive server selection with TUI',
+          command: 'edit <name>',
+          describe: 'Edit existing preset interactively',
           builder: (yargs) => {
             return yargs
               .options(mergedOptions)
               .positional('name', {
-                describe: 'Preset name to use with --url-only, --preview, etc.',
+                describe: 'Name of the preset to edit',
                 type: 'string',
-              })
-              .option('save', {
-                describe: 'Save selection as preset with specified name',
-                type: 'string',
-                alias: 's',
-                conflicts: ['load'],
-              })
-              .option('load', {
-                describe: 'Load existing preset for editing',
-                type: 'string',
-                alias: 'l',
-                conflicts: ['save'],
-              })
-              .option('url-only', {
-                describe: 'Generate URL from existing preset (non-interactive)',
-                type: 'boolean',
-                implies: 'name',
-              })
-              .option('url', {
-                describe: 'Show URL after interactive selection and save',
-                type: 'boolean',
-                alias: 'u',
-                conflicts: ['url-only', 'list', 'delete', 'preview'],
-              })
-              .option('list', {
-                describe: 'List available presets',
-                type: 'boolean',
-                conflicts: ['save', 'load', 'url', 'url-only', 'delete', 'preview'],
-              })
-              .option('delete', {
-                describe: 'Delete preset by name',
-                type: 'string',
-                conflicts: ['save', 'load', 'url', 'url-only', 'list', 'preview'],
-              })
-              .option('preview', {
-                describe: 'Test/preview preset without starting server',
-                type: 'boolean',
-                alias: 'p',
-                implies: 'name',
-                conflicts: ['save', 'load', 'url', 'url-only', 'list', 'delete'],
+                demandOption: true,
               })
               .option('description', {
-                describe: 'Description for saved preset',
+                describe: 'Update description for the preset',
                 type: 'string',
-                implies: 'save',
               });
           },
           handler: async (argv) => {
-            const { selectCommand } = await import('./select.js');
-            await selectCommand(argv as any);
+            const { editCommand } = await import('./edit.js');
+            await editCommand(argv as any);
           },
         })
         .command({
@@ -174,11 +134,10 @@ export function setupPresetCommands(yargs: Argv): Argv {
             await testCommand(argv as any);
           },
         })
-        .demandCommand(1, 'You must specify a subcommand')
+        .demandCommand(0, 'Use --help for available commands')
         .example([
-          ['$0 preset select --save development', 'Interactive selection and save as "development"'],
-          ['$0 preset select --save dev --url', 'Select, save, and show URL'],
-          ['$0 preset select --load development', 'Edit existing "development" preset'],
+          ['$0 preset', 'Smart interactive mode - create new or edit existing'],
+          ['$0 preset edit development', 'Edit existing "development" preset'],
           ['$0 preset create dev --filter "web,database"', 'Create preset with simple filter'],
           ['$0 preset create prod --filter "web AND database"', 'Create preset with AND logic'],
           ['$0 preset create secure --filter "(web OR api) AND NOT experimental"', 'Complex filter'],
@@ -196,22 +155,26 @@ that automatically update when you modify the preset configuration.
 
 WORKFLOW EXAMPLES:
 
-1. Interactive TUI approach:
-   1mcp preset select --save dev --url
-   → Interactive selection → Save as 'dev' → Show URL
+1. Smart interactive approach:
+   1mcp preset
+   → Auto-detects existing presets → Offers to edit or create new
 
-2. Command-line approach:
+2. Direct editing:
+   1mcp preset edit dev
+   → Interactive editing of existing 'dev' preset
+
+3. Command-line creation:
    1mcp preset create dev --filter "web,database,api"
    → Quick preset creation with comma-separated tags (OR logic)
 
-3. Complex expressions:
+4. Complex expressions:
    1mcp preset create prod --filter "web AND database AND monitoring"
    → AND logic for strict requirements
 
    1mcp preset create flexible --filter "(web OR api) AND database"
    → Mixed boolean expressions
 
-4. Management:
+5. Management:
    1mcp preset list           # List all presets
    1mcp preset url dev        # Get client URL
    1mcp preset test dev       # Test against servers
@@ -227,9 +190,10 @@ When you modify a preset, all clients using that preset's URL automatically
 receive updated server configurations without needing to change their URLs.
         `);
     },
-    () => {
-      console.log('Please specify a subcommand. Use --help for available commands.');
-      process.exit(1);
+    async (argv) => {
+      // Smart interactive mode when no subcommand is provided
+      const { interactiveCommand } = await import('./interactive.js');
+      await interactiveCommand(argv as any);
     },
   );
 }

@@ -302,12 +302,12 @@ describe('AgentConfigManager', () => {
     });
 
     it('should return correct server URL - using external URL when set', () => {
-      expect(configManager.getUrl()).toBe('http://localhost:3050');
+      expect(configManager.getUrl()).toBe('http://localhost:3050/mcp');
 
       configManager.updateConfig({
         externalUrl: 'https://external.example.com',
       });
-      expect(configManager.getUrl()).toBe('https://external.example.com');
+      expect(configManager.getUrl()).toBe('https://external.example.com/mcp');
     });
 
     it('should return correct server URL - fallback to host:port', () => {
@@ -315,7 +315,7 @@ describe('AgentConfigManager', () => {
         host: 'custom.host.com',
         port: 9000,
       });
-      expect(configManager.getUrl()).toBe('http://custom.host.com:9000');
+      expect(configManager.getUrl()).toBe('http://custom.host.com:9000/mcp');
     });
   });
 

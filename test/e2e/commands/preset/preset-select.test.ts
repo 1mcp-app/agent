@@ -3,7 +3,7 @@ import { CommandTestEnvironment, CliTestRunner } from '../../utils/index.js';
 import { TestFixtures } from '../../fixtures/TestFixtures.js';
 import { PresetManager } from '../../../../src/utils/presetManager.js';
 
-describe('Preset Select Command E2E', () => {
+describe('Preset Select Command E2E (DEPRECATED)', () => {
   let environment: CommandTestEnvironment;
   let runner: CliTestRunner;
 

@@ -28,19 +28,23 @@ export class InteractiveSelector {
   /**
    * Interactive tag-based selection with strategy configuration and back navigation
    */
-  public async selectServers(existingConfig?: Partial<PresetConfig>): Promise<SelectionResult> {
+  public async selectServers(existingConfig?: Partial<PresetConfig>, configPath?: string): Promise<SelectionResult> {
     // Display welcome message with boxen
-    const welcomeMessage = boxen(
-      chalk.magenta.bold('🚀 MCP Preset Configuration\n\n') + chalk.yellow('Configure your preset selection strategy:'),
-      {
-        padding: 1,
-        margin: 1,
-        borderStyle: 'double',
-        borderColor: 'cyan',
-        title: 'Preset Builder',
-        titleAlignment: 'center',
-      },
-    );
+    let welcomeContent = chalk.magenta.bold('🚀 MCP Preset Configuration\n\n') + 
+                        chalk.yellow('Configure your preset selection strategy:');
+    
+    if (configPath) {
+      welcomeContent += '\n\n' + chalk.gray(`📁 Config: ${configPath}`);
+    }
+    
+    const welcomeMessage = boxen(welcomeContent, {
+      padding: 1,
+      margin: 1,
+      borderStyle: 'double',
+      borderColor: 'cyan',
+      title: 'Preset Builder',
+      titleAlignment: 'center',
+    });
 
     console.log(welcomeMessage);
 
@@ -175,7 +179,7 @@ export class InteractiveSelector {
         } else {
           // Step 2: Three-state tag selection with arrow key navigation
           if (strategy) {
-            const tagSelectionResult = await this.selectTagsInteractive(availableTags, servers, strategy);
+            const tagSelectionResult = await this.selectTagsInteractive(availableTags, servers, strategy, existingConfig?.tagQuery);
 
             if (tagSelectionResult.goBack) {
               // User wants to go back to strategy selection
@@ -346,6 +350,27 @@ export class InteractiveSelector {
   }
 
   /**
+   * Get a numeric choice from user within a range
+   */
+  public async getChoice(message: string, min: number, max: number): Promise<number> {
+    const result = await prompts({
+      type: 'number',
+      name: 'choice',
+      message,
+      min,
+      max,
+      validate: (value: number) => {
+        if (value < min || value > max) {
+          return `Please enter a number between ${min} and ${max}`;
+        }
+        return true;
+      },
+    });
+
+    return result.choice || min;
+  }
+
+  /**
    * Show error message
    */
   public showError(message: string): void {
@@ -384,6 +409,7 @@ export class InteractiveSelector {
     availableTags: string[],
     servers: Record<string, any>,
     strategy: PresetStrategy,
+    existingQuery?: TagQuery,
   ): Promise<{
     tagQuery: TagQuery;
     goBack: boolean;
@@ -392,10 +418,10 @@ export class InteractiveSelector {
     // Build tag-to-servers mapping
     const tagServerMap = TagQueryEvaluator.buildTagServerMap(servers);
 
-    // Initialize tag selections with server info
+    // Initialize tag selections with server info and restore from existing query
     const tagSelections: TagSelection[] = availableTags.map((tag) => ({
       tag,
-      state: 'empty' as TagState,
+      state: this.getInitialTagStateFromQuery(tag, existingQuery, strategy),
       servers: tagServerMap.get(tag) || [],
     }));
 
@@ -427,7 +453,14 @@ export class InteractiveSelector {
           }
           break;
 
-        case 'right':
+        case 'right': {
+          // Show server details for current tag
+          if (currentIndex < tagSelections.length) {
+            await this.showTagServerDetails(tagSelections[currentIndex], servers);
+          }
+          break;
+        }
+
         case 'enter': {
           // Build final query
           const finalQuery = TagQueryEvaluator.buildQueryFromSelections(tagSelections, strategy);
@@ -456,7 +489,7 @@ export class InteractiveSelector {
     const header = boxen(
       chalk.cyan.bold('🎯 Three-State Tag Selection\n\n') +
         chalk.yellow(`Strategy: ${strategy === 'and' ? 'ALL' : 'ANY'} selected tags must match\n`) +
-        chalk.gray('Controls: ↑↓ Navigate  Space Cycle states  →/Enter Confirm  ← Back  Esc Cancel'),
+        chalk.gray('Controls: ↑↓ Navigate  Space Cycle states  → Server details  Enter Confirm  ← Back  Esc Cancel'),
       {
         padding: 1,
         borderStyle: 'double',
@@ -476,9 +509,18 @@ export class InteractiveSelector {
 
         const cursor = isCurrentIndex ? chalk.yellow.bold('►') : ' ';
         const tagHighlight = isCurrentIndex ? chalk.bgGray.white.bold : chalk.white;
-        const serverCount = chalk.gray(`(${chalk.blue(selection.servers.length)} servers)`);
+        
+        // Count enabled and disabled servers for this tag
+        const enabledServers = selection.servers.filter(serverName => servers[serverName]?.disabled !== true);
+        const disabledServers = selection.servers.filter(serverName => servers[serverName]?.disabled === true);
+        
+        let serverInfo = chalk.gray(`(${chalk.blue(enabledServers.length)} enabled`);
+        if (disabledServers.length > 0) {
+          serverInfo += chalk.gray(`, ${chalk.red(disabledServers.length)} disabled`);
+        }
+        serverInfo += chalk.gray(')');
 
-        return `${cursor} ${stateColor(symbol)} ${tagHighlight(selection.tag)} ${serverCount}`;
+        return `${cursor} ${stateColor(symbol)} ${tagHighlight(selection.tag)} ${serverInfo}`;
       })
       .join('\n');
 
@@ -492,22 +534,31 @@ export class InteractiveSelector {
 
     // Live preview
     const matchingServers = TagQueryEvaluator.getMatchingServers(tagSelections, servers, strategy);
-    const serverPreview = TagQueryEvaluator.formatServerList(matchingServers, 3);
+
+    // Check for disabled servers in the matching set
+    const disabledServers = matchingServers.filter(serverName => servers[serverName]?.disabled === true);
+    const enabledServers = matchingServers.filter(serverName => servers[serverName]?.disabled !== true);
 
     const matchColor =
-      matchingServers.length === 0 ? chalk.red : matchingServers.length < 3 ? chalk.yellow : chalk.green;
-    const matchIcon = matchingServers.length === 0 ? '❌' : matchingServers.length < 3 ? '⚠️' : '✅';
+      enabledServers.length === 0 ? chalk.red : enabledServers.length < 3 ? chalk.yellow : chalk.green;
+    const matchIcon = enabledServers.length === 0 ? '❌' : enabledServers.length < 3 ? '⚠️' : '✅';
 
-    const previewContent =
+    let previewContent =
       chalk.blue.bold('Live Preview:\n') +
-      `${matchIcon} ${matchColor.bold(`${matchingServers.length} servers`)} match your selection\n` +
-      (matchingServers.length > 0 ? chalk.green(`Servers: ${serverPreview}`) : chalk.gray('No servers match'));
+      `${matchIcon} ${matchColor.bold(`${enabledServers.length} enabled servers`)} match your selection\n` +
+      (enabledServers.length > 0 ? chalk.green(`Servers: ${TagQueryEvaluator.formatServerList(enabledServers, 3)}`) : chalk.gray('No enabled servers match'));
+
+    // Add warning for disabled servers if any
+    if (disabledServers.length > 0) {
+      previewContent += '\n' + chalk.red.bold(`⚠️  ${disabledServers.length} disabled servers also match: `) + 
+        chalk.red(TagQueryEvaluator.formatServerList(disabledServers, 3));
+    }
 
     console.log(
       boxen(previewContent, {
         padding: 1,
         borderStyle: 'round',
-        borderColor: 'green',
+        borderColor: disabledServers.length > 0 ? 'yellow' : 'green',
         title: '⚡ Live Preview',
         titleAlignment: 'center',
       }),
@@ -578,5 +629,125 @@ export class InteractiveSelector {
       default:
         return chalk.reset;
     }
+  }
+
+  /**
+   * Show detailed information about servers for a specific tag
+   */
+  private async showTagServerDetails(tagSelection: TagSelection, servers: Record<string, any>): Promise<void> {
+    console.clear();
+    
+    const enabledServers = tagSelection.servers.filter(serverName => servers[serverName]?.disabled !== true);
+    const disabledServers = tagSelection.servers.filter(serverName => servers[serverName]?.disabled === true);
+    
+    let content = chalk.blue.bold(`📋 Tag: ${tagSelection.tag}\n\n`);
+    
+    if (enabledServers.length > 0) {
+      content += chalk.green.bold(`✅ Enabled Servers (${enabledServers.length}):\n`);
+      for (const serverName of enabledServers) {
+        const serverConfig = servers[serverName];
+        const allTags = (serverConfig.tags || []).join(', ');
+        content += chalk.green(`  • ${serverName}`) + chalk.gray(` - tags: ${allTags || 'none'}\n`);
+      }
+      content += '\n';
+    }
+    
+    if (disabledServers.length > 0) {
+      content += chalk.red.bold(`❌ Disabled Servers (${disabledServers.length}):\n`);
+      for (const serverName of disabledServers) {
+        const serverConfig = servers[serverName];
+        const allTags = (serverConfig.tags || []).join(', ');
+        content += chalk.red(`  • ${serverName}`) + chalk.gray(` - tags: ${allTags || 'none'}\n`);
+      }
+      content += '\n';
+    }
+    
+    if (tagSelection.servers.length === 0) {
+      content += chalk.yellow('No servers have this tag.\n\n');
+    }
+    
+    content += chalk.gray('Press any key to return to tag selection...');
+    
+    console.log(boxen(content, {
+      padding: 1,
+      borderStyle: 'round',
+      borderColor: 'blue',
+      title: `🔍 Server Details`,
+      titleAlignment: 'center',
+    }));
+    
+    // Wait for any key press
+    await this.getKeyInput();
+  }
+
+  /**
+   * Determine initial tag state from existing query
+   */
+  private getInitialTagStateFromQuery(tag: string, existingQuery?: TagQuery, _strategy?: PresetStrategy): TagState {
+    if (!existingQuery || typeof existingQuery !== 'object') {
+      return 'empty';
+    }
+
+    // Helper function to recursively check if a query matches a tag
+    const queryMatches = (query: any): boolean => {
+      if (!query || typeof query !== 'object') {
+        return false;
+      }
+      
+      // Direct tag match
+      if (query.tag === tag) {
+        return true;
+      }
+      
+      // Check nested $or
+      if (query.$or && Array.isArray(query.$or)) {
+        return query.$or.some((subQuery: any) => queryMatches(subQuery));
+      }
+      
+      // Check nested $and
+      if (query.$and && Array.isArray(query.$and)) {
+        return query.$and.some((subQuery: any) => queryMatches(subQuery));
+      }
+      
+      // Check $in operator
+      if (query.$in && Array.isArray(query.$in)) {
+        return query.$in.includes(tag);
+      }
+      
+      return false;
+    };
+
+    // Helper function to check for NOT conditions
+    const queryMatchesNot = (query: any): boolean => {
+      if (!query || typeof query !== 'object') {
+        return false;
+      }
+      
+      // Direct NOT match
+      if (query.$not) {
+        return queryMatches(query.$not);
+      }
+      
+      // Check for NOT in nested structures
+      if (query.$and && Array.isArray(query.$and)) {
+        return query.$and.some((subQuery: any) => 
+          subQuery.$not && queryMatches(subQuery.$not)
+        );
+      }
+      
+      return false;
+    };
+
+    // Check for NOT conditions first (they take precedence)
+    if (queryMatchesNot(existingQuery)) {
+      return 'not-selected';
+    }
+
+    // Check for positive matches
+    if (queryMatches(existingQuery)) {
+      return 'selected';
+    }
+
+    return 'empty';
   }
 }

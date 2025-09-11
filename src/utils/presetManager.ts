@@ -519,4 +519,11 @@ export class PresetManager {
   public getPresetNames(): string[] {
     return Array.from(this.presets.keys());
   }
+
+  /**
+   * Get the configuration path
+   */
+  public getConfigPath(): string {
+    return this.configPath;
+  }
 }

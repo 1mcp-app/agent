@@ -33,6 +33,9 @@ export async function selectCommand(argv: SelectArguments): Promise<void> {
     const selector = new InteractiveSelector();
     const urlGenerator = new UrlGenerator();
 
+    // Show current preset configuration path
+    console.log(`📁 Config directory: ${presetManager.getConfigPath()}\n`);
+
     // Handle different operation modes
     const presetName = argv.name;
 
@@ -60,7 +63,7 @@ export async function selectCommand(argv: SelectArguments): Promise<void> {
       return;
     }
 
-    // Mode: Load existing preset for editing
+    // Mode: Load existing preset for editing OR offer to load if no specific action
     let existingConfig;
     if (argv.load) {
       existingConfig = await loadPresetForEditing(argv.load, presetManager, selector);
@@ -70,7 +73,7 @@ export async function selectCommand(argv: SelectArguments): Promise<void> {
     }
 
     // Interactive server selection
-    const result = await selector.selectServers(existingConfig);
+    const result = await selector.selectServers(existingConfig, presetManager.getConfigPath());
 
     if (result.cancelled) {
       console.log('Operation cancelled.');
@@ -252,6 +255,7 @@ async function savePreset(
   const url = urlGenerator.generatePresetUrl(name);
   selector.showSaveSuccess(name, url);
 }
+
 
 /**
  * Get human-readable strategy description

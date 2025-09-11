@@ -258,12 +258,13 @@ export class AgentConfigManager {
   }
 
   /**
-   * Gets the server URL, preferring external URL if set, otherwise falling back to http://host:port.
+   * Gets the server URL, preferring external URL if set, otherwise falling back to http://host:port/mcp.
    *
    * @returns The server URL to use for OAuth callbacks and public URLs
    */
   public getUrl(): string {
-    return this.config.externalUrl || `http://${this.config.host}:${this.config.port}`;
+    const baseUrl = this.config.externalUrl || `http://${this.config.host}:${this.config.port}`;
+    return `${baseUrl}/mcp`;
   }
 
   /**
