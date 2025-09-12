@@ -56,7 +56,7 @@ export async function editCommand(argv: EditArguments): Promise<void> {
 
     // Save back to the same preset name, optionally updating description
     const updatedDescription = argv.description || existingConfig.description;
-    
+
     await presetManager.savePreset(argv.name, {
       description: updatedDescription,
       strategy: result.strategy,

@@ -93,7 +93,7 @@ describe('Preset Interactive Command E2E', () => {
       });
 
       runner.assertSuccess(result);
-      
+
       // Verify both presets are still available
       const listResult = await runner.runCommand('preset', 'list');
       runner.assertOutputContains(listResult, 'preset-a');

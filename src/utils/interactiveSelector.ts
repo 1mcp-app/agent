@@ -30,13 +30,13 @@ export class InteractiveSelector {
    */
   public async selectServers(existingConfig?: Partial<PresetConfig>, configPath?: string): Promise<SelectionResult> {
     // Display welcome message with boxen
-    let welcomeContent = chalk.magenta.bold('🚀 MCP Preset Configuration\n\n') + 
-                        chalk.yellow('Configure your preset selection strategy:');
-    
+    let welcomeContent =
+      chalk.magenta.bold('🚀 MCP Preset Configuration\n\n') + chalk.yellow('Configure your preset selection strategy:');
+
     if (configPath) {
       welcomeContent += '\n\n' + chalk.gray(`📁 Config: ${configPath}`);
     }
-    
+
     const welcomeMessage = boxen(welcomeContent, {
       padding: 1,
       margin: 1,
@@ -179,7 +179,12 @@ export class InteractiveSelector {
         } else {
           // Step 2: Three-state tag selection with arrow key navigation
           if (strategy) {
-            const tagSelectionResult = await this.selectTagsInteractive(availableTags, servers, strategy, existingConfig?.tagQuery);
+            const tagSelectionResult = await this.selectTagsInteractive(
+              availableTags,
+              servers,
+              strategy,
+              existingConfig?.tagQuery,
+            );
 
             if (tagSelectionResult.goBack) {
               // User wants to go back to strategy selection
@@ -509,11 +514,11 @@ export class InteractiveSelector {
 
         const cursor = isCurrentIndex ? chalk.yellow.bold('►') : ' ';
         const tagHighlight = isCurrentIndex ? chalk.bgGray.white.bold : chalk.white;
-        
+
         // Count enabled and disabled servers for this tag
-        const enabledServers = selection.servers.filter(serverName => servers[serverName]?.disabled !== true);
-        const disabledServers = selection.servers.filter(serverName => servers[serverName]?.disabled === true);
-        
+        const enabledServers = selection.servers.filter((serverName) => servers[serverName]?.disabled !== true);
+        const disabledServers = selection.servers.filter((serverName) => servers[serverName]?.disabled === true);
+
         let serverInfo = chalk.gray(`(${chalk.blue(enabledServers.length)} enabled`);
         if (disabledServers.length > 0) {
           serverInfo += chalk.gray(`, ${chalk.red(disabledServers.length)} disabled`);
@@ -536,21 +541,24 @@ export class InteractiveSelector {
     const matchingServers = TagQueryEvaluator.getMatchingServers(tagSelections, servers, strategy);
 
     // Check for disabled servers in the matching set
-    const disabledServers = matchingServers.filter(serverName => servers[serverName]?.disabled === true);
-    const enabledServers = matchingServers.filter(serverName => servers[serverName]?.disabled !== true);
+    const disabledServers = matchingServers.filter((serverName) => servers[serverName]?.disabled === true);
+    const enabledServers = matchingServers.filter((serverName) => servers[serverName]?.disabled !== true);
 
-    const matchColor =
-      enabledServers.length === 0 ? chalk.red : enabledServers.length < 3 ? chalk.yellow : chalk.green;
+    const matchColor = enabledServers.length === 0 ? chalk.red : enabledServers.length < 3 ? chalk.yellow : chalk.green;
     const matchIcon = enabledServers.length === 0 ? '❌' : enabledServers.length < 3 ? '⚠️' : '✅';
 
     let previewContent =
       chalk.blue.bold('Live Preview:\n') +
       `${matchIcon} ${matchColor.bold(`${enabledServers.length} enabled servers`)} match your selection\n` +
-      (enabledServers.length > 0 ? chalk.green(`Servers: ${TagQueryEvaluator.formatServerList(enabledServers, 3)}`) : chalk.gray('No enabled servers match'));
+      (enabledServers.length > 0
+        ? chalk.green(`Servers: ${TagQueryEvaluator.formatServerList(enabledServers, 3)}`)
+        : chalk.gray('No enabled servers match'));
 
     // Add warning for disabled servers if any
     if (disabledServers.length > 0) {
-      previewContent += '\n' + chalk.red.bold(`⚠️  ${disabledServers.length} disabled servers also match: `) + 
+      previewContent +=
+        '\n' +
+        chalk.red.bold(`⚠️  ${disabledServers.length} disabled servers also match: `) +
         chalk.red(TagQueryEvaluator.formatServerList(disabledServers, 3));
     }
 
@@ -636,12 +644,12 @@ export class InteractiveSelector {
    */
   private async showTagServerDetails(tagSelection: TagSelection, servers: Record<string, any>): Promise<void> {
     console.clear();
-    
-    const enabledServers = tagSelection.servers.filter(serverName => servers[serverName]?.disabled !== true);
-    const disabledServers = tagSelection.servers.filter(serverName => servers[serverName]?.disabled === true);
-    
+
+    const enabledServers = tagSelection.servers.filter((serverName) => servers[serverName]?.disabled !== true);
+    const disabledServers = tagSelection.servers.filter((serverName) => servers[serverName]?.disabled === true);
+
     let content = chalk.blue.bold(`📋 Tag: ${tagSelection.tag}\n\n`);
-    
+
     if (enabledServers.length > 0) {
       content += chalk.green.bold(`✅ Enabled Servers (${enabledServers.length}):\n`);
       for (const serverName of enabledServers) {
@@ -651,7 +659,7 @@ export class InteractiveSelector {
       }
       content += '\n';
     }
-    
+
     if (disabledServers.length > 0) {
       content += chalk.red.bold(`❌ Disabled Servers (${disabledServers.length}):\n`);
       for (const serverName of disabledServers) {
@@ -661,21 +669,23 @@ export class InteractiveSelector {
       }
       content += '\n';
     }
-    
+
     if (tagSelection.servers.length === 0) {
       content += chalk.yellow('No servers have this tag.\n\n');
     }
-    
+
     content += chalk.gray('Press any key to return to tag selection...');
-    
-    console.log(boxen(content, {
-      padding: 1,
-      borderStyle: 'round',
-      borderColor: 'blue',
-      title: `🔍 Server Details`,
-      titleAlignment: 'center',
-    }));
-    
+
+    console.log(
+      boxen(content, {
+        padding: 1,
+        borderStyle: 'round',
+        borderColor: 'blue',
+        title: `🔍 Server Details`,
+        titleAlignment: 'center',
+      }),
+    );
+
     // Wait for any key press
     await this.getKeyInput();
   }
@@ -693,27 +703,27 @@ export class InteractiveSelector {
       if (!query || typeof query !== 'object') {
         return false;
       }
-      
+
       // Direct tag match
       if (query.tag === tag) {
         return true;
       }
-      
+
       // Check nested $or
       if (query.$or && Array.isArray(query.$or)) {
         return query.$or.some((subQuery: any) => queryMatches(subQuery));
       }
-      
+
       // Check nested $and
       if (query.$and && Array.isArray(query.$and)) {
         return query.$and.some((subQuery: any) => queryMatches(subQuery));
       }
-      
+
       // Check $in operator
       if (query.$in && Array.isArray(query.$in)) {
         return query.$in.includes(tag);
       }
-      
+
       return false;
     };
 
@@ -722,19 +732,17 @@ export class InteractiveSelector {
       if (!query || typeof query !== 'object') {
         return false;
       }
-      
+
       // Direct NOT match
       if (query.$not) {
         return queryMatches(query.$not);
       }
-      
+
       // Check for NOT in nested structures
       if (query.$and && Array.isArray(query.$and)) {
-        return query.$and.some((subQuery: any) => 
-          subQuery.$not && queryMatches(subQuery.$not)
-        );
+        return query.$and.some((subQuery: any) => subQuery.$not && queryMatches(subQuery.$not));
       }
-      
+
       return false;
     };
 

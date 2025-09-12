@@ -30,7 +30,7 @@ export async function interactiveCommand(argv: InteractiveArguments): Promise<vo
     // Check if we should offer to load existing presets
     const availablePresets = presetManager.getPresetList();
     let existingConfig;
-    
+
     if (availablePresets.length > 0) {
       const selectedAction = await offerPresetSelection(availablePresets, selector);
       if (selectedAction === 'cancel') {
@@ -103,10 +103,7 @@ export async function interactiveCommand(argv: InteractiveArguments): Promise<vo
 /**
  * Offer preset selection when existing presets are found
  */
-async function offerPresetSelection(
-  availablePresets: any[],
-  selector: InteractiveSelector,
-): Promise<string> {
+async function offerPresetSelection(availablePresets: any[], selector: InteractiveSelector): Promise<string> {
   console.log('🎯 Found existing presets. What would you like to do?\n');
 
   // Show available presets
@@ -114,7 +111,7 @@ async function offerPresetSelection(
     const preset = availablePresets[i];
     const lastUsed = preset.lastUsed ? new Date(preset.lastUsed).toLocaleDateString() : 'never';
     const strategyDesc = getStrategyDescription(preset.strategy);
-    
+
     console.log(`   ${i + 1}. ${preset.name} (${strategyDesc}) - Last used: ${lastUsed}`);
     if (preset.description) {
       console.log(`      ${preset.description}`);
@@ -124,11 +121,7 @@ async function offerPresetSelection(
   console.log(`   ${availablePresets.length + 1}. Create new preset`);
   console.log(`   ${availablePresets.length + 2}. Cancel\n`);
 
-  const choice = await selector.getChoice(
-    'Select an option:',
-    1,
-    availablePresets.length + 2
-  );
+  const choice = await selector.getChoice('Select an option:', 1, availablePresets.length + 2);
 
   if (choice <= availablePresets.length) {
     return availablePresets[choice - 1].name;
