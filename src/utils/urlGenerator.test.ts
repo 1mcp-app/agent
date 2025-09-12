@@ -23,6 +23,7 @@ describe('UrlGenerator', () => {
     // Mock AgentConfigManager
     mockAgentConfigInstance = {
       getUrl: vi.fn().mockReturnValue('http://localhost:3050'),
+      getStreambleHttpUrl: vi.fn().mockReturnValue('http://localhost:3050'),
       isAuthEnabled: vi.fn().mockReturnValue(false),
     };
     mockAgentConfig.getInstance = vi.fn().mockReturnValue(mockAgentConfigInstance);
@@ -398,6 +399,7 @@ describe('UrlGenerator', () => {
   describe('integration with different base URLs', () => {
     it('should work with HTTPS URLs', () => {
       mockAgentConfigInstance.getUrl.mockReturnValue('https://api.example.com:8443');
+      mockAgentConfigInstance.getStreambleHttpUrl.mockReturnValue('https://api.example.com:8443');
 
       const url = urlGenerator.generatePresetUrl('production');
       expect(url).toBe('https://api.example.com:8443/?preset=production');
@@ -405,6 +407,7 @@ describe('UrlGenerator', () => {
 
     it('should work with URLs containing paths', () => {
       mockAgentConfigInstance.getUrl.mockReturnValue('http://localhost:3050/api/v1');
+      mockAgentConfigInstance.getStreambleHttpUrl.mockReturnValue('http://localhost:3050/api/v1');
 
       const url = urlGenerator.generatePresetUrl('development');
       expect(url).toBe('http://localhost:3050/api/v1?preset=development');
@@ -412,6 +415,7 @@ describe('UrlGenerator', () => {
 
     it('should handle URLs with existing query parameters', () => {
       mockAgentConfigInstance.getUrl.mockReturnValue('http://localhost:3050/?version=v1');
+      mockAgentConfigInstance.getStreambleHttpUrl.mockReturnValue('http://localhost:3050/?version=v1');
 
       const url = urlGenerator.generatePresetUrl('development');
       expect(url).toBe('http://localhost:3050/?version=v1&preset=development');

@@ -29,7 +29,7 @@ export class UrlGenerator {
    * Generate MCP access URL with preset parameter
    */
   public generatePresetUrl(presetName: string): string {
-    const baseUrl = this.agentConfig.getUrl();
+    const baseUrl = this.agentConfig.getStreambleHttpUrl();
     const url = new URL(baseUrl);
 
     // Add preset parameter
@@ -57,7 +57,7 @@ export class UrlGenerator {
    * Generate MCP access URL with legacy tags parameter (deprecated)
    */
   public generateTagsUrl(tags: string[]): string {
-    const baseUrl = this.agentConfig.getUrl();
+    const baseUrl = this.agentConfig.getStreambleHttpUrl();
     const url = new URL(baseUrl);
 
     // Add tags parameter
@@ -71,7 +71,7 @@ export class UrlGenerator {
    * Generate MCP access URL based on options
    */
   public generateUrl(options: UrlGenerationOptions = {}): string {
-    const baseUrl = this.agentConfig.getUrl();
+    const baseUrl = this.agentConfig.getStreambleHttpUrl();
     const url = new URL(baseUrl);
 
     // Priority: preset > tag-filter > tags (deprecated)
@@ -243,10 +243,6 @@ export class UrlGenerator {
    * Generate connection string for MCP clients (includes protocol and formatting)
    */
   public generateConnectionString(options: UrlGenerationOptions = {}): string {
-    const url = this.generateUrl(options);
-
-    // For MCP clients, we might want to format the URL differently
-    // This is where we could add MCP-specific formatting if needed
-    return url;
+    return this.generateUrl(options);
   }
 }

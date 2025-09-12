@@ -121,7 +121,7 @@ describe('HTTP Trust Proxy Configuration Integration', () => {
 
       expect(configManager.getTrustProxy()).toBe('192.168.1.100');
       expect(configManager.getExternalUrl()).toBe('https://api.example.com');
-      expect(configManager.getUrl()).toBe('https://api.example.com/mcp');
+      expect(configManager.getUrl()).toBe('https://api.example.com');
     });
 
     it('should handle CDN scenario', () => {
@@ -147,7 +147,7 @@ describe('HTTP Trust Proxy Configuration Integration', () => {
 
       expect(configManager.getTrustProxy()).toBe('uniquelocal');
       expect(configManager.getConfig().host).toBe('0.0.0.0');
-      expect(configManager.getUrl()).toBe('http://0.0.0.0:3050/mcp');
+      expect(configManager.getUrl()).toBe('http://0.0.0.0:3050');
     });
   });
 

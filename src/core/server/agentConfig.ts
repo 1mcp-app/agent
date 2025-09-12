@@ -1,4 +1,4 @@
-import { AUTH_CONFIG, HOST, PORT, RATE_LIMIT_CONFIG } from '../../constants.js';
+import { AUTH_CONFIG, HOST, PORT, RATE_LIMIT_CONFIG, STREAMABLE_HTTP_ENDPOINT } from '../../constants.js';
 
 /**
  * Configuration interface for agent-specific settings.
@@ -258,13 +258,21 @@ export class AgentConfigManager {
   }
 
   /**
-   * Gets the server URL, preferring external URL if set, otherwise falling back to http://host:port/mcp.
+   * Gets the server URL, preferring external URL if set, otherwise falling back to http://host:port.
    *
    * @returns The server URL to use for OAuth callbacks and public URLs
    */
   public getUrl(): string {
-    const baseUrl = this.config.externalUrl || `http://${this.config.host}:${this.config.port}`;
-    return `${baseUrl}/mcp`;
+    return this.config.externalUrl || `http://${this.config.host}:${this.config.port}`;
+  }
+
+  /**
+   * Gets the streamable HTTP URL, which includes the streamable HTTP endpoint.
+   *
+   * @returns The streamable HTTP URL
+   */
+  public getStreambleHttpUrl(): string {
+    return `${this.getUrl()}${STREAMABLE_HTTP_ENDPOINT}`;
   }
 
   /**
