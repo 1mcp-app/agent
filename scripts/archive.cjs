@@ -23,9 +23,7 @@ function detectPlatform() {
 function createArchive(binaryPath, options = {}) {
   const {
     format = 'auto',  // 'zip', 'tar.gz', or 'auto'
-    outputDir = '.',
-    outputName = null,  // Custom output name
-    includeBinary = true
+    outputDir = '.'
   } = options;
   
   if (!fs.existsSync(binaryPath)) {
@@ -35,6 +33,10 @@ function createArchive(binaryPath, options = {}) {
   const binaryName = path.basename(binaryPath);
   const binaryDir = path.dirname(binaryPath);
   const baseName = binaryName.replace(/\.(exe)?$/, '');
+  
+  // Sanitize inputs for shell safety
+  const safeBinaryName = binaryName.replace(/[^a-zA-Z0-9._-]/g, '_');
+  const safeBaseName = baseName.replace(/[^a-zA-Z0-9._-]/g, '_');
   
   // Determine archive format
   let archiveFormat = format;
@@ -50,18 +52,18 @@ function createArchive(binaryPath, options = {}) {
   let archiveCommand;
   
   if (archiveFormat === 'zip') {
-    archiveName = `${baseName}.zip`;
+    archiveName = `${safeBaseName}.zip`;
     // Use cross-platform zip command or fallback to PowerShell on Windows
     if (process.platform === 'win32') {
-      archiveCommand = `powershell -Command "Compress-Archive -Path '${binaryName}' -DestinationPath '${archiveName}' -CompressionLevel Optimal -Force"`;
+      archiveCommand = `powershell -Command "Compress-Archive -Path '${safeBinaryName}' -DestinationPath '${archiveName}' -CompressionLevel Optimal -Force"`;
     } else {
       // Use zip command on Unix-like systems
-      archiveCommand = `zip -9 -q ${archiveName} ${binaryName}`;
+      archiveCommand = `zip -9 -q ${archiveName} ${safeBinaryName}`;
     }
   } else {
     // tar.gz format
-    archiveName = `${baseName}.tar.gz`;
-    archiveCommand = `tar -czf ${archiveName} ${binaryName}`;
+    archiveName = `${safeBaseName}.tar.gz`;
+    archiveCommand = `tar -czf ${archiveName} ${safeBinaryName}`;
   }
   
   const archivePath = path.join(outputDir, archiveName);
@@ -76,8 +78,12 @@ function createArchive(binaryPath, options = {}) {
       fs.unlinkSync(archiveName);
     }
     
-    // Create archive
-    execSync(archiveCommand, { stdio: 'inherit' });
+    // Create archive with additional safety options
+    execSync(archiveCommand, { 
+      stdio: 'inherit',
+      shell: process.platform === 'win32' ? true : false,
+      timeout: 30000 // 30 second timeout
+    });
     
     // Move archive to output directory if different
     if (binaryDir !== path.resolve(outputDir)) {
