@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 
-const { execSync } = require('child_process');
 const fs = require('fs');
 const path = require('path');
+const archiver = require('archiver');
 
 /**
  * Archive binaries for distribution using zip/tar.gz compression
@@ -21,99 +21,89 @@ function detectPlatform() {
 }
 
 function createArchive(binaryPath, options = {}) {
-  const {
-    format = 'auto',  // 'zip', 'tar.gz', or 'auto'
-    outputDir = '.'
-  } = options;
-  
-  if (!fs.existsSync(binaryPath)) {
-    throw new Error(`Binary not found: ${binaryPath}`);
-  }
-  
-  const binaryName = path.basename(binaryPath);
-  const binaryDir = path.dirname(binaryPath);
-  const baseName = binaryName.replace(/\.(exe)?$/, '');
-  
-  // Sanitize inputs for shell safety
-  const safeBinaryName = binaryName.replace(/[^a-zA-Z0-9._-]/g, '_');
-  const safeBaseName = baseName.replace(/[^a-zA-Z0-9._-]/g, '_');
-  
-  // Determine archive format
-  let archiveFormat = format;
-  if (format === 'auto') {
-    archiveFormat = detectPlatform() === 'windows' ? 'zip' : 'tar.gz';
-  }
-  
-  const originalSize = getFileSize(binaryPath);
-  console.log(`📦 Creating ${archiveFormat} archive for ${binaryName}...`);
-  console.log(`📊 Original size: ${originalSize} MB`);
-  
-  let archiveName;
-  let archiveCommand;
-  
-  if (archiveFormat === 'zip') {
-    archiveName = `${safeBaseName}.zip`;
-    // Use cross-platform zip command or fallback to PowerShell on Windows
-    if (process.platform === 'win32') {
-      archiveCommand = `powershell -Command "Compress-Archive -Path '${safeBinaryName}' -DestinationPath '${archiveName}' -CompressionLevel Optimal -Force"`;
-    } else {
-      // Use zip command on Unix-like systems
-      archiveCommand = `zip -9 -q ${archiveName} ${safeBinaryName}`;
+  return new Promise((resolve, reject) => {
+    const {
+      format = 'auto',  // 'zip', 'tar.gz', or 'auto'
+      outputDir = '.'
+    } = options;
+    
+    if (!fs.existsSync(binaryPath)) {
+      return reject(new Error(`Binary not found: ${binaryPath}`));
     }
-  } else {
-    // tar.gz format
-    archiveName = `${safeBaseName}.tar.gz`;
-    archiveCommand = `tar -czf ${archiveName} ${safeBinaryName}`;
-  }
-  
-  const archivePath = path.join(outputDir, archiveName);
-  
-  try {
-    // Change to binary directory to avoid path issues
-    const oldCwd = process.cwd();
-    process.chdir(binaryDir);
+    
+    const binaryName = path.basename(binaryPath);
+    const baseName = binaryName.replace(/\.(exe)?$/, '');
+    
+    // Validate and sanitize the base name for filename safety
+    if (!/^[a-zA-Z0-9._-]+$/.test(baseName)) {
+      return reject(new Error(`Invalid binary name: ${baseName}. Only alphanumeric characters, dots, underscores and hyphens allowed.`));
+    }
+    
+    // Determine archive format
+    let archiveFormat = format;
+    if (format === 'auto') {
+      archiveFormat = detectPlatform() === 'windows' ? 'zip' : 'tar';
+    }
+    
+    const originalSize = getFileSize(binaryPath);
+    console.log(`📦 Creating ${archiveFormat} archive for ${binaryName}...`);
+    console.log(`📊 Original size: ${originalSize} MB`);
+    
+    const archiveName = archiveFormat === 'zip' ? `${baseName}.zip` : `${baseName}.tar.gz`;
+    const archivePath = path.join(outputDir, archiveName);
     
     // Remove existing archive if it exists
-    if (fs.existsSync(archiveName)) {
-      fs.unlinkSync(archiveName);
+    if (fs.existsSync(archivePath)) {
+      fs.unlinkSync(archivePath);
     }
     
-    // Create archive with additional safety options
-    execSync(archiveCommand, { 
-      stdio: 'inherit',
-      shell: process.platform === 'win32' ? true : false,
-      timeout: 30000 // 30 second timeout
+    // Create output stream
+    const output = fs.createWriteStream(archivePath);
+    let archive;
+    
+    if (archiveFormat === 'zip') {
+      archive = archiver('zip', { zlib: { level: 9 } });
+    } else {
+      archive = archiver('tar', { gzip: true, gzipOptions: { level: 9 } });
+    }
+    
+    // Handle errors
+    archive.on('error', (err) => {
+      reject(new Error(`Archive creation failed: ${err.message}`));
     });
     
-    // Move archive to output directory if different
-    if (binaryDir !== path.resolve(outputDir)) {
-      const targetPath = path.join(outputDir, archiveName);
-      fs.renameSync(archiveName, targetPath);
-    }
+    output.on('close', () => {
+      try {
+        // Calculate compression stats
+        const archiveSize = getFileSize(archivePath);
+        const savings = ((originalSize - archiveSize) / originalSize * 100).toFixed(1);
+        
+        console.log(`📊 Archive size: ${archiveSize} MB`);
+        console.log(`💾 Space saved: ${savings}%`);
+        console.log(`✅ Archive created: ${archiveName}`);
+        
+        resolve(archivePath);
+      } catch (error) {
+        reject(error);
+      }
+    });
     
-    process.chdir(oldCwd);
+    output.on('error', (err) => {
+      reject(new Error(`Failed to write archive: ${err.message}`));
+    });
     
-    // Calculate compression stats
-    if (fs.existsSync(archivePath)) {
-      const archiveSize = getFileSize(archivePath);
-      const savings = ((originalSize - archiveSize) / originalSize * 100).toFixed(1);
-      
-      console.log(`📊 Archive size: ${archiveSize} MB`);
-      console.log(`💾 Space saved: ${savings}%`);
-      console.log(`✅ Archive created: ${archiveName}`);
-      
-      return archivePath;
-    } else {
-      throw new Error('Archive was not created successfully');
-    }
+    // Pipe archive data to the output file
+    archive.pipe(output);
     
-  } catch (error) {
-    console.error(`❌ Archive creation failed:`, error.message);
-    throw error;
-  }
+    // Add the binary file to the archive
+    archive.file(binaryPath, { name: binaryName });
+    
+    // Finalize the archive
+    archive.finalize();
+  });
 }
 
-function archiveAllBinaries(directory = '.', options = {}) {
+async function archiveAllBinaries(directory = '.', options = {}) {
   const binaryPatterns = ['1mcp', '1mcp.exe'];
   const binaries = [];
   
@@ -139,14 +129,14 @@ function archiveAllBinaries(directory = '.', options = {}) {
   console.log(`📦 Found ${binaries.length} binaries to archive`);
   
   const archives = [];
-  binaries.forEach(binary => {
+  for (const binary of binaries) {
     try {
-      const archive = createArchive(binary, options);
+      const archive = await createArchive(binary, options);
       archives.push(archive);
     } catch (error) {
       console.error(`❌ Failed to archive ${binary}:`, error.message);
     }
-  });
+  }
   
   return archives;
 }
@@ -155,13 +145,20 @@ if (require.main === module) {
   const target = process.argv[2];
   const format = process.argv[3] || 'auto';
   
-  if (target && fs.existsSync(target)) {
-    // Archive specific binary
-    createArchive(target, { format });
-  } else {
-    // Archive all found binaries
-    archiveAllBinaries('.', { format });
-  }
+  (async () => {
+    try {
+      if (target && fs.existsSync(target)) {
+        // Archive specific binary
+        await createArchive(target, { format });
+      } else {
+        // Archive all found binaries
+        await archiveAllBinaries('.', { format });
+      }
+    } catch (error) {
+      console.error('❌ Error:', error.message);
+      process.exit(1);
+    }
+  })();
 }
 
 module.exports = { createArchive, archiveAllBinaries };
