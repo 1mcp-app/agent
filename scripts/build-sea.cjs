@@ -30,9 +30,22 @@ function buildSEA() {
       '--outfile=build/bundled.cjs',
       '--external:fsevents',
       '--external:@esbuild/*',
-      '--minify',
+      '--keep-names',
+      '--legal-comments=none',
       '--tree-shaking'
     ].join(' '), { stdio: 'inherit' });
+    
+    // Post-process: Fix import_meta.url references for SEA compatibility
+    console.log('🔧 Fixing import_meta.url references...');
+    let bundledCode = fs.readFileSync('build/bundled.cjs', 'utf8');
+    
+    // Replace import_meta variations with proper fallback for SEA
+    bundledCode = bundledCode.replace(
+      /import_meta\d*\.url/g, 
+      '(typeof __filename !== "undefined" ? "file://" + __filename : "file:///sea")'
+    );
+    
+    fs.writeFileSync('build/bundled.cjs', bundledCode);
     
     // 4. Create SEA preparation blob
     console.log('🔧 Creating SEA blob...');
