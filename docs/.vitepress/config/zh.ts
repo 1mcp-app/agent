@@ -129,8 +129,8 @@ function sidebar(): DefaultTheme.Sidebar {
             text: 'preset',
             link: '/zh/commands/preset/',
             items: [
-              { text: 'select', link: '/zh/commands/preset/select' },
               { text: 'create', link: '/zh/commands/preset/create' },
+              { text: 'edit', link: '/zh/commands/preset/edit' },
               { text: 'list', link: '/zh/commands/preset/list' },
               { text: 'show', link: '/zh/commands/preset/show' },
               { text: 'url', link: '/zh/commands/preset/url' },

@@ -107,8 +107,8 @@ function sidebar(): DefaultTheme.Sidebar {
             text: 'preset',
             link: '/commands/preset/',
             items: [
-              { text: 'select', link: '/commands/preset/select' },
               { text: 'create', link: '/commands/preset/create' },
+              { text: 'edit', link: '/commands/preset/edit' },
               { text: 'list', link: '/commands/preset/list' },
               { text: 'show', link: '/commands/preset/show' },
               { text: 'url', link: '/commands/preset/url' },
