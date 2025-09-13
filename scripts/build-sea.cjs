@@ -1,0 +1,52 @@
+#!/usr/bin/env node
+
+const { execSync } = require('child_process');
+const fs = require('fs');
+
+/**
+ * Build Single Executable Application (SEA) components
+ */
+function buildSEA() {
+  console.log('🔨 Building SEA components...');
+  
+  try {
+    // 1. Build TypeScript
+    console.log('📦 Building TypeScript...');
+    execSync('tsc --project tsconfig.build.json', { stdio: 'inherit' });
+    
+    // 2. Set execute permissions on main file
+    const mainFile = 'build/index.js';
+    if (fs.existsSync(mainFile)) {
+      fs.chmodSync(mainFile, '755');
+    }
+    
+    // 3. Bundle with esbuild (optimized)
+    console.log('📦 Bundling with esbuild...');
+    execSync([
+      'esbuild build/index.js',
+      '--bundle',
+      '--platform=node',
+      '--format=cjs',
+      '--outfile=build/bundled.cjs',
+      '--external:fsevents',
+      '--external:@esbuild/*',
+      '--minify',
+      '--tree-shaking'
+    ].join(' '), { stdio: 'inherit' });
+    
+    // 4. Create SEA preparation blob
+    console.log('🔧 Creating SEA blob...');
+    execSync('node --experimental-sea-config sea-config.json', { stdio: 'inherit' });
+    
+    console.log('✅ SEA build complete!');
+  } catch (error) {
+    console.error('❌ SEA build failed:', error.message);
+    process.exit(1);
+  }
+}
+
+if (require.main === module) {
+  buildSEA();
+}
+
+module.exports = { buildSEA };

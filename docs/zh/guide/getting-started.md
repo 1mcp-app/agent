@@ -65,7 +65,27 @@ ls ~/.config/*/mcp.json 2>/dev/null || echo "ℹ️ 未找到现有 MCP 配置"
 - ✅ 自动连接管理和重试逻辑
 - ✅ 您的 AI 助手连接的单一端点
 
-### **步骤 1：无需安装** (0 分钟)
+### **步骤 1：获取 1MCP** (1 分钟)
+
+**选项 A：二进制下载 (最快 - 无需 Node.js)**
+
+```bash
+# Linux:
+curl -L -o 1mcp https://github.com/1mcp-app/agent/releases/latest/download/1mcp-linux-x64
+sudo mv 1mcp /usr/local/bin/ && sudo chmod +x /usr/local/bin/1mcp
+1mcp --help
+
+# macOS:
+curl -L -o 1mcp https://github.com/1mcp-app/agent/releases/latest/download/1mcp-darwin-arm64
+sudo mv 1mcp /usr/local/bin/ && sudo chmod +x /usr/local/bin/1mcp
+1mcp --help
+
+# Windows (PowerShell):
+Invoke-WebRequest -Uri "https://github.com/1mcp-app/agent/releases/latest/download/1mcp-win32-x64.exe" -OutFile "1mcp.exe"
+.\1mcp.exe --help
+```
+
+**选项 B：NPM (无需安装)**
 
 ```bash
 # 1MCP 通过 npx 运行 - 无需全局安装
@@ -101,7 +121,10 @@ EOF
 ### **步骤 3：启动 1MCP** (1 分钟)
 
 ```bash
-# 使用您的配置启动
+# 二进制选项：
+1mcp --config ~/.config/1mcp/mcp.json --port 3050
+
+# NPM 选项：
 npx -y @1mcp/agent --config ~/.config/1mcp/mcp.json --port 3050
 
 # 您应该会看到：
@@ -165,6 +188,10 @@ curl http://localhost:3050/health
 # 停止您现有的 1MCP 实例 (Ctrl+C)
 
 # 启用认证并启动
+# 二进制选项：
+1mcp --config ~/.config/1mcp/mcp.json --port 3050 --enable-auth
+
+# NPM 选项：
 npx -y @1mcp/agent --config ~/.config/1mcp/mcp.json --port 3050 --enable-auth
 
 # 新输出显示：
