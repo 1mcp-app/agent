@@ -79,14 +79,6 @@ sudo chmod +x /usr/local/bin/1mcp
 rm 1mcp-darwin-arm64.tar.gz
 1mcp --version
 
-# macOS example (Intel):
-curl -L -o 1mcp-darwin-x64.tar.gz https://github.com/1mcp-app/agent/releases/latest/download/1mcp-darwin-x64.tar.gz
-tar -xzf 1mcp-darwin-x64.tar.gz
-sudo mv 1mcp /usr/local/bin/
-sudo chmod +x /usr/local/bin/1mcp
-rm 1mcp-darwin-x64.tar.gz
-1mcp --version
-
 # Windows example (PowerShell):
 Invoke-WebRequest -Uri "https://github.com/1mcp-app/agent/releases/latest/download/1mcp-win32-x64.zip" -OutFile "1mcp-win32-x64.zip"
 Expand-Archive -Path "1mcp-win32-x64.zip" -DestinationPath "."
@@ -94,6 +86,8 @@ Expand-Archive -Path "1mcp-win32-x64.zip" -DestinationPath "."
 .\1mcp.exe --version
 Remove-Item "1mcp-win32-x64.zip"
 ```
+
+More examples: [Installation Guide](https://docs.1mcp.app/guide/installation/)
 
 #### NPM/Node.js Method
 
