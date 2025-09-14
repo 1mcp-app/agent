@@ -2,6 +2,7 @@ name: Binaries
 
 on:
   workflow_call:
+  workflow_dispatch:
 
 concurrency:
   group: binaries-${{ github.workflow }}-${{ github.ref }}
