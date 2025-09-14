@@ -2,9 +2,23 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { MCPRegistryClient } from './mcpRegistryClient.js';
 import type { RegistryServer } from './types.js';
 
-// Mock fetch globally
-const mockFetch = vi.fn();
-global.fetch = mockFetch;
+// Mock axios instance
+const mockAxiosInstance = {
+  get: vi.fn(),
+};
+
+// Mock axios module
+vi.mock('axios', () => ({
+  default: {
+    create: vi.fn(() => mockAxiosInstance),
+    get: vi.fn(),
+    isAxiosError: vi.fn(),
+  },
+  isAxiosError: vi.fn(),
+}));
+
+// Import axios after mocking
+import axios from 'axios';
 
 describe('MCPRegistryClient', () => {
   let client: MCPRegistryClient;
@@ -23,7 +37,7 @@ describe('MCPRegistryClient', () => {
 
     mockServers = [
       {
-        $schema: 'https://schema.org/mcp-server',
+        $schema: 'https://static.modelcontextprotocol.io/schemas/2025-07-09/server.schema.json',
         name: 'file-server',
         description: 'A file management server',
         status: 'active',
@@ -32,23 +46,23 @@ describe('MCPRegistryClient', () => {
           source: 'github',
         },
         version: '1.0.0',
-        packages: [
+        remotes: [
           {
-            registry_type: 'npm',
-            identifier: '@test/file-server',
-            version: '1.0.0',
-            transport: 'stdio',
+            type: 'streamable-http',
+            url: 'npx @test/file-server',
           },
         ],
         _meta: {
-          id: 'file-server-1',
-          published_at: '2024-01-01T00:00:00Z',
-          updated_at: '2024-01-01T00:00:00Z',
-          is_latest: true,
+          'io.modelcontextprotocol.registry/official': {
+            id: 'file-server-1',
+            published_at: '2024-01-01T00:00:00Z',
+            updated_at: '2024-01-01T00:00:00Z',
+            is_latest: true,
+          },
         },
       },
       {
-        $schema: 'https://schema.org/mcp-server',
+        $schema: 'https://static.modelcontextprotocol.io/schemas/2025-07-09/server.schema.json',
         name: 'database-server',
         description: 'A database integration server',
         status: 'active',
@@ -57,25 +71,26 @@ describe('MCPRegistryClient', () => {
           source: 'github',
         },
         version: '2.1.0',
-        packages: [
+        remotes: [
           {
-            registry_type: 'npm',
-            identifier: '@test/database-server',
-            version: '2.1.0',
-            transport: 'stdio',
+            type: 'sse',
+            url: 'https://database.example.com/sse',
           },
         ],
         _meta: {
-          id: 'database-server-1',
-          published_at: '2024-01-02T00:00:00Z',
-          updated_at: '2024-01-02T00:00:00Z',
-          is_latest: true,
+          'io.modelcontextprotocol.registry/official': {
+            id: 'database-server-1',
+            published_at: '2024-01-02T00:00:00Z',
+            updated_at: '2024-01-02T00:00:00Z',
+            is_latest: true,
+          },
         },
       },
     ];
 
-    // Reset mock
-    mockFetch.mockReset();
+    // Reset mocks
+    vi.clearAllMocks();
+    mockAxiosInstance.get.mockReset();
   });
 
   afterEach(() => {
@@ -84,59 +99,61 @@ describe('MCPRegistryClient', () => {
 
   describe('getServers', () => {
     it('should fetch servers successfully', async () => {
-      mockFetch.mockResolvedValueOnce({
-        ok: true,
-        json: async () => mockServers,
+      mockAxiosInstance.get.mockResolvedValueOnce({
+        data: {
+          servers: mockServers,
+          metadata: { count: 2 },
+        },
       });
 
       const result = await client.getServers();
 
-      expect(mockFetch).toHaveBeenCalledWith(
-        'https://registry.test.com/servers',
-        expect.objectContaining({
-          headers: expect.objectContaining({
-            Accept: 'application/json',
-            'User-Agent': '1mcp-agent/0.21.0',
-          }),
-        }),
-      );
-
+      expect(mockAxiosInstance.get).toHaveBeenCalledWith('https://registry.test.com/v0/servers');
       expect(result).toEqual(mockServers);
     });
 
     it('should handle query parameters', async () => {
-      mockFetch.mockResolvedValueOnce({
-        ok: true,
-        json: async () => mockServers,
+      mockAxiosInstance.get.mockResolvedValueOnce({
+        data: {
+          servers: mockServers,
+          metadata: { count: 2 },
+        },
       });
 
-      await client.getServers({ limit: 10, offset: 5 });
+      await client.getServers({ limit: 10, cursor: 'test-cursor-123' });
 
-      expect(mockFetch).toHaveBeenCalledWith('https://registry.test.com/servers?limit=10&offset=5', expect.any(Object));
+      expect(mockAxiosInstance.get).toHaveBeenCalledWith(
+        'https://registry.test.com/v0/servers?limit=10&cursor=test-cursor-123',
+      );
     });
 
     it('should use cache on second request', async () => {
-      mockFetch.mockResolvedValueOnce({
-        ok: true,
-        json: async () => mockServers,
+      mockAxiosInstance.get.mockResolvedValueOnce({
+        data: {
+          servers: mockServers,
+          metadata: { count: 2 },
+        },
       });
 
       // First request
       const result1 = await client.getServers();
-      expect(mockFetch).toHaveBeenCalledTimes(1);
+      expect(mockAxiosInstance.get).toHaveBeenCalledTimes(1);
 
       // Second request should use cache
       const result2 = await client.getServers();
-      expect(mockFetch).toHaveBeenCalledTimes(1); // Still only called once
+      expect(mockAxiosInstance.get).toHaveBeenCalledTimes(1); // Still only called once
       expect(result2).toEqual(result1);
     });
 
     it('should handle HTTP errors', async () => {
-      mockFetch.mockResolvedValueOnce({
-        ok: false,
-        status: 500,
-        statusText: 'Internal Server Error',
-      });
+      const axiosError = {
+        response: {
+          status: 500,
+          statusText: 'Internal Server Error',
+        },
+      };
+      mockAxiosInstance.get.mockRejectedValueOnce(axiosError);
+      vi.mocked(axios.isAxiosError).mockReturnValueOnce(true);
 
       await expect(client.getServers()).rejects.toThrow('Failed to fetch servers from registry');
     });
@@ -147,9 +164,11 @@ describe('MCPRegistryClient', () => {
         timeout: 10, // 10ms timeout
       });
 
-      mockFetch.mockImplementationOnce(
-        () => new Promise((resolve) => setTimeout(resolve, 50)), // 50ms delay
-      );
+      const timeoutError = {
+        code: 'ECONNABORTED',
+      };
+      mockAxiosInstance.get.mockRejectedValueOnce(timeoutError);
+      vi.mocked(axios.isAxiosError).mockReturnValueOnce(true);
 
       await expect(shortTimeoutClient.getServers()).rejects.toThrow('Failed to fetch servers from registry');
 
@@ -159,38 +178,35 @@ describe('MCPRegistryClient', () => {
 
   describe('getServerById', () => {
     it('should fetch server by ID successfully', async () => {
-      mockFetch.mockResolvedValueOnce({
-        ok: true,
-        json: async () => mockServers[0],
+      mockAxiosInstance.get.mockResolvedValueOnce({
+        data: mockServers[0],
       });
 
       const result = await client.getServerById('file-server-1');
 
-      expect(mockFetch).toHaveBeenCalledWith('https://registry.test.com/servers/file-server-1', expect.any(Object));
-
+      expect(mockAxiosInstance.get).toHaveBeenCalledWith('https://registry.test.com/v0/servers/file-server-1');
       expect(result).toEqual(mockServers[0]);
     });
 
     it('should encode server ID in URL', async () => {
-      mockFetch.mockResolvedValueOnce({
-        ok: true,
-        json: async () => mockServers[0],
+      mockAxiosInstance.get.mockResolvedValueOnce({
+        data: mockServers[0],
       });
 
       await client.getServerById('server with spaces');
 
-      expect(mockFetch).toHaveBeenCalledWith(
-        'https://registry.test.com/servers/server%20with%20spaces',
-        expect.any(Object),
-      );
+      expect(mockAxiosInstance.get).toHaveBeenCalledWith('https://registry.test.com/v0/servers/server%20with%20spaces');
     });
   });
 
   describe('searchServers', () => {
     it('should search servers with query parameters', async () => {
-      mockFetch.mockResolvedValueOnce({
-        ok: true,
-        json: async () => mockServers.filter((s) => s.name.includes('file')),
+      const filteredServers = mockServers.filter((s) => s.name.includes('file'));
+      mockAxiosInstance.get.mockResolvedValueOnce({
+        data: {
+          servers: filteredServers,
+          metadata: { count: 1 },
+        },
       });
 
       const result = await client.searchServers({
@@ -200,19 +216,18 @@ describe('MCPRegistryClient', () => {
         limit: 10,
       });
 
-      expect(mockFetch).toHaveBeenCalledWith(
-        'https://registry.test.com/servers?limit=10&q=file&status=active&registry_type=npm',
-        expect.any(Object),
-      );
+      expect(mockAxiosInstance.get).toHaveBeenCalledWith('https://registry.test.com/v0/servers?limit=10&search=file');
 
       expect(result).toHaveLength(1);
       expect(result[0].name).toBe('file-server');
     });
 
     it('should handle empty search results', async () => {
-      mockFetch.mockResolvedValueOnce({
-        ok: true,
-        json: async () => [],
+      mockAxiosInstance.get.mockResolvedValueOnce({
+        data: {
+          servers: [],
+          metadata: { count: 0 },
+        },
       });
 
       const result = await client.searchServers({ query: 'nonexistent' });
@@ -223,9 +238,8 @@ describe('MCPRegistryClient', () => {
 
   describe('getRegistryStatus', () => {
     it('should get basic registry status', async () => {
-      mockFetch.mockResolvedValueOnce({
-        ok: true,
-        json: async () => mockServers.slice(0, 1),
+      mockAxiosInstance.get.mockResolvedValueOnce({
+        data: { status: 'ok', github_client_id: 'test-client-id' },
       });
 
       const result = await client.getRegistryStatus();
@@ -235,20 +249,22 @@ describe('MCPRegistryClient', () => {
         url: 'https://registry.test.com',
         response_time_ms: expect.any(Number),
         last_updated: expect.any(String),
+        github_client_id: 'test-client-id',
       });
 
       expect(result.stats).toBeUndefined();
     });
 
     it('should get registry status with statistics', async () => {
-      mockFetch
+      mockAxiosInstance.get
         .mockResolvedValueOnce({
-          ok: true,
-          json: async () => mockServers.slice(0, 1),
+          data: { status: 'ok', github_client_id: 'test-client-id' },
         })
         .mockResolvedValueOnce({
-          ok: true,
-          json: async () => mockServers,
+          data: {
+            servers: mockServers,
+            metadata: { count: 2 },
+          },
         });
 
       const result = await client.getRegistryStatus(true);
@@ -258,13 +274,14 @@ describe('MCPRegistryClient', () => {
         total_servers: 2,
         active_servers: 2,
         deprecated_servers: 0,
-        by_registry_type: { npm: 2 },
-        by_transport: { stdio: 2 },
+        by_registry_type: { unknown: 2 },
+        by_transport: { 'streamable-http': 1, sse: 1 },
       });
     });
 
     it('should handle registry unavailable', async () => {
-      mockFetch.mockRejectedValueOnce(new Error('Network error'));
+      mockAxiosInstance.get.mockRejectedValueOnce(new Error('Network error'));
+      vi.mocked(axios.isAxiosError).mockReturnValueOnce(false);
 
       const result = await client.getRegistryStatus();
 
@@ -279,31 +296,35 @@ describe('MCPRegistryClient', () => {
 
   describe('cache management', () => {
     it('should invalidate cache by pattern', async () => {
-      mockFetch.mockResolvedValue({
-        ok: true,
-        json: async () => mockServers,
+      mockAxiosInstance.get.mockResolvedValue({
+        data: {
+          servers: mockServers,
+          metadata: { count: 2 },
+        },
       });
 
       // Make initial request
       await client.getServers();
-      expect(mockFetch).toHaveBeenCalledTimes(1);
+      expect(mockAxiosInstance.get).toHaveBeenCalledTimes(1);
 
       // Request should use cache
       await client.getServers();
-      expect(mockFetch).toHaveBeenCalledTimes(1);
+      expect(mockAxiosInstance.get).toHaveBeenCalledTimes(1);
 
       // Invalidate cache
       await client.invalidateCache('/servers.*');
 
       // New request should hit the server again
       await client.getServers();
-      expect(mockFetch).toHaveBeenCalledTimes(2);
+      expect(mockAxiosInstance.get).toHaveBeenCalledTimes(2);
     });
 
     it('should provide cache statistics', async () => {
-      mockFetch.mockResolvedValue({
-        ok: true,
-        json: async () => mockServers,
+      mockAxiosInstance.get.mockResolvedValue({
+        data: {
+          servers: mockServers,
+          metadata: { count: 2 },
+        },
       });
 
       await client.getServers();

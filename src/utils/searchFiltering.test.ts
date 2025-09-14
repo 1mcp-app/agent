@@ -10,7 +10,7 @@ describe('SearchEngine', () => {
     searchEngine = new SearchEngine();
     mockServers = [
       {
-        $schema: 'https://schema.org/mcp-server',
+        $schema: 'https://static.modelcontextprotocol.io/schemas/2025-07-09/server.schema.json',
         name: 'file-manager',
         description: 'Comprehensive file management system with advanced features',
         status: 'active',
@@ -19,23 +19,23 @@ describe('SearchEngine', () => {
           source: 'github',
         },
         version: '1.0.0',
-        packages: [
+        remotes: [
           {
-            registry_type: 'npm',
-            identifier: '@test/file-manager',
-            version: '1.0.0',
-            transport: 'stdio',
+            type: 'streamable-http',
+            url: 'npx @test/file-manager',
           },
         ],
         _meta: {
-          id: 'file-manager-1',
-          published_at: '2024-01-01T00:00:00Z',
-          updated_at: '2024-06-01T00:00:00Z',
-          is_latest: true,
+          'io.modelcontextprotocol.registry/official': {
+            id: 'file-manager-1',
+            published_at: '2024-01-01T00:00:00Z',
+            updated_at: '2024-06-01T00:00:00Z',
+            is_latest: true,
+          },
         },
       },
       {
-        $schema: 'https://schema.org/mcp-server',
+        $schema: 'https://static.modelcontextprotocol.io/schemas/2025-07-09/server.schema.json',
         name: 'database-connector',
         description: 'Database integration and query management',
         status: 'active',
@@ -44,23 +44,23 @@ describe('SearchEngine', () => {
           source: 'github',
         },
         version: '2.1.0',
-        packages: [
+        remotes: [
           {
-            registry_type: 'pypi',
-            identifier: 'database-connector',
-            version: '2.1.0',
-            transport: 'sse',
+            type: 'sse',
+            url: 'https://database.example.com/sse',
           },
         ],
         _meta: {
-          id: 'database-connector-1',
-          published_at: '2024-02-01T00:00:00Z',
-          updated_at: '2024-07-01T00:00:00Z',
-          is_latest: true,
+          'io.modelcontextprotocol.registry/official': {
+            id: 'database-connector-1',
+            published_at: '2024-02-01T00:00:00Z',
+            updated_at: '2024-07-01T00:00:00Z',
+            is_latest: true,
+          },
         },
       },
       {
-        $schema: 'https://schema.org/mcp-server',
+        $schema: 'https://static.modelcontextprotocol.io/schemas/2025-07-09/server.schema.json',
         name: 'legacy-files',
         description: 'Old file system utilities (deprecated)',
         status: 'deprecated',
@@ -69,19 +69,19 @@ describe('SearchEngine', () => {
           source: 'github',
         },
         version: '0.9.0',
-        packages: [
+        remotes: [
           {
-            registry_type: 'npm',
-            identifier: '@test/legacy-files',
-            version: '0.9.0',
-            transport: 'stdio',
+            type: 'streamable-http',
+            url: 'npx @test/legacy-files',
           },
         ],
         _meta: {
-          id: 'legacy-files-1',
-          published_at: '2023-01-01T00:00:00Z',
-          updated_at: '2023-06-01T00:00:00Z',
-          is_latest: false,
+          'io.modelcontextprotocol.registry/official': {
+            id: 'legacy-files-1',
+            published_at: '2023-01-01T00:00:00Z',
+            updated_at: '2023-06-01T00:00:00Z',
+            is_latest: false,
+          },
         },
       },
     ];
@@ -154,16 +154,14 @@ describe('SearchEngine', () => {
   });
 
   describe('filterByRegistryType', () => {
-    it('should filter by npm registry type', () => {
+    it('should return all servers for npm registry type (not supported in new schema)', () => {
       const result = searchEngine.filterByRegistryType(mockServers, 'npm');
-      expect(result).toHaveLength(2);
-      expect(result.every((s) => s.packages.some((p) => p.registry_type === 'npm'))).toBe(true);
+      expect(result).toHaveLength(3); // Returns all servers since registry_type filtering is not supported
     });
 
-    it('should filter by pypi registry type', () => {
+    it('should return all servers for pypi registry type (not supported in new schema)', () => {
       const result = searchEngine.filterByRegistryType(mockServers, 'pypi');
-      expect(result).toHaveLength(1);
-      expect(result[0].name).toBe('database-connector');
+      expect(result).toHaveLength(3); // Returns all servers since registry_type filtering is not supported
     });
 
     it('should return all servers for empty type', () => {
@@ -175,8 +173,7 @@ describe('SearchEngine', () => {
   describe('filterByTransport', () => {
     it('should filter by stdio transport', () => {
       const result = searchEngine.filterByTransport(mockServers, 'stdio');
-      expect(result).toHaveLength(2);
-      expect(result.every((s) => s.packages.some((p) => p.transport === 'stdio'))).toBe(true);
+      expect(result).toHaveLength(0); // No mock servers have stdio transport
     });
 
     it('should filter by sse transport', () => {

@@ -1,18 +1,24 @@
 import { createRegistryClient } from '../../registry/mcpRegistryClient.js';
 import { withErrorHandling } from '../../../utils/errorHandling.js';
-import { RegistryStatusResult } from '../../registry/types.js';
+import { RegistryStatusResult, RegistryOptions } from '../../registry/types.js';
 import { GetRegistryStatusArgs } from '../../../utils/mcpToolSchemas.js';
 import logger from '../../../logger/logger.js';
 
 // Singleton registry client
 let registryClient: ReturnType<typeof createRegistryClient> | null = null;
+let currentRegistryConfig: RegistryOptions | undefined = undefined;
 
 /**
  * Get or create registry client instance
  */
-function getRegistryClient() {
-  if (!registryClient) {
-    registryClient = createRegistryClient();
+function getRegistryClient(registryOptions?: RegistryOptions) {
+  // Recreate client if config changed
+  if (!registryClient || JSON.stringify(currentRegistryConfig) !== JSON.stringify(registryOptions)) {
+    if (registryClient) {
+      registryClient.destroy();
+    }
+    registryClient = createRegistryClient(registryOptions);
+    currentRegistryConfig = registryOptions;
   }
   return registryClient;
 }
@@ -20,11 +26,14 @@ function getRegistryClient() {
 /**
  * Handle get_registry_status tool calls
  */
-export async function handleGetRegistryStatus(args: GetRegistryStatusArgs): Promise<RegistryStatusResult> {
+export async function handleGetRegistryStatus(
+  args: GetRegistryStatusArgs,
+  registryOptions?: RegistryOptions,
+): Promise<RegistryStatusResult> {
   const handler = withErrorHandling(async () => {
     logger.debug('Processing get_registry_status request', args);
 
-    const client = getRegistryClient();
+    const client = getRegistryClient(registryOptions);
     const includeStats = args.include_stats || false;
 
     // Get registry status

@@ -42,7 +42,8 @@ export class SearchEngine {
     if (!type) {
       return servers;
     }
-    return servers.filter((server) => server.packages.some((pkg) => pkg.registry_type === type));
+    // Since new schema doesn't have registry_type, return all servers
+    return servers;
   }
 
   /**
@@ -54,8 +55,8 @@ export class SearchEngine {
     }
     return servers.filter(
       (server) =>
-        server.packages.some((pkg) => pkg.transport === transport) ||
-        (server.remotes && server.remotes.some((remote) => remote.transport === transport)),
+        (server.remotes && server.remotes.some((remote) => remote.type === transport)) ||
+        (server.packages && server.packages.some((pkg) => pkg.transport === transport)),
     );
   }
 
@@ -65,7 +66,11 @@ export class SearchEngine {
   rankResults(servers: RegistryServer[], query?: string): RegistryServer[] {
     if (!query) {
       // Sort by update recency if no query
-      return servers.sort((a, b) => new Date(b._meta.updated_at).getTime() - new Date(a._meta.updated_at).getTime());
+      return servers.sort(
+        (a, b) =>
+          new Date(b._meta['io.modelcontextprotocol.registry/official'].updated_at).getTime() -
+          new Date(a._meta['io.modelcontextprotocol.registry/official'].updated_at).getTime(),
+      );
     }
 
     // Use fuzzy search which already includes ranking
@@ -132,12 +137,12 @@ export class SearchEngine {
       // Boost recently updated servers (within last 6 months)
       const sixMonthsAgo = new Date();
       sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 6);
-      if (new Date(server._meta.updated_at) > sixMonthsAgo) {
+      if (new Date(server._meta['io.modelcontextprotocol.registry/official'].updated_at) > sixMonthsAgo) {
         score *= 1.2;
       }
 
       // Boost latest versions
-      if (server._meta.is_latest) {
+      if (server._meta['io.modelcontextprotocol.registry/official'].is_latest) {
         score *= 1.1;
       }
     }

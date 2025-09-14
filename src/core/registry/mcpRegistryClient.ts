@@ -1,26 +1,36 @@
+import axios, { AxiosInstance, AxiosRequestConfig } from 'axios';
 import logger from '../../logger/logger.js';
 import { withErrorHandling } from '../../utils/errorHandling.js';
 import { CacheManager } from './cacheManager.js';
+import { MCP_SERVER_VERSION } from '../../constants.js';
 import {
   RegistryServer,
   ServerListOptions,
   SearchOptions,
   RegistryClientOptions,
   RegistryStatusResult,
+  RegistryOptions,
+  ServersListResponse,
 } from './types.js';
 
 /**
  * HTTP client for the MCP Registry API
+ * https://registry.modelcontextprotocol.io/docs
+ * https://registry.modelcontextprotocol.io/openapi.yaml
  */
 export class MCPRegistryClient {
   private baseUrl: string;
   private timeout: number;
   private cache: CacheManager;
+  private proxyConfig?: RegistryClientOptions['proxy'];
+  private axiosInstance: AxiosInstance;
 
   constructor(options: RegistryClientOptions) {
     this.baseUrl = options.baseUrl.replace(/\/$/, ''); // Remove trailing slash
     this.timeout = options.timeout;
     this.cache = new CacheManager(options.cache);
+    this.proxyConfig = options.proxy;
+    this.axiosInstance = this.createAxiosInstance();
   }
 
   /**
@@ -29,23 +39,18 @@ export class MCPRegistryClient {
   async getServers(options: ServerListOptions = {}): Promise<RegistryServer[]> {
     const handler = withErrorHandling(async () => {
       const params = this.buildParams(options);
-      const cacheKey = this.cache.generateKey('/servers', params);
 
-      // Try cache first
-      const cached = await this.cache.get<RegistryServer[]>(cacheKey);
-      if (cached) {
-        logger.debug(`Cache hit for servers list: ${cacheKey}`);
-        return cached;
-      }
-
-      // Make API request
-      const url = `${this.baseUrl}/servers${this.buildQueryString(params)}`;
-      const response = await this.makeRequest<RegistryServer[]>(url);
-
-      // Cache the response
-      await this.cache.set(cacheKey, response, 300); // 5 minutes TTL
-
-      return response;
+      return await this.withCache(
+        '/servers',
+        params,
+        async () => {
+          const url = `${this.baseUrl}/v0/servers${this.buildQueryString(params)}`;
+          const response = await this.makeRequest<ServersListResponse>(url);
+          return response.servers;
+        },
+        300, // 5 minutes TTL
+        'servers list',
+      );
     }, 'Failed to fetch servers from registry');
 
     return await handler();
@@ -56,23 +61,16 @@ export class MCPRegistryClient {
    */
   async getServerById(id: string): Promise<RegistryServer> {
     const handler = withErrorHandling(async () => {
-      const cacheKey = this.cache.generateKey(`/servers/${id}`);
-
-      // Try cache first
-      const cached = await this.cache.get<RegistryServer>(cacheKey);
-      if (cached) {
-        logger.debug(`Cache hit for server: ${id}`);
-        return cached;
-      }
-
-      // Make API request
-      const url = `${this.baseUrl}/servers/${encodeURIComponent(id)}`;
-      const response = await this.makeRequest<RegistryServer>(url);
-
-      // Cache the response
-      await this.cache.set(cacheKey, response, 600); // 10 minutes TTL for individual servers
-
-      return response;
+      return await this.withCache(
+        `/servers/${id}`,
+        undefined,
+        async () => {
+          const url = `${this.baseUrl}/v0/servers/${encodeURIComponent(id)}`;
+          return await this.makeRequest<RegistryServer>(url);
+        },
+        600, // 10 minutes TTL for individual servers
+        `server: ${id}`,
+      );
     }, `Failed to fetch server with ID: ${id}`);
 
     return await handler();
@@ -84,24 +82,20 @@ export class MCPRegistryClient {
   async searchServers(searchOptions: SearchOptions): Promise<RegistryServer[]> {
     const handler = withErrorHandling(async () => {
       const params = this.buildParams(searchOptions);
-      const cacheKey = this.cache.generateKey('/search', params);
 
-      // Try cache first
-      const cached = await this.cache.get<RegistryServer[]>(cacheKey);
-      if (cached) {
-        logger.debug(`Cache hit for search: ${cacheKey}`);
-        return cached;
-      }
-
-      // For search, we'll use the main servers endpoint with filters
-      // This assumes the registry API supports these query parameters
-      const url = `${this.baseUrl}/servers${this.buildQueryString(params)}`;
-      const response = await this.makeRequest<RegistryServer[]>(url);
-
-      // Cache search results for a shorter time
-      await this.cache.set(cacheKey, response, 180); // 3 minutes TTL
-
-      return response;
+      return await this.withCache(
+        '/search',
+        params,
+        async () => {
+          // For search, we'll use the main servers endpoint with filters
+          // This assumes the registry API supports these query parameters
+          const url = `${this.baseUrl}/v0/servers${this.buildQueryString(params)}`;
+          const response = await this.makeRequest<ServersListResponse>(url);
+          return response.servers;
+        },
+        180, // 3 minutes TTL
+        'search',
+      );
     }, 'Failed to search servers in registry');
 
     return await handler();
@@ -112,52 +106,46 @@ export class MCPRegistryClient {
    */
   async getRegistryStatus(includeStats = false): Promise<RegistryStatusResult> {
     const handler = withErrorHandling(async () => {
-      const cacheKey = this.cache.generateKey('/status', { includeStats });
+      return await this.withCache(
+        '/status',
+        { includeStats },
+        async () => {
+          const startTime = Date.now();
 
-      // Try cache first with short TTL for status
-      const cached = await this.cache.get<RegistryStatusResult>(cacheKey);
-      if (cached) {
-        logger.debug(`Cache hit for registry status`);
-        return cached;
-      }
+          try {
+            // Check registry availability using health endpoint
+            const url = `${this.baseUrl}/v0/health`;
+            const healthResponse = await this.makeRequest<{ status: string; github_client_id?: string }>(url);
+            const responseTime = Date.now() - startTime;
 
-      const startTime = Date.now();
+            const status: RegistryStatusResult = {
+              available: true,
+              url: this.baseUrl,
+              response_time_ms: responseTime,
+              last_updated: new Date().toISOString(),
+              github_client_id: healthResponse.github_client_id,
+            };
 
-      try {
-        // Check registry availability
-        const url = `${this.baseUrl}/servers?limit=1`;
-        await this.makeRequest<RegistryServer[]>(url);
-        const responseTime = Date.now() - startTime;
+            // Calculate statistics if requested
+            if (includeStats) {
+              const allServers = await this.getAllServersWithPagination();
+              status.stats = this.calculateStats(allServers);
+            }
 
-        const status: RegistryStatusResult = {
-          available: true,
-          url: this.baseUrl,
-          response_time_ms: responseTime,
-          last_updated: new Date().toISOString(),
-        };
-
-        // Calculate statistics if requested
-        if (includeStats) {
-          const allServers = await this.getServers({ limit: 1000 });
-          status.stats = this.calculateStats(allServers);
-        }
-
-        // Cache status for 1 minute
-        await this.cache.set(cacheKey, status, 60);
-
-        return status;
-      } catch (_error) {
-        const responseTime = Date.now() - startTime;
-        const status: RegistryStatusResult = {
-          available: false,
-          url: this.baseUrl,
-          response_time_ms: responseTime,
-          last_updated: new Date().toISOString(),
-        };
-
-        // Don't cache failed status checks
-        return status;
-      }
+            return status;
+          } catch (_error) {
+            const responseTime = Date.now() - startTime;
+            return {
+              available: false,
+              url: this.baseUrl,
+              response_time_ms: responseTime,
+              last_updated: new Date().toISOString(),
+            };
+          }
+        },
+        60, // 1 minute TTL
+        'registry status',
+      );
     }, 'Failed to get registry status');
 
     return await handler();
@@ -186,59 +174,216 @@ export class MCPRegistryClient {
    */
   destroy(): void {
     this.cache.destroy();
-  }
-
-  /**
-   * Make HTTP request with timeout and retry logic
-   */
-  private async makeRequest<T>(url: string): Promise<T> {
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), this.timeout);
-
-    try {
-      logger.debug(`Making request to: ${url}`);
-
-      const response = await fetch(url, {
-        signal: controller.signal,
-        headers: {
-          Accept: 'application/json',
-          'User-Agent': '1mcp-agent/0.21.0',
-        },
-      });
-
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+    // Force close any remaining connections
+    if (this.axiosInstance && 'defaults' in this.axiosInstance) {
+      // Clear any timeout references
+      if (this.axiosInstance.defaults?.timeout) {
+        delete this.axiosInstance.defaults.timeout;
       }
-
-      const data = (await response.json()) as T;
-      logger.debug(`Request successful: ${url}`);
-
-      return data;
-    } catch (error) {
-      if (error instanceof Error && error.name === 'AbortError') {
-        throw new Error(`Request timeout after ${this.timeout}ms`);
-      }
-      throw error;
-    } finally {
-      clearTimeout(timeoutId);
     }
   }
 
   /**
-   * Build query parameters object
+   * Generic cache wrapper that handles the cache-check-call-store pattern
+   */
+  private async withCache<T>(
+    cacheKeyPath: string,
+    cacheKeyParams: Record<string, any> | undefined,
+    apiCall: () => Promise<T>,
+    ttl: number,
+    debugDescription: string,
+  ): Promise<T> {
+    const cacheKey = cacheKeyParams
+      ? this.cache.generateKey(cacheKeyPath, cacheKeyParams)
+      : this.cache.generateKey(cacheKeyPath);
+
+    // Try cache first
+    const cached = await this.cache.get<T>(cacheKey);
+    if (cached) {
+      logger.debug(`Cache hit for ${debugDescription}: ${cacheKey}`);
+      return cached;
+    }
+
+    // Cache miss - make API call
+    const result = await apiCall();
+
+    // Cache the response
+    await this.cache.set(cacheKey, result, ttl);
+
+    return result;
+  }
+
+  /**
+   * Get all servers using pagination to handle large result sets
+   */
+  private async getAllServersWithPagination(
+    baseOptions: ServerListOptions = {},
+    maxPages = 10,
+  ): Promise<RegistryServer[]> {
+    const allServers: RegistryServer[] = [];
+    let cursor: string | undefined;
+    let pageCount = 0;
+
+    do {
+      const params: ServerListOptions = {
+        ...baseOptions,
+        limit: baseOptions.limit || 100,
+      };
+
+      if (cursor) {
+        params.cursor = cursor;
+      }
+
+      const response = await this.makeRequest<ServersListResponse>(
+        `${this.baseUrl}/v0/servers${this.buildQueryString(this.buildParams(params))}`,
+      );
+
+      allServers.push(...response.servers);
+      cursor = response.metadata.next_cursor;
+      pageCount++;
+    } while (cursor && pageCount < maxPages);
+
+    return allServers;
+  }
+
+  /**
+   * Create axios instance with timeout and proxy support
+   */
+  private createAxiosInstance(): AxiosInstance {
+    const config: AxiosRequestConfig = {
+      timeout: this.timeout,
+      headers: {
+        Accept: 'application/json',
+        'User-Agent': `1mcp-agent/${MCP_SERVER_VERSION}`,
+        // Ensure connection is closed after request to prevent hanging
+        Connection: 'close',
+      },
+    };
+
+    // Add proxy support if configured
+    const proxyConfig = this.getProxyConfig();
+    if (proxyConfig) {
+      try {
+        // For axios, we can use the proxy configuration directly
+        const proxyUrl = new URL(proxyConfig.url);
+
+        config.proxy = {
+          protocol: proxyUrl.protocol.replace(':', ''),
+          host: proxyUrl.hostname,
+          port: parseInt(proxyUrl.port) || (proxyUrl.protocol === 'https:' ? 443 : 80),
+        };
+
+        // Add auth if provided
+        if (proxyConfig.auth) {
+          config.proxy.auth = {
+            username: proxyConfig.auth.username,
+            password: proxyConfig.auth.password,
+          };
+        } else if (proxyUrl.username && proxyUrl.password) {
+          config.proxy.auth = {
+            username: decodeURIComponent(proxyUrl.username),
+            password: decodeURIComponent(proxyUrl.password),
+          };
+        }
+
+        logger.debug(`Using proxy: ${proxyConfig.url}`);
+      } catch (proxyError) {
+        logger.warn(`Failed to configure proxy, proceeding without: ${proxyError}`);
+      }
+    }
+
+    return axios.create(config);
+  }
+
+  /**
+   * Make HTTP request with timeout and proxy support
+   */
+  private async makeRequest<T>(url: string): Promise<T> {
+    try {
+      logger.debug(`Making request to: ${url}`);
+      const response = await this.axiosInstance.get<T>(url);
+      logger.debug(`Request successful: ${url}`);
+      return response.data;
+    } catch (error) {
+      if (axios.isAxiosError(error)) {
+        const errorMessages = {
+          ECONNABORTED: `Request timeout after ${this.timeout}ms`,
+          response: `HTTP ${error.response?.status}: ${error.response?.statusText}`,
+          request: `Network error: ${error.message}`,
+        };
+
+        if (error.code === 'ECONNABORTED') throw new Error(errorMessages.ECONNABORTED);
+        if (error.response) throw new Error(errorMessages.response);
+        if (error.request) throw new Error(errorMessages.request);
+      }
+      throw error;
+    }
+  }
+
+  /**
+   * Get proxy configuration from options or environment
+   */
+  private getProxyConfig(): RegistryClientOptions['proxy'] | undefined {
+    if (this.proxyConfig) {
+      return this.proxyConfig;
+    }
+
+    const proxyUrl = this.findProxyUrlFromEnv();
+    if (!proxyUrl) {
+      return undefined;
+    }
+
+    return this.parseProxyUrl(proxyUrl);
+  }
+
+  /**
+   * Find proxy URL from environment variables
+   */
+  private findProxyUrlFromEnv(): string | undefined {
+    const proxyEnvVars = ['HTTPS_PROXY', 'https_proxy', 'HTTP_PROXY', 'http_proxy', 'ALL_PROXY', 'all_proxy'];
+
+    return proxyEnvVars.map((envVar) => process.env[envVar]).find((value) => value);
+  }
+
+  /**
+   * Parse proxy URL and extract configuration
+   */
+  private parseProxyUrl(proxyUrl: string): RegistryClientOptions['proxy'] | undefined {
+    try {
+      const proxyUrlObj = new URL(proxyUrl);
+      const config: RegistryClientOptions['proxy'] = { url: proxyUrl };
+
+      // Extract auth from URL if present
+      if (proxyUrlObj.username && proxyUrlObj.password) {
+        config.auth = {
+          username: decodeURIComponent(proxyUrlObj.username),
+          password: decodeURIComponent(proxyUrlObj.password),
+        };
+      }
+
+      return config;
+    } catch (_error) {
+      logger.warn(`Invalid proxy URL: ${proxyUrl}`);
+      return undefined;
+    }
+  }
+
+  /**
+   * Build query parameters object from options
    */
   private buildParams(options: ServerListOptions | SearchOptions): Record<string, string> {
     const params: Record<string, string> = {};
 
+    // API-supported parameters
     if (options.limit) params.limit = String(options.limit);
-    if (options.offset) params.offset = String(options.offset);
+    if (options.cursor) params.cursor = options.cursor;
+    if (options.updated_since) params.updated_since = options.updated_since;
+    if (options.search) params.search = options.search;
+    if (options.version) params.version = options.version;
 
-    // Add search-specific parameters
-    if ('query' in options) {
-      if (options.query) params.q = options.query;
-      if (options.status && options.status !== 'all') params.status = options.status;
-      if (options.registry_type) params.registry_type = options.registry_type;
-      if (options.transport) params.transport = options.transport;
+    // Legacy support - map query to search parameter
+    if ('query' in options && options.query && !params.search) {
+      params.search = options.query;
     }
 
     return params;
@@ -268,12 +413,25 @@ export class MCPRegistryClient {
       if (server.status === 'active') activeCount++;
       if (server.status === 'deprecated') deprecatedCount++;
 
-      // Count by registry type and transport
-      server.packages.forEach((pkg) => {
-        byRegistryType[pkg.registry_type] = (byRegistryType[pkg.registry_type] || 0) + 1;
-        byTransport[pkg.transport] = (byTransport[pkg.transport] || 0) + 1;
-      });
+      // Count by transport type (remotes contain transport info)
+      if (server.remotes) {
+        server.remotes.forEach((remote) => {
+          byTransport[remote.type] = (byTransport[remote.type] || 0) + 1;
+        });
+      }
+
+      // Also count by package transport types
+      if (server.packages) {
+        server.packages.forEach((pkg) => {
+          if (pkg.transport) {
+            byTransport[pkg.transport] = (byTransport[pkg.transport] || 0) + 1;
+          }
+        });
+      }
     });
+
+    // For now, set registry type count to unknown since the new schema doesn't provide this info
+    byRegistryType['unknown'] = servers.length;
 
     return {
       total_servers: servers.length,
@@ -286,18 +444,55 @@ export class MCPRegistryClient {
 }
 
 /**
- * Create a registry client instance with default configuration
+ * Convert CLI options to registry client options with defaults
  */
-export function createRegistryClient(options?: Partial<RegistryClientOptions>): MCPRegistryClient {
-  const defaultOptions: RegistryClientOptions = {
-    baseUrl: process.env.ONE_MCP_REGISTRY_URL || 'https://registry.modelcontextprotocol.io',
-    timeout: parseInt(process.env.ONE_MCP_REGISTRY_TIMEOUT || '10000'),
-    cache: {
-      defaultTtl: parseInt(process.env.ONE_MCP_REGISTRY_CACHE_TTL || '300'),
-      maxSize: 1000,
-      cleanupInterval: 60000,
-    },
-  };
+function convertCliOptionsToClientOptions(cliOptions: RegistryOptions = {}): RegistryClientOptions {
+  // Parse proxy from CLI options only
+  let proxy: RegistryClientOptions['proxy'] | undefined;
 
-  return new MCPRegistryClient({ ...defaultOptions, ...options });
+  const proxyUrl = cliOptions.proxy;
+  if (proxyUrl) {
+    proxy = { url: proxyUrl };
+
+    const proxyAuth = cliOptions.proxyAuth;
+    if (proxyAuth && proxyAuth.includes(':')) {
+      const [username, password] = proxyAuth.split(':', 2);
+      proxy.auth = { username, password };
+    }
+  }
+
+  // Fallback to standard proxy environment variables if no CLI proxy is set
+  if (!proxy) {
+    proxy = parseProxyFromStandardEnv();
+  }
+
+  return {
+    baseUrl: cliOptions.url || 'https://registry.modelcontextprotocol.io',
+    timeout: cliOptions.timeout || 10000,
+    cache: {
+      defaultTtl: cliOptions.cacheTtl || 300,
+      maxSize: cliOptions.cacheMaxSize || 1000,
+      cleanupInterval: cliOptions.cacheCleanupInterval || 60000,
+    },
+    proxy,
+  };
+}
+
+/**
+ * Parse proxy configuration from standard environment variables (fallback)
+ */
+function parseProxyFromStandardEnv(): RegistryClientOptions['proxy'] | undefined {
+  const proxyEnvVars = ['HTTPS_PROXY', 'https_proxy', 'HTTP_PROXY', 'http_proxy', 'ALL_PROXY', 'all_proxy'];
+
+  const proxyUrl = proxyEnvVars.map((envVar) => process.env[envVar]).find((value) => value);
+
+  return proxyUrl ? { url: proxyUrl } : undefined;
+}
+
+/**
+ * Create a registry client instance with CLI options or defaults
+ */
+export function createRegistryClient(cliOptions?: RegistryOptions): MCPRegistryClient {
+  const clientOptions = convertCliOptionsToClientOptions(cliOptions);
+  return new MCPRegistryClient(clientOptions);
 }
