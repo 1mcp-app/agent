@@ -24,22 +24,16 @@ import { buildTestCommand } from './test.js';
  * Setup preset command configuration for yargs
  */
 export function setupPresetCommands(yargs: Argv): Argv {
-  // Merge global options with existing config-dir structure
-  const mergedOptions = {
-    ...(globalOptions || {}),
-    // config-dir is already included in globalOptions, so no need to duplicate
-  };
-
   return yargs.command(
     'preset',
     'Manage server presets for dynamic filtering',
     (yargs) => {
       return yargs
-        .options(mergedOptions)
+        .options(globalOptions || {})
         .command({
           command: 'edit <name>',
           describe: 'Edit existing preset interactively',
-          builder: (yargs) => buildEditCommand(yargs.options(mergedOptions)),
+          builder: buildEditCommand,
           handler: async (argv) => {
             const { editCommand } = await import('./edit.js');
             await editCommand(argv as EditArguments);
@@ -48,7 +42,7 @@ export function setupPresetCommands(yargs: Argv): Argv {
         .command({
           command: 'create <name>',
           describe: 'Create preset with filter expression',
-          builder: (yargs) => buildCreateCommand(yargs.options(mergedOptions)),
+          builder: buildCreateCommand,
           handler: async (argv) => {
             const { createCommand } = await import('./create.js');
             await createCommand(argv as CreateArguments);
@@ -57,7 +51,7 @@ export function setupPresetCommands(yargs: Argv): Argv {
         .command({
           command: 'show <name>',
           describe: 'Show detailed information about a preset',
-          builder: (yargs) => buildShowCommand(yargs.options(mergedOptions)),
+          builder: buildShowCommand,
           handler: async (argv) => {
             const { showCommand } = await import('./show.js');
             await showCommand(argv as ShowArguments);
@@ -66,7 +60,7 @@ export function setupPresetCommands(yargs: Argv): Argv {
         .command({
           command: 'list',
           describe: 'List all available presets',
-          builder: (yargs) => buildListCommand(yargs.options(mergedOptions)),
+          builder: buildListCommand,
           handler: async (argv) => {
             const { listCommand } = await import('./list.js');
             await listCommand(argv as ListArguments);
@@ -75,7 +69,7 @@ export function setupPresetCommands(yargs: Argv): Argv {
         .command({
           command: 'url <name>',
           describe: 'Generate URL for existing preset',
-          builder: (yargs) => buildUrlCommand(yargs.options(mergedOptions)),
+          builder: buildUrlCommand,
           handler: async (argv) => {
             const { urlCommand } = await import('./url.js');
             await urlCommand(argv as UrlArguments);
@@ -84,7 +78,7 @@ export function setupPresetCommands(yargs: Argv): Argv {
         .command({
           command: 'delete <name>',
           describe: 'Delete an existing preset',
-          builder: (yargs) => buildDeleteCommand(yargs.options(mergedOptions)),
+          builder: buildDeleteCommand,
           handler: async (argv) => {
             const { deleteCommand } = await import('./delete.js');
             await deleteCommand(argv as DeleteArguments);
@@ -93,7 +87,7 @@ export function setupPresetCommands(yargs: Argv): Argv {
         .command({
           command: 'test <name>',
           describe: 'Test preset against current server configuration',
-          builder: (yargs) => buildTestCommand(yargs.options(mergedOptions)),
+          builder: buildTestCommand,
           handler: async (argv) => {
             const { testCommand } = await import('./test.js');
             await testCommand(argv as TestArguments);

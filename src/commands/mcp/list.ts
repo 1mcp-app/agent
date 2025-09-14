@@ -23,6 +23,11 @@ export function buildListCommand(yargs: Argv) {
       type: 'boolean',
       default: false,
     })
+    .option('show-secrets', {
+      describe: 'Show sensitive values in verbose output',
+      type: 'boolean',
+      default: false,
+    })
     .option('tags', {
       describe: 'Filter servers by tags (comma-separated)',
       type: 'string',
@@ -37,6 +42,7 @@ export function buildListCommand(yargs: Argv) {
     .example([
       ['$0 mcp list', 'List all enabled servers'],
       ['$0 mcp list --show-disabled', 'List all servers including disabled'],
+      ['$0 mcp list --show-secrets', 'Show sensitive values in verbose output'],
       ['$0 mcp list --tags=prod,api', 'List servers with specific tags'],
       ['$0 mcp list --verbose', 'List servers with detailed config'],
     ]);
