@@ -113,7 +113,7 @@ export function configureLogger(options: { logLevel?: string; logFile?: string; 
       }),
     );
 
-    // Add console transport except for stdio transport
+    // Add console transport except for stdio transport (backward compatibility for serve)
     if (options.transport !== 'stdio') {
       logger.add(
         new winston.transports.Console({
@@ -124,11 +124,13 @@ export function configureLogger(options: { logLevel?: string; logFile?: string; 
     }
   } else {
     // Add console transport (default behavior)
+    // For stdio transport in serve command, suppress console output to avoid interfering with MCP protocol
+    const shouldSilence = options.transport === 'stdio';
     logger.add(
       new winston.transports.Console({
         format: consoleFormat,
         level: winstonLevel,
-        silent: false,
+        silent: shouldSilence,
       }),
     );
   }
