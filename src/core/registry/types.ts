@@ -13,41 +13,48 @@ export interface RegistryServer {
     subfolder?: string;
   };
   version: string;
-  packages: ServerPackage[];
-  remotes?: ServerRemote[];
+  packages?: ServerPackage[]; // Optional packages array
+  remotes?: ServerRemote[]; // Optional remotes array
+  website_url?: string; // Optional website URL
   _meta: ServerMeta;
 }
 
 export interface ServerPackage {
   registry_type: 'npm' | 'pypi' | 'docker';
   identifier: string;
-  version: string;
-  transport: 'stdio' | 'sse' | 'webhook';
+  version?: string; // Optional version
+  transport?: 'stdio' | 'sse' | 'webhook'; // Optional transport
+  arguments?: string[]; // Optional arguments array
   environment_variables?: Record<string, string>;
 }
 
 export interface ServerRemote {
+  type: 'streamable-http' | 'sse' | 'webhook';
   url: string;
-  transport: 'sse' | 'webhook';
 }
 
 export interface ServerMeta {
-  id: string;
-  published_at: string;
-  updated_at: string;
-  is_latest: boolean;
+  'io.modelcontextprotocol.registry/official': {
+    id: string;
+    published_at: string;
+    updated_at: string;
+    is_latest: boolean;
+  };
 }
 
 export interface ServerListOptions {
-  limit?: number; // Max results (default: 20, max: 100)
-  offset?: number; // Pagination offset
+  limit?: number; // Max results (default: 30, max: 100)
+  cursor?: string; // Pagination cursor (UUID)
+  updated_since?: string; // RFC3339 datetime - filter servers updated since timestamp
+  search?: string; // Search servers by name (substring match)
+  version?: string; // Filter by version ('latest' or exact version)
 }
 
 export interface SearchOptions extends ServerListOptions {
-  query?: string; // Search in name, description
-  status?: 'active' | 'archived' | 'deprecated' | 'all';
-  registry_type?: 'npm' | 'pypi' | 'docker';
-  transport?: 'stdio' | 'sse' | 'webhook';
+  query?: string; // Search in name, description (legacy, maps to search)
+  status?: 'active' | 'archived' | 'deprecated' | 'all'; // Client-side filtering
+  registry_type?: 'npm' | 'pypi' | 'docker'; // Client-side filtering
+  transport?: 'stdio' | 'sse' | 'webhook'; // Client-side filtering
 }
 
 export interface MCPServerSearchResult {
@@ -70,11 +77,20 @@ export interface MCPServerSearchResult {
   registryId: string;
 }
 
+export interface ServersListResponse {
+  servers: RegistryServer[];
+  metadata: {
+    next_cursor?: string;
+    count: number;
+  };
+}
+
 export interface RegistryStatusResult {
   available: boolean;
   url: string;
   response_time_ms: number;
   last_updated: string;
+  github_client_id?: string;
   stats?: {
     total_servers: number;
     active_servers: number;
@@ -100,4 +116,24 @@ export interface RegistryClientOptions {
   baseUrl: string;
   timeout: number;
   cache?: CacheOptions;
+  proxy?: {
+    url: string;
+    auth?: {
+      username: string;
+      password: string;
+    };
+  };
+}
+
+/**
+ * CLI registry options interface - maps to command line options
+ */
+export interface RegistryOptions {
+  url?: string;
+  timeout?: number;
+  cacheTtl?: number;
+  cacheMaxSize?: number;
+  cacheCleanupInterval?: number;
+  proxy?: string;
+  proxyAuth?: string;
 }

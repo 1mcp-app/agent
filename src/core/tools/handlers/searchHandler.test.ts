@@ -40,7 +40,7 @@ describe('handleSearchMCPServers', () => {
 
     mockServers = [
       {
-        $schema: 'https://schema.org/mcp-server',
+        $schema: 'https://static.modelcontextprotocol.io/schemas/2025-07-09/server.schema.json',
         name: 'file-server',
         description: 'File management server',
         status: 'active',
@@ -49,19 +49,19 @@ describe('handleSearchMCPServers', () => {
           source: 'github',
         },
         version: '1.0.0',
-        packages: [
+        remotes: [
           {
-            registry_type: 'npm',
-            identifier: '@test/file-server',
-            version: '1.0.0',
-            transport: 'stdio',
+            type: 'streamable-http',
+            url: 'npx @test/file-server',
           },
         ],
         _meta: {
-          id: 'file-server-1',
-          published_at: '2024-01-01T00:00:00Z',
-          updated_at: '2024-01-01T00:00:00Z',
-          is_latest: true,
+          'io.modelcontextprotocol.registry/official': {
+            id: 'file-server-1',
+            published_at: '2024-01-01T00:00:00Z',
+            updated_at: '2024-01-01T00:00:00Z',
+            is_latest: true,
+          },
         },
       },
     ];
@@ -83,7 +83,7 @@ describe('handleSearchMCPServers', () => {
       query: 'file',
     });
 
-    expect(mockRegistryClient.getServers).toHaveBeenCalledWith({ limit: 1000 });
+    expect(mockRegistryClient.getServers).toHaveBeenCalledWith({ limit: 100 });
     expect(mockSearchEngine.applyFilters).toHaveBeenCalledWith(mockServers, {
       query: 'file',
       status: 'active',
@@ -98,6 +98,9 @@ describe('handleSearchMCPServers', () => {
       status: 'active',
       version: '1.0.0',
       registryId: 'file-server-1',
+      packages: expect.any(Array),
+      lastUpdated: expect.any(String),
+      repository: expect.any(Object),
     });
   });
 

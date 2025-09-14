@@ -13,6 +13,7 @@ import { setupServeCommand, serverOptions } from './commands/serve/index.js';
 import { globalOptions, GlobalOptions } from './globalOptions.js';
 import { configureGlobalLogger } from './utils/configureGlobalLogger.js';
 import { MCP_SERVER_VERSION } from './constants.js';
+import { setupRegistryCommands } from './commands/registry/index.js';
 
 // Parse command line arguments and set up commands
 let yargsInstance = yargs(hideBin(process.argv));
@@ -37,6 +38,7 @@ yargsInstance = setupAppCommands(yargsInstance);
 yargsInstance = setupMcpCommands(yargsInstance);
 yargsInstance = setupPresetCommands(yargsInstance);
 yargsInstance = setupServeCommand(yargsInstance);
+yargsInstance = setupRegistryCommands(yargsInstance);
 
 /**
  * Check for conflicting global options (options specified both before and after the command)
