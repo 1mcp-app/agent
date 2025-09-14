@@ -9,7 +9,6 @@
 - **Linux (x64)**: `1mcp-linux-x64`
 - **Linux (ARM64)**: `1mcp-linux-arm64`
 - **Windows (x64)**: `1mcp-win32-x64.exe`
-- **Windows (ARM64)**: `1mcp-win32-arm64.exe`
 - **macOS (ARM64)**: `1mcp-darwin-arm64`
 - **macOS (Intel)**: `1mcp-darwin-x64`
 
@@ -95,24 +94,6 @@ Expand-Archive -Path "1mcp-win32-x64.zip" -DestinationPath "."
 
 # 清理文件
 Remove-Item "1mcp-win32-x64.zip"
-```
-
-**Windows (ARM64 - PowerShell):**
-
-```powershell
-# 下载并解压归档文件
-Invoke-WebRequest -Uri "https://github.com/1mcp-app/agent/releases/latest/download/1mcp-win32-arm64.zip" -OutFile "1mcp-win32-arm64.zip"
-Expand-Archive -Path "1mcp-win32-arm64.zip" -DestinationPath "."
-
-# 选项 1：直接使用
-.\1mcp.exe --version
-
-# 选项 2：添加到 PATH 以获得全局访问权限
-# 移动到 PATH 中的目录（如 C:\Windows\System32 或创建新目录）
-# 然后您可以使用：1mcp --version
-
-# 清理文件
-Remove-Item "1mcp-win32-arm64.zip"
 ```
 
 **手动下载:**
@@ -258,14 +239,14 @@ npx @1mcp/agent --version
 - **内存**：最低 256MB RAM，推荐 1GB
 - **磁盘**：最小空间（单一二进制文件 + 配置文件）
 - **网络**：MCP 服务器的 HTTP/HTTPS 出站访问
-- **操作系统**：Linux (x64)、Windows (x64)、macOS (ARM64)
+- **操作系统**：Linux (x64/ARM64)、Windows (x64)、macOS (ARM64/x64)
 
 **NPM 安装:**
 
 - **内存**：最低 512MB RAM，推荐 2GB
 - **磁盘**：用于 Node.js 依赖和日志的空间
 - **网络**：MCP 服务器的 HTTP/HTTPS 出站访问
-- **操作系统**：Linux、macOS、Windows (x64/ARM64)
+- **操作系统**：Linux (x64/ARM64)、macOS (ARM64/x64)、Windows (x64)
 - **运行时**：Node.js 21+
 
 ## 下一步

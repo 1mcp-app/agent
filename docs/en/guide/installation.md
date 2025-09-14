@@ -9,7 +9,6 @@ Download the standalone binary for your platform - no Node.js required!
 - **Linux (x64)**: `1mcp-linux-x64`
 - **Linux (ARM64)**: `1mcp-linux-arm64`
 - **Windows (x64)**: `1mcp-win32-x64.exe`
-- **Windows (ARM64)**: `1mcp-win32-arm64.exe`
 - **macOS (ARM64)**: `1mcp-darwin-arm64`
 - **macOS (Intel)**: `1mcp-darwin-x64`
 
@@ -95,24 +94,6 @@ Expand-Archive -Path "1mcp-win32-x64.zip" -DestinationPath "."
 
 # Clean up
 Remove-Item "1mcp-win32-x64.zip"
-```
-
-**Windows (ARM64 - PowerShell):**
-
-```powershell
-# Download and extract archive
-Invoke-WebRequest -Uri "https://github.com/1mcp-app/agent/releases/latest/download/1mcp-win32-arm64.zip" -OutFile "1mcp-win32-arm64.zip"
-Expand-Archive -Path "1mcp-win32-arm64.zip" -DestinationPath "."
-
-# Option 1: Use directly
-.\1mcp.exe --version
-
-# Option 2: Add to PATH for global access
-# Move to a directory in PATH (e.g., C:\Windows\System32 or create a new directory)
-# Then you can use: 1mcp --version
-
-# Clean up
-Remove-Item "1mcp-win32-arm64.zip"
 ```
 
 **Manual Download:**
@@ -258,14 +239,14 @@ npx @1mcp/agent --version
 - **Memory**: 256MB RAM minimum, 1GB recommended
 - **Disk**: Minimal space (single binary + config files)
 - **Network**: HTTP/HTTPS outbound access for MCP servers
-- **OS**: Linux (x64), Windows (x64), macOS (ARM64)
+- **OS**: Linux (x64/ARM64), Windows (x64), macOS (ARM64/x64)
 
 **For NPM Installation:**
 
 - **Memory**: 512MB RAM minimum, 2GB recommended
 - **Disk**: Space for Node.js dependencies and logs
 - **Network**: HTTP/HTTPS outbound access for MCP servers
-- **OS**: Linux, macOS, Windows (x64/ARM64)
+- **OS**: Linux (x64/ARM64), macOS (ARM64/x64), Windows (x64)
 - **Runtime**: Node.js 21+
 
 ## Next Steps

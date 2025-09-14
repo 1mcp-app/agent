@@ -58,7 +58,6 @@ Download the compressed archive for your platform from the [latest release](http
 - **Linux (x64)**: `1mcp-linux-x64`
 - **Linux (ARM64)**: `1mcp-linux-arm64`
 - **Windows (x64)**: `1mcp-win32-x64.exe`
-- **Windows (ARM64)**: `1mcp-win32-arm64.exe`
 - **macOS (ARM64)**: `1mcp-darwin-arm64`
 - **macOS (Intel)**: `1mcp-darwin-x64`
 

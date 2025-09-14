@@ -12,7 +12,7 @@ env:
 
 jobs:
   binaries:
-    runs-on: ${{ matrix.os }}
+    runs-on: ${{ matrix.runner || matrix.os }}
     environment: release
     permissions:
       contents: write
@@ -20,47 +20,36 @@ jobs:
     strategy:
       matrix:
         include:
-          # Existing platforms
+          # Linux builds
           - os: ubuntu-latest
             platform: linux-x64
             script: sea:binary:linux
             artifact: 1mcp-linux-x64
-          - os: windows-latest
-            platform: win32-x64
-            script: sea:binary:win
-            artifact: 1mcp-win32-x64.exe
-          - os: macos-latest
-            platform: darwin-arm64
-            script: sea:binary:macos
-            artifact: 1mcp-darwin-arm64
-          # New platforms
           - os: ubuntu-latest
             platform: linux-arm64
             script: sea:binary:linux:arm64
             artifact: 1mcp-linux-arm64
-            node-arch: arm64
+            runner: ubuntu-24.04-arm
+          # Windows builds
+          - os: windows-latest
+            platform: win32-x64
+            script: sea:binary:win
+            artifact: 1mcp-win32-x64.exe
+          # macOS builds
           - os: macos-13
             platform: darwin-x64
             script: sea:binary:macos:x64
             artifact: 1mcp-darwin-x64
-          - os: windows-latest
-            platform: win32-arm64
-            script: sea:binary:win:arm64
-            artifact: 1mcp-win32-arm64.exe
-            node-arch: arm64
+          - os: macos-latest
+            platform: darwin-arm64
+            script: sea:binary:macos
+            artifact: 1mcp-darwin-arm64
 
     steps:
       - uses: actions/checkout@v4
 
       - name: Setup Node.js and pnpm
         uses: ./.github/actions/setup-node-pnpm
-
-      - name: Setup Node.js for target architecture (if different)
-        if: matrix.node-arch
-        uses: actions/setup-node@v4
-        with:
-          node-version-file: .node-version
-          architecture: ${{ matrix.node-arch }}
 
       - name: Build and create SEA binary
         run: pnpm ${{ matrix.script }}
