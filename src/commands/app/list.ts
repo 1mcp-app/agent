@@ -1,3 +1,4 @@
+import type { Argv } from 'yargs';
 import {
   APP_PRESETS,
   getConfigurableApps,
@@ -16,6 +17,28 @@ import { GlobalOptions } from '../../globalOptions.js';
 interface ListOptions extends GlobalOptions {
   'configurable-only': boolean;
   'manual-only': boolean;
+}
+
+/**
+ * Build the list command configuration
+ */
+export function buildListCommand(yargs: Argv) {
+  return yargs
+    .option('configurable-only', {
+      describe: 'Show only apps that support automatic consolidation',
+      type: 'boolean',
+      default: false,
+    })
+    .option('manual-only', {
+      describe: 'Show only apps that require manual setup',
+      type: 'boolean',
+      default: false,
+    })
+    .example([
+      ['$0 app list', 'List all supported applications'],
+      ['$0 app list --configurable-only', 'List only auto-configurable apps'],
+      ['$0 app list --manual-only', 'List only manual setup apps'],
+    ]);
 }
 
 /**

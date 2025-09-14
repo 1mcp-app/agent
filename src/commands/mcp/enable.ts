@@ -1,3 +1,4 @@
+import type { Argv } from 'yargs';
 import { MCPServerParams } from '../../core/types/index.js';
 import { GlobalOptions } from '../../globalOptions.js';
 import {
@@ -12,6 +13,32 @@ import { validateServerName } from './utils/validation.js';
 
 export interface EnableDisableCommandArgs extends GlobalOptions {
   name: string;
+}
+
+/**
+ * Build the enable command configuration
+ */
+export function buildEnableCommand(yargs: Argv) {
+  return yargs
+    .positional('name', {
+      describe: 'Name of the MCP server to enable',
+      type: 'string',
+      demandOption: true,
+    })
+    .example([['$0 mcp enable myserver', 'Enable a disabled server']]);
+}
+
+/**
+ * Build the disable command configuration
+ */
+export function buildDisableCommand(yargs: Argv) {
+  return yargs
+    .positional('name', {
+      describe: 'Name of the MCP server to disable',
+      type: 'string',
+      demandOption: true,
+    })
+    .example([['$0 mcp disable myserver', 'Disable a server temporarily']]);
 }
 
 /**

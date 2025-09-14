@@ -1,6 +1,25 @@
 import type { Argv } from 'yargs';
 import { globalOptions } from '../../globalOptions.js';
 
+// Import argument types for type safety
+import type { EditArguments } from './edit.js';
+import type { CreateArguments } from './create.js';
+import type { ShowArguments } from './show.js';
+import type { ListArguments } from './list.js';
+import type { UrlArguments } from './url.js';
+import type { DeleteArguments } from './delete.js';
+import type { TestArguments } from './test.js';
+import type { InteractiveArguments } from './interactive.js';
+
+// Import builder functions from command implementations
+import { buildEditCommand } from './edit.js';
+import { buildCreateCommand } from './create.js';
+import { buildShowCommand } from './show.js';
+import { buildListCommand } from './list.js';
+import { buildUrlCommand } from './url.js';
+import { buildDeleteCommand } from './delete.js';
+import { buildTestCommand } from './test.js';
+
 /**
  * Setup preset command configuration for yargs
  */
@@ -20,118 +39,64 @@ export function setupPresetCommands(yargs: Argv): Argv {
         .command({
           command: 'edit <name>',
           describe: 'Edit existing preset interactively',
-          builder: (yargs) => {
-            return yargs
-              .options(mergedOptions)
-              .positional('name', {
-                describe: 'Name of the preset to edit',
-                type: 'string',
-                demandOption: true,
-              })
-              .option('description', {
-                describe: 'Update description for the preset',
-                type: 'string',
-              });
-          },
+          builder: (yargs) => buildEditCommand(yargs.options(mergedOptions)),
           handler: async (argv) => {
             const { editCommand } = await import('./edit.js');
-            await editCommand(argv as any);
+            await editCommand(argv as EditArguments);
           },
         })
         .command({
           command: 'create <name>',
           describe: 'Create preset with filter expression',
-          builder: (yargs) => {
-            return yargs
-              .options(mergedOptions)
-              .positional('name', {
-                describe: 'Name for the new preset',
-                type: 'string',
-                demandOption: true,
-              })
-              .option('filter', {
-                describe: 'Filter expression for server selection',
-                type: 'string',
-                alias: 'f',
-                demandOption: true,
-              })
-              .option('description', {
-                describe: 'Description for the preset',
-                type: 'string',
-              });
-          },
+          builder: (yargs) => buildCreateCommand(yargs.options(mergedOptions)),
           handler: async (argv) => {
             const { createCommand } = await import('./create.js');
-            await createCommand(argv as any);
+            await createCommand(argv as CreateArguments);
           },
         })
         .command({
           command: 'show <name>',
           describe: 'Show detailed information about a preset',
-          builder: (yargs) => {
-            return yargs.options(mergedOptions).positional('name', {
-              describe: 'Name of the preset to show details for',
-              type: 'string',
-              demandOption: true,
-            });
-          },
+          builder: (yargs) => buildShowCommand(yargs.options(mergedOptions)),
           handler: async (argv) => {
             const { showCommand } = await import('./show.js');
-            await showCommand(argv as any);
+            await showCommand(argv as ShowArguments);
           },
         })
         .command({
           command: 'list',
           describe: 'List all available presets',
-          builder: (yargs) => yargs.options(mergedOptions),
+          builder: (yargs) => buildListCommand(yargs.options(mergedOptions)),
           handler: async (argv) => {
             const { listCommand } = await import('./list.js');
-            await listCommand(argv as any);
+            await listCommand(argv as ListArguments);
           },
         })
         .command({
           command: 'url <name>',
           describe: 'Generate URL for existing preset',
-          builder: (yargs) => {
-            return yargs.options(mergedOptions).positional('name', {
-              describe: 'Name of the preset to generate URL for',
-              type: 'string',
-              demandOption: true,
-            });
-          },
+          builder: (yargs) => buildUrlCommand(yargs.options(mergedOptions)),
           handler: async (argv) => {
             const { urlCommand } = await import('./url.js');
-            await urlCommand(argv as any);
+            await urlCommand(argv as UrlArguments);
           },
         })
         .command({
           command: 'delete <name>',
           describe: 'Delete an existing preset',
-          builder: (yargs) => {
-            return yargs.options(mergedOptions).positional('name', {
-              describe: 'Name of the preset to delete',
-              type: 'string',
-              demandOption: true,
-            });
-          },
+          builder: (yargs) => buildDeleteCommand(yargs.options(mergedOptions)),
           handler: async (argv) => {
             const { deleteCommand } = await import('./delete.js');
-            await deleteCommand(argv as any);
+            await deleteCommand(argv as DeleteArguments);
           },
         })
         .command({
           command: 'test <name>',
           describe: 'Test preset against current server configuration',
-          builder: (yargs) => {
-            return yargs.options(mergedOptions).positional('name', {
-              describe: 'Name of the preset to test',
-              type: 'string',
-              demandOption: true,
-            });
-          },
+          builder: (yargs) => buildTestCommand(yargs.options(mergedOptions)),
           handler: async (argv) => {
             const { testCommand } = await import('./test.js');
-            await testCommand(argv as any);
+            await testCommand(argv as TestArguments);
           },
         })
         .demandCommand(0, 'Use --help for available commands')
@@ -193,7 +158,7 @@ receive updated server configurations without needing to change their URLs.
     async (argv) => {
       // Smart interactive mode when no subcommand is provided
       const { interactiveCommand } = await import('./interactive.js');
-      await interactiveCommand(argv as any);
+      await interactiveCommand(argv as InteractiveArguments);
     },
   );
 }

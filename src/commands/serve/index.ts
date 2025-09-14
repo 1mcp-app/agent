@@ -148,7 +148,7 @@ For more information: https://github.com/1mcp-app/agent
       configureGlobalLogger(argv, argv.transport);
 
       // Execute serve command
-      await serveCommand(argv as any);
+      await serveCommand(argv);
     },
   );
 }

@@ -1,3 +1,4 @@
+import type { Argv } from 'yargs';
 import { discoverInstalledApps } from '../../utils/appDiscovery.js';
 import { getAppPreset, showPlatformWarningIfNeeded } from '../../utils/appPresets.js';
 import { GlobalOptions } from '../../globalOptions.js';
@@ -12,6 +13,28 @@ import { GlobalOptions } from '../../globalOptions.js';
 interface DiscoverOptions extends GlobalOptions {
   'show-empty': boolean;
   'show-paths': boolean;
+}
+
+/**
+ * Build the discover command configuration
+ */
+export function buildDiscoverCommand(yargs: Argv) {
+  return yargs
+    .option('show-empty', {
+      describe: 'Include apps with no MCP servers configured',
+      type: 'boolean',
+      default: false,
+    })
+    .option('show-paths', {
+      describe: 'Show configuration file paths',
+      type: 'boolean',
+      default: false,
+    })
+    .example([
+      ['$0 app discover', 'Find installed apps with MCP configs'],
+      ['$0 app discover --show-empty', 'Include apps with no servers'],
+      ['$0 app discover --show-paths', 'Show config file locations'],
+    ]);
 }
 
 /**

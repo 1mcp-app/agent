@@ -1,3 +1,4 @@
+import type { Argv } from 'yargs';
 import fs from 'fs';
 import path from 'path';
 import readline from 'readline';
@@ -23,6 +24,7 @@ import { McpConfigManager } from '../../config/mcpConfigManager.js';
 import { setServer } from '../mcp/utils/configUtils.js';
 import { MCPServerParams } from '../../core/types/index.js';
 import { GlobalOptions } from '../../globalOptions.js';
+import { generateSupportedAppsHelp } from '../../utils/appPresets.js';
 
 /**
  * Consolidate command - Main consolidation logic for MCP servers.
@@ -48,6 +50,69 @@ interface ConsolidationResult {
   serversImported?: number;
   backupPath?: string;
   manualInstructions?: string;
+}
+
+/**
+ * Build the consolidate command configuration
+ */
+export function buildConsolidateCommand(yargs: Argv) {
+  return yargs
+    .positional('app-name', {
+      describe: 'Desktop app(s) to consolidate (claude-desktop, cursor, vscode, etc.)',
+      type: 'string',
+      array: true,
+      default: [],
+    })
+    .option('url', {
+      describe: 'Override auto-detected 1mcp server URL',
+      type: 'string',
+      alias: 'u',
+    })
+    .option('dry-run', {
+      describe: 'Preview changes without making them',
+      type: 'boolean',
+      default: false,
+    })
+    .option('yes', {
+      describe: 'Skip confirmation prompts (for automation)',
+      type: 'boolean',
+      default: false,
+      alias: 'y',
+    })
+    .option('manual-only', {
+      describe: 'Show manual setup instructions only',
+      type: 'boolean',
+      default: false,
+    })
+    .option('backup-only', {
+      describe: 'Create backup without replacing config',
+      type: 'boolean',
+      default: false,
+    })
+    .option('force', {
+      describe: 'Skip validation warnings',
+      type: 'boolean',
+      default: false,
+      alias: 'f',
+    })
+    .example([
+      ['$0 app consolidate claude-desktop', 'Consolidate Claude Desktop MCP servers into 1mcp'],
+      ['$0 app consolidate cursor --dry-run', 'Preview consolidation for Cursor'],
+      ['$0 app consolidate vscode --url=http://localhost:3051/mcp', 'Use custom 1mcp URL'],
+      ['$0 app consolidate claude-desktop cursor vscode', 'Consolidate multiple apps at once'],
+    ]).epilogue(`
+WHAT IT DOES:
+  1. Extracts MCP server configurations from app config files
+  2. Imports those servers into your 1mcp configuration
+  3. Replaces app config with single 1mcp connection
+  4. Creates backup of original app configuration
+
+EXAMPLE WORKFLOW:
+  Before: Claude Desktop → [filesystem, postgres, sequential] servers directly
+  After:  Claude Desktop → 1mcp → [filesystem, postgres, sequential] servers
+
+${generateSupportedAppsHelp()}
+    `);
 }
 
 /**

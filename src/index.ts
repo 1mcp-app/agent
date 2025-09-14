@@ -10,7 +10,7 @@ import { setupAppCommands } from './commands/app/index.js';
 import { setupMcpCommands } from './commands/mcp/index.js';
 import { setupPresetCommands } from './commands/preset/index.js';
 import { setupServeCommand, serverOptions } from './commands/serve/index.js';
-import { globalOptions } from './globalOptions.js';
+import { globalOptions, GlobalOptions } from './globalOptions.js';
 import { configureGlobalLogger } from './utils/configureGlobalLogger.js';
 
 // Parse command line arguments and set up commands
@@ -22,9 +22,9 @@ yargsInstance = yargsInstance
   .options(globalOptions)
   .command('$0', 'Start the 1mcp server (default)', serverOptions, async (argv) => {
     // Default command - redirect to serve command
-    configureGlobalLogger(argv as any, argv.transport);
+    configureGlobalLogger(argv as GlobalOptions, argv.transport);
     const { serveCommand } = await import('./commands/serve/serve.js');
-    await serveCommand(argv as any);
+    await serveCommand(argv as Parameters<typeof serveCommand>[0]);
   })
   .env('ONE_MCP') // Enable environment variable parsing with ONE_MCP prefix
   .help()

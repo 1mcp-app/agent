@@ -1,4 +1,4 @@
-import type { Arguments } from 'yargs';
+import type { Arguments, Argv } from 'yargs';
 import logger from '../../logger/logger.js';
 import { TokenEstimationService, type ServerTokenEstimate } from '../../services/tokenEstimationService.js';
 import { TagQueryParser, type TagExpression } from '../../utils/tagQueryParser.js';
@@ -11,6 +11,38 @@ interface TokensCommandArgs extends GlobalOptions {
   'tag-filter'?: string;
   format?: string; // Will be validated at runtime
   model?: string;
+}
+
+/**
+ * Build the tokens command configuration
+ */
+export function buildTokensCommand(yargs: Argv) {
+  return yargs
+    .option('tag-filter', {
+      describe: 'Filter servers by advanced tag expression (and/or/not logic)',
+      type: 'string',
+      alias: 'f',
+    })
+    .option('format', {
+      describe: 'Output format',
+      type: 'string',
+      choices: ['table', 'json', 'summary'],
+      default: 'table',
+    })
+    .option('model', {
+      describe: 'Model to use for token estimation',
+      type: 'string',
+      alias: 'm',
+      default: 'gpt-4o',
+    })
+    .example([
+      ['$0 mcp tokens', 'Estimate tokens for all MCP servers by connecting to them'],
+      ['$0 mcp tokens --tag-filter="context7 or playwright"', 'Estimate tokens for servers with specific tags'],
+      ['$0 mcp tokens --format=json', 'Output in JSON format for programmatic use'],
+      ['$0 mcp tokens --format=summary', 'Show concise summary'],
+      ['$0 mcp tokens --model=gpt-3.5-turbo', 'Use gpt-3.5-turbo for token estimation'],
+      ['$0 mcp tokens --tag-filter="ai and not experimental" --format=table', 'Filter and format output'],
+    ]);
 }
 
 /**

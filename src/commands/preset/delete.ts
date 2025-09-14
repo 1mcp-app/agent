@@ -1,3 +1,4 @@
+import type { Argv } from 'yargs';
 import { PresetManager } from '../../utils/presetManager.js';
 import { InteractiveSelector } from '../../utils/interactiveSelector.js';
 import { GlobalOptions } from '../../globalOptions.js';
@@ -6,9 +7,20 @@ import logger from '../../logger/logger.js';
 /**
  * Command arguments for delete command
  */
-interface DeleteArguments extends GlobalOptions {
+export interface DeleteArguments extends GlobalOptions {
   _: string[];
   name: string;
+}
+
+/**
+ * Build the delete command configuration
+ */
+export function buildDeleteCommand(yargs: Argv) {
+  return yargs.positional('name', {
+    describe: 'Name of the preset to delete',
+    type: 'string',
+    demandOption: true,
+  });
 }
 
 /**

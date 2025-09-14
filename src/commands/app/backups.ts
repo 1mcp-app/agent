@@ -1,3 +1,4 @@
+import type { Argv } from 'yargs';
 import {
   listAppBackups,
   cleanupOldBackups,
@@ -18,6 +19,32 @@ interface BackupsOptions extends GlobalOptions {
   'app-name'?: string;
   cleanup?: number;
   verify: boolean;
+}
+
+/**
+ * Build the backups command configuration
+ */
+export function buildBackupsCommand(yargs: Argv) {
+  return yargs
+    .positional('app-name', {
+      describe: 'Show backups for specific app only',
+      type: 'string',
+    })
+    .option('cleanup', {
+      describe: 'Remove backups older than specified days',
+      type: 'number',
+    })
+    .option('verify', {
+      describe: 'Verify backup file integrity',
+      type: 'boolean',
+      default: false,
+    })
+    .example([
+      ['$0 app backups', 'List all available backups'],
+      ['$0 app backups claude-desktop', 'List backups for specific app'],
+      ['$0 app backups --cleanup=30', 'Remove backups older than 30 days'],
+      ['$0 app backups --verify', 'Verify backup integrity'],
+    ]);
 }
 
 /**

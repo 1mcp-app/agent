@@ -1,3 +1,4 @@
+import type { Argv } from 'yargs';
 import { PresetManager } from '../../utils/presetManager.js';
 import { InteractiveSelector } from '../../utils/interactiveSelector.js';
 import { GlobalOptions } from '../../globalOptions.js';
@@ -6,9 +7,20 @@ import logger from '../../logger/logger.js';
 /**
  * Command arguments for test command
  */
-interface TestArguments extends GlobalOptions {
+export interface TestArguments extends GlobalOptions {
   _: string[];
   name: string;
+}
+
+/**
+ * Build the test command configuration
+ */
+export function buildTestCommand(yargs: Argv) {
+  return yargs.positional('name', {
+    describe: 'Name of the preset to test',
+    type: 'string',
+    demandOption: true,
+  });
 }
 
 /**

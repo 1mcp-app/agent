@@ -1,3 +1,4 @@
+import type { Argv } from 'yargs';
 import { discoverAppConfigs, checkConsolidationStatus } from '../../utils/appDiscovery.js';
 import { getAppPreset, getSupportedApps, isAppConfigurable } from '../../utils/appPresets.js';
 import { listAppBackups } from '../../utils/backupManager.js';
@@ -13,6 +14,28 @@ import { GlobalOptions } from '../../globalOptions.js';
 interface StatusOptions extends GlobalOptions {
   'app-name'?: string;
   verbose: boolean;
+}
+
+/**
+ * Build the status command configuration
+ */
+export function buildStatusCommand(yargs: Argv) {
+  return yargs
+    .positional('app-name', {
+      describe: 'Desktop app to check (claude-desktop, cursor, vscode, etc.)',
+      type: 'string',
+    })
+    .option('verbose', {
+      describe: 'Show detailed configuration information',
+      type: 'boolean',
+      default: false,
+      alias: 'v',
+    })
+    .example([
+      ['$0 app status', 'Show status of all apps'],
+      ['$0 app status claude-desktop', 'Show status of specific app'],
+      ['$0 app status --verbose', 'Show detailed status information'],
+    ]);
 }
 
 /**

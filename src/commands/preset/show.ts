@@ -1,3 +1,4 @@
+import type { Argv } from 'yargs';
 import { PresetManager } from '../../utils/presetManager.js';
 import { InteractiveSelector } from '../../utils/interactiveSelector.js';
 import { UrlGenerator } from '../../utils/urlGenerator.js';
@@ -9,8 +10,19 @@ import chalk from 'chalk';
 /**
  * Command arguments for the show command
  */
-interface ShowArguments extends GlobalOptions {
+export interface ShowArguments extends GlobalOptions {
   name: string;
+}
+
+/**
+ * Build the show command configuration
+ */
+export function buildShowCommand(yargs: Argv) {
+  return yargs.positional('name', {
+    describe: 'Name of the preset to show details for',
+    type: 'string',
+    demandOption: true,
+  });
 }
 
 /**

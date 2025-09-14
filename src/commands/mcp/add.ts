@@ -1,3 +1,4 @@
+import type { Argv } from 'yargs';
 import { MCPServerParams } from '../../core/types/index.js';
 import {
   serverExists,
@@ -34,6 +35,93 @@ export interface AddCommandArgs extends GlobalOptions {
   restartOnExit?: boolean;
   maxRestarts?: number;
   restartDelay?: number;
+}
+
+/**
+ * Build the add command configuration
+ */
+export function buildAddCommand(yargs: Argv) {
+  return yargs
+    .positional('name', {
+      describe: 'Name of the MCP server',
+      type: 'string',
+      demandOption: true,
+    })
+    .option('type', {
+      describe: 'Transport type for the server (auto-detected when using " -- " pattern)',
+      type: 'string',
+      choices: ['stdio', 'http', 'sse'],
+      demandOption: false,
+    })
+    .option('command', {
+      describe: 'Command to execute (required for stdio)',
+      type: 'string',
+    })
+    .option('args', {
+      describe: 'Arguments for the command (stdio only)',
+      type: 'array',
+      string: true,
+    })
+    .option('url', {
+      describe: 'URL for HTTP/SSE servers',
+      type: 'string',
+      alias: 'u',
+    })
+    .option('env', {
+      describe: 'Environment variables in key=value format',
+      type: 'array',
+      string: true,
+      alias: 'e',
+    })
+    .option('tags', {
+      describe: 'Tags for categorization (comma-separated)',
+      type: 'string',
+      alias: 'g',
+    })
+    .option('timeout', {
+      describe: 'Connection timeout in milliseconds',
+      type: 'number',
+    })
+    .option('disabled', {
+      describe: 'Add server in disabled state',
+      type: 'boolean',
+      default: false,
+    })
+    .option('cwd', {
+      describe: 'Working directory for stdio servers',
+      type: 'string',
+    })
+    .option('headers', {
+      describe: 'HTTP headers in key=value format (HTTP/SSE only)',
+      type: 'array',
+      string: true,
+    })
+    .option('restart-on-exit', {
+      describe: 'Enable automatic restart when process exits (stdio only)',
+      type: 'boolean',
+    })
+    .option('max-restarts', {
+      describe: 'Maximum number of restart attempts (stdio only, unlimited if not specified)',
+      type: 'number',
+    })
+    .option('restart-delay', {
+      describe: 'Delay in milliseconds between restart attempts (stdio only, default: 1000)',
+      type: 'number',
+    })
+    .example([
+      ['$0 mcp add myserver --type=stdio --command=node --args=server.js', 'Add stdio server (explicit)'],
+      ['$0 mcp add webserver --type=http --url=http://localhost:3000/mcp', 'Add HTTP server'],
+      [
+        '$0 mcp add airtable --env AIRTABLE_API_KEY=key -- npx -y airtable-mcp-server',
+        'Add server using " -- " pattern',
+      ],
+      ['$0 mcp add myserver -- cmd /c npx -y @some/package', 'Add server with Windows command'],
+      ['$0 mcp add tagged --type=stdio --command=echo --tags=dev,test', 'Add server with tags'],
+      [
+        '$0 mcp add custom --type=stdio --command=python --env=PATH=/custom/path --disabled',
+        'Add disabled server with custom env',
+      ],
+    ]);
 }
 
 /**

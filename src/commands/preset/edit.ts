@@ -1,4 +1,5 @@
 // Command functionality for preset edit
+import type { Argv } from 'yargs';
 import { PresetManager } from '../../utils/presetManager.js';
 import { InteractiveSelector } from '../../utils/interactiveSelector.js';
 import { UrlGenerator } from '../../utils/urlGenerator.js';
@@ -8,10 +9,26 @@ import logger from '../../logger/logger.js';
 /**
  * Command arguments for the edit command
  */
-interface EditArguments extends GlobalOptions {
+export interface EditArguments extends GlobalOptions {
   _: string[];
   name: string;
   description?: string;
+}
+
+/**
+ * Build the edit command configuration
+ */
+export function buildEditCommand(yargs: Argv) {
+  return yargs
+    .positional('name', {
+      describe: 'Name of the preset to edit',
+      type: 'string',
+      demandOption: true,
+    })
+    .option('description', {
+      describe: 'Update description for the preset',
+      type: 'string',
+    });
 }
 
 /**

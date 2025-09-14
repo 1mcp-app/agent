@@ -8,7 +8,7 @@ import logger from '../../logger/logger.js';
 /**
  * Command arguments for the interactive command
  */
-interface InteractiveArguments extends GlobalOptions {
+export interface InteractiveArguments extends GlobalOptions {
   _: string[];
 }
 

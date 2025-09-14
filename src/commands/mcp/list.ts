@@ -1,3 +1,4 @@
+import type { Argv } from 'yargs';
 import { MCPServerParams } from '../../core/types/index.js';
 import { GlobalOptions } from '../../globalOptions.js';
 import { getAllServers, validateConfigPath, parseTags } from './utils/configUtils.js';
@@ -10,6 +11,35 @@ export interface ListCommandArgs extends GlobalOptions {
   'show-secrets'?: boolean;
   tags?: string;
   verbose?: boolean;
+}
+
+/**
+ * Build the list command configuration
+ */
+export function buildListCommand(yargs: Argv) {
+  return yargs
+    .option('show-disabled', {
+      describe: 'Include disabled servers in the list',
+      type: 'boolean',
+      default: false,
+    })
+    .option('tags', {
+      describe: 'Filter servers by tags (comma-separated)',
+      type: 'string',
+      alias: 'g',
+    })
+    .option('verbose', {
+      describe: 'Show detailed server configuration',
+      type: 'boolean',
+      default: false,
+      alias: 'v',
+    })
+    .example([
+      ['$0 mcp list', 'List all enabled servers'],
+      ['$0 mcp list --show-disabled', 'List all servers including disabled'],
+      ['$0 mcp list --tags=prod,api', 'List servers with specific tags'],
+      ['$0 mcp list --verbose', 'List servers with detailed config'],
+    ]);
 }
 
 /**

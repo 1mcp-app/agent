@@ -1,3 +1,4 @@
+import type { Argv } from 'yargs';
 import { PresetManager } from '../../utils/presetManager.js';
 import { UrlGenerator } from '../../utils/urlGenerator.js';
 import { TagQueryParser } from '../../utils/tagQueryParser.js';
@@ -8,11 +9,33 @@ import logger from '../../logger/logger.js';
 /**
  * Command arguments for preset create command
  */
-interface CreateArguments extends GlobalOptions {
+export interface CreateArguments extends GlobalOptions {
   _: string[];
   name: string;
   filter: string;
   description?: string;
+}
+
+/**
+ * Build the create command configuration
+ */
+export function buildCreateCommand(yargs: Argv) {
+  return yargs
+    .positional('name', {
+      describe: 'Name for the new preset',
+      type: 'string',
+      demandOption: true,
+    })
+    .option('filter', {
+      describe: 'Filter expression for server selection',
+      type: 'string',
+      alias: 'f',
+      demandOption: true,
+    })
+    .option('description', {
+      describe: 'Description for the preset',
+      type: 'string',
+    });
 }
 
 /**

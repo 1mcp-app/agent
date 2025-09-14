@@ -1,4 +1,5 @@
 import readline from 'readline';
+import type { Argv } from 'yargs';
 import {
   serverExists,
   getServer,
@@ -13,6 +14,28 @@ import { GlobalOptions } from '../../globalOptions.js';
 export interface RemoveCommandArgs extends GlobalOptions {
   name: string;
   yes?: boolean;
+}
+
+/**
+ * Build the remove command configuration
+ */
+export function buildRemoveCommand(yargs: Argv) {
+  return yargs
+    .positional('name', {
+      describe: 'Name of the MCP server to remove',
+      type: 'string',
+      demandOption: true,
+    })
+    .option('yes', {
+      describe: 'Skip confirmation prompt',
+      type: 'boolean',
+      default: false,
+      alias: 'y',
+    })
+    .example([
+      ['$0 mcp remove myserver', 'Remove server with confirmation'],
+      ['$0 mcp remove myserver --yes', 'Remove server without confirmation'],
+    ]);
 }
 
 /**

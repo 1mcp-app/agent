@@ -1,3 +1,4 @@
+import type { Argv } from 'yargs';
 import { MCPServerParams } from '../../core/types/index.js';
 import { GlobalOptions } from '../../globalOptions.js';
 import { getAllServers, getServer, validateConfigPath } from './utils/configUtils.js';
@@ -7,6 +8,28 @@ import { inferTransportType } from '../../transport/transportFactory.js';
 export interface StatusCommandArgs extends GlobalOptions {
   name?: string;
   verbose?: boolean;
+}
+
+/**
+ * Build the status command configuration
+ */
+export function buildStatusCommand(yargs: Argv) {
+  return yargs
+    .positional('name', {
+      describe: 'Name of specific server to check (optional)',
+      type: 'string',
+    })
+    .option('verbose', {
+      describe: 'Show detailed status information',
+      type: 'boolean',
+      default: false,
+      alias: 'v',
+    })
+    .example([
+      ['$0 mcp status', 'Show status of all servers'],
+      ['$0 mcp status myserver', 'Show status of specific server'],
+      ['$0 mcp status --verbose', 'Show detailed status information'],
+    ]);
 }
 
 /**

@@ -1,3 +1,4 @@
+import type { Argv } from 'yargs';
 import { MCPServerParams } from '../../core/types/index.js';
 import {
   serverExists,
@@ -34,6 +35,79 @@ export interface UpdateCommandArgs extends GlobalOptions {
   restartOnExit?: boolean;
   maxRestarts?: number;
   restartDelay?: number;
+}
+
+/**
+ * Build the update command configuration
+ */
+export function buildUpdateCommand(yargs: Argv) {
+  return yargs
+    .positional('name', {
+      describe: 'Name of the MCP server to update',
+      type: 'string',
+      demandOption: true,
+    })
+    .option('type', {
+      describe: 'Transport type for the server (auto-detected when using " -- " pattern)',
+      type: 'string',
+      choices: ['stdio', 'http', 'sse'],
+    })
+    .option('command', {
+      describe: 'Command to execute (stdio only)',
+      type: 'string',
+    })
+    .option('args', {
+      describe: 'Arguments for the command (stdio only)',
+      type: 'array',
+      string: true,
+    })
+    .option('url', {
+      describe: 'URL for HTTP/SSE servers',
+      type: 'string',
+      alias: 'u',
+    })
+    .option('env', {
+      describe: 'Environment variables in key=value format',
+      type: 'array',
+      string: true,
+      alias: 'e',
+    })
+    .option('tags', {
+      describe: 'Tags for categorization (comma-separated)',
+      type: 'string',
+      alias: 'g',
+    })
+    .option('timeout', {
+      describe: 'Connection timeout in milliseconds',
+      type: 'number',
+    })
+    .option('cwd', {
+      describe: 'Working directory for stdio servers',
+      type: 'string',
+    })
+    .option('headers', {
+      describe: 'HTTP headers in key=value format (HTTP/SSE only)',
+      type: 'array',
+      string: true,
+    })
+    .option('restart-on-exit', {
+      describe: 'Enable automatic restart when process exits (stdio only)',
+      type: 'boolean',
+    })
+    .option('max-restarts', {
+      describe: 'Maximum number of restart attempts (stdio only, unlimited if not specified)',
+      type: 'number',
+    })
+    .option('restart-delay', {
+      describe: 'Delay in milliseconds between restart attempts (stdio only, default: 1000)',
+      type: 'number',
+    })
+    .example([
+      ['$0 mcp update myserver --tags=prod,api', 'Update server tags'],
+      ['$0 mcp update myserver --env=NODE_ENV=production', 'Update environment'],
+      ['$0 mcp update myserver -- npx -y updated-package', 'Update using " -- " pattern'],
+      ['$0 mcp update myserver --timeout=10000', 'Update timeout'],
+    ]);
 }
 
 /**

@@ -1,3 +1,4 @@
+import type { Argv } from 'yargs';
 import readline from 'readline';
 import { listAppBackups, rollbackFromBackupPath, findBackupByMetaPath } from '../../utils/backupManager.js';
 import { getAppPreset, isAppSupported } from '../../utils/appPresets.js';
@@ -25,6 +26,66 @@ interface RestoreResult {
   status: 'success' | 'failed' | 'skipped';
   message: string;
   backupPath?: string;
+}
+
+/**
+ * Build the restore command configuration
+ */
+export function buildRestoreCommand(yargs: Argv) {
+  return yargs
+    .positional('app-name', {
+      describe: 'Desktop app to restore (claude-desktop, cursor, vscode, etc.)',
+      type: 'string',
+    })
+    .option('backup', {
+      describe: 'Specific backup file to restore from',
+      type: 'string',
+      alias: 'b',
+    })
+    .option('list', {
+      describe: 'List available backups for app',
+      type: 'boolean',
+      default: false,
+      alias: 'l',
+    })
+    .option('all', {
+      describe: 'Restore all apps that were consolidated',
+      type: 'boolean',
+      default: false,
+      alias: 'a',
+    })
+    .option('keep-in-1mcp', {
+      describe: "Don't remove servers from 1mcp config (keep both)",
+      type: 'boolean',
+      default: false,
+    })
+    .option('dry-run', {
+      describe: 'Preview restore without making changes',
+      type: 'boolean',
+      default: false,
+    })
+    .option('yes', {
+      describe: 'Skip confirmation prompts',
+      type: 'boolean',
+      default: false,
+      alias: 'y',
+    })
+    .example([
+      ['$0 app restore claude-desktop', 'Restore Claude Desktop configuration'],
+      ['$0 app restore cursor --list', 'List available backups for Cursor'],
+      ['$0 app restore --all --dry-run', 'Preview restoring all apps'],
+      ['$0 app restore --backup=./config.backup.1640995200000.meta', 'Restore from specific backup'],
+    ]).epilogue(`
+WHAT IT DOES:
+  1. Finds backup files created during consolidation
+  2. Restores original app configuration from backup
+  3. Validates restored configuration works correctly
+  4. Optionally removes imported servers from 1mcp config
+
+EXAMPLE WORKFLOW:
+  Current: Claude Desktop → 1mcp → [filesystem, postgres, sequential] servers
+  After:   Claude Desktop → [filesystem, postgres, sequential] servers directly
+    `);
 }
 
 /**

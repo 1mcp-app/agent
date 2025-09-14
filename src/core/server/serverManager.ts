@@ -16,7 +16,7 @@ import type { OutboundConnection } from '../types/client.js';
 import { executeOperation } from '../../utils/operationExecution.js';
 
 export class ServerManager {
-  private static instance: ServerManager;
+  private static instance: ServerManager | undefined;
   private inboundConns: Map<string, InboundConnection> = new Map();
   private serverConfig: { name: string; version: string };
   private serverCapabilities: { capabilities: Record<string, unknown> };
@@ -51,6 +51,9 @@ export class ServerManager {
   }
 
   public static get current(): ServerManager {
+    if (!ServerManager.instance) {
+      throw new Error('ServerManager not initialized');
+    }
     return ServerManager.instance;
   }
 
@@ -65,7 +68,7 @@ export class ServerManager {
       ServerManager.instance.connectionSemaphore.clear();
       ServerManager.instance.disconnectingIds.clear();
     }
-    ServerManager.instance = undefined as any;
+    ServerManager.instance = undefined;
   }
 
   public async connectTransport(transport: Transport, sessionId: string, opts: InboundConnectionConfig): Promise<void> {
