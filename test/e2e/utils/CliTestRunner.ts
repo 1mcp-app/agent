@@ -287,4 +287,89 @@ export class CliTestRunner {
       throw new Error(`Output does not match pattern: ${pattern}\n` + `Actual output: ${output}`);
     }
   }
+
+  /**
+   * Helper to check if output does NOT contain expected text
+   */
+  assertOutputDoesNotContain(result: CommandResult, expectedText: string, checkStderr = false): void {
+    const output = checkStderr ? result.stderr : result.stdout;
+    if (output.includes(expectedText)) {
+      throw new Error(`Output unexpectedly contains text: "${expectedText}"\n` + `Actual output: ${output}`);
+    }
+  }
+
+  /**
+   * Execute command with custom environment variables
+   * Creates a temporary environment with overrides
+   */
+  async runCommandWithCustomEnv(
+    command: string,
+    subcommand: string,
+    envOverrides: Record<string, string>,
+    options: CommandExecutionOptions = {},
+  ): Promise<CommandResult> {
+    const args = [command, subcommand];
+
+    // Add user-specified args
+    if (options.args) {
+      args.push(...options.args);
+    }
+
+    return new Promise((resolve) => {
+      const env = {
+        ...process.env,
+        ...this.environment.getEnvironmentVariables(),
+        ...envOverrides, // Override with custom env vars
+      };
+
+      const child = spawn('node', [this.cliPath, ...args], {
+        env,
+        cwd: options.cwd || this.environment.getTempDir(),
+        stdio: 'pipe',
+      });
+
+      let stdout = '';
+      let stderr = '';
+      const startTime = Date.now();
+      const timeout = options.timeout || 10000;
+
+      const timeoutHandle = setTimeout(() => {
+        child.kill('SIGTERM');
+      }, timeout);
+
+      child.stdout?.on('data', (data: Buffer) => {
+        stdout += data.toString();
+      });
+
+      child.stderr?.on('data', (data: Buffer) => {
+        stderr += data.toString();
+      });
+
+      if (options.input) {
+        child.stdin?.write(options.input);
+        child.stdin?.end();
+      }
+
+      child.on('close', (code) => {
+        clearTimeout(timeoutHandle);
+        resolve({
+          exitCode: code || 0,
+          stdout: stdout.trim(),
+          stderr: stderr.trim(),
+          duration: Date.now() - startTime,
+        });
+      });
+
+      child.on('error', (error) => {
+        clearTimeout(timeoutHandle);
+        resolve({
+          exitCode: -1,
+          stdout: stdout.trim(),
+          stderr: stderr.trim(),
+          error,
+          duration: Date.now() - startTime,
+        });
+      });
+    });
+  }
 }

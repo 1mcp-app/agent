@@ -63,12 +63,13 @@ export function getGlobalConfigPath(): string {
 }
 
 /**
- * Get the config file path with directory override support
- * Priority: configDir option -> Default global config dir
+ * Get config file path from directory or global default
  */
 export function getConfigPath(configDir?: string): string {
-  const baseDir = getConfigDir(configDir);
-  return `${baseDir}/${MCP_CONFIG_FILE}`;
+  if (configDir) {
+    return `${configDir}/${MCP_CONFIG_FILE}`;
+  }
+  return getGlobalConfigPath();
 }
 
 /**

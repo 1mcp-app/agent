@@ -1,19 +1,22 @@
+import { getConfigPath } from '../constants.js';
+
 /**
- * Configuration context for managing config directory and file paths
- * This provides a centralized way to handle config directory resolution
- * without passing parameters through every function call
+ * Singleton context for managing configuration file resolution
+ * Centralizes the logic for resolving config paths from CLI options
  */
-
-import { getConfigPath, getGlobalConfigPath } from '../constants.js';
-
 class ConfigContext {
-  private static instance: ConfigContext;
+  private static instance: ConfigContext | null = null;
   private configDir?: string;
   private configPath?: string;
 
-  private constructor() {}
+  private constructor() {
+    // Private constructor for singleton
+  }
 
-  public static getInstance(): ConfigContext {
+  /**
+   * Get the singleton instance
+   */
+  static getInstance(): ConfigContext {
     if (!ConfigContext.instance) {
       ConfigContext.instance = new ConfigContext();
     }
@@ -21,24 +24,36 @@ class ConfigContext {
   }
 
   /**
-   * Set the config directory for this context
+   * Set the config directory
    */
-  public setConfigDir(configDir?: string): void {
-    this.configDir = configDir;
-    this.configPath = undefined; // Reset config path when dir changes
+  setConfigDir(dir?: string): void {
+    this.configDir = dir;
+    this.configPath = undefined; // Clear config path when setting dir
   }
 
   /**
-   * Set the config file path directly (takes precedence over configDir)
+   * Set the config path directly
    */
-  public setConfigPath(configPath?: string): void {
-    this.configPath = configPath;
+  setConfigPath(path?: string): void {
+    this.configPath = path;
+    this.configDir = undefined; // Clear config dir when setting path
   }
 
   /**
-   * Get the resolved config file path based on current context
+   * Reset all configuration
    */
-  public getResolvedConfigPath(): string {
+  reset(): void {
+    this.configDir = undefined;
+    this.configPath = undefined;
+  }
+
+  /**
+   * Get the resolved config path based on priority:
+   * 1. Explicit config path (highest priority)
+   * 2. Config directory + mcp.json
+   * 3. Default global config path
+   */
+  getResolvedConfigPath(): string {
     if (this.configPath) {
       return this.configPath;
     }
@@ -47,15 +62,7 @@ class ConfigContext {
       return getConfigPath(this.configDir);
     }
 
-    return getGlobalConfigPath();
-  }
-
-  /**
-   * Reset the context to default state
-   */
-  public reset(): void {
-    this.configDir = undefined;
-    this.configPath = undefined;
+    return getConfigPath();
   }
 }
 

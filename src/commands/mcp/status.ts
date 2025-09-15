@@ -39,7 +39,7 @@ export async function statusCommand(argv: StatusCommandArgs): Promise<void> {
   try {
     const { name, config: configPath, 'config-dir': configDir, verbose = false } = argv;
 
-    // Initialize config context with CLI options
+    // Initialize ConfigContext with CLI options
     initializeConfigContext(configPath, configDir);
 
     // Validate config path

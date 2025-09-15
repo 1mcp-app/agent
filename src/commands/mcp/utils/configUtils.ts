@@ -33,9 +33,9 @@ export interface ServerConfig {
  * Load the MCP configuration from a file
  * Uses ConfigContext to resolve the appropriate config file path
  */
-export function loadConfig(): ServerConfig {
+export function loadConfig(configPath?: string): ServerConfig {
   const configContext = ConfigContext.getInstance();
-  const filePath = configContext.getResolvedConfigPath();
+  const filePath = configPath || configContext.getResolvedConfigPath();
 
   try {
     if (!fs.existsSync(filePath)) {
@@ -221,9 +221,9 @@ export function parseTags(tagsString?: string): string[] {
 /**
  * Validate configuration file path
  */
-export function validateConfigPath(): string {
+export function validateConfigPath(configPath?: string): string {
   const configContext = ConfigContext.getInstance();
-  const filePath = configContext.getResolvedConfigPath();
+  const filePath = configPath || configContext.getResolvedConfigPath();
 
   try {
     // Check if file exists
