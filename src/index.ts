@@ -12,6 +12,7 @@ import { setupPresetCommands } from './commands/preset/index.js';
 import { setupServeCommand, serverOptions } from './commands/serve/index.js';
 import { globalOptions, GlobalOptions } from './globalOptions.js';
 import { configureGlobalLogger } from './utils/configureGlobalLogger.js';
+import { MCP_SERVER_VERSION } from './constants.js';
 
 // Parse command line arguments and set up commands
 let yargsInstance = yargs(hideBin(process.argv));
@@ -26,6 +27,7 @@ yargsInstance = yargsInstance
     const { serveCommand } = await import('./commands/serve/serve.js');
     await serveCommand(argv as Parameters<typeof serveCommand>[0]);
   })
+  .version(MCP_SERVER_VERSION)
   .env('ONE_MCP') // Enable environment variable parsing with ONE_MCP prefix
   .help()
   .alias('help', 'h');

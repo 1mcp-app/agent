@@ -60,33 +60,14 @@ jobs:
       - name: Test binary functionality (Unix)
         if: ${{ !startsWith(matrix.platform, 'win32') }}
         run: |
-          echo "🧪 Testing ${{ matrix.platform }} binary..."
-          ./1mcp --version
-          echo "🧪 Testing tiktoken functionality with real MCP server..."
-          echo '{"servers": {"everything": {"command": "npx", "args": ["-y", "@modelcontextprotocol/server-everything"]}}}' > test-config.json
-          timeout 30 ONE_MCP_CONFIG=test-config.json ./1mcp mcp tokens --format=summary || echo "⚠️ Timeout expected for comprehensive test"
-          rm test-config.json
-          echo "✅ ${{ matrix.platform }} binary test passed"
+          chmod +x scripts/test-binary-unix.sh
+          ./scripts/test-binary-unix.sh ./1mcp ${{ matrix.platform }}
         shell: bash
 
       - name: Test binary functionality (Windows)
         if: ${{ startsWith(matrix.platform, 'win32') }}
         run: |
-          echo "🧪 Testing Windows binary..."
-          .\1mcp.exe --version
-          echo "🧪 Testing tiktoken functionality with real MCP server..."
-          echo '{"servers": {"everything": {"command": "npx", "args": ["-y", "@modelcontextprotocol/server-everything"]}}}' | Out-File -FilePath test-config.json -Encoding utf8
-          try {
-            $timeoutSec = 30
-            $job = Start-Job -ScriptBlock { param($config) $env:ONE_MCP_CONFIG=$config; .\1mcp.exe mcp tokens --format=summary } -ArgumentList "test-config.json"
-            Wait-Job $job -Timeout $timeoutSec | Out-Null
-            Stop-Job $job -PassThru | Remove-Job
-            echo "⚠️ Timeout expected for comprehensive test"
-          } catch {
-            echo "⚠️ Test completed (timeout expected)"
-          }
-          Remove-Item test-config.json
-          echo "✅ Windows binary test passed"
+          .\scripts\test-binary-windows.ps1 -BinaryPath ".\1mcp.exe" -Platform "${{ matrix.platform }}"
         shell: powershell
 
       - name: Rename binary for platform-specific archive

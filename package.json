@@ -45,7 +45,7 @@
     "*.ts": [
       "bash -c 'tsc --noEmit --project tsconfig.test.json'"
     ],
-    "*.{js,ts}": [
+    "*.{js,ts,cjs}": [
       "eslint --fix",
       "prettier --write"
     ],
