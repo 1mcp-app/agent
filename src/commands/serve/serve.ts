@@ -10,6 +10,7 @@ import { AgentConfigManager } from '../../core/server/agentConfig.js';
 import { displayLogo } from '../../utils/logo.js';
 import { McpLoadingManager } from '../../core/loading/mcpLoadingManager.js';
 import { TagQueryParser, TagExpression } from '../../utils/tagQueryParser.js';
+import ConfigContext from '../../config/configContext.js';
 
 export interface ServeOptions {
   config?: string;
@@ -110,7 +111,19 @@ export async function serveCommand(parsedArgv: ServeOptions): Promise<void> {
       displayLogo();
     }
 
-    McpConfigManager.getInstance(parsedArgv.config);
+    // Initialize ConfigContext with CLI options
+    const configContext = ConfigContext.getInstance();
+    if (parsedArgv.config) {
+      configContext.setConfigPath(parsedArgv.config);
+    } else if (parsedArgv['config-dir']) {
+      configContext.setConfigDir(parsedArgv['config-dir']);
+    } else {
+      configContext.reset();
+    }
+
+    // Initialize MCP config manager using resolved config path
+    const configFilePath = configContext.getResolvedConfigPath();
+    McpConfigManager.getInstance(configFilePath);
 
     // Configure server settings from CLI arguments
     const serverConfigManager = AgentConfigManager.getInstance();

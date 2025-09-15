@@ -21,7 +21,8 @@ import { validateOperation, generateOperationPreview } from '../../utils/validat
 import { createBackup, withFileLock } from '../../utils/backupManager.js';
 import { getAppBackupDir } from '../../constants.js';
 import { McpConfigManager } from '../../config/mcpConfigManager.js';
-import { setServer } from '../mcp/utils/configUtils.js';
+import { setServer, initializeConfigContext } from '../mcp/utils/configUtils.js';
+import ConfigContext from '../../config/configContext.js';
 import { MCPServerParams } from '../../core/types/index.js';
 import { GlobalOptions } from '../../globalOptions.js';
 import { generateSupportedAppsHelp } from '../../utils/appPresets.js';
@@ -235,6 +236,8 @@ async function consolidateApp(
   serverUrl: string,
   options: ConsolidateOptions,
 ): Promise<ConsolidationResult> {
+  // Initialize ConfigContext with CLI options
+  initializeConfigContext(options.config, options['config-dir']);
   // Check if app is already consolidated (unless force mode)
   if (!options.force) {
     const consolidationStatus = await checkConsolidationStatus(appName);
@@ -449,7 +452,11 @@ function convertToMCPServerParams(server: any): MCPServerParams {
  * Import MCP servers to 1mcp configuration
  */
 async function importServersTo1mcp(servers: any[]): Promise<void> {
-  const mcpConfig = McpConfigManager.getInstance();
+  // Use resolved config path from ConfigContext
+  const configContext = ConfigContext.getInstance();
+  const filePath = configContext.getResolvedConfigPath();
+
+  const mcpConfig = McpConfigManager.getInstance(filePath);
 
   // Get current transport config
   const currentConfig = mcpConfig.getTransportConfig();

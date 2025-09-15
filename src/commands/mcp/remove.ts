@@ -7,6 +7,7 @@ import {
   validateConfigPath,
   backupConfig,
   reloadMcpConfig,
+  initializeConfigContext,
 } from './utils/configUtils.js';
 import { validateServerName } from './utils/validation.js';
 import { GlobalOptions } from '../../globalOptions.js';
@@ -43,7 +44,10 @@ export function buildRemoveCommand(yargs: Argv) {
  */
 export async function removeCommand(argv: RemoveCommandArgs): Promise<void> {
   try {
-    const { name, config: configPath, yes = false } = argv;
+    const { name, config: configPath, 'config-dir': configDir, yes = false } = argv;
+
+    // Initialize config context with CLI options
+    initializeConfigContext(configPath, configDir);
 
     console.log(`Removing MCP server: ${name}`);
 
@@ -51,15 +55,15 @@ export async function removeCommand(argv: RemoveCommandArgs): Promise<void> {
     validateServerName(name);
 
     // Validate config path
-    validateConfigPath(configPath);
+    validateConfigPath();
 
     // Check if server exists
-    if (!serverExists(name, configPath)) {
+    if (!serverExists(name)) {
       throw new Error(`Server '${name}' does not exist in the configuration.`);
     }
 
     // Get server details for confirmation
-    const serverConfig = getServer(name, configPath);
+    const serverConfig = getServer(name);
     if (!serverConfig) {
       throw new Error(`Failed to retrieve server '${name}' configuration.`);
     }
@@ -98,16 +102,16 @@ export async function removeCommand(argv: RemoveCommandArgs): Promise<void> {
     }
 
     // Create backup
-    const backupPath = backupConfig(configPath);
+    const backupPath = backupConfig();
 
     // Remove the server
-    const removed = removeServer(name, configPath);
+    const removed = removeServer(name);
     if (!removed) {
       throw new Error(`Failed to remove server '${name}' from configuration.`);
     }
 
     // Reload MCP configuration
-    reloadMcpConfig(configPath);
+    reloadMcpConfig();
 
     // Success message
     console.log(`✅ Successfully removed server '${name}'`);

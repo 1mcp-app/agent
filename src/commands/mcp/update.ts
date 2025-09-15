@@ -10,6 +10,7 @@ import {
   validateConfigPath,
   backupConfig,
   reloadMcpConfig,
+  initializeConfigContext,
 } from './utils/configUtils.js';
 import {
   validateServerName,
@@ -115,7 +116,10 @@ export function buildUpdateCommand(yargs: Argv) {
  */
 export async function updateCommand(argv: UpdateCommandArgs): Promise<void> {
   try {
-    const { name, config: configPath } = argv;
+    const { name, config: configPath, 'config-dir': configDir } = argv;
+
+    // Initialize config context with CLI options
+    initializeConfigContext(configPath, configDir);
 
     console.log(`Updating MCP server: ${name}`);
 
@@ -123,15 +127,15 @@ export async function updateCommand(argv: UpdateCommandArgs): Promise<void> {
     validateServerName(name);
 
     // Validate config path
-    validateConfigPath(configPath);
+    validateConfigPath();
 
     // Check if server exists
-    if (!serverExists(name, configPath)) {
+    if (!serverExists(name)) {
       throw new Error(`Server '${name}' does not exist. Use 'mcp add' to create it first.`);
     }
 
     // Get current server configuration
-    const currentConfig = getServer(name, configPath);
+    const currentConfig = getServer(name);
     if (!currentConfig) {
       throw new Error(`Failed to retrieve server '${name}' configuration.`);
     }
@@ -291,13 +295,13 @@ export async function updateCommand(argv: UpdateCommandArgs): Promise<void> {
     }
 
     // Create backup
-    const backupPath = backupConfig(configPath);
+    const backupPath = backupConfig();
 
     // Save the updated configuration
-    setServer(name, updatedConfig, configPath);
+    setServer(name, updatedConfig);
 
     // Reload MCP configuration
-    reloadMcpConfig(configPath);
+    reloadMcpConfig();
 
     // Success message
     console.log(`✅ Successfully updated server '${name}'`);

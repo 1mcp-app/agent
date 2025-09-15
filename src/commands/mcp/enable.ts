@@ -8,6 +8,7 @@ import {
   validateConfigPath,
   backupConfig,
   reloadMcpConfig,
+  initializeConfigContext,
 } from './utils/configUtils.js';
 import { validateServerName } from './utils/validation.js';
 
@@ -46,7 +47,10 @@ export function buildDisableCommand(yargs: Argv) {
  */
 export async function enableCommand(argv: EnableDisableCommandArgs): Promise<void> {
   try {
-    const { name, config: configPath } = argv;
+    const { name, config: configPath, 'config-dir': configDir } = argv;
+
+    // Initialize config context with CLI options
+    initializeConfigContext(configPath, configDir);
 
     console.log(`Enabling MCP server: ${name}`);
 
@@ -54,15 +58,15 @@ export async function enableCommand(argv: EnableDisableCommandArgs): Promise<voi
     validateServerName(name);
 
     // Validate config path
-    validateConfigPath(configPath);
+    validateConfigPath();
 
     // Check if server exists
-    if (!serverExists(name, configPath)) {
+    if (!serverExists(name)) {
       throw new Error(`Server '${name}' does not exist. Use 'mcp add' to create it first.`);
     }
 
     // Get current server configuration
-    const currentConfig = getServer(name, configPath);
+    const currentConfig = getServer(name);
     if (!currentConfig) {
       throw new Error(`Failed to retrieve server '${name}' configuration.`);
     }
@@ -74,7 +78,7 @@ export async function enableCommand(argv: EnableDisableCommandArgs): Promise<voi
     }
 
     // Create backup
-    const backupPath = backupConfig(configPath);
+    const backupPath = backupConfig();
 
     // Update configuration to enable the server
     const updatedConfig: MCPServerParams = {
@@ -86,10 +90,10 @@ export async function enableCommand(argv: EnableDisableCommandArgs): Promise<voi
     delete updatedConfig.disabled;
 
     // Save the updated configuration
-    setServer(name, updatedConfig, configPath);
+    setServer(name, updatedConfig);
 
     // Reload MCP configuration
-    reloadMcpConfig(configPath);
+    reloadMcpConfig();
 
     // Success message
     console.log(`✅ Successfully enabled server '${name}'`);
@@ -107,7 +111,10 @@ export async function enableCommand(argv: EnableDisableCommandArgs): Promise<voi
  */
 export async function disableCommand(argv: EnableDisableCommandArgs): Promise<void> {
   try {
-    const { name, config: configPath } = argv;
+    const { name, config: configPath, 'config-dir': configDir } = argv;
+
+    // Initialize config context with CLI options
+    initializeConfigContext(configPath, configDir);
 
     console.log(`Disabling MCP server: ${name}`);
 
@@ -115,15 +122,15 @@ export async function disableCommand(argv: EnableDisableCommandArgs): Promise<vo
     validateServerName(name);
 
     // Validate config path
-    validateConfigPath(configPath);
+    validateConfigPath();
 
     // Check if server exists
-    if (!serverExists(name, configPath)) {
+    if (!serverExists(name)) {
       throw new Error(`Server '${name}' does not exist. Use 'mcp add' to create it first.`);
     }
 
     // Get current server configuration
-    const currentConfig = getServer(name, configPath);
+    const currentConfig = getServer(name);
     if (!currentConfig) {
       throw new Error(`Failed to retrieve server '${name}' configuration.`);
     }
@@ -135,7 +142,7 @@ export async function disableCommand(argv: EnableDisableCommandArgs): Promise<vo
     }
 
     // Create backup
-    const backupPath = backupConfig(configPath);
+    const backupPath = backupConfig();
 
     // Update configuration to disable the server
     const updatedConfig: MCPServerParams = {
@@ -144,10 +151,10 @@ export async function disableCommand(argv: EnableDisableCommandArgs): Promise<vo
     };
 
     // Save the updated configuration
-    setServer(name, updatedConfig, configPath);
+    setServer(name, updatedConfig);
 
     // Reload MCP configuration
-    reloadMcpConfig(configPath);
+    reloadMcpConfig();
 
     // Success message
     console.log(`✅ Successfully disabled server '${name}'`);

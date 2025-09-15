@@ -1,7 +1,7 @@
 import type { Argv } from 'yargs';
 import { MCPServerParams } from '../../core/types/index.js';
 import { GlobalOptions } from '../../globalOptions.js';
-import { getAllServers, validateConfigPath, parseTags } from './utils/configUtils.js';
+import { getAllServers, validateConfigPath, parseTags, initializeConfigContext } from './utils/configUtils.js';
 import { validateTags } from './utils/validation.js';
 import { inferTransportType } from '../../transport/transportFactory.js';
 import { redactCommandArgs, redactUrl, redactSensitiveValue, sanitizeHeaders } from '../../utils/sanitization.js';
@@ -55,14 +55,18 @@ export async function listCommand(argv: ListCommandArgs): Promise<void> {
   try {
     const {
       config: configPath,
+      'config-dir': configDir,
       'show-disabled': showDisabled = false,
       'show-secrets': showSecrets = false,
       tags: tagsFilter,
       verbose = false,
     } = argv;
 
+    // Initialize config context with CLI options
+    initializeConfigContext(configPath, configDir);
+
     // Validate config path
-    validateConfigPath(configPath);
+    validateConfigPath();
 
     // Validate tags filter if provided
     if (tagsFilter) {
@@ -70,7 +74,7 @@ export async function listCommand(argv: ListCommandArgs): Promise<void> {
     }
 
     // Get all servers
-    const allServers = getAllServers(configPath);
+    const allServers = getAllServers();
 
     if (Object.keys(allServers).length === 0) {
       console.log('No MCP servers are configured.');

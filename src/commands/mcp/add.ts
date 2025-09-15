@@ -9,6 +9,7 @@ import {
   validateConfigPath,
   backupConfig,
   reloadMcpConfig,
+  initializeConfigContext,
 } from './utils/configUtils.js';
 import {
   validateServerName,
@@ -129,7 +130,10 @@ export function buildAddCommand(yargs: Argv) {
  */
 export async function addCommand(argv: AddCommandArgs): Promise<void> {
   try {
-    const { name, config: configPath, type, disabled = false } = argv;
+    const { name, config: configPath, 'config-dir': configDir, type, disabled = false } = argv;
+
+    // Initialize config context with CLI options
+    initializeConfigContext(configPath, configDir);
 
     console.log(`Adding MCP server: ${name}`);
 
@@ -149,7 +153,7 @@ export async function addCommand(argv: AddCommandArgs): Promise<void> {
 
     // Validate config path
     try {
-      validateConfigPath(configPath);
+      validateConfigPath();
     } catch (error) {
       if (error instanceof Error && error.message.includes('not found')) {
         // If config file doesn't exist, we'll create it
@@ -160,7 +164,7 @@ export async function addCommand(argv: AddCommandArgs): Promise<void> {
     }
 
     // Check if server already exists
-    if (serverExists(name, configPath)) {
+    if (serverExists(name)) {
       throw new Error(
         `Server '${name}' already exists. Use 'mcp update' to modify it or 'mcp remove' to delete it first.`,
       );
@@ -169,7 +173,7 @@ export async function addCommand(argv: AddCommandArgs): Promise<void> {
     // Create backup if config file exists
     let backupPath: string | undefined;
     try {
-      backupPath = backupConfig(configPath);
+      backupPath = backupConfig();
     } catch (_error) {
       // Config file might not exist yet, that's ok
       console.log('Creating new configuration file');
@@ -233,10 +237,10 @@ export async function addCommand(argv: AddCommandArgs): Promise<void> {
     }
 
     // Save the server configuration
-    setServer(name, serverConfig, configPath);
+    setServer(name, serverConfig);
 
     // Reload MCP configuration
-    reloadMcpConfig(configPath);
+    reloadMcpConfig();
 
     // Success message
     console.log(`✅ Successfully added server '${name}'`);

@@ -1,13 +1,29 @@
 import fs from 'fs';
 import path from 'path';
 import { McpConfigManager } from '../../../config/mcpConfigManager.js';
-import { getGlobalConfigPath } from '../../../constants.js';
 import { MCPServerParams } from '../../../core/types/index.js';
 import logger from '../../../logger/logger.js';
+import ConfigContext from '../../../config/configContext.js';
 
 /**
  * Configuration file utilities for server management commands
  */
+
+/**
+ * Initialize the configuration context with CLI options
+ * This should be called at the beginning of each command
+ */
+export function initializeConfigContext(configPath?: string, configDir?: string): void {
+  const configContext = ConfigContext.getInstance();
+
+  if (configPath) {
+    configContext.setConfigPath(configPath);
+  } else if (configDir) {
+    configContext.setConfigDir(configDir);
+  } else {
+    configContext.reset(); // Use defaults
+  }
+}
 
 export interface ServerConfig {
   mcpServers: Record<string, MCPServerParams>;
@@ -15,9 +31,11 @@ export interface ServerConfig {
 
 /**
  * Load the MCP configuration from a file
+ * Uses ConfigContext to resolve the appropriate config file path
  */
-export function loadConfig(configPath?: string): ServerConfig {
-  const filePath = configPath || getGlobalConfigPath();
+export function loadConfig(): ServerConfig {
+  const configContext = ConfigContext.getInstance();
+  const filePath = configContext.getResolvedConfigPath();
 
   try {
     if (!fs.existsSync(filePath)) {
@@ -42,15 +60,17 @@ export function loadConfig(configPath?: string): ServerConfig {
 
 /**
  * Save the MCP configuration to a file
+ * Uses ConfigContext to resolve the appropriate config file path
  */
-export function saveConfig(config: ServerConfig, configPath?: string): void {
-  const filePath = configPath || getGlobalConfigPath();
+export function saveConfig(config: ServerConfig): void {
+  const configContext = ConfigContext.getInstance();
+  const filePath = configContext.getResolvedConfigPath();
 
   try {
     // Ensure directory exists
-    const configDir = path.dirname(filePath);
-    if (!fs.existsSync(configDir)) {
-      fs.mkdirSync(configDir, { recursive: true });
+    const fileDir = path.dirname(filePath);
+    if (!fs.existsSync(fileDir)) {
+      fs.mkdirSync(fileDir, { recursive: true });
     }
 
     // Write configuration with pretty formatting
@@ -65,9 +85,9 @@ export function saveConfig(config: ServerConfig, configPath?: string): void {
 /**
  * Check if a server exists in the configuration
  */
-export function serverExists(serverName: string, configPath?: string): boolean {
+export function serverExists(serverName: string): boolean {
   try {
-    const config = loadConfig(configPath);
+    const config = loadConfig();
     return serverName in config.mcpServers;
   } catch (_error) {
     return false;
@@ -77,9 +97,9 @@ export function serverExists(serverName: string, configPath?: string): boolean {
 /**
  * Get a specific server configuration
  */
-export function getServer(serverName: string, configPath?: string): MCPServerParams | null {
+export function getServer(serverName: string): MCPServerParams | null {
   try {
-    const config = loadConfig(configPath);
+    const config = loadConfig();
     return config.mcpServers[serverName] || null;
   } catch (_error) {
     return null;
@@ -89,25 +109,25 @@ export function getServer(serverName: string, configPath?: string): MCPServerPar
 /**
  * Add or update a server in the configuration
  */
-export function setServer(serverName: string, serverConfig: MCPServerParams, configPath?: string): void {
-  const config = loadConfig(configPath);
+export function setServer(serverName: string, serverConfig: MCPServerParams): void {
+  const config = loadConfig();
   config.mcpServers[serverName] = serverConfig;
-  saveConfig(config, configPath);
+  saveConfig(config);
 }
 
 /**
  * Remove a server from the configuration
  */
-export function removeServer(serverName: string, configPath?: string): boolean {
+export function removeServer(serverName: string): boolean {
   try {
-    const config = loadConfig(configPath);
+    const config = loadConfig();
 
     if (!(serverName in config.mcpServers)) {
       return false;
     }
 
     delete config.mcpServers[serverName];
-    saveConfig(config, configPath);
+    saveConfig(config);
     return true;
   } catch (error) {
     throw new Error(`Failed to remove server ${serverName}: ${error}`);
@@ -117,9 +137,9 @@ export function removeServer(serverName: string, configPath?: string): boolean {
 /**
  * Get all servers in the configuration
  */
-export function getAllServers(configPath?: string): Record<string, MCPServerParams> {
+export function getAllServers(): Record<string, MCPServerParams> {
   try {
-    const config = loadConfig(configPath);
+    const config = loadConfig();
     return config.mcpServers;
   } catch (_error) {
     return {};
@@ -201,8 +221,9 @@ export function parseTags(tagsString?: string): string[] {
 /**
  * Validate configuration file path
  */
-export function validateConfigPath(configPath?: string): string {
-  const filePath = configPath || getGlobalConfigPath();
+export function validateConfigPath(): string {
+  const configContext = ConfigContext.getInstance();
+  const filePath = configContext.getResolvedConfigPath();
 
   try {
     // Check if file exists
@@ -228,8 +249,9 @@ export function validateConfigPath(configPath?: string): string {
 /**
  * Create a backup of the configuration file
  */
-export function backupConfig(configPath?: string): string {
-  const filePath = configPath || getGlobalConfigPath();
+export function backupConfig(): string {
+  const configContext = ConfigContext.getInstance();
+  const filePath = configContext.getResolvedConfigPath();
   const timestamp = Date.now();
   const backupPath = `${filePath}.backup.${timestamp}`;
 
@@ -300,10 +322,13 @@ export function validateServerConfig(serverConfig: MCPServerParams): void {
 /**
  * Reload MCP config manager after configuration changes
  */
-export function reloadMcpConfig(configPath?: string): void {
+export function reloadMcpConfig(): void {
   try {
+    const configContext = ConfigContext.getInstance();
+    const filePath = configContext.getResolvedConfigPath();
+
     // Get the config manager instance and reload it
-    const configManager = McpConfigManager.getInstance(configPath);
+    const configManager = McpConfigManager.getInstance(filePath);
     configManager.reloadConfig();
     logger.info('MCP configuration reloaded');
   } catch (error) {

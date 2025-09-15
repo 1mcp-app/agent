@@ -2,7 +2,7 @@ import type { Arguments, Argv } from 'yargs';
 import logger from '../../logger/logger.js';
 import { TokenEstimationService, type ServerTokenEstimate } from '../../services/tokenEstimationService.js';
 import { TagQueryParser, type TagExpression } from '../../utils/tagQueryParser.js';
-import { loadConfig, type ServerConfig } from './utils/configUtils.js';
+import { loadConfig, type ServerConfig, initializeConfigContext } from './utils/configUtils.js';
 import type { MCPServerParams } from '../../core/types/index.js';
 import { GlobalOptions } from '../../globalOptions.js';
 import { McpConnectionHelper } from './utils/connectionHelper.js';
@@ -299,8 +299,11 @@ export async function tokensCommand(argv: Arguments<TokensCommandArgs>): Promise
   try {
     logger.debug('Starting tokens command with args:', argv);
 
+    // Initialize config context with CLI options
+    initializeConfigContext(argv.config, argv['config-dir']);
+
     // Load MCP configuration using utility function
-    const config: ServerConfig = loadConfig(argv.config);
+    const config: ServerConfig = loadConfig();
 
     if (!config.mcpServers || Object.keys(config.mcpServers).length === 0) {
       console.log('No MCP servers configured. Use "1mcp mcp add" to add servers.');

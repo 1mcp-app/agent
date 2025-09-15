@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import os from 'os';
-import { getGlobalConfigDir, getGlobalConfigPath, getConfigDir } from './constants.js';
+import { getGlobalConfigDir, getGlobalConfigPath, getConfigDir, getConfigPath } from './constants.js';
 
 describe('constants', () => {
   let originalEnv: typeof process.env;
@@ -323,9 +323,16 @@ describe('constants', () => {
       vi.restoreAllMocks();
     });
 
-    it('should handle empty string as valid config dir option', () => {
+    it('should handle empty string as fallback to global config dir', () => {
+      vi.spyOn(os, 'homedir').mockReturnValue('/Users/testuser');
+      Object.defineProperty(process, 'platform', {
+        value: 'darwin',
+        writable: true,
+      });
+
       const result = getConfigDir('');
-      expect(result).toBe('');
+      expect(result).toBe('/Users/testuser/.config/1mcp');
+      vi.restoreAllMocks();
     });
 
     it('should handle relative paths as config dir option', () => {
@@ -336,6 +343,46 @@ describe('constants', () => {
     it('should handle absolute paths as config dir option', () => {
       const result = getConfigDir('/absolute/path/to/config');
       expect(result).toBe('/absolute/path/to/config');
+    });
+  });
+
+  describe('getConfigPath', () => {
+    beforeEach(() => {
+      vi.spyOn(os, 'homedir').mockReturnValue('/Users/testuser');
+      Object.defineProperty(process, 'platform', {
+        value: 'darwin',
+        writable: true,
+      });
+    });
+
+    afterEach(() => {
+      vi.restoreAllMocks();
+    });
+
+    it('should return config file path in custom config directory', () => {
+      const result = getConfigPath('/custom/config/dir');
+      expect(result).toBe('/custom/config/dir/mcp.json');
+    });
+
+    it('should return global config file path when no config dir provided', () => {
+      const result = getConfigPath();
+      expect(result).toBe('/Users/testuser/.config/1mcp/mcp.json');
+      expect(os.homedir).toHaveBeenCalled();
+    });
+
+    it('should handle relative paths as config directory', () => {
+      const result = getConfigPath('./config');
+      expect(result).toBe('./config/mcp.json');
+    });
+
+    it('should handle empty string as config directory', () => {
+      const result = getConfigPath('');
+      expect(result).toBe('/Users/testuser/.config/1mcp/mcp.json');
+    });
+
+    it('should handle undefined config directory', () => {
+      const result = getConfigPath(undefined);
+      expect(result).toBe('/Users/testuser/.config/1mcp/mcp.json');
     });
   });
 });

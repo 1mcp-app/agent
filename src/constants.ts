@@ -48,7 +48,7 @@ export function getGlobalConfigDir(): string {
  * Priority: CLI option (includes env var via yargs ONE_MCP prefix) -> Default global config dir
  */
 export function getConfigDir(configDirOption?: string): string {
-  if (configDirOption !== undefined) {
+  if (configDirOption !== undefined && configDirOption !== '') {
     return configDirOption;
   }
 
@@ -60,6 +60,15 @@ export function getConfigDir(configDirOption?: string): string {
  */
 export function getGlobalConfigPath(): string {
   return `${getGlobalConfigDir()}/${MCP_CONFIG_FILE}`;
+}
+
+/**
+ * Get the config file path with directory override support
+ * Priority: configDir option -> Default global config dir
+ */
+export function getConfigPath(configDir?: string): string {
+  const baseDir = getConfigDir(configDir);
+  return `${baseDir}/${MCP_CONFIG_FILE}`;
 }
 
 /**

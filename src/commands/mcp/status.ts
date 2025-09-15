@@ -1,7 +1,7 @@
 import type { Argv } from 'yargs';
 import { MCPServerParams } from '../../core/types/index.js';
 import { GlobalOptions } from '../../globalOptions.js';
-import { getAllServers, getServer, validateConfigPath } from './utils/configUtils.js';
+import { getAllServers, getServer, validateConfigPath, initializeConfigContext } from './utils/configUtils.js';
 import { validateServerName } from './utils/validation.js';
 import { inferTransportType } from '../../transport/transportFactory.js';
 
@@ -37,17 +37,20 @@ export function buildStatusCommand(yargs: Argv) {
  */
 export async function statusCommand(argv: StatusCommandArgs): Promise<void> {
   try {
-    const { name, config: configPath, verbose = false } = argv;
+    const { name, config: configPath, 'config-dir': configDir, verbose = false } = argv;
+
+    // Initialize config context with CLI options
+    initializeConfigContext(configPath, configDir);
 
     // Validate config path
-    validateConfigPath(configPath);
+    validateConfigPath();
 
     if (name) {
       // Show status for specific server
-      await showServerStatus(name, configPath, verbose);
+      await showServerStatus(name, verbose);
     } else {
       // Show status for all servers
-      await showAllServersStatus(configPath, verbose);
+      await showAllServersStatus(verbose);
     }
   } catch (error) {
     console.error(`❌ Failed to get server status: ${error instanceof Error ? error.message : error}`);
@@ -58,12 +61,12 @@ export async function statusCommand(argv: StatusCommandArgs): Promise<void> {
 /**
  * Show status for a specific server
  */
-async function showServerStatus(serverName: string, configPath?: string, verbose: boolean = false): Promise<void> {
+async function showServerStatus(serverName: string, verbose: boolean = false): Promise<void> {
   // Validate server name
   validateServerName(serverName);
 
   // Get server configuration
-  const serverConfig = getServer(serverName, configPath);
+  const serverConfig = getServer(serverName);
   if (!serverConfig) {
     throw new Error(`Server '${serverName}' does not exist.`);
   }
@@ -76,8 +79,8 @@ async function showServerStatus(serverName: string, configPath?: string, verbose
 /**
  * Show status for all servers
  */
-async function showAllServersStatus(configPath?: string, verbose: boolean = false): Promise<void> {
-  const allServers = getAllServers(configPath);
+async function showAllServersStatus(verbose: boolean = false): Promise<void> {
+  const allServers = getAllServers();
 
   if (Object.keys(allServers).length === 0) {
     console.log('No MCP servers are configured.');
