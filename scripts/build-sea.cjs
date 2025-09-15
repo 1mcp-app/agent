@@ -34,17 +34,56 @@ function buildSEA() {
       '--legal-comments=none',
       '--tree-shaking'
     ].join(' '), { stdio: 'inherit' });
+
+    // 3.5. Copy tiktoken WASM files for SEA compatibility
+    console.log('📦 Copying tiktoken WASM files...');
+    const tiktokenPath = require.resolve('tiktoken');
+    const tiktokenDir = require('path').dirname(tiktokenPath);
+    const wasmFiles = [
+      'tiktoken_bg.wasm',
+      'lite/tiktoken_bg.wasm'
+    ];
+
+    for (const wasmFile of wasmFiles) {
+      const srcPath = require('path').join(tiktokenDir, wasmFile);
+      const destPath = require('path').join('build', wasmFile);
+
+      try {
+        // Ensure destination directory exists
+        const destDir = require('path').dirname(destPath);
+        if (!fs.existsSync(destDir)) {
+          fs.mkdirSync(destDir, { recursive: true });
+        }
+
+        // Copy WASM file
+        fs.copyFileSync(srcPath, destPath);
+        console.log(`✅ Copied ${wasmFile}`);
+      } catch (error) {
+        console.warn(`⚠️  Failed to copy ${wasmFile}:`, error.message);
+      }
+    }
     
-    // Post-process: Fix import_meta.url references for SEA compatibility
-    console.log('🔧 Fixing import_meta.url references...');
+    // Post-process: Fix import_meta.url and tiktoken WASM path references for SEA compatibility
+    console.log('🔧 Fixing import_meta.url and tiktoken paths...');
     let bundledCode = fs.readFileSync('build/bundled.cjs', 'utf8');
-    
+
     // Replace import_meta variations with proper fallback for SEA
     bundledCode = bundledCode.replace(
-      /import_meta\d*\.url/g, 
+      /import_meta\d*\.url/g,
       '(typeof __filename !== "undefined" ? "file://" + __filename : "file:///sea")'
     );
-    
+
+    // Fix tiktoken WASM loading - redirect to build directory when bundled
+    bundledCode = bundledCode.replace(
+      /path\.join\(__dirname,\s*["']\.\/tiktoken_bg\.wasm["']\)/g,
+      'require("path").join(require("path").dirname(process.argv[1] || __filename), "tiktoken_bg.wasm")'
+    );
+
+    bundledCode = bundledCode.replace(
+      /path\.join\(__dirname,\s*["']\.\/lite\/tiktoken_bg\.wasm["']\)/g,
+      'require("path").join(require("path").dirname(process.argv[1] || __filename), "lite", "tiktoken_bg.wasm")'
+    );
+
     fs.writeFileSync('build/bundled.cjs', bundledCode);
     
     // 4. Create SEA preparation blob
