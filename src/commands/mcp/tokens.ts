@@ -6,9 +6,12 @@ import { loadConfig, type ServerConfig, initializeConfigContext } from './utils/
 import type { MCPServerParams } from '../../core/types/index.js';
 import { GlobalOptions } from '../../globalOptions.js';
 import { McpConnectionHelper } from './utils/connectionHelper.js';
+import { PresetManager } from '../../utils/presetManager.js';
+import { TagQueryEvaluator } from '../../utils/tagQueryEvaluator.js';
 
 interface TokensCommandArgs extends GlobalOptions {
   'tag-filter'?: string;
+  preset?: string;
   format?: string; // Will be validated at runtime
   model?: string;
 }
@@ -18,6 +21,11 @@ interface TokensCommandArgs extends GlobalOptions {
  */
 export function buildTokensCommand(yargs: Argv) {
   return yargs
+    .option('preset', {
+      describe: 'Use preset filter instead of manual tag expression',
+      type: 'string',
+      alias: 'p',
+    })
     .option('tag-filter', {
       describe: 'Filter servers by advanced tag expression (and/or/not logic)',
       type: 'string',
@@ -35,8 +43,11 @@ export function buildTokensCommand(yargs: Argv) {
       alias: 'm',
       default: 'gpt-4o',
     })
+    .conflicts('preset', 'tag-filter')
     .example([
       ['$0 mcp tokens', 'Estimate tokens for all MCP servers by connecting to them'],
+      ['$0 mcp tokens --preset development', 'Use development preset for token estimation'],
+      ['$0 mcp tokens --preset prod --format=json', 'Production preset with JSON output'],
       ['$0 mcp tokens --tag-filter="context7 or playwright"', 'Estimate tokens for servers with specific tags'],
       ['$0 mcp tokens --format=json', 'Output in JSON format for programmatic use'],
       ['$0 mcp tokens --format=summary', 'Show concise summary'],
@@ -310,14 +321,46 @@ export async function tokensCommand(argv: Arguments<TokensCommandArgs>): Promise
       return;
     }
 
-    // Parse tag filter if provided
+    // Parse tag filter or preset if provided
     let tagExpression: TagExpression | undefined;
     let filteredServers = Object.entries(config.mcpServers);
+    let filterDescription = '';
 
-    if (argv['tag-filter']) {
+    if (argv.preset) {
+      try {
+        // Load preset using PresetManager
+        const presetManager = PresetManager.getInstance(argv['config-dir']);
+        await presetManager.initialize();
+
+        const preset = presetManager.getPreset(argv.preset);
+        if (!preset) {
+          console.error(`Preset not found: ${argv.preset}`);
+          console.error('Available presets:', presetManager.getPresetNames().join(', ') || 'none');
+          process.exit(1);
+        }
+
+        logger.debug('Using preset for token estimation:', preset.name);
+        filterDescription = `preset "${argv.preset}"`;
+
+        // Filter servers based on preset's TagQuery
+        filteredServers = filteredServers.filter(([_name, serverConfig]) => {
+          const serverTags = (serverConfig as MCPServerParams).tags || [];
+          return TagQueryEvaluator.evaluate(preset.tagQuery, serverTags);
+        });
+
+        // Update preset usage tracking
+        await presetManager.markPresetUsed(argv.preset);
+      } catch (error) {
+        console.error(
+          `Error loading preset "${argv.preset}": ${error instanceof Error ? error.message : 'Unknown error'}`,
+        );
+        process.exit(1);
+      }
+    } else if (argv['tag-filter']) {
       try {
         tagExpression = TagQueryParser.parseAdvanced(argv['tag-filter']);
         logger.debug('Parsed tag filter expression:', tagExpression);
+        filterDescription = `tag filter "${argv['tag-filter']}"`;
 
         // Filter servers based on tag expression
         filteredServers = filteredServers.filter(([_name, serverConfig]) => {
@@ -332,9 +375,7 @@ export async function tokensCommand(argv: Arguments<TokensCommandArgs>): Promise
 
     if (filteredServers.length === 0) {
       console.log(
-        argv['tag-filter']
-          ? `No servers match the tag filter: ${argv['tag-filter']}`
-          : 'No servers found in configuration.',
+        filterDescription ? `No servers match the ${filterDescription}` : 'No servers found in configuration.',
       );
       return;
     }

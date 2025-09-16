@@ -156,7 +156,7 @@ describe('mcp tokens command', () => {
       const result = runCli(`mcp tokens --config="${tempConfigFile}" --tag-filter="nonexistent"`);
 
       expect(result.exitCode).toBe(0);
-      expect(result.stdout).toContain('No servers match the tag filter: nonexistent');
+      expect(result.stdout).toContain('No servers match the tag filter "nonexistent"');
     });
 
     it('should output in JSON format', async () => {
@@ -411,6 +411,207 @@ describe('mcp tokens command', () => {
 
       expect(result.exitCode).toBe(0);
       expect(result.stdout).toContain('Connecting to 1 MCP server(s)');
+    });
+  });
+
+  describe('preset integration', () => {
+    let tempPresetConfigFile: string;
+
+    beforeEach(async () => {
+      // Create test config with servers
+      const testConfig: ServerConfig = {
+        mcpServers: {
+          'web-server': {
+            command: 'nonexistent-command-for-testing',
+            args: [],
+            tags: ['web', 'frontend', 'development'],
+          },
+          'api-server': {
+            command: 'nonexistent-command-for-testing',
+            args: [],
+            tags: ['api', 'backend', 'production'],
+          },
+          'database-server': {
+            command: 'nonexistent-command-for-testing',
+            args: [],
+            tags: ['database', 'storage', 'production'],
+          },
+          'test-server': {
+            command: 'nonexistent-command-for-testing',
+            args: [],
+            tags: ['testing', 'qa'],
+          },
+        },
+      };
+
+      await fs.writeFile(tempConfigFile, JSON.stringify(testConfig, null, 2));
+
+      // Create test preset configuration
+      const presetConfig = {
+        presets: {
+          'dev-preset': {
+            name: 'dev-preset',
+            description: 'Development servers preset',
+            strategy: 'or' as const,
+            tagQuery: {
+              $or: [{ tag: 'web' }, { tag: 'development' }],
+            },
+            created: '2023-01-01T00:00:00.000Z',
+            lastModified: '2023-01-01T00:00:00.000Z',
+          },
+          'prod-preset': {
+            name: 'prod-preset',
+            description: 'Production servers preset',
+            strategy: 'and' as const,
+            tagQuery: {
+              tag: 'production',
+            },
+            created: '2023-01-01T00:00:00.000Z',
+            lastModified: '2023-01-01T00:00:00.000Z',
+          },
+          'empty-preset': {
+            name: 'empty-preset',
+            description: 'Preset that matches no servers',
+            strategy: 'or' as const,
+            tagQuery: {
+              tag: 'nonexistent-tag',
+            },
+            created: '2023-01-01T00:00:00.000Z',
+            lastModified: '2023-01-01T00:00:00.000Z',
+          },
+        },
+      };
+
+      tempPresetConfigFile = path.join(tempDir, 'presets.json');
+      await fs.writeFile(tempPresetConfigFile, JSON.stringify(presetConfig, null, 2));
+    });
+
+    it('should use preset to filter servers', async () => {
+      const result = runCli(`mcp tokens --config="${tempConfigFile}" --config-dir="${tempDir}" --preset="dev-preset"`);
+
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toContain('Connecting to 1 MCP server(s)'); // Only web-server matches
+      expect(result.stdout).toContain('No connected MCP servers found'); // But connection fails
+    });
+
+    it('should show error for non-existent preset', async () => {
+      const result = runCli(`mcp tokens --config="${tempConfigFile}" --config-dir="${tempDir}" --preset="nonexistent"`);
+
+      expect(result.exitCode).toBe(1);
+      expect(result.stderr).toContain('Preset not found: nonexistent');
+      expect(result.stderr).toContain('Available presets: dev-preset, prod-preset, empty-preset');
+    });
+
+    it('should handle empty preset results', async () => {
+      const result = runCli(
+        `mcp tokens --config="${tempConfigFile}" --config-dir="${tempDir}" --preset="empty-preset"`,
+      );
+
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toContain('No servers match the preset "empty-preset"');
+    });
+
+    it('should work with production preset', async () => {
+      const result = runCli(`mcp tokens --config="${tempConfigFile}" --config-dir="${tempDir}" --preset="prod-preset"`);
+
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toContain('Connecting to 2 MCP server(s)'); // api-server and database-server match
+      expect(result.stdout).toContain('No connected MCP servers found'); // But connections fail
+    });
+
+    it('should prevent using both preset and tag-filter', async () => {
+      const result = runCli(
+        `mcp tokens --config="${tempConfigFile}" --config-dir="${tempDir}" --preset="dev-preset" --tag-filter="web"`,
+      );
+
+      expect(result.exitCode).toBe(1);
+      expect(result.stderr).toContain('Arguments preset and tag-filter are mutually exclusive');
+    });
+
+    it('should work with preset in JSON format', async () => {
+      const result = runCli(
+        `mcp tokens --config="${tempConfigFile}" --config-dir="${tempDir}" --preset="dev-preset" --format=json`,
+      );
+
+      expect(result.exitCode).toBe(0);
+
+      // Should be valid JSON
+      let parsedOutput: any;
+      expect(() => {
+        parsedOutput = JSON.parse(result.stdout);
+      }).not.toThrow();
+
+      // Check JSON structure
+      expect(parsedOutput).toHaveProperty('summary');
+      expect(parsedOutput).toHaveProperty('servers');
+      expect(parsedOutput.summary.totalServers).toBe(1); // Only 1 server matches dev-preset
+      expect(parsedOutput.summary.connectedServers).toBe(0); // But connection fails
+    });
+
+    it('should work with preset in summary format', async () => {
+      const result = runCli(
+        `mcp tokens --config="${tempConfigFile}" --config-dir="${tempDir}" --preset="prod-preset" --format=summary`,
+      );
+
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toContain('MCP Token Usage Summary:');
+      expect(result.stdout).toContain('Connected Servers: 0/2'); // 2 servers match prod-preset, 0 connect
+      expect(result.stdout).toContain('server(s) not connected');
+    });
+
+    it('should show help with preset option', async () => {
+      const result = runCli('mcp tokens --help');
+
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toContain('--preset');
+      expect(result.stdout).toContain('Use preset filter instead of manual tag expression');
+      expect(result.stdout).toContain('--preset development');
+      expect(result.stdout).toContain('Use development preset for token');
+    });
+
+    it('should handle preset loading errors gracefully', async () => {
+      // Remove preset file to simulate loading error
+      await fs.rm(tempPresetConfigFile, { force: true });
+
+      const result = runCli(`mcp tokens --config="${tempConfigFile}" --config-dir="${tempDir}" --preset="dev-preset"`);
+
+      expect(result.exitCode).toBe(1);
+      expect(result.stderr).toContain('Preset not found: dev-preset');
+    });
+
+    it('should handle preset with complex tag query', async () => {
+      // Add a preset with complex query
+      const complexPresetConfig = {
+        presets: {
+          'complex-preset': {
+            name: 'complex-preset',
+            description: 'Complex tag query preset',
+            strategy: 'advanced' as const,
+            tagQuery: {
+              $and: [
+                {
+                  $or: [{ tag: 'web' }, { tag: 'api' }],
+                },
+                {
+                  $not: { tag: 'testing' },
+                },
+              ],
+            },
+            created: '2023-01-01T00:00:00.000Z',
+            lastModified: '2023-01-01T00:00:00.000Z',
+          },
+        },
+      };
+
+      await fs.writeFile(tempPresetConfigFile, JSON.stringify(complexPresetConfig, null, 2));
+
+      const result = runCli(
+        `mcp tokens --config="${tempConfigFile}" --config-dir="${tempDir}" --preset="complex-preset"`,
+      );
+
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toContain('Connecting to 2 MCP server(s)'); // web-server and api-server match
+      expect(result.stdout).toContain('No connected MCP servers found'); // But connections fail
     });
   });
 });
