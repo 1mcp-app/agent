@@ -73,6 +73,7 @@ describe('server', () => {
     mockClientManager = {
       createClients: vi.fn().mockResolvedValue(mockClients),
       initializeClientsAsync: vi.fn().mockReturnValue(mockClients),
+      setInstructionAggregator: vi.fn(),
     };
     vi.mocked(ClientManager.getOrCreateInstance).mockReturnValue(mockClientManager);
 
@@ -81,6 +82,7 @@ describe('server', () => {
       start: vi.fn(),
       stop: vi.fn(),
       getStatus: vi.fn().mockReturnValue('running'),
+      setInstructionAggregator: vi.fn(),
     };
     vi.mocked(ServerManager.getOrCreateInstance).mockReturnValue(mockServerManager);
 
@@ -98,6 +100,7 @@ describe('server', () => {
       expect(result.serverManager).toBe(mockServerManager);
       expect(result.loadingManager).toBeDefined();
       expect(result.loadingPromise).toBeDefined();
+      expect(result.instructionAggregator).toBeDefined();
     });
 
     it('should get transport configuration from McpConfigManager', async () => {

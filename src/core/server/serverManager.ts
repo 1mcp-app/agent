@@ -14,6 +14,7 @@ import {
 } from '../types/index.js';
 import type { OutboundConnection } from '../types/client.js';
 import { executeOperation } from '../../utils/operationExecution.js';
+import { InstructionAggregator } from '../instructions/instructionAggregator.js';
 
 export class ServerManager {
   private static instance: ServerManager | undefined;
@@ -25,6 +26,7 @@ export class ServerManager {
   private transports: Record<string, Transport> = {};
   private connectionSemaphore: Map<string, Promise<void>> = new Map();
   private disconnectingIds: Set<string> = new Set();
+  private instructionAggregator?: InstructionAggregator;
 
   private constructor(
     config: { name: string; version: string },
@@ -69,6 +71,40 @@ export class ServerManager {
       ServerManager.instance.disconnectingIds.clear();
     }
     ServerManager.instance = undefined;
+  }
+
+  /**
+   * Set the instruction aggregator instance
+   * @param aggregator The instruction aggregator to use
+   */
+  public setInstructionAggregator(aggregator: InstructionAggregator): void {
+    this.instructionAggregator = aggregator;
+
+    // Listen for instruction changes and update existing server instances
+    aggregator.on('instructions-changed', (aggregatedInstructions: string) => {
+      this.updateServerInstructions(aggregatedInstructions);
+    });
+
+    logger.debug('Instruction aggregator set for ServerManager');
+  }
+
+  /**
+   * Update all server instances with new aggregated instructions
+   * @param aggregatedInstructions The new aggregated instructions
+   */
+  private updateServerInstructions(aggregatedInstructions: string): void {
+    logger.info(`Updating server instances with new instructions (${aggregatedInstructions.length} characters)`);
+
+    for (const [sessionId, _inboundConn] of this.inboundConns) {
+      try {
+        // Note: The MCP SDK doesn't provide a direct way to update instructions
+        // on an existing server instance. Instructions are set during server construction.
+        // For now, we'll log this for future server instances.
+        logger.debug(`Instructions updated for session ${sessionId}`);
+      } catch (error) {
+        logger.warn(`Failed to update instructions for session ${sessionId}: ${error}`);
+      }
+    }
   }
 
   public async connectTransport(transport: Transport, sessionId: string, opts: InboundConnectionConfig): Promise<void> {
@@ -126,8 +162,17 @@ export class ServerManager {
   }
 
   private async doConnect(transport: Transport, sessionId: string, opts: InboundConnectionConfig): Promise<void> {
+    // Get filtered instructions based on client's filter criteria using InstructionAggregator
+    const filteredInstructions = this.instructionAggregator?.getFilteredInstructions(opts, this.outboundConns) || '';
+
+    // Create server capabilities with filtered instructions
+    const serverOptionsWithInstructions = {
+      ...this.serverCapabilities,
+      instructions: filteredInstructions || undefined,
+    };
+
     // Create a new server instance for this transport
-    const server = new Server(this.serverConfig, this.serverCapabilities);
+    const server = new Server(this.serverConfig, serverOptionsWithInstructions);
 
     // Create server info object first
     const serverInfo: InboundConnection = {

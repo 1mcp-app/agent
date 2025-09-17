@@ -10,6 +10,7 @@ import { McpLoadingManager } from './core/loading/mcpLoadingManager.js';
 import { AsyncLoadingOrchestrator } from './core/capabilities/asyncLoadingOrchestrator.js';
 import { PresetManager } from './utils/presetManager.js';
 import { PresetNotificationService } from './utils/presetNotificationService.js';
+import { InstructionAggregator } from './core/instructions/instructionAggregator.js';
 
 /**
  * Result of server setup including both sync and async components
@@ -23,6 +24,8 @@ export interface ServerSetupResult {
   loadingPromise: Promise<void>;
   /** Async loading orchestrator (only present in async mode) */
   asyncOrchestrator?: AsyncLoadingOrchestrator;
+  /** Instruction aggregator for combining server instructions */
+  instructionAggregator: InstructionAggregator;
 }
 
 /**
@@ -60,8 +63,13 @@ async function setupServer(): Promise<ServerSetupResult> {
  * HTTP server starts immediately, MCP servers load in background
  */
 async function setupServerAsync(transports: Record<string, any>): Promise<ServerSetupResult> {
+  // Initialize instruction aggregator
+  const instructionAggregator = new InstructionAggregator();
+  logger.info('Instruction aggregator initialized');
+
   // Initialize client manager without connecting (for async loading)
   const clientManager = ClientManager.getOrCreateInstance();
+  clientManager.setInstructionAggregator(instructionAggregator);
   const clients = clientManager.initializeClientsAsync(transports);
   logger.info(`Initialized storage for ${Object.keys(transports).length} MCP servers`);
 
@@ -72,6 +80,7 @@ async function setupServerAsync(transports: Record<string, any>): Promise<Server
     clients,
     transports,
   );
+  serverManager.setInstructionAggregator(instructionAggregator);
 
   // Initialize config reload service
   configReloadService.initialize(transports);
@@ -100,6 +109,7 @@ async function setupServerAsync(transports: Record<string, any>): Promise<Server
     loadingManager,
     loadingPromise,
     asyncOrchestrator,
+    instructionAggregator,
   };
 }
 
@@ -108,8 +118,13 @@ async function setupServerAsync(transports: Record<string, any>): Promise<Server
  * Waits for all MCP servers to load before returning
  */
 async function setupServerSync(transports: Record<string, any>): Promise<ServerSetupResult> {
+  // Initialize instruction aggregator
+  const instructionAggregator = new InstructionAggregator();
+  logger.info('Instruction aggregator initialized');
+
   // Use the standard synchronous client creation
   const clientManager = ClientManager.getOrCreateInstance();
+  clientManager.setInstructionAggregator(instructionAggregator);
   const clients = await clientManager.createClients(transports);
   logger.info(`Connected to ${clients.size} MCP servers synchronously`);
 
@@ -120,6 +135,7 @@ async function setupServerSync(transports: Record<string, any>): Promise<ServerS
     clients,
     transports,
   );
+  serverManager.setInstructionAggregator(instructionAggregator);
 
   // Initialize config reload service
   configReloadService.initialize(transports);
@@ -134,6 +150,7 @@ async function setupServerSync(transports: Record<string, any>): Promise<ServerS
     serverManager,
     loadingManager,
     loadingPromise,
+    instructionAggregator,
   };
 }
 

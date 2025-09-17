@@ -14,12 +14,14 @@ import {
 } from '../types/index.js';
 import { AgentConfigManager } from '../server/agentConfig.js';
 import { executeOperation } from '../../utils/operationExecution.js';
+import { InstructionAggregator } from '../instructions/instructionAggregator.js';
 
 export class ClientManager {
   private static instance: ClientManager;
   private outboundConns: OutboundConnections = new Map();
   private transports: Record<string, AuthProviderTransport> = {};
   private connectionSemaphore: Map<string, Promise<void>> = new Map();
+  private instructionAggregator?: InstructionAggregator;
 
   private constructor() {}
 
@@ -37,6 +39,44 @@ export class ClientManager {
   // Test utility method to reset singleton state
   public static resetInstance(): void {
     ClientManager.instance = undefined as any;
+  }
+
+  /**
+   * Set the instruction aggregator instance
+   * @param aggregator The instruction aggregator to use
+   */
+  public setInstructionAggregator(aggregator: InstructionAggregator): void {
+    this.instructionAggregator = aggregator;
+  }
+
+  /**
+   * Extract and cache instructions from a connected client
+   * @param name The client name
+   * @param client The connected client instance
+   */
+  private extractAndCacheInstructions(name: string, client: Client): void {
+    try {
+      const instructions = client.getInstructions();
+
+      // Update the connection info with instructions
+      const connectionInfo = this.outboundConns.get(name);
+      if (connectionInfo) {
+        connectionInfo.instructions = instructions;
+      }
+
+      // Update the instruction aggregator if available
+      if (this.instructionAggregator) {
+        this.instructionAggregator.setInstructions(name, instructions);
+      }
+
+      if (instructions?.trim()) {
+        logger.debug(`Cached instructions for ${name}: ${instructions.length} characters`);
+      } else {
+        logger.debug(`No instructions available for ${name}`);
+      }
+    } catch (error) {
+      logger.warn(`Failed to extract instructions from ${name}: ${error}`);
+    }
   }
 
   /**
@@ -89,10 +129,17 @@ export class ClientManager {
         });
         logger.info(`Client created for ${name}`);
 
+        // Extract and cache instructions after successful connection
+        this.extractAndCacheInstructions(name, connectedClient);
+
         connectedClient.onclose = () => {
           const clientInfo = this.outboundConns.get(name);
           if (clientInfo) {
             clientInfo.status = ClientStatus.Disconnected;
+          }
+          // Remove instructions from aggregator when client disconnects
+          if (this.instructionAggregator) {
+            this.instructionAggregator.removeServer(name);
           }
           logger.info(`Client ${name} disconnected`);
         };
@@ -314,10 +361,17 @@ export class ClientManager {
       });
       logger.info(`Client created for ${name}`);
 
+      // Extract and cache instructions after successful connection
+      this.extractAndCacheInstructions(name, connectedClient);
+
       connectedClient.onclose = () => {
         const clientInfo = this.outboundConns.get(name);
         if (clientInfo) {
           clientInfo.status = ClientStatus.Disconnected;
+        }
+        // Remove instructions from aggregator when client disconnects
+        if (this.instructionAggregator) {
+          this.instructionAggregator.removeServer(name);
         }
         logger.info(`Client ${name} disconnected`);
       };

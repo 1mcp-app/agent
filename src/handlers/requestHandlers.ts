@@ -30,47 +30,11 @@ import { ClientManager } from '../core/client/clientManager.js';
 import { ServerManager } from '../core/server/serverManager.js';
 import { parseUri } from '../utils/parsing.js';
 import { withErrorHandling } from '../utils/errorHandling.js';
-import { filterClients, byCapabilities, byTags, byTagExpression } from '../utils/clientFiltering.js';
-import { TagQueryEvaluator } from '../utils/tagQueryEvaluator.js';
-import { TagQuery } from '../utils/presetTypes.js';
-import { OutboundConnections, OutboundConnection, InboundConnection, ClientStatus } from '../core/types/index.js';
+import { FilteringService } from '../core/filtering/filteringService.js';
+import { byCapabilities } from '../utils/clientFiltering.js';
+import { OutboundConnections, InboundConnection, ClientStatus } from '../core/types/index.js';
 import { handlePagination } from '../utils/pagination.js';
 import logger from '../logger/logger.js';
-
-/**
- * Create a filter function for MongoDB-style tag queries
- */
-function byTagQuery(query: TagQuery) {
-  return (clients: OutboundConnections) => {
-    const filtered = new Map<string, OutboundConnection>();
-    for (const [clientId, conn] of clients.entries()) {
-      if (conn.status !== ClientStatus.Connected) {
-        continue;
-      }
-      const clientTags = conn.transport.tags || [];
-      if (TagQueryEvaluator.evaluate(query, clientTags)) {
-        filtered.set(clientId, conn);
-      }
-    }
-    return filtered;
-  };
-}
-
-/**
- * Get the appropriate tag filter for the inbound connection based on its tag filter mode
- */
-function getTagFilter(inboundConn: InboundConnection) {
-  if (inboundConn.tagFilterMode === 'preset' && inboundConn.tagQuery) {
-    return byTagQuery(inboundConn.tagQuery);
-  } else if (inboundConn.tagFilterMode === 'advanced' && inboundConn.tagExpression) {
-    return byTagExpression(inboundConn.tagExpression);
-  } else if (inboundConn.tagFilterMode === 'simple-or' || inboundConn.tags) {
-    return byTags(inboundConn.tags);
-  } else {
-    // No filtering - return function that passes all clients through
-    return byTags(undefined);
-  }
-}
 
 /**
  * Registers server-specific request handlers
@@ -187,10 +151,9 @@ function registerResourceHandlers(outboundConns: OutboundConnections, inboundCon
   inboundConn.server.setRequestHandler(
     ListResourcesRequestSchema,
     withErrorHandling(async (request: ListResourcesRequest) => {
-      const filteredClients = filterClients(
-        byCapabilities({ resources: {} }),
-        getTagFilter(inboundConn),
-      )(outboundConns);
+      // First filter by capabilities, then by tags
+      const capabilityFilteredClients = byCapabilities({ resources: {} })(outboundConns);
+      const filteredClients = FilteringService.getFilteredConnections(capabilityFilteredClients, inboundConn);
 
       const result = await handlePagination(
         filteredClients,
@@ -217,10 +180,9 @@ function registerResourceHandlers(outboundConns: OutboundConnections, inboundCon
   inboundConn.server.setRequestHandler(
     ListResourceTemplatesRequestSchema,
     withErrorHandling(async (request: ListResourceTemplatesRequest) => {
-      const filteredClients = filterClients(
-        byCapabilities({ resources: {} }),
-        getTagFilter(inboundConn),
-      )(outboundConns);
+      // First filter by capabilities, then by tags
+      const capabilityFilteredClients = byCapabilities({ resources: {} })(outboundConns);
+      const filteredClients = FilteringService.getFilteredConnections(capabilityFilteredClients, inboundConn);
 
       const result = await handlePagination(
         filteredClients,
@@ -302,7 +264,9 @@ function registerToolHandlers(outboundConns: OutboundConnections, inboundConn: I
   inboundConn.server.setRequestHandler(
     ListToolsRequestSchema,
     withErrorHandling(async (request: ListToolsRequest) => {
-      const filteredClients = filterClients(byCapabilities({ tools: {} }), getTagFilter(inboundConn))(outboundConns);
+      // First filter by capabilities, then by tags
+      const capabilityFilteredClients = byCapabilities({ tools: {} })(outboundConns);
+      const filteredClients = FilteringService.getFilteredConnections(capabilityFilteredClients, inboundConn);
 
       const result = await handlePagination(
         filteredClients,
@@ -350,7 +314,9 @@ function registerPromptHandlers(outboundConns: OutboundConnections, inboundConn:
   inboundConn.server.setRequestHandler(
     ListPromptsRequestSchema,
     withErrorHandling(async (request: ListPromptsRequest) => {
-      const filteredClients = filterClients(byCapabilities({ prompts: {} }), getTagFilter(inboundConn))(outboundConns);
+      // First filter by capabilities, then by tags
+      const capabilityFilteredClients = byCapabilities({ prompts: {} })(outboundConns);
+      const filteredClients = FilteringService.getFilteredConnections(capabilityFilteredClients, inboundConn);
 
       const result = await handlePagination(
         filteredClients,

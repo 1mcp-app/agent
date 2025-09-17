@@ -35,6 +35,8 @@ export interface OutboundConnection {
   lastConnected?: Date;
   status: ClientStatus;
   capabilities?: ServerCapabilities;
+  /** Instructions provided by the server during initialization */
+  instructions?: string;
   /** OAuth authorization URL for user to complete authentication */
   authorizationUrl?: string;
   /** When OAuth authorization was initiated */
