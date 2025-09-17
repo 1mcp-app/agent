@@ -16,12 +16,21 @@ npx -y @1mcp/agent mcp tokens [options]
   - 用于令牌估算的模型（默认：`gpt-4o`）
   - 支持任何有效的 tiktoken 模型，包括 `gpt-3.5-turbo`、`gpt-4`、`o1` 等
 
+- **`--preset, -p <name>`**
+  - 使用预设过滤器而非手动标签表达式
+  - 不能与 `--tag-filter` 同时使用
+
 - **`--tag-filter, -f <expression>`**
   - 通过高级标签表达式过滤服务器（and/or/not 逻辑）
   - 示例：`network`、`web+api`、`(filesystem,network)-test`
+  - 不能与 `--preset` 同时使用
 
 - **`--format <format>`**
   - 输出格式：`table`、`json`、`summary`（默认：`table`）
+
+- **`--verbose, -v`**
+  - 显示服务器日志和连接详情
+  - 默认情况下，服务器日志被抑制以获得清洁的输出
 
 - **`--config, -c <path>`**
   - 配置文件路径
@@ -46,6 +55,9 @@ npx -y @1mcp/agent mcp tokens
 # 使用不同模型进行令牌估算
 npx -y @1mcp/agent mcp tokens --model gpt-3.5-turbo
 
+# 使用预设进行服务器过滤
+npx -y @1mcp/agent mcp tokens --preset development
+
 # 按标签过滤服务器并显示摘要格式
 npx -y @1mcp/agent mcp tokens --tag-filter="network or filesystem" --format=summary
 
@@ -55,6 +67,9 @@ npx -y @1mcp/agent mcp tokens --format=json > token-analysis.json
 # 使用特定模型进行复杂标签过滤
 npx -y @1mcp/agent mcp tokens --model=o1 --tag-filter="(web+api)-test" --format=table
 
+# 显示服务器日志和连接详情用于调试
+npx -y @1mcp/agent mcp tokens --verbose
+
 # 使用自定义配置文件
 npx -y @1mcp/agent mcp tokens --config ~/my-mcp-config.json
 ```
@@ -63,7 +78,12 @@ npx -y @1mcp/agent mcp tokens --config ~/my-mcp-config.json
 
 ### 表格格式（默认）
 
-按功能类型（工具、资源、提示）显示分层细分，包含服务器分组和每个项目的令牌估算。
+按功能类型（工具、资源、提示）显示美观格式化的彩色分层细分，包含服务器分组和每个项目的令牌估算。输出使用：
+
+- **彩色区段** 带有视觉图标（🔧 工具、📁 资源、💬 提示）
+- **框式摘要** 包含整体统计信息
+- **清洁布局** 默认抑制服务器日志
+- **连接状态** 每个服务器的状态清晰标示
 
 ### JSON 格式
 
@@ -92,7 +112,11 @@ npx -y @1mcp/agent mcp tokens --config ~/my-mcp-config.json
 
 ### 摘要格式
 
-简洁的概览，包含关键指标和按令牌使用量排序的顶级服务器。
+简洁的概览，包含关键指标和按令牌使用量排序的顶级服务器，以彩色框式区段呈现：
+
+- **使用摘要** 包含服务器计数和功能总计
+- **顶级服务器排名** 按令牌消耗排序
+- **连接问题** 如有服务器宕机会清晰突出显示
 
 ## 支持的模型
 

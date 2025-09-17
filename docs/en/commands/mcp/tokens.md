@@ -16,12 +16,21 @@ npx -y @1mcp/agent mcp tokens [options]
   - Model to use for token estimation (default: `gpt-4o`)
   - Supports any valid tiktoken model including `gpt-3.5-turbo`, `gpt-4`, `o1`, etc.
 
+- **`--preset, -p <name>`**
+  - Use preset filter instead of manual tag expression
+  - Cannot be used together with `--tag-filter`
+
 - **`--tag-filter, -f <expression>`**
   - Filter servers by advanced tag expression (and/or/not logic)
   - Examples: `network`, `web+api`, `(filesystem,network)-test`
+  - Cannot be used together with `--preset`
 
 - **`--format <format>`**
   - Output format: `table`, `json`, `summary` (default: `table`)
+
+- **`--verbose, -v`**
+  - Show server logs and connection details
+  - By default, server logs are suppressed for clean output
 
 - **`--config, -c <path>`**
   - Path to the config file
@@ -46,6 +55,9 @@ npx -y @1mcp/agent mcp tokens
 # Use a different model for token estimation
 npx -y @1mcp/agent mcp tokens --model gpt-3.5-turbo
 
+# Use a preset for server filtering
+npx -y @1mcp/agent mcp tokens --preset development
+
 # Filter servers by tags and show summary format
 npx -y @1mcp/agent mcp tokens --tag-filter="network or filesystem" --format=summary
 
@@ -55,6 +67,9 @@ npx -y @1mcp/agent mcp tokens --format=json > token-analysis.json
 # Complex tag filtering with specific model
 npx -y @1mcp/agent mcp tokens --model=o1 --tag-filter="(web+api)-test" --format=table
 
+# Show server logs and connection details for debugging
+npx -y @1mcp/agent mcp tokens --verbose
+
 # Use custom config file
 npx -y @1mcp/agent mcp tokens --config ~/my-mcp-config.json
 ```
@@ -63,7 +78,12 @@ npx -y @1mcp/agent mcp tokens --config ~/my-mcp-config.json
 
 ### Table Format (Default)
 
-Shows a hierarchical breakdown by capability type (Tools, Resources, Prompts) with server groupings and token estimates for each item.
+Shows a beautifully formatted, colorful hierarchical breakdown by capability type (Tools, Resources, Prompts) with server groupings and token estimates for each item. The output uses:
+
+- **Colored sections** with visual icons (🔧 Tools, 📁 Resources, 💬 Prompts)
+- **Boxed summary** with overall statistics
+- **Clean layout** with server logs suppressed by default
+- **Connection status** clearly indicated for each server
 
 ### JSON Format
 
@@ -92,7 +112,11 @@ Provides structured data suitable for programmatic analysis:
 
 ### Summary Format
 
-Concise overview with key metrics and top servers by token usage.
+Concise overview with key metrics and top servers by token usage, presented in colorful boxed sections:
+
+- **Usage summary** with server counts and capability totals
+- **Top servers ranking** by token consumption
+- **Connection issues** clearly highlighted if any servers are down
 
 ## Supported Models
 
