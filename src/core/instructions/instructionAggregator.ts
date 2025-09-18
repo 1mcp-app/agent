@@ -439,15 +439,33 @@ export class InstructionAggregator extends EventEmitter {
   }
 
   /**
-   * Simple hash function for template cache keys
+   * Cryptographically secure hash function for template cache keys
+   * Uses SHA-256 to prevent collision attacks
    */
   private hashString(str: string): string {
-    let hash = 0;
-    for (let i = 0; i < str.length; i++) {
-      const char = str.charCodeAt(i);
-      hash = (hash << 5) - hash + char;
-      hash = hash & hash; // Convert to 32-bit integer
-    }
-    return Math.abs(hash).toString(16);
+    const crypto = require('crypto');
+    return crypto.createHash('sha256').update(str, 'utf8').digest('hex').substring(0, 16);
+  }
+
+  /**
+   * Cleanup method to remove all event listeners and clear caches
+   * Should be called when the aggregator is no longer needed
+   */
+  public cleanup(): void {
+    logger.debug('InstructionAggregator: Starting cleanup');
+
+    // Clear all event listeners
+    this.removeAllListeners();
+
+    // Clear template cache
+    this.templateCache.clear();
+
+    // Clear server instructions
+    this.serverInstructions.clear();
+
+    // Reset initialization state
+    this.isInitialized = false;
+
+    logger.info('InstructionAggregator: Cleanup completed - all listeners and caches cleared');
   }
 }

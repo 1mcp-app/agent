@@ -358,6 +358,155 @@ describe('InstructionAggregator', () => {
       });
     });
 
+    describe('Cleanup and Memory Management', () => {
+      it('should cleanup all event listeners and caches', () => {
+        const mockListener = vi.fn();
+
+        // Add some instructions and listeners
+        aggregator.setInstructions('server1', 'Instructions 1');
+        aggregator.setInstructions('server2', 'Instructions 2');
+        aggregator.on('instructions-changed', mockListener);
+
+        // Cache some templates
+        const template = '{{serverCount}} servers';
+        // @ts-ignore - accessing private method for testing
+        aggregator.getCompiledTemplate(template);
+
+        // Verify state before cleanup
+        expect(aggregator.getServerCount()).toBe(2);
+        expect(aggregator.getTemplateCacheStats().size).toBeGreaterThan(0);
+
+        // Perform cleanup
+        aggregator.cleanup();
+
+        // Verify cleanup
+        expect(aggregator.getServerCount()).toBe(0);
+        expect(aggregator.getTemplateCacheStats().size).toBe(0);
+        expect(aggregator.getServerNames()).toEqual([]);
+
+        // Verify event listeners are removed
+        aggregator.setInstructions('server3', 'New instructions');
+        expect(mockListener).not.toHaveBeenCalled(); // Should not be called after cleanup
+      });
+
+      it('should handle cleanup when already empty', () => {
+        // Cleanup empty aggregator should not throw
+        expect(() => aggregator.cleanup()).not.toThrow();
+
+        // Verify state
+        expect(aggregator.getServerCount()).toBe(0);
+        expect(aggregator.getTemplateCacheStats().size).toBe(0);
+      });
+
+      it('should allow reuse after cleanup', () => {
+        // Use aggregator
+        aggregator.setInstructions('server1', 'Instructions 1');
+        expect(aggregator.getServerCount()).toBe(1);
+
+        // Cleanup
+        aggregator.cleanup();
+        expect(aggregator.getServerCount()).toBe(0);
+
+        // Reuse after cleanup
+        aggregator.setInstructions('server2', 'Instructions 2');
+        expect(aggregator.getServerCount()).toBe(1);
+        expect(aggregator.hasInstructions('server2')).toBe(true);
+      });
+
+      it('should prevent memory leaks with repeated cleanup calls', () => {
+        aggregator.setInstructions('server1', 'Instructions 1');
+
+        // Multiple cleanups should be safe
+        aggregator.cleanup();
+        aggregator.cleanup();
+        aggregator.cleanup();
+
+        expect(aggregator.getServerCount()).toBe(0);
+      });
+    });
+
+    describe('Hash Collision Prevention', () => {
+      it('should use cryptographically secure hash for cache keys', () => {
+        const template1 = 'Template with content A';
+        const template2 = 'Template with content B';
+
+        // Get cache keys by accessing the private hashString method
+        // @ts-ignore - accessing private method for testing
+        const hash1 = aggregator.hashString(template1);
+        // @ts-ignore - accessing private method for testing
+        const hash2 = aggregator.hashString(template2);
+
+        // Hashes should be different for different inputs
+        expect(hash1).not.toBe(hash2);
+
+        // Hash should be consistent for same input
+        // @ts-ignore - accessing private method for testing
+        const hash1Repeat = aggregator.hashString(template1);
+        expect(hash1).toBe(hash1Repeat);
+
+        // Hash should be hex string of reasonable length (SHA-256 truncated to 16 chars)
+        expect(hash1).toMatch(/^[a-f0-9]{16}$/);
+        expect(hash2).toMatch(/^[a-f0-9]{16}$/);
+      });
+
+      it('should handle large templates without hash collisions', () => {
+        const largeTemplate1 = 'Large template: ' + 'A'.repeat(10000);
+        const largeTemplate2 = 'Large template: ' + 'B'.repeat(10000);
+
+        // @ts-ignore - accessing private method for testing
+        const hash1 = aggregator.hashString(largeTemplate1);
+        // @ts-ignore - accessing private method for testing
+        const hash2 = aggregator.hashString(largeTemplate2);
+
+        expect(hash1).not.toBe(hash2);
+        expect(hash1).toMatch(/^[a-f0-9]{16}$/);
+        expect(hash2).toMatch(/^[a-f0-9]{16}$/);
+      });
+
+      it('should generate different hashes for similar templates', () => {
+        const templates = [
+          '{{serverCount}} servers available',
+          '{{serverCount}} servers available!',
+          '{{serverCount}} servers available.',
+          ' {{serverCount}} servers available',
+        ];
+
+        const hashes = templates.map((template) =>
+          // @ts-ignore - accessing private method for testing
+          aggregator.hashString(template),
+        );
+
+        // All hashes should be unique
+        const uniqueHashes = new Set(hashes);
+        expect(uniqueHashes.size).toBe(templates.length);
+      });
+
+      it('should handle edge case inputs for hashing', () => {
+        const edgeCases = [
+          '',
+          ' ',
+          '\n\t\r',
+          '🎉 Unicode content 🚀',
+          'Very\x00strange\x01content',
+          'Content with "quotes" and \'apostrophes\'',
+        ];
+
+        const hashes = edgeCases.map((template) =>
+          // @ts-ignore - accessing private method for testing
+          aggregator.hashString(template),
+        );
+
+        // All hashes should be valid hex strings
+        hashes.forEach((hash) => {
+          expect(hash).toMatch(/^[a-f0-9]{16}$/);
+        });
+
+        // All hashes should be unique
+        const uniqueHashes = new Set(hashes);
+        expect(uniqueHashes.size).toBe(edgeCases.length);
+      });
+    });
+
     describe('Memory Pressure Scenarios', () => {
       it('should handle rapid instruction updates', () => {
         // Simulate rapid server instruction changes

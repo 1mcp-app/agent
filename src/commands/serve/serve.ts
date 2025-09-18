@@ -15,6 +15,7 @@ import { TagQueryParser, TagExpression } from '../../utils/tagQueryParser.js';
 import ConfigContext from '../../config/configContext.js';
 import { getDefaultInstructionsTemplatePath } from '../../constants.js';
 import { validateTemplateContent, formatValidationError } from '../../core/instructions/templateValidator.js';
+import { InstructionAggregator } from '../../core/instructions/instructionAggregator.js';
 
 export interface ServeOptions {
   config?: string;
@@ -118,6 +119,7 @@ function setupGracefulShutdown(
   serverManager: ServerManager,
   loadingManager?: McpLoadingManager,
   expressServer?: ExpressServer,
+  instructionAggregator?: InstructionAggregator,
 ): void {
   const shutdown = async () => {
     logger.info('Shutting down server...');
@@ -152,6 +154,16 @@ function setupGracefulShutdown(
         logger.info(`Closed transport: ${sessionId}`);
       } catch (error) {
         logger.error(`Error closing transport ${sessionId}: ${error}`);
+      }
+    }
+
+    // Cleanup InstructionAggregator if it exists
+    if (instructionAggregator && typeof instructionAggregator.cleanup === 'function') {
+      try {
+        instructionAggregator.cleanup();
+        logger.info('InstructionAggregator cleanup complete');
+      } catch (error) {
+        logger.error(`Error cleaning up InstructionAggregator: ${error}`);
       }
     }
 
@@ -254,7 +266,7 @@ export async function serveCommand(parsedArgv: ServeOptions): Promise<void> {
     PresetManager.getInstance(parsedArgv['config-dir']);
 
     // Initialize server and get server manager with custom config path if provided
-    const { serverManager, loadingManager, asyncOrchestrator } = await setupServer();
+    const { serverManager, loadingManager, asyncOrchestrator, instructionAggregator } = await setupServer();
 
     let expressServer: ExpressServer | undefined;
 
@@ -338,7 +350,7 @@ export async function serveCommand(parsedArgv: ServeOptions): Promise<void> {
     }
 
     // Set up graceful shutdown handling
-    setupGracefulShutdown(serverManager, loadingManager, expressServer);
+    setupGracefulShutdown(serverManager, loadingManager, expressServer, instructionAggregator);
 
     // Log MCP loading progress (non-blocking)
     loadingManager.on('loading-progress', (summary) => {
