@@ -2,6 +2,14 @@
 
 This page provides a complete reference for all variables available in custom instruction templates.
 
+## HTML Escaping Behavior
+
+**Important**: 1MCP configures Handlebars with `noEscape: true` by default, which means all template variables output unescaped content. This is specifically designed for LLM instruction templates where HTML escaping would interfere with readability and AI parsing.
+
+- **All variables are unescaped**: Use regular <span v-pre>`{{variable}}`</span> syntax for all content
+- **XML tags render cleanly**: `<server-name>` outputs as `<server-name>` (not HTML entities)
+- **No triple braces needed**: <span v-pre>`{{instructions}}`</span> outputs raw content directly
+
 ## Server State Variables
 
 ### <span v-pre>`{{serverCount}}`</span>
@@ -78,12 +86,12 @@ This page provides a complete reference for all variables available in custom in
 
 ## Content Variables
 
-### <span v-pre>`{{{instructions}}}`</span>
+### <span v-pre>`{{instructions}}`</span>
 
-- **Type**: `string` (HTML/Markdown)
+- **Type**: `string` (unescaped)
 - **Description**: All server instructions wrapped in XML-like tags
 - **Format**: `<server-name>\nInstructions...\n</server-name>`
-- **Usage**: Use <span v-pre>`{{{instructions}}}`</span> (triple braces) to render HTML/Markdown
+- **Usage**: Use regular <span v-pre>`{{instructions}}`</span> syntax (unescaped by default)
 - **Example**:
 
   ```xml
@@ -212,7 +220,7 @@ Output: `Connected to 3 servers`
 {{#if hasInstructions}}
 #### {{name}} Capabilities
 <{{name}}>
-{{{instructions}}}
+{{instructions}}
 </{{name}}>
 {{/if}}
 {{/each}}
@@ -251,7 +259,7 @@ Available tools:
 {{/each}}
 
 ### Instructions
-{{{instructions}}}
+{{instructions}}
 
 ### Example Tools
 {{#each examples}}
@@ -274,7 +282,7 @@ When filtering is active, only variables reflect the filtered subset:
 
 - <span v-pre>`{{serverCount}}`</span> = count of filtered servers
 - <span v-pre>`{{serverNames}}`</span> = names of filtered servers only
-- <span v-pre>`{{{instructions}}}`</span> = instructions from filtered servers only
+- <span v-pre>`{{instructions}}`</span> = instructions from filtered servers only
 - <span v-pre>`{{filterContext}}`</span> = description of active filter
 
 ### Alphabetical Ordering
@@ -283,7 +291,7 @@ Server-related variables maintain consistent alphabetical ordering:
 
 - <span v-pre>`{{serverList}}`</span> is alphabetically sorted
 - <span v-pre>`{{serverNames}}`</span> array is alphabetically sorted
-- <span v-pre>`{{{instructions}}}`</span> sections appear in alphabetical order
+- <span v-pre>`{{instructions}}`</span> sections appear in alphabetical order
 
 ### Real-time Updates
 
@@ -307,8 +315,11 @@ All variables reflect the current state:
 - Errors are logged but don't crash the server
 - Template compilation is cached for performance
 
-### Safe Rendering
+### Template Rendering
 
-- Use <span v-pre>`{{variable}}`</span> for escaped output
-- Use <span v-pre>`{{{variable}}`</span> for raw HTML/Markdown (like instructions)
-- Handlebars automatically handles XSS protection for escaped variables
+**Note**: 1MCP uses `noEscape: true` configuration, so all variables are unescaped by default:
+
+- <span v-pre>`{{variable}}`</span> outputs raw content (unescaped)
+- No need for triple braces - all content renders as-is
+- Perfect for LLM consumption where XML tags and markup should be preserved
+- XSS protection is not needed since templates are for LLM instruction purposes, not web display

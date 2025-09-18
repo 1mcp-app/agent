@@ -253,7 +253,7 @@ export class InstructionAggregator extends EventEmitter {
 
     if (!compiledTemplate) {
       // Compile and cache template
-      compiledTemplate = Handlebars.compile(template);
+      compiledTemplate = Handlebars.compile(template, { noEscape: true });
       this.templateCache.set(cacheKey, compiledTemplate);
 
       logger.debug('InstructionAggregator: Compiled and cached new template', {

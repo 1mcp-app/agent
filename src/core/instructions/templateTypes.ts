@@ -150,7 +150,7 @@ The following sections contain instructions from each connected MCP server. Each
 {{#each servers}}
 {{#if hasInstructions}}
 <{{name}}>
-{{{instructions}}}
+{{instructions}}
 </{{name}}>
 
 {{/if}}

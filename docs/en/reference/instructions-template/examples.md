@@ -2,6 +2,15 @@
 
 This page provides complete template examples for different use cases. Copy and customize these templates for your specific needs.
 
+## Template Rendering Behavior
+
+**Important**: 1MCP uses `noEscape: true` in Handlebars configuration, which means:
+
+- All variables output unescaped content by default
+- XML tags like `<server-name>` render cleanly without HTML entity escaping
+- Use regular `{{variable}}` syntax for all content (no triple braces needed)
+- Perfect for LLM consumption where readability and proper formatting are essential
+
 ## Basic Template
 
 A simple, clean template that covers the essentials. This example demonstrates the new enhanced server iteration:
@@ -112,5 +121,6 @@ Database server instructions for data management
 1. **Copy and Customize**: Start with basic patterns and customize for your needs
 2. **Test Iteratively**: Make small changes and test with different server configurations
 3. **Handle Edge Cases**: Always include both connected and no-servers conditions
-4. **Use Raw Output**: Remember to use triple braces for server instructions to preserve formatting
-5. **Check Logs**: Monitor template rendering logs during development
+4. **Use Regular Syntax**: All variables use `{{variable}}` syntax - no triple braces needed due to `noEscape: true`
+5. **XML Tags Render Cleanly**: Server instructions with `<server-name>` tags output as-is for perfect LLM readability
+6. **Check Logs**: Monitor template rendering logs during development

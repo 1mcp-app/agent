@@ -39,10 +39,10 @@ Each server object in the <span v-pre>`{{servers}}`</span> array contains:
 
 ### Content Variables
 
-| Variable                                | Type   | Description                                                                   |
-| --------------------------------------- | ------ | ----------------------------------------------------------------------------- |
-| <span v-pre>`{{{instructions}}}`</span> | string | All server instructions wrapped in XML-like tags (for backward compatibility) |
-| <span v-pre>`{{filterContext}}`</span>  | string | Filter description or empty string                                            |
+| Variable                               | Type   | Description                                                         |
+| -------------------------------------- | ------ | ------------------------------------------------------------------- |
+| <span v-pre>`{{instructions}}`</span>  | string | All server instructions wrapped in XML-like tags (unescaped output) |
+| <span v-pre>`{{filterContext}}`</span> | string | Filter description or empty string                                  |
 
 #### XML-Style Server Instructions
 
@@ -99,6 +99,17 @@ You can also override template settings per client by extending the configuratio
 - **Conditional content**: <span v-pre>`{{#if condition}}...{{/if}}`</span>
 - **Loops**: <span v-pre>`{{#each array}}...{{/each}}`</span>
 - **Helpers**: Built-in logical and comparison operators
+
+### HTML Escaping Behavior
+
+**Important**: 1MCP configures Handlebars with `noEscape: true` by default, which means:
+
+- **All variables are unescaped**: <span v-pre>`{{instructions}}`</span> outputs raw content without HTML entity escaping
+- **XML tags render cleanly**: `<server-name>` stays as `<server-name>` (not `&lt;server-name&gt;`)
+- **No triple braces needed**: Use regular <span v-pre>`{{variable}}`</span> syntax for all content
+- **Ready for LLM consumption**: Output is clean and readable for AI processing
+
+This configuration is specifically designed for LLM instruction templates where HTML escaping would make the content less readable and harder for AI models to parse.
 
 ### Basic Template Example
 
@@ -230,14 +241,17 @@ Use the provided helper variables for proper grammar:
 {{serverCount}} {{pluralServers}} {{isAre}} available
 ```
 
-### 3. Use Raw HTML for Instructions
+### 3. All Variables are Unescaped
 
-Server instructions may contain formatting, so use triple braces:
+Since 1MCP uses `noEscape: true`, all variables output raw content without HTML escaping:
 
 ```text
-{{{instructions}}}  <!-- Renders HTML/markdown -->
-{{instructions}}    <!-- Escapes HTML -->
+{{instructions}}    <!-- Outputs raw content (unescaped) -->
+{{name}}           <!-- Outputs server name as-is -->
+{{title}}          <!-- All variables render without escaping -->
 ```
+
+This means XML tags like `<server-name>` will render cleanly in the output, making it perfect for LLM consumption.
 
 ### 4. Provide Context
 
