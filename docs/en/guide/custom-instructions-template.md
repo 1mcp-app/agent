@@ -154,29 +154,40 @@ Tools follow the pattern: `{{toolPattern}}`
 ::: v-pre
 
 ```markdown
-# 🚀 {{title}}
-
-## 📊 Server Status
+# {{title}}
 
 {{#if hasServers}}
-**{{serverCount}} {{pluralServers}} active**{{filterContext}}
+You are interacting with 1MCP, a proxy server that aggregates capabilities from multiple MCP (Model Context Protocol) servers. 1MCP acts as a unified gateway, allowing you to access tools and resources from various specialized MCP servers through a single connection.
 
-### 🔧 Connected Servers
+## How 1MCP Works
 
-{{#each servers}}
+- **Unified Access**: Connect to multiple MCP servers through one proxy
+- **Tool Aggregation**: All tools are available with the naming pattern \`{{toolPattern}}\`
+- **Resource Sharing**: Access files, data, and capabilities across different servers
+- **Intelligent Routing**: Your requests are automatically routed to the appropriate servers
 
-- ✅ **{{name}}** - {{#if hasInstructions}}Ready with instructions{{else}}Connected{{/if}}
+## Currently Connected Servers
+
+{{serverCount}} MCP {{pluralServers}} {{isAre}} currently available{{filterContext}}:
+
+{{serverList}}
+
+## Available Capabilities
+
+All tools from connected servers are accessible using the format: \`{{toolPattern}}\`
+
+Examples:
+{{#each examples}}
+
+- \`{{name}}\` - {{description}}
   {{/each}}
 
-### 📖 Server Instructions
+## Server-Specific Instructions
 
-Each server provides specific capabilities and instructions. The instructions are organized in XML-like tags for clear identification:
+The following sections contain instructions from each connected MCP server. Each server's instructions are wrapped in XML-like tags (e.g., \`<server-name>instructions</server-name>\`) to clearly identify their source and scope.
 
 {{#each servers}}
 {{#if hasInstructions}}
-
-#### {{name}} Server
-
 <{{name}}>
 {{instructions}}
 </{{name}}>
@@ -184,37 +195,26 @@ Each server provides specific capabilities and instructions. The instructions ar
 {{/if}}
 {{/each}}
 
-### 💡 Tool Examples
+## Tips for Using 1MCP
 
-{{#each examples}}
+- Tools are namespaced by server to avoid conflicts
 
-- `{{name}}` - {{description}}
-  {{/each}}
-
-### 🎯 Usage Tips
-
-- Use descriptive requests for automatic routing
-- Tools are namespaced: <span v-pre>`{{toolPattern}}`</span>
-- XML tags help identify instruction sources: `<server-name>content</server-name>`
-- All capabilities are available through the unified interface
-
----
-
-_Powered by 1MCP - Your unified MCP gateway_
 {{else}}
+You are interacting with 1MCP, a proxy server that aggregates capabilities from multiple MCP (Model Context Protocol) servers.
 
-## ⏳ Waiting for Connections
+## Current Status
 
-No MCP servers are currently connected. 1MCP will automatically detect and connect to available servers.
+No MCP servers are currently connected. 1MCP is ready to connect to servers and provide unified access to their capabilities once they become available.
 
-### What You'll Get
+## What 1MCP Provides
 
-- **Unified Access**: Connect to multiple servers through one proxy
-- **Smart Routing**: Automatic request routing to appropriate servers
-- **Tool Aggregation**: All tools available with consistent naming
+- **Unified Access**: Connect to multiple MCP servers through one proxy
+- **Tool Aggregation**: Access tools using the pattern \`{{toolPattern}}\`
+- **Resource Sharing**: Share files, data, and capabilities across servers
+- **Intelligent Routing**: Automatic request routing to appropriate servers
 
-Check your MCP configuration and ensure servers are properly configured.
-{{/if}}
+1MCP will automatically detect and connect to available MCP servers. Once connected, their tools and capabilities will become available through the unified interface.
+{{/if}}`
 ```
 
 :::

@@ -101,6 +101,7 @@ function sidebar(): DefaultTheme.Sidebar {
           { text: '代理支持', link: '/zh/guide/advanced/reverse-proxy' },
           { text: '服务器管理', link: '/zh/guide/essentials/server-management' },
           { text: '应用程序整合', link: '/zh/guide/integrations/app-consolidation' },
+          { text: '自定义指令模板', link: '/zh/guide/custom-instructions-template' },
         ],
       },
     ],
@@ -177,6 +178,13 @@ function sidebar(): DefaultTheme.Sidebar {
         items: [
           { text: 'MCP 服务器', link: '/zh/reference/mcp-servers' },
           { text: '可信代理', link: '/zh/reference/trust-proxy' },
+        ],
+      },
+      {
+        text: '指令模板',
+        items: [
+          { text: '模板变量', link: '/zh/reference/instructions-template/variables' },
+          { text: '模板示例', link: '/zh/reference/instructions-template/examples' },
         ],
       },
     ],
