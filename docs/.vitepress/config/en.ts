@@ -78,6 +78,10 @@ function sidebar(): DefaultTheme.Sidebar {
         ],
       },
       {
+        text: 'Customization',
+        items: [{ text: 'Instructions Template', link: '/guide/custom-instructions-template' }],
+      },
+      {
         text: 'Feature Overview',
         items: [{ text: 'All Features', link: '/guide/features' }],
       },
@@ -158,6 +162,13 @@ function sidebar(): DefaultTheme.Sidebar {
         items: [
           { text: 'MCP Servers', link: '/reference/mcp-servers' },
           { text: 'Trust Proxy', link: '/reference/trust-proxy' },
+        ],
+      },
+      {
+        text: 'Instructions Templates',
+        items: [
+          { text: 'Variables', link: '/reference/instructions-template/variables' },
+          { text: 'Examples', link: '/reference/instructions-template/examples' },
         ],
       },
     ],
