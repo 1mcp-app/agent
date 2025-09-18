@@ -133,9 +133,11 @@ describe('InstructionAggregator - Filtered Instructions', () => {
 
       const filteredInstructions = instructionAggregator.getFilteredInstructions(config, mockOutboundConnections);
 
-      // Should show template error message
-      expect(filteredInstructions).toContain('# 1MCP - Template Error');
+      // Should show improved error template with troubleshooting guidance
+      expect(filteredInstructions).toContain('# 1MCP - Template Rendering Error');
       expect(filteredInstructions).toContain('Template rendering failed');
+      expect(filteredInstructions).toContain('Troubleshooting Steps');
+      expect(filteredInstructions).toContain('Built-in template');
     });
 
     it('should filter instructions by simple tags', () => {
