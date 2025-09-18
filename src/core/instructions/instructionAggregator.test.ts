@@ -61,7 +61,7 @@ describe('InstructionAggregator', () => {
 
       aggregator.setInstructions('server1', 'Test instructions');
 
-      expect(mockListener).toHaveBeenCalledWith('## server1\nTest instructions');
+      expect(mockListener).toHaveBeenCalledWith();
       expect(mockListener).toHaveBeenCalledTimes(1);
     });
 
@@ -89,7 +89,7 @@ describe('InstructionAggregator', () => {
 
       expect(aggregator.hasInstructions('server1')).toBe(false);
       expect(aggregator.getServerCount()).toBe(0);
-      expect(mockListener).toHaveBeenCalledWith('');
+      expect(mockListener).toHaveBeenCalledWith();
     });
 
     it('should not emit event if server had no instructions', () => {
@@ -99,41 +99,6 @@ describe('InstructionAggregator', () => {
       aggregator.removeServer('nonexistent');
 
       expect(mockListener).not.toHaveBeenCalled();
-    });
-  });
-
-  describe('getAggregatedInstructions', () => {
-    it('should return empty string when no servers have instructions', () => {
-      expect(aggregator.getAggregatedInstructions()).toBe('');
-    });
-
-    it('should return instructions for single server with header', () => {
-      const instructions = 'Single server instructions';
-
-      aggregator.setInstructions('server1', instructions);
-
-      expect(aggregator.getAggregatedInstructions()).toBe('## server1\nSingle server instructions');
-    });
-
-    it('should concatenate instructions from multiple servers with headers', () => {
-      aggregator.setInstructions('server1', 'Instructions for server 1');
-      aggregator.setInstructions('server2', 'Instructions for server 2');
-
-      const result = aggregator.getAggregatedInstructions();
-
-      expect(result).toBe('## server1\nInstructions for server 1\n\n## server2\nInstructions for server 2');
-    });
-
-    it('should sort servers alphabetically for consistent output', () => {
-      aggregator.setInstructions('zebra', 'Zebra instructions');
-      aggregator.setInstructions('alpha', 'Alpha instructions');
-      aggregator.setInstructions('bravo', 'Bravo instructions');
-
-      const result = aggregator.getAggregatedInstructions();
-
-      expect(result).toBe(
-        '## alpha\nAlpha instructions\n\n## bravo\nBravo instructions\n\n## zebra\nZebra instructions',
-      );
     });
   });
 
@@ -163,8 +128,7 @@ describe('InstructionAggregator', () => {
       aggregator.clear();
 
       expect(aggregator.getServerCount()).toBe(0);
-      expect(aggregator.getAggregatedInstructions()).toBe('');
-      expect(mockListener).toHaveBeenCalledWith('');
+      expect(mockListener).toHaveBeenCalledWith();
     });
 
     it('should not emit event when clearing empty aggregator', () => {

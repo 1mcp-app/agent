@@ -1,13 +1,20 @@
 import { EventEmitter } from 'events';
+import Handlebars from 'handlebars';
 import logger from '../../logger/logger.js';
 import { FilteringService } from '../filtering/filteringService.js';
 import { OutboundConnections, InboundConnectionConfig } from '../types/index.js';
+import {
+  TemplateVariables,
+  ServerData,
+  DEFAULT_TEMPLATE_CONFIG,
+  DEFAULT_INSTRUCTION_TEMPLATE,
+} from './templateTypes.js';
 
 /**
  * Events emitted by InstructionAggregator
  */
 export interface InstructionAggregatorEvents {
-  'instructions-changed': (aggregatedInstructions: string) => void;
+  'instructions-changed': () => void;
 }
 
 /**
@@ -18,8 +25,8 @@ export interface InstructionAggregatorEvents {
  * @example
  * ```typescript
  * const aggregator = new InstructionAggregator();
- * aggregator.on('instructions-changed', (instructions) => {
- *   // Update server instances with new instructions
+ * aggregator.on('instructions-changed', () => {
+ *   // Server instructions have changed
  * });
  *
  * // When server comes online
@@ -32,6 +39,7 @@ export interface InstructionAggregatorEvents {
 export class InstructionAggregator extends EventEmitter {
   private serverInstructions = new Map<string, string>();
   private isInitialized: boolean = false;
+  private templateCache = new Map<string, Handlebars.TemplateDelegate>();
 
   constructor() {
     super();
@@ -61,9 +69,8 @@ export class InstructionAggregator extends EventEmitter {
     }
 
     if (hasChanges) {
-      const aggregatedInstructions = this.getAggregatedInstructions();
       logger.info(`Instructions changed. Total servers with instructions: ${this.serverInstructions.size}`);
-      this.emit('instructions-changed', aggregatedInstructions);
+      this.emit('instructions-changed');
     }
   }
 
@@ -76,9 +83,8 @@ export class InstructionAggregator extends EventEmitter {
     this.serverInstructions.delete(serverName);
 
     if (hadInstructions) {
-      const aggregatedInstructions = this.getAggregatedInstructions();
       logger.info(`Removed server instructions: ${serverName}. Remaining servers: ${this.serverInstructions.size}`);
-      this.emit('instructions-changed', aggregatedInstructions);
+      this.emit('instructions-changed');
     }
   }
 
@@ -88,13 +94,14 @@ export class InstructionAggregator extends EventEmitter {
    *
    * @param config Client's inbound connection configuration
    * @param connections All available outbound connections
-   * @returns Formatted instruction string with educational template
+   * @returns Formatted instruction string with educational template or custom template
    */
   public getFilteredInstructions(config: InboundConnectionConfig, connections: OutboundConnections): string {
     logger.debug('InstructionAggregator: Getting filtered instructions', {
       filterMode: config.tagFilterMode,
       totalConnections: connections.size,
       totalInstructions: this.serverInstructions.size,
+      hasCustomTemplate: !!config.customTemplate,
     });
 
     // Filter connections based on client configuration
@@ -104,26 +111,9 @@ export class InstructionAggregator extends EventEmitter {
     const filteringSummary = FilteringService.getFilteringSummary(connections, filteredConnections, config);
     logger.info('InstructionAggregator: Filtering applied', filteringSummary);
 
-    // Generate the educational template with filtered instructions
-    return this.formatInstructionsWithTemplate(filteredConnections, config);
-  }
-
-  /**
-   * Get the current aggregated instructions from all servers (backward compatibility)
-   * Uses simple concatenation with server headers
-   * @returns The aggregated instruction string
-   */
-  public getAggregatedInstructions(): string {
-    const sections: string[] = [];
-
-    // Sort servers by name for consistent output
-    const sortedServers = Array.from(this.serverInstructions.entries()).sort(([a], [b]) => a.localeCompare(b));
-
-    for (const [serverName, instructions] of sortedServers) {
-      sections.push(`## ${serverName}\n${instructions}`);
-    }
-
-    return sections.length > 0 ? sections.join('\n\n') : '';
+    // Use custom template if provided, otherwise use default template
+    const template = config.customTemplate || DEFAULT_INSTRUCTION_TEMPLATE;
+    return this.renderCustomTemplate(template, filteredConnections, config);
   }
 
   /**
@@ -169,135 +159,8 @@ export class InstructionAggregator extends EventEmitter {
 
     if (hadInstructions) {
       logger.debug('Cleared all server instructions');
-      this.emit('instructions-changed', '');
+      this.emit('instructions-changed');
     }
-  }
-
-  /**
-   * Format instructions using the educational template
-   * This template helps LLMs understand 1MCP and how to use it effectively
-   *
-   * @param filteredConnections Connections that passed filtering
-   * @param config Client configuration (for context about filtering)
-   * @returns Formatted instruction string
-   */
-  private formatInstructionsWithTemplate(
-    filteredConnections: OutboundConnections,
-    config: InboundConnectionConfig,
-  ): string {
-    // Get server names that have instructions and are in filtered connections
-    const availableServers: string[] = [];
-    const serverInstructionSections: string[] = [];
-
-    // Sort filtered connections by name for consistent output
-    const sortedConnections = Array.from(filteredConnections.entries()).sort(([a], [b]) => a.localeCompare(b));
-
-    for (const [serverName, _connection] of sortedConnections) {
-      const serverInstructions = this.serverInstructions.get(serverName);
-      if (serverInstructions?.trim()) {
-        availableServers.push(serverName);
-        serverInstructionSections.push(`<${serverName}>\n${serverInstructions.trim()}\n</${serverName}>`);
-      }
-    }
-
-    // Build the educational template
-    const template = this.buildEducationalTemplate(
-      availableServers.length,
-      availableServers,
-      serverInstructionSections,
-      config,
-    );
-
-    logger.debug('InstructionAggregator: Generated template', {
-      availableServers: availableServers.length,
-      serverNames: availableServers,
-      templateLength: template.length,
-    });
-
-    return template;
-  }
-
-  /**
-   * Build the educational template that explains 1MCP to LLMs
-   *
-   * @param serverCount Number of available servers
-   * @param serverNames Names of available servers
-   * @param serverInstructions Array of formatted server instruction sections
-   * @param config Client configuration for context
-   * @returns Complete educational template
-   */
-  private buildEducationalTemplate(
-    serverCount: number,
-    serverNames: string[],
-    serverInstructions: string[],
-    config: InboundConnectionConfig,
-  ): string {
-    if (serverCount === 0) {
-      return this.buildNoServersTemplate();
-    }
-
-    const filterContext = this.getFilterContext(config);
-    const serverList = serverNames.join('\n');
-    const instructions = serverInstructions.join('\n\n');
-
-    return `# 1MCP - Model Context Protocol Proxy
-
-You are interacting with 1MCP, a proxy server that aggregates capabilities from multiple MCP (Model Context Protocol) servers. 1MCP acts as a unified gateway, allowing you to access tools and resources from various specialized MCP servers through a single connection.
-
-## How 1MCP Works
-
-- **Unified Access**: Connect to multiple MCP servers through one proxy
-- **Tool Aggregation**: All tools are available with the naming pattern \`{server}_1mcp_{tool}\`
-- **Resource Sharing**: Access files, data, and capabilities across different servers
-- **Intelligent Routing**: Your requests are automatically routed to the appropriate servers
-
-## Currently Connected Servers
-
-${serverCount} MCP server${serverCount === 1 ? '' : 's'} ${serverCount === 1 ? 'is' : 'are'} currently available${filterContext}:
-
-${serverList}
-
-## Available Capabilities
-
-All tools from connected servers are accessible using the format: \`{server}_1mcp_{tool}\`
-
-Examples:
-- \`filesystem_1mcp_read_file\` - Read files through filesystem server
-- \`web_1mcp_search\` - Search the web through web server
-- \`database_1mcp_query\` - Query databases through database server
-
-## Server-Specific Instructions
-
-${instructions}
-
-## Tips for Using 1MCP
-
-- Use descriptive requests - 1MCP will route to the best available server
-- Tools are namespaced by server to avoid conflicts
-- If a server is unavailable, 1MCP will inform you of alternatives
-- Resources and data can be shared between servers when needed`;
-  }
-
-  /**
-   * Build template for when no servers are available
-   */
-  private buildNoServersTemplate(): string {
-    return `# 1MCP - Model Context Protocol Proxy
-
-You are interacting with 1MCP, a proxy server that aggregates capabilities from multiple MCP (Model Context Protocol) servers.
-
-## Current Status
-
-No MCP servers are currently connected. 1MCP is ready to connect to servers and provide unified access to their capabilities once they become available.
-
-## What 1MCP Provides
-
-- **Unified Access**: Connect to multiple MCP servers through one proxy
-- **Tool Aggregation**: Access tools using the pattern \`{server}_1mcp_{tool}\`
-- **Resource Sharing**: Share files, data, and capabilities across servers
-- **Intelligent Routing**: Automatic request routing to appropriate servers
-
-1MCP will automatically detect and connect to available MCP servers. Once connected, their tools and capabilities will become available through the unified interface.`;
   }
 
   /**
@@ -330,5 +193,148 @@ No MCP servers are currently connected. 1MCP is ready to connect to servers and 
     const serverCount = this.serverInstructions.size;
     const serverNames = this.getServerNames();
     return `${serverCount} servers with instructions: ${serverNames.join(', ')}`;
+  }
+
+  /**
+   * Render a custom Handlebars template with template variables
+   * @param template Custom template string
+   * @param filteredConnections Filtered server connections
+   * @param config Client configuration
+   * @returns Rendered template string
+   */
+  private renderCustomTemplate(
+    template: string,
+    filteredConnections: OutboundConnections,
+    config: InboundConnectionConfig,
+  ): string {
+    try {
+      // Get or compile template
+      const compiledTemplate = this.getCompiledTemplate(template);
+
+      // Generate template variables
+      const variables = this.generateTemplateVariables(filteredConnections, config);
+
+      // Render template
+      const rendered = compiledTemplate(variables);
+
+      logger.debug('InstructionAggregator: Custom template rendered successfully', {
+        templateLength: template.length,
+        variableCount: Object.keys(variables).length,
+        renderedLength: rendered.length,
+      });
+
+      return rendered;
+    } catch (error) {
+      logger.error('InstructionAggregator: Failed to render custom template', {
+        error: error instanceof Error ? error.message : 'Unknown error',
+        templateLength: template.length,
+      });
+
+      // Fallback to minimal error message on template error
+      logger.warn('InstructionAggregator: Template rendering failed, returning minimal instructions');
+      const serverCount = Array.from(filteredConnections.keys()).filter((name) =>
+        this.serverInstructions.has(name),
+      ).length;
+      return `# 1MCP - Template Error\\n\\nTemplate rendering failed. ${serverCount} server(s) available but instructions cannot be displayed.`;
+    }
+  }
+
+  /**
+   * Get or compile a Handlebars template with caching
+   * @param template Template string
+   * @returns Compiled template function
+   */
+  private getCompiledTemplate(template: string): Handlebars.TemplateDelegate {
+    // Use template string as cache key
+    const cacheKey = template;
+
+    // Check cache first
+    let compiledTemplate = this.templateCache.get(cacheKey);
+
+    if (!compiledTemplate) {
+      // Compile and cache template
+      compiledTemplate = Handlebars.compile(template);
+      this.templateCache.set(cacheKey, compiledTemplate);
+
+      logger.debug('InstructionAggregator: Compiled and cached new template', {
+        templateLength: template.length,
+        cacheSize: this.templateCache.size,
+      });
+    }
+
+    return compiledTemplate;
+  }
+
+  /**
+   * Generate template variables for rendering
+   * @param filteredConnections Filtered server connections
+   * @param config Client configuration
+   * @returns Template variables object
+   */
+  private generateTemplateVariables(
+    filteredConnections: OutboundConnections,
+    config: InboundConnectionConfig,
+  ): TemplateVariables {
+    // Get server data for both arrays and individual server objects
+    const availableServers: string[] = [];
+    const serverInstructionSections: string[] = [];
+    const servers: ServerData[] = [];
+
+    // Sort filtered connections by name for consistent output
+    const sortedConnections = Array.from(filteredConnections.entries()).sort(([a], [b]) => a.localeCompare(b));
+
+    for (const [serverName, _connection] of sortedConnections) {
+      const serverInstructions = this.serverInstructions.get(serverName);
+      if (serverInstructions?.trim()) {
+        availableServers.push(serverName);
+        serverInstructionSections.push(`<${serverName}>\n${serverInstructions.trim()}\n</${serverName}>`);
+
+        // Add individual server data for iteration
+        servers.push({
+          name: serverName,
+          instructions: serverInstructions.trim(),
+          hasInstructions: true,
+        });
+      }
+    }
+
+    const serverCount = availableServers.length;
+    const hasServers = serverCount > 0;
+
+    // Merge configuration with defaults
+    const templateConfig = {
+      ...DEFAULT_TEMPLATE_CONFIG,
+      title: config.title || DEFAULT_TEMPLATE_CONFIG.title,
+      toolPattern: config.toolPattern || DEFAULT_TEMPLATE_CONFIG.toolPattern,
+      examples: config.examples || DEFAULT_TEMPLATE_CONFIG.examples,
+    };
+
+    return {
+      // Server state
+      serverCount,
+      hasServers,
+      serverList: availableServers.join('\n'),
+      serverNames: availableServers,
+      servers,
+      pluralServers: serverCount === 1 ? 'server' : 'servers',
+      isAre: serverCount === 1 ? 'is' : 'are',
+
+      // Content
+      instructions: serverInstructionSections.join('\n\n'),
+      filterContext: this.getFilterContext(config),
+
+      // Configuration
+      toolPattern: templateConfig.toolPattern,
+      title: templateConfig.title,
+      examples: templateConfig.examples,
+    };
+  }
+
+  /**
+   * Clear template cache (useful for testing)
+   */
+  public clearTemplateCache(): void {
+    this.templateCache.clear();
+    logger.debug('InstructionAggregator: Template cache cleared');
   }
 }

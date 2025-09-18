@@ -1,4 +1,6 @@
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
+import fs from 'fs';
+import path from 'path';
 
 import { setupServer } from '../../server.js';
 import logger from '../../logger/logger.js';
@@ -11,6 +13,7 @@ import { displayLogo } from '../../utils/logo.js';
 import { McpLoadingManager } from '../../core/loading/mcpLoadingManager.js';
 import { TagQueryParser, TagExpression } from '../../utils/tagQueryParser.js';
 import ConfigContext from '../../config/configContext.js';
+import { getDefaultInstructionsTemplatePath } from '../../constants.js';
 
 export interface ServeOptions {
   config?: string;
@@ -34,6 +37,46 @@ export interface ServeOptions {
   'trust-proxy': string;
   'health-info-level': string;
   'enable-async-loading': boolean;
+  'instructions-template'?: string;
+}
+
+/**
+ * Load custom instructions template from file
+ * @param templatePath Path to template file (CLI option or default)
+ * @param configDir Config directory for default template location
+ * @returns Template content or undefined if not found/error
+ */
+function loadInstructionsTemplate(templatePath?: string, configDir?: string): string | undefined {
+  let templateFilePath: string;
+
+  if (templatePath) {
+    // Use provided template path (resolve relative paths)
+    templateFilePath = path.isAbsolute(templatePath) ? templatePath : path.resolve(process.cwd(), templatePath);
+  } else {
+    // Use default template file in config directory
+    templateFilePath = getDefaultInstructionsTemplatePath(configDir);
+  }
+
+  try {
+    if (fs.existsSync(templateFilePath)) {
+      const templateContent = fs.readFileSync(templateFilePath, 'utf-8');
+      logger.info(`Loaded custom instructions template from: ${templateFilePath}`);
+      logger.debug(`Template length: ${templateContent.length} characters`);
+      return templateContent;
+    } else {
+      if (templatePath) {
+        // If user explicitly provided a template path, warn about missing file
+        logger.warn(`Custom instructions template file not found: ${templateFilePath}`);
+      } else {
+        // If using default path, just log debug (it's optional)
+        logger.debug(`Default instructions template file not found: ${templateFilePath} (using built-in template)`);
+      }
+      return undefined;
+    }
+  } catch (error) {
+    logger.error(`Failed to load instructions template from ${templateFilePath}:`, error);
+    return undefined;
+  }
 }
 
 /**
@@ -224,11 +267,15 @@ export async function serveCommand(parsedArgv: ServeOptions): Promise<void> {
           }
         }
 
+        // Load custom instructions template if provided
+        const customTemplate = loadInstructionsTemplate(parsedArgv['instructions-template'], parsedArgv['config-dir']);
+
         await serverManager.connectTransport(transport, 'stdio', {
           tags,
           tagExpression,
           tagFilterMode,
           enablePagination: parsedArgv.pagination,
+          customTemplate,
         });
 
         // Initialize notifications for async loading if enabled

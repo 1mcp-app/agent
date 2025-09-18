@@ -104,6 +104,13 @@ export const serverOptions = {
     type: 'boolean' as const,
     default: false,
   },
+  'instructions-template': {
+    alias: 'T',
+    describe:
+      'Path to custom instructions template file (Handlebars format). Defaults to instructions-template.md in config directory',
+    type: 'string' as const,
+    default: undefined,
+  },
 };
 
 /**
@@ -123,6 +130,7 @@ export function setupServeCommand(yargs: Argv): Argv {
           ['$0 serve --port=3000', 'Start HTTP server on port 3000'],
           ['$0 serve --filter="web,api"', 'Start server with filtered MCP servers'],
           ['$0 serve --enable-auth', 'Start server with OAuth authentication enabled'],
+          ['$0 serve --instructions-template=./custom-template.md', 'Use custom instructions template'],
         ]).epilogue(`
 TRANSPORT OPTIONS:
   stdio: Use stdin/stdout for communication (for programmatic use)
@@ -136,6 +144,11 @@ FILTERING:
 AUTHENTICATION:
   Use --enable-auth to enable OAuth 2.1 authentication with scope validation.
   Configure OAuth providers in your MCP configuration file.
+
+CUSTOM TEMPLATES:
+  Use --instructions-template to customize the instructions template sent to clients.
+  Template files use Handlebars syntax with variables like {{serverCount}}, {{serverList}}, etc.
+  Defaults to instructions-template.md in your config directory.
 
 For more information: https://github.com/1mcp-app/agent
         `);

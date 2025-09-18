@@ -17,6 +17,7 @@ export const HEALTH_ENDPOINT = '/health';
 
 // MCP constants
 export const MCP_CONFIG_FILE = 'mcp.json';
+export const MCP_INSTRUCTIONS_TEMPLATE_FILE = 'instructions-template.md';
 export const MCP_SERVER_NAME = '1mcp';
 export const MCP_SERVER_VERSION = '0.22.3';
 
@@ -84,6 +85,14 @@ export function getGlobalBackupDir(): string {
  */
 export function getAppBackupDir(appName: string): string {
   return `${getGlobalBackupDir()}/${appName}`;
+}
+
+/**
+ * Get the default instructions template file path
+ */
+export function getDefaultInstructionsTemplatePath(configDir?: string): string {
+  const dir = configDir ? configDir : getGlobalConfigDir();
+  return `${dir}/${MCP_INSTRUCTIONS_TEMPLATE_FILE}`;
 }
 
 // Connection retry settings

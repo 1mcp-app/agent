@@ -2,6 +2,7 @@ import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { ServerCapabilities } from '@modelcontextprotocol/sdk/types.js';
 import { TagExpression } from '../../utils/tagQueryParser.js';
 import { TagQuery } from '../../utils/presetTypes.js';
+import { TemplateConfig } from '../instructions/templateTypes.js';
 
 /**
  * Enum representing possible server connection states
@@ -17,7 +18,7 @@ export enum ServerStatus {
   Error = 'error',
 }
 
-export interface InboundConnectionConfig {
+export interface InboundConnectionConfig extends TemplateConfig {
   readonly tags?: string[];
   readonly tagExpression?: TagExpression;
   readonly tagQuery?: TagQuery;

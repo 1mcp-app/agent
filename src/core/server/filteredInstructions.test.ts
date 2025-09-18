@@ -98,6 +98,46 @@ describe('InstructionAggregator - Filtered Instructions', () => {
       expect(filteredInstructions).toContain('</web-server>');
     });
 
+    it('should use custom template when provided', () => {
+      const customTemplate = 'Custom: {{serverCount}} servers - {{#each serverNames}}{{this}},{{/each}}';
+      const config: InboundConnectionConfig = {
+        tagFilterMode: 'none',
+        customTemplate,
+      };
+
+      const filteredInstructions = instructionAggregator.getFilteredInstructions(config, mockOutboundConnections);
+
+      expect(filteredInstructions).toBe('Custom: 4 servers - api-server,database-server,dev-tools,web-server,');
+    });
+
+    it('should use custom template with filtering', () => {
+      const customTemplate = 'Filtered: {{serverCount}} servers{{filterContext}} - {{serverList}}';
+      const config: InboundConnectionConfig = {
+        tagFilterMode: 'simple-or',
+        tags: ['backend'],
+        customTemplate,
+      };
+
+      const filteredInstructions = instructionAggregator.getFilteredInstructions(config, mockOutboundConnections);
+
+      expect(filteredInstructions).toContain('Filtered: 2 servers (filtered by tags: backend) - api-server');
+      expect(filteredInstructions).toContain('database-server');
+    });
+
+    it('should fallback to default template on custom template error', () => {
+      const invalidTemplate = '{{invalid syntax {{unclosed';
+      const config: InboundConnectionConfig = {
+        tagFilterMode: 'none',
+        customTemplate: invalidTemplate,
+      };
+
+      const filteredInstructions = instructionAggregator.getFilteredInstructions(config, mockOutboundConnections);
+
+      // Should show template error message
+      expect(filteredInstructions).toContain('# 1MCP - Template Error');
+      expect(filteredInstructions).toContain('Template rendering failed');
+    });
+
     it('should filter instructions by simple tags', () => {
       const config: InboundConnectionConfig = {
         tagFilterMode: 'simple-or',

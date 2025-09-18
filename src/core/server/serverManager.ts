@@ -81,8 +81,8 @@ export class ServerManager {
     this.instructionAggregator = aggregator;
 
     // Listen for instruction changes and update existing server instances
-    aggregator.on('instructions-changed', (aggregatedInstructions: string) => {
-      this.updateServerInstructions(aggregatedInstructions);
+    aggregator.on('instructions-changed', () => {
+      this.updateServerInstructions();
     });
 
     logger.debug('Instruction aggregator set for ServerManager');
@@ -90,19 +90,18 @@ export class ServerManager {
 
   /**
    * Update all server instances with new aggregated instructions
-   * @param aggregatedInstructions The new aggregated instructions
    */
-  private updateServerInstructions(aggregatedInstructions: string): void {
-    logger.info(`Updating server instances with new instructions (${aggregatedInstructions.length} characters)`);
+  private updateServerInstructions(): void {
+    logger.info(`Server instructions have changed. Active sessions: ${this.inboundConns.size}`);
 
     for (const [sessionId, _inboundConn] of this.inboundConns) {
       try {
         // Note: The MCP SDK doesn't provide a direct way to update instructions
         // on an existing server instance. Instructions are set during server construction.
         // For now, we'll log this for future server instances.
-        logger.debug(`Instructions updated for session ${sessionId}`);
+        logger.debug(`Instructions changed notification for session ${sessionId}`);
       } catch (error) {
-        logger.warn(`Failed to update instructions for session ${sessionId}: ${error}`);
+        logger.warn(`Failed to process instruction change for session ${sessionId}: ${error}`);
       }
     }
   }
