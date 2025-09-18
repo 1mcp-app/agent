@@ -1,5 +1,6 @@
 import { EventEmitter } from 'events';
 import Handlebars from 'handlebars';
+import { LRUCache } from 'lru-cache';
 import logger from '../../logger/logger.js';
 import { FilteringService } from '../filtering/filteringService.js';
 import { OutboundConnections, InboundConnectionConfig } from '../types/index.js';
@@ -39,11 +40,27 @@ export interface InstructionAggregatorEvents {
 export class InstructionAggregator extends EventEmitter {
   private serverInstructions = new Map<string, string>();
   private isInitialized: boolean = false;
-  private templateCache = new Map<string, Handlebars.TemplateDelegate>();
+  private templateCache: LRUCache<string, Handlebars.TemplateDelegate>;
 
   constructor() {
     super();
     this.setMaxListeners(50);
+
+    // Initialize LRU cache with reasonable limits
+    this.templateCache = new LRUCache({
+      max: 100, // Maximum 100 compiled templates
+      maxSize: 10 * 1024 * 1024, // 10MB total size limit
+      sizeCalculation: (template: Handlebars.TemplateDelegate, key: string) => {
+        // Estimate size based on template string length (key) plus overhead
+        return key.length + 1024; // Template overhead estimate
+      },
+      ttl: 1000 * 60 * 60, // 1 hour TTL to prevent indefinite growth
+    });
+
+    // Set up cache invalidation on instruction changes
+    this.on('instructions-changed', () => {
+      this.invalidateTemplateCache('instructions-changed');
+    });
   }
 
   /**
@@ -225,17 +242,50 @@ export class InstructionAggregator extends EventEmitter {
 
       return rendered;
     } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
       logger.error('InstructionAggregator: Failed to render custom template', {
-        error: error instanceof Error ? error.message : 'Unknown error',
+        error: errorMessage,
         templateLength: template.length,
       });
 
-      // Fallback to minimal error message on template error
-      logger.warn('InstructionAggregator: Template rendering failed, returning minimal instructions');
+      // Provide actionable guidance for template errors
+      logger.warn('InstructionAggregator: Template rendering failed, returning error instructions with guidance');
+
       const serverCount = Array.from(filteredConnections.keys()).filter((name) =>
         this.serverInstructions.has(name),
       ).length;
-      return `# 1MCP - Template Error\\n\\nTemplate rendering failed. ${serverCount} server(s) available but instructions cannot be displayed.`;
+
+      // Generate helpful error message with troubleshooting steps
+      return `# 1MCP - Template Rendering Error
+
+⚠️  **Template rendering failed:** ${errorMessage}
+
+## Available Resources
+- **${serverCount} server(s)** are connected and have instructions
+- **Built-in template** is available as fallback
+
+## Troubleshooting Steps
+
+1. **Check Template Syntax**:
+   - Verify all Handlebars expressions use correct syntax: \`{{variable}}\`
+   - Ensure block helpers are properly closed: \`{{#if}}...{{/if}}\`
+   - Check for unmatched braces or quotes
+
+2. **Validate Template Variables**:
+   - Use only supported variables: \`serverCount\`, \`serverNames\`, \`hasServers\`, etc.
+   - Check template documentation for full variable list
+
+3. **Test Template**:
+   - Start with a simple template: \`# {{title}}\\n{{serverCount}} servers available\`
+   - Add complexity gradually
+
+4. **Get Help**:
+   - Remove custom template to use built-in version
+   - Check server logs for detailed error information
+   - Consult 1MCP documentation for template examples
+
+---
+*To restore normal operation, remove or fix the custom template file*`;
     }
   }
 
@@ -245,8 +295,22 @@ export class InstructionAggregator extends EventEmitter {
    * @returns Compiled template function
    */
   private getCompiledTemplate(template: string): Handlebars.TemplateDelegate {
-    // Use template string as cache key
-    const cacheKey = template;
+    // Validate template size before processing
+    if (template.length > 1024 * 1024) {
+      // 1MB limit per template
+      const sizeMB = (template.length / 1024 / 1024).toFixed(1);
+      throw new Error(
+        `Template too large: ${sizeMB}MB (max 1.0MB). ` +
+          'Consider splitting into smaller files or removing unnecessary content. ' +
+          'Large templates can cause memory issues and slow performance.',
+      );
+    }
+
+    // Use template string as cache key (first 500 chars + hash for uniqueness)
+    const cacheKey =
+      template.length > 500
+        ? template.substring(0, 500) + '_' + template.length + '_' + this.hashString(template)
+        : template;
 
     // Check cache first
     let compiledTemplate = this.templateCache.get(cacheKey);
@@ -259,6 +323,7 @@ export class InstructionAggregator extends EventEmitter {
       logger.debug('InstructionAggregator: Compiled and cached new template', {
         templateLength: template.length,
         cacheSize: this.templateCache.size,
+        cacheKeyLength: cacheKey.length,
       });
     }
 
@@ -336,5 +401,53 @@ export class InstructionAggregator extends EventEmitter {
   public clearTemplateCache(): void {
     this.templateCache.clear();
     logger.debug('InstructionAggregator: Template cache cleared');
+  }
+
+  /**
+   * Get template cache statistics for monitoring
+   */
+  public getTemplateCacheStats(): {
+    size: number;
+    maxSize: number;
+    calculatedSize: number;
+  } {
+    return {
+      size: this.templateCache.size,
+      maxSize: this.templateCache.max,
+      calculatedSize: this.templateCache.calculatedSize || 0,
+    };
+  }
+
+  /**
+   * Invalidate template cache with reason logging
+   * @param reason Reason for cache invalidation
+   */
+  private invalidateTemplateCache(reason: string): void {
+    const sizeBefore = this.templateCache.size;
+    this.templateCache.clear();
+    logger.debug(`InstructionAggregator: Template cache invalidated due to ${reason}`, {
+      clearedTemplates: sizeBefore,
+    });
+  }
+
+  /**
+   * Force template cache invalidation (for external triggers)
+   * @param reason Reason for forced invalidation
+   */
+  public forceTemplateCacheInvalidation(reason: string = 'external-trigger'): void {
+    this.invalidateTemplateCache(reason);
+  }
+
+  /**
+   * Simple hash function for template cache keys
+   */
+  private hashString(str: string): string {
+    let hash = 0;
+    for (let i = 0; i < str.length; i++) {
+      const char = str.charCodeAt(i);
+      hash = (hash << 5) - hash + char;
+      hash = hash & hash; // Convert to 32-bit integer
+    }
+    return Math.abs(hash).toString(16);
   }
 }

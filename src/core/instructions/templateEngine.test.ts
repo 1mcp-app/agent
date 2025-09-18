@@ -285,9 +285,11 @@ No matching servers found
 
       const result = instructionAggregator.getFilteredInstructions(config, mockOutboundConnections);
 
-      // Should show template error message
-      expect(result).toContain('# 1MCP - Template Error');
+      // Should show improved error template with troubleshooting guidance
+      expect(result).toContain('# 1MCP - Template Rendering Error');
       expect(result).toContain('Template rendering failed');
+      expect(result).toContain('Troubleshooting Steps');
+      expect(result).toContain('Built-in template');
     });
 
     it('should handle template with undefined variables gracefully', () => {

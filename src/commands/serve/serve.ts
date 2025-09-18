@@ -14,6 +14,7 @@ import { McpLoadingManager } from '../../core/loading/mcpLoadingManager.js';
 import { TagQueryParser, TagExpression } from '../../utils/tagQueryParser.js';
 import ConfigContext from '../../config/configContext.js';
 import { getDefaultInstructionsTemplatePath } from '../../constants.js';
+import { validateTemplateContent, formatValidationError } from '../../core/instructions/templateValidator.js';
 
 export interface ServeOptions {
   config?: string;
@@ -41,7 +42,7 @@ export interface ServeOptions {
 }
 
 /**
- * Load custom instructions template from file
+ * Load custom instructions template from file with validation
  * @param templatePath Path to template file (CLI option or default)
  * @param configDir Config directory for default template location
  * @returns Template content or undefined if not found/error
@@ -60,13 +61,34 @@ function loadInstructionsTemplate(templatePath?: string, configDir?: string): st
   try {
     if (fs.existsSync(templateFilePath)) {
       const templateContent = fs.readFileSync(templateFilePath, 'utf-8');
-      logger.info(`Loaded custom instructions template from: ${templateFilePath}`);
+
+      // Validate template content and syntax
+      const validation = validateTemplateContent(templateContent, templateFilePath);
+
+      if (!validation.valid) {
+        const errorMessage = formatValidationError(validation);
+        logger.error(`Invalid instructions template: ${errorMessage}`);
+
+        // For explicit template paths, this is a hard error
+        if (templatePath) {
+          logger.error('Template validation failed. Server will use built-in template.');
+        }
+
+        return undefined;
+      }
+
+      logger.info(`Loaded and validated custom instructions template from: ${templateFilePath}`);
       logger.debug(`Template length: ${templateContent.length} characters`);
       return templateContent;
     } else {
       if (templatePath) {
         // If user explicitly provided a template path, warn about missing file
         logger.warn(`Custom instructions template file not found: ${templateFilePath}`);
+        logger.info('Template file resolution:');
+        logger.info(`  • Check that the file path is correct`);
+        logger.info(`  • Ensure the file has read permissions`);
+        logger.info(`  • Use absolute paths or paths relative to current directory`);
+        logger.info(`  • Server will use built-in template as fallback`);
       } else {
         // If using default path, just log debug (it's optional)
         logger.debug(`Default instructions template file not found: ${templateFilePath} (using built-in template)`);
@@ -74,7 +96,17 @@ function loadInstructionsTemplate(templatePath?: string, configDir?: string): st
       return undefined;
     }
   } catch (error) {
-    logger.error(`Failed to load instructions template from ${templateFilePath}:`, error);
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    logger.error(`Failed to load instructions template from ${templateFilePath}: ${errorMessage}`);
+
+    // Provide helpful troubleshooting guidance
+    logger.info('Template loading failed. Troubleshooting steps:');
+    logger.info(`  • Verify file exists and has read permissions`);
+    logger.info(`  • Check file encoding (should be UTF-8)`);
+    logger.info(`  • Ensure no other process is locking the file`);
+    logger.info(`  • Try using an absolute file path`);
+    logger.info(`  • Server will use built-in template as fallback`);
+
     return undefined;
   }
 }

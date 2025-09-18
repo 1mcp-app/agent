@@ -153,4 +153,262 @@ describe('InstructionAggregator', () => {
       expect(aggregator.getSummary()).toBe('2 servers with instructions: server1, server2');
     });
   });
+
+  describe('Edge Cases from Review', () => {
+    describe('Template Cache Management', () => {
+      it('should handle template size limits', () => {
+        // Test template too large (over 1MB)
+        const largeTemplate = 'x'.repeat(1024 * 1024 + 1); // 1MB + 1 byte
+
+        expect(() => {
+          // @ts-ignore - accessing private method for testing
+          aggregator.getCompiledTemplate(largeTemplate);
+        }).toThrow('Template too large');
+      });
+
+      it('should use cache keys efficiently for large templates', () => {
+        const largeTemplate = 'Large template content: ' + 'x'.repeat(1000);
+
+        // First compilation should work and cache the template
+        // @ts-ignore - accessing private method for testing
+        const compiled1 = aggregator.getCompiledTemplate(largeTemplate);
+
+        // Second compilation should use cached version
+        // @ts-ignore - accessing private method for testing
+        const compiled2 = aggregator.getCompiledTemplate(largeTemplate);
+
+        expect(compiled1).toBe(compiled2);
+      });
+
+      it('should handle cache overflow gracefully', () => {
+        // Fill cache beyond normal capacity
+        for (let i = 0; i < 150; i++) {
+          // More than max 100
+          const template = `Template ${i}: {{serverCount}}`;
+          // @ts-ignore - accessing private method for testing
+          aggregator.getCompiledTemplate(template);
+        }
+
+        // Should not throw and cache size should be limited
+        const stats = aggregator.getTemplateCacheStats();
+        expect(stats.size).toBeLessThanOrEqual(100);
+      });
+
+      it('should invalidate cache on instruction changes', () => {
+        // Cache a template
+        const template = '{{serverCount}} servers';
+        // @ts-ignore - accessing private method for testing
+        aggregator.getCompiledTemplate(template);
+
+        const statsBefore = aggregator.getTemplateCacheStats();
+        expect(statsBefore.size).toBeGreaterThan(0);
+
+        // Trigger instruction change event
+        aggregator.setInstructions('server1', 'New instructions');
+
+        // Cache should be cleared
+        const statsAfter = aggregator.getTemplateCacheStats();
+        expect(statsAfter.size).toBe(0);
+      });
+
+      it('should provide cache statistics', () => {
+        const stats = aggregator.getTemplateCacheStats();
+        expect(stats).toHaveProperty('size');
+        expect(stats).toHaveProperty('maxSize');
+        expect(stats).toHaveProperty('calculatedSize');
+        expect(typeof stats.size).toBe('number');
+        expect(typeof stats.maxSize).toBe('number');
+      });
+
+      it('should allow forced cache invalidation', () => {
+        // Cache a template
+        const template = '{{serverList}}';
+        // @ts-ignore - accessing private method for testing
+        aggregator.getCompiledTemplate(template);
+
+        expect(aggregator.getTemplateCacheStats().size).toBeGreaterThan(0);
+
+        // Force invalidation
+        aggregator.forceTemplateCacheInvalidation('test-reason');
+
+        expect(aggregator.getTemplateCacheStats().size).toBe(0);
+      });
+    });
+
+    describe('Empty Server Scenarios', () => {
+      it('should handle getFilteredInstructions with no servers', () => {
+        const config = { tagFilterMode: 'none' as const };
+        const emptyConnections = new Map();
+
+        const result = aggregator.getFilteredInstructions(config, emptyConnections);
+
+        // Should not throw and should return a valid result
+        expect(typeof result).toBe('string');
+        expect(result.length).toBeGreaterThan(0);
+      });
+
+      it('should handle getFilteredInstructions with servers but no instructions', () => {
+        const config = { tagFilterMode: 'none' as const };
+        const connections = new Map([
+          ['server1', { name: 'server1' } as any],
+          ['server2', { name: 'server2' } as any],
+        ]);
+
+        // No instructions set for these servers
+        const result = aggregator.getFilteredInstructions(config, connections);
+
+        expect(typeof result).toBe('string');
+        expect(result.length).toBeGreaterThan(0);
+      });
+
+      it('should handle filtering that results in empty server set', () => {
+        // Set up servers with instructions
+        aggregator.setInstructions('server1', 'Server 1 instructions');
+        aggregator.setInstructions('server2', 'Server 2 instructions');
+
+        const config = {
+          tagFilterMode: 'simple-or' as const,
+          tags: ['nonexistent-tag'],
+        };
+
+        const connections = new Map([
+          ['server1', { name: 'server1', tags: ['web'] } as any],
+          ['server2', { name: 'server2', tags: ['db'] } as any],
+        ]);
+
+        const result = aggregator.getFilteredInstructions(config, connections);
+
+        expect(typeof result).toBe('string');
+        expect(result.length).toBeGreaterThan(0);
+      });
+    });
+
+    describe('Malformed Template Handling', () => {
+      it('should handle template compilation errors gracefully', () => {
+        const config = {
+          tagFilterMode: 'none' as const,
+          customTemplate: '{{invalid syntax {{unclosed',
+        };
+        const connections = new Map([['server1', { name: 'server1' } as any]]);
+
+        aggregator.setInstructions('server1', 'Test instructions');
+
+        const result = aggregator.getFilteredInstructions(config, connections);
+
+        // Should return detailed error template with troubleshooting guidance
+        expect(result).toContain('Template Rendering Error');
+        expect(result).toContain('Template rendering failed');
+        expect(result).toContain('Troubleshooting Steps');
+        expect(result).toContain('Check Template Syntax');
+        expect(result).toContain('Built-in template');
+      });
+
+      it('should handle templates with undefined variables', () => {
+        const config = {
+          tagFilterMode: 'none' as const,
+          customTemplate: 'Server: {{nonexistentVariable}}',
+        };
+        const connections = new Map([['server1', { name: 'server1' } as any]]);
+
+        aggregator.setInstructions('server1', 'Test instructions');
+
+        const result = aggregator.getFilteredInstructions(config, connections);
+
+        // Should render with empty string for undefined variables
+        expect(result).toBe('Server: ');
+      });
+
+      it('should handle extremely complex templates without crashing', () => {
+        const complexTemplate = `
+          {{#each servers}}
+            {{#if hasInstructions}}
+              {{#each instructions}}
+                {{#if @index}}, {{/if}}{{this}}
+              {{/each}}
+            {{else}}
+              No instructions for {{name}}
+            {{/if}}
+          {{/each}}
+
+          {{#if hasServers}}
+            Total: {{serverCount}} {{pluralServers}} {{isAre}} available
+            {{#each serverNames}}
+              - {{this}}
+            {{/each}}
+          {{else}}
+            No servers found
+          {{/if}}
+        `;
+
+        const config = {
+          tagFilterMode: 'none' as const,
+          customTemplate: complexTemplate,
+        };
+        const connections = new Map([
+          ['server1', { name: 'server1' } as any],
+          ['server2', { name: 'server2' } as any],
+        ]);
+
+        aggregator.setInstructions('server1', 'Instructions 1');
+        aggregator.setInstructions('server2', 'Instructions 2');
+
+        // Should not throw
+        const result = aggregator.getFilteredInstructions(config, connections);
+        expect(typeof result).toBe('string');
+      });
+    });
+
+    describe('Memory Pressure Scenarios', () => {
+      it('should handle rapid instruction updates', () => {
+        // Simulate rapid server instruction changes
+        for (let i = 0; i < 1000; i++) {
+          aggregator.setInstructions(`server${i % 10}`, `Instructions ${i}`);
+        }
+
+        expect(aggregator.getServerCount()).toBeLessThanOrEqual(10);
+        expect(() => aggregator.getSummary()).not.toThrow();
+      });
+
+      it('should handle large instruction content', () => {
+        const largeInstructions = 'Very long instructions: ' + 'x'.repeat(100000); // 100KB
+
+        aggregator.setInstructions('server1', largeInstructions);
+
+        expect(aggregator.hasInstructions('server1')).toBe(true);
+        expect(aggregator.getServerInstructions('server1')).toBe(largeInstructions);
+      });
+
+      it('should handle many servers with instructions', () => {
+        // Add many servers
+        for (let i = 0; i < 1000; i++) {
+          aggregator.setInstructions(`server${i}`, `Instructions for server ${i}`);
+        }
+
+        expect(aggregator.getServerCount()).toBe(1000);
+        expect(aggregator.getServerNames()).toHaveLength(1000);
+
+        // Should handle operations efficiently
+        const summary = aggregator.getSummary();
+        expect(summary).toContain('1000 servers with instructions');
+      });
+
+      it('should clean up properly when servers are removed', () => {
+        // Add many servers
+        const serverCount = 100;
+        for (let i = 0; i < serverCount; i++) {
+          aggregator.setInstructions(`server${i}`, `Instructions ${i}`);
+        }
+
+        expect(aggregator.getServerCount()).toBe(serverCount);
+
+        // Remove all servers
+        for (let i = 0; i < serverCount; i++) {
+          aggregator.removeServer(`server${i}`);
+        }
+
+        expect(aggregator.getServerCount()).toBe(0);
+        expect(aggregator.getServerNames()).toHaveLength(0);
+      });
+    });
+  });
 });
