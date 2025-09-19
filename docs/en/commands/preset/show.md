@@ -29,7 +29,7 @@ The `preset show` command provides comprehensive information about a specific pr
 
 ### Information Displayed
 
-- **Basic Information**: Name, strategy, description, creation date, last used
+- **Basic Information**: Name, strategy, description, creation date
 - **Client URL**: Ready-to-use URL for MCP client configuration
 - **Tag Query**: Complete JSON query with proper formatting (no truncation)
 - **Server Matching**: Which servers match the preset criteria
@@ -55,7 +55,6 @@ npx -y @1mcp/agent preset show production
 │ Strategy: OR logic - Match ANY tags   │
 │ Description: Development servers      │
 │ Created: 9/6/2025                     │
-│ Last Used: Never                      │
 │                                       │
 │ Client URL:                           │
 │ http://127.0.0.1:3050/?preset=dev     │
@@ -86,7 +85,6 @@ npx -y @1mcp/agent preset show production
 - **Strategy**: Human-readable strategy description
 - **Description**: Optional user-provided description
 - **Created**: When the preset was first created
-- **Last Used**: When the preset was last accessed (or "Never")
 
 ### Client URL
 

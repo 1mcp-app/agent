@@ -34,7 +34,6 @@ npx -y @1mcp/agent preset list
 - **名称**：预设标识符（如果超过 16 个字符则截断）
 - **策略**：过滤方法（OR 逻辑、AND 逻辑、Advanced）
 - **查询**：标签查询摘要（如果超过 33 个字符则截断）
-- **最后使用**：预设最后访问的日期（或"从未"）
 
 ## 示例
 
@@ -53,13 +52,13 @@ npx -y @1mcp/agent preset list
 │   Found 3 presets in your configuration     │
 └─────────────────────────────────────────────┘
 
-┌──────────── Preset Overview ─────────────┐
-│  Name         Strategy  Query      Last  │
-│  ─────────    ────────  ─────────  ────  │
-│  dev          OR logic  {"$or"...  never │
-│  production   Advanced  {"$and"... never │
-│  staging      OR logic  {"tag":"...9/6   │
-└──────────────────────────────────────────┘
+┌─────────────────────────────────────────────┐
+│  Name              Strategy   Query                               │
+│  ────────────────  ─────────  ──────────────────────────────────  │
+│  dev              OR logic   {"$or":[...                        │
+│  production       Advanced  {"$and":[...                       │
+│  staging          OR logic   {"tag":"staging"}                 │
+└─────────────────────────────────────────────────────────────────────────────┘
 
 ┌──────────── Quick Reference ─────────────┐
 │  Available Commands:                     │
@@ -97,11 +96,6 @@ Create your first preset with:
 
 长查询会截断为 "..." 以保持表格格式。使用 `preset show <name>` 查看完整查询。
 
-### 最后使用跟踪
-
-- **日期格式**：预设最后访问时的 MM/DD/YYYY
-- **"从未"**：预设自创建以来未使用过
-
 ## 工作流程集成
 
 list 命令与其他预设命令配合良好：
@@ -123,7 +117,7 @@ npx -y @1mcp/agent preset url production
 ## 使用技巧
 
 - **定期审查**：使用 `preset list` 定期审查您的预设配置
-- **清理旧预设**：查找未使用的预设（在最后使用列中显示"从未"）
+- **清理旧预设**：查找不需要的预设
 - **快速扫描**：表格格式使比较策略和识别预设变得容易
 - **跟进详细信息**：需要完整信息时使用 `preset show <name>`
 

@@ -75,12 +75,11 @@ async function listPresets(presetManager: PresetManager, _selector: InteractiveS
   let tableContent = '';
 
   // Table header
-  tableContent += chalk.cyan.bold('  Name              Strategy   Query                               Last Used\n');
-  tableContent += chalk.gray('  ────────────────  ─────────  ──────────────────────────────────  ─────────\n');
+  tableContent += chalk.cyan.bold('  Name              Strategy   Query\n');
+  tableContent += chalk.gray('  ────────────────  ─────────  ──────────────────────────────────\n');
 
   // Table rows
   for (const preset of presets) {
-    const lastUsed = preset.lastUsed ? new Date(preset.lastUsed).toLocaleDateString() : 'never';
     const strategyDesc = getStrategyDescription(preset.strategy);
     const queryStr = JSON.stringify(preset.tagQuery) || '{}';
 
@@ -88,13 +87,11 @@ async function listPresets(presetManager: PresetManager, _selector: InteractiveS
     const name = preset.name.length > 16 ? preset.name.slice(0, 13) + '...' : preset.name;
     const strategy = strategyDesc.length > 9 ? strategyDesc.slice(0, 9) : strategyDesc;
     const query = queryStr.length > 33 ? queryStr.slice(0, 30) + '...' : queryStr;
-    const lastUsedStr = lastUsed.length > 9 ? lastUsed.slice(0, 9) : lastUsed;
 
     tableContent +=
       `  ${chalk.yellow(name.padEnd(16))}  ` +
       `${chalk.blue(strategy.padEnd(9))}  ` +
-      `${chalk.green(query.padEnd(33))}  ` +
-      `${chalk.gray(lastUsedStr)}\n`;
+      `${chalk.green(query.padEnd(33))}\n`;
   }
 
   const tableBox = boxen(tableContent.trim(), {

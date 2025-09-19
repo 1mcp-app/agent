@@ -73,9 +73,6 @@ async function showPresetDetails(
     mainContent += chalk.gray(`Description: ${preset.description}\n`);
   }
   mainContent += chalk.dim(`Created: ${new Date(preset.created).toLocaleDateString()}\n`);
-  mainContent += chalk.dim(
-    `Last Used: ${preset.lastUsed ? new Date(preset.lastUsed).toLocaleDateString() : 'Never'}\n`,
-  );
 
   // URL section
   const urlResult = await urlGenerator.validateAndGeneratePresetUrl(name);

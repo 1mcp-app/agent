@@ -439,9 +439,6 @@ export async function tokensCommand(argv: Arguments<TokensCommandArgs>): Promise
           const serverTags = (serverConfig as MCPServerParams).tags || [];
           return TagQueryEvaluator.evaluate(preset.tagQuery, serverTags);
         });
-
-        // Update preset usage tracking
-        await presetManager.markPresetUsed(argv.preset);
       } catch (error) {
         console.error(
           chalk.red(

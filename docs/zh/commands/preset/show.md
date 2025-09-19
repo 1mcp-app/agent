@@ -29,7 +29,7 @@ npx -y @1mcp/agent preset show <name>
 
 ### 显示的信息
 
-- **基本信息**：名称、策略、描述、创建日期、最后使用
+- **基本信息**：名称、策略、描述、创建日期
 - **客户端 URL**：用于 MCP 客户端配置的即用型 URL
 - **标签查询**：具有适当格式的完整 JSON 查询（无截断）
 - **服务器匹配**：哪些服务器匹配预设条件
@@ -55,7 +55,6 @@ npx -y @1mcp/agent preset show production
 │ Strategy: OR logic - Match ANY tags   │
 │ Description: Development servers      │
 │ Created: 9/6/2025                     │
-│ Last Used: Never                      │
 │                                       │
 │ Client URL:                           │
 │ http://127.0.0.1:3050/?preset=dev     │
@@ -86,7 +85,6 @@ npx -y @1mcp/agent preset show production
 - **策略**：人类可读的策略描述
 - **描述**：可选的用户提供的描述
 - **创建**：预设首次创建的时间
-- **最后使用**：预设最后访问的时间（或"从未"）
 
 ### 客户端 URL
 

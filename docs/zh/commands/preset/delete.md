@@ -50,7 +50,6 @@ npx -y @1mcp/agent preset delete old-staging
    Preset details:
    • Strategy: OR logic
    • Created: 8/15/2025
-   • Last used: never
 
 ? Are you sure? (y/N) y
 
@@ -68,7 +67,6 @@ npx -y @1mcp/agent preset delete production
    Preset details:
    • Strategy: Advanced
    • Created: 9/1/2025
-   • Last used: 9/6/2025
 
 ? Are you sure? (y/N) n
 
@@ -83,7 +81,7 @@ npx -y @1mcp/agent preset delete production
 # 审查未使用的预设
 npx -y @1mcp/agent preset list
 
-# 删除在最后使用列中显示"从未"的预设
+# 删除在预设列表中显示的未使用预设
 npx -y @1mcp/agent preset delete unused-preset
 npx -y @1mcp/agent preset delete old-experiment
 ```
@@ -111,7 +109,7 @@ npx -y @1mcp/agent preset delete old-team-config
 
 在删除正在使用的预设之前：
 
-1. **检查使用情况**：在 `preset list` 中查看"最后使用"日期
+1. **检查预设列表**：在 `preset list` 中查看所有预设
 2. **验证影响**：确保没有团队成员依赖该预设
 3. **记录更改**：告知团队预设删除
 4. **考虑重命名**：考虑重命名以提高清晰度，而不是删除
@@ -161,7 +159,7 @@ npx -y @1mcp/agent preset delete corrupted-preset
 # 1. 审查所有预设
 npx -y @1mcp/agent preset list
 
-# 2. 识别未使用的预设（最后使用：从未，旧日期）
+# 2. 识别未使用的预设（创建日期较早）
 # 3. 与团队验证预设确实未使用
 # 4. 删除未使用的预设
 npx -y @1mcp/agent preset delete unused-1

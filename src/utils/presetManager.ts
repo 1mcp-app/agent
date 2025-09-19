@@ -424,7 +424,6 @@ export class PresetManager {
       name: preset.name,
       description: preset.description,
       strategy: preset.strategy,
-      lastUsed: preset.lastUsed,
       tagQuery: preset.tagQuery,
     }));
   }
@@ -442,19 +441,6 @@ export class PresetManager {
 
     logger.info('Preset deleted successfully', { name });
     return true;
-  }
-
-  /**
-   * Update preset usage timestamp
-   */
-  public async markPresetUsed(name: string): Promise<void> {
-    const preset = this.presets.get(name);
-    if (!preset) {
-      return;
-    }
-
-    preset.lastUsed = new Date().toISOString();
-    await this.savePresets();
   }
 
   /**
@@ -520,11 +506,6 @@ export class PresetManager {
     }
 
     try {
-      // Mark preset as used
-      this.markPresetUsed(name).catch((error) => {
-        logger.warn('Failed to update preset usage', { name, error });
-      });
-
       // Convert JSON query to string representation for backward compatibility
       const expression = TagQueryEvaluator.queryToString(preset.tagQuery);
 

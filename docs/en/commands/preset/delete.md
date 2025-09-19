@@ -50,7 +50,6 @@ npx -y @1mcp/agent preset delete old-staging
    Preset details:
    • Strategy: OR logic
    • Created: 8/15/2025
-   • Last used: never
 
 ? Are you sure? (y/N) y
 

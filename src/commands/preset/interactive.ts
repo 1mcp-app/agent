@@ -109,10 +109,9 @@ async function offerPresetSelection(availablePresets: any[], selector: Interacti
   // Show available presets
   for (let i = 0; i < availablePresets.length; i++) {
     const preset = availablePresets[i];
-    const lastUsed = preset.lastUsed ? new Date(preset.lastUsed).toLocaleDateString() : 'never';
     const strategyDesc = getStrategyDescription(preset.strategy);
 
-    console.log(`   ${i + 1}. ${preset.name} (${strategyDesc}) - Last used: ${lastUsed}`);
+    console.log(`   ${i + 1}. ${preset.name} (${strategyDesc})`);
     if (preset.description) {
       console.log(`      ${preset.description}`);
     }

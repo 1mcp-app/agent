@@ -34,7 +34,6 @@ The command shows:
 - **Name**: Preset identifier (truncated if longer than 16 characters)
 - **Strategy**: Filtering approach (OR logic, AND logic, Advanced)
 - **Query**: Tag query summary (truncated if longer than 33 characters)
-- **Last Used**: Date when preset was last accessed (or "never")
 
 ## Examples
 
@@ -54,11 +53,11 @@ npx -y @1mcp/agent preset list
 └─────────────────────────────────────────────┘
 
 ┌─────────────────────────────────────────────┐
-│  Name              Strategy   Query                               Last Used  │
-│  ────────────────  ─────────  ──────────────────────────────────  ─────────  │
-│  dev              OR logic   {"$or":[...                        never      │
-│  production       Advanced  {"$and":[...                       never      │
-│  staging          OR logic   {"tag":"staging"}                 9/6/2025   │
+│  Name              Strategy   Query                               │
+│  ────────────────  ─────────  ──────────────────────────────────  │
+│  dev              OR logic   {"$or":[...                        │
+│  production       Advanced  {"$and":[...                       │
+│  staging          OR logic   {"tag":"staging"}                 │
 └─────────────────────────────────────────────────────────────────────────────┘
 
 ┌─────────────────────────────────────────────┐
@@ -98,11 +97,6 @@ Create your first preset with:
 
 Long queries are truncated with "..." to maintain table formatting. Use `preset show <name>` to see the complete query.
 
-### Last Used Tracking
-
-- **Date format**: MM/DD/YYYY when preset was last accessed
-- **"never"**: Preset has not been used since creation
-
 ## Workflow Integration
 
 The list command works well with other preset commands:
@@ -124,7 +118,6 @@ npx -y @1mcp/agent preset url production
 ## Usage Tips
 
 - **Regular review**: Use `preset list` to periodically review your preset configurations
-- **Cleanup old presets**: Look for unused presets (showing "never" in Last Used column)
 - **Quick scanning**: The table format makes it easy to compare strategies and identify presets
 - **Follow up with details**: Use `preset show <name>` when you need complete information
 

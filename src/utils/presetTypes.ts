@@ -28,7 +28,6 @@ export interface PresetConfig {
   tagQuery: TagQuery; // JSON-based query format
   created: string;
   lastModified: string;
-  lastUsed?: string;
 }
 
 export interface PresetStorage {
@@ -45,7 +44,6 @@ export interface PresetValidationResult {
 export interface PresetUsageStats {
   name: string;
   serverCount: number;
-  lastUsed?: string;
   usageFrequency: number;
 }
 
@@ -53,6 +51,5 @@ export interface PresetListItem {
   name: string;
   description?: string;
   strategy: PresetStrategy;
-  lastUsed?: string;
   tagQuery: TagQuery;
 }

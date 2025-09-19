@@ -906,18 +906,6 @@ describe('PresetManager', () => {
       });
     });
 
-    it('should mark preset as used', async () => {
-      await presetManager.markPresetUsed('dev');
-
-      const writeCall = mockFs.writeFile.mock.calls.find(
-        (call: any) => call[0] === '/mock/home/.config/1mcp/presets.json',
-      );
-      const savedData = JSON.parse(writeCall[1]);
-
-      expect(savedData.presets.dev.lastUsed).toBeDefined();
-      expect(new Date(savedData.presets.dev.lastUsed)).toBeInstanceOf(Date);
-    });
-
     it('should get configuration path', () => {
       const configPath = presetManager.getConfigPath();
       expect(configPath).toBe('/mock/home/.config/1mcp/presets.json');
