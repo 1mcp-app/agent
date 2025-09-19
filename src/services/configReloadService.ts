@@ -2,7 +2,7 @@ import logger from '../logger/logger.js';
 import { ConfigChangeEvent, McpConfigManager } from '../config/mcpConfigManager.js';
 import { MCPServerParams, InboundConnection, EnhancedTransport } from '../core/types/index.js';
 import { ClientManager } from '../core/client/clientManager.js';
-import { setupCapabilities } from '../capabilities/capabilityManager.js';
+import { setupCapabilities } from '../core/capabilities/capabilityManager.js';
 import { createTransports } from '../transport/transportFactory.js';
 import { ServerManager } from '../core/server/serverManager.js';
 
