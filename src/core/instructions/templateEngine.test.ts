@@ -11,6 +11,7 @@ vi.mock('../../logger/logger.js', () => ({
     warn: vi.fn(),
     debug: vi.fn(),
   },
+  debugIf: vi.fn(),
 }));
 
 describe('InstructionAggregator - Template Engine', () => {

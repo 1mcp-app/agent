@@ -5,7 +5,7 @@ import { McpLoadingManager } from '../loading/mcpLoadingManager.js';
 import { OutboundConnections, InboundConnection } from '../types/index.js';
 import { ServerManager } from '../server/serverManager.js';
 import { AgentConfigManager } from '../server/agentConfig.js';
-import logger from '../../logger/logger.js';
+import logger, { debugIf } from '../../logger/logger.js';
 
 /**
  * Events emitted by AsyncLoadingOrchestrator
@@ -119,7 +119,7 @@ export class AsyncLoadingOrchestrator extends EventEmitter {
     this.loadingManager.on('server-loaded', (serverName, _result) => {
       if (this.isShuttingDown) return;
 
-      logger.debug(`Server ${serverName} became ready, updating capabilities`);
+      debugIf(() => ({ message: `Server ${serverName} became ready, updating capabilities`, meta: { serverName } }));
       this.handleServerReady(serverName);
     });
 
@@ -127,11 +127,11 @@ export class AsyncLoadingOrchestrator extends EventEmitter {
     this.capabilityAggregator.on('capabilities-changed', (changes) => {
       if (this.isShuttingDown) return;
 
-      logger.debug('Capabilities changed, processing notifications');
+      debugIf('Capabilities changed, processing notifications');
       this.handleCapabilityChanges(changes);
     });
 
-    logger.debug('Event chain setup completed');
+    debugIf('Event chain setup completed');
   }
 
   /**
@@ -154,7 +154,7 @@ export class AsyncLoadingOrchestrator extends EventEmitter {
       logger.error(`Failed to send ${type} listChanged notification: ${error.message}`);
     });
 
-    logger.debug('Notification event handlers setup completed');
+    debugIf('Notification event handlers setup completed');
   }
 
   /**
@@ -171,7 +171,10 @@ export class AsyncLoadingOrchestrator extends EventEmitter {
         );
         this.emit('server-capabilities-updated', serverName, changes);
       } else {
-        logger.debug(`Server ${serverName} ready but no capability changes detected`);
+        debugIf(() => ({
+          message: `Server ${serverName} ready but no capability changes detected`,
+          meta: { serverName },
+        }));
       }
     } catch (error) {
       logger.error(`Failed to update capabilities after ${serverName} became ready: ${error}`);
@@ -190,7 +193,7 @@ export class AsyncLoadingOrchestrator extends EventEmitter {
     if (this.notificationManager) {
       this.notificationManager.handleCapabilityChanges(changes);
     } else {
-      logger.debug('Capability changes detected but no notification manager available yet');
+      debugIf('Capability changes detected but no notification manager available yet');
     }
 
     // Log the changes for visibility
@@ -259,7 +262,7 @@ export class AsyncLoadingOrchestrator extends EventEmitter {
       };
 
       this.notificationManager.updateConfig(notificationConfig);
-      logger.debug('AsyncLoadingOrchestrator configuration updated');
+      debugIf('AsyncLoadingOrchestrator configuration updated');
     }
   }
 

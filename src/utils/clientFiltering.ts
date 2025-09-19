@@ -2,7 +2,7 @@ import { ServerCapabilities } from '@modelcontextprotocol/sdk/types.js';
 import { OutboundConnections, OutboundConnection } from '../core/types/index.js';
 import { TagQueryParser, TagExpression } from './tagQueryParser.js';
 import { normalizeTag } from './sanitization.js';
-import logger from '../logger/logger.js';
+import logger, { debugIf } from '../logger/logger.js';
 
 /**
  * Filters clients by tags
@@ -36,7 +36,10 @@ export function filterClientsByTags(clients: OutboundConnections, tags?: string[
   if (matchedClients === 0) {
     logger.warn(`No clients found matching tags: ${tags.join(', ')}`);
   } else {
-    logger.debug(`Found ${matchedClients} clients matching tags: ${tags.join(', ')}`);
+    debugIf(() => ({
+      message: `Found ${matchedClients} clients matching tags: ${tags.join(', ')}`,
+      meta: { matchedClients, tags },
+    }));
   }
 
   return filteredClients;
@@ -71,7 +74,10 @@ export function filterClientsByCapabilities(
   if (matchedClients === 0) {
     logger.warn(`No clients found matching capabilities: ${JSON.stringify(capabilities)}`);
   } else {
-    logger.debug(`Found ${matchedClients} clients matching capabilities: ${JSON.stringify(capabilities)}`);
+    debugIf(() => ({
+      message: `Found ${matchedClients} clients matching capabilities: ${JSON.stringify(capabilities)}`,
+      meta: { matchedClients, capabilities },
+    }));
   }
 
   return filteredClients;
@@ -86,27 +92,34 @@ type ClientFilter = (clients: OutboundConnections) => OutboundConnections;
  */
 export function filterClients(...filters: ClientFilter[]): ClientFilter {
   return (clients: OutboundConnections) => {
-    logger.debug(`filterClients: Starting with ${clients.size} clients`, {
-      clientNames: Array.from(clients.keys()),
-      filterCount: filters.length,
-    });
+    debugIf(() => ({
+      message: `filterClients: Starting with ${clients.size} clients`,
+      meta: {
+        clientNames: Array.from(clients.keys()),
+        filterCount: filters.length,
+      },
+    }));
 
     const result = filters.reduce((filteredClients, filter, index) => {
       const beforeCount = filteredClients.size;
       const afterFiltering = filter(filteredClients);
       const afterCount = afterFiltering.size;
 
-      logger.debug(`filterClients: Filter ${index} reduced clients from ${beforeCount} to ${afterCount}`, {
-        beforeNames: Array.from(filteredClients.keys()),
-        afterNames: Array.from(afterFiltering.keys()),
-      });
+      debugIf(() => ({
+        message: `filterClients: Filter ${index} reduced clients from ${beforeCount} to ${afterCount}`,
+        meta: {
+          beforeNames: Array.from(filteredClients.keys()),
+          afterNames: Array.from(afterFiltering.keys()),
+        },
+      }));
 
       return afterFiltering;
     }, clients);
 
-    logger.debug(`filterClients: Final result has ${result.size} clients`, {
-      finalNames: Array.from(result.keys()),
-    });
+    debugIf(() => ({
+      message: `filterClients: Final result has ${result.size} clients`,
+      meta: { finalNames: Array.from(result.keys()) },
+    }));
 
     return result;
   };
@@ -120,18 +133,24 @@ export function filterClients(...filters: ClientFilter[]): ClientFilter {
 export function byCapabilities(requiredCapabilities: ServerCapabilities): ClientFilter {
   return (clients: OutboundConnections) => {
     const requiredCaps = Object.keys(requiredCapabilities);
-    logger.debug(`byCapabilities: Filtering for capabilities: ${requiredCaps.join(', ')}`);
+    debugIf(() => ({
+      message: `byCapabilities: Filtering for capabilities: ${requiredCaps.join(', ')}`,
+      meta: { requiredCaps },
+    }));
 
     return Array.from(clients.entries()).reduce((filtered, [name, clientInfo]) => {
       const clientCaps = clientInfo.capabilities ? Object.keys(clientInfo.capabilities) : [];
       const hasCapabilities = requiredCaps.every((cap) => clientInfo.capabilities && cap in clientInfo.capabilities);
 
-      logger.debug(`byCapabilities: Client ${name}`, {
-        clientCapabilities: clientCaps,
-        requiredCapabilities: requiredCaps,
-        hasCapabilities,
-        clientCapabilitiesObject: clientInfo.capabilities,
-      });
+      debugIf(() => ({
+        message: `byCapabilities: Client ${name}`,
+        meta: {
+          clientCapabilities: clientCaps,
+          requiredCapabilities: requiredCaps,
+          hasCapabilities,
+          clientCapabilitiesObject: clientInfo.capabilities,
+        },
+      }));
 
       if (hasCapabilities) {
         filtered.set(name, clientInfo);
@@ -148,10 +167,10 @@ export function byCapabilities(requiredCapabilities: ServerCapabilities): Client
  */
 export function byTags(tags?: string[]): ClientFilter {
   return (clients: OutboundConnections) => {
-    logger.debug(`byTags: Filtering for tags: ${tags ? tags.join(', ') : 'none'}`);
+    debugIf(() => ({ message: `byTags: Filtering for tags: ${tags ? tags.join(', ') : 'none'}`, meta: { tags } }));
 
     if (!tags || tags.length === 0) {
-      logger.debug('byTags: No tags specified, returning all clients');
+      debugIf('byTags: No tags specified, returning all clients');
       return clients;
     }
 
@@ -164,13 +183,16 @@ export function byTags(tags?: string[]): ClientFilter {
       const normalizedClientTags = clientTags.map((tag) => normalizeTag(tag));
       const hasMatchingTags = normalizedClientTags.some((clientTag) => normalizedFilterTags.includes(clientTag));
 
-      logger.debug(`byTags: Client ${name}`, {
-        clientTags,
-        normalizedClientTags,
-        requiredTags: tags,
-        normalizedRequiredTags: normalizedFilterTags,
-        hasMatchingTags,
-      });
+      debugIf(() => ({
+        message: `byTags: Client ${name}`,
+        meta: {
+          clientTags,
+          normalizedClientTags,
+          requiredTags: tags,
+          normalizedRequiredTags: normalizedFilterTags,
+          hasMatchingTags,
+        },
+      }));
 
       if (hasMatchingTags) {
         filtered.set(name, clientInfo);
@@ -187,17 +209,23 @@ export function byTags(tags?: string[]): ClientFilter {
  */
 export function byTagExpression(expression: TagExpression): ClientFilter {
   return (clients: OutboundConnections) => {
-    logger.debug(`byTagExpression: Filtering with expression: ${TagQueryParser.expressionToString(expression)}`);
+    debugIf(() => ({
+      message: `byTagExpression: Filtering with expression: ${TagQueryParser.expressionToString(expression)}`,
+      meta: { expression },
+    }));
 
     return Array.from(clients.entries()).reduce((filtered, [name, clientInfo]) => {
       const clientTags = clientInfo.transport.tags || [];
       const matches = TagQueryParser.evaluate(expression, clientTags);
 
-      logger.debug(`byTagExpression: Client ${name}`, {
-        clientTags,
-        expression: TagQueryParser.expressionToString(expression),
-        matches,
-      });
+      debugIf(() => ({
+        message: `byTagExpression: Client ${name}`,
+        meta: {
+          clientTags,
+          expression: TagQueryParser.expressionToString(expression),
+          matches,
+        },
+      }));
 
       if (matches) {
         filtered.set(name, clientInfo);

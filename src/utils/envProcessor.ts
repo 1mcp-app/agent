@@ -1,5 +1,5 @@
 import { getDefaultEnvironment } from '@modelcontextprotocol/sdk/client/stdio.js';
-import logger from '../logger/logger.js';
+import logger, { debugIf } from '../logger/logger.js';
 
 /**
  * Configuration for environment processing
@@ -143,7 +143,7 @@ function getParentEnvironment(): Record<string, string> {
 
     // Skip bash functions and other potentially dangerous variables
     if (value.startsWith('()')) {
-      logger.debug(`Skipping dangerous environment variable: ${key}`);
+      debugIf(`Skipping dangerous environment variable: ${key}`);
       continue;
     }
 
@@ -204,7 +204,7 @@ export function processEnvironment(config: EnvProcessingConfig): ProcessedEnviro
   const sdkDefaults = getDefaultEnvironment();
   const sdkDefaultKeys = Object.keys(sdkDefaults);
 
-  logger.debug(`SDK default environment variables: ${sdkDefaultKeys.join(', ')}`);
+  debugIf(() => ({ message: `SDK default environment variables: ${sdkDefaultKeys.join(', ')}` }));
 
   // 2. Optionally inherit from parent process
   let inheritedEnv: Record<string, string> = {};
@@ -214,7 +214,7 @@ export function processEnvironment(config: EnvProcessingConfig): ProcessedEnviro
     const parentEnv = getParentEnvironment();
     inheritedEnv = { ...parentEnv };
     inheritedKeys = Object.keys(parentEnv).filter((key) => !sdkDefaultKeys.includes(key));
-    logger.debug(`Inheriting ${inheritedKeys.length} additional environment variables from parent`);
+    debugIf(() => ({ message: `Inheriting ${inheritedKeys.length} additional environment variables from parent` }));
   }
 
   // 3. Combine SDK defaults and inherited environment
@@ -226,7 +226,9 @@ export function processEnvironment(config: EnvProcessingConfig): ProcessedEnviro
     const filterResult = applyEnvPatterns(combinedEnv, config.envFilter);
     combinedEnv = filterResult.filtered;
     filteredKeys = filterResult.filteredKeys;
-    logger.debug(`Environment filtering removed ${filteredKeys.length} variables: ${filteredKeys.join(', ')}`);
+    debugIf(() => ({
+      message: `Environment filtering removed ${filteredKeys.length} variables: ${filteredKeys.join(', ')}`,
+    }));
   }
 
   // 5. Add custom environment variables
@@ -246,7 +248,7 @@ export function processEnvironment(config: EnvProcessingConfig): ProcessedEnviro
     }
 
     customKeys = Object.keys(customEnv);
-    logger.debug(`Adding ${customKeys.length} custom environment variables: ${customKeys.join(', ')}`);
+    debugIf(() => ({ message: `Adding ${customKeys.length} custom environment variables: ${customKeys.join(', ')}` }));
   }
 
   // 6. Final merge (custom env overrides everything)
@@ -262,6 +264,6 @@ export function processEnvironment(config: EnvProcessingConfig): ProcessedEnviro
     },
   };
 
-  logger.debug(`Environment processing complete. Total variables: ${Object.keys(processedEnv).length}`);
+  debugIf(() => ({ message: `Environment processing complete. Total variables: ${Object.keys(processedEnv).length}` }));
   return result;
 }

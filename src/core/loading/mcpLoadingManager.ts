@@ -2,7 +2,7 @@ import { EventEmitter } from 'events';
 import { OutboundConnections, AuthProviderTransport } from '../types/index.js';
 import { ClientManager } from '../client/clientManager.js';
 import { LoadingStateTracker, LoadingState, LoadingSummary } from './loadingStateTracker.js';
-import logger from '../../logger/logger.js';
+import logger, { debugIf } from '../../logger/logger.js';
 
 /**
  * Configuration options for MCP loading behavior
@@ -334,7 +334,7 @@ export class McpLoadingManager extends EventEmitter {
 
         // Don't wait for completion, let it run in background
         this.loadSingleServer(serverInfo.name, transport).catch((error) => {
-          logger.debug(`Background retry failed for ${serverInfo.name}: ${error.message}`);
+          debugIf(() => ({ message: `Background retry failed for ${serverInfo.name}: ${error.message}` }));
         });
       }
     }

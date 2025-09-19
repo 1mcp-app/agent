@@ -1,7 +1,7 @@
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
 import { UnauthorizedError } from '@modelcontextprotocol/sdk/client/auth.js';
-import logger from '../../logger/logger.js';
+import logger, { debugIf } from '../../logger/logger.js';
 import { CONNECTION_RETRY, MCP_SERVER_NAME, MCP_SERVER_VERSION, MCP_CLIENT_CAPABILITIES } from '../../constants.js';
 import { ClientConnectionError, ClientNotFoundError, CapabilityError } from '../../utils/errorTypes.js';
 import {
@@ -70,9 +70,12 @@ export class ClientManager {
       }
 
       if (instructions?.trim()) {
-        logger.debug(`Cached instructions for ${name}: ${instructions.length} characters`);
+        debugIf(() => ({
+          message: `Cached instructions for ${name}: ${instructions.length} characters`,
+          meta: { name, instructionLength: instructions.length },
+        }));
       } else {
-        logger.debug(`No instructions available for ${name}`);
+        debugIf(() => ({ message: `No instructions available for ${name}`, meta: { name } }));
       }
     } catch (error) {
       logger.warn(`Failed to extract instructions from ${name}: ${error}`);

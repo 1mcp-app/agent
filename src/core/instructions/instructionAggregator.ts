@@ -1,6 +1,6 @@
 import { EventEmitter } from 'events';
 import Handlebars from 'handlebars';
-import logger from '../../logger/logger.js';
+import logger, { debugIf } from '../../logger/logger.js';
 import { FilteringService } from '../filtering/filteringService.js';
 import { OutboundConnections, InboundConnectionConfig } from '../types/index.js';
 import {
@@ -56,15 +56,15 @@ export class InstructionAggregator extends EventEmitter {
 
     if (instructions?.trim()) {
       this.serverInstructions.set(serverName, instructions.trim());
-      logger.debug(`Updated instructions for server: ${serverName}`);
+      debugIf(() => ({ message: `Updated instructions for server: ${serverName}`, meta: { serverName } }));
     } else {
       this.serverInstructions.delete(serverName);
-      logger.debug(`Removed instructions for server: ${serverName}`);
+      debugIf(() => ({ message: `Removed instructions for server: ${serverName}`, meta: { serverName } }));
     }
 
     if (!this.isInitialized) {
       this.isInitialized = true;
-      logger.debug('InstructionAggregator initialized');
+      debugIf('InstructionAggregator initialized');
     }
 
     if (hasChanges) {
@@ -96,12 +96,15 @@ export class InstructionAggregator extends EventEmitter {
    * @returns Formatted instruction string with educational template or custom template
    */
   public getFilteredInstructions(config: InboundConnectionConfig, connections: OutboundConnections): string {
-    logger.debug('InstructionAggregator: Getting filtered instructions', {
-      filterMode: config.tagFilterMode,
-      totalConnections: connections.size,
-      totalInstructions: this.serverInstructions.size,
-      hasCustomTemplate: !!config.customTemplate,
-    });
+    debugIf(() => ({
+      message: 'InstructionAggregator: Getting filtered instructions',
+      meta: {
+        filterMode: config.tagFilterMode,
+        totalConnections: connections.size,
+        totalInstructions: this.serverInstructions.size,
+        hasCustomTemplate: !!config.customTemplate,
+      },
+    }));
 
     // Filter connections based on client configuration
     const filteredConnections = FilteringService.getFilteredConnections(connections, config);
@@ -175,7 +178,7 @@ export class InstructionAggregator extends EventEmitter {
     this.serverInstructions.clear();
 
     if (hadInstructions) {
-      logger.debug('Cleared all server instructions');
+      debugIf('Cleared all server instructions');
       this.emit('instructions-changed');
     }
   }
@@ -246,11 +249,14 @@ export class InstructionAggregator extends EventEmitter {
     // Render template
     const rendered = compiledTemplate(variables);
 
-    logger.debug('InstructionAggregator: Template rendered successfully', {
-      templateLength: template.length,
-      variableCount: Object.keys(variables).length,
-      renderedLength: rendered.length,
-    });
+    debugIf(() => ({
+      message: 'InstructionAggregator: Compiled and cached new template',
+      meta: {
+        templateLength: template.length,
+        variableCount: Object.keys(variables).length,
+        renderedLength: rendered.length,
+      },
+    }));
 
     return rendered;
   }
@@ -325,7 +331,7 @@ export class InstructionAggregator extends EventEmitter {
    * Should be called when the aggregator is no longer needed
    */
   public cleanup(): void {
-    logger.debug('InstructionAggregator: Starting cleanup');
+    debugIf('InstructionAggregator: Starting cleanup');
 
     // Clear all event listeners
     this.removeAllListeners();

@@ -3,7 +3,7 @@ import { ZodError } from 'zod';
 import { createTransports } from './transportFactory.js';
 import { MCPServerParams } from '../core/types/index.js';
 import { SDKOAuthClientProvider } from '../auth/sdkOAuthClientProvider.js';
-import logger from '../logger/logger.js';
+import logger, { debugIf } from '../logger/logger.js';
 
 // Mock dependencies
 vi.mock('@modelcontextprotocol/sdk/client/stdio.js', () => ({
@@ -57,6 +57,7 @@ vi.mock('../logger/logger.js', () => ({
     debug: vi.fn(),
     error: vi.fn(),
   },
+  debugIf: vi.fn(),
 }));
 
 vi.mock('../core/types/index.js', async () => {
@@ -139,7 +140,7 @@ describe('TransportFactory', () => {
       const transports = createTransports(config);
 
       expect(Object.keys(transports)).toEqual(['enabled-server']);
-      expect(logger.debug).toHaveBeenCalledWith('Skipping disabled transport: disabled-server');
+      expect(debugIf).toHaveBeenCalledWith('Skipping disabled transport: disabled-server');
     });
 
     it('should infer transport type when missing', () => {
@@ -371,7 +372,7 @@ describe('TransportFactory', () => {
 
       createTransports(config);
 
-      expect(logger.debug).toHaveBeenCalledWith('Created transport: test-server');
+      expect(debugIf).toHaveBeenCalledWith('Created transport: test-server');
     });
 
     it('should create restartable transport with custom maxRestarts and restartDelay', () => {

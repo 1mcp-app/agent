@@ -5,7 +5,7 @@ import { TagQueryParser, TagExpression } from '../../utils/tagQueryParser.js';
 import { TagQueryEvaluator } from '../../utils/tagQueryEvaluator.js';
 import { TagQuery } from '../../utils/presetTypes.js';
 import { normalizeTag } from '../../utils/sanitization.js';
-import logger from '../../logger/logger.js';
+import logger, { debugIf } from '../../logger/logger.js';
 
 /**
  * Type definition for client filter functions
@@ -30,13 +30,16 @@ export class FilteringService {
     connections: OutboundConnections,
     config: InboundConnectionConfig,
   ): OutboundConnections {
-    logger.debug('FilteringService: Filtering connections', {
-      totalConnections: connections.size,
-      filterMode: config.tagFilterMode,
-      tags: config.tags,
-      hasTagExpression: !!config.tagExpression,
-      hasTagQuery: !!config.tagQuery,
-    });
+    debugIf(() => ({
+      message: 'FilteringService: Filtering connections',
+      meta: {
+        totalConnections: connections.size,
+        filterMode: config.tagFilterMode,
+        tags: config.tags,
+        hasTagExpression: !!config.tagExpression,
+        hasTagQuery: !!config.tagQuery,
+      },
+    }));
 
     // Only include connected clients in filtering
     const connectedClients = new Map<string, OutboundConnection>();
@@ -46,23 +49,29 @@ export class FilteringService {
       }
     }
 
-    logger.debug('FilteringService: Connected clients', {
-      connectedCount: connectedClients.size,
-      connectedNames: Array.from(connectedClients.keys()),
-    });
+    debugIf(() => ({
+      message: 'FilteringService: Connected clients',
+      meta: {
+        connectedCount: connectedClients.size,
+        connectedNames: Array.from(connectedClients.keys()),
+      },
+    }));
 
     if (!config.tagFilterMode || config.tagFilterMode === 'none') {
-      logger.debug('FilteringService: No filtering specified, returning all connected clients');
+      debugIf('FilteringService: No filtering specified, returning all connected clients');
       return connectedClients;
     }
 
     const filter = this.createFilter(config);
     const filteredConnections = filter(connectedClients);
 
-    logger.debug('FilteringService: Filtering completed', {
-      filteredCount: filteredConnections.size,
-      filteredNames: Array.from(filteredConnections.keys()),
-    });
+    debugIf(() => ({
+      message: 'FilteringService: Filtering completed',
+      meta: {
+        filteredCount: filteredConnections.size,
+        filteredNames: Array.from(filteredConnections.keys()),
+      },
+    }));
 
     return filteredConnections;
   }
@@ -95,10 +104,10 @@ export class FilteringService {
    */
   public static byTags(tags?: string[]): ClientFilter {
     return (connections: OutboundConnections) => {
-      logger.debug(`FilteringService.byTags: Filtering for tags: ${tags ? tags.join(', ') : 'none'}`);
+      debugIf(() => ({ message: `FilteringService.byTags: Filtering for tags: ${tags ? tags.join(', ') : 'none'}` }));
 
       if (!tags || tags.length === 0) {
-        logger.debug('FilteringService.byTags: No tags specified, returning all connections');
+        debugIf('FilteringService.byTags: No tags specified, returning all connections');
         return connections;
       }
 
@@ -111,13 +120,16 @@ export class FilteringService {
         const normalizedClientTags = clientTags.map((tag) => normalizeTag(tag));
         const hasMatchingTags = normalizedClientTags.some((clientTag) => normalizedFilterTags.includes(clientTag));
 
-        logger.debug(`FilteringService.byTags: Connection ${name}`, {
-          clientTags,
-          normalizedClientTags,
-          requiredTags: tags,
-          normalizedRequiredTags: normalizedFilterTags,
-          hasMatchingTags,
-        });
+        debugIf(() => ({
+          message: `FilteringService.byTags: Connection ${name}`,
+          meta: {
+            clientTags,
+            normalizedClientTags,
+            requiredTags: tags,
+            normalizedRequiredTags: normalizedFilterTags,
+            hasMatchingTags,
+          },
+        }));
 
         if (hasMatchingTags) {
           filtered.set(name, connection);
@@ -135,19 +147,22 @@ export class FilteringService {
    */
   public static byTagExpression(expression: TagExpression): ClientFilter {
     return (connections: OutboundConnections) => {
-      logger.debug(
-        `FilteringService.byTagExpression: Filtering with expression: ${TagQueryParser.expressionToString(expression)}`,
-      );
+      debugIf(() => ({
+        message: `FilteringService.byTagExpression: Filtering with expression: ${TagQueryParser.expressionToString(expression)}`,
+      }));
 
       return Array.from(connections.entries()).reduce((filtered, [name, connection]) => {
         const clientTags = connection.transport.tags || [];
         const matches = TagQueryParser.evaluate(expression, clientTags);
 
-        logger.debug(`FilteringService.byTagExpression: Connection ${name}`, {
-          clientTags,
-          expression: TagQueryParser.expressionToString(expression),
-          matches,
-        });
+        debugIf(() => ({
+          message: `FilteringService.byTagExpression: Connection ${name}`,
+          meta: {
+            clientTags,
+            expression: TagQueryParser.expressionToString(expression),
+            matches,
+          },
+        }));
 
         if (matches) {
           filtered.set(name, connection);
@@ -165,7 +180,7 @@ export class FilteringService {
    */
   public static byTagQuery(query: TagQuery): ClientFilter {
     return (connections: OutboundConnections) => {
-      logger.debug('FilteringService.byTagQuery: Filtering with tag query', { query });
+      debugIf(() => ({ message: 'FilteringService.byTagQuery: Filtering with tag query', meta: { query } }));
 
       const filtered = new Map<string, OutboundConnection>();
       for (const [name, connection] of connections.entries()) {
@@ -177,10 +192,13 @@ export class FilteringService {
         try {
           if (TagQueryEvaluator.evaluate(query, clientTags)) {
             filtered.set(name, connection);
-            logger.debug(`FilteringService.byTagQuery: Connection ${name} matches query`, {
-              clientTags,
-              query,
-            });
+            debugIf(() => ({
+              message: `FilteringService.byTagQuery: Connection ${name} matches query`,
+              meta: {
+                clientTags,
+                query,
+              },
+            }));
           }
         } catch (error) {
           logger.warn(`FilteringService.byTagQuery: Failed to evaluate query for connection ${name}`, {
@@ -203,18 +221,23 @@ export class FilteringService {
   public static byCapabilities(requiredCapabilities: ServerCapabilities): ClientFilter {
     return (connections: OutboundConnections) => {
       const requiredCaps = Object.keys(requiredCapabilities);
-      logger.debug(`FilteringService.byCapabilities: Filtering for capabilities: ${requiredCaps.join(', ')}`);
+      debugIf(() => ({
+        message: `FilteringService.byCapabilities: Filtering for capabilities: ${requiredCaps.join(', ')}`,
+      }));
 
       return Array.from(connections.entries()).reduce((filtered, [name, connection]) => {
         const clientCaps = connection.capabilities ? Object.keys(connection.capabilities) : [];
         const hasCapabilities = requiredCaps.every((cap) => connection.capabilities && cap in connection.capabilities);
 
-        logger.debug(`FilteringService.byCapabilities: Connection ${name}`, {
-          clientCapabilities: clientCaps,
-          requiredCapabilities: requiredCaps,
-          hasCapabilities,
-          clientCapabilitiesObject: connection.capabilities,
-        });
+        debugIf(() => ({
+          message: `FilteringService.byCapabilities: Connection ${name}`,
+          meta: {
+            clientCapabilities: clientCaps,
+            requiredCapabilities: requiredCaps,
+            hasCapabilities,
+            clientCapabilitiesObject: connection.capabilities,
+          },
+        }));
 
         if (hasCapabilities) {
           filtered.set(name, connection);
@@ -233,30 +256,36 @@ export class FilteringService {
    */
   public static combineFilters(...filters: ClientFilter[]): ClientFilter {
     return (connections: OutboundConnections) => {
-      logger.debug(`FilteringService.combineFilters: Starting with ${connections.size} connections`, {
-        connectionNames: Array.from(connections.keys()),
-        filterCount: filters.length,
-      });
+      debugIf(() => ({
+        message: `FilteringService.combineFilters: Starting with ${connections.size} connections`,
+        meta: {
+          connectionNames: Array.from(connections.keys()),
+          filterCount: filters.length,
+        },
+      }));
 
       const result = filters.reduce((filteredConnections, filter, index) => {
         const beforeCount = filteredConnections.size;
         const afterFiltering = filter(filteredConnections);
         const afterCount = afterFiltering.size;
 
-        logger.debug(
-          `FilteringService.combineFilters: Filter ${index} reduced connections from ${beforeCount} to ${afterCount}`,
-          {
+        debugIf(() => ({
+          message: `FilteringService.combineFilters: Filter ${index} reduced connections from ${beforeCount} to ${afterCount}`,
+          meta: {
             beforeNames: Array.from(filteredConnections.keys()),
             afterNames: Array.from(afterFiltering.keys()),
           },
-        );
+        }));
 
         return afterFiltering;
       }, connections);
 
-      logger.debug(`FilteringService.combineFilters: Final result has ${result.size} connections`, {
-        finalNames: Array.from(result.keys()),
-      });
+      debugIf(() => ({
+        message: `FilteringService.combineFilters: Final result has ${result.size} connections`,
+        meta: {
+          finalNames: Array.from(result.keys()),
+        },
+      }));
 
       return result;
     };

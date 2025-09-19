@@ -1,5 +1,5 @@
 import { Request, Response, NextFunction } from 'express';
-import logger from '../../../logger/logger.js';
+import logger, { debugIf } from '../../../logger/logger.js';
 import { secureLogger } from '../../../logger/secureLogger.js';
 import { McpLoadingManager } from '../../../core/loading/mcpLoadingManager.js';
 import { LoadingState } from '../../../core/loading/loadingStateTracker.js';
@@ -79,7 +79,7 @@ export function createMcpAvailabilityMiddleware(
     try {
       // If no loading manager, assume all servers are available (legacy mode)
       if (!loadingManager) {
-        logger.debug('No loading manager - assuming all servers available');
+        debugIf('No loading manager - assuming all servers available');
         next();
         return;
       }
@@ -118,12 +118,16 @@ export function createMcpAvailabilityMiddleware(
           return requestedTagsLower.every((requestedTag) => serverTags.includes(requestedTag));
         });
 
-        logger.debug(
-          `Filtered ${relevantServers.length}/${allServers.length} servers ` + `with tags: ${requestedTags.join(', ')}`,
-        );
+        debugIf(() => ({
+          message: `Filtered ${relevantServers.length}/${allServers.length} servers with tags: ${requestedTags.join(', ')}`,
+          meta: { relevantServers: relevantServers.length, allServers: allServers.length, requestedTags },
+        }));
       } else {
         relevantServers = allServers;
-        logger.debug(`Checking availability for all ${relevantServers.length} servers`);
+        debugIf(() => ({
+          message: `Checking availability for all ${relevantServers.length} servers`,
+          meta: { relevantServers: relevantServers.length },
+        }));
       }
 
       // Categorize servers by state with detailed error information

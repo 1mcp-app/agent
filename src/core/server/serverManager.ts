@@ -1,6 +1,6 @@
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
-import logger from '../../logger/logger.js';
+import logger, { debugIf } from '../../logger/logger.js';
 import configReloadService from '../../services/configReloadService.js';
 import { setupCapabilities } from '../capabilities/capabilityManager.js';
 import { enhanceServerWithLogging } from '../../logger/mcpLoggingEnhancer.js';
@@ -85,7 +85,7 @@ export class ServerManager {
       this.updateServerInstructions();
     });
 
-    logger.debug('Instruction aggregator set for ServerManager');
+    debugIf('Instruction aggregator set for ServerManager');
   }
 
   /**
@@ -99,7 +99,7 @@ export class ServerManager {
         // Note: The MCP SDK doesn't provide a direct way to update instructions
         // on an existing server instance. Instructions are set during server construction.
         // For now, we'll log this for future server instances.
-        logger.debug(`Instructions changed notification for session ${sessionId}`);
+        debugIf(() => ({ message: `Instructions changed notification for session ${sessionId}`, meta: { sessionId } }));
       } catch (error) {
         logger.warn(`Failed to process instruction change for session ${sessionId}: ${error}`);
       }
@@ -210,7 +210,7 @@ export class ServerManager {
           try {
             if (serverInfo.status === ServerStatus.Connected && serverInfo.server.transport) {
               await serverInfo.server.notification({ method, params: params || {} });
-              logger.debug('Sent notification to client', { sessionId, method });
+              debugIf(() => ({ message: 'Sent notification to client', meta: { sessionId, method } }));
             } else {
               logger.warn('Cannot send notification to disconnected client', { sessionId, method });
             }
@@ -263,7 +263,7 @@ export class ServerManager {
         // Untrack client from preset notification service
         const notificationService = PresetNotificationService.getInstance();
         notificationService.untrackClient(sessionId);
-        logger.debug('Untracked client from preset notifications', { sessionId });
+        debugIf(() => ({ message: 'Untracked client from preset notifications', meta: { sessionId } }));
 
         this.inboundConns.delete(sessionId);
         configReloadService.removeServerInfo(sessionId);

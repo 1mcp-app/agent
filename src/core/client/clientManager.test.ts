@@ -19,6 +19,7 @@ vi.mock('../../logger/logger.js', () => ({
     error: vi.fn(),
     warn: vi.fn(),
   },
+  debugIf: vi.fn(),
 }));
 
 vi.mock('../server/agentConfig.js', () => ({

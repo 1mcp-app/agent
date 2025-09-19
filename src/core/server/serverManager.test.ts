@@ -27,6 +27,7 @@ vi.mock('../../logger/logger.js', () => {
   return {
     __esModule: true,
     default: mockLogger,
+    debugIf: vi.fn(),
   };
 });
 

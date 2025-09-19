@@ -8,7 +8,7 @@ import {
   Prompt,
 } from '@modelcontextprotocol/sdk/types.js';
 import { OutboundConnections, ClientStatus } from '../types/index.js';
-import logger from '../../logger/logger.js';
+import logger, { debugIf } from '../../logger/logger.js';
 
 /**
  * Represents a snapshot of aggregated capabilities from all ready servers
@@ -105,7 +105,7 @@ export class CapabilityAggregator extends EventEmitter {
 
     if (!this.isInitialized) {
       this.isInitialized = true;
-      logger.debug('CapabilityAggregator initialized with capabilities from ready servers');
+      debugIf('CapabilityAggregator initialized with capabilities from ready servers');
     }
 
     if (changes.hasChanges) {
@@ -186,7 +186,7 @@ export class CapabilityAggregator extends EventEmitter {
     try {
       return await client.listTools();
     } catch (error) {
-      logger.debug(`Failed to list tools from ${serverName}: ${error}`);
+      debugIf(() => ({ message: `Failed to list tools from ${serverName}: ${error}` }));
       return { tools: [] };
     }
   }
@@ -198,7 +198,7 @@ export class CapabilityAggregator extends EventEmitter {
     try {
       return await client.listResources();
     } catch (error) {
-      logger.debug(`Failed to list resources from ${serverName}: ${error}`);
+      debugIf(() => ({ message: `Failed to list resources from ${serverName}: ${error}` }));
       return { resources: [] };
     }
   }
@@ -210,7 +210,7 @@ export class CapabilityAggregator extends EventEmitter {
     try {
       return await client.listPrompts();
     } catch (error) {
-      logger.debug(`Failed to list prompts from ${serverName}: ${error}`);
+      debugIf(() => ({ message: `Failed to list prompts from ${serverName}: ${error}` }));
       return { prompts: [] };
     }
   }
@@ -266,7 +266,7 @@ export class CapabilityAggregator extends EventEmitter {
     const seen = new Set<string>();
     return tools.filter((tool) => {
       if (seen.has(tool.name)) {
-        logger.debug(`Duplicate tool name detected: ${tool.name}`);
+        debugIf(`Duplicate tool name detected: ${tool.name}`);
         return false;
       }
       seen.add(tool.name);
@@ -281,7 +281,7 @@ export class CapabilityAggregator extends EventEmitter {
     const seen = new Set<string>();
     return resources.filter((resource) => {
       if (seen.has(resource.uri)) {
-        logger.debug(`Duplicate resource URI detected: ${resource.uri}`);
+        debugIf(`Duplicate resource URI detected: ${resource.uri}`);
         return false;
       }
       seen.add(resource.uri);
@@ -296,7 +296,7 @@ export class CapabilityAggregator extends EventEmitter {
     const seen = new Set<string>();
     return prompts.filter((prompt) => {
       if (seen.has(prompt.name)) {
-        logger.debug(`Duplicate prompt name detected: ${prompt.name}`);
+        debugIf(`Duplicate prompt name detected: ${prompt.name}`);
         return false;
       }
       seen.add(prompt.name);

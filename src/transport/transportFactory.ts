@@ -5,7 +5,7 @@ import {
   StreamableHTTPClientTransportOptions,
 } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import { z, ZodError } from 'zod';
-import logger from '../logger/logger.js';
+import logger, { debugIf } from '../logger/logger.js';
 import { AuthProviderTransport, transportConfigSchema } from '../core/types/index.js';
 import { MCPServerParams } from '../core/types/index.js';
 import { OAuthClientConfig, SDKOAuthClientProvider } from '../auth/sdkOAuthClientProvider.js';
@@ -134,13 +134,16 @@ function createStdioTransport(
     env: validatedTransport.env,
   });
 
-  logger.debug(`Environment processing for ${name}:`, {
-    totalVariables: Object.keys(envResult.processedEnv).length,
-    sdkDefaults: envResult.sources.sdkDefaults.length,
-    inherited: envResult.sources.inherited.length,
-    custom: envResult.sources.custom.length,
-    filtered: envResult.sources.filtered.length,
-  });
+  debugIf(() => ({
+    message: `Environment processing for ${name}:`,
+    meta: {
+      totalVariables: Object.keys(envResult.processedEnv).length,
+      sdkDefaults: envResult.sources.sdkDefaults.length,
+      inherited: envResult.sources.inherited.length,
+      custom: envResult.sources.custom.length,
+      filtered: envResult.sources.filtered.length,
+    },
+  }));
 
   // Create SDK-compatible parameters with processed environment
   const stdioParams: StdioServerParameters = {
@@ -165,7 +168,7 @@ function createStdioTransport(
   }
 
   // Create standard stdio transport
-  logger.debug(`Creating standard stdio transport for: ${name}`);
+  debugIf(`Creating standard stdio transport for: ${name}`);
   return new StdioClientTransport(stdioParams) as AuthProviderTransport;
 }
 
@@ -213,7 +216,7 @@ export function createTransports(config: Record<string, MCPServerParams>): Recor
 
   for (const [name, params] of Object.entries(config)) {
     if (params.disabled) {
-      logger.debug(`Skipping disabled transport: ${name}`);
+      debugIf(`Skipping disabled transport: ${name}`);
       continue;
     }
 
@@ -223,7 +226,7 @@ export function createTransports(config: Record<string, MCPServerParams>): Recor
       const transport = createSingleTransport(name, validatedTransport);
 
       assignTransport(transports, name, transport, validatedTransport);
-      logger.debug(`Created transport: ${name}`);
+      debugIf(`Created transport: ${name}`);
     } catch (error) {
       if (error instanceof ZodError) {
         logger.error(`Invalid transport configuration for ${name}:`, error.issues);

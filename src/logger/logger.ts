@@ -136,4 +136,66 @@ export function configureLogger(options: { logLevel?: string; logFile?: string; 
   }
 }
 
+/**
+ * Check if debug logging is enabled
+ * Use this to avoid expensive operations when debug logging is disabled
+ */
+export function isDebugEnabled(): boolean {
+  return logger.isDebugEnabled();
+}
+
+/**
+ * Check if info logging is enabled
+ * Use this to avoid expensive operations when info logging is disabled
+ */
+export function isInfoEnabled(): boolean {
+  return logger.isInfoEnabled();
+}
+
+/**
+ * Check if warn logging is enabled
+ * Use this to avoid expensive operations when warn logging is disabled
+ */
+export function isWarnEnabled(): boolean {
+  return logger.isWarnEnabled();
+}
+
+/**
+ * Conditional debug logging - only executes the message function if debug is enabled
+ * @param messageOrFunc Message string or function that returns message and metadata
+ */
+export function debugIf(messageOrFunc: string | (() => { message: string; meta?: any })): void {
+  if (isDebugEnabled()) {
+    if (typeof messageOrFunc === 'string') {
+      logger.debug(messageOrFunc);
+    } else {
+      const { message, meta } = messageOrFunc();
+      if (meta) {
+        logger.debug(message, meta);
+      } else {
+        logger.debug(message);
+      }
+    }
+  }
+}
+
+/**
+ * Conditional info logging - only executes the message function if info is enabled
+ * @param messageOrFunc Message string or function that returns message and metadata
+ */
+export function infoIf(messageOrFunc: string | (() => { message: string; meta?: any })): void {
+  if (isInfoEnabled()) {
+    if (typeof messageOrFunc === 'string') {
+      logger.info(messageOrFunc);
+    } else {
+      const { message, meta } = messageOrFunc();
+      if (meta) {
+        logger.info(message, meta);
+      } else {
+        logger.info(message);
+      }
+    }
+  }
+}
+
 export default logger;

@@ -6,7 +6,7 @@ import {
 } from '@modelcontextprotocol/sdk/types.js';
 import { InboundConnection, ServerStatus } from '../types/index.js';
 import { CapabilityChanges } from '../capabilities/capabilityAggregator.js';
-import logger from '../../logger/logger.js';
+import logger, { debugIf } from '../../logger/logger.js';
 
 /**
  * Configuration for notification batching and behavior
@@ -87,7 +87,7 @@ export class NotificationManager extends EventEmitter {
     }
 
     if (!changes.hasChanges) {
-      logger.debug('No capability changes detected, skipping notifications');
+      debugIf('No capability changes detected, skipping notifications');
       return;
     }
 
@@ -130,7 +130,10 @@ export class NotificationManager extends EventEmitter {
       this.sendBatchedNotifications();
     }, this.config.batchDelayMs);
 
-    logger.debug(`Scheduled batched notifications to be sent in ${this.config.batchDelayMs}ms`);
+    debugIf(() => ({
+      message: `Scheduled batched notifications to be sent in ${this.config.batchDelayMs}ms`,
+      meta: { delayMs: this.config.batchDelayMs },
+    }));
   }
 
   /**
@@ -232,7 +235,7 @@ export class NotificationManager extends EventEmitter {
       // Send notification
       this.inboundConn.server.notification(notification);
 
-      logger.debug(`Sent ${type} listChanged notification to client`);
+      debugIf(() => ({ message: `Sent ${type} listChanged notification to client`, meta: { type } }));
       this.emit('notification-sent', type, this.getClientCount());
     } catch (error) {
       const err = error instanceof Error ? error : new Error(String(error));
@@ -268,7 +271,7 @@ export class NotificationManager extends EventEmitter {
    */
   public updateConfig(newConfig: Partial<NotificationConfig>): void {
     this.config = { ...this.config, ...newConfig };
-    logger.debug('NotificationManager configuration updated');
+    debugIf('NotificationManager configuration updated');
   }
 
   /**
@@ -304,6 +307,6 @@ export class NotificationManager extends EventEmitter {
     // Send any pending notifications before shutdown
     this.flushPendingNotifications();
 
-    logger.debug('NotificationManager shutdown complete');
+    debugIf('NotificationManager shutdown complete');
   }
 }

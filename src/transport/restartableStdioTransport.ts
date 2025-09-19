@@ -2,7 +2,7 @@ import { StdioClientTransport, StdioServerParameters } from '@modelcontextprotoc
 import { JSONRPCMessage } from '@modelcontextprotocol/sdk/types.js';
 import { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
 import { Stream } from 'node:stream';
-import logger from '../logger/logger.js';
+import logger, { debugIf } from '../logger/logger.js';
 
 /**
  * Configuration for the restartable stdio transport
@@ -38,7 +38,10 @@ export class RestartableStdioTransport implements Transport {
     private readonly serverParams: StdioServerParameters,
     private readonly restartConfig: RestartableTransportConfig,
   ) {
-    logger.debug(`Creating RestartableStdioTransport for command: ${serverParams.command}`);
+    debugIf(() => ({
+      message: `Creating RestartableStdioTransport for command: ${serverParams.command}`,
+      meta: { command: serverParams.command },
+    }));
   }
 
   /**
@@ -159,7 +162,7 @@ export class RestartableStdioTransport implements Transport {
     try {
       this._currentTransport = this.createTransport();
       await this._currentTransport.start();
-      logger.debug('RestartableStdioTransport started successfully');
+      debugIf('RestartableStdioTransport started successfully');
     } finally {
       this._isStarting = false;
     }
@@ -208,7 +211,7 @@ export class RestartableStdioTransport implements Transport {
       this._currentTransport = null;
     }
 
-    logger.debug('RestartableStdioTransport closed');
+    debugIf('RestartableStdioTransport closed');
   }
 
   /**

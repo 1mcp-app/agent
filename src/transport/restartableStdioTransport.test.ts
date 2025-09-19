@@ -29,6 +29,7 @@ vi.mock('../logger/logger.js', () => ({
     warn: vi.fn(),
     error: vi.fn(),
   },
+  debugIf: vi.fn(),
 }));
 
 describe('RestartableStdioTransport', () => {

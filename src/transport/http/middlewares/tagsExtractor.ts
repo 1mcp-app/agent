@@ -4,7 +4,7 @@ import { TagQueryParser } from '../../../utils/tagQueryParser.js';
 import { validateAndSanitizeTags } from '../../../utils/sanitization.js';
 import { PresetManager } from '../../../utils/presetManager.js';
 import { TagQuery } from '../../../utils/presetTypes.js';
-import logger from '../../../logger/logger.js';
+import logger, { debugIf } from '../../../logger/logger.js';
 
 /**
  * Extract simple tags from a MongoDB-style query for backward compatibility
@@ -136,11 +136,14 @@ export default function tagsExtractor(req: Request, res: Response, next: NextFun
         const extractedTags = extractTagsFromQuery(preset.tagQuery);
         res.locals.tags = extractedTags.length > 0 ? extractedTags : [];
 
-        logger.debug('Preset parameter processed', {
-          presetName,
-          strategy: preset.strategy,
-          tagQuery: preset.tagQuery,
-        });
+        debugIf(() => ({
+          message: 'Preset parameter processed',
+          meta: {
+            presetName,
+            strategy: preset.strategy,
+            tagQuery: preset.tagQuery,
+          },
+        }));
 
         next();
         return;

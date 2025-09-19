@@ -1,5 +1,5 @@
 import { EventEmitter } from 'events';
-import logger from '../../logger/logger.js';
+import logger, { debugIf } from '../../logger/logger.js';
 import { secureLogger } from '../../logger/secureLogger.js';
 
 /**
@@ -197,7 +197,7 @@ export class LoadingStateTracker extends EventEmitter {
         lastRetryTime: new Date(),
       };
       this.servers.set(name, updated);
-      logger.debug(`Server ${name} retry count: ${updated.retryCount}`);
+      debugIf(() => ({ message: `Server ${name} retry count: ${updated.retryCount}` }));
     }
   }
 
