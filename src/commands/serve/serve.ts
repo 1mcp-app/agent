@@ -268,6 +268,9 @@ export async function serveCommand(parsedArgv: ServeOptions): Promise<void> {
     // Initialize server and get server manager with custom config path if provided
     const { serverManager, loadingManager, asyncOrchestrator, instructionAggregator } = await setupServer();
 
+    // Load custom instructions template if provided (applies to all transport types)
+    const customTemplate = loadInstructionsTemplate(parsedArgv['instructions-template'], parsedArgv['config-dir']);
+
     let expressServer: ExpressServer | undefined;
 
     switch (parsedArgv.transport) {
@@ -311,9 +314,6 @@ export async function serveCommand(parsedArgv: ServeOptions): Promise<void> {
           }
         }
 
-        // Load custom instructions template if provided
-        const customTemplate = loadInstructionsTemplate(parsedArgv['instructions-template'], parsedArgv['config-dir']);
-
         await serverManager.connectTransport(transport, 'stdio', {
           tags,
           tagExpression,
@@ -340,7 +340,7 @@ export async function serveCommand(parsedArgv: ServeOptions): Promise<void> {
       // eslint-disable-next-line no-fallthrough
       case 'http': {
         // Use HTTP/SSE transport
-        expressServer = new ExpressServer(serverManager, loadingManager, asyncOrchestrator);
+        expressServer = new ExpressServer(serverManager, loadingManager, asyncOrchestrator, customTemplate);
         expressServer.start();
         break;
       }

@@ -131,13 +131,11 @@ export class InstructionAggregator extends EventEmitter {
 
     // Try custom template first, fall back to default if it fails
     if (config.customTemplate) {
+      logger.info('InstructionAggregator: Trying custom template', { templateLength: config.customTemplate.length });
       try {
         return this.renderTemplate(config.customTemplate, filteredConnections, config);
       } catch (error) {
         const errorMessage = error instanceof Error ? error.message : String(error);
-
-        // Print error to console for immediate visibility
-        console.error('Custom template parsing failed:', errorMessage);
 
         // Log detailed error for debugging
         logger.error('InstructionAggregator: Custom template failed, falling back to default template', {
