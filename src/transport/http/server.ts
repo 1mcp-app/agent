@@ -41,6 +41,7 @@ export class ExpressServer {
   private asyncOrchestrator?: AsyncLoadingOrchestrator;
   private oauthProvider: SDKOAuthServerProvider;
   private configManager: AgentConfigManager;
+  private customTemplate?: string;
 
   /**
    * Creates a new ExpressServer instance.
@@ -51,17 +52,20 @@ export class ExpressServer {
    * @param serverManager - The server manager instance for handling MCP operations
    * @param loadingManager - Optional loading manager for async MCP server initialization
    * @param asyncOrchestrator - Optional async loading orchestrator for listChanged notifications
+   * @param customTemplate - Optional custom template for instructions
    */
   constructor(
     serverManager: ServerManager,
     loadingManager?: McpLoadingManager,
     asyncOrchestrator?: AsyncLoadingOrchestrator,
+    customTemplate?: string,
   ) {
     this.app = express();
 
     this.serverManager = serverManager;
     this.loadingManager = loadingManager;
     this.asyncOrchestrator = asyncOrchestrator;
+    this.customTemplate = customTemplate;
     this.configManager = AgentConfigManager.getInstance();
 
     // Configure trust proxy setting before any middleware
@@ -173,8 +177,16 @@ export class ExpressServer {
       scopeAuthMiddleware,
       availabilityMiddleware,
       this.asyncOrchestrator,
+      this.customTemplate,
     );
-    setupSseRoutes(router, this.serverManager, scopeAuthMiddleware, availabilityMiddleware, this.asyncOrchestrator);
+    setupSseRoutes(
+      router,
+      this.serverManager,
+      scopeAuthMiddleware,
+      availabilityMiddleware,
+      this.asyncOrchestrator,
+      this.customTemplate,
+    );
     this.app.use(router);
 
     // Log authentication status

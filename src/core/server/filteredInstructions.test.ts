@@ -133,11 +133,11 @@ describe('InstructionAggregator - Filtered Instructions', () => {
 
       const filteredInstructions = instructionAggregator.getFilteredInstructions(config, mockOutboundConnections);
 
-      // Should show improved error template with troubleshooting guidance
-      expect(filteredInstructions).toContain('# 1MCP - Template Rendering Error');
-      expect(filteredInstructions).toContain('Template rendering failed');
-      expect(filteredInstructions).toContain('Troubleshooting Steps');
-      expect(filteredInstructions).toContain('Built-in template');
+      // Should fall back to default template, not show error template
+      expect(filteredInstructions).toContain('# 1MCP - Model Context Protocol Proxy');
+      expect(filteredInstructions).toContain('You are interacting with 1MCP');
+      expect(filteredInstructions).toContain('Currently Connected Servers');
+      expect(filteredInstructions).not.toContain('Template Rendering Error');
     });
 
     it('should filter instructions by simple tags', () => {

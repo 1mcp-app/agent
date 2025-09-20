@@ -295,12 +295,10 @@ describe('InstructionAggregator', () => {
 
         const result = aggregator.getFilteredInstructions(config, connections);
 
-        // Should return detailed error template with troubleshooting guidance
-        expect(result).toContain('Template Rendering Error');
-        expect(result).toContain('Template rendering failed');
-        expect(result).toContain('Troubleshooting Steps');
-        expect(result).toContain('Check Template Syntax');
-        expect(result).toContain('Built-in template');
+        // Should fall back to default template, not show error template
+        expect(result).toContain('1MCP - Model Context Protocol Proxy');
+        expect(result).toContain('You are interacting with 1MCP');
+        expect(result).not.toContain('Template Rendering Error');
       });
 
       it('should handle templates with undefined variables', () => {

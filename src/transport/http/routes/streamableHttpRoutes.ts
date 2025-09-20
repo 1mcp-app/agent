@@ -22,6 +22,7 @@ export function setupStreamableHttpRoutes(
   authMiddleware: any,
   availabilityMiddleware?: any,
   asyncOrchestrator?: AsyncLoadingOrchestrator,
+  customTemplate?: string,
 ): void {
   const middlewares = [tagsExtractor, authMiddleware];
 
@@ -55,6 +56,7 @@ export function setupStreamableHttpRoutes(
           tagQuery,
           presetName,
           enablePagination: req.query.pagination === 'true',
+          customTemplate,
         });
 
         // Initialize notifications for async loading if enabled
