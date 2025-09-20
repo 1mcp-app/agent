@@ -285,11 +285,12 @@ No matching servers found
 
       const result = instructionAggregator.getFilteredInstructions(config, mockOutboundConnections);
 
-      // Should show improved error template with troubleshooting guidance
-      expect(result).toContain('# 1MCP - Template Rendering Error');
-      expect(result).toContain('Template rendering failed');
-      expect(result).toContain('Troubleshooting Steps');
-      expect(result).toContain('Built-in template');
+      // Should fall back to default template, not show error template
+      expect(result).toContain('# 1MCP - Model Context Protocol Proxy');
+      expect(result).toContain('You are interacting with 1MCP');
+      expect(result).toContain('Currently Connected Servers');
+      expect(result).toContain('3 MCP servers are currently available');
+      expect(result).not.toContain('Template Rendering Error');
     });
 
     it('should handle template with undefined variables gracefully', () => {

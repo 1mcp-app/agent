@@ -1,4 +1,5 @@
 import { EventEmitter } from 'events';
+import { createHash } from 'crypto';
 import Handlebars from 'handlebars';
 import { LRUCache } from 'lru-cache';
 import logger from '../../logger/logger.js';
@@ -128,9 +129,29 @@ export class InstructionAggregator extends EventEmitter {
     const filteringSummary = FilteringService.getFilteringSummary(connections, filteredConnections, config);
     logger.info('InstructionAggregator: Filtering applied', filteringSummary);
 
-    // Use custom template if provided, otherwise use default template
-    const template = config.customTemplate || DEFAULT_INSTRUCTION_TEMPLATE;
-    return this.renderCustomTemplate(template, filteredConnections, config);
+    // Try custom template first, fall back to default if it fails
+    if (config.customTemplate) {
+      try {
+        return this.renderTemplate(config.customTemplate, filteredConnections, config);
+      } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : String(error);
+
+        // Print error to console for immediate visibility
+        console.error('Custom template parsing failed:', errorMessage);
+
+        // Log detailed error for debugging
+        logger.error('InstructionAggregator: Custom template failed, falling back to default template', {
+          error: errorMessage,
+          templateLength: config.customTemplate.length,
+        });
+
+        // Fall back to default template
+        return this.renderTemplate(DEFAULT_INSTRUCTION_TEMPLATE, filteredConnections, config);
+      }
+    } else {
+      // Use default template directly
+      return this.renderTemplate(DEFAULT_INSTRUCTION_TEMPLATE, filteredConnections, config);
+    }
   }
 
   /**
@@ -213,80 +234,33 @@ export class InstructionAggregator extends EventEmitter {
   }
 
   /**
-   * Render a custom Handlebars template with template variables
-   * @param template Custom template string
+   * Render a Handlebars template with template variables
+   * @param template Template string (custom or default)
    * @param filteredConnections Filtered server connections
    * @param config Client configuration
    * @returns Rendered template string
    */
-  private renderCustomTemplate(
+  private renderTemplate(
     template: string,
     filteredConnections: OutboundConnections,
     config: InboundConnectionConfig,
   ): string {
-    try {
-      // Get or compile template
-      const compiledTemplate = this.getCompiledTemplate(template);
+    // Get or compile template
+    const compiledTemplate = this.getCompiledTemplate(template);
 
-      // Generate template variables
-      const variables = this.generateTemplateVariables(filteredConnections, config);
+    // Generate template variables
+    const variables = this.generateTemplateVariables(filteredConnections, config);
 
-      // Render template
-      const rendered = compiledTemplate(variables);
+    // Render template
+    const rendered = compiledTemplate(variables);
 
-      logger.debug('InstructionAggregator: Custom template rendered successfully', {
-        templateLength: template.length,
-        variableCount: Object.keys(variables).length,
-        renderedLength: rendered.length,
-      });
+    logger.debug('InstructionAggregator: Template rendered successfully', {
+      templateLength: template.length,
+      variableCount: Object.keys(variables).length,
+      renderedLength: rendered.length,
+    });
 
-      return rendered;
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      logger.error('InstructionAggregator: Failed to render custom template', {
-        error: errorMessage,
-        templateLength: template.length,
-      });
-
-      // Provide actionable guidance for template errors
-      logger.warn('InstructionAggregator: Template rendering failed, returning error instructions with guidance');
-
-      const serverCount = Array.from(filteredConnections.keys()).filter((name) =>
-        this.serverInstructions.has(name),
-      ).length;
-
-      // Generate helpful error message with troubleshooting steps
-      return `# 1MCP - Template Rendering Error
-
-⚠️  **Template rendering failed:** ${errorMessage}
-
-## Available Resources
-- **${serverCount} server(s)** are connected and have instructions
-- **Built-in template** is available as fallback
-
-## Troubleshooting Steps
-
-1. **Check Template Syntax**:
-   - Verify all Handlebars expressions use correct syntax: \`{{variable}}\`
-   - Ensure block helpers are properly closed: \`{{#if}}...{{/if}}\`
-   - Check for unmatched braces or quotes
-
-2. **Validate Template Variables**:
-   - Use only supported variables: \`serverCount\`, \`serverNames\`, \`hasServers\`, etc.
-   - Check template documentation for full variable list
-
-3. **Test Template**:
-   - Start with a simple template: \`# {{title}}\\n{{serverCount}} servers available\`
-   - Add complexity gradually
-
-4. **Get Help**:
-   - Remove custom template to use built-in version
-   - Check server logs for detailed error information
-   - Consult 1MCP documentation for template examples
-
----
-*To restore normal operation, remove or fix the custom template file*`;
-    }
+    return rendered;
   }
 
   /**
@@ -443,8 +417,7 @@ export class InstructionAggregator extends EventEmitter {
    * Uses SHA-256 to prevent collision attacks
    */
   private hashString(str: string): string {
-    const crypto = require('crypto');
-    return crypto.createHash('sha256').update(str, 'utf8').digest('hex').substring(0, 16);
+    return createHash('sha256').update(str, 'utf8').digest('hex').substring(0, 16);
   }
 
   /**
