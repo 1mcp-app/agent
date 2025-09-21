@@ -29,7 +29,7 @@ vi.mock('../transport/transportFactory.js', () => ({
   createTransports: vi.fn(),
 }));
 
-vi.mock('../capabilities/capabilityManager.js', () => ({
+vi.mock('../core/capabilities/capabilityManager.js', () => ({
   setupCapabilities: vi.fn(),
 }));
 

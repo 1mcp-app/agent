@@ -39,7 +39,7 @@ vi.mock('../../services/configReloadService.js', () => ({
   },
 }));
 
-vi.mock('../../capabilities/capabilityManager.js', () => ({
+vi.mock('../capabilities/capabilityManager.js', () => ({
   setupCapabilities: vi.fn(),
 }));
 

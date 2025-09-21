@@ -17,7 +17,7 @@ import {
 } from '../types/index.js';
 
 // Mock dependencies
-vi.mock('../logger/logger.js', () => ({
+vi.mock('../../logger/logger.js', () => ({
   __esModule: true,
   default: {
     debug: vi.fn(),
@@ -27,12 +27,12 @@ vi.mock('../logger/logger.js', () => ({
   },
 }));
 
-vi.mock('../handlers/notificationHandlers.js', () => ({
+vi.mock('../../handlers/notificationHandlers.js', () => ({
   setupClientToServerNotifications: vi.fn(),
   setupServerToClientNotifications: vi.fn(),
 }));
 
-vi.mock('../handlers/requestHandlers.js', () => ({
+vi.mock('../../handlers/requestHandlers.js', () => ({
   registerRequestHandlers: vi.fn(),
 }));
 
@@ -48,7 +48,10 @@ describe('CapabilityManager', () => {
 
     // Setup mock server info
     mockServerInfo = {
-      server: {} as any,
+      server: {
+        setRequestHandler: vi.fn(),
+        setNotificationHandler: vi.fn(),
+      } as any,
       status: ServerStatus.Connected,
       tags: [],
       enablePagination: false,
@@ -57,14 +60,20 @@ describe('CapabilityManager', () => {
     // Setup mock clients
     mockClient1 = {
       getServerCapabilities: vi.fn(),
+      setNotificationHandler: vi.fn(),
+      setRequestHandler: vi.fn(),
     } as unknown as Client;
 
     mockClient2 = {
       getServerCapabilities: vi.fn(),
+      setNotificationHandler: vi.fn(),
+      setRequestHandler: vi.fn(),
     } as unknown as Client;
 
     mockClient3 = {
       getServerCapabilities: vi.fn(),
+      setNotificationHandler: vi.fn(),
+      setRequestHandler: vi.fn(),
     } as unknown as Client;
   });
 
