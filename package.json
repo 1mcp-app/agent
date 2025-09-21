@@ -99,7 +99,6 @@
     "express-rate-limit": "^7.5.1",
     "handlebars": "^4.7.8",
     "json5": "^2.2.3",
-    "lru-cache": "^11.2.1",
     "prompts": "^2.4.2",
     "source-map-support": "^0.5.21",
     "tiktoken": "^1.0.22",

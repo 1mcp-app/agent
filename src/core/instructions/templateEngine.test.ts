@@ -325,22 +325,21 @@ No matching servers found
       expect(result1).toBe('Servers: 3');
     });
 
-    it('should clear template cache', () => {
+    it('should handle multiple template renders without caching', () => {
       const template = 'Test: {{serverCount}}';
       const config: InboundConnectionConfig = {
         tagFilterMode: 'none',
         customTemplate: template,
       };
 
-      // Render template to cache it
-      instructionAggregator.getFilteredInstructions(config, mockOutboundConnections);
+      // Multiple renders should work (no cache issues)
+      const result1 = instructionAggregator.getFilteredInstructions(config, mockOutboundConnections);
+      const result2 = instructionAggregator.getFilteredInstructions(config, mockOutboundConnections);
+      const result3 = instructionAggregator.getFilteredInstructions(config, mockOutboundConnections);
 
-      // Clear cache
-      instructionAggregator.clearTemplateCache();
-
-      // Should still work (recompile template)
-      const result = instructionAggregator.getFilteredInstructions(config, mockOutboundConnections);
-      expect(result).toBe('Test: 3');
+      expect(result1).toBe('Test: 3');
+      expect(result2).toBe('Test: 3');
+      expect(result3).toBe('Test: 3');
     });
   });
 

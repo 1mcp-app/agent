@@ -9,6 +9,9 @@ import {
   isTemplateContentSafe,
   DANGEROUS_TEMPLATE_PATTERNS,
   DEFAULT_TEMPLATE_VALIDATION_CONFIG,
+  TemplateErrorType,
+  categorizeTemplateError,
+  getErrorSuggestions,
 } from './templateValidator.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -135,17 +138,18 @@ describe('Template Validator', () => {
 
     describe('Handlebars Syntax Validation', () => {
       it('should handle templates with potentially confusing syntax', () => {
-        // Handlebars is very forgiving, so most "invalid" syntax still compiles
+        // Missing closing braces should fail validation
         const confusingContent = `# Confusing Template
-{{serverCount`; // Missing closing braces but still compiles
+{{serverCount`; // Missing closing braces
 
         const result = validateTemplateContent(confusingContent, 'confusing-template.md');
 
-        expect(result.valid).toBe(true); // Handlebars accepts this
+        expect(result.valid).toBe(false); // Should fail due to missing closing brace
+        expect(result.errorType).toBe(TemplateErrorType.SYNTAX);
       });
 
       it('should handle templates with mismatched helper tags', () => {
-        // Even mismatched tags compile successfully in Handlebars
+        // Mismatched tags should fail validation
         const mismatchedContent = `# Mismatched Helper Template
 {{#if serverCount}}
 Content here
@@ -153,7 +157,8 @@ Content here
 
         const result = validateTemplateContent(mismatchedContent, 'mismatched-template.md');
 
-        expect(result.valid).toBe(true); // Handlebars is very tolerant
+        expect(result.valid).toBe(false); // Should fail due to mismatched tags
+        expect(result.errorType).toBe(TemplateErrorType.SYNTAX);
       });
 
       it('should accept valid Handlebars syntax', () => {
@@ -509,6 +514,114 @@ End of template`;
         expect(DEFAULT_TEMPLATE_VALIDATION_CONFIG.maxSizeBytes).toBe(1024 * 1024);
         expect(DEFAULT_TEMPLATE_VALIDATION_CONFIG.allowUnsafeContent).toBe(false);
         expect(DEFAULT_TEMPLATE_VALIDATION_CONFIG.customDangerousPatterns).toEqual([]);
+      });
+    });
+
+    describe('Error Categorization', () => {
+      describe('categorizeTemplateError', () => {
+        it('should categorize syntax errors correctly', () => {
+          const syntaxErrors = [
+            'Parse error on line 1',
+            'Expecting token CLOSE',
+            'Unexpected token',
+            'Unterminated string',
+            'Unmatched brace',
+          ];
+
+          syntaxErrors.forEach((errorMessage) => {
+            expect(categorizeTemplateError(errorMessage)).toBe(TemplateErrorType.SYNTAX);
+          });
+        });
+
+        it('should categorize compilation errors correctly', () => {
+          const compilationErrors = [
+            'Missing helper: invalidHelper',
+            'Must pass iterator to #each',
+            'Helper not found: customHelper',
+            'Invalid helper usage',
+          ];
+
+          compilationErrors.forEach((errorMessage) => {
+            expect(categorizeTemplateError(errorMessage)).toBe(TemplateErrorType.COMPILATION);
+          });
+        });
+
+        it('should default to compilation error for unknown errors', () => {
+          expect(categorizeTemplateError('Unknown error message')).toBe(TemplateErrorType.COMPILATION);
+        });
+      });
+
+      describe('getErrorSuggestions', () => {
+        it('should provide specific suggestions for syntax errors', () => {
+          const suggestions = getErrorSuggestions(TemplateErrorType.SYNTAX, 'Parse error');
+          expect(suggestions).toContain('Check for unmatched braces {{ }}');
+          expect(suggestions).toContain('Ensure all Handlebars expressions are properly closed');
+        });
+
+        it('should provide specific suggestions for compilation errors', () => {
+          const suggestions = getErrorSuggestions(TemplateErrorType.COMPILATION, 'Must pass iterator');
+          expect(suggestions).toContain('Use {{#each serverNames}} instead of {{#each}}');
+          expect(suggestions).toContain('Ensure iterator variable is provided for #each helpers');
+        });
+
+        it('should provide size limit suggestions', () => {
+          const suggestions = getErrorSuggestions(TemplateErrorType.SIZE_LIMIT, '');
+          expect(suggestions).toContain('Consider splitting the template into smaller files');
+          expect(suggestions).toContain('Increase template size limit if necessary');
+        });
+
+        it('should provide unsafe content suggestions', () => {
+          const suggestions = getErrorSuggestions(TemplateErrorType.UNSAFE_CONTENT, '');
+          expect(suggestions).toContain('Remove script tags and event handlers');
+          expect(suggestions).toContain('Use safe template variables only');
+        });
+
+        it('should provide runtime error suggestions', () => {
+          const suggestions = getErrorSuggestions(TemplateErrorType.RUNTIME, '');
+          expect(suggestions).toContain('Check template variables are correctly defined');
+          expect(suggestions).toContain('Verify data passed to template matches expected structure');
+        });
+      });
+
+      describe('validateTemplateContent with error categorization', () => {
+        it('should include error type in validation result for size limit', () => {
+          const largeContent = 'x'.repeat(1024 * 1024 + 1); // 1MB + 1 byte
+          const result = validateTemplateContent(largeContent);
+
+          expect(result.valid).toBe(false);
+          expect(result.errorType).toBe(TemplateErrorType.SIZE_LIMIT);
+          expect(result.error).toContain('Template file too large');
+        });
+
+        it('should include error type in validation result for unsafe content', () => {
+          const unsafeContent = '<script>alert("xss")</script>{{serverCount}}';
+          const result = validateTemplateContent(unsafeContent);
+
+          expect(result.valid).toBe(false);
+          expect(result.errorType).toBe(TemplateErrorType.UNSAFE_CONTENT);
+          expect(result.error).toContain('potentially unsafe content');
+        });
+
+        it('should include error type in validation result for syntax errors', () => {
+          const syntaxError = '{{#each items}}{{name}}{{/if}}'; // Mismatched tags
+          const result = validateTemplateContent(syntaxError);
+
+          expect(result.valid).toBe(false);
+          expect(result.errorType).toBe(TemplateErrorType.SYNTAX);
+          expect(result.error).toContain('Template syntax error');
+        });
+
+        it('should include error type in validation result for compilation errors', () => {
+          const compilationError = '{{#each}}content{{/each}}'; // Missing iterator
+
+          // This actually fails at compile time due to missing iterator
+          // Let's test during template rendering by creating a custom test
+          const result = validateTemplateContent(compilationError);
+
+          expect(result.valid).toBe(false);
+          expect(result.errorType).toBe(TemplateErrorType.COMPILATION);
+          expect(result.error).toContain('Template syntax error');
+        });
       });
     });
   });

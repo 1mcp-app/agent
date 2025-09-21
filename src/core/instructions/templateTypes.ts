@@ -83,6 +83,9 @@ export interface TemplateConfig {
 
   /** Custom tool examples */
   examples?: TemplateExample[];
+
+  /** Maximum template size in bytes (default: 1MB) */
+  templateSizeLimit?: number;
 }
 
 /**
@@ -110,6 +113,7 @@ export const DEFAULT_TEMPLATE_CONFIG: Required<Omit<TemplateConfig, 'customTempl
   title: '1MCP - Model Context Protocol Proxy',
   toolPattern: '{server}_1mcp_{tool}',
   examples: DEFAULT_TEMPLATE_EXAMPLES,
+  templateSizeLimit: 1024 * 1024, // 1MB default
 };
 
 /**

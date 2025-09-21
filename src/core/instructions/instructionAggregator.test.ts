@@ -155,83 +155,90 @@ describe('InstructionAggregator', () => {
   });
 
   describe('Edge Cases from Review', () => {
-    describe('Template Cache Management', () => {
-      it('should handle template size limits', () => {
+    describe('Template Size Limits', () => {
+      it('should handle template size limits with default configuration', () => {
         // Test template too large (over 1MB)
         const largeTemplate = 'x'.repeat(1024 * 1024 + 1); // 1MB + 1 byte
+        const config = { tagFilterMode: 'none' as const };
+        const connections = new Map();
 
         expect(() => {
-          // @ts-ignore - accessing private method for testing
-          aggregator.getCompiledTemplate(largeTemplate);
+          aggregator.getFilteredInstructions(config, connections);
+        }).not.toThrow(); // This should work with default template
+
+        // But a large custom template should fall back to default template
+        const configWithLargeTemplate = {
+          tagFilterMode: 'none' as const,
+          customTemplate: largeTemplate,
+        };
+
+        const result = aggregator.getFilteredInstructions(configWithLargeTemplate, connections);
+        // Should fall back to default template
+        expect(result).toContain('1MCP - Model Context Protocol Proxy');
+      });
+
+      it('should respect custom template size limits', () => {
+        const smallTemplate = 'x'.repeat(1000); // 1KB
+        const config = {
+          tagFilterMode: 'none' as const,
+          customTemplate: smallTemplate,
+          templateSizeLimit: 500, // 500 bytes limit
+        };
+        const connections = new Map();
+
+        // This will fail because even the default template is larger than 500 bytes
+        // The renderTemplate method applies the same size limit to the fallback template
+        expect(() => {
+          aggregator.getFilteredInstructions(config, connections);
         }).toThrow('Template too large');
       });
 
-      it('should use cache keys efficiently for large templates', () => {
-        const largeTemplate = 'Large template content: ' + 'x'.repeat(1000);
+      it('should allow templates within size limit', () => {
+        const smallTemplate = '{{serverCount}} servers available';
+        const config = {
+          tagFilterMode: 'none' as const,
+          customTemplate: smallTemplate,
+          templateSizeLimit: 1000, // 1KB limit
+        };
+        const connections = new Map();
 
-        // First compilation should work and cache the template
-        // @ts-ignore - accessing private method for testing
-        const compiled1 = aggregator.getCompiledTemplate(largeTemplate);
+        expect(() => {
+          const result = aggregator.getFilteredInstructions(config, connections);
+          expect(typeof result).toBe('string');
+        }).not.toThrow();
+      });
+    });
 
-        // Second compilation should use cached version
-        // @ts-ignore - accessing private method for testing
-        const compiled2 = aggregator.getCompiledTemplate(largeTemplate);
+    describe('Template Compilation', () => {
+      it('should compile templates directly without caching', () => {
+        const template = 'Simple template: {{serverCount}}';
+        const config = {
+          tagFilterMode: 'none' as const,
+          customTemplate: template,
+        };
+        const connections = new Map();
 
-        expect(compiled1).toBe(compiled2);
+        // Multiple calls should work (no cache errors)
+        const result1 = aggregator.getFilteredInstructions(config, connections);
+        const result2 = aggregator.getFilteredInstructions(config, connections);
+
+        expect(result1).toBe(result2);
+        expect(result1).toContain('0'); // serverCount should be 0
       });
 
-      it('should handle cache overflow gracefully', () => {
-        // Fill cache beyond normal capacity
-        for (let i = 0; i < 150; i++) {
-          // More than max 100
-          const template = `Template ${i}: {{serverCount}}`;
-          // @ts-ignore - accessing private method for testing
-          aggregator.getCompiledTemplate(template);
-        }
+      it('should handle template compilation errors gracefully', () => {
+        const invalidTemplate = '{{invalid syntax {{unclosed';
+        const config = {
+          tagFilterMode: 'none' as const,
+          customTemplate: invalidTemplate,
+        };
+        const connections = new Map();
 
-        // Should not throw and cache size should be limited
-        const stats = aggregator.getTemplateCacheStats();
-        expect(stats.size).toBeLessThanOrEqual(100);
-      });
-
-      it('should invalidate cache on instruction changes', () => {
-        // Cache a template
-        const template = '{{serverCount}} servers';
-        // @ts-ignore - accessing private method for testing
-        aggregator.getCompiledTemplate(template);
-
-        const statsBefore = aggregator.getTemplateCacheStats();
-        expect(statsBefore.size).toBeGreaterThan(0);
-
-        // Trigger instruction change event
-        aggregator.setInstructions('server1', 'New instructions');
-
-        // Cache should be cleared
-        const statsAfter = aggregator.getTemplateCacheStats();
-        expect(statsAfter.size).toBe(0);
-      });
-
-      it('should provide cache statistics', () => {
-        const stats = aggregator.getTemplateCacheStats();
-        expect(stats).toHaveProperty('size');
-        expect(stats).toHaveProperty('maxSize');
-        expect(stats).toHaveProperty('calculatedSize');
-        expect(typeof stats.size).toBe('number');
-        expect(typeof stats.maxSize).toBe('number');
-      });
-
-      it('should allow forced cache invalidation', () => {
-        // Cache a template
-        const template = '{{serverList}}';
-        // @ts-ignore - accessing private method for testing
-        aggregator.getCompiledTemplate(template);
-
-        expect(aggregator.getTemplateCacheStats().size).toBeGreaterThan(0);
-
-        // Force invalidation
-        aggregator.forceTemplateCacheInvalidation('test-reason');
-
-        expect(aggregator.getTemplateCacheStats().size).toBe(0);
+        // Should fall back to default template, not throw
+        expect(() => {
+          const result = aggregator.getFilteredInstructions(config, connections);
+          expect(result).toContain('1MCP'); // Should use default template
+        }).not.toThrow();
       });
     });
 
@@ -365,21 +372,14 @@ describe('InstructionAggregator', () => {
         aggregator.setInstructions('server2', 'Instructions 2');
         aggregator.on('instructions-changed', mockListener);
 
-        // Cache some templates
-        const template = '{{serverCount}} servers';
-        // @ts-ignore - accessing private method for testing
-        aggregator.getCompiledTemplate(template);
-
         // Verify state before cleanup
         expect(aggregator.getServerCount()).toBe(2);
-        expect(aggregator.getTemplateCacheStats().size).toBeGreaterThan(0);
 
         // Perform cleanup
         aggregator.cleanup();
 
         // Verify cleanup
         expect(aggregator.getServerCount()).toBe(0);
-        expect(aggregator.getTemplateCacheStats().size).toBe(0);
         expect(aggregator.getServerNames()).toEqual([]);
 
         // Verify event listeners are removed
@@ -393,7 +393,6 @@ describe('InstructionAggregator', () => {
 
         // Verify state
         expect(aggregator.getServerCount()).toBe(0);
-        expect(aggregator.getTemplateCacheStats().size).toBe(0);
       });
 
       it('should allow reuse after cleanup', () => {
@@ -420,88 +419,6 @@ describe('InstructionAggregator', () => {
         aggregator.cleanup();
 
         expect(aggregator.getServerCount()).toBe(0);
-      });
-    });
-
-    describe('Hash Collision Prevention', () => {
-      it('should use cryptographically secure hash for cache keys', () => {
-        const template1 = 'Template with content A';
-        const template2 = 'Template with content B';
-
-        // Get cache keys by accessing the private hashString method
-        // @ts-ignore - accessing private method for testing
-        const hash1 = aggregator.hashString(template1);
-        // @ts-ignore - accessing private method for testing
-        const hash2 = aggregator.hashString(template2);
-
-        // Hashes should be different for different inputs
-        expect(hash1).not.toBe(hash2);
-
-        // Hash should be consistent for same input
-        // @ts-ignore - accessing private method for testing
-        const hash1Repeat = aggregator.hashString(template1);
-        expect(hash1).toBe(hash1Repeat);
-
-        // Hash should be hex string of reasonable length (SHA-256 truncated to 16 chars)
-        expect(hash1).toMatch(/^[a-f0-9]{16}$/);
-        expect(hash2).toMatch(/^[a-f0-9]{16}$/);
-      });
-
-      it('should handle large templates without hash collisions', () => {
-        const largeTemplate1 = 'Large template: ' + 'A'.repeat(10000);
-        const largeTemplate2 = 'Large template: ' + 'B'.repeat(10000);
-
-        // @ts-ignore - accessing private method for testing
-        const hash1 = aggregator.hashString(largeTemplate1);
-        // @ts-ignore - accessing private method for testing
-        const hash2 = aggregator.hashString(largeTemplate2);
-
-        expect(hash1).not.toBe(hash2);
-        expect(hash1).toMatch(/^[a-f0-9]{16}$/);
-        expect(hash2).toMatch(/^[a-f0-9]{16}$/);
-      });
-
-      it('should generate different hashes for similar templates', () => {
-        const templates = [
-          '{{serverCount}} servers available',
-          '{{serverCount}} servers available!',
-          '{{serverCount}} servers available.',
-          ' {{serverCount}} servers available',
-        ];
-
-        const hashes = templates.map((template) =>
-          // @ts-ignore - accessing private method for testing
-          aggregator.hashString(template),
-        );
-
-        // All hashes should be unique
-        const uniqueHashes = new Set(hashes);
-        expect(uniqueHashes.size).toBe(templates.length);
-      });
-
-      it('should handle edge case inputs for hashing', () => {
-        const edgeCases = [
-          '',
-          ' ',
-          '\n\t\r',
-          '🎉 Unicode content 🚀',
-          'Very\x00strange\x01content',
-          'Content with "quotes" and \'apostrophes\'',
-        ];
-
-        const hashes = edgeCases.map((template) =>
-          // @ts-ignore - accessing private method for testing
-          aggregator.hashString(template),
-        );
-
-        // All hashes should be valid hex strings
-        hashes.forEach((hash) => {
-          expect(hash).toMatch(/^[a-f0-9]{16}$/);
-        });
-
-        // All hashes should be unique
-        const uniqueHashes = new Set(hashes);
-        expect(uniqueHashes.size).toBe(edgeCases.length);
       });
     });
 

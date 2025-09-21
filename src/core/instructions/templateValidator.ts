@@ -1,11 +1,28 @@
 import Handlebars from 'handlebars';
 
 /**
+ * Types of template errors for better categorization
+ */
+export enum TemplateErrorType {
+  /** Handlebars syntax errors (unmatched braces, invalid expressions) */
+  SYNTAX = 'SYNTAX',
+  /** Template compilation errors (missing helpers, invalid helper usage) */
+  COMPILATION = 'COMPILATION',
+  /** Template size exceeds allowed limit */
+  SIZE_LIMIT = 'SIZE_LIMIT',
+  /** Template contains potentially unsafe content */
+  UNSAFE_CONTENT = 'UNSAFE_CONTENT',
+  /** Runtime errors during template rendering */
+  RUNTIME = 'RUNTIME',
+}
+
+/**
  * Template validation result with error details if invalid
  */
 export interface TemplateValidationResult {
   valid: boolean;
   error?: string;
+  errorType?: TemplateErrorType;
   suggestions?: string[];
 }
 
@@ -37,6 +54,98 @@ export const DANGEROUS_TEMPLATE_PATTERNS: RegExp[] = [
 ];
 
 /**
+ * Categorize template errors based on error message patterns
+ * @param errorMessage Error message from Handlebars compilation
+ * @returns Template error type
+ */
+export function categorizeTemplateError(errorMessage: string): TemplateErrorType {
+  const message = errorMessage.toLowerCase();
+
+  // Check for syntax errors
+  if (
+    message.includes('parse error') ||
+    message.includes('expecting') ||
+    message.includes('unexpected token') ||
+    message.includes('unterminated') ||
+    message.includes('unmatched') ||
+    message.includes("doesn't match")
+  ) {
+    return TemplateErrorType.SYNTAX;
+  }
+
+  // Check for compilation errors
+  if (
+    message.includes('missing helper') ||
+    message.includes('must pass iterator') ||
+    message.includes('helper not found') ||
+    message.includes('invalid helper')
+  ) {
+    return TemplateErrorType.COMPILATION;
+  }
+
+  // Default to compilation error for other Handlebars errors
+  return TemplateErrorType.COMPILATION;
+}
+
+/**
+ * Get specific suggestions based on error type
+ * @param errorType Type of template error
+ * @param errorMessage Original error message
+ * @returns Array of suggestions
+ */
+export function getErrorSuggestions(errorType: TemplateErrorType, errorMessage: string): string[] {
+  switch (errorType) {
+    case TemplateErrorType.SYNTAX:
+      return [
+        'Check for unmatched braces {{ }}',
+        'Ensure all Handlebars expressions are properly closed',
+        'Verify nested expressions have correct syntax',
+        'Look for unterminated block helpers like {{#if}} without {{/if}}',
+      ];
+    case TemplateErrorType.COMPILATION:
+      if (errorMessage.includes('Must pass iterator')) {
+        return [
+          'Use {{#each serverNames}} instead of {{#each}}',
+          'Ensure iterator variable is provided for #each helpers',
+          'Check available template variables in documentation',
+        ];
+      }
+      return [
+        'Use only built-in Handlebars helpers',
+        'Check available template variables in documentation',
+        'Verify helper names are spelled correctly',
+        'Ensure block helpers like {{#if}} have matching {{/if}}',
+      ];
+    case TemplateErrorType.SIZE_LIMIT:
+      return [
+        'Consider splitting the template into smaller files',
+        'Remove unnecessary content or comments',
+        'Use template partials for repeated sections',
+        'Increase template size limit if necessary',
+      ];
+    case TemplateErrorType.UNSAFE_CONTENT:
+      return [
+        'Remove script tags and event handlers',
+        'Use safe template variables only',
+        'Consider using triple braces {{{content}}} only for trusted content',
+        'Review template security best practices',
+      ];
+    case TemplateErrorType.RUNTIME:
+      return [
+        'Check template variables are correctly defined',
+        'Verify data passed to template matches expected structure',
+        'Test template with sample data',
+      ];
+    default:
+      return [
+        'Check Handlebars documentation for proper syntax',
+        'Test template with a simple Handlebars validator',
+        'Start with a minimal template and add complexity gradually',
+      ];
+  }
+}
+
+/**
  * Validate Handlebars template content for safety and syntax
  * @param templateContent Template content to validate
  * @param templatePath Path for error reporting (optional)
@@ -56,11 +165,8 @@ export function validateTemplateContent(
     return {
       valid: false,
       error: `Template file too large${pathInfo}: ${templateContent.length} bytes (max ${Math.round(validationConfig.maxSizeBytes / 1024 / 1024)}MB)`,
-      suggestions: [
-        'Consider splitting the template into smaller files',
-        'Remove unnecessary content or comments',
-        'Use template partials for repeated sections',
-      ],
+      errorType: TemplateErrorType.SIZE_LIMIT,
+      suggestions: getErrorSuggestions(TemplateErrorType.SIZE_LIMIT, ''),
     };
   }
 
@@ -73,52 +179,58 @@ export function validateTemplateContent(
         return {
           valid: false,
           error: `Template contains potentially unsafe content${pathInfo}: ${pattern.source}`,
-          suggestions: [
-            'Remove script tags and event handlers',
-            'Use safe template variables only',
-            'Consider using triple braces {{{content}}} only for trusted content',
-            'Review template security best practices',
-          ],
+          errorType: TemplateErrorType.UNSAFE_CONTENT,
+          suggestions: getErrorSuggestions(TemplateErrorType.UNSAFE_CONTENT, ''),
         };
       }
     }
   }
 
-  // Validate Handlebars syntax by attempting compilation
+  // Validate Handlebars syntax by attempting compilation and rendering
   try {
-    Handlebars.compile(templateContent, { noEscape: true });
+    const compiledTemplate = Handlebars.compile(templateContent, { noEscape: true });
+
+    // Try rendering with sample data to catch runtime errors
+    try {
+      compiledTemplate({
+        serverCount: 0,
+        hasServers: false,
+        serverList: '',
+        serverNames: [],
+        servers: [],
+        pluralServers: 'servers',
+        isAre: 'are',
+        instructions: '',
+        filterContext: '',
+        toolPattern: '{server}_1mcp_{tool}',
+        title: 'Test Title',
+        examples: [],
+      });
+    } catch (renderError) {
+      // If rendering fails, it's a compilation/runtime error
+      const errorMessage = renderError instanceof Error ? renderError.message : String(renderError);
+      const errorType = categorizeTemplateError(errorMessage);
+      const suggestions = getErrorSuggestions(errorType, errorMessage);
+
+      return {
+        valid: false,
+        error: `Template syntax error${pathInfo}: ${errorMessage}`,
+        errorType,
+        suggestions,
+      };
+    }
+
     return { valid: true };
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
-
-    // Provide helpful suggestions based on common errors
-    const suggestions: string[] = [];
-    if (errorMessage.includes('Parse error')) {
-      suggestions.push('Check for unmatched braces {{ }}');
-      suggestions.push('Ensure all Handlebars expressions are properly closed');
-      suggestions.push('Verify nested expressions have correct syntax');
-    }
-    if (errorMessage.includes('Expected')) {
-      suggestions.push('Verify template syntax matches Handlebars documentation');
-      suggestions.push('Check for typos in helper names or variable references');
-      suggestions.push('Ensure block helpers like {{#if}} have matching {{/if}}');
-    }
-    if (errorMessage.includes('Missing helper')) {
-      suggestions.push('Use only built-in Handlebars helpers');
-      suggestions.push('Check available template variables in documentation');
-    }
+    const errorType = categorizeTemplateError(errorMessage);
+    const suggestions = getErrorSuggestions(errorType, errorMessage);
 
     return {
       valid: false,
       error: `Template syntax error${pathInfo}: ${errorMessage}`,
-      suggestions:
-        suggestions.length > 0
-          ? suggestions
-          : [
-              'Check Handlebars documentation for proper syntax',
-              'Test template with a simple Handlebars validator',
-              'Start with a minimal template and add complexity gradually',
-            ],
+      errorType,
+      suggestions,
     };
   }
 }

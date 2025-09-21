@@ -290,20 +290,18 @@ describe('InstructionAggregator - Template Fallback Behavior', () => {
       expect(logger.error).not.toHaveBeenCalled();
     });
 
-    it('should handle cache stats without errors', () => {
+    it('should handle multiple template compilations without memory issues', () => {
       const template = '# Test Template\n{{serverCount}}';
       const config: InboundConnectionConfig = {
         tagFilterMode: 'none',
         customTemplate: template,
       };
 
-      instructionAggregator.getFilteredInstructions(config, mockOutboundConnections);
-
+      // Multiple template compilations should work without memory issues
       expect(() => {
-        const stats = instructionAggregator.getTemplateCacheStats();
-        expect(stats).toHaveProperty('size');
-        expect(stats).toHaveProperty('maxSize');
-        expect(stats).toHaveProperty('calculatedSize');
+        for (let i = 0; i < 10; i++) {
+          instructionAggregator.getFilteredInstructions(config, mockOutboundConnections);
+        }
       }).not.toThrow();
     });
   });
