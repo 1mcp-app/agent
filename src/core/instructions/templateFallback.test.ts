@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { InstructionAggregator } from './instructionAggregator.js';
 import { ClientStatus } from '../types/client.js';
 import type { OutboundConnections, OutboundConnection, InboundConnectionConfig } from '../types/index.js';
+import logger from '../../logger/logger.js';
 
 // Mock dependencies
 vi.mock('../../logger/logger.js', () => ({
@@ -16,11 +17,10 @@ vi.mock('../../logger/logger.js', () => ({
 describe('InstructionAggregator - Template Fallback Behavior', () => {
   let instructionAggregator: InstructionAggregator;
   let mockOutboundConnections: OutboundConnections;
-  let consoleErrorSpy: any;
 
   beforeEach(() => {
-    // Spy on console.error to verify error messages are printed
-    consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    // Clear logger mock calls before each test
+    vi.clearAllMocks();
 
     // Create mock outbound connections
     mockOutboundConnections = new Map([
@@ -56,12 +56,11 @@ describe('InstructionAggregator - Template Fallback Behavior', () => {
   });
 
   afterEach(() => {
-    consoleErrorSpy.mockRestore();
     instructionAggregator.cleanup();
   });
 
-  describe('Console Error Output for Template Failures', () => {
-    it('should print parse errors to console for invalid Handlebars syntax', () => {
+  describe('Logger Error Output for Template Failures', () => {
+    it('should log parse errors for invalid Handlebars syntax', () => {
       const config: InboundConnectionConfig = {
         tagFilterMode: 'none',
         customTemplate: '{{invalid syntax {{unclosed',
@@ -69,10 +68,13 @@ describe('InstructionAggregator - Template Fallback Behavior', () => {
 
       const result = instructionAggregator.getFilteredInstructions(config, mockOutboundConnections);
 
-      // Verify console.error was called with the expected message
-      expect(consoleErrorSpy).toHaveBeenCalledWith(
-        'Custom template parsing failed:',
-        expect.stringContaining('Parse error on line 1'),
+      // Verify logger.error was called with template failure message
+      expect(logger.error).toHaveBeenCalledWith(
+        'InstructionAggregator: Custom template failed, falling back to default template',
+        expect.objectContaining({
+          error: expect.stringContaining('Parse error on line 1'),
+          templateLength: expect.any(Number),
+        }),
       );
 
       // Verify fallback to default template occurred
@@ -80,7 +82,7 @@ describe('InstructionAggregator - Template Fallback Behavior', () => {
       expect(result).not.toContain('Template Rendering Error');
     });
 
-    it('should print errors for templates with missing closing tags', () => {
+    it('should log errors for templates with missing closing tags', () => {
       const config: InboundConnectionConfig = {
         tagFilterMode: 'none',
         customTemplate: '{{#if hasServers}}Connected servers: {{serverCount}}', // Missing {{/if}}
@@ -88,13 +90,16 @@ describe('InstructionAggregator - Template Fallback Behavior', () => {
 
       instructionAggregator.getFilteredInstructions(config, mockOutboundConnections);
 
-      expect(consoleErrorSpy).toHaveBeenCalledWith(
-        'Custom template parsing failed:',
-        expect.stringContaining('Parse error'),
+      expect(logger.error).toHaveBeenCalledWith(
+        'InstructionAggregator: Custom template failed, falling back to default template',
+        expect.objectContaining({
+          error: expect.stringContaining('Parse error'),
+          templateLength: expect.any(Number),
+        }),
       );
     });
 
-    it('should print errors for templates with invalid helper usage', () => {
+    it('should log errors for templates with invalid helper usage', () => {
       const config: InboundConnectionConfig = {
         tagFilterMode: 'none',
         customTemplate: '{{#each}}content{{/each}}', // Missing iterator for #each
@@ -102,9 +107,12 @@ describe('InstructionAggregator - Template Fallback Behavior', () => {
 
       instructionAggregator.getFilteredInstructions(config, mockOutboundConnections);
 
-      expect(consoleErrorSpy).toHaveBeenCalledWith(
-        'Custom template parsing failed:',
-        expect.stringContaining('Must pass iterator'),
+      expect(logger.error).toHaveBeenCalledWith(
+        'InstructionAggregator: Custom template failed, falling back to default template',
+        expect.objectContaining({
+          error: expect.stringContaining('Must pass iterator'),
+          templateLength: expect.any(Number),
+        }),
       );
     });
   });
@@ -154,8 +162,8 @@ describe('InstructionAggregator - Template Fallback Behavior', () => {
         expect(result).toContain('1MCP - Model Context Protocol Proxy'); // Custom title should be rendered
       }).not.toThrow();
 
-      // Should not have any console errors for valid template
-      expect(consoleErrorSpy).not.toHaveBeenCalled();
+      // Should not have any logger errors for valid template
+      expect(logger.error).not.toHaveBeenCalled();
     });
 
     it('should not throw require errors when template caching is triggered', () => {
@@ -172,7 +180,7 @@ describe('InstructionAggregator - Template Fallback Behavior', () => {
         instructionAggregator.getFilteredInstructions(config, mockOutboundConnections);
       }).not.toThrow();
 
-      expect(consoleErrorSpy).not.toHaveBeenCalled();
+      expect(logger.error).not.toHaveBeenCalled();
     });
   });
 
@@ -185,9 +193,12 @@ describe('InstructionAggregator - Template Fallback Behavior', () => {
 
       instructionAggregator.getFilteredInstructions(config, mockOutboundConnections);
 
-      expect(consoleErrorSpy).toHaveBeenCalledWith(
-        'Custom template parsing failed:',
-        expect.stringContaining('Must pass iterator'),
+      expect(logger.error).toHaveBeenCalledWith(
+        'InstructionAggregator: Custom template failed, falling back to default template',
+        expect.objectContaining({
+          error: expect.stringContaining('Must pass iterator'),
+          templateLength: expect.any(Number),
+        }),
       );
     });
 
@@ -202,10 +213,10 @@ describe('InstructionAggregator - Template Fallback Behavior', () => {
 
       // Should succeed with undefined variables rendered as empty strings
       expect(result).toContain('Server:  Count: 2'); // undefined variable becomes empty string
-      expect(consoleErrorSpy).not.toHaveBeenCalled();
+      expect(logger.error).not.toHaveBeenCalled();
     });
 
-    it('should not call console.error for valid templates', () => {
+    it('should not call logger.error for valid templates', () => {
       const config: InboundConnectionConfig = {
         tagFilterMode: 'none',
         customTemplate: '# {{title}}\n{{serverCount}} servers available',
@@ -213,8 +224,8 @@ describe('InstructionAggregator - Template Fallback Behavior', () => {
 
       instructionAggregator.getFilteredInstructions(config, mockOutboundConnections);
 
-      // Should not have called console.error
-      expect(consoleErrorSpy).not.toHaveBeenCalled();
+      // Should not have called logger.error
+      expect(logger.error).not.toHaveBeenCalled();
     });
   });
 
@@ -231,8 +242,8 @@ describe('InstructionAggregator - Template Fallback Behavior', () => {
       expect(result).toContain('1MCP - Model Context Protocol Proxy');
       expect(result).toContain('2 MCP servers are currently available');
 
-      // Should not have called console.error
-      expect(consoleErrorSpy).not.toHaveBeenCalled();
+      // Should not have called logger.error
+      expect(logger.error).not.toHaveBeenCalled();
     });
 
     it('should use default template when customTemplate is undefined', () => {
@@ -244,7 +255,7 @@ describe('InstructionAggregator - Template Fallback Behavior', () => {
       const result = instructionAggregator.getFilteredInstructions(config, mockOutboundConnections);
 
       expect(result).toContain('1MCP - Model Context Protocol Proxy');
-      expect(consoleErrorSpy).not.toHaveBeenCalled();
+      expect(logger.error).not.toHaveBeenCalled();
     });
 
     it('should use default template when customTemplate is empty string', () => {
@@ -256,7 +267,7 @@ describe('InstructionAggregator - Template Fallback Behavior', () => {
       const result = instructionAggregator.getFilteredInstructions(config, mockOutboundConnections);
 
       expect(result).toContain('1MCP - Model Context Protocol Proxy');
-      expect(consoleErrorSpy).not.toHaveBeenCalled();
+      expect(logger.error).not.toHaveBeenCalled();
     });
   });
 
@@ -276,7 +287,7 @@ describe('InstructionAggregator - Template Fallback Behavior', () => {
 
       // Results should be identical
       expect(result1).toBe(result2);
-      expect(consoleErrorSpy).not.toHaveBeenCalled();
+      expect(logger.error).not.toHaveBeenCalled();
     });
 
     it('should handle cache stats without errors', () => {
