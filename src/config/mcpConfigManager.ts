@@ -2,7 +2,7 @@ import fs from 'fs';
 import path from 'path';
 import { EventEmitter } from 'events';
 import { getGlobalConfigPath, getGlobalConfigDir, DEFAULT_CONFIG } from '../constants.js';
-import logger from '../logger/logger.js';
+import logger, { debugIf } from '../logger/logger.js';
 import { MCPServerParams } from '../core/types/index.js';
 import { substituteEnvVarsInConfig } from '../utils/envProcessor.js';
 
@@ -124,7 +124,10 @@ export class McpConfigManager extends EventEmitter {
 
       // Watch the directory instead of the file to handle atomic operations like vim's :x
       this.configWatcher = fs.watch(configDir, (eventType: fs.WatchEventType, filename: string | null) => {
-        logger.debug(`Directory change detected: event=${eventType}, filename=${filename}`);
+        debugIf(() => ({
+          message: 'Directory change detected',
+          meta: { eventType, filename, configDir, configFileName },
+        }));
 
         // Check if the change is related to our config file
         // Handle both direct changes and atomic renames affecting our config file
@@ -134,23 +137,25 @@ export class McpConfigManager extends EventEmitter {
           (eventType === 'rename' && filename && filename.includes(path.parse(configFileName).name));
 
         if (isConfigFileEvent) {
-          logger.debug(
-            `Configuration file change detected (event: ${eventType}, filename: ${filename}), checking modification time...`,
-          );
+          debugIf(() => ({
+            message: 'Configuration file change detected, checking modification time',
+            meta: { eventType, filename, isConfigFileEvent },
+          }));
 
           // Double-check by comparing modification times to handle vim's atomic saves
           if (this.checkFileModified()) {
-            logger.debug(`File modification confirmed, debouncing reload...`);
+            debugIf('File modification confirmed, debouncing reload');
             this.debouncedReloadConfig();
           } else {
-            logger.debug(`File modification time unchanged, ignoring event`);
+            debugIf('File modification time unchanged, ignoring event');
           }
         } else {
           // For debugging: check if file was actually modified despite not matching our criteria
           if (this.checkFileModified()) {
-            logger.debug(
-              `File was modified but event didn't match criteria. Event: ${eventType}, filename: ${filename}. Debouncing reload anyway...`,
-            );
+            debugIf(() => ({
+              message: 'File was modified but event did not match criteria, debouncing reload anyway',
+              meta: { eventType, filename, configFileName },
+            }));
             this.debouncedReloadConfig();
           }
         }

@@ -1,5 +1,5 @@
 import { MCP_SERVER_CAPABILITIES, MCP_SERVER_NAME, MCP_SERVER_VERSION } from './constants.js';
-import logger from './logger/logger.js';
+import logger, { debugIf } from './logger/logger.js';
 import { createTransports } from './transport/transportFactory.js';
 import { ClientManager } from './core/client/clientManager.js';
 import { ServerManager } from './core/server/serverManager.js';
@@ -168,7 +168,10 @@ async function initializePresetSystem(): Promise<void> {
 
     // Connect preset changes to client notifications
     presetManager.onPresetChange(async (presetName: string) => {
-      logger.debug('Preset changed, sending notifications', { presetName });
+      debugIf(() => ({
+        message: 'Preset changed, sending notifications',
+        meta: { presetName, timestamp: Date.now() },
+      }));
       await notificationService.notifyPresetChange(presetName);
     });
 

@@ -3,7 +3,7 @@ import fs from 'fs';
 import path from 'path';
 
 import { setupServer } from '../../server.js';
-import logger from '../../logger/logger.js';
+import logger, { debugIf } from '../../logger/logger.js';
 import configReloadService from '../../services/configReloadService.js';
 import { ServerManager } from '../../core/server/serverManager.js';
 import { McpConfigManager } from '../../config/mcpConfigManager.js';
@@ -79,7 +79,10 @@ function loadInstructionsTemplate(templatePath?: string, configDir?: string): st
       }
 
       logger.info(`Loaded and validated custom instructions template from: ${templateFilePath}`);
-      logger.debug(`Template length: ${templateContent.length} characters`);
+      debugIf(() => ({
+        message: 'Template length details',
+        meta: { templateLength: templateContent.length, templateFilePath },
+      }));
       return templateContent;
     } else {
       if (templatePath) {
@@ -92,7 +95,10 @@ function loadInstructionsTemplate(templatePath?: string, configDir?: string): st
         logger.info(`  • Server will use built-in template as fallback`);
       } else {
         // If using default path, just log debug (it's optional)
-        logger.debug(`Default instructions template file not found: ${templateFilePath} (using built-in template)`);
+        debugIf(() => ({
+          message: 'Default instructions template file not found, using built-in template',
+          meta: { templateFilePath, usingBuiltIn: true },
+        }));
       }
       return undefined;
     }

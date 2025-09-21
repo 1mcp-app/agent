@@ -487,4 +487,308 @@ describe('Performance Infrastructure Integration E2E', () => {
     expect(regressionTest.threshold_percentage).toBeGreaterThan(0);
     expect(regressionTest.threshold_percentage).toBeLessThan(1);
   });
+
+  it('should validate conditional logging performance optimization', async () => {
+    // Test logging performance optimization benefits
+    const { debugIf, isDebugEnabled } = await import('../../../src/logger/logger.js');
+
+    const iterationCount = 10000;
+    const expensiveData = Array.from({ length: 1000 }, (_, i) => ({ id: i, value: 'x'.repeat(100) }));
+
+    // Test traditional logger.debug() performance when debug is disabled
+    const traditionalStart = performance.now();
+    for (let i = 0; i < iterationCount; i++) {
+      // Simulate expensive operation that would happen with logger.debug()
+      const _message = `Processing items: ${expensiveData.length} items`;
+      const _meta = {
+        itemIds: expensiveData.map((item) => item.id),
+        totalSize: expensiveData.reduce((sum, item) => sum + item.value.length, 0),
+        timestamp: Date.now(),
+      };
+      // Note: We're not actually calling logger.debug() to avoid log pollution
+      // but we're simulating the expense computation that would occur
+      void _message; // Prevent unused variable warning
+      void _meta; // Prevent unused variable warning
+    }
+    const traditionalDuration = performance.now() - traditionalStart;
+
+    // Test debugIf() performance when debug is disabled
+    const debugIfStart = performance.now();
+    for (let i = 0; i < iterationCount; i++) {
+      debugIf(() => ({
+        message: `Processing items: ${expensiveData.length} items`,
+        meta: {
+          itemIds: expensiveData.map((item) => item.id),
+          totalSize: expensiveData.reduce((sum, item) => sum + item.value.length, 0),
+          timestamp: Date.now(),
+        },
+      }));
+    }
+    const debugIfDuration = performance.now() - debugIfStart;
+
+    // Validate performance benefits
+    expect(debugIfDuration).toBeLessThan(traditionalDuration);
+    expect(debugIfDuration / traditionalDuration).toBeLessThan(0.1); // At least 90% faster
+
+    // Test that debug is actually disabled for this test
+    expect(isDebugEnabled()).toBe(false);
+
+    const performanceGain = ((traditionalDuration - debugIfDuration) / traditionalDuration) * 100;
+    expect(performanceGain).toBeGreaterThan(80); // At least 80% performance improvement
+  });
+
+  it('should validate logging error handling robustness', async () => {
+    // Test that logging errors never crash the application
+    const { debugIf, infoIf, warnIf } = await import('../../../src/logger/logger.js');
+
+    const errorScenarios = [
+      // Test malformed callback results
+      { name: 'null_result', callback: () => null },
+      { name: 'undefined_result', callback: () => undefined },
+      { name: 'string_result', callback: () => 'not an object' },
+      { name: 'missing_message', callback: () => ({ meta: { test: true } }) },
+      // Test callback exceptions
+      {
+        name: 'throw_error',
+        callback: () => {
+          throw new Error('Test error');
+        },
+      },
+      {
+        name: 'throw_string',
+        callback: () => {
+          throw 'String error';
+        },
+      },
+      { name: 'reference_error', callback: () => ({ message: (global as any).nonExistentVariable.toString() }) },
+    ];
+
+    // Test each error scenario doesn't crash the application
+    errorScenarios.forEach((scenario) => {
+      expect(() => {
+        debugIf(scenario.callback as any);
+        infoIf(scenario.callback as any);
+        warnIf(scenario.callback as any);
+      }).not.toThrow();
+    });
+
+    // Verify the functions still work correctly with valid inputs
+    expect(() => {
+      debugIf('Simple message');
+      debugIf(() => ({ message: 'Complex message', meta: { test: true } }));
+      infoIf('Info message');
+      warnIf(() => ({ message: 'Warning message' }));
+    }).not.toThrow();
+  });
+
+  it('should validate logging memory efficiency with high-frequency calls', async () => {
+    // Test memory efficiency of conditional logging
+    const { debugIf } = await import('../../../src/logger/logger.js');
+
+    const largeObject = Array.from({ length: 10000 }, (_, i) => ({
+      id: i,
+      data: 'x'.repeat(1000), // 1KB per item = ~10MB total
+      timestamp: Date.now(),
+      metadata: { processed: false, retries: 0 },
+    }));
+
+    const initialMemory = process.memoryUsage();
+    const iterationCount = 1000;
+
+    // Perform high-frequency logging with large data
+    const logStart = performance.now();
+    for (let i = 0; i < iterationCount; i++) {
+      debugIf(() => ({
+        message: `Processing large dataset: iteration ${i}`,
+        meta: {
+          dataSize: largeObject.length,
+          totalMemory: largeObject.reduce((sum, item) => sum + item.data.length, 0),
+          iteration: i,
+          sampleItems: largeObject.slice(0, 5), // Only include first 5 items
+        },
+      }));
+    }
+    const logDuration = performance.now() - logStart;
+
+    const finalMemory = process.memoryUsage();
+    const memoryGrowth = finalMemory.heapUsed - initialMemory.heapUsed;
+
+    // Validate performance characteristics
+    expect(logDuration).toBeLessThan(100); // Should complete quickly
+    expect(memoryGrowth).toBeLessThan(1024 * 1024); // Less than 1MB memory growth
+
+    // Verify no memory leaks by forcing garbage collection and checking again
+    if (global.gc) {
+      global.gc();
+      const afterGcMemory = process.memoryUsage();
+      const persistentGrowth = afterGcMemory.heapUsed - initialMemory.heapUsed;
+      expect(persistentGrowth).toBeLessThan(512 * 1024); // Less than 512KB persistent growth
+    }
+  });
+
+  it('should validate structured metadata performance patterns', async () => {
+    // Test structured metadata handling performance
+    const { debugIf } = await import('../../../src/logger/logger.js');
+
+    const metadataScenarios = [
+      {
+        name: 'shallow_metadata',
+        generator: () => ({ simple: true, count: 100, timestamp: Date.now() }),
+      },
+      {
+        name: 'deep_metadata',
+        generator: () => ({
+          level1: {
+            level2: {
+              level3: {
+                data: Array.from({ length: 100 }, (_, i) => i),
+                computed: Math.random() * 1000,
+              },
+            },
+          },
+        }),
+      },
+      {
+        name: 'large_array_metadata',
+        generator: () => ({
+          items: Array.from({ length: 1000 }, (_, i) => ({ id: i, value: Math.random() })),
+          summary: 'Large array metadata',
+        }),
+      },
+    ];
+
+    const results = metadataScenarios.map((scenario) => {
+      const start = performance.now();
+      const iterations = 1000;
+
+      for (let i = 0; i < iterations; i++) {
+        debugIf(() => ({
+          message: `Testing ${scenario.name} - iteration ${i}`,
+          meta: scenario.generator(),
+        }));
+      }
+
+      const duration = performance.now() - start;
+      return {
+        scenario: scenario.name,
+        duration,
+        averagePerCall: duration / iterations,
+      };
+    });
+
+    // Validate that all scenarios complete efficiently
+    results.forEach((result) => {
+      expect(result.duration).toBeLessThan(50); // All scenarios under 50ms
+      expect(result.averagePerCall).toBeLessThan(0.1); // Less than 0.1ms per call
+    });
+
+    // Verify shallow metadata is fastest
+    const shallowResult = results.find((r) => r.scenario === 'shallow_metadata');
+    const deepResult = results.find((r) => r.scenario === 'deep_metadata');
+    const arrayResult = results.find((r) => r.scenario === 'large_array_metadata');
+
+    expect(shallowResult!.duration).toBeLessThan(deepResult!.duration);
+    expect(shallowResult!.duration).toBeLessThan(arrayResult!.duration);
+  });
+
+  it('should validate callback purity and side effect prevention', async () => {
+    // Test that callbacks are executed only when logging is enabled
+    const { debugIf, isDebugEnabled } = await import('../../../src/logger/logger.js');
+
+    let callbackExecutionCount = 0;
+    let sideEffectCount = 0;
+
+    const iterationCount = 100;
+
+    // Test with debug disabled (typical production scenario)
+    for (let i = 0; i < iterationCount; i++) {
+      debugIf(() => {
+        callbackExecutionCount++;
+        // This callback should NOT execute when debug is disabled
+        return { message: `Callback executed: ${i}` };
+      });
+    }
+
+    // Verify callbacks didn't execute when debug disabled
+    if (!isDebugEnabled()) {
+      expect(callbackExecutionCount).toBe(0);
+    }
+
+    // Test side effect prevention patterns
+    const badCallback = () => {
+      sideEffectCount++; // This is a side effect - should be avoided
+      return { message: 'Bad pattern - has side effects' };
+    };
+
+    const goodCallback = () => {
+      // No side effects, pure computation only
+      const computedValue = Math.random() * 100;
+      return {
+        message: 'Good pattern - no side effects',
+        meta: { computed: computedValue, timestamp: Date.now() },
+      };
+    };
+
+    // Both callbacks should not execute when debug is disabled
+    for (let i = 0; i < 10; i++) {
+      debugIf(badCallback);
+      debugIf(goodCallback);
+    }
+
+    if (!isDebugEnabled()) {
+      expect(sideEffectCount).toBe(0); // No side effects when debug disabled
+    }
+
+    // Validate that string messages work efficiently
+    expect(() => {
+      for (let i = 0; i < 1000; i++) {
+        debugIf('Simple string message'); // Should be very fast
+      }
+    }).not.toThrow();
+  });
+
+  it('should handle logging performance under concurrent load', async () => {
+    // Test concurrent logging performance
+    const { debugIf } = await import('../../../src/logger/logger.js');
+
+    const concurrentOperations = 10;
+    const operationsPerThread = 1000;
+
+    const concurrentPromises = Array.from({ length: concurrentOperations }, async (_, threadId) => {
+      const threadStart = performance.now();
+
+      for (let i = 0; i < operationsPerThread; i++) {
+        debugIf(() => ({
+          message: `Concurrent logging from thread ${threadId}, operation ${i}`,
+          meta: {
+            threadId,
+            operationId: i,
+            timestamp: Date.now(),
+            threadData: Array.from({ length: 10 }, (_, j) => ({ id: j, value: Math.random() })),
+          },
+        }));
+      }
+
+      return performance.now() - threadStart;
+    });
+
+    const startTime = performance.now();
+    const threadDurations = await Promise.all(concurrentPromises);
+    const totalDuration = performance.now() - startTime;
+
+    // Validate concurrent performance
+    expect(totalDuration).toBeLessThan(100); // Complete in under 100ms
+    threadDurations.forEach((duration) => {
+      expect(duration).toBeLessThan(50); // Each thread completes quickly
+    });
+
+    const averageThreadDuration = threadDurations.reduce((sum, d) => sum + d, 0) / threadDurations.length;
+    expect(averageThreadDuration).toBeLessThan(25); // Average thread duration under 25ms
+
+    // Verify no thread took significantly longer (no blocking)
+    const maxDuration = Math.max(...threadDurations);
+    const minDuration = Math.min(...threadDurations);
+    const durationVariance = (maxDuration - minDuration) / averageThreadDuration;
+    expect(durationVariance).toBeLessThan(2); // Less than 200% variance between threads
+  });
 });
