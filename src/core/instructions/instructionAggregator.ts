@@ -291,6 +291,12 @@ export class InstructionAggregator extends EventEmitter {
           instructions: serverInstructions.trim(),
           hasInstructions: true,
         });
+      } else {
+        servers.push({
+          name: serverName,
+          instructions: '',
+          hasInstructions: false,
+        });
       }
     }
 
