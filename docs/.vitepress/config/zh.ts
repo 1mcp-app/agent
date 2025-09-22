@@ -77,32 +77,41 @@ function sidebar(): DefaultTheme.Sidebar {
       {
         text: '核心概念',
         items: [
-          { text: '架构', link: '/zh/reference/architecture' },
+          { text: '核心功能', link: '/zh/guide/essentials/core-features' },
           { text: '配置', link: '/zh/guide/essentials/configuration' },
-          { text: '身份验证', link: '/zh/guide/advanced/authentication' },
+          { text: '服务器管理', link: '/zh/guide/essentials/server-management' },
         ],
       },
       {
         text: '集成',
-        items: [{ text: 'Claude Desktop 集成', link: '/zh/guide/integrations/claude-desktop' }],
+        items: [
+          { text: 'Claude Desktop 集成', link: '/zh/guide/integrations/claude-desktop' },
+          { text: '应用程序整合', link: '/zh/guide/integrations/app-consolidation' },
+          { text: '开发者工具', link: '/zh/guide/integrations/developer-tools' },
+        ],
       },
       {
-        text: '功能',
+        text: '高级功能',
         items: [
-          { text: '功能概览', link: '/zh/guide/features' },
-          { text: '核心功能', link: '/zh/guide/essentials/core-features' },
-          { text: '安全与访问控制', link: '/zh/guide/advanced/security' },
-          { text: '性能与可靠性', link: '/zh/guide/advanced/performance' },
-          { text: '企业与运维', link: '/zh/guide/advanced/enterprise' },
-          { text: '开发者与集成', link: '/zh/guide/integrations/developer-tools' },
+          { text: '身份验证', link: '/zh/guide/advanced/authentication' },
+          { text: '安全', link: '/zh/guide/advanced/security' },
+          { text: '性能', link: '/zh/guide/advanced/performance' },
+          { text: '企业', link: '/zh/guide/advanced/enterprise' },
           { text: '快速启动', link: '/zh/guide/advanced/fast-startup' },
-          { text: '分页支持', link: '/zh/reference/pagination' },
+          { text: '反向代理', link: '/zh/guide/advanced/reverse-proxy' },
           { text: '服务器过滤', link: '/zh/guide/advanced/server-filtering' },
-          { text: '代理支持', link: '/zh/guide/advanced/reverse-proxy' },
-          { text: '服务器管理', link: '/zh/guide/essentials/server-management' },
-          { text: '应用程序整合', link: '/zh/guide/integrations/app-consolidation' },
-          { text: '自定义指令模板', link: '/zh/guide/custom-instructions-template' },
         ],
+      },
+      {
+        text: '自定义',
+        items: [
+          { text: '指令模板', link: '/zh/guide/custom-instructions-template' },
+          { text: '服务器指令覆盖', link: '/zh/guide/server-instructions-overrides' },
+        ],
+      },
+      {
+        text: '功能概览',
+        items: [{ text: '所有功能', link: '/zh/guide/features' }],
       },
     ],
     '/zh/commands/': [

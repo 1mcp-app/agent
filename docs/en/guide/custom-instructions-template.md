@@ -17,25 +17,29 @@ Your custom templates have access to the following variables:
 
 ### Server State Variables
 
-| Variable                               | Type    | Description                                    | Example                                                              |
-| -------------------------------------- | ------- | ---------------------------------------------- | -------------------------------------------------------------------- |
-| <span v-pre>`{{serverCount}}`</span>   | number  | Number of connected servers with instructions  | `3`                                                                  |
-| <span v-pre>`{{hasServers}}`</span>    | boolean | Whether any servers are connected              | `true`                                                               |
-| <span v-pre>`{{serverList}}`</span>    | string  | Newline-separated list of server names         | `"api-server\nweb-server"`                                           |
-| <span v-pre>`{{serverNames}}`</span>   | array   | Array of server names for iteration            | `["api-server", "web-server"]`                                       |
-| <span v-pre>`{{servers}}`</span>       | array   | Array of server objects for detailed iteration | `[{name: "api-server", instructions: "...", hasInstructions: true}]` |
-| <span v-pre>`{{pluralServers}}`</span> | string  | "server" or "servers" based on count           | `"servers"`                                                          |
-| <span v-pre>`{{isAre}}`</span>         | string  | "is" or "are" based on count                   | `"are"`                                                              |
+| Variable                               | Type    | Description                                                           | Example                                                                                                                           |
+| -------------------------------------- | ------- | --------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
+| <span v-pre>`{{serverCount}}`</span>   | number  | Number of connected servers with instructions                         | `3`                                                                                                                               |
+| <span v-pre>`{{hasServers}}`</span>    | boolean | Whether any servers are connected                                     | `true`                                                                                                                            |
+| <span v-pre>`{{serverList}}`</span>    | string  | Newline-separated list of server names                                | `"api-server\nweb-server"`                                                                                                        |
+| <span v-pre>`{{serverNames}}`</span>   | array   | Array of server names for iteration                                   | `["api-server", "web-server"]`                                                                                                    |
+| <span v-pre>`{{servers}}`</span>       | array   | Array of server objects for detailed iteration (includes all servers) | `[{name: "api-server", instructions: "...", hasInstructions: true}, {name: "no-docs", instructions: "", hasInstructions: false}]` |
+| <span v-pre>`{{pluralServers}}`</span> | string  | "server" or "servers" based on count                                  | `"servers"`                                                                                                                       |
+| <span v-pre>`{{isAre}}`</span>         | string  | "is" or "are" based on count                                          | `"are"`                                                                                                                           |
 
 #### Server Objects (<span v-pre>`{{servers}}`</span> array)
 
 Each server object in the <span v-pre>`{{servers}}`</span> array contains:
 
-| Property          | Type    | Description                          |
-| ----------------- | ------- | ------------------------------------ |
-| `name`            | string  | Server name (e.g., "api-server")     |
-| `instructions`    | string  | Server's instruction content         |
-| `hasInstructions` | boolean | Whether this server has instructions |
+| Property          | Type    | Description                                                    |
+| ----------------- | ------- | -------------------------------------------------------------- |
+| `name`            | string  | Server name (e.g., "api-server")                               |
+| `instructions`    | string  | Server's instruction content (empty string if no instructions) |
+| `hasInstructions` | boolean | Whether this server has instructions                           |
+
+**Note**: All connected servers are included in the array, even if they have no instructions. Servers without instructions will have `hasInstructions: false` and an empty string for `instructions`.
+
+**Important**: The `serverCount` and related variables (`serverList`, `serverNames`) only include servers that have instructions, while the `servers` array includes all connected servers regardless of whether they have instructions.
 
 ### Content Variables
 
@@ -272,11 +276,14 @@ For maximum flexibility, iterate over individual servers instead of using the co
 <{{name}}>
 {{instructions}}
 </{{name}}>
+{{else}}
+### {{name}}
+This server is connected but has no instructions available.
 {{/if}}
 {{/each}}
 ```
 
-This gives you control over per-server formatting, conditional inclusion, and custom logic.
+This gives you control over per-server formatting, conditional inclusion, and custom logic. You can handle servers with and without instructions differently.
 
 ### 6. Explain XML Tag Format
 
@@ -314,6 +321,12 @@ You can test your templates by:
 2. **Connecting a client**: Verify the instructions are rendered correctly
 3. **Using different filters**: Test with various server combinations
 4. **Checking edge cases**: Test with no servers, single server, etc.
+
+## Server Instruction Overrides
+
+Custom templates allow you to override, filter, or customize server instructions using Handlebars logic. This gives you complete control over how server instructions are presented to the LLM.
+
+For detailed guidance on server instruction overrides including patterns, techniques, and examples, see the dedicated [Server Instruction Overrides](/en/guide/server-instructions-overrides) guide.
 
 ## Example Templates
 

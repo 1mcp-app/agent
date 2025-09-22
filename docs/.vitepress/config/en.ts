@@ -79,7 +79,10 @@ function sidebar(): DefaultTheme.Sidebar {
       },
       {
         text: 'Customization',
-        items: [{ text: 'Instructions Template', link: '/guide/custom-instructions-template' }],
+        items: [
+          { text: 'Instructions Template', link: '/guide/custom-instructions-template' },
+          { text: 'Server Instructions Overrides', link: '/guide/server-instructions-overrides' },
+        ],
       },
       {
         text: 'Feature Overview',

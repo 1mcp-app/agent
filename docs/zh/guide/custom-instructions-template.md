@@ -17,25 +17,29 @@
 
 ### 服务器状态变量
 
-| 变量                                   | 类型    | 描述                          | 示例                                                                 |
-| -------------------------------------- | ------- | ----------------------------- | -------------------------------------------------------------------- |
-| <span v-pre>`{{serverCount}}`</span>   | number  | 连接且有指令的服务器数量      | `3`                                                                  |
-| <span v-pre>`{{hasServers}}`</span>    | boolean | 是否有任何服务器连接          | `true`                                                               |
-| <span v-pre>`{{serverList}}`</span>    | string  | 服务器名称的换行分隔列表      | `"api-server\nweb-server"`                                           |
-| <span v-pre>`{{serverNames}}`</span>   | array   | 用于迭代的服务器名称数组      | `["api-server", "web-server"]`                                       |
-| <span v-pre>`{{servers}}`</span>       | array   | 用于详细迭代的服务器对象数组  | `[{name: "api-server", instructions: "...", hasInstructions: true}]` |
-| <span v-pre>`{{pluralServers}}`</span> | string  | 基于数量的"server"或"servers" | `"servers"`                                                          |
-| <span v-pre>`{{isAre}}`</span>         | string  | 基于数量的"is"或"are"         | `"are"`                                                              |
+| 变量                                   | 类型    | 描述                                           | 示例                                                                                                                              |
+| -------------------------------------- | ------- | ---------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
+| <span v-pre>`{{serverCount}}`</span>   | number  | 连接且有指令的服务器数量                       | `3`                                                                                                                               |
+| <span v-pre>`{{hasServers}}`</span>    | boolean | 是否有任何服务器连接                           | `true`                                                                                                                            |
+| <span v-pre>`{{serverList}}`</span>    | string  | 服务器名称的换行分隔列表                       | `"api-server\nweb-server"`                                                                                                        |
+| <span v-pre>`{{serverNames}}`</span>   | array   | 用于迭代的服务器名称数组                       | `["api-server", "web-server"]`                                                                                                    |
+| <span v-pre>`{{servers}}`</span>       | array   | 用于详细迭代的服务器对象数组（包含所有服务器） | `[{name: "api-server", instructions: "...", hasInstructions: true}, {name: "no-docs", instructions: "", hasInstructions: false}]` |
+| <span v-pre>`{{pluralServers}}`</span> | string  | 基于数量的"server"或"servers"                  | `"servers"`                                                                                                                       |
+| <span v-pre>`{{isAre}}`</span>         | string  | 基于数量的"is"或"are"                          | `"are"`                                                                                                                           |
 
 #### 服务器对象（<span v-pre>`{{servers}}`</span> 数组）
 
 <span v-pre>`{{servers}}`</span> 数组中的每个服务器对象包含：
 
-| 属性              | 类型    | 描述                            |
-| ----------------- | ------- | ------------------------------- |
-| `name`            | string  | 服务器名称（例如 "api-server"） |
-| `instructions`    | string  | 服务器的指令内容                |
-| `hasInstructions` | boolean | 此服务器是否有指令              |
+| 属性              | 类型    | 描述                                   |
+| ----------------- | ------- | -------------------------------------- |
+| `name`            | string  | 服务器名称（例如 "api-server"）        |
+| `instructions`    | string  | 服务器的指令内容（无指令时为空字符串） |
+| `hasInstructions` | boolean | 此服务器是否有指令                     |
+
+**注意**：数组包含所有连接的服务器，即使它们没有指令。没有指令的服务器将具有 `hasInstructions: false` 和空字符串的 `instructions`。
+
+**重要**：`serverCount` 和相关变量（`serverList`、`serverNames`）只包含有指令的服务器，而 `servers` 数组包含所有连接的服务器，无论它们是否有指令。
 
 ### 内容变量
 
@@ -272,11 +276,14 @@ No MCP servers are currently connected. 1MCP is ready to connect to servers and 
 <{{name}}>
 {{instructions}}
 </{{name}}>
+{{else}}
+### {{name}}
+此服务器已连接但没有可用的指令。
 {{/if}}
 {{/each}}
 ```
 
-这使您可以控制每个服务器的格式、条件包含和自定义逻辑。
+这使您可以控制每个服务器的格式、条件包含和自定义逻辑。您可以对有指令和没有指令的服务器进行不同的处理。
 
 ### 6. 解释 XML 标签格式
 
@@ -314,6 +321,12 @@ No MCP servers are currently connected. 1MCP is ready to connect to servers and 
 2. **连接客户端**: 验证指令是否正确渲染
 3. **使用不同的过滤器**: 使用各种服务器组合进行测试
 4. **检查边缘情况**: 测试无服务器、单个服务器等情况
+
+## 服务器指令覆盖
+
+自定义模板允许您使用 Handlebars 逻辑覆盖、过滤或自定义服务器指令。这使您可以完全控制如何向 LLM 呈现服务器指令。
+
+有关服务器指令覆盖的详细指导，包括模式、技术和示例，请参见专门的[服务器指令覆盖](/zh/guide/server-instructions-overrides)指南。
 
 ## 模板示例
 
