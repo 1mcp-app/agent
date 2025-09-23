@@ -54,6 +54,12 @@ describe('MCPRegistryClient', () => {
         ],
         _meta: {
           'io.modelcontextprotocol.registry/official': {
+            serverId: 'file-server-1',
+            versionId: 'v1.0.0',
+            publishedAt: '2024-01-01T00:00:00Z',
+            updatedAt: '2024-01-01T00:00:00Z',
+            isLatest: true,
+            // Legacy field names for backward compatibility
             id: 'file-server-1',
             published_at: '2024-01-01T00:00:00Z',
             updated_at: '2024-01-01T00:00:00Z',
@@ -79,6 +85,12 @@ describe('MCPRegistryClient', () => {
         ],
         _meta: {
           'io.modelcontextprotocol.registry/official': {
+            serverId: 'database-server-1',
+            versionId: 'v1.0.1',
+            publishedAt: '2024-01-02T00:00:00Z',
+            updatedAt: '2024-01-02T00:00:00Z',
+            isLatest: true,
+            // Legacy field names for backward compatibility
             id: 'database-server-1',
             published_at: '2024-01-02T00:00:00Z',
             updated_at: '2024-01-02T00:00:00Z',

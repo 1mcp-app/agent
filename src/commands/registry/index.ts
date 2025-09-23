@@ -1,6 +1,8 @@
 import type { Argv } from 'yargs';
 import { searchCommand } from './search.js';
 import { registryStatusCommand } from './status.js';
+import { showCommand, buildShowCommand } from './show.js';
+import { versionsCommand, buildVersionsCommand } from './versions.js';
 import { globalOptions } from '../../globalOptions.js';
 
 // Registry-specific options
@@ -130,6 +132,22 @@ export function setupRegistryCommands(yargs: Argv): Argv {
           },
           registryStatusCommand,
         )
+        .command({
+          command: 'show <server-id>',
+          describe: 'Show detailed information about a specific MCP server',
+          builder: buildShowCommand,
+          handler: async (argv) => {
+            await showCommand(argv as any);
+          },
+        })
+        .command({
+          command: 'versions <server-id>',
+          describe: 'List all available versions for a specific MCP server',
+          builder: buildVersionsCommand,
+          handler: async (argv) => {
+            await versionsCommand(argv as any);
+          },
+        })
         .demandCommand(1, 'You must specify a registry command')
         .help();
     },
