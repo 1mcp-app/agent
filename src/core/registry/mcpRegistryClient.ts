@@ -12,6 +12,7 @@ import {
   RegistryOptions,
   ServersListResponse,
   ServerVersionsResponse,
+  OFFICIAL_REGISTRY_KEY,
 } from './types.js';
 
 /**
@@ -94,7 +95,26 @@ export class MCPRegistryClient {
         undefined,
         async () => {
           const url = `${this.baseUrl}/v0/servers/${encodeURIComponent(id)}/versions`;
-          return await this.makeRequest<ServerVersionsResponse>(url);
+          // The API returns servers in the same format as the main endpoint
+          const response = await this.makeRequest<ServersListResponse>(url);
+
+          // Transform to the expected ServerVersionsResponse format
+          const versions = response.servers.map((server) => ({
+            version: server.version,
+            publishedAt: server._meta[OFFICIAL_REGISTRY_KEY].publishedAt,
+            updatedAt: server._meta[OFFICIAL_REGISTRY_KEY].updatedAt,
+            isLatest: server._meta[OFFICIAL_REGISTRY_KEY].isLatest,
+            status: server.status as 'active' | 'archived' | 'deprecated',
+          }));
+
+          // Get server name from the first server (they should all have the same name)
+          const serverName = response.servers.length > 0 ? response.servers[0].name : '';
+
+          return {
+            versions,
+            serverId: id,
+            name: serverName,
+          };
         },
         300, // 5 minutes TTL for versions list
         `server versions: ${id}`,

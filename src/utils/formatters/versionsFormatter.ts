@@ -32,8 +32,7 @@ function formatTableVersions(versionsResponse: ServerVersionsResponse): string {
     (a, b) => new Date(b.publishedAt).getTime() - new Date(a.publishedAt).getTime(),
   );
 
-  const tableData = sortedVersions.map((version, index) => ({
-    '#': index + 1,
+  const tableData = sortedVersions.map((version) => ({
     Version: version.version,
     Status: version.status,
     Latest: version.isLatest ? 'Yes' : 'No',
@@ -117,6 +116,8 @@ function formatDate(isoString: string): string {
       year: 'numeric',
       month: 'short',
       day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
     });
   } catch {
     return 'Invalid Date';
