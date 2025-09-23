@@ -91,17 +91,19 @@ export function setupRegistryCommands(yargs: Argv): Argv {
                   type: 'number' as const,
                   default: 0,
                 },
-                json: {
-                  describe: 'Output results in JSON format',
-                  type: 'boolean' as const,
-                  default: false,
+                format: {
+                  describe: 'Output format for search results',
+                  type: 'string' as const,
+                  choices: ['table', 'list', 'json'] as const,
+                  default: 'table' as const,
                 },
               })
-              .example('$0 registry search', 'List all active MCP servers')
+              .example('$0 registry search', 'List all active MCP servers (table format)')
               .example('$0 registry search "file system"', 'Search for file system related servers')
+              .example('$0 registry search --format=list', 'Display results in list format with colors')
               .example('$0 registry search --type=npm --transport=stdio', 'Find npm packages with stdio transport')
               .example(
-                '$0 registry search database --limit=5 --json',
+                '$0 registry search database --limit=5 --format=json',
                 'Search for database servers, limit to 5, output JSON',
               );
           },

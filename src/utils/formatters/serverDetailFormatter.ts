@@ -1,6 +1,12 @@
 import chalk from 'chalk';
 import boxen from 'boxen';
-import { RegistryServer, OutputFormat, OFFICIAL_REGISTRY_KEY } from '../../core/registry/types.js';
+import {
+  RegistryServer,
+  OutputFormat,
+  OFFICIAL_REGISTRY_KEY,
+  ServerPackage,
+  Transport,
+} from '../../core/registry/types.js';
 
 /**
  * Format a server's details for display
@@ -41,7 +47,7 @@ function formatTableServer(server: RegistryServer): string {
     basicInfo['Package Count'] = packages.length.toString();
     basicInfo['Registry Types'] =
       packages
-        .map((p) => p.registry_type)
+        .map((p) => p.registryType)
         .filter(Boolean)
         .join(', ') || 'unknown';
     basicInfo['Transport Types'] =
@@ -70,7 +76,7 @@ function formatTableServer(server: RegistryServer): string {
     result += '\nPackages:\n';
     const packageData = packages.map((pkg, index) => ({
       Index: index + 1,
-      'Registry Type': pkg.registry_type || 'unknown',
+      'Registry Type': pkg.registryType || 'unknown',
       Identifier: pkg.identifier,
       Version: pkg.version || server.version,
       Transport: formatDetailTransport(pkg.transport) || 'stdio',
@@ -113,7 +119,7 @@ function formatDetailedServer(server: RegistryServer): string {
     `${chalk.cyan('Repository:')} ${server.repository.url}`,
     `${chalk.cyan('Source:')} ${server.repository.source}`,
     server.repository.subfolder ? `${chalk.cyan('Subfolder:')} ${server.repository.subfolder}` : '',
-    server.website_url ? `${chalk.cyan('Website:')} ${server.website_url}` : '',
+    server.websiteUrl ? `${chalk.cyan('Website:')} ${server.websiteUrl}` : '',
     `${chalk.cyan('Published:')} ${formatRelativeDate(meta.publishedAt)}`,
     `${chalk.cyan('Updated:')} ${formatRelativeDate(meta.updatedAt)}`,
     `${chalk.cyan('Latest Version:')} ${meta.isLatest ? chalk.green('Yes') : chalk.yellow('No')}`,
@@ -128,7 +134,7 @@ function formatDetailedServer(server: RegistryServer): string {
   if (packages.length > 0) {
     const packagesList = packages
       .map((pkg, index) => {
-        const registryType = pkg.registry_type || 'unknown';
+        const registryType = pkg.registryType || 'unknown';
         const transport = formatDetailTransport(pkg.transport) || 'stdio';
         const installCmd = generateInstallCommand(pkg, server.version);
         return `  ${index + 1}. ${chalk.yellow(registryType)} - ${pkg.identifier} ${chalk.gray(`(${transport})`)}
@@ -172,7 +178,7 @@ ${remotesList}`;
   // Additional package information if available
   const packageInfo = [];
   if (packages.length > 0) {
-    const registryTypes = [...new Set(packages.map((p) => p.registry_type).filter(Boolean))];
+    const registryTypes = [...new Set(packages.map((p) => p.registryType).filter(Boolean))];
     const transports = [...new Set(packages.map((p) => formatDetailTransport(p.transport)).filter(Boolean))];
 
     if (registryTypes.length > 0) {
@@ -199,8 +205,8 @@ ${remotesList}`;
 /**
  * Generate installation command based on package type
  */
-function generateInstallCommand(pkg: any, version: string): string {
-  const registryType = pkg.registry_type;
+function generateInstallCommand(pkg: ServerPackage, version: string): string {
+  const registryType = pkg.registryType;
   const identifier = pkg.identifier;
   const pkgVersion = pkg.version || version;
 
@@ -219,12 +225,12 @@ function generateInstallCommand(pkg: any, version: string): string {
 /**
  * Format transport value to handle objects and undefined values for detailed display
  */
-function formatDetailTransport(transport: any): string {
+function formatDetailTransport(transport?: Transport): string {
   if (!transport) return '';
   if (typeof transport === 'string') return transport;
   if (typeof transport === 'object') {
     // Handle case where transport is an object
-    return transport.type || transport.name || String(transport);
+    return transport.type || String(transport);
   }
   return String(transport);
 }

@@ -1,7 +1,7 @@
 import { createRegistryClient } from '../../registry/mcpRegistryClient.js';
 import { createSearchEngine } from '../../../utils/searchFiltering.js';
 import { withErrorHandling } from '../../../utils/errorHandling.js';
-import { MCPServerSearchResult, OFFICIAL_REGISTRY_KEY, RegistryOptions } from '../../registry/types.js';
+import { RegistryOptions, RegistryServer } from '../../registry/types.js';
 import { SearchMCPServersArgs } from '../../../utils/mcpToolSchemas.js';
 import logger from '../../../logger/logger.js';
 
@@ -41,7 +41,7 @@ function getSearchEngine() {
 export async function handleSearchMCPServers(
   args: SearchMCPServersArgs,
   registryOptions?: RegistryOptions,
-): Promise<MCPServerSearchResult[]> {
+): Promise<RegistryServer[]> {
   const handler = withErrorHandling(async () => {
     logger.debug('Processing search_mcp_servers request', args);
 
@@ -65,53 +65,7 @@ export async function handleSearchMCPServers(
     });
 
     // Apply pagination
-    const paginatedServers = filteredServers.slice(offset, offset + limit);
-
-    // Transform to search result format
-    const results: MCPServerSearchResult[] = paginatedServers.map((server) => ({
-      name: server.name,
-      description: server.description,
-      status: server.status,
-      version: server.version,
-      repository: {
-        url: server.repository.url,
-        source: server.repository.source,
-        subfolder: server.repository.subfolder,
-      },
-      packages: (() => {
-        // If server has packages, use them
-        if (server.packages && server.packages.length > 0) {
-          return server.packages.map((pkg) => ({
-            registry_type: pkg.registry_type,
-            identifier: pkg.identifier,
-            version: pkg.version || server.version,
-            transport: pkg.transport?.type || 'stdio',
-          }));
-        }
-
-        // If server has remotes, use them
-        if (server.remotes && server.remotes.length > 0) {
-          return server.remotes.map((remote) => ({
-            registry_type: 'remote', // Remote servers
-            identifier: remote.url,
-            version: server.version,
-            transport: remote.type,
-          }));
-        }
-
-        // Fallback for servers with no packages or remotes
-        return [
-          {
-            registry_type: 'github', // Most servers are from GitHub
-            identifier: server.repository.url,
-            version: server.version,
-            transport: 'stdio', // Default transport for most MCP servers
-          },
-        ];
-      })(),
-      lastUpdated: server._meta[OFFICIAL_REGISTRY_KEY]?.updatedAt || '',
-      registryId: server._meta[OFFICIAL_REGISTRY_KEY]?.serverId || '',
-    }));
+    const results = filteredServers.slice(offset, offset + limit);
 
     logger.debug(`Found ${results.length} servers matching search criteria`);
     return results;

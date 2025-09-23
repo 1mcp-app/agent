@@ -5,12 +5,15 @@
 export const OFFICIAL_REGISTRY_KEY = 'io.modelcontextprotocol.registry/official';
 
 export interface Repository {
-  url: string;
-  source: string;
   id?: string;
+  source: string;
   subfolder?: string;
+  url: string;
 }
 
+/**
+ * Server data structure
+ */
 export interface RegistryServer {
   $schema?: string;
   name: string;
@@ -20,30 +23,61 @@ export interface RegistryServer {
   repository: Repository;
   packages?: ServerPackage[];
   remotes?: ServerRemote[];
-  website_url?: string;
+  websiteUrl?: string;
   _meta: ServerMeta;
 }
 
+export interface Input {
+  choices?: string[];
+  default?: string;
+  description?: string;
+  format?: string;
+  isRequired?: boolean;
+  isSecret?: boolean;
+  value?: string;
+  variables?: Record<string, Input>;
+}
+
+export interface Argument {
+  choices?: string[];
+  default?: string;
+  description?: string;
+  format?: string;
+  isRepeated?: boolean;
+  isRequired?: boolean;
+  isSecret?: boolean;
+  name?: string;
+  type?: string;
+  value?: string;
+  valueHint?: string;
+  variables?: Record<string, Input>;
+}
+
 export interface ServerPackage {
-  registry_type: string;
+  environmentVariables?: Input[];
+  fileSha256?: string;
   identifier: string;
-  version?: string;
+  packageArguments?: Argument[];
+  registryBaseUrl?: string;
+  registryType: string;
+  runtimeArguments?: Argument[];
+  runtimeHint?: string;
   transport?: Transport;
-  arguments?: string[];
-  environment_variables?: Record<string, string>;
+  version?: string;
 }
 
 export interface ServerRemote {
-  type: 'streamable-http' | 'sse' | 'webhook';
+  headers?: Input[];
+  type: string;
   url: string;
 }
 
 export interface OfficialMeta {
-  serverId: string;
-  versionId: string;
-  publishedAt: string;
-  updatedAt: string;
   isLatest: boolean;
+  publishedAt: string;
+  serverId: string;
+  updatedAt: string;
+  versionId: string;
 }
 
 export interface ServerMeta {
@@ -67,7 +101,8 @@ export interface SearchOptions extends ServerListOptions {
 }
 
 export interface Transport {
-  type: 'stdio' | 'sse' | 'webhook' | 'streamable-http';
+  headers?: Input[];
+  type: string;
   url?: string;
 }
 
@@ -99,26 +134,6 @@ export interface ServerVersionsResponse {
   versions: ServerVersion[];
   serverId: string;
   name: string;
-}
-
-export interface MCPServerSearchResult {
-  name: string;
-  description: string;
-  status: string;
-  version: string;
-  repository: {
-    url: string;
-    source: string;
-    subfolder?: string;
-  };
-  packages: Array<{
-    registry_type: string;
-    identifier: string;
-    version: string;
-    transport: string;
-  }>;
-  lastUpdated: string;
-  registryId: string;
 }
 
 export interface RegistryStatusResult {
