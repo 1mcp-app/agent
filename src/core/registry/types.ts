@@ -81,7 +81,7 @@ export interface OfficialMeta {
 }
 
 export interface ServerMeta {
-  'io.modelcontextprotocol.registry/official': OfficialMeta;
+  [OFFICIAL_REGISTRY_KEY]: OfficialMeta;
   [key: string]: Record<string, any>;
 }
 
