@@ -73,34 +73,20 @@ export async function searchCommand(argv: SearchCommandArgs): Promise<void> {
     }
     console.log(); // Empty line for spacing
 
-    const tableData = results.map((server) => {
-      // Color-code status
-      const getStatusDisplay = (status: string) => {
-        switch (status) {
-          case 'active':
-            return chalk.green('● ACTIVE');
-          case 'deprecated':
-            return chalk.yellow('● DEPRECATED');
-          case 'archived':
-            return chalk.red('● ARCHIVED');
-          default:
-            return chalk.gray(`● ${status.toUpperCase()}`);
-        }
-      };
-
-      return {
-        Name: chalk.cyan.bold(server.name),
-        Description: chalk.white(truncateString(server.description, 45)),
-        Status: getStatusDisplay(server.status),
-        Version: chalk.blue(server.version),
-        'Server ID': chalk.gray(truncateString(server.registryId, 8) + '...'), // Show first 8 chars + ellipsis
-        'Registry Type': formatRegistryTypes(server.packages),
-        Transport: formatTransportTypes(server.packages),
-        'Last Updated': chalk.gray(formatDate(server.lastUpdated)),
-      };
+    // Display results in a clean table format
+    results.forEach((server, index) => {
+      console.log(`${chalk.gray((index + 1).toString().padStart(2))}. ${chalk.cyan.bold(server.name)}`);
+      console.log(`    ${chalk.white(truncateString(server.description, 70))}`);
+      console.log(
+        `    ${chalk.green('Status:')} ${formatStatus(server.status)}  ${chalk.blue('Version:')} ${server.version}`,
+      );
+      console.log(`    ${chalk.yellow('ID:')} ${chalk.gray(server.registryId)}`);
+      console.log(
+        `    ${chalk.magenta('Transport:')} ${formatTransportTypesPlain(server.packages)} • ${chalk.red('Type:')} ${formatRegistryTypesPlain(server.packages)}`,
+      );
+      console.log(`    ${chalk.gray('Updated:')} ${formatDate(server.lastUpdated)}`);
+      console.log(); // Empty line between entries
     });
-
-    console.table(tableData);
 
     // Enhanced usage instructions with colors
     console.log(chalk.cyan.bold('\n💡 Next Steps:'));
@@ -152,53 +138,43 @@ function formatTransport(transport: any): string {
 }
 
 /**
- * Format registry types with colors
+ * Format status with colors
  */
-function formatRegistryTypes(packages: any[]): string {
-  const types = packages.map((p) => p.registry_type || 'unknown').filter(Boolean);
-  const uniqueTypes = [...new Set(types)];
-
-  if (uniqueTypes.length === 0) return chalk.gray('unknown');
-
-  return uniqueTypes
-    .map((type) => {
-      switch (type) {
-        case 'npm':
-          return chalk.red('npm');
-        case 'pypi':
-          return chalk.blue('pypi');
-        case 'docker':
-          return chalk.cyan('docker');
-        default:
-          return chalk.gray(type);
-      }
-    })
-    .join(', ');
+function formatStatus(status: string): string {
+  switch (status) {
+    case 'active':
+      return chalk.green('● ACTIVE');
+    case 'deprecated':
+      return chalk.yellow('● DEPRECATED');
+    case 'archived':
+      return chalk.red('● ARCHIVED');
+    default:
+      return chalk.gray(`● ${status.toUpperCase()}`);
+  }
 }
 
 /**
- * Format transport types with colors
+ * Format registry types without colors (for table display)
  */
-function formatTransportTypes(packages: any[]): string {
+function formatRegistryTypesPlain(packages: any[]): string {
+  const types = packages.map((p) => p.registry_type || 'unknown').filter(Boolean);
+  const uniqueTypes = [...new Set(types)];
+
+  if (uniqueTypes.length === 0) return 'unknown';
+
+  return uniqueTypes.join(', ');
+}
+
+/**
+ * Format transport types without colors (for table display)
+ */
+function formatTransportTypesPlain(packages: any[]): string {
   const transports = packages.map((p) => formatTransport(p.transport)).filter(Boolean);
   const uniqueTransports = [...new Set(transports)];
 
-  if (uniqueTransports.length === 0) return chalk.gray('stdio');
+  if (uniqueTransports.length === 0) return 'stdio';
 
-  return uniqueTransports
-    .map((transport) => {
-      switch (transport) {
-        case 'stdio':
-          return chalk.green('stdio');
-        case 'sse':
-          return chalk.magenta('sse');
-        case 'webhook':
-          return chalk.yellow('webhook');
-        default:
-          return chalk.gray(transport);
-      }
-    })
-    .join(', ');
+  return uniqueTransports.join(', ');
 }
 
 /**
