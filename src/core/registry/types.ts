@@ -2,6 +2,8 @@
  * Type definitions for MCP Registry data structures
  */
 
+export const OFFICIAL_REGISTRY_KEY = 'io.modelcontextprotocol.registry/official';
+
 export interface RegistryServer {
   $schema: string;
   name: string;
@@ -34,12 +36,19 @@ export interface ServerRemote {
 }
 
 export interface ServerMeta {
-  'io.modelcontextprotocol.registry/official': {
-    id: string;
-    published_at: string;
-    updated_at: string;
-    is_latest: boolean;
+  [OFFICIAL_REGISTRY_KEY]: {
+    serverId: string;
+    versionId: string;
+    publishedAt: string;
+    updatedAt: string;
+    isLatest: boolean;
+    // Legacy field names for backward compatibility
+    id?: string;
+    published_at?: string;
+    updated_at?: string;
+    is_latest?: boolean;
   };
+  [x: string]: Record<string, any>;
 }
 
 export interface ServerListOptions {
@@ -83,6 +92,20 @@ export interface ServersListResponse {
     next_cursor?: string;
     count: number;
   };
+}
+
+export interface ServerVersion {
+  version: string;
+  publishedAt: string;
+  updatedAt: string;
+  isLatest: boolean;
+  status: 'active' | 'archived' | 'deprecated';
+}
+
+export interface ServerVersionsResponse {
+  versions: ServerVersion[];
+  serverId: string;
+  name: string;
 }
 
 export interface RegistryStatusResult {
@@ -136,4 +159,26 @@ export interface RegistryOptions {
   cacheCleanupInterval?: number;
   proxy?: string;
   proxyAuth?: string;
+}
+
+/**
+ * Output format types for registry commands
+ */
+export type OutputFormat = 'table' | 'json' | 'detailed';
+
+/**
+ * Show command arguments
+ */
+export interface ShowCommandArgs {
+  serverId: string;
+  version?: string;
+  format?: OutputFormat;
+}
+
+/**
+ * Versions command arguments
+ */
+export interface VersionsCommandArgs {
+  serverId: string;
+  format?: OutputFormat;
 }

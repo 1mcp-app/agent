@@ -1,7 +1,7 @@
 import { createRegistryClient } from '../../registry/mcpRegistryClient.js';
 import { createSearchEngine } from '../../../utils/searchFiltering.js';
 import { withErrorHandling } from '../../../utils/errorHandling.js';
-import { MCPServerSearchResult, RegistryOptions } from '../../registry/types.js';
+import { MCPServerSearchResult, OFFICIAL_REGISTRY_KEY, RegistryOptions } from '../../registry/types.js';
 import { SearchMCPServersArgs } from '../../../utils/mcpToolSchemas.js';
 import logger from '../../../logger/logger.js';
 
@@ -78,21 +78,40 @@ export async function handleSearchMCPServers(
         source: server.repository.source,
         subfolder: server.repository.subfolder,
       },
-      packages:
-        server.packages?.map((pkg) => ({
-          registry_type: pkg.registry_type,
-          identifier: pkg.identifier,
-          version: pkg.version || server.version,
-          transport: pkg.transport || 'unknown',
-        })) ||
-        (server.remotes || []).map((remote) => ({
-          registry_type: 'unknown', // Not available in new schema
-          identifier: remote.url,
-          version: server.version,
-          transport: remote.type,
-        })),
-      lastUpdated: server._meta['io.modelcontextprotocol.registry/official'].updated_at,
-      registryId: server._meta['io.modelcontextprotocol.registry/official'].id,
+      packages: (() => {
+        // If server has packages, use them
+        if (server.packages && server.packages.length > 0) {
+          return server.packages.map((pkg) => ({
+            registry_type: pkg.registry_type,
+            identifier: pkg.identifier,
+            version: pkg.version || server.version,
+            transport: pkg.transport || 'stdio',
+          }));
+        }
+
+        // If server has remotes, use them
+        if (server.remotes && server.remotes.length > 0) {
+          return server.remotes.map((remote) => ({
+            registry_type: 'remote', // Remote servers
+            identifier: remote.url,
+            version: server.version,
+            transport: remote.type,
+          }));
+        }
+
+        // Fallback for servers with no packages or remotes
+        return [
+          {
+            registry_type: 'github', // Most servers are from GitHub
+            identifier: server.repository.url,
+            version: server.version,
+            transport: 'stdio', // Default transport for most MCP servers
+          },
+        ];
+      })(),
+      lastUpdated:
+        server._meta[OFFICIAL_REGISTRY_KEY].updatedAt || server._meta[OFFICIAL_REGISTRY_KEY].updated_at || '',
+      registryId: server._meta[OFFICIAL_REGISTRY_KEY].serverId || server._meta[OFFICIAL_REGISTRY_KEY].id || '',
     }));
 
     logger.debug(`Found ${results.length} servers matching search criteria`);

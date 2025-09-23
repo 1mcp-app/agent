@@ -11,6 +11,7 @@ import {
   RegistryStatusResult,
   RegistryOptions,
   ServersListResponse,
+  ServerVersionsResponse,
 } from './types.js';
 
 /**
@@ -59,19 +60,46 @@ export class MCPRegistryClient {
   /**
    * Get a specific server by ID
    */
-  async getServerById(id: string): Promise<RegistryServer> {
+  async getServerById(id: string, version?: string): Promise<RegistryServer> {
+    const handler = withErrorHandling(
+      async () => {
+        const cacheKey = version ? `/servers/${id}?version=${version}` : `/servers/${id}`;
+        return await this.withCache(
+          cacheKey,
+          undefined,
+          async () => {
+            let url = `${this.baseUrl}/v0/servers/${encodeURIComponent(id)}`;
+            if (version) {
+              url += `?version=${encodeURIComponent(version)}`;
+            }
+            return await this.makeRequest<RegistryServer>(url);
+          },
+          600, // 10 minutes TTL for individual servers
+          `server: ${id}${version ? ` (v${version})` : ''}`,
+        );
+      },
+      `Failed to fetch server with ID: ${id}${version ? ` (version: ${version})` : ''}`,
+    );
+
+    return await handler();
+  }
+
+  /**
+   * Get all versions for a specific server
+   */
+  async getServerVersions(id: string): Promise<ServerVersionsResponse> {
     const handler = withErrorHandling(async () => {
       return await this.withCache(
-        `/servers/${id}`,
+        `/servers/${id}/versions`,
         undefined,
         async () => {
-          const url = `${this.baseUrl}/v0/servers/${encodeURIComponent(id)}`;
-          return await this.makeRequest<RegistryServer>(url);
+          const url = `${this.baseUrl}/v0/servers/${encodeURIComponent(id)}/versions`;
+          return await this.makeRequest<ServerVersionsResponse>(url);
         },
-        600, // 10 minutes TTL for individual servers
-        `server: ${id}`,
+        300, // 5 minutes TTL for versions list
+        `server versions: ${id}`,
       );
-    }, `Failed to fetch server with ID: ${id}`);
+    }, `Failed to fetch versions for server with ID: ${id}`);
 
     return await handler();
   }
