@@ -80,8 +80,46 @@ function formatTableServer(server: RegistryServer): string {
       Identifier: pkg.identifier,
       Version: pkg.version || server.version,
       Transport: formatDetailTransport(pkg.transport) || 'stdio',
+      Runtime: pkg.runtimeHint || 'N/A',
+      'Env Vars': (pkg.environmentVariables?.length || 0) > 0 ? pkg.environmentVariables?.length : 'None',
+      Args: (pkg.packageArguments?.length || 0) + (pkg.runtimeArguments?.length || 0) || 'None',
     }));
     console.table(packageData);
+  }
+
+  // Add environment variables table if available
+  const allEnvVars = packages.flatMap((pkg) => pkg.environmentVariables || []);
+  if (allEnvVars.length > 0) {
+    result += '\nEnvironment Variables:\n';
+    const envVarData = allEnvVars.map((envVar, index) => ({
+      Index: index + 1,
+      Name: envVar.value || 'ENV_VAR',
+      Required: envVar.isRequired ? 'Yes' : 'No',
+      Secret: envVar.isSecret ? 'Yes' : 'No',
+      Default: envVar.default || 'N/A',
+      Description: envVar.description || 'N/A',
+    }));
+    console.table(envVarData);
+  }
+
+  // Add arguments table if available
+  const allArgs = packages.flatMap((pkg) => [
+    ...(pkg.packageArguments || []).map((arg) => ({ ...arg, type: 'Package' })),
+    ...(pkg.runtimeArguments || []).map((arg) => ({ ...arg, type: 'Runtime' })),
+  ]);
+  if (allArgs.length > 0) {
+    result += '\nArguments:\n';
+    const argData = allArgs.map((arg, index) => ({
+      Index: index + 1,
+      Name: arg.name || 'arg',
+      Type: arg.type || 'N/A',
+      Required: arg.isRequired ? 'Yes' : 'No',
+      Secret: arg.isSecret ? 'Yes' : 'No',
+      Repeated: arg.isRepeated ? 'Yes' : 'No',
+      Default: arg.default || 'N/A',
+      Description: arg.description || 'N/A',
+    }));
+    console.table(argData);
   }
 
   // Add remotes table if available
@@ -91,6 +129,7 @@ function formatTableServer(server: RegistryServer): string {
       Index: index + 1,
       Type: remote.type,
       URL: remote.url,
+      Headers: (remote.headers?.length || 0) > 0 ? remote.headers?.length : 'None',
     }));
     console.table(remoteData);
   }
@@ -137,13 +176,81 @@ function formatDetailedServer(server: RegistryServer): string {
         const registryType = pkg.registryType || 'unknown';
         const transport = formatDetailTransport(pkg.transport) || 'stdio';
         const installCmd = generateInstallCommand(pkg, server.version);
-        return `  ${index + 1}. ${chalk.yellow(registryType)} - ${pkg.identifier} ${chalk.gray(`(${transport})`)}
+        let packageDetails = `  ${index + 1}. ${chalk.yellow(registryType)} - ${pkg.identifier} ${chalk.gray(`(${transport})`)}
      ${chalk.gray(`Install: ${installCmd}`)}`;
+
+        // Add runtime hint if available
+        if (pkg.runtimeHint) {
+          packageDetails += `\n     ${chalk.blue('Runtime:')} ${pkg.runtimeHint}`;
+        }
+
+        // Add file hash if available
+        if (pkg.fileSha256) {
+          packageDetails += `\n     ${chalk.magenta('SHA256:')} ${pkg.fileSha256.substring(0, 16)}...`;
+        }
+
+        return packageDetails;
       })
       .join('\n');
 
     content += `\n\n${chalk.cyan.bold('Packages:')} ${chalk.gray(`(${packages.length})`)}
 ${packagesList}`;
+
+    // Add environment variables if any packages have them
+    const allEnvVars = packages.flatMap((pkg) => pkg.environmentVariables || []);
+    if (allEnvVars.length > 0) {
+      const envVarsList = allEnvVars
+        .map((envVar, index) => {
+          const required = envVar.isRequired ? chalk.red('*') : '';
+          const secret = envVar.isSecret ? chalk.yellow('🔒') : '';
+          const defaultVal = envVar.default ? chalk.gray(` (default: ${envVar.default})`) : '';
+          const description = envVar.description ? ` - ${envVar.description}` : '';
+          return `  ${index + 1}. ${envVar.value || 'ENV_VAR'}${required}${secret}${defaultVal}${description}`;
+        })
+        .join('\n');
+
+      content += `\n\n${chalk.cyan.bold('Environment Variables:')} ${chalk.gray(`(${allEnvVars.length})`)}
+${envVarsList}`;
+    }
+
+    // Add package arguments if any packages have them
+    const allPackageArgs = packages.flatMap((pkg) => pkg.packageArguments || []);
+    const allRuntimeArgs = packages.flatMap((pkg) => pkg.runtimeArguments || []);
+
+    if (allPackageArgs.length > 0) {
+      const packageArgsList = allPackageArgs
+        .map((arg, index) => {
+          const required = arg.isRequired ? chalk.red('*') : '';
+          const secret = arg.isSecret ? chalk.yellow('🔒') : '';
+          const repeated = arg.isRepeated ? chalk.blue('[]') : '';
+          const defaultVal = arg.default ? chalk.gray(` (default: ${arg.default})`) : '';
+          const type = arg.type ? chalk.magenta(`<${arg.type}>`) : '';
+          const description = arg.description ? ` - ${arg.description}` : '';
+          return `  ${index + 1}. ${arg.name || 'arg'}${required}${secret}${repeated} ${type}${defaultVal}${description}`;
+        })
+        .join('\n');
+
+      content += `\n\n${chalk.cyan.bold('Package Arguments:')} ${chalk.gray(`(${allPackageArgs.length})`)}
+${packageArgsList}`;
+    }
+
+    if (allRuntimeArgs.length > 0) {
+      const runtimeArgsList = allRuntimeArgs
+        .map((arg, index) => {
+          const required = arg.isRequired ? chalk.red('*') : '';
+          const secret = arg.isSecret ? chalk.yellow('🔒') : '';
+          const repeated = arg.isRepeated ? chalk.blue('[]') : '';
+          const defaultVal = arg.default ? chalk.gray(` (default: ${arg.default})`) : '';
+          const type = arg.type ? chalk.magenta(`<${arg.type}>`) : '';
+          const hint = arg.valueHint ? chalk.cyan(` (hint: ${arg.valueHint})`) : '';
+          const description = arg.description ? ` - ${arg.description}` : '';
+          return `  ${index + 1}. ${arg.name || 'arg'}${required}${secret}${repeated} ${type}${defaultVal}${hint}${description}`;
+        })
+        .join('\n');
+
+      content += `\n\n${chalk.cyan.bold('Runtime Arguments:')} ${chalk.gray(`(${allRuntimeArgs.length})`)}
+${runtimeArgsList}`;
+    }
   }
 
   // Enhanced remotes section
@@ -151,7 +258,22 @@ ${packagesList}`;
   if (remotes.length > 0) {
     const remotesList = remotes
       .map((remote, index) => {
-        return `  ${index + 1}. ${chalk.yellow(remote.type)} - ${remote.url}`;
+        let remoteDetails = `  ${index + 1}. ${chalk.yellow(remote.type)} - ${remote.url}`;
+
+        // Add headers if available
+        if (remote.headers && remote.headers.length > 0) {
+          const headersList = remote.headers
+            .map((header) => {
+              const description = header.description ? ` (${header.description})` : '';
+              const required = header.isRequired ? chalk.red('*') : '';
+              const secret = header.isSecret ? chalk.yellow('🔒') : '';
+              return `       ${header.value || 'header'}${required}${secret}${description}`;
+            })
+            .join('\n');
+          remoteDetails += `\n     ${chalk.cyan('Headers:')}\n${headersList}`;
+        }
+
+        return remoteDetails;
       })
       .join('\n');
 
@@ -163,7 +285,6 @@ ${remotesList}`;
   const metaInfo = [
     `${chalk.cyan('Registry ID:')} ${meta.serverId}`,
     `${chalk.cyan('Version ID:')} ${meta.versionId}`,
-    server.$schema ? `${chalk.cyan('Schema Version:')} ${server.$schema}` : '',
   ].filter(Boolean);
 
   content += `\n\n${chalk.cyan.bold('Registry Information:')}
