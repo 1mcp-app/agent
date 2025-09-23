@@ -452,7 +452,7 @@ export class MCPRegistryClient {
       if (server.packages) {
         server.packages.forEach((pkg) => {
           if (pkg.transport) {
-            byTransport[pkg.transport] = (byTransport[pkg.transport] || 0) + 1;
+            byTransport[pkg.transport.type] = (byTransport[pkg.transport.type] || 0) + 1;
           }
         });
       }

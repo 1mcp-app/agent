@@ -4,29 +4,32 @@
 
 export const OFFICIAL_REGISTRY_KEY = 'io.modelcontextprotocol.registry/official';
 
+export interface Repository {
+  url: string;
+  source: string;
+  id?: string;
+  subfolder?: string;
+}
+
 export interface RegistryServer {
-  $schema: string;
+  $schema?: string;
   name: string;
   description: string;
-  status: 'active' | 'archived' | 'deprecated';
-  repository: {
-    url: string;
-    source: 'github' | 'gitlab';
-    subfolder?: string;
-  };
+  status: string;
   version: string;
-  packages?: ServerPackage[]; // Optional packages array
-  remotes?: ServerRemote[]; // Optional remotes array
-  website_url?: string; // Optional website URL
+  repository: Repository;
+  packages?: ServerPackage[];
+  remotes?: ServerRemote[];
+  website_url?: string;
   _meta: ServerMeta;
 }
 
 export interface ServerPackage {
-  registry_type: 'npm' | 'pypi' | 'docker';
+  registry_type: string;
   identifier: string;
-  version?: string; // Optional version
-  transport?: 'stdio' | 'sse' | 'webhook'; // Optional transport
-  arguments?: string[]; // Optional arguments array
+  version?: string;
+  transport?: Transport;
+  arguments?: string[];
   environment_variables?: Record<string, string>;
 }
 
@@ -35,20 +38,17 @@ export interface ServerRemote {
   url: string;
 }
 
+export interface OfficialMeta {
+  serverId: string;
+  versionId: string;
+  publishedAt: string;
+  updatedAt: string;
+  isLatest: boolean;
+}
+
 export interface ServerMeta {
-  [OFFICIAL_REGISTRY_KEY]: {
-    serverId: string;
-    versionId: string;
-    publishedAt: string;
-    updatedAt: string;
-    isLatest: boolean;
-    // Legacy field names for backward compatibility
-    id?: string;
-    published_at?: string;
-    updated_at?: string;
-    is_latest?: boolean;
-  };
-  [x: string]: Record<string, any>;
+  'io.modelcontextprotocol.registry/official': OfficialMeta;
+  [key: string]: Record<string, any>;
 }
 
 export interface ServerListOptions {
@@ -64,6 +64,41 @@ export interface SearchOptions extends ServerListOptions {
   status?: 'active' | 'archived' | 'deprecated' | 'all'; // Client-side filtering
   registry_type?: 'npm' | 'pypi' | 'docker'; // Client-side filtering
   transport?: 'stdio' | 'sse' | 'webhook'; // Client-side filtering
+}
+
+export interface Transport {
+  type: 'stdio' | 'sse' | 'webhook' | 'streamable-http';
+  url?: string;
+}
+
+export interface ServersListResponse {
+  servers: RegistryServer[];
+  metadata: {
+    next_cursor?: string;
+    count: number;
+  };
+}
+
+export interface ServerListResponse {
+  servers: RegistryServer[];
+  metadata: {
+    next_cursor?: string;
+    count: number;
+  };
+}
+
+export interface ServerVersion {
+  version: string;
+  publishedAt: string;
+  updatedAt: string;
+  isLatest: boolean;
+  status: 'active' | 'archived' | 'deprecated';
+}
+
+export interface ServerVersionsResponse {
+  versions: ServerVersion[];
+  serverId: string;
+  name: string;
 }
 
 export interface MCPServerSearchResult {
@@ -84,28 +119,6 @@ export interface MCPServerSearchResult {
   }>;
   lastUpdated: string;
   registryId: string;
-}
-
-export interface ServersListResponse {
-  servers: RegistryServer[];
-  metadata: {
-    next_cursor?: string;
-    count: number;
-  };
-}
-
-export interface ServerVersion {
-  version: string;
-  publishedAt: string;
-  updatedAt: string;
-  isLatest: boolean;
-  status: 'active' | 'archived' | 'deprecated';
-}
-
-export interface ServerVersionsResponse {
-  versions: ServerVersion[];
-  serverId: string;
-  name: string;
 }
 
 export interface RegistryStatusResult {

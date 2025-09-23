@@ -59,11 +59,6 @@ describe('MCPRegistryClient', () => {
             publishedAt: '2024-01-01T00:00:00Z',
             updatedAt: '2024-01-01T00:00:00Z',
             isLatest: true,
-            // Legacy field names for backward compatibility
-            id: 'file-server-1',
-            published_at: '2024-01-01T00:00:00Z',
-            updated_at: '2024-01-01T00:00:00Z',
-            is_latest: true,
           },
         },
       },
@@ -90,11 +85,6 @@ describe('MCPRegistryClient', () => {
             publishedAt: '2024-01-02T00:00:00Z',
             updatedAt: '2024-01-02T00:00:00Z',
             isLatest: true,
-            // Legacy field names for backward compatibility
-            id: 'database-server-1',
-            published_at: '2024-01-02T00:00:00Z',
-            updated_at: '2024-01-02T00:00:00Z',
-            is_latest: true,
           },
         },
       },

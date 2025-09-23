@@ -85,7 +85,7 @@ export async function handleSearchMCPServers(
             registry_type: pkg.registry_type,
             identifier: pkg.identifier,
             version: pkg.version || server.version,
-            transport: pkg.transport || 'stdio',
+            transport: pkg.transport?.type || 'stdio',
           }));
         }
 
@@ -109,9 +109,8 @@ export async function handleSearchMCPServers(
           },
         ];
       })(),
-      lastUpdated:
-        server._meta[OFFICIAL_REGISTRY_KEY].updatedAt || server._meta[OFFICIAL_REGISTRY_KEY].updated_at || '',
-      registryId: server._meta[OFFICIAL_REGISTRY_KEY].serverId || server._meta[OFFICIAL_REGISTRY_KEY].id || '',
+      lastUpdated: server._meta[OFFICIAL_REGISTRY_KEY]?.updatedAt || '',
+      registryId: server._meta[OFFICIAL_REGISTRY_KEY]?.serverId || '',
     }));
 
     logger.debug(`Found ${results.length} servers matching search criteria`);

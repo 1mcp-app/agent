@@ -1,4 +1,4 @@
-import { RegistryServer } from '../core/registry/types.js';
+import { OFFICIAL_REGISTRY_KEY, RegistryServer } from '../core/registry/types.js';
 
 /**
  * Search and filtering utilities for MCP servers
@@ -56,7 +56,7 @@ export class SearchEngine {
     return servers.filter(
       (server) =>
         (server.remotes && server.remotes.some((remote) => remote.type === transport)) ||
-        (server.packages && server.packages.some((pkg) => pkg.transport === transport)),
+        (server.packages && server.packages.some((pkg) => pkg.transport?.type === transport)),
     );
   }
 
@@ -68,16 +68,8 @@ export class SearchEngine {
       // Sort by update recency if no query
       return servers.sort(
         (a, b) =>
-          new Date(
-            b._meta['io.modelcontextprotocol.registry/official'].updatedAt ||
-              b._meta['io.modelcontextprotocol.registry/official'].updated_at ||
-              0,
-          ).getTime() -
-          new Date(
-            a._meta['io.modelcontextprotocol.registry/official'].updatedAt ||
-              a._meta['io.modelcontextprotocol.registry/official'].updated_at ||
-              0,
-          ).getTime(),
+          new Date(b._meta[OFFICIAL_REGISTRY_KEY].updatedAt || 0).getTime() -
+          new Date(a._meta[OFFICIAL_REGISTRY_KEY].updatedAt || 0).getTime(),
       );
     }
 
@@ -145,15 +137,13 @@ export class SearchEngine {
       // Boost recently updated servers (within last 6 months)
       const sixMonthsAgo = new Date();
       sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 6);
-      const updatedAt =
-        server._meta['io.modelcontextprotocol.registry/official'].updatedAt ||
-        server._meta['io.modelcontextprotocol.registry/official'].updated_at;
+      const updatedAt = server._meta[OFFICIAL_REGISTRY_KEY].updatedAt;
       if (updatedAt && new Date(updatedAt) > sixMonthsAgo) {
         score *= 1.2;
       }
 
       // Boost latest versions
-      if (server._meta['io.modelcontextprotocol.registry/official'].is_latest) {
+      if (server._meta[OFFICIAL_REGISTRY_KEY].isLatest) {
         score *= 1.1;
       }
     }
