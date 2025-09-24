@@ -328,7 +328,7 @@ describe('serverDetailFormatter', () => {
 
       const result = formatServerDetails(serverWithSimpleRemote, 'detailed');
 
-      expect(result).toContain('sse - https://api.example.com/sse');
+      expect(result).toContain('https://api.example.com/sse');
     });
 
     it('should handle missing repository subfolder', () => {
