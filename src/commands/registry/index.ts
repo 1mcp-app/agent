@@ -1,6 +1,6 @@
 import type { Argv } from 'yargs';
-import { searchCommand } from './search.js';
-import { registryStatusCommand } from './status.js';
+import { searchCommand, buildSearchCommand } from './search.js';
+import { registryStatusCommand, buildStatusCommand } from './status.js';
 import { showCommand, buildShowCommand } from './show.js';
 import { versionsCommand, buildVersionsCommand } from './versions.js';
 import { globalOptions } from '../../globalOptions.js';
@@ -57,55 +57,12 @@ export function setupRegistryCommands(yargs: Argv): Argv {
           'search [query]',
           'Search for MCP servers in the official registry',
           (searchYargs) => {
-            return searchYargs
-              .positional('query', {
-                describe: 'Search query to match against server names and descriptions',
-                type: 'string',
-              })
-              .options({
+            return buildSearchCommand(
+              searchYargs.options({
                 ...globalOptions,
                 ...registryOptions,
-                status: {
-                  describe: 'Filter by server status',
-                  type: 'string' as const,
-                  choices: ['active', 'archived', 'deprecated', 'all'] as const,
-                  default: 'active' as const,
-                },
-                type: {
-                  describe: 'Filter by package registry type',
-                  type: 'string' as const,
-                  choices: ['npm', 'pypi', 'docker'] as const,
-                },
-                transport: {
-                  describe: 'Filter by transport method',
-                  type: 'string' as const,
-                  choices: ['stdio', 'sse', 'webhook'] as const,
-                },
-                limit: {
-                  describe: 'Maximum number of results to return',
-                  type: 'number' as const,
-                  default: 20,
-                },
-                offset: {
-                  describe: 'Number of results to skip for pagination',
-                  type: 'number' as const,
-                  default: 0,
-                },
-                format: {
-                  describe: 'Output format for search results',
-                  type: 'string' as const,
-                  choices: ['table', 'list', 'json'] as const,
-                  default: 'table' as const,
-                },
-              })
-              .example('$0 registry search', 'List all active MCP servers (table format)')
-              .example('$0 registry search "file system"', 'Search for file system related servers')
-              .example('$0 registry search --format=list', 'Display results in list format with colors')
-              .example('$0 registry search --type=npm --transport=stdio', 'Find npm packages with stdio transport')
-              .example(
-                '$0 registry search database --limit=5 --format=json',
-                'Search for database servers, limit to 5, output JSON',
-              );
+              }),
+            );
           },
           searchCommand,
         )
@@ -113,24 +70,12 @@ export function setupRegistryCommands(yargs: Argv): Argv {
           'status',
           'Show registry availability status and optional statistics',
           (statusYargs) => {
-            return statusYargs
-              .options({
+            return buildStatusCommand(
+              statusYargs.options({
                 ...globalOptions,
                 ...registryOptions,
-                stats: {
-                  describe: 'Include detailed server count statistics',
-                  type: 'boolean' as const,
-                  default: false,
-                },
-                json: {
-                  describe: 'Output results in JSON format',
-                  type: 'boolean' as const,
-                  default: false,
-                },
-              })
-              .example('$0 registry status', 'Check registry availability')
-              .example('$0 registry status --stats', 'Show registry status with statistics')
-              .example('$0 registry status --stats --json', 'Output detailed status in JSON format');
+              }),
+            );
           },
           registryStatusCommand,
         )

@@ -1,6 +1,7 @@
 import chalk from 'chalk';
 import boxen from 'boxen';
 import { ServerVersionsResponse, OutputFormat } from '../../core/registry/types.js';
+import { formatDate, formatRelativeDate } from './commonFormatters.js';
 
 /**
  * Format server versions for display
@@ -62,7 +63,8 @@ function formatDetailedVersions(versionsResponse: ServerVersionsResponse): strin
   );
 
   // Header
-  const header = chalk.cyan.bold(name) + chalk.gray(` (${versions.length} versions)`);
+  const versionText = versions.length === 1 ? 'version' : 'versions';
+  const header = chalk.cyan.bold(name) + chalk.gray(` (${versions.length} ${versionText})`);
 
   // Version list
   const versionsList = sortedVersions
@@ -102,55 +104,4 @@ function formatDetailedVersions(versionsResponse: ServerVersionsResponse): strin
     borderStyle: 'round',
     borderColor: 'cyan',
   });
-}
-
-/**
- * Format date to readable string
- */
-function formatDate(isoString: string): string {
-  if (!isoString) return 'Unknown';
-  try {
-    const date = new Date(isoString);
-    if (isNaN(date.getTime())) return 'Invalid Date';
-    return date.toLocaleDateString('en-US', {
-      year: 'numeric',
-      month: 'short',
-      day: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit',
-    });
-  } catch {
-    return 'Invalid Date';
-  }
-}
-
-/**
- * Format date as relative time (e.g., "2 days ago")
- */
-function formatRelativeDate(isoString: string): string {
-  if (!isoString) return 'Unknown';
-  try {
-    const date = new Date(isoString);
-    if (isNaN(date.getTime())) return 'Invalid Date';
-
-    const now = new Date();
-    const diffMs = now.getTime() - date.getTime();
-    const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
-    const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
-    const diffMinutes = Math.floor(diffMs / (1000 * 60));
-
-    if (diffDays > 30) {
-      return formatDate(isoString);
-    } else if (diffDays > 0) {
-      return `${diffDays} day${diffDays > 1 ? 's' : ''} ago`;
-    } else if (diffHours > 0) {
-      return `${diffHours} hour${diffHours > 1 ? 's' : ''} ago`;
-    } else if (diffMinutes > 0) {
-      return `${diffMinutes} minute${diffMinutes > 1 ? 's' : ''} ago`;
-    } else {
-      return 'Just now';
-    }
-  } catch {
-    return 'Invalid Date';
-  }
 }

@@ -1,7 +1,7 @@
 import { createRegistryClient } from '../../registry/mcpRegistryClient.js';
 import { createSearchEngine } from '../../../utils/searchFiltering.js';
 import { withErrorHandling } from '../../../utils/errorHandling.js';
-import { RegistryOptions, RegistryServer } from '../../registry/types.js';
+import { RegistryOptions, RegistryServer, OFFICIAL_REGISTRY_KEY } from '../../registry/types.js';
 import { SearchMCPServersArgs } from '../../../utils/mcpToolSchemas.js';
 import logger from '../../../logger/logger.js';
 
@@ -36,6 +36,20 @@ function getSearchEngine() {
 }
 
 /**
+ * Transform server data for search results
+ */
+function transformServerForSearch(server: RegistryServer): any {
+  const meta = server._meta[OFFICIAL_REGISTRY_KEY];
+  return {
+    ...server,
+    registryId: meta.serverId,
+    packages: server.packages || [],
+    lastUpdated: meta.updatedAt,
+    repository: server.repository,
+  };
+}
+
+/**
  * Handle search_mcp_servers tool calls
  */
 export async function handleSearchMCPServers(
@@ -67,8 +81,11 @@ export async function handleSearchMCPServers(
     // Apply pagination
     const results = filteredServers.slice(offset, offset + limit);
 
-    logger.debug(`Found ${results.length} servers matching search criteria`);
-    return results;
+    // Transform results for search response
+    const transformedResults = results.map(transformServerForSearch);
+
+    logger.debug(`Found ${transformedResults.length} servers matching search criteria`);
+    return transformedResults;
   }, 'Failed to search MCP servers');
 
   return await handler();
