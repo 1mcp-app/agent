@@ -1,16 +1,17 @@
-import type { Arguments } from 'yargs';
+import type { Arguments, Argv } from 'yargs';
 import { handleSearchMCPServers, cleanupSearchHandler } from '../../core/tools/handlers/searchHandler.js';
 import { SearchMCPServersArgs } from '../../utils/mcpToolSchemas.js';
-import {
-  OFFICIAL_REGISTRY_KEY,
-  RegistryOptions,
-  RegistryServer,
-  ServerPackage,
-  Transport,
-} from '../../core/registry/types.js';
+import { OFFICIAL_REGISTRY_KEY, RegistryOptions, RegistryServer } from '../../core/registry/types.js';
 import logger from '../../logger/logger.js';
 import { GlobalOptions } from '../../globalOptions.js';
 import chalk from 'chalk';
+import {
+  formatDate,
+  formatStatus,
+  formatRegistryTypesPlain,
+  formatTransportTypesPlain,
+  truncateString,
+} from '../../utils/formatters/commonFormatters.js';
 
 export interface SearchCommandArgs extends Arguments, GlobalOptions {
   query?: string;
@@ -28,6 +29,95 @@ export interface SearchCommandArgs extends Arguments, GlobalOptions {
   'cache-cleanup-interval'?: number;
   proxy?: string;
   'proxy-auth'?: string;
+}
+
+/**
+ * Build search command with options
+ */
+export function buildSearchCommand(searchYargs: Argv): Argv {
+  return searchYargs
+    .positional('query', {
+      describe: 'Search query to match against server names and descriptions',
+      type: 'string',
+    })
+    .options({
+      status: {
+        describe: 'Filter by server status',
+        type: 'string' as const,
+        choices: ['active', 'archived', 'deprecated', 'all'] as const,
+        default: 'active' as const,
+      },
+      type: {
+        describe: 'Filter by package registry type',
+        type: 'string' as const,
+        choices: ['npm', 'pypi', 'docker'] as const,
+      },
+      transport: {
+        describe: 'Filter by transport method',
+        type: 'string' as const,
+        choices: ['stdio', 'sse', 'webhook'] as const,
+      },
+      limit: {
+        describe: 'Maximum number of results to return',
+        type: 'number' as const,
+        default: 20,
+      },
+      offset: {
+        describe: 'Number of results to skip for pagination',
+        type: 'number' as const,
+        default: 0,
+      },
+      format: {
+        describe: 'Output format for search results',
+        type: 'string' as const,
+        choices: ['table', 'list', 'json'] as const,
+        default: 'table' as const,
+      },
+      // Registry options
+      url: {
+        describe: 'MCP registry base URL (env: ONE_MCP_REGISTRY_URL)',
+        type: 'string' as const,
+        default: undefined,
+      },
+      timeout: {
+        describe: 'Registry request timeout in milliseconds (env: ONE_MCP_REGISTRY_TIMEOUT)',
+        type: 'number' as const,
+        default: undefined,
+      },
+      'cache-ttl': {
+        describe: 'Registry cache TTL in seconds (env: ONE_MCP_REGISTRY_CACHE_TTL)',
+        type: 'number' as const,
+        default: undefined,
+      },
+      'cache-max-size': {
+        describe: 'Registry cache maximum size (env: ONE_MCP_REGISTRY_CACHE_MAX_SIZE)',
+        type: 'number' as const,
+        default: undefined,
+      },
+      'cache-cleanup-interval': {
+        describe: 'Registry cache cleanup interval in milliseconds (env: ONE_MCP_REGISTRY_CACHE_CLEANUP_INTERVAL)',
+        type: 'number' as const,
+        default: undefined,
+      },
+      proxy: {
+        describe: 'Registry HTTP proxy URL (env: ONE_MCP_REGISTRY_PROXY)',
+        type: 'string' as const,
+        default: undefined,
+      },
+      'proxy-auth': {
+        describe: 'Registry proxy authentication (username:password) (env: ONE_MCP_REGISTRY_PROXY_AUTH)',
+        type: 'string' as const,
+        default: undefined,
+      },
+    })
+    .example('$0 registry search', 'List all active MCP servers (table format)')
+    .example('$0 registry search "file system"', 'Search for file system related servers')
+    .example('$0 registry search --format=list', 'Display results in list format with colors')
+    .example('$0 registry search --type=npm --transport=stdio', 'Find npm packages with stdio transport')
+    .example(
+      '$0 registry search database --limit=5 --format=json',
+      'Search for database servers, limit to 5, output JSON',
+    );
 }
 
 /**
@@ -174,89 +264,5 @@ function displayFooter(results: any[], searchArgs: any): void {
   // Show pagination info if applicable
   if (searchArgs.limit && results.length === searchArgs.limit) {
     console.log(`Showing first ${searchArgs.limit} results. Use --offset and --limit for pagination.`);
-  }
-}
-
-/**
- * Truncate string to specified length with ellipsis
- */
-function truncateString(str: string, maxLength: number): string {
-  if (str.length <= maxLength) return str;
-  return str.substring(0, maxLength - 3) + '...';
-}
-
-/**
- * Format transport value to handle objects and undefined values
- */
-function formatTransport(transport?: Transport): string {
-  if (!transport) return '';
-  if (typeof transport === 'string') return transport;
-  if (typeof transport === 'object') {
-    // Handle case where transport is an object
-    return transport.type || String(transport);
-  }
-  return String(transport);
-}
-
-/**
- * Format status with colors
- */
-function formatStatus(status: string): string {
-  switch (status) {
-    case 'active':
-      return chalk.green('● ACTIVE');
-    case 'deprecated':
-      return chalk.yellow('● DEPRECATED');
-    case 'archived':
-      return chalk.red('● ARCHIVED');
-    default:
-      return chalk.gray(`● ${status.toUpperCase()}`);
-  }
-}
-
-/**
- * Format registry types without colors (for table display)
- */
-function formatRegistryTypesPlain(packages: ServerPackage[] = []): string {
-  const types = packages.map((p) => p.registryType || 'unknown').filter(Boolean);
-  const uniqueTypes = [...new Set(types)];
-
-  if (uniqueTypes.length === 0) return 'unknown';
-
-  return uniqueTypes.join(', ');
-}
-
-/**
- * Format transport types without colors (for table display)
- */
-function formatTransportTypesPlain(packages: ServerPackage[] = []): string {
-  const transports = packages.map((p) => formatTransport(p.transport)).filter(Boolean);
-  const uniqueTransports = [...new Set(transports)];
-
-  if (uniqueTransports.length === 0) return 'stdio';
-
-  return uniqueTransports.join(', ');
-}
-
-/**
- * Format ISO date string to readable format
- */
-function formatDate(isoString: string): string {
-  if (!isoString || typeof isoString !== 'string') {
-    return 'Unknown';
-  }
-  try {
-    const date = new Date(isoString);
-    // Check if date is valid
-    if (isNaN(date.getTime())) {
-      return 'Invalid Date';
-    }
-    return date.toLocaleDateString('en-US', {
-      year: 'numeric',
-      month: 'short',
-      day: 'numeric',
-    });
-  } catch {
-    return 'Invalid Date';
   }
 }
