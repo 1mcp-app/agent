@@ -123,9 +123,9 @@ export function setupMcpCommands(yargs: Argv): Argv {
         })
         .demandCommand(1, 'You must specify a subcommand')
         .help().epilogue(`
-MCP Command Group - MCP Server Configuration Management
+MCP Command Group - Local MCP Server Configuration Management
 
-The mcp command group helps you manage MCP server configurations in your 1mcp instance.
+The mcp command group helps you manage local MCP server configurations in your 1mcp instance.
 
 This allows you to:
 • Add new MCP servers with various transport types (stdio, HTTP, SSE)
@@ -136,6 +136,7 @@ This allows you to:
 • Check the status and details of configured servers
 • Estimate token usage for server capabilities and tools
 
+For registry operations (search, discovery), use the 'registry' command group.
 For more information about each command, use: $0 mcp <command> --help
         `);
     },
