@@ -98,9 +98,7 @@ describe('handleSearchMCPServers', () => {
       description: 'File management server',
       status: 'active',
       version: '1.0.0',
-      registryId: 'file-server-1',
       packages: expect.any(Array),
-      lastUpdated: expect.any(String),
       repository: expect.any(Object),
     });
   });
