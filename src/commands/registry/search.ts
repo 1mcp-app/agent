@@ -12,8 +12,9 @@ import {
   formatTransportTypesPlain,
   truncateString,
 } from '../../utils/formatters/commonFormatters.js';
+import { RegistryYargsOptions } from './options.js';
 
-export interface SearchCommandArgs extends Arguments, GlobalOptions {
+export interface SearchCommandArgs extends Arguments, GlobalOptions, RegistryYargsOptions {
   query?: string;
   status?: 'active' | 'archived' | 'deprecated' | 'all';
   type?: 'npm' | 'pypi' | 'docker';
@@ -21,14 +22,6 @@ export interface SearchCommandArgs extends Arguments, GlobalOptions {
   limit?: number;
   offset?: number;
   format?: 'table' | 'list' | 'json';
-  // Registry options
-  url?: string;
-  timeout?: number;
-  'cache-ttl'?: number;
-  'cache-max-size'?: number;
-  'cache-cleanup-interval'?: number;
-  proxy?: string;
-  'proxy-auth'?: string;
 }
 
 /**
@@ -72,42 +65,6 @@ export function buildSearchCommand(searchYargs: Argv): Argv {
         type: 'string' as const,
         choices: ['table', 'list', 'json'] as const,
         default: 'table' as const,
-      },
-      // Registry options
-      url: {
-        describe: 'MCP registry base URL (env: ONE_MCP_REGISTRY_URL)',
-        type: 'string' as const,
-        default: undefined,
-      },
-      timeout: {
-        describe: 'Registry request timeout in milliseconds (env: ONE_MCP_REGISTRY_TIMEOUT)',
-        type: 'number' as const,
-        default: undefined,
-      },
-      'cache-ttl': {
-        describe: 'Registry cache TTL in seconds (env: ONE_MCP_REGISTRY_CACHE_TTL)',
-        type: 'number' as const,
-        default: undefined,
-      },
-      'cache-max-size': {
-        describe: 'Registry cache maximum size (env: ONE_MCP_REGISTRY_CACHE_MAX_SIZE)',
-        type: 'number' as const,
-        default: undefined,
-      },
-      'cache-cleanup-interval': {
-        describe: 'Registry cache cleanup interval in milliseconds (env: ONE_MCP_REGISTRY_CACHE_CLEANUP_INTERVAL)',
-        type: 'number' as const,
-        default: undefined,
-      },
-      proxy: {
-        describe: 'Registry HTTP proxy URL (env: ONE_MCP_REGISTRY_PROXY)',
-        type: 'string' as const,
-        default: undefined,
-      },
-      'proxy-auth': {
-        describe: 'Registry proxy authentication (username:password) (env: ONE_MCP_REGISTRY_PROXY_AUTH)',
-        type: 'string' as const,
-        default: undefined,
       },
     })
     .example('$0 registry search', 'List all active MCP servers (table format)')

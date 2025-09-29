@@ -4,20 +4,13 @@ import { ShowCommandArgs, RegistryOptions, OutputFormat } from '../../core/regis
 import { formatServerDetails } from '../../utils/formatters/serverDetailFormatter.js';
 import logger from '../../logger/logger.js';
 import { GlobalOptions } from '../../globalOptions.js';
+import { RegistryYargsOptions } from './options.js';
 
-export interface ShowCommandCliArgs extends Arguments, GlobalOptions {
+export interface ShowCommandCliArgs extends Arguments, GlobalOptions, RegistryYargsOptions {
   serverId: string;
   ver?: string;
   v?: string; // alias
   format?: OutputFormat;
-  // Registry options
-  url?: string;
-  timeout?: number;
-  'cache-ttl'?: number;
-  'cache-max-size'?: number;
-  'cache-cleanup-interval'?: number;
-  proxy?: string;
-  'proxy-auth'?: string;
 }
 
 /**
@@ -40,34 +33,6 @@ export function buildShowCommand(yargs: Argv) {
       type: 'string',
       choices: ['table', 'json', 'detailed'],
       default: 'detailed',
-    })
-    .option('url', {
-      describe: 'MCP registry base URL (env: ONE_MCP_REGISTRY_URL)',
-      type: 'string',
-    })
-    .option('timeout', {
-      describe: 'Registry request timeout in milliseconds (env: ONE_MCP_REGISTRY_TIMEOUT)',
-      type: 'number',
-    })
-    .option('cache-ttl', {
-      describe: 'Registry cache TTL in seconds (env: ONE_MCP_REGISTRY_CACHE_TTL)',
-      type: 'number',
-    })
-    .option('cache-max-size', {
-      describe: 'Registry cache maximum size (env: ONE_MCP_REGISTRY_CACHE_MAX_SIZE)',
-      type: 'number',
-    })
-    .option('cache-cleanup-interval', {
-      describe: 'Registry cache cleanup interval in milliseconds (env: ONE_MCP_REGISTRY_CACHE_CLEANUP_INTERVAL)',
-      type: 'number',
-    })
-    .option('proxy', {
-      describe: 'Registry HTTP proxy URL (env: ONE_MCP_REGISTRY_PROXY)',
-      type: 'string',
-    })
-    .option('proxy-auth', {
-      describe: 'Registry proxy authentication (username:password) (env: ONE_MCP_REGISTRY_PROXY_AUTH)',
-      type: 'string',
     })
     .example(
       '$0 registry show bcee55b5-2316-4f92-8b66-db907496714b',
