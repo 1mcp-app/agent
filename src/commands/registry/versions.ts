@@ -4,18 +4,11 @@ import { VersionsCommandArgs, RegistryOptions, OutputFormat } from '../../core/r
 import { formatServerVersions } from '../../utils/formatters/versionsFormatter.js';
 import logger from '../../logger/logger.js';
 import { GlobalOptions } from '../../globalOptions.js';
+import { RegistryYargsOptions } from './options.js';
 
-export interface VersionsCommandCliArgs extends Arguments, GlobalOptions {
+export interface VersionsCommandCliArgs extends Arguments, GlobalOptions, RegistryYargsOptions {
   serverId: string;
   format?: OutputFormat;
-  // Registry options
-  url?: string;
-  timeout?: number;
-  'cache-ttl'?: number;
-  'cache-max-size'?: number;
-  'cache-cleanup-interval'?: number;
-  proxy?: string;
-  'proxy-auth'?: string;
 }
 
 /**
@@ -33,34 +26,6 @@ export function buildVersionsCommand(yargs: Argv) {
       type: 'string',
       choices: ['table', 'json', 'detailed'],
       default: 'table',
-    })
-    .option('url', {
-      describe: 'MCP registry base URL (env: ONE_MCP_REGISTRY_URL)',
-      type: 'string',
-    })
-    .option('timeout', {
-      describe: 'Registry request timeout in milliseconds (env: ONE_MCP_REGISTRY_TIMEOUT)',
-      type: 'number',
-    })
-    .option('cache-ttl', {
-      describe: 'Registry cache TTL in seconds (env: ONE_MCP_REGISTRY_CACHE_TTL)',
-      type: 'number',
-    })
-    .option('cache-max-size', {
-      describe: 'Registry cache maximum size (env: ONE_MCP_REGISTRY_CACHE_MAX_SIZE)',
-      type: 'number',
-    })
-    .option('cache-cleanup-interval', {
-      describe: 'Registry cache cleanup interval in milliseconds (env: ONE_MCP_REGISTRY_CACHE_CLEANUP_INTERVAL)',
-      type: 'number',
-    })
-    .option('proxy', {
-      describe: 'Registry HTTP proxy URL (env: ONE_MCP_REGISTRY_PROXY)',
-      type: 'string',
-    })
-    .option('proxy-auth', {
-      describe: 'Registry proxy authentication (username:password) (env: ONE_MCP_REGISTRY_PROXY_AUTH)',
-      type: 'string',
     })
     .example('$0 registry versions io.github.containers/kubernetes-mcp-server', 'List all versions in table format')
     .example(
