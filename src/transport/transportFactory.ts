@@ -4,6 +4,7 @@ import {
   StreamableHTTPClientTransport,
   StreamableHTTPClientTransportOptions,
 } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
+import path from 'path';
 import { z, ZodError } from 'zod';
 import logger, { debugIf } from '../logger/logger.js';
 import { AuthProviderTransport, transportConfigSchema } from '../core/types/index.js';
@@ -57,8 +58,19 @@ function createOAuthProvider(
     ...validatedTransport.oauth,
   };
 
+  // Derive client session storage path from server session storage path
+  // This ensures config-dir isolation applies to client sessions as well
+  let clientSessionPath: string | undefined;
+  const serverSessionPath = configManager.getSessionStoragePath();
+  if (serverSessionPath) {
+    // If server uses custom session path, derive client path from the same parent
+    // e.g., if server uses '.tmp-test/sessions', client uses '.tmp-test/clientSessions'
+    const parentDir = path.dirname(serverSessionPath);
+    clientSessionPath = path.join(parentDir, 'clientSessions');
+  }
+
   logger.info(`Creating OAuth client provider for transport: ${name}`);
-  return new SDKOAuthClientProvider(name, oauthConfig);
+  return new SDKOAuthClientProvider(name, oauthConfig, clientSessionPath);
 }
 
 /**
