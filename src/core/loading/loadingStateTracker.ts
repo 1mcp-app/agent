@@ -60,13 +60,22 @@ export interface LoadingSummary {
 /**
  * Events emitted by LoadingStateTracker
  */
+export const enum LoadingStateEvent {
+  ServerStateChanged = 'server-state-changed',
+  LoadingProgress = 'loading-progress',
+  LoadingComplete = 'loading-complete',
+  ServerReady = 'server-ready',
+  ServerFailed = 'server-failed',
+  OAuthRequired = 'oauth-required',
+}
+
 export interface LoadingStateEvents {
-  'server-state-changed': (name: string, info: ServerLoadingInfo) => void;
-  'loading-progress': (summary: LoadingSummary) => void;
-  'loading-complete': (summary: LoadingSummary) => void;
-  'server-ready': (name: string, info: ServerLoadingInfo) => void;
-  'server-failed': (name: string, info: ServerLoadingInfo) => void;
-  'oauth-required': (name: string, info: ServerLoadingInfo) => void;
+  [LoadingStateEvent.ServerStateChanged]: (name: string, info: ServerLoadingInfo) => void;
+  [LoadingStateEvent.LoadingProgress]: (summary: LoadingSummary) => void;
+  [LoadingStateEvent.LoadingComplete]: (summary: LoadingSummary) => void;
+  [LoadingStateEvent.ServerReady]: (name: string, info: ServerLoadingInfo) => void;
+  [LoadingStateEvent.ServerFailed]: (name: string, info: ServerLoadingInfo) => void;
+  [LoadingStateEvent.OAuthRequired]: (name: string, info: ServerLoadingInfo) => void;
 }
 
 /**
@@ -78,8 +87,8 @@ export interface LoadingStateEvents {
  * @example
  * ```typescript
  * const tracker = new LoadingStateTracker();
- * tracker.on('server-ready', (name) => console.log(`${name} is ready`));
- * tracker.on('loading-complete', (summary) => console.log('All done!', summary));
+ * tracker.on(LoadingStateEvent.ServerReady, (name) => console.log(`${name} is ready`));
+ * tracker.on(LoadingStateEvent.LoadingComplete, (summary) => console.log('All done!', summary));
  *
  * tracker.startLoading(['server1', 'server2']);
  * tracker.updateServerState('server1', LoadingState.Loading, { phase: 'connecting' });
@@ -168,17 +177,17 @@ export class LoadingStateTracker extends EventEmitter {
     );
 
     // Emit specific events
-    this.emit('server-state-changed', name, info);
+    this.emit(LoadingStateEvent.ServerStateChanged, name, info);
 
     switch (state) {
       case LoadingState.Ready:
-        this.emit('server-ready', name, info);
+        this.emit(LoadingStateEvent.ServerReady, name, info);
         break;
       case LoadingState.Failed:
-        this.emit('server-failed', name, info);
+        this.emit(LoadingStateEvent.ServerFailed, name, info);
         break;
       case LoadingState.AwaitingOAuth:
-        this.emit('oauth-required', name, info);
+        this.emit(LoadingStateEvent.OAuthRequired, name, info);
         break;
     }
 
@@ -286,13 +295,13 @@ export class LoadingStateTracker extends EventEmitter {
     if (!this.loadingStarted) return;
 
     const summary = this.getSummary();
-    this.emit('loading-progress', summary);
+    this.emit(LoadingStateEvent.LoadingProgress, summary);
 
     if (summary.isComplete) {
       logger.info(
         `Loading complete: ${summary.ready}/${summary.totalServers} servers ready (${summary.successRate.toFixed(1)}% success rate)`,
       );
-      this.emit('loading-complete', summary);
+      this.emit(LoadingStateEvent.LoadingComplete, summary);
     }
   }
 }

@@ -46,6 +46,7 @@ vi.mock('../core/server/agentConfig.js', () => ({
         port: 3000,
       }),
       getUrl: vi.fn().mockReturnValue('http://localhost:3000'),
+      getSessionStoragePath: vi.fn().mockReturnValue(undefined),
     }),
   },
 }));
@@ -195,15 +196,23 @@ describe('TransportFactory', () => {
       const transports = createTransports(config);
 
       expect(SDKOAuthClientProvider).toHaveBeenCalledTimes(2);
-      expect(SDKOAuthClientProvider).toHaveBeenCalledWith('sse-server', {
-        autoRegister: true,
-        redirectUrl: 'http://localhost:3000/oauth/callback/sse-server',
-        clientId: 'test-client-id',
-      });
-      expect(SDKOAuthClientProvider).toHaveBeenCalledWith('http-server', {
-        autoRegister: true,
-        redirectUrl: 'http://localhost:3000/oauth/callback/http-server',
-      });
+      expect(SDKOAuthClientProvider).toHaveBeenCalledWith(
+        'sse-server',
+        {
+          autoRegister: true,
+          redirectUrl: 'http://localhost:3000/oauth/callback/sse-server',
+          clientId: 'test-client-id',
+        },
+        undefined,
+      );
+      expect(SDKOAuthClientProvider).toHaveBeenCalledWith(
+        'http-server',
+        {
+          autoRegister: true,
+          redirectUrl: 'http://localhost:3000/oauth/callback/http-server',
+        },
+        undefined,
+      );
 
       expect(transports['sse-server'].oauthProvider).toBeDefined();
       expect(transports['http-server'].oauthProvider).toBeDefined();
@@ -321,10 +330,14 @@ describe('TransportFactory', () => {
       const transports = createTransports(config);
 
       expect(Object.keys(transports)).toEqual(['streamable-http']);
-      expect(SDKOAuthClientProvider).toHaveBeenCalledWith('streamable-http', {
-        autoRegister: true,
-        redirectUrl: 'http://localhost:3000/oauth/callback/streamable-http',
-      });
+      expect(SDKOAuthClientProvider).toHaveBeenCalledWith(
+        'streamable-http',
+        {
+          autoRegister: true,
+          redirectUrl: 'http://localhost:3000/oauth/callback/streamable-http',
+        },
+        undefined,
+      );
     });
 
     it('should set custom headers for HTTP-based transports', () => {

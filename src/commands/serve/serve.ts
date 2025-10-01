@@ -230,6 +230,14 @@ export async function serveCommand(parsedArgv: ServeOptions): Promise<void> {
     const trustProxyValue = parsedArgv['trust-proxy'];
     const trustProxy = trustProxyValue === 'true' ? true : trustProxyValue === 'false' ? false : trustProxyValue;
 
+    // Derive session storage path: explicit option > config-dir/sessions > global default
+    let sessionStoragePath = parsedArgv['session-storage-path'];
+    if (!sessionStoragePath && parsedArgv['config-dir']) {
+      // When config-dir is specified but session-storage-path is not,
+      // store sessions within the config directory to maintain isolation
+      sessionStoragePath = path.join(parsedArgv['config-dir'], 'sessions');
+    }
+
     serverConfigManager.updateConfig({
       host: parsedArgv.host,
       port: parsedArgv.port,
@@ -238,7 +246,7 @@ export async function serveCommand(parsedArgv: ServeOptions): Promise<void> {
       auth: {
         enabled: authEnabled,
         sessionTtlMinutes: parsedArgv['session-ttl'],
-        sessionStoragePath: parsedArgv['session-storage-path'],
+        sessionStoragePath,
         oauthCodeTtlMs: 60 * 1000, // 1 minute
         oauthTokenTtlMs: parsedArgv['session-ttl'] * 60 * 1000, // Convert minutes to milliseconds
       },

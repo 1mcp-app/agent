@@ -1,7 +1,7 @@
 import { EventEmitter } from 'events';
 import { OutboundConnections, AuthProviderTransport } from '../types/index.js';
 import { ClientManager } from '../client/clientManager.js';
-import { LoadingStateTracker, LoadingState, LoadingSummary } from './loadingStateTracker.js';
+import { LoadingStateTracker, LoadingState, LoadingSummary, LoadingStateEvent } from './loadingStateTracker.js';
 import logger, { debugIf } from '../../logger/logger.js';
 
 /**
@@ -51,15 +51,26 @@ interface ServerLoadResult {
 /**
  * Events emitted by McpLoadingManager
  */
+export const enum McpLoadingEvent {
+  LoadingStarted = 'loading-started',
+  ServerLoading = 'server-loading',
+  ServerLoaded = 'server-loaded',
+  ServerFailed = 'server-failed',
+  OAuthRequired = 'oauth-required',
+  LoadingProgress = 'loading-progress',
+  LoadingComplete = 'loading-complete',
+  BackgroundRetry = 'background-retry',
+}
+
 export interface McpLoadingEvents {
-  'loading-started': (serverNames: string[]) => void;
-  'server-loading': (name: string) => void;
-  'server-loaded': (name: string, result: ServerLoadResult) => void;
-  'server-failed': (name: string, result: ServerLoadResult) => void;
-  'oauth-required': (name: string, authUrl?: string) => void;
-  'loading-progress': (summary: LoadingSummary) => void;
-  'loading-complete': (summary: LoadingSummary) => void;
-  'background-retry': (name: string, attempt: number) => void;
+  [McpLoadingEvent.LoadingStarted]: (serverNames: string[]) => void;
+  [McpLoadingEvent.ServerLoading]: (name: string) => void;
+  [McpLoadingEvent.ServerLoaded]: (name: string, result: ServerLoadResult) => void;
+  [McpLoadingEvent.ServerFailed]: (name: string, result: ServerLoadResult) => void;
+  [McpLoadingEvent.OAuthRequired]: (name: string, authUrl?: string) => void;
+  [McpLoadingEvent.LoadingProgress]: (summary: LoadingSummary) => void;
+  [McpLoadingEvent.LoadingComplete]: (summary: LoadingSummary) => void;
+  [McpLoadingEvent.BackgroundRetry]: (name: string, attempt: number) => void;
 }
 
 /**
@@ -72,7 +83,7 @@ export interface McpLoadingEvents {
  * @example
  * ```typescript
  * const manager = new McpLoadingManager(clientManager, config);
- * manager.on('loading-complete', (summary) => {
+ * manager.on(McpLoadingEvent.LoadingComplete, (summary) => {
  *   console.log(`${summary.ready}/${summary.totalServers} servers ready`);
  * });
  *
@@ -103,16 +114,16 @@ export class McpLoadingManager extends EventEmitter {
     this.stateTracker = new LoadingStateTracker();
 
     // Forward state tracker events
-    this.stateTracker.on('server-state-changed', (name, info) => {
+    this.stateTracker.on(LoadingStateEvent.ServerStateChanged, (name, info) => {
       if (info.state === LoadingState.Ready) {
-        this.emit('server-loaded', name, {
+        this.emit(McpLoadingEvent.ServerLoaded, name, {
           name,
           success: true,
           duration: info.duration || 0,
           retryCount: info.retryCount,
         });
       } else if (info.state === LoadingState.Failed) {
-        this.emit('server-failed', name, {
+        this.emit(McpLoadingEvent.ServerFailed, name, {
           name,
           success: false,
           error: info.error,
@@ -120,16 +131,16 @@ export class McpLoadingManager extends EventEmitter {
           retryCount: info.retryCount,
         });
       } else if (info.state === LoadingState.AwaitingOAuth) {
-        this.emit('oauth-required', name, info.authorizationUrl);
+        this.emit(McpLoadingEvent.OAuthRequired, name, info.authorizationUrl);
       }
     });
 
-    this.stateTracker.on('loading-progress', (summary) => {
-      this.emit('loading-progress', summary);
+    this.stateTracker.on(LoadingStateEvent.LoadingProgress, (summary) => {
+      this.emit(McpLoadingEvent.LoadingProgress, summary);
     });
 
-    this.stateTracker.on('loading-complete', (summary) => {
-      this.emit('loading-complete', summary);
+    this.stateTracker.on(LoadingStateEvent.LoadingComplete, (summary) => {
+      this.emit(McpLoadingEvent.LoadingComplete, summary);
       this.setupBackgroundRetry();
     });
 
@@ -150,7 +161,7 @@ export class McpLoadingManager extends EventEmitter {
 
     logger.info(`Starting async loading of ${serverNames.length} MCP servers`);
     this.stateTracker.startLoading(serverNames);
-    this.emit('loading-started', serverNames);
+    this.emit(McpLoadingEvent.LoadingStarted, serverNames);
 
     // Start loading servers with concurrency control
     this.loadServersWithConcurrency(transports);
@@ -200,7 +211,7 @@ export class McpLoadingManager extends EventEmitter {
   private async loadSingleServer(name: string, transport: AuthProviderTransport): Promise<void> {
     if (this.isShuttingDown) return;
 
-    this.emit('server-loading', name);
+    this.emit(McpLoadingEvent.ServerLoading, name);
     this.stateTracker.updateServerState(name, LoadingState.Loading, {
       progress: { phase: 'initializing', message: 'Starting server connection' },
     });
@@ -330,7 +341,7 @@ export class McpLoadingManager extends EventEmitter {
 
       const transport = this.clientManager.getTransport(serverInfo.name);
       if (transport) {
-        this.emit('background-retry', serverInfo.name, serverInfo.retryCount + 1);
+        this.emit(McpLoadingEvent.BackgroundRetry, serverInfo.name, serverInfo.retryCount + 1);
 
         // Don't wait for completion, let it run in background
         this.loadSingleServer(serverInfo.name, transport).catch((error) => {

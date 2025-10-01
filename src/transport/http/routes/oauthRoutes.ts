@@ -131,10 +131,6 @@ export function createOAuthRoutes(oauthProvider: SDKOAuthServerProvider, loading
 
   router.get('/authorize/:serverName', authorizeHandler);
 
-  function hasFinishAuth(transport: unknown): transport is { finishAuth: (code: string) => Promise<void> } {
-    return typeof transport === 'object' && transport !== null && typeof (transport as any).finishAuth === 'function';
-  }
-
   /**
    * Handle OAuth callback and trigger reconnection
    */
@@ -152,35 +148,18 @@ export function createOAuthRoutes(oauthProvider: SDKOAuthServerProvider, loading
         return res.redirect(`/oauth?error=missing_code`);
       }
 
-      const serverManager = ServerManager.current;
-
-      const clientInfo = serverManager.getClient(serverName);
-      if (!clientInfo) {
-        logger.error(`Client ${serverName} not found in OAuth callback`);
-        return res.redirect(`/oauth?error=client_not_found`);
-      }
-
-      // Use type guard for transport with finishAuth
-      if (!hasFinishAuth(clientInfo.transport)) {
-        logger.error(`Transport for ${serverName} does not support finishAuth`);
-        return res.redirect(`/oauth?error=invalid_oauth_transport`);
-      }
-
-      // Complete the OAuth flow with the authorization code
-      await clientInfo.transport.finishAuth(String(code));
-
-      clientInfo.status = ClientStatus.Connected;
-      clientInfo.lastConnected = new Date();
-      clientInfo.lastError = undefined;
+      // Complete OAuth and reconnect via ClientManager
+      const clientManager = ClientManager.getOrCreateInstance();
+      await clientManager.completeOAuthAndReconnect(serverName, String(code));
 
       // Notify the loading manager that the server is now ready
-      // This triggers the AsyncLoadingOrchestrator to send list_changed notifications
       if (loadingManager) {
         try {
           loadingManager.getStateTracker().updateServerState(serverName, LoadingState.Ready);
           logger.debug(`Updated LoadingStateTracker: ${serverName} is now Ready after OAuth completion`);
         } catch (stateError) {
-          logger.warn(`Failed to update LoadingStateTracker for ${serverName}: ${stateError}`);
+          // If server wasn't tracked, log it but don't fail - this can happen in some edge cases
+          logger.warn(`Could not update LoadingStateTracker for ${serverName}: ${stateError}`);
         }
       }
 
