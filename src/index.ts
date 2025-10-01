@@ -30,7 +30,19 @@ yargsInstance = yargsInstance
   .version(MCP_SERVER_VERSION)
   .env('ONE_MCP') // Enable environment variable parsing with ONE_MCP prefix
   .help()
-  .alias('help', 'h');
+  .alias('help', 'h')
+  .strict() // Enable strict mode to reject unknown commands
+  .fail((msg, err, yargs) => {
+    // Custom error handler for unknown commands
+    if (msg) {
+      console.error(`❌ Error: ${msg}\n`);
+    }
+    if (err) {
+      console.error(`❌ ${err.message}\n`);
+    }
+    yargs.showHelp();
+    process.exit(1);
+  });
 
 // Register command groups with global options
 yargsInstance = setupAppCommands(yargsInstance);

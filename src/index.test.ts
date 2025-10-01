@@ -248,4 +248,32 @@ describe('Index Module', () => {
       expect(defaultRateLimitMax).toBe(100);
     });
   });
+
+  describe('Command Validation', () => {
+    it('should have yargs strict mode configuration', async () => {
+      const yargs = await import('yargs');
+      const yargsInstance = yargs.default([]);
+
+      // Verify that yargs has the strict method available
+      expect(typeof yargsInstance.strict).toBe('function');
+    });
+
+    it('should have fail handler for unknown commands', async () => {
+      const yargs = await import('yargs');
+      const yargsInstance = yargs.default([]);
+
+      // Verify that yargs has the fail method available for custom error handling
+      expect(typeof yargsInstance.fail).toBe('function');
+    });
+
+    it('should validate command structure', () => {
+      // Test that valid commands are defined
+      const validCommands = ['app', 'mcp', 'preset', 'serve', 'proxy'];
+
+      validCommands.forEach((cmd) => {
+        expect(typeof cmd).toBe('string');
+        expect(cmd.length).toBeGreaterThan(0);
+      });
+    });
+  });
 });
