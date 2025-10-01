@@ -346,6 +346,12 @@ describe('OAuth Routes', () => {
       mockRequest.params = { serverName: 'test-server' };
       mockRequest.query = { code: 'auth-code-123' };
 
+      const mockClient = {
+        connect: vi.fn().mockResolvedValue(undefined),
+        getServerCapabilities: vi.fn().mockReturnValue({ tools: {} }),
+        getInstructions: vi.fn().mockReturnValue(''),
+      };
+
       const mockTransport = {
         name: 'test-transport',
         start: vi.fn().mockResolvedValue(undefined),
@@ -357,9 +363,9 @@ describe('OAuth Routes', () => {
       const clientInfo = {
         name: 'test-server',
         transport: mockTransport,
-        client: {} as any,
+        client: mockClient,
         status: ClientStatus.AwaitingOAuth,
-      };
+      } as any;
 
       vi.mocked(ServerManager.current.getClient).mockReturnValue(clientInfo);
 
@@ -371,12 +377,26 @@ describe('OAuth Routes', () => {
       await callbackRoute?.route?.stack[0].handle(mockRequest, mockResponse);
 
       expect(mockTransport.finishAuth).toHaveBeenCalledWith('auth-code-123');
+      expect(mockClient.connect).toHaveBeenCalledWith(mockTransport);
       expect(mockResponse.redirect).toHaveBeenCalledWith('/oauth?success=1');
     });
 
-    it('should update LoadingStateTracker when loading manager is provided', async () => {
+    it('should reconnect and discover capabilities after OAuth completion', async () => {
       mockRequest.params = { serverName: 'test-server' };
       mockRequest.query = { code: 'auth-code-123' };
+
+      const mockCapabilities = {
+        tools: { call: true },
+        resources: { read: true },
+      };
+
+      const mockInstructions = 'Test server instructions';
+
+      const mockClient = {
+        connect: vi.fn().mockResolvedValue(undefined),
+        getServerCapabilities: vi.fn().mockReturnValue(mockCapabilities),
+        getInstructions: vi.fn().mockReturnValue(mockInstructions),
+      };
 
       const mockTransport = {
         start: vi.fn().mockResolvedValue(undefined),
@@ -388,12 +408,13 @@ describe('OAuth Routes', () => {
       const clientInfo = {
         name: 'test-server',
         transport: mockTransport,
-        client: {} as any,
+        client: mockClient,
         status: ClientStatus.AwaitingOAuth,
-      };
+      } as any;
 
       // Mock loading manager with state tracker
       const mockStateTracker = {
+        getServerState: vi.fn().mockReturnValue({ name: 'test-server', state: LoadingState.Loading }),
         updateServerState: vi.fn(),
       };
       const mockLoadingManager = {
@@ -410,8 +431,23 @@ describe('OAuth Routes', () => {
 
       await callbackRoute?.route?.stack[0].handle(mockRequest, mockResponse);
 
+      // Verify OAuth flow completion
       expect(mockTransport.finishAuth).toHaveBeenCalledWith('auth-code-123');
+
+      // CRITICAL: Verify reconnection happens
+      expect(mockClient.connect).toHaveBeenCalledWith(mockTransport);
+
+      // Verify capabilities are discovered
+      expect(mockClient.getServerCapabilities).toHaveBeenCalled();
+      expect(clientInfo.capabilities).toEqual(mockCapabilities);
+
+      // Verify instructions are cached
+      expect(mockClient.getInstructions).toHaveBeenCalled();
+      expect(clientInfo.instructions).toEqual(mockInstructions);
+
+      // Verify state tracker is updated
       expect(mockStateTracker.updateServerState).toHaveBeenCalledWith('test-server', LoadingState.Ready);
+
       expect(mockResponse.redirect).toHaveBeenCalledWith('/oauth?success=1');
     });
 
