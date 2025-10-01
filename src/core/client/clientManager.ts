@@ -1,6 +1,8 @@
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
 import { UnauthorizedError } from '@modelcontextprotocol/sdk/client/auth.js';
+import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
+import { SSEClientTransport } from '@modelcontextprotocol/sdk/client/sse.js';
 import logger, { debugIf } from '../../logger/logger.js';
 import { CONNECTION_RETRY, MCP_SERVER_NAME, MCP_SERVER_VERSION, MCP_CLIENT_CAPABILITIES } from '../../constants.js';
 import { ClientConnectionError, ClientNotFoundError, CapabilityError } from '../../utils/errorTypes.js';
@@ -454,6 +456,90 @@ export class ClientManager {
    */
   public getTransportNames(): string[] {
     return Object.keys(this.transports);
+  }
+
+  /**
+   * Complete OAuth flow and reconnect client with fresh transport
+   * This recreates both transport and client since HTTP transports cannot be restarted
+   * @param serverName The name of the server to reconnect
+   * @param authorizationCode The OAuth authorization code from the callback
+   * @throws ClientNotFoundError if the client is not found
+   * @throws Error if transport does not support OAuth or reconnection fails
+   */
+  public async completeOAuthAndReconnect(serverName: string, authorizationCode: string): Promise<void> {
+    const clientInfo = this.outboundConns.get(serverName);
+    if (!clientInfo) {
+      throw new ClientNotFoundError(serverName);
+    }
+
+    // Type guard for OAuth-capable transports
+    const transport = clientInfo.transport;
+    if (!(transport instanceof StreamableHTTPClientTransport) && !(transport instanceof SSEClientTransport)) {
+      throw new Error(`Transport for ${serverName} does not support OAuth (requires HTTP or SSE transport)`);
+    }
+
+    logger.info(`Completing OAuth and reconnecting ${serverName}...`);
+
+    try {
+      // 1. Complete OAuth flow
+      await transport.finishAuth(authorizationCode);
+
+      // 2. Close old transport
+      await transport.close();
+
+      // 3. Extract URL with proper typing
+      type TransportWithUrl = { _url: URL };
+      const transportUrl = (transport as unknown as TransportWithUrl)._url;
+
+      // 4. Get OAuth provider
+      const oauthProvider = (transport as AuthProviderTransport).oauthProvider;
+
+      // 5. Create new transport based on original type
+      let newTransport: AuthProviderTransport;
+      if (transport instanceof StreamableHTTPClientTransport) {
+        const httpTransport = new StreamableHTTPClientTransport(transportUrl, {
+          authProvider: oauthProvider,
+        });
+        newTransport = httpTransport as AuthProviderTransport;
+      } else {
+        const sseTransport = new SSEClientTransport(transportUrl, {
+          authProvider: oauthProvider,
+        });
+        newTransport = sseTransport as AuthProviderTransport;
+      }
+      newTransport.oauthProvider = oauthProvider;
+
+      // 6. Create and connect new client
+      const newClient = this.createClient();
+      await newClient.connect(newTransport);
+
+      // 7. Discover capabilities
+      const capabilities = newClient.getServerCapabilities();
+
+      // 8. Cache instructions
+      this.extractAndCacheInstructions(serverName, newClient);
+
+      // 9. Update connection info (create new object to handle readonly properties)
+      const updatedInfo: OutboundConnection = {
+        name: serverName,
+        transport: newTransport,
+        client: newClient,
+        status: ClientStatus.Connected,
+        lastConnected: new Date(),
+        capabilities,
+        instructions: clientInfo.instructions, // Preserve existing instructions if any
+        lastError: undefined,
+      };
+      this.outboundConns.set(serverName, updatedInfo);
+
+      // 10. Update transports map
+      this.transports[serverName] = newTransport;
+
+      logger.info(`OAuth reconnection completed successfully for ${serverName}`);
+    } catch (error) {
+      logger.error(`OAuth reconnection failed for ${serverName}:`, error);
+      throw error;
+    }
   }
 
   /**

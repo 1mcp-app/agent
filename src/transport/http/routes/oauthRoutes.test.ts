@@ -1,7 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { ClientStatus } from '../../../core/types/index.js';
 import { LoadingState } from '../../../core/loading/loadingStateTracker.js';
-import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 
 // Mock all dependencies
 vi.mock('../../../logger/logger.js', () => ({
@@ -343,34 +342,16 @@ describe('OAuth Routes', () => {
 
   describe('Callback Handling', () => {
     it('should handle successful OAuth callback', async () => {
-      const { ServerManager } = await import('../../../core/server/serverManager.js');
       mockRequest.params = { serverName: 'test-server' };
       mockRequest.query = { code: 'auth-code-123' };
 
-      const mockClient = {
-        connect: vi.fn().mockResolvedValue(undefined),
-        getServerCapabilities: vi.fn().mockReturnValue({ tools: {} }),
-        getInstructions: vi.fn().mockReturnValue(''),
+      // Mock ClientManager to handle OAuth reconnection
+      const { ClientManager } = await import('../../../core/client/clientManager.js');
+      const mockCompleteOAuth = vi.fn().mockResolvedValue(undefined);
+      const mockClientManager = {
+        completeOAuthAndReconnect: mockCompleteOAuth,
       };
-
-      // Create mock transport that passes instanceof check
-      const mockTransport = {
-        start: vi.fn().mockResolvedValue(undefined),
-        send: vi.fn().mockResolvedValue(undefined),
-        close: vi.fn().mockResolvedValue(undefined),
-        finishAuth: vi.fn().mockResolvedValue(undefined),
-      };
-      // Make it pass instanceof StreamableHTTPClientTransport check
-      Object.setPrototypeOf(mockTransport, StreamableHTTPClientTransport.prototype);
-
-      const clientInfo = {
-        name: 'test-server',
-        transport: mockTransport,
-        client: mockClient,
-        status: ClientStatus.AwaitingOAuth,
-      } as any;
-
-      vi.mocked(ServerManager.current.getClient).mockReturnValue(clientInfo);
+      ClientManager.getOrCreateInstance = vi.fn().mockReturnValue(mockClientManager as any);
 
       const router = createOAuthRoutes(mockOAuthProvider);
       const callbackRoute = router.stack.find(
@@ -379,44 +360,14 @@ describe('OAuth Routes', () => {
 
       await callbackRoute?.route?.stack[0].handle(mockRequest, mockResponse);
 
-      expect(mockTransport.finishAuth).toHaveBeenCalledWith('auth-code-123');
-      expect(mockClient.connect).toHaveBeenCalledWith(mockTransport);
+      // Verify ClientManager method was called with correct parameters
+      expect(mockCompleteOAuth).toHaveBeenCalledWith('test-server', 'auth-code-123');
       expect(mockResponse.redirect).toHaveBeenCalledWith('/oauth?success=1');
     });
 
-    it('should reconnect and discover capabilities after OAuth completion', async () => {
+    it('should update loading state tracker after OAuth completion', async () => {
       mockRequest.params = { serverName: 'test-server' };
       mockRequest.query = { code: 'auth-code-123' };
-
-      const mockCapabilities = {
-        tools: { call: true },
-        resources: { read: true },
-      };
-
-      const mockInstructions = 'Test server instructions';
-
-      const mockClient = {
-        connect: vi.fn().mockResolvedValue(undefined),
-        getServerCapabilities: vi.fn().mockReturnValue(mockCapabilities),
-        getInstructions: vi.fn().mockReturnValue(mockInstructions),
-      };
-
-      // Create mock transport that passes instanceof check
-      const mockTransport = {
-        start: vi.fn().mockResolvedValue(undefined),
-        send: vi.fn().mockResolvedValue(undefined),
-        close: vi.fn().mockResolvedValue(undefined),
-        finishAuth: vi.fn().mockResolvedValue(undefined),
-      };
-      // Make it pass instanceof StreamableHTTPClientTransport check
-      Object.setPrototypeOf(mockTransport, StreamableHTTPClientTransport.prototype);
-
-      const clientInfo = {
-        name: 'test-server',
-        transport: mockTransport,
-        client: mockClient,
-        status: ClientStatus.AwaitingOAuth,
-      } as any;
 
       // Mock loading manager with state tracker
       const mockStateTracker = {
@@ -427,8 +378,13 @@ describe('OAuth Routes', () => {
         getStateTracker: vi.fn().mockReturnValue(mockStateTracker),
       } as any;
 
-      const { ServerManager } = await import('../../../core/server/serverManager.js');
-      vi.mocked(ServerManager.current.getClient).mockReturnValue(clientInfo);
+      // Mock ClientManager to handle OAuth reconnection
+      const { ClientManager } = await import('../../../core/client/clientManager.js');
+      const mockCompleteOAuth = vi.fn().mockResolvedValue(undefined);
+      const mockClientManager = {
+        completeOAuthAndReconnect: mockCompleteOAuth,
+      };
+      ClientManager.getOrCreateInstance = vi.fn().mockReturnValue(mockClientManager as any);
 
       const router = createOAuthRoutes(mockOAuthProvider, mockLoadingManager);
       const callbackRoute = router.stack.find(
@@ -437,19 +393,8 @@ describe('OAuth Routes', () => {
 
       await callbackRoute?.route?.stack[0].handle(mockRequest, mockResponse);
 
-      // Verify OAuth flow completion
-      expect(mockTransport.finishAuth).toHaveBeenCalledWith('auth-code-123');
-
-      // CRITICAL: Verify reconnection happens
-      expect(mockClient.connect).toHaveBeenCalledWith(mockTransport);
-
-      // Verify capabilities are discovered
-      expect(mockClient.getServerCapabilities).toHaveBeenCalled();
-      expect(clientInfo.capabilities).toEqual(mockCapabilities);
-
-      // Verify instructions are cached
-      expect(mockClient.getInstructions).toHaveBeenCalled();
-      expect(clientInfo.instructions).toEqual(mockInstructions);
+      // Verify ClientManager method was called
+      expect(mockCompleteOAuth).toHaveBeenCalledWith('test-server', 'auth-code-123');
 
       // Verify state tracker is updated
       expect(mockStateTracker.updateServerState).toHaveBeenCalledWith('test-server', LoadingState.Ready);

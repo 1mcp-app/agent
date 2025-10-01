@@ -17,8 +17,6 @@ import { SDKOAuthServerProvider } from '../../../auth/sdkOAuthServerProvider.js'
 import { sensitiveOperationLimiter } from '../middlewares/securityMiddleware.js';
 import { McpLoadingManager } from '../../../core/loading/mcpLoadingManager.js';
 import { LoadingState } from '../../../core/loading/loadingStateTracker.js';
-import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
-import { SSEClientTransport } from '@modelcontextprotocol/sdk/client/sse.js';
 
 /**
  * Creates OAuth routes with the provided OAuth provider
@@ -150,49 +148,9 @@ export function createOAuthRoutes(oauthProvider: SDKOAuthServerProvider, loading
         return res.redirect(`/oauth?error=missing_code`);
       }
 
-      const serverManager = ServerManager.current;
-
-      const clientInfo = serverManager.getClient(serverName);
-      if (!clientInfo) {
-        logger.error(`Client ${serverName} not found in OAuth callback`);
-        return res.redirect(`/oauth?error=client_not_found`);
-      }
-
-      // Check if transport supports OAuth (HTTP or SSE, not STDIO)
-      if (
-        !(clientInfo.transport instanceof StreamableHTTPClientTransport) &&
-        !(clientInfo.transport instanceof SSEClientTransport)
-      ) {
-        logger.error(`Transport for ${serverName} does not support OAuth (requires HTTP or SSE transport, got STDIO)`);
-        return res.redirect(`/oauth?error=invalid_oauth_transport`);
-      }
-
-      // Complete the OAuth flow with the authorization code
-      await clientInfo.transport.finishAuth(String(code));
-
-      // CRITICAL: Reconnect to establish actual connection with authenticated transport
-      // This is required by the MCP SDK - finishAuth only stores the token, we must reconnect
-      logger.debug(`Reconnecting ${serverName} after OAuth completion...`);
-      await clientInfo.client.connect(clientInfo.transport);
-
-      // Discover and cache server capabilities
-      const capabilities = clientInfo.client.getServerCapabilities();
-      if (capabilities) {
-        clientInfo.capabilities = capabilities;
-        logger.debug(`Discovered capabilities for ${serverName}: ${JSON.stringify(Object.keys(capabilities))}`);
-      }
-
-      // Extract and cache instructions if available
-      const instructions = clientInfo.client.getInstructions();
-      if (instructions?.trim()) {
-        clientInfo.instructions = instructions;
-        logger.debug(`Cached instructions for ${serverName}: ${instructions.length} characters`);
-      }
-
-      // Update status - now we're truly connected
-      clientInfo.status = ClientStatus.Connected;
-      clientInfo.lastConnected = new Date();
-      clientInfo.lastError = undefined;
+      // Complete OAuth and reconnect via ClientManager
+      const clientManager = ClientManager.getOrCreateInstance();
+      await clientManager.completeOAuthAndReconnect(serverName, String(code));
 
       // Notify the loading manager that the server is now ready
       if (loadingManager) {

@@ -1,9 +1,11 @@
 import { vi, describe, it, expect, beforeEach, MockInstance, afterEach } from 'vitest';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
+import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
+import { SSEClientTransport } from '@modelcontextprotocol/sdk/client/sse.js';
 import { ClientManager } from './clientManager.js';
 import logger from '../../logger/logger.js';
-import { ClientStatus } from '../types/index.js';
+import { ClientStatus, AuthProviderTransport } from '../types/index.js';
 import { ClientConnectionError, ClientNotFoundError } from '../../utils/errorTypes.js';
 import { MCP_SERVER_NAME, CONNECTION_RETRY } from '../../constants.js';
 
@@ -207,6 +209,178 @@ describe('ClientManager', () => {
 
       await expect(clientManager.executeClientOperation('non-existent', operation)).rejects.toThrow(
         ClientNotFoundError,
+      );
+    });
+  });
+
+  describe('completeOAuthAndReconnect', () => {
+    it('should throw ClientNotFoundError if server not found', async () => {
+      await expect(clientManager.completeOAuthAndReconnect('non-existent', 'auth-code')).rejects.toThrow(
+        ClientNotFoundError,
+      );
+    });
+
+    it('should throw error if transport does not support OAuth', async () => {
+      // Create a STDIO transport that doesn't support OAuth
+      const stdioTransport = {
+        name: 'stdio',
+        start: vi.fn(),
+        send: vi.fn(),
+        close: vi.fn(),
+      } as Transport;
+
+      const mockClient = {
+        connect: vi.fn(),
+      } as unknown as Client;
+
+      // Manually add client with STDIO transport
+      const clients = clientManager.getClients();
+      clients.set('stdio-server', {
+        name: 'stdio-server',
+        transport: stdioTransport as AuthProviderTransport,
+        client: mockClient,
+        status: ClientStatus.AwaitingOAuth,
+      });
+
+      await expect(clientManager.completeOAuthAndReconnect('stdio-server', 'auth-code')).rejects.toThrow(
+        'does not support OAuth',
+      );
+    });
+
+    it('should complete OAuth and reconnect with StreamableHTTPClientTransport', async () => {
+      // Create mock HTTP transport
+      const mockHttpTransport = {
+        _url: new URL('https://example.com/mcp'),
+        oauthProvider: { token: 'test-token' },
+        finishAuth: vi.fn().mockResolvedValue(undefined),
+        close: vi.fn().mockResolvedValue(undefined),
+      };
+      Object.setPrototypeOf(mockHttpTransport, StreamableHTTPClientTransport.prototype);
+
+      const mockOldClient = {
+        getInstructions: vi.fn().mockReturnValue(''),
+      } as unknown as Client;
+
+      const mockNewClient = {
+        connect: vi.fn().mockResolvedValue(undefined),
+        getServerCapabilities: vi.fn().mockReturnValue({ tools: {} }),
+        getInstructions: vi.fn().mockReturnValue('test instructions'),
+      };
+
+      // Mock Client constructor to return new client
+      (Client as unknown as MockInstance).mockImplementation(() => mockNewClient);
+
+      // Manually add client with HTTP transport
+      const clients = clientManager.getClients();
+      clients.set('http-server', {
+        name: 'http-server',
+        transport: mockHttpTransport as unknown as AuthProviderTransport,
+        client: mockOldClient,
+        status: ClientStatus.AwaitingOAuth,
+      });
+
+      await clientManager.completeOAuthAndReconnect('http-server', 'auth-code-123');
+
+      // Verify finishAuth was called
+      expect(mockHttpTransport.finishAuth).toHaveBeenCalledWith('auth-code-123');
+
+      // Verify old transport was closed
+      expect(mockHttpTransport.close).toHaveBeenCalled();
+
+      // Verify new client was connected
+      expect(mockNewClient.connect).toHaveBeenCalled();
+
+      // Verify capabilities were discovered
+      expect(mockNewClient.getServerCapabilities).toHaveBeenCalled();
+
+      // Verify client info was updated
+      const updatedClient = clients.get('http-server');
+      expect(updatedClient?.status).toBe(ClientStatus.Connected);
+      expect(updatedClient?.client).toBe(mockNewClient);
+      expect(updatedClient?.capabilities).toEqual({ tools: {} });
+    });
+
+    it('should complete OAuth and reconnect with SSEClientTransport', async () => {
+      // Create mock SSE transport
+      const mockSseTransport = {
+        _url: new URL('https://example.com/sse'),
+        oauthProvider: { token: 'test-token' },
+        finishAuth: vi.fn().mockResolvedValue(undefined),
+        close: vi.fn().mockResolvedValue(undefined),
+      };
+      Object.setPrototypeOf(mockSseTransport, SSEClientTransport.prototype);
+
+      const mockOldClient = {
+        getInstructions: vi.fn().mockReturnValue(''),
+      } as unknown as Client;
+
+      const mockNewClient = {
+        connect: vi.fn().mockResolvedValue(undefined),
+        getServerCapabilities: vi.fn().mockReturnValue({ resources: {} }),
+        getInstructions: vi.fn().mockReturnValue(''),
+      };
+
+      // Mock Client constructor to return new client
+      (Client as unknown as MockInstance).mockImplementation(() => mockNewClient);
+
+      // Manually add client with SSE transport
+      const clients = clientManager.getClients();
+      clients.set('sse-server', {
+        name: 'sse-server',
+        transport: mockSseTransport as unknown as AuthProviderTransport,
+        client: mockOldClient,
+        status: ClientStatus.AwaitingOAuth,
+      });
+
+      await clientManager.completeOAuthAndReconnect('sse-server', 'auth-code-456');
+
+      // Verify finishAuth was called
+      expect(mockSseTransport.finishAuth).toHaveBeenCalledWith('auth-code-456');
+
+      // Verify old transport was closed
+      expect(mockSseTransport.close).toHaveBeenCalled();
+
+      // Verify new client was connected
+      expect(mockNewClient.connect).toHaveBeenCalled();
+
+      // Verify client info was updated
+      const updatedClient = clients.get('sse-server');
+      expect(updatedClient?.status).toBe(ClientStatus.Connected);
+      expect(updatedClient?.client).toBe(mockNewClient);
+    });
+
+    it('should handle reconnection errors', async () => {
+      // Create mock HTTP transport
+      const mockHttpTransport = {
+        _url: new URL('https://example.com/mcp'),
+        oauthProvider: { token: 'test-token' },
+        finishAuth: vi.fn().mockResolvedValue(undefined),
+        close: vi.fn().mockResolvedValue(undefined),
+      };
+      Object.setPrototypeOf(mockHttpTransport, StreamableHTTPClientTransport.prototype);
+
+      const mockOldClient = {
+        getInstructions: vi.fn().mockReturnValue(''),
+      } as unknown as Client;
+
+      const mockNewClient = {
+        connect: vi.fn().mockRejectedValue(new Error('Connection failed')),
+      };
+
+      // Mock Client constructor to return new client
+      (Client as unknown as MockInstance).mockImplementation(() => mockNewClient);
+
+      // Manually add client
+      const clients = clientManager.getClients();
+      clients.set('failing-server', {
+        name: 'failing-server',
+        transport: mockHttpTransport as unknown as AuthProviderTransport,
+        client: mockOldClient,
+        status: ClientStatus.AwaitingOAuth,
+      });
+
+      await expect(clientManager.completeOAuthAndReconnect('failing-server', 'auth-code')).rejects.toThrow(
+        'Connection failed',
       );
     });
   });
