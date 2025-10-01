@@ -10,6 +10,7 @@ import { setupAppCommands } from './commands/app/index.js';
 import { setupMcpCommands } from './commands/mcp/index.js';
 import { setupPresetCommands } from './commands/preset/index.js';
 import { setupServeCommand, serverOptions } from './commands/serve/index.js';
+import { setupProxyCommand } from './commands/proxy/index.js';
 import { globalOptions, GlobalOptions } from './globalOptions.js';
 import { configureGlobalLogger } from './utils/configureGlobalLogger.js';
 import { MCP_SERVER_VERSION } from './constants.js';
@@ -49,6 +50,7 @@ yargsInstance = setupAppCommands(yargsInstance);
 yargsInstance = setupMcpCommands(yargsInstance);
 yargsInstance = setupPresetCommands(yargsInstance);
 yargsInstance = setupServeCommand(yargsInstance);
+yargsInstance = setupProxyCommand(yargsInstance);
 
 /**
  * Check for conflicting global options (options specified both before and after the command)
@@ -60,7 +62,9 @@ function checkGlobalOptionConflicts(argv: string[]): void {
     .filter(Boolean);
   const allGlobalOptions = [...globalOptionNames, ...globalOptionAliases];
 
-  const commandIndex = argv.findIndex((arg) => arg === 'app' || arg === 'mcp' || arg === 'preset' || arg === 'serve');
+  const commandIndex = argv.findIndex(
+    (arg) => arg === 'app' || arg === 'mcp' || arg === 'preset' || arg === 'serve' || arg === 'proxy',
+  );
 
   if (commandIndex === -1) return;
 

@@ -1,3 +1,6 @@
+import { readPidFile, cleanupPidFile } from './pidFileManager.js';
+import { getConfigDir } from '../constants.js';
+
 /**
  * Multi-method URL detection system for app commands.
  *
@@ -65,7 +68,27 @@ export function detectUrlFromEnv(): string | null {
 }
 
 /**
- * Method 4: Combined detection with priority fallback (primary implementation)
+ * Method 4: Detect URL from PID file (for proxy command)
+ */
+export async function detectUrlFromPidFile(configDir?: string): Promise<string | null> {
+  const dir = getConfigDir(configDir);
+  const serverInfo = readPidFile(dir);
+
+  if (serverInfo) {
+    // Validate server is still responding
+    const validation = await validateServer1mcpUrl(serverInfo.url);
+    if (validation.valid) {
+      return serverInfo.url;
+    }
+    // Server is dead, clean up stale PID file
+    cleanupPidFile(dir);
+  }
+
+  return null;
+}
+
+/**
+ * Method 5: Combined detection with priority fallback (primary implementation)
  */
 export async function detectServer1mcpUrl(): Promise<string> {
   // 1. Try CLI args first (highest priority)
@@ -85,7 +108,43 @@ export async function detectServer1mcpUrl(): Promise<string> {
 }
 
 /**
- * Method 5: Get URL with user override (for command-specific URLs)
+ * Method 6: Combined detection with PID file support (for proxy command)
+ * Priority: user URL → PID file → port scanning → error
+ */
+export async function discoverServerWithPidFile(
+  configDir?: string,
+  userUrl?: string,
+): Promise<{ url: string; source: 'user' | 'pidfile' | 'portscan' }> {
+  // 1. User override (highest priority)
+  if (userUrl) {
+    const normalizedUrl = userUrl.endsWith('/mcp') ? userUrl : `${userUrl}/mcp`;
+    return { url: normalizedUrl, source: 'user' };
+  }
+
+  // 2. Try PID file
+  const pidFileUrl = await detectUrlFromPidFile(configDir);
+  if (pidFileUrl) {
+    return { url: pidFileUrl, source: 'pidfile' };
+  }
+
+  // 3. Fallback to port scanning
+  const portScanUrl = await detectRunningServerUrl();
+  if (portScanUrl) {
+    return { url: portScanUrl, source: 'portscan' };
+  }
+
+  // 4. No server found
+  throw new Error(
+    'No running 1MCP server found.\n\n' +
+      'Start a server first:\n' +
+      '  1mcp serve\n\n' +
+      'Or specify URL manually:\n' +
+      '  1mcp proxy --url http://localhost:3050/mcp',
+  );
+}
+
+/**
+ * Method 7: Get URL with user override (for command-specific URLs)
  */
 export async function getServer1mcpUrl(userOverrideUrl?: string): Promise<string> {
   if (userOverrideUrl) {

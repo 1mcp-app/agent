@@ -1,0 +1,102 @@
+import type { Argv } from 'yargs';
+import { globalOptions } from '../../globalOptions.js';
+
+/**
+ * Proxy command - STDIO proxy to running 1MCP HTTP server.
+ *
+ * Provides a STDIO transport interface that proxies all requests to a running
+ * 1MCP HTTP server instance. Auto-discovers the server using PID file or port scanning.
+ */
+
+export interface ProxyOptions {
+  config?: string;
+  'config-dir'?: string;
+  'log-level'?: string;
+  'log-file'?: string;
+  url?: string;
+  timeout?: number;
+  filter?: string;
+  preset?: string;
+}
+
+/**
+ * Register proxy command
+ */
+export function setupProxyCommand(yargs: Argv): Argv {
+  return yargs.command(
+    'proxy',
+    'Start STDIO proxy to running 1MCP HTTP server',
+    (yargs) => {
+      return yargs
+        .options(globalOptions || {})
+        .option('url', {
+          alias: 'u',
+          describe: 'Override auto-detected 1MCP server URL',
+          type: 'string',
+        })
+        .option('timeout', {
+          alias: 't',
+          describe: 'Connection timeout in milliseconds',
+          type: 'number',
+          default: 10000,
+        })
+        .option('filter', {
+          alias: 'f',
+          describe:
+            'Filter expression for server selection (supports simple comma-separated or advanced boolean logic)',
+          type: 'string',
+        })
+        .option('preset', {
+          alias: 'P',
+          describe: 'Load preset configuration (URL, filters, etc.)',
+          type: 'string',
+        })
+        .example([
+          ['$0 proxy', 'Auto-discover and connect to running 1MCP server'],
+          ['$0 proxy --url http://localhost:3051/mcp', 'Connect to specific server URL'],
+          ['$0 proxy --filter "web,api"', 'Connect with tag filtering'],
+          ['$0 proxy --preset my-preset', 'Load URL and filters from preset'],
+          ['$0 proxy --config-dir .tmp-test', 'Use custom config directory for discovery'],
+        ]).epilogue(`
+AUTO-DISCOVERY:
+  The proxy automatically discovers running 1MCP servers using:
+  1. PID file in config directory (~/.config/1mcp/server.pid)
+  2. Port scanning on common ports (3050, 3051, 3052)
+  3. Environment variables (ONE_MCP_HOST, ONE_MCP_PORT)
+
+USAGE:
+  This command provides a STDIO interface for MCP clients that only support
+  STDIO transport. It proxies all requests to a centralized 1MCP HTTP server.
+
+  Before using the proxy, ensure a 1MCP server is running:
+    1mcp serve
+
+TAG FILTERING:
+  Use --filter to limit which MCP servers are exposed:
+  • Simple: "web,api,database" (OR logic)
+  • Advanced: "web AND database" or "(web OR api) AND database"
+
+AUTHENTICATION:
+  STDIO transport does not support OAuth authentication. Since the server
+  has auth disabled by default, the proxy will work out of the box.
+
+  If you enabled auth on the server (--enable-auth), STDIO clients cannot
+  authenticate. You must either:
+  • Use HTTP/SSE clients instead of STDIO
+  • Run a separate server instance without auth for STDIO clients
+
+For more information: https://docs.1mcp.app/guide/commands#proxy
+        `);
+    },
+    async (argv) => {
+      const { configureGlobalLogger } = await import('../../utils/configureGlobalLogger.js');
+      const { proxyCommand } = await import('./proxy.js');
+
+      // Configure logger with global options
+      configureGlobalLogger(argv, 'stdio');
+
+      // Execute proxy command
+      await proxyCommand(argv as ProxyOptions);
+    },
+  );
+}

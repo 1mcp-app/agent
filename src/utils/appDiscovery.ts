@@ -415,7 +415,7 @@ export function generateAppConfig(appName: string, url: string): any {
         mcpServers: {
           '1mcp': {
             command: 'npx',
-            args: ['-y', '@1mcp/agent', 'serve', '--transport', 'stdio'],
+            args: ['-y', '@1mcp/agent', 'proxy'],
           },
         },
       };

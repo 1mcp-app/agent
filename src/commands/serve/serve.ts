@@ -16,6 +16,8 @@ import ConfigContext from '../../config/configContext.js';
 import { getDefaultInstructionsTemplatePath } from '../../constants.js';
 import { validateTemplateContent, formatValidationError } from '../../core/instructions/templateValidator.js';
 import { InstructionAggregator } from '../../core/instructions/instructionAggregator.js';
+import { writePidFile, registerPidFileCleanup } from '../../utils/pidFileManager.js';
+import { getConfigDir } from '../../constants.js';
 
 export interface ServeOptions {
   config?: string;
@@ -289,6 +291,16 @@ export async function serveCommand(parsedArgv: ServeOptions): Promise<void> {
 
     switch (parsedArgv.transport) {
       case 'stdio': {
+        // DEPRECATION WARNING
+        logger.warn('⚠️  DEPRECATION WARNING: `serve --transport stdio` is deprecated');
+        logger.warn('⚠️  Please use `1mcp proxy` instead for better compatibility');
+        logger.warn('⚠️  This mode may be removed in a future major version');
+        logger.warn('');
+        logger.warn('Migration guide:');
+        logger.warn('  1. Start HTTP server: 1mcp serve');
+        logger.warn('  2. Use proxy command: 1mcp proxy');
+        logger.warn('');
+
         // Use stdio transport
         const transport = new StdioServerTransport();
         // Parse and validate filter from CLI if provided
@@ -356,6 +368,23 @@ export async function serveCommand(parsedArgv: ServeOptions): Promise<void> {
         // Use HTTP/SSE transport
         expressServer = new ExpressServer(serverManager, loadingManager, asyncOrchestrator, customTemplate);
         expressServer.start();
+
+        // Write PID file for proxy auto-discovery
+        const configDir = getConfigDir(parsedArgv['config-dir']);
+        const serverUrl = serverConfigManager.getUrl();
+        writePidFile(configDir, {
+          pid: process.pid,
+          url: `${serverUrl}/mcp`,
+          port: parsedArgv.port,
+          host: parsedArgv.host,
+          transport: 'http',
+          startedAt: new Date().toISOString(),
+          configDir,
+        });
+
+        // Register cleanup handlers
+        registerPidFileCleanup(configDir);
+
         break;
       }
       default:
