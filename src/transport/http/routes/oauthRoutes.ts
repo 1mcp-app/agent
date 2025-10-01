@@ -17,6 +17,8 @@ import { SDKOAuthServerProvider } from '../../../auth/sdkOAuthServerProvider.js'
 import { sensitiveOperationLimiter } from '../middlewares/securityMiddleware.js';
 import { McpLoadingManager } from '../../../core/loading/mcpLoadingManager.js';
 import { LoadingState } from '../../../core/loading/loadingStateTracker.js';
+import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
+import { SSEClientTransport } from '@modelcontextprotocol/sdk/client/sse.js';
 
 /**
  * Creates OAuth routes with the provided OAuth provider
@@ -131,10 +133,6 @@ export function createOAuthRoutes(oauthProvider: SDKOAuthServerProvider, loading
 
   router.get('/authorize/:serverName', authorizeHandler);
 
-  function hasFinishAuth(transport: unknown): transport is { finishAuth: (code: string) => Promise<void> } {
-    return typeof transport === 'object' && transport !== null && typeof (transport as any).finishAuth === 'function';
-  }
-
   /**
    * Handle OAuth callback and trigger reconnection
    */
@@ -160,9 +158,12 @@ export function createOAuthRoutes(oauthProvider: SDKOAuthServerProvider, loading
         return res.redirect(`/oauth?error=client_not_found`);
       }
 
-      // Use type guard for transport with finishAuth
-      if (!hasFinishAuth(clientInfo.transport)) {
-        logger.error(`Transport for ${serverName} does not support finishAuth`);
+      // Check if transport supports OAuth (HTTP or SSE, not STDIO)
+      if (
+        !(clientInfo.transport instanceof StreamableHTTPClientTransport) &&
+        !(clientInfo.transport instanceof SSEClientTransport)
+      ) {
+        logger.error(`Transport for ${serverName} does not support OAuth (requires HTTP or SSE transport, got STDIO)`);
         return res.redirect(`/oauth?error=invalid_oauth_transport`);
       }
 

@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { ClientStatus } from '../../../core/types/index.js';
 import { LoadingState } from '../../../core/loading/loadingStateTracker.js';
+import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 
 // Mock all dependencies
 vi.mock('../../../logger/logger.js', () => ({
@@ -352,13 +353,15 @@ describe('OAuth Routes', () => {
         getInstructions: vi.fn().mockReturnValue(''),
       };
 
+      // Create mock transport that passes instanceof check
       const mockTransport = {
-        name: 'test-transport',
         start: vi.fn().mockResolvedValue(undefined),
         send: vi.fn().mockResolvedValue(undefined),
         close: vi.fn().mockResolvedValue(undefined),
         finishAuth: vi.fn().mockResolvedValue(undefined),
-      } as any;
+      };
+      // Make it pass instanceof StreamableHTTPClientTransport check
+      Object.setPrototypeOf(mockTransport, StreamableHTTPClientTransport.prototype);
 
       const clientInfo = {
         name: 'test-server',
@@ -398,12 +401,15 @@ describe('OAuth Routes', () => {
         getInstructions: vi.fn().mockReturnValue(mockInstructions),
       };
 
+      // Create mock transport that passes instanceof check
       const mockTransport = {
         start: vi.fn().mockResolvedValue(undefined),
         send: vi.fn().mockResolvedValue(undefined),
         close: vi.fn().mockResolvedValue(undefined),
         finishAuth: vi.fn().mockResolvedValue(undefined),
-      } as any;
+      };
+      // Make it pass instanceof StreamableHTTPClientTransport check
+      Object.setPrototypeOf(mockTransport, StreamableHTTPClientTransport.prototype);
 
       const clientInfo = {
         name: 'test-server',
