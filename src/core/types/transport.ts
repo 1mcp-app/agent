@@ -7,7 +7,24 @@ import { Stream } from 'node:stream';
  * Enhanced transport interface that includes MCP-specific properties
  */
 export interface EnhancedTransport extends Transport {
+  /**
+   * Timeout for establishing initial connection (in milliseconds)
+   * Used when calling client.connect(transport, {timeout})
+   */
+  connectionTimeout?: number;
+
+  /**
+   * Timeout for individual request operations (in milliseconds)
+   * Used for callTool, readResource, and other MCP operations
+   */
+  requestTimeout?: number;
+
+  /**
+   * @deprecated Use connectionTimeout and requestTimeout instead
+   * Fallback timeout value used for both connection and requests when specific timeouts are not set
+   */
   timeout?: number;
+
   tags?: string[];
 }
 
@@ -26,7 +43,10 @@ export interface OAuthConfig {
  * Base interface for common transport properties
  */
 export interface BaseTransportConfig {
+  /** @deprecated Use connectionTimeout and requestTimeout instead */
   readonly timeout?: number;
+  readonly connectionTimeout?: number;
+  readonly requestTimeout?: number;
   readonly disabled?: boolean;
   readonly tags?: string[];
   readonly oauth?: OAuthConfig;
@@ -74,7 +94,9 @@ export const oAuthConfigSchema = z.object({
 export const transportConfigSchema = z.object({
   type: z.enum(['stdio', 'sse', 'http', 'streamableHttp']).optional(),
   disabled: z.boolean().optional(),
-  timeout: z.number().optional(),
+  timeout: z.number().optional(), // Deprecated: use connectionTimeout and requestTimeout
+  connectionTimeout: z.number().optional(),
+  requestTimeout: z.number().optional(),
   tags: z.array(z.string()).optional(),
   oauth: oAuthConfigSchema.optional(),
 

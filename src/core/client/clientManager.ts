@@ -198,6 +198,7 @@ export class ClientManager {
    * @param client The client to connect
    * @param transport The transport to connect to
    * @param name The name of the client for logging
+   * @param abortSignal Optional abort signal to cancel the operation
    * @returns The connected client (may be a new instance after retries)
    */
   private async connectWithRetry(
@@ -208,6 +209,7 @@ export class ClientManager {
   ): Promise<Client> {
     let retryDelay = CONNECTION_RETRY.INITIAL_DELAY_MS;
     let currentClient = client;
+    let currentTransport = transport;
 
     for (let i = 0; i < CONNECTION_RETRY.MAX_ATTEMPTS; i++) {
       try {
@@ -216,7 +218,10 @@ export class ClientManager {
           throw new Error(`Connection aborted: ${abortSignal.reason || 'Request cancelled'}`);
         }
 
-        await currentClient.connect(transport);
+        // Connect with connectionTimeout from transport config (fallback to deprecated timeout)
+        const authTransport = currentTransport as AuthProviderTransport;
+        const timeout = authTransport.connectionTimeout ?? authTransport.timeout;
+        await currentClient.connect(currentTransport, timeout ? { timeout } : undefined);
 
         const sv = await currentClient.getServerVersion();
         if (sv?.name === MCP_SERVER_NAME) {
@@ -242,6 +247,13 @@ export class ClientManager {
           if (i < CONNECTION_RETRY.MAX_ATTEMPTS - 1) {
             logger.info(`Retrying in ${retryDelay}ms...`);
 
+            // Clean up failed transport
+            try {
+              await currentTransport.close();
+            } catch (closeError) {
+              debugIf(() => ({ message: `Error closing transport during retry: ${closeError}` }));
+            }
+
             // Implement cancellable delay
             await new Promise<void>((resolve, reject) => {
               const timeoutId = setTimeout(resolve, retryDelay);
@@ -263,8 +275,18 @@ export class ClientManager {
 
             retryDelay *= 2; // Exponential backoff
 
-            // Create a new client for retry to avoid "already started" errors
-            currentClient = this.createClient();
+            // For HTTP/SSE transports, we need to recreate both client and transport
+            // because these transports cannot be restarted once started
+            if (
+              currentTransport instanceof StreamableHTTPClientTransport ||
+              currentTransport instanceof SSEClientTransport
+            ) {
+              currentTransport = this.recreateHttpTransport(currentTransport as AuthProviderTransport);
+              currentClient = this.createClient();
+            } else {
+              // For STDIO transports, we can reuse the transport but need a new client
+              currentClient = this.createClient();
+            }
           } else {
             throw new ClientConnectionError(name, error instanceof Error ? error : new Error(String(error)));
           }
@@ -459,6 +481,50 @@ export class ClientManager {
   }
 
   /**
+   * Recreates an HTTP or SSE transport with the same configuration
+   * This is necessary because HTTP transports cannot be restarted once started
+   * @param transport The original transport to recreate
+   * @returns A new transport instance with the same configuration
+   */
+  private recreateHttpTransport(transport: AuthProviderTransport): AuthProviderTransport {
+    // Type guard for HTTP-based transports
+    if (!(transport instanceof StreamableHTTPClientTransport) && !(transport instanceof SSEClientTransport)) {
+      throw new Error('Transport recreation only supported for HTTP and SSE transports');
+    }
+
+    // Extract URL with proper typing
+    type TransportWithUrl = { _url: URL };
+    const transportUrl = (transport as unknown as TransportWithUrl)._url;
+
+    // Get OAuth provider from AuthProviderTransport
+    const authTransport = transport as AuthProviderTransport;
+    const oauthProvider = authTransport.oauthProvider;
+
+    // Create new transport based on original type
+    let newTransport: AuthProviderTransport;
+    if (transport instanceof StreamableHTTPClientTransport) {
+      const httpTransport = new StreamableHTTPClientTransport(transportUrl, {
+        authProvider: oauthProvider,
+      });
+      newTransport = httpTransport as AuthProviderTransport;
+    } else {
+      const sseTransport = new SSEClientTransport(transportUrl, {
+        authProvider: oauthProvider,
+      });
+      newTransport = sseTransport as AuthProviderTransport;
+    }
+
+    // Copy transport properties from AuthProviderTransport
+    newTransport.oauthProvider = oauthProvider;
+    newTransport.connectionTimeout = authTransport.connectionTimeout;
+    newTransport.requestTimeout = authTransport.requestTimeout;
+    newTransport.timeout = authTransport.timeout; // Keep for backward compatibility
+    newTransport.tags = authTransport.tags;
+
+    return newTransport;
+  }
+
+  /**
    * Complete OAuth flow and reconnect client with fresh transport
    * This recreates both transport and client since HTTP transports cannot be restarted
    * @param serverName The name of the server to reconnect
@@ -487,39 +553,21 @@ export class ClientManager {
       // 2. Close old transport
       await transport.close();
 
-      // 3. Extract URL with proper typing
-      type TransportWithUrl = { _url: URL };
-      const transportUrl = (transport as unknown as TransportWithUrl)._url;
+      // 3. Create new transport using helper
+      const newTransport = this.recreateHttpTransport(transport);
 
-      // 4. Get OAuth provider
-      const oauthProvider = (transport as AuthProviderTransport).oauthProvider;
-
-      // 5. Create new transport based on original type
-      let newTransport: AuthProviderTransport;
-      if (transport instanceof StreamableHTTPClientTransport) {
-        const httpTransport = new StreamableHTTPClientTransport(transportUrl, {
-          authProvider: oauthProvider,
-        });
-        newTransport = httpTransport as AuthProviderTransport;
-      } else {
-        const sseTransport = new SSEClientTransport(transportUrl, {
-          authProvider: oauthProvider,
-        });
-        newTransport = sseTransport as AuthProviderTransport;
-      }
-      newTransport.oauthProvider = oauthProvider;
-
-      // 6. Create and connect new client
+      // 4. Create and connect new client with connectionTimeout
       const newClient = this.createClient();
-      await newClient.connect(newTransport);
+      const timeout = newTransport.connectionTimeout ?? newTransport.timeout;
+      await newClient.connect(newTransport, timeout ? { timeout } : undefined);
 
-      // 7. Discover capabilities
+      // 5. Discover capabilities
       const capabilities = newClient.getServerCapabilities();
 
-      // 8. Cache instructions
+      // 6. Cache instructions
       this.extractAndCacheInstructions(serverName, newClient);
 
-      // 9. Update connection info (create new object to handle readonly properties)
+      // 7. Update connection info (create new object to handle readonly properties)
       const updatedInfo: OutboundConnection = {
         name: serverName,
         transport: newTransport,
@@ -532,7 +580,7 @@ export class ClientManager {
       };
       this.outboundConns.set(serverName, updatedInfo);
 
-      // 10. Update transports map
+      // 8. Update transports map
       this.transports[serverName] = newTransport;
 
       logger.info(`OAuth reconnection completed successfully for ${serverName}`);
