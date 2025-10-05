@@ -1,9 +1,7 @@
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import { JSONRPCMessage } from '@modelcontextprotocol/sdk/types.js';
-import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import logger, { debugIf } from '../logger/logger.js';
-import { MCP_CLIENT_CAPABILITIES, MCP_SERVER_NAME, MCP_SERVER_VERSION } from '../constants.js';
 
 /**
  * STDIO Proxy Transport Options
@@ -19,18 +17,20 @@ export interface StdioProxyTransportOptions {
  *
  * Provides a STDIO interface that proxies all requests to a running 1MCP HTTP server.
  * Acts as a bridge between STDIO-only MCP clients and the centralized HTTP server.
+ *
+ * This implementation uses pure transport-to-transport forwarding without the Client layer,
+ * to avoid conflicts with MCP protocol message handling.
  */
 export class StdioProxyTransport {
   private stdioTransport: StdioServerTransport;
-  private httpClient: Client;
-  private streambleHTTPTransport: StreamableHTTPClientTransport;
+  private httpTransport: StreamableHTTPClientTransport;
   private isConnected = false;
 
   constructor(private options: StdioProxyTransportOptions) {
     // Create STDIO server transport (for client communication)
     this.stdioTransport = new StdioServerTransport();
 
-    // Create SSE client transport (for HTTP server communication)
+    // Create Streamable HTTP client transport (for HTTP server communication)
     const url = new URL(this.options.serverUrl);
 
     // Add tags to URL if provided
@@ -38,16 +38,7 @@ export class StdioProxyTransport {
       url.searchParams.set('tags', this.options.tags.join(','));
     }
 
-    this.streambleHTTPTransport = new StreamableHTTPClientTransport(url);
-    this.httpClient = new Client(
-      {
-        name: `${MCP_SERVER_NAME}-proxy`,
-        version: MCP_SERVER_VERSION,
-      },
-      {
-        capabilities: MCP_CLIENT_CAPABILITIES,
-      },
-    );
+    this.httpTransport = new StreamableHTTPClientTransport(url);
   }
 
   /**
@@ -63,16 +54,15 @@ export class StdioProxyTransport {
         },
       }));
 
-      // Connect HTTP client to server
-      await this.httpClient.connect(this.streambleHTTPTransport, {
-        timeout: this.options.timeout,
-      });
+      // CRITICAL: Set up message forwarding BEFORE starting transports
+      // This ensures handlers are ready when messages start flowing
+      this.setupMessageForwarding();
+
+      // Start HTTP transport connection
+      await this.httpTransport.start();
       this.isConnected = true;
 
       logger.info('Connected to 1MCP HTTP server');
-
-      // Set up bidirectional message forwarding
-      this.setupMessageForwarding();
 
       // Start STDIO transport
       await this.stdioTransport.start();
@@ -96,15 +86,15 @@ export class StdioProxyTransport {
           meta: { method: (message as any).method, id: (message as any).id },
         }));
 
-        // Forward to HTTP server through client
-        await this.streambleHTTPTransport.send(message);
+        // Forward to HTTP server
+        await this.httpTransport.send(message);
       } catch (error) {
         logger.error(`Error forwarding STDIO message to HTTP: ${error}`);
       }
     };
 
     // Forward messages from HTTP server to STDIO client
-    this.streambleHTTPTransport.onmessage = async (message: JSONRPCMessage) => {
+    this.httpTransport.onmessage = async (message: JSONRPCMessage) => {
       try {
         debugIf(() => ({
           message: 'Forwarding message from HTTP to STDIO',
@@ -123,9 +113,9 @@ export class StdioProxyTransport {
       logger.error(`STDIO transport error: ${error.message}`);
     };
 
-    // Handle errors from SSE transport
-    this.streambleHTTPTransport.onerror = (error: Error) => {
-      logger.error(`SSE transport error: ${error.message}`);
+    // Handle errors from HTTP transport
+    this.httpTransport.onerror = (error: Error) => {
+      logger.error(`HTTP transport error: ${error.message}`);
     };
 
     // Handle STDIO transport close
@@ -134,8 +124,8 @@ export class StdioProxyTransport {
       await this.close();
     };
 
-    // Handle SSE transport close
-    this.streambleHTTPTransport.onclose = async () => {
+    // Handle HTTP transport close
+    this.httpTransport.onclose = async () => {
       logger.warn('HTTP server connection closed');
       await this.close();
     };
@@ -152,8 +142,8 @@ export class StdioProxyTransport {
     try {
       debugIf('Closing STDIO proxy transport');
 
-      // Close HTTP client connection
-      await this.httpClient.close();
+      // Close HTTP transport
+      await this.httpTransport.close();
 
       // Close STDIO transport
       await this.stdioTransport.close();
