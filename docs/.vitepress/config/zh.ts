@@ -123,6 +123,7 @@ function sidebar(): DefaultTheme.Sidebar {
         text: '服务器管理',
         items: [
           { text: 'serve', link: '/zh/commands/serve' },
+          { text: 'proxy', link: '/zh/commands/proxy' },
           {
             text: 'mcp',
             link: '/zh/commands/mcp/',

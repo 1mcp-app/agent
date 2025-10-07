@@ -7,6 +7,7 @@
 ### Main Commands
 
 - **`serve`** - Start the 1MCP server (default command)
+- **`proxy`** - Start STDIO proxy to connect to running 1MCP HTTP server
 - **`app`** - Manage desktop application MCP configurations
 - **`mcp`** - Manage MCP server configurations
 - **`preset`** - Manage server presets for dynamic filtering
@@ -78,6 +79,16 @@ npx -y @1mcp/agent serve --port=3052                # Start on custom port
 npx -y @1mcp/agent serve --transport=stdio          # Use stdio transport
 ```
 
+### [Proxy Command](./proxy)
+
+Start STDIO proxy to connect MCP clients that only support STDIO transport to a running 1MCP HTTP server.
+
+```bash
+npx -y @1mcp/agent proxy                            # Auto-discover and connect
+npx -y @1mcp/agent proxy --url http://localhost:3051/mcp  # Connect to specific URL
+npx -y @1mcp/agent proxy --filter "web,api"         # Connect with tag filtering
+```
+
 ## Getting Started
 
 If you're new to 1MCP Agent, start with:
@@ -98,6 +109,9 @@ npx -y @1mcp/agent serve
 
 # Add a new MCP server
 npx -y @1mcp/agent mcp add filesystem --type=stdio --command=mcp-server-filesystem
+
+# Start STDIO proxy for clients that only support STDIO
+npx -y @1mcp/agent proxy --filter "filesystem,editing"
 
 # Consolidate Claude Desktop configuration
 npx -y @1mcp/agent app consolidate claude-desktop

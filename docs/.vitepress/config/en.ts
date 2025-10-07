@@ -98,6 +98,7 @@ function sidebar(): DefaultTheme.Sidebar {
         text: 'Server Management',
         items: [
           { text: 'serve', link: '/commands/serve' },
+          { text: 'proxy', link: '/commands/proxy' },
           {
             text: 'mcp',
             link: '/commands/mcp/',
