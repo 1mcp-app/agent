@@ -83,7 +83,9 @@ This is a dictionary of all the backend MCP servers the agent will manage.
 
 - `transport` (string, optional): `stdio` or `http`. Defaults to `stdio` if `command` is present, `http` if `url` is present.
 - `tags` (array of strings, required): Tags for routing and access control.
-- `timeout` (number, optional): Connection timeout in milliseconds.
+- `connectionTimeout` (number, optional): Connection timeout in milliseconds. Used when establishing initial connection. Takes precedence over `timeout`.
+- `requestTimeout` (number, optional): Request timeout in milliseconds. Used for individual MCP operations (callTool, readResource, etc.). Takes precedence over `timeout`.
+- `timeout` (number, optional): **Deprecated** fallback timeout in milliseconds. Used when specific timeouts are not set. New configurations should use `connectionTimeout` and `requestTimeout`.
 - `enabled` (boolean, optional): Set to `false` to disable the server. Defaults to `true`.
 
 **HTTP Transport Properties:**
@@ -118,7 +120,8 @@ This is a dictionary of all the backend MCP servers the agent will manage.
       "transport": "http",
       "url": "https://api.example.com/mcp",
       "tags": ["api", "prod"],
-      "timeout": 15000
+      "connectionTimeout": 5000,
+      "requestTimeout": 15000
     }
   }
 }
@@ -144,7 +147,8 @@ This is a dictionary of all the backend MCP servers the agent will manage.
       "maxRestarts": 5,
       "restartDelay": 2000,
       "tags": ["production", "api"],
-      "timeout": 30000
+      "connectionTimeout": 10000,
+      "requestTimeout": 30000
     }
   }
 }
@@ -323,9 +327,99 @@ Set a custom working directory for the process:
 
       // Standard MCP properties
       "tags": ["production", "api"],
-      "timeout": 30000
+      "connectionTimeout": 10000,
+      "requestTimeout": 30000
     }
   }
+}
+```
+
+---
+
+## Timeout Configuration
+
+### Timeout Hierarchy
+
+1MCP Agent supports granular timeout configuration with the following precedence hierarchy:
+
+- **Connection Operations**: `connectionTimeout` > `timeout` (fallback)
+- **Request Operations**: `requestTimeout` > `timeout` (fallback)
+
+### Timeout Types
+
+**`connectionTimeout`**
+
+- **Purpose**: Timeout for establishing initial connection to MCP server
+- **Used when**: Calling `client.connect()` during server startup or retry
+- **Units**: Milliseconds
+- **Recommended**: 5000-15000ms (5-15 seconds) depending on network conditions
+
+**`requestTimeout`**
+
+- **Purpose**: Timeout for individual MCP operations (tools, resources, etc.)
+- **Used when**: `callTool()`, `readResource()`, `listRoots()`, etc.
+- **Units**: Milliseconds
+- **Recommended**: 15000-60000ms (15-60 seconds) depending on operation complexity
+
+**`timeout` (Deprecated)**
+
+- **Purpose**: Fallback timeout when specific timeouts are not set
+- **Status**: Deprecated for new configurations
+- **Behavior**: Used as fallback for both connection and request operations
+
+### Timeout Examples
+
+**Granular Timeout Configuration:**
+
+```json
+{
+  "mcpServers": {
+    "fast-api": {
+      "transport": "http",
+      "url": "https://fast-api.example.com/mcp",
+      "connectionTimeout": 3000,
+      "requestTimeout": 10000,
+      "tags": ["api", "fast"]
+    },
+    "heavy-processor": {
+      "transport": "http",
+      "url": "https://heavy.example.com/mcp",
+      "connectionTimeout": 10000,
+      "requestTimeout": 120000,
+      "tags": ["processing", "slow"]
+    },
+    "backward-compatible": {
+      "transport": "http",
+      "url": "https://legacy.example.com/mcp",
+      "timeout": 30000,
+      "tags": ["legacy"]
+    }
+  }
+}
+```
+
+**Transport-Specific Considerations:**
+
+- **HTTP/SSE Transports**: Require longer connection timeouts due to network latency
+- **STDIO Transports**: Typically need shorter connection timeouts (local process)
+- **Retry Logic**: Failed connections trigger transport recreation for HTTP/SSE
+
+### Migration from Single Timeout
+
+**Before (Deprecated):**
+
+```json
+{
+  "timeout": 30000
+}
+```
+
+**After (Recommended):**
+
+```json
+{
+  "connectionTimeout": 5000,
+  "requestTimeout": 30000
 }
 ```
 
