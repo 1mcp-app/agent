@@ -1,5 +1,6 @@
 import { readPidFile, cleanupPidFile } from './pidFileManager.js';
 import { getConfigDir } from '../constants.js';
+import { createSafeErrorMessage } from '../logger/secureLogger.js';
 
 /**
  * Multi-method URL detection system for app commands.
@@ -174,7 +175,7 @@ export async function validateServer1mcpUrl(url: string): Promise<{
     if (!oauthResponse.ok) {
       return {
         valid: false,
-        error: `1mcp server not responding (HTTP ${oauthResponse.status})`,
+        error: createSafeErrorMessage(`1mcp server not responding (HTTP ${oauthResponse.status})`),
       };
     }
 
@@ -185,7 +186,7 @@ export async function validateServer1mcpUrl(url: string): Promise<{
   } catch (error: any) {
     return {
       valid: false,
-      error: `Cannot connect to 1mcp server: ${error.message}`,
+      error: createSafeErrorMessage(`Cannot connect to 1mcp server: ${error.message}`),
     };
   }
 }
