@@ -83,7 +83,9 @@ npx -y @1mcp/agent --config-dir ./project-config
 
 - `transport` (字符串, 可选): `stdio` 或 `http`。如果存在 `command` 则默认为 `stdio`，如果存在 `url` 则默认为 `http`。
 - `tags` (字符串数组, 必需): 用于路由和访问控制的标签。
-- `timeout` (数字, 可选): 连接超时时间（毫秒）。
+- `connectionTimeout` (数字, 可选): 连接超时时间（毫秒）。用于建立初始连接。优先级高于 `timeout`。
+- `requestTimeout` (数字, 可选): 请求超时时间（毫秒）。用于单个 MCP 操作（callTool、readResource 等）。优先级高于 `timeout`。
+- `timeout` (数字, 可选): **已弃用** 的回退超时时间（毫秒）。当未设置特定超时时使用。新配置应使用 `connectionTimeout` 和 `requestTimeout`。
 - `enabled` (布尔值, 可选): 设置为 `false` 以禁用服务器。默认为 `true`。
 
 **HTTP 传输属性：**
@@ -118,7 +120,8 @@ npx -y @1mcp/agent --config-dir ./project-config
       "transport": "http",
       "url": "https://api.example.com/mcp",
       "tags": ["api", "prod"],
-      "timeout": 15000
+      "connectionTimeout": 5000,
+      "requestTimeout": 15000
     }
   }
 }
@@ -144,7 +147,8 @@ npx -y @1mcp/agent --config-dir ./project-config
       "maxRestarts": 5,
       "restartDelay": 2000,
       "tags": ["production", "api"],
-      "timeout": 30000
+      "connectionTimeout": 10000,
+      "requestTimeout": 30000
     }
   }
 }
@@ -323,9 +327,99 @@ npx -y @1mcp/agent --config-dir ./project-config
 
       // 标准 MCP 属性
       "tags": ["production", "api"],
-      "timeout": 30000
+      "connectionTimeout": 10000,
+      "requestTimeout": 30000
     }
   }
+}
+```
+
+---
+
+## 超时配置
+
+### 超时层次结构
+
+1MCP 代理支持细粒度超时配置，具有以下优先级层次结构：
+
+- **连接操作**: `connectionTimeout` > `timeout` (回退)
+- **请求操作**: `requestTimeout` > `timeout` (回退)
+
+### 超时类型
+
+**`connectionTimeout`**
+
+- **用途**: 建立与 MCP 服务器初始连接的超时时间
+- **使用场景**: 服务器启动或重试时调用 `client.connect()`
+- **单位**: 毫秒
+- **推荐值**: 5000-15000ms（5-15 秒），取决于网络条件
+
+**`requestTimeout`**
+
+- **用途**: 单个 MCP 操作（工具、资源等）的超时时间
+- **使用场景**: `callTool()`、`readResource()`、`listRoots()` 等
+- **单位**: 毫秒
+- **推荐值**: 15000-60000ms（15-60 秒），取决于操作复杂度
+
+**`timeout` (已弃用)**
+
+- **用途**: 未设置特定超时时的回退超时时间
+- **状态**: 新配置中已弃用
+- **行为**: 用作连接和请求操作的回退
+
+### 超时配置示例
+
+**细粒度超时配置：**
+
+```json
+{
+  "mcpServers": {
+    "fast-api": {
+      "transport": "http",
+      "url": "https://fast-api.example.com/mcp",
+      "connectionTimeout": 3000,
+      "requestTimeout": 10000,
+      "tags": ["api", "fast"]
+    },
+    "heavy-processor": {
+      "transport": "http",
+      "url": "https://heavy.example.com/mcp",
+      "connectionTimeout": 10000,
+      "requestTimeout": 120000,
+      "tags": ["processing", "slow"]
+    },
+    "backward-compatible": {
+      "transport": "http",
+      "url": "https://legacy.example.com/mcp",
+      "timeout": 30000,
+      "tags": ["legacy"]
+    }
+  }
+}
+```
+
+**传输特定注意事项：**
+
+- **HTTP/SSE 传输**: 由于网络延迟需要更长的连接超时时间
+- **STDIO 传输**: 通常需要较短的连接超时时间（本地进程）
+- **重试逻辑**: 失败的连接会触发 HTTP/SSE 的传输重建
+
+### 从单一超时迁移
+
+**之前（已弃用）：**
+
+```json
+{
+  "timeout": 30000
+}
+```
+
+**之后（推荐）：**
+
+```json
+{
+  "connectionTimeout": 5000,
+  "requestTimeout": 30000
 }
 ```
 

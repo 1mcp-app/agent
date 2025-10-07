@@ -213,6 +213,171 @@ describe('ClientManager', () => {
     });
   });
 
+  describe('retry logic with transport recreation', () => {
+    it('should recreate HTTP transport on retry after "already started" error', async () => {
+      // Create mock HTTP transport with URL
+      const mockHttpTransport = {
+        _url: new URL('https://example.com/mcp'),
+        oauthProvider: { token: 'test-token' },
+        timeout: 5000,
+        tags: ['test'],
+        close: vi.fn().mockResolvedValue(undefined),
+      };
+      Object.setPrototypeOf(mockHttpTransport, StreamableHTTPClientTransport.prototype);
+
+      const transportsWithHttp = {
+        'http-client': mockHttpTransport as unknown as AuthProviderTransport,
+      };
+
+      // Mock first connect to fail with typical error
+      const connectMock = vi.fn();
+      connectMock.mockRejectedValueOnce(new Error('fetch failed')); // First attempt fails
+      connectMock.mockResolvedValueOnce(undefined); // Second attempt succeeds
+
+      mockClient.connect = connectMock;
+      (mockClient.getServerVersion as unknown as MockInstance).mockResolvedValue({
+        name: 'test-server',
+        version: '1.0.0',
+      });
+
+      const clientsPromise = clientManager.createClients(transportsWithHttp);
+
+      // Advance timers to trigger retry
+      await vi.advanceTimersByTimeAsync(CONNECTION_RETRY.INITIAL_DELAY_MS);
+      await vi.runAllTimersAsync();
+
+      const clients = await clientsPromise;
+
+      expect(clients.get('http-client')!.status).toBe(ClientStatus.Connected);
+      expect(connectMock).toHaveBeenCalledTimes(2); // Original + 1 retry
+      expect(mockHttpTransport.close).toHaveBeenCalledTimes(1); // Transport closed before retry
+    });
+
+    it('should recreate SSE transport on retry after connection error', async () => {
+      // Create mock SSE transport with URL
+      const mockSseTransport = {
+        _url: new URL('https://example.com/sse'),
+        oauthProvider: { token: 'test-token' },
+        timeout: 3000,
+        tags: ['sse'],
+        close: vi.fn().mockResolvedValue(undefined),
+      };
+      Object.setPrototypeOf(mockSseTransport, SSEClientTransport.prototype);
+
+      const transportsWithSse = {
+        'sse-client': mockSseTransport as unknown as AuthProviderTransport,
+      };
+
+      // Mock first connect to fail, second to succeed
+      const connectMock = vi.fn();
+      connectMock.mockRejectedValueOnce(new Error('Connection refused'));
+      connectMock.mockResolvedValueOnce(undefined);
+
+      mockClient.connect = connectMock;
+      (mockClient.getServerVersion as unknown as MockInstance).mockResolvedValue({
+        name: 'test-server',
+        version: '1.0.0',
+      });
+
+      const clientsPromise = clientManager.createClients(transportsWithSse);
+
+      // Advance timers to trigger retry
+      await vi.advanceTimersByTimeAsync(CONNECTION_RETRY.INITIAL_DELAY_MS);
+      await vi.runAllTimersAsync();
+
+      const clients = await clientsPromise;
+
+      expect(clients.get('sse-client')!.status).toBe(ClientStatus.Connected);
+      expect(connectMock).toHaveBeenCalledTimes(2);
+      expect(mockSseTransport.close).toHaveBeenCalledTimes(1);
+    });
+
+    it('should pass timeout from transport config to client.connect', async () => {
+      const mockHttpTransport = {
+        _url: new URL('https://example.com/mcp'),
+        oauthProvider: { token: 'test-token' },
+        timeout: 10000, // Custom timeout
+        tags: ['test'],
+        close: vi.fn().mockResolvedValue(undefined),
+      };
+      Object.setPrototypeOf(mockHttpTransport, StreamableHTTPClientTransport.prototype);
+
+      const transportsWithTimeout = {
+        'timeout-client': mockHttpTransport as unknown as AuthProviderTransport,
+      };
+
+      const connectMock = vi.fn().mockResolvedValue(undefined);
+      mockClient.connect = connectMock;
+      (mockClient.getServerVersion as unknown as MockInstance).mockResolvedValue({
+        name: 'test-server',
+        version: '1.0.0',
+      });
+
+      await clientManager.createClients(transportsWithTimeout);
+      await vi.runAllTimersAsync();
+
+      // Verify timeout was passed to connect
+      expect(connectMock).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ timeout: 10000 }));
+    });
+
+    it('should use connectionTimeout for connect and fallback to timeout', async () => {
+      const mockHttpTransport = {
+        _url: new URL('https://example.com/mcp'),
+        oauthProvider: { token: 'test-token' },
+        connectionTimeout: 5000, // Specific connection timeout
+        timeout: 30000, // Fallback timeout
+        tags: ['test'],
+        close: vi.fn().mockResolvedValue(undefined),
+      };
+      Object.setPrototypeOf(mockHttpTransport, StreamableHTTPClientTransport.prototype);
+
+      const transportsWithConnectionTimeout = {
+        'connection-timeout-client': mockHttpTransport as unknown as AuthProviderTransport,
+      };
+
+      const connectMock = vi.fn().mockResolvedValue(undefined);
+      mockClient.connect = connectMock;
+      (mockClient.getServerVersion as unknown as MockInstance).mockResolvedValue({
+        name: 'test-server',
+        version: '1.0.0',
+      });
+
+      await clientManager.createClients(transportsWithConnectionTimeout);
+      await vi.runAllTimersAsync();
+
+      // Verify connectionTimeout was used, not timeout
+      expect(connectMock).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ timeout: 5000 }));
+    });
+
+    it('should fallback to timeout when connectionTimeout not specified', async () => {
+      const mockHttpTransport = {
+        _url: new URL('https://example.com/mcp'),
+        oauthProvider: { token: 'test-token' },
+        timeout: 15000, // Only timeout specified
+        tags: ['test'],
+        close: vi.fn().mockResolvedValue(undefined),
+      };
+      Object.setPrototypeOf(mockHttpTransport, StreamableHTTPClientTransport.prototype);
+
+      const transportsWithOnlyTimeout = {
+        'fallback-timeout-client': mockHttpTransport as unknown as AuthProviderTransport,
+      };
+
+      const connectMock = vi.fn().mockResolvedValue(undefined);
+      mockClient.connect = connectMock;
+      (mockClient.getServerVersion as unknown as MockInstance).mockResolvedValue({
+        name: 'test-server',
+        version: '1.0.0',
+      });
+
+      await clientManager.createClients(transportsWithOnlyTimeout);
+      await vi.runAllTimersAsync();
+
+      // Verify timeout was used as fallback
+      expect(connectMock).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ timeout: 15000 }));
+    });
+  });
+
   describe('completeOAuthAndReconnect', () => {
     it('should throw ClientNotFoundError if server not found', async () => {
       await expect(clientManager.completeOAuthAndReconnect('non-existent', 'auth-code')).rejects.toThrow(

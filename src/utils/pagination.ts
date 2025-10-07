@@ -124,7 +124,9 @@ async function fetchAllItemsForClient<T>(
   logger.info(`Fetching all items for client ${outboundConn.name}`);
 
   const items: T[] = [];
-  let result = await callClientMethod(outboundConn.client, params, { timeout: outboundConn.transport.timeout });
+  let result = await callClientMethod(outboundConn.client, params, {
+    timeout: outboundConn.transport.requestTimeout ?? outboundConn.transport.timeout,
+  });
   items.push(...transformResult(outboundConn, result));
 
   while (result.nextCursor) {
@@ -132,7 +134,7 @@ async function fetchAllItemsForClient<T>(
     result = await callClientMethod(
       outboundConn.client,
       { ...params, cursor: result.nextCursor },
-      { timeout: outboundConn.transport.timeout },
+      { timeout: outboundConn.transport.requestTimeout ?? outboundConn.transport.timeout },
     );
     items.push(...transformResult(outboundConn, result));
   }
@@ -187,7 +189,7 @@ export async function handlePagination<T>(
     const result = await callClientMethod(
       fallbackClient.client,
       clientParams, // Don't pass the invalid cursor
-      { timeout: fallbackClient.transport.timeout },
+      { timeout: fallbackClient.transport.requestTimeout ?? fallbackClient.transport.timeout },
     );
 
     const transformedItems = transformResult(fallbackClient, result);
@@ -206,7 +208,7 @@ export async function handlePagination<T>(
   const result = await callClientMethod(
     outboundConn.client,
     { ...clientParams, cursor: actualCursor },
-    { timeout: outboundConn.transport.timeout },
+    { timeout: outboundConn.transport.requestTimeout ?? outboundConn.transport.timeout },
   );
 
   const transformedItems = transformResult(outboundConn, result);

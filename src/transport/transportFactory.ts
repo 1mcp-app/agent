@@ -213,7 +213,9 @@ function assignTransport(
   transport: AuthProviderTransport,
   validatedTransport: z.infer<typeof transportConfigSchema>,
 ): void {
-  transport.timeout = validatedTransport.timeout;
+  transport.connectionTimeout = validatedTransport.connectionTimeout;
+  transport.requestTimeout = validatedTransport.requestTimeout;
+  transport.timeout = validatedTransport.timeout; // Keep for backward compatibility
   transport.tags = validatedTransport.tags;
   transports[name] = transport;
 }
