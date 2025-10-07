@@ -5,23 +5,36 @@ import { Stream } from 'node:stream';
 
 /**
  * Enhanced transport interface that includes MCP-specific properties
+ *
+ * Timeout Precedence Hierarchy:
+ * - Connection timeout: connectionTimeout > timeout (deprecated)
+ * - Request timeout: requestTimeout > timeout (deprecated)
+ *
+ * When both specific and deprecated timeouts are set, specific timeouts take precedence.
  */
 export interface EnhancedTransport extends Transport {
   /**
    * Timeout for establishing initial connection (in milliseconds)
    * Used when calling client.connect(transport, {timeout})
+   *
+   * Takes precedence over the deprecated `timeout` field for connection operations.
    */
   connectionTimeout?: number;
 
   /**
    * Timeout for individual request operations (in milliseconds)
    * Used for callTool, readResource, and other MCP operations
+   *
+   * Takes precedence over the deprecated `timeout` field for request operations.
    */
   requestTimeout?: number;
 
   /**
    * @deprecated Use connectionTimeout and requestTimeout instead
    * Fallback timeout value used for both connection and requests when specific timeouts are not set
+   *
+   * This field is maintained for backward compatibility. New code should use
+   * connectionTimeout for connection operations and requestTimeout for request operations.
    */
   timeout?: number;
 

@@ -218,7 +218,8 @@ export class ClientManager {
           throw new Error(`Connection aborted: ${abortSignal.reason || 'Request cancelled'}`);
         }
 
-        // Connect with connectionTimeout from transport config (fallback to deprecated timeout)
+        // Connect with timeout from transport config
+        // Priority: connectionTimeout > timeout (deprecated fallback)
         const authTransport = currentTransport as AuthProviderTransport;
         const timeout = authTransport.connectionTimeout ?? authTransport.timeout;
         await currentClient.connect(currentTransport, timeout ? { timeout } : undefined);
@@ -556,7 +557,8 @@ export class ClientManager {
       // 3. Create new transport using helper
       const newTransport = this.recreateHttpTransport(transport);
 
-      // 4. Create and connect new client with connectionTimeout
+      // 4. Create and connect new client with timeout
+      // Priority: connectionTimeout > timeout (deprecated fallback)
       const newClient = this.createClient();
       const timeout = newTransport.connectionTimeout ?? newTransport.timeout;
       await newClient.connect(newTransport, timeout ? { timeout } : undefined);
