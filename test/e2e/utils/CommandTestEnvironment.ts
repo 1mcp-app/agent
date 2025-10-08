@@ -81,12 +81,14 @@ export class CommandTestEnvironment {
     const baseEnv = {
       NODE_ENV: 'test',
       LOG_LEVEL: 'error', // Minimize logging during tests
+      ONE_MCP_LOG_LEVEL: 'error', // Force error-level logging for 1MCP
       ONE_MCP_CONFIG_DIR: this.getConfigDir(),
-      ONE_MCP_BACKUP_DIR: this.getBackupDir(),
-      ONE_MCP_LOG_DIR: this.getLogDir(),
-      ONE_MCP_TEST_MODE: 'true',
+      // Use different prefixes to avoid conflicts with yargs .env('ONE_MCP')
+      TEST_BACKUP_DIR: this.getBackupDir(),
+      TEST_LOG_DIR: this.getLogDir(),
+      TEST_MODE: 'true',
       // Prevent real app discovery
-      ONE_MCP_DISABLE_AUTO_DISCOVERY: 'true',
+      TEST_DISABLE_AUTO_DISCOVERY: 'true',
       ...this.config.envOverrides,
     };
 

@@ -330,16 +330,27 @@ describe('MCP Add Command E2E', () => {
       const configContent = await readFile(environment.getConfigPath(), 'utf-8');
       const config = JSON.parse(configContent);
 
+      // More detailed assertions with better error messages
+      expect(config.mcpServers).toBeDefined();
       expect(config.mcpServers['persistent-server']).toBeDefined();
+      if (!config.mcpServers['persistent-server']) {
+        throw new Error(
+          `Expected server 'persistent-server' to be found in config. Available servers: ${Object.keys(config.mcpServers || {}).join(', ')}`,
+        );
+      }
       expect(config.mcpServers['persistent-server'].command).toBe('node');
       expect(config.mcpServers['persistent-server'].args).toContain('server.js');
       expect(config.mcpServers['persistent-server'].tags).toContain('test');
     });
 
     it('should maintain existing servers when adding new ones', async () => {
-      // Get initial server count
+      // Get initial server count with better error handling
       const initialList = await runner.runMcpCommand('list');
+      runner.assertSuccess(initialList);
+
       const initialServers = (initialList.stdout.match(/🟢/g) || []).length;
+      console.log(`Initial server count: ${initialServers}`);
+      console.log(`Initial list output: ${initialList.stdout}`);
 
       // Add a new server
       await runner.runMcpCommand('add', {
@@ -348,9 +359,17 @@ describe('MCP Add Command E2E', () => {
 
       // Verify all servers are still present
       const finalList = await runner.runMcpCommand('list');
-      const finalServers = (finalList.stdout.match(/🟢/g) || []).length;
+      runner.assertSuccess(finalList);
 
-      expect(finalServers).toBe(initialServers + 1);
+      const finalServers = (finalList.stdout.match(/🟢/g) || []).length;
+      console.log(`Final server count: ${finalServers}`);
+      console.log(`Final list output: ${finalList.stdout}`);
+
+      if (finalServers !== initialServers + 1) {
+        throw new Error(
+          `Expected ${initialServers + 1} servers, but found ${finalServers}. Initial output: ${initialList.stdout}. Final output: ${finalList.stdout}`,
+        );
+      }
       runner.assertOutputContains(finalList, 'additional-server');
       runner.assertOutputContains(finalList, 'echo-server'); // Original server should still be there
     });

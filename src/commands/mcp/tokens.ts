@@ -366,7 +366,7 @@ async function collectServerCapabilities(
 
     // Connect to all servers and get their capabilities
     // Use shorter timeout for tests to improve performance
-    const timeout = process.env.NODE_ENV === 'test' ? 500 : 15000; // 0.5s for tests, 15s for normal use
+    const timeout = process.env.NODE_ENV === 'test' ? 200 : 15000; // 0.2s for tests, 15s for normal use
     const serverCapabilities = await connectionHelper.connectToServers(servers, timeout);
 
     // Convert server capabilities to token estimates

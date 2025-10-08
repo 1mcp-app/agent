@@ -258,7 +258,7 @@ export class TestFixtures {
       mockMcpServers: this.getServerList(serverScenario),
       mockApps: this.getAppList(appScenario),
       envOverrides: {
-        ONE_MCP_TEST_SCENARIO: name,
+        TEST_SCENARIO: name,
       },
     };
   }
