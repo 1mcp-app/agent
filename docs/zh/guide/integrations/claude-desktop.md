@@ -8,10 +8,11 @@
 
 最简单的方法是使用 1MCP 作为本地代理，将您现有的 MCP 服务器整合到 Claude Desktop 的配置中。此方法：
 
-- 使用 stdio 传输（无需网络设置）
-- 自动配置 Claude Desktop 以使用 1MCP
+- 使用 1MCP 代理来桥接 STDIO 和 HTTP 传输
+- 自动配置 Claude Desktop 以使用 1MCP 代理
 - 保留您现有的 MCP 服务器配置
-- 完全离线工作，无需 HTTPS/隧道要求
+- 通过全局预设启用服务器筛选
+- 在后台运行 1MCP HTTP 服务器
 
 ### 2. 远程自定义连接器（高级）
 
@@ -24,27 +25,35 @@
 
 ## 为什么将 1MCP 与 Claude Desktop 一起使用？
 
-- **直接集成**：无需本地设置即可远程连接
 - **统一访问**：通过一个端点访问多个 MCP 服务器
-- **身份验证**：内置 OAuth 2.1 支持安全连接
-- **服务器管理**：集中管理所有 MCP 工具
+- **服务器筛选**：使用预设控制可用的服务器
+- **集中管理**：在一个地方管理所有 MCP 服务器
 - **热重载**：无需重新启动 Claude Desktop 即可添加/删除服务器
+- **预设切换**：轻松切换不同的服务器配置
 
 ## 快速路径
 
 ### 选择你的方法
 
-- **本地（推荐）**：无需网络；1MCP 通过 stdio 运行并自动接入 Claude Desktop
+- **本地（推荐）**：1MCP 代理桥接 STDIO↔HTTP，支持基于预设的筛选
 - **远程（高级）**：通过 HTTPS 暴露 1MCP 并添加自定义连接器
 
 ### 本地设置（推荐）
 
-```bash
-# 可选：先添加一些服务器
-npx -y @1mcp/agent mcp add context7 -- npx -y @upstash/context7-mcp
-npx -y @1mcp/agent mcp add sequential -- npx -y @modelcontextprotocol/server-sequential-thinking
+本地方法使用两个组件：一个运行中的 1MCP HTTP 服务器和一个桥接到 Claude Desktop STDIO 传输的代理。
 
-# 将 Claude Desktop 整合为通过 stdio 使用 1MCP
+```bash
+# 1. 可选：先添加一些服务器（用标签进行筛选）
+npx -y @1mcp/agent mcp add context7 --tags=documentation,docs -- npx -y @upstash/context7-mcp
+npx -y @1mcp/agent mcp add sequential --tags=thinking,analysis -- npx -y @modelcontextprotocol/server-sequential-thinking
+
+# 2. 创建用于筛选服务器访问的预设（推荐）
+npx -y @1mcp/agent preset create claude-desktop --filter "documentation OR thinking"
+
+# 3. 在后台启动 1MCP HTTP 服务器
+npx -y @1mcp/agent serve &
+
+# 4. 将 Claude Desktop 整合为使用 1MCP 代理
 npx -y @1mcp/agent app consolidate claude-desktop --dry-run  # 预览
 npx -y @1mcp/agent app consolidate claude-desktop
 ```
@@ -55,6 +64,17 @@ npx -y @1mcp/agent app consolidate claude-desktop
 npx -y @1mcp/agent app backups claude-desktop
 npx -y @1mcp/agent app restore claude-desktop
 ```
+
+#### 全局预设配置
+
+对于服务器筛选，代理命令使用全局预设。您可以在配置 Claude Desktop 时指定要使用的预设：
+
+```bash
+# 使用特定预设测试
+npx -y @1mcp/agent proxy --preset claude-desktop
+```
+
+这样可以启用适用于所有 Claude Desktop 对话的全局服务器筛选。
 
 ## 远程自定义连接器（高级）
 
@@ -174,14 +194,17 @@ npx -y @1mcp/agent serve --transport http --port 3001 --host 0.0.0.0 --external-
    cat "~/Library/Application Support/Claude/claude_desktop_config.json"
    ```
 
-3. **测试 1MCP 服务器**：确认 1MCP 正常工作
+3. **测试 1MCP 组件**：确认 HTTP 服务器和代理都正常工作
 
    ```bash
    # 检查服务器状态
    npx -y @1mcp/agent mcp status
 
-   # 测试 stdio 传输
-   echo '{"jsonrpc": "2.0","id": 1,"method": "initialize","params": {"protocolVersion": "2025-06-18","capabilities": {},"clientInfo": {"name": "ExampleClient","title": "Example Client Display Name","version": "1.0.0"}}}' | npx -y @1mcp/agent serve --transport stdio
+   # 启动 HTTP 服务器（如果未运行）
+   npx -y @1mcp/agent serve &
+
+   # 在另一个终端中测试代理命令
+   npx -y @1mcp/agent proxy --log-level=debug
    ```
 
 #### “整合失败”错误
@@ -212,7 +235,7 @@ npx -y @1mcp/agent serve --transport http --port 3001 --host 0.0.0.0 --external-
    npx -y @1mcp/agent app consolidate claude-desktop --force
    ```
 
-#### “配置备份失败”错误
+#### "配置备份失败"错误
 
 **症状**：无法创建现有配置的备份。
 
@@ -225,6 +248,68 @@ npx -y @1mcp/agent serve --transport http --port 3001 --host 0.0.0.0 --external-
    ```bash
    npx -y @1mcp/agent app consolidate claude-desktop --force --backup-only
    ```
+
+#### 代理连接问题
+
+**症状**：Claude Desktop 显示连接错误或整合后工具未出现。
+
+**解决方案**：
+
+1. **验证 HTTP 服务器正在运行**：代理需要运行中的 1MCP HTTP 服务器
+
+   ```bash
+   # 检查服务器是否正在运行
+   curl http://localhost:3050/health
+
+   # 启动服务器（如果未运行）
+   npx -y @1mcp/agent serve &
+   ```
+
+2. **直接测试代理命令**：验证代理可以连接到服务器
+
+   ```bash
+   # 使用调试日志测试代理
+   npx -y @1mcp/agent proxy --log-level=debug
+   ```
+
+3. **验证预设和标签**：确保服务器具有与预设筛选器匹配的标签
+
+   ```bash
+   # 列出服务器及其标签
+   npx -y @1mcp/agent mcp list
+
+   # 检查预设包含哪些服务器
+   npx -y @1mcp/agent preset show claude-desktop
+   ```
+
+4. **使用预设测试代理**：验证代理与指定的预设一起工作
+
+   ```bash
+   # 使用 Claude Desktop 中使用的预设测试代理
+   npx -y @1mcp/agent proxy --preset claude-desktop --log-level=debug
+   ```
+
+#### 服务器发现问题
+
+**症状**：代理无法找到运行中的 1MCP HTTP 服务器。
+
+**解决方案**：
+
+1. **检查常用端口**：代理默认扫描端口 3050、3051、3052
+
+   ```bash
+   # 查看常用端口上运行的内容
+   netstat -an | grep -E ':(3050|3051|3052)'
+   ```
+
+2. **手动指定服务器 URL**：覆盖自动发现
+
+   ```bash
+   # 使用特定服务器 URL 测试代理
+   npx -y @1mcp/agent proxy --url http://localhost:3050/mcp
+   ```
+
+3. **检查防火墙**：确保本地防火墙没有阻止连接
 
 ### 远程自定义连接器问题
 
@@ -337,10 +422,11 @@ npx -y @1mcp/agent serve --transport http --port 3001 --tags "context7,sequentia
 
 ### 本地
 
-- 先发现 → `app discover`
-- 先预览 → `--dry-run`
-- 自动备份
-- 整合后重启 Claude Desktop
+- 先启动 HTTP 服务器 → `serve`（使用默认端口 3050）
+- 创建用于服务器筛选的预设 → `preset create`
+- 在代理命令中使用 `--preset` 参数进行筛选
+- 预览整合 → `--dry-run`
+- 自动备份；整合后重启 Claude Desktop
 - 保持 agent 更新；用 `mcp status` 监控
 
 ### 远程
@@ -357,20 +443,26 @@ npx -y @1mcp/agent serve --transport http --port 3001 --tags "context7,sequentia
 # 1. 安装 1MCP 代理
 npm install -g @1mcp/agent
 
-# 2. 添加一些常用 MCP 服务器
-npx -y @1mcp/agent mcp add context7 -- npx -y @upstash/context7-mcp
-npx -y @1mcp/agent mcp add sequential -- npx -y @modelcontextprotocol/server-sequential-thinking
-npx -y @1mcp/agent mcp add playwright -- npx -y @playwright/mcp
+# 2. 添加一些常用 MCP 服务器（带标签用于筛选）
+npx -y @1mcp/agent mcp add context7 --tags=documentation,docs -- npx -y @upstash/context7-mcp
+npx -y @1mcp/agent mcp add sequential --tags=thinking,analysis -- npx -y @modelcontextprotocol/server-sequential-thinking
+npx -y @1mcp/agent mcp add playwright --tags=browser,testing -- npx -y @playwright/mcp
 
-# 3. 预览整合
+# 3. 为 Claude Desktop 创建预设
+npx -y @1mcp/agent preset create claude-desktop --filter "documentation OR thinking OR browser"
+
+# 4. 启动 1MCP HTTP 服务器
+npx -y @1mcp/agent serve
+
+# 5. 在另一个终端中预览整合
 npx -y @1mcp/agent app consolidate claude-desktop --dry-run
 
-# 4. 执行整合
+# 6. 执行整合
 npx -y @1mcp/agent app consolidate claude-desktop
 
-# 5. 重启 Claude Desktop
+# 7. 重启 Claude Desktop
 
-# 6. 验证工具可用
+# 8. 验证工具可用
 npx -y @1mcp/agent mcp status
 ```
 
@@ -381,10 +473,38 @@ npx -y @1mcp/agent mcp status
   "mcpServers": {
     "1mcp": {
       "command": "npx",
-      "args": ["-y", "@1mcp/agent", "serve", "--transport", "stdio"]
+      "args": ["-y", "@1mcp/agent", "proxy", "--preset", "claude-desktop"]
     }
   }
 }
+```
+
+#### 使用自定义预设
+
+您可以在配置 Claude Desktop 时指定任何预设：
+
+```json
+{
+  "mcpServers": {
+    "1mcp": {
+      "command": "npx",
+      "args": ["-y", "@1mcp/agent", "proxy", "--preset", "my-custom-preset"]
+    }
+  }
+}
+```
+
+为不同用例创建不同的预设：
+
+```bash
+# 开发预设
+npx -y @1mcp/agent preset create dev --filter "filesystem OR git OR testing"
+
+# 文档预设
+npx -y @1mcp/agent preset create docs --filter "documentation OR writing"
+
+# 分析预设
+npx -y @1mcp/agent preset create analysis --filter "data OR thinking"
 ```
 
 ### 远程 + ngrok
@@ -445,11 +565,11 @@ npx -y @1mcp/agent serve --transport http --port 3001 --enable-auth --external-u
 
 ### 选择**本地配置整合**如果：
 
-- ✅ 你想要最简单的设置
+- ✅ 你想要基于预设的服务器筛选
 - ✅ 你在本机使用 Claude Desktop
 - ✅ 你不需要远程访问
-- ✅ 你希望离线可用
-- ✅ 你不想处理 HTTPS/隧道
+- ✅ 你想要集中式服务器管理
+- ✅ 你更喜欢使用代理桥接 HTTP 服务器到 Claude Desktop
 
 ### 选择**远程自定义连接器**如果：
 
@@ -461,7 +581,8 @@ npx -y @1mcp/agent serve --transport http --port 3001 --enable-auth --external-u
 
 ## 后续步骤
 
-- 了解[身份验证配置](/guide/advanced/authentication)
-- 探索[服务器筛选选项](/guide/advanced/server-filtering)
+- 了解[代理命令](/commands/proxy)的详细配置选项
+- 探索[服务器筛选选项](/guide/advanced/server-filtering)中的预设和标签
 - 为你的 MCP 服务器设置[服务器管理](/guide/essentials/server-management)
 - 配置[应用整合](./app-consolidation)以便无缝管理其他应用
+- 了解[身份验证配置](/guide/advanced/authentication)用于远程设置
