@@ -1,4 +1,5 @@
 import winston from 'winston';
+import chalk from 'chalk';
 
 // Map MCP log levels to Winston log levels
 const MCP_TO_WINSTON_LEVEL: Record<string, string> = {
@@ -11,6 +12,14 @@ const MCP_TO_WINSTON_LEVEL: Record<string, string> = {
   critical: 'error',
   alert: 'error',
   emergency: 'error',
+};
+
+// Color mapping for log levels
+const LEVEL_COLORS: Record<string, (text: string) => string> = {
+  debug: chalk.gray,
+  info: chalk.blue,
+  warn: chalk.yellow,
+  error: chalk.red,
 };
 
 // Custom format for console and file output
@@ -27,7 +36,13 @@ const consoleFormat = winston.format.combine(
   winston.format.printf(({ timestamp, level, message, ...meta }) => {
     const keys = Object.keys(meta);
     const metaStr = keys.length > 0 ? ` ${keys.map((key) => `${key}=${JSON.stringify(meta[key])}`).join(' ')}` : '';
-    return `${timestamp} [${level.toUpperCase()}] message=${JSON.stringify(message)}${metaStr}`;
+
+    // Colorize timestamp and level
+    const colorizedTimestamp = chalk.gray(timestamp);
+    const colorFn = LEVEL_COLORS[level] || ((text: string) => text);
+    const colorizedLevel = colorFn(`[${level.toUpperCase()}]`);
+
+    return `${colorizedTimestamp} ${colorizedLevel} message=${JSON.stringify(message)}${metaStr}`;
   }),
 );
 
