@@ -7,6 +7,7 @@
 ### 主要命令
 
 - **`serve`** - 启动 1MCP 服务器 (默认命令)
+- **`proxy`** - 启动 STDIO 代理连接到运行中的 1MCP HTTP 服务器
 - **`app`** - 管理桌面应用程序 MCP 配置
 - **`mcp`** - 管理 MCP 服务器配置
 - **`preset`** - 管理用于动态过滤的服务器预设
@@ -78,6 +79,16 @@ npx -y @1mcp/agent serve --port=3052                # 在自定义端口上启�
 npx -y @1mcp/agent serve --transport=stdio          # 使用 stdio 传输
 ```
 
+### [Proxy 命令](./proxy)
+
+启动 STDIO 代理，将仅支持 STDIO 传输的 MCP 客户端连接到运行中的 1MCP HTTP 服务器。
+
+```bash
+npx -y @1mcp/agent proxy                            # 自动发现并连接
+npx -y @1mcp/agent proxy --url http://localhost:3051/mcp  # 连接到特定 URL
+npx -y @1mcp/agent proxy --filter "web,api"         # 使用标签过滤连接
+```
+
 ## 入门
 
 如果您是 1MCP Agent 的新手，请从以下内容开始：
@@ -98,6 +109,9 @@ npx -y @1mcp/agent serve
 
 # 添加一个新的 MCP 服务器
 npx -y @1mcp/agent mcp add filesystem --type=stdio --command=mcp-server-filesystem
+
+# 为仅支持 STDIO 的客户端启动 STDIO 代理
+npx -y @1mcp/agent proxy --filter "filesystem,editing"
 
 # 整合 Claude Desktop 配置
 npx -y @1mcp/agent app consolidate claude-desktop

@@ -1,0 +1,16 @@
+{
+  // Project-level configuration for 1MCP proxy command
+  // Place this file in your project directory to set default connection settings
+
+  // Priority: preset > filter > tags (only one will be used)
+
+  // Option 1: Use a preset configuration (highest priority)
+  "preset": "my-preset",
+
+  // Option 2: Use a filter expression (medium priority)
+  // "filter": "web AND database",
+
+  // Option 3: Use simple tags (lowest priority)
+  // "tags": ["web", "api", "database"],
+  // "tags": "web,api,database"  // String format also supported
+}

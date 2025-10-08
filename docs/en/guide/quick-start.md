@@ -16,8 +16,9 @@ Get 1MCP running in 5 minutes with a basic configuration.
     {
       "mcpServers": {
         "filesystem": {
-          "command": ["npx", "-y", "@modelcontextprotocol/server-filesystem", "/tmp"],
-          "description": "File system access"
+          "command": "npx",
+          "args": ["-y", "@modelcontextprotocol/server-filesystem", "/tmp"],
+          "tags": ["local", "files"]
         }
       }
     }
@@ -36,10 +37,37 @@ Get 1MCP running in 5 minutes with a basic configuration.
 
 That's it! Your 1MCP proxy is now running and aggregating MCP servers.
 
+## Project Configuration
+
+**For MCP clients that only support STDIO transport** (like Claude Desktop), you can use project configuration to streamline proxy connections.
+
+### When to Use Project Configuration
+
+Use `.1mcprc` when your MCP client:
+
+- Cannot connect to HTTP/SSE endpoints directly
+- Only supports STDIO transport
+- Needs to connect to a running 1MCP server
+
+**Prerequisites**: You must have a 1MCP server running (`npx -y @1mcp/agent serve`) for the proxy to connect to.
+
+For projects that regularly use the proxy command, create a `.1mcprc` file to set default connection settings:
+
+```bash
+# Create project configuration with preset
+echo '{"preset": "my-setup"}' > .1mcprc
+
+# Now simply run:
+npx -y @1mcp/agent proxy
+```
+
+We recommend using presets for better configuration management. See the [Proxy Command](/commands/proxy) documentation for details.
+
 ## Next Steps
 
 - [Enable Authentication](/guide/advanced/authentication) for production use
 - [Add More Servers](/guide/essentials/configuration) to expand capabilities
+- [Configure Project Settings](/commands/proxy#project-configuration-1mcprc) for team collaboration
 
 ## Common Issues
 

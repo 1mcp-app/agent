@@ -19,6 +19,7 @@ docs/.vitepress/cache
 .qwen/
 mcp.json
 .mcp.json
+.1mcprc
 
 
 /.ai
