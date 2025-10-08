@@ -2,6 +2,7 @@ import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import { JSONRPCMessage } from '@modelcontextprotocol/sdk/types.js';
 import logger, { debugIf } from '../logger/logger.js';
+import { MCP_SERVER_VERSION } from '@src/constants.js';
 
 /**
  * STDIO Proxy Transport Options
@@ -44,7 +45,13 @@ export class StdioProxyTransport {
       url.searchParams.set('tags', this.options.tags.join(','));
     }
 
-    this.httpTransport = new StreamableHTTPClientTransport(url);
+    this.httpTransport = new StreamableHTTPClientTransport(url, {
+      requestInit: {
+        headers: {
+          'User-Agent': `1MCP-Proxy/${MCP_SERVER_VERSION}`,
+        },
+      },
+    });
   }
 
   /**

@@ -10,7 +10,7 @@ import logger, { debugIf } from '../logger/logger.js';
 import { AuthProviderTransport, transportConfigSchema } from '../core/types/index.js';
 import { MCPServerParams } from '../core/types/index.js';
 import { OAuthClientConfig, SDKOAuthClientProvider } from '../auth/sdkOAuthClientProvider.js';
-import { AUTH_CONFIG } from '../constants.js';
+import { AUTH_CONFIG, MCP_SERVER_VERSION } from '../constants.js';
 import { AgentConfigManager } from '../core/server/agentConfig.js';
 import { processEnvironment } from '../utils/envProcessor.js';
 import { RestartableStdioTransport } from './restartableStdioTransport.js';
@@ -112,7 +112,10 @@ function createHTTPTransport(
 
   const httpOptions: StreamableHTTPClientTransportOptions = {
     requestInit: {
-      headers: validatedTransport.headers,
+      headers: {
+        ...validatedTransport.headers,
+        'User-Agent': `1MCP/${MCP_SERVER_VERSION}`,
+      },
     },
   };
 
