@@ -202,10 +202,6 @@ function setupGracefulShutdown(
  */
 export async function serveCommand(parsedArgv: ServeOptions): Promise<void> {
   try {
-    if (parsedArgv.transport !== 'stdio' && !parsedArgv['log-file']) {
-      displayLogo();
-    }
-
     // Initialize ConfigContext with CLI options
     const configContext = ConfigContext.getInstance();
     if (parsedArgv.config) {
@@ -218,13 +214,30 @@ export async function serveCommand(parsedArgv: ServeOptions): Promise<void> {
 
     // Initialize MCP config manager using resolved config path
     const configFilePath = configContext.getResolvedConfigPath();
-    McpConfigManager.getInstance(configFilePath);
+    const mcpConfigManager = McpConfigManager.getInstance(configFilePath);
 
-    // Configure server settings from CLI arguments
-    const serverConfigManager = AgentConfigManager.getInstance();
+    // Get server count for logo display
+    const transportConfig = mcpConfigManager.getTransportConfig();
+    const serverCount = Object.keys(transportConfig).length;
 
     // Handle backward compatibility for auth flag
     const authEnabled = parsedArgv['enable-auth'] ?? parsedArgv['auth'] ?? false;
+
+    // Display logo with runtime information (skip for stdio or when logging to file)
+    if (parsedArgv.transport !== 'stdio' && !parsedArgv['log-file']) {
+      displayLogo({
+        transport: parsedArgv.transport,
+        port: parsedArgv.port,
+        host: parsedArgv.host,
+        serverCount,
+        authEnabled,
+        logLevel: parsedArgv['log-level'],
+        configDir: getConfigDir(parsedArgv['config-dir']),
+      });
+    }
+
+    // Configure server settings from CLI arguments
+    const serverConfigManager = AgentConfigManager.getInstance();
     const scopeValidationEnabled = parsedArgv['enable-scope-validation'] ?? authEnabled;
     const enhancedSecurityEnabled = parsedArgv['enable-enhanced-security'] ?? false;
 
