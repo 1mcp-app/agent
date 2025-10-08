@@ -102,7 +102,7 @@ For more information: https://docs.1mcp.app/guide/commands#proxy
       const { proxyCommand } = await import('./proxy.js');
 
       // Configure logger with global options
-      configureGlobalLogger(argv);
+      configureGlobalLogger(argv, 'stdio');
 
       // Execute proxy command
       await proxyCommand(argv as ProxyOptions);
