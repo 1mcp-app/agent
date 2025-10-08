@@ -23,6 +23,83 @@ npx -y @1mcp/agent proxy [选项]
 3. **环境变量** - 使用 `ONE_MCP_HOST` 和 `ONE_MCP_PORT`
 4. **用户覆盖** - 使用 `--url` 选项指定的 URL
 
+## 项目配置（.1mcprc）
+
+您可以在项目目录中创建名为 `.1mcprc` 的项目级配置文件，为代理命令设置默认连接设置。这允许您避免重复命令行选项，并在团队成员之间共享配置。
+
+### 先决条件
+
+**项目配置专门为满足以下条件的 MCP 客户端设计：**
+
+- **不支持** HTTP 或 SSE（Server-Sent Events）传输
+- **仅支持** STDIO 传输（如 Claude Desktop）
+- **需要通过代理**连接到运行中的 1MCP HTTP 服务器
+
+**必需设置：**
+
+1. **运行中的 1MCP 服务器**：必须在某个端口上运行 `npx -y @1mcp/agent serve`
+2. **MCP 客户端限制**：客户端无法直接连接到 HTTP/SSE 端点
+3. **桥接需求**：需要代理来转换 STDIO ↔ HTTP 通信
+
+对于可以直接连接到 HTTP/SSE 端点的 MCP 客户端，**不需要**此配置。
+
+### 配置优先级
+
+设置按以下顺序加载（高优先级覆盖低优先级）：
+
+1. **命令行选项**（最高优先级）
+2. **项目配置文件**（`.1mcprc`）
+3. **默认值**（最低优先级）
+
+### 配置结构
+
+在项目目录中创建 `.1mcprc` 文件：
+
+```json
+{
+  // 1MCP 代理命令的项目级配置
+  // 使用预设进行团队协作和配置管理
+
+  "preset": "my-preset"
+}
+```
+
+### 推荐方法
+
+我们建议使用预设以获得更好的配置管理和团队协作：
+
+1. **创建预设**用于不同环境（开发、生产、测试）
+2. **与团队成员共享预设**以获得一致的配置
+3. **轻松切换环境**，只需更改预设名称
+
+### 配置示例
+
+#### 开发环境
+
+```json
+{
+  "preset": "dev-environment"
+}
+```
+
+#### 生产环境设置
+
+```json
+{
+  "preset": "production"
+}
+```
+
+#### 测试环境
+
+```json
+{
+  "preset": "testing"
+}
+```
+
+从项目根目录复制 `.1mcprc.example` 文件作为起始模板。
+
 ## 选项
 
 ### 连接选项
@@ -63,7 +140,8 @@ npx -y @1mcp/agent proxy [选项]
 
 1. `--filter` 选项（最高优先级）
 2. 预设标签查询（如果指定了 `--preset`）
-3. 无过滤（暴露所有服务器）
+3. `.1mcprc` 配置文件（仅预设）
+4. 无过滤（暴露所有服务器）
 
 ## 示例
 
@@ -78,6 +156,9 @@ npx -y @1mcp/agent proxy --log-level=debug
 
 # 使用自定义配置目录进行发现
 npx -y @1mcp/agent proxy --config-dir=./test-config
+
+# 使用项目配置文件（.1mcprc）
+npx -y @1mcp/agent proxy
 ```
 
 ### 特定服务器连接
@@ -127,6 +208,11 @@ npx -y @1mcp/agent proxy \
   --url http://localhost:3051/mcp \
   --filter "filesystem,editing" \
   --timeout=15000
+
+# 在开发中使用项目配置
+# 创建包含开发预设的 .1mcprc 文件
+echo '{"preset": "dev-setup"}' > .1mcprc
+npx -y @1mcp/agent proxy
 ```
 
 ## 身份验证注意事项

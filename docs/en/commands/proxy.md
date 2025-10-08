@@ -23,6 +23,83 @@ The proxy automatically discovers running 1MCP servers in this order:
 3. **Environment Variables** - Uses `ONE_MCP_HOST` and `ONE_MCP_PORT`
 4. **User Override** - Uses URL specified with `--url` option
 
+## Project Configuration (.1mcprc)
+
+You can create a project-level configuration file named `.1mcprc` in your project directory to set default connection settings for the proxy command. This allows you to avoid repeating command-line options and share configuration across team members.
+
+### Prerequisites
+
+**Project configuration is specifically designed for MCP clients that:**
+
+- **Do not support** HTTP or SSE (Server-Sent Events) transport
+- **Only support** STDIO transport (like Claude Desktop)
+- **Need to connect** to a running 1MCP HTTP server via proxy
+
+**Required setup:**
+
+1. **Running 1MCP server**: Must have `npx -y @1mcp/agent serve` running on a port
+2. **MCP client limitations**: Client cannot directly connect to HTTP/SSE endpoints
+3. **Bridge requirement**: Need proxy to translate STDIO ↔ HTTP communications
+
+This configuration is **not needed** for MCP clients that can directly connect to HTTP/SSE endpoints.
+
+### Configuration Priority
+
+Settings are loaded in this order (higher priority overrides lower):
+
+1. **Command-line options** (highest priority)
+2. **Project configuration file** (`.1mcprc`)
+3. **Default values** (lowest priority)
+
+### Configuration Structure
+
+Create a `.1mcprc` file in your project directory:
+
+```json
+{
+  // Project-level configuration for 1MCP proxy command
+  // Use preset for team collaboration and configuration management
+
+  "preset": "my-preset"
+}
+```
+
+### Recommended Approach
+
+We recommend using presets for better configuration management and team collaboration:
+
+1. **Create presets** for different environments (development, production, testing)
+2. **Share presets** with team members for consistent configurations
+3. **Switch environments** easily by changing the preset name
+
+### Example Configurations
+
+#### Development Environment
+
+```json
+{
+  "preset": "dev-environment"
+}
+```
+
+#### Production Setup
+
+```json
+{
+  "preset": "production"
+}
+```
+
+#### Testing Environment
+
+```json
+{
+  "preset": "testing"
+}
+```
+
+Copy `.1mcprc.example` from the project root as a starting template.
+
 ## Options
 
 ### Connection Options
@@ -63,7 +140,8 @@ Use the `--filter` option to limit which MCP servers are exposed through the pro
 
 1. `--filter` option (highest priority)
 2. Preset tag query (if `--preset` specified)
-3. No filtering (expose all servers)
+3. `.1mcprc` configuration file (preset only)
+4. No filtering (expose all servers)
 
 ## Examples
 
@@ -78,6 +156,9 @@ npx -y @1mcp/agent proxy --log-level=debug
 
 # Use custom config directory for discovery
 npx -y @1mcp/agent proxy --config-dir=./test-config
+
+# Use project configuration file (.1mcprc)
+npx -y @1mcp/agent proxy
 ```
 
 ### Specific Server Connection
@@ -127,6 +208,11 @@ npx -y @1mcp/agent proxy \
   --url http://localhost:3051/mcp \
   --filter "filesystem,editing" \
   --timeout=15000
+
+# Use project configuration in development
+# Create .1mcprc file with your dev preset
+echo '{"preset": "dev-setup"}' > .1mcprc
+npx -y @1mcp/agent proxy
 ```
 
 ## Authentication Considerations
