@@ -10,27 +10,26 @@ const mockLoadingManager = {
   })),
 };
 
-// Mock ServerManager before any imports
-vi.mock('../../../src/core/server/serverManager.js', () => ({
-  ServerManager: {
-    current: {
-      getClient: vi.fn(),
-    },
+// Mock ClientManager before any imports
+const mockCompleteOAuthAndReconnect = vi.fn().mockResolvedValue(undefined);
+const mockClientManagerInstance = {
+  completeOAuthAndReconnect: mockCompleteOAuthAndReconnect,
+};
+vi.mock('../../../src/core/client/clientManager.js', () => ({
+  ClientManager: {
+    getOrCreateInstance: vi.fn(() => mockClientManagerInstance),
   },
 }));
+
+// Import after mocking to ensure mock is applied
+import { createOAuthRoutes } from '../../../src/transport/http/routes/oauthRoutes.js';
+import { LoadingState } from '../../../src/core/loading/loadingStateTracker.js';
 
 describe('HTTP OAuth Notifications E2E', () => {
   let processManager: TestProcessManager;
   let configBuilder: ConfigBuilder;
 
   // Test utilities
-  const createMockTransport = () => ({
-    start: vi.fn().mockResolvedValue(undefined),
-    send: vi.fn().mockResolvedValue(undefined),
-    close: vi.fn().mockResolvedValue(undefined),
-    finishAuth: vi.fn().mockResolvedValue(undefined),
-  });
-
   const createMockRequest = (serverName: string, queryParams: Record<string, string>) => ({
     params: { serverName },
     query: queryParams,
@@ -56,13 +55,16 @@ describe('HTTP OAuth Notifications E2E', () => {
     // Arrange - Reset all test state
     processManager = new TestProcessManager();
     configBuilder = new ConfigBuilder();
-    vi.resetAllMocks();
+    vi.clearAllMocks(); // Use clearAllMocks instead of resetAllMocks to preserve mock implementations
 
     // Reset the loading manager mock
     mockUpdateServerState.mockClear();
     mockLoadingManager.getStateTracker.mockReturnValue({
       updateServerState: mockUpdateServerState,
     });
+
+    // Reset the ClientManager mock
+    mockCompleteOAuthAndReconnect.mockClear();
   });
 
   afterEach(async () => {
@@ -72,34 +74,19 @@ describe('HTTP OAuth Notifications E2E', () => {
 
   it('should trigger LoadingStateTracker update when OAuth callback succeeds', async () => {
     // Arrange
-    const { createOAuthRoutes } = await import('../../../src/transport/http/routes/oauthRoutes.js');
-    const { LoadingState } = await import('../../../src/core/loading/loadingStateTracker.js');
-    const { ClientStatus } = await import('../../../src/core/types/index.js');
-    const { ServerManager } = await import('../../../src/core/server/serverManager.js');
-
-    const mockGetClient = vi.mocked(ServerManager.current.getClient);
     const mockOAuthProvider = {} as any;
     const router = createOAuthRoutes(mockOAuthProvider, mockLoadingManager as any);
     const callbackRoute = findOAuthCallbackRoute(router);
 
     const mockRequest = createMockRequest('test-oauth-server', { code: 'auth-code-123' });
     const mockResponse = createMockResponse();
-    const mockTransport = createMockTransport();
-    const mockClientInfo = {
-      name: 'test-oauth-server',
-      transport: mockTransport,
-      client: {} as any,
-      status: ClientStatus.AwaitingOAuth,
-    };
-
-    mockGetClient.mockReturnValue(mockClientInfo);
 
     // Act
     const mockNext = vi.fn() as unknown as NextFunction;
     await callbackRoute.route.stack[0].handle(mockRequest, mockResponse, mockNext);
 
     // Assert
-    expect(mockTransport.finishAuth).toHaveBeenCalledWith('auth-code-123');
+    expect(mockCompleteOAuthAndReconnect).toHaveBeenCalledWith('test-oauth-server', 'auth-code-123');
     expect(mockResponse.redirect).toHaveBeenCalledWith('/oauth?success=1');
     expect(mockLoadingManager.getStateTracker).toHaveBeenCalled();
     expect(mockUpdateServerState).toHaveBeenCalledWith('test-oauth-server', LoadingState.Ready);
@@ -107,7 +94,6 @@ describe('HTTP OAuth Notifications E2E', () => {
 
   it('should not update LoadingStateTracker when OAuth callback fails', async () => {
     // Arrange
-    const { createOAuthRoutes } = await import('../../../src/transport/http/routes/oauthRoutes.js');
     const mockOAuthProvider = {} as any;
     const router = createOAuthRoutes(mockOAuthProvider, mockLoadingManager as any);
     const callbackRoute = findOAuthCallbackRoute(router);
@@ -126,33 +112,19 @@ describe('HTTP OAuth Notifications E2E', () => {
 
   it('should complete OAuth flow successfully without loading manager', async () => {
     // Arrange
-    const { createOAuthRoutes } = await import('../../../src/transport/http/routes/oauthRoutes.js');
-    const { ClientStatus } = await import('../../../src/core/types/index.js');
-    const { ServerManager } = await import('../../../src/core/server/serverManager.js');
-
-    const mockGetClient = vi.mocked(ServerManager.current.getClient);
     const mockOAuthProvider = {} as any;
     const router = createOAuthRoutes(mockOAuthProvider, undefined);
     const callbackRoute = findOAuthCallbackRoute(router);
 
     const mockRequest = createMockRequest('test-oauth-server', { code: 'auth-code-123' });
     const mockResponse = createMockResponse();
-    const mockTransport = createMockTransport();
-    const mockClientInfo = {
-      name: 'test-oauth-server',
-      transport: mockTransport,
-      client: {} as any,
-      status: ClientStatus.AwaitingOAuth,
-    };
-
-    mockGetClient.mockReturnValue(mockClientInfo);
 
     // Act
     const mockNext = vi.fn() as unknown as NextFunction;
     await callbackRoute.route.stack[0].handle(mockRequest, mockResponse, mockNext);
 
     // Assert
-    expect(mockTransport.finishAuth).toHaveBeenCalledWith('auth-code-123');
+    expect(mockCompleteOAuthAndReconnect).toHaveBeenCalledWith('test-oauth-server', 'auth-code-123');
     expect(mockResponse.redirect).toHaveBeenCalledWith('/oauth?success=1');
     expect(mockLoadingManager.getStateTracker).not.toHaveBeenCalled();
   });
