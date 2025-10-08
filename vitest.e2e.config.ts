@@ -11,13 +11,9 @@ export default defineConfig({
     testTimeout: 60000, // 60 seconds for E2E tests
     hookTimeout: 30000, // 30 seconds for setup/teardown
 
-    // Run tests sequentially to avoid port conflicts
-    pool: 'forks',
-    poolOptions: {
-      forks: {
-        singleFork: true,
-      },
-    },
+    // Enable file-level parallelism for faster execution
+    fileParallelism: true,
+    maxConcurrency: 2,
 
     // Retry failed tests once (flaky network/timing issues)
     retry: 1,

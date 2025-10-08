@@ -74,6 +74,7 @@
     "test:e2e": "vitest run --config vitest.e2e.config.ts",
     "test:e2e:watch": "vitest --config vitest.e2e.config.ts",
     "test:e2e:coverage": "vitest run --config vitest.e2e.config.ts --coverage",
+    "test:e2e:performance": "node scripts/test-e2e-performance.js",
     "docs:dev": "vitepress dev docs",
     "docs:build": "vitepress build docs",
     "docs:preview": "vitepress preview docs",
