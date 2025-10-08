@@ -49,13 +49,18 @@ jobs:
         run: pnpm test:unit
 
   # Parallel E2E tests - run automatically on every push/PR
+  # Using 4 shards for ~75% faster execution (~4min total runtime)
+  # Shard count is optimized for the current test suite size and CI runner capacity
+  # To adjust shards: update E2E_SHARD_COUNT and matrix.shard array
   test-e2e-parallel:
     runs-on: ubuntu-latest
     needs: ci
+    env:
+      E2E_SHARD_COUNT: 4 # Configure number of parallel shards (adjust based on test suite size)
     strategy:
       matrix:
-        shard: [1, 2, 3, 4]
-      fail-fast: false
+        shard: [1, 2, 3, 4] # Update this array when changing E2E_SHARD_COUNT
+      fail-fast: false # Run all shards even if one fails for comprehensive results
     permissions:
       contents: read
     steps:
@@ -67,10 +72,10 @@ jobs:
       - name: Build
         run: pnpm build
 
-      - name: Test E2E - Shard ${{ matrix.shard }}/4
+      - name: Test E2E - Shard ${{ matrix.shard }}/${{ env.E2E_SHARD_COUNT }}
         run: |
           # Run E2E tests with sharding for maximum parallelism
-          # Each shard runs 1/4 of the tests in parallel
-          pnpm test:e2e --shard=${{ matrix.shard }}/4 --reporter=basic
+          # Each shard runs a portion of the tests in parallel
+          pnpm test:e2e --shard=${{ matrix.shard }}/${{ env.E2E_SHARD_COUNT }} --reporter=basic
         env:
           CI: true

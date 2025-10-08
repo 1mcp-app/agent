@@ -195,25 +195,32 @@ describe('Command Workflows Integration E2E', () => {
         args: ['claude-desktop', '--backup-only', '--force'],
       });
       runner.assertSuccess(consolidateResult);
-      // In CI (especially on Linux), Claude Desktop may not have config files
-      // Check for either backup message OR no config files message
-      const hasBackupMessage = consolidateResult.stdout.includes('Backup will be created');
-      const hasNoConfigMessage = consolidateResult.stdout.includes('No configuration files found');
-      const hasSkippedMessage = consolidateResult.stdout.includes('Skipped: 1');
-      expect(hasBackupMessage || hasNoConfigMessage || hasSkippedMessage).toBe(true);
 
-      // Step 3: Perform full consolidation with backup
+      // Validate the output based on whether config files exist
+      // In CI environments (especially Linux), Claude Desktop may not have config files
+      if (consolidateResult.stdout.includes('No configuration files found')) {
+        // No config files scenario - verify appropriate messaging
+        runner.assertOutputContains(consolidateResult, 'No configuration files found');
+      } else if (consolidateResult.stdout.includes('Skipped: 1')) {
+        // Application skipped scenario - verify skipped count
+        runner.assertOutputContains(consolidateResult, 'Skipped: 1');
+      } else {
+        // Config files exist - verify backup will be created
+        runner.assertOutputContains(consolidateResult, 'Backup will be created');
+      }
+
+      // Step 3: Perform full consolidation with dry-run (non-destructive)
       const fullConsolidateResult = await runner.runAppCommand('consolidate', {
         args: ['claude-desktop', '--dry-run', '--force'],
       });
-      // Note: This is a dry-run, so should succeed even if no apps are found
+      // Dry-run should always succeed regardless of whether apps/configs exist
       runner.assertSuccess(fullConsolidateResult);
 
       // Step 4: Verify consolidation status
       const statusAfterConsolidate = await runner.runAppCommand('status');
       runner.assertSuccess(statusAfterConsolidate);
 
-      // Step 5: List backups to see if any were created
+      // Step 5: List backups to verify no changes (since we only did dry-run)
       const finalBackupsResult = await runner.runAppCommand('backups');
       runner.assertSuccess(finalBackupsResult);
     });

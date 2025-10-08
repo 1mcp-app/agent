@@ -2,12 +2,16 @@
 
 /**
  * Script to test E2E performance improvements
- * Tests both sequential and parallel execution
+ * Tests both sequential and parallel execution with statistical analysis
  */
 
 const { execSync } = require('child_process');
-const fs = require('fs');
+const fs = require('fs').promises;
+const fsSync = require('fs');
 
+/**
+ * Run a command and measure its execution time
+ */
 function runCommand(command, description) {
   console.log(`\n🚀 ${description}`);
   console.log(`Running: ${command}`);
@@ -31,7 +35,10 @@ function runCommand(command, description) {
   }
 }
 
-function createTemporaryConfig(workerCount) {
+/**
+ * Create a temporary vitest configuration with specified worker count
+ */
+async function createTemporaryConfig(workerCount) {
   const configPath = 'vitest.e2e.temp.config.ts';
   const configContent = `
 import { defineConfig } from 'vitest/config';
@@ -74,94 +81,218 @@ export default defineConfig({
 });
 `;
 
-  fs.writeFileSync(configPath, configContent);
+  await fs.writeFile(configPath, configContent, 'utf8');
   return configPath;
 }
 
-function cleanup(configPath) {
-  if (fs.existsSync(configPath)) {
-    fs.unlinkSync(configPath);
+/**
+ * Clean up temporary configuration file
+ */
+async function cleanup(configPath) {
+  try {
+    // Check if file exists before attempting deletion
+    if (fsSync.existsSync(configPath)) {
+      await fs.unlink(configPath);
+    }
+  } catch (error) {
+    // Ignore ENOENT errors (file doesn't exist)
+    if (error.code !== 'ENOENT') {
+      console.warn(`Warning: Failed to cleanup ${configPath}: ${error.message}`);
+    }
   }
 }
 
+/**
+ * Calculate statistical metrics for a set of durations
+ */
+function calculateStats(durations) {
+  if (durations.length === 0) return null;
+
+  const sum = durations.reduce((a, b) => a + b, 0);
+  const mean = sum / durations.length;
+
+  if (durations.length === 1) {
+    return { mean, stddev: 0, min: mean, max: mean };
+  }
+
+  const variance = durations.reduce((acc, val) => acc + Math.pow(val - mean, 2), 0) / durations.length;
+  const stddev = Math.sqrt(variance);
+  const min = Math.min(...durations);
+  const max = Math.max(...durations);
+
+  return { mean, stddev, min, max };
+}
+
+/**
+ * Run performance tests with multiple iterations for statistical analysis
+ */
 async function main() {
   console.log('🔬 Testing E2E Performance Improvements');
   console.log('=====================================');
 
   const results = [];
+  const iterations = process.env.PERF_ITERATIONS ? parseInt(process.env.PERF_ITERATIONS, 10) : 1;
+
+  console.log(`Running ${iterations} iteration(s) for each configuration\n`);
 
   // Test 1: Sequential (baseline)
-  const sequentialConfig = createTemporaryConfig(1);
-  const sequentialResult = runCommand(
-    'pnpm build && pnpm test:e2e --config vitest.e2e.temp.config.ts',
-    'Sequential execution (1 worker, baseline)',
-  );
-  results.push({ name: 'Sequential', ...sequentialResult });
-  cleanup(sequentialConfig);
+  console.log('\n📊 Test 1: Sequential Execution (Baseline)');
+  let sequentialConfig;
+  try {
+    sequentialConfig = await createTemporaryConfig(1);
+    const sequentialDurations = [];
+
+    for (let i = 0; i < iterations; i++) {
+      if (iterations > 1) console.log(`\nIteration ${i + 1}/${iterations}`);
+      const result = runCommand(
+        'pnpm build && pnpm test:e2e --config vitest.e2e.temp.config.ts',
+        'Sequential execution (1 worker, baseline)',
+      );
+      if (result.success) {
+        sequentialDurations.push(result.duration);
+      }
+    }
+
+    const stats = calculateStats(sequentialDurations);
+    results.push({
+      name: 'Sequential',
+      success: sequentialDurations.length > 0,
+      stats,
+      iterations: sequentialDurations.length,
+    });
+  } finally {
+    if (sequentialConfig) {
+      await cleanup(sequentialConfig);
+    }
+  }
 
   // Test 2: Multi-worker (fast strategy)
-  const multiWorkerConfig = createTemporaryConfig(4);
-  const multiWorkerResult = runCommand(
-    'pnpm test:e2e --config vitest.e2e.temp.config.ts',
-    'Multi-worker execution (4 workers, fast strategy)',
-  );
-  results.push({ name: 'Multi-worker', ...multiWorkerResult });
-  cleanup(multiWorkerConfig);
+  console.log('\n📊 Test 2: Multi-Worker Execution');
+  let multiWorkerConfig;
+  try {
+    multiWorkerConfig = await createTemporaryConfig(4);
+    const multiWorkerDurations = [];
+
+    for (let i = 0; i < iterations; i++) {
+      if (iterations > 1) console.log(`\nIteration ${i + 1}/${iterations}`);
+      const result = runCommand(
+        'pnpm test:e2e --config vitest.e2e.temp.config.ts',
+        'Multi-worker execution (4 workers, fast strategy)',
+      );
+      if (result.success) {
+        multiWorkerDurations.push(result.duration);
+      }
+    }
+
+    const stats = calculateStats(multiWorkerDurations);
+    results.push({
+      name: 'Multi-worker',
+      success: multiWorkerDurations.length > 0,
+      stats,
+      iterations: multiWorkerDurations.length,
+    });
+  } finally {
+    if (multiWorkerConfig) {
+      await cleanup(multiWorkerConfig);
+    }
+  }
 
   // Test 3: Sharding simulation (run 1/4 of tests)
-  console.log('\n🔀 Testing sharding performance...');
-  const shardConfig = createTemporaryConfig(2);
-  const shardResult = runCommand(
-    'pnpm test:e2e --config vitest.e2e.temp.config.ts --shard=1/4',
-    'Sharded execution (1/4 of tests, simulated parallel strategy)',
-  );
-  cleanup(shardConfig);
+  console.log('\n📊 Test 3: Sharded Execution (CI Simulation)');
+  let shardConfig;
+  try {
+    shardConfig = await createTemporaryConfig(2);
+    const shardDurations = [];
 
-  // Calculate estimated full time for sharding
-  if (shardResult.success) {
-    const estimatedFullTime = shardResult.duration * 4;
-    results.push({
-      name: 'Sharded (estimated)',
-      success: true,
-      duration: estimatedFullTime,
-      note: '1/4 execution time multiplied by 4',
-    });
-  } else {
-    results.push({ name: 'Sharded (estimated)', success: false, duration: 0 });
+    for (let i = 0; i < iterations; i++) {
+      if (iterations > 1) console.log(`\nIteration ${i + 1}/${iterations}`);
+      const result = runCommand(
+        'pnpm test:e2e --config vitest.e2e.temp.config.ts --shard=1/4',
+        'Sharded execution (1/4 of tests, simulated parallel strategy)',
+      );
+      if (result.success) {
+        shardDurations.push(result.duration);
+      }
+    }
+
+    // Calculate estimated full time for sharding (multiply by 4 since we ran 1/4)
+    if (shardDurations.length > 0) {
+      const estimatedStats = calculateStats(shardDurations.map((d) => d * 4));
+      results.push({
+        name: 'Sharded (estimated)',
+        success: true,
+        stats: estimatedStats,
+        iterations: shardDurations.length,
+        note: '1/4 execution time × 4 (parallel shards)',
+      });
+    } else {
+      results.push({ name: 'Sharded (estimated)', success: false, stats: null, iterations: 0 });
+    }
+  } finally {
+    if (shardConfig) {
+      await cleanup(shardConfig);
+    }
   }
 
   // Summary
   console.log('\n📊 Performance Results Summary');
-  console.log('===============================');
+  console.log('===============================\n');
 
   const baseline = results.find((r) => r.name === 'Sequential');
-  if (baseline && baseline.success) {
+
+  if (baseline && baseline.success && baseline.stats) {
+    // Print baseline
+    console.log(`${baseline.name}:`);
+    console.log(`  Mean: ${baseline.stats.mean.toFixed(0)}ms (${(baseline.stats.mean / 1000).toFixed(2)}s)`);
+    if (baseline.iterations > 1) {
+      console.log(`  Std Dev: ±${baseline.stats.stddev.toFixed(0)}ms`);
+      console.log(`  Range: ${baseline.stats.min.toFixed(0)}ms - ${baseline.stats.max.toFixed(0)}ms`);
+    }
+    console.log(`  Iterations: ${baseline.iterations}\n`);
+
+    // Print comparisons
     results.forEach((result) => {
-      if (result.success && result.name !== 'Sequential') {
-        const improvement = (((baseline.duration - result.duration) / baseline.duration) * 100).toFixed(1);
-        const speedup = (baseline.duration / result.duration).toFixed(2);
-        console.log(
-          `${result.name}: ${result.duration}ms (${speedup}x faster, ${improvement}% improvement) ${result.note ? `(${result.note})` : ''}`,
-        );
-      } else if (result.success) {
-        console.log(`${result.name}: ${result.duration}ms (baseline)`);
+      if (result.success && result.name !== 'Sequential' && result.stats) {
+        const improvement = (((baseline.stats.mean - result.stats.mean) / baseline.stats.mean) * 100).toFixed(1);
+        const speedup = (baseline.stats.mean / result.stats.mean).toFixed(2);
+
+        console.log(`${result.name}:`);
+        console.log(`  Mean: ${result.stats.mean.toFixed(0)}ms (${(result.stats.mean / 1000).toFixed(2)}s)`);
+        if (result.iterations > 1) {
+          console.log(`  Std Dev: ±${result.stats.stddev.toFixed(0)}ms`);
+          console.log(`  Range: ${result.stats.min.toFixed(0)}ms - ${result.stats.max.toFixed(0)}ms`);
+        }
+        console.log(`  Speedup: ${speedup}x faster (${improvement}% improvement)`);
+        if (result.note) {
+          console.log(`  Note: ${result.note}`);
+        }
+        console.log(`  Iterations: ${result.iterations}\n`);
+      } else if (!result.success) {
+        console.log(`${result.name}: Failed ❌\n`);
+      }
+    });
+  } else {
+    console.log('❌ Baseline sequential test failed, cannot calculate improvements\n');
+    results.forEach((result) => {
+      if (result.success && result.stats) {
+        console.log(`${result.name}: ${result.stats.mean.toFixed(0)}ms (${(result.stats.mean / 1000).toFixed(2)}s)`);
       } else {
         console.log(`${result.name}: Failed ❌`);
       }
     });
-  } else {
-    console.log('❌ Baseline sequential test failed, cannot calculate improvements');
-    results.forEach((result) => {
-      console.log(`${result.name}: ${result.success ? `${result.duration}ms` : 'Failed ❌'}`);
-    });
   }
 
   console.log('\n💡 Recommendations:');
-  console.log('- Use "Fast" strategy for most CI runs (multi-worker, single job)');
-  console.log('- Use "Parallel" strategy for maximum speed (sharding, multiple jobs)');
-  console.log('- Sequential execution provides baseline comparison');
+  console.log('- Use "Multi-worker" strategy for local development (4 workers, single job)');
+  console.log('- Use "Sharded" strategy for CI/CD (4 parallel jobs, ~4min runtime)');
+  console.log('- Sequential execution provides baseline for comparison');
+  console.log('\n📝 To run multiple iterations for statistical analysis:');
+  console.log('   PERF_ITERATIONS=3 node scripts/test-e2e-performance.js');
 }
 
 if (require.main === module) {
-  main().catch(console.error);
+  main().catch((error) => {
+    console.error('Fatal error:', error);
+    process.exit(1);
+  });
 }
