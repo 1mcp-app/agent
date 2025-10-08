@@ -5,6 +5,25 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.24.0] - 2025-10-08
+
+### 🚀 Features
+- Enhance CI/CD with parallel E2E testing and performance optimizations by @xizhibei in [#145](https://github.com/1mcp-app/agent/pull/145)
+- Connect STDIO MCP clients to 1MCP HTTP server with auto-discovery by @xizhibei in [#143](https://github.com/1mcp-app/agent/pull/143)
+- Enhance OAuth flow with reconnect and capability discovery by @xizhibei in [#141](https://github.com/1mcp-app/agent/pull/141)
+- Enhance command validation and error handling by @xizhibei
+
+### 🐛 Bug Fixes
+- Update template variables for connected servers by @xizhibei
+
+### 🚜 Refactor
+- Clarify timeout handling in ClientManager by @xizhibei in [#142](https://github.com/1mcp-app/agent/pull/142)
+
+### ⚙️ Miscellaneous Tasks
+- Update .gitignore to include claudedocs and exclude xnotes by @xizhibei
+- Add tag trigger for documentation deployment workflow by @xizhibei
+
+
 ## [0.23.2] - 2025-09-22
 
 ### 🚀 Features
@@ -713,6 +732,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 * @xizhibei made their first contribution in [#1](https://github.com/1mcp-app/agent/pull/1)
 * @dependabot[bot] made their first contribution
 
+[0.24.0]: https://github.com/1mcp-app/agent/compare/v0.23.2..v0.24.0
 [0.23.2]: https://github.com/1mcp-app/agent/compare/v0.23.1..v0.23.2
 [0.23.1]: https://github.com/1mcp-app/agent/compare/v0.23.0..v0.23.1
 [0.23.0]: https://github.com/1mcp-app/agent/compare/v0.22.3..v0.23.0

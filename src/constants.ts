@@ -19,7 +19,7 @@ export const HEALTH_ENDPOINT = '/health';
 export const MCP_CONFIG_FILE = 'mcp.json';
 export const MCP_INSTRUCTIONS_TEMPLATE_FILE = 'instructions-template.md';
 export const MCP_SERVER_NAME = '1mcp';
-export const MCP_SERVER_VERSION = '0.23.2';
+export const MCP_SERVER_VERSION = '0.24.0';
 
 export const MCP_URI_SEPARATOR = '_1mcp_';
 
