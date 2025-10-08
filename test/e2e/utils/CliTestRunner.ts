@@ -34,7 +34,12 @@ export class CliTestRunner {
    * Execute a CLI command with the given arguments
    */
   async runCommand(command: string, subcommand: string, options: CommandExecutionOptions = {}): Promise<CommandResult> {
-    const args = [command, subcommand];
+    const args = [command];
+
+    // Only add subcommand if it's not empty (for interactive mode)
+    if (subcommand && subcommand.trim() !== '') {
+      args.push(subcommand);
+    }
 
     // Add user-specified args first
     if (options.args) {

@@ -58,9 +58,9 @@ describe('MCP List Command E2E', () => {
       try {
         const result = await emptyRunner.runMcpCommand('list');
 
-        runner.assertSuccess(result);
-        runner.assertOutputContains(result, 'No MCP servers are configured');
-        runner.assertOutputContains(result, 'Use "server add <name>" to add your first server');
+        emptyRunner.assertSuccess(result);
+        emptyRunner.assertOutputContains(result, 'No MCP servers are configured');
+        emptyRunner.assertOutputContains(result, 'Use "server add <name>" to add your first server');
       } finally {
         await emptyEnv.cleanup();
       }
@@ -157,9 +157,9 @@ describe('MCP List Command E2E', () => {
           args: ['--verbose'],
         });
 
-        runner.assertSuccess(result);
-        runner.assertOutputContains(result, 'Type: stdio');
-        runner.assertOutputContains(result, 'Type: http');
+        complexRunner.assertSuccess(result);
+        complexRunner.assertOutputContains(result, 'Type: stdio');
+        complexRunner.assertOutputContains(result, 'Type: http');
       } finally {
         await complexEnv.cleanup();
       }
@@ -176,8 +176,8 @@ describe('MCP List Command E2E', () => {
           args: ['--verbose'],
         });
 
-        runner.assertSuccess(result);
-        runner.assertOutputContains(result, 'URL: http://');
+        complexRunner.assertSuccess(result);
+        complexRunner.assertOutputContains(result, 'URL: http://');
       } finally {
         await complexEnv.cleanup();
       }
@@ -380,9 +380,9 @@ describe('MCP List Command E2E', () => {
       try {
         const result = await singleRunner.runMcpCommand('list');
 
-        runner.assertSuccess(result);
-        runner.assertOutputContains(result, '1 server)'); // Singular form
-        runner.assertOutputContains(result, 'Total: 1 server'); // Singular form
+        singleRunner.assertSuccess(result);
+        singleRunner.assertOutputContains(result, '1 server)'); // Singular form
+        singleRunner.assertOutputContains(result, 'Total: 1 server'); // Singular form
       } finally {
         await singleEnv.cleanup();
       }

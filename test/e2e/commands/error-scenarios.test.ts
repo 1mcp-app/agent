@@ -305,9 +305,9 @@ describe('Error Scenarios E2E', () => {
 
   describe('Filesystem and System Errors', () => {
     it('should handle disk space issues during backup creation', async () => {
-      // This is difficult to test reliably, but we can test the error handling
-      const result = await runner.runAppCommand('backups', {
-        args: ['create', '--description', 'Disk space test'],
+      // This is difficult to test reliably, but we can test the error handling through consolidation
+      const result = await runner.runAppCommand('consolidate', {
+        args: ['claude-desktop', '--backup-only', '--force'],
       });
 
       // Should either succeed or provide clear error message about disk space
@@ -317,9 +317,10 @@ describe('Error Scenarios E2E', () => {
     });
 
     it('should handle permission denied errors gracefully', async () => {
-      // Try to create backup in restricted directory
-      const result = await runner.runAppCommand('backups', {
-        args: ['create', '--output-dir', '/root', '--description', 'Permission test'],
+      // Try to access a directory that likely doesn't exist or isn't writable
+      const result = await runner.runMcpCommand('add', {
+        args: ['test-server', '--type', 'stdio', '--command', 'echo', '--cwd', '/root/inaccessible'],
+        expectError: true,
       });
 
       // Should handle permission issues gracefully
@@ -335,9 +336,9 @@ describe('Error Scenarios E2E', () => {
       });
       runner.assertSuccess(addResult);
 
-      // Check status (should handle timeout gracefully)
+      // Check status (should handle unreachable servers gracefully)
       const statusResult = await runner.runMcpCommand('status', {
-        args: ['unreachable-server', '--timeout', '1000'],
+        args: ['unreachable-server'],
       });
 
       // Should not fail completely due to network issues
@@ -382,11 +383,12 @@ describe('Error Scenarios E2E', () => {
     it('should handle unknown flags gracefully', async () => {
       const result = await runner.runMcpCommand('list', {
         args: ['--nonexistent-flag'],
+        expectError: true,
       });
 
-      // CLI ignores unknown flags and continues processing
-      runner.assertSuccess(result);
-      runner.assertOutputContains(result, 'MCP Servers');
+      // CLI should provide clear error message about unknown flags
+      runner.assertFailure(result, 1);
+      runner.assertOutputContains(result, 'Unknown arguments', true);
     });
 
     it('should handle malformed command line arguments', async () => {

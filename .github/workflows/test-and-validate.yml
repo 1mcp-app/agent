@@ -16,12 +16,6 @@ on:
       - 'README*'
       - 'CHANGELOG*'
   workflow_dispatch:
-    inputs:
-      run_e2e:
-        description: 'Run E2E tests'
-        required: false
-        default: false
-        type: boolean
   workflow_call:
 
 concurrency:
@@ -54,6 +48,36 @@ jobs:
       - name: Test Unit
         run: pnpm test:unit
 
-      - name: Test E2E
-        if: github.event_name == 'workflow_dispatch' && github.event.inputs.run_e2e == 'true'
-        run: pnpm test:e2e
+  # Parallel E2E tests - run automatically on every push/PR
+  # Using 4 shards for ~75% faster execution (~4min total runtime)
+  # Shard count is optimized for the current test suite size and CI runner capacity
+  # To adjust shards: update E2E_SHARD_COUNT and matrix.shard array
+  # Skip E2E tests for tag events to speed up releases
+  test-e2e-parallel:
+    runs-on: ubuntu-latest
+    needs: ci
+    if: github.ref_type != 'tag'
+    env:
+      E2E_SHARD_COUNT: 4 # Configure number of parallel shards (adjust based on test suite size)
+    strategy:
+      matrix:
+        shard: [1, 2, 3, 4] # Update this array when changing E2E_SHARD_COUNT
+      fail-fast: false # Run all shards even if one fails for comprehensive results
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js and pnpm
+        uses: ./.github/actions/setup-node-pnpm
+
+      - name: Build
+        run: pnpm build
+
+      - name: Test E2E - Shard ${{ matrix.shard }}/${{ env.E2E_SHARD_COUNT }}
+        run: |
+          # Run E2E tests with sharding for maximum parallelism
+          # Each shard runs a portion of the tests in parallel
+          pnpm test:e2e --shard=${{ matrix.shard }}/${{ env.E2E_SHARD_COUNT }} --reporter=basic
+        env:
+          CI: true

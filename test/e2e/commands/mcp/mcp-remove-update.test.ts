@@ -85,7 +85,7 @@ describe('MCP Remove & Update Commands E2E', () => {
 
     it('should require confirmation for removal', async () => {
       const result = await runner.runMcpCommand('remove', {
-        args: ['echo-server', '--force'],
+        args: ['echo-server'],
       });
 
       runner.assertSuccess(result);

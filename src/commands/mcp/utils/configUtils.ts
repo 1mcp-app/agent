@@ -110,7 +110,20 @@ export function getServer(serverName: string): MCPServerParams | null {
  * Add or update a server in the configuration
  */
 export function setServer(serverName: string, serverConfig: MCPServerParams): void {
-  const config = loadConfig();
+  const configContext = ConfigContext.getInstance();
+  const filePath = configContext.getResolvedConfigPath();
+
+  let config: ServerConfig;
+
+  // Check if config file exists before trying to load it
+  if (!fs.existsSync(filePath)) {
+    // Create a new config if it doesn't exist
+    config = { mcpServers: {} };
+  } else {
+    // Load existing config (will throw on invalid JSON or other errors)
+    config = loadConfig();
+  }
+
   config.mcpServers[serverName] = serverConfig;
   saveConfig(config);
 }

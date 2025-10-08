@@ -26,8 +26,6 @@ function runCli(
     ...process.env,
     ...options.env,
     // Force extremely fast failures and disable retries
-    ONE_MCP_CONNECTION_TIMEOUT: '100',
-    ONE_MCP_RETRY_ATTEMPTS: '0',
     ONE_MCP_LOG_LEVEL: 'error',
     NODE_ENV: 'test',
   };
