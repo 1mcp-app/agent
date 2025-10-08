@@ -17,6 +17,7 @@ export interface ProxyOptions {
   timeout?: number;
   filter?: string;
   preset?: string;
+  tags?: string[];
 }
 
 /**
@@ -54,8 +55,8 @@ export function setupProxyCommand(yargs: Argv): Argv {
         .example([
           ['$0 proxy', 'Auto-discover and connect to running 1MCP server'],
           ['$0 proxy --url http://localhost:3051/mcp', 'Connect to specific server URL'],
-          ['$0 proxy --filter "web,api"', 'Connect with tag filtering'],
-          ['$0 proxy --preset my-preset', 'Load URL and filters from preset'],
+          ['$0 proxy --filter "web,api"', 'Connect with filter expression'],
+          ['$0 proxy --preset my-preset', 'Connect using preset configuration'],
           ['$0 proxy --config-dir .tmp-test', 'Use custom config directory for discovery'],
         ]).epilogue(`
 AUTO-DISCOVERY:
@@ -64,6 +65,18 @@ AUTO-DISCOVERY:
   2. Port scanning on common ports (3050, 3051, 3052)
   3. Environment variables (ONE_MCP_HOST, ONE_MCP_PORT)
 
+PROJECT CONFIGURATION (.1mcprc):
+  Create a .1mcprc file in your project directory to set default connection settings:
+
+  {
+    "preset": "my-preset",    // Use preset configuration
+    "filter": "web,api",      // Or use filter expression
+    "tags": ["web", "api"]    // Or use simple tags
+  }
+
+  Priority: CLI options > .1mcprc > defaults
+  Only one of preset/filter/tags will be used (preset > filter > tags)
+
 USAGE:
   This command provides a STDIO interface for MCP clients that only support
   STDIO transport. It proxies all requests to a centralized 1MCP HTTP server.
@@ -71,10 +84,10 @@ USAGE:
   Before using the proxy, ensure a 1MCP server is running:
     1mcp serve
 
-TAG FILTERING:
-  Use --filter to limit which MCP servers are exposed:
-  • Simple: "web,api,database" (OR logic)
-  • Advanced: "web AND database" or "(web OR api) AND database"
+FILTERING OPTIONS (priority order):
+  1. --preset <name>      Use preset configuration (highest priority)
+  2. --filter <expr>      Filter expression for server selection
+  3. --tags <tag1,tag2>   Simple comma-separated tags (lowest priority)
 
 AUTHENTICATION:
   STDIO transport does not support OAuth authentication. Since the server

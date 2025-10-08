@@ -8,6 +8,8 @@ import logger, { debugIf } from '../logger/logger.js';
  */
 export interface StdioProxyTransportOptions {
   serverUrl: string;
+  preset?: string;
+  filter?: string;
   tags?: string[];
   timeout?: number;
 }
@@ -33,8 +35,12 @@ export class StdioProxyTransport {
     // Create Streamable HTTP client transport (for HTTP server communication)
     const url = new URL(this.options.serverUrl);
 
-    // Add tags to URL if provided
-    if (this.options.tags && this.options.tags.length > 0) {
+    // Apply priority: preset > filter > tags (only one will be added)
+    if (this.options.preset) {
+      url.searchParams.set('preset', this.options.preset);
+    } else if (this.options.filter) {
+      url.searchParams.set('filter', this.options.filter);
+    } else if (this.options.tags && this.options.tags.length > 0) {
       url.searchParams.set('tags', this.options.tags.join(','));
     }
 
@@ -139,6 +145,10 @@ export class StdioProxyTransport {
       return;
     }
 
+    // Set isConnected to false immediately to prevent re-entry
+    // when transport close handlers trigger onclose events
+    this.isConnected = false;
+
     try {
       debugIf('Closing STDIO proxy transport');
 
@@ -148,7 +158,6 @@ export class StdioProxyTransport {
       // Close STDIO transport
       await this.stdioTransport.close();
 
-      this.isConnected = false;
       logger.info('STDIO proxy closed');
     } catch (error) {
       logger.error(`Error closing STDIO proxy: ${error}`);

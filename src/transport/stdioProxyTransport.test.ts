@@ -215,6 +215,45 @@ describe('StdioProxyTransport', () => {
       // Should not throw, error should be logged
       await expect(proxy.close()).resolves.not.toThrow();
     });
+
+    it('should not cause infinite recursion when onclose handlers trigger', async () => {
+      proxy = new StdioProxyTransport({
+        serverUrl: 'http://localhost:3050/mcp',
+      });
+
+      await proxy.start();
+
+      // Track how many times the actual cleanup logic runs
+      let cleanupExecutions = 0;
+
+      // Make transports trigger their onclose handlers when close() is called
+      const httpCloseMock = vi.fn(async () => {
+        cleanupExecutions++;
+        // Simulate real transport behavior: trigger onclose when closed
+        if (proxy['httpTransport'].onclose) {
+          await proxy['httpTransport'].onclose();
+        }
+      });
+
+      const stdioCloseMock = vi.fn(async () => {
+        cleanupExecutions++;
+        // Simulate real transport behavior: trigger onclose when closed
+        if (proxy['stdioTransport'].onclose) {
+          await proxy['stdioTransport'].onclose();
+        }
+      });
+
+      proxy['httpTransport'].close = httpCloseMock;
+      proxy['stdioTransport'].close = stdioCloseMock;
+
+      // This should not cause stack overflow or throw error
+      await expect(proxy.close()).resolves.not.toThrow();
+
+      // Cleanup should execute exactly once (both transports closed once)
+      expect(httpCloseMock).toHaveBeenCalledTimes(1);
+      expect(stdioCloseMock).toHaveBeenCalledTimes(1);
+      expect(cleanupExecutions).toBe(2); // One for http, one for stdio
+    });
   });
 
   describe('transport lifecycle handlers', () => {
