@@ -101,7 +101,7 @@ describe('appDiscovery', () => {
 
       try {
         // Mock the getAppConfigPaths to return our test path
-        const { getAppConfigPaths } = await import('@src/utils/discovery/appPresets.js');
+        const { getAppConfigPaths } = await import('@src/domains/discovery/appPresets.js');
         const _originalGetConfigPaths = getAppConfigPaths;
 
         // We need to create a minimal test since checkConsolidationStatus depends on app discovery

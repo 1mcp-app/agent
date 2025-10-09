@@ -2,10 +2,10 @@ import { ServerCapabilities } from '@modelcontextprotocol/sdk/types.js';
 
 import { ClientStatus } from '@src/core/types/client.js';
 import { InboundConnectionConfig, OutboundConnection, OutboundConnections } from '@src/core/types/index.js';
+import { TagQueryEvaluator } from '@src/domains/preset/parsers/tagQueryEvaluator.js';
+import { TagExpression, TagQueryParser } from '@src/domains/preset/parsers/tagQueryParser.js';
+import { TagQuery } from '@src/domains/preset/types/presetTypes.js';
 import logger, { debugIf } from '@src/logger/logger.js';
-import { TagQuery } from '@src/utils/config/presetTypes.js';
-import { TagQueryEvaluator } from '@src/utils/parsing/tagQueryEvaluator.js';
-import { TagExpression, TagQueryParser } from '@src/utils/parsing/tagQueryParser.js';
 import { normalizeTag } from '@src/utils/validation/sanitization.js';
 
 /**

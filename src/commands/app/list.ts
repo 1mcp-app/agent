@@ -1,10 +1,10 @@
-import { GlobalOptions } from '@src/globalOptions.js';
 import {
   APP_PRESETS,
   getConfigurableApps,
   getManualOnlyApps,
   showPlatformWarningIfNeeded,
-} from '@src/utils/discovery/appPresets.js';
+} from '@src/domains/discovery/appPresets.js';
+import { GlobalOptions } from '@src/globalOptions.js';
 
 import type { Argv } from 'yargs';
 

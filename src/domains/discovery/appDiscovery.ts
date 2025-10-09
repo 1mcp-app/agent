@@ -1,6 +1,6 @@
 import fs from 'fs';
 
-import { getAppConfigPaths, getAppPreset, isAppConfigurable } from '@src/utils/discovery/appPresets.js';
+import { getAppConfigPaths, getAppPreset, isAppConfigurable } from '@src/domains/discovery/appPresets.js';
 
 import JSON5 from 'json5';
 
@@ -451,7 +451,7 @@ export async function discoverInstalledApps(): Promise<{
   const configurableApps = [];
   const manualOnlyApps = [];
 
-  const { APP_PRESETS } = await import('@src/utils/discovery/appPresets.js');
+  const { APP_PRESETS } = await import('@src/domains/discovery/appPresets.js');
   for (const [appName, preset] of Object.entries(APP_PRESETS)) {
     if (preset.configurable) {
       const discovery = await discoverAppConfigs(appName);

@@ -1,6 +1,7 @@
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
 
+import configReloadService from '@src/application/services/configReloadService.js';
 import { setupCapabilities } from '@src/core/capabilities/capabilityManager.js';
 import { InstructionAggregator } from '@src/core/instructions/instructionAggregator.js';
 import type { OutboundConnection } from '@src/core/types/client.js';
@@ -11,10 +12,12 @@ import {
   OutboundConnections,
   ServerStatus,
 } from '@src/core/types/index.js';
+import {
+  type ClientConnection,
+  PresetNotificationService,
+} from '@src/domains/preset/services/presetNotificationService.js';
 import logger, { debugIf } from '@src/logger/logger.js';
 import { enhanceServerWithLogging } from '@src/logger/mcpLoggingEnhancer.js';
-import configReloadService from '@src/services/configReloadService.js';
-import { type ClientConnection, PresetNotificationService } from '@src/utils/config/presetNotificationService.js';
 import { executeOperation } from '@src/utils/core/operationExecution.js';
 
 export class ServerManager {

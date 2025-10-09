@@ -8,12 +8,12 @@ import {
 } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 
 import { OAuthClientConfig, SDKOAuthClientProvider } from '@src/auth/sdkOAuthClientProvider.js';
+import { processEnvironment } from '@src/config/envProcessor.js';
 import { AUTH_CONFIG, MCP_SERVER_VERSION } from '@src/constants.js';
 import { AgentConfigManager } from '@src/core/server/agentConfig.js';
 import { AuthProviderTransport, transportConfigSchema } from '@src/core/types/index.js';
 import { MCPServerParams } from '@src/core/types/index.js';
 import logger, { debugIf } from '@src/logger/logger.js';
-import { processEnvironment } from '@src/utils/config/envProcessor.js';
 
 import { z, ZodError } from 'zod';
 

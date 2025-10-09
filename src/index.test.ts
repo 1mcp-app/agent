@@ -75,7 +75,7 @@ describe('Index Module', () => {
     });
 
     it('should have services available', async () => {
-      const configReloadService = await import('./services/configReloadService.js');
+      const configReloadService = await import('./application/services/configReloadService.js');
       expect(typeof configReloadService.default).toBe('object');
       expect(typeof configReloadService.default.stop).toBe('function');
     });
@@ -210,7 +210,7 @@ describe('Index Module', () => {
         '@modelcontextprotocol/sdk/server/stdio.js',
         './server.js',
         '@src/logger/logger.js',
-        './services/configReloadService.js',
+        './application/services/configReloadService.js',
         './core/server/serverManager.js',
         '@src/config/mcpConfigManager.js',
         './transport/http/server.js',

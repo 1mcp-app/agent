@@ -1,8 +1,8 @@
 import readline from 'readline';
 
+import { findBackupByMetaPath, listAppBackups, rollbackFromBackupPath } from '@src/domains/backup/backupManager.js';
+import { getAppPreset, isAppSupported } from '@src/domains/discovery/appPresets.js';
 import { GlobalOptions } from '@src/globalOptions.js';
-import { getAppPreset, isAppSupported } from '@src/utils/discovery/appPresets.js';
-import { findBackupByMetaPath, listAppBackups, rollbackFromBackupPath } from '@src/utils/management/backupManager.js';
 
 import type { Argv } from 'yargs';
 

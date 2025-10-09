@@ -2,17 +2,17 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { ServerCapabilities } from '@modelcontextprotocol/sdk/types.js';
 
 import {
+  setupClientToServerNotifications,
+  setupServerToClientNotifications,
+} from '@src/core/protocol/notificationHandlers.js';
+import { registerRequestHandlers } from '@src/core/protocol/requestHandlers.js';
+import {
   ClientStatus,
   InboundConnection,
   OutboundConnection,
   OutboundConnections,
   ServerStatus,
 } from '@src/core/types/index.js';
-import {
-  setupClientToServerNotifications,
-  setupServerToClientNotifications,
-} from '@src/handlers/notificationHandlers.js';
-import { registerRequestHandlers } from '@src/handlers/requestHandlers.js';
 import logger from '@src/logger/logger.js';
 
 import { beforeEach, describe, expect, it, MockInstance, vi } from 'vitest';
@@ -30,12 +30,12 @@ vi.mock('@src/logger/logger.js', () => ({
   },
 }));
 
-vi.mock('../../handlers/notificationHandlers.js', () => ({
+vi.mock('@src/core/protocol/notificationHandlers.js', () => ({
   setupClientToServerNotifications: vi.fn(),
   setupServerToClientNotifications: vi.fn(),
 }));
 
-vi.mock('../../handlers/requestHandlers.js', () => ({
+vi.mock('@src/core/protocol/requestHandlers.js', () => ({
   registerRequestHandlers: vi.fn(),
 }));
 

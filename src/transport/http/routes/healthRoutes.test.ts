@@ -1,4 +1,4 @@
-import { HealthStatus } from '@src/services/healthService.js';
+import { HealthStatus } from '@src/application/services/healthService.js';
 
 import express from 'express';
 import request from 'supertest';
@@ -16,7 +16,7 @@ vi.mock('@src/logger/logger.js', () => ({
   },
 }));
 
-vi.mock('@src/services/healthService.js', () => {
+vi.mock('@src/application/services/healthService.js', () => {
   const mockHealthService = {
     getInstance: vi.fn(),
     performHealthCheck: vi.fn(),
@@ -59,7 +59,7 @@ describe('Health Routes', () => {
     app.use('/health', createHealthRoutes());
 
     // Get mock health service
-    const { HealthService } = await import('../../../services/healthService.js');
+    const { HealthService } = await import('../../../application/services/healthService.js');
     mockHealthService = HealthService.getInstance();
   });
 

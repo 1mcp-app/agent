@@ -1,5 +1,5 @@
 import type { InboundConnectionConfig, OutboundConnections } from '@src/core/types/index.js';
-import { TagQueryParser } from '@src/utils/parsing/tagQueryParser.js';
+import { TagQueryParser } from '@src/domains/preset/parsers/tagQueryParser.js';
 
 import { beforeEach, describe, expect, it } from 'vitest';
 

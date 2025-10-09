@@ -155,7 +155,7 @@ For more information: https://github.com/1mcp-app/agent
         `);
     },
     async (argv) => {
-      const { configureGlobalLogger } = await import('@src/utils/core/configureGlobalLogger.js');
+      const { configureGlobalLogger } = await import('@src/logger/configureGlobalLogger.js');
       const { serveCommand } = await import('./serve.js');
 
       // Configure logger with global options and transport awareness

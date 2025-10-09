@@ -1,4 +1,4 @@
-import { TagExpression, TagQueryParser } from '@src/utils/parsing/tagQueryParser.js';
+import { TagExpression, TagQueryParser } from '@src/domains/preset/parsers/tagQueryParser.js';
 
 import { describe, expect, it } from 'vitest';
 

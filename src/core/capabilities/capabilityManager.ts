@@ -1,11 +1,11 @@
 import { ServerCapabilities } from '@modelcontextprotocol/sdk/types.js';
 
-import { InboundConnection, OutboundConnections } from '@src/core/types/index.js';
 import {
   setupClientToServerNotifications,
   setupServerToClientNotifications,
-} from '@src/handlers/notificationHandlers.js';
-import { registerRequestHandlers } from '@src/handlers/requestHandlers.js';
+} from '@src/core/protocol/notificationHandlers.js';
+import { registerRequestHandlers } from '@src/core/protocol/requestHandlers.js';
+import { InboundConnection, OutboundConnections } from '@src/core/types/index.js';
 import logger from '@src/logger/logger.js';
 
 /**

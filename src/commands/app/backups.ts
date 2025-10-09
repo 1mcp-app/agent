@@ -1,11 +1,11 @@
-import { GlobalOptions } from '@src/globalOptions.js';
-import { getAppPreset } from '@src/utils/discovery/appPresets.js';
 import {
   cleanupOldBackups,
   findBackupByMetaPath,
   listAppBackups,
   verifyBackupIntegrity,
-} from '@src/utils/management/backupManager.js';
+} from '@src/domains/backup/backupManager.js';
+import { getAppPreset } from '@src/domains/discovery/appPresets.js';
+import { GlobalOptions } from '@src/globalOptions.js';
 
 import type { Argv } from 'yargs';
 

@@ -2,29 +2,29 @@ import fs from 'fs';
 import path from 'path';
 import readline from 'readline';
 
-import { initializeConfigContext, setServer } from '@src/commands/mcp/utils/configUtils.js';
+import { initializeConfigContext, setServer } from '@src/commands/shared/configUtils.js';
 import ConfigContext from '@src/config/configContext.js';
 import { McpConfigManager } from '@src/config/mcpConfigManager.js';
 import { getAppBackupDir } from '@src/constants.js';
 import { MCPServerParams } from '@src/core/types/index.js';
-import { GlobalOptions } from '@src/globalOptions.js';
+import { createBackup, withFileLock } from '@src/domains/backup/backupManager.js';
 import {
   checkConsolidationStatus,
   discoverAppConfigs,
   extractAndFilterServers,
   generateAppConfig,
   handleMultipleConfigs,
-} from '@src/utils/discovery/appDiscovery.js';
+} from '@src/domains/discovery/appDiscovery.js';
 import {
   generateManualInstructions,
   getAppPreset,
   isAppConfigurable,
   isAppSupported,
   showPlatformWarningIfNeeded,
-} from '@src/utils/discovery/appPresets.js';
-import { generateSupportedAppsHelp } from '@src/utils/discovery/appPresets.js';
-import { createBackup, withFileLock } from '@src/utils/management/backupManager.js';
-import { getServer1mcpUrl, validateServer1mcpUrl } from '@src/utils/parsing/urlDetection.js';
+} from '@src/domains/discovery/appPresets.js';
+import { generateSupportedAppsHelp } from '@src/domains/discovery/appPresets.js';
+import { GlobalOptions } from '@src/globalOptions.js';
+import { getServer1mcpUrl, validateServer1mcpUrl } from '@src/utils/validation/urlDetection.js';
 import { generateOperationPreview, validateOperation } from '@src/utils/validation/validationHelpers.js';
 
 import type { Argv } from 'yargs';

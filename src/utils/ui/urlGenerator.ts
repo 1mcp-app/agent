@@ -1,6 +1,6 @@
 import { AgentConfigManager } from '@src/core/server/agentConfig.js';
+import { PresetManager } from '@src/domains/preset/manager/presetManager.js';
 import logger from '@src/logger/logger.js';
-import { PresetManager } from '@src/utils/config/presetManager.js';
 
 /**
  * URL generation options

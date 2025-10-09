@@ -27,6 +27,7 @@ import {
 
 import { MCP_URI_SEPARATOR } from '@src/constants.js';
 import { ClientManager } from '@src/core/client/clientManager.js';
+import { byCapabilities } from '@src/core/filtering/clientFiltering.js';
 import { FilteringService } from '@src/core/filtering/filteringService.js';
 import { ServerManager } from '@src/core/server/serverManager.js';
 import { ClientStatus, InboundConnection, OutboundConnections } from '@src/core/types/index.js';
@@ -34,7 +35,6 @@ import { setLogLevel } from '@src/logger/logger.js';
 import logger from '@src/logger/logger.js';
 import { withErrorHandling } from '@src/utils/core/errorHandling.js';
 import { parseUri } from '@src/utils/core/parsing.js';
-import { byCapabilities } from '@src/utils/management/clientFiltering.js';
 import { handlePagination } from '@src/utils/ui/pagination.js';
 
 /**

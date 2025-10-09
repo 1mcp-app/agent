@@ -1,7 +1,7 @@
 // Interactive command functionality for smart preset mode
+import { PresetManager } from '@src/domains/preset/manager/presetManager.js';
 import { GlobalOptions } from '@src/globalOptions.js';
 import logger from '@src/logger/logger.js';
-import { PresetManager } from '@src/utils/config/presetManager.js';
 import { InteractiveSelector } from '@src/utils/ui/interactiveSelector.js';
 import { UrlGenerator } from '@src/utils/ui/urlGenerator.js';
 

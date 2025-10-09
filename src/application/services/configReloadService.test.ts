@@ -19,7 +19,7 @@ vi.mock('@src/config/mcpConfigManager.js', () => ({
   },
 }));
 
-vi.mock('../core/client/clientManager.js', () => ({
+vi.mock('@src/core/client/clientManager.js', () => ({
   ClientManager: {
     getOrCreateInstance: vi.fn().mockReturnValue({
       createClients: vi.fn(),
@@ -27,15 +27,15 @@ vi.mock('../core/client/clientManager.js', () => ({
   },
 }));
 
-vi.mock('../transport/transportFactory.js', () => ({
+vi.mock('@src/transport/transportFactory.js', () => ({
   createTransports: vi.fn(),
 }));
 
-vi.mock('../core/capabilities/capabilityManager.js', () => ({
+vi.mock('@src/core/capabilities/capabilityManager.js', () => ({
   setupCapabilities: vi.fn(),
 }));
 
-vi.mock('../core/server/serverManager.js', () => ({
+vi.mock('@src/core/server/serverManager.js', () => ({
   ServerManager: {
     current: {
       updateClientsAndTransports: vi.fn(),
@@ -49,6 +49,10 @@ vi.mock('@src/logger/logger.js', () => ({
     error: vi.fn(),
     debug: vi.fn(),
   },
+}));
+
+vi.mock('@src/transport/transportFactory.js', () => ({
+  createTransports: vi.fn(),
 }));
 
 describe('ConfigReloadService', () => {

@@ -5,10 +5,10 @@ import logger from '@src/logger/logger.js';
 
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+import configReloadService from './application/services/configReloadService.js';
 import { ClientManager } from './core/client/clientManager.js';
 import { ServerManager } from './core/server/serverManager.js';
 import { setupServer } from './server.js';
-import configReloadService from './services/configReloadService.js';
 import { createTransports } from './transport/transportFactory.js';
 
 // Mock dependencies
@@ -41,9 +41,12 @@ vi.mock('@src/config/mcpConfigManager.ts', () => ({
   McpConfigManager: {
     getInstance: vi.fn(),
   },
+  ConfigChangeEvent: {
+    TRANSPORT_CONFIG_CHANGED: 'transportConfigChanged',
+  },
 }));
 
-vi.mock('./services/configReloadService.js', () => ({
+vi.mock('./application/services/configReloadService.js', () => ({
   default: {
     initialize: vi.fn(),
   },

@@ -280,7 +280,7 @@ describe('HealthService', () => {
     it('should handle server manager being null', async () => {
       // Set to full detail level for this test
       mockAgentConfig.getHealthDetailLevel.mockReturnValue('full');
-      const { ServerManager } = await import('../core/server/serverManager.js');
+      const { ServerManager } = await import('../../core/server/serverManager.js');
       (ServerManager as any).current = null;
 
       mockMcpConfig.getTransportConfig.mockReturnValue({});

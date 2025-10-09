@@ -3,6 +3,7 @@ import path from 'path';
 
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 
+import configReloadService from '@src/application/services/configReloadService.js';
 import ConfigContext from '@src/config/configContext.js';
 import { McpConfigManager } from '@src/config/mcpConfigManager.js';
 import { getDefaultInstructionsTemplatePath } from '@src/constants.js';
@@ -11,13 +12,12 @@ import { InstructionAggregator } from '@src/core/instructions/instructionAggrega
 import { formatValidationError, validateTemplateContent } from '@src/core/instructions/templateValidator.js';
 import { McpLoadingManager } from '@src/core/loading/mcpLoadingManager.js';
 import { AgentConfigManager } from '@src/core/server/agentConfig.js';
+import { registerPidFileCleanup, writePidFile } from '@src/core/server/pidFileManager.js';
 import { ServerManager } from '@src/core/server/serverManager.js';
+import { TagExpression, TagQueryParser } from '@src/domains/preset/parsers/tagQueryParser.js';
 import logger, { debugIf } from '@src/logger/logger.js';
 import { setupServer } from '@src/server.js';
-import configReloadService from '@src/services/configReloadService.js';
 import { ExpressServer } from '@src/transport/http/server.js';
-import { registerPidFileCleanup, writePidFile } from '@src/utils/management/pidFileManager.js';
-import { TagExpression, TagQueryParser } from '@src/utils/parsing/tagQueryParser.js';
 import { displayLogo } from '@src/utils/ui/logo.js';
 
 export interface ServeOptions {
@@ -178,7 +178,7 @@ function setupGracefulShutdown(
 
     // Cleanup PresetManager if it exists
     try {
-      const PresetManager = (await import('@src/utils/config/presetManager.js')).PresetManager;
+      const PresetManager = (await import('@src/domains/preset/manager/presetManager.js')).PresetManager;
       const presetManager = PresetManager.getInstance();
       if (presetManager && typeof presetManager.cleanup === 'function') {
         await presetManager.cleanup();
@@ -292,7 +292,7 @@ export async function serveCommand(parsedArgv: ServeOptions): Promise<void> {
 
     // Initialize PresetManager with config directory option before server setup
     // This ensures the singleton is created with the correct config directory
-    const PresetManager = (await import('@src/utils/config/presetManager.js')).PresetManager;
+    const PresetManager = (await import('@src/domains/preset/manager/presetManager.js')).PresetManager;
     PresetManager.getInstance(parsedArgv['config-dir']);
 
     // Initialize server and get server manager with custom config path if provided

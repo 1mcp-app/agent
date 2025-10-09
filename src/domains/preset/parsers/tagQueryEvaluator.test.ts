@@ -1,8 +1,8 @@
 /**
  * Tests for TagQueryEvaluator
  */
-import { TagQuery } from '@src/utils/config/presetTypes.js';
-import { TagQueryEvaluator } from '@src/utils/parsing/tagQueryEvaluator.js';
+import { TagQueryEvaluator } from '@src/domains/preset/parsers/tagQueryEvaluator.js';
+import { TagQuery } from '@src/domains/preset/types/presetTypes.js';
 
 import { describe, expect, it } from 'vitest';
 

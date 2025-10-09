@@ -99,7 +99,7 @@ For more information: https://docs.1mcp.app/guide/commands#proxy
         `);
     },
     async (argv) => {
-      const { configureGlobalLogger } = await import('@src/utils/core/configureGlobalLogger.js');
+      const { configureGlobalLogger } = await import('@src/logger/configureGlobalLogger.js');
       const { proxyCommand } = await import('./proxy.js');
 
       // Configure logger with global options

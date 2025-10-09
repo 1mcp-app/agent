@@ -1,7 +1,7 @@
+import { listAppBackups } from '@src/domains/backup/backupManager.js';
+import { checkConsolidationStatus, discoverAppConfigs } from '@src/domains/discovery/appDiscovery.js';
+import { getAppPreset, getSupportedApps, isAppConfigurable } from '@src/domains/discovery/appPresets.js';
 import { GlobalOptions } from '@src/globalOptions.js';
-import { checkConsolidationStatus, discoverAppConfigs } from '@src/utils/discovery/appDiscovery.js';
-import { getAppPreset, getSupportedApps, isAppConfigurable } from '@src/utils/discovery/appPresets.js';
-import { listAppBackups } from '@src/utils/management/backupManager.js';
 
 import type { Argv } from 'yargs';
 

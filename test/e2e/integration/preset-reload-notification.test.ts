@@ -4,8 +4,8 @@ import { tmpdir } from 'os';
 import { join } from 'path';
 
 import { McpConfigManager } from '@src/config/mcpConfigManager.js';
-import { PresetManager } from '@src/utils/config/presetManager.js';
-import { PresetNotificationService } from '@src/utils/config/presetNotificationService.js';
+import { PresetManager } from '@src/domains/preset/manager/presetManager.js';
+import { PresetNotificationService } from '@src/domains/preset/services/presetNotificationService.js';
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 

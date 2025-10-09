@@ -3,15 +3,15 @@ import { MCP_SERVER_CAPABILITIES, MCP_SERVER_NAME, MCP_SERVER_VERSION } from '@s
 import { AgentConfigManager } from '@src/core/server/agentConfig.js';
 import logger, { debugIf } from '@src/logger/logger.js';
 
+import configReloadService from './application/services/configReloadService.js';
 import { AsyncLoadingOrchestrator } from './core/capabilities/asyncLoadingOrchestrator.js';
 import { ClientManager } from './core/client/clientManager.js';
 import { InstructionAggregator } from './core/instructions/instructionAggregator.js';
 import { McpLoadingManager } from './core/loading/mcpLoadingManager.js';
 import { ServerManager } from './core/server/serverManager.js';
-import configReloadService from './services/configReloadService.js';
+import { PresetManager } from './domains/preset/manager/presetManager.js';
+import { PresetNotificationService } from './domains/preset/services/presetNotificationService.js';
 import { createTransports } from './transport/transportFactory.js';
-import { PresetManager } from './utils/config/presetManager.js';
-import { PresetNotificationService } from './utils/config/presetNotificationService.js';
 
 /**
  * Result of server setup including both sync and async components

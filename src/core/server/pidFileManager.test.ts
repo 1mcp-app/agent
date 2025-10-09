@@ -8,7 +8,7 @@ import {
   readPidFile,
   ServerPidInfo,
   writePidFile,
-} from '@src/utils/management/pidFileManager.js';
+} from '@src/core/server/pidFileManager.js';
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 

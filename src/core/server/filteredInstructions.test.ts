@@ -1,7 +1,7 @@
 import { InstructionAggregator } from '@src/core/instructions/instructionAggregator.js';
 import { ClientStatus } from '@src/core/types/client.js';
 import type { InboundConnectionConfig, OutboundConnection, OutboundConnections } from '@src/core/types/index.js';
-import { TagExpression } from '@src/utils/parsing/tagQueryParser.js';
+import { TagExpression } from '@src/domains/preset/parsers/tagQueryParser.js';
 
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 

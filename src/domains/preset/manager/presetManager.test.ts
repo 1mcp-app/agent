@@ -2,10 +2,10 @@ import { promises as fs } from 'fs';
 import os from 'os';
 
 import { McpConfigManager } from '@src/config/mcpConfigManager.js';
+import { PresetManager } from '@src/domains/preset/manager/presetManager.js';
+import { TagQueryEvaluator } from '@src/domains/preset/parsers/tagQueryEvaluator.js';
+import { TagQueryParser } from '@src/domains/preset/parsers/tagQueryParser.js';
 import logger from '@src/logger/logger.js';
-import { PresetManager } from '@src/utils/config/presetManager.js';
-import { TagQueryEvaluator } from '@src/utils/parsing/tagQueryEvaluator.js';
-import { TagQueryParser } from '@src/utils/parsing/tagQueryParser.js';
 
 import { afterEach, beforeEach, describe, expect, it, Mock, vi } from 'vitest';
 

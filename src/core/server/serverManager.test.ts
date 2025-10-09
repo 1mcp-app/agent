@@ -1,11 +1,11 @@
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
 
+import configReloadService from '@src/application/services/configReloadService.js';
 import { setupCapabilities } from '@src/core/capabilities/capabilityManager.js';
 import { OutboundConnections } from '@src/core/types/index.js';
 import logger from '@src/logger/logger.js';
 import { enhanceServerWithLogging } from '@src/logger/mcpLoggingEnhancer.js';
-import configReloadService from '@src/services/configReloadService.js';
 
 import { beforeEach, describe, expect, it, MockInstance, vi } from 'vitest';
 
@@ -34,7 +34,7 @@ vi.mock('@src/logger/logger.js', () => {
   };
 });
 
-vi.mock('../../services/configReloadService.js', () => ({
+vi.mock('@src/application/services/configReloadService.js', () => ({
   __esModule: true,
   default: {
     updateServerInfo: vi.fn(),
@@ -50,7 +50,7 @@ vi.mock('../../logger/mcpLoggingEnhancer.js', () => ({
   enhanceServerWithLogging: vi.fn(),
 }));
 
-vi.mock('@src/utils/config/presetNotificationService.js', () => ({
+vi.mock('@src/domains/preset/services/presetNotificationService.js', () => ({
   PresetNotificationService: {
     getInstance: vi.fn().mockReturnValue({
       trackClient: vi.fn(),

@@ -1,6 +1,6 @@
+import { discoverInstalledApps } from '@src/domains/discovery/appDiscovery.js';
+import { getAppPreset, showPlatformWarningIfNeeded } from '@src/domains/discovery/appPresets.js';
 import { GlobalOptions } from '@src/globalOptions.js';
-import { discoverInstalledApps } from '@src/utils/discovery/appDiscovery.js';
-import { getAppPreset, showPlatformWarningIfNeeded } from '@src/utils/discovery/appPresets.js';
 
 import type { Argv } from 'yargs';
 

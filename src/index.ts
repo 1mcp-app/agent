@@ -12,7 +12,7 @@ import { setupMcpCommands } from './commands/mcp/index.js';
 import { setupPresetCommands } from './commands/preset/index.js';
 import { setupProxyCommand } from './commands/proxy/index.js';
 import { serverOptions, setupServeCommand } from './commands/serve/index.js';
-import { configureGlobalLogger } from './utils/core/configureGlobalLogger.js';
+import { configureGlobalLogger } from './logger/configureGlobalLogger.js';
 
 // Parse command line arguments and set up commands
 let yargsInstance = yargs(hideBin(process.argv));

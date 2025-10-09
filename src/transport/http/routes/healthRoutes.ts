@@ -1,7 +1,7 @@
+import { HealthService, HealthStatus } from '@src/application/services/healthService.js';
 import { LoadingState } from '@src/core/loading/loadingStateTracker.js';
 import { McpLoadingManager } from '@src/core/loading/mcpLoadingManager.js';
 import logger from '@src/logger/logger.js';
-import { HealthService, HealthStatus } from '@src/services/healthService.js';
 
 import { Request, RequestHandler, Response, Router } from 'express';
 import rateLimit from 'express-rate-limit';

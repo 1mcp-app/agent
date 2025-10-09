@@ -2,7 +2,7 @@
  * Advanced tag query parser supporting boolean expressions
  * Supports multiple syntax variants: compact, natural language, and symbols
  */
-import { TagQuery } from '@src/utils/config/presetTypes.js';
+import { TagQuery } from '@src/domains/preset/types/presetTypes.js';
 
 export interface TagExpression {
   type: 'and' | 'or' | 'not' | 'tag' | 'group';

@@ -1,6 +1,6 @@
 import { getConfigDir } from '@src/constants.js';
+import { cleanupPidFile, readPidFile } from '@src/core/server/pidFileManager.js';
 import { createSafeErrorMessage } from '@src/logger/secureLogger.js';
-import { cleanupPidFile, readPidFile } from '@src/utils/management/pidFileManager.js';
 
 /**
  * Multi-method URL detection system for app commands.

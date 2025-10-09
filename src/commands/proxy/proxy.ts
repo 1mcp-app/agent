@@ -1,7 +1,7 @@
+import { loadProjectConfig, normalizeTags } from '@src/config/projectConfigLoader.js';
 import logger from '@src/logger/logger.js';
 import { StdioProxyTransport } from '@src/transport/stdioProxyTransport.js';
-import { loadProjectConfig, normalizeTags } from '@src/utils/config/projectConfigLoader.js';
-import { discoverServerWithPidFile, validateServer1mcpUrl } from '@src/utils/parsing/urlDetection.js';
+import { discoverServerWithPidFile, validateServer1mcpUrl } from '@src/utils/validation/urlDetection.js';
 
 import { ProxyOptions } from './index.js';
 

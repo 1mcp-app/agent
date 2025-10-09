@@ -1,7 +1,7 @@
 import { TestFixtures } from '@test/e2e/fixtures/TestFixtures.js';
 import { CliTestRunner, CommandTestEnvironment } from '@test/e2e/utils/index.js';
 
-import { PresetManager } from '@src/utils/config/presetManager.js';
+import { PresetManager } from '@src/domains/preset/manager/presetManager.js';
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 

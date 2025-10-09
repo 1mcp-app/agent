@@ -1,8 +1,8 @@
+import { PresetManager } from '@src/domains/preset/manager/presetManager.js';
+import { TagQueryParser } from '@src/domains/preset/parsers/tagQueryParser.js';
+import { PresetErrorHandler } from '@src/domains/preset/services/presetErrorHandler.js';
 import { GlobalOptions } from '@src/globalOptions.js';
 import logger from '@src/logger/logger.js';
-import { PresetErrorHandler } from '@src/utils/config/presetErrorHandler.js';
-import { PresetManager } from '@src/utils/config/presetManager.js';
-import { TagQueryParser } from '@src/utils/parsing/tagQueryParser.js';
 import { UrlGenerator } from '@src/utils/ui/urlGenerator.js';
 
 import type { Argv } from 'yargs';

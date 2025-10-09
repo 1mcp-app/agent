@@ -1,7 +1,7 @@
 import { McpConfigManager } from '@src/config/mcpConfigManager.js';
+import { TagQueryEvaluator, TagSelection, TagState } from '@src/domains/preset/parsers/tagQueryEvaluator.js';
+import { PresetConfig, PresetStrategy, TagQuery } from '@src/domains/preset/types/presetTypes.js';
 import logger from '@src/logger/logger.js';
-import { PresetConfig, PresetStrategy, TagQuery } from '@src/utils/config/presetTypes.js';
-import { TagQueryEvaluator, TagSelection, TagState } from '@src/utils/parsing/tagQueryEvaluator.js';
 
 import boxen from 'boxen';
 import chalk from 'chalk';
