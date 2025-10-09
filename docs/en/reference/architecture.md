@@ -375,11 +375,18 @@ src/
 ├── domains/                 # Domain modules
 │   ├── backup/              # Backup management domain
 │   ├── discovery/           # App discovery domain
-│   └── preset/              # Preset management domain
-│       ├── manager/         # PresetManager
-│       ├── parsers/         # Tag query parsing
-│       ├── services/        # Preset services
-│       └── types/           # Preset types
+│   ├── preset/              # Preset management domain
+│   │   ├── manager/         # PresetManager
+│   │   ├── parsers/         # Tag query parsing
+│   │   ├── services/        # Preset services
+│   │   └── types/           # Preset types
+│   └── registry/            # MCP Registry domain
+│       ├── formatters/      # Registry-specific formatters
+│       ├── cacheManager.ts  # Registry caching
+│       ├── mcpRegistryClient.ts  # Registry client
+│       ├── mcpToolSchemas.ts     # Registry schemas
+│       ├── searchFiltering.ts    # Registry search
+│       └── types.ts         # Registry types
 ├── logger/                  # Logging infrastructure
 │   ├── configureGlobalLogger.ts
 │   └── [6 other logger files]
@@ -413,9 +420,9 @@ src/
 #### **3. Domain Layer (`domains/`)**
 
 - **Purpose**: Self-contained business domains
-- **Responsibilities**: Specific business logic (presets, discovery, backup)
+- **Responsibilities**: Specific business logic (presets, discovery, backup, registry)
 - **Dependencies**: Can depend on core, should be independent
-- **Examples**: `PresetManager`, `BackupManager`, `AppDiscovery`
+- **Examples**: `PresetManager`, `BackupManager`, `AppDiscovery`, `McpRegistryClient`
 
 #### **4. Transport Layer (`transport/`)**
 

@@ -375,11 +375,18 @@ src/
 ├── domains/                 # 域模块
 │   ├── backup/              # 备份管理域
 │   ├── discovery/           # 应用发现域
-│   └── preset/              # 预设管理域
-│       ├── manager/         # PresetManager
-│       ├── parsers/         # 标签查询解析
-│       ├── services/        # 预设服务
-│       └── types/           # 预设类型
+│   ├── preset/              # 预设管理域
+│   │   ├── manager/         # PresetManager
+│   │   ├── parsers/         # 标签查询解析
+│   │   ├── services/        # 预设服务
+│   │   └── types/           # 预设类型
+│   └── registry/            # MCP 注册表域
+│       ├── formatters/      # 注册表特定格式化器
+│       ├── cacheManager.ts  # 注册表缓存
+│       ├── mcpRegistryClient.ts  # 注册表客户端
+│       ├── mcpToolSchemas.ts     # 注册表模式
+│       ├── searchFiltering.ts    # 注册表搜索
+│       └── types.ts         # 注册表类型
 ├── logger/                  # 日志基础设施
 │   ├── configureGlobalLogger.ts
 │   └── [6 个其他日志文件]
@@ -413,9 +420,9 @@ src/
 #### **3. 域层 (`domains/`)**
 
 - **目的**：自包含的业务域
-- **职责**：特定业务逻辑（预设、发现、备份）
+- **职责**：特定业务逻辑（预设、发现、备份、注册表）
 - **依赖**：可以依赖核心，应该独立
-- **示例**：`PresetManager`、`BackupManager`、`AppDiscovery`
+- **示例**：`PresetManager`、`BackupManager`、`AppDiscovery`、`McpRegistryClient`
 
 #### **4. 传输层 (`transport/`)**
 
