@@ -1,8 +1,9 @@
-import logger from '../../logger/logger.js';
+import { loadProjectConfig, normalizeTags } from '@src/config/projectConfigLoader.js';
+import logger from '@src/logger/logger.js';
+import { StdioProxyTransport } from '@src/transport/stdioProxyTransport.js';
+import { discoverServerWithPidFile, validateServer1mcpUrl } from '@src/utils/validation/urlDetection.js';
+
 import { ProxyOptions } from './index.js';
-import { discoverServerWithPidFile, validateServer1mcpUrl } from '../../utils/urlDetection.js';
-import { StdioProxyTransport } from '../../transport/stdioProxyTransport.js';
-import { loadProjectConfig, normalizeTags } from '../../utils/projectConfigLoader.js';
 
 /**
  * Proxy command - Start STDIO proxy to running 1MCP HTTP server

@@ -1,12 +1,13 @@
-import type { Argv } from 'yargs';
 import {
-  listAppBackups,
   cleanupOldBackups,
-  verifyBackupIntegrity,
   findBackupByMetaPath,
-} from '../../utils/backupManager.js';
-import { getAppPreset } from '../../utils/appPresets.js';
-import { GlobalOptions } from '../../globalOptions.js';
+  listAppBackups,
+  verifyBackupIntegrity,
+} from '@src/domains/backup/backupManager.js';
+import { getAppPreset } from '@src/domains/discovery/appPresets.js';
+import { GlobalOptions } from '@src/globalOptions.js';
+
+import type { Argv } from 'yargs';
 
 /**
  * Backups command - Manage and list backup files.

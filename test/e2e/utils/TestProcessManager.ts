@@ -1,5 +1,6 @@
-import { spawn, ChildProcess } from 'child_process';
+import { ChildProcess, spawn } from 'child_process';
 import { EventEmitter } from 'events';
+
 import logger from '@src/logger/logger.js';
 
 export interface ProcessConfig {

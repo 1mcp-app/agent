@@ -1,6 +1,7 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { CommandTestEnvironment, CliTestRunner } from '../../utils/index.js';
-import { TestFixtures } from '../../fixtures/TestFixtures.js';
+import { TestFixtures } from '@test/e2e/fixtures/TestFixtures.js';
+import { CliTestRunner, CommandTestEnvironment } from '@test/e2e/utils/index.js';
+
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 describe('App Discover Command E2E', () => {
   let environment: CommandTestEnvironment;

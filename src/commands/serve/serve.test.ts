@@ -1,15 +1,61 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import path from 'path';
+
+import { AgentConfigManager } from '@src/core/server/agentConfig.js';
+
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
 import { serveCommand, ServeOptions } from './serve.js';
-import { AgentConfigManager } from '../../core/server/agentConfig.js';
 
 // Mock dependencies
-vi.mock('../../utils/configureGlobalLogger.js');
-vi.mock('../../config/mcpConfigManager.js');
-vi.mock('../../utils/presetManager.js');
-vi.mock('../../core/server/serverManager.js');
-vi.mock('../../transport/http/server.js');
-vi.mock('../../transport/stdio/stdioServerTransport.js');
+vi.mock('@src/logger/configureGlobalLogger.js');
+vi.mock('@src/config/mcpConfigManager.js', () => ({
+  McpConfigManager: {
+    getInstance: vi.fn().mockReturnValue({
+      getTransportConfig: vi.fn().mockReturnValue({}),
+    }),
+  },
+}));
+vi.mock('@src/domains/preset/manager/presetManager.js');
+vi.mock('@src/server.js');
+vi.mock('@src/config/configContext.js', () => ({
+  default: {
+    getInstance: vi.fn().mockReturnValue({
+      setConfigPath: vi.fn(),
+      setConfigDir: vi.fn(),
+      reset: vi.fn(),
+      getResolvedConfigPath: vi.fn().mockReturnValue('/test/config.json'),
+    }),
+  },
+}));
+vi.mock('@src/constants.js');
+vi.mock('@src/core/instructions/instructionAggregator.js');
+vi.mock('@src/core/instructions/templateValidator.js');
+vi.mock('@src/core/loading/mcpLoadingManager.js');
+vi.mock('@src/application/services/configReloadService.js');
+vi.mock('@src/core/server/pidFileManager.js');
+vi.mock('@src/domains/preset/parsers/tagQueryParser.js');
+vi.mock('@src/utils/ui/logo.js');
+vi.mock('@src/logger/logger.js');
+
+// Mock process.exit to prevent actual exit
+const originalExit = process.exit;
+beforeEach(() => {
+  process.exit = vi.fn() as any;
+});
+
+afterEach(() => {
+  process.exit = originalExit;
+});
+vi.mock('@src/core/server/agentConfig.js', () => ({
+  AgentConfigManager: {
+    getInstance: vi.fn().mockReturnValue({
+      updateConfig: vi.fn(),
+      isScopeValidationEnabled: vi.fn().mockReturnValue(false),
+      isAuthEnabled: vi.fn().mockReturnValue(false),
+      getConfig: vi.fn().mockReturnValue({}),
+    }),
+  },
+}));
 
 describe('serveCommand - config-dir session isolation', () => {
   beforeEach(() => {
@@ -41,23 +87,19 @@ describe('serveCommand - config-dir session isolation', () => {
       'enable-async-loading': false,
     };
 
-    // Create a spy on AgentConfigManager.updateConfig
+    // Get the mocked AgentConfigManager instance
     const configManager = AgentConfigManager.getInstance();
-    const updateConfigSpy = vi.spyOn(configManager, 'updateConfig');
+    const updateConfigSpy = vi.mocked(configManager.updateConfig);
 
-    // Mock setupServer to prevent actual server initialization
-    vi.doMock('../../core/server/serverManager.js', () => ({
-      setupServer: vi.fn().mockResolvedValue({
-        serverManager: {},
-        loadingManager: undefined,
-        asyncOrchestrator: undefined,
-        instructionAggregator: {},
-      }),
-    }));
+    // Add debugging to see if updateConfig is called
+    updateConfigSpy.mockImplementation((config) => {
+      console.log('updateConfig called with:', config);
+    });
 
     try {
       await serveCommand(options);
-    } catch {
+    } catch (error) {
+      console.log('Error in serveCommand:', error);
       // Ignore errors from mocked dependencies
     }
 
@@ -91,21 +133,14 @@ describe('serveCommand - config-dir session isolation', () => {
       'enable-async-loading': false,
     };
 
+    // Get the mocked AgentConfigManager instance
     const configManager = AgentConfigManager.getInstance();
-    const updateConfigSpy = vi.spyOn(configManager, 'updateConfig');
-
-    vi.doMock('../../core/server/serverManager.js', () => ({
-      setupServer: vi.fn().mockResolvedValue({
-        serverManager: {},
-        loadingManager: undefined,
-        asyncOrchestrator: undefined,
-        instructionAggregator: {},
-      }),
-    }));
+    const updateConfigSpy = vi.mocked(configManager.updateConfig);
 
     try {
       await serveCommand(options);
-    } catch {
+    } catch (error) {
+      console.log('Error in serveCommand:', error);
       // Ignore errors from mocked dependencies
     }
 
@@ -137,21 +172,14 @@ describe('serveCommand - config-dir session isolation', () => {
       'enable-async-loading': false,
     };
 
+    // Get the mocked AgentConfigManager instance
     const configManager = AgentConfigManager.getInstance();
-    const updateConfigSpy = vi.spyOn(configManager, 'updateConfig');
-
-    vi.doMock('../../core/server/serverManager.js', () => ({
-      setupServer: vi.fn().mockResolvedValue({
-        serverManager: {},
-        loadingManager: undefined,
-        asyncOrchestrator: undefined,
-        instructionAggregator: {},
-      }),
-    }));
+    const updateConfigSpy = vi.mocked(configManager.updateConfig);
 
     try {
       await serveCommand(options);
-    } catch {
+    } catch (error) {
+      console.log('Error in serveCommand:', error);
       // Ignore errors from mocked dependencies
     }
 

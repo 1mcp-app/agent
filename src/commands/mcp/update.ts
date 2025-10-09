@@ -1,26 +1,28 @@
+import { MCPServerParams } from '@src/core/types/index.js';
+import { GlobalOptions } from '@src/globalOptions.js';
+
 import type { Argv } from 'yargs';
-import { MCPServerParams } from '../../core/types/index.js';
+
 import {
-  serverExists,
+  backupConfig,
   getServer,
-  setServer,
+  initializeConfigContext,
   parseEnvVars,
   parseHeaders,
   parseTags,
-  validateConfigPath,
-  backupConfig,
   reloadMcpConfig,
-  initializeConfigContext,
+  serverExists,
+  setServer,
+  validateConfigPath,
 } from './utils/configUtils.js';
 import {
-  validateServerName,
-  validateServerArgs,
   validateEnvVars,
   validateHeaders,
+  validateServerArgs,
+  validateServerName,
   validateTags,
   validateTimeout,
 } from './utils/validation.js';
-import { GlobalOptions } from '../../globalOptions.js';
 
 export interface UpdateCommandArgs extends GlobalOptions {
   name: string;

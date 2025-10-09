@@ -1,4 +1,4 @@
-import { AUTH_CONFIG, HOST, PORT, RATE_LIMIT_CONFIG, STREAMABLE_HTTP_ENDPOINT } from '../../constants.js';
+import { AUTH_CONFIG, HOST, PORT, RATE_LIMIT_CONFIG, STREAMABLE_HTTP_ENDPOINT } from '@src/constants.js';
 
 /**
  * Configuration interface for agent-specific settings.

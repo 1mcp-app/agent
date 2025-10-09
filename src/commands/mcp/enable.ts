@@ -1,14 +1,16 @@
+import { MCPServerParams } from '@src/core/types/index.js';
+import { GlobalOptions } from '@src/globalOptions.js';
+
 import type { Argv } from 'yargs';
-import { MCPServerParams } from '../../core/types/index.js';
-import { GlobalOptions } from '../../globalOptions.js';
+
 import {
-  serverExists,
+  backupConfig,
   getServer,
+  initializeConfigContext,
+  reloadMcpConfig,
+  serverExists,
   setServer,
   validateConfigPath,
-  backupConfig,
-  reloadMcpConfig,
-  initializeConfigContext,
 } from './utils/configUtils.js';
 import { validateServerName } from './utils/validation.js';
 

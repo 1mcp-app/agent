@@ -1,20 +1,23 @@
-import { Router, Request, Response } from 'express';
 import { randomUUID } from 'node:crypto';
+
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { ErrorCode } from '@modelcontextprotocol/sdk/types.js';
-import logger from '../../../logger/logger.js';
-import { STREAMABLE_HTTP_ENDPOINT } from '../../../constants.js';
-import { ServerManager } from '../../../core/server/serverManager.js';
-import { ServerStatus } from '../../../core/types/index.js';
-import { AsyncLoadingOrchestrator } from '../../../core/capabilities/asyncLoadingOrchestrator.js';
-import tagsExtractor from '../middlewares/tagsExtractor.js';
+
+import { STREAMABLE_HTTP_ENDPOINT } from '@src/constants.js';
+import { AsyncLoadingOrchestrator } from '@src/core/capabilities/asyncLoadingOrchestrator.js';
+import { ServerManager } from '@src/core/server/serverManager.js';
+import { ServerStatus } from '@src/core/types/index.js';
+import logger from '@src/logger/logger.js';
 import {
-  getValidatedTags,
+  getPresetName,
   getTagExpression,
   getTagFilterMode,
   getTagQuery,
-  getPresetName,
-} from '../middlewares/scopeAuthMiddleware.js';
+  getValidatedTags,
+} from '@src/transport/http/middlewares/scopeAuthMiddleware.js';
+import tagsExtractor from '@src/transport/http/middlewares/tagsExtractor.js';
+
+import { Request, Response, Router } from 'express';
 
 export function setupStreamableHttpRoutes(
   router: Router,

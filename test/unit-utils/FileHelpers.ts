@@ -1,6 +1,6 @@
 import fs from 'fs';
-import path from 'path';
 import { tmpdir } from 'os';
+import path from 'path';
 
 /**
  * File and directory testing utilities

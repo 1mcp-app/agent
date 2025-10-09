@@ -1,6 +1,7 @@
 import { EventEmitter } from 'events';
-import logger, { debugIf } from '../../logger/logger.js';
-import { secureLogger } from '../../logger/secureLogger.js';
+
+import logger, { debugIf } from '@src/logger/logger.js';
+import { secureLogger } from '@src/logger/secureLogger.js';
 
 /**
  * Enum representing possible MCP server loading states

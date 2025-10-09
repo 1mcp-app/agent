@@ -1,16 +1,18 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { Request, Response, NextFunction } from 'express';
 import { ErrorCode } from '@modelcontextprotocol/sdk/types.js';
+
+import logger from '@src/logger/logger.js';
+
+import { NextFunction, Request, Response } from 'express';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+
 import errorHandler from './errorHandler.js';
 
 // Mock logger
-vi.mock('../../../logger/logger.js', () => ({
+vi.mock('@src/logger/logger.ts', () => ({
   default: {
     error: vi.fn(),
   },
 }));
-
-import logger from '../../../logger/logger.js';
 
 describe('errorHandler', () => {
   let mockRequest: Partial<Request>;

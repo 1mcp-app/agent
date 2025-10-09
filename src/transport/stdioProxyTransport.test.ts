@@ -1,6 +1,8 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { StdioProxyTransport } from './stdioProxyTransport.js';
 import { JSONRPCMessage } from '@modelcontextprotocol/sdk/types.js';
+
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
+import { StdioProxyTransport } from './stdioProxyTransport.js';
 
 // Mock the SDK transports
 vi.mock('@modelcontextprotocol/sdk/server/stdio.js', () => ({

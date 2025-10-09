@@ -1,17 +1,19 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
+
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+
 import {
-  validateTemplateContent,
-  formatValidationError,
-  isTemplateSizeAcceptable,
-  isTemplateContentSafe,
+  categorizeTemplateError,
   DANGEROUS_TEMPLATE_PATTERNS,
   DEFAULT_TEMPLATE_VALIDATION_CONFIG,
-  TemplateErrorType,
-  categorizeTemplateError,
+  formatValidationError,
   getErrorSuggestions,
+  isTemplateContentSafe,
+  isTemplateSizeAcceptable,
+  TemplateErrorType,
+  validateTemplateContent,
 } from './templateValidator.js';
 
 const __filename = fileURLToPath(import.meta.url);

@@ -1,11 +1,12 @@
-import type { Argv } from 'yargs';
 import {
   APP_PRESETS,
   getConfigurableApps,
   getManualOnlyApps,
   showPlatformWarningIfNeeded,
-} from '../../utils/appPresets.js';
-import { GlobalOptions } from '../../globalOptions.js';
+} from '@src/domains/discovery/appPresets.js';
+import { GlobalOptions } from '@src/globalOptions.js';
+
+import type { Argv } from 'yargs';
 
 /**
  * List command - Display supported desktop applications.

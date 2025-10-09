@@ -1,11 +1,13 @@
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { ClientStatus } from '@src/core/types/client.js';
+import type { InboundConnectionConfig, OutboundConnection, OutboundConnections } from '@src/core/types/index.js';
+import logger from '@src/logger/logger.js';
+
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
 import { InstructionAggregator } from './instructionAggregator.js';
-import { ClientStatus } from '../types/client.js';
-import type { OutboundConnections, OutboundConnection, InboundConnectionConfig } from '../types/index.js';
-import logger from '../../logger/logger.js';
 
 // Mock dependencies
-vi.mock('../../logger/logger.js', () => ({
+vi.mock('@src/logger/logger.js', () => ({
   default: {
     info: vi.fn(),
     error: vi.fn(),

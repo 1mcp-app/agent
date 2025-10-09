@@ -1,24 +1,28 @@
 import { randomUUID } from 'node:crypto';
-import type { Response } from 'express';
-import type { OAuthServerProvider, AuthorizationParams } from '@modelcontextprotocol/sdk/server/auth/provider.js';
+
 import type { OAuthRegisteredClientsStore } from '@modelcontextprotocol/sdk/server/auth/clients.js';
+import type { AuthorizationParams, OAuthServerProvider } from '@modelcontextprotocol/sdk/server/auth/provider.js';
 import type { AuthInfo } from '@modelcontextprotocol/sdk/server/auth/types.js';
 import type {
   OAuthClientInformationFull,
-  OAuthTokens,
   OAuthTokenRevocationRequest,
+  OAuthTokens,
 } from '@modelcontextprotocol/sdk/shared/auth.js';
-import logger from '../logger/logger.js';
-import { OAuthStorageService } from './storage/oauthStorageService.js';
-import { AgentConfigManager } from '../core/server/agentConfig.js';
-import { AUTH_CONFIG } from '../constants.js';
+
+import { McpConfigManager } from '@src/config/mcpConfigManager.js';
+import { AUTH_CONFIG } from '@src/constants.js';
+import { AgentConfigManager } from '@src/core/server/agentConfig.js';
+import logger from '@src/logger/logger.js';
 import {
-  validateScopesAgainstAvailableTags,
-  tagsToScopes,
-  scopesToTags,
   auditScopeOperation,
-} from '../utils/scopeValidation.js';
-import { McpConfigManager } from '../config/mcpConfigManager.js';
+  scopesToTags,
+  tagsToScopes,
+  validateScopesAgainstAvailableTags,
+} from '@src/utils/validation/scopeValidation.js';
+
+import type { Response } from 'express';
+
+import { OAuthStorageService } from './storage/oauthStorageService.js';
 
 /**
  * File-based OAuth clients store implementation using the new repository architecture

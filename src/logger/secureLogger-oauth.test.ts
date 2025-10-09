@@ -1,4 +1,5 @@
-import { describe, it, expect } from 'vitest';
+import { describe, expect, it } from 'vitest';
+
 import { sanitizeForLogging } from './secureLogger.js';
 
 describe('secureLogger OAuth Security Tests', () => {

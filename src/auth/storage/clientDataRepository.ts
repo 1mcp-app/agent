@@ -1,8 +1,10 @@
-import logger from '../../logger/logger.js';
-import { AUTH_CONFIG } from '../../constants.js';
-import { ClientData } from '../sessionTypes.js';
-import { FileStorageService } from './fileStorageService.js';
 import { OAuthClientInformationFull } from '@modelcontextprotocol/sdk/shared/auth.js';
+
+import { ClientData } from '@src/auth/sessionTypes.js';
+import { AUTH_CONFIG } from '@src/constants.js';
+import logger from '@src/logger/logger.js';
+
+import { FileStorageService } from './fileStorageService.js';
 
 /**
  * Repository for OAuth client data operations

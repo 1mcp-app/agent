@@ -1,4 +1,4 @@
-import { vi, expect } from 'vitest';
+import { expect, vi } from 'vitest';
 
 /**
  * Utilities for testing asynchronous operations

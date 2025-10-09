@@ -1,5 +1,6 @@
-import { vi, expect } from 'vitest';
-import { MCPError, ClientConnectionError, ClientNotFoundError, ValidationError } from '../../src/utils/errorTypes.js';
+import { ClientConnectionError, ClientNotFoundError, MCPError, ValidationError } from '@src/utils/core/errorTypes.js';
+
+import { expect, vi } from 'vitest';
 
 /**
  * Utilities for testing error handling and error scenarios

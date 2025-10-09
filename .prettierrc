@@ -2,5 +2,18 @@
     "singleQuote": true,
     "trailingComma": "all",
     "tabWidth": 2,
-    "printWidth": 120
+    "printWidth": 120,
+    "importOrder": [
+        "^(node:)?(fs|path|crypto|os|util|events|stream|http|https|url|querystring|zlib|readline|child_process|cluster|worker_threads|perf_hooks|async_hooks|timers|buffer|process|assert|constants|domain|punycode|tls|net|dgram|dns|tty|vm|v8|inspector|trace_events|wasi|worker_threads)(.*)$",
+        "^@modelcontextprotocol/sdk/(.*)$",
+        "^@src/(.*)$",
+        "^[a-z]",
+        "^[./]"
+    ],
+    "importOrderSortSpecifiers": true,
+    "importOrderCaseInsensitive": true,
+    "importOrderGroupNamespaceSpecifiers": true,
+    "importOrderSeparation": true,
+    "importOrderParserPlugins": ["typescript", "decorators-legacy"],
+    "plugins": ["@trivago/prettier-plugin-sort-imports"]
 }

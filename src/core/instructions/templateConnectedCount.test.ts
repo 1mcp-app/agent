@@ -1,6 +1,8 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import type { InboundConnectionConfig, OutboundConnections } from '@src/core/types/index.js';
+
+import { beforeEach, describe, expect, it } from 'vitest';
+
 import { InstructionAggregator } from './instructionAggregator.js';
-import type { InboundConnectionConfig, OutboundConnections } from '../types/index.js';
 
 // Helper function to create test connections
 function createTestConnection(name: string, tags: string[] = []) {

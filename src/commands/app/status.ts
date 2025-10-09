@@ -1,8 +1,9 @@
+import { listAppBackups } from '@src/domains/backup/backupManager.js';
+import { checkConsolidationStatus, discoverAppConfigs } from '@src/domains/discovery/appDiscovery.js';
+import { getAppPreset, getSupportedApps, isAppConfigurable } from '@src/domains/discovery/appPresets.js';
+import { GlobalOptions } from '@src/globalOptions.js';
+
 import type { Argv } from 'yargs';
-import { discoverAppConfigs, checkConsolidationStatus } from '../../utils/appDiscovery.js';
-import { getAppPreset, getSupportedApps, isAppConfigurable } from '../../utils/appPresets.js';
-import { listAppBackups } from '../../utils/backupManager.js';
-import { GlobalOptions } from '../../globalOptions.js';
 
 /**
  * Status command - Show current status of application configurations.

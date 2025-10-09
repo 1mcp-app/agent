@@ -1,6 +1,7 @@
-import { Request, Response, NextFunction } from 'express';
+import logger from '@src/logger/logger.js';
+
+import { NextFunction, Request, Response } from 'express';
 import rateLimit from 'express-rate-limit';
-import logger from '../../../logger/logger.js';
 
 /**
  * Security headers middleware to protect against common attacks

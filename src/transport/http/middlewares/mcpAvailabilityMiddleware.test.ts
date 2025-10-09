@@ -1,14 +1,17 @@
 // @ts-nocheck
-import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { Response, NextFunction } from 'express';
+import { McpConfigManager } from '@src/config/mcpConfigManager.js';
+import { LoadingState, LoadingStateTracker, ServerLoadingInfo } from '@src/core/loading/loadingStateTracker.js';
+import { McpLoadingManager } from '@src/core/loading/mcpLoadingManager.js';
+import { MCPServerParams } from '@src/core/types/index.js';
+
+import { NextFunction, Response } from 'express';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+
 import { createMcpAvailabilityMiddleware, McpRequest } from './mcpAvailabilityMiddleware.js';
-import { McpLoadingManager } from '../../../core/loading/mcpLoadingManager.js';
-import { LoadingStateTracker, LoadingState, ServerLoadingInfo } from '../../../core/loading/loadingStateTracker.js';
-import { McpConfigManager } from '../../../config/mcpConfigManager.js';
-import { MCPServerParams } from '../../../core/types/index.js';
+import { getValidatedTags } from './scopeAuthMiddleware.js';
 
 // Mock dependencies
-vi.mock('../../../logger/logger.js', () => ({
+vi.mock('@src/logger/logger.js', () => ({
   default: {
     debug: vi.fn(),
     warn: vi.fn(),
@@ -22,13 +25,11 @@ vi.mock('./scopeAuthMiddleware.js', () => ({
   getValidatedTags: vi.fn(),
 }));
 
-vi.mock('../../../config/mcpConfigManager.js', () => ({
+vi.mock('@src/config/mcpConfigManager.js', () => ({
   McpConfigManager: {
     getInstance: vi.fn(),
   },
 }));
-
-import { getValidatedTags } from './scopeAuthMiddleware.js';
 
 describe('McpAvailabilityMiddleware - Tag Filtering', () => {
   let mockLoadingManager: Partial<McpLoadingManager>;

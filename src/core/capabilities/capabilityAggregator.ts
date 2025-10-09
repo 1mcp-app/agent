@@ -1,14 +1,16 @@
 import { EventEmitter } from 'events';
+
 import {
-  ListToolsResult,
-  ListResourcesResult,
   ListPromptsResult,
-  Tool,
-  Resource,
+  ListResourcesResult,
+  ListToolsResult,
   Prompt,
+  Resource,
+  Tool,
 } from '@modelcontextprotocol/sdk/types.js';
-import { OutboundConnections, ClientStatus } from '../types/index.js';
-import logger, { debugIf } from '../../logger/logger.js';
+
+import { ClientStatus, OutboundConnections } from '@src/core/types/index.js';
+import logger, { debugIf } from '@src/logger/logger.js';
 
 /**
  * Represents a snapshot of aggregated capabilities from all ready servers

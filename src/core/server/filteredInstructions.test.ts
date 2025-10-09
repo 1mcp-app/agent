@@ -1,11 +1,12 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { InstructionAggregator } from '../instructions/instructionAggregator.js';
-import { ClientStatus } from '../types/client.js';
-import { TagExpression } from '../../utils/tagQueryParser.js';
-import type { OutboundConnections, OutboundConnection, InboundConnectionConfig } from '../types/index.js';
+import { InstructionAggregator } from '@src/core/instructions/instructionAggregator.js';
+import { ClientStatus } from '@src/core/types/client.js';
+import type { InboundConnectionConfig, OutboundConnection, OutboundConnections } from '@src/core/types/index.js';
+import { TagExpression } from '@src/domains/preset/parsers/tagQueryParser.js';
+
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 // Mock dependencies
-vi.mock('../../logger/logger.js', () => ({
+vi.mock('@src/logger/logger.js', () => ({
   default: {
     info: vi.fn(),
     error: vi.fn(),

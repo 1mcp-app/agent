@@ -1,18 +1,19 @@
 import axios, { AxiosInstance, AxiosRequestConfig } from 'axios';
-import logger from '../../logger/logger.js';
-import { withErrorHandling } from '../../utils/errorHandling.js';
-import { CacheManager } from './cacheManager.js';
+
 import { MCP_SERVER_VERSION } from '../../constants.js';
+import logger from '../../logger/logger.js';
+import { withErrorHandling } from '../../utils/core/errorHandling.js';
+import { CacheManager } from './cacheManager.js';
 import {
-  RegistryServer,
-  ServerListOptions,
-  SearchOptions,
+  OFFICIAL_REGISTRY_KEY,
   RegistryClientOptions,
-  RegistryStatusResult,
   RegistryOptions,
+  RegistryServer,
+  RegistryStatusResult,
+  SearchOptions,
+  ServerListOptions,
   ServersListResponse,
   ServerVersionsResponse,
-  OFFICIAL_REGISTRY_KEY,
 } from './types.js';
 
 /**

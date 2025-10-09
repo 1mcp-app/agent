@@ -1,7 +1,9 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { AgentConfigManager } from '@src/core/server/agentConfig.js';
+import { InboundConnection, ServerStatus } from '@src/core/types/index.js';
+
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
 import { AsyncLoadingOrchestrator } from './asyncLoadingOrchestrator.js';
-import { AgentConfigManager } from '../server/agentConfig.js';
-import { InboundConnection, ServerStatus } from '../types/index.js';
 
 // Mock modules
 vi.mock('../server/agentConfig.js', () => ({

@@ -1,18 +1,22 @@
-import { StdioClientTransport, StdioServerParameters } from '@modelcontextprotocol/sdk/client/stdio.js';
+import path from 'path';
+
 import { SSEClientTransport, SSEClientTransportOptions } from '@modelcontextprotocol/sdk/client/sse.js';
+import { StdioClientTransport, StdioServerParameters } from '@modelcontextprotocol/sdk/client/stdio.js';
 import {
   StreamableHTTPClientTransport,
   StreamableHTTPClientTransportOptions,
 } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
-import path from 'path';
+
+import { OAuthClientConfig, SDKOAuthClientProvider } from '@src/auth/sdkOAuthClientProvider.js';
+import { processEnvironment } from '@src/config/envProcessor.js';
+import { AUTH_CONFIG, MCP_SERVER_VERSION } from '@src/constants.js';
+import { AgentConfigManager } from '@src/core/server/agentConfig.js';
+import { AuthProviderTransport, transportConfigSchema } from '@src/core/types/index.js';
+import { MCPServerParams } from '@src/core/types/index.js';
+import logger, { debugIf } from '@src/logger/logger.js';
+
 import { z, ZodError } from 'zod';
-import logger, { debugIf } from '../logger/logger.js';
-import { AuthProviderTransport, transportConfigSchema } from '../core/types/index.js';
-import { MCPServerParams } from '../core/types/index.js';
-import { OAuthClientConfig, SDKOAuthClientProvider } from '../auth/sdkOAuthClientProvider.js';
-import { AUTH_CONFIG, MCP_SERVER_VERSION } from '../constants.js';
-import { AgentConfigManager } from '../core/server/agentConfig.js';
-import { processEnvironment } from '../utils/envProcessor.js';
+
 import { RestartableStdioTransport } from './restartableStdioTransport.js';
 
 /**
