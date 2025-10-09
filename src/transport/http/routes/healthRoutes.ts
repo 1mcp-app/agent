@@ -1,9 +1,9 @@
 import { Router, Request, Response, RequestHandler } from 'express';
 import rateLimit from 'express-rate-limit';
-import logger from '../../../logger/logger.js';
-import { HealthService, HealthStatus } from '../../../services/healthService.js';
-import { McpLoadingManager } from '../../../core/loading/mcpLoadingManager.js';
-import { LoadingState } from '../../../core/loading/loadingStateTracker.js';
+import logger from '@src/logger/logger.js';
+import { HealthService, HealthStatus } from '@src/services/healthService.js';
+import { McpLoadingManager } from '@src/core/loading/mcpLoadingManager.js';
+import { LoadingState } from '@src/core/loading/loadingStateTracker.js';
 
 /**
  * Creates health check routes

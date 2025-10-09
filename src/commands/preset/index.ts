@@ -1,5 +1,5 @@
 import type { Argv } from 'yargs';
-import { globalOptions } from '../../globalOptions.js';
+import { globalOptions } from '@src/globalOptions.js';
 
 // Import argument types for type safety
 import type { EditArguments } from './edit.js';

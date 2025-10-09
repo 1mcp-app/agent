@@ -4,10 +4,10 @@ import {
   type OutboundConnections,
   type OutboundConnection,
   type InboundConnection,
-} from '../core/types/index.js';
+} from '@src/core/types/index.js';
 
 // Mock dependencies
-vi.mock('../logger/logger.js', () => ({
+vi.mock('@src/logger/logger.js', () => ({
   default: {
     info: vi.fn(),
     error: vi.fn(),

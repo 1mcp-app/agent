@@ -1,4 +1,4 @@
-import { getConfigPath } from '../constants.js';
+import { getConfigPath } from '@src/constants.js';
 
 /**
  * Singleton context for managing configuration file resolution

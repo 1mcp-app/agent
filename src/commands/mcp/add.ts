@@ -1,5 +1,5 @@
 import type { Argv } from 'yargs';
-import { MCPServerParams } from '../../core/types/index.js';
+import { MCPServerParams } from '@src/core/types/index.js';
 import {
   serverExists,
   setServer,
@@ -19,7 +19,7 @@ import {
   validateTags,
   validateTimeout,
 } from './utils/validation.js';
-import { GlobalOptions } from '../../globalOptions.js';
+import { GlobalOptions } from '@src/globalOptions.js';
 
 export interface AddCommandArgs extends GlobalOptions {
   name: string;

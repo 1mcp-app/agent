@@ -1,15 +1,15 @@
 import type { Arguments, Argv } from 'yargs';
 import chalk from 'chalk';
 import boxen from 'boxen';
-import logger from '../../logger/logger.js';
-import { TokenEstimationService, type ServerTokenEstimate } from '../../services/tokenEstimationService.js';
-import { TagQueryParser, type TagExpression } from '../../utils/tagQueryParser.js';
+import logger from '@src/logger/logger.js';
+import { TokenEstimationService, type ServerTokenEstimate } from '@src/services/tokenEstimationService.js';
+import { TagQueryParser, type TagExpression } from '@src/utils/parsing/tagQueryParser.js';
 import { loadConfig, type ServerConfig, initializeConfigContext } from './utils/configUtils.js';
-import type { MCPServerParams } from '../../core/types/index.js';
-import { GlobalOptions } from '../../globalOptions.js';
+import type { MCPServerParams } from '@src/core/types/index.js';
+import { GlobalOptions } from '@src/globalOptions.js';
 import { McpConnectionHelper } from './utils/connectionHelper.js';
-import { PresetManager } from '../../utils/presetManager.js';
-import { TagQueryEvaluator } from '../../utils/tagQueryEvaluator.js';
+import { PresetManager } from '@src/utils/config/presetManager.js';
+import { TagQueryEvaluator } from '@src/utils/parsing/tagQueryEvaluator.js';
 
 interface TokensCommandArgs extends GlobalOptions {
   'tag-filter'?: string;

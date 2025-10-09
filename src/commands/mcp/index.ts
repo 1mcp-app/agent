@@ -1,5 +1,5 @@
 import type { Argv } from 'yargs';
-import { globalOptions } from '../../globalOptions.js';
+import { globalOptions } from '@src/globalOptions.js';
 
 // Import builder functions from command implementations
 import { buildAddCommand } from './add.js';

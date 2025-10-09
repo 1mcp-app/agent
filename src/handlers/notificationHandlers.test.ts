@@ -6,7 +6,7 @@ import {
   type OutboundConnections,
   type OutboundConnection,
   type InboundConnection,
-} from '../core/types/index.js';
+} from '@src/core/types/index.js';
 import { LoggingMessageNotificationSchema, InitializedNotificationSchema } from '@modelcontextprotocol/sdk/types.js';
 
 describe('Notification Handlers', () => {

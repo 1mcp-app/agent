@@ -1,9 +1,9 @@
-import { ClientStatus } from '../core/types/index.js';
-import { ServerManager } from '../core/server/serverManager.js';
-import { McpConfigManager } from '../config/mcpConfigManager.js';
-import { AgentConfigManager } from '../core/server/agentConfig.js';
-import { MCP_SERVER_VERSION } from '../constants.js';
-import logger from '../logger/logger.js';
+import { ClientStatus } from '@src/core/types/index.js';
+import { ServerManager } from '@src/core/server/serverManager.js';
+import { McpConfigManager } from '@src/config/mcpConfigManager.js';
+import { AgentConfigManager } from '@src/core/server/agentConfig.js';
+import { MCP_SERVER_VERSION } from '@src/constants.js';
+import logger from '@src/logger/logger.js';
 
 /**
  * Health status levels

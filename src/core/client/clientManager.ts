@@ -3,9 +3,9 @@ import { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
 import { UnauthorizedError } from '@modelcontextprotocol/sdk/client/auth.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import { SSEClientTransport } from '@modelcontextprotocol/sdk/client/sse.js';
-import logger, { debugIf } from '../../logger/logger.js';
-import { CONNECTION_RETRY, MCP_SERVER_NAME, MCP_SERVER_VERSION, MCP_CLIENT_CAPABILITIES } from '../../constants.js';
-import { ClientConnectionError, ClientNotFoundError, CapabilityError } from '../../utils/errorTypes.js';
+import logger, { debugIf } from '@src/logger/logger.js';
+import { CONNECTION_RETRY, MCP_SERVER_NAME, MCP_SERVER_VERSION, MCP_CLIENT_CAPABILITIES } from '@src/constants.js';
+import { ClientConnectionError, ClientNotFoundError, CapabilityError } from '@src/utils/core/errorTypes.js';
 import {
   ClientStatus,
   OutboundConnection,
@@ -13,10 +13,10 @@ import {
   OperationOptions,
   ServerCapability,
   AuthProviderTransport,
-} from '../types/index.js';
-import { AgentConfigManager } from '../server/agentConfig.js';
-import { executeOperation } from '../../utils/operationExecution.js';
-import { InstructionAggregator } from '../instructions/instructionAggregator.js';
+} from '@src/core/types/index.js';
+import { AgentConfigManager } from '@src/core/server/agentConfig.js';
+import { executeOperation } from '@src/utils/core/operationExecution.js';
+import { InstructionAggregator } from '@src/core/instructions/instructionAggregator.js';
 
 export class ClientManager {
   private static instance: ClientManager;

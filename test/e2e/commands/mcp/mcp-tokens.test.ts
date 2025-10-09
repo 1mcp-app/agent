@@ -3,7 +3,7 @@ import { promises as fs } from 'fs';
 import path from 'path';
 import { execSync } from 'child_process';
 import { fileURLToPath } from 'url';
-import type { ServerConfig } from '../../../../src/commands/mcp/utils/configUtils.js';
+import type { ServerConfig } from '@src/commands/mcp/utils/configUtils.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);

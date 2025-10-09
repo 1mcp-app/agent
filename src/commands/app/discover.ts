@@ -1,7 +1,7 @@
 import type { Argv } from 'yargs';
-import { discoverInstalledApps } from '../../utils/appDiscovery.js';
-import { getAppPreset, showPlatformWarningIfNeeded } from '../../utils/appPresets.js';
-import { GlobalOptions } from '../../globalOptions.js';
+import { discoverInstalledApps } from '@src/utils/discovery/appDiscovery.js';
+import { getAppPreset, showPlatformWarningIfNeeded } from '@src/utils/discovery/appPresets.js';
+import { GlobalOptions } from '@src/globalOptions.js';
 
 /**
  * Discover command - Find installed desktop applications with MCP configurations.

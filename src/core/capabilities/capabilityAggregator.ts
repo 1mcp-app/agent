@@ -7,8 +7,8 @@ import {
   Resource,
   Prompt,
 } from '@modelcontextprotocol/sdk/types.js';
-import { OutboundConnections, ClientStatus } from '../types/index.js';
-import logger, { debugIf } from '../../logger/logger.js';
+import { OutboundConnections, ClientStatus } from '@src/core/types/index.js';
+import logger, { debugIf } from '@src/logger/logger.js';
 
 /**
  * Represents a snapshot of aggregated capabilities from all ready servers

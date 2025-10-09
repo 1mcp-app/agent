@@ -2,10 +2,10 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { Request, Response, NextFunction } from 'express';
 import { ErrorCode } from '@modelcontextprotocol/sdk/types.js';
 import tagsExtractor from './tagsExtractor.js';
-import { PresetManager } from '../../../utils/presetManager.js';
+import { PresetManager } from '@src/utils/config/presetManager.js';
 
 // Mock PresetManager
-vi.mock('../../../utils/presetManager.js');
+vi.mock('@src/utils/config/presetManager.js');
 
 describe('tagsExtractor middleware', () => {
   let mockRequest: Partial<Request>;

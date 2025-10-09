@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { setupStreamableHttpRoutes } from './streamableHttpRoutes.js';
 import { ErrorCode } from '@modelcontextprotocol/sdk/types.js';
-import { STREAMABLE_HTTP_ENDPOINT } from '../../../constants.js';
+import { STREAMABLE_HTTP_ENDPOINT } from '@src/constants.js';
 
 // Mock all external dependencies
 vi.mock('node:crypto', () => ({
@@ -20,7 +20,7 @@ vi.mock('@modelcontextprotocol/sdk/server/streamableHttp.js', () => ({
   }),
 }));
 
-vi.mock('../../../logger/logger.js', () => ({
+vi.mock('@src/logger/logger.js', () => ({
   default: {
     info: vi.fn(),
     error: vi.fn(),
@@ -36,7 +36,7 @@ vi.mock('../middlewares/tagsExtractor.js', () => ({
   }),
 }));
 
-vi.mock('../middlewares/scopeAuthMiddleware.js', () => ({
+vi.mock('@src/transport/http/middlewares/scopeAuthMiddleware.js', () => ({
   createScopeAuthMiddleware: vi.fn(() => (req: any, res: any, next: any) => {
     res.locals = res.locals || {};
     res.locals.validatedTags = ['test'];
@@ -51,7 +51,7 @@ vi.mock('../middlewares/scopeAuthMiddleware.js', () => ({
   getPresetName: vi.fn((res: any) => res?.locals?.presetName),
 }));
 
-vi.mock('../../../utils/sanitization.js', () => ({
+vi.mock('@src/utils/validation/sanitization.js', () => ({
   sanitizeHeaders: vi.fn((_headers: any) => ({ 'content-type': 'application/json' })),
 }));
 
@@ -174,7 +174,7 @@ describe('Streamable HTTP Routes', () => {
     it('should create new session when no sessionId header', async () => {
       const { StreamableHTTPServerTransport } = await import('@modelcontextprotocol/sdk/server/streamableHttp.js');
       const { getValidatedTags, getTagExpression, getTagFilterMode } = await import(
-        '../middlewares/scopeAuthMiddleware.js'
+        '@src/transport/http/middlewares/scopeAuthMiddleware.js'
       );
       const { randomUUID } = await import('node:crypto');
 

@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { NotificationManager, DEFAULT_NOTIFICATION_CONFIG } from './notificationManager.js';
-import { InboundConnection, ServerStatus } from '../types/index.js';
-import { CapabilityChanges, AggregatedCapabilities } from '../capabilities/capabilityAggregator.js';
+import { InboundConnection, ServerStatus } from '@src/core/types/index.js';
+import { CapabilityChanges, AggregatedCapabilities } from '@src/core/capabilities/capabilityAggregator.js';
 
 describe('NotificationManager', () => {
   let notificationManager: NotificationManager;

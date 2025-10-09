@@ -1,6 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { TestProcessManager, ConfigBuilder, ProtocolValidator } from '../utils/index.js';
-
+import { TestProcessManager, ConfigBuilder, ProtocolValidator } from '@test/e2e/utils/index.js';
 describe('HTTP Transport MCP Protocol E2E', () => {
   let processManager: TestProcessManager;
   let configBuilder: ConfigBuilder;

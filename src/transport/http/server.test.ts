@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { ExpressServer } from './server.js';
-import { ServerManager } from '../../core/server/serverManager.js';
+import { ServerManager } from '@src/core/server/serverManager.js';
 
 // Mock all external dependencies
 vi.mock('express', () => {
@@ -43,7 +43,7 @@ vi.mock('@modelcontextprotocol/sdk/server/auth/router.js', () => ({
   mcpAuthRouter: vi.fn(() => 'auth-router'),
 }));
 
-vi.mock('../../logger/logger.js', () => ({
+vi.mock('@src/logger/logger.js', () => ({
   default: {
     info: vi.fn(),
     error: vi.fn(),
@@ -84,13 +84,13 @@ vi.mock('./routes/healthRoutes.js', () => ({
   default: vi.fn(() => 'health-routes'),
 }));
 
-vi.mock('../../auth/sdkOAuthServerProvider.js', () => ({
+vi.mock('@src/auth/sdkOAuthServerProvider.js', () => ({
   SDKOAuthServerProvider: vi.fn().mockImplementation(() => ({
     shutdown: vi.fn(),
   })),
 }));
 
-vi.mock('../../core/server/agentConfig.js', () => ({
+vi.mock('@src/core/server/agentConfig.js', () => ({
   AgentConfigManager: {
     getInstance: vi.fn(),
   },
@@ -147,7 +147,7 @@ describe('ExpressServer', () => {
       getUrl: vi.fn(() => 'http://localhost:3050'),
     };
 
-    const { AgentConfigManager } = await import('../../core/server/agentConfig.js');
+    const { AgentConfigManager } = await import('@src/core/server/agentConfig.js');
     vi.mocked(AgentConfigManager.getInstance).mockReturnValue(mockConfigManager);
 
     // Ensure SDKOAuthServerProvider returns an object with shutdown method

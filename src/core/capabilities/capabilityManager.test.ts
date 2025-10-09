@@ -2,22 +2,22 @@ import { vi, describe, it, expect, beforeEach, MockInstance } from 'vitest';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { ServerCapabilities } from '@modelcontextprotocol/sdk/types.js';
 import { setupCapabilities } from './capabilityManager.js';
-import logger from '../../logger/logger.js';
+import logger from '@src/logger/logger.js';
 import {
   setupClientToServerNotifications,
   setupServerToClientNotifications,
-} from '../../handlers/notificationHandlers.js';
-import { registerRequestHandlers } from '../../handlers/requestHandlers.js';
+} from '@src/handlers/notificationHandlers.js';
+import { registerRequestHandlers } from '@src/handlers/requestHandlers.js';
 import {
   OutboundConnections,
   InboundConnection,
   OutboundConnection,
   ClientStatus,
   ServerStatus,
-} from '../types/index.js';
+} from '@src/core/types/index.js';
 
 // Mock dependencies
-vi.mock('../../logger/logger.js', () => ({
+vi.mock('@src/logger/logger.js', () => ({
   __esModule: true,
   default: {
     debug: vi.fn(),

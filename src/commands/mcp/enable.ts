@@ -1,6 +1,6 @@
 import type { Argv } from 'yargs';
-import { MCPServerParams } from '../../core/types/index.js';
-import { GlobalOptions } from '../../globalOptions.js';
+import { MCPServerParams } from '@src/core/types/index.js';
+import { GlobalOptions } from '@src/globalOptions.js';
 import {
   serverExists,
   getServer,

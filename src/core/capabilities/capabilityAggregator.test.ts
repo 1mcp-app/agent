@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { CapabilityAggregator } from './capabilityAggregator.js';
-import { OutboundConnections, ClientStatus } from '../types/index.js';
+import { OutboundConnections, ClientStatus } from '@src/core/types/index.js';
 import { Tool, Resource, Prompt } from '@modelcontextprotocol/sdk/types.js';
 
 describe('CapabilityAggregator', () => {

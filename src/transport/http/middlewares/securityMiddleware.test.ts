@@ -14,7 +14,7 @@ vi.mock('express-rate-limit', () => ({
   default: vi.fn(() => vi.fn((req: any, res: any, next: any) => next())),
 }));
 
-vi.mock('../../../logger/logger.js', () => ({
+vi.mock('@src/logger/logger.js', () => ({
   default: {
     info: vi.fn(),
     warn: vi.fn(),
@@ -221,7 +221,7 @@ describe('Security Middleware', () => {
     });
 
     it('should log security warnings for malicious content', async () => {
-      const logger = await import('../../../logger/logger.js');
+      const logger = await import('@src/logger/logger.js');
       mockRequest.headers = { 'x-test': '<script>evil</script>' };
 
       inputValidation(mockRequest, mockResponse, mockNext);
@@ -271,7 +271,7 @@ describe('Security Middleware', () => {
 
   describe('securityAuditLogger', () => {
     it('should log security-relevant requests', async () => {
-      const logger = await import('../../../logger/logger.js');
+      const logger = await import('@src/logger/logger.js');
       mockRequest.method = 'POST';
       mockRequest.headers = { 'mcp-session-id': 'session-123', authorization: 'Bearer token' };
 
@@ -292,7 +292,7 @@ describe('Security Middleware', () => {
     });
 
     it('should not log non-security-relevant requests', async () => {
-      const logger = await import('../../../logger/logger.js');
+      const logger = await import('@src/logger/logger.js');
       mockRequest.method = 'GET';
       mockRequest.path = '/health';
 
@@ -302,7 +302,7 @@ describe('Security Middleware', () => {
     });
 
     it('should log OAuth paths', async () => {
-      const logger = await import('../../../logger/logger.js');
+      const logger = await import('@src/logger/logger.js');
       mockRequest.path = '/oauth/authorize';
 
       securityAuditLogger(mockRequest, mockResponse, mockNext);
@@ -316,7 +316,7 @@ describe('Security Middleware', () => {
     });
 
     it('should log auth paths', async () => {
-      const logger = await import('../../../logger/logger.js');
+      const logger = await import('@src/logger/logger.js');
       mockRequest.path = '/auth/login';
 
       securityAuditLogger(mockRequest, mockResponse, mockNext);
@@ -330,7 +330,7 @@ describe('Security Middleware', () => {
     });
 
     it('should log response details for security-relevant requests', async () => {
-      const logger = await import('../../../logger/logger.js');
+      const logger = await import('@src/logger/logger.js');
       mockRequest.method = 'POST';
 
       securityAuditLogger(mockRequest, mockResponse, mockNext);
@@ -351,7 +351,7 @@ describe('Security Middleware', () => {
     });
 
     it('should handle missing authorization header', async () => {
-      const logger = await import('../../../logger/logger.js');
+      const logger = await import('@src/logger/logger.js');
       mockRequest.method = 'POST';
       mockRequest.headers = {};
 

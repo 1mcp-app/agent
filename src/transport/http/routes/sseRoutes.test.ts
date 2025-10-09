@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { setupSseRoutes } from './sseRoutes.js';
 import { ErrorCode } from '@modelcontextprotocol/sdk/types.js';
-import { SSE_ENDPOINT, MESSAGES_ENDPOINT } from '../../../constants.js';
+import { SSE_ENDPOINT, MESSAGES_ENDPOINT } from '@src/constants.js';
 
 // Mock all external dependencies
 vi.mock('@modelcontextprotocol/sdk/server/sse.js', () => ({
@@ -16,7 +16,7 @@ vi.mock('@modelcontextprotocol/sdk/server/sse.js', () => ({
   }),
 }));
 
-vi.mock('../../../logger/logger.js', () => ({
+vi.mock('@src/logger/logger.js', () => ({
   default: {
     info: vi.fn(),
     error: vi.fn(),
@@ -47,7 +47,7 @@ vi.mock('../middlewares/scopeAuthMiddleware.js', () => ({
   getPresetName: vi.fn((res: any) => res?.locals?.presetName),
 }));
 
-vi.mock('../../../utils/sanitization.js', () => ({
+vi.mock('@src/utils/validation/sanitization.js', () => ({
   sanitizeHeaders: vi.fn((_headers: any) => ({ 'content-type': 'application/json' })),
 }));
 

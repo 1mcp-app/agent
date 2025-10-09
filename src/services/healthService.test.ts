@@ -1,9 +1,9 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { HealthService, HealthStatus } from './healthService.js';
-import { ClientStatus } from '../core/types/index.js';
+import { ClientStatus } from '@src/core/types/index.js';
 
 // Mock dependencies
-vi.mock('../logger/logger.js', () => ({
+vi.mock('@src/logger/logger.js', () => ({
   default: {
     info: vi.fn(),
     error: vi.fn(),
@@ -12,19 +12,19 @@ vi.mock('../logger/logger.js', () => ({
   },
 }));
 
-vi.mock('../core/server/serverManager.js', () => ({
+vi.mock('@src/core/server/serverManager.js', () => ({
   ServerManager: {
     current: null,
   },
 }));
 
-vi.mock('../config/mcpConfigManager.js', () => ({
+vi.mock('@src/config/mcpConfigManager.js', () => ({
   McpConfigManager: {
     getInstance: vi.fn(),
   },
 }));
 
-vi.mock('../core/server/agentConfig.js', () => ({
+vi.mock('@src/core/server/agentConfig.js', () => ({
   AgentConfigManager: {
     getInstance: vi.fn(),
   },
@@ -57,13 +57,13 @@ describe('HealthService', () => {
     };
 
     // Setup mocks
-    const { ServerManager } = await import('../core/server/serverManager.js');
+    const { ServerManager } = await import('@src/core/server/serverManager.js');
     (ServerManager as any).current = mockServerManager;
 
-    const { McpConfigManager } = await import('../config/mcpConfigManager.js');
+    const { McpConfigManager } = await import('@src/config/mcpConfigManager.js');
     vi.mocked(McpConfigManager.getInstance).mockReturnValue(mockMcpConfig);
 
-    const { AgentConfigManager } = await import('../core/server/agentConfig.js');
+    const { AgentConfigManager } = await import('@src/core/server/agentConfig.js');
     vi.mocked(AgentConfigManager.getInstance).mockReturnValue(mockAgentConfig);
 
     // Create HealthService instance after mocks are set up

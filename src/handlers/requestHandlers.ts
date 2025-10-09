@@ -24,17 +24,17 @@ import {
   CompleteRequest,
   CompleteRequestSchema,
 } from '@modelcontextprotocol/sdk/types.js';
-import { setLogLevel } from '../logger/logger.js';
-import { MCP_URI_SEPARATOR } from '../constants.js';
-import { ClientManager } from '../core/client/clientManager.js';
-import { ServerManager } from '../core/server/serverManager.js';
-import { parseUri } from '../utils/parsing.js';
-import { withErrorHandling } from '../utils/errorHandling.js';
-import { FilteringService } from '../core/filtering/filteringService.js';
-import { byCapabilities } from '../utils/clientFiltering.js';
-import { OutboundConnections, InboundConnection, ClientStatus } from '../core/types/index.js';
-import { handlePagination } from '../utils/pagination.js';
-import logger from '../logger/logger.js';
+import { setLogLevel } from '@src/logger/logger.js';
+import { MCP_URI_SEPARATOR } from '@src/constants.js';
+import { ClientManager } from '@src/core/client/clientManager.js';
+import { ServerManager } from '@src/core/server/serverManager.js';
+import { parseUri } from '@src/utils/core/parsing.js';
+import { withErrorHandling } from '@src/utils/core/errorHandling.js';
+import { FilteringService } from '@src/core/filtering/filteringService.js';
+import { byCapabilities } from '@src/utils/management/clientFiltering.js';
+import { OutboundConnections, InboundConnection, ClientStatus } from '@src/core/types/index.js';
+import { handlePagination } from '@src/utils/ui/pagination.js';
+import logger from '@src/logger/logger.js';
 
 /**
  * Registers server-specific request handlers

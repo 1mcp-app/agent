@@ -1,10 +1,10 @@
-import logger from '../logger/logger.js';
-import { ConfigChangeEvent, McpConfigManager } from '../config/mcpConfigManager.js';
-import { MCPServerParams, InboundConnection, EnhancedTransport } from '../core/types/index.js';
-import { ClientManager } from '../core/client/clientManager.js';
-import { setupCapabilities } from '../core/capabilities/capabilityManager.js';
-import { createTransports } from '../transport/transportFactory.js';
-import { ServerManager } from '../core/server/serverManager.js';
+import logger from '@src/logger/logger.js';
+import { ConfigChangeEvent, McpConfigManager } from '@src/config/mcpConfigManager.js';
+import { MCPServerParams, InboundConnection, EnhancedTransport } from '@src/core/types/index.js';
+import { ClientManager } from '@src/core/client/clientManager.js';
+import { setupCapabilities } from '@src/core/capabilities/capabilityManager.js';
+import { createTransports } from '@src/transport/transportFactory.js';
+import { ServerManager } from '@src/core/server/serverManager.js';
 
 /**
  * Service to handle dynamic configuration reloading
@@ -166,7 +166,7 @@ export class ConfigReloadService {
       const outboundConnections = serverManager.getClients();
 
       // Create a temporary capability aggregator to detect changes
-      const { CapabilityAggregator } = await import('../core/capabilities/capabilityAggregator.js');
+      const { CapabilityAggregator } = await import('@src/core/capabilities/capabilityAggregator.js');
       const capabilityAggregator = new CapabilityAggregator(outboundConnections);
 
       // Get the current capabilities
@@ -179,7 +179,7 @@ export class ConfigReloadService {
         changes.current.resources.length > 0 ||
         changes.current.prompts.length > 0
       ) {
-        const { NotificationManager } = await import('../core/notifications/notificationManager.js');
+        const { NotificationManager } = await import('@src/core/notifications/notificationManager.js');
         const notificationManager = new NotificationManager(inboundConnection);
 
         // Force send notifications for all capability types that exist

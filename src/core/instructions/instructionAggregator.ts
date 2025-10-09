@@ -1,8 +1,8 @@
 import { EventEmitter } from 'events';
 import Handlebars from 'handlebars';
-import logger, { debugIf } from '../../logger/logger.js';
-import { FilteringService } from '../filtering/filteringService.js';
-import { OutboundConnections, InboundConnectionConfig } from '../types/index.js';
+import logger, { debugIf } from '@src/logger/logger.js';
+import { FilteringService } from '@src/core/filtering/filteringService.js';
+import { OutboundConnections, InboundConnectionConfig } from '@src/core/types/index.js';
 import {
   TemplateVariables,
   ServerData,

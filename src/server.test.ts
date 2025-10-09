@@ -1,9 +1,9 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { setupServer } from './server.js';
-import { MCP_SERVER_CAPABILITIES, MCP_SERVER_NAME, MCP_SERVER_VERSION } from './constants.js';
+import { MCP_SERVER_CAPABILITIES, MCP_SERVER_NAME, MCP_SERVER_VERSION } from '@src/constants.js';
 
 // Mock dependencies
-vi.mock('./logger/logger.js', () => ({
+vi.mock('@src/logger/logger.ts', () => ({
   default: {
     info: vi.fn(),
     error: vi.fn(),
@@ -28,7 +28,7 @@ vi.mock('./core/server/serverManager.js', () => ({
   },
 }));
 
-vi.mock('./config/mcpConfigManager.js', () => ({
+vi.mock('@src/config/mcpConfigManager.ts', () => ({
   McpConfigManager: {
     getInstance: vi.fn(),
   },
@@ -41,11 +41,11 @@ vi.mock('./services/configReloadService.js', () => ({
 }));
 
 // Import the mocked modules
-import logger from './logger/logger.js';
+import logger from '@src/logger/logger.js';
 import { createTransports } from './transport/transportFactory.js';
 import { ClientManager } from './core/client/clientManager.js';
 import { ServerManager } from './core/server/serverManager.js';
-import { McpConfigManager } from './config/mcpConfigManager.js';
+import { McpConfigManager } from '@src/config/mcpConfigManager.js';
 import configReloadService from './services/configReloadService.js';
 
 describe('server', () => {

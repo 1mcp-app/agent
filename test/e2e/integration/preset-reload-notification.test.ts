@@ -3,9 +3,9 @@ import { promises as fs } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
 import { randomBytes } from 'crypto';
-import { PresetManager } from '../../../src/utils/presetManager.js';
-import { PresetNotificationService } from '../../../src/utils/presetNotificationService.js';
-import { McpConfigManager } from '../../../src/config/mcpConfigManager.js';
+import { PresetManager } from '@src/utils/config/presetManager.js';
+import { PresetNotificationService } from '@src/utils/config/presetNotificationService.js';
+import { McpConfigManager } from '@src/config/mcpConfigManager.js';
 
 // Mock dependencies
 vi.mock('../../../src/config/mcpConfigManager.js', () => ({

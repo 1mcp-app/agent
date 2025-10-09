@@ -1,6 +1,6 @@
 import { encoding_for_model, type TiktokenModel } from 'tiktoken';
 import type { Tool, Resource, Prompt, PromptArgument } from '@modelcontextprotocol/sdk/types.js';
-import logger from '../logger/logger.js';
+import logger from '@src/logger/logger.js';
 
 /**
  * Token breakdown by capability type

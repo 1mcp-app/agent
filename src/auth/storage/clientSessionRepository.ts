@@ -1,8 +1,8 @@
 import { FileStorageService } from './fileStorageService.js';
-import { ClientSessionData } from '../sessionTypes.js';
-import { AUTH_CONFIG } from '../../constants.js';
-import { sanitizeServerName } from '../../utils/sanitization.js';
-import logger from '../../logger/logger.js';
+import { ClientSessionData } from '@src/auth/sessionTypes.js';
+import { AUTH_CONFIG } from '@src/constants.js';
+import { sanitizeServerName } from '@src/utils/validation/sanitization.js';
+import logger from '@src/logger/logger.js';
 
 /**
  * ClientSessionRepository handles OAuth 2.1 client session storage using the layered storage architecture.

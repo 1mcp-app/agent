@@ -2,7 +2,7 @@ import { StdioClientTransport, StdioServerParameters } from '@modelcontextprotoc
 import { JSONRPCMessage } from '@modelcontextprotocol/sdk/types.js';
 import { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
 import { Stream } from 'node:stream';
-import logger, { debugIf } from '../logger/logger.js';
+import logger, { debugIf } from '@src/logger/logger.js';
 
 /**
  * Configuration for the restartable stdio transport

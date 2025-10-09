@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { readFile } from 'fs/promises';
-import { CommandTestEnvironment, CliTestRunner } from '../../utils/index.js';
-import { TestFixtures } from '../../fixtures/TestFixtures.js';
+import { TestFixtures } from '@test/e2e/fixtures/TestFixtures.js';
+import { CommandTestEnvironment, CliTestRunner } from '@test/e2e/utils/index.js';
 
 describe('MCP Add Command E2E', () => {
   let environment: CommandTestEnvironment;

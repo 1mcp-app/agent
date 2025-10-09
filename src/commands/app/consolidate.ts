@@ -2,30 +2,30 @@ import type { Argv } from 'yargs';
 import fs from 'fs';
 import path from 'path';
 import readline from 'readline';
-import { getServer1mcpUrl, validateServer1mcpUrl } from '../../utils/urlDetection.js';
+import { getServer1mcpUrl, validateServer1mcpUrl } from '@src/utils/parsing/urlDetection.js';
 import {
   discoverAppConfigs,
   handleMultipleConfigs,
   extractAndFilterServers,
   generateAppConfig,
   checkConsolidationStatus,
-} from '../../utils/appDiscovery.js';
+} from '@src/utils/discovery/appDiscovery.js';
 import {
   isAppSupported,
   isAppConfigurable,
   generateManualInstructions,
   getAppPreset,
   showPlatformWarningIfNeeded,
-} from '../../utils/appPresets.js';
-import { validateOperation, generateOperationPreview } from '../../utils/validationHelpers.js';
-import { createBackup, withFileLock } from '../../utils/backupManager.js';
-import { getAppBackupDir } from '../../constants.js';
-import { McpConfigManager } from '../../config/mcpConfigManager.js';
-import { setServer, initializeConfigContext } from '../mcp/utils/configUtils.js';
-import ConfigContext from '../../config/configContext.js';
-import { MCPServerParams } from '../../core/types/index.js';
-import { GlobalOptions } from '../../globalOptions.js';
-import { generateSupportedAppsHelp } from '../../utils/appPresets.js';
+} from '@src/utils/discovery/appPresets.js';
+import { validateOperation, generateOperationPreview } from '@src/utils/validation/validationHelpers.js';
+import { createBackup, withFileLock } from '@src/utils/management/backupManager.js';
+import { getAppBackupDir } from '@src/constants.js';
+import { McpConfigManager } from '@src/config/mcpConfigManager.js';
+import { setServer, initializeConfigContext } from '@src/commands/mcp/utils/configUtils.js';
+import ConfigContext from '@src/config/configContext.js';
+import { MCPServerParams } from '@src/core/types/index.js';
+import { GlobalOptions } from '@src/globalOptions.js';
+import { generateSupportedAppsHelp } from '@src/utils/discovery/appPresets.js';
 
 /**
  * Consolidate command - Main consolidation logic for MCP servers.

@@ -7,8 +7,8 @@ import {
   InboundConnection,
   OutboundConnection,
   ServerStatus,
-} from '../../src/core/types/index.js';
-import { ClientSessionData } from '../../src/auth/sessionTypes.js';
+} from '@src/../src/core/types/index.js';
+import { ClientSessionData } from '@src/auth/sessionTypes.js';
 
 /**
  * Factory for creating mock logger instances

@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { AgentConfigManager } from '../../../src/core/server/agentConfig.js';
+import { AgentConfigManager } from '@src/core/server/agentConfig.js';
 
 /**
  * Integration tests for trust proxy configuration.

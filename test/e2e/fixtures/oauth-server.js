@@ -11,7 +11,7 @@
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js';
-import { sanitizeForLogging } from '../../../src/logger/secureLogger.js';
+import { sanitizeForLogging } from '@src/../src/logger/secureLogger.js';
 
 // Track OAuth state - normally this would be persisted somewhere
 let isAuthenticated = process.env.OAUTH_AUTHENTICATED === 'true';

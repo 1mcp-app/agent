@@ -2,11 +2,11 @@ import { vi, describe, it, expect, beforeEach, MockInstance } from 'vitest';
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
 import { ServerManager } from './serverManager.js';
-import logger from '../../logger/logger.js';
-import configReloadService from '../../services/configReloadService.js';
-import { setupCapabilities } from '../capabilities/capabilityManager.js';
-import { enhanceServerWithLogging } from '../../logger/mcpLoggingEnhancer.js';
-import { OutboundConnections } from '../types/index.js';
+import logger from '@src/logger/logger.js';
+import configReloadService from '@src/services/configReloadService.js';
+import { setupCapabilities } from '@src/core/capabilities/capabilityManager.js';
+import { enhanceServerWithLogging } from '@src/logger/mcpLoggingEnhancer.js';
+import { OutboundConnections } from '@src/core/types/index.js';
 
 // Mock dependencies
 vi.mock('@modelcontextprotocol/sdk/server/index.js', () => ({
@@ -17,7 +17,7 @@ vi.mock('@modelcontextprotocol/sdk/shared/transport.js', () => ({
   Transport: vi.fn(),
 }));
 
-vi.mock('../../logger/logger.js', () => {
+vi.mock('@src/logger/logger.js', () => {
   const mockLogger = {
     info: vi.fn(),
     error: vi.fn(),
@@ -47,7 +47,7 @@ vi.mock('../../logger/mcpLoggingEnhancer.js', () => ({
   enhanceServerWithLogging: vi.fn(),
 }));
 
-vi.mock('../../utils/presetNotificationService.js', () => ({
+vi.mock('@src/utils/config/presetNotificationService.js', () => ({
   PresetNotificationService: {
     getInstance: vi.fn().mockReturnValue({
       trackClient: vi.fn(),

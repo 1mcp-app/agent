@@ -1,10 +1,10 @@
 import type { Argv } from 'yargs';
-import { PresetManager } from '../../utils/presetManager.js';
-import { UrlGenerator } from '../../utils/urlGenerator.js';
-import { TagQueryParser } from '../../utils/tagQueryParser.js';
-import { PresetErrorHandler } from '../../utils/presetErrorHandler.js';
-import { GlobalOptions } from '../../globalOptions.js';
-import logger from '../../logger/logger.js';
+import { PresetManager } from '@src/utils/config/presetManager.js';
+import { UrlGenerator } from '@src/utils/ui/urlGenerator.js';
+import { TagQueryParser } from '@src/utils/parsing/tagQueryParser.js';
+import { PresetErrorHandler } from '@src/utils/config/presetErrorHandler.js';
+import { GlobalOptions } from '@src/globalOptions.js';
+import logger from '@src/logger/logger.js';
 
 /**
  * Command arguments for preset create command

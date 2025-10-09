@@ -1,4 +1,4 @@
-import { MockApp, MockMcpServer } from '../utils/CommandTestEnvironment.js';
+import { MockApp, MockMcpServer } from '@test/e2e/utils/index.js';
 
 /**
  * Test fixtures for creating consistent test scenarios

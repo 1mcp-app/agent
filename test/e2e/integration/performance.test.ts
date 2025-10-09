@@ -1,7 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { join } from 'path';
-import { TestProcessManager, ConfigBuilder, ProtocolValidator } from '../utils/index.js';
-
+import { TestProcessManager, ConfigBuilder, ProtocolValidator } from '@test/e2e/utils/index.js';
 describe('Performance Infrastructure Integration E2E', () => {
   let processManager: TestProcessManager;
   let configBuilder: ConfigBuilder;
@@ -490,7 +489,7 @@ describe('Performance Infrastructure Integration E2E', () => {
 
   it('should validate conditional logging performance optimization', async () => {
     // Test logging performance optimization benefits
-    const { debugIf, isDebugEnabled } = await import('../../../src/logger/logger.js');
+    const { debugIf, isDebugEnabled } = await import('@src/logger/logger.js');
 
     const iterationCount = 10000;
     const expensiveData = Array.from({ length: 1000 }, (_, i) => ({ id: i, value: 'x'.repeat(100) }));
@@ -539,7 +538,7 @@ describe('Performance Infrastructure Integration E2E', () => {
 
   it('should validate logging error handling robustness', async () => {
     // Test that logging errors never crash the application
-    const { debugIf, infoIf, warnIf } = await import('../../../src/logger/logger.js');
+    const { debugIf, infoIf, warnIf } = await import('@src/logger/logger.js');
 
     const errorScenarios = [
       // Test malformed callback results
@@ -583,7 +582,7 @@ describe('Performance Infrastructure Integration E2E', () => {
 
   it('should validate logging memory efficiency with high-frequency calls', async () => {
     // Test memory efficiency of conditional logging
-    const { debugIf } = await import('../../../src/logger/logger.js');
+    const { debugIf } = await import('@src/logger/logger.js');
 
     const largeObject = Array.from({ length: 10000 }, (_, i) => ({
       id: i,
@@ -628,7 +627,7 @@ describe('Performance Infrastructure Integration E2E', () => {
 
   it('should validate structured metadata performance patterns', async () => {
     // Test structured metadata handling performance
-    const { debugIf } = await import('../../../src/logger/logger.js');
+    const { debugIf } = await import('@src/logger/logger.js');
 
     const metadataScenarios = [
       {
@@ -700,7 +699,7 @@ describe('Performance Infrastructure Integration E2E', () => {
 
   it('should validate callback purity and side effect prevention', async () => {
     // Test that callbacks are executed only when logging is enabled
-    const { debugIf, isDebugEnabled } = await import('../../../src/logger/logger.js');
+    const { debugIf, isDebugEnabled } = await import('@src/logger/logger.js');
 
     let callbackExecutionCount = 0;
     let sideEffectCount = 0;
@@ -756,7 +755,7 @@ describe('Performance Infrastructure Integration E2E', () => {
 
   it('should handle logging performance under concurrent load', async () => {
     // Test concurrent logging performance
-    const { debugIf } = await import('../../../src/logger/logger.js');
+    const { debugIf } = await import('@src/logger/logger.js');
 
     const concurrentOperations = 10;
     const operationsPerThread = 1000;

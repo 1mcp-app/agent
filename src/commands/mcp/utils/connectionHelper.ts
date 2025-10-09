@@ -1,8 +1,8 @@
-import logger from '../../../logger/logger.js';
-import { ClientManager } from '../../../core/client/clientManager.js';
-import { createTransports } from '../../../transport/transportFactory.js';
-import type { MCPServerParams } from '../../../core/types/index.js';
-import type { OutboundConnection } from '../../../core/types/client.js';
+import logger from '@src/logger/logger.js';
+import { ClientManager } from '@src/core/client/clientManager.js';
+import { createTransports } from '@src/transport/transportFactory.js';
+import type { MCPServerParams } from '@src/core/types/index.js';
+import type { OutboundConnection } from '@src/core/types/client.js';
 import type { Tool, Resource, Prompt } from '@modelcontextprotocol/sdk/types.js';
 
 export interface ServerCapabilities {

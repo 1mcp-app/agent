@@ -10,7 +10,7 @@ import { ClientSessionData } from './sessionTypes.js';
 vi.mock('node:crypto');
 vi.mock('./storage/clientSessionRepository.js');
 vi.mock('./storage/fileStorageService.js');
-vi.mock('../logger/logger.js', () => ({
+vi.mock('@src/logger/logger.js', () => ({
   default: {
     info: vi.fn(),
     error: vi.fn(),
@@ -19,7 +19,7 @@ vi.mock('../logger/logger.js', () => ({
   },
 }));
 
-vi.mock('../constants.js', () => ({
+vi.mock('@src/constants.js', () => ({
   AUTH_CONFIG: {
     CLIENT: {
       OAUTH: {

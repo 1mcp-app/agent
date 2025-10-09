@@ -1,12 +1,12 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import path from 'path';
 import { serveCommand, ServeOptions } from './serve.js';
-import { AgentConfigManager } from '../../core/server/agentConfig.js';
+import { AgentConfigManager } from '@src/core/server/agentConfig.js';
 
 // Mock dependencies
-vi.mock('../../utils/configureGlobalLogger.js');
-vi.mock('../../config/mcpConfigManager.js');
-vi.mock('../../utils/presetManager.js');
+vi.mock('@src/utils/core/configureGlobalLogger.js');
+vi.mock('@src/config/mcpConfigManager.js');
+vi.mock('@src/utils/config/presetManager.js');
 vi.mock('../../core/server/serverManager.js');
 vi.mock('../../transport/http/server.js');
 vi.mock('../../transport/stdio/stdioServerTransport.js');

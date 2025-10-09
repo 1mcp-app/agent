@@ -8,17 +8,17 @@ import type {
   OAuthTokens,
   OAuthTokenRevocationRequest,
 } from '@modelcontextprotocol/sdk/shared/auth.js';
-import logger from '../logger/logger.js';
+import logger from '@src/logger/logger.js';
 import { OAuthStorageService } from './storage/oauthStorageService.js';
-import { AgentConfigManager } from '../core/server/agentConfig.js';
-import { AUTH_CONFIG } from '../constants.js';
+import { AgentConfigManager } from '@src/core/server/agentConfig.js';
+import { AUTH_CONFIG } from '@src/constants.js';
 import {
   validateScopesAgainstAvailableTags,
   tagsToScopes,
   scopesToTags,
   auditScopeOperation,
-} from '../utils/scopeValidation.js';
-import { McpConfigManager } from '../config/mcpConfigManager.js';
+} from '@src/utils/validation/scopeValidation.js';
+import { McpConfigManager } from '@src/config/mcpConfigManager.js';
 
 /**
  * File-based OAuth clients store implementation using the new repository architecture

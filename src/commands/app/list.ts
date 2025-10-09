@@ -4,8 +4,8 @@ import {
   getConfigurableApps,
   getManualOnlyApps,
   showPlatformWarningIfNeeded,
-} from '../../utils/appPresets.js';
-import { GlobalOptions } from '../../globalOptions.js';
+} from '@src/utils/discovery/appPresets.js';
+import { GlobalOptions } from '@src/globalOptions.js';
 
 /**
  * List command - Display supported desktop applications.

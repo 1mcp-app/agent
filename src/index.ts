@@ -5,15 +5,15 @@ import 'source-map-support/register.js';
 import yargs from 'yargs';
 import { hideBin } from 'yargs/helpers';
 
-import logger from './logger/logger.js';
+import logger from '@src/logger/logger.js';
 import { setupAppCommands } from './commands/app/index.js';
 import { setupMcpCommands } from './commands/mcp/index.js';
 import { setupPresetCommands } from './commands/preset/index.js';
 import { setupServeCommand, serverOptions } from './commands/serve/index.js';
 import { setupProxyCommand } from './commands/proxy/index.js';
-import { globalOptions, GlobalOptions } from './globalOptions.js';
-import { configureGlobalLogger } from './utils/configureGlobalLogger.js';
-import { MCP_SERVER_VERSION } from './constants.js';
+import { globalOptions, GlobalOptions } from '@src/globalOptions.js';
+import { configureGlobalLogger } from './utils/core/configureGlobalLogger.js';
+import { MCP_SERVER_VERSION } from '@src/constants.js';
 
 // Parse command line arguments and set up commands
 let yargsInstance = yargs(hideBin(process.argv));

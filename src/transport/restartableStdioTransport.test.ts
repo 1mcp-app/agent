@@ -22,7 +22,7 @@ vi.mock('@modelcontextprotocol/sdk/client/stdio.js', () => ({
 }));
 
 // Mock logger
-vi.mock('../logger/logger.js', () => ({
+vi.mock('@src/logger/logger.js', () => ({
   default: {
     debug: vi.fn(),
     info: vi.fn(),

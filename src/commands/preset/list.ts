@@ -1,7 +1,7 @@
 import type { Argv } from 'yargs';
-import { PresetManager } from '../../utils/presetManager.js';
-import { InteractiveSelector } from '../../utils/interactiveSelector.js';
-import logger from '../../logger/logger.js';
+import { PresetManager } from '@src/utils/config/presetManager.js';
+import { InteractiveSelector } from '@src/utils/ui/interactiveSelector.js';
+import logger from '@src/logger/logger.js';
 import boxen from 'boxen';
 import chalk from 'chalk';
 import { GlobalOptions } from '@src/globalOptions.js';

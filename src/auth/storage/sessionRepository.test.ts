@@ -4,10 +4,10 @@ import path from 'path';
 import { tmpdir } from 'os';
 import { SessionRepository } from './sessionRepository.js';
 import { FileStorageService } from './fileStorageService.js';
-import { AUTH_CONFIG } from '../../constants.js';
+import { AUTH_CONFIG } from '@src/constants.js';
 
 // Mock logger to avoid console output during tests
-vi.mock('../../logger/logger.js', () => ({
+vi.mock('@src/logger/logger.js', () => ({
   default: {
     info: vi.fn(),
     error: vi.fn(),

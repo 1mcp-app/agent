@@ -4,9 +4,9 @@ import {
   ResourceListChangedNotification,
   PromptListChangedNotification,
 } from '@modelcontextprotocol/sdk/types.js';
-import { InboundConnection, ServerStatus } from '../types/index.js';
-import { CapabilityChanges } from '../capabilities/capabilityAggregator.js';
-import logger, { debugIf } from '../../logger/logger.js';
+import { InboundConnection, ServerStatus } from '@src/core/types/index.js';
+import { CapabilityChanges } from '@src/core/capabilities/capabilityAggregator.js';
+import logger, { debugIf } from '@src/logger/logger.js';
 
 /**
  * Configuration for notification batching and behavior

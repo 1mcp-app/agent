@@ -1,6 +1,6 @@
 import { Request, Response, NextFunction } from 'express';
-import logger from '../../../logger/logger.js';
-import { sanitizeHeaders } from '../../../utils/sanitization.js';
+import logger from '@src/logger/logger.js';
+import { sanitizeHeaders } from '@src/utils/validation/sanitization.js';
 
 /**
  * HTTP request logging middleware that provides comprehensive request/response logging

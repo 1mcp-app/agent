@@ -25,7 +25,7 @@ describe('Index Module', () => {
       }).not.toThrow();
 
       expect(async () => {
-        await import('./logger/logger.js');
+        await import('@src/logger/logger.js');
       }).not.toThrow();
     });
 
@@ -42,7 +42,7 @@ describe('Index Module', () => {
       const { setupServer } = await import('./server.js');
       expect(typeof setupServer).toBe('function');
 
-      const logger = await import('./logger/logger.js');
+      const logger = await import('@src/logger/logger.js');
       expect(typeof logger.default).toBe('object');
       expect(typeof logger.enableConsoleTransport).toBe('function');
     });
@@ -53,10 +53,10 @@ describe('Index Module', () => {
     });
 
     it('should have config managers available', async () => {
-      const { McpConfigManager } = await import('./config/mcpConfigManager.js');
+      const { McpConfigManager } = await import('@src/config/mcpConfigManager.js');
       expect(typeof McpConfigManager.getInstance).toBe('function');
 
-      const { AgentConfigManager } = await import('./core/server/agentConfig.js');
+      const { AgentConfigManager } = await import('@src/core/server/agentConfig.js');
       expect(typeof AgentConfigManager.getInstance).toBe('function');
     });
 
@@ -69,7 +69,7 @@ describe('Index Module', () => {
     });
 
     it('should have constants defined', async () => {
-      const { PORT, HOST } = await import('./constants.js');
+      const { PORT, HOST } = await import('@src/constants.js');
       expect(typeof PORT).toBe('number');
       expect(typeof HOST).toBe('string');
     });
@@ -177,7 +177,7 @@ describe('Index Module', () => {
   describe('Type Safety', () => {
     it('should have proper TypeScript types', async () => {
       // Test that imports have the expected TypeScript structure
-      const logger = await import('./logger/logger.js');
+      const logger = await import('@src/logger/logger.js');
 
       // Logger should have the expected methods
       expect(logger.default).toHaveProperty('info');
@@ -209,13 +209,13 @@ describe('Index Module', () => {
         'yargs/helpers',
         '@modelcontextprotocol/sdk/server/stdio.js',
         './server.js',
-        './logger/logger.js',
+        '@src/logger/logger.js',
         './services/configReloadService.js',
         './core/server/serverManager.js',
-        './config/mcpConfigManager.js',
+        '@src/config/mcpConfigManager.js',
         './transport/http/server.js',
-        './core/server/agentConfig.js',
-        './constants.js',
+        '@src/core/server/agentConfig.js',
+        '@src/constants.js',
       ];
 
       for (const moduleName of modules) {
@@ -228,7 +228,7 @@ describe('Index Module', () => {
 
   describe('Default Values', () => {
     it('should have sensible default values', async () => {
-      const { PORT, HOST } = await import('./constants.js');
+      const { PORT, HOST } = await import('@src/constants.js');
 
       // Test that default values are sensible
       expect(PORT).toBeGreaterThan(0);

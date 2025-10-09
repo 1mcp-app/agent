@@ -1,9 +1,9 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { ClientStatus } from '../../../core/types/index.js';
-import { LoadingState } from '../../../core/loading/loadingStateTracker.js';
+import { ClientStatus } from '@src/core/types/index.js';
+import { LoadingState } from '@src/core/loading/loadingStateTracker.js';
 
 // Mock all dependencies
-vi.mock('../../../logger/logger.js', () => ({
+vi.mock('@src/logger/logger.js', () => ({
   default: {
     info: vi.fn(),
     error: vi.fn(),
@@ -12,7 +12,7 @@ vi.mock('../../../logger/logger.js', () => ({
   },
 }));
 
-vi.mock('../../../core/server/serverManager.js', () => ({
+vi.mock('@src/core/server/serverManager.js', () => ({
   ServerManager: {
     current: {
       getClients: vi.fn(),
@@ -25,7 +25,7 @@ vi.mock('../../../core/client/clientFactory.js', () => ({
   default: vi.fn(),
 }));
 
-vi.mock('../../../core/server/agentConfig.js', () => ({
+vi.mock('@src/core/server/agentConfig.js', () => ({
   AgentConfigManager: {
     getInstance: vi.fn(() => ({
       getRateLimitWindowMs: () => 900000,
@@ -42,14 +42,14 @@ vi.mock('../middlewares/securityMiddleware.js', () => ({
   sensitiveOperationLimiter: (req: any, res: any, next: any) => next(),
 }));
 
-vi.mock('../../../utils/sanitization.js', () => ({
+vi.mock('@src/utils/validation/sanitization.js', () => ({
   escapeHtml: vi.fn((str: string) => str),
   sanitizeUrlParam: vi.fn((str: string) => str),
   sanitizeErrorMessage: vi.fn((str: string) => str),
   sanitizeServerNameForContext: vi.fn((str: string) => str),
 }));
 
-vi.mock('../../../utils/scopeValidation.js', () => ({
+vi.mock('@src/utils/validation/scopeValidation.js', () => ({
   validateScopes: vi.fn(() => ({ isValid: true, validScopes: [], errors: [] })),
 }));
 
@@ -175,7 +175,7 @@ describe('OAuth Routes', () => {
 
   describe('Dashboard Rendering', () => {
     it('should handle empty services list', async () => {
-      const { ServerManager } = await import('../../../core/server/serverManager.js');
+      const { ServerManager } = await import('@src/core/server/serverManager.js');
       vi.mocked(ServerManager.current.getClients).mockReturnValue(new Map());
 
       const router = createOAuthRoutes(mockOAuthProvider);
@@ -188,7 +188,7 @@ describe('OAuth Routes', () => {
     });
 
     it('should handle services with different statuses', async () => {
-      const { ServerManager } = await import('../../../core/server/serverManager.js');
+      const { ServerManager } = await import('@src/core/server/serverManager.js');
       const mockClients = new Map([
         [
           'connected-service',
@@ -228,7 +228,7 @@ describe('OAuth Routes', () => {
 
   describe('OAuth Flow', () => {
     it('should handle authorization request for existing service', async () => {
-      const { ServerManager } = await import('../../../core/server/serverManager.js');
+      const { ServerManager } = await import('@src/core/server/serverManager.js');
       mockRequest.params = { serverName: 'test-server' };
 
       const clientInfo = {
@@ -346,7 +346,7 @@ describe('OAuth Routes', () => {
       mockRequest.query = { code: 'auth-code-123' };
 
       // Mock ClientManager to handle OAuth reconnection
-      const { ClientManager } = await import('../../../core/client/clientManager.js');
+      const { ClientManager } = await import('@src/core/client/clientManager.js');
       const mockCompleteOAuth = vi.fn().mockResolvedValue(undefined);
       const mockClientManager = {
         completeOAuthAndReconnect: mockCompleteOAuth,
@@ -379,7 +379,7 @@ describe('OAuth Routes', () => {
       } as any;
 
       // Mock ClientManager to handle OAuth reconnection
-      const { ClientManager } = await import('../../../core/client/clientManager.js');
+      const { ClientManager } = await import('@src/core/client/clientManager.js');
       const mockCompleteOAuth = vi.fn().mockResolvedValue(undefined);
       const mockClientManager = {
         completeOAuthAndReconnect: mockCompleteOAuth,

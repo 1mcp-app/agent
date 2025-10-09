@@ -1,10 +1,10 @@
 import { Request, Response, NextFunction } from 'express';
 import { ErrorCode } from '@modelcontextprotocol/sdk/types.js';
-import { TagQueryParser } from '../../../utils/tagQueryParser.js';
-import { validateAndSanitizeTags } from '../../../utils/sanitization.js';
-import { PresetManager } from '../../../utils/presetManager.js';
-import { TagQuery } from '../../../utils/presetTypes.js';
-import logger, { debugIf } from '../../../logger/logger.js';
+import { TagQueryParser } from '@src/utils/parsing/tagQueryParser.js';
+import { validateAndSanitizeTags } from '@src/utils/validation/sanitization.js';
+import { PresetManager } from '@src/utils/config/presetManager.js';
+import { TagQuery } from '@src/utils/config/presetTypes.js';
+import logger, { debugIf } from '@src/logger/logger.js';
 
 /**
  * Extract simple tags from a MongoDB-style query for backward compatibility

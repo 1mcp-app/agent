@@ -1,11 +1,11 @@
 import { Request, Response, NextFunction } from 'express';
-import logger, { debugIf } from '../../../logger/logger.js';
-import { secureLogger } from '../../../logger/secureLogger.js';
-import { McpLoadingManager } from '../../../core/loading/mcpLoadingManager.js';
-import { LoadingState } from '../../../core/loading/loadingStateTracker.js';
+import logger, { debugIf } from '@src/logger/logger.js';
+import { secureLogger } from '@src/logger/secureLogger.js';
+import { McpLoadingManager } from '@src/core/loading/mcpLoadingManager.js';
+import { LoadingState } from '@src/core/loading/loadingStateTracker.js';
 import { getValidatedTags } from './scopeAuthMiddleware.js';
-import { McpConfigManager } from '../../../config/mcpConfigManager.js';
-import { sanitizeOAuthServerList } from '../../../logger/secureLogger.js';
+import { McpConfigManager } from '@src/config/mcpConfigManager.js';
+import { sanitizeOAuthServerList } from '@src/logger/secureLogger.js';
 
 /**
  * Extended request interface to include MCP loading information

@@ -1,19 +1,19 @@
 import { Router, Request, Response } from 'express';
 import { SSEServerTransport } from '@modelcontextprotocol/sdk/server/sse.js';
 import { ErrorCode } from '@modelcontextprotocol/sdk/types.js';
-import logger from '../../../logger/logger.js';
-import { SSE_ENDPOINT, MESSAGES_ENDPOINT } from '../../../constants.js';
-import { ServerManager } from '../../../core/server/serverManager.js';
-import { ServerStatus } from '../../../core/types/index.js';
-import { AsyncLoadingOrchestrator } from '../../../core/capabilities/asyncLoadingOrchestrator.js';
-import tagsExtractor from '../middlewares/tagsExtractor.js';
+import logger from '@src/logger/logger.js';
+import { SSE_ENDPOINT, MESSAGES_ENDPOINT } from '@src/constants.js';
+import { ServerManager } from '@src/core/server/serverManager.js';
+import { ServerStatus } from '@src/core/types/index.js';
+import { AsyncLoadingOrchestrator } from '@src/core/capabilities/asyncLoadingOrchestrator.js';
+import tagsExtractor from '@src/transport/http/middlewares/tagsExtractor.js';
 import {
   getValidatedTags,
   getTagExpression,
   getTagFilterMode,
   getTagQuery,
   getPresetName,
-} from '../middlewares/scopeAuthMiddleware.js';
+} from '@src/transport/http/middlewares/scopeAuthMiddleware.js';
 
 export function setupSseRoutes(
   router: Router,

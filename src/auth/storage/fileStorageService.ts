@@ -1,8 +1,8 @@
 import fs from 'fs';
 import path from 'path';
-import logger from '../../logger/logger.js';
-import { AUTH_CONFIG, getGlobalConfigDir } from '../../constants.js';
-import { ExpirableData } from '../sessionTypes.js';
+import logger from '@src/logger/logger.js';
+import { AUTH_CONFIG, getGlobalConfigDir } from '@src/constants.js';
+import { ExpirableData } from '@src/auth/sessionTypes.js';
 
 /**
  * Generic file storage service with unified cleanup for all expirable data types.

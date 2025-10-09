@@ -1,8 +1,8 @@
 import type { Argv } from 'yargs';
 import readline from 'readline';
-import { listAppBackups, rollbackFromBackupPath, findBackupByMetaPath } from '../../utils/backupManager.js';
-import { getAppPreset, isAppSupported } from '../../utils/appPresets.js';
-import { GlobalOptions } from '../../globalOptions.js';
+import { listAppBackups, rollbackFromBackupPath, findBackupByMetaPath } from '@src/utils/management/backupManager.js';
+import { getAppPreset, isAppSupported } from '@src/utils/discovery/appPresets.js';
+import { GlobalOptions } from '@src/globalOptions.js';
 
 /**
  * Restore command - Restore desktop applications to pre-consolidation state.

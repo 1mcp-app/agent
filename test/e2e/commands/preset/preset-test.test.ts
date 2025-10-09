@@ -1,7 +1,7 @@
 import { describe, it, beforeEach, afterEach, expect } from 'vitest';
-import { CommandTestEnvironment, CliTestRunner } from '../../utils/index.js';
-import { TestFixtures } from '../../fixtures/TestFixtures.js';
-import { PresetManager } from '../../../../src/utils/presetManager.js';
+import { TestFixtures } from '@test/e2e/fixtures/TestFixtures.js';
+import { PresetManager } from '@src/utils/config/presetManager.js';
+import { CommandTestEnvironment, CliTestRunner } from '@test/e2e/utils/index.js';
 
 describe('Preset Test Command E2E', () => {
   let environment: CommandTestEnvironment;

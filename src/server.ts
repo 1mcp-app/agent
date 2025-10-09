@@ -1,15 +1,15 @@
-import { MCP_SERVER_CAPABILITIES, MCP_SERVER_NAME, MCP_SERVER_VERSION } from './constants.js';
-import logger, { debugIf } from './logger/logger.js';
+import { MCP_SERVER_CAPABILITIES, MCP_SERVER_NAME, MCP_SERVER_VERSION } from '@src/constants.js';
+import logger, { debugIf } from '@src/logger/logger.js';
 import { createTransports } from './transport/transportFactory.js';
 import { ClientManager } from './core/client/clientManager.js';
 import { ServerManager } from './core/server/serverManager.js';
-import { McpConfigManager } from './config/mcpConfigManager.js';
-import { AgentConfigManager } from './core/server/agentConfig.js';
+import { McpConfigManager } from '@src/config/mcpConfigManager.js';
+import { AgentConfigManager } from '@src/core/server/agentConfig.js';
 import configReloadService from './services/configReloadService.js';
 import { McpLoadingManager } from './core/loading/mcpLoadingManager.js';
 import { AsyncLoadingOrchestrator } from './core/capabilities/asyncLoadingOrchestrator.js';
-import { PresetManager } from './utils/presetManager.js';
-import { PresetNotificationService } from './utils/presetNotificationService.js';
+import { PresetManager } from './utils/config/presetManager.js';
+import { PresetNotificationService } from './utils/config/presetNotificationService.js';
 import { InstructionAggregator } from './core/instructions/instructionAggregator.js';
 
 /**

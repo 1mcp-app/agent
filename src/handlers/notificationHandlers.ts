@@ -9,9 +9,9 @@ import {
   InitializedNotificationSchema,
   RootsListChangedNotificationSchema,
 } from '@modelcontextprotocol/sdk/types.js';
-import logger from '../logger/logger.js';
-import { withErrorHandling } from '../utils/errorHandling.js';
-import { OutboundConnections, InboundConnection, ClientStatus, ServerStatus } from '../core/types/index.js';
+import logger from '@src/logger/logger.js';
+import { withErrorHandling } from '@src/utils/core/errorHandling.js';
+import { OutboundConnections, InboundConnection, ClientStatus, ServerStatus } from '@src/core/types/index.js';
 /**
  * Sets up client-to-server notification handlers
  * @param clients Record of client instances

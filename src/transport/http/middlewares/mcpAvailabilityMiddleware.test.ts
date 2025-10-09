@@ -2,13 +2,13 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { Response, NextFunction } from 'express';
 import { createMcpAvailabilityMiddleware, McpRequest } from './mcpAvailabilityMiddleware.js';
-import { McpLoadingManager } from '../../../core/loading/mcpLoadingManager.js';
-import { LoadingStateTracker, LoadingState, ServerLoadingInfo } from '../../../core/loading/loadingStateTracker.js';
-import { McpConfigManager } from '../../../config/mcpConfigManager.js';
-import { MCPServerParams } from '../../../core/types/index.js';
+import { McpLoadingManager } from '@src/core/loading/mcpLoadingManager.js';
+import { LoadingStateTracker, LoadingState, ServerLoadingInfo } from '@src/core/loading/loadingStateTracker.js';
+import { McpConfigManager } from '@src/config/mcpConfigManager.js';
+import { MCPServerParams } from '@src/core/types/index.js';
 
 // Mock dependencies
-vi.mock('../../../logger/logger.js', () => ({
+vi.mock('@src/logger/logger.js', () => ({
   default: {
     debug: vi.fn(),
     warn: vi.fn(),
@@ -22,7 +22,7 @@ vi.mock('./scopeAuthMiddleware.js', () => ({
   getValidatedTags: vi.fn(),
 }));
 
-vi.mock('../../../config/mcpConfigManager.js', () => ({
+vi.mock('@src/config/mcpConfigManager.js', () => ({
   McpConfigManager: {
     getInstance: vi.fn(),
   },

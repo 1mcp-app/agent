@@ -4,13 +4,13 @@ import { ErrorCode } from '@modelcontextprotocol/sdk/types.js';
 import errorHandler from './errorHandler.js';
 
 // Mock logger
-vi.mock('../../../logger/logger.js', () => ({
+vi.mock('@src/logger/logger.ts', () => ({
   default: {
     error: vi.fn(),
   },
 }));
 
-import logger from '../../../logger/logger.js';
+import logger from '@src/logger/logger.js';
 
 describe('errorHandler', () => {
   let mockRequest: Partial<Request>;

@@ -1,4 +1,4 @@
-import { ClientSessionData } from '../../src/auth/sessionTypes.js';
+import { ClientSessionData } from '@src/auth/sessionTypes.js';
 
 /**
  * Standard test data fixtures for consistent testing

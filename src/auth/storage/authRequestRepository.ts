@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
-import logger from '../../logger/logger.js';
-import { AUTH_CONFIG } from '../../constants.js';
-import { AuthRequestData } from '../sessionTypes.js';
+import logger from '@src/logger/logger.js';
+import { AUTH_CONFIG } from '@src/constants.js';
+import { AuthRequestData } from '@src/auth/sessionTypes.js';
 import { FileStorageService } from './fileStorageService.js';
 
 /**

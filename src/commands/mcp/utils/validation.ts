@@ -1,4 +1,4 @@
-import { MCPServerParams } from '../../../core/types/index.js';
+import { MCPServerParams } from '@src/core/types/index.js';
 
 /**
  * Validation utilities for server command inputs

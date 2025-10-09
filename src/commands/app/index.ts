@@ -1,5 +1,5 @@
 import type { Argv } from 'yargs';
-import { globalOptions } from '../../globalOptions.js';
+import { globalOptions } from '@src/globalOptions.js';
 import { buildConsolidateCommand } from './consolidate.js';
 import { buildRestoreCommand } from './restore.js';
 import { buildListCommand } from './list.js';

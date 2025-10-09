@@ -6,13 +6,13 @@ import {
 } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import path from 'path';
 import { z, ZodError } from 'zod';
-import logger, { debugIf } from '../logger/logger.js';
-import { AuthProviderTransport, transportConfigSchema } from '../core/types/index.js';
-import { MCPServerParams } from '../core/types/index.js';
-import { OAuthClientConfig, SDKOAuthClientProvider } from '../auth/sdkOAuthClientProvider.js';
-import { AUTH_CONFIG, MCP_SERVER_VERSION } from '../constants.js';
-import { AgentConfigManager } from '../core/server/agentConfig.js';
-import { processEnvironment } from '../utils/envProcessor.js';
+import logger, { debugIf } from '@src/logger/logger.js';
+import { AuthProviderTransport, transportConfigSchema } from '@src/core/types/index.js';
+import { MCPServerParams } from '@src/core/types/index.js';
+import { OAuthClientConfig, SDKOAuthClientProvider } from '@src/auth/sdkOAuthClientProvider.js';
+import { AUTH_CONFIG, MCP_SERVER_VERSION } from '@src/constants.js';
+import { AgentConfigManager } from '@src/core/server/agentConfig.js';
+import { processEnvironment } from '@src/utils/config/envProcessor.js';
 import { RestartableStdioTransport } from './restartableStdioTransport.js';
 
 /**

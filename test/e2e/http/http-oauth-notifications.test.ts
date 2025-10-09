@@ -1,5 +1,4 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { TestProcessManager, ConfigBuilder } from '../utils/index.js';
 import type { NextFunction } from 'express';
 
 // Mock the dependencies we need to test the OAuth callback logic
@@ -22,8 +21,9 @@ vi.mock('../../../src/core/client/clientManager.js', () => ({
 }));
 
 // Import after mocking to ensure mock is applied
-import { createOAuthRoutes } from '../../../src/transport/http/routes/oauthRoutes.js';
-import { LoadingState } from '../../../src/core/loading/loadingStateTracker.js';
+import { createOAuthRoutes } from '@src/transport/http/routes/oauthRoutes.js';
+import { LoadingState } from '@src/core/loading/loadingStateTracker.js';
+import { TestProcessManager, ConfigBuilder } from '@test/e2e/utils/index.js';
 
 describe('HTTP OAuth Notifications E2E', () => {
   let processManager: TestProcessManager;

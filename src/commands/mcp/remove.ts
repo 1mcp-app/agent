@@ -10,7 +10,7 @@ import {
   initializeConfigContext,
 } from './utils/configUtils.js';
 import { validateServerName } from './utils/validation.js';
-import { GlobalOptions } from '../../globalOptions.js';
+import { GlobalOptions } from '@src/globalOptions.js';
 
 export interface RemoveCommandArgs extends GlobalOptions {
   name: string;

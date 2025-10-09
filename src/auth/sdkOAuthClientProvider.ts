@@ -5,10 +5,10 @@ import type {
   OAuthClientInformationFull,
   OAuthTokens,
 } from '@modelcontextprotocol/sdk/shared/auth.js';
-import logger from '../logger/logger.js';
+import logger from '@src/logger/logger.js';
 import { ClientSessionRepository } from './storage/clientSessionRepository.js';
 import { FileStorageService } from './storage/fileStorageService.js';
-import { AUTH_CONFIG, getGlobalConfigDir } from '../constants.js';
+import { AUTH_CONFIG, getGlobalConfigDir } from '@src/constants.js';
 import { ClientSessionData } from './sessionTypes.js';
 import path from 'path';
 

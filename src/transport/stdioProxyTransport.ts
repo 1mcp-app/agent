@@ -1,7 +1,7 @@
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import { JSONRPCMessage } from '@modelcontextprotocol/sdk/types.js';
-import logger, { debugIf } from '../logger/logger.js';
+import logger, { debugIf } from '@src/logger/logger.js';
 import { MCP_SERVER_VERSION } from '@src/constants.js';
 
 /**

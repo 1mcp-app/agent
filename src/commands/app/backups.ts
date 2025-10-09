@@ -4,9 +4,9 @@ import {
   cleanupOldBackups,
   verifyBackupIntegrity,
   findBackupByMetaPath,
-} from '../../utils/backupManager.js';
-import { getAppPreset } from '../../utils/appPresets.js';
-import { GlobalOptions } from '../../globalOptions.js';
+} from '@src/utils/management/backupManager.js';
+import { getAppPreset } from '@src/utils/discovery/appPresets.js';
+import { GlobalOptions } from '@src/globalOptions.js';
 
 /**
  * Backups command - Manage and list backup files.
