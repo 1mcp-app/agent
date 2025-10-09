@@ -83,29 +83,63 @@ We use GitHub to host code, to track issues and feature requests, as well as acc
 
 ### Project Structure
 
-Understanding the codebase structure will help you contribute effectively:
+Understanding the codebase structure will help you contribute effectively. The project follows a layered architecture with clear separation of concerns:
 
 ```
 agent/
 ├── src/
-│   ├── auth/                  # Authentication & OAuth 2.1 system
-│   │   ├── clientSessionManager.ts
-│   │   ├── serverSessionManager.ts
+│   ├── application/          # Application-level services
+│   │   └── services/         # Cross-cutting orchestration services
+│   │       ├── configReloadService.ts
+│   │       ├── healthService.ts
+│   │       └── tokenEstimationService.ts
+│   ├── auth/                 # Authentication & OAuth 2.1 system
+│   │   ├── storage/          # Repository pattern for auth data
 │   │   ├── sdkOAuthClientProvider.ts
 │   │   ├── sdkOAuthServerProvider.ts
-│   │   ├── sessionTypes.ts
-│   │   └── authMiddleware.ts
-│   ├── capabilities/          # Server capability management
-│   ├── config/               # Configuration management (McpConfigManager)
-│   ├── core/                 # Core business logic & domain models
-│   │   ├── server/           # Server management (ServerManager, AgentConfigManager)
-│   │   ├── client/           # Client management (ClientManager, ClientFactory)
-│   │   └── types/            # Domain-specific type definitions
-│   ├── handlers/             # MCP request/notification handlers
-│   ├── logger/               # Structured logging system
-│   ├── services/             # Background services (config reload, etc.)
+│   │   └── sessionTypes.ts
+│   ├── commands/             # CLI command implementations
+│   │   ├── app/              # App management commands
+│   │   ├── mcp/              # MCP server management commands
+│   │   ├── preset/           # Preset management commands
+│   │   ├── proxy/            # Proxy commands
+│   │   ├── serve/            # Server commands
+│   │   └── shared/           # Shared command utilities
+│   ├── config/               # Configuration management
+│   │   ├── configContext.ts
+│   │   ├── mcpConfigManager.ts
+│   │   ├── envProcessor.ts
+│   │   ├── projectConfigLoader.ts
+│   │   └── projectConfigTypes.ts
+│   ├── constants/            # Domain-organized constants
+│   │   ├── api.ts            # API endpoints, ports, hosts
+│   │   ├── auth.ts           # Authentication constants
+│   │   ├── mcp.ts            # MCP protocol constants
+│   │   ├── paths.ts          # File paths, directories
+│   │   └── index.ts          # Barrel export
+│   ├── core/                 # Core business logic
+│   │   ├── capabilities/     # MCP capability management
+│   │   ├── client/           # Client management
+│   │   ├── filtering/        # Request filtering logic
+│   │   ├── instructions/     # Template engine
+│   │   ├── loading/          # Async loading orchestration
+│   │   ├── notifications/    # Notification system
+│   │   ├── protocol/         # Protocol message handlers
+│   │   ├── server/           # Server lifecycle management
+│   │   └── types/            # Shared type definitions
+│   ├── domains/              # Domain modules
+│   │   ├── backup/           # Backup management domain
+│   │   ├── discovery/        # App discovery domain
+│   │   └── preset/           # Preset management domain
+│   │       ├── manager/      # PresetManager
+│   │       ├── parsers/      # Tag query parsing
+│   │       ├── services/     # Preset services
+│   │       └── types/        # Preset types
+│   ├── logger/               # Logging infrastructure
+│   │   ├── configureGlobalLogger.ts
+│   │   └── [6 other logger files]
 │   ├── transport/            # Transport layer implementations
-│   │   ├── http/             # HTTP/Express transport
+│   │   ├── http/             # HTTP/SSE transport
 │   │   │   ├── server.ts     # Express server implementation
 │   │   │   ├── routes/       # HTTP endpoint handlers
 │   │   │   │   ├── oauthRoutes.ts      # OAuth endpoint handlers
@@ -117,13 +151,10 @@ agent/
 │   │   │       ├── securityMiddleware.ts # Security middleware
 │   │   │       └── tagsExtractor.ts    # Tag extraction middleware
 │   │   └── transportFactory.ts # Transport factory pattern
-│   ├── utils/                # Shared utility functions
-│   │   ├── clientFiltering.ts # Client filtering utilities
-│   │   ├── errorHandling.ts   # Error handling utilities
-│   │   ├── errorTypes.ts      # Error type definitions
-│   │   ├── pagination.ts      # Result pagination utilities
-│   │   ├── parsing.ts         # Input parsing utilities
-│   │   ├── sanitization.ts    # Security input sanitization
+│   ├── utils/                # Generic utilities only
+│   │   ├── core/             # Core utilities
+│   │   ├── ui/               # CLI utilities
+│   │   └── validation/       # Input validation
 │   └── e2e/                  # End-to-end tests
 │       ├── demo/             # Infrastructure demonstration tests
 │       ├── fixtures/         # Test server implementations
@@ -133,16 +164,27 @@ agent/
 │       ├── stdio/            # STDIO transport tests
 │       └── utils/            # Test utilities and helpers
 ├── docs/                     # Documentation
-│   ├── ARCHITECTURE.md       # Technical architecture documentation
-│   ├── SECURITY.md          # Security guidelines and practices
-│   ├── asserts/             # Documentation assets
-│   └── plans/               # Development planning documents
-│   │   └── scopeValidation.ts # OAuth scope validation
-│   └── types.ts              # Global type definitions
-├── docs/                     # Documentation
+│   ├── en/                   # English documentation
+│   ├── zh/                   # Chinese documentation
+│   └── plans/                # Development planning documents
 ├── test/                     # Test files
 └── build/                    # Compiled output
 ```
+
+#### **Architectural Layers**
+
+1. **Application Layer** (`application/`): Cross-cutting orchestration services
+2. **Core Layer** (`core/`): Core business logic and domain entities
+3. **Domain Layer** (`domains/`): Self-contained business domains
+4. **Transport Layer** (`transport/`): Protocol implementations and communication
+5. **Infrastructure Layer** (`auth/`, `config/`, `logger/`): Cross-cutting infrastructure concerns
+
+#### **Key Principles**
+
+- **Domain-Driven Design**: Clear boundaries between business domains
+- **Layered Architecture**: Dependencies flow inward (Application → Core → Domains)
+- **Co-location**: Related files grouped together
+- **Barrel Exports**: Clean import paths with `index.ts` files
 
 ## Pull Request Process
 
@@ -323,7 +365,7 @@ function createServer(config: any): any {
 
 ```typescript
 // Good
-import { MCPError, ErrorType } from './utils/errorTypes';
+import { ErrorType, MCPError } from './utils/errorTypes';
 
 try {
   await connectToServer();

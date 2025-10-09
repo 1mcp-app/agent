@@ -325,6 +325,151 @@ describe('架构约束', () => {
 - **安全事件**：立即认证失败响应
 - **系统恢复**：根据需要重启和重载
 
+## 🏗️ 代码结构与组织
+
+### **项目布局**
+
+代码库遵循分层架构，具有清晰的关注点分离：
+
+```
+src/
+├── application/             # 应用级服务
+│   └── services/            # 横切编排服务
+│       ├── configReloadService.ts
+│       ├── healthService.ts
+│       └── tokenEstimationService.ts
+├── auth/                    # 认证与授权
+│   ├── storage/             # 认证数据仓库模式
+│   ├── sdkOAuthClientProvider.ts
+│   ├── sdkOAuthServerProvider.ts
+│   └── sessionTypes.ts
+├── commands/                # CLI 命令实现
+│   ├── app/                 # 应用管理命令
+│   ├── mcp/                 # MCP 服务器管理命令
+│   ├── preset/              # 预设管理命令
+│   ├── proxy/               # 代理命令
+│   ├── serve/               # 服务器命令
+│   └── shared/              # 共享命令工具
+├── config/                  # 配置管理
+│   ├── configContext.ts
+│   ├── mcpConfigManager.ts
+│   ├── envProcessor.ts
+│   ├── projectConfigLoader.ts
+│   └── projectConfigTypes.ts
+├── constants/               # 按域组织的常量
+│   ├── api.ts               # API 端点、端口、主机
+│   ├── auth.ts              # 认证常量
+│   ├── mcp.ts               # MCP 协议常量
+│   ├── paths.ts             # 文件路径、目录
+│   └── index.ts             # 桶导出
+├── core/                    # 核心业务逻辑
+│   ├── capabilities/        # MCP 能力管理
+│   ├── client/              # 客户端管理
+│   ├── filtering/           # 请求过滤逻辑
+│   ├── instructions/        # 模板引擎
+│   ├── loading/             # 异步加载编排
+│   ├── notifications/       # 通知系统
+│   ├── protocol/            # 协议消息处理器
+│   ├── server/              # 服务器生命周期管理
+│   └── types/               # 共享类型定义
+├── domains/                 # 域模块
+│   ├── backup/              # 备份管理域
+│   ├── discovery/           # 应用发现域
+│   └── preset/              # 预设管理域
+│       ├── manager/         # PresetManager
+│       ├── parsers/         # 标签查询解析
+│       ├── services/        # 预设服务
+│       └── types/           # 预设类型
+├── logger/                  # 日志基础设施
+│   ├── configureGlobalLogger.ts
+│   └── [6 个其他日志文件]
+├── transport/               # 传输层实现
+│   ├── http/                # HTTP/SSE 传输
+│   │   ├── middlewares/     # Express 中间件
+│   │   └── routes/          # API 路由处理器
+│   └── [5 个传输文件]
+└── utils/                   # 通用工具
+    ├── core/                # 核心工具
+    ├── ui/                  # CLI 工具
+    └── validation/          # 输入验证
+```
+
+### **架构层**
+
+#### **1. 应用层 (`application/`)**
+
+- **目的**：横切编排服务
+- **职责**：配置重载、健康监控、令牌估算
+- **依赖**：可以依赖核心和域
+- **示例**：`configReloadService`、`healthService`
+
+#### **2. 核心层 (`core/`)**
+
+- **目的**：核心业务逻辑和域实体
+- **职责**：MCP 协议处理、能力管理、服务器生命周期
+- **依赖**：不应依赖应用层
+- **示例**：`ServerManager`、`ClientManager`、`CapabilityManager`
+
+#### **3. 域层 (`domains/`)**
+
+- **目的**：自包含的业务域
+- **职责**：特定业务逻辑（预设、发现、备份）
+- **依赖**：可以依赖核心，应该独立
+- **示例**：`PresetManager`、`BackupManager`、`AppDiscovery`
+
+#### **4. 传输层 (`transport/`)**
+
+- **目的**：协议实现和通信
+- **职责**：HTTP/SSE、STDIO、消息路由
+- **依赖**：可以依赖核心和应用
+- **示例**：`ExpressServer`、`StdioTransport`
+
+#### **5. 基础设施层 (`auth/`、`config/`、`logger/`)**
+
+- **目的**：横切基础设施关注点
+- **职责**：认证、配置、日志
+- **依赖**：最小依赖，被所有层使用
+- **示例**：`McpConfigManager`、`OAuthClientProvider`
+
+### **设计原则**
+
+#### **领域驱动设计**
+
+- **域**：具有清晰边界的自包含模块
+- **服务**：应用级编排
+- **核心**：共享业务逻辑和实体
+
+#### **依赖方向**
+
+```
+应用 → 核心 → 域
+  ↓      ↓
+传输 → 基础设施
+```
+
+#### **文件组织**
+
+- **共置**：相关文件分组在一起
+- **桶导出**：使用 `index.ts` 的清晰导入路径
+- **域边界**：清晰的所有权和职责
+
+#### **命名约定**
+
+- **管理器**：`*Manager.ts` 用于有状态服务
+- **服务**：`*Service.ts` 用于无状态操作
+- **类型**：`*Types.ts` 用于类型定义
+- **工具**：仅通用工具
+
+### **迁移收益**
+
+重构后的代码库提供：
+
+- **57% 减少** 工具文件（47 → 20）
+- **清晰的域边界** 与专用模块
+- **更好的可维护性** 通过有组织的结构
+- **改进的可扩展性** 与独立域
+- **增强的开发者体验** 与清晰的文件位置
+
 ---
 
 > **此架构作为我们的决策框架。如有疑问，请参考我们的原则和约束。所有更改都应加强这些基础，而不是削弱它们。**
