@@ -1,10 +1,17 @@
+import { MCPServerParams } from '@src/core/types/index.js';
+import { GlobalOptions } from '@src/globalOptions.js';
+import { inferTransportType } from '@src/transport/transportFactory.js';
+import {
+  redactCommandArgs,
+  redactSensitiveValue,
+  redactUrl,
+  sanitizeHeaders,
+} from '@src/utils/validation/sanitization.js';
+
 import type { Argv } from 'yargs';
-import { MCPServerParams } from '../../core/types/index.js';
-import { GlobalOptions } from '../../globalOptions.js';
-import { getAllServers, validateConfigPath, parseTags, initializeConfigContext } from './utils/configUtils.js';
+
+import { getAllServers, initializeConfigContext, parseTags, validateConfigPath } from './utils/configUtils.js';
 import { validateTags } from './utils/validation.js';
-import { inferTransportType } from '../../transport/transportFactory.js';
-import { redactCommandArgs, redactUrl, redactSensitiveValue, sanitizeHeaders } from '../../utils/sanitization.js';
 
 export interface ListCommandArgs extends GlobalOptions {
   'show-disabled'?: boolean;

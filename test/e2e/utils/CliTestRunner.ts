@@ -1,5 +1,6 @@
 import { spawn } from 'child_process';
-import { join, dirname } from 'path';
+import { dirname, join } from 'path';
+
 import { CommandTestEnvironment } from './CommandTestEnvironment.js';
 
 export interface CommandExecutionOptions {

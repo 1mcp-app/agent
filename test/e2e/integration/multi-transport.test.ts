@@ -1,6 +1,8 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { ConfigBuilder, ProtocolValidator, TestProcessManager } from '@test/e2e/utils/index.js';
+
 import { join } from 'path';
-import { TestProcessManager, ConfigBuilder, ProtocolValidator } from '../utils/index.js';
+
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 describe('Multi-Transport Infrastructure Integration E2E', () => {
   let processManager: TestProcessManager;

@@ -1,8 +1,10 @@
 import { EventEmitter } from 'events';
-import { OutboundConnections, AuthProviderTransport } from '../types/index.js';
-import { ClientManager } from '../client/clientManager.js';
-import { LoadingStateTracker, LoadingState, LoadingSummary, LoadingStateEvent } from './loadingStateTracker.js';
-import logger, { debugIf } from '../../logger/logger.js';
+
+import { ClientManager } from '@src/core/client/clientManager.js';
+import { AuthProviderTransport, OutboundConnections } from '@src/core/types/index.js';
+import logger, { debugIf } from '@src/logger/logger.js';
+
+import { LoadingState, LoadingStateEvent, LoadingStateTracker, LoadingSummary } from './loadingStateTracker.js';
 
 /**
  * Configuration options for MCP loading behavior

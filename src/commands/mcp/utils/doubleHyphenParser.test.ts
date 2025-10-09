@@ -1,9 +1,10 @@
-import { describe, it, expect } from 'vitest';
+import { describe, expect, it } from 'vitest';
+
 import {
-  parseDoubleHyphenArgs,
+  type DoubleHyphenParseResult,
   hasDoubleHyphen,
   mergeDoubleHyphenArgs,
-  type DoubleHyphenParseResult,
+  parseDoubleHyphenArgs,
 } from './doubleHyphenParser.js';
 
 describe('doubleHyphenParser', () => {

@@ -325,6 +325,151 @@ describe('Architecture Constraints', () => {
 - **Security Incident**: Immediate authentication failure response
 - **System Recovery**: Restart and reload as needed
 
+## 🏗️ Code Structure & Organization
+
+### **Project Layout**
+
+The codebase follows a layered architecture with clear separation of concerns:
+
+```
+src/
+├── application/             # Application-level services
+│   └── services/            # Cross-cutting orchestration services
+│       ├── configReloadService.ts
+│       ├── healthService.ts
+│       └── tokenEstimationService.ts
+├── auth/                    # Authentication & authorization
+│   ├── storage/             # Repository pattern for auth data
+│   ├── sdkOAuthClientProvider.ts
+│   ├── sdkOAuthServerProvider.ts
+│   └── sessionTypes.ts
+├── commands/                # CLI command implementations
+│   ├── app/                 # App management commands
+│   ├── mcp/                 # MCP server management commands
+│   ├── preset/              # Preset management commands
+│   ├── proxy/               # Proxy commands
+│   ├── serve/               # Server commands
+│   └── shared/              # Shared command utilities
+├── config/                  # Configuration management
+│   ├── configContext.ts
+│   ├── mcpConfigManager.ts
+│   ├── envProcessor.ts
+│   ├── projectConfigLoader.ts
+│   └── projectConfigTypes.ts
+├── constants/               # Domain-organized constants
+│   ├── api.ts               # API endpoints, ports, hosts
+│   ├── auth.ts              # Authentication constants
+│   ├── mcp.ts               # MCP protocol constants
+│   ├── paths.ts             # File paths, directories
+│   └── index.ts             # Barrel export
+├── core/                    # Core business logic
+│   ├── capabilities/        # MCP capability management
+│   ├── client/              # Client management
+│   ├── filtering/           # Request filtering logic
+│   ├── instructions/        # Template engine
+│   ├── loading/             # Async loading orchestration
+│   ├── notifications/       # Notification system
+│   ├── protocol/            # Protocol message handlers
+│   ├── server/              # Server lifecycle management
+│   └── types/               # Shared type definitions
+├── domains/                 # Domain modules
+│   ├── backup/              # Backup management domain
+│   ├── discovery/           # App discovery domain
+│   └── preset/              # Preset management domain
+│       ├── manager/         # PresetManager
+│       ├── parsers/         # Tag query parsing
+│       ├── services/        # Preset services
+│       └── types/           # Preset types
+├── logger/                  # Logging infrastructure
+│   ├── configureGlobalLogger.ts
+│   └── [6 other logger files]
+├── transport/               # Transport layer implementations
+│   ├── http/                # HTTP/SSE transport
+│   │   ├── middlewares/     # Express middlewares
+│   │   └── routes/          # API route handlers
+│   └── [5 transport files]
+└── utils/                   # Generic utilities
+    ├── core/                # Core utilities
+    ├── ui/                  # CLI utilities
+    └── validation/          # Input validation
+```
+
+### **Architectural Layers**
+
+#### **1. Application Layer (`application/`)**
+
+- **Purpose**: Cross-cutting orchestration services
+- **Responsibilities**: Configuration reloading, health monitoring, token estimation
+- **Dependencies**: Can depend on core and domains
+- **Examples**: `configReloadService`, `healthService`
+
+#### **2. Core Layer (`core/`)**
+
+- **Purpose**: Core business logic and domain entities
+- **Responsibilities**: MCP protocol handling, capability management, server lifecycle
+- **Dependencies**: Should not depend on application layer
+- **Examples**: `ServerManager`, `ClientManager`, `CapabilityManager`
+
+#### **3. Domain Layer (`domains/`)**
+
+- **Purpose**: Self-contained business domains
+- **Responsibilities**: Specific business logic (presets, discovery, backup)
+- **Dependencies**: Can depend on core, should be independent
+- **Examples**: `PresetManager`, `BackupManager`, `AppDiscovery`
+
+#### **4. Transport Layer (`transport/`)**
+
+- **Purpose**: Protocol implementations and communication
+- **Responsibilities**: HTTP/SSE, STDIO, message routing
+- **Dependencies**: Can depend on core and application
+- **Examples**: `ExpressServer`, `StdioTransport`
+
+#### **5. Infrastructure Layer (`auth/`, `config/`, `logger/`)**
+
+- **Purpose**: Cross-cutting infrastructure concerns
+- **Responsibilities**: Authentication, configuration, logging
+- **Dependencies**: Minimal dependencies, used by all layers
+- **Examples**: `McpConfigManager`, `OAuthClientProvider`
+
+### **Design Principles**
+
+#### **Domain-Driven Design**
+
+- **Domains**: Self-contained modules with clear boundaries
+- **Services**: Application-level orchestration
+- **Core**: Shared business logic and entities
+
+#### **Dependency Direction**
+
+```
+Application → Core → Domains
+     ↓         ↓
+Transport → Infrastructure
+```
+
+#### **File Organization**
+
+- **Co-location**: Related files grouped together
+- **Barrel Exports**: Clean import paths with `index.ts`
+- **Domain Boundaries**: Clear ownership and responsibilities
+
+#### **Naming Conventions**
+
+- **Managers**: `*Manager.ts` for stateful services
+- **Services**: `*Service.ts` for stateless operations
+- **Types**: `*Types.ts` for type definitions
+- **Utils**: Generic utilities only
+
+### **Migration Benefits**
+
+The restructured codebase provides:
+
+- **57% reduction** in utils files (47 → 20)
+- **Clear domain boundaries** with dedicated modules
+- **Better maintainability** through organized structure
+- **Improved scalability** with independent domains
+- **Enhanced developer experience** with clear file locations
+
 ---
 
 > **This architecture serves as our decision-making framework. When in doubt, refer back to our principles and constraints. All changes should strengthen these foundations, not weaken them.**

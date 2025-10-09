@@ -1,25 +1,28 @@
-import express from 'express';
+import { mcpAuthRouter } from '@modelcontextprotocol/sdk/server/auth/router.js';
+
+import { SDKOAuthServerProvider } from '@src/auth/sdkOAuthServerProvider.js';
+import { McpConfigManager } from '@src/config/mcpConfigManager.js';
+import { RATE_LIMIT_CONFIG } from '@src/constants.js';
+import { AsyncLoadingOrchestrator } from '@src/core/capabilities/asyncLoadingOrchestrator.js';
+import { McpLoadingManager } from '@src/core/loading/mcpLoadingManager.js';
+import { AgentConfigManager } from '@src/core/server/agentConfig.js';
+import { ServerManager } from '@src/core/server/serverManager.js';
+import logger from '@src/logger/logger.js';
+
 import bodyParser from 'body-parser';
 import cors from 'cors';
+import express from 'express';
 import { Options as RateLimitOptions } from 'express-rate-limit';
-import { mcpAuthRouter } from '@modelcontextprotocol/sdk/server/auth/router.js';
-import logger from '../../logger/logger.js';
+
 import errorHandler from './middlewares/errorHandler.js';
-import { setupSecurityMiddleware } from './middlewares/securityMiddleware.js';
 import { httpRequestLogger } from './middlewares/httpRequestLogger.js';
-import { ServerManager } from '../../core/server/serverManager.js';
-import { SDKOAuthServerProvider } from '../../auth/sdkOAuthServerProvider.js';
-import { McpLoadingManager } from '../../core/loading/mcpLoadingManager.js';
-import { AsyncLoadingOrchestrator } from '../../core/capabilities/asyncLoadingOrchestrator.js';
-import { setupStreamableHttpRoutes } from './routes/streamableHttpRoutes.js';
-import { setupSseRoutes } from './routes/sseRoutes.js';
-import createOAuthRoutes from './routes/oauthRoutes.js';
-import createHealthRoutes from './routes/healthRoutes.js';
-import { AgentConfigManager } from '../../core/server/agentConfig.js';
-import { RATE_LIMIT_CONFIG } from '../../constants.js';
-import { createScopeAuthMiddleware } from './middlewares/scopeAuthMiddleware.js';
 import { createMcpAvailabilityMiddleware } from './middlewares/mcpAvailabilityMiddleware.js';
-import { McpConfigManager } from '../../config/mcpConfigManager.js';
+import { createScopeAuthMiddleware } from './middlewares/scopeAuthMiddleware.js';
+import { setupSecurityMiddleware } from './middlewares/securityMiddleware.js';
+import createHealthRoutes from './routes/healthRoutes.js';
+import createOAuthRoutes from './routes/oauthRoutes.js';
+import { setupSseRoutes } from './routes/sseRoutes.js';
+import { setupStreamableHttpRoutes } from './routes/streamableHttpRoutes.js';
 
 /**
  * ExpressServer orchestrates the HTTP/SSE transport layer for the MCP server.

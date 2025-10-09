@@ -1,9 +1,15 @@
-import { vi, describe, it, expect, beforeEach } from 'vitest';
+import { SSEClientTransport } from '@modelcontextprotocol/sdk/client/sse.js';
+
+import { SDKOAuthClientProvider } from '@src/auth/sdkOAuthClientProvider.js';
+import { MCPServerParams } from '@src/core/types/index.js';
+// Import the mocked types
+import { transportConfigSchema } from '@src/core/types/index.js';
+import logger, { debugIf } from '@src/logger/logger.js';
+
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { ZodError } from 'zod';
+
 import { createTransports } from './transportFactory.js';
-import { MCPServerParams } from '../core/types/index.js';
-import { SDKOAuthClientProvider } from '../auth/sdkOAuthClientProvider.js';
-import logger, { debugIf } from '../logger/logger.js';
 
 // Mock dependencies
 vi.mock('@modelcontextprotocol/sdk/client/stdio.js', () => ({
@@ -38,7 +44,7 @@ vi.mock('../auth/sdkOAuthClientProvider.js', () => ({
   })),
 }));
 
-vi.mock('../core/server/agentConfig.js', () => ({
+vi.mock('@src/core/server/agentConfig.js', () => ({
   AgentConfigManager: {
     getInstance: vi.fn().mockReturnValue({
       getConfig: vi.fn().mockReturnValue({
@@ -51,7 +57,7 @@ vi.mock('../core/server/agentConfig.js', () => ({
   },
 }));
 
-vi.mock('../logger/logger.js', () => ({
+vi.mock('@src/logger/logger.js', () => ({
   default: {
     warn: vi.fn(),
     info: vi.fn(),
@@ -61,8 +67,8 @@ vi.mock('../logger/logger.js', () => ({
   debugIf: vi.fn(),
 }));
 
-vi.mock('../core/types/index.js', async () => {
-  const actual = await vi.importActual('../core/types/index.js');
+vi.mock('@src/core/types/index.ts', async () => {
+  const actual = await vi.importActual('@src/core/types/index.js');
   return {
     ...actual,
     transportConfigSchema: {
@@ -71,10 +77,6 @@ vi.mock('../core/types/index.js', async () => {
     },
   };
 });
-
-// Import the mocked types
-import { transportConfigSchema } from '../core/types/index.js';
-import { SSEClientTransport } from '@modelcontextprotocol/sdk/client/sse.js';
 
 describe('TransportFactory', () => {
   beforeEach(() => {

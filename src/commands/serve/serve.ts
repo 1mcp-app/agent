@@ -1,23 +1,24 @@
-import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import fs from 'fs';
 import path from 'path';
 
-import { setupServer } from '../../server.js';
-import logger, { debugIf } from '../../logger/logger.js';
-import configReloadService from '../../services/configReloadService.js';
-import { ServerManager } from '../../core/server/serverManager.js';
-import { McpConfigManager } from '../../config/mcpConfigManager.js';
-import { ExpressServer } from '../../transport/http/server.js';
-import { AgentConfigManager } from '../../core/server/agentConfig.js';
-import { displayLogo } from '../../utils/logo.js';
-import { McpLoadingManager } from '../../core/loading/mcpLoadingManager.js';
-import { TagQueryParser, TagExpression } from '../../utils/tagQueryParser.js';
-import ConfigContext from '../../config/configContext.js';
-import { getDefaultInstructionsTemplatePath } from '../../constants.js';
-import { validateTemplateContent, formatValidationError } from '../../core/instructions/templateValidator.js';
-import { InstructionAggregator } from '../../core/instructions/instructionAggregator.js';
-import { writePidFile, registerPidFileCleanup } from '../../utils/pidFileManager.js';
-import { getConfigDir } from '../../constants.js';
+import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
+
+import configReloadService from '@src/application/services/configReloadService.js';
+import ConfigContext from '@src/config/configContext.js';
+import { McpConfigManager } from '@src/config/mcpConfigManager.js';
+import { getDefaultInstructionsTemplatePath } from '@src/constants.js';
+import { getConfigDir } from '@src/constants.js';
+import { InstructionAggregator } from '@src/core/instructions/instructionAggregator.js';
+import { formatValidationError, validateTemplateContent } from '@src/core/instructions/templateValidator.js';
+import { McpLoadingManager } from '@src/core/loading/mcpLoadingManager.js';
+import { AgentConfigManager } from '@src/core/server/agentConfig.js';
+import { registerPidFileCleanup, writePidFile } from '@src/core/server/pidFileManager.js';
+import { ServerManager } from '@src/core/server/serverManager.js';
+import { TagExpression, TagQueryParser } from '@src/domains/preset/parsers/tagQueryParser.js';
+import logger, { debugIf } from '@src/logger/logger.js';
+import { setupServer } from '@src/server.js';
+import { ExpressServer } from '@src/transport/http/server.js';
+import { displayLogo } from '@src/utils/ui/logo.js';
 
 export interface ServeOptions {
   config?: string;
@@ -177,7 +178,7 @@ function setupGracefulShutdown(
 
     // Cleanup PresetManager if it exists
     try {
-      const PresetManager = (await import('../../utils/presetManager.js')).PresetManager;
+      const PresetManager = (await import('@src/domains/preset/manager/presetManager.js')).PresetManager;
       const presetManager = PresetManager.getInstance();
       if (presetManager && typeof presetManager.cleanup === 'function') {
         await presetManager.cleanup();
@@ -291,7 +292,7 @@ export async function serveCommand(parsedArgv: ServeOptions): Promise<void> {
 
     // Initialize PresetManager with config directory option before server setup
     // This ensures the singleton is created with the correct config directory
-    const PresetManager = (await import('../../utils/presetManager.js')).PresetManager;
+    const PresetManager = (await import('@src/domains/preset/manager/presetManager.js')).PresetManager;
     PresetManager.getInstance(parsedArgv['config-dir']);
 
     // Initialize server and get server manager with custom config path if provided

@@ -1,6 +1,8 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { getConfigPath } from '@src/constants.js';
+
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+
 import ConfigContext from './configContext.js';
-import { getConfigPath } from '../constants.js';
 
 describe('ConfigContext', () => {
   let configContext: ConfigContext;

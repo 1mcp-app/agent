@@ -1,8 +1,10 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { OAuthStorageService } from './oauthStorageService.js';
 import fs from 'fs';
-import path from 'path';
 import { tmpdir } from 'os';
+import path from 'path';
+
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+
+import { OAuthStorageService } from './oauthStorageService.js';
 
 describe('OAuthStorageService', () => {
   let service: OAuthStorageService;

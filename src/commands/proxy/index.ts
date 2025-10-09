@@ -1,5 +1,6 @@
+import { GlobalOptions, globalOptions } from '@src/globalOptions.js';
+
 import type { Argv } from 'yargs';
-import { globalOptions, GlobalOptions } from '../../globalOptions.js';
 
 /**
  * Proxy command - STDIO proxy to running 1MCP HTTP server.
@@ -98,7 +99,7 @@ For more information: https://docs.1mcp.app/guide/commands#proxy
         `);
     },
     async (argv) => {
-      const { configureGlobalLogger } = await import('../../utils/configureGlobalLogger.js');
+      const { configureGlobalLogger } = await import('@src/logger/configureGlobalLogger.js');
       const { proxyCommand } = await import('./proxy.js');
 
       // Configure logger with global options

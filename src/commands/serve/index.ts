@@ -1,6 +1,7 @@
+import { HOST, PORT } from '@src/constants.js';
+import { globalOptions } from '@src/globalOptions.js';
+
 import type { Argv } from 'yargs';
-import { globalOptions } from '../../globalOptions.js';
-import { PORT, HOST } from '../../constants.js';
 
 /**
  * Serve command group entry point.
@@ -154,7 +155,7 @@ For more information: https://github.com/1mcp-app/agent
         `);
     },
     async (argv) => {
-      const { configureGlobalLogger } = await import('../../utils/configureGlobalLogger.js');
+      const { configureGlobalLogger } = await import('@src/logger/configureGlobalLogger.js');
       const { serveCommand } = await import('./serve.js');
 
       // Configure logger with global options and transport awareness

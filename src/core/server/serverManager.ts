@@ -1,20 +1,24 @@
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
-import logger, { debugIf } from '../../logger/logger.js';
-import configReloadService from '../../services/configReloadService.js';
-import { setupCapabilities } from '../capabilities/capabilityManager.js';
-import { enhanceServerWithLogging } from '../../logger/mcpLoggingEnhancer.js';
-import { PresetNotificationService, type ClientConnection } from '../../utils/presetNotificationService.js';
+
+import configReloadService from '@src/application/services/configReloadService.js';
+import { setupCapabilities } from '@src/core/capabilities/capabilityManager.js';
+import { InstructionAggregator } from '@src/core/instructions/instructionAggregator.js';
+import type { OutboundConnection } from '@src/core/types/client.js';
 import {
-  OutboundConnections,
   InboundConnection,
   InboundConnectionConfig,
   OperationOptions,
+  OutboundConnections,
   ServerStatus,
-} from '../types/index.js';
-import type { OutboundConnection } from '../types/client.js';
-import { executeOperation } from '../../utils/operationExecution.js';
-import { InstructionAggregator } from '../instructions/instructionAggregator.js';
+} from '@src/core/types/index.js';
+import {
+  type ClientConnection,
+  PresetNotificationService,
+} from '@src/domains/preset/services/presetNotificationService.js';
+import logger, { debugIf } from '@src/logger/logger.js';
+import { enhanceServerWithLogging } from '@src/logger/mcpLoggingEnhancer.js';
+import { executeOperation } from '@src/utils/core/operationExecution.js';
 
 export class ServerManager {
   private static instance: ServerManager | undefined;

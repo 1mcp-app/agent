@@ -1,8 +1,9 @@
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { ServerCapabilities } from '@modelcontextprotocol/sdk/types.js';
-import { TagExpression } from '../../utils/tagQueryParser.js';
-import { TagQuery } from '../../utils/presetTypes.js';
-import { TemplateConfig } from '../instructions/templateTypes.js';
+
+import { TemplateConfig } from '@src/core/instructions/templateTypes.js';
+import { TagExpression } from '@src/domains/preset/parsers/tagQueryParser.js';
+import { TagQuery } from '@src/domains/preset/types/presetTypes.js';
 
 /**
  * Enum representing possible server connection states

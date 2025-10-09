@@ -1,13 +1,12 @@
 #!/usr/bin/env node
-
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import {
-  ListToolsRequestSchema,
   CallToolRequestSchema,
   ListResourcesRequestSchema,
-  ReadResourceRequestSchema,
+  ListToolsRequestSchema,
   PingRequestSchema,
+  ReadResourceRequestSchema,
 } from '@modelcontextprotocol/sdk/types.js';
 
 class EchoServer {

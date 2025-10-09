@@ -1,8 +1,9 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+
 import { AgentConfigManager } from './agentConfig.js';
 
 // Mock constants
-vi.mock('../../constants.js', () => ({
+vi.mock('@src/constants.js', () => ({
   HOST: 'localhost',
   PORT: 3050,
   AUTH_CONFIG: {

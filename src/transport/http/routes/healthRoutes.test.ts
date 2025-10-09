@@ -1,11 +1,13 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { HealthStatus } from '@src/application/services/healthService.js';
+
 import express from 'express';
 import request from 'supertest';
-import { HealthStatus } from '../../../services/healthService.js';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
 import createHealthRoutes from './healthRoutes.js';
 
 // Mock dependencies
-vi.mock('../../../logger/logger.js', () => ({
+vi.mock('@src/logger/logger.js', () => ({
   default: {
     info: vi.fn(),
     error: vi.fn(),
@@ -14,7 +16,7 @@ vi.mock('../../../logger/logger.js', () => ({
   },
 }));
 
-vi.mock('../../../services/healthService.js', () => {
+vi.mock('@src/application/services/healthService.js', () => {
   const mockHealthService = {
     getInstance: vi.fn(),
     performHealthCheck: vi.fn(),
@@ -33,7 +35,7 @@ vi.mock('../../../services/healthService.js', () => {
   };
 });
 
-vi.mock('../../../core/server/agentConfig.js', () => ({
+vi.mock('@src/core/server/agentConfig.js', () => ({
   AgentConfigManager: {
     getInstance: vi.fn(() => ({
       getRateLimitWindowMs: () => 300000, // 5 minutes
@@ -57,7 +59,7 @@ describe('Health Routes', () => {
     app.use('/health', createHealthRoutes());
 
     // Get mock health service
-    const { HealthService } = await import('../../../services/healthService.js');
+    const { HealthService } = await import('../../../application/services/healthService.js');
     mockHealthService = HealthService.getInstance();
   });
 

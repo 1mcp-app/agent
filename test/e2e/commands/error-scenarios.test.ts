@@ -1,8 +1,10 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { CommandTestEnvironment, CliTestRunner } from '../utils/index.js';
-import { TestFixtures } from '../fixtures/TestFixtures.js';
-import { writeFile, chmod } from 'fs/promises';
+import { TestFixtures } from '@test/e2e/fixtures/TestFixtures.js';
+import { CliTestRunner, CommandTestEnvironment } from '@test/e2e/utils/index.js';
+
+import { chmod, writeFile } from 'fs/promises';
 import { join } from 'path';
+
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 describe('Error Scenarios E2E', () => {
   let environment: CommandTestEnvironment;

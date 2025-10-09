@@ -1,10 +1,11 @@
+import { EventEmitter } from 'events';
 import fs from 'fs';
 import path from 'path';
-import { EventEmitter } from 'events';
-import { getGlobalConfigPath, getGlobalConfigDir, DEFAULT_CONFIG } from '../constants.js';
-import logger, { debugIf } from '../logger/logger.js';
-import { MCPServerParams } from '../core/types/index.js';
-import { substituteEnvVarsInConfig } from '../utils/envProcessor.js';
+
+import { substituteEnvVarsInConfig } from '@src/config/envProcessor.js';
+import { DEFAULT_CONFIG, getGlobalConfigDir, getGlobalConfigPath } from '@src/constants.js';
+import { MCPServerParams } from '@src/core/types/index.js';
+import logger, { debugIf } from '@src/logger/logger.js';
 
 /**
  * Configuration change event types

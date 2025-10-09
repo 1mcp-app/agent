@@ -1,14 +1,15 @@
-import type { Argv } from 'yargs';
-import { globalOptions } from '../../globalOptions.js';
-
 // Import builder functions from command implementations
+import { globalOptions } from '@src/globalOptions.js';
+
+import type { Argv } from 'yargs';
+
 import { buildAddCommand } from './add.js';
-import { buildUpdateCommand } from './update.js';
-import { buildTokensCommand } from './tokens.js';
-import { buildRemoveCommand } from './remove.js';
-import { buildEnableCommand, buildDisableCommand } from './enable.js';
+import { buildDisableCommand, buildEnableCommand } from './enable.js';
 import { buildListCommand } from './list.js';
+import { buildRemoveCommand } from './remove.js';
 import { buildStatusCommand } from './status.js';
+import { buildTokensCommand } from './tokens.js';
+import { buildUpdateCommand } from './update.js';
 
 /**
  * MCP command group entry point.

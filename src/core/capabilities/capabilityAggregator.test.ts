@@ -1,7 +1,10 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { Prompt, Resource, Tool } from '@modelcontextprotocol/sdk/types.js';
+
+import { ClientStatus, OutboundConnections } from '@src/core/types/index.js';
+
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
 import { CapabilityAggregator } from './capabilityAggregator.js';
-import { OutboundConnections, ClientStatus } from '../types/index.js';
-import { Tool, Resource, Prompt } from '@modelcontextprotocol/sdk/types.js';
 
 describe('CapabilityAggregator', () => {
   let aggregator: CapabilityAggregator;

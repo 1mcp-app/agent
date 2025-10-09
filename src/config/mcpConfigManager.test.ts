@@ -1,8 +1,11 @@
 import fs from 'fs';
 import path from 'path';
-import { McpConfigManager, ConfigChangeEvent } from './mcpConfigManager.js';
-import { DEFAULT_CONFIG } from '../constants.js';
-import { vi, describe, it, expect, beforeEach, MockInstance } from 'vitest';
+
+import { DEFAULT_CONFIG } from '@src/constants.js';
+
+import { beforeEach, describe, expect, it, MockInstance, vi } from 'vitest';
+
+import { ConfigChangeEvent, McpConfigManager } from './mcpConfigManager.js';
 
 // Test data
 const testConfig = {
@@ -38,7 +41,7 @@ vi.mock('fs', async () => {
 });
 
 // Mock constants
-vi.mock('../constants.js', () => ({
+vi.mock('@src/constants.js', () => ({
   __esModule: true,
   DEFAULT_CONFIG: { mcpServers: {} },
   getGlobalConfigPath: vi.fn(),

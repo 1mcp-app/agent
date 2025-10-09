@@ -1,16 +1,19 @@
 import { randomUUID } from 'node:crypto';
+import path from 'path';
+
 import { OAuthClientProvider } from '@modelcontextprotocol/sdk/client/auth.js';
 import type {
-  OAuthClientMetadata,
   OAuthClientInformationFull,
+  OAuthClientMetadata,
   OAuthTokens,
 } from '@modelcontextprotocol/sdk/shared/auth.js';
-import logger from '../logger/logger.js';
+
+import { AUTH_CONFIG, getGlobalConfigDir } from '@src/constants.js';
+import logger from '@src/logger/logger.js';
+
+import { ClientSessionData } from './sessionTypes.js';
 import { ClientSessionRepository } from './storage/clientSessionRepository.js';
 import { FileStorageService } from './storage/fileStorageService.js';
-import { AUTH_CONFIG, getGlobalConfigDir } from '../constants.js';
-import { ClientSessionData } from './sessionTypes.js';
-import path from 'path';
 
 /**
  * OAuth client configuration for connecting to downstream MCP servers
