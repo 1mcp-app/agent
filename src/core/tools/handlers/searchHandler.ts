@@ -1,9 +1,9 @@
-import logger from '../../../logger/logger.js';
-import { withErrorHandling } from '../../../utils/core/errorHandling.js';
-import { SearchMCPServersArgs } from '../../../utils/mcpToolSchemas.js';
-import { createSearchEngine } from '../../../utils/searchFiltering.js';
-import { createRegistryClient } from '../../registry/mcpRegistryClient.js';
-import { OFFICIAL_REGISTRY_KEY, RegistryOptions, RegistryServer } from '../../registry/types.js';
+import { createRegistryClient } from '@src/domains/registry/mcpRegistryClient.js';
+import { SearchMCPServersArgs } from '@src/domains/registry/mcpToolSchemas.js';
+import { createSearchEngine } from '@src/domains/registry/searchFiltering.js';
+import { OFFICIAL_REGISTRY_KEY, RegistryOptions, RegistryServer } from '@src/domains/registry/types.js';
+import logger from '@src/logger/logger.js';
+import { withErrorHandling } from '@src/utils/core/errorHandling.js';
 
 // Singleton instances
 let registryClient: ReturnType<typeof createRegistryClient> | null = null;

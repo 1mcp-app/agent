@@ -1,6 +1,8 @@
-import chalk from 'chalk';
+import { OutputFormat, ServerVersionsResponse } from '@src/domains/registry/types.js';
+
 import boxen from 'boxen';
-import { ServerVersionsResponse, OutputFormat } from '../../core/registry/types.js';
+import chalk from 'chalk';
+
 import { formatDate, formatRelativeDate } from './commonFormatters.js';
 
 /**

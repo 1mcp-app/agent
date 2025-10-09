@@ -1,15 +1,17 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { ServerPackage } from '@src/domains/registry/types.js';
+
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+
 import {
-  truncateString,
-  formatTransport,
-  formatStatus,
-  formatRegistryTypesPlain,
-  formatTransportTypesPlain,
   formatDate,
+  formatRegistryTypesPlain,
   formatRelativeDate,
+  formatStatus,
   formatTimestamp,
+  formatTransport,
+  formatTransportTypesPlain,
+  truncateString,
 } from './commonFormatters.js';
-import { ServerPackage } from '../../core/registry/types.js';
 
 // Mock chalk to capture color formatting
 vi.mock('chalk', () => ({

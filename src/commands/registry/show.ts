@@ -1,9 +1,11 @@
+import { cleanupShowHandler, handleShowMCPServer } from '@src/core/tools/handlers/showHandler.js';
+import { formatServerDetails } from '@src/domains/registry/formatters/serverDetailFormatter.js';
+import { OutputFormat, RegistryOptions, ShowCommandArgs } from '@src/domains/registry/types.js';
+import { GlobalOptions } from '@src/globalOptions.js';
+import logger from '@src/logger/logger.js';
+
 import type { Arguments, Argv } from 'yargs';
-import { handleShowMCPServer, cleanupShowHandler } from '../../core/tools/handlers/showHandler.js';
-import { ShowCommandArgs, RegistryOptions, OutputFormat } from '../../core/registry/types.js';
-import { formatServerDetails } from '../../utils/formatters/serverDetailFormatter.js';
-import logger from '../../logger/logger.js';
-import { GlobalOptions } from '../../globalOptions.js';
+
 import { RegistryYargsOptions } from './options.js';
 
 export interface ShowCommandCliArgs extends Arguments, GlobalOptions, RegistryYargsOptions {

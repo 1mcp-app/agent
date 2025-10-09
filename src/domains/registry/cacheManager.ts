@@ -1,5 +1,6 @@
-import logger from '../../logger/logger.js';
-import { CacheOptions, CacheEntry } from './types.js';
+import logger from '@src/logger/logger.js';
+
+import { CacheEntry, CacheOptions } from './types.js';
 
 /**
  * In-memory cache manager with TTL support for MCP Registry responses

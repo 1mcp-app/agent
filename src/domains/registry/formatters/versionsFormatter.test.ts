@@ -1,6 +1,8 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { ServerVersionsResponse } from '@src/domains/registry/types.js';
+
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+
 import { formatServerVersions } from './versionsFormatter.js';
-import { ServerVersionsResponse } from '../../core/registry/types.js';
 
 // Mock console.table to capture table output
 const mockConsoleTable = vi.fn();

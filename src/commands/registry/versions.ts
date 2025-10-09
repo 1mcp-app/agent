@@ -1,9 +1,11 @@
+import { cleanupVersionsHandler, handleListMCPServerVersions } from '@src/core/tools/handlers/versionsHandler.js';
+import { formatServerVersions } from '@src/domains/registry/formatters/versionsFormatter.js';
+import { OutputFormat, RegistryOptions, VersionsCommandArgs } from '@src/domains/registry/types.js';
+import { GlobalOptions } from '@src/globalOptions.js';
+import logger from '@src/logger/logger.js';
+
 import type { Arguments, Argv } from 'yargs';
-import { handleListMCPServerVersions, cleanupVersionsHandler } from '../../core/tools/handlers/versionsHandler.js';
-import { VersionsCommandArgs, RegistryOptions, OutputFormat } from '../../core/registry/types.js';
-import { formatServerVersions } from '../../utils/formatters/versionsFormatter.js';
-import logger from '../../logger/logger.js';
-import { GlobalOptions } from '../../globalOptions.js';
+
 import { RegistryYargsOptions } from './options.js';
 
 export interface VersionsCommandCliArgs extends Arguments, GlobalOptions, RegistryYargsOptions {

@@ -1,6 +1,8 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import type { RegistryServer } from '@src/domains/registry/types.js';
+
+import { beforeEach, describe, expect, it } from 'vitest';
+
 import { SearchEngine } from './searchFiltering.js';
-import type { RegistryServer } from '../core/registry/types.js';
 
 describe('SearchEngine', () => {
   let searchEngine: SearchEngine;

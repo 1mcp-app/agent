@@ -1,17 +1,19 @@
-import type { Arguments, Argv } from 'yargs';
-import { handleSearchMCPServers, cleanupSearchHandler } from '../../core/tools/handlers/searchHandler.js';
-import { SearchMCPServersArgs } from '../../utils/mcpToolSchemas.js';
-import { OFFICIAL_REGISTRY_KEY, RegistryOptions, RegistryServer } from '../../core/registry/types.js';
-import logger from '../../logger/logger.js';
-import { GlobalOptions } from '../../globalOptions.js';
-import chalk from 'chalk';
+import { cleanupSearchHandler, handleSearchMCPServers } from '@src/core/tools/handlers/searchHandler.js';
 import {
   formatDate,
-  formatStatus,
   formatRegistryTypesPlain,
+  formatStatus,
   formatTransportTypesPlain,
   truncateString,
-} from '../../utils/formatters/commonFormatters.js';
+} from '@src/domains/registry/formatters/commonFormatters.js';
+import { SearchMCPServersArgs } from '@src/domains/registry/mcpToolSchemas.js';
+import { OFFICIAL_REGISTRY_KEY, RegistryOptions, RegistryServer } from '@src/domains/registry/types.js';
+import { GlobalOptions } from '@src/globalOptions.js';
+import logger from '@src/logger/logger.js';
+
+import chalk from 'chalk';
+import type { Arguments, Argv } from 'yargs';
+
 import { RegistryYargsOptions } from './options.js';
 
 export interface SearchCommandArgs extends Arguments, GlobalOptions, RegistryYargsOptions {

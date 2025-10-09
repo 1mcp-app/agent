@@ -1,6 +1,8 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { OFFICIAL_REGISTRY_KEY, RegistryServer } from '@src/domains/registry/types.js';
+
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+
 import { formatServerDetails } from './serverDetailFormatter.js';
-import { RegistryServer, OFFICIAL_REGISTRY_KEY } from '../../core/registry/types.js';
 
 // Mock console.table to capture table output
 const mockConsoleTable = vi.fn();

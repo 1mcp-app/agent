@@ -1,10 +1,12 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { handleGetRegistryStatus, cleanupRegistryHandler } from './registryHandler.js';
-import { RegistryOptions, RegistryStatusResult } from '../../registry/types.js';
-import { GetRegistryStatusArgs } from '../../../utils/mcpToolSchemas.js';
+import { GetRegistryStatusArgs } from '@src/domains/registry/mcpToolSchemas.js';
+import { RegistryOptions, RegistryStatusResult } from '@src/domains/registry/types.js';
+
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
+import { cleanupRegistryHandler, handleGetRegistryStatus } from './registryHandler.js';
 
 // Mock dependencies
-vi.mock('../../registry/mcpRegistryClient.js', () => ({
+vi.mock('@src/domains/registry/mcpRegistryClient.js', () => ({
   createRegistryClient: vi.fn(),
 }));
 
@@ -36,7 +38,7 @@ describe('registryHandler', () => {
     };
 
     // Mock the createRegistryClient function
-    const { createRegistryClient } = await import('../../registry/mcpRegistryClient.js');
+    const { createRegistryClient } = await import('@src/domains/registry/mcpRegistryClient.js');
     mockCreateRegistryClient = createRegistryClient as any;
     mockCreateRegistryClient.mockReturnValue(mockRegistryClient);
   });
@@ -156,7 +158,7 @@ describe('registryHandler', () => {
         include_stats: false,
       };
 
-      await expect(handleGetRegistryStatus(args)).rejects.toThrow('Registry unavailable');
+      await expect(handleGetRegistryStatus(args)).rejects.toThrow('Failed to get registry status');
     });
 
     it('should reuse existing registry client with same config', async () => {

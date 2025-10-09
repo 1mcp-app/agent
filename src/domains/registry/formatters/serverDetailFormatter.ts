@@ -1,12 +1,14 @@
-import chalk from 'chalk';
-import boxen from 'boxen';
 import {
-  RegistryServer,
-  OutputFormat,
   OFFICIAL_REGISTRY_KEY,
+  OutputFormat,
+  RegistryServer,
   ServerPackage,
   Transport,
-} from '../../core/registry/types.js';
+} from '@src/domains/registry/types.js';
+
+import boxen from 'boxen';
+import chalk from 'chalk';
+
 import { formatDate, formatRelativeDate } from './commonFormatters.js';
 
 /**

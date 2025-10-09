@@ -1,8 +1,9 @@
+import { MCP_SERVER_VERSION } from '@src/constants.js';
+import logger from '@src/logger/logger.js';
+import { withErrorHandling } from '@src/utils/core/errorHandling.js';
+
 import axios, { AxiosInstance, AxiosRequestConfig } from 'axios';
 
-import { MCP_SERVER_VERSION } from '../../constants.js';
-import logger from '../../logger/logger.js';
-import { withErrorHandling } from '../../utils/core/errorHandling.js';
 import { CacheManager } from './cacheManager.js';
 import {
   OFFICIAL_REGISTRY_KEY,

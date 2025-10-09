@@ -1,5 +1,6 @@
+import { ServerPackage, Transport } from '@src/domains/registry/types.js';
+
 import chalk from 'chalk';
-import { ServerPackage, Transport } from '../../core/registry/types.js';
 
 /**
  * Truncate string to specified length with ellipsis

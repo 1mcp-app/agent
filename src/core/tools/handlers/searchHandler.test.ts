@@ -1,9 +1,11 @@
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { handleSearchMCPServers, cleanupSearchHandler } from './searchHandler.js';
-import type { RegistryServer } from '../../registry/types.js';
+import type { RegistryServer } from '@src/domains/registry/types.js';
+
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
+import { cleanupSearchHandler, handleSearchMCPServers } from './searchHandler.js';
 
 // Mock the registry client
-vi.mock('../../registry/mcpRegistryClient.js', () => {
+vi.mock('@src/domains/registry/mcpRegistryClient.js', () => {
   const mockClient = {
     getServers: vi.fn(),
     destroy: vi.fn(),
@@ -15,7 +17,7 @@ vi.mock('../../registry/mcpRegistryClient.js', () => {
 });
 
 // Mock the search engine
-vi.mock('../../../utils/searchFiltering.js', () => {
+vi.mock('@src/domains/registry/searchFiltering.js', () => {
   const mockEngine = {
     applyFilters: vi.fn(),
   };
@@ -32,8 +34,8 @@ describe('handleSearchMCPServers', () => {
 
   beforeEach(async () => {
     // Get the mocked modules
-    const { createRegistryClient } = await import('../../registry/mcpRegistryClient.js');
-    const { createSearchEngine } = await import('../../../utils/searchFiltering.js');
+    const { createRegistryClient } = await import('@src/domains/registry/mcpRegistryClient.js');
+    const { createSearchEngine } = await import('@src/domains/registry/searchFiltering.js');
 
     mockRegistryClient = (createRegistryClient as any)();
     mockSearchEngine = (createSearchEngine as any)();

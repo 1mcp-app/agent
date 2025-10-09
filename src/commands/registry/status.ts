@@ -1,10 +1,12 @@
+import { cleanupRegistryHandler, handleGetRegistryStatus } from '@src/core/tools/handlers/registryHandler.js';
+import { formatTimestamp } from '@src/domains/registry/formatters/commonFormatters.js';
+import { GetRegistryStatusArgs } from '@src/domains/registry/mcpToolSchemas.js';
+import { RegistryOptions } from '@src/domains/registry/types.js';
+import { GlobalOptions } from '@src/globalOptions.js';
+import logger from '@src/logger/logger.js';
+
 import type { Arguments, Argv } from 'yargs';
-import { handleGetRegistryStatus, cleanupRegistryHandler } from '../../core/tools/handlers/registryHandler.js';
-import { GetRegistryStatusArgs } from '../../utils/mcpToolSchemas.js';
-import { RegistryOptions } from '../../core/registry/types.js';
-import logger from '../../logger/logger.js';
-import { GlobalOptions } from '../../globalOptions.js';
-import { formatTimestamp } from '../../utils/formatters/commonFormatters.js';
+
 import { RegistryYargsOptions } from './options.js';
 
 export interface RegistryStatusCommandArgs extends Arguments, GlobalOptions, RegistryYargsOptions {

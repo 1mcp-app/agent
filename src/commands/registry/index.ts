@@ -1,10 +1,12 @@
+import { globalOptions } from '@src/globalOptions.js';
+
 import type { Argv } from 'yargs';
-import { searchCommand, buildSearchCommand } from './search.js';
-import { registryStatusCommand, buildStatusCommand } from './status.js';
-import { showCommand, buildShowCommand } from './show.js';
-import { versionsCommand, buildVersionsCommand } from './versions.js';
-import { globalOptions } from '../../globalOptions.js';
+
 import { registryOptions } from './options.js';
+import { buildSearchCommand, searchCommand } from './search.js';
+import { buildShowCommand, showCommand } from './show.js';
+import { buildStatusCommand, registryStatusCommand } from './status.js';
+import { buildVersionsCommand, versionsCommand } from './versions.js';
 
 /**
  * Set up registry commands with their specific options

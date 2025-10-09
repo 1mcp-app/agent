@@ -1,7 +1,7 @@
-import logger from '../../../logger/logger.js';
-import { withErrorHandling } from '../../../utils/core/errorHandling.js';
-import { createRegistryClient } from '../../registry/mcpRegistryClient.js';
-import { RegistryOptions, RegistryServer, ShowCommandArgs } from '../../registry/types.js';
+import { createRegistryClient } from '@src/domains/registry/mcpRegistryClient.js';
+import { RegistryOptions, RegistryServer, ShowCommandArgs } from '@src/domains/registry/types.js';
+import logger from '@src/logger/logger.js';
+import { withErrorHandling } from '@src/utils/core/errorHandling.js';
 
 // Singleton instances
 let registryClient: ReturnType<typeof createRegistryClient> | null = null;

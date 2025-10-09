@@ -1,4 +1,7 @@
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+// Import axios after mocking
+import axios from 'axios';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
 import { MCPRegistryClient } from './mcpRegistryClient.js';
 import type { RegistryServer } from './types.js';
 
@@ -16,9 +19,6 @@ vi.mock('axios', () => ({
   },
   isAxiosError: vi.fn(),
 }));
-
-// Import axios after mocking
-import axios from 'axios';
 
 describe('MCPRegistryClient', () => {
   let client: MCPRegistryClient;

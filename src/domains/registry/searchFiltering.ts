@@ -1,4 +1,4 @@
-import { OFFICIAL_REGISTRY_KEY, RegistryServer } from '../core/registry/types.js';
+import { OFFICIAL_REGISTRY_KEY, RegistryServer } from '@src/domains/registry/types.js';
 
 /**
  * Search and filtering utilities for MCP servers
