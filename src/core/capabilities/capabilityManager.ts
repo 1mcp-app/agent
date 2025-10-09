@@ -1,11 +1,12 @@
 import { ServerCapabilities } from '@modelcontextprotocol/sdk/types.js';
-import logger from '@src/logger/logger.js';
+
+import { InboundConnection, OutboundConnections } from '@src/core/types/index.js';
 import {
   setupClientToServerNotifications,
   setupServerToClientNotifications,
 } from '@src/handlers/notificationHandlers.js';
 import { registerRequestHandlers } from '@src/handlers/requestHandlers.js';
-import { OutboundConnections, InboundConnection } from '@src/core/types/index.js';
+import logger from '@src/logger/logger.js';
 
 /**
  * Collects capabilities from all clients and registers them with the server

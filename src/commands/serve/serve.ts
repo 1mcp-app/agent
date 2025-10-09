@@ -1,23 +1,24 @@
-import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import fs from 'fs';
 import path from 'path';
 
-import { setupServer } from '@src/server.js';
-import logger, { debugIf } from '@src/logger/logger.js';
-import configReloadService from '@src/services/configReloadService.js';
-import { ServerManager } from '@src/core/server/serverManager.js';
-import { McpConfigManager } from '@src/config/mcpConfigManager.js';
-import { ExpressServer } from '@src/transport/http/server.js';
-import { AgentConfigManager } from '@src/core/server/agentConfig.js';
-import { displayLogo } from '@src/utils/ui/logo.js';
-import { McpLoadingManager } from '@src/core/loading/mcpLoadingManager.js';
-import { TagQueryParser, TagExpression } from '@src/utils/parsing/tagQueryParser.js';
+import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
+
 import ConfigContext from '@src/config/configContext.js';
+import { McpConfigManager } from '@src/config/mcpConfigManager.js';
 import { getDefaultInstructionsTemplatePath } from '@src/constants.js';
-import { validateTemplateContent, formatValidationError } from '@src/core/instructions/templateValidator.js';
-import { InstructionAggregator } from '@src/core/instructions/instructionAggregator.js';
-import { writePidFile, registerPidFileCleanup } from '@src/utils/management/pidFileManager.js';
 import { getConfigDir } from '@src/constants.js';
+import { InstructionAggregator } from '@src/core/instructions/instructionAggregator.js';
+import { formatValidationError, validateTemplateContent } from '@src/core/instructions/templateValidator.js';
+import { McpLoadingManager } from '@src/core/loading/mcpLoadingManager.js';
+import { AgentConfigManager } from '@src/core/server/agentConfig.js';
+import { ServerManager } from '@src/core/server/serverManager.js';
+import logger, { debugIf } from '@src/logger/logger.js';
+import { setupServer } from '@src/server.js';
+import configReloadService from '@src/services/configReloadService.js';
+import { ExpressServer } from '@src/transport/http/server.js';
+import { registerPidFileCleanup, writePidFile } from '@src/utils/management/pidFileManager.js';
+import { TagExpression, TagQueryParser } from '@src/utils/parsing/tagQueryParser.js';
+import { displayLogo } from '@src/utils/ui/logo.js';
 
 export interface ServeOptions {
   config?: string;

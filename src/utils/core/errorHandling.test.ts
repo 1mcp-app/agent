@@ -1,15 +1,17 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { ErrorCode } from '@modelcontextprotocol/sdk/types.js';
+
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+
 import {
-  withErrorHandling,
-  normalizeError,
-  isMCPError,
+  formatErrorResponse,
+  getErrorCause,
   getErrorCode,
   getErrorMessage,
-  getErrorCause,
-  formatErrorResponse,
+  isMCPError,
+  normalizeError,
+  withErrorHandling,
 } from './errorHandling.js';
-import { MCPError, InvalidRequestError } from './errorTypes.js';
+import { InvalidRequestError, MCPError } from './errorTypes.js';
 
 // Mock the logger
 vi.mock('@src/logger/logger.js', () => ({

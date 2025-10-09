@@ -1,13 +1,16 @@
-import { vi, describe, it, expect, beforeEach, MockInstance, afterEach } from 'vitest';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
-import { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
-import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import { SSEClientTransport } from '@modelcontextprotocol/sdk/client/sse.js';
-import { ClientManager } from './clientManager.js';
+import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
+import { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
+
+import { CONNECTION_RETRY, MCP_SERVER_NAME } from '@src/constants.js';
+import { AuthProviderTransport, ClientStatus } from '@src/core/types/index.js';
 import logger from '@src/logger/logger.js';
-import { ClientStatus, AuthProviderTransport } from '@src/core/types/index.js';
 import { ClientConnectionError, ClientNotFoundError } from '@src/utils/core/errorTypes.js';
-import { MCP_SERVER_NAME, CONNECTION_RETRY } from '@src/constants.js';
+
+import { afterEach, beforeEach, describe, expect, it, MockInstance, vi } from 'vitest';
+
+import { ClientManager } from './clientManager.js';
 
 // Mock dependencies
 vi.mock('@modelcontextprotocol/sdk/client/index.js', () => ({

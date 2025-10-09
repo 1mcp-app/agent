@@ -1,6 +1,6 @@
 import fs from 'fs';
-import path from 'path';
 import os from 'os';
+import path from 'path';
 
 /**
  * Validation utilities for app configuration consolidation.

@@ -1,5 +1,6 @@
-import { describe, it, expect } from 'vitest';
-import { TagQueryParser, TagExpression } from '@src/utils/parsing/tagQueryParser.js';
+import { TagExpression, TagQueryParser } from '@src/utils/parsing/tagQueryParser.js';
+
+import { describe, expect, it } from 'vitest';
 
 describe('TagQueryParser', () => {
   describe('parseSimple', () => {

@@ -1,18 +1,22 @@
-import { StdioClientTransport, StdioServerParameters } from '@modelcontextprotocol/sdk/client/stdio.js';
+import path from 'path';
+
 import { SSEClientTransport, SSEClientTransportOptions } from '@modelcontextprotocol/sdk/client/sse.js';
+import { StdioClientTransport, StdioServerParameters } from '@modelcontextprotocol/sdk/client/stdio.js';
 import {
   StreamableHTTPClientTransport,
   StreamableHTTPClientTransportOptions,
 } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
-import path from 'path';
-import { z, ZodError } from 'zod';
-import logger, { debugIf } from '@src/logger/logger.js';
-import { AuthProviderTransport, transportConfigSchema } from '@src/core/types/index.js';
-import { MCPServerParams } from '@src/core/types/index.js';
+
 import { OAuthClientConfig, SDKOAuthClientProvider } from '@src/auth/sdkOAuthClientProvider.js';
 import { AUTH_CONFIG, MCP_SERVER_VERSION } from '@src/constants.js';
 import { AgentConfigManager } from '@src/core/server/agentConfig.js';
+import { AuthProviderTransport, transportConfigSchema } from '@src/core/types/index.js';
+import { MCPServerParams } from '@src/core/types/index.js';
+import logger, { debugIf } from '@src/logger/logger.js';
 import { processEnvironment } from '@src/utils/config/envProcessor.js';
+
+import { z, ZodError } from 'zod';
+
 import { RestartableStdioTransport } from './restartableStdioTransport.js';
 
 /**

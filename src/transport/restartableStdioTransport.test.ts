@@ -1,6 +1,8 @@
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { RestartableStdioTransport } from './restartableStdioTransport.js';
 import { StdioServerParameters } from '@modelcontextprotocol/sdk/client/stdio.js';
+
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
+import { RestartableStdioTransport } from './restartableStdioTransport.js';
 
 // Mock the StdioClientTransport
 const mockStdioClientTransport = vi.hoisted(() =>

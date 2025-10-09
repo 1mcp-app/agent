@@ -1,6 +1,7 @@
-import { mkdtemp, rm, writeFile, mkdir } from 'fs/promises';
-import { join } from 'path';
+import { mkdir, mkdtemp, rm, writeFile } from 'fs/promises';
 import { tmpdir } from 'os';
+import { join } from 'path';
+
 import { ConfigBuilder } from './ConfigBuilder.js';
 
 export interface TestEnvironmentConfig {

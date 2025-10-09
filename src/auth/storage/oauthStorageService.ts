@@ -1,11 +1,12 @@
-import logger from '@src/logger/logger.js';
 import { AUTH_CONFIG } from '@src/constants.js';
-import { FileStorageService } from './fileStorageService.js';
-import { SessionRepository } from './sessionRepository.js';
+import logger from '@src/logger/logger.js';
+import { auditScopeOperation } from '@src/utils/validation/scopeValidation.js';
+
 import { AuthCodeRepository } from './authCodeRepository.js';
 import { AuthRequestRepository } from './authRequestRepository.js';
 import { ClientDataRepository } from './clientDataRepository.js';
-import { auditScopeOperation } from '@src/utils/validation/scopeValidation.js';
+import { FileStorageService } from './fileStorageService.js';
+import { SessionRepository } from './sessionRepository.js';
 
 /**
  * High-level OAuth storage service providing business operations

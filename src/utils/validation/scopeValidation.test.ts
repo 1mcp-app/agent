@@ -1,16 +1,17 @@
-import { describe, it, expect } from 'vitest';
+import { describe, expect, it } from 'vitest';
+
 import {
+  auditScopeOperation,
+  extractTagFromScope,
+  hasRequiredScopes,
   isValidTagName,
   isValidTagScope,
-  extractTagFromScope,
   parseScope,
+  SCOPE_VALIDATION_CONFIG,
+  scopesToTags,
+  tagsToScopes,
   validateScopes,
   validateScopesAgainstAvailableTags,
-  hasRequiredScopes,
-  tagsToScopes,
-  scopesToTags,
-  auditScopeOperation,
-  SCOPE_VALIDATION_CONFIG,
 } from './scopeValidation.js';
 
 describe('Scope Validation', () => {

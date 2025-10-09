@@ -1,8 +1,8 @@
 /**
  * Application constants
  */
-
 import os from 'os';
+
 import { ClientCapabilities, ServerCapabilities } from '@modelcontextprotocol/sdk/types.js';
 
 // Server configuration

@@ -1,13 +1,16 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { setupClientToServerNotifications, setupServerToClientNotifications } from './notificationHandlers.js';
+import { InitializedNotificationSchema, LoggingMessageNotificationSchema } from '@modelcontextprotocol/sdk/types.js';
+
 import {
   ClientStatus,
-  ServerStatus,
-  type OutboundConnections,
-  type OutboundConnection,
   type InboundConnection,
+  type OutboundConnection,
+  type OutboundConnections,
+  ServerStatus,
 } from '@src/core/types/index.js';
-import { LoggingMessageNotificationSchema, InitializedNotificationSchema } from '@modelcontextprotocol/sdk/types.js';
+
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+
+import { setupClientToServerNotifications, setupServerToClientNotifications } from './notificationHandlers.js';
 
 describe('Notification Handlers', () => {
   let mockOutboundConns: OutboundConnections;

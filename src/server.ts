@@ -1,16 +1,17 @@
-import { MCP_SERVER_CAPABILITIES, MCP_SERVER_NAME, MCP_SERVER_VERSION } from '@src/constants.js';
-import logger, { debugIf } from '@src/logger/logger.js';
-import { createTransports } from './transport/transportFactory.js';
-import { ClientManager } from './core/client/clientManager.js';
-import { ServerManager } from './core/server/serverManager.js';
 import { McpConfigManager } from '@src/config/mcpConfigManager.js';
+import { MCP_SERVER_CAPABILITIES, MCP_SERVER_NAME, MCP_SERVER_VERSION } from '@src/constants.js';
 import { AgentConfigManager } from '@src/core/server/agentConfig.js';
-import configReloadService from './services/configReloadService.js';
-import { McpLoadingManager } from './core/loading/mcpLoadingManager.js';
+import logger, { debugIf } from '@src/logger/logger.js';
+
 import { AsyncLoadingOrchestrator } from './core/capabilities/asyncLoadingOrchestrator.js';
+import { ClientManager } from './core/client/clientManager.js';
+import { InstructionAggregator } from './core/instructions/instructionAggregator.js';
+import { McpLoadingManager } from './core/loading/mcpLoadingManager.js';
+import { ServerManager } from './core/server/serverManager.js';
+import configReloadService from './services/configReloadService.js';
+import { createTransports } from './transport/transportFactory.js';
 import { PresetManager } from './utils/config/presetManager.js';
 import { PresetNotificationService } from './utils/config/presetNotificationService.js';
-import { InstructionAggregator } from './core/instructions/instructionAggregator.js';
 
 /**
  * Result of server setup including both sync and async components

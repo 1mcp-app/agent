@@ -1,16 +1,19 @@
 import readline from 'readline';
+
+import { GlobalOptions } from '@src/globalOptions.js';
+
 import type { Argv } from 'yargs';
+
 import {
-  serverExists,
-  getServer,
-  removeServer,
-  validateConfigPath,
   backupConfig,
-  reloadMcpConfig,
+  getServer,
   initializeConfigContext,
+  reloadMcpConfig,
+  removeServer,
+  serverExists,
+  validateConfigPath,
 } from './utils/configUtils.js';
 import { validateServerName } from './utils/validation.js';
-import { GlobalOptions } from '@src/globalOptions.js';
 
 export interface RemoveCommandArgs extends GlobalOptions {
   name: string;

@@ -1,8 +1,10 @@
-import { describe, it, beforeEach, afterEach } from 'vitest';
 import { TestFixtures } from '@test/e2e/fixtures/TestFixtures.js';
-import { join } from 'path';
+import { CliTestRunner, CommandTestEnvironment } from '@test/e2e/utils/index.js';
+
 import { mkdirSync, writeFileSync } from 'fs';
-import { CommandTestEnvironment, CliTestRunner } from '@test/e2e/utils/index.js';
+import { join } from 'path';
+
+import { afterEach, beforeEach, describe, it } from 'vitest';
 
 describe('MCP Config Context E2E Tests', () => {
   let environment: CommandTestEnvironment;

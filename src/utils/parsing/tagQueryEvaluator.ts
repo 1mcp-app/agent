@@ -2,7 +2,6 @@
  * JSON-based tag query evaluator for MongoDB-like queries
  * Supports three-state tag selection: empty, selected, not selected
  */
-
 import { TagQuery } from '@src/utils/config/presetTypes.js';
 
 /**

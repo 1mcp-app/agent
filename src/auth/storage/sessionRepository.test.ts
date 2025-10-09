@@ -1,10 +1,13 @@
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import fs from 'fs';
-import path from 'path';
 import { tmpdir } from 'os';
-import { SessionRepository } from './sessionRepository.js';
-import { FileStorageService } from './fileStorageService.js';
+import path from 'path';
+
 import { AUTH_CONFIG } from '@src/constants.js';
+
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
+import { FileStorageService } from './fileStorageService.js';
+import { SessionRepository } from './sessionRepository.js';
 
 // Mock logger to avoid console output during tests
 vi.mock('@src/logger/logger.js', () => ({

@@ -1,7 +1,10 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { setupSseRoutes } from './sseRoutes.js';
 import { ErrorCode } from '@modelcontextprotocol/sdk/types.js';
-import { SSE_ENDPOINT, MESSAGES_ENDPOINT } from '@src/constants.js';
+
+import { MESSAGES_ENDPOINT, SSE_ENDPOINT } from '@src/constants.js';
+
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
+import { setupSseRoutes } from './sseRoutes.js';
 
 // Mock all external dependencies
 vi.mock('@modelcontextprotocol/sdk/server/sse.js', () => ({

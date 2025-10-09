@@ -1,11 +1,13 @@
-import { Request, Response, NextFunction } from 'express';
 import { requireBearerAuth } from '@modelcontextprotocol/sdk/server/auth/middleware/bearerAuth.js';
-import logger from '@src/logger/logger.js';
-import { AgentConfigManager } from '@src/core/server/agentConfig.js';
+
 import { SDKOAuthServerProvider } from '@src/auth/sdkOAuthServerProvider.js';
-import { hasRequiredScopes, scopesToTags, auditScopeOperation } from '@src/utils/validation/scopeValidation.js';
-import { TagExpression } from '@src/utils/parsing/tagQueryParser.js';
+import { AgentConfigManager } from '@src/core/server/agentConfig.js';
+import logger from '@src/logger/logger.js';
 import { TagQuery } from '@src/utils/config/presetTypes.js';
+import { TagExpression } from '@src/utils/parsing/tagQueryParser.js';
+import { auditScopeOperation, hasRequiredScopes, scopesToTags } from '@src/utils/validation/scopeValidation.js';
+
+import { NextFunction, Request, Response } from 'express';
 
 /**
  * Authentication information structure

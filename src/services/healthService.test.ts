@@ -1,6 +1,8 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { HealthService, HealthStatus } from './healthService.js';
 import { ClientStatus } from '@src/core/types/index.js';
+
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
+import { HealthService, HealthStatus } from './healthService.js';
 
 // Mock dependencies
 vi.mock('@src/logger/logger.js', () => ({

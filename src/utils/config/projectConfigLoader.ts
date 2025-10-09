@@ -1,8 +1,11 @@
-import { readFile } from 'fs/promises';
-import JSON5 from 'json5';
-import { resolve } from 'path';
 import { existsSync } from 'fs';
+import { readFile } from 'fs/promises';
+import { resolve } from 'path';
+
 import logger from '@src/logger/logger.js';
+
+import JSON5 from 'json5';
+
 import { ProjectConfig, validateProjectConfig } from './projectConfigTypes.js';
 
 /**

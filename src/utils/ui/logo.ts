@@ -1,10 +1,10 @@
 /**
  * Logo utility for displaying startup banner
  */
-
-import chalk from 'chalk';
-import boxen from 'boxen';
 import { MCP_SERVER_VERSION } from '@src/constants.js';
+
+import boxen from 'boxen';
+import chalk from 'chalk';
 
 /**
  * ASCII art logo for 1MCP with gradient effect

@@ -1,10 +1,13 @@
-import { describe, it, expect, vi } from 'vitest';
 import { ServerCapabilities } from '@modelcontextprotocol/sdk/types.js';
-import { OutboundConnections, AuthProviderTransport } from '@src/core/types/index.js';
+
+import { AuthProviderTransport, OutboundConnections } from '@src/core/types/index.js';
+
+import { describe, expect, it, vi } from 'vitest';
+
 import {
-  filterClients,
   byCapabilities,
   byTags,
+  filterClients,
   filterClientsByCapabilities,
   filterClientsByTags,
 } from './clientFiltering.js';

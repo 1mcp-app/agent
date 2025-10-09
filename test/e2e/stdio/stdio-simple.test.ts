@@ -1,5 +1,7 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { TestProcessManager, ConfigBuilder, ProtocolValidator } from '@test/e2e/utils/index.js';
+import { ConfigBuilder, ProtocolValidator, TestProcessManager } from '@test/e2e/utils/index.js';
+
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+
 describe('Simple Stdio E2E Test', () => {
   let processManager: TestProcessManager;
   let configBuilder: ConfigBuilder;

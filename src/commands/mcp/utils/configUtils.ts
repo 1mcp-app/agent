@@ -1,9 +1,10 @@
 import fs from 'fs';
 import path from 'path';
+
+import ConfigContext from '@src/config/configContext.js';
 import { McpConfigManager } from '@src/config/mcpConfigManager.js';
 import { MCPServerParams } from '@src/core/types/index.js';
 import logger from '@src/logger/logger.js';
-import ConfigContext from '@src/config/configContext.js';
 
 /**
  * Configuration file utilities for server management commands

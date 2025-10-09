@@ -1,19 +1,20 @@
-import { describe, it, expect } from 'vitest';
 import {
   escapeHtml,
+  normalizeTag,
+  redactCommandArgs,
+  redactSensitiveValue,
+  redactUrl,
+  sanitizeErrorMessage,
+  sanitizeHeaders,
   sanitizeServerName,
+  sanitizeServerNameForContext,
   sanitizeServerNameForDisplay,
   sanitizeUrlParam,
-  sanitizeErrorMessage,
-  sanitizeServerNameForContext,
-  sanitizeHeaders,
   validateAndSanitizeTag,
   validateAndSanitizeTags,
-  normalizeTag,
-  redactSensitiveValue,
-  redactCommandArgs,
-  redactUrl,
 } from '@src/utils/validation/sanitization.js';
+
+import { describe, expect, it } from 'vitest';
 
 describe('escapeHtml', () => {
   it('should escape HTML entities', () => {

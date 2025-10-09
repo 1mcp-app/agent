@@ -1,11 +1,13 @@
-import { vi, describe, it, expect, beforeEach, MockInstance } from 'vitest';
-import { ConfigReloadService } from './configReloadService.js';
-import { McpConfigManager, ConfigChangeEvent } from '@src/config/mcpConfigManager.js';
-import { ClientManager } from '@src/core/client/clientManager.js';
-import { createTransports } from '@src/transport/transportFactory.js';
+import { ConfigChangeEvent, McpConfigManager } from '@src/config/mcpConfigManager.js';
 import { setupCapabilities } from '@src/core/capabilities/capabilityManager.js';
+import { ClientManager } from '@src/core/client/clientManager.js';
 import { ServerManager } from '@src/core/server/serverManager.js';
 import logger from '@src/logger/logger.js';
+import { createTransports } from '@src/transport/transportFactory.js';
+
+import { beforeEach, describe, expect, it, MockInstance, vi } from 'vitest';
+
+import { ConfigReloadService } from './configReloadService.js';
 
 // Mock dependencies
 vi.mock('@src/config/mcpConfigManager.js', () => ({

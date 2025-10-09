@@ -1,6 +1,7 @@
-import type { Argv } from 'yargs';
+import { HOST, PORT } from '@src/constants.js';
 import { globalOptions } from '@src/globalOptions.js';
-import { PORT, HOST } from '@src/constants.js';
+
+import type { Argv } from 'yargs';
 
 /**
  * Serve command group entry point.

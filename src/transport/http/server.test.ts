@@ -1,6 +1,8 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { ExpressServer } from './server.js';
 import { ServerManager } from '@src/core/server/serverManager.js';
+
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
+import { ExpressServer } from './server.js';
 
 // Mock all external dependencies
 vi.mock('express', () => {

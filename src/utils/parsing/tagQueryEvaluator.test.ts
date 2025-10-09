@@ -1,10 +1,10 @@
 /**
  * Tests for TagQueryEvaluator
  */
-
-import { describe, it, expect } from 'vitest';
-import { TagQueryEvaluator } from '@src/utils/parsing/tagQueryEvaluator.js';
 import { TagQuery } from '@src/utils/config/presetTypes.js';
+import { TagQueryEvaluator } from '@src/utils/parsing/tagQueryEvaluator.js';
+
+import { describe, expect, it } from 'vitest';
 
 describe('TagQueryEvaluator', () => {
   const sampleTags = ['web', 'api', 'database', 'secure', 'dev'];

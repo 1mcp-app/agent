@@ -1,12 +1,15 @@
-import { vi, describe, it, expect, beforeEach, MockInstance } from 'vitest';
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
-import { ServerManager } from './serverManager.js';
-import logger from '@src/logger/logger.js';
-import configReloadService from '@src/services/configReloadService.js';
+
 import { setupCapabilities } from '@src/core/capabilities/capabilityManager.js';
-import { enhanceServerWithLogging } from '@src/logger/mcpLoggingEnhancer.js';
 import { OutboundConnections } from '@src/core/types/index.js';
+import logger from '@src/logger/logger.js';
+import { enhanceServerWithLogging } from '@src/logger/mcpLoggingEnhancer.js';
+import configReloadService from '@src/services/configReloadService.js';
+
+import { beforeEach, describe, expect, it, MockInstance, vi } from 'vitest';
+
+import { ServerManager } from './serverManager.js';
 
 // Mock dependencies
 vi.mock('@modelcontextprotocol/sdk/server/index.js', () => ({

@@ -1,14 +1,16 @@
 import { promises as fs } from 'fs';
+import { FSWatcher, watch } from 'fs';
 import { join } from 'path';
-import { watch, FSWatcher } from 'fs';
-import { getConfigDir } from '@src/constants.js';
-import { TagQueryParser } from '@src/utils/parsing/tagQueryParser.js';
-import { TagQueryEvaluator } from '@src/utils/parsing/tagQueryEvaluator.js';
+
 import { McpConfigManager } from '@src/config/mcpConfigManager.js';
-import { PresetConfig, PresetStorage, PresetValidationResult, PresetListItem } from '@src/utils/config/presetTypes.js';
-import { PresetServerChangeDetector } from './presetServerChangeDetector.js';
-import { PresetErrorHandler } from './presetErrorHandler.js';
+import { getConfigDir } from '@src/constants.js';
 import logger from '@src/logger/logger.js';
+import { PresetConfig, PresetListItem, PresetStorage, PresetValidationResult } from '@src/utils/config/presetTypes.js';
+import { TagQueryEvaluator } from '@src/utils/parsing/tagQueryEvaluator.js';
+import { TagQueryParser } from '@src/utils/parsing/tagQueryParser.js';
+
+import { PresetErrorHandler } from './presetErrorHandler.js';
+import { PresetServerChangeDetector } from './presetServerChangeDetector.js';
 
 /**
  * PresetManager handles dynamic preset storage, validation, and hot-reloading.

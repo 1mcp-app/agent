@@ -1,7 +1,9 @@
-import { vi, describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { executeOperation } from './operationExecution.js';
-import { MCPError } from './errorTypes.js';
 import logger from '@src/logger/logger.js';
+
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
+import { MCPError } from './errorTypes.js';
+import { executeOperation } from './operationExecution.js';
 
 // Mock dependencies
 vi.mock('@src/logger/logger.js', () => ({

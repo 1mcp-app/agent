@@ -1,7 +1,9 @@
-import { describe, it, expect } from 'vitest';
-import { parseUri } from './parsing.js';
-import { InvalidRequestError } from './errorTypes.js';
 import { MCP_URI_SEPARATOR } from '@src/constants.js';
+
+import { describe, expect, it } from 'vitest';
+
+import { InvalidRequestError } from './errorTypes.js';
+import { parseUri } from './parsing.js';
 
 describe('parseUri', () => {
   const separator = MCP_URI_SEPARATOR;

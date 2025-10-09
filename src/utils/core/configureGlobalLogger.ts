@@ -2,9 +2,8 @@
  * Global logger configuration utility
  * This utility configures the logger for any command using globalOptions
  */
-
-import { configureLogger } from '@src/logger/logger.js';
 import { GlobalOptions } from '@src/globalOptions.js';
+import { configureLogger } from '@src/logger/logger.js';
 
 /**
  * Configure logger for any command using global options

@@ -1,8 +1,9 @@
 import { ServerCapabilities } from '@modelcontextprotocol/sdk/types.js';
-import { OutboundConnections, OutboundConnection } from '@src/core/types/index.js';
-import { TagQueryParser, TagExpression } from '@src/utils/parsing/tagQueryParser.js';
-import { normalizeTag } from '@src/utils/validation/sanitization.js';
+
+import { OutboundConnection, OutboundConnections } from '@src/core/types/index.js';
 import logger, { debugIf } from '@src/logger/logger.js';
+import { TagExpression, TagQueryParser } from '@src/utils/parsing/tagQueryParser.js';
+import { normalizeTag } from '@src/utils/validation/sanitization.js';
 
 /**
  * Filters clients by tags

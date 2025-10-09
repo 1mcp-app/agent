@@ -1,17 +1,19 @@
 import {
   CancelledNotificationSchema,
-  ProgressNotificationSchema,
-  LoggingMessageNotificationSchema,
-  ResourceUpdatedNotificationSchema,
-  ResourceListChangedNotificationSchema,
-  ToolListChangedNotificationSchema,
-  PromptListChangedNotificationSchema,
   InitializedNotificationSchema,
+  LoggingMessageNotificationSchema,
+  ProgressNotificationSchema,
+  PromptListChangedNotificationSchema,
+  ResourceListChangedNotificationSchema,
+  ResourceUpdatedNotificationSchema,
   RootsListChangedNotificationSchema,
+  ToolListChangedNotificationSchema,
 } from '@modelcontextprotocol/sdk/types.js';
+
+import { ClientStatus, InboundConnection, OutboundConnections, ServerStatus } from '@src/core/types/index.js';
 import logger from '@src/logger/logger.js';
 import { withErrorHandling } from '@src/utils/core/errorHandling.js';
-import { OutboundConnections, InboundConnection, ClientStatus, ServerStatus } from '@src/core/types/index.js';
+
 /**
  * Sets up client-to-server notification handlers
  * @param clients Record of client instances

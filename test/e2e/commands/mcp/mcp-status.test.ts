@@ -1,6 +1,7 @@
-import { describe, it, beforeEach, afterEach } from 'vitest';
 import { TestFixtures } from '@test/e2e/fixtures/TestFixtures.js';
-import { CommandTestEnvironment, CliTestRunner } from '@test/e2e/utils/index.js';
+import { CliTestRunner, CommandTestEnvironment } from '@test/e2e/utils/index.js';
+
+import { afterEach, beforeEach, describe, it } from 'vitest';
 
 describe('MCP Status Command E2E', () => {
   let environment: CommandTestEnvironment;

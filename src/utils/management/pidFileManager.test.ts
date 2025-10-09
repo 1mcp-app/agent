@@ -1,14 +1,16 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import fs from 'fs';
 import path from 'path';
+
 import {
-  writePidFile,
-  readPidFile,
   cleanupPidFile,
-  isProcessAlive,
   getPidFilePath,
+  isProcessAlive,
+  readPidFile,
   ServerPidInfo,
+  writePidFile,
 } from '@src/utils/management/pidFileManager.js';
+
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 describe('pidFileManager', () => {
   const testConfigDir = path.join(process.cwd(), '.tmp-test-pid');

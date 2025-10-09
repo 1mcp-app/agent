@@ -1,5 +1,7 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import type { Tool, Resource, Prompt } from '@modelcontextprotocol/sdk/types.js';
+import type { Prompt, Resource, Tool } from '@modelcontextprotocol/sdk/types.js';
+
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
 import { TokenEstimationService } from './tokenEstimationService.js';
 
 // Mock tiktoken

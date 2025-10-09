@@ -1,7 +1,9 @@
-import { describe, it, expect, beforeEach } from 'vitest';
-import { InstructionAggregator } from './instructionAggregator.js';
 import type { InboundConnectionConfig, OutboundConnections } from '@src/core/types/index.js';
 import { TagQueryParser } from '@src/utils/parsing/tagQueryParser.js';
+
+import { beforeEach, describe, expect, it } from 'vitest';
+
+import { InstructionAggregator } from './instructionAggregator.js';
 
 // Helper function to create test connections
 function createTestConnection(name: string, tags: string[] = []) {

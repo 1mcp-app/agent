@@ -1,10 +1,11 @@
-import prompts from 'prompts';
+import { McpConfigManager } from '@src/config/mcpConfigManager.js';
+import logger from '@src/logger/logger.js';
+import { PresetConfig, PresetStrategy, TagQuery } from '@src/utils/config/presetTypes.js';
+import { TagQueryEvaluator, TagSelection, TagState } from '@src/utils/parsing/tagQueryEvaluator.js';
+
 import boxen from 'boxen';
 import chalk from 'chalk';
-import { McpConfigManager } from '@src/config/mcpConfigManager.js';
-import { PresetStrategy, PresetConfig, TagQuery } from '@src/utils/config/presetTypes.js';
-import { TagQueryEvaluator, TagSelection, TagState } from '@src/utils/parsing/tagQueryEvaluator.js';
-import logger from '@src/logger/logger.js';
+import prompts from 'prompts';
 
 /**
  * Interactive server selection result

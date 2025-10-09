@@ -1,7 +1,12 @@
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import fs from 'fs';
-import path from 'path';
 import os from 'os';
+import path from 'path';
+
+import { getAppBackupDir } from '@src/constants.js';
+
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
+import { createBackup, findBackupByMetaPath, listAppBackups, rollbackFromBackupPath } from './backupManager.js';
 
 // Mock os module to control home directory
 vi.mock('os', () => ({
@@ -11,8 +16,6 @@ vi.mock('os', () => ({
   },
   tmpdir: vi.fn(() => '/tmp'),
 }));
-import { createBackup, listAppBackups, rollbackFromBackupPath, findBackupByMetaPath } from './backupManager.js';
-import { getAppBackupDir } from '@src/constants.js';
 
 describe('backupManager', () => {
   let tempDir: string;

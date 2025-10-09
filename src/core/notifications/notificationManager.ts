@@ -1,11 +1,13 @@
 import { EventEmitter } from 'events';
+
 import {
-  ToolListChangedNotification,
-  ResourceListChangedNotification,
   PromptListChangedNotification,
+  ResourceListChangedNotification,
+  ToolListChangedNotification,
 } from '@modelcontextprotocol/sdk/types.js';
-import { InboundConnection, ServerStatus } from '@src/core/types/index.js';
+
 import { CapabilityChanges } from '@src/core/capabilities/capabilityAggregator.js';
+import { InboundConnection, ServerStatus } from '@src/core/types/index.js';
 import logger, { debugIf } from '@src/logger/logger.js';
 
 /**

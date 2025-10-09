@@ -1,10 +1,11 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
 import {
   ClientStatus,
-  type OutboundConnections,
-  type OutboundConnection,
   type InboundConnection,
+  type OutboundConnection,
+  type OutboundConnections,
 } from '@src/core/types/index.js';
+
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 // Mock dependencies
 vi.mock('@src/logger/logger.js', () => ({

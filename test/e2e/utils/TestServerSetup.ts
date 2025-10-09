@@ -1,7 +1,7 @@
-import { setupServer } from '@src/server.js';
-import { ServerManager } from '@src/core/server/serverManager.js';
 import { McpConfigManager } from '@src/config/mcpConfigManager.js';
+import { ServerManager } from '@src/core/server/serverManager.js';
 import logger from '@src/logger/logger.js';
+import { setupServer } from '@src/server.js';
 
 export class TestServerSetup {
   private serverManager: ServerManager | null = null;

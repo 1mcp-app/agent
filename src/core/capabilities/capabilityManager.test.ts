@@ -1,20 +1,23 @@
-import { vi, describe, it, expect, beforeEach, MockInstance } from 'vitest';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { ServerCapabilities } from '@modelcontextprotocol/sdk/types.js';
-import { setupCapabilities } from './capabilityManager.js';
-import logger from '@src/logger/logger.js';
+
+import {
+  ClientStatus,
+  InboundConnection,
+  OutboundConnection,
+  OutboundConnections,
+  ServerStatus,
+} from '@src/core/types/index.js';
 import {
   setupClientToServerNotifications,
   setupServerToClientNotifications,
 } from '@src/handlers/notificationHandlers.js';
 import { registerRequestHandlers } from '@src/handlers/requestHandlers.js';
-import {
-  OutboundConnections,
-  InboundConnection,
-  OutboundConnection,
-  ClientStatus,
-  ServerStatus,
-} from '@src/core/types/index.js';
+import logger from '@src/logger/logger.js';
+
+import { beforeEach, describe, expect, it, MockInstance, vi } from 'vitest';
+
+import { setupCapabilities } from './capabilityManager.js';
 
 // Mock dependencies
 vi.mock('@src/logger/logger.js', () => ({

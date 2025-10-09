@@ -1,7 +1,10 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import path from 'path';
-import { serveCommand, ServeOptions } from './serve.js';
+
 import { AgentConfigManager } from '@src/core/server/agentConfig.js';
+
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
+import { serveCommand, ServeOptions } from './serve.js';
 
 // Mock dependencies
 vi.mock('@src/utils/core/configureGlobalLogger.js');

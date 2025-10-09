@@ -1,6 +1,7 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { ClientStatus } from '@src/core/types/index.js';
 import { LoadingState } from '@src/core/loading/loadingStateTracker.js';
+import { ClientStatus } from '@src/core/types/index.js';
+
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 // Mock all dependencies
 vi.mock('@src/logger/logger.js', () => ({

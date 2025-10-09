@@ -1,6 +1,8 @@
-import { vi, describe, it, expect, beforeEach } from 'vitest';
-import { parseCursor, encodeCursor } from './pagination.js';
 import logger from '@src/logger/logger.js';
+
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+
+import { encodeCursor, parseCursor } from './pagination.js';
 
 // Mock the logger
 vi.mock('@src/logger/logger.js', () => ({

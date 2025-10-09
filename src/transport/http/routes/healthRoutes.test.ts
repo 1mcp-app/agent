@@ -1,7 +1,9 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { HealthStatus } from '@src/services/healthService.js';
+
 import express from 'express';
 import request from 'supertest';
-import { HealthStatus } from '@src/services/healthService.js';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
 import createHealthRoutes from './healthRoutes.js';
 
 // Mock dependencies

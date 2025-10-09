@@ -1,31 +1,33 @@
-import type { Argv } from 'yargs';
 import fs from 'fs';
 import path from 'path';
 import readline from 'readline';
-import { getServer1mcpUrl, validateServer1mcpUrl } from '@src/utils/parsing/urlDetection.js';
-import {
-  discoverAppConfigs,
-  handleMultipleConfigs,
-  extractAndFilterServers,
-  generateAppConfig,
-  checkConsolidationStatus,
-} from '@src/utils/discovery/appDiscovery.js';
-import {
-  isAppSupported,
-  isAppConfigurable,
-  generateManualInstructions,
-  getAppPreset,
-  showPlatformWarningIfNeeded,
-} from '@src/utils/discovery/appPresets.js';
-import { validateOperation, generateOperationPreview } from '@src/utils/validation/validationHelpers.js';
-import { createBackup, withFileLock } from '@src/utils/management/backupManager.js';
-import { getAppBackupDir } from '@src/constants.js';
-import { McpConfigManager } from '@src/config/mcpConfigManager.js';
-import { setServer, initializeConfigContext } from '@src/commands/mcp/utils/configUtils.js';
+
+import { initializeConfigContext, setServer } from '@src/commands/mcp/utils/configUtils.js';
 import ConfigContext from '@src/config/configContext.js';
+import { McpConfigManager } from '@src/config/mcpConfigManager.js';
+import { getAppBackupDir } from '@src/constants.js';
 import { MCPServerParams } from '@src/core/types/index.js';
 import { GlobalOptions } from '@src/globalOptions.js';
+import {
+  checkConsolidationStatus,
+  discoverAppConfigs,
+  extractAndFilterServers,
+  generateAppConfig,
+  handleMultipleConfigs,
+} from '@src/utils/discovery/appDiscovery.js';
+import {
+  generateManualInstructions,
+  getAppPreset,
+  isAppConfigurable,
+  isAppSupported,
+  showPlatformWarningIfNeeded,
+} from '@src/utils/discovery/appPresets.js';
 import { generateSupportedAppsHelp } from '@src/utils/discovery/appPresets.js';
+import { createBackup, withFileLock } from '@src/utils/management/backupManager.js';
+import { getServer1mcpUrl, validateServer1mcpUrl } from '@src/utils/parsing/urlDetection.js';
+import { generateOperationPreview, validateOperation } from '@src/utils/validation/validationHelpers.js';
+
+import type { Argv } from 'yargs';
 
 /**
  * Consolidate command - Main consolidation logic for MCP servers.

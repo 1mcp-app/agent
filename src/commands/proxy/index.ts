@@ -1,5 +1,6 @@
+import { GlobalOptions, globalOptions } from '@src/globalOptions.js';
+
 import type { Argv } from 'yargs';
-import { globalOptions, GlobalOptions } from '@src/globalOptions.js';
 
 /**
  * Proxy command - STDIO proxy to running 1MCP HTTP server.

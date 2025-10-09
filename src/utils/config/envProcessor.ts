@@ -1,4 +1,5 @@
 import { getDefaultEnvironment } from '@modelcontextprotocol/sdk/client/stdio.js';
+
 import logger, { debugIf } from '@src/logger/logger.js';
 
 /**

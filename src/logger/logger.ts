@@ -1,5 +1,5 @@
-import winston from 'winston';
 import chalk from 'chalk';
+import winston from 'winston';
 
 // Map MCP log levels to Winston log levels
 const MCP_TO_WINSTON_LEVEL: Record<string, string> = {

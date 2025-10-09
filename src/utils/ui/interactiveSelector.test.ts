@@ -1,7 +1,9 @@
-import { describe, it, expect, beforeEach, vi, Mock } from 'vitest';
-import { InteractiveSelector } from './interactiveSelector.js';
 import { McpConfigManager } from '@src/config/mcpConfigManager.js';
+
 import prompts from 'prompts';
+import { beforeEach, describe, expect, it, Mock, vi } from 'vitest';
+
+import { InteractiveSelector } from './interactiveSelector.js';
 
 // Mock dependencies
 vi.mock('@src/config/mcpConfigManager.js');

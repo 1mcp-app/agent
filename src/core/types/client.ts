@@ -1,7 +1,9 @@
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { ServerCapabilities } from '@modelcontextprotocol/sdk/types.js';
-import { EnhancedTransport } from './transport.js';
+
 import { SDKOAuthClientProvider } from '@src/auth/sdkOAuthClientProvider.js';
+
+import { EnhancedTransport } from './transport.js';
 
 /**
  * Enum representing possible client connection states

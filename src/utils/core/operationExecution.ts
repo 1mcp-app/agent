@@ -1,7 +1,9 @@
 import { ErrorCode } from '@modelcontextprotocol/sdk/types.js';
-import { MCPError } from './errorTypes.js';
+
 import { OperationOptions } from '@src/core/types/index.js';
 import logger from '@src/logger/logger.js';
+
+import { MCPError } from './errorTypes.js';
 
 /**
  * Executes an operation with error handling and retry logic

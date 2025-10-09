@@ -1,10 +1,10 @@
-import logger from '@src/logger/logger.js';
 import { ConfigChangeEvent, McpConfigManager } from '@src/config/mcpConfigManager.js';
-import { MCPServerParams, InboundConnection, EnhancedTransport } from '@src/core/types/index.js';
-import { ClientManager } from '@src/core/client/clientManager.js';
 import { setupCapabilities } from '@src/core/capabilities/capabilityManager.js';
-import { createTransports } from '@src/transport/transportFactory.js';
+import { ClientManager } from '@src/core/client/clientManager.js';
 import { ServerManager } from '@src/core/server/serverManager.js';
+import { EnhancedTransport, InboundConnection, MCPServerParams } from '@src/core/types/index.js';
+import logger from '@src/logger/logger.js';
+import { createTransports } from '@src/transport/transportFactory.js';
 
 /**
  * Service to handle dynamic configuration reloading

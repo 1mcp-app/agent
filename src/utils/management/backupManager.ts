@@ -1,8 +1,9 @@
-import fs from 'fs';
-import path from 'path';
 import crypto from 'crypto';
+import fs from 'fs';
 import os from 'os';
-import { getGlobalBackupDir, getAppBackupDir } from '@src/constants.js';
+import path from 'path';
+
+import { getAppBackupDir, getGlobalBackupDir } from '@src/constants.js';
 
 /**
  * Backup and recovery system for app configuration consolidation.

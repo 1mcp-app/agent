@@ -1,11 +1,13 @@
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { promises as fs } from 'fs';
-import { join } from 'path';
-import { tmpdir } from 'os';
 import { randomBytes } from 'crypto';
+import { promises as fs } from 'fs';
+import { tmpdir } from 'os';
+import { join } from 'path';
+
+import { McpConfigManager } from '@src/config/mcpConfigManager.js';
 import { PresetManager } from '@src/utils/config/presetManager.js';
 import { PresetNotificationService } from '@src/utils/config/presetNotificationService.js';
-import { McpConfigManager } from '@src/config/mcpConfigManager.js';
+
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 // Mock dependencies
 vi.mock('../../../src/config/mcpConfigManager.js', () => ({

@@ -1,14 +1,16 @@
-import { vi } from 'vitest';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
-import { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
+import { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
+
 import {
-  OutboundConnections,
   InboundConnection,
   OutboundConnection,
+  OutboundConnections,
   ServerStatus,
 } from '@src/../src/core/types/index.js';
 import { ClientSessionData } from '@src/auth/sessionTypes.js';
+
+import { vi } from 'vitest';
 
 /**
  * Factory for creating mock logger instances

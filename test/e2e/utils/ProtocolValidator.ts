@@ -1,4 +1,4 @@
-import type { JSONRPCMessage, JSONRPCRequest, JSONRPCResponse, JSONRPCError } from '@modelcontextprotocol/sdk/types.js';
+import type { JSONRPCError, JSONRPCMessage, JSONRPCRequest, JSONRPCResponse } from '@modelcontextprotocol/sdk/types.js';
 
 export interface ValidationResult {
   valid: boolean;

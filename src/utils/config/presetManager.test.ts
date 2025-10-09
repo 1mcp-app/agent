@@ -1,11 +1,13 @@
-import { describe, it, expect, beforeEach, afterEach, vi, Mock } from 'vitest';
 import { promises as fs } from 'fs';
 import os from 'os';
-import { PresetManager } from '@src/utils/config/presetManager.js';
+
 import { McpConfigManager } from '@src/config/mcpConfigManager.js';
-import { TagQueryParser } from '@src/utils/parsing/tagQueryParser.js';
-import { TagQueryEvaluator } from '@src/utils/parsing/tagQueryEvaluator.js';
 import logger from '@src/logger/logger.js';
+import { PresetManager } from '@src/utils/config/presetManager.js';
+import { TagQueryEvaluator } from '@src/utils/parsing/tagQueryEvaluator.js';
+import { TagQueryParser } from '@src/utils/parsing/tagQueryParser.js';
+
+import { afterEach, beforeEach, describe, expect, it, Mock, vi } from 'vitest';
 
 // Mock dependencies
 vi.mock('fs', () => ({

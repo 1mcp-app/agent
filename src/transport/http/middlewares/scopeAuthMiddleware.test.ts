@@ -1,6 +1,7 @@
-import { describe, it, expect } from 'vitest';
 import { Response } from 'express';
-import { getValidatedTags, getAuthInfo, AuthInfo } from './scopeAuthMiddleware.js';
+import { describe, expect, it } from 'vitest';
+
+import { AuthInfo, getAuthInfo, getValidatedTags } from './scopeAuthMiddleware.js';
 
 describe('Scope Authentication Middleware Utilities', () => {
   describe('getValidatedTags', () => {

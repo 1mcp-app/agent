@@ -1,11 +1,13 @@
-import type { Argv } from 'yargs';
 import { globalOptions } from '@src/globalOptions.js';
-import { buildConsolidateCommand } from './consolidate.js';
-import { buildRestoreCommand } from './restore.js';
-import { buildListCommand } from './list.js';
-import { buildDiscoverCommand } from './discover.js';
-import { buildStatusCommand } from './status.js';
+
+import type { Argv } from 'yargs';
+
 import { buildBackupsCommand } from './backups.js';
+import { buildConsolidateCommand } from './consolidate.js';
+import { buildDiscoverCommand } from './discover.js';
+import { buildListCommand } from './list.js';
+import { buildRestoreCommand } from './restore.js';
+import { buildStatusCommand } from './status.js';
 
 /**
  * App command group entry point.

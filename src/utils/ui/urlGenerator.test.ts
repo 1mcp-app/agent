@@ -1,8 +1,10 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { UrlGenerator } from './urlGenerator.js';
 import { AgentConfigManager } from '@src/core/server/agentConfig.js';
-import { PresetManager } from '@src/utils/config/presetManager.js';
 import logger from '@src/logger/logger.js';
+import { PresetManager } from '@src/utils/config/presetManager.js';
+
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+
+import { UrlGenerator } from './urlGenerator.js';
 
 // Mock dependencies
 vi.mock('@src/core/server/agentConfig.js');

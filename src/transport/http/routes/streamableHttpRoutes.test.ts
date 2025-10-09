@@ -1,7 +1,10 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { setupStreamableHttpRoutes } from './streamableHttpRoutes.js';
 import { ErrorCode } from '@modelcontextprotocol/sdk/types.js';
+
 import { STREAMABLE_HTTP_ENDPOINT } from '@src/constants.js';
+
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
+import { setupStreamableHttpRoutes } from './streamableHttpRoutes.js';
 
 // Mock all external dependencies
 vi.mock('node:crypto', () => ({

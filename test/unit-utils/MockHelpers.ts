@@ -1,4 +1,5 @@
 import { vi } from 'vitest';
+
 import { createMockLogger } from './MockFactories.js';
 
 /**

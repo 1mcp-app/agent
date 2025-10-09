@@ -1,6 +1,15 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { setupServer } from './server.js';
+import { McpConfigManager } from '@src/config/mcpConfigManager.js';
 import { MCP_SERVER_CAPABILITIES, MCP_SERVER_NAME, MCP_SERVER_VERSION } from '@src/constants.js';
+// Import the mocked modules
+import logger from '@src/logger/logger.js';
+
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+
+import { ClientManager } from './core/client/clientManager.js';
+import { ServerManager } from './core/server/serverManager.js';
+import { setupServer } from './server.js';
+import configReloadService from './services/configReloadService.js';
+import { createTransports } from './transport/transportFactory.js';
 
 // Mock dependencies
 vi.mock('@src/logger/logger.ts', () => ({
@@ -39,14 +48,6 @@ vi.mock('./services/configReloadService.js', () => ({
     initialize: vi.fn(),
   },
 }));
-
-// Import the mocked modules
-import logger from '@src/logger/logger.js';
-import { createTransports } from './transport/transportFactory.js';
-import { ClientManager } from './core/client/clientManager.js';
-import { ServerManager } from './core/server/serverManager.js';
-import { McpConfigManager } from '@src/config/mcpConfigManager.js';
-import configReloadService from './services/configReloadService.js';
 
 describe('server', () => {
   let mockTransports: any;

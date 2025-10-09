@@ -1,15 +1,18 @@
 import { EventEmitter } from 'events';
-import Handlebars from 'handlebars';
-import logger, { debugIf } from '@src/logger/logger.js';
+
 import { FilteringService } from '@src/core/filtering/filteringService.js';
-import { OutboundConnections, InboundConnectionConfig } from '@src/core/types/index.js';
-import {
-  TemplateVariables,
-  ServerData,
-  DEFAULT_TEMPLATE_CONFIG,
-  DEFAULT_INSTRUCTION_TEMPLATE,
-} from './templateTypes.js';
+import { InboundConnectionConfig, OutboundConnections } from '@src/core/types/index.js';
+import logger, { debugIf } from '@src/logger/logger.js';
+
+import Handlebars from 'handlebars';
+
 import { registerTemplateHelpers } from './templateHelpers.js';
+import {
+  DEFAULT_INSTRUCTION_TEMPLATE,
+  DEFAULT_TEMPLATE_CONFIG,
+  ServerData,
+  TemplateVariables,
+} from './templateTypes.js';
 
 /**
  * Events emitted by InstructionAggregator

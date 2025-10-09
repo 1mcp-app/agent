@@ -1,11 +1,12 @@
 import { ServerCapabilities } from '@modelcontextprotocol/sdk/types.js';
-import { OutboundConnections, OutboundConnection, InboundConnectionConfig } from '@src/core/types/index.js';
+
 import { ClientStatus } from '@src/core/types/client.js';
-import { TagQueryParser, TagExpression } from '@src/utils/parsing/tagQueryParser.js';
-import { TagQueryEvaluator } from '@src/utils/parsing/tagQueryEvaluator.js';
-import { TagQuery } from '@src/utils/config/presetTypes.js';
-import { normalizeTag } from '@src/utils/validation/sanitization.js';
+import { InboundConnectionConfig, OutboundConnection, OutboundConnections } from '@src/core/types/index.js';
 import logger, { debugIf } from '@src/logger/logger.js';
+import { TagQuery } from '@src/utils/config/presetTypes.js';
+import { TagQueryEvaluator } from '@src/utils/parsing/tagQueryEvaluator.js';
+import { TagExpression, TagQueryParser } from '@src/utils/parsing/tagQueryParser.js';
+import { normalizeTag } from '@src/utils/validation/sanitization.js';
 
 /**
  * Type definition for client filter functions

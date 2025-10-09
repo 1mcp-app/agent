@@ -1,10 +1,13 @@
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { randomUUID } from 'node:crypto';
+
 import type { OAuthClientInformationFull, OAuthTokens } from '@modelcontextprotocol/sdk/shared/auth.js';
-import { SDKOAuthClientProvider, OAuthClientConfig } from './sdkOAuthClientProvider.js';
+
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
+import { OAuthClientConfig, SDKOAuthClientProvider } from './sdkOAuthClientProvider.js';
+import { ClientSessionData } from './sessionTypes.js';
 import { ClientSessionRepository } from './storage/clientSessionRepository.js';
 import { FileStorageService } from './storage/fileStorageService.js';
-import { ClientSessionData } from './sessionTypes.js';
 
 // Mock dependencies
 vi.mock('node:crypto');

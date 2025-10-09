@@ -1,8 +1,8 @@
-import { ClientStatus } from '@src/core/types/index.js';
-import { ServerManager } from '@src/core/server/serverManager.js';
 import { McpConfigManager } from '@src/config/mcpConfigManager.js';
-import { AgentConfigManager } from '@src/core/server/agentConfig.js';
 import { MCP_SERVER_VERSION } from '@src/constants.js';
+import { AgentConfigManager } from '@src/core/server/agentConfig.js';
+import { ServerManager } from '@src/core/server/serverManager.js';
+import { ClientStatus } from '@src/core/types/index.js';
 import logger from '@src/logger/logger.js';
 
 /**

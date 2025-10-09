@@ -1,5 +1,5 @@
-import path from 'path';
 import os from 'os';
+import path from 'path';
 
 /**
  * Desktop application preset configurations for MCP consolidation.

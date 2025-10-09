@@ -1,9 +1,12 @@
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import fs from 'fs';
 import { tmpdir } from 'os';
 import path from 'path';
-import fs from 'fs';
-import { SDKOAuthServerProvider } from './sdkOAuthServerProvider.js';
+
 import type { OAuthClientInformationFull } from '@modelcontextprotocol/sdk/shared/auth.js';
+
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
+import { SDKOAuthServerProvider } from './sdkOAuthServerProvider.js';
 
 // Mock the McpConfigManager module
 vi.mock('@src/config/mcpConfigManager.js', () => {

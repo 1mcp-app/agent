@@ -1,7 +1,7 @@
-import { writeFileSync, mkdirSync } from 'fs';
-import { join, dirname } from 'path';
-import { tmpdir } from 'os';
 import { randomBytes } from 'crypto';
+import { mkdirSync, writeFileSync } from 'fs';
+import { tmpdir } from 'os';
+import { dirname, join } from 'path';
 
 export interface TestServerConfig {
   name: string;

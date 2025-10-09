@@ -1,22 +1,23 @@
-import { Router, Request, Response, RequestHandler } from 'express';
-import rateLimit from 'express-rate-limit';
-import logger from '@src/logger/logger.js';
+import { SDKOAuthServerProvider } from '@src/auth/sdkOAuthServerProvider.js';
+import { AUTH_CONFIG, RATE_LIMIT_CONFIG } from '@src/constants.js';
+import { ClientManager, OAuthRequiredError } from '@src/core/client/clientManager.js';
+import { LoadingState } from '@src/core/loading/loadingStateTracker.js';
+import { McpLoadingManager } from '@src/core/loading/mcpLoadingManager.js';
+import { AgentConfigManager } from '@src/core/server/agentConfig.js';
 import { ServerManager } from '@src/core/server/serverManager.js';
 import { ClientStatus } from '@src/core/types/index.js';
-import { OAuthRequiredError, ClientManager } from '@src/core/client/clientManager.js';
-import { RATE_LIMIT_CONFIG, AUTH_CONFIG } from '@src/constants.js';
-import { AgentConfigManager } from '@src/core/server/agentConfig.js';
+import logger from '@src/logger/logger.js';
+import { sensitiveOperationLimiter } from '@src/transport/http/middlewares/securityMiddleware.js';
 import {
   escapeHtml,
-  sanitizeUrlParam,
   sanitizeErrorMessage,
   sanitizeServerNameForContext,
+  sanitizeUrlParam,
 } from '@src/utils/validation/sanitization.js';
 import { validateScopes } from '@src/utils/validation/scopeValidation.js';
-import { SDKOAuthServerProvider } from '@src/auth/sdkOAuthServerProvider.js';
-import { sensitiveOperationLimiter } from '@src/transport/http/middlewares/securityMiddleware.js';
-import { McpLoadingManager } from '@src/core/loading/mcpLoadingManager.js';
-import { LoadingState } from '@src/core/loading/loadingStateTracker.js';
+
+import { Request, RequestHandler, Response, Router } from 'express';
+import rateLimit from 'express-rate-limit';
 
 /**
  * Creates OAuth routes with the provided OAuth provider

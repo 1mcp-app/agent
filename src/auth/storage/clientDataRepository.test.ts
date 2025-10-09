@@ -1,11 +1,15 @@
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import fs from 'fs';
-import path from 'path';
 import { tmpdir } from 'os';
+import path from 'path';
+
+import { OAuthClientInformationFull } from '@modelcontextprotocol/sdk/shared/auth.js';
+
+import { AUTH_CONFIG } from '@src/constants.js';
+
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
 import { ClientDataRepository } from './clientDataRepository.js';
 import { FileStorageService } from './fileStorageService.js';
-import { AUTH_CONFIG } from '@src/constants.js';
-import { OAuthClientInformationFull } from '@modelcontextprotocol/sdk/shared/auth.js';
 
 // Mock logger to avoid console output during tests
 vi.mock('@src/logger/logger.js', () => ({

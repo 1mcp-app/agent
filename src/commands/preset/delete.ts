@@ -1,8 +1,9 @@
-import type { Argv } from 'yargs';
-import { PresetManager } from '@src/utils/config/presetManager.js';
-import { InteractiveSelector } from '@src/utils/ui/interactiveSelector.js';
 import { GlobalOptions } from '@src/globalOptions.js';
 import logger from '@src/logger/logger.js';
+import { PresetManager } from '@src/utils/config/presetManager.js';
+import { InteractiveSelector } from '@src/utils/ui/interactiveSelector.js';
+
+import type { Argv } from 'yargs';
 
 /**
  * Command arguments for delete command

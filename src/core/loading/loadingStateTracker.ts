@@ -1,4 +1,5 @@
 import { EventEmitter } from 'events';
+
 import logger, { debugIf } from '@src/logger/logger.js';
 import { secureLogger } from '@src/logger/secureLogger.js';
 

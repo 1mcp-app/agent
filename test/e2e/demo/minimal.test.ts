@@ -1,5 +1,7 @@
-import { describe, it, expect } from 'vitest';
 import { ConfigBuilder, ProtocolValidator } from '@test/e2e/utils/index.js';
+
+import { describe, expect, it } from 'vitest';
+
 describe('Minimal E2E Demo', () => {
   it('should validate E2E infrastructure basics', () => {
     // Test configuration builder

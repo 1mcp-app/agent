@@ -1,11 +1,12 @@
-import type { Argv } from 'yargs';
+import { GlobalOptions } from '@src/globalOptions.js';
+import logger from '@src/logger/logger.js';
 import { PresetManager } from '@src/utils/config/presetManager.js';
 import { InteractiveSelector } from '@src/utils/ui/interactiveSelector.js';
 import { UrlGenerator } from '@src/utils/ui/urlGenerator.js';
-import { GlobalOptions } from '@src/globalOptions.js';
-import logger from '@src/logger/logger.js';
+
 import boxen from 'boxen';
 import chalk from 'chalk';
+import type { Argv } from 'yargs';
 
 /**
  * Command arguments for the show command

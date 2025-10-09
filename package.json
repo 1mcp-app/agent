@@ -114,6 +114,7 @@
     "@braintree/sanitize-url": "^7.1.1",
     "@eslint/js": "^9.22.0",
     "@testing-library/jest-dom": "^6.6.3",
+    "@trivago/prettier-plugin-sort-imports": "^5.2.2",
     "@types/archiver": "^6.0.3",
     "@types/body-parser": "^1.19.5",
     "@types/cors": "^2.8.19",

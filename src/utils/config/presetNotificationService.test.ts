@@ -1,6 +1,8 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { PresetNotificationService, ClientConnection } from './presetNotificationService.js';
 import logger from '@src/logger/logger.js';
+
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+
+import { ClientConnection, PresetNotificationService } from './presetNotificationService.js';
 
 // Mock logger
 vi.mock('@src/logger/logger.js');

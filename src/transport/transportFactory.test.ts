@@ -1,9 +1,15 @@
-import { vi, describe, it, expect, beforeEach } from 'vitest';
-import { ZodError } from 'zod';
-import { createTransports } from './transportFactory.js';
-import { MCPServerParams } from '@src/core/types/index.js';
+import { SSEClientTransport } from '@modelcontextprotocol/sdk/client/sse.js';
+
 import { SDKOAuthClientProvider } from '@src/auth/sdkOAuthClientProvider.js';
+import { MCPServerParams } from '@src/core/types/index.js';
+// Import the mocked types
+import { transportConfigSchema } from '@src/core/types/index.js';
 import logger, { debugIf } from '@src/logger/logger.js';
+
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { ZodError } from 'zod';
+
+import { createTransports } from './transportFactory.js';
 
 // Mock dependencies
 vi.mock('@modelcontextprotocol/sdk/client/stdio.js', () => ({
@@ -71,10 +77,6 @@ vi.mock('@src/core/types/index.ts', async () => {
     },
   };
 });
-
-// Import the mocked types
-import { transportConfigSchema } from '@src/core/types/index.js';
-import { SSEClientTransport } from '@modelcontextprotocol/sdk/client/sse.js';
 
 describe('TransportFactory', () => {
   beforeEach(() => {

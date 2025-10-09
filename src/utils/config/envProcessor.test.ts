@@ -1,5 +1,6 @@
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { parseEnvArray, substituteEnvVars, substituteEnvVarsInConfig, processEnvironment } from './envProcessor.js';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
+import { parseEnvArray, processEnvironment, substituteEnvVars, substituteEnvVarsInConfig } from './envProcessor.js';
 
 // Mock getDefaultEnvironment to avoid SDK dependency in tests
 vi.mock('@modelcontextprotocol/sdk/client/stdio.js', () => ({

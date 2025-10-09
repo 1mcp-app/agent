@@ -1,8 +1,11 @@
 import fs from 'fs';
 import path from 'path';
-import { McpConfigManager, ConfigChangeEvent } from './mcpConfigManager.js';
+
 import { DEFAULT_CONFIG } from '@src/constants.js';
-import { vi, describe, it, expect, beforeEach, MockInstance } from 'vitest';
+
+import { beforeEach, describe, expect, it, MockInstance, vi } from 'vitest';
+
+import { ConfigChangeEvent, McpConfigManager } from './mcpConfigManager.js';
 
 // Test data
 const testConfig = {

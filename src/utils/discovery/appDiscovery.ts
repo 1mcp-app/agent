@@ -1,6 +1,8 @@
 import fs from 'fs';
-import JSON5 from 'json5';
+
 import { getAppConfigPaths, getAppPreset, isAppConfigurable } from '@src/utils/discovery/appPresets.js';
+
+import JSON5 from 'json5';
 
 /**
  * Desktop application configuration discovery and validation.

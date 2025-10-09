@@ -1,8 +1,10 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { FilteringService } from './filteringService.js';
 import { ClientStatus } from '@src/core/types/client.js';
+import type { InboundConnectionConfig, OutboundConnection, OutboundConnections } from '@src/core/types/index.js';
 import { TagExpression } from '@src/utils/parsing/tagQueryParser.js';
-import type { OutboundConnections, OutboundConnection, InboundConnectionConfig } from '@src/core/types/index.js';
+
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+
+import { FilteringService } from './filteringService.js';
 
 // Mock dependencies
 vi.mock('@src/logger/logger.js', () => ({

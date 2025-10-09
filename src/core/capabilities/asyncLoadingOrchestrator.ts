@@ -1,11 +1,13 @@
 import { EventEmitter } from 'events';
-import { CapabilityAggregator, CapabilityChanges } from './capabilityAggregator.js';
-import { NotificationManager } from '@src/core/notifications/notificationManager.js';
+
 import { McpLoadingManager } from '@src/core/loading/mcpLoadingManager.js';
-import { OutboundConnections, InboundConnection } from '@src/core/types/index.js';
-import { ServerManager } from '@src/core/server/serverManager.js';
+import { NotificationManager } from '@src/core/notifications/notificationManager.js';
 import { AgentConfigManager } from '@src/core/server/agentConfig.js';
+import { ServerManager } from '@src/core/server/serverManager.js';
+import { InboundConnection, OutboundConnections } from '@src/core/types/index.js';
 import logger, { debugIf } from '@src/logger/logger.js';
+
+import { CapabilityAggregator, CapabilityChanges } from './capabilityAggregator.js';
 
 /**
  * Events emitted by AsyncLoadingOrchestrator

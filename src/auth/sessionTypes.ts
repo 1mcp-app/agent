@@ -1,5 +1,4 @@
 // Shared session types for server and client session managers
-
 import { OAuthClientInformationFull } from '@modelcontextprotocol/sdk/shared/auth.js';
 
 /**

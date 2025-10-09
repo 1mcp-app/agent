@@ -1,40 +1,41 @@
 import {
   CallToolRequestSchema,
-  ListResourcesRequestSchema,
-  ListToolsRequestSchema,
-  ReadResourceRequestSchema,
-  ListPromptsRequestSchema,
-  GetPromptRequestSchema,
-  ListResourceTemplatesRequestSchema,
-  SubscribeRequestSchema,
-  UnsubscribeRequestSchema,
-  SetLevelRequestSchema,
   CallToolResultSchema,
-  ListResourcesRequest,
-  ListToolsRequest,
-  ListPromptsRequest,
-  ListResourceTemplatesRequest,
-  CreateMessageRequestSchema,
-  ListRootsRequestSchema,
-  CreateMessageRequest,
-  ListRootsRequest,
-  ElicitRequestSchema,
-  ElicitRequest,
-  PingRequestSchema,
   CompleteRequest,
   CompleteRequestSchema,
+  CreateMessageRequest,
+  CreateMessageRequestSchema,
+  ElicitRequest,
+  ElicitRequestSchema,
+  GetPromptRequestSchema,
+  ListPromptsRequest,
+  ListPromptsRequestSchema,
+  ListResourcesRequest,
+  ListResourcesRequestSchema,
+  ListResourceTemplatesRequest,
+  ListResourceTemplatesRequestSchema,
+  ListRootsRequest,
+  ListRootsRequestSchema,
+  ListToolsRequest,
+  ListToolsRequestSchema,
+  PingRequestSchema,
+  ReadResourceRequestSchema,
+  SetLevelRequestSchema,
+  SubscribeRequestSchema,
+  UnsubscribeRequestSchema,
 } from '@modelcontextprotocol/sdk/types.js';
-import { setLogLevel } from '@src/logger/logger.js';
+
 import { MCP_URI_SEPARATOR } from '@src/constants.js';
 import { ClientManager } from '@src/core/client/clientManager.js';
-import { ServerManager } from '@src/core/server/serverManager.js';
-import { parseUri } from '@src/utils/core/parsing.js';
-import { withErrorHandling } from '@src/utils/core/errorHandling.js';
 import { FilteringService } from '@src/core/filtering/filteringService.js';
-import { byCapabilities } from '@src/utils/management/clientFiltering.js';
-import { OutboundConnections, InboundConnection, ClientStatus } from '@src/core/types/index.js';
-import { handlePagination } from '@src/utils/ui/pagination.js';
+import { ServerManager } from '@src/core/server/serverManager.js';
+import { ClientStatus, InboundConnection, OutboundConnections } from '@src/core/types/index.js';
+import { setLogLevel } from '@src/logger/logger.js';
 import logger from '@src/logger/logger.js';
+import { withErrorHandling } from '@src/utils/core/errorHandling.js';
+import { parseUri } from '@src/utils/core/parsing.js';
+import { byCapabilities } from '@src/utils/management/clientFiltering.js';
+import { handlePagination } from '@src/utils/ui/pagination.js';
 
 /**
  * Registers server-specific request handlers
