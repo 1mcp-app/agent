@@ -35,6 +35,7 @@ import { setLogLevel } from '@src/logger/logger.js';
 import logger from '@src/logger/logger.js';
 import { withErrorHandling } from '@src/utils/core/errorHandling.js';
 import { buildUri, parseUri } from '@src/utils/core/parsing.js';
+import { getRequestTimeout } from '@src/utils/core/timeoutUtils.js';
 import { handlePagination } from '@src/utils/ui/pagination.js';
 
 /**
@@ -58,7 +59,7 @@ function registerServerRequestHandlers(outboundConns: OutboundConnections, inbou
       withErrorHandling(async (request: CreateMessageRequest) => {
         return ServerManager.current.executeServerOperation(inboundConn, (inboundConn: InboundConnection) =>
           inboundConn.server.createMessage(request.params, {
-            timeout: outboundConn.transport.requestTimeout ?? outboundConn.transport.timeout,
+            timeout: getRequestTimeout(outboundConn.transport),
           }),
         );
       }, 'Error creating message'),
@@ -69,7 +70,7 @@ function registerServerRequestHandlers(outboundConns: OutboundConnections, inbou
       withErrorHandling(async (request: ElicitRequest) => {
         return ServerManager.current.executeServerOperation(inboundConn, (inboundConn: InboundConnection) =>
           inboundConn.server.elicitInput(request.params, {
-            timeout: outboundConn.transport.requestTimeout ?? outboundConn.transport.timeout,
+            timeout: getRequestTimeout(outboundConn.transport),
           }),
         );
       }, 'Error eliciting input'),
@@ -80,7 +81,7 @@ function registerServerRequestHandlers(outboundConns: OutboundConnections, inbou
       withErrorHandling(async (request: ListRootsRequest) => {
         return ServerManager.current.executeServerOperation(inboundConn, (inboundConn: InboundConnection) =>
           inboundConn.server.listRoots(request.params, {
-            timeout: outboundConn.transport.requestTimeout ?? outboundConn.transport.timeout,
+            timeout: getRequestTimeout(outboundConn.transport),
           }),
         );
       }, 'Error listing roots'),
@@ -215,7 +216,7 @@ function registerResourceHandlers(outboundConns: OutboundConnections, inboundCon
         outboundConn.client.subscribeResource(
           { ...request.params, uri: resourceName },
           {
-            timeout: outboundConn.transport.requestTimeout ?? outboundConn.transport.timeout,
+            timeout: getRequestTimeout(outboundConn.transport),
           },
         ),
       );
@@ -231,7 +232,7 @@ function registerResourceHandlers(outboundConns: OutboundConnections, inboundCon
         outboundConn.client.unsubscribeResource(
           { ...request.params, uri: resourceName },
           {
-            timeout: outboundConn.transport.requestTimeout ?? outboundConn.transport.timeout,
+            timeout: getRequestTimeout(outboundConn.transport),
           },
         ),
       );
@@ -247,7 +248,7 @@ function registerResourceHandlers(outboundConns: OutboundConnections, inboundCon
         const resource = await outboundConn.client.readResource(
           { ...request.params, uri: resourceName },
           {
-            timeout: outboundConn.transport.requestTimeout ?? outboundConn.transport.timeout,
+            timeout: getRequestTimeout(outboundConn.transport),
           },
         );
 
@@ -309,7 +310,7 @@ function registerToolHandlers(outboundConns: OutboundConnections, inboundConn: I
       const { clientName, resourceName: toolName } = parseUri(request.params.name, MCP_URI_SEPARATOR);
       return ClientManager.current.executeClientOperation(clientName, (outboundConn) =>
         outboundConn.client.callTool({ ...request.params, name: toolName }, CallToolResultSchema, {
-          timeout: outboundConn.transport.requestTimeout ?? outboundConn.transport.timeout,
+          timeout: getRequestTimeout(outboundConn.transport),
         }),
       );
     }, 'Error calling tool'),
@@ -394,7 +395,7 @@ function registerCompletionHandlers(outboundConns: OutboundConnections, inboundC
         clientName,
         (outboundConn) =>
           outboundConn.client.complete(params, {
-            timeout: outboundConn.transport.requestTimeout ?? outboundConn.transport.timeout,
+            timeout: getRequestTimeout(outboundConn.transport),
           }),
         {},
         'completions',
