@@ -54,9 +54,9 @@
     ]
   },
   "scripts": {
-    "dev": "tsc-watch --project tsconfig.build.json --onSuccess \"node --env-file=.env build/index.js\"",
+    "dev": "./scripts/dev-start.sh",
     "start": "node --env-file=.env build/index.js",
-    "build": "tsc --project tsconfig.build.json && tsc-alias -p tsconfig.build.json && node -e \"require('fs').chmodSync('build/index.js', '755')\"",
+    "build": "./scripts/build.sh",
     "clean": "rm -rf build",
     "clean:sea": "rm -f 1mcp 1mcp.exe sea-prep.blob build/bundled.cjs",
     "prepare": "husky || true",
@@ -129,6 +129,7 @@
     "@vitest/coverage-v8": "^1.4.0",
     "archiver": "^7.0.1",
     "axios": "^1.10.0",
+    "concurrently": "^9.2.1",
     "cytoscape": "^3.32.1",
     "cytoscape-cose-bilkent": "^4.1.0",
     "dayjs": "^1.11.13",
@@ -142,6 +143,7 @@
     "jiti": "^2.4.2",
     "lint-staged": "^16.1.2",
     "mermaid": "^11.9.0",
+    "nodemon": "^3.1.10",
     "postject": "^1.0.0-alpha.6",
     "prettier": "^3.5.3",
     "supertest": "^7.1.4",
