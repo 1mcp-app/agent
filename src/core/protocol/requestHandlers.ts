@@ -34,7 +34,7 @@ import { ClientStatus, InboundConnection, OutboundConnections } from '@src/core/
 import { setLogLevel } from '@src/logger/logger.js';
 import logger from '@src/logger/logger.js';
 import { withErrorHandling } from '@src/utils/core/errorHandling.js';
-import { parseUri } from '@src/utils/core/parsing.js';
+import { buildUri, parseUri } from '@src/utils/core/parsing.js';
 import { handlePagination } from '@src/utils/ui/pagination.js';
 
 /**
@@ -162,7 +162,7 @@ function registerResourceHandlers(outboundConns: OutboundConnections, inboundCon
         (client, params, opts) => client.listResources(params as ListResourcesRequest['params'], opts),
         (outboundConn, result) =>
           result.resources?.map((resource) => ({
-            uri: `${outboundConn.name}${MCP_URI_SEPARATOR}${resource.uri}`,
+            uri: buildUri(outboundConn.name, resource.uri, MCP_URI_SEPARATOR),
             name: resource.name,
             description: resource.description,
             mimeType: resource.mimeType,
@@ -191,7 +191,7 @@ function registerResourceHandlers(outboundConns: OutboundConnections, inboundCon
         (client, params, opts) => client.listResourceTemplates(params as ListResourceTemplatesRequest['params'], opts),
         (outboundConn, result) =>
           result.resourceTemplates?.map((template) => ({
-            uriTemplate: `${outboundConn.name}${MCP_URI_SEPARATOR}${template.uriTemplate}`,
+            uriTemplate: buildUri(outboundConn.name, template.uriTemplate, MCP_URI_SEPARATOR),
             name: template.name,
             description: template.description,
             mimeType: template.mimeType,
@@ -243,14 +243,25 @@ function registerResourceHandlers(outboundConns: OutboundConnections, inboundCon
     ReadResourceRequestSchema,
     withErrorHandling(async (request) => {
       const { clientName, resourceName } = parseUri(request.params.uri, MCP_URI_SEPARATOR);
-      return ClientManager.current.executeClientOperation(clientName, (outboundConn) =>
-        outboundConn.client.readResource(
+      return ClientManager.current.executeClientOperation(clientName, async (outboundConn) => {
+        const resource = await outboundConn.client.readResource(
           { ...request.params, uri: resourceName },
           {
             timeout: outboundConn.transport.requestTimeout ?? outboundConn.transport.timeout,
           },
-        ),
-      );
+        );
+
+        // Transform resource content URIs to include client name prefix
+        const transformedResource = {
+          ...resource,
+          contents: resource.contents.map((content) => ({
+            ...content,
+            uri: buildUri(outboundConn.name, content.uri, MCP_URI_SEPARATOR),
+          })),
+        };
+
+        return transformedResource;
+      });
     }, 'Error reading resource'),
   );
 }
@@ -275,7 +286,7 @@ function registerToolHandlers(outboundConns: OutboundConnections, inboundConn: I
         (client, params, opts) => client.listTools(params as ListToolsRequest['params'], opts),
         (outboundConn, result) =>
           result.tools?.map((tool) => ({
-            name: `${outboundConn.name}${MCP_URI_SEPARATOR}${tool.name}`,
+            name: buildUri(outboundConn.name, tool.name, MCP_URI_SEPARATOR),
             description: tool.description,
             inputSchema: tool.inputSchema,
             outputSchema: tool.outputSchema,
@@ -325,7 +336,7 @@ function registerPromptHandlers(outboundConns: OutboundConnections, inboundConn:
         (client, params, opts) => client.listPrompts(params as ListPromptsRequest['params'], opts),
         (outboundConn, result) =>
           result.prompts?.map((prompt) => ({
-            name: `${outboundConn.name}${MCP_URI_SEPARATOR}${prompt.name}`,
+            name: buildUri(outboundConn.name, prompt.name, MCP_URI_SEPARATOR),
             description: prompt.description,
             arguments: prompt.arguments,
           })) ?? [],

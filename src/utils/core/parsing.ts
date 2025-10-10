@@ -37,3 +37,26 @@ export function parseUri(uri: string, separator: string): { clientName: string; 
 
   return { clientName, resourceName };
 }
+
+/**
+ * Builds a URI by combining client name and resource name with a separator
+ * @param clientName The client name
+ * @param resourceName The resource name
+ * @param separator The separator to use between client and resource names
+ * @returns The constructed URI
+ */
+export function buildUri(clientName: string, resourceName: string, separator: string): string {
+  if (!clientName?.trim()) {
+    throw new InvalidRequestError('Client name cannot be empty');
+  }
+
+  if (!resourceName?.trim()) {
+    throw new InvalidRequestError('Resource name cannot be empty');
+  }
+
+  if (!separator || typeof separator !== 'string') {
+    throw new InvalidRequestError('Separator must be a non-empty string');
+  }
+
+  return `${clientName.trim()}${separator}${resourceName.trim()}`;
+}
