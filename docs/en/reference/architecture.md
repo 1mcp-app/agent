@@ -470,6 +470,85 @@ The restructured codebase provides:
 - **Improved scalability** with independent domains
 - **Enhanced developer experience** with clear file locations
 
+## How It Works
+
+1MCP acts as a proxy, managing and aggregating multiple MCP servers. It starts and stops these servers as subprocesses and forwards requests from AI assistants to the appropriate server. This architecture allows for a single point of entry for all MCP traffic, simplifying management and reducing overhead.
+
+### System Architecture
+
+```mermaid
+graph TB
+    subgraph "AI Assistants"
+        A1[Claude Desktop]
+        A2[Cursor]
+        A3[Cherry Studio]
+        A4[Roo Code]
+    end
+
+    subgraph "1MCP Proxy"
+        P[1MCP Proxy<br/>STDIO Bridge]
+    end
+
+    subgraph "1MCP Server"
+        MCP[1MCP Agent<br/>HTTP/SSE]
+    end
+
+    subgraph "MCP Servers"
+        S1[Server 1]
+        S2[Server 2]
+        S3[Server 3]
+    end
+
+    A1 -->|stdio| P
+    A2 -->|http| MCP
+    A3 -->|http| MCP
+    A4 -->|http| MCP
+
+    P -->|http| MCP
+
+    MCP --> |http| S1
+    MCP --> |stdio| S2
+    MCP --> |stdio| S3
+```
+
+### Request Flow
+
+```mermaid
+sequenceDiagram
+    participant Client as AI Assistant
+    participant Proxy as 1MCP Proxy
+    participant Server as 1MCP Server
+    participant MCP as MCP Servers
+
+    Note over Client, MCP: HTTP/SSE Clients (Cursor, Cherry Studio, etc.)
+    Client->>Server: Send MCP Request
+    activate Server
+    Server->>Server: Validate Request
+    Server->>Server: Load Config
+    Server->>MCP: Forward Request
+    activate MCP
+    MCP-->>Server: Response
+    deactivate MCP
+    Server-->>Client: Forward Response
+    deactivate Server
+
+    Note over Client, MCP: STDIO Clients (Claude Desktop) via Proxy
+    Client->>Proxy: Send MCP Request (STDIO)
+    activate Proxy
+    Proxy->>Server: Forward Request (HTTP)
+    activate Server
+    Server->>Server: Validate Request
+    Server->>Server: Load Config
+    Server->>MCP: Forward Request
+    activate MCP
+    MCP-->>Server: Response
+    deactivate MCP
+    Server-->>Proxy: Forward Response (HTTP)
+    deactivate Server
+    Proxy-->>Client: Forward Response (STDIO)
+    deactivate Proxy
+```
+
 ---
 
 > **This architecture serves as our decision-making framework. When in doubt, refer back to our principles and constraints. All changes should strengthen these foundations, not weaken them.**

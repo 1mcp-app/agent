@@ -89,6 +89,10 @@ function sidebar(): DefaultTheme.Sidebar {
         text: 'Feature Overview',
         items: [{ text: 'All Features', link: '/guide/features' }],
       },
+      {
+        text: 'Development',
+        items: [{ text: 'Development Guide', link: '/guide/development' }],
+      },
     ],
     '/commands/': [
       {

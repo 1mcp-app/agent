@@ -470,6 +470,85 @@ src/
 - **改进的可扩展性** 与独立域
 - **增强的开发者体验** 与清晰的文件位置
 
+## 工作原理
+
+1MCP 作为代理，管理和聚合多个 MCP 服务器。它启动和停止这些服务器作为子进程，并将来自 AI 助手的请求转发到适当的服务器。这种架构允许所有 MCP 流量的单一入口点，简化管理并减少开销。
+
+### 系统架构
+
+```mermaid
+graph TB
+    subgraph "AI 助手"
+        A1[Claude Desktop]
+        A2[Cursor]
+        A3[Cherry Studio]
+        A4[Roo Code]
+    end
+
+    subgraph "1MCP 代理"
+        P[1MCP 代理<br/>STDIO 桥接]
+    end
+
+    subgraph "1MCP 服务器"
+        MCP[1MCP Agent<br/>HTTP/SSE]
+    end
+
+    subgraph "MCP 服务器"
+        S1[服务器 1]
+        S2[服务器 2]
+        S3[服务器 3]
+    end
+
+    A1 -->|stdio| P
+    A2 -->|http| MCP
+    A3 -->|http| MCP
+    A4 -->|http| MCP
+
+    P -->|http| MCP
+
+    MCP --> |http| S1
+    MCP --> |stdio| S2
+    MCP --> |stdio| S3
+```
+
+### 请求流程
+
+```mermaid
+sequenceDiagram
+    participant Client as AI 助手
+    participant Proxy as 1MCP 代理
+    participant Server as 1MCP 服务器
+    participant MCP as MCP 服务器
+
+    Note over Client, MCP: HTTP/SSE 客户端 (Cursor, Cherry Studio 等)
+    Client->>Server: 发送 MCP 请求
+    activate Server
+    Server->>Server: 验证请求
+    Server->>Server: 加载配置
+    Server->>MCP: 转发请求
+    activate MCP
+    MCP-->>Server: 响应
+    deactivate MCP
+    Server-->>Client: 转发响应
+    deactivate Server
+
+    Note over Client, MCP: STDIO 客户端 (Claude Desktop) 通过代理
+    Client->>Proxy: 发送 MCP 请求 (STDIO)
+    activate Proxy
+    Proxy->>Server: 转发请求 (HTTP)
+    activate Server
+    Server->>Server: 验证请求
+    Server->>Server: 加载配置
+    Server->>MCP: 转发请求
+    activate MCP
+    MCP-->>Server: 响应
+    deactivate MCP
+    Server-->>Proxy: 转发响应 (HTTP)
+    deactivate Server
+    Proxy-->>Client: 转发响应 (STDIO)
+    deactivate Proxy
+```
+
 ---
 
 > **此架构作为我们的决策框架。如有疑问，请参考我们的原则和约束。所有更改都应加强这些基础，而不是削弱它们。**

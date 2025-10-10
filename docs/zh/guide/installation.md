@@ -126,10 +126,10 @@ npx @1mcp/agent --config mcp.json
 
 ### Docker
 
-我们提供两种 Docker 镜像变体：
+您也可以使用 Docker 运行 1MCP。我们提供两种镜像变体：
 
-- **`latest`**: 包含额外工具 (uv, bun) 的全功能镜像
-- **`lite`**: 仅包含基本 Node.js 包管理器的轻量级镜像
+- **`latest`**: 包含额外工具 (uv, bun) 的全功能镜像 - 默认
+- **`lite`**: 仅包含基本 Node.js 包管理器 (npm, pnpm, yarn) 的轻量级镜像
 
 ```bash
 # 拉取并运行 (全功能镜像) - 重要：设置主机为 0.0.0.0 以支持 Docker 网络
@@ -190,11 +190,27 @@ docker compose up -d
 
 **全功能镜像:**
 
-- `latest`, `vX.Y.Z`, `vX.Y`, `vX`, `sha-<commit>`
+- `latest`, `vX.Y.Z`, `vX.Y`, `vX`
 
 **轻量级镜像:**
 
-- `lite`, `vX.Y.Z-lite`, `vX.Y-lite`, `vX-lite`, `sha-<commit>-lite`
+- `lite`, `vX.Y.Z-lite`, `vX.Y-lite`, `vX-lite`
+
+### 镜像详情
+
+**全功能镜像 (`latest`):**
+
+- Node.js (来自 `.node-version` 的版本)
+- npm, pnpm, yarn
+- uv (Python 包管理器)
+- bun (JavaScript 运行时)
+- curl, python3, bash
+
+**轻量级镜像 (`lite`):**
+
+- Node.js (来自 `.node-version` 的版本)
+- 仅 npm, pnpm, yarn
+- 更小的体积，更快的下载
 
 ## 从源码构建
 
