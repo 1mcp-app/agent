@@ -5,6 +5,28 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.25.0] - 2025-10-10
+
+### 🚀 Features
+- Introduce timeout utility functions for effective timeout management by @xizhibei
+- Introduce buildUri function for URI construction by @xizhibei
+- Add debounced notification methods to ClientManager by @xizhibei
+- Update Claude Desktop integration guide for 1MCP proxy by @xizhibei
+- Add Codex integration guide and sidebar links by @xizhibei
+- Enhance logo display with runtime information by @xizhibei
+- Enhance logging output with colorized levels by @xizhibei
+- Add User-Agent header with MCP server version to HTTP transport requests by @xizhibei
+
+### 🚜 Refactor
+- Reorganize project structure and improve architecture by @xizhibei in [#146](https://github.com/1mcp-app/agent/pull/146)
+
+### 📚 Documentation
+- Enhance README and documentation structure by @xizhibei
+
+### ⚙️ Miscellaneous Tasks
+- Update build and development scripts for improved workflow by @xizhibei
+
+
 ## [0.24.0] - 2025-10-08
 
 ### 🚀 Features
@@ -732,6 +754,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 * @xizhibei made their first contribution in [#1](https://github.com/1mcp-app/agent/pull/1)
 * @dependabot[bot] made their first contribution
 
+[0.25.0]: https://github.com/1mcp-app/agent/compare/v0.24.0..v0.25.0
 [0.24.0]: https://github.com/1mcp-app/agent/compare/v0.23.2..v0.24.0
 [0.23.2]: https://github.com/1mcp-app/agent/compare/v0.23.1..v0.23.2
 [0.23.1]: https://github.com/1mcp-app/agent/compare/v0.23.0..v0.23.1

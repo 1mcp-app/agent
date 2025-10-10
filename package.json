@@ -1,6 +1,6 @@
 {
   "name": "@1mcp/agent",
-  "version": "0.24.0",
+  "version": "0.25.0",
   "description": "One MCP server to aggregate them all - A unified Model Context Protocol server implementation",
   "keywords": [
     "mcp",
