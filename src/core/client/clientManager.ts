@@ -97,6 +97,11 @@ export class ClientManager {
       },
       {
         capabilities: MCP_CLIENT_CAPABILITIES,
+        debouncedNotificationMethods: [
+          'notifications/tools/list_changed',
+          'notifications/resources/list_changed',
+          'notifications/prompts/list_changed',
+        ],
       },
     );
   }
