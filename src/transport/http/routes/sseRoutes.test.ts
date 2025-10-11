@@ -157,9 +157,12 @@ describe('SSE Routes', () => {
 
     it('should handle SSE connection successfully', async () => {
       const { SSEServerTransport } = await import('@modelcontextprotocol/sdk/server/sse.js');
-      const { getValidatedTags, getTagExpression, getTagFilterMode } = await import(
+      const { getValidatedTags, getTagExpression, getTagFilterMode, getPresetName } = await import(
         '../middlewares/scopeAuthMiddleware.js'
       );
+
+      // Clear mocks specifically for this test
+      vi.mocked(mockServerManager.connectTransport).mockClear();
 
       const mockTransport = {
         sessionId: 'test-session-123',
@@ -171,9 +174,13 @@ describe('SSE Routes', () => {
       vi.mocked(getValidatedTags).mockReturnValue(['test-tag']);
       vi.mocked(getTagExpression).mockReturnValue(undefined);
       vi.mocked(getTagFilterMode).mockReturnValue('none');
+      vi.mocked(getPresetName).mockReturnValue(undefined);
 
       mockRequest.query = { pagination: 'true' };
       mockResponse.locals = { validatedTags: ['test-tag'] };
+
+      // Make sure we're actually calling the handler
+      expect(typeof getHandler).toBe('function');
 
       await getHandler(mockRequest, mockResponse);
 
@@ -182,15 +189,19 @@ describe('SSE Routes', () => {
         tags: ['test-tag'],
         tagExpression: undefined,
         tagFilterMode: 'none',
+        presetName: undefined,
         enablePagination: true,
       });
     });
 
     it('should handle SSE connection with pagination disabled', async () => {
       const { SSEServerTransport } = await import('@modelcontextprotocol/sdk/server/sse.js');
-      const { getValidatedTags, getTagExpression, getTagFilterMode } = await import(
+      const { getValidatedTags, getTagExpression, getTagFilterMode, getPresetName } = await import(
         '../middlewares/scopeAuthMiddleware.js'
       );
+
+      // Clear mocks specifically for this test
+      vi.mocked(mockServerManager.connectTransport).mockClear();
 
       const mockTransport = {
         sessionId: 'test-session-456',
@@ -202,6 +213,7 @@ describe('SSE Routes', () => {
       vi.mocked(getValidatedTags).mockReturnValue(['another-tag']);
       vi.mocked(getTagExpression).mockReturnValue(undefined);
       vi.mocked(getTagFilterMode).mockReturnValue('none');
+      vi.mocked(getPresetName).mockReturnValue(undefined);
 
       mockRequest.query = { pagination: 'false' };
       mockResponse.locals = { validatedTags: ['another-tag'] };
@@ -212,6 +224,7 @@ describe('SSE Routes', () => {
         tags: ['another-tag'],
         tagExpression: undefined,
         tagFilterMode: 'none',
+        presetName: undefined,
         enablePagination: false,
       });
     });
@@ -246,6 +259,14 @@ describe('SSE Routes', () => {
 
     it('should setup onclose handler for transport', async () => {
       const { SSEServerTransport } = await import('@modelcontextprotocol/sdk/server/sse.js');
+      const { getValidatedTags, getTagExpression, getTagFilterMode, getPresetName } = await import(
+        '../middlewares/scopeAuthMiddleware.js'
+      );
+
+      // Clear mocks specifically for this test
+      vi.mocked(mockServerManager.connectTransport).mockClear();
+      vi.mocked(mockServerManager.disconnectTransport).mockClear();
+
       const mockTransport = {
         sessionId: 'test-session-onclose',
         onclose: null,
@@ -253,6 +274,10 @@ describe('SSE Routes', () => {
         handlePostMessage: vi.fn().mockResolvedValue(undefined),
       };
       vi.mocked(SSEServerTransport).mockReturnValue(mockTransport as any);
+      vi.mocked(getValidatedTags).mockReturnValue([]);
+      vi.mocked(getTagExpression).mockReturnValue(undefined);
+      vi.mocked(getTagFilterMode).mockReturnValue('none');
+      vi.mocked(getPresetName).mockReturnValue(undefined);
 
       await getHandler(mockRequest, mockResponse);
 
@@ -267,9 +292,12 @@ describe('SSE Routes', () => {
 
     it('should handle empty validated tags', async () => {
       const { SSEServerTransport } = await import('@modelcontextprotocol/sdk/server/sse.js');
-      const { getValidatedTags, getTagExpression, getTagFilterMode } = await import(
+      const { getValidatedTags, getTagExpression, getTagFilterMode, getPresetName } = await import(
         '../middlewares/scopeAuthMiddleware.js'
       );
+
+      // Clear mocks specifically for this test
+      vi.mocked(mockServerManager.connectTransport).mockClear();
 
       const mockTransport = {
         sessionId: 'test-session-no-tags',
@@ -281,6 +309,7 @@ describe('SSE Routes', () => {
       vi.mocked(getValidatedTags).mockReturnValue([]);
       vi.mocked(getTagExpression).mockReturnValue(undefined);
       vi.mocked(getTagFilterMode).mockReturnValue('none');
+      vi.mocked(getPresetName).mockReturnValue(undefined);
 
       mockResponse.locals = {};
 
@@ -290,6 +319,7 @@ describe('SSE Routes', () => {
         tags: [],
         tagExpression: undefined,
         tagFilterMode: 'none',
+        presetName: undefined,
         enablePagination: false,
       });
     });

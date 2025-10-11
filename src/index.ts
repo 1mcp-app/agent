@@ -11,6 +11,7 @@ import { setupAppCommands } from './commands/app/index.js';
 import { setupMcpCommands } from './commands/mcp/index.js';
 import { setupPresetCommands } from './commands/preset/index.js';
 import { setupProxyCommand } from './commands/proxy/index.js';
+import { setupRegistryCommands } from './commands/registry/index.js';
 import { serverOptions, setupServeCommand } from './commands/serve/index.js';
 import { configureGlobalLogger } from './logger/configureGlobalLogger.js';
 
@@ -50,6 +51,7 @@ yargsInstance = setupMcpCommands(yargsInstance);
 yargsInstance = setupPresetCommands(yargsInstance);
 yargsInstance = setupServeCommand(yargsInstance);
 yargsInstance = setupProxyCommand(yargsInstance);
+yargsInstance = setupRegistryCommands(yargsInstance);
 
 /**
  * Check for conflicting global options (options specified both before and after the command)

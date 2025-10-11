@@ -6,6 +6,8 @@ import { McpConfigManager } from '@src/config/mcpConfigManager.js';
 import { getConfigDir } from '@src/constants.js';
 import { TagQueryEvaluator } from '@src/domains/preset/parsers/tagQueryEvaluator.js';
 import { TagQueryParser } from '@src/domains/preset/parsers/tagQueryParser.js';
+import { PresetErrorHandler } from '@src/domains/preset/services/presetErrorHandler.js';
+import { PresetServerChangeDetector } from '@src/domains/preset/services/presetServerChangeDetector.js';
 import {
   PresetConfig,
   PresetListItem,
@@ -13,9 +15,6 @@ import {
   PresetValidationResult,
 } from '@src/domains/preset/types/presetTypes.js';
 import logger from '@src/logger/logger.js';
-
-import { PresetErrorHandler } from '../services/presetErrorHandler.js';
-import { PresetServerChangeDetector } from '../services/presetServerChangeDetector.js';
 
 /**
  * PresetManager handles dynamic preset storage, validation, and hot-reloading.
