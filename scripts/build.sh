@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/bin/sh
 
 # Build script for 1MCP Agent
 # This script handles the complex build command logic
@@ -9,11 +9,11 @@ echo "🔨 Building 1MCP Agent..."
 
 # Compile TypeScript
 echo "📦 Compiling TypeScript..."
-tsc --project tsconfig.build.json
+pnpm exec tsc --project tsconfig.build.json
 
 # Resolve path aliases
 echo "🔗 Resolving path aliases..."
-tsc-alias -p tsconfig.build.json
+pnpm exec tsc-alias -p tsconfig.build.json
 
 # Make the built file executable
 echo "🔧 Making build/index.js executable..."
