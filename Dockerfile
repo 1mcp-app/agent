@@ -31,7 +31,7 @@ FROM node:${NODE_VERSION:-22}-alpine AS basic
 WORKDIR /usr/src/app
 
 # Install pnpm and yarn globally using npm and corepack
-RUN npm install -g corepack yarn && \
+RUN npm install -g corepack && \
   corepack enable
 
 # Copy package files
@@ -53,7 +53,7 @@ CMD ["node", "index.js"]
 # Extended image with additional tools (uv, bun)
 FROM basic AS extended
 
-RUN apk update && apk add --no-cache curl python3 bash ca-certificates && \
+RUN apk update && apk add --no-cache curl bash ca-certificates && \
   # Clean up package cache
   rm -rf /var/cache/apk/*
 
@@ -62,16 +62,18 @@ ARG UV_VERSION=0.9.2
 ARG BUN_VERSION=1.3.0
 ARG PYTHON_VERSION=3.14.0
 
+ENV PATH="/root/.local/bin:$PATH"
+
 # Install uv (Python package manager) with version pinning
 RUN curl -LsSf https://astral.sh/uv/${UV_VERSION}/install.sh | sh && \
   . $HOME/.local/bin/env && \
   ln -sf $HOME/.local/bin/uv /usr/local/bin/uv && \
   ln -sf $HOME/.local/bin/uvx /usr/local/bin/uvx && \
   uv --version && \
-  uv ptyhon install python${PYTHON_VERSION} && \
-  uv python --version && \
-  uv python update-shell && \
-  export PATH="/root/.local/bin:$PATH"
+  uv python install ${PYTHON_VERSION} --default && \
+  ln -sf $HOME/.local/bin/python /usr/local/bin/python && \
+  ln -sf $HOME/.local/bin/python3 /usr/local/bin/python3 && \
+  python --version
 
 # Install bun (JavaScript runtime and package manager) with version pinning
 RUN curl -fsSL https://bun.com/install | bash -s "bun-v${BUN_VERSION}" && \
