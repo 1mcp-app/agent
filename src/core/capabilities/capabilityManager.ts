@@ -70,6 +70,16 @@ function collectCapabilities(clients: OutboundConnections): ServerCapabilities {
 }
 
 /**
+ * Check if a capability key represents a notification capability
+ * Notification capabilities can be independently supported by multiple servers
+ * @param key The capability key to check
+ * @returns True if the key represents a notification capability
+ */
+function isNotificationCapability(key: string): boolean {
+  return key === 'listChanged' || key === 'subscribe';
+}
+
+/**
  * Merges capability objects with conflict detection and resolution
  * @param existing The existing capability object
  * @param incoming The incoming capability object
@@ -96,6 +106,17 @@ function mergeCapabilities<T extends Record<string, unknown>>(
 
   for (const [key, value] of Object.entries(incoming)) {
     if (key in existing) {
+      // Special handling for notification capabilities
+      if (isNotificationCapability(key)) {
+        // Use OR logic for boolean notification capabilities
+        if (typeof value === 'boolean' && typeof existing[key] === 'boolean') {
+          (merged as any)[key] = existing[key] || value;
+        } else {
+          (merged as any)[key] = value; // Non-boolean, use last value
+        }
+        continue; // Skip conflict logging
+      }
+
       // Check if values are different (potential conflict)
       if (JSON.stringify(existing[key]) !== JSON.stringify(value)) {
         conflicts.push(key);
