@@ -16,25 +16,33 @@ jobs:
     permissions:
       contents: read
 
-  # Build binaries (needed for release)
-  binaries:
+  # Update version in codebase (must run before builds)
+  update-version:
     needs: ci
+    uses: ./.github/workflows/update-version.yml
+    secrets: inherit
+    permissions:
+      contents: write
+
+  # Build binaries (needs updated version)
+  binaries:
+    needs: update-version
     uses: ./.github/workflows/build-binaries.yml
     permissions:
       contents: write
 
   # Publish to npm (needs binaries for release)
   release:
-    needs: [ci, binaries]
+    needs: [update-version, binaries]
     uses: ./.github/workflows/publish-to-npm.yml
     secrets: inherit
     permissions:
       contents: write
       id-token: write
 
-  # Build and publish Docker images
+  # Build and publish Docker images (needs updated version)
   docker:
-    needs: ci
+    needs: update-version
     uses: ./.github/workflows/build-docker-images.yml
     secrets: inherit
     permissions:

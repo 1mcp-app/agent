@@ -87,6 +87,7 @@
     "sea:binary:win": "node scripts/build-binary.cjs win32-x64",
     "sea:binary:win:arm64": "node scripts/build-binary.cjs win32-arm64",
     "archive": "node scripts/archive.cjs",
+    "version:update": "node scripts/update-version.cjs",
     "build:binaries": "pnpm sea:build && pnpm sea:binary",
     "build:binaries:archived": "pnpm build:binaries && pnpm archive"
   },

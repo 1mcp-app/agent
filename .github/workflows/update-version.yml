@@ -1,0 +1,70 @@
+name: Update Version
+
+on:
+  workflow_call:
+
+concurrency:
+  group: version-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  HUSKY: 0
+
+jobs:
+  update-version:
+    runs-on: ubuntu-latest
+    environment: release
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Setup Node.js and pnpm
+        uses: ./.github/actions/setup-node-pnpm
+
+      - name: Configure Git
+        run: |
+          git config --local user.email "github-actions[bot]@users.noreply.github.com"
+          git config --local user.name "github-actions[bot]"
+
+      - name: Update version in codebase
+        run: |
+          # Extract version from tag
+          VERSION=${GITHUB_REF#refs/tags/v}
+          echo "Updating to version: $VERSION"
+
+          # Run version update script
+          node scripts/update-version.cjs $VERSION
+
+      - name: Generate changelog
+        uses: orhun/git-cliff-action@v4
+        with:
+          config: cliff.toml
+          args: --verbose
+        env:
+          OUTPUT: CHANGELOG.md
+          GITHUB_REPO: ${{ github.repository }}
+
+      - name: Commit and push changes
+        run: |
+          VERSION=${GITHUB_REF#refs/tags/v}
+
+          # Add all updated files
+          git add package.json src/constants/mcp.ts CHANGELOG.md
+
+          # Check if there are any staged changes to commit
+          if git diff --cached --quiet; then
+            echo "No changes to commit"
+          else
+            echo "Committing changes for version $VERSION"
+            git commit -m "chore: update version and changelog to $VERSION [skip ci]"
+
+            # Push directly to main branch
+            git push origin HEAD:main
+
+            echo "✅ Version $VERSION committed and pushed to main"
+          fi
