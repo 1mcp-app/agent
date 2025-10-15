@@ -78,7 +78,8 @@ export class FileStorageService {
     const hasServerPrefix =
       id.startsWith(AUTH_CONFIG.SERVER.SESSION.ID_PREFIX) ||
       id.startsWith(AUTH_CONFIG.SERVER.AUTH_CODE.ID_PREFIX) ||
-      id.startsWith(AUTH_CONFIG.SERVER.AUTH_REQUEST.ID_PREFIX);
+      id.startsWith(AUTH_CONFIG.SERVER.AUTH_REQUEST.ID_PREFIX) ||
+      id.startsWith(AUTH_CONFIG.SERVER.STREAMABLE_SESSION.ID_PREFIX);
 
     if (hasServerPrefix) {
       // Validate the UUID portion (after prefix)
@@ -87,8 +88,10 @@ export class FileStorageService {
         uuidPart = id.substring(AUTH_CONFIG.SERVER.SESSION.ID_PREFIX.length);
       } else if (id.startsWith(AUTH_CONFIG.SERVER.AUTH_CODE.ID_PREFIX)) {
         uuidPart = id.substring(AUTH_CONFIG.SERVER.AUTH_CODE.ID_PREFIX.length);
-      } else {
+      } else if (id.startsWith(AUTH_CONFIG.SERVER.AUTH_REQUEST.ID_PREFIX)) {
         uuidPart = id.substring(AUTH_CONFIG.SERVER.AUTH_REQUEST.ID_PREFIX.length);
+      } else {
+        uuidPart = id.substring(AUTH_CONFIG.SERVER.STREAMABLE_SESSION.ID_PREFIX.length);
       }
 
       // UUID v4 format: 8-4-4-4-12 hexadecimal digits with hyphens

@@ -41,6 +41,13 @@ export const AUTH_CONFIG = {
       ID_PREFIX: 'tk-',
     },
 
+    // Streamable HTTP sessions
+    STREAMABLE_SESSION: {
+      TTL_MS: 24 * 60 * 60 * 1000, // 24 hours
+      ID_PREFIX: 'stream-',
+      FILE_PREFIX: 'streamable_session_',
+    },
+
     // Client management
     CLIENT: {
       ID_PREFIX: 'client-',

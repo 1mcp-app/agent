@@ -1,6 +1,7 @@
 import { mcpAuthRouter } from '@modelcontextprotocol/sdk/server/auth/router.js';
 
 import { SDKOAuthServerProvider } from '@src/auth/sdkOAuthServerProvider.js';
+import { FileStorageService } from '@src/auth/storage/fileStorageService.js';
 import { McpConfigManager } from '@src/config/mcpConfigManager.js';
 import { RATE_LIMIT_CONFIG } from '@src/constants.js';
 import { AsyncLoadingOrchestrator } from '@src/core/capabilities/asyncLoadingOrchestrator.js';
@@ -23,6 +24,7 @@ import createHealthRoutes from './routes/healthRoutes.js';
 import createOAuthRoutes from './routes/oauthRoutes.js';
 import { setupSseRoutes } from './routes/sseRoutes.js';
 import { setupStreamableHttpRoutes } from './routes/streamableHttpRoutes.js';
+import { StreamableSessionRepository } from './storage/streamableSessionRepository.js';
 
 /**
  * ExpressServer orchestrates the HTTP/SSE transport layer for the MCP server.
@@ -45,6 +47,7 @@ export class ExpressServer {
   private oauthProvider: SDKOAuthServerProvider;
   private configManager: AgentConfigManager;
   private customTemplate?: string;
+  private streamableSessionRepository: StreamableSessionRepository;
 
   /**
    * Creates a new ExpressServer instance.
@@ -77,6 +80,10 @@ export class ExpressServer {
     // Initialize OAuth provider with custom session storage path if configured
     const sessionStoragePath = this.configManager.getSessionStoragePath();
     this.oauthProvider = new SDKOAuthServerProvider(sessionStoragePath);
+
+    // Initialize streamable session repository with the same storage path
+    const fileStorageService = new FileStorageService(sessionStoragePath);
+    this.streamableSessionRepository = new StreamableSessionRepository(fileStorageService);
 
     this.setupMiddleware();
     this.setupRoutes();
@@ -177,6 +184,7 @@ export class ExpressServer {
     setupStreamableHttpRoutes(
       router,
       this.serverManager,
+      this.streamableSessionRepository,
       scopeAuthMiddleware,
       availabilityMiddleware,
       this.asyncOrchestrator,

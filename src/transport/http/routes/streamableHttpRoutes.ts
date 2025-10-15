@@ -3,7 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { ErrorCode } from '@modelcontextprotocol/sdk/types.js';
 
-import { STREAMABLE_HTTP_ENDPOINT } from '@src/constants.js';
+import { AUTH_CONFIG, STREAMABLE_HTTP_ENDPOINT } from '@src/constants.js';
 import { AsyncLoadingOrchestrator } from '@src/core/capabilities/asyncLoadingOrchestrator.js';
 import { ServerManager } from '@src/core/server/serverManager.js';
 import { ServerStatus } from '@src/core/types/index.js';
@@ -16,12 +16,76 @@ import {
   getValidatedTags,
 } from '@src/transport/http/middlewares/scopeAuthMiddleware.js';
 import tagsExtractor from '@src/transport/http/middlewares/tagsExtractor.js';
+import { StreamableSessionRepository } from '@src/transport/http/storage/streamableSessionRepository.js';
 
 import { Request, Response, Router } from 'express';
+
+/**
+ * Helper function to restore a streamable HTTP session from persistent storage
+ */
+async function restoreSession(
+  sessionId: string,
+  serverManager: ServerManager,
+  sessionRepository: StreamableSessionRepository,
+  asyncOrchestrator?: AsyncLoadingOrchestrator,
+): Promise<StreamableHTTPServerTransport | null> {
+  try {
+    // Try to retrieve session config from storage
+    const config = sessionRepository.get(sessionId);
+    if (!config) {
+      logger.debug(`No persisted session found for: ${sessionId}`);
+      return null;
+    }
+
+    logger.info(`Restoring streamable session: ${sessionId}`);
+
+    // Create new transport with the original session ID
+    const transport = new StreamableHTTPServerTransport({
+      sessionIdGenerator: () => sessionId,
+    });
+
+    // Reconnect with the original configuration
+    await serverManager.connectTransport(transport, sessionId, config);
+
+    // Initialize notifications for async loading if enabled
+    if (asyncOrchestrator) {
+      const inboundConnection = serverManager.getServer(sessionId);
+      if (inboundConnection) {
+        asyncOrchestrator.initializeNotifications(inboundConnection);
+        logger.debug(`Async loading notifications initialized for restored session ${sessionId}`);
+      }
+    }
+
+    // Set up handlers for the restored transport
+    transport.onclose = () => {
+      serverManager.disconnectTransport(sessionId);
+      sessionRepository.delete(sessionId);
+    };
+
+    transport.onerror = (error) => {
+      logger.error(`Streamable HTTP transport error for session ${sessionId}:`, error);
+      const server = serverManager.getServer(sessionId);
+      if (server) {
+        server.status = ServerStatus.Error;
+        server.lastError = error instanceof Error ? error : new Error(String(error));
+      }
+    };
+
+    // Update last accessed time
+    sessionRepository.updateAccess(sessionId);
+
+    logger.info(`Successfully restored streamable session: ${sessionId}`);
+    return transport;
+  } catch (error) {
+    logger.error(`Failed to restore streamable session ${sessionId}:`, error);
+    return null;
+  }
+}
 
 export function setupStreamableHttpRoutes(
   router: Router,
   serverManager: ServerManager,
+  sessionRepository: StreamableSessionRepository,
   authMiddleware: any,
   availabilityMiddleware?: any,
   asyncOrchestrator?: AsyncLoadingOrchestrator,
@@ -40,7 +104,7 @@ export function setupStreamableHttpRoutes(
       const sessionId = req.headers['mcp-session-id'] as string | undefined;
 
       if (!sessionId) {
-        const id = randomUUID();
+        const id = AUTH_CONFIG.SERVER.STREAMABLE_SESSION.ID_PREFIX + randomUUID();
         transport = new StreamableHTTPServerTransport({
           sessionIdGenerator: () => id,
         });
@@ -52,7 +116,7 @@ export function setupStreamableHttpRoutes(
         const tagQuery = getTagQuery(res);
         const presetName = getPresetName(res);
 
-        await serverManager.connectTransport(transport, id, {
+        const config = {
           tags,
           tagExpression,
           tagFilterMode,
@@ -60,7 +124,12 @@ export function setupStreamableHttpRoutes(
           presetName,
           enablePagination: req.query.pagination === 'true',
           customTemplate,
-        });
+        };
+
+        await serverManager.connectTransport(transport, id, config);
+
+        // Persist session configuration for restoration
+        sessionRepository.create(id, config);
 
         // Initialize notifications for async loading if enabled
         if (asyncOrchestrator) {
@@ -73,7 +142,7 @@ export function setupStreamableHttpRoutes(
 
         transport.onclose = () => {
           serverManager.disconnectTransport(id);
-          // Note: ServerManager already logs the disconnection
+          sessionRepository.delete(id);
         };
 
         transport.onerror = (error) => {
@@ -87,16 +156,27 @@ export function setupStreamableHttpRoutes(
       } else {
         const existingTransport = serverManager.getTransport(sessionId);
         if (!existingTransport) {
-          res.status(404).json({
-            error: {
-              code: ErrorCode.InvalidParams,
-              message: 'No active streamable HTTP session found for the provided sessionId',
-            },
-          });
-          return;
-        }
-        if (existingTransport instanceof StreamableHTTPServerTransport) {
+          // Attempt to restore session from persistent storage
+          const restoredTransport = await restoreSession(
+            sessionId,
+            serverManager,
+            sessionRepository,
+            asyncOrchestrator,
+          );
+          if (!restoredTransport) {
+            res.status(404).json({
+              error: {
+                code: ErrorCode.InvalidParams,
+                message: 'No active streamable HTTP session found for the provided sessionId',
+              },
+            });
+            return;
+          }
+          transport = restoredTransport;
+        } else if (existingTransport instanceof StreamableHTTPServerTransport) {
           transport = existingTransport;
+          // Update last accessed time for active sessions
+          sessionRepository.updateAccess(sessionId);
         } else {
           res.status(400).json({
             error: {
@@ -128,15 +208,23 @@ export function setupStreamableHttpRoutes(
         return;
       }
 
-      const transport = serverManager.getTransport(sessionId) as StreamableHTTPServerTransport;
+      let transport = serverManager.getTransport(sessionId) as StreamableHTTPServerTransport;
       if (!transport) {
-        res.status(404).json({
-          error: {
-            code: ErrorCode.InvalidParams,
-            message: 'No active streamable HTTP session found for the provided sessionId',
-          },
-        });
-        return;
+        // Attempt to restore session from persistent storage
+        const restoredTransport = await restoreSession(sessionId, serverManager, sessionRepository, asyncOrchestrator);
+        if (!restoredTransport) {
+          res.status(404).json({
+            error: {
+              code: ErrorCode.InvalidParams,
+              message: 'No active streamable HTTP session found for the provided sessionId',
+            },
+          });
+          return;
+        }
+        transport = restoredTransport;
+      } else {
+        // Update last accessed time for active sessions
+        sessionRepository.updateAccess(sessionId);
       }
       await transport.handleRequest(req, res, req.body);
     } catch (error) {
@@ -158,17 +246,24 @@ export function setupStreamableHttpRoutes(
         return;
       }
 
-      const transport = serverManager.getTransport(sessionId) as StreamableHTTPServerTransport;
+      let transport = serverManager.getTransport(sessionId) as StreamableHTTPServerTransport;
       if (!transport) {
-        res.status(404).json({
-          error: {
-            code: ErrorCode.InvalidParams,
-            message: 'No active streamable HTTP session found for the provided sessionId',
-          },
-        });
-        return;
+        // Attempt to restore session from persistent storage
+        const restoredTransport = await restoreSession(sessionId, serverManager, sessionRepository, asyncOrchestrator);
+        if (!restoredTransport) {
+          res.status(404).json({
+            error: {
+              code: ErrorCode.InvalidParams,
+              message: 'No active streamable HTTP session found for the provided sessionId',
+            },
+          });
+          return;
+        }
+        transport = restoredTransport;
       }
       await transport.handleRequest(req, res);
+      // Delete session from storage after explicit delete request
+      sessionRepository.delete(sessionId);
     } catch (error) {
       logger.error('Streamable HTTP error:', error);
       res.status(500).end();

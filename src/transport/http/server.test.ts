@@ -193,7 +193,8 @@ describe('ExpressServer', () => {
     });
 
     it('should initialize with custom session storage path', async () => {
-      mockConfigManager.getSessionStoragePath.mockReturnValue('/custom/path');
+      const tmpDir = '/tmp/1mcp-test-sessions-' + Date.now();
+      mockConfigManager.getSessionStoragePath.mockReturnValue(tmpDir);
 
       expressServer = new ExpressServer(mockServerManager);
 
