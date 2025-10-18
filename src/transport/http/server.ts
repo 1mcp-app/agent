@@ -81,8 +81,8 @@ export class ExpressServer {
     const sessionStoragePath = this.configManager.getSessionStoragePath();
     this.oauthProvider = new SDKOAuthServerProvider(sessionStoragePath);
 
-    // Initialize streamable session repository with the same storage path
-    const fileStorageService = new FileStorageService(sessionStoragePath);
+    // Initialize streamable session repository with 'transport' subdirectory
+    const fileStorageService = new FileStorageService(sessionStoragePath, 'transport');
     this.streamableSessionRepository = new StreamableSessionRepository(fileStorageService);
 
     this.setupMiddleware();

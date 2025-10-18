@@ -22,9 +22,15 @@ export class FileStorageService {
   private storageDir: string;
   private cleanupInterval: ReturnType<typeof setInterval> | null = null;
 
-  constructor(storageDir?: string) {
-    this.storageDir = storageDir || path.join(getGlobalConfigDir(), AUTH_CONFIG.SERVER.STORAGE.DIR);
+  constructor(baseDir?: string, subDir?: string) {
+    const configDir = baseDir || getGlobalConfigDir();
+    const sessionsDir = AUTH_CONFIG.SERVER.STORAGE.DIR;
+
+    // If subDir provided, use sessions/subDir/, otherwise just sessions/
+    this.storageDir = subDir ? path.join(configDir, sessionsDir, subDir) : path.join(configDir, sessionsDir);
+
     this.ensureDirectory();
+    this.migrateOldFilesIfNeeded();
     this.startPeriodicCleanup();
   }
 
@@ -40,6 +46,64 @@ export class FileStorageService {
     } catch (error) {
       logger.error(`Failed to create storage directory: ${error}`);
       throw error;
+    }
+  }
+
+  /**
+   * Migrates old flat file structure to new subdirectory structure
+   * Only runs if we're in a subdirectory and old files exist in parent
+   */
+  private migrateOldFilesIfNeeded(): void {
+    // Only migrate if we're in a subdirectory
+    if (
+      !this.storageDir.endsWith('/server') &&
+      !this.storageDir.endsWith('/client') &&
+      !this.storageDir.endsWith('/transport')
+    ) {
+      return; // Not in subdirectory mode
+    }
+
+    const parentDir = path.dirname(this.storageDir);
+    if (!fs.existsSync(parentDir)) {
+      return;
+    }
+
+    const files = fs.readdirSync(parentDir).filter((f) => f.endsWith('.json'));
+    if (files.length === 0) {
+      return;
+    }
+
+    // Determine where to move files based on prefix
+    for (const file of files) {
+      let targetSubDir: string | null = null;
+
+      if (file.startsWith('session_') || file.startsWith('auth_code_') || file.startsWith('auth_request_')) {
+        targetSubDir = 'server';
+      } else if (
+        file.startsWith('oauth_') ||
+        file.startsWith('cli_') ||
+        file.startsWith('tok_') ||
+        file.startsWith('ver_') ||
+        file.startsWith('sta_')
+      ) {
+        targetSubDir = 'client';
+      } else if (file.startsWith('streamable_session_')) {
+        targetSubDir = 'transport';
+      }
+
+      if (targetSubDir) {
+        const oldPath = path.join(parentDir, file);
+        const newDir = path.join(parentDir, targetSubDir);
+        const newPath = path.join(newDir, file);
+
+        try {
+          fs.mkdirSync(newDir, { recursive: true });
+          fs.renameSync(oldPath, newPath);
+          logger.info(`Migrated ${file} to ${targetSubDir}/`);
+        } catch (error) {
+          logger.error(`Failed to migrate ${file}: ${error}`);
+        }
+      }
     }
   }
 
