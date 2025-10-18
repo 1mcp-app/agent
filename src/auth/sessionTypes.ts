@@ -43,3 +43,15 @@ export interface AuthRequestData extends ExpirableData {
   resource?: string;
   scopes?: string[];
 }
+
+// Streamable HTTP session data for session restoration
+export interface StreamableSessionData extends ExpirableData {
+  tags?: string[];
+  tagExpression?: string; // JSON stringified TagExpression
+  tagQuery?: string; // JSON stringified TagQuery
+  tagFilterMode?: 'simple-or' | 'advanced' | 'preset' | 'none';
+  presetName?: string;
+  enablePagination?: boolean;
+  customTemplate?: string;
+  lastAccessedAt: number;
+}

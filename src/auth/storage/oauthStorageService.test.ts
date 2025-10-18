@@ -2,6 +2,8 @@ import fs from 'fs';
 import { tmpdir } from 'os';
 import path from 'path';
 
+import { AUTH_CONFIG } from '@src/constants.js';
+
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { OAuthStorageService } from './oauthStorageService.js';
@@ -131,7 +133,8 @@ describe('OAuthStorageService', () => {
     });
 
     it('should provide storage directory path', () => {
-      expect(service.getStorageDir()).toBe(tempDir);
+      const expectedPath = path.join(tempDir, 'sessions', AUTH_CONFIG.SERVER.SESSION.SUBDIR);
+      expect(service.getStorageDir()).toBe(expectedPath);
     });
   });
 });

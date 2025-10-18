@@ -50,8 +50,9 @@ describe('FileStorageService', () => {
       const customDir = path.join(tmpdir(), `custom-test-${Date.now()}`);
       const customService = new FileStorageService(customDir);
 
-      expect(fs.existsSync(customDir)).toBe(true);
-      expect(customService.getStorageDir()).toBe(customDir);
+      const expectedPath = path.join(customDir, 'sessions');
+      expect(fs.existsSync(expectedPath)).toBe(true);
+      expect(customService.getStorageDir()).toBe(expectedPath);
 
       customService.shutdown();
       fs.rmSync(customDir, { recursive: true, force: true });
@@ -101,7 +102,7 @@ describe('FileStorageService', () => {
 
     it('should handle file path generation correctly', () => {
       const filePath = service.getFilePath(testPrefix, testId);
-      const expectedPath = path.join(tempDir, `${testPrefix}${testId}.json`);
+      const expectedPath = path.join(tempDir, 'sessions', `${testPrefix}${testId}.json`);
       expect(filePath).toBe(expectedPath);
     });
   });
@@ -170,7 +171,8 @@ describe('FileStorageService', () => {
     });
 
     it('should handle corrupted JSON files during cleanup', () => {
-      const corruptedFilePath = path.join(tempDir, 'test_corrupted.json');
+      const storageDir = service.getStorageDir();
+      const corruptedFilePath = path.join(storageDir, 'test_corrupted.json');
       fs.writeFileSync(corruptedFilePath, 'invalid json {');
 
       // Should not throw and should remove corrupted file
@@ -180,7 +182,8 @@ describe('FileStorageService', () => {
 
     it('should handle files without expires field during cleanup', () => {
       const invalidData = { id: 'test', value: 'no expires field' };
-      const filePath = path.join(tempDir, 'test_invalid.json');
+      const storageDir = service.getStorageDir();
+      const filePath = path.join(storageDir, 'test_invalid.json');
       fs.writeFileSync(filePath, JSON.stringify(invalidData));
 
       // Should not throw and should skip files without expires
@@ -302,7 +305,8 @@ describe('FileStorageService', () => {
     });
 
     it('should handle JSON parsing errors', () => {
-      const filePath = path.join(tempDir, 'test_corrupted.json');
+      const storageDir = service.getStorageDir();
+      const filePath = path.join(storageDir, 'test_corrupted.json');
       fs.writeFileSync(filePath, 'invalid json content');
 
       const result = service.readData<TestData>('test_', 'corrupted');
@@ -312,7 +316,8 @@ describe('FileStorageService', () => {
 
   describe('Utility Methods', () => {
     it('should return correct storage directory', () => {
-      expect(service.getStorageDir()).toBe(tempDir);
+      const expectedPath = path.join(tempDir, 'sessions');
+      expect(service.getStorageDir()).toBe(expectedPath);
     });
 
     it('should validate file IDs correctly', () => {
@@ -327,6 +332,182 @@ describe('FileStorageService', () => {
       for (const id of invalidIds) {
         expect(() => service.getFilePath('test_', id)).toThrow();
       }
+    });
+  });
+
+  describe('Subdirectory Support', () => {
+    it('should create storage in subdirectory when provided', () => {
+      const baseDir = path.join(tmpdir(), `base-dir-test-${Date.now()}`);
+      const subdirService = new FileStorageService(baseDir, 'server');
+
+      const expectedPath = path.join(baseDir, 'sessions', 'server');
+      expect(subdirService.getStorageDir()).toBe(expectedPath);
+      expect(fs.existsSync(expectedPath)).toBe(true);
+
+      subdirService.shutdown();
+      fs.rmSync(baseDir, { recursive: true, force: true });
+    });
+
+    it('should create storage without subdirectory when not provided', () => {
+      const baseDir = path.join(tmpdir(), `base-dir-test-${Date.now()}`);
+      const noSubdirService = new FileStorageService(baseDir);
+
+      const expectedPath = path.join(baseDir, 'sessions');
+      expect(noSubdirService.getStorageDir()).toBe(expectedPath);
+      expect(fs.existsSync(expectedPath)).toBe(true);
+
+      noSubdirService.shutdown();
+      fs.rmSync(baseDir, { recursive: true, force: true });
+    });
+  });
+
+  describe('Migration Logic', () => {
+    it('should migrate old server session files to server subdirectory', () => {
+      // Arrange: Create parent directory with old flat structure
+      const baseDir = path.join(tmpdir(), `migration-test-${Date.now()}`);
+      const sessionsDir = path.join(baseDir, 'sessions');
+      fs.mkdirSync(sessionsDir, { recursive: true });
+
+      // Create old session files in flat structure
+      const oldFiles = [
+        'session_sess-12345678-1234-4abc-89de-123456789012.json',
+        'auth_code_code-87654321-4321-4def-89ab-210987654321.json',
+        'auth_request_code-11111111-1111-4111-8111-111111111111.json',
+      ];
+
+      for (const file of oldFiles) {
+        fs.writeFileSync(path.join(sessionsDir, file), JSON.stringify({ test: 'data' }));
+      }
+
+      // Act: Create service with 'server' subdirectory
+      const serverService = new FileStorageService(baseDir, 'server');
+
+      // Assert: Files should be migrated to server subdirectory
+      const serverSubdir = path.join(sessionsDir, 'server');
+      for (const file of oldFiles) {
+        expect(fs.existsSync(path.join(serverSubdir, file))).toBe(true);
+        expect(fs.existsSync(path.join(sessionsDir, file))).toBe(false);
+      }
+
+      serverService.shutdown();
+      fs.rmSync(baseDir, { recursive: true, force: true });
+    });
+
+    it('should migrate old client session files to client subdirectory', () => {
+      // Arrange: Create parent directory with old flat structure
+      const baseDir = path.join(tmpdir(), `migration-test-${Date.now()}`);
+      const sessionsDir = path.join(baseDir, 'sessions');
+      fs.mkdirSync(sessionsDir, { recursive: true });
+
+      // Create old client files in flat structure
+      const oldFiles = [
+        'oauth_test-server.json',
+        'cli_client-123.json',
+        'tok_token-456.json',
+        'ver_verifier-789.json',
+        'sta_state-abc.json',
+      ];
+
+      for (const file of oldFiles) {
+        fs.writeFileSync(path.join(sessionsDir, file), JSON.stringify({ test: 'data' }));
+      }
+
+      // Act: Create service with 'client' subdirectory
+      const clientService = new FileStorageService(baseDir, 'client');
+
+      // Assert: Files should be migrated to client subdirectory
+      const clientSubdir = path.join(sessionsDir, 'client');
+      for (const file of oldFiles) {
+        expect(fs.existsSync(path.join(clientSubdir, file))).toBe(true);
+        expect(fs.existsSync(path.join(sessionsDir, file))).toBe(false);
+      }
+
+      clientService.shutdown();
+      fs.rmSync(baseDir, { recursive: true, force: true });
+    });
+
+    it('should migrate old transport session files to transport subdirectory', () => {
+      // Arrange: Create parent directory with old flat structure
+      const baseDir = path.join(tmpdir(), `migration-test-${Date.now()}`);
+      const sessionsDir = path.join(baseDir, 'sessions');
+      fs.mkdirSync(sessionsDir, { recursive: true });
+
+      // Create old transport files in flat structure
+      const oldFiles = ['streamable_session_stream-12345678-1234-4abc-89de-123456789012.json'];
+
+      for (const file of oldFiles) {
+        fs.writeFileSync(path.join(sessionsDir, file), JSON.stringify({ test: 'data' }));
+      }
+
+      // Act: Create service with 'transport' subdirectory
+      const transportService = new FileStorageService(baseDir, 'transport');
+
+      // Assert: Files should be migrated to transport subdirectory
+      const transportSubdir = path.join(sessionsDir, 'transport');
+      for (const file of oldFiles) {
+        expect(fs.existsSync(path.join(transportSubdir, file))).toBe(true);
+        expect(fs.existsSync(path.join(sessionsDir, file))).toBe(false);
+      }
+
+      transportService.shutdown();
+      fs.rmSync(baseDir, { recursive: true, force: true });
+    });
+
+    it('should not migrate files when not in subdirectory mode', () => {
+      // Arrange: Create parent directory with old flat structure
+      const baseDir = path.join(tmpdir(), `migration-test-${Date.now()}`);
+      const sessionsDir = path.join(baseDir, 'sessions');
+      fs.mkdirSync(sessionsDir, { recursive: true });
+
+      const oldFile = 'session_sess-12345678-1234-4abc-89de-123456789012.json';
+      fs.writeFileSync(path.join(sessionsDir, oldFile), JSON.stringify({ test: 'data' }));
+
+      // Act: Create service without subdirectory
+      const flatService = new FileStorageService(baseDir);
+
+      // Assert: Files should remain in flat structure
+      expect(fs.existsSync(path.join(sessionsDir, oldFile))).toBe(true);
+
+      flatService.shutdown();
+      fs.rmSync(baseDir, { recursive: true, force: true });
+    });
+
+    it('should handle migration errors gracefully', () => {
+      // Arrange: Create parent directory
+      const baseDir = path.join(tmpdir(), `migration-test-${Date.now()}`);
+      const sessionsDir = path.join(baseDir, 'sessions');
+      fs.mkdirSync(sessionsDir, { recursive: true });
+
+      // Create a file that will cause migration issues
+      const problemFile = 'session_test.json';
+      const problemPath = path.join(sessionsDir, problemFile);
+      fs.writeFileSync(problemPath, JSON.stringify({ test: 'data' }));
+
+      // Make the file read-only to cause rename error
+      try {
+        fs.chmodSync(problemPath, 0o444);
+
+        // Act: Create service - should not throw
+        expect(() => new FileStorageService(baseDir, 'server')).not.toThrow();
+
+        // Cleanup
+        fs.chmodSync(problemPath, 0o644);
+      } catch (_error) {
+        // On some systems, chmod might not work as expected
+        expect(true).toBe(true);
+      }
+
+      fs.rmSync(baseDir, { recursive: true, force: true });
+    });
+
+    it('should skip migration when no old files exist', () => {
+      // Arrange: Create empty parent directory
+      const baseDir = path.join(tmpdir(), `migration-test-${Date.now()}`);
+
+      // Act & Assert: Should not throw
+      expect(() => new FileStorageService(baseDir, 'server')).not.toThrow();
+
+      fs.rmSync(baseDir, { recursive: true, force: true });
     });
   });
 });

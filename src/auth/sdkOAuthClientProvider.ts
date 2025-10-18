@@ -1,5 +1,4 @@
 import { randomUUID } from 'node:crypto';
-import path from 'path';
 
 import { OAuthClientProvider } from '@modelcontextprotocol/sdk/client/auth.js';
 import type {
@@ -8,7 +7,7 @@ import type {
   OAuthTokens,
 } from '@modelcontextprotocol/sdk/shared/auth.js';
 
-import { AUTH_CONFIG, getGlobalConfigDir } from '@src/constants.js';
+import { AUTH_CONFIG } from '@src/constants.js';
 import logger from '@src/logger/logger.js';
 
 import { ClientSessionData } from './sessionTypes.js';
@@ -47,9 +46,8 @@ export class SDKOAuthClientProvider implements OAuthClientProvider {
     this.serverName = serverName;
     this.config = config;
 
-    // Create FileStorageService and ClientSessionRepository
-    const storagePath = sessionStoragePath || path.join(getGlobalConfigDir(), 'clientSessions');
-    const fileStorage = new FileStorageService(storagePath);
+    // Create FileStorageService and ClientSessionRepository with 'client' subdirectory
+    const fileStorage = new FileStorageService(sessionStoragePath, AUTH_CONFIG.CLIENT.SESSION.SUBDIR);
     this.sessionRepository = new ClientSessionRepository(fileStorage);
 
     // Set up client metadata for registration with better defaults

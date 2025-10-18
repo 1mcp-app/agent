@@ -326,7 +326,7 @@ describe('AuthRequestRepository', () => {
 
       // Check that file was created with correct prefix
       const expectedFileName = AUTH_CONFIG.SERVER.AUTH_REQUEST.FILE_PREFIX + authRequestId + '.json';
-      const filePath = path.join(tempDir, expectedFileName);
+      const filePath = path.join(storage.getStorageDir(), expectedFileName);
 
       expect(fs.existsSync(filePath)).toBe(true);
     });
