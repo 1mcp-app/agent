@@ -1,4 +1,4 @@
-import { OFFICIAL_REGISTRY_KEY, RegistryServer } from '@src/domains/registry/types.js';
+import { OFFICIAL_REGISTRY_KEY, RegistryExtensions, RegistryServer } from '@src/domains/registry/types.js';
 
 /**
  * Search and filtering utilities for MCP servers
@@ -32,7 +32,21 @@ export class SearchEngine {
     if (!status || status === 'all') {
       return servers;
     }
-    return servers.filter((server) => server.status === status);
+    return servers.filter((server) => {
+      // Try to get status from the server object first (legacy)
+      if (server.status) {
+        return server.status === status;
+      }
+
+      // If not found, try to get from metadata
+      const registryMeta = server._meta?.[OFFICIAL_REGISTRY_KEY] as RegistryExtensions;
+      if (registryMeta?.status) {
+        return registryMeta.status === status;
+      }
+
+      // If no status found, include the server (assume active)
+      return status === 'active';
+    });
   }
 
   /**
@@ -66,11 +80,16 @@ export class SearchEngine {
   rankResults(servers: RegistryServer[], query?: string): RegistryServer[] {
     if (!query) {
       // Sort by update recency if no query
-      return servers.sort(
-        (a, b) =>
-          new Date(b._meta[OFFICIAL_REGISTRY_KEY].updatedAt || 0).getTime() -
-          new Date(a._meta[OFFICIAL_REGISTRY_KEY].updatedAt || 0).getTime(),
-      );
+      return servers.sort((a, b) => {
+        const aMeta = a._meta?.[OFFICIAL_REGISTRY_KEY];
+        const bMeta = b._meta?.[OFFICIAL_REGISTRY_KEY];
+
+        if (!aMeta || !bMeta) {
+          return 0;
+        }
+
+        return new Date(bMeta.updatedAt || 0).getTime() - new Date(aMeta.updatedAt || 0).getTime();
+      });
     }
 
     // Use fuzzy search which already includes ranking

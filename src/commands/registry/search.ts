@@ -1,4 +1,8 @@
-import { cleanupSearchHandler, handleSearchMCPServers } from '@src/core/tools/handlers/searchHandler.js';
+import {
+  cleanupSearchHandler,
+  handleSearchMCPServers,
+  SearchMCPServersResult,
+} from '@src/core/tools/handlers/searchHandler.js';
 import {
   formatDate,
   formatRegistryTypesPlain,
@@ -7,7 +11,7 @@ import {
   truncateString,
 } from '@src/domains/registry/formatters/commonFormatters.js';
 import { SearchMCPServersArgs } from '@src/domains/registry/mcpToolSchemas.js';
-import { OFFICIAL_REGISTRY_KEY, RegistryOptions, RegistryServer } from '@src/domains/registry/types.js';
+import { OFFICIAL_REGISTRY_KEY, RegistryOptions } from '@src/domains/registry/types.js';
 import { GlobalOptions } from '@src/globalOptions.js';
 import logger from '@src/logger/logger.js';
 
@@ -22,7 +26,7 @@ export interface SearchCommandArgs extends Arguments, GlobalOptions, RegistryYar
   type?: 'npm' | 'pypi' | 'docker';
   transport?: 'stdio' | 'sse' | 'webhook';
   limit?: number;
-  offset?: number;
+  cursor?: string;
   format?: 'table' | 'list' | 'json';
 }
 
@@ -57,10 +61,9 @@ export function buildSearchCommand(searchYargs: Argv): Argv {
         type: 'number' as const,
         default: 20,
       },
-      offset: {
-        describe: 'Number of results to skip for pagination',
-        type: 'number' as const,
-        default: 0,
+      cursor: {
+        describe: 'Pagination cursor for retrieving next page of results',
+        type: 'string' as const,
       },
       format: {
         describe: 'Output format for search results',
@@ -76,7 +79,8 @@ export function buildSearchCommand(searchYargs: Argv): Argv {
     .example(
       '$0 registry search database --limit=5 --format=json',
       'Search for database servers, limit to 5, output JSON',
-    );
+    )
+    .example('$0 registry search --cursor=next-page-cursor', 'Get next page of results using cursor');
 }
 
 /**
@@ -90,7 +94,7 @@ export async function searchCommand(argv: SearchCommandArgs): Promise<void> {
       registry_type: argv.type,
       transport: argv.transport,
       limit: Math.min(argv.limit || 20, 100),
-      offset: Math.max(argv.offset || 0, 0),
+      cursor: argv.cursor,
     };
 
     // Extract registry configuration from CLI options
@@ -115,7 +119,7 @@ export async function searchCommand(argv: SearchCommandArgs): Promise<void> {
       return;
     }
 
-    if (results.length === 0) {
+    if (results.servers.length === 0) {
       console.log(chalk.yellow('🔍 No MCP servers found matching your criteria.'));
       console.log(chalk.gray('   Try a different search query or remove filters.'));
       return;
@@ -143,9 +147,9 @@ export async function searchCommand(argv: SearchCommandArgs): Promise<void> {
 /**
  * Display results in table format
  */
-function displayTableFormat(results: RegistryServer[], searchArgs: SearchMCPServersArgs): void {
+function displayTableFormat(results: SearchMCPServersResult, searchArgs: SearchMCPServersArgs): void {
   // Enhanced header with colors
-  const resultsCount = results.length;
+  const resultsCount = results.servers.length;
   const plural = resultsCount === 1 ? '' : 's';
   console.log(chalk.green(`\n✅ Found ${chalk.bold(resultsCount)} MCP server${plural}:`));
 
@@ -155,15 +159,15 @@ function displayTableFormat(results: RegistryServer[], searchArgs: SearchMCPServ
   console.log(); // Empty line for spacing
 
   // Create table data
-  const tableData = results.map((server) => ({
+  const tableData = results.servers.map((server) => ({
     Name: server.name,
     Description: truncateString(server.description, 45),
-    Status: server.status.toUpperCase(),
+    Status: (server._meta?.[OFFICIAL_REGISTRY_KEY]?.status || server.status || 'unknown').toUpperCase(),
     Version: server.version,
-    'Server ID': server._meta[OFFICIAL_REGISTRY_KEY].serverId,
+    'Server ID': server._meta?.[OFFICIAL_REGISTRY_KEY]?.serverId || server.name,
     'Registry Type': formatRegistryTypesPlain(server.packages),
     Transport: formatTransportTypesPlain(server.packages),
-    'Last Updated': formatDate(server._meta[OFFICIAL_REGISTRY_KEY].updatedAt),
+    'Last Updated': formatDate(server._meta?.[OFFICIAL_REGISTRY_KEY]?.updatedAt),
   }));
 
   console.table(tableData);
@@ -172,9 +176,9 @@ function displayTableFormat(results: RegistryServer[], searchArgs: SearchMCPServ
 /**
  * Display results in list format
  */
-function displayListFormat(results: RegistryServer[], searchArgs: SearchMCPServersArgs): void {
+function displayListFormat(results: SearchMCPServersResult, searchArgs: SearchMCPServersArgs): void {
   // Enhanced header with colors
-  const resultsCount = results.length;
+  const resultsCount = results.servers.length;
   const plural = resultsCount === 1 ? '' : 's';
   console.log(chalk.green(`\n✅ Found ${chalk.bold(resultsCount)} MCP server${plural}:`));
 
@@ -184,18 +188,18 @@ function displayListFormat(results: RegistryServer[], searchArgs: SearchMCPServe
   console.log(); // Empty line for spacing
 
   // Display results in a clean list format
-  results.forEach((server, index) => {
+  results.servers.forEach((server, index) => {
     const meta = server._meta[OFFICIAL_REGISTRY_KEY];
     console.log(`${chalk.gray((index + 1).toString().padStart(2))}. ${chalk.cyan.bold(server.name)}`);
     console.log(`    ${chalk.white(truncateString(server.description, 70))}`);
     console.log(
-      `    ${chalk.green('Status:')} ${formatStatus(server.status)}  ${chalk.blue('Version:')} ${server.version}`,
+      `    ${chalk.green('Status:')} ${formatStatus(server._meta?.[OFFICIAL_REGISTRY_KEY]?.status || server.status || 'unknown')}  ${chalk.blue('Version:')} ${server.version}`,
     );
-    console.log(`    ${chalk.yellow('ID:')} ${chalk.gray(meta.serverId)}`);
+    console.log(`    ${chalk.yellow('ID:')} ${chalk.gray(meta?.serverId || server.name)}`);
     console.log(
       `    ${chalk.magenta('Transport:')} ${formatTransportTypesPlain(server.packages)} • ${chalk.red('Type:')} ${formatRegistryTypesPlain(server.packages)}`,
     );
-    console.log(`    ${chalk.gray('Updated:')} ${formatDate(meta.updatedAt)}`);
+    console.log(`    ${chalk.gray('Updated:')} ${formatDate(meta?.updatedAt)}`);
     console.log(); // Empty line between entries
   });
 }
@@ -203,8 +207,8 @@ function displayListFormat(results: RegistryServer[], searchArgs: SearchMCPServe
 /**
  * Display common footer information
  */
-function displayFooter(results: any[], searchArgs: any): void {
-  const resultsCount = results.length;
+function displayFooter(results: SearchMCPServersResult, searchArgs: SearchMCPServersArgs): void {
+  const resultsCount = results.servers.length;
 
   // Enhanced usage instructions with colors
   console.log(chalk.cyan.bold('\n💡 Next Steps:'));
@@ -217,11 +221,16 @@ function displayFooter(results: any[], searchArgs: any): void {
     console.log(chalk.cyan.bold('\n🔍 Search Tips:'));
     console.log(chalk.gray('   • Use specific keywords to narrow results'));
     console.log(chalk.gray('   • Filter by --status, --type, or --transport'));
-    console.log(chalk.gray('   • Use --limit and --offset for pagination'));
+    console.log(chalk.gray('   • Use --cursor for pagination'));
   }
 
   // Show pagination info if applicable
-  if (searchArgs.limit && results.length === searchArgs.limit) {
-    console.log(`Showing first ${searchArgs.limit} results. Use --offset and --limit for pagination.`);
+  if (results.next_cursor) {
+    console.log(chalk.cyan.bold('\n📄 Pagination:'));
+    console.log(chalk.gray('   • Next page: ') + chalk.yellow(`1mcp registry search --cursor=${results.next_cursor}`));
+  }
+
+  if (searchArgs.limit && results.servers.length === searchArgs.limit) {
+    console.log(`Showing ${searchArgs.limit} results. Use --cursor for pagination.`);
   }
 }

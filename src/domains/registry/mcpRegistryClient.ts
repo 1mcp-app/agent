@@ -50,12 +50,35 @@ export class MCPRegistryClient {
         async () => {
           const url = `${this.baseUrl}/v0/servers${this.buildQueryString(params)}`;
           const response = await this.makeRequest<ServersListResponse>(url);
-          return response.servers;
+          // Extract RegistryServer objects from ServerResponse objects
+          return (response.servers || []).map((sr) => sr.server);
         },
         300, // 5 minutes TTL
         'servers list',
       );
     }, 'Failed to fetch servers from registry');
+
+    return await handler();
+  }
+
+  /**
+   * Get servers from the registry with full response metadata (including pagination)
+   */
+  async getServersWithMetadata(options: ServerListOptions = {}): Promise<ServersListResponse> {
+    const handler = withErrorHandling(async () => {
+      const params = this.buildParams(options);
+
+      return await this.withCache(
+        '/servers-metadata',
+        params,
+        async () => {
+          const url = `${this.baseUrl}/v0/servers${this.buildQueryString(params)}`;
+          return await this.makeRequest<ServersListResponse>(url);
+        },
+        300, // 5 minutes TTL
+        'servers list with metadata',
+      );
+    }, 'Failed to fetch servers from registry with metadata');
 
     return await handler();
   }
@@ -101,16 +124,21 @@ export class MCPRegistryClient {
           const response = await this.makeRequest<ServersListResponse>(url);
 
           // Transform to the expected ServerVersionsResponse format
-          const versions = response.servers.map((server) => ({
-            version: server.version,
-            publishedAt: server._meta[OFFICIAL_REGISTRY_KEY].publishedAt,
-            updatedAt: server._meta[OFFICIAL_REGISTRY_KEY].updatedAt,
-            isLatest: server._meta[OFFICIAL_REGISTRY_KEY].isLatest,
-            status: server.status as 'active' | 'archived' | 'deprecated',
-          }));
+          const versions = (response.servers || []).map((serverResponse) => {
+            const server = serverResponse.server;
+            const meta = server._meta[OFFICIAL_REGISTRY_KEY];
+            const registryMeta = serverResponse._meta['io.modelcontextprotocol.registry/official'];
+            return {
+              version: server.version,
+              publishedAt: meta.publishedAt,
+              updatedAt: meta.updatedAt,
+              isLatest: meta.isLatest,
+              status: registryMeta.status as 'active' | 'archived' | 'deprecated',
+            };
+          });
 
           // Get server name from the first server (they should all have the same name)
-          const serverName = response.servers.length > 0 ? response.servers[0].name : '';
+          const serverName = response.servers && response.servers.length > 0 ? response.servers[0].server.name : '';
 
           return {
             versions,
@@ -141,7 +169,8 @@ export class MCPRegistryClient {
           // This assumes the registry API supports these query parameters
           const url = `${this.baseUrl}/v0/servers${this.buildQueryString(params)}`;
           const response = await this.makeRequest<ServersListResponse>(url);
-          return response.servers;
+          // Extract RegistryServer objects from ServerResponse objects
+          return (response.servers || []).map((sr) => sr.server);
         },
         180, // 3 minutes TTL
         'search',
@@ -288,8 +317,8 @@ export class MCPRegistryClient {
         `${this.baseUrl}/v0/servers${this.buildQueryString(this.buildParams(params))}`,
       );
 
-      allServers.push(...response.servers);
-      cursor = response.metadata.next_cursor;
+      allServers.push(...(response.servers || []).map((sr) => sr.server));
+      cursor = response.metadata.nextCursor;
       pageCount++;
     } while (cursor && pageCount < maxPages);
 

@@ -59,6 +59,7 @@ describe('MCPRegistryClient', () => {
             publishedAt: '2024-01-01T00:00:00Z',
             updatedAt: '2024-01-01T00:00:00Z',
             isLatest: true,
+            status: 'active',
           },
         },
       },
@@ -85,6 +86,7 @@ describe('MCPRegistryClient', () => {
             publishedAt: '2024-01-02T00:00:00Z',
             updatedAt: '2024-01-02T00:00:00Z',
             isLatest: true,
+            status: 'active',
           },
         },
       },
@@ -101,9 +103,15 @@ describe('MCPRegistryClient', () => {
 
   describe('getServers', () => {
     it('should fetch servers successfully', async () => {
+      const mockServerResponses = mockServers.map((server) => ({
+        server,
+        _meta: {
+          'io.modelcontextprotocol.registry/official': server._meta['io.modelcontextprotocol.registry/official'],
+        },
+      }));
       mockAxiosInstance.get.mockResolvedValueOnce({
         data: {
-          servers: mockServers,
+          servers: mockServerResponses,
           metadata: { count: 2 },
         },
       });
@@ -115,9 +123,15 @@ describe('MCPRegistryClient', () => {
     });
 
     it('should handle query parameters', async () => {
+      const mockServerResponses = mockServers.map((server) => ({
+        server,
+        _meta: {
+          'io.modelcontextprotocol.registry/official': server._meta['io.modelcontextprotocol.registry/official'],
+        },
+      }));
       mockAxiosInstance.get.mockResolvedValueOnce({
         data: {
-          servers: mockServers,
+          servers: mockServerResponses,
           metadata: { count: 2 },
         },
       });
@@ -130,9 +144,15 @@ describe('MCPRegistryClient', () => {
     });
 
     it('should use cache on second request', async () => {
+      const mockServerResponses = mockServers.map((server) => ({
+        server,
+        _meta: {
+          'io.modelcontextprotocol.registry/official': server._meta['io.modelcontextprotocol.registry/official'],
+        },
+      }));
       mockAxiosInstance.get.mockResolvedValueOnce({
         data: {
-          servers: mockServers,
+          servers: mockServerResponses,
           metadata: { count: 2 },
         },
       });
@@ -204,9 +224,15 @@ describe('MCPRegistryClient', () => {
   describe('searchServers', () => {
     it('should search servers with query parameters', async () => {
       const filteredServers = mockServers.filter((s) => s.name.includes('file'));
+      const mockServerResponses = filteredServers.map((server) => ({
+        server,
+        _meta: {
+          'io.modelcontextprotocol.registry/official': server._meta['io.modelcontextprotocol.registry/official'],
+        },
+      }));
       mockAxiosInstance.get.mockResolvedValueOnce({
         data: {
-          servers: filteredServers,
+          servers: mockServerResponses,
           metadata: { count: 1 },
         },
       });
@@ -264,7 +290,12 @@ describe('MCPRegistryClient', () => {
         })
         .mockResolvedValueOnce({
           data: {
-            servers: mockServers,
+            servers: mockServers.map((server) => ({
+              server,
+              _meta: {
+                'io.modelcontextprotocol.registry/official': server._meta['io.modelcontextprotocol.registry/official'],
+              },
+            })),
             metadata: { count: 2 },
           },
         });

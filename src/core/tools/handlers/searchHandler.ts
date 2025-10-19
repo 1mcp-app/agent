@@ -36,9 +36,19 @@ function getSearchEngine() {
 }
 
 /**
+ * Search result with pagination metadata
+ */
+export interface SearchMCPServersResult {
+  servers: RegistryServer[];
+  next_cursor?: string;
+  count: number;
+}
+
+/**
  * Transform server data for search results
  */
-function transformServerForSearch(server: RegistryServer): any {
+function transformServerForSearch(serverResponse: any): any {
+  const server = serverResponse.server || serverResponse; // Handle both old and new formats
   const meta = server._meta[OFFICIAL_REGISTRY_KEY];
   return {
     ...server,
@@ -55,7 +65,7 @@ function transformServerForSearch(server: RegistryServer): any {
 export async function handleSearchMCPServers(
   args: SearchMCPServersArgs,
   registryOptions?: RegistryOptions,
-): Promise<RegistryServer[]> {
+): Promise<SearchMCPServersResult> {
   const handler = withErrorHandling(async () => {
     logger.debug('Processing search_mcp_servers request', args);
 
@@ -64,28 +74,50 @@ export async function handleSearchMCPServers(
 
     // Validate and set defaults
     const limit = Math.min(args.limit || 20, 100);
-    const offset = Math.max(args.offset || 0, 0);
     const status = args.status || 'active';
 
-    // Get servers from registry
-    const servers = await client.getServers({ limit: 100 }); // API max limit
+    // Build API parameters - pass search to API for server-side filtering
+    const apiParams: any = {
+      limit,
+    };
 
-    // Apply client-side filtering and search
-    const filteredServers = engine.applyFilters(servers, {
-      query: args.query,
+    if (args.query) {
+      apiParams.search = args.query;
+    }
+
+    if (args.cursor) {
+      apiParams.cursor = args.cursor;
+    }
+
+    // Get servers from registry with API-side search and metadata
+    const response = await client.getServersWithMetadata(apiParams);
+
+    // Apply client-side filtering for parameters not supported by API
+    const servers = response.servers || [];
+    // Extract RegistryServer objects from ServerResponse objects and preserve metadata
+    const registryServers = servers.map((sr) => ({
+      ...sr.server,
+      _meta: sr._meta as any, // Preserve the metadata from ServerResponse
+    }));
+
+    const filteredServers = engine.applyFilters(registryServers, {
+      query: undefined, // Already handled by API - no need for client-side search
       status: status === 'all' ? undefined : status,
       registry_type: args.registry_type,
       transport: args.transport,
     });
 
-    // Apply pagination
-    const results = filteredServers.slice(offset, offset + limit);
-
     // Transform results for search response
-    const transformedResults = results.map(transformServerForSearch);
+    const transformedResults = filteredServers.map(transformServerForSearch);
 
     logger.debug(`Found ${transformedResults.length} servers matching search criteria`);
-    return transformedResults;
+
+    // Return with pagination metadata
+    return {
+      servers: transformedResults,
+      next_cursor: response.metadata.nextCursor,
+      count: response.metadata.count,
+    };
   }, 'Failed to search MCP servers');
 
   return await handler();

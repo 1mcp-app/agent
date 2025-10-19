@@ -32,11 +32,9 @@ export const SearchMCPServersArgsSchema = {
       default: 20,
       description: 'Maximum number of results to return',
     },
-    offset: {
-      type: 'integer',
-      minimum: 0,
-      default: 0,
-      description: 'Number of results to skip for pagination',
+    cursor: {
+      type: 'string',
+      description: 'Pagination cursor for retrieving next page of results',
     },
   },
   additionalProperties: false,
@@ -61,7 +59,7 @@ export interface SearchMCPServersArgs {
   registry_type?: 'npm' | 'pypi' | 'docker';
   transport?: 'stdio' | 'sse' | 'webhook';
   limit?: number;
-  offset?: number;
+  cursor?: string;
 }
 
 export interface GetRegistryStatusArgs {

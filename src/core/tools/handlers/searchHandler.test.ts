@@ -8,6 +8,7 @@ import { cleanupSearchHandler, handleSearchMCPServers } from './searchHandler.js
 vi.mock('@src/domains/registry/mcpRegistryClient.js', () => {
   const mockClient = {
     getServers: vi.fn(),
+    getServersWithMetadata: vi.fn(),
     destroy: vi.fn(),
   };
 
@@ -64,6 +65,7 @@ describe('handleSearchMCPServers', () => {
             publishedAt: '2024-01-01T00:00:00Z',
             updatedAt: '2024-01-01T00:00:00Z',
             isLatest: true,
+            status: 'active',
           },
         },
       },
@@ -71,6 +73,7 @@ describe('handleSearchMCPServers', () => {
 
     // Reset mocks
     mockRegistryClient.getServers.mockReset();
+    mockRegistryClient.getServersWithMetadata.mockReset();
     mockSearchEngine.applyFilters.mockReset();
   });
 
@@ -79,23 +82,44 @@ describe('handleSearchMCPServers', () => {
   });
 
   it('should handle basic search request', async () => {
-    mockRegistryClient.getServers.mockResolvedValue(mockServers);
-    mockSearchEngine.applyFilters.mockReturnValue(mockServers);
+    const mockServerResponses = mockServers.map((server) => ({
+      server,
+      _meta: {
+        'io.modelcontextprotocol.registry/official': server._meta['io.modelcontextprotocol.registry/official'],
+      },
+    }));
+    const mockResponse = {
+      servers: mockServerResponses,
+      metadata: {
+        nextCursor: 'next-page-cursor',
+        count: 1,
+      },
+    };
+    mockRegistryClient.getServersWithMetadata.mockResolvedValue(mockResponse);
+    mockSearchEngine.applyFilters.mockReturnValue(mockServerResponses);
 
     const result = await handleSearchMCPServers({
       query: 'file',
     });
 
-    expect(mockRegistryClient.getServers).toHaveBeenCalledWith({ limit: 100 });
+    expect(mockRegistryClient.getServersWithMetadata).toHaveBeenCalledWith({
+      limit: 20,
+      search: 'file',
+    });
     expect(mockSearchEngine.applyFilters).toHaveBeenCalledWith(mockServers, {
-      query: 'file',
+      query: undefined, // Already handled by API
       status: 'active',
       registry_type: undefined,
       transport: undefined,
     });
 
-    expect(result).toHaveLength(1);
-    expect(result[0]).toMatchObject({
+    expect(result).toMatchObject({
+      servers: expect.any(Array),
+      next_cursor: 'next-page-cursor',
+      count: 1,
+    });
+    expect(result.servers).toHaveLength(1);
+    expect(result.servers[0]).toMatchObject({
       name: 'file-server',
       description: 'File management server',
       status: 'active',
@@ -106,7 +130,20 @@ describe('handleSearchMCPServers', () => {
   });
 
   it('should handle search with all filters', async () => {
-    mockRegistryClient.getServers.mockResolvedValue(mockServers);
+    const mockServerResponses = mockServers.map((server) => ({
+      server,
+      _meta: {
+        'io.modelcontextprotocol.registry/official': server._meta['io.modelcontextprotocol.registry/official'],
+      },
+    }));
+    const mockResponse = {
+      servers: mockServerResponses,
+      metadata: {
+        nextCursor: undefined,
+        count: 0,
+      },
+    };
+    mockRegistryClient.getServersWithMetadata.mockResolvedValue(mockResponse);
     mockSearchEngine.applyFilters.mockReturnValue([]);
 
     const result = await handleSearchMCPServers({
@@ -115,58 +152,88 @@ describe('handleSearchMCPServers', () => {
       registry_type: 'npm',
       transport: 'stdio',
       limit: 10,
-      offset: 5,
+      cursor: 'some-cursor',
     });
 
+    expect(mockRegistryClient.getServersWithMetadata).toHaveBeenCalledWith({
+      limit: 10,
+      search: 'database',
+      cursor: 'some-cursor',
+    });
     expect(mockSearchEngine.applyFilters).toHaveBeenCalledWith(mockServers, {
-      query: 'database',
+      query: undefined, // Already handled by API
       status: 'active',
       registry_type: 'npm',
       transport: 'stdio',
     });
 
-    expect(result).toHaveLength(0);
+    expect(result.servers).toHaveLength(0);
+    expect(result.count).toBe(0);
   });
 
-  it('should apply pagination correctly', async () => {
-    const manyServers = Array.from({ length: 50 }, (_, i) => ({
-      ...mockServers[0],
-      name: `server-${i}`,
+  it('should handle cursor-based pagination', async () => {
+    const mockServerResponses = mockServers.map((server) => ({
+      server,
       _meta: {
-        ...mockServers[0]._meta,
-        'io.modelcontextprotocol.registry/official': {
-          ...mockServers[0]._meta['io.modelcontextprotocol.registry/official'],
-          serverId: `server-${i}`,
-        },
+        'io.modelcontextprotocol.registry/official': server._meta['io.modelcontextprotocol.registry/official'],
       },
     }));
-
-    mockRegistryClient.getServers.mockResolvedValue(manyServers);
-    mockSearchEngine.applyFilters.mockReturnValue(manyServers);
+    const mockResponse = {
+      servers: mockServerResponses,
+      metadata: {
+        nextCursor: 'next-page-cursor',
+        count: 1,
+      },
+    };
+    mockRegistryClient.getServersWithMetadata.mockResolvedValue(mockResponse);
+    mockSearchEngine.applyFilters.mockReturnValue(mockServerResponses);
 
     const result = await handleSearchMCPServers({
       limit: 10,
-      offset: 5,
+      cursor: 'current-page-cursor',
     });
 
-    expect(result).toHaveLength(10);
-    expect(result[0].name).toBe('server-5'); // Should start from offset 5
+    expect(mockRegistryClient.getServersWithMetadata).toHaveBeenCalledWith({
+      limit: 10,
+      cursor: 'current-page-cursor',
+    });
+
+    expect(result).toMatchObject({
+      servers: expect.any(Array),
+      next_cursor: 'next-page-cursor',
+      count: 1,
+    });
   });
 
   it('should respect maximum limit', async () => {
-    mockRegistryClient.getServers.mockResolvedValue(mockServers);
-    mockSearchEngine.applyFilters.mockReturnValue(mockServers);
+    const mockServerResponses = mockServers.map((server) => ({
+      server,
+      _meta: {
+        'io.modelcontextprotocol.registry/official': server._meta['io.modelcontextprotocol.registry/official'],
+      },
+    }));
+    const mockResponse = {
+      servers: mockServerResponses,
+      metadata: {
+        nextCursor: undefined,
+        count: 1,
+      },
+    };
+    mockRegistryClient.getServersWithMetadata.mockResolvedValue(mockResponse);
+    mockSearchEngine.applyFilters.mockReturnValue(mockServerResponses);
 
     await handleSearchMCPServers({
       limit: 200, // Above maximum
     });
 
     // Should be capped at 100
-    expect(mockRegistryClient.getServers).toHaveBeenCalled();
+    expect(mockRegistryClient.getServersWithMetadata).toHaveBeenCalledWith({
+      limit: 100,
+    });
   });
 
   it('should handle registry client errors', async () => {
-    mockRegistryClient.getServers.mockRejectedValue(new Error('Registry unavailable'));
+    mockRegistryClient.getServersWithMetadata.mockRejectedValue(new Error('Registry unavailable'));
 
     await expect(handleSearchMCPServers({})).rejects.toThrow('Failed to search MCP servers');
   });
@@ -195,12 +262,26 @@ describe('handleSearchMCPServers', () => {
       },
     };
 
-    mockRegistryClient.getServers.mockResolvedValue([serverWithMultiplePackages]);
-    mockSearchEngine.applyFilters.mockReturnValue([serverWithMultiplePackages]);
+    const mockServerResponse = {
+      server: serverWithMultiplePackages,
+      _meta: {
+        'io.modelcontextprotocol.registry/official':
+          serverWithMultiplePackages._meta['io.modelcontextprotocol.registry/official'],
+      },
+    };
+    const mockResponse = {
+      servers: [mockServerResponse],
+      metadata: {
+        nextCursor: undefined,
+        count: 1,
+      },
+    };
+    mockRegistryClient.getServersWithMetadata.mockResolvedValue(mockResponse);
+    mockSearchEngine.applyFilters.mockReturnValue([mockServerResponse]);
 
     const result = await handleSearchMCPServers({});
 
-    expect(result[0]).toMatchObject({
+    expect(result.servers[0]).toMatchObject({
       name: 'file-server',
       packages: [
         {
@@ -225,8 +306,21 @@ describe('handleSearchMCPServers', () => {
   });
 
   it('should handle "all" status filter', async () => {
-    mockRegistryClient.getServers.mockResolvedValue(mockServers);
-    mockSearchEngine.applyFilters.mockReturnValue(mockServers);
+    const mockServerResponses = mockServers.map((server) => ({
+      server,
+      _meta: {
+        'io.modelcontextprotocol.registry/official': server._meta['io.modelcontextprotocol.registry/official'],
+      },
+    }));
+    const mockResponse = {
+      servers: mockServerResponses,
+      metadata: {
+        nextCursor: undefined,
+        count: 1,
+      },
+    };
+    mockRegistryClient.getServersWithMetadata.mockResolvedValue(mockResponse);
+    mockSearchEngine.applyFilters.mockReturnValue(mockServerResponses);
 
     await handleSearchMCPServers({
       status: 'all',
@@ -240,13 +334,22 @@ describe('handleSearchMCPServers', () => {
     });
   });
 
-  it('should use default values for limit and offset', async () => {
-    mockRegistryClient.getServers.mockResolvedValue([]);
+  it('should use default values for limit', async () => {
+    const mockResponse = {
+      servers: [],
+      metadata: {
+        nextCursor: undefined,
+        count: 0,
+      },
+    };
+    mockRegistryClient.getServersWithMetadata.mockResolvedValue(mockResponse);
     mockSearchEngine.applyFilters.mockReturnValue([]);
 
     await handleSearchMCPServers({});
 
-    // Default limit and offset should be applied during pagination
-    expect(mockRegistryClient.getServers).toHaveBeenCalled();
+    // Default limit should be applied
+    expect(mockRegistryClient.getServersWithMetadata).toHaveBeenCalledWith({
+      limit: 20,
+    });
   });
 });

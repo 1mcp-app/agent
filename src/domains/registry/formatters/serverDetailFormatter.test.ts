@@ -100,6 +100,7 @@ describe('serverDetailFormatter', () => {
           publishedAt: '2023-01-01T00:00:00Z',
           updatedAt: '2023-01-02T00:00:00Z',
           isLatest: true,
+          status: 'active',
         },
       },
     };
@@ -158,6 +159,7 @@ describe('serverDetailFormatter', () => {
             publishedAt: '2023-01-01T00:00:00Z',
             updatedAt: '2023-01-01T00:00:00Z',
             isLatest: true,
+            status: 'active',
           },
         },
       };
@@ -186,6 +188,7 @@ describe('serverDetailFormatter', () => {
             publishedAt: '2023-01-01T00:00:00Z',
             updatedAt: '2023-01-02T00:00:00Z',
             isLatest: true,
+            status: 'active',
           },
         },
       };
@@ -324,6 +327,7 @@ describe('serverDetailFormatter', () => {
             publishedAt: '2023-01-01T00:00:00Z',
             updatedAt: '2023-01-02T00:00:00Z',
             isLatest: true,
+            status: 'active',
           },
         },
       };

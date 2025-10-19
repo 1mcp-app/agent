@@ -81,7 +81,7 @@ export interface OfficialMeta {
 }
 
 export interface ServerMeta {
-  [OFFICIAL_REGISTRY_KEY]: OfficialMeta;
+  [OFFICIAL_REGISTRY_KEY]: RegistryExtensions;
   [key: string]: Record<string, any>;
 }
 
@@ -107,19 +107,37 @@ export interface Transport {
 }
 
 export interface ServersListResponse {
-  servers: RegistryServer[];
+  servers: ServerResponse[] | null;
   metadata: {
-    next_cursor?: string;
+    nextCursor?: string;
     count: number;
   };
 }
 
 export interface ServerListResponse {
-  servers: RegistryServer[];
+  servers: ServerResponse[] | null;
   metadata: {
-    next_cursor?: string;
+    nextCursor?: string;
     count: number;
   };
+}
+
+export interface ServerResponse {
+  server: RegistryServer;
+  _meta: ResponseMeta;
+}
+
+export interface ResponseMeta {
+  'io.modelcontextprotocol.registry/official': RegistryExtensions;
+}
+
+export interface RegistryExtensions {
+  isLatest: boolean;
+  publishedAt: string;
+  status: 'active' | 'deprecated' | 'deleted';
+  updatedAt: string;
+  serverId: string;
+  versionId: string;
 }
 
 export interface ServerVersion {
