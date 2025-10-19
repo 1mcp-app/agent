@@ -1,12 +1,13 @@
-import { globalOptions } from '@src/globalOptions.js';
+import { GlobalOptions, globalOptions } from '@src/globalOptions.js';
+import { configureGlobalLogger } from '@src/logger/configureGlobalLogger.js';
 
 import type { Argv } from 'yargs';
 
 import { registryOptions } from './options.js';
-import { buildSearchCommand, searchCommand } from './search.js';
-import { buildShowCommand, showCommand } from './show.js';
-import { buildStatusCommand, registryStatusCommand } from './status.js';
-import { buildVersionsCommand, versionsCommand } from './versions.js';
+import { buildSearchCommand, searchCommand, SearchCommandArgs } from './search.js';
+import { buildShowCommand, showCommand, ShowCommandCliArgs } from './show.js';
+import { buildStatusCommand, registryStatusCommand, RegistryStatusCommandArgs } from './status.js';
+import { buildVersionsCommand, versionsCommand, VersionsCommandCliArgs } from './versions.js';
 
 /**
  * Set up registry commands with their specific options
@@ -17,6 +18,10 @@ export function setupRegistryCommands(yargs: Argv): Argv {
     'Manage MCP registry operations',
     (registryYargs) => {
       return registryYargs
+        .options(globalOptions)
+        .options(registryOptions)
+        .env('ONE_MCP') // Parse all ONE_MCP env vars but filter out server options
+        .strict(false) // Allow unknown options to prevent port error
         .command(
           'search [query]',
           'Search for MCP servers in the official registry',
@@ -28,7 +33,10 @@ export function setupRegistryCommands(yargs: Argv): Argv {
               }),
             );
           },
-          searchCommand,
+          async (argv) => {
+            configureGlobalLogger(argv as GlobalOptions);
+            await searchCommand(argv as unknown as SearchCommandArgs);
+          },
         )
         .command(
           'status',
@@ -41,22 +49,39 @@ export function setupRegistryCommands(yargs: Argv): Argv {
               }),
             );
           },
-          registryStatusCommand,
+          async (argv) => {
+            configureGlobalLogger(argv as GlobalOptions);
+            await registryStatusCommand(argv as unknown as RegistryStatusCommandArgs);
+          },
         )
         .command({
           command: 'show <server-id>',
           describe: 'Show detailed information about a specific MCP server',
-          builder: buildShowCommand,
+          builder: (yargs) =>
+            buildShowCommand(
+              yargs.options({
+                ...globalOptions,
+                ...registryOptions,
+              }),
+            ),
           handler: async (argv) => {
-            await showCommand(argv as any);
+            configureGlobalLogger(argv as GlobalOptions);
+            await showCommand(argv as unknown as ShowCommandCliArgs);
           },
         })
         .command({
           command: 'versions <server-id>',
           describe: 'List all available versions for a specific MCP server',
-          builder: buildVersionsCommand,
+          builder: (yargs) =>
+            buildVersionsCommand(
+              yargs.options({
+                ...globalOptions,
+                ...registryOptions,
+              }),
+            ),
           handler: async (argv) => {
-            await versionsCommand(argv as any);
+            configureGlobalLogger(argv as GlobalOptions);
+            await versionsCommand(argv as unknown as VersionsCommandCliArgs);
           },
         })
         .demandCommand(1, 'You must specify a registry command')
