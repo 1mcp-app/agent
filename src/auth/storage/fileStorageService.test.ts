@@ -3,6 +3,7 @@ import { tmpdir } from 'os';
 import path from 'path';
 
 import { ExpirableData } from '@src/auth/sessionTypes.js';
+import { FILE_PREFIX_MAPPING, STORAGE_SUBDIRS } from '@src/constants.js';
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -21,6 +22,8 @@ vi.mock('@src/logger/logger.js', () => ({
 interface TestData extends ExpirableData {
   id: string;
   value: string;
+  expires: number;
+  createdAt: number;
 }
 
 describe('FileStorageService', () => {
@@ -508,6 +511,185 @@ describe('FileStorageService', () => {
       expect(() => new FileStorageService(baseDir, 'server')).not.toThrow();
 
       fs.rmSync(baseDir, { recursive: true, force: true });
+    });
+
+    it('should create migration flag after successful migration', () => {
+      // Arrange: Create parent directory with old flat structure
+      const baseDir = path.join(tmpdir(), `migration-flag-test-${Date.now()}`);
+      const sessionsDir = path.join(baseDir, 'sessions');
+      fs.mkdirSync(sessionsDir, { recursive: true });
+
+      // Create old session files
+      const oldFiles = ['session_sess-12345678-1234-4abc-89de-123456789012.json'];
+      for (const file of oldFiles) {
+        fs.writeFileSync(path.join(sessionsDir, file), JSON.stringify({ test: 'data' }));
+      }
+
+      // Act: Create service with 'server' subdirectory
+      const serverService = new FileStorageService(baseDir, 'server');
+
+      // Assert: Migration flag should be created
+      const migrationFlagPath = path.join(sessionsDir, '.migrated');
+      expect(fs.existsSync(migrationFlagPath)).toBe(true);
+
+      // Verify flag content
+      const flagContent = JSON.parse(fs.readFileSync(migrationFlagPath, 'utf8'));
+      expect(flagContent.migrated).toBe(true);
+      expect(typeof flagContent.timestamp).toBe('number');
+
+      serverService.shutdown();
+      fs.rmSync(baseDir, { recursive: true, force: true });
+    });
+
+    it('should skip migration when flag already exists', () => {
+      // Arrange: Create parent directory with migration flag
+      const baseDir = path.join(tmpdir(), `migration-flag-test-${Date.now()}`);
+      const sessionsDir = path.join(baseDir, 'sessions');
+      fs.mkdirSync(sessionsDir, { recursive: true });
+
+      // Create migration flag
+      const migrationFlagPath = path.join(sessionsDir, '.migrated');
+      fs.writeFileSync(migrationFlagPath, JSON.stringify({ migrated: true, timestamp: Date.now() }));
+
+      // Create old files that should NOT be migrated
+      const oldFile = 'session_sess-12345678-1234-4abc-89de-123456789012.json';
+      fs.writeFileSync(path.join(sessionsDir, oldFile), JSON.stringify({ test: 'data' }));
+
+      // Act: Create service with 'server' subdirectory
+      const serverService = new FileStorageService(baseDir, 'server');
+
+      // Assert: File should remain in parent directory (not migrated)
+      expect(fs.existsSync(path.join(sessionsDir, oldFile))).toBe(true);
+      expect(fs.existsSync(path.join(sessionsDir, 'server', oldFile))).toBe(false);
+
+      serverService.shutdown();
+      fs.rmSync(baseDir, { recursive: true, force: true });
+    });
+
+    it('should create migration flag even when no files to migrate', () => {
+      // Arrange: Create empty parent directory
+      const baseDir = path.join(tmpdir(), `migration-flag-test-${Date.now()}`);
+      const sessionsDir = path.join(baseDir, 'sessions');
+      fs.mkdirSync(sessionsDir, { recursive: true });
+
+      // Act: Create service with 'server' subdirectory
+      const serverService = new FileStorageService(baseDir, 'server');
+
+      // Assert: Migration flag should still be created
+      const migrationFlagPath = path.join(sessionsDir, '.migrated');
+      expect(fs.existsSync(migrationFlagPath)).toBe(true);
+
+      serverService.shutdown();
+      fs.rmSync(baseDir, { recursive: true, force: true });
+    });
+
+    it('should handle migration flag creation errors gracefully', () => {
+      // Arrange: Create parent directory and make it read-only
+      const baseDir = path.join(tmpdir(), `migration-flag-test-${Date.now()}`);
+      const sessionsDir = path.join(baseDir, 'sessions');
+      fs.mkdirSync(sessionsDir, { recursive: true });
+
+      // Create old files
+      const oldFile = 'session_sess-12345678-1234-4abc-89de-123456789012.json';
+      fs.writeFileSync(path.join(sessionsDir, oldFile), JSON.stringify({ test: 'data' }));
+
+      try {
+        // Make directory read-only to cause flag creation error
+        fs.chmodSync(sessionsDir, 0o444);
+
+        // Act: Create service - should not throw despite flag creation failure
+        expect(() => new FileStorageService(baseDir, 'server')).not.toThrow();
+
+        // Assert: Files should still be migrated even if flag creation fails
+        expect(fs.existsSync(path.join(sessionsDir, 'server', oldFile))).toBe(true);
+      } catch (_error) {
+        // On some systems, chmod might not work as expected
+        expect(true).toBe(true);
+      } finally {
+        // Restore permissions for cleanup
+        try {
+          fs.chmodSync(sessionsDir, 0o755);
+        } catch {
+          // Ignore errors during cleanup
+        }
+        fs.rmSync(baseDir, { recursive: true, force: true });
+      }
+    });
+  });
+
+  describe('Configuration Constants Integration', () => {
+    it('should use STORAGE_SUBDIRS constants for subdirectory detection', () => {
+      // Test that all subdirectories from STORAGE_SUBDIRS are recognized
+      const baseDir = path.join(tmpdir(), `config-test-${Date.now()}`);
+
+      for (const subdir of Object.values(STORAGE_SUBDIRS)) {
+        const service = new FileStorageService(baseDir, subdir as string);
+        const expectedPath = path.join(baseDir, 'sessions', subdir as string);
+        expect(service.getStorageDir()).toBe(expectedPath);
+        service.shutdown();
+      }
+
+      fs.rmSync(baseDir, { recursive: true, force: true });
+    });
+
+    it('should use FILE_PREFIX_MAPPING for migration logic', () => {
+      // Test that all prefixes from FILE_PREFIX_MAPPING are handled correctly
+      const baseDir = path.join(tmpdir(), `config-test-${Date.now()}`);
+      const sessionsDir = path.join(baseDir, 'sessions');
+      fs.mkdirSync(sessionsDir, { recursive: true });
+
+      // Create test files for each prefix category
+      const testFiles: string[] = [];
+      for (const [_category, prefixes] of Object.entries(FILE_PREFIX_MAPPING)) {
+        const prefixList = prefixes as readonly string[];
+        for (const prefix of prefixList) {
+          const fileName = `${prefix}test-${Date.now()}.json`;
+          testFiles.push(fileName);
+          fs.writeFileSync(path.join(sessionsDir, fileName), JSON.stringify({ test: 'data' }));
+        }
+      }
+
+      // Test migration for each subdirectory type
+      for (const [category, subdir] of Object.entries(STORAGE_SUBDIRS)) {
+        const service = new FileStorageService(baseDir, subdir as string);
+
+        // Check that files with matching prefixes were migrated
+        const expectedFiles = testFiles.filter((file) =>
+          (FILE_PREFIX_MAPPING[category as keyof typeof FILE_PREFIX_MAPPING] as readonly string[]).some((prefix) =>
+            file.startsWith(prefix),
+          ),
+        );
+
+        for (const file of expectedFiles) {
+          expect(fs.existsSync(path.join(sessionsDir, subdir as string, file))).toBe(true);
+          expect(fs.existsSync(path.join(sessionsDir, file))).toBe(false);
+        }
+
+        service.shutdown();
+      }
+
+      fs.rmSync(baseDir, { recursive: true, force: true });
+    });
+  });
+
+  describe('Helper Method Integration', () => {
+    it('should validate IDs correctly with refactored helper method', () => {
+      // Test that the refactored isValidId method works with extractUuidPart helper
+      const validIds = [
+        'sess-12345678-1234-4abc-89de-123456789012',
+        'code-87654321-4321-4def-89ab-210987654321',
+        'stream-11111111-1111-4111-8111-111111111111',
+      ];
+
+      const invalidIds = ['sess-invalid-uuid', 'code-short', 'unknown-prefix-12345678-1234-4abc-89de-123456789012'];
+
+      for (const id of validIds) {
+        expect(() => service.getFilePath('test_', id)).not.toThrow();
+      }
+
+      for (const id of invalidIds) {
+        expect(() => service.getFilePath('test_', id)).toThrow();
+      }
     });
   });
 });

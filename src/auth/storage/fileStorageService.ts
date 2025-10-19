@@ -2,7 +2,7 @@ import fs from 'fs';
 import path from 'path';
 
 import { ExpirableData } from '@src/auth/sessionTypes.js';
-import { AUTH_CONFIG, getGlobalConfigDir } from '@src/constants.js';
+import { AUTH_CONFIG, FILE_PREFIX_MAPPING, getGlobalConfigDir, STORAGE_SUBDIRS } from '@src/constants.js';
 import logger from '@src/logger/logger.js';
 
 /**
@@ -50,16 +50,24 @@ export class FileStorageService {
   }
 
   /**
+   * Extracts UUID part from an ID by removing the prefix
+   */
+  private extractUuidPart(id: string, prefix: string): string {
+    if (!id.startsWith(prefix)) {
+      throw new Error(`Invalid ID prefix: expected ${prefix}, got ${id}`);
+    }
+    return id.substring(prefix.length);
+  }
+
+  /**
    * Migrates old flat file structure to new subdirectory structure
    * Only runs if we're in a subdirectory and old files exist in parent
    */
   private migrateOldFilesIfNeeded(): void {
     // Only migrate if we're in a subdirectory
-    if (
-      !this.storageDir.endsWith('/server') &&
-      !this.storageDir.endsWith('/client') &&
-      !this.storageDir.endsWith('/transport')
-    ) {
+    const isSubdirectory = Object.values(STORAGE_SUBDIRS).some((subdir) => this.storageDir.endsWith(`/${subdir}`));
+
+    if (!isSubdirectory) {
       return; // Not in subdirectory mode
     }
 
@@ -68,28 +76,25 @@ export class FileStorageService {
       return;
     }
 
-    const files = fs.readdirSync(parentDir).filter((f) => f.endsWith('.json'));
-    if (files.length === 0) {
+    // Check if migration has already been completed
+    const migrationFlagPath = path.join(parentDir, '.migrated');
+    if (fs.existsSync(migrationFlagPath)) {
+      logger.debug('Migration already completed, skipping');
       return;
     }
 
+    const files = fs.readdirSync(parentDir).filter((f) => f.endsWith('.json'));
+    if (files.length === 0) {
+      // Create migration flag even if no files to migrate
+      this.createMigrationFlag(parentDir);
+      return;
+    }
+
+    let migrationCount = 0;
+
     // Determine where to move files based on prefix
     for (const file of files) {
-      let targetSubDir: string | null = null;
-
-      if (file.startsWith('session_') || file.startsWith('auth_code_') || file.startsWith('auth_request_')) {
-        targetSubDir = 'server';
-      } else if (
-        file.startsWith('oauth_') ||
-        file.startsWith('cli_') ||
-        file.startsWith('tok_') ||
-        file.startsWith('ver_') ||
-        file.startsWith('sta_')
-      ) {
-        targetSubDir = 'client';
-      } else if (file.startsWith('streamable_session_')) {
-        targetSubDir = 'transport';
-      }
+      const targetSubDir = this.getTargetSubdirectory(file);
 
       if (targetSubDir) {
         const oldPath = path.join(parentDir, file);
@@ -99,12 +104,54 @@ export class FileStorageService {
         try {
           fs.mkdirSync(newDir, { recursive: true });
           fs.renameSync(oldPath, newPath);
+          migrationCount++;
           logger.info(`Migrated ${file} to ${targetSubDir}/`);
         } catch (error) {
           logger.error(`Failed to migrate ${file}: ${error}`);
         }
       }
     }
+
+    // Create migration flag after successful migration
+    if (migrationCount > 0) {
+      this.createMigrationFlag(parentDir);
+      logger.info(`Migration completed: ${migrationCount} files migrated`);
+    } else {
+      // Create flag even if no files were migrated
+      this.createMigrationFlag(parentDir);
+    }
+  }
+
+  /**
+   * Creates migration completion flag file
+   */
+  private createMigrationFlag(parentDir: string): void {
+    try {
+      const migrationFlagPath = path.join(parentDir, '.migrated');
+      fs.writeFileSync(
+        migrationFlagPath,
+        JSON.stringify({
+          migrated: true,
+          timestamp: Date.now(),
+        }),
+      );
+      logger.debug('Created migration completion flag');
+    } catch (error) {
+      logger.warn(`Failed to create migration flag: ${error}`);
+    }
+  }
+
+  /**
+   * Determines target subdirectory based on file prefix
+   */
+  private getTargetSubdirectory(fileName: string): string | null {
+    for (const [subdir, prefixes] of Object.entries(FILE_PREFIX_MAPPING)) {
+      const prefixList = prefixes as readonly string[];
+      if (prefixList.some((prefix) => fileName.startsWith(prefix))) {
+        return STORAGE_SUBDIRS[subdir as keyof typeof STORAGE_SUBDIRS];
+      }
+    }
+    return null;
   }
 
   /**
@@ -139,40 +186,39 @@ export class FileStorageService {
     }
 
     // Check for valid server-side prefix
-    const hasServerPrefix =
-      id.startsWith(AUTH_CONFIG.SERVER.SESSION.ID_PREFIX) ||
-      id.startsWith(AUTH_CONFIG.SERVER.AUTH_CODE.ID_PREFIX) ||
-      id.startsWith(AUTH_CONFIG.SERVER.AUTH_REQUEST.ID_PREFIX) ||
-      id.startsWith(AUTH_CONFIG.SERVER.STREAMABLE_SESSION.ID_PREFIX);
+    const serverPrefixes = [
+      AUTH_CONFIG.SERVER.SESSION.ID_PREFIX,
+      AUTH_CONFIG.SERVER.AUTH_CODE.ID_PREFIX,
+      AUTH_CONFIG.SERVER.AUTH_REQUEST.ID_PREFIX,
+      AUTH_CONFIG.SERVER.STREAMABLE_SESSION.ID_PREFIX,
+    ];
 
-    if (hasServerPrefix) {
-      // Validate the UUID portion (after prefix)
-      let uuidPart: string;
-      if (id.startsWith(AUTH_CONFIG.SERVER.SESSION.ID_PREFIX)) {
-        uuidPart = id.substring(AUTH_CONFIG.SERVER.SESSION.ID_PREFIX.length);
-      } else if (id.startsWith(AUTH_CONFIG.SERVER.AUTH_CODE.ID_PREFIX)) {
-        uuidPart = id.substring(AUTH_CONFIG.SERVER.AUTH_CODE.ID_PREFIX.length);
-      } else if (id.startsWith(AUTH_CONFIG.SERVER.AUTH_REQUEST.ID_PREFIX)) {
-        uuidPart = id.substring(AUTH_CONFIG.SERVER.AUTH_REQUEST.ID_PREFIX.length);
-      } else {
-        uuidPart = id.substring(AUTH_CONFIG.SERVER.STREAMABLE_SESSION.ID_PREFIX.length);
+    for (const prefix of serverPrefixes) {
+      if (id.startsWith(prefix)) {
+        try {
+          const uuidPart = this.extractUuidPart(id, prefix);
+          // UUID v4 format: 8-4-4-4-12 hexadecimal digits with hyphens
+          const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+          return uuidRegex.test(uuidPart);
+        } catch {
+          return false;
+        }
       }
-
-      // UUID v4 format: 8-4-4-4-12 hexadecimal digits with hyphens
-      const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-      return uuidRegex.test(uuidPart);
     }
 
     // Check for valid client-side OAuth prefix
-    const hasClientPrefix =
-      id.startsWith(AUTH_CONFIG.CLIENT.PREFIXES.CLIENT) ||
-      id.startsWith(AUTH_CONFIG.CLIENT.PREFIXES.TOKENS) ||
-      id.startsWith(AUTH_CONFIG.CLIENT.PREFIXES.VERIFIER) ||
-      id.startsWith(AUTH_CONFIG.CLIENT.PREFIXES.STATE);
+    const clientPrefixes = [
+      AUTH_CONFIG.CLIENT.PREFIXES.CLIENT,
+      AUTH_CONFIG.CLIENT.PREFIXES.TOKENS,
+      AUTH_CONFIG.CLIENT.PREFIXES.VERIFIER,
+      AUTH_CONFIG.CLIENT.PREFIXES.STATE,
+    ];
 
-    if (hasClientPrefix) {
-      const contentPart = id.substring(4); // All client prefixes are 4 characters
-      return contentPart.length > 0 && /^[a-zA-Z0-9_-]+$/.test(contentPart);
+    for (const prefix of clientPrefixes) {
+      if (id.startsWith(prefix)) {
+        const contentPart = id.substring(prefix.length);
+        return contentPart.length > 0 && /^[a-zA-Z0-9_-]+$/.test(contentPart);
+      }
     }
 
     // Check for client session prefix

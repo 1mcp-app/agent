@@ -85,6 +85,20 @@ export const AUTH_CONFIG = {
   },
 };
 
+// Storage subdirectory configuration
+export const STORAGE_SUBDIRS = {
+  SERVER: 'server',
+  CLIENT: 'client',
+  TRANSPORT: 'transport',
+} as const;
+
+// File prefix mapping for migration logic
+export const FILE_PREFIX_MAPPING = {
+  SERVER: ['session_', 'auth_code_', 'auth_request_'],
+  CLIENT: ['oauth_', 'cli_', 'tok_', 'ver_', 'sta_'],
+  TRANSPORT: ['streamable_session_'],
+} as const;
+
 // Rate limiting configuration for OAuth endpoints
 export const RATE_LIMIT_CONFIG = {
   OAUTH: {
