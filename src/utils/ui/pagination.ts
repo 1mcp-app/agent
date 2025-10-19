@@ -4,6 +4,7 @@ import { Prompt, Resource, ResourceTemplate, Tool } from '@modelcontextprotocol/
 
 import { ClientStatus, OutboundConnection, OutboundConnections } from '@src/core/types/index.js';
 import logger from '@src/logger/logger.js';
+import { getRequestTimeout } from '@src/utils/core/timeoutUtils.js';
 
 interface PaginationParams {
   [x: string]: unknown;
@@ -126,7 +127,7 @@ async function fetchAllItemsForClient<T>(
 
   const items: T[] = [];
   let result = await callClientMethod(outboundConn.client, params, {
-    timeout: outboundConn.transport.requestTimeout ?? outboundConn.transport.timeout,
+    timeout: getRequestTimeout(outboundConn.transport),
   });
   items.push(...transformResult(outboundConn, result));
 
@@ -135,7 +136,7 @@ async function fetchAllItemsForClient<T>(
     result = await callClientMethod(
       outboundConn.client,
       { ...params, cursor: result.nextCursor },
-      { timeout: outboundConn.transport.requestTimeout ?? outboundConn.transport.timeout },
+      { timeout: getRequestTimeout(outboundConn.transport) },
     );
     items.push(...transformResult(outboundConn, result));
   }
@@ -190,7 +191,7 @@ export async function handlePagination<T>(
     const result = await callClientMethod(
       fallbackClient.client,
       clientParams, // Don't pass the invalid cursor
-      { timeout: fallbackClient.transport.requestTimeout ?? fallbackClient.transport.timeout },
+      { timeout: getRequestTimeout(fallbackClient.transport) },
     );
 
     const transformedItems = transformResult(fallbackClient, result);
@@ -209,7 +210,7 @@ export async function handlePagination<T>(
   const result = await callClientMethod(
     outboundConn.client,
     { ...clientParams, cursor: actualCursor },
-    { timeout: outboundConn.transport.requestTimeout ?? outboundConn.transport.timeout },
+    { timeout: getRequestTimeout(outboundConn.transport) },
   );
 
   const transformedItems = transformResult(outboundConn, result);

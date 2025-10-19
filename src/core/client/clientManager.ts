@@ -18,6 +18,7 @@ import {
 import logger, { debugIf } from '@src/logger/logger.js';
 import { CapabilityError, ClientConnectionError, ClientNotFoundError } from '@src/utils/core/errorTypes.js';
 import { executeOperation } from '@src/utils/core/operationExecution.js';
+import { getConnectionTimeout } from '@src/utils/core/timeoutUtils.js';
 
 export class ClientManager {
   private static instance: ClientManager;
@@ -97,6 +98,11 @@ export class ClientManager {
       },
       {
         capabilities: MCP_CLIENT_CAPABILITIES,
+        debouncedNotificationMethods: [
+          'notifications/tools/list_changed',
+          'notifications/resources/list_changed',
+          'notifications/prompts/list_changed',
+        ],
       },
     );
   }
@@ -222,7 +228,7 @@ export class ClientManager {
         // Connect with timeout from transport config
         // Priority: connectionTimeout > timeout (deprecated fallback)
         const authTransport = currentTransport as AuthProviderTransport;
-        const timeout = authTransport.connectionTimeout ?? authTransport.timeout;
+        const timeout = getConnectionTimeout(authTransport);
         await currentClient.connect(currentTransport, timeout ? { timeout } : undefined);
 
         const sv = await currentClient.getServerVersion();
@@ -561,7 +567,7 @@ export class ClientManager {
       // 4. Create and connect new client with timeout
       // Priority: connectionTimeout > timeout (deprecated fallback)
       const newClient = this.createClient();
-      const timeout = newTransport.connectionTimeout ?? newTransport.timeout;
+      const timeout = getConnectionTimeout(newTransport);
       await newClient.connect(newTransport, timeout ? { timeout } : undefined);
 
       // 5. Discover capabilities

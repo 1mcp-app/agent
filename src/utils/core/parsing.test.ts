@@ -3,7 +3,7 @@ import { MCP_URI_SEPARATOR } from '@src/constants.js';
 import { describe, expect, it } from 'vitest';
 
 import { InvalidRequestError } from './errorTypes.js';
-import { parseUri } from './parsing.js';
+import { buildUri, parseUri } from './parsing.js';
 
 describe('parseUri', () => {
   const separator = MCP_URI_SEPARATOR;
@@ -167,6 +167,121 @@ describe('parseUri', () => {
         clientName: 'client-123_test',
         resourceName: 'resource@domain.com:8080/path?query=value',
       });
+    });
+  });
+});
+
+describe('buildUri', () => {
+  const separator = MCP_URI_SEPARATOR;
+
+  describe('valid URI building', () => {
+    it('should build simple URIs correctly', () => {
+      const result = buildUri('client', 'resource', separator);
+      expect(result).toBe('client_1mcp_resource');
+    });
+
+    it('should handle whitespace in names', () => {
+      const result = buildUri('  client  ', '  resource  ', separator);
+      expect(result).toBe('client_1mcp_resource');
+    });
+
+    it('should handle different separators', () => {
+      const result = buildUri('client', 'resource', '::');
+      expect(result).toBe('client::resource');
+    });
+
+    it('should handle single character separators', () => {
+      const result = buildUri('client', 'resource', '/');
+      expect(result).toBe('client/resource');
+    });
+
+    it('should handle complex resource names', () => {
+      const result = buildUri('myClient', 'https://example.com/api/v1/users/123', separator);
+      expect(result).toBe('myClient_1mcp_https://example.com/api/v1/users/123');
+    });
+
+    it('should handle file paths as resources', () => {
+      const result = buildUri('filesystem', 'C:\\Users\\name\\Documents\\file.txt', separator);
+      expect(result).toBe('filesystem_1mcp_C:\\Users\\name\\Documents\\file.txt');
+    });
+
+    it('should handle unicode characters', () => {
+      const result = buildUri('客户端', '资源/文件.txt', separator);
+      expect(result).toBe('客户端_1mcp_资源/文件.txt');
+    });
+
+    it('should handle special characters in names', () => {
+      const result = buildUri('client-123_test', 'resource@domain.com:8080/path?query=value', separator);
+      expect(result).toBe('client-123_test_1mcp_resource@domain.com:8080/path?query=value');
+    });
+  });
+
+  describe('invalid URI building', () => {
+    it('should throw error for empty client name', () => {
+      expect(() => buildUri('', 'resource', separator)).toThrow(InvalidRequestError);
+      expect(() => buildUri('', 'resource', separator)).toThrow('Client name cannot be empty');
+    });
+
+    it('should throw error for whitespace-only client name', () => {
+      expect(() => buildUri('   ', 'resource', separator)).toThrow(InvalidRequestError);
+      expect(() => buildUri('   ', 'resource', separator)).toThrow('Client name cannot be empty');
+    });
+
+    it('should throw error for empty resource name', () => {
+      expect(() => buildUri('client', '', separator)).toThrow(InvalidRequestError);
+      expect(() => buildUri('client', '', separator)).toThrow('Resource name cannot be empty');
+    });
+
+    it('should throw error for whitespace-only resource name', () => {
+      expect(() => buildUri('client', '   ', separator)).toThrow(InvalidRequestError);
+      expect(() => buildUri('client', '   ', separator)).toThrow('Resource name cannot be empty');
+    });
+
+    it('should throw error for null/undefined client name', () => {
+      expect(() => buildUri(null as any, 'resource', separator)).toThrow(InvalidRequestError);
+      expect(() => buildUri(undefined as any, 'resource', separator)).toThrow(InvalidRequestError);
+    });
+
+    it('should throw error for null/undefined resource name', () => {
+      expect(() => buildUri('client', null as any, separator)).toThrow(InvalidRequestError);
+      expect(() => buildUri('client', undefined as any, separator)).toThrow(InvalidRequestError);
+    });
+
+    it('should throw error for empty separator', () => {
+      expect(() => buildUri('client', 'resource', '')).toThrow(InvalidRequestError);
+      expect(() => buildUri('client', 'resource', '')).toThrow('Separator must be a non-empty string');
+    });
+
+    it('should throw error for null/undefined separator', () => {
+      expect(() => buildUri('client', 'resource', null as any)).toThrow(InvalidRequestError);
+      expect(() => buildUri('client', 'resource', undefined as any)).toThrow(InvalidRequestError);
+    });
+
+    it('should throw error for non-string separator', () => {
+      expect(() => buildUri('client', 'resource', 123 as any)).toThrow(InvalidRequestError);
+      expect(() => buildUri('client', 'resource', [] as any)).toThrow(InvalidRequestError);
+    });
+  });
+
+  describe('round-trip compatibility', () => {
+    it('should be compatible with parseUri for simple cases', () => {
+      const clientName = 'testClient';
+      const resourceName = 'testResource';
+      const uri = buildUri(clientName, resourceName, separator);
+      const parsed = parseUri(uri, separator);
+
+      expect(parsed.clientName).toBe(clientName);
+      expect(parsed.resourceName).toBe(resourceName);
+    });
+
+    it('should be compatible with parseUri for complex cases', () => {
+      const clientName = 'my-client_123';
+      const resourceName = 'path/to/resource_1mcp_with_1mcp_separators';
+      const uri = buildUri(clientName, resourceName, separator);
+      const parsed = parseUri(uri, separator);
+
+      expect(parsed.clientName).toBe(clientName);
+      expect(parsed.resourceName).toBe(resourceName);
     });
   });
 });

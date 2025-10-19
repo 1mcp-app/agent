@@ -126,10 +126,10 @@ npx @1mcp/agent --config mcp.json
 
 ### Docker
 
-We provide two Docker image variants:
+You can also run 1MCP using Docker. We provide two image variants:
 
-- **`latest`**: Full-featured image with extra tools (uv, bun)
-- **`lite`**: Lightweight image with basic Node.js package managers only
+- **`latest`**: Full-featured image with extra tools (uv, bun) - default
+- **`lite`**: Lightweight image with basic Node.js package managers only (npm, pnpm, yarn)
 
 ```bash
 # Pull and run (full image) - IMPORTANT: Set host to 0.0.0.0 for Docker networking
@@ -190,11 +190,27 @@ docker compose up -d
 
 **Full-Featured Images:**
 
-- `latest`, `vX.Y.Z`, `vX.Y`, `vX`, `sha-<commit>`
+- `latest`, `vX.Y.Z`, `vX.Y`, `vX`
 
 **Lightweight Images:**
 
-- `lite`, `vX.Y.Z-lite`, `vX.Y-lite`, `vX-lite`, `sha-<commit>-lite`
+- `lite`, `vX.Y.Z-lite`, `vX.Y-lite`, `vX-lite`
+
+### Image Details
+
+**Full Image (`latest`):**
+
+- Node.js (version from `.node-version`)
+- npm, pnpm, yarn
+- uv (Python package manager)
+- bun (JavaScript runtime)
+- curl, python3, bash
+
+**Lite Image (`lite`):**
+
+- Node.js (version from `.node-version`)
+- npm, pnpm, yarn only
+- Smaller size, faster downloads
 
 ## Build from Source
 

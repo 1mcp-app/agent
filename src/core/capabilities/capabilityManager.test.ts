@@ -205,6 +205,45 @@ describe('CapabilityManager', () => {
       expect(logger.info).toHaveBeenCalledWith('Client client2 has 2 resources capability conflicts: list, read');
     });
 
+    it('should handle notification capabilities without logging conflicts', async () => {
+      const capabilities1: ServerCapabilities = {
+        tools: { call: true, listChanged: true },
+        resources: { read: true, listChanged: true },
+      };
+
+      const capabilities2: ServerCapabilities = {
+        tools: { call: true, listChanged: true },
+        prompts: { get: true, listChanged: true },
+      };
+
+      (mockClient1.getServerCapabilities as unknown as MockInstance).mockReturnValue(capabilities1);
+      (mockClient2.getServerCapabilities as unknown as MockInstance).mockReturnValue(capabilities2);
+
+      const clients: OutboundConnections = new Map();
+      clients.set('client1', {
+        name: 'client1',
+        client: mockClient1,
+        status: ClientStatus.Connected,
+        transport: {} as any,
+      });
+      clients.set('client2', {
+        name: 'client2',
+        client: mockClient2,
+        status: ClientStatus.Connected,
+        transport: {} as any,
+      });
+
+      const result = await setupCapabilities(clients, mockServerInfo);
+
+      // Verify listChanged is aggregated with OR logic
+      expect(result.tools?.listChanged).toBe(true);
+      expect(result.resources?.listChanged).toBe(true);
+      expect(result.prompts?.listChanged).toBe(true);
+
+      // Verify NO warnings logged for listChanged
+      expect(logger.warn).not.toHaveBeenCalledWith(expect.stringContaining('listChanged'));
+    });
+
     it('should handle clients with no capabilities', async () => {
       (mockClient1.getServerCapabilities as unknown as MockInstance).mockReturnValue(null);
       (mockClient2.getServerCapabilities as unknown as MockInstance).mockReturnValue(undefined);

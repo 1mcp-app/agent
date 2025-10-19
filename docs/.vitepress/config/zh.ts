@@ -1,4 +1,4 @@
-import { defineConfig, type DefaultTheme } from 'vitepress';
+import { type DefaultTheme, defineConfig } from 'vitepress';
 
 export default function createConfig(version: string) {
   return defineConfig({
@@ -113,6 +113,10 @@ function sidebar(): DefaultTheme.Sidebar {
       {
         text: '功能概览',
         items: [{ text: '所有功能', link: '/zh/guide/features' }],
+      },
+      {
+        text: '开发',
+        items: [{ text: '开发指南', link: '/zh/guide/development' }],
       },
     ],
     '/zh/commands/': [
