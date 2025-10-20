@@ -365,7 +365,7 @@ describe('FileStorageService', () => {
   });
 
   describe('Migration Logic', () => {
-    it('should migrate old server session files to server subdirectory', () => {
+    it('should migrate old server session files from sessions/ to server subdirectory', () => {
       // Arrange: Create parent directory with old flat structure
       const baseDir = path.join(tmpdir(), `migration-test-${Date.now()}`);
       const sessionsDir = path.join(baseDir, 'sessions');
@@ -392,17 +392,21 @@ describe('FileStorageService', () => {
         expect(fs.existsSync(path.join(sessionsDir, file))).toBe(false);
       }
 
+      // Assert: Migration flag should be created in sessions directory
+      const migrationFlagPath = path.join(sessionsDir, '.migrated-to-server');
+      expect(fs.existsSync(migrationFlagPath)).toBe(true);
+
       serverService.shutdown();
       fs.rmSync(baseDir, { recursive: true, force: true });
     });
 
-    it('should migrate old client session files to client subdirectory', () => {
-      // Arrange: Create parent directory with old flat structure
+    it('should migrate old client session files from clientSessions/ to client subdirectory', () => {
+      // Arrange: Create parent directory with old clientSessions structure
       const baseDir = path.join(tmpdir(), `migration-test-${Date.now()}`);
-      const sessionsDir = path.join(baseDir, 'sessions');
-      fs.mkdirSync(sessionsDir, { recursive: true });
+      const clientSessionsDir = path.join(baseDir, 'clientSessions');
+      fs.mkdirSync(clientSessionsDir, { recursive: true });
 
-      // Create old client files in flat structure
+      // Create old client files in clientSessions directory
       const oldFiles = [
         'oauth_test-server.json',
         'cli_client-123.json',
@@ -412,30 +416,34 @@ describe('FileStorageService', () => {
       ];
 
       for (const file of oldFiles) {
-        fs.writeFileSync(path.join(sessionsDir, file), JSON.stringify({ test: 'data' }));
+        fs.writeFileSync(path.join(clientSessionsDir, file), JSON.stringify({ test: 'data' }));
       }
 
       // Act: Create service with 'client' subdirectory
       const clientService = new FileStorageService(baseDir, 'client');
 
       // Assert: Files should be migrated to client subdirectory
-      const clientSubdir = path.join(sessionsDir, 'client');
+      const clientSubdir = path.join(baseDir, 'sessions', 'client');
       for (const file of oldFiles) {
         expect(fs.existsSync(path.join(clientSubdir, file))).toBe(true);
-        expect(fs.existsSync(path.join(sessionsDir, file))).toBe(false);
+        expect(fs.existsSync(path.join(clientSessionsDir, file))).toBe(false);
       }
+
+      // Assert: Migration flag should be created in clientSessions directory
+      const migrationFlagPath = path.join(clientSessionsDir, '.migrated-to-client');
+      expect(fs.existsSync(migrationFlagPath)).toBe(true);
 
       clientService.shutdown();
       fs.rmSync(baseDir, { recursive: true, force: true });
     });
 
-    it('should migrate old transport session files to transport subdirectory', () => {
-      // Arrange: Create parent directory with old flat structure
+    it('should not migrate transport files (new feature)', () => {
+      // Arrange: Create parent directory structure
       const baseDir = path.join(tmpdir(), `migration-test-${Date.now()}`);
       const sessionsDir = path.join(baseDir, 'sessions');
       fs.mkdirSync(sessionsDir, { recursive: true });
 
-      // Create old transport files in flat structure
+      // Create some files that would normally be migrated
       const oldFiles = ['streamable_session_stream-12345678-1234-4abc-89de-123456789012.json'];
 
       for (const file of oldFiles) {
@@ -445,12 +453,16 @@ describe('FileStorageService', () => {
       // Act: Create service with 'transport' subdirectory
       const transportService = new FileStorageService(baseDir, 'transport');
 
-      // Assert: Files should be migrated to transport subdirectory
+      // Assert: Files should NOT be migrated (transport is new feature)
       const transportSubdir = path.join(sessionsDir, 'transport');
       for (const file of oldFiles) {
-        expect(fs.existsSync(path.join(transportSubdir, file))).toBe(true);
-        expect(fs.existsSync(path.join(sessionsDir, file))).toBe(false);
+        expect(fs.existsSync(path.join(sessionsDir, file))).toBe(true); // Still in original location
+        expect(fs.existsSync(path.join(transportSubdir, file))).toBe(false); // Not migrated
       }
+
+      // Assert: No migration flag should be created
+      const migrationFlagPath = path.join(sessionsDir, '.migrated-to-transport');
+      expect(fs.existsSync(migrationFlagPath)).toBe(false);
 
       transportService.shutdown();
       fs.rmSync(baseDir, { recursive: true, force: true });
@@ -503,6 +515,68 @@ describe('FileStorageService', () => {
       fs.rmSync(baseDir, { recursive: true, force: true });
     });
 
+    it('should handle independent migrations for server and client', () => {
+      // Arrange: Create both legacy directory structures
+      const baseDir = path.join(tmpdir(), `migration-test-${Date.now()}`);
+      const sessionsDir = path.join(baseDir, 'sessions');
+      const clientSessionsDir = path.join(baseDir, 'clientSessions');
+
+      fs.mkdirSync(sessionsDir, { recursive: true });
+      fs.mkdirSync(clientSessionsDir, { recursive: true });
+
+      // Create server files in sessions/
+      const serverFiles = [
+        'session_sess-12345678-1234-4abc-89de-123456789012.json',
+        'auth_code_code-87654321-4321-4def-89ab-210987654321.json',
+      ];
+
+      // Create client files in clientSessions/
+      const clientFiles = ['oauth_test-server.json', 'cli_client-123.json'];
+
+      for (const file of serverFiles) {
+        fs.writeFileSync(path.join(sessionsDir, file), JSON.stringify({ test: 'server-data' }));
+      }
+
+      for (const file of clientFiles) {
+        fs.writeFileSync(path.join(clientSessionsDir, file), JSON.stringify({ test: 'client-data' }));
+      }
+
+      // Act: Create server service first
+      const serverService = new FileStorageService(baseDir, 'server');
+
+      // Assert: Server files migrated, client files untouched
+      const serverSubdir = path.join(sessionsDir, 'server');
+      for (const file of serverFiles) {
+        expect(fs.existsSync(path.join(serverSubdir, file))).toBe(true);
+        expect(fs.existsSync(path.join(sessionsDir, file))).toBe(false);
+      }
+      for (const file of clientFiles) {
+        expect(fs.existsSync(path.join(clientSessionsDir, file))).toBe(true); // Still in clientSessions/
+      }
+
+      // Assert: Server migration flag created
+      const serverFlagPath = path.join(sessionsDir, '.migrated-to-server');
+      expect(fs.existsSync(serverFlagPath)).toBe(true);
+
+      // Act: Create client service
+      const clientService = new FileStorageService(baseDir, 'client');
+
+      // Assert: Client files migrated independently
+      const clientSubdir = path.join(sessionsDir, 'client');
+      for (const file of clientFiles) {
+        expect(fs.existsSync(path.join(clientSubdir, file))).toBe(true);
+        expect(fs.existsSync(path.join(clientSessionsDir, file))).toBe(false);
+      }
+
+      // Assert: Client migration flag created
+      const clientFlagPath = path.join(clientSessionsDir, '.migrated-to-client');
+      expect(fs.existsSync(clientFlagPath)).toBe(true);
+
+      serverService.shutdown();
+      clientService.shutdown();
+      fs.rmSync(baseDir, { recursive: true, force: true });
+    });
+
     it('should skip migration when no old files exist', () => {
       // Arrange: Create empty parent directory
       const baseDir = path.join(tmpdir(), `migration-test-${Date.now()}`);
@@ -529,12 +603,13 @@ describe('FileStorageService', () => {
       const serverService = new FileStorageService(baseDir, 'server');
 
       // Assert: Migration flag should be created
-      const migrationFlagPath = path.join(sessionsDir, '.migrated');
+      const migrationFlagPath = path.join(sessionsDir, '.migrated-to-server');
       expect(fs.existsSync(migrationFlagPath)).toBe(true);
 
       // Verify flag content
       const flagContent = JSON.parse(fs.readFileSync(migrationFlagPath, 'utf8'));
       expect(flagContent.migrated).toBe(true);
+      expect(flagContent.targetSubDir).toBe('server');
       expect(typeof flagContent.timestamp).toBe('number');
 
       serverService.shutdown();
@@ -548,8 +623,11 @@ describe('FileStorageService', () => {
       fs.mkdirSync(sessionsDir, { recursive: true });
 
       // Create migration flag
-      const migrationFlagPath = path.join(sessionsDir, '.migrated');
-      fs.writeFileSync(migrationFlagPath, JSON.stringify({ migrated: true, timestamp: Date.now() }));
+      const migrationFlagPath = path.join(sessionsDir, '.migrated-to-server');
+      fs.writeFileSync(
+        migrationFlagPath,
+        JSON.stringify({ migrated: true, targetSubDir: 'server', timestamp: Date.now() }),
+      );
 
       // Create old files that should NOT be migrated
       const oldFile = 'session_sess-12345678-1234-4abc-89de-123456789012.json';
@@ -576,7 +654,7 @@ describe('FileStorageService', () => {
       const serverService = new FileStorageService(baseDir, 'server');
 
       // Assert: Migration flag should still be created
-      const migrationFlagPath = path.join(sessionsDir, '.migrated');
+      const migrationFlagPath = path.join(sessionsDir, '.migrated-to-server');
       expect(fs.existsSync(migrationFlagPath)).toBe(true);
 
       serverService.shutdown();

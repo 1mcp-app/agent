@@ -60,98 +60,129 @@ export class FileStorageService {
   }
 
   /**
-   * Migrates old flat file structure to new subdirectory structure
-   * Only runs if we're in a subdirectory and old files exist in parent
+   * Migrates old file structure to new subdirectory structure
+   * Handles two migration paths:
+   * 1. Server sessions: sessions/ (flat) → sessions/server/
+   * 2. Client sessions: clientSessions/ → sessions/client/
+   * 3. Transport sessions: No migration (new feature)
    */
   private migrateOldFilesIfNeeded(): void {
-    // Only migrate if we're in a subdirectory
-    const isSubdirectory = Object.values(STORAGE_SUBDIRS).some((subdir) => this.storageDir.endsWith(`/${subdir}`));
-
-    if (!isSubdirectory) {
+    // Determine current subdirectory
+    const currentSubDir = this.getCurrentSubDir();
+    if (!currentSubDir) {
       return; // Not in subdirectory mode
     }
 
-    const parentDir = path.dirname(this.storageDir);
-    if (!fs.existsSync(parentDir)) {
+    // No migration needed for transport (new feature)
+    if (currentSubDir === STORAGE_SUBDIRS.TRANSPORT) {
       return;
     }
 
-    // Check if migration has already been completed
-    const migrationFlagPath = path.join(parentDir, '.migrated');
+    const configDir = path.dirname(path.dirname(this.storageDir)); // Get config root
+
+    // Determine source directory based on subdirectory type
+    let sourceDir: string;
+    if (currentSubDir === STORAGE_SUBDIRS.CLIENT) {
+      // Client sessions: migrate from clientSessions/
+      sourceDir = path.join(configDir, 'clientSessions');
+    } else {
+      // Server sessions: migrate from sessions/ (flat)
+      sourceDir = path.join(configDir, AUTH_CONFIG.SERVER.STORAGE.DIR);
+    }
+
+    if (!fs.existsSync(sourceDir)) {
+      return; // No legacy directory to migrate from
+    }
+
+    // Check subdirectory-specific migration flag
+    const migrationFlagPath = path.join(sourceDir, `.migrated-to-${currentSubDir}`);
     if (fs.existsSync(migrationFlagPath)) {
-      logger.debug('Migration already completed, skipping');
+      logger.debug(`Migration from ${sourceDir} to ${currentSubDir} already completed`);
       return;
     }
 
-    const files = fs.readdirSync(parentDir).filter((f) => f.endsWith('.json'));
+    const files = fs.readdirSync(sourceDir).filter((f) => f.endsWith('.json'));
     if (files.length === 0) {
-      // Create migration flag even if no files to migrate
-      this.createMigrationFlag(parentDir);
+      this.createMigrationFlag(sourceDir, currentSubDir);
       return;
     }
 
     let migrationCount = 0;
 
-    // Determine where to move files based on prefix
+    // Migrate files matching current subdirectory's prefixes
     for (const file of files) {
-      const targetSubDir = this.getTargetSubdirectory(file);
+      const shouldMigrate = this.shouldMigrateFile(file, currentSubDir);
 
-      if (targetSubDir) {
-        const oldPath = path.join(parentDir, file);
-        const newDir = path.join(parentDir, targetSubDir);
-        const newPath = path.join(newDir, file);
+      if (shouldMigrate) {
+        const oldPath = path.join(sourceDir, file);
+        const newPath = path.join(this.storageDir, file);
 
         try {
-          fs.mkdirSync(newDir, { recursive: true });
           fs.renameSync(oldPath, newPath);
           migrationCount++;
-          logger.info(`Migrated ${file} to ${targetSubDir}/`);
+          logger.info(`Migrated ${file} from ${sourceDir} to ${this.storageDir}`);
         } catch (error) {
           logger.error(`Failed to migrate ${file}: ${error}`);
         }
       }
     }
 
-    // Create migration flag after successful migration
     if (migrationCount > 0) {
-      this.createMigrationFlag(parentDir);
-      logger.info(`Migration completed: ${migrationCount} files migrated`);
+      this.createMigrationFlag(sourceDir, currentSubDir);
+      logger.info(`Migration completed: ${migrationCount} files migrated to ${currentSubDir}/`);
     } else {
-      // Create flag even if no files were migrated
-      this.createMigrationFlag(parentDir);
+      this.createMigrationFlag(sourceDir, currentSubDir);
     }
   }
 
   /**
    * Creates migration completion flag file
    */
-  private createMigrationFlag(parentDir: string): void {
+  private createMigrationFlag(sourceDir: string, targetSubDir: string): void {
     try {
-      const migrationFlagPath = path.join(parentDir, '.migrated');
+      const migrationFlagPath = path.join(sourceDir, `.migrated-to-${targetSubDir}`);
       fs.writeFileSync(
         migrationFlagPath,
         JSON.stringify({
           migrated: true,
+          targetSubDir,
           timestamp: Date.now(),
         }),
       );
-      logger.debug('Created migration completion flag');
+      logger.debug(`Created migration flag: .migrated-to-${targetSubDir} in ${sourceDir}`);
     } catch (error) {
       logger.warn(`Failed to create migration flag: ${error}`);
     }
   }
 
   /**
-   * Determines target subdirectory based on file prefix
+   * Extract current subdirectory name from storage directory path
    */
-  private getTargetSubdirectory(fileName: string): string | null {
-    for (const [subdir, prefixes] of Object.entries(FILE_PREFIX_MAPPING)) {
-      const prefixList = prefixes as readonly string[];
-      if (prefixList.some((prefix) => fileName.startsWith(prefix))) {
-        return STORAGE_SUBDIRS[subdir as keyof typeof STORAGE_SUBDIRS];
+  private getCurrentSubDir(): string | null {
+    const subdirValues = Object.values(STORAGE_SUBDIRS);
+    for (const subdir of subdirValues) {
+      if (this.storageDir.endsWith(path.sep + subdir)) {
+        return subdir;
       }
     }
     return null;
+  }
+
+  /**
+   * Check if file should be migrated to current subdirectory based on prefix
+   */
+  private shouldMigrateFile(fileName: string, targetSubDir: string): boolean {
+    // Get prefixes for target subdirectory
+    const prefixMapping: Record<string, readonly string[]> = {
+      [STORAGE_SUBDIRS.SERVER]: FILE_PREFIX_MAPPING.SERVER,
+      [STORAGE_SUBDIRS.CLIENT]: FILE_PREFIX_MAPPING.CLIENT,
+      [STORAGE_SUBDIRS.TRANSPORT]: FILE_PREFIX_MAPPING.TRANSPORT,
+    };
+
+    const prefixes = prefixMapping[targetSubDir];
+    if (!prefixes) return false;
+
+    return prefixes.some((prefix) => fileName.startsWith(prefix));
   }
 
   /**
