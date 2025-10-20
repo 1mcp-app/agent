@@ -13,10 +13,7 @@ RUN npm install -g corepack && \
 COPY package.json pnpm-lock.yaml ./
 
 # Install dependencies with frozen lockfile for consistency
-# Use cache mount to speed up subsequent builds
-RUN --mount=type=cache,target=/root/.local/share/pnpm,sharing=locked \
-    --mount=type=cache,target=/usr/src/app/.pnpm,sharing=locked \
-    pnpm install --frozen-lockfile
+RUN pnpm install --frozen-lockfile --prefer-offline
 
 # Copy the rest of the application to the working directory
 COPY . .
@@ -38,10 +35,7 @@ RUN npm install -g corepack && \
 COPY package.json pnpm-lock.yaml ./
 
 # Install production dependencies only with frozen lockfile
-# Use cache mount to speed up subsequent builds
-RUN --mount=type=cache,target=/root/.local/share/pnpm,sharing=locked \
-    --mount=type=cache,target=/usr/src/app/.pnpm,sharing=locked \
-    pnpm install --frozen-lockfile --prod
+RUN pnpm install --frozen-lockfile --prefer-offline --prod
 
 # Copy build artifacts from build stage
 COPY --from=build-stage /usr/src/app/build .
