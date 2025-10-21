@@ -31,11 +31,13 @@ async function restoreSession(
 ): Promise<StreamableHTTPServerTransport | null> {
   try {
     // Try to retrieve session config from storage
-    const config = sessionRepository.get(sessionId);
-    if (!config) {
+    const sessionData = sessionRepository.get(sessionId);
+    if (!sessionData) {
       logger.debug(`No persisted session found for: ${sessionId}`);
       return null;
     }
+
+    const config = sessionData;
 
     logger.info(`Restoring streamable session: ${sessionId}`);
 
@@ -43,6 +45,14 @@ async function restoreSession(
     const transport = new StreamableHTTPServerTransport({
       sessionIdGenerator: () => sessionId,
     });
+
+    // CRITICAL: Mark the transport as initialized by setting private field
+    // When restoring a session, the client won't send an initialize request again
+    // because from the client's perspective, the session is already initialized.
+    // The MCP SDK checks _initialized flag and rejects requests if it's false.
+    // We need to set this flag to true to allow the restored session to work.
+    (transport as any)._initialized = true;
+    transport.sessionId = sessionId;
 
     // Reconnect with the original configuration
     await serverManager.connectTransport(transport, sessionId, config);
