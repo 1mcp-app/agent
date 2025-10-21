@@ -712,41 +712,58 @@ describe('FileStorageService', () => {
 
     it('should use FILE_PREFIX_MAPPING for migration logic', () => {
       // Test that all prefixes from FILE_PREFIX_MAPPING are handled correctly
-      const baseDir = path.join(tmpdir(), `config-test-${Date.now()}`);
-      const sessionsDir = path.join(baseDir, 'sessions');
-      fs.mkdirSync(sessionsDir, { recursive: true });
 
-      // Create test files for each prefix category
-      const testFiles: string[] = [];
-      for (const [_category, prefixes] of Object.entries(FILE_PREFIX_MAPPING)) {
-        const prefixList = prefixes as readonly string[];
-        for (const prefix of prefixList) {
+      // Test migration for each subdirectory type with separate base directories
+      for (const [category, subdir] of Object.entries(STORAGE_SUBDIRS)) {
+        const baseDir = path.join(tmpdir(), `config-test-${category}-${Date.now()}`);
+        const sessionsDir = path.join(baseDir, 'sessions');
+        const clientSessionsDir = path.join(baseDir, 'clientSessions');
+
+        // Create source directories
+        fs.mkdirSync(sessionsDir, { recursive: true });
+        fs.mkdirSync(clientSessionsDir, { recursive: true });
+
+        // Create test files for current category in appropriate source directory
+        const testFiles: string[] = [];
+        const prefixes = FILE_PREFIX_MAPPING[category as keyof typeof FILE_PREFIX_MAPPING] as readonly string[];
+
+        for (const prefix of prefixes) {
           const fileName = `${prefix}test-${Date.now()}.json`;
           testFiles.push(fileName);
-          fs.writeFileSync(path.join(sessionsDir, fileName), JSON.stringify({ test: 'data' }));
-        }
-      }
 
-      // Test migration for each subdirectory type
-      for (const [category, subdir] of Object.entries(STORAGE_SUBDIRS)) {
+          // Place files in appropriate source directory based on category
+          if (category === 'CLIENT') {
+            fs.writeFileSync(path.join(clientSessionsDir, fileName), JSON.stringify({ test: 'data' }));
+          } else {
+            // SERVER and TRANSPORT files go in sessions/ directory
+            fs.writeFileSync(path.join(sessionsDir, fileName), JSON.stringify({ test: 'data' }));
+          }
+        }
+
         const service = new FileStorageService(baseDir, subdir as string);
 
         // Check that files with matching prefixes were migrated
-        const expectedFiles = testFiles.filter((file) =>
-          (FILE_PREFIX_MAPPING[category as keyof typeof FILE_PREFIX_MAPPING] as readonly string[]).some((prefix) =>
-            file.startsWith(prefix),
-          ),
-        );
-
-        for (const file of expectedFiles) {
-          expect(fs.existsSync(path.join(sessionsDir, subdir as string, file))).toBe(true);
-          expect(fs.existsSync(path.join(sessionsDir, file))).toBe(false);
+        for (const file of testFiles) {
+          if (category === 'TRANSPORT') {
+            // TRANSPORT files are not migrated (new feature)
+            // They should remain in the source directory
+            expect(fs.existsSync(path.join(sessionsDir, file))).toBe(true);
+            expect(fs.existsSync(path.join(sessionsDir, subdir as string, file))).toBe(false);
+          } else {
+            // SERVER and CLIENT files should be migrated
+            expect(fs.existsSync(path.join(sessionsDir, subdir as string, file))).toBe(true);
+            // Check that files were removed from source directory
+            if (category === 'CLIENT') {
+              expect(fs.existsSync(path.join(clientSessionsDir, file))).toBe(false);
+            } else {
+              expect(fs.existsSync(path.join(sessionsDir, file))).toBe(false);
+            }
+          }
         }
 
         service.shutdown();
+        fs.rmSync(baseDir, { recursive: true, force: true });
       }
-
-      fs.rmSync(baseDir, { recursive: true, force: true });
     });
   });
 
