@@ -81,7 +81,7 @@ async function restoreSession(
       }
     };
 
-    // Update last accessed time
+    // Update last accessed time with dual-trigger persistence
     sessionRepository.updateAccess(sessionId);
 
     logger.info(`Successfully restored streamable session: ${sessionId}`);
@@ -185,7 +185,7 @@ export function setupStreamableHttpRoutes(
           transport = restoredTransport;
         } else if (existingTransport instanceof StreamableHTTPServerTransport) {
           transport = existingTransport;
-          // Update last accessed time for active sessions
+          // Update last accessed time for active sessions with dual-trigger persistence
           sessionRepository.updateAccess(sessionId);
         } else {
           res.status(400).json({
@@ -233,7 +233,7 @@ export function setupStreamableHttpRoutes(
         }
         transport = restoredTransport;
       } else {
-        // Update last accessed time for active sessions
+        // Update last accessed time for active sessions with dual-trigger persistence
         sessionRepository.updateAccess(sessionId);
       }
       await transport.handleRequest(req, res, req.body);

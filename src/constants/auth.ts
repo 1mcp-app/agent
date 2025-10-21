@@ -50,6 +50,13 @@ export const AUTH_CONFIG = {
       ID_PREFIX: 'stream-',
       FILE_PREFIX: 'streamable_session_',
       SUBDIR: 'transport',
+
+      // Redis-style save policy for performance optimization
+      SAVE_POLICY: {
+        REQUESTS: 100, // Trigger after N requests
+        INTERVAL_MS: 5 * 60 * 1000, // OR after M minutes
+        FLUSH_INTERVAL_MS: 60 * 1000, // Background flush every 60s
+      },
     },
 
     // Client management

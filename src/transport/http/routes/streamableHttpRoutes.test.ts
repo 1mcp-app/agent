@@ -100,6 +100,7 @@ describe('Streamable HTTP Routes', () => {
       create: vi.fn(),
       get: vi.fn(),
       updateAccess: vi.fn(),
+      updateAccessThrottled: vi.fn(),
       updateInitialization: vi.fn(),
       delete: vi.fn(),
     };
@@ -391,7 +392,7 @@ describe('Streamable HTTP Routes', () => {
         tagFilterMode: 'simple-or',
         enablePagination: true,
       });
-      expect(mockSessionRepository.updateAccess).toHaveBeenCalledWith('restored-session');
+      expect(mockSessionRepository.updateAccessThrottled).toHaveBeenCalledWith('restored-session');
       expect(mockTransport.handleRequest).toHaveBeenCalledWith(mockRequest, mockResponse, mockRequest.body);
     });
 

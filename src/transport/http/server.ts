@@ -3,7 +3,7 @@ import { mcpAuthRouter } from '@modelcontextprotocol/sdk/server/auth/router.js';
 import { SDKOAuthServerProvider } from '@src/auth/sdkOAuthServerProvider.js';
 import { FileStorageService } from '@src/auth/storage/fileStorageService.js';
 import { McpConfigManager } from '@src/config/mcpConfigManager.js';
-import { RATE_LIMIT_CONFIG } from '@src/constants.js';
+import { RATE_LIMIT_CONFIG, STORAGE_SUBDIRS } from '@src/constants.js';
 import { AsyncLoadingOrchestrator } from '@src/core/capabilities/asyncLoadingOrchestrator.js';
 import { McpLoadingManager } from '@src/core/loading/mcpLoadingManager.js';
 import { AgentConfigManager } from '@src/core/server/agentConfig.js';
@@ -82,7 +82,7 @@ export class ExpressServer {
     this.oauthProvider = new SDKOAuthServerProvider(sessionStoragePath);
 
     // Initialize streamable session repository with 'transport' subdirectory
-    const fileStorageService = new FileStorageService(sessionStoragePath, 'transport');
+    const fileStorageService = new FileStorageService(sessionStoragePath, STORAGE_SUBDIRS.TRANSPORT);
     this.streamableSessionRepository = new StreamableSessionRepository(fileStorageService);
 
     this.setupMiddleware();
@@ -233,8 +233,10 @@ export class ExpressServer {
    * - Authentication manager shutdown
    * - Session cleanup
    * - Timer cleanup
+   * - Streamable session repository flush
    */
   public shutdown(): void {
     this.oauthProvider.shutdown();
+    this.streamableSessionRepository.stopPeriodicFlush();
   }
 }

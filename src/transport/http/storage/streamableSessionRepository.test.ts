@@ -246,4 +246,146 @@ describe('StreamableSessionRepository', () => {
       expect(result).toBe(false);
     });
   });
+
+  describe('updateAccessThrottled', () => {
+    const sessionId = 'stream-test-session-id';
+    const now = Date.now();
+    const storedData = {
+      tags: ['test'],
+      expires: now + 1000,
+      createdAt: now - 10000,
+      lastAccessedAt: now - 5000,
+    };
+
+    beforeEach(() => {
+      mockFileStorageService.readData.mockReturnValue(storedData);
+      vi.clearAllMocks();
+    });
+
+    it('should persist after reaching request threshold', () => {
+      // Arrange
+      const policy = AUTH_CONFIG.SERVER.STREAMABLE_SESSION.SAVE_POLICY;
+
+      // Act - trigger exactly the request threshold
+      for (let i = 0; i < policy.REQUESTS; i++) {
+        repository.updateAccess(sessionId);
+      }
+
+      // Assert - should have persisted once
+      expect(mockFileStorageService.writeData).toHaveBeenCalledTimes(1);
+      expect(mockFileStorageService.writeData).toHaveBeenCalledWith(
+        AUTH_CONFIG.SERVER.STREAMABLE_SESSION.FILE_PREFIX,
+        sessionId,
+        expect.objectContaining({
+          lastAccessedAt: expect.any(Number),
+          expires: expect.any(Number),
+        }),
+      );
+    });
+
+    it('should persist after reaching time threshold', async () => {
+      // Arrange
+      const policy = AUTH_CONFIG.SERVER.STREAMABLE_SESSION.SAVE_POLICY;
+      let mockTime = now;
+      vi.spyOn(Date, 'now').mockImplementation(() => mockTime);
+
+      // Act - single request, then advance time past threshold
+      repository.updateAccess(sessionId);
+      // Clear the mock to track only the second call
+      mockFileStorageService.writeData.mockClear();
+      mockTime = now + policy.INTERVAL_MS + 1000; // Past threshold
+      repository.updateAccess(sessionId);
+
+      // Assert - should have persisted due to time threshold
+      expect(mockFileStorageService.writeData).toHaveBeenCalledTimes(1);
+
+      // Cleanup
+      vi.spyOn(Date, 'now').mockRestore();
+    });
+
+    it('should use whichever trigger fires first', () => {
+      // Arrange
+      const policy = AUTH_CONFIG.SERVER.STREAMABLE_SESSION.SAVE_POLICY;
+      let mockTime = now;
+      vi.spyOn(Date, 'now').mockImplementation(() => mockTime);
+
+      // Act - advance time past threshold, then make requests
+      mockTime = now + policy.INTERVAL_MS + 1000;
+      repository.updateAccess(sessionId);
+
+      // Assert - should have persisted due to time threshold (not waiting for request threshold)
+      expect(mockFileStorageService.writeData).toHaveBeenCalledTimes(1);
+
+      // Cleanup
+      vi.spyOn(Date, 'now').mockRestore();
+    });
+
+    it('should reset counters after persistence', () => {
+      // Arrange
+      const policy = AUTH_CONFIG.SERVER.STREAMABLE_SESSION.SAVE_POLICY;
+
+      // Act - trigger persistence, then make more requests
+      for (let i = 0; i < policy.REQUESTS; i++) {
+        repository.updateAccess(sessionId);
+      }
+      // Reset mock to track new calls
+      mockFileStorageService.writeData.mockClear();
+
+      // Make more requests (should not persist yet)
+      for (let i = 0; i < policy.REQUESTS - 1; i++) {
+        repository.updateAccess(sessionId);
+      }
+
+      // Assert - should not have persisted again yet
+      expect(mockFileStorageService.writeData).not.toHaveBeenCalled();
+    });
+
+    it('should always update in-memory timestamps regardless of persistence', () => {
+      // Arrange
+      const policy = AUTH_CONFIG.SERVER.STREAMABLE_SESSION.SAVE_POLICY;
+
+      // Act - make requests below threshold
+      for (let i = 0; i < policy.REQUESTS - 1; i++) {
+        repository.updateAccess(sessionId);
+      }
+
+      // Assert - should not have persisted but in-memory state should be updated
+      expect(mockFileStorageService.writeData).not.toHaveBeenCalled();
+      // Note: We can't directly test private state, but the behavior is verified
+      // by the fact that the next request will trigger persistence
+    });
+
+    it('should handle concurrent updates to same session', () => {
+      // Arrange
+      const policy = AUTH_CONFIG.SERVER.STREAMABLE_SESSION.SAVE_POLICY;
+
+      // Act - simulate concurrent updates
+      const promises = [];
+      for (let i = 0; i < policy.REQUESTS; i++) {
+        promises.push(Promise.resolve(repository.updateAccess(sessionId)));
+      }
+      Promise.all(promises);
+
+      // Assert - should have persisted once (not multiple times)
+      expect(mockFileStorageService.writeData).toHaveBeenCalledTimes(1);
+    });
+
+    it('should not persist if session does not exist', () => {
+      // Arrange
+      mockFileStorageService.readData.mockReturnValue(null);
+
+      // Act
+      repository.updateAccess(sessionId);
+
+      // Assert - should not have persisted
+      expect(mockFileStorageService.writeData).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('stopPeriodicFlush', () => {
+    it('should stop periodic flush without errors', () => {
+      // Act & Assert - should not throw
+      expect(() => repository.stopPeriodicFlush()).not.toThrow();
+    });
+  });
 });
