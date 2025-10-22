@@ -23,6 +23,21 @@ vi.mock('@modelcontextprotocol/sdk/server/streamableHttp.js', () => ({
   }),
 }));
 
+vi.mock('@src/transport/http/restorableStreamableTransport.js', () => ({
+  RestorableStreamableHTTPServerTransport: vi.fn().mockImplementation((options) => {
+    const transport = {
+      sessionId: options?.sessionIdGenerator?.() || 'mock-session-id',
+      onclose: null,
+      onerror: null,
+      handleRequest: vi.fn().mockResolvedValue(undefined),
+      markAsInitialized: vi.fn(),
+      isRestored: vi.fn(() => true),
+      getRestorationInfo: vi.fn(() => ({ isRestored: true, sessionId: options?.sessionIdGenerator?.() })),
+    };
+    return transport;
+  }),
+}));
+
 vi.mock('@src/logger/logger.js', () => ({
   default: {
     info: vi.fn(),
@@ -364,13 +379,18 @@ describe('Streamable HTTP Routes', () => {
     });
 
     it('should restore session from persistent storage when not in memory', async () => {
-      const { StreamableHTTPServerTransport } = await import('@modelcontextprotocol/sdk/server/streamableHttp.js');
+      const { RestorableStreamableHTTPServerTransport } = await import(
+        '@src/transport/http/restorableStreamableTransport.js'
+      );
 
       const mockTransport = {
         sessionId: 'restored-session',
         onclose: null,
         onerror: null,
         handleRequest: vi.fn().mockResolvedValue(undefined),
+        markAsInitialized: vi.fn(),
+        isRestored: vi.fn(() => true),
+        getRestorationInfo: vi.fn(() => ({ isRestored: true, sessionId: 'restored-session' })),
       };
 
       mockRequest.headers = { 'mcp-session-id': 'restored-session' };
@@ -381,11 +401,15 @@ describe('Streamable HTTP Routes', () => {
         tagFilterMode: 'simple-or',
         enablePagination: true,
       });
-      vi.mocked(StreamableHTTPServerTransport).mockReturnValue(mockTransport as any);
+      vi.mocked(RestorableStreamableHTTPServerTransport).mockReturnValue(mockTransport as any);
 
       await postHandler(mockRequest, mockResponse);
 
       expect(mockSessionRepository.get).toHaveBeenCalledWith('restored-session');
+      expect(RestorableStreamableHTTPServerTransport).toHaveBeenCalledWith({
+        sessionIdGenerator: expect.any(Function),
+      });
+      expect(mockTransport.markAsInitialized).toHaveBeenCalled();
       expect(mockServerManager.connectTransport).toHaveBeenCalledWith(mockTransport, 'restored-session', {
         tags: ['filesystem'],
         tagFilterMode: 'simple-or',
@@ -393,6 +417,35 @@ describe('Streamable HTTP Routes', () => {
       });
       expect(mockSessionRepository.updateAccess).toHaveBeenCalledWith('restored-session');
       expect(mockTransport.handleRequest).toHaveBeenCalledWith(mockRequest, mockResponse, mockRequest.body);
+    });
+
+    it('should call markAsInitialized when restoring session', async () => {
+      const { RestorableStreamableHTTPServerTransport } = await import(
+        '@src/transport/http/restorableStreamableTransport.js'
+      );
+
+      const mockTransport = {
+        sessionId: 'test-restore',
+        onclose: null,
+        onerror: null,
+        handleRequest: vi.fn().mockResolvedValue(undefined),
+        markAsInitialized: vi.fn(),
+        isRestored: vi.fn(() => true),
+      };
+
+      mockRequest.headers = { 'mcp-session-id': 'test-restore' };
+      mockRequest.body = { method: 'test' };
+      mockServerManager.getTransport.mockReturnValue(null);
+      mockSessionRepository.get.mockReturnValue({
+        tags: ['test'],
+        enablePagination: false,
+      });
+      vi.mocked(RestorableStreamableHTTPServerTransport).mockReturnValue(mockTransport as any);
+
+      await postHandler(mockRequest, mockResponse);
+
+      expect(mockTransport.markAsInitialized).toHaveBeenCalledTimes(1);
+      expect(mockTransport.isRestored()).toBe(true);
     });
 
     it('should return 400 when session uses different transport', async () => {

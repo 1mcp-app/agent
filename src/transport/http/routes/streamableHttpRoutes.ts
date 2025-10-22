@@ -16,19 +16,21 @@ import {
   getValidatedTags,
 } from '@src/transport/http/middlewares/scopeAuthMiddleware.js';
 import tagsExtractor from '@src/transport/http/middlewares/tagsExtractor.js';
+import { RestorableStreamableHTTPServerTransport } from '@src/transport/http/restorableStreamableTransport.js';
 import { StreamableSessionRepository } from '@src/transport/http/storage/streamableSessionRepository.js';
 
 import { Request, Response, Router } from 'express';
 
 /**
  * Helper function to restore a streamable HTTP session from persistent storage
+ * Uses RestorableStreamableHTTPServerTransport | RestorableStreamableHTTPServerTransport wrapper for proper initialization handling
  */
 async function restoreSession(
   sessionId: string,
   serverManager: ServerManager,
   sessionRepository: StreamableSessionRepository,
   asyncOrchestrator?: AsyncLoadingOrchestrator,
-): Promise<StreamableHTTPServerTransport | null> {
+): Promise<RestorableStreamableHTTPServerTransport | null> {
   try {
     // Try to retrieve session config from storage
     const sessionData = sessionRepository.get(sessionId);
@@ -41,17 +43,14 @@ async function restoreSession(
 
     logger.info(`Restoring streamable session: ${sessionId}`);
 
-    // Create new transport with the original session ID
-    const transport = new StreamableHTTPServerTransport({
+    // Create new transport with the original session ID using wrapper class
+    const transport = new RestorableStreamableHTTPServerTransport({
       sessionIdGenerator: () => sessionId,
     });
 
-    // CRITICAL: Mark the transport as initialized by setting private field
-    // When restoring a session, the client won't send an initialize request again
-    // because from the client's perspective, the session is already initialized.
-    // The MCP SDK checks _initialized flag and rejects requests if it's false.
-    // We need to set this flag to true to allow the restored session to work.
-    (transport as any)._initialized = true;
+    // Mark the transport as initialized for restored session
+    // The wrapper class safely handles the SDK's internal _initialized flag
+    transport.markAsInitialized();
     transport.sessionId = sessionId;
 
     // Reconnect with the original configuration
@@ -84,7 +83,7 @@ async function restoreSession(
     // Update last accessed time with dual-trigger persistence
     sessionRepository.updateAccess(sessionId);
 
-    logger.info(`Successfully restored streamable session: ${sessionId}`);
+    logger.info(`Successfully restored streamable session: ${sessionId} (restored: ${transport.isRestored()})`);
     return transport;
   } catch (error) {
     logger.error(`Failed to restore streamable session ${sessionId}:`, error);
@@ -110,7 +109,7 @@ export function setupStreamableHttpRoutes(
 
   router.post(STREAMABLE_HTTP_ENDPOINT, ...middlewares, async (req: Request, res: Response) => {
     try {
-      let transport: StreamableHTTPServerTransport;
+      let transport: StreamableHTTPServerTransport | RestorableStreamableHTTPServerTransport;
       const sessionId = req.headers['mcp-session-id'] as string | undefined;
 
       if (!sessionId) {
@@ -183,7 +182,10 @@ export function setupStreamableHttpRoutes(
             return;
           }
           transport = restoredTransport;
-        } else if (existingTransport instanceof StreamableHTTPServerTransport) {
+        } else if (
+          existingTransport instanceof StreamableHTTPServerTransport ||
+          existingTransport instanceof RestorableStreamableHTTPServerTransport
+        ) {
           transport = existingTransport;
           // Update last accessed time for active sessions with dual-trigger persistence
           sessionRepository.updateAccess(sessionId);
@@ -218,7 +220,9 @@ export function setupStreamableHttpRoutes(
         return;
       }
 
-      let transport = serverManager.getTransport(sessionId) as StreamableHTTPServerTransport;
+      let transport = serverManager.getTransport(sessionId) as
+        | StreamableHTTPServerTransport
+        | RestorableStreamableHTTPServerTransport;
       if (!transport) {
         // Attempt to restore session from persistent storage
         const restoredTransport = await restoreSession(sessionId, serverManager, sessionRepository, asyncOrchestrator);
@@ -256,7 +260,9 @@ export function setupStreamableHttpRoutes(
         return;
       }
 
-      let transport = serverManager.getTransport(sessionId) as StreamableHTTPServerTransport;
+      let transport = serverManager.getTransport(sessionId) as
+        | StreamableHTTPServerTransport
+        | RestorableStreamableHTTPServerTransport;
       if (!transport) {
         // Attempt to restore session from persistent storage
         const restoredTransport = await restoreSession(sessionId, serverManager, sessionRepository, asyncOrchestrator);
