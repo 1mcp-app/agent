@@ -202,14 +202,18 @@ describe('Streamable HTTP Routes', () => {
 
     it('should create new session when no sessionId header', async () => {
       const { StreamableHTTPServerTransport } = await import('@modelcontextprotocol/sdk/server/streamableHttp.js');
-      const { getValidatedTags, getTagExpression, getTagFilterMode } = await import(
+      const { getValidatedTags, getTagExpression, getTagFilterMode, getPresetName } = await import(
         '@src/transport/http/middlewares/scopeAuthMiddleware.js'
       );
       const { randomUUID } = await import('node:crypto');
 
+      // Clear mocks specifically for this test
+      vi.mocked(mockServerManager.connectTransport).mockClear();
+
       vi.mocked(getValidatedTags).mockReturnValue(['test-tag']);
       vi.mocked(getTagExpression).mockReturnValue(undefined);
       vi.mocked(getTagFilterMode).mockReturnValue('none');
+      vi.mocked(getPresetName).mockReturnValue(undefined);
       vi.mocked(randomUUID).mockReturnValue('550e8400-e29b-41d4-a716-446655440000');
 
       const mockTransport = {
@@ -257,10 +261,19 @@ describe('Streamable HTTP Routes', () => {
 
     it('should setup onclose handler for new transport', async () => {
       const { StreamableHTTPServerTransport } = await import('@modelcontextprotocol/sdk/server/streamableHttp.js');
-      const { getValidatedTags } = await import('../middlewares/scopeAuthMiddleware.js');
+      const { getValidatedTags, getTagExpression, getTagFilterMode, getPresetName } = await import(
+        '../middlewares/scopeAuthMiddleware.js'
+      );
       const { randomUUID } = await import('node:crypto');
 
+      // Clear mocks specifically for this test
+      vi.mocked(mockServerManager.connectTransport).mockClear();
+      vi.mocked(mockServerManager.disconnectTransport).mockClear();
+
       vi.mocked(getValidatedTags).mockReturnValue([]);
+      vi.mocked(getTagExpression).mockReturnValue(undefined);
+      vi.mocked(getTagFilterMode).mockReturnValue('none');
+      vi.mocked(getPresetName).mockReturnValue(undefined);
       vi.mocked(randomUUID).mockReturnValue('550e8400-e29b-41d4-a716-446655440001');
 
       const mockTransport = {
@@ -286,14 +299,18 @@ describe('Streamable HTTP Routes', () => {
 
     it('should handle pagination disabled', async () => {
       const { StreamableHTTPServerTransport } = await import('@modelcontextprotocol/sdk/server/streamableHttp.js');
-      const { getValidatedTags, getTagExpression, getTagFilterMode } = await import(
+      const { getValidatedTags, getTagExpression, getTagFilterMode, getPresetName } = await import(
         '../middlewares/scopeAuthMiddleware.js'
       );
       const { randomUUID } = await import('node:crypto');
 
+      // Clear mocks specifically for this test
+      vi.mocked(mockServerManager.connectTransport).mockClear();
+
       vi.mocked(getValidatedTags).mockReturnValue(['tag1', 'tag2']);
       vi.mocked(getTagExpression).mockReturnValue(undefined);
       vi.mocked(getTagFilterMode).mockReturnValue('none');
+      vi.mocked(getPresetName).mockReturnValue(undefined);
       vi.mocked(randomUUID).mockReturnValue('550e8400-e29b-41d4-a716-446655440002');
 
       const mockTransport = {
