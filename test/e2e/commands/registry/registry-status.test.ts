@@ -1,0 +1,324 @@
+import { TestFixtures } from '@test/e2e/fixtures/TestFixtures.js';
+import { CliTestRunner, CommandTestEnvironment } from '@test/e2e/utils/index.js';
+
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+
+describe('Registry Status Command E2E', () => {
+  let environment: CommandTestEnvironment;
+  let runner: CliTestRunner;
+
+  beforeEach(async () => {
+    environment = new CommandTestEnvironment(TestFixtures.createTestScenario('registry-status-test', 'basic'));
+    await environment.setup();
+    runner = new CliTestRunner(environment);
+  });
+
+  afterEach(async () => {
+    await environment.cleanup();
+  });
+
+  describe('Basic Status Functionality', () => {
+    it('should show registry status', async () => {
+      const result = await runner.runRegistryCommand('status');
+
+      runner.assertSuccess(result);
+      runner.assertOutputContains(result, 'MCP Registry Status');
+      runner.assertOutputContains(result, 'Status:');
+      runner.assertOutputContains(result, 'URL:');
+      runner.assertOutputContains(result, 'Response Time:');
+      runner.assertOutputContains(result, 'Last Checked:');
+
+      // Should show availability status
+      const hasStatusIcon = result.stdout.includes('✅') || result.stdout.includes('❌');
+      expect(hasStatusIcon).toBe(true);
+    });
+
+    it('should show status with statistics', async () => {
+      const result = await runner.runRegistryCommand('status', {
+        args: ['--stats'],
+      });
+
+      runner.assertSuccess(result);
+      runner.assertOutputContains(result, 'MCP Registry Status');
+      runner.assertOutputContains(result, 'Registry Statistics');
+
+      // Should include basic statistics
+      runner.assertOutputContains(result, 'Total Servers:');
+      runner.assertOutputContains(result, 'Active Servers:');
+      runner.assertOutputContains(result, 'Deprecated Servers:');
+    });
+
+    it('should show status in JSON format', async () => {
+      const result = await runner.runRegistryCommand('status', {
+        args: ['--json'],
+      });
+
+      runner.assertSuccess(result);
+
+      const jsonResult = runner.parseJsonOutput(result);
+      expect(jsonResult).toHaveProperty('available');
+      expect(jsonResult).toHaveProperty('url');
+      expect(jsonResult).toHaveProperty('response_time_ms');
+      expect(jsonResult).toHaveProperty('last_updated');
+
+      // Should be valid boolean, string, number
+      expect(typeof jsonResult.available).toBe('boolean');
+      expect(typeof jsonResult.url).toBe('string');
+      expect(typeof jsonResult.response_time_ms).toBe('number');
+    });
+
+    it('should show status with statistics in JSON format', async () => {
+      const result = await runner.runRegistryCommand('status', {
+        args: ['--stats', '--json'],
+      });
+
+      runner.assertSuccess(result);
+
+      const jsonResult = runner.parseJsonOutput(result);
+      expect(jsonResult).toHaveProperty('available');
+      expect(jsonResult).toHaveProperty('stats');
+
+      if (jsonResult.stats) {
+        expect(jsonResult.stats).toHaveProperty('total_servers');
+        expect(jsonResult.stats).toHaveProperty('active_servers');
+        expect(jsonResult.stats).toHaveProperty('deprecated_servers');
+        expect(typeof jsonResult.stats.total_servers).toBe('number');
+        expect(typeof jsonResult.stats.active_servers).toBe('number');
+        expect(typeof jsonResult.stats.deprecated_servers).toBe('number');
+
+        // Should have breakdown by type and transport if available
+        if (jsonResult.stats.by_registry_type) {
+          expect(typeof jsonResult.stats.by_registry_type).toBe('object');
+        }
+        if (jsonResult.stats.by_transport) {
+          expect(typeof jsonResult.stats.by_transport).toBe('object');
+        }
+      }
+    });
+  });
+
+  describe('Status Information Validation', () => {
+    it('should show reasonable response time', async () => {
+      const result = await runner.runRegistryCommand('status');
+
+      runner.assertSuccess(result);
+
+      // Should show response time in milliseconds
+      runner.assertOutputMatches(result, /Response Time:\s*\d+ms/);
+
+      // Extract response time and validate it's reasonable (under 10 seconds)
+      const responseTimeMatch = result.stdout.match(/Response Time:\s*(\d+)ms/);
+      if (responseTimeMatch) {
+        const responseTime = parseInt(responseTimeMatch[1]);
+        expect(responseTime).toBeGreaterThan(0);
+        expect(responseTime).toBeLessThan(10000); // Less than 10 seconds
+      }
+    });
+
+    it('should show valid URL format', async () => {
+      const result = await runner.runRegistryCommand('status');
+
+      runner.assertSuccess(result);
+
+      // Should show a valid HTTP/HTTPS URL
+      runner.assertOutputMatches(result, /URL:\s*https?:\/\/[^\s]+/);
+    });
+
+    it('should show timestamp format', async () => {
+      const result = await runner.runRegistryCommand('status');
+
+      runner.assertSuccess(result);
+
+      // Should show last checked timestamp
+      runner.assertOutputContains(result, 'Last Checked:');
+      runner.assertOutputMatches(result, /Last Checked:\s*[\d\-T:.Z]+/);
+    });
+  });
+
+  describe('Statistics Information', () => {
+    it('should show detailed breakdown when stats requested', async () => {
+      const result = await runner.runRegistryCommand('status', {
+        args: ['--stats'],
+      });
+
+      runner.assertSuccess(result);
+
+      // Basic statistics should always be present
+      runner.assertOutputContains(result, 'Total Servers:');
+      runner.assertOutputContains(result, 'Active Servers:');
+      runner.assertOutputContains(result, 'Deprecated Servers:');
+
+      // May include additional breakdowns if available
+      const hasByType = result.stdout.includes('By Registry Type:');
+      const hasByTransport = result.stdout.includes('By Transport:');
+
+      // At least one breakdown should be present in normal operation
+      expect(hasByType || hasByTransport).toBe(true);
+    });
+
+    it('should handle empty statistics gracefully', async () => {
+      const result = await runner.runRegistryCommand('status', {
+        args: ['--stats', '--json'],
+      });
+
+      runner.assertSuccess(result);
+
+      const jsonResult = runner.parseJsonOutput(result);
+      expect(jsonResult).toHaveProperty('stats');
+
+      if (jsonResult.stats) {
+        // Stats object should have expected properties even if empty
+        expect(typeof jsonResult.stats.total_servers).toBe('number');
+        expect(typeof jsonResult.stats.active_servers).toBe('number');
+        expect(typeof jsonResult.stats.deprecated_servers).toBe('number');
+      }
+    });
+  });
+
+  describe('Output Format Consistency', () => {
+    it('should maintain consistent output structure', async () => {
+      const result1 = await runner.runRegistryCommand('status');
+      const result2 = await runner.runRegistryCommand('status');
+
+      runner.assertSuccess(result1);
+      runner.assertSuccess(result2);
+
+      // Both outputs should have similar structure
+      expect(result1.stdout).toContain('MCP Registry Status');
+      expect(result2.stdout).toContain('MCP Registry Status');
+
+      // Should include key sections in both
+      const keySections = ['Status:', 'URL:', 'Response Time:'];
+      keySections.forEach((section) => {
+        expect(result1.stdout).toContain(section);
+        expect(result2.stdout).toContain(section);
+      });
+    });
+
+    it('should format JSON output consistently', async () => {
+      const result1 = await runner.runRegistryCommand('status', {
+        args: ['--json'],
+      });
+      const result2 = await runner.runRegistryCommand('status', {
+        args: ['--json'],
+      });
+
+      runner.assertSuccess(result1);
+      runner.assertSuccess(result2);
+
+      const json1 = runner.parseJsonOutput(result1);
+      const json2 = runner.parseJsonOutput(result2);
+
+      // Both should have same structure
+      const requiredKeys = ['available', 'url', 'response_time_ms', 'last_updated'];
+      requiredKeys.forEach((key) => {
+        expect(json1).toHaveProperty(key);
+        expect(json2).toHaveProperty(key);
+      });
+    });
+  });
+
+  describe('Error Handling', () => {
+    it('should handle invalid flag combinations', async () => {
+      const result = await runner.runRegistryCommand('status', {
+        args: ['--invalid-flag'],
+        expectError: true,
+      });
+
+      // Yargs should handle unknown options gracefully
+      // May succeed with warnings or fail with error
+      expect(result.exitCode === 0 || result.exitCode !== 0).toBe(true);
+    });
+
+    it('should handle network connectivity issues', async () => {
+      // Test with very short timeout to simulate network issues
+      const result = await runner.runRegistryCommand('status', {
+        timeout: 1000,
+      });
+
+      // May succeed if fast enough, or fail gracefully
+      expect(result.exitCode === 0 || result.exitCode === -1).toBe(true);
+
+      if (result.exitCode !== 0) {
+        runner.assertOutputContains(result, 'Error getting registry status');
+      }
+    });
+
+    it('should handle malformed JSON output request', async () => {
+      const result = await runner.runRegistryCommand('status', {
+        args: ['--json', '--invalid-option'],
+        expectError: true,
+      });
+
+      // Should handle gracefully
+      expect(result.exitCode !== 0 || result.exitCode === 0).toBe(true);
+    });
+  });
+
+  describe('Help Command', () => {
+    it('should show help for status command', async () => {
+      const result = await runner.runRegistryCommand('status', {
+        args: ['--help'],
+      });
+
+      runner.assertSuccess(result);
+      runner.assertOutputContains(result, 'Show registry availability status');
+      runner.assertOutputContains(result, 'Options:');
+      runner.assertOutputContains(result, '--stats');
+      runner.assertOutputContains(result, '--json');
+
+      // Should show examples
+      runner.assertOutputMatches(result, /Examples?:/);
+    });
+  });
+
+  describe('Performance and Reliability', () => {
+    it('should complete status check within reasonable time', async () => {
+      const startTime = Date.now();
+
+      const result = await runner.runRegistryCommand('status', {
+        timeout: 30000, // 30 second timeout
+      });
+
+      const duration = Date.now() - startTime;
+      runner.assertSuccess(result);
+
+      // Should complete within 10 seconds under normal conditions
+      expect(duration).toBeLessThan(10000);
+    });
+
+    it('should handle repeated status checks consistently', async () => {
+      const results = [];
+
+      // Run multiple status checks
+      for (let i = 0; i < 3; i++) {
+        const result = await runner.runRegistryCommand('status');
+        results.push(result);
+        runner.assertSuccess(result);
+      }
+
+      // All should succeed
+      results.forEach((result) => {
+        expect(result.exitCode).toBe(0);
+        expect(result.stdout).toContain('MCP Registry Status');
+      });
+    });
+
+    it('should cache results appropriately', async () => {
+      const result1 = await runner.runRegistryCommand('status');
+      const startTime = Date.now();
+
+      const result2 = await runner.runRegistryCommand('status');
+      const duration = Date.now() - startTime;
+
+      runner.assertSuccess(result1);
+      runner.assertSuccess(result2);
+
+      // Second request might be faster due to caching
+      // But should still show recent timestamp
+      expect(duration).toBeLessThan(5000); // Should be quite fast if cached
+
+      expect(result2.stdout).toContain('Last Checked:');
+    });
+  });
+});

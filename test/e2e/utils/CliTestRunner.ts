@@ -106,6 +106,22 @@ export class CliTestRunner {
   }
 
   /**
+   * Execute Registry commands (registry subcommand)
+   */
+  async runRegistryCommand(
+    action: 'search' | 'status' | 'show' | 'versions',
+    options: CommandExecutionOptions = {},
+  ): Promise<CommandResult> {
+    const args = ['registry', action];
+
+    if (options.args) {
+      args.push(...options.args);
+    }
+
+    return this.executeCommand(args, options);
+  }
+
+  /**
    * Execute the serve command for testing server startup
    */
   async runServeCommand(options: CommandExecutionOptions = {}): Promise<CommandResult> {
