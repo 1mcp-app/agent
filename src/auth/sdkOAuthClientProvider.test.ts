@@ -29,6 +29,9 @@ vi.mock('@src/constants.js', () => ({
         TTL_MS: 30 * 24 * 60 * 60 * 1000, // 30 days
         DEFAULT_SCOPES: [],
       },
+      SESSION: {
+        SUBDIR: 'client',
+      },
     },
   },
   getGlobalConfigDir: vi.fn(() => '/mock/config/dir'),
@@ -127,7 +130,7 @@ describe('SDKOAuthClientProvider', () => {
     it('should initialize with custom session storage path', () => {
       provider = new SDKOAuthClientProvider('test-server', mockConfig, '/custom/path');
 
-      expect(FileStorageService).toHaveBeenCalledWith('/custom/path');
+      expect(FileStorageService).toHaveBeenCalledWith('/custom/path', 'client');
     });
 
     it('should load persisted data on initialization', () => {

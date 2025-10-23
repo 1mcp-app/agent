@@ -1,0 +1,71 @@
+import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
+
+import logger from '@src/logger/logger.js';
+
+/**
+ * RestorableStreamableHTTPServerTransport extends the MCP SDK's StreamableHTTPServerTransport
+ * to provide proper session restoration capabilities without directly accessing private fields.
+ *
+ * This wrapper class encapsulates the initialization logic needed for restored sessions,
+ * providing a clean interface that's less likely to break with SDK updates.
+ *
+ * @example
+ * ```typescript
+ * // For session restoration
+ * const transport = new RestorableStreamableHTTPServerTransport({
+ *   sessionIdGenerator: () => sessionId,
+ * });
+ * transport.markAsInitialized();
+ *
+ * // Check if session was restored
+ * if (transport.isRestored()) {
+ *   // Handle restored session logic
+ * }
+ * ```
+ */
+export class RestorableStreamableHTTPServerTransport extends StreamableHTTPServerTransport {
+  private _isRestored = false;
+
+  /**
+   * Marks the transport as initialized for restored sessions.
+   *
+   * When restoring a session, the client won't send an initialize request again
+   * because from the client's perspective, the session is already initialized.
+   * The MCP SDK checks the _initialized flag and rejects requests if it's false.
+   * This method safely sets that flag to allow the restored session to work.
+   *
+   * @throws Will log a warning if initialization fails but won't throw an error
+   */
+  markAsInitialized(): void {
+    try {
+      // Safely set the SDK's internal _initialized flag
+      (this as any)._initialized = true;
+      this._isRestored = true;
+      logger.debug('Transport marked as initialized for restored session');
+    } catch (error) {
+      logger.warn('Could not mark transport as initialized:', error);
+      // Don't throw - let the session attempt to work without the flag
+    }
+  }
+
+  /**
+   * Returns whether this transport was created for a restored session.
+   *
+   * @returns true if the transport was restored from persistent storage, false otherwise
+   */
+  isRestored(): boolean {
+    return this._isRestored;
+  }
+
+  /**
+   * Gets the restoration status for debugging purposes.
+   *
+   * @returns Object containing restoration metadata
+   */
+  getRestorationInfo(): { isRestored: boolean; sessionId?: string } {
+    return {
+      isRestored: this._isRestored,
+      sessionId: this.sessionId,
+    };
+  }
+}

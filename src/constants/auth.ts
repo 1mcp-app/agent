@@ -19,6 +19,7 @@ export const AUTH_CONFIG = {
       TTL_MINUTES: 24 * 60, // 24 hours
       ID_PREFIX: 'sess-',
       FILE_PREFIX: 'session_',
+      SUBDIR: 'server',
     },
 
     // OAuth authorization codes (permanent, for token exchange)
@@ -26,6 +27,7 @@ export const AUTH_CONFIG = {
       TTL_MS: 60 * 1000, // 1 minute
       ID_PREFIX: 'code-',
       FILE_PREFIX: 'auth_code_',
+      SUBDIR: 'server',
     },
 
     // OAuth authorization requests (temporary, for consent flow)
@@ -33,6 +35,7 @@ export const AUTH_CONFIG = {
       TTL_MS: 10 * 60 * 1000, // 10 minutes
       ID_PREFIX: 'code-', // Same as auth codes for compatibility
       FILE_PREFIX: 'auth_request_',
+      SUBDIR: 'server',
     },
 
     // OAuth tokens
@@ -41,9 +44,26 @@ export const AUTH_CONFIG = {
       ID_PREFIX: 'tk-',
     },
 
+    // Streamable HTTP sessions
+    STREAMABLE_SESSION: {
+      TTL_MS: 24 * 60 * 60 * 1000, // 24 hours
+      ID_PREFIX: 'stream-',
+      FILE_PREFIX: 'streamable_session_',
+      SUBDIR: 'transport',
+
+      // Redis-style save policy for performance optimization
+      SAVE_POLICY: {
+        REQUESTS: 100, // Trigger after N requests
+        INTERVAL_MS: 5 * 60 * 1000, // OR after M minutes
+        FLUSH_INTERVAL_MS: 60 * 1000, // Background flush every 60s
+      },
+    },
+
     // Client management
     CLIENT: {
       ID_PREFIX: 'client-',
+      FILE_PREFIX: 'session_cli_',
+      SUBDIR: 'server',
     },
   },
 
@@ -61,6 +81,7 @@ export const AUTH_CONFIG = {
       TTL_MS: 30 * 24 * 60 * 60 * 1000, // 30 days
       ID_PREFIX: 'oauth_',
       FILE_PREFIX: '',
+      SUBDIR: 'client',
     },
     PREFIXES: {
       CLIENT: 'cli_',
@@ -70,6 +91,20 @@ export const AUTH_CONFIG = {
     },
   },
 };
+
+// Storage subdirectory configuration
+export const STORAGE_SUBDIRS = {
+  SERVER: 'server',
+  CLIENT: 'client',
+  TRANSPORT: 'transport',
+} as const;
+
+// File prefix mapping for migration logic
+export const FILE_PREFIX_MAPPING = {
+  SERVER: ['session_', 'auth_code_', 'auth_request_'],
+  CLIENT: ['oauth_', 'cli_', 'tok_', 'ver_', 'sta_'],
+  TRANSPORT: ['streamable_session_'],
+} as const;
 
 // Rate limiting configuration for OAuth endpoints
 export const RATE_LIMIT_CONFIG = {

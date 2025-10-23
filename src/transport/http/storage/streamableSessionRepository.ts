@@ -1,0 +1,188 @@
+import { StreamableSessionData } from '@src/auth/sessionTypes.js';
+import { FileStorageService } from '@src/auth/storage/fileStorageService.js';
+import { AUTH_CONFIG } from '@src/constants.js';
+import { InboundConnectionConfig } from '@src/core/types/index.js';
+import logger from '@src/logger/logger.js';
+
+/**
+ * Repository for streamable HTTP session operations
+ *
+ * Manages session persistence with automatic expiration and cleanup.
+ * Sessions store configuration needed to restore connections after server restart.
+ *
+ * Uses Redis-style dual-trigger persistence for performance:
+ * - Persists after N requests OR M minutes, whichever comes first
+ * - Background flush every 60 seconds for dirty sessions
+ */
+export class StreamableSessionRepository {
+  // Per-session tracking for dual-trigger persistence
+  private lastPersistTimes = new Map<string, number>();
+  private lastAccessTimes = new Map<string, number>();
+  private requestCounts = new Map<string, number>();
+  private dirtySessionIds = new Set<string>();
+
+  // Background flush
+  private flushInterval: ReturnType<typeof setInterval> | null = null;
+
+  constructor(private storage: FileStorageService) {
+    this.startPeriodicFlush();
+  }
+
+  /**
+   * Creates a new streamable session with the given ID and configuration
+   */
+  create(sessionId: string, config: InboundConnectionConfig): void {
+    const sessionData: StreamableSessionData = {
+      tags: config.tags,
+      tagExpression: config.tagExpression ? JSON.stringify(config.tagExpression) : undefined,
+      tagQuery: config.tagQuery ? JSON.stringify(config.tagQuery) : undefined,
+      tagFilterMode: config.tagFilterMode,
+      presetName: config.presetName,
+      enablePagination: config.enablePagination,
+      customTemplate: config.customTemplate,
+      expires: Date.now() + AUTH_CONFIG.SERVER.STREAMABLE_SESSION.TTL_MS,
+      createdAt: Date.now(),
+      lastAccessedAt: Date.now(),
+    };
+
+    this.storage.writeData(AUTH_CONFIG.SERVER.STREAMABLE_SESSION.FILE_PREFIX, sessionId, sessionData);
+    logger.info(`Created streamable session: ${sessionId}`);
+  }
+
+  /**
+   * Retrieves a session by ID and returns the configuration
+   */
+  get(sessionId: string): InboundConnectionConfig | null {
+    const sessionData = this.storage.readData<StreamableSessionData>(
+      AUTH_CONFIG.SERVER.STREAMABLE_SESSION.FILE_PREFIX,
+      sessionId,
+    );
+
+    if (!sessionData) {
+      return null;
+    }
+
+    // Parse JSON fields back to objects
+    const config: InboundConnectionConfig = {
+      tags: sessionData.tags,
+      tagExpression: sessionData.tagExpression ? JSON.parse(sessionData.tagExpression) : undefined,
+      tagQuery: sessionData.tagQuery ? JSON.parse(sessionData.tagQuery) : undefined,
+      tagFilterMode: sessionData.tagFilterMode,
+      presetName: sessionData.presetName,
+      enablePagination: sessionData.enablePagination,
+      customTemplate: sessionData.customTemplate,
+    };
+
+    return config;
+  }
+
+  /**
+   * Updates the last accessed timestamp for a session with dual-trigger persistence
+   *
+   * Uses Redis-style save policy: persists after N requests OR M minutes, whichever comes first.
+   * Always updates in-memory timestamps to prevent data loss.
+   */
+  updateAccess(sessionId: string): void {
+    const now = Date.now();
+
+    // Always update in-memory timestamps
+    this.lastAccessTimes.set(sessionId, now);
+    const count = (this.requestCounts.get(sessionId) || 0) + 1;
+    this.requestCounts.set(sessionId, count);
+    this.dirtySessionIds.add(sessionId);
+
+    // Check dual triggers: N requests OR M minutes
+    const lastPersist = this.lastPersistTimes.get(sessionId) || 0;
+    const timeSince = now - lastPersist;
+    const policy = AUTH_CONFIG.SERVER.STREAMABLE_SESSION.SAVE_POLICY;
+
+    if (count >= policy.REQUESTS || timeSince >= policy.INTERVAL_MS) {
+      this.persistSessionAccess(sessionId, now);
+    }
+  }
+
+  /**
+   * Deletes a session by ID
+   */
+  delete(sessionId: string): boolean {
+    // Clean up in-memory tracking
+    this.lastPersistTimes.delete(sessionId);
+    this.lastAccessTimes.delete(sessionId);
+    this.requestCounts.delete(sessionId);
+    this.dirtySessionIds.delete(sessionId);
+
+    const result = this.storage.deleteData(AUTH_CONFIG.SERVER.STREAMABLE_SESSION.FILE_PREFIX, sessionId);
+    if (result) {
+      logger.info(`Deleted streamable session: ${sessionId}`);
+    }
+    return result;
+  }
+
+  /**
+   * Persists session access to disk and resets counters
+   */
+  private persistSessionAccess(sessionId: string, accessTime: number): void {
+    const sessionData = this.storage.readData<StreamableSessionData>(
+      AUTH_CONFIG.SERVER.STREAMABLE_SESSION.FILE_PREFIX,
+      sessionId,
+    );
+
+    if (sessionData) {
+      sessionData.lastAccessedAt = accessTime;
+      // Extend expiration on access
+      sessionData.expires = accessTime + AUTH_CONFIG.SERVER.STREAMABLE_SESSION.TTL_MS;
+      this.storage.writeData(AUTH_CONFIG.SERVER.STREAMABLE_SESSION.FILE_PREFIX, sessionId, sessionData);
+
+      // Reset counters and update persist time
+      this.lastPersistTimes.set(sessionId, accessTime);
+      this.requestCounts.set(sessionId, 0);
+      this.dirtySessionIds.delete(sessionId);
+
+      logger.debug(`Persisted access time for streamable session: ${sessionId}`);
+    }
+  }
+
+  /**
+   * Flushes all dirty sessions to disk
+   */
+  private flushDirtySessions(): void {
+    if (this.dirtySessionIds.size === 0) {
+      return;
+    }
+
+    const sessionsToFlush = Array.from(this.dirtySessionIds);
+
+    for (const sessionId of sessionsToFlush) {
+      const lastAccess = this.lastAccessTimes.get(sessionId);
+      if (lastAccess) {
+        this.persistSessionAccess(sessionId, lastAccess);
+      }
+    }
+
+    logger.debug(`Flushed ${sessionsToFlush.length} dirty sessions`);
+  }
+
+  /**
+   * Starts periodic background flush of dirty sessions
+   */
+  private startPeriodicFlush(): void {
+    const policy = AUTH_CONFIG.SERVER.STREAMABLE_SESSION.SAVE_POLICY;
+    this.flushInterval = setInterval(() => {
+      this.flushDirtySessions();
+    }, policy.FLUSH_INTERVAL_MS);
+  }
+
+  /**
+   * Stops periodic flush and performs final flush of all dirty sessions
+   */
+  public stopPeriodicFlush(): void {
+    if (this.flushInterval) {
+      clearInterval(this.flushInterval);
+      this.flushInterval = null;
+    }
+
+    // Final flush of all dirty sessions
+    this.flushDirtySessions();
+    logger.info('Stopped periodic flush and flushed remaining dirty sessions');
+  }
+}

@@ -24,7 +24,7 @@ export class OAuthStorageService {
   private clientData: ClientDataRepository;
 
   constructor(storageDir?: string) {
-    this.storage = new FileStorageService(storageDir);
+    this.storage = new FileStorageService(storageDir, AUTH_CONFIG.SERVER.SESSION.SUBDIR);
     this.sessions = new SessionRepository(this.storage);
     this.authCodes = new AuthCodeRepository(this.storage);
     this.authRequests = new AuthRequestRepository(this.storage);

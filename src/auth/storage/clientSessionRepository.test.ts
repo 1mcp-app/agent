@@ -573,7 +573,7 @@ describe('ClientSessionRepository', () => {
       // Check that file was created with correct prefix
       const sessionId = `${AUTH_CONFIG.CLIENT.SESSION.ID_PREFIX}${serverName}`;
       const expectedFileName = AUTH_CONFIG.CLIENT.SESSION.FILE_PREFIX + sessionId + '.json';
-      const filePath = path.join(tempDir, expectedFileName);
+      const filePath = path.join(storage.getStorageDir(), expectedFileName);
 
       expect(fs.existsSync(filePath)).toBe(true);
     });
