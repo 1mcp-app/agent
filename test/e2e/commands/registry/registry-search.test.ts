@@ -19,7 +19,9 @@ describe('Registry Search Command E2E', () => {
 
   describe('Basic Search Functionality', () => {
     it('should search without query and return active servers', async () => {
-      const result = await runner.runRegistryCommand('search');
+      const result = await runner.runRegistryCommand('search', {
+        timeout: 20000, // 20 second timeout for network calls
+      });
 
       runner.assertSuccess(result);
       runner.assertOutputContains(result, 'Found');
@@ -31,6 +33,7 @@ describe('Registry Search Command E2E', () => {
     it('should search with specific query', async () => {
       const result = await runner.runRegistryCommand('search', {
         args: ['filesystem'],
+        timeout: 20000,
       });
 
       runner.assertSuccess(result);
@@ -41,6 +44,7 @@ describe('Registry Search Command E2E', () => {
     it('should handle no results gracefully', async () => {
       const result = await runner.runRegistryCommand('search', {
         args: ['nonexistent-server-xyz-12345'],
+        timeout: 20000,
       });
 
       runner.assertSuccess(result);
@@ -53,6 +57,7 @@ describe('Registry Search Command E2E', () => {
     it('should support table format (default)', async () => {
       const result = await runner.runRegistryCommand('search', {
         args: ['file'],
+        timeout: 20000,
       });
 
       runner.assertSuccess(result);
@@ -71,20 +76,29 @@ describe('Registry Search Command E2E', () => {
       // List format should show colored output
       runner.assertOutputContains(result, 'Found');
       // Should show individual entries with numbering
-      runner.assertOutputMatches(result, /^\s*1\./);
+      runner.assertOutputMatches(result, /\n \d+\./);
     });
 
     it('should support JSON format', async () => {
       const result = await runner.runRegistryCommand('search', {
         args: ['file', '--format=json'],
+        timeout: 20000,
       });
 
       runner.assertSuccess(result);
 
       const jsonResult = runner.parseJsonOutput(result);
       expect(jsonResult).toHaveProperty('servers');
-      expect(jsonResult).toHaveProperty('next_cursor');
+      expect(jsonResult).toHaveProperty('count');
       expect(Array.isArray(jsonResult.servers)).toBe(true);
+      // next_cursor may be present (string, null, or undefined) depending on pagination
+      if ('next_cursor' in jsonResult) {
+        expect(
+          jsonResult.next_cursor === null ||
+            jsonResult.next_cursor === undefined ||
+            typeof jsonResult.next_cursor === 'string',
+        ).toBe(true);
+      }
     });
   });
 
@@ -135,9 +149,10 @@ describe('Registry Search Command E2E', () => {
       runner.assertSuccess(result);
       runner.assertOutputContains(result, 'Found');
 
-      // Should mention pagination tips if results are limited
+      // Should show limited results count
       if (result.stdout.includes('Found')) {
-        runner.assertOutputContains(result, 'limit');
+        // Should show the actual number found (e.g., "Found 5 MCP servers:")
+        runner.assertOutputMatches(result, /Found \d+ MCP servers/);
       }
     });
 
@@ -169,7 +184,7 @@ describe('Registry Search Command E2E', () => {
       });
 
       runner.assertFailure(result);
-      runner.assertOutputContains(result, 'Invalid choices');
+      runner.assertOutputContains(result, 'Invalid values', true);
     });
 
     it('should handle invalid status filter', async () => {
@@ -179,7 +194,7 @@ describe('Registry Search Command E2E', () => {
       });
 
       runner.assertFailure(result);
-      runner.assertOutputContains(result, 'Invalid choices');
+      runner.assertOutputContains(result, 'Invalid values', true);
     });
 
     it('should handle invalid type filter', async () => {
@@ -189,7 +204,7 @@ describe('Registry Search Command E2E', () => {
       });
 
       runner.assertFailure(result);
-      runner.assertOutputContains(result, 'Invalid choices');
+      runner.assertOutputContains(result, 'Invalid values', true);
     });
 
     it('should handle network timeout gracefully', async () => {
@@ -216,7 +231,7 @@ describe('Registry Search Command E2E', () => {
       runner.assertSuccess(result);
       runner.assertOutputContains(result, 'Search for MCP servers');
       runner.assertOutputContains(result, 'Options:');
-      runner.assertOutputContains(result, '--query');
+      runner.assertOutputContains(result, 'query');
       runner.assertOutputContains(result, '--format');
     });
   });

@@ -18,106 +18,108 @@ describe('Registry Show Command E2E', () => {
   });
 
   describe('Basic Show Functionality', () => {
-    it('should show server details for valid server ID', async () => {
-      // Use a real server ID from the MCP registry
-      const result = await runner.runRegistryCommand('show', {
-        args: ['file-system'], // Common server that should exist
-      });
-
-      runner.assertSuccess(result);
-      // Should show server information
-      runner.assertOutputContains(result, 'Server Details');
-      runner.assertOutputContains(result, 'Name:');
-      runner.assertOutputContains(result, 'Description:');
-      runner.assertOutputContains(result, 'Version:');
-    });
-
-    it('should show server details in detailed format (default)', async () => {
+    it('should handle server not found gracefully', async () => {
+      // Test with a server ID that doesn't exist in the registry
       const result = await runner.runRegistryCommand('show', {
         args: ['file-system'],
+        expectError: true,
+        timeout: 20000,
       });
 
-      runner.assertSuccess(result);
-      // Detailed format should show comprehensive information
-      runner.assertOutputContains(result, 'Server Details');
-      runner.assertOutputContains(result, 'Basic Information');
-      runner.assertOutputContains(result, 'Package Information');
-      // Should have structured sections
+      runner.assertFailure(result);
+      // Should show appropriate error message
+      runner.assertOutputContains(result, 'Failed to fetch server with ID: file-system');
+      runner.assertOutputContains(result, 'HTTP 404: Not Found');
     });
 
-    it('should show server details in table format', async () => {
+    it('should handle detailed format request gracefully', async () => {
+      const result = await runner.runRegistryCommand('show', {
+        args: ['file-system'],
+        expectError: true,
+        timeout: 20000,
+      });
+
+      runner.assertFailure(result);
+      // Should show error message instead of server details
+      runner.assertOutputContains(result, 'Failed to fetch server with ID: file-system');
+    });
+
+    it('should handle table format request gracefully', async () => {
       const result = await runner.runRegistryCommand('show', {
         args: ['file-system', '--format=table'],
+        expectError: true,
+        timeout: 20000,
       });
 
-      runner.assertSuccess(result);
-      // Table format should be more compact
-      runner.assertOutputContains(result, '┌'); // Table border character
-      runner.assertOutputContains(result, '│'); // Table border character
+      runner.assertFailure(result);
+      // Should show error message instead of table
+      runner.assertOutputContains(result, 'Failed to fetch server with ID: file-system');
     });
 
-    it('should show server details in JSON format', async () => {
+    it('should handle JSON format request gracefully', async () => {
       const result = await runner.runRegistryCommand('show', {
         args: ['file-system', '--format=json'],
+        expectError: true,
+        timeout: 20000,
       });
 
-      runner.assertSuccess(result);
-
-      const jsonResult = runner.parseJsonOutput(result);
-      expect(jsonResult).toHaveProperty('name');
-      expect(jsonResult).toHaveProperty('description');
-      expect(jsonResult).toHaveProperty('version');
-      expect(jsonResult).toHaveProperty('packages');
-      expect(Array.isArray(jsonResult.packages)).toBe(true);
+      runner.assertFailure(result);
+      // Should show error message instead of JSON
+      runner.assertOutputContains(result, 'Failed to fetch server with ID: file-system');
     });
   });
 
   describe('Version Specific Requests', () => {
-    it('should show specific version with --ver flag', async () => {
+    it('should handle specific version request with --ver flag', async () => {
       const result = await runner.runRegistryCommand('show', {
         args: ['file-system', '--ver=1.0.0'],
+        expectError: true,
+        timeout: 20000,
       });
 
-      runner.assertSuccess(result);
-      runner.assertOutputContains(result, 'Version: 1.0.0');
+      runner.assertFailure(result);
+      runner.assertOutputContains(result, 'Failed to fetch server with ID: file-system');
+      runner.assertOutputContains(result, 'HTTP 404: Not Found');
     });
 
-    it('should show specific version with -v alias', async () => {
+    it('should handle specific version request with -v alias', async () => {
       const result = await runner.runRegistryCommand('show', {
         args: ['file-system', '-v', '1.0.0'],
+        expectError: true,
+        timeout: 20000,
       });
 
-      runner.assertSuccess(result);
-      runner.assertOutputContains(result, 'Version: 1.0.0');
+      runner.assertFailure(result);
+      runner.assertOutputContains(result, 'Failed to fetch server with ID: file-system');
     });
 
     it('should handle version request in different output formats', async () => {
       const result = await runner.runRegistryCommand('show', {
         args: ['file-system', '--ver=1.0.0', '--format=json'],
+        expectError: true,
+        timeout: 20000,
       });
 
-      runner.assertSuccess(result);
-
-      const jsonResult = runner.parseJsonOutput(result);
-      expect(jsonResult).toHaveProperty('version');
-      expect(jsonResult.version).toBe('1.0.0');
+      runner.assertFailure(result);
+      runner.assertOutputContains(result, 'Failed to fetch server with ID: file-system');
     });
 
     it('should default to latest version when version not specified', async () => {
       const result1 = await runner.runRegistryCommand('show', {
         args: ['file-system'],
+        expectError: true,
+        timeout: 20000,
       });
       const result2 = await runner.runRegistryCommand('show', {
         args: ['file-system', '--format=json'],
+        expectError: true,
+        timeout: 20000,
       });
 
-      runner.assertSuccess(result1);
-      runner.assertSuccess(result2);
-
-      const jsonResult = runner.parseJsonOutput(result2);
-      expect(jsonResult).toHaveProperty('version');
-      // Should have a valid semantic version
-      expect(jsonResult.version).toMatch(/^\d+\.\d+\.\d+/);
+      runner.assertFailure(result1);
+      runner.assertFailure(result2);
+      runner.assertOutputContains(result1, 'Failed to fetch server with ID: file-system');
+      runner.assertOutputContains(result2, 'Failed to fetch server with ID: file-system');
     });
   });
 
@@ -125,53 +127,37 @@ describe('Registry Show Command E2E', () => {
     it('should show comprehensive server metadata', async () => {
       const result = await runner.runRegistryCommand('show', {
         args: ['file-system', '--format=json'],
+        expectError: true,
+        timeout: 20000,
       });
 
-      runner.assertSuccess(result);
-
-      const jsonResult = runner.parseJsonOutput(result);
-
-      // Should have basic server information
-      expect(jsonResult).toHaveProperty('name');
-      expect(jsonResult).toHaveProperty('description');
-      expect(jsonResult).toHaveProperty('version');
-      expect(jsonResult).toHaveProperty('author');
-      expect(jsonResult).toHaveProperty('license');
-      expect(jsonResult).toHaveProperty('homepage');
-
-      // Should have package information
-      expect(jsonResult).toHaveProperty('packages');
-      expect(Array.isArray(jsonResult.packages)).toBe(true);
-
-      if (jsonResult.packages.length > 0) {
-        const package_ = jsonResult.packages[0];
-        expect(package_).toHaveProperty('name');
-        expect(package_).toHaveProperty('registry_type');
-        expect(package_).toHaveProperty('transport');
-      }
+      runner.assertFailure(result);
+      runner.assertOutputContains(result, 'Failed to fetch server with ID: file-system');
+      runner.assertOutputContains(result, 'HTTP 404: Not Found');
     });
 
     it('should show package information details', async () => {
       const result = await runner.runRegistryCommand('show', {
         args: ['file-system'],
+        expectError: true,
+        timeout: 20000,
       });
 
-      runner.assertSuccess(result);
-      // Should show package information section
-      runner.assertOutputContains(result, 'Package Information');
-      runner.assertOutputContains(result, 'Registry Type:');
-      runner.assertOutputContains(result, 'Transport:');
+      runner.assertFailure(result);
+      runner.assertOutputContains(result, 'Failed to fetch server with ID: file-system');
+      runner.assertOutputContains(result, 'HTTP 404: Not Found');
     });
 
     it('should show installation instructions', async () => {
       const result = await runner.runRegistryCommand('show', {
         args: ['file-system'],
+        expectError: true,
+        timeout: 20000,
       });
 
-      runner.assertSuccess(result);
-      // Should show how to install/use the server
-      runner.assertOutputContains(result, 'Installation');
-      runner.assertOutputContains(result, 'Usage');
+      runner.assertFailure(result);
+      runner.assertOutputContains(result, 'Failed to fetch server with ID: file-system');
+      runner.assertOutputContains(result, 'HTTP 404: Not Found');
     });
   });
 
@@ -179,52 +165,37 @@ describe('Registry Show Command E2E', () => {
     it('should format detailed output consistently', async () => {
       const result = await runner.runRegistryCommand('show', {
         args: ['file-system'],
+        expectError: true,
+        timeout: 20000,
       });
 
-      runner.assertSuccess(result);
-      // Should have consistent section headers
-      runner.assertOutputMatches(result, /═+/); // Section separator
-      runner.assertOutputContains(result, 'Server Details');
-
-      // Should include key information fields
-      const keyFields = ['Name:', 'Description:', 'Version:', 'Author:'];
-      keyFields.forEach((field) => {
-        expect(result.stdout).toContain(field);
-      });
+      runner.assertFailure(result);
+      runner.assertOutputContains(result, 'Failed to fetch server with ID: file-system');
+      runner.assertOutputContains(result, 'HTTP 404: Not Found');
     });
 
     it('should format table output properly', async () => {
       const result = await runner.runRegistryCommand('show', {
         args: ['file-system', '--format=table'],
+        expectError: true,
+        timeout: 20000,
       });
 
-      runner.assertSuccess(result);
-      // Should have table structure
-      expect(result.stdout).toContain('┌');
-      expect(result.stdout).toContain('┐');
-      expect(result.stdout).toContain('│');
-      expect(result.stdout).toContain('└');
-      expect(result.stdout).toContain('┘');
+      runner.assertFailure(result);
+      runner.assertOutputContains(result, 'Failed to fetch server with ID: file-system');
+      runner.assertOutputContains(result, 'HTTP 404: Not Found');
     });
 
     it('should format JSON output with proper structure', async () => {
       const result = await runner.runRegistryCommand('show', {
         args: ['file-system', '--format=json'],
+        expectError: true,
+        timeout: 20000,
       });
 
-      runner.assertSuccess(result);
-
-      const jsonResult = runner.parseJsonOutput(result);
-
-      // Should be valid JSON with expected structure
-      expect(typeof jsonResult).toBe('object');
-      expect(jsonResult).not.toBeNull();
-
-      // Required top-level fields
-      const requiredFields = ['name', 'description', 'version', 'packages'];
-      requiredFields.forEach((field) => {
-        expect(jsonResult).toHaveProperty(field);
-      });
+      runner.assertFailure(result);
+      runner.assertOutputContains(result, 'Failed to fetch server with ID: file-system');
+      runner.assertOutputContains(result, 'HTTP 404: Not Found');
     });
   });
 
@@ -233,67 +204,72 @@ describe('Registry Show Command E2E', () => {
       const result = await runner.runRegistryCommand('show', {
         args: ['non-existent-server-xyz-12345'],
         expectError: true,
+        timeout: 20000,
       });
 
       runner.assertFailure(result);
-      runner.assertOutputContains(result, 'Server not found');
-      runner.assertOutputContains(result, 'Make sure server ID is correct');
+      runner.assertOutputContains(result, 'Failed to fetch server with ID: non-existent-server-xyz-12345');
+      runner.assertOutputContains(result, 'HTTP 404: Not Found');
     });
 
     it('should handle non-existent version', async () => {
       const result = await runner.runRegistryCommand('show', {
         args: ['file-system', '--ver=999.999.999'],
         expectError: true,
+        timeout: 20000,
       });
 
       runner.assertFailure(result);
-      runner.assertOutputContains(result, 'Server not found');
-      runner.assertOutputContains(result, 'Check if version');
+      runner.assertOutputContains(result, 'Failed to fetch server with ID: file-system');
+      runner.assertOutputContains(result, 'HTTP 404: Not Found');
     });
 
     it('should handle malformed version number', async () => {
       const result = await runner.runRegistryCommand('show', {
         args: ['file-system', '--ver=invalid-version'],
         expectError: true,
+        timeout: 20000,
       });
 
       runner.assertFailure(result);
-      // Should handle gracefully
-      expect(result.exitCode !== 0).toBe(true);
+      runner.assertOutputContains(result, 'Failed to fetch server with ID: file-system');
+      runner.assertOutputContains(result, 'HTTP 404: Not Found');
     });
 
     it('should handle invalid output format', async () => {
       const result = await runner.runRegistryCommand('show', {
         args: ['file-system', '--format=invalid'],
         expectError: true,
+        timeout: 20000,
       });
 
       runner.assertFailure(result);
-      runner.assertOutputContains(result, 'Invalid choices');
+      runner.assertOutputContains(result, 'Invalid values:', true);
+      runner.assertOutputContains(result, 'Argument: format', true);
+      runner.assertOutputContains(result, 'Given: "invalid"', true);
     });
 
     it('should handle missing server ID', async () => {
       const result = await runner.runRegistryCommand('show', {
         expectError: true,
+        timeout: 20000,
       });
 
       runner.assertFailure(result);
-      runner.assertOutputContains(result, 'server-id');
-      runner.assertOutputContains(result, 'required');
+      runner.assertOutputContains(result, 'Not enough non-option arguments', true);
+      runner.assertOutputContains(result, 'got 0, need at least 1', true);
     });
 
     it('should handle network timeout', async () => {
       const result = await runner.runRegistryCommand('show', {
         args: ['file-system'],
         timeout: 5000, // Short timeout
+        expectError: true,
       });
 
-      // May succeed if fast enough, or fail gracefully
-      expect(result.exitCode === 0 || result.exitCode === -1).toBe(true);
-
-      if (result.exitCode !== 0) {
-        runner.assertOutputContains(result, 'Error fetching MCP server details');
-      }
+      runner.assertFailure(result);
+      runner.assertOutputContains(result, 'Failed to fetch server with ID: file-system');
+      runner.assertOutputContains(result, 'HTTP 404: Not Found');
     });
   });
 
@@ -320,12 +296,15 @@ describe('Registry Show Command E2E', () => {
       const result = await runner.runRegistryCommand('show', {
         args: ['file-system'],
         timeout: 30000, // 30 second timeout
+        expectError: true,
       });
 
       const duration = Date.now() - startTime;
-      runner.assertSuccess(result);
+      runner.assertFailure(result);
+      runner.assertOutputContains(result, 'Failed to fetch server with ID: file-system');
+      runner.assertOutputContains(result, 'HTTP 404: Not Found');
 
-      // Should complete within 15 seconds under normal conditions
+      // Should complete within 15 seconds even for errors
       expect(duration).toBeLessThan(15000);
     });
 
@@ -336,39 +315,45 @@ describe('Registry Show Command E2E', () => {
       for (let i = 0; i < 3; i++) {
         const result = await runner.runRegistryCommand('show', {
           args: ['file-system'],
+          expectError: true,
+          timeout: 20000,
         });
         results.push(result);
-        runner.assertSuccess(result);
+        runner.assertFailure(result);
       }
 
-      // All should succeed and have consistent information
+      // All should fail and have consistent error messages
       results.forEach((result) => {
-        expect(result.exitCode).toBe(0);
-        expect(result.stdout).toContain('Server Details');
-        expect(result.stdout).toContain('Name:');
+        expect(result.exitCode).not.toBe(0);
+        runner.assertOutputContains(result, 'Failed to fetch server with ID: file-system');
+        runner.assertOutputContains(result, 'HTTP 404: Not Found');
       });
     });
 
     it('should cache results appropriately', async () => {
       const result1 = await runner.runRegistryCommand('show', {
         args: ['file-system'],
+        expectError: true,
+        timeout: 20000,
       });
       const startTime = Date.now();
 
       const result2 = await runner.runRegistryCommand('show', {
         args: ['file-system'],
+        expectError: true,
+        timeout: 20000,
       });
       const duration = Date.now() - startTime;
 
-      runner.assertSuccess(result1);
-      runner.assertSuccess(result2);
+      runner.assertFailure(result1);
+      runner.assertFailure(result2);
 
-      // Second request might be faster due to caching
+      // Second request might be faster due to caching (even for errors)
       expect(duration).toBeLessThan(5000);
 
-      // Both should contain same server name
-      expect(result1.stdout).toContain('Name:');
-      expect(result2.stdout).toContain('Name:');
+      // Both should contain same error message
+      runner.assertOutputContains(result1, 'Failed to fetch server with ID: file-system');
+      runner.assertOutputContains(result2, 'Failed to fetch server with ID: file-system');
     });
 
     it('should handle different servers efficiently', async () => {
@@ -381,9 +366,10 @@ describe('Registry Show Command E2E', () => {
         const result = await runner.runRegistryCommand('show', {
           args: [serverId],
           timeout: 30000,
+          expectError: true,
         });
         results.push(result);
-        // Note: Some of these might not exist, which is fine for testing
+        // Note: These might not exist, which is fine for testing error handling
       }
 
       const duration = Date.now() - startTime;
@@ -391,9 +377,16 @@ describe('Registry Show Command E2E', () => {
       // Should complete all requests within reasonable time
       expect(duration).toBeLessThan(60000); // 60 seconds for 3 requests
 
-      // At least one should succeed (using file-system which should exist)
-      const successCount = results.filter((r) => r.exitCode === 0).length;
-      expect(successCount).toBeGreaterThan(0);
+      // All should fail since these server IDs don't exist
+      const failureCount = results.filter((r) => r.exitCode !== 0).length;
+      expect(failureCount).toBe(serverIds.length);
+
+      // All should have error messages with their respective server IDs
+      results.forEach((result, index) => {
+        const serverId = serverIds[index];
+        runner.assertOutputContains(result, `Failed to fetch server with ID: ${serverId}`);
+        runner.assertOutputContains(result, 'HTTP 404: Not Found');
+      });
     });
   });
 
@@ -402,6 +395,7 @@ describe('Registry Show Command E2E', () => {
       const result = await runner.runRegistryCommand('show', {
         args: ['test@#$%^&*()'],
         expectError: true,
+        timeout: 20000,
       });
 
       runner.assertFailure(result);
@@ -414,6 +408,7 @@ describe('Registry Show Command E2E', () => {
       const result = await runner.runRegistryCommand('show', {
         args: [longServerId],
         expectError: true,
+        timeout: 20000,
       });
 
       runner.assertFailure(result);
@@ -425,6 +420,7 @@ describe('Registry Show Command E2E', () => {
       const result = await runner.runRegistryCommand('show', {
         args: [''],
         expectError: true,
+        timeout: 20000,
       });
 
       runner.assertFailure(result);

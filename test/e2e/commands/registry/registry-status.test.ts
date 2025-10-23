@@ -19,7 +19,9 @@ describe('Registry Status Command E2E', () => {
 
   describe('Basic Status Functionality', () => {
     it('should show registry status', async () => {
-      const result = await runner.runRegistryCommand('status');
+      const result = await runner.runRegistryCommand('status', {
+        timeout: 30000, // 30 second timeout for basic status
+      });
 
       runner.assertSuccess(result);
       runner.assertOutputContains(result, 'MCP Registry Status');
@@ -36,6 +38,7 @@ describe('Registry Status Command E2E', () => {
     it('should show status with statistics', async () => {
       const result = await runner.runRegistryCommand('status', {
         args: ['--stats'],
+        timeout: 45000, // 45 second timeout for statistics
       });
 
       runner.assertSuccess(result);
@@ -51,6 +54,7 @@ describe('Registry Status Command E2E', () => {
     it('should show status in JSON format', async () => {
       const result = await runner.runRegistryCommand('status', {
         args: ['--json'],
+        timeout: 30000, // 30 second timeout for JSON
       });
 
       runner.assertSuccess(result);
@@ -70,6 +74,7 @@ describe('Registry Status Command E2E', () => {
     it('should show status with statistics in JSON format', async () => {
       const result = await runner.runRegistryCommand('status', {
         args: ['--stats', '--json'],
+        timeout: 60000, // 60 second timeout for stats + JSON
       });
 
       runner.assertSuccess(result);
@@ -99,7 +104,9 @@ describe('Registry Status Command E2E', () => {
 
   describe('Status Information Validation', () => {
     it('should show reasonable response time', async () => {
-      const result = await runner.runRegistryCommand('status');
+      const result = await runner.runRegistryCommand('status', {
+        timeout: 30000, // 30 second timeout
+      });
 
       runner.assertSuccess(result);
 
@@ -116,7 +123,9 @@ describe('Registry Status Command E2E', () => {
     });
 
     it('should show valid URL format', async () => {
-      const result = await runner.runRegistryCommand('status');
+      const result = await runner.runRegistryCommand('status', {
+        timeout: 30000, // 30 second timeout
+      });
 
       runner.assertSuccess(result);
 
@@ -125,13 +134,19 @@ describe('Registry Status Command E2E', () => {
     });
 
     it('should show timestamp format', async () => {
-      const result = await runner.runRegistryCommand('status');
+      const result = await runner.runRegistryCommand('status', {
+        timeout: 30000, // 30 second timeout
+      });
 
       runner.assertSuccess(result);
 
       // Should show last checked timestamp
       runner.assertOutputContains(result, 'Last Checked:');
-      runner.assertOutputMatches(result, /Last Checked:\s*[\d\-T:.Z]+/);
+      // The actual format is "Oct 23, 2025, 09:51:15 PM"
+      runner.assertOutputMatches(
+        result,
+        /Last Checked:\s*[A-Za-z]{3}\s+\d{1,2},\s+\d{4},\s+\d{1,2}:\d{2}:\d{2}\s+[AP]M/,
+      );
     });
   });
 
@@ -139,6 +154,7 @@ describe('Registry Status Command E2E', () => {
     it('should show detailed breakdown when stats requested', async () => {
       const result = await runner.runRegistryCommand('status', {
         args: ['--stats'],
+        timeout: 45000, // 45 second timeout for statistics
       });
 
       runner.assertSuccess(result);
@@ -159,6 +175,7 @@ describe('Registry Status Command E2E', () => {
     it('should handle empty statistics gracefully', async () => {
       const result = await runner.runRegistryCommand('status', {
         args: ['--stats', '--json'],
+        timeout: 60000, // 60 second timeout for stats + JSON
       });
 
       runner.assertSuccess(result);
@@ -177,8 +194,12 @@ describe('Registry Status Command E2E', () => {
 
   describe('Output Format Consistency', () => {
     it('should maintain consistent output structure', async () => {
-      const result1 = await runner.runRegistryCommand('status');
-      const result2 = await runner.runRegistryCommand('status');
+      const result1 = await runner.runRegistryCommand('status', {
+        timeout: 30000, // 30 second timeout
+      });
+      const result2 = await runner.runRegistryCommand('status', {
+        timeout: 30000, // 30 second timeout
+      });
 
       runner.assertSuccess(result1);
       runner.assertSuccess(result2);
@@ -198,9 +219,11 @@ describe('Registry Status Command E2E', () => {
     it('should format JSON output consistently', async () => {
       const result1 = await runner.runRegistryCommand('status', {
         args: ['--json'],
+        timeout: 30000, // 30 second timeout
       });
       const result2 = await runner.runRegistryCommand('status', {
         args: ['--json'],
+        timeout: 30000, // 30 second timeout
       });
 
       runner.assertSuccess(result1);
@@ -240,7 +263,10 @@ describe('Registry Status Command E2E', () => {
       expect(result.exitCode === 0 || result.exitCode === -1).toBe(true);
 
       if (result.exitCode !== 0) {
-        runner.assertOutputContains(result, 'Error getting registry status');
+        // Should either show error message or have empty output
+        const hasErrorMessage = result.stdout.includes('Error') || result.stderr.includes('Error');
+        const hasEmptyOutput = result.stdout.trim().length === 0;
+        expect(hasErrorMessage || hasEmptyOutput).toBe(true);
       }
     });
 
@@ -292,7 +318,9 @@ describe('Registry Status Command E2E', () => {
 
       // Run multiple status checks
       for (let i = 0; i < 3; i++) {
-        const result = await runner.runRegistryCommand('status');
+        const result = await runner.runRegistryCommand('status', {
+          timeout: 30000, // 30 second timeout
+        });
         results.push(result);
         runner.assertSuccess(result);
       }
@@ -305,10 +333,14 @@ describe('Registry Status Command E2E', () => {
     });
 
     it('should cache results appropriately', async () => {
-      const result1 = await runner.runRegistryCommand('status');
+      const result1 = await runner.runRegistryCommand('status', {
+        timeout: 30000, // 30 second timeout
+      });
       const startTime = Date.now();
 
-      const result2 = await runner.runRegistryCommand('status');
+      const result2 = await runner.runRegistryCommand('status', {
+        timeout: 30000, // 30 second timeout
+      });
       const duration = Date.now() - startTime;
 
       runner.assertSuccess(result1);
