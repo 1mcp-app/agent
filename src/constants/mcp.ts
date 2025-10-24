@@ -7,7 +7,7 @@ import { ClientCapabilities, ServerCapabilities } from '@modelcontextprotocol/sd
 export const MCP_CONFIG_FILE = 'mcp.json';
 export const MCP_INSTRUCTIONS_TEMPLATE_FILE = 'instructions-template.md';
 export const MCP_SERVER_NAME = '1mcp';
-export const MCP_SERVER_VERSION = '0.25.5';
+export const MCP_SERVER_VERSION = '0.26.0';
 
 export const MCP_URI_SEPARATOR = '_1mcp_';
 
