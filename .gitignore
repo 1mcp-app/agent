@@ -26,7 +26,8 @@ mcp.json
 /claudedocs
 /.claudedocs
 /notes
-.serena/
+/.serena/
+/.specify
 
 CLAUDE.md
 GEMINI.md
