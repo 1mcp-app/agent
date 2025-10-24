@@ -8,8 +8,11 @@ importers:
   .:
     dependencies:
       '@modelcontextprotocol/sdk':
-        specifier: ^1.16.0
-        version: 1.18.0
+        specifier: ^1.20.2
+        version: 1.20.2
+      axios:
+        specifier: ^1.12.2
+        version: 1.12.2(debug@4.4.1)
       body-parser:
         specifier: ^2.2.0
         version: 2.2.0
@@ -116,9 +119,6 @@ importers:
       archiver:
         specifier: ^7.0.1
         version: 7.0.1
-      axios:
-        specifier: ^1.10.0
-        version: 1.12.2(debug@4.4.1)
       concurrently:
         specifier: ^9.2.1
         version: 9.2.1
@@ -936,9 +936,9 @@ packages:
     resolution:
       { integrity: sha512-+PO02uGF6L6Cs0Bw8RpGhikVvMWEysfAyl27qTlroUB8jSWr1lL0Sf6zi78ZxlSnmgSY2AMMKVgghnN9jTtwkQ== }
 
-  '@modelcontextprotocol/sdk@1.18.0':
+  '@modelcontextprotocol/sdk@1.20.2':
     resolution:
-      { integrity: sha512-JvKyB6YwS3quM+88JPR0axeRgvdDu3Pv6mdZUy+w4qVkCzGgumb9bXG/TmtDRQv+671yaofVfXSQmFLlWU5qPQ== }
+      { integrity: sha512-6rqTdFt67AAAzln3NOKsXRmv5ZzPkgbfaebKBqUbts7vK1GZudqnrun5a8d3M/h955cam9RHZ6Jb4Y1XhnmFPg== }
     engines: { node: '>=18' }
 
   '@noble/hashes@1.8.0':
@@ -5144,7 +5144,7 @@ snapshots:
     dependencies:
       langium: 3.3.1
 
-  '@modelcontextprotocol/sdk@1.18.0':
+  '@modelcontextprotocol/sdk@1.20.2':
     dependencies:
       ajv: 6.12.6
       content-type: 1.0.5

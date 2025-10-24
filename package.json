@@ -92,7 +92,8 @@
     "build:binaries:archived": "pnpm build:binaries && pnpm archive"
   },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.16.0",
+    "@modelcontextprotocol/sdk": "^1.20.2",
+    "axios": "^1.12.2",
     "body-parser": "^2.2.0",
     "boxen": "^8.0.1",
     "chalk": "^5.6.0",
@@ -130,7 +131,6 @@
     "@typescript-eslint/parser": "^8.27.0",
     "@vitest/coverage-v8": "^1.4.0",
     "archiver": "^7.0.1",
-    "axios": "^1.10.0",
     "concurrently": "^9.2.1",
     "cytoscape": "^3.32.1",
     "cytoscape-cose-bilkent": "^4.1.0",
