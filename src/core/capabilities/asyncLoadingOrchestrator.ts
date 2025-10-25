@@ -71,7 +71,7 @@ export class AsyncLoadingOrchestrator extends EventEmitter {
       return;
     }
 
-    if (!this.agentConfig.isAsyncLoadingEnabled()) {
+    if (!this.agentConfig.get('asyncLoading').enabled) {
       logger.info('Async loading disabled - AsyncLoadingOrchestrator skipping initialization');
       return;
     }
@@ -95,15 +95,15 @@ export class AsyncLoadingOrchestrator extends EventEmitter {
       return;
     }
 
-    if (!this.agentConfig.isAsyncLoadingEnabled()) {
+    if (!this.agentConfig.get('asyncLoading').enabled) {
       return;
     }
 
     // Create notification manager with config from agent settings
     const notificationConfig = {
-      batchNotifications: this.agentConfig.isBatchNotificationsEnabled(),
-      batchDelayMs: this.agentConfig.getBatchDelayMs(),
-      notifyOnServerReady: this.agentConfig.isNotifyOnServerReadyEnabled(),
+      batchNotifications: this.agentConfig.get('asyncLoading').batchNotifications,
+      batchDelayMs: this.agentConfig.get('asyncLoading').batchDelayMs,
+      notifyOnServerReady: this.agentConfig.get('asyncLoading').notifyOnServerReady,
     };
     this.notificationManager = new NotificationManager(inboundConnection, notificationConfig);
 
@@ -260,9 +260,9 @@ export class AsyncLoadingOrchestrator extends EventEmitter {
 
     if (this.notificationManager) {
       const notificationConfig = {
-        batchNotifications: this.agentConfig.isBatchNotificationsEnabled(),
-        batchDelayMs: this.agentConfig.getBatchDelayMs(),
-        notifyOnServerReady: this.agentConfig.isNotifyOnServerReadyEnabled(),
+        batchNotifications: this.agentConfig.get('asyncLoading').batchNotifications,
+        batchDelayMs: this.agentConfig.get('asyncLoading').batchDelayMs,
+        notifyOnServerReady: this.agentConfig.get('asyncLoading').notifyOnServerReady,
       };
 
       this.notificationManager.updateConfig(notificationConfig);

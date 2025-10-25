@@ -47,6 +47,13 @@ vi.mock('../auth/sdkOAuthClientProvider.js', () => ({
 vi.mock('@src/core/server/agentConfig.js', () => ({
   AgentConfigManager: {
     getInstance: vi.fn().mockReturnValue({
+      get: vi.fn().mockImplementation((key: string) => {
+        if (key === 'externalUrl') return 'http://localhost:3000';
+        if (key === 'host') return 'localhost';
+        if (key === 'port') return 3000;
+        if (key === 'auth') return { sessionStoragePath: undefined };
+        return undefined;
+      }),
       getConfig: vi.fn().mockReturnValue({
         host: 'localhost',
         port: 3000,

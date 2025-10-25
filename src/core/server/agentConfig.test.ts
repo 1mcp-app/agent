@@ -75,6 +75,10 @@ describe('AgentConfigManager', () => {
           auth: false,
           scopeValidation: false,
           enhancedSecurity: false,
+          configReload: true,
+          envSubstitution: true,
+          sessionPersistence: true,
+          clientNotifications: true,
         },
         health: {
           detailLevel: 'minimal',
@@ -87,12 +91,20 @@ describe('AgentConfigManager', () => {
           batchDelayMs: 1000,
           notifyOnServerReady: true,
         },
+        configReload: {
+          debounceMs: 500,
+        },
+        sessionPersistence: {
+          persistRequests: 100,
+          persistIntervalMinutes: 5,
+          backgroundFlushSeconds: 60,
+        },
       });
     });
 
     it('should have trustProxy default to loopback', () => {
       const configManager = AgentConfigManager.getInstance();
-      expect(configManager.getTrustProxy()).toBe('loopback');
+      expect(configManager.get('trustProxy')).toBe('loopback');
     });
   });
 
@@ -184,7 +196,57 @@ describe('AgentConfigManager', () => {
     });
   });
 
-  describe('Getter Methods', () => {
+  describe('Generic Getter Method', () => {
+    let configManager: AgentConfigManager;
+
+    beforeEach(() => {
+      configManager = AgentConfigManager.getInstance();
+    });
+
+    it('should provide type-safe access to top-level properties', () => {
+      expect(configManager.get('host')).toBe('localhost');
+      expect(configManager.get('port')).toBe(3050);
+      expect(configManager.get('trustProxy')).toBe('loopback');
+    });
+
+    it('should provide type-safe access to nested properties', () => {
+      expect(configManager.get('auth').enabled).toBe(false);
+      expect(configManager.get('auth').sessionTtlMinutes).toBe(1440);
+      expect(configManager.get('rateLimit').windowMs).toBe(900000);
+      expect(configManager.get('rateLimit').max).toBe(100);
+      expect(configManager.get('features').auth).toBe(false);
+      expect(configManager.get('features').scopeValidation).toBe(false);
+      expect(configManager.get('health').detailLevel).toBe('minimal');
+      expect(configManager.get('asyncLoading').enabled).toBe(false);
+    });
+
+    it('should return updated values after configuration changes', () => {
+      configManager.updateConfig({
+        host: 'updated.com',
+        auth: { sessionTtlMinutes: 720 } as any,
+        features: { auth: true } as any,
+      });
+
+      expect(configManager.get('host')).toBe('updated.com');
+      expect(configManager.get('auth').sessionTtlMinutes).toBe(720);
+      expect(configManager.get('features').auth).toBe(true);
+    });
+
+    it('should maintain type safety with TypeScript', () => {
+      // These should compile without type errors
+      const host: string = configManager.get('host');
+      const port: number = configManager.get('port');
+      const authEnabled: boolean = configManager.get('features').auth;
+      const detailLevel: 'full' | 'basic' | 'minimal' = configManager.get('health').detailLevel;
+
+      expect(typeof host).toBe('string');
+      expect(typeof port).toBe('number');
+      expect(typeof authEnabled).toBe('boolean');
+      expect(typeof detailLevel).toBe('string');
+    });
+  });
+
+  describe('Convenience Methods (High Usage)', () => {
     let configManager: AgentConfigManager;
 
     beforeEach(() => {
@@ -200,106 +262,52 @@ describe('AgentConfigManager', () => {
     });
 
     it('should return correct trust proxy value', () => {
-      expect(configManager.getTrustProxy()).toBe('loopback');
+      expect(configManager.get('trustProxy')).toBe('loopback');
 
       configManager.updateConfig({ trustProxy: true });
-      expect(configManager.getTrustProxy()).toBe(true);
+      expect(configManager.get('trustProxy')).toBe(true);
 
       configManager.updateConfig({ trustProxy: '127.0.0.1' });
-      expect(configManager.getTrustProxy()).toBe('127.0.0.1');
+      expect(configManager.get('trustProxy')).toBe('127.0.0.1');
 
       configManager.updateConfig({ trustProxy: false });
-      expect(configManager.getTrustProxy()).toBe(false);
+      expect(configManager.get('trustProxy')).toBe(false);
     });
 
     it('should return correct auth status', () => {
-      expect(configManager.isAuthEnabled()).toBe(false);
+      expect(configManager.get('features').auth).toBe(false);
 
       configManager.updateConfig({
         features: { auth: true } as any,
       });
-      expect(configManager.isAuthEnabled()).toBe(true);
-    });
-
-    it('should return correct session TTL', () => {
-      expect(configManager.getSessionTtlMinutes()).toBe(1440);
-
-      configManager.updateConfig({
-        auth: { sessionTtlMinutes: 720 } as any,
-      });
-      expect(configManager.getSessionTtlMinutes()).toBe(720);
-    });
-
-    it('should return correct session storage path', () => {
-      expect(configManager.getSessionStoragePath()).toBeUndefined();
-
-      configManager.updateConfig({
-        auth: { sessionStoragePath: '/custom/path' } as any,
-      });
-      expect(configManager.getSessionStoragePath()).toBe('/custom/path');
-    });
-
-    it('should return correct OAuth code TTL', () => {
-      expect(configManager.getOAuthCodeTtlMs()).toBe(60000);
-
-      configManager.updateConfig({
-        auth: { oauthCodeTtlMs: 30000 } as any,
-      });
-      expect(configManager.getOAuthCodeTtlMs()).toBe(30000);
-    });
-
-    it('should return correct OAuth token TTL', () => {
-      expect(configManager.getOAuthTokenTtlMs()).toBe(86400000);
-
-      configManager.updateConfig({
-        auth: { oauthTokenTtlMs: 43200000 } as any,
-      });
-      expect(configManager.getOAuthTokenTtlMs()).toBe(43200000);
-    });
-
-    it('should return correct rate limit window', () => {
-      expect(configManager.getRateLimitWindowMs()).toBe(900000);
-
-      configManager.updateConfig({
-        rateLimit: { windowMs: 600000 } as any,
-      });
-      expect(configManager.getRateLimitWindowMs()).toBe(600000);
-    });
-
-    it('should return correct rate limit max', () => {
-      expect(configManager.getRateLimitMax()).toBe(100);
-
-      configManager.updateConfig({
-        rateLimit: { max: 200 } as any,
-      });
-      expect(configManager.getRateLimitMax()).toBe(200);
+      expect(configManager.get('features').auth).toBe(true);
     });
 
     it('should return correct scope validation status', () => {
-      expect(configManager.isScopeValidationEnabled()).toBe(false);
+      expect(configManager.get('features').scopeValidation).toBe(false);
 
       configManager.updateConfig({
         features: { scopeValidation: true } as any,
       });
-      expect(configManager.isScopeValidationEnabled()).toBe(true);
+      expect(configManager.get('features').scopeValidation).toBe(true);
     });
 
     it('should return correct enhanced security status', () => {
-      expect(configManager.isEnhancedSecurityEnabled()).toBe(false);
+      expect(configManager.get('features').enhancedSecurity).toBe(false);
 
       configManager.updateConfig({
         features: { enhancedSecurity: true } as any,
       });
-      expect(configManager.isEnhancedSecurityEnabled()).toBe(true);
+      expect(configManager.get('features').enhancedSecurity).toBe(true);
     });
 
     it('should return correct external URL', () => {
-      expect(configManager.getExternalUrl()).toBeUndefined();
+      expect(configManager.get('externalUrl')).toBeUndefined();
 
       configManager.updateConfig({
         externalUrl: 'https://external.example.com',
       });
-      expect(configManager.getExternalUrl()).toBe('https://external.example.com');
+      expect(configManager.get('externalUrl')).toBe('https://external.example.com');
     });
 
     it('should return correct server URL - using external URL when set', () => {
@@ -318,6 +326,42 @@ describe('AgentConfigManager', () => {
       });
       expect(configManager.getUrl()).toBe('http://custom.host.com:9000');
     });
+
+    it('should return correct health detail level', () => {
+      expect(configManager.get('health').detailLevel).toBe('minimal');
+
+      configManager.updateConfig({
+        health: { detailLevel: 'full' },
+      });
+      expect(configManager.get('health').detailLevel).toBe('full');
+    });
+
+    it('should return correct async loading status', () => {
+      expect(configManager.get('asyncLoading').enabled).toBe(false);
+
+      configManager.updateConfig({
+        asyncLoading: { enabled: true } as any,
+      });
+      expect(configManager.get('asyncLoading').enabled).toBe(true);
+    });
+
+    it('should return correct config reload status', () => {
+      expect(configManager.get('features').configReload).toBe(true);
+
+      configManager.updateConfig({
+        features: { configReload: false } as any,
+      });
+      expect(configManager.get('features').configReload).toBe(false);
+    });
+
+    it('should return correct client notifications status', () => {
+      expect(configManager.get('features').clientNotifications).toBe(true);
+
+      configManager.updateConfig({
+        features: { clientNotifications: false } as any,
+      });
+      expect(configManager.get('features').clientNotifications).toBe(false);
+    });
   });
 
   describe('Trust Proxy Value Types', () => {
@@ -329,10 +373,10 @@ describe('AgentConfigManager', () => {
 
     it('should handle boolean trust proxy values', () => {
       configManager.updateConfig({ trustProxy: true });
-      expect(configManager.getTrustProxy()).toBe(true);
+      expect(configManager.get('trustProxy')).toBe(true);
 
       configManager.updateConfig({ trustProxy: false });
-      expect(configManager.getTrustProxy()).toBe(false);
+      expect(configManager.get('trustProxy')).toBe(false);
     });
 
     it('should handle string preset trust proxy values', () => {
@@ -340,7 +384,7 @@ describe('AgentConfigManager', () => {
 
       presets.forEach((preset) => {
         configManager.updateConfig({ trustProxy: preset });
-        expect(configManager.getTrustProxy()).toBe(preset);
+        expect(configManager.get('trustProxy')).toBe(preset);
       });
     });
 
@@ -349,7 +393,7 @@ describe('AgentConfigManager', () => {
 
       ipAddresses.forEach((ip) => {
         configManager.updateConfig({ trustProxy: ip });
-        expect(configManager.getTrustProxy()).toBe(ip);
+        expect(configManager.get('trustProxy')).toBe(ip);
       });
     });
 
@@ -358,7 +402,7 @@ describe('AgentConfigManager', () => {
 
       cidrs.forEach((cidr) => {
         configManager.updateConfig({ trustProxy: cidr });
-        expect(configManager.getTrustProxy()).toBe(cidr);
+        expect(configManager.get('trustProxy')).toBe(cidr);
       });
     });
   });
@@ -374,14 +418,14 @@ describe('AgentConfigManager', () => {
       });
 
       // Multiple getter calls should return consistent results
-      expect(configManager.getTrustProxy()).toBe('linklocal');
-      expect(configManager.isAuthEnabled()).toBe(true);
+      expect(configManager.get('trustProxy')).toBe('linklocal');
+      expect(configManager.get('features').auth).toBe(true);
       expect(configManager.getConfig().host).toBe('persistent.com');
 
       // State should persist after additional updates
       configManager.updateConfig({ port: 4000 });
-      expect(configManager.getTrustProxy()).toBe('linklocal');
-      expect(configManager.isAuthEnabled()).toBe(true);
+      expect(configManager.get('trustProxy')).toBe('linklocal');
+      expect(configManager.get('features').auth).toBe(true);
       expect(configManager.getConfig().host).toBe('persistent.com');
       expect(configManager.getConfig().port).toBe(4000);
     });

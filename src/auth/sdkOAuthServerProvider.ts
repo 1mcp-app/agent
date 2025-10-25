@@ -189,7 +189,7 @@ export class SDKOAuthServerProvider implements OAuthServerProvider {
   ): Promise<void> {
     logger.debug('Approving authorization', { clientId: client.client_id, params, grantedScopes });
     // Create authorization code with granted scopes
-    const ttlMs = this.configManager.getOAuthCodeTtlMs();
+    const ttlMs = this.configManager.get('auth').oauthCodeTtlMs;
     const code = this.oauthStorage.authCodeRepository.create(
       client.client_id,
       params.redirectUri,
@@ -368,7 +368,7 @@ export class SDKOAuthServerProvider implements OAuthServerProvider {
     // Create access token
     const tokenId = randomUUID();
     const accessToken = AUTH_CONFIG.SERVER.TOKEN.ID_PREFIX + tokenId;
-    const ttlMs = this.configManager.getOAuthTokenTtlMs();
+    const ttlMs = this.configManager.get('auth').oauthTokenTtlMs;
 
     // Store session for token validation
     this.oauthStorage.sessionRepository.createWithId(
@@ -413,7 +413,7 @@ export class SDKOAuthServerProvider implements OAuthServerProvider {
   async verifyAccessToken(token: string): Promise<AuthInfo> {
     logger.debug('Verifying access token', { token });
 
-    if (!this.configManager.isAuthEnabled()) {
+    if (!this.configManager.get('features').auth) {
       // Auth disabled, return minimal auth info with all available tags as scopes
       const configManager = McpConfigManager.getInstance();
       const availableTags = configManager.getAvailableTags();

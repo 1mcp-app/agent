@@ -95,7 +95,7 @@ export class UrlGenerator {
     }
 
     // Add authentication parameters if needed
-    if (options.includeAuth && this.agentConfig.isAuthEnabled()) {
+    if (options.includeAuth && this.agentConfig.get('features').auth) {
       // Note: Auth parameters would be added here if needed
       // This is a placeholder for future auth URL parameters
     }

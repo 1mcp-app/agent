@@ -49,6 +49,10 @@ afterEach(() => {
 vi.mock('@src/core/server/agentConfig.js', () => ({
   AgentConfigManager: {
     getInstance: vi.fn().mockReturnValue({
+      get: vi.fn().mockImplementation((key: string) => {
+        if (key === 'features') return { scopeValidation: false, auth: false };
+        return undefined;
+      }),
       updateConfig: vi.fn(),
       isScopeValidationEnabled: vi.fn().mockReturnValue(false),
       isAuthEnabled: vi.fn().mockReturnValue(false),

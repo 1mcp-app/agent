@@ -84,7 +84,7 @@ export class McpConfigManager extends EventEmitter {
 
       // Apply environment variable substitution if enabled
       const agentConfig = AgentConfigManager.getInstance();
-      const processedConfig = agentConfig.isEnvSubstitutionEnabled()
+      const processedConfig = agentConfig.get('features').envSubstitution
         ? substituteEnvVarsInConfig(configData)
         : configData;
 
@@ -97,7 +97,7 @@ export class McpConfigManager extends EventEmitter {
 
       const configObj = processedConfig as Record<string, unknown>;
       this.transportConfig = (configObj.mcpServers as Record<string, MCPServerParams>) || {};
-      const substitutionStatus = agentConfig.isEnvSubstitutionEnabled() ? 'with' : 'without';
+      const substitutionStatus = agentConfig.get('features').envSubstitution ? 'with' : 'without';
       logger.info(`Configuration loaded successfully ${substitutionStatus} environment variable substitution`);
     } catch (error) {
       logger.error(`Failed to load configuration: ${error instanceof Error ? error.message : String(error)}`);
@@ -131,7 +131,7 @@ export class McpConfigManager extends EventEmitter {
   public startWatching(): void {
     // Check if config reload is enabled
     const agentConfig = AgentConfigManager.getInstance();
-    if (!agentConfig.isConfigReloadEnabled()) {
+    if (!agentConfig.get('features').configReload) {
       logger.info('Configuration hot-reload is disabled, skipping file watcher setup');
       return;
     }
@@ -218,7 +218,7 @@ export class McpConfigManager extends EventEmitter {
 
     // Get debounce delay from config
     const agentConfig = AgentConfigManager.getInstance();
-    const debounceDelayMs = agentConfig.getConfigReloadDebounceMs();
+    const debounceDelayMs = agentConfig.get('configReload').debounceMs;
 
     // Set new timer
     this.debounceTimer = setTimeout(() => {

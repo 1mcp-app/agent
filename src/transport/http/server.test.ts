@@ -139,6 +139,17 @@ describe('ExpressServer', () => {
 
     // Mock AgentConfigManager
     mockConfigManager = {
+      get: vi.fn().mockImplementation((key: string) => {
+        if (key === 'trustProxy') return 'loopback';
+        if (key === 'auth') return { sessionStoragePath: '/tmp/sessions' };
+        if (key === 'features') return { enhancedSecurity: false, auth: false };
+        if (key === 'externalUrl') return 'http://localhost:3050';
+        if (key === 'host') return 'localhost';
+        if (key === 'port') return 3050;
+        if (key === 'rateLimit') return { windowMs: 900000, max: 100 };
+        if (key === 'sessionPersistence') return { backgroundFlushSeconds: 30 };
+        return undefined;
+      }),
       getSessionStoragePath: vi.fn(() => '/tmp/sessions'),
       isEnhancedSecurityEnabled: vi.fn(() => false),
       getTrustProxy: vi.fn(() => 'loopback'),
@@ -250,7 +261,17 @@ describe('ExpressServer', () => {
     });
 
     it('should set trust proxy to boolean true', async () => {
-      mockConfigManager.getTrustProxy.mockReturnValue(true);
+      mockConfigManager.get.mockImplementation((key: string) => {
+        if (key === 'trustProxy') return true;
+        if (key === 'auth') return { sessionStoragePath: '/tmp/sessions' };
+        if (key === 'features') return { enhancedSecurity: false, auth: false };
+        if (key === 'externalUrl') return 'http://localhost:3050';
+        if (key === 'host') return 'localhost';
+        if (key === 'port') return 3050;
+        if (key === 'rateLimit') return { windowMs: 900000, max: 100 };
+        if (key === 'sessionPersistence') return { backgroundFlushSeconds: 30 };
+        return undefined;
+      });
 
       expressServer = new ExpressServer(mockServerManager);
 
@@ -258,7 +279,17 @@ describe('ExpressServer', () => {
     });
 
     it('should set trust proxy to boolean false', async () => {
-      mockConfigManager.getTrustProxy.mockReturnValue(false);
+      mockConfigManager.get.mockImplementation((key: string) => {
+        if (key === 'trustProxy') return false;
+        if (key === 'auth') return { sessionStoragePath: '/tmp/sessions' };
+        if (key === 'features') return { enhancedSecurity: false, auth: false };
+        if (key === 'externalUrl') return 'http://localhost:3050';
+        if (key === 'host') return 'localhost';
+        if (key === 'port') return 3050;
+        if (key === 'rateLimit') return { windowMs: 900000, max: 100 };
+        if (key === 'sessionPersistence') return { backgroundFlushSeconds: 30 };
+        return undefined;
+      });
 
       expressServer = new ExpressServer(mockServerManager);
 
@@ -266,7 +297,17 @@ describe('ExpressServer', () => {
     });
 
     it('should set trust proxy to custom IP address', async () => {
-      mockConfigManager.getTrustProxy.mockReturnValue('192.168.1.1');
+      mockConfigManager.get.mockImplementation((key: string) => {
+        if (key === 'trustProxy') return '192.168.1.1';
+        if (key === 'auth') return { sessionStoragePath: '/tmp/sessions' };
+        if (key === 'features') return { enhancedSecurity: false, auth: false };
+        if (key === 'externalUrl') return 'http://localhost:3050';
+        if (key === 'host') return 'localhost';
+        if (key === 'port') return 3050;
+        if (key === 'rateLimit') return { windowMs: 900000, max: 100 };
+        if (key === 'sessionPersistence') return { backgroundFlushSeconds: 30 };
+        return undefined;
+      });
 
       expressServer = new ExpressServer(mockServerManager);
 
@@ -274,7 +315,17 @@ describe('ExpressServer', () => {
     });
 
     it('should set trust proxy to CIDR range', async () => {
-      mockConfigManager.getTrustProxy.mockReturnValue('192.168.0.0/16');
+      mockConfigManager.get.mockImplementation((key: string) => {
+        if (key === 'trustProxy') return '192.168.0.0/16';
+        if (key === 'auth') return { sessionStoragePath: '/tmp/sessions' };
+        if (key === 'features') return { enhancedSecurity: false, auth: false };
+        if (key === 'externalUrl') return 'http://localhost:3050';
+        if (key === 'host') return 'localhost';
+        if (key === 'port') return 3050;
+        if (key === 'rateLimit') return { windowMs: 900000, max: 100 };
+        if (key === 'sessionPersistence') return { backgroundFlushSeconds: 30 };
+        return undefined;
+      });
 
       expressServer = new ExpressServer(mockServerManager);
 
@@ -286,7 +337,17 @@ describe('ExpressServer', () => {
 
       for (const preset of presets) {
         vi.clearAllMocks();
-        mockConfigManager.getTrustProxy.mockReturnValue(preset);
+        mockConfigManager.get.mockImplementation((key: string) => {
+          if (key === 'trustProxy') return preset;
+          if (key === 'auth') return { sessionStoragePath: '/tmp/sessions' };
+          if (key === 'features') return { enhancedSecurity: false, auth: false };
+          if (key === 'externalUrl') return 'http://localhost:3050';
+          if (key === 'host') return 'localhost';
+          if (key === 'port') return 3050;
+          if (key === 'rateLimit') return { windowMs: 900000, max: 100 };
+          if (key === 'sessionPersistence') return { backgroundFlushSeconds: 30 };
+          return undefined;
+        });
 
         expressServer = new ExpressServer(mockServerManager);
 
@@ -295,11 +356,21 @@ describe('ExpressServer', () => {
     });
 
     it('should call getTrustProxy exactly once during construction', async () => {
-      mockConfigManager.getTrustProxy.mockReturnValue('loopback');
+      mockConfigManager.get.mockImplementation((key: string) => {
+        if (key === 'trustProxy') return 'loopback';
+        if (key === 'auth') return { sessionStoragePath: '/tmp/sessions' };
+        if (key === 'features') return { enhancedSecurity: false, auth: false };
+        if (key === 'externalUrl') return 'http://localhost:3050';
+        if (key === 'host') return 'localhost';
+        if (key === 'port') return 3050;
+        if (key === 'rateLimit') return { windowMs: 900000, max: 100 };
+        if (key === 'sessionPersistence') return { backgroundFlushSeconds: 30 };
+        return undefined;
+      });
 
       expressServer = new ExpressServer(mockServerManager);
 
-      expect(mockConfigManager.getTrustProxy).toHaveBeenCalledTimes(1);
+      expect(mockConfigManager.get).toHaveBeenCalledWith('trustProxy');
     });
 
     it('should set trust proxy before middleware setup', async () => {

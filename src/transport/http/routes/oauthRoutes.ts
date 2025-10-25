@@ -41,8 +41,8 @@ export function createOAuthRoutes(oauthProvider: SDKOAuthServerProvider, loading
   const createOAuthLimiter = () => {
     const serverConfig = AgentConfigManager.getInstance();
     return rateLimit({
-      windowMs: serverConfig.getRateLimitWindowMs(),
-      max: serverConfig.getRateLimitMax(),
+      windowMs: serverConfig.get('rateLimit').windowMs,
+      max: serverConfig.get('rateLimit').max,
       standardHeaders: true,
       legacyHeaders: false,
       message: RATE_LIMIT_CONFIG.OAUTH.MESSAGE,

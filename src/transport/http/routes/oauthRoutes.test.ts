@@ -29,6 +29,10 @@ vi.mock('../../../core/client/clientFactory.js', () => ({
 vi.mock('@src/core/server/agentConfig.js', () => ({
   AgentConfigManager: {
     getInstance: vi.fn(() => ({
+      get: vi.fn().mockImplementation((key: string) => {
+        if (key === 'rateLimit') return { windowMs: 900000, max: 100 };
+        return undefined;
+      }),
       getRateLimitWindowMs: () => 900000,
       getRateLimitMax: () => 100,
     })),

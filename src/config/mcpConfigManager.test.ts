@@ -44,6 +44,23 @@ vi.mock('fs', async () => {
 vi.mock('@src/constants.js', () => ({
   __esModule: true,
   DEFAULT_CONFIG: { mcpServers: {} },
+  HOST: '127.0.0.1',
+  PORT: 3050,
+  AUTH_CONFIG: {
+    SERVER: {
+      DEFAULT_ENABLED: false,
+      SESSION: { TTL_MINUTES: 1440 },
+      AUTH_CODE: { TTL_MS: 600000 },
+      TOKEN: { TTL_MS: 3600000 },
+      STREAMABLE_SESSION: { FILE_PREFIX: 'streamable_session' },
+    },
+  },
+  RATE_LIMIT_CONFIG: {
+    OAUTH: {
+      WINDOW_MS: 900000,
+      MAX: 100,
+    },
+  },
   getGlobalConfigPath: vi.fn(),
   getGlobalConfigDir: vi.fn().mockReturnValue('/test'),
 }));

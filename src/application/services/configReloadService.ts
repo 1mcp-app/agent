@@ -137,7 +137,7 @@ export class ConfigReloadService {
   private async sendListChangedNotifications(): Promise<void> {
     // Check if client notifications are enabled
     const agentConfig = AgentConfigManager.getInstance();
-    if (!agentConfig.isClientNotificationsEnabled()) {
+    if (!agentConfig.get('features').clientNotifications) {
       logger.info('Client notifications are disabled, skipping listChanged notifications after config reload');
       return;
     }

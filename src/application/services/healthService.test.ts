@@ -54,7 +54,12 @@ describe('HealthService', () => {
 
     // Mock AgentConfigManager
     mockAgentConfig = {
-      isAuthEnabled: vi.fn(),
+      get: vi.fn().mockImplementation((key: string) => {
+        if (key === 'health') return { detailLevel: 'minimal' };
+        if (key === 'features') return { auth: false };
+        return undefined;
+      }),
+      isAuthEnabled: vi.fn().mockReturnValue(false),
       getHealthDetailLevel: vi.fn().mockReturnValue('minimal'),
     };
 
@@ -87,7 +92,11 @@ describe('HealthService', () => {
   describe('performHealthCheck', () => {
     it('should return healthy status when all servers are connected', async () => {
       // Set to full detail level for this test
-      mockAgentConfig.getHealthDetailLevel.mockReturnValue('full');
+      mockAgentConfig.get.mockImplementation((key: string) => {
+        if (key === 'health') return { detailLevel: 'full' };
+        if (key === 'features') return { auth: false };
+        return undefined;
+      });
       // Setup mocks
       const mockClients = new Map([
         [
@@ -113,7 +122,11 @@ describe('HealthService', () => {
         server1: { command: 'test' },
         server2: { command: 'test' },
       });
-      mockAgentConfig.isAuthEnabled.mockReturnValue(false);
+      mockAgentConfig.get.mockImplementation((key: string) => {
+        if (key === 'health') return { detailLevel: 'full' };
+        if (key === 'features') return { auth: false };
+        return undefined;
+      });
 
       const result = await healthService.performHealthCheck();
 
@@ -163,7 +176,11 @@ describe('HealthService', () => {
         server2: { command: 'test' },
         server3: { command: 'test' },
       });
-      mockAgentConfig.isAuthEnabled.mockReturnValue(true);
+      mockAgentConfig.get.mockImplementation((key: string) => {
+        if (key === 'health') return { detailLevel: 'full' };
+        if (key === 'features') return { auth: true };
+        return undefined;
+      });
 
       const result = await healthService.performHealthCheck();
 
@@ -211,7 +228,11 @@ describe('HealthService', () => {
         server2: { command: 'test' },
         server3: { command: 'test' },
       });
-      mockAgentConfig.isAuthEnabled.mockReturnValue(false);
+      mockAgentConfig.get.mockImplementation((key: string) => {
+        if (key === 'health') return { detailLevel: 'full' };
+        if (key === 'features') return { auth: false };
+        return undefined;
+      });
 
       const result = await healthService.performHealthCheck();
 
@@ -259,10 +280,13 @@ describe('HealthService', () => {
 
     it('should include system health metrics', async () => {
       // Set to full detail level for this test
-      mockAgentConfig.getHealthDetailLevel.mockReturnValue('full');
+      mockAgentConfig.get.mockImplementation((key: string) => {
+        if (key === 'health') return { detailLevel: 'full' };
+        if (key === 'features') return { auth: false };
+        return undefined;
+      });
       mockServerManager.getClients.mockReturnValue(new Map());
       mockMcpConfig.getTransportConfig.mockReturnValue({});
-      mockAgentConfig.isAuthEnabled.mockReturnValue(false);
 
       const result = await healthService.performHealthCheck();
 
@@ -296,7 +320,11 @@ describe('HealthService', () => {
 
     it('should include server details with error messages', async () => {
       // Set to full detail level for this test
-      mockAgentConfig.getHealthDetailLevel.mockReturnValue('full');
+      mockAgentConfig.get.mockImplementation((key: string) => {
+        if (key === 'health') return { detailLevel: 'full' };
+        if (key === 'features') return { auth: false };
+        return undefined;
+      });
       const mockClients = new Map([
         [
           'server1',
@@ -369,11 +397,19 @@ describe('HealthService', () => {
       mockMcpConfig.getTransportConfig.mockReturnValue({
         'test-server': { command: 'test' },
       });
-      mockAgentConfig.isAuthEnabled.mockReturnValue(false);
+      mockAgentConfig.get.mockImplementation((key: string) => {
+        if (key === 'health') return { detailLevel: 'minimal' };
+        if (key === 'features') return { auth: false };
+        return undefined;
+      });
     });
 
     it('should return minimal detail level with no sensitive information', async () => {
-      mockAgentConfig.getHealthDetailLevel.mockReturnValue('minimal');
+      mockAgentConfig.get.mockImplementation((key: string) => {
+        if (key === 'health') return { detailLevel: 'minimal' };
+        if (key === 'features') return { auth: false };
+        return undefined;
+      });
 
       const result = await healthService.performHealthCheck();
 
@@ -387,7 +423,11 @@ describe('HealthService', () => {
     });
 
     it('should return basic detail level with sanitized errors', async () => {
-      mockAgentConfig.getHealthDetailLevel.mockReturnValue('basic');
+      mockAgentConfig.get.mockImplementation((key: string) => {
+        if (key === 'health') return { detailLevel: 'basic' };
+        if (key === 'features') return { auth: false };
+        return undefined;
+      });
 
       const result = await healthService.performHealthCheck();
 
@@ -401,7 +441,11 @@ describe('HealthService', () => {
     });
 
     it('should return full detail level with sanitized errors', async () => {
-      mockAgentConfig.getHealthDetailLevel.mockReturnValue('full');
+      mockAgentConfig.get.mockImplementation((key: string) => {
+        if (key === 'health') return { detailLevel: 'full' };
+        if (key === 'features') return { auth: false };
+        return undefined;
+      });
 
       const result = await healthService.performHealthCheck();
 
@@ -416,7 +460,11 @@ describe('HealthService', () => {
 
     it('should sanitize error messages containing URLs', async () => {
       // Set to full detail level for this test
-      mockAgentConfig.getHealthDetailLevel.mockReturnValue('full');
+      mockAgentConfig.get.mockImplementation((key: string) => {
+        if (key === 'health') return { detailLevel: 'full' };
+        if (key === 'features') return { auth: false };
+        return undefined;
+      });
       const mockClients = new Map([
         [
           'web-server',
@@ -437,7 +485,11 @@ describe('HealthService', () => {
 
     it('should sanitize error messages containing file paths', async () => {
       // Set to full detail level for this test
-      mockAgentConfig.getHealthDetailLevel.mockReturnValue('full');
+      mockAgentConfig.get.mockImplementation((key: string) => {
+        if (key === 'health') return { detailLevel: 'full' };
+        if (key === 'features') return { auth: false };
+        return undefined;
+      });
       const mockClients = new Map([
         [
           'file-server',

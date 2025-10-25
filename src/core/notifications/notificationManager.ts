@@ -87,7 +87,7 @@ export class NotificationManager extends EventEmitter {
   public handleCapabilityChanges(changes: CapabilityChanges): void {
     // Check if client notifications are globally enabled
     const agentConfig = AgentConfigManager.getInstance();
-    if (!agentConfig.isClientNotificationsEnabled()) {
+    if (!agentConfig.get('features').clientNotifications) {
       debugIf('Client notifications are globally disabled, skipping capability change notifications');
       return;
     }
