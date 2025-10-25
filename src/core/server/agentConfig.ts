@@ -26,6 +26,10 @@ export interface AgentConfig {
     auth: boolean;
     scopeValidation: boolean;
     enhancedSecurity: boolean;
+    configReload: boolean;
+    envSubstitution: boolean;
+    sessionPersistence: boolean;
+    clientNotifications: boolean;
   };
   health: {
     detailLevel: 'full' | 'basic' | 'minimal';
@@ -37,6 +41,14 @@ export interface AgentConfig {
     initialLoadTimeoutMs: number;
     batchNotifications: boolean;
     batchDelayMs: number;
+  };
+  configReload: {
+    debounceMs: number;
+  };
+  sessionPersistence: {
+    persistRequests: number;
+    persistIntervalMinutes: number;
+    backgroundFlushSeconds: number;
   };
 }
 
@@ -85,6 +97,10 @@ export class AgentConfigManager {
         auth: AUTH_CONFIG.SERVER.DEFAULT_ENABLED,
         scopeValidation: AUTH_CONFIG.SERVER.DEFAULT_ENABLED,
         enhancedSecurity: false,
+        configReload: true,
+        envSubstitution: true,
+        sessionPersistence: true,
+        clientNotifications: true,
       },
       health: {
         detailLevel: 'minimal',
@@ -96,6 +112,14 @@ export class AgentConfigManager {
         initialLoadTimeoutMs: 30000, // 30 seconds
         batchNotifications: true,
         batchDelayMs: 1000, // 1 second
+      },
+      configReload: {
+        debounceMs: 500,
+      },
+      sessionPersistence: {
+        persistRequests: 100,
+        persistIntervalMinutes: 5,
+        backgroundFlushSeconds: 60,
       },
     };
   }
@@ -125,7 +149,8 @@ export class AgentConfigManager {
    */
   public updateConfig(updates: Partial<AgentConfig>): void {
     // Handle nested object merging properly
-    const { auth, rateLimit, features, health, asyncLoading, ...otherUpdates } = updates;
+    const { auth, rateLimit, features, health, asyncLoading, configReload, sessionPersistence, ...otherUpdates } =
+      updates;
 
     this.config = { ...this.config, ...otherUpdates };
 
@@ -143,6 +168,12 @@ export class AgentConfigManager {
     }
     if (asyncLoading) {
       this.config.asyncLoading = { ...this.config.asyncLoading, ...asyncLoading };
+    }
+    if (configReload) {
+      this.config.configReload = { ...this.config.configReload, ...configReload };
+    }
+    if (sessionPersistence) {
+      this.config.sessionPersistence = { ...this.config.sessionPersistence, ...sessionPersistence };
     }
   }
 
@@ -345,5 +376,95 @@ export class AgentConfigManager {
    */
   public getAsyncLoadingConfig(): AgentConfig['asyncLoading'] {
     return { ...this.config.asyncLoading };
+  }
+
+  /**
+   * Checks if config reload (hot-reload) is enabled.
+   *
+   * @returns True if configuration file watching and hot-reload is enabled
+   */
+  public isConfigReloadEnabled(): boolean {
+    return this.config.features.configReload;
+  }
+
+  /**
+   * Gets the config reload debounce delay in milliseconds.
+   *
+   * @returns Debounce delay before triggering config reload in milliseconds
+   */
+  public getConfigReloadDebounceMs(): number {
+    return this.config.configReload.debounceMs;
+  }
+
+  /**
+   * Checks if environment variable substitution is enabled.
+   *
+   * @returns True if ${VAR_NAME} patterns should be replaced in config
+   */
+  public isEnvSubstitutionEnabled(): boolean {
+    return this.config.features.envSubstitution;
+  }
+
+  /**
+   * Checks if session persistence to disk is enabled.
+   *
+   * @returns True if sessions should be persisted to disk, false for memory-only mode
+   */
+  public isSessionPersistenceEnabled(): boolean {
+    return this.config.features.sessionPersistence;
+  }
+
+  /**
+   * Gets the number of requests before persisting session to disk.
+   *
+   * @returns Request count threshold for persistence trigger
+   */
+  public getSessionPersistRequests(): number {
+    return this.config.sessionPersistence.persistRequests;
+  }
+
+  /**
+   * Gets the time interval before persisting session to disk.
+   *
+   * @returns Time interval in minutes for persistence trigger
+   */
+  public getSessionPersistIntervalMinutes(): number {
+    return this.config.sessionPersistence.persistIntervalMinutes;
+  }
+
+  /**
+   * Gets the background flush interval for dirty sessions.
+   *
+   * @returns Background flush interval in seconds
+   */
+  public getSessionBackgroundFlushSeconds(): number {
+    return this.config.sessionPersistence.backgroundFlushSeconds;
+  }
+
+  /**
+   * Checks if client notifications are enabled.
+   *
+   * @returns True if listChanged notifications should be sent to clients
+   */
+  public isClientNotificationsEnabled(): boolean {
+    return this.config.features.clientNotifications;
+  }
+
+  /**
+   * Gets the complete config reload configuration.
+   *
+   * @returns Copy of config reload configuration
+   */
+  public getConfigReloadConfig(): AgentConfig['configReload'] {
+    return { ...this.config.configReload };
+  }
+
+  /**
+   * Gets the complete session persistence configuration.
+   *
+   * @returns Copy of session persistence configuration
+   */
+  public getSessionPersistenceConfig(): AgentConfig['sessionPersistence'] {
+    return { ...this.config.sessionPersistence };
   }
 }

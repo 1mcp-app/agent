@@ -43,6 +43,19 @@ export interface ServeOptions {
   'trust-proxy': string;
   'health-info-level': string;
   'enable-async-loading': boolean;
+  'async-min-servers': number;
+  'async-timeout': number;
+  'async-batch-notifications': boolean;
+  'async-batch-delay': number;
+  'async-notify-on-ready': boolean;
+  'enable-config-reload': boolean;
+  'config-reload-debounce': number;
+  'enable-env-substitution': boolean;
+  'enable-session-persistence': boolean;
+  'session-persist-requests': number;
+  'session-persist-interval': number;
+  'session-background-flush': number;
+  'enable-client-notifications': boolean;
   'instructions-template'?: string;
 }
 
@@ -277,20 +290,30 @@ export async function serveCommand(parsedArgv: ServeOptions): Promise<void> {
         auth: authEnabled,
         scopeValidation: scopeValidationEnabled,
         enhancedSecurity: enhancedSecurityEnabled,
+        configReload: parsedArgv['enable-config-reload'],
+        envSubstitution: parsedArgv['enable-env-substitution'],
+        sessionPersistence: parsedArgv['enable-session-persistence'],
+        clientNotifications: parsedArgv['enable-client-notifications'],
       },
       health: {
         detailLevel: parsedArgv['health-info-level'] as 'full' | 'basic' | 'minimal',
       },
-      ...(parsedArgv['enable-async-loading'] && {
-        asyncLoading: {
-          enabled: true,
-          notifyOnServerReady: true,
-          waitForMinimumServers: 1,
-          initialLoadTimeoutMs: 30000,
-          batchNotifications: true,
-          batchDelayMs: 100,
-        },
-      }),
+      asyncLoading: {
+        enabled: parsedArgv['enable-async-loading'],
+        notifyOnServerReady: parsedArgv['async-notify-on-ready'],
+        waitForMinimumServers: parsedArgv['async-min-servers'],
+        initialLoadTimeoutMs: parsedArgv['async-timeout'],
+        batchNotifications: parsedArgv['async-batch-notifications'],
+        batchDelayMs: parsedArgv['async-batch-delay'],
+      },
+      configReload: {
+        debounceMs: parsedArgv['config-reload-debounce'],
+      },
+      sessionPersistence: {
+        persistRequests: parsedArgv['session-persist-requests'],
+        persistIntervalMinutes: parsedArgv['session-persist-interval'],
+        backgroundFlushSeconds: parsedArgv['session-background-flush'],
+      },
     });
 
     // Initialize PresetManager with config directory option before server setup

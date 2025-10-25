@@ -7,6 +7,7 @@ import {
 } from '@modelcontextprotocol/sdk/types.js';
 
 import { CapabilityChanges } from '@src/core/capabilities/capabilityAggregator.js';
+import { AgentConfigManager } from '@src/core/server/agentConfig.js';
 import { InboundConnection, ServerStatus } from '@src/core/types/index.js';
 import logger, { debugIf } from '@src/logger/logger.js';
 
@@ -84,6 +85,13 @@ export class NotificationManager extends EventEmitter {
    * Handle capability changes and send appropriate notifications
    */
   public handleCapabilityChanges(changes: CapabilityChanges): void {
+    // Check if client notifications are globally enabled
+    const agentConfig = AgentConfigManager.getInstance();
+    if (!agentConfig.isClientNotificationsEnabled()) {
+      debugIf('Client notifications are globally disabled, skipping capability change notifications');
+      return;
+    }
+
     if (!this.config.notifyOnServerReady || this.isShuttingDown) {
       return;
     }

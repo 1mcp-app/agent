@@ -105,6 +105,71 @@ export const serverOptions = {
     type: 'boolean' as const,
     default: false,
   },
+  'async-min-servers': {
+    describe: 'Minimum number of servers to wait for before accepting requests (when async loading enabled)',
+    type: 'number' as const,
+    default: 1,
+  },
+  'async-timeout': {
+    describe: 'Initial load timeout in milliseconds (when async loading enabled)',
+    type: 'number' as const,
+    default: 30000,
+  },
+  'async-batch-notifications': {
+    describe: 'Batch capability change notifications (when async loading enabled)',
+    type: 'boolean' as const,
+    default: true,
+  },
+  'async-batch-delay': {
+    describe: 'Batch delay in milliseconds for notifications (when async loading enabled)',
+    type: 'number' as const,
+    default: 100,
+  },
+  'async-notify-on-ready': {
+    describe: 'Notify clients when servers become ready (when async loading enabled)',
+    type: 'boolean' as const,
+    default: true,
+  },
+  'enable-config-reload': {
+    describe: 'Enable automatic configuration hot-reload on file changes',
+    type: 'boolean' as const,
+    default: true,
+  },
+  'config-reload-debounce': {
+    describe: 'Debounce delay in milliseconds for config reload',
+    type: 'number' as const,
+    default: 500,
+  },
+  'enable-env-substitution': {
+    describe: 'Enable environment variable substitution in config (${VAR_NAME} pattern)',
+    type: 'boolean' as const,
+    default: true,
+  },
+  'enable-session-persistence': {
+    describe: 'Enable session persistence to disk',
+    type: 'boolean' as const,
+    default: true,
+  },
+  'session-persist-requests': {
+    describe: 'Number of requests before persisting session to disk',
+    type: 'number' as const,
+    default: 100,
+  },
+  'session-persist-interval': {
+    describe: 'Time interval in minutes before persisting session to disk',
+    type: 'number' as const,
+    default: 5,
+  },
+  'session-background-flush': {
+    describe: 'Background flush interval in seconds for dirty sessions',
+    type: 'number' as const,
+    default: 60,
+  },
+  'enable-client-notifications': {
+    describe: 'Enable listChanged notifications to clients on capability updates',
+    type: 'boolean' as const,
+    default: true,
+  },
   'instructions-template': {
     alias: 'T',
     describe:

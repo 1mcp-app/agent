@@ -1,6 +1,7 @@
 import { StreamableSessionData } from '@src/auth/sessionTypes.js';
 import { FileStorageService } from '@src/auth/storage/fileStorageService.js';
 import { AUTH_CONFIG } from '@src/constants.js';
+import { AgentConfigManager } from '@src/core/server/agentConfig.js';
 import { InboundConnectionConfig } from '@src/core/types/index.js';
 import { TagExpression } from '@src/domains/preset/parsers/tagQueryParser.js';
 import { TagQuery } from '@src/domains/preset/types/presetTypes.js';
@@ -22,6 +23,9 @@ export class StreamableSessionRepository {
   private lastAccessTimes = new Map<string, number>();
   private requestCounts = new Map<string, number>();
   private dirtySessionIds = new Set<string>();
+
+  // In-memory session store (used when persistence is disabled or as cache)
+  private inMemorySessions = new Map<string, StreamableSessionData>();
 
   // Background flush
   private flushInterval: ReturnType<typeof setInterval> | null = null;
@@ -47,18 +51,41 @@ export class StreamableSessionRepository {
       lastAccessedAt: Date.now(),
     };
 
-    this.storage.writeData(AUTH_CONFIG.SERVER.STREAMABLE_SESSION.FILE_PREFIX, sessionId, sessionData);
-    logger.info(`Created streamable session: ${sessionId}`);
+    // Always store in memory
+    this.inMemorySessions.set(sessionId, sessionData);
+
+    // Conditionally persist to disk
+    const agentConfig = AgentConfigManager.getInstance();
+    if (agentConfig.isSessionPersistenceEnabled()) {
+      this.storage.writeData(AUTH_CONFIG.SERVER.STREAMABLE_SESSION.FILE_PREFIX, sessionId, sessionData);
+      logger.info(`Created streamable session with persistence: ${sessionId}`);
+    } else {
+      logger.info(`Created streamable session (memory-only): ${sessionId}`);
+    }
   }
 
   /**
    * Retrieves a session by ID and returns the configuration
    */
   get(sessionId: string): InboundConnectionConfig | null {
-    const sessionData = this.storage.readData<StreamableSessionData>(
-      AUTH_CONFIG.SERVER.STREAMABLE_SESSION.FILE_PREFIX,
-      sessionId,
-    );
+    // Check in-memory store first
+    let sessionData = this.inMemorySessions.get(sessionId);
+
+    // If not in memory and persistence is enabled, try reading from disk
+    if (!sessionData) {
+      const agentConfig = AgentConfigManager.getInstance();
+      if (agentConfig.isSessionPersistenceEnabled()) {
+        const diskData = this.storage.readData<StreamableSessionData>(
+          AUTH_CONFIG.SERVER.STREAMABLE_SESSION.FILE_PREFIX,
+          sessionId,
+        );
+        // Cache in memory if found
+        if (diskData) {
+          sessionData = diskData;
+          this.inMemorySessions.set(sessionId, diskData);
+        }
+      }
+    }
 
     if (!sessionData) {
       return null;
@@ -119,12 +146,26 @@ export class StreamableSessionRepository {
     this.requestCounts.set(sessionId, count);
     this.dirtySessionIds.add(sessionId);
 
-    // Check dual triggers: N requests OR M minutes
+    // Update in-memory session data
+    const sessionData = this.inMemorySessions.get(sessionId);
+    if (sessionData) {
+      sessionData.lastAccessedAt = now;
+      sessionData.expires = now + AUTH_CONFIG.SERVER.STREAMABLE_SESSION.TTL_MS;
+    }
+
+    // Check if persistence is enabled
+    const agentConfig = AgentConfigManager.getInstance();
+    if (!agentConfig.isSessionPersistenceEnabled()) {
+      return;
+    }
+
+    // Check dual triggers: N requests OR M minutes (using configurable values)
     const lastPersist = this.lastPersistTimes.get(sessionId) || 0;
     const timeSince = now - lastPersist;
-    const policy = AUTH_CONFIG.SERVER.STREAMABLE_SESSION.SAVE_POLICY;
+    const persistRequests = agentConfig.getSessionPersistRequests();
+    const persistIntervalMs = agentConfig.getSessionPersistIntervalMinutes() * 60 * 1000;
 
-    if (count >= policy.REQUESTS || timeSince >= policy.INTERVAL_MS) {
+    if (count >= persistRequests || timeSince >= persistIntervalMs) {
       this.persistSessionAccess(sessionId, now);
     }
   }
@@ -138,22 +179,43 @@ export class StreamableSessionRepository {
     this.lastAccessTimes.delete(sessionId);
     this.requestCounts.delete(sessionId);
     this.dirtySessionIds.delete(sessionId);
+    this.inMemorySessions.delete(sessionId);
 
-    const result = this.storage.deleteData(AUTH_CONFIG.SERVER.STREAMABLE_SESSION.FILE_PREFIX, sessionId);
-    if (result) {
-      logger.info(`Deleted streamable session: ${sessionId}`);
+    // Delete from disk if persistence is enabled
+    const agentConfig = AgentConfigManager.getInstance();
+    if (agentConfig.isSessionPersistenceEnabled()) {
+      const result = this.storage.deleteData(AUTH_CONFIG.SERVER.STREAMABLE_SESSION.FILE_PREFIX, sessionId);
+      if (result) {
+        logger.info(`Deleted streamable session: ${sessionId}`);
+      }
+      return result;
+    } else {
+      logger.info(`Deleted streamable session from memory: ${sessionId}`);
+      return true;
     }
-    return result;
   }
 
   /**
    * Persists session access to disk and resets counters
    */
   private persistSessionAccess(sessionId: string, accessTime: number): void {
-    const sessionData = this.storage.readData<StreamableSessionData>(
-      AUTH_CONFIG.SERVER.STREAMABLE_SESSION.FILE_PREFIX,
-      sessionId,
-    );
+    // Check if persistence is enabled (defensive check)
+    const agentConfig = AgentConfigManager.getInstance();
+    if (!agentConfig.isSessionPersistenceEnabled()) {
+      return;
+    }
+
+    // Get session data from in-memory store or disk
+    let sessionData = this.inMemorySessions.get(sessionId);
+    if (!sessionData) {
+      const diskData = this.storage.readData<StreamableSessionData>(
+        AUTH_CONFIG.SERVER.STREAMABLE_SESSION.FILE_PREFIX,
+        sessionId,
+      );
+      if (diskData) {
+        sessionData = diskData;
+      }
+    }
 
     if (sessionData) {
       sessionData.lastAccessedAt = accessTime;
@@ -174,6 +236,12 @@ export class StreamableSessionRepository {
    * Flushes all dirty sessions to disk
    */
   private flushDirtySessions(): void {
+    // Check if persistence is enabled
+    const agentConfig = AgentConfigManager.getInstance();
+    if (!agentConfig.isSessionPersistenceEnabled()) {
+      return;
+    }
+
     if (this.dirtySessionIds.size === 0) {
       return;
     }
@@ -194,10 +262,13 @@ export class StreamableSessionRepository {
    * Starts periodic background flush of dirty sessions
    */
   private startPeriodicFlush(): void {
-    const policy = AUTH_CONFIG.SERVER.STREAMABLE_SESSION.SAVE_POLICY;
+    // Get flush interval from config
+    const agentConfig = AgentConfigManager.getInstance();
+    const flushIntervalMs = agentConfig.getSessionBackgroundFlushSeconds() * 1000;
+
     this.flushInterval = setInterval(() => {
       this.flushDirtySessions();
-    }, policy.FLUSH_INTERVAL_MS);
+    }, flushIntervalMs);
   }
 
   /**

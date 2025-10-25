@@ -85,6 +85,19 @@ describe('serveCommand - config-dir session isolation', () => {
       'rate-limit-window': 15,
       'rate-limit-max': 100,
       'enable-async-loading': false,
+      'async-min-servers': 1,
+      'async-timeout': 30000,
+      'async-batch-notifications': true,
+      'async-batch-delay': 100,
+      'async-notify-on-ready': true,
+      'enable-config-reload': true,
+      'config-reload-debounce': 500,
+      'enable-env-substitution': true,
+      'enable-session-persistence': true,
+      'session-persist-requests': 100,
+      'session-persist-interval': 5,
+      'session-background-flush': 60,
+      'enable-client-notifications': true,
     };
 
     // Get the mocked AgentConfigManager instance
@@ -131,6 +144,19 @@ describe('serveCommand - config-dir session isolation', () => {
       'rate-limit-window': 15,
       'rate-limit-max': 100,
       'enable-async-loading': false,
+      'async-min-servers': 1,
+      'async-timeout': 30000,
+      'async-batch-notifications': true,
+      'async-batch-delay': 100,
+      'async-notify-on-ready': true,
+      'enable-config-reload': true,
+      'config-reload-debounce': 500,
+      'enable-env-substitution': true,
+      'enable-session-persistence': true,
+      'session-persist-requests': 100,
+      'session-persist-interval': 5,
+      'session-background-flush': 60,
+      'enable-client-notifications': true,
     };
 
     // Get the mocked AgentConfigManager instance
@@ -170,6 +196,19 @@ describe('serveCommand - config-dir session isolation', () => {
       'rate-limit-window': 15,
       'rate-limit-max': 100,
       'enable-async-loading': false,
+      'async-min-servers': 1,
+      'async-timeout': 30000,
+      'async-batch-notifications': true,
+      'async-batch-delay': 100,
+      'async-notify-on-ready': true,
+      'enable-config-reload': true,
+      'config-reload-debounce': 500,
+      'enable-env-substitution': true,
+      'enable-session-persistence': true,
+      'session-persist-requests': 100,
+      'session-persist-interval': 5,
+      'session-background-flush': 60,
+      'enable-client-notifications': true,
     };
 
     // Get the mocked AgentConfigManager instance
