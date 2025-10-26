@@ -210,7 +210,7 @@ export class ServerManager {
       const clientConnection: ClientConnection = {
         id: sessionId,
         presetName: opts.presetName,
-        sendNotification: async (method: string, params?: any) => {
+        sendNotification: async (method: string, params?: Record<string, unknown>) => {
           try {
             if (serverInfo.status === ServerStatus.Connected && serverInfo.server.transport) {
               await serverInfo.server.notification({ method, params: params || {} });

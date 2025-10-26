@@ -1,6 +1,6 @@
 import { EventEmitter } from 'events';
 
-import { McpLoadingManager } from '@src/core/loading/mcpLoadingManager.js';
+import { McpLoadingManager, ServerLoadResult } from '@src/core/loading/mcpLoadingManager.js';
 import { NotificationManager } from '@src/core/notifications/notificationManager.js';
 import { AgentConfigManager } from '@src/core/server/agentConfig.js';
 import { ServerManager } from '@src/core/server/serverManager.js';
@@ -118,7 +118,7 @@ export class AsyncLoadingOrchestrator extends EventEmitter {
    */
   private setupEventChain(): void {
     // 1. Listen for server readiness from LoadingManager
-    this.loadingManager.on('server-loaded', (serverName, _result) => {
+    this.loadingManager.on('server-loaded', (serverName: string, _result: ServerLoadResult) => {
       if (this.isShuttingDown) return;
 
       debugIf(() => ({ message: `Server ${serverName} became ready, updating capabilities`, meta: { serverName } }));
@@ -126,7 +126,7 @@ export class AsyncLoadingOrchestrator extends EventEmitter {
     });
 
     // 2. Listen for capability changes from CapabilityAggregator
-    this.capabilityAggregator.on('capabilities-changed', (changes) => {
+    this.capabilityAggregator.on('capabilities-changed', (changes: CapabilityChanges) => {
       if (this.isShuttingDown) return;
 
       debugIf('Capabilities changed, processing notifications');
@@ -145,14 +145,14 @@ export class AsyncLoadingOrchestrator extends EventEmitter {
     }
 
     // 3. Listen for notification events from NotificationManager
-    this.notificationManager.on('batch-sent', (notifications, clientCount) => {
+    this.notificationManager.on('batch-sent', (notifications: string[], clientCount: number) => {
       if (this.isShuttingDown) return;
 
       logger.info(`Sent listChanged notifications to ${clientCount} clients: [${notifications.join(', ')}]`);
       this.emit('notifications-sent', notifications);
     });
 
-    this.notificationManager.on('notification-failed', (type, error) => {
+    this.notificationManager.on('notification-failed', (type: string, error: Error) => {
       logger.error(`Failed to send ${type} listChanged notification: ${error.message}`);
     });
 
@@ -179,7 +179,8 @@ export class AsyncLoadingOrchestrator extends EventEmitter {
         }));
       }
     } catch (error) {
-      logger.error(`Failed to update capabilities after ${serverName} became ready: ${error}`);
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      logger.error(`Failed to update capabilities after ${serverName} became ready: ${errorMessage}`);
     }
   }
 
@@ -244,7 +245,8 @@ export class AsyncLoadingOrchestrator extends EventEmitter {
         logger.info('Manual capability refresh completed - no changes detected');
       }
     } catch (error) {
-      logger.error(`Failed to refresh capabilities: ${error}`);
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      logger.error(`Failed to refresh capabilities: ${errorMessage}`);
     }
   }
 
@@ -309,7 +311,8 @@ export class AsyncLoadingOrchestrator extends EventEmitter {
 
       logger.info('AsyncLoadingOrchestrator shutdown complete');
     } catch (error) {
-      logger.error(`Error during AsyncLoadingOrchestrator shutdown: ${error}`);
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      logger.error(`Error during AsyncLoadingOrchestrator shutdown: ${errorMessage}`);
     }
   }
 }

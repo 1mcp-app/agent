@@ -292,7 +292,7 @@ export class FileStorageService {
       }
 
       const data = fs.readFileSync(filePath, 'utf8');
-      const parsedData: T = JSON.parse(data);
+      const parsedData: T = JSON.parse(data) as T;
 
       // Check if data is expired
       if (parsedData.expires < Date.now()) {
@@ -356,7 +356,7 @@ export class FileStorageService {
           const filePath = path.join(this.storageDir, file);
           try {
             const data = fs.readFileSync(filePath, 'utf8');
-            const parsedData = JSON.parse(data);
+            const parsedData = JSON.parse(data) as { expires?: number };
 
             // Check if expired (all our data types have expires field)
             if (parsedData.expires && parsedData.expires < Date.now()) {

@@ -1,4 +1,4 @@
-import { OFFICIAL_REGISTRY_KEY, RegistryExtensions, RegistryServer } from '@src/domains/registry/types.js';
+import { OFFICIAL_REGISTRY_KEY, RegistryServer } from '@src/domains/registry/types.js';
 
 /**
  * Search and filtering utilities for MCP servers
@@ -39,7 +39,7 @@ export class SearchEngine {
       }
 
       // If not found, try to get from metadata
-      const registryMeta = server._meta?.[OFFICIAL_REGISTRY_KEY] as RegistryExtensions;
+      const registryMeta = server._meta?.[OFFICIAL_REGISTRY_KEY];
       if (registryMeta?.status) {
         return registryMeta.status === status;
       }

@@ -6,7 +6,7 @@ import { CacheEntry, CacheOptions } from './types.js';
  * In-memory cache manager with TTL support for MCP Registry responses
  */
 export class CacheManager {
-  private cache: Map<string, CacheEntry<any>> = new Map();
+  private cache: Map<string, CacheEntry<unknown>> = new Map();
   private cleanupTimer?: ReturnType<typeof setInterval>;
   private options: CacheOptions;
 
@@ -34,7 +34,7 @@ export class CacheManager {
       return null;
     }
 
-    return entry.value;
+    return entry.value as T | null;
   }
 
   /**
@@ -88,7 +88,13 @@ export class CacheManager {
   /**
    * Get cache statistics
    */
-  getStats() {
+  getStats(): {
+    totalEntries: number;
+    validEntries: number;
+    expiredEntries: number;
+    maxSize: number;
+    hitRatio: number;
+  } {
     const now = Date.now();
     let expiredCount = 0;
     let validCount = 0;
@@ -113,10 +119,10 @@ export class CacheManager {
   /**
    * Generate a cache key for registry requests
    */
-  generateKey(endpoint: string, params: Record<string, any> = {}): string {
+  generateKey(endpoint: string, params: Record<string, unknown> = {}): string {
     const sortedParams = Object.keys(params)
       .sort()
-      .map((key) => `${key}=${params[key]}`)
+      .map((key) => `${key}=${String(params[key] ?? '')}`)
       .join('&');
 
     return `${endpoint}${sortedParams ? `?${sortedParams}` : ''}`;

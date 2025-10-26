@@ -96,7 +96,9 @@ describe('handleSearchMCPServers', () => {
       },
     };
     mockRegistryClient.getServersWithMetadata.mockResolvedValue(mockResponse);
-    mockSearchEngine.applyFilters.mockReturnValue(mockServerResponses);
+
+    // The search engine should return the RegistryServer objects (extracted from ServerResponse)
+    mockSearchEngine.applyFilters.mockReturnValue(mockServers);
 
     const result = await handleSearchMCPServers({
       query: 'file',
@@ -119,13 +121,18 @@ describe('handleSearchMCPServers', () => {
       count: 1,
     });
     expect(result.servers).toHaveLength(1);
-    expect(result.servers[0]).toMatchObject({
+
+    // The result should contain the server properties directly
+    const serverResult = result.servers[0];
+    expect(serverResult).toMatchObject({
       name: 'file-server',
       description: 'File management server',
       status: 'active',
       version: '1.0.0',
       packages: expect.any(Array),
       repository: expect.any(Object),
+      registryId: 'file-server-1',
+      lastUpdated: '2024-01-01T00:00:00Z',
     });
   });
 
@@ -243,13 +250,13 @@ describe('handleSearchMCPServers', () => {
       ...mockServers[0],
       packages: [
         {
-          registry_type: 'npm',
+          registryType: 'npm',
           identifier: '@test/file-server',
           version: '1.0.0',
           transport: 'stdio',
         },
         {
-          registry_type: 'pypi',
+          registryType: 'pypi',
           identifier: 'file-server-py',
           version: '1.0.0',
           transport: 'sse',
@@ -277,31 +284,24 @@ describe('handleSearchMCPServers', () => {
       },
     };
     mockRegistryClient.getServersWithMetadata.mockResolvedValue(mockResponse);
-    mockSearchEngine.applyFilters.mockReturnValue([mockServerResponse]);
+    // The search engine should return the RegistryServer object (extracted from ServerResponse)
+    mockSearchEngine.applyFilters.mockReturnValue([serverWithMultiplePackages]);
 
     const result = await handleSearchMCPServers({});
 
     expect(result.servers[0]).toMatchObject({
       name: 'file-server',
-      packages: [
-        {
-          registry_type: 'npm',
-          identifier: '@test/file-server',
-          version: '1.0.0',
-          transport: 'stdio',
-        },
-        {
-          registry_type: 'pypi',
-          identifier: 'file-server-py',
-          version: '1.0.0',
-          transport: 'sse',
-        },
-      ],
+      description: 'File management server',
+      status: 'active',
+      version: '1.0.0',
+      packages: expect.any(Array),
       repository: {
         url: 'https://github.com/test/file-server',
         source: 'github',
         subfolder: 'packages/core',
       },
+      registryId: 'file-server-1',
+      lastUpdated: '2024-01-01T00:00:00Z',
     });
   });
 

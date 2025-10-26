@@ -19,7 +19,7 @@ import tagsExtractor from '@src/transport/http/middlewares/tagsExtractor.js';
 import { RestorableStreamableHTTPServerTransport } from '@src/transport/http/restorableStreamableTransport.js';
 import { StreamableSessionRepository } from '@src/transport/http/storage/streamableSessionRepository.js';
 
-import { Request, Response, Router } from 'express';
+import { Request, RequestHandler, Response, Router } from 'express';
 
 /**
  * Helper function to restore a streamable HTTP session from persistent storage
@@ -51,7 +51,12 @@ async function restoreSession(
     // Mark the transport as initialized for restored session
     // The wrapper class safely handles the SDK's internal _initialized flag
     transport.markAsInitialized();
-    transport.sessionId = sessionId;
+    // Safely set sessionId if possible
+    try {
+      (transport as { sessionId?: string }).sessionId = sessionId;
+    } catch (error) {
+      logger.warn('Could not set sessionId on restored transport:', error);
+    }
 
     // Reconnect with the original configuration
     await serverManager.connectTransport(transport, sessionId, config);
@@ -95,8 +100,8 @@ export function setupStreamableHttpRoutes(
   router: Router,
   serverManager: ServerManager,
   sessionRepository: StreamableSessionRepository,
-  authMiddleware: any,
-  availabilityMiddleware?: any,
+  authMiddleware: RequestHandler,
+  availabilityMiddleware?: RequestHandler,
   asyncOrchestrator?: AsyncLoadingOrchestrator,
   customTemplate?: string,
 ): void {

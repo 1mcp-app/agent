@@ -36,7 +36,7 @@ function isSensitiveKey(key: string): boolean {
 /**
  * Unified sanitization function for all data types
  */
-function sanitize(value: any, depth = 0): any {
+function sanitize(value: unknown, depth = 0): unknown {
   // Prevent infinite recursion
   if (depth > 10) {
     return '[MAX_DEPTH]';
@@ -64,8 +64,8 @@ function sanitize(value: any, depth = 0): any {
     return value.map((item) => sanitize(item, depth + 1));
   }
 
-  if (typeof value === 'object') {
-    const sanitized: any = {};
+  if (typeof value === 'object' && value !== null) {
+    const sanitized: Record<string, unknown> = {};
 
     for (const [key, val] of Object.entries(value)) {
       if (isSensitiveKey(key)) {
@@ -84,10 +84,12 @@ function sanitize(value: any, depth = 0): any {
 /**
  * Sanitize data before logging - handles all data types
  */
-export function sanitizeForLogging(data: any): any {
+export function sanitizeForLogging(data: unknown): unknown {
   try {
     return sanitize(data);
-  } catch (_error) {
+  } catch (error) {
+    // Log the actual error safely without exposing sensitive data
+    console.error('Sanitization error occurred:', error instanceof Error ? error.message : 'Unknown error');
     return '[SANITIZATION_ERROR]';
   }
 }
@@ -95,13 +97,19 @@ export function sanitizeForLogging(data: any): any {
 /**
  * Create a secure logger method for a specific log level
  */
-function createLoggerMethod(level: keyof typeof logger) {
-  return (message: string, data?: any) => {
+function createLoggerMethod(level: 'debug' | 'info' | 'warn' | 'error') {
+  return (message: string, data?: unknown) => {
     const sanitizedMessage = typeof message === 'string' ? sanitize(message) : message;
+    const sanitizedMessageStr = typeof sanitizedMessage === 'string' ? sanitizedMessage : String(sanitizedMessage);
+
     if (data !== undefined) {
-      logger[level](sanitizedMessage, sanitizeForLogging(data));
+      // Type-safe assertion that the logger method exists and is callable
+      const loggerMethod = logger[level] as (message: string, ...args: unknown[]) => void;
+      loggerMethod(sanitizedMessageStr, sanitizeForLogging(data));
     } else {
-      logger[level](sanitizedMessage);
+      // Type-safe assertion that the logger method exists and is callable
+      const loggerMethod = logger[level] as (message: string, ...args: unknown[]) => void;
+      loggerMethod(sanitizedMessageStr);
     }
   };
 }
@@ -131,7 +139,10 @@ export function sanitizeOAuthServerList(servers: string[]): string[] {
  * Utility function to create safe error messages that don't expose sensitive data
  */
 export function createSafeErrorMessage(error: string): string {
-  return sanitize(error)
+  const sanitizedError = sanitize(error);
+  const errorString = typeof sanitizedError === 'string' ? sanitizedError : String(sanitizedError);
+
+  return errorString
     .replace(/HTTP \d+.*$/gi, 'HTTP [STATUS_CODE]') // Remove potentially sensitive HTTP response details
     .replace(/server.*responding/gi, 'server connectivity issue'); // Generic server error
 }

@@ -133,7 +133,7 @@ export class MCPRegistryClient {
               publishedAt: meta.publishedAt,
               updatedAt: meta.updatedAt,
               isLatest: meta.isLatest,
-              status: registryMeta.status as 'active' | 'archived' | 'deprecated',
+              status: registryMeta.status,
             };
           });
 
@@ -197,7 +197,7 @@ export class MCPRegistryClient {
             const healthResponse = await this.makeRequest<{ status: string; github_client_id?: string }>(url);
             const responseTime = Date.now() - startTime;
 
-            const status: RegistryStatusResult = {
+            const registryStatus: RegistryStatusResult = {
               available: true,
               url: this.baseUrl,
               response_time_ms: responseTime,
@@ -208,10 +208,10 @@ export class MCPRegistryClient {
             // Calculate statistics if requested
             if (includeStats) {
               const allServers = await this.getAllServersWithPagination();
-              status.stats = this.calculateStats(allServers);
+              registryStatus.stats = this.calculateStats(allServers);
             }
 
-            return status;
+            return registryStatus;
           } catch (_error) {
             const responseTime = Date.now() - startTime;
             return {
@@ -244,7 +244,13 @@ export class MCPRegistryClient {
   /**
    * Get cache statistics
    */
-  getCacheStats() {
+  getCacheStats(): {
+    totalEntries: number;
+    validEntries: number;
+    expiredEntries: number;
+    maxSize: number;
+    hitRatio: number;
+  } {
     return this.cache.getStats();
   }
 
@@ -267,7 +273,7 @@ export class MCPRegistryClient {
    */
   private async withCache<T>(
     cacheKeyPath: string,
-    cacheKeyParams: Record<string, any> | undefined,
+    cacheKeyParams: Record<string, unknown> | undefined,
     apiCall: () => Promise<T>,
     ttl: number,
     debugDescription: string,
@@ -383,12 +389,12 @@ export class MCPRegistryClient {
       const response = await this.axiosInstance.get<T>(url);
       logger.debug(`Request successful: ${url}`);
       return response.data;
-    } catch (error) {
+    } catch (error: unknown) {
       if (axios.isAxiosError(error)) {
         const errorMessages = {
           ECONNABORTED: `Request timeout after ${this.timeout}ms`,
           response: `HTTP ${error.response?.status}: ${error.response?.statusText}`,
-          request: `Network error: ${error.message}`,
+          request: `Network error: ${error instanceof Error ? error.message : String(error)}`,
         };
 
         if (error.code === 'ECONNABORTED') throw new Error(errorMessages.ECONNABORTED);
@@ -421,7 +427,9 @@ export class MCPRegistryClient {
   private findProxyUrlFromEnv(): string | undefined {
     const proxyEnvVars = ['HTTPS_PROXY', 'https_proxy', 'HTTP_PROXY', 'http_proxy', 'ALL_PROXY', 'all_proxy'];
 
-    return proxyEnvVars.map((envVar) => process.env[envVar]).find((value) => value);
+    return proxyEnvVars
+      .map((envVar) => process.env[envVar])
+      .find((value): value is string => typeof value === 'string' && value.length > 0);
   }
 
   /**
@@ -482,7 +490,13 @@ export class MCPRegistryClient {
   /**
    * Calculate statistics from server list
    */
-  private calculateStats(servers: RegistryServer[]) {
+  private calculateStats(servers: RegistryServer[]): {
+    total_servers: number;
+    active_servers: number;
+    deprecated_servers: number;
+    by_registry_type: Record<string, number>;
+    by_transport: Record<string, number>;
+  } {
     const byRegistryType: Record<string, number> = {};
     const byTransport: Record<string, number> = {};
     let activeCount = 0;
@@ -563,7 +577,9 @@ function convertCliOptionsToClientOptions(cliOptions: RegistryOptions = {}): Reg
 function parseProxyFromStandardEnv(): RegistryClientOptions['proxy'] | undefined {
   const proxyEnvVars = ['HTTPS_PROXY', 'https_proxy', 'HTTP_PROXY', 'http_proxy', 'ALL_PROXY', 'all_proxy'];
 
-  const proxyUrl = proxyEnvVars.map((envVar) => process.env[envVar]).find((value) => value);
+  const proxyUrl = proxyEnvVars
+    .map((envVar) => process.env[envVar])
+    .find((value): value is string => typeof value === 'string' && value.length > 0);
 
   return proxyUrl ? { url: proxyUrl } : undefined;
 }

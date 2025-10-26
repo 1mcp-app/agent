@@ -12,7 +12,7 @@ describe('secureLogger', () => {
         normalData: 'this is fine',
       };
 
-      const result = sanitizeForLogging(input);
+      const result = sanitizeForLogging(input) as Record<string, unknown>;
 
       expect(result.client_secret).toBe('[REDACTED]');
       expect(result.clientId).toBe('client123'); // clientId is not in sensitive keys
@@ -37,9 +37,12 @@ describe('secureLogger', () => {
         data: 'normal data',
       };
 
-      const result = sanitizeForLogging(input);
-      expect(result.config.oauth.client_secret).toBe('[REDACTED]');
-      expect(result.config.oauth.scopes).toEqual(['read', 'write']);
+      const result = sanitizeForLogging(input) as Record<string, unknown>;
+      const config = result.config as Record<string, unknown>;
+      const oauth = config.oauth as Record<string, unknown>;
+
+      expect(oauth.client_secret).toBe('[REDACTED]');
+      expect(oauth.scopes).toEqual(['read', 'write']);
       expect(result.data).toBe('normal data');
     });
 
@@ -49,7 +52,7 @@ describe('secureLogger', () => {
         { client_secret: 'secret456', info: 'public' },
       ];
 
-      const result = sanitizeForLogging(input);
+      const result = sanitizeForLogging(input) as Array<Record<string, unknown>>;
       expect(result[0].token).toBe('[REDACTED]');
       expect(result[0].data).toBe('normal');
       expect(result[1].client_secret).toBe('[REDACTED]');
@@ -68,7 +71,7 @@ describe('secureLogger', () => {
       const circular: any = { data: 'test' };
       circular.self = circular;
 
-      const result = sanitizeForLogging(circular);
+      const result = sanitizeForLogging(circular) as Record<string, unknown>;
       expect(result.data).toBe('test');
       // The circular reference should eventually be cut off with [MAX_DEPTH]
       expect(JSON.stringify(result)).toContain('[MAX_DEPTH]');

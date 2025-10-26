@@ -2,6 +2,8 @@ import { StreamableSessionData } from '@src/auth/sessionTypes.js';
 import { FileStorageService } from '@src/auth/storage/fileStorageService.js';
 import { AUTH_CONFIG } from '@src/constants.js';
 import { InboundConnectionConfig } from '@src/core/types/index.js';
+import { TagExpression } from '@src/domains/preset/parsers/tagQueryParser.js';
+import { TagQuery } from '@src/domains/preset/types/presetTypes.js';
 import logger from '@src/logger/logger.js';
 
 /**
@@ -62,11 +64,37 @@ export class StreamableSessionRepository {
       return null;
     }
 
-    // Parse JSON fields back to objects
+    // Parse JSON fields back to objects with proper error handling
+    let tagExpression: TagExpression | undefined;
+    if (sessionData.tagExpression) {
+      try {
+        const parsed = JSON.parse(sessionData.tagExpression) as unknown;
+        // Validate that the parsed object conforms to TagExpression interface
+        if (parsed && typeof parsed === 'object' && 'type' in parsed) {
+          tagExpression = parsed as TagExpression;
+        }
+      } catch (error) {
+        logger.warn(`Failed to parse tagExpression for session ${sessionId}:`, error);
+      }
+    }
+
+    let tagQuery: TagQuery | undefined;
+    if (sessionData.tagQuery) {
+      try {
+        const parsed = JSON.parse(sessionData.tagQuery) as unknown;
+        // Validate that the parsed object conforms to TagQuery interface
+        if (parsed && typeof parsed === 'object') {
+          tagQuery = parsed as TagQuery;
+        }
+      } catch (error) {
+        logger.warn(`Failed to parse tagQuery for session ${sessionId}:`, error);
+      }
+    }
+
     const config: InboundConnectionConfig = {
       tags: sessionData.tags,
-      tagExpression: sessionData.tagExpression ? JSON.parse(sessionData.tagExpression) : undefined,
-      tagQuery: sessionData.tagQuery ? JSON.parse(sessionData.tagQuery) : undefined,
+      tagExpression,
+      tagQuery,
       tagFilterMode: sessionData.tagFilterMode,
       presetName: sessionData.presetName,
       enablePagination: sessionData.enablePagination,

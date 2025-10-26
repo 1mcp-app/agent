@@ -1,4 +1,5 @@
 import { McpConfigManager } from '@src/config/mcpConfigManager.js';
+import { MCPServerParams } from '@src/core/types/transport.js';
 import { TagQueryEvaluator, TagSelection, TagState } from '@src/domains/preset/parsers/tagQueryEvaluator.js';
 import { PresetConfig, PresetStrategy, TagQuery } from '@src/domains/preset/types/presetTypes.js';
 import logger from '@src/logger/logger.js';
@@ -14,6 +15,63 @@ export interface SelectionResult {
   strategy: PresetStrategy;
   tagQuery: TagQuery;
   cancelled: boolean;
+}
+
+/**
+ * Type guard to validate TagQuery objects
+ */
+function isValidTagQuery(obj: unknown): obj is TagQuery {
+  if (!obj || typeof obj !== 'object') {
+    return false;
+  }
+
+  const query = obj as Record<string, unknown>;
+
+  // Check for valid properties
+  if (query.tag !== undefined && typeof query.tag !== 'string') {
+    return false;
+  }
+
+  if (query.$or !== undefined && !Array.isArray(query.$or)) {
+    return false;
+  }
+
+  if (query.$and !== undefined && !Array.isArray(query.$and)) {
+    return false;
+  }
+
+  if (query.$not !== undefined && !isValidTagQuery(query.$not)) {
+    return false;
+  }
+
+  if (query.$in !== undefined && !Array.isArray(query.$in)) {
+    return false;
+  }
+
+  // Recursively validate nested queries in $or and $and
+  if (query.$or && Array.isArray(query.$or)) {
+    const orArray = query.$or as unknown[];
+    if (!orArray.every((item) => isValidTagQuery(item))) {
+      return false;
+    }
+  }
+
+  if (query.$and && Array.isArray(query.$and)) {
+    const andArray = query.$and as unknown[];
+    if (!andArray.every((item) => isValidTagQuery(item))) {
+      return false;
+    }
+  }
+
+  // Validate $in array contains only strings
+  if (query.$in && Array.isArray(query.$in)) {
+    const inArray = query.$in as unknown[];
+    if (!inArray.every((item: unknown) => typeof item === 'string')) {
+      return false;
+    }
+  }
+
+  return true;
 }
 
 /**
@@ -62,15 +120,16 @@ export class InteractiveSelector {
         );
         return {
           strategy: 'or',
-          tagQuery: {},
+          tagQuery: {} as TagQuery,
           cancelled: true,
         };
       }
 
       // Collect all available tags from all servers
       const allTags = new Set<string>();
-      for (const serverConfig of Object.values(servers)) {
-        if (serverConfig.tags) {
+      const serverValues = Object.values(servers);
+      for (const serverConfig of serverValues) {
+        if (serverConfig.tags && Array.isArray(serverConfig.tags)) {
           serverConfig.tags.forEach((tag: string) => allTags.add(tag));
         }
       }
@@ -86,14 +145,14 @@ export class InteractiveSelector {
         );
         return {
           strategy: 'or',
-          tagQuery: {},
+          tagQuery: {} as TagQuery,
           cancelled: true,
         };
       }
 
       // Main interaction loop with back navigation support
       let strategy: PresetStrategy | undefined;
-      let tagQuery: TagQuery = {};
+      let tagQuery: TagQuery = {} as TagQuery;
       let completed = false;
 
       while (!completed) {
@@ -127,12 +186,12 @@ export class InteractiveSelector {
         if (strategySelection.strategy === undefined) {
           return {
             strategy: 'or',
-            tagQuery: {},
+            tagQuery: {} as TagQuery,
             cancelled: true,
           };
         }
 
-        strategy = strategySelection.strategy;
+        strategy = strategySelection.strategy as PresetStrategy;
 
         // Step 2: Create query based on strategy
         if (strategy === 'advanced') {
@@ -150,12 +209,20 @@ export class InteractiveSelector {
             name: 'query',
             message: 'Enter JSON query (e.g., {"tag": "web"}, {"$or": [{"tag": "web"}, {"tag": "api"}]}):',
             initial: existingConfig?.tagQuery ? JSON.stringify(existingConfig.tagQuery, null, 2) : '{"tag": ""}',
-            validate: (value: string) => {
-              if (!value.trim()) {
+            validate: (value: string): boolean | string => {
+              if (typeof value !== 'string') {
+                return 'Query must be a string';
+              }
+              const trimmedValue: string = value.trim();
+              if (!trimmedValue) {
                 return 'Query cannot be empty';
               }
               try {
-                const parsed = JSON.parse(value.trim());
+                const parsed = JSON.parse(trimmedValue) as unknown;
+                // Validate that parsed is a TagQuery before passing to validateQuery
+                if (!isValidTagQuery(parsed)) {
+                  return 'Invalid query format';
+                }
                 const validation = TagQueryEvaluator.validateQuery(parsed);
                 if (!validation.isValid) {
                   return `Invalid query: ${validation.errors.join(', ')}`;
@@ -167,15 +234,32 @@ export class InteractiveSelector {
             },
           });
 
-          if (queryInput.query === undefined) {
+          if (queryInput.query === undefined || queryInput.query === null || queryInput.query === '') {
             return {
               strategy: 'or',
-              tagQuery: {},
+              tagQuery: {} as TagQuery,
               cancelled: true,
             };
           }
 
-          tagQuery = JSON.parse(queryInput.query.trim());
+          // Ensure queryInput.query is properly typed and not null/undefined
+          if (!queryInput.query || typeof queryInput.query !== 'string') {
+            throw new Error('Query input is not a valid string');
+          }
+          const trimmedQuery: string = queryInput.query.trim();
+          let parsedQuery: unknown;
+          try {
+            parsedQuery = JSON.parse(trimmedQuery);
+          } catch (parseError) {
+            throw new Error(`Invalid JSON: ${parseError instanceof Error ? parseError.message : 'Unknown error'}`);
+          }
+
+          // Validate that the parsed query matches TagQuery interface using type guard
+          if (isValidTagQuery(parsedQuery)) {
+            tagQuery = parsedQuery as TagQuery;
+          } else {
+            throw new Error('Invalid query format');
+          }
           completed = true;
         } else {
           // Step 2: Three-state tag selection with arrow key navigation
@@ -196,7 +280,7 @@ export class InteractiveSelector {
             if (tagSelectionResult.cancelled) {
               return {
                 strategy: 'or',
-                tagQuery: {},
+                tagQuery: {} as TagQuery,
                 cancelled: true,
               };
             }
@@ -258,7 +342,7 @@ export class InteractiveSelector {
 
       return {
         strategy: 'or',
-        tagQuery: {},
+        tagQuery: {} as TagQuery,
         cancelled: true,
       };
     }
@@ -278,7 +362,7 @@ export class InteractiveSelector {
 
       return {
         name: presetName,
-        save: confirm.save || false,
+        save: Boolean(confirm.save),
       };
     }
 
@@ -287,21 +371,25 @@ export class InteractiveSelector {
       type: 'text',
       name: 'name',
       message: 'Enter preset name:',
-      validate: (value: string) => {
-        if (!value.trim()) {
+      validate: (value: string): boolean | string => {
+        if (typeof value !== 'string') {
+          return 'Preset name must be a string';
+        }
+        const trimmedValue: string = value.trim();
+        if (!trimmedValue) {
           return 'Preset name is required';
         }
-        if (value.trim().length > 50) {
+        if (trimmedValue.length > 50) {
           return 'Preset name must be 50 characters or less';
         }
-        if (!/^[a-zA-Z0-9_-]+$/.test(value.trim())) {
+        if (!/^[a-zA-Z0-9_-]+$/.test(trimmedValue)) {
           return 'Preset name can only contain letters, numbers, hyphens, and underscores';
         }
         return true;
       },
     });
 
-    if (!nameInput.name) {
+    if (!nameInput.name || nameInput.name === null || nameInput.name === '') {
       return { name: '', save: false };
     }
 
@@ -311,9 +399,24 @@ export class InteractiveSelector {
       message: 'Enter optional description:',
     });
 
+    // Ensure nameInput.name is properly typed and not null/undefined
+    if (!nameInput.name || typeof nameInput.name !== 'string') {
+      return { name: '', save: false };
+    }
+    const trimmedName: string = nameInput.name.trim();
+
+    // Ensure descriptionInput.description is properly typed and safe to process
+    let trimmedDescription: string | undefined;
+    if (descriptionInput.description && typeof descriptionInput.description === 'string') {
+      const descriptionValue = descriptionInput.description;
+      if (descriptionValue.trim() !== '') {
+        trimmedDescription = descriptionValue.trim();
+      }
+    }
+
     return {
-      name: nameInput.name.trim(),
-      description: descriptionInput.description?.trim() || undefined,
+      name: trimmedName,
+      description: trimmedDescription,
       save: true,
     };
   }
@@ -339,7 +442,8 @@ export class InteractiveSelector {
    * Validate preset name format
    */
   public validatePresetName(name: string): boolean {
-    return /^[a-zA-Z0-9_-]+$/.test(name.trim());
+    const trimmedName: string = name.trim();
+    return /^[a-zA-Z0-9_-]+$/.test(trimmedName);
   }
 
   /**
@@ -352,7 +456,7 @@ export class InteractiveSelector {
       message,
     });
 
-    return result.confirmed || false;
+    return Boolean(result.confirmed);
   }
 
   /**
@@ -365,7 +469,10 @@ export class InteractiveSelector {
       message,
       min,
       max,
-      validate: (value: number) => {
+      validate: (value: number): boolean | string => {
+        if (typeof value !== 'number' || isNaN(value)) {
+          return 'Please enter a valid number';
+        }
         if (value < min || value > max) {
           return `Please enter a number between ${min} and ${max}`;
         }
@@ -373,7 +480,7 @@ export class InteractiveSelector {
       },
     });
 
-    return result.choice || min;
+    return Number(result.choice) || min;
   }
 
   /**
@@ -413,7 +520,7 @@ export class InteractiveSelector {
    */
   private async selectTagsInteractive(
     availableTags: string[],
-    servers: Record<string, any>,
+    servers: Record<string, MCPServerParams>,
     strategy: PresetStrategy,
     existingQuery?: TagQuery,
   ): Promise<{
@@ -474,10 +581,10 @@ export class InteractiveSelector {
         }
 
         case 'left':
-          return { tagQuery: {}, goBack: true, cancelled: false };
+          return { tagQuery: {} as TagQuery, goBack: true, cancelled: false };
 
         case 'escape':
-          return { tagQuery: {}, goBack: false, cancelled: true };
+          return { tagQuery: {} as TagQuery, goBack: false, cancelled: true };
       }
     }
   }
@@ -488,7 +595,7 @@ export class InteractiveSelector {
   private async showTagSelection(
     tagSelections: TagSelection[],
     currentIndex: number,
-    servers: Record<string, any>,
+    servers: Record<string, MCPServerParams>,
     strategy: PresetStrategy,
   ): Promise<void> {
     // Header
@@ -603,19 +710,29 @@ export class InteractiveSelector {
       stdin.resume();
       stdin.setEncoding('utf8');
 
-      const onKeypress = (key: string) => {
+      const onKeypress = (key: string | Buffer): void => {
         stdin.setRawMode(false);
         stdin.pause();
         stdin.removeListener('data', onKeypress);
 
+        // Convert Buffer to string if needed
+        let keyStr: string;
+        if (Buffer.isBuffer(key)) {
+          keyStr = key.toString('utf8');
+        } else if (typeof key === 'string') {
+          keyStr = key;
+        } else {
+          keyStr = '';
+        }
+
         // Handle escape sequences for arrow keys
-        if (key === '\u001b[A') resolve('up');
-        else if (key === '\u001b[B') resolve('down');
-        else if (key === '\u001b[D') resolve('left');
-        else if (key === '\u001b[C') resolve('right');
-        else if (key === ' ') resolve('space');
-        else if (key === '\r' || key === '\n') resolve('enter');
-        else if (key === '\u001b' || key === '\u0003')
+        if (keyStr === '\u001b[A') resolve('up');
+        else if (keyStr === '\u001b[B') resolve('down');
+        else if (keyStr === '\u001b[D') resolve('left');
+        else if (keyStr === '\u001b[C') resolve('right');
+        else if (keyStr === ' ') resolve('space');
+        else if (keyStr === '\r' || keyStr === '\n') resolve('enter');
+        else if (keyStr === '\u001b' || keyStr === '\u0003')
           resolve('escape'); // ESC or Ctrl+C
         else resolve('unknown');
       };
@@ -627,7 +744,7 @@ export class InteractiveSelector {
   /**
    * Get color for tag state
    */
-  private getTagStateColor(state: TagState): typeof chalk {
+  private getTagStateColor(state: TagState): (text: string) => string {
     switch (state) {
       case 'empty':
         return chalk.gray;
@@ -643,7 +760,10 @@ export class InteractiveSelector {
   /**
    * Show detailed information about servers for a specific tag
    */
-  private async showTagServerDetails(tagSelection: TagSelection, servers: Record<string, any>): Promise<void> {
+  private async showTagServerDetails(
+    tagSelection: TagSelection,
+    servers: Record<string, MCPServerParams>,
+  ): Promise<void> {
     console.clear();
 
     const enabledServers = tagSelection.servers.filter((serverName) => servers[serverName]?.disabled !== true);
@@ -695,53 +815,78 @@ export class InteractiveSelector {
    * Determine initial tag state from existing query
    */
   private getInitialTagStateFromQuery(tag: string, existingQuery?: TagQuery, _strategy?: PresetStrategy): TagState {
-    if (!existingQuery || typeof existingQuery !== 'object') {
+    if (!existingQuery || !isValidTagQuery(existingQuery)) {
       return 'empty';
     }
 
     // Helper function to recursively check if a query matches a tag
-    const queryMatches = (query: any): boolean => {
-      if (!query || typeof query !== 'object') {
+    const queryMatches = (query: unknown): boolean => {
+      if (!isValidTagQuery(query)) {
         return false;
       }
 
+      // Use the query directly since it's been validated
+      const validQuery = query as TagQuery;
+
       // Direct tag match
-      if (query.tag === tag) {
+      if (validQuery.tag === tag) {
         return true;
       }
 
       // Check nested $or
-      if (query.$or && Array.isArray(query.$or)) {
-        return query.$or.some((subQuery: any) => queryMatches(subQuery));
+      if (validQuery.$or && Array.isArray(validQuery.$or)) {
+        return validQuery.$or.some((subQuery: unknown) => queryMatches(subQuery));
       }
 
       // Check nested $and
-      if (query.$and && Array.isArray(query.$and)) {
-        return query.$and.some((subQuery: any) => queryMatches(subQuery));
+      if (validQuery.$and && Array.isArray(validQuery.$and)) {
+        return validQuery.$and.some((subQuery: unknown) => queryMatches(subQuery));
       }
 
       // Check $in operator
-      if (query.$in && Array.isArray(query.$in)) {
-        return query.$in.includes(tag);
+      if (validQuery.$in && Array.isArray(validQuery.$in)) {
+        const inArray = validQuery.$in as unknown[];
+        return inArray.some((item): item is string => typeof item === 'string' && item === tag);
+      }
+
+      // Check $not operator recursively
+      if (validQuery.$not) {
+        return queryMatches(validQuery.$not);
       }
 
       return false;
     };
 
     // Helper function to check for NOT conditions
-    const queryMatchesNot = (query: any): boolean => {
-      if (!query || typeof query !== 'object') {
+    const queryMatchesNot = (query: unknown): boolean => {
+      if (!isValidTagQuery(query)) {
         return false;
       }
 
+      // Use the query directly since it's been validated
+      const validQuery = query as TagQuery;
+
       // Direct NOT match
-      if (query.$not) {
-        return queryMatches(query.$not);
+      if (validQuery.$not) {
+        return queryMatches(validQuery.$not);
       }
 
       // Check for NOT in nested structures
-      if (query.$and && Array.isArray(query.$and)) {
-        return query.$and.some((subQuery: any) => subQuery.$not && queryMatches(subQuery.$not));
+      if (validQuery.$and && Array.isArray(validQuery.$and)) {
+        return validQuery.$and.some((subQuery: unknown) => {
+          if (!isValidTagQuery(subQuery)) return false;
+          const subQueryTyped = subQuery as TagQuery;
+          return subQueryTyped.$not && queryMatches(subQueryTyped.$not);
+        });
+      }
+
+      // Check for NOT in $or structures as well
+      if (validQuery.$or && Array.isArray(validQuery.$or)) {
+        return validQuery.$or.some((subQuery: unknown) => {
+          if (!isValidTagQuery(subQuery)) return false;
+          const subQueryTyped = subQuery as TagQuery;
+          return subQueryTyped.$not && queryMatches(subQueryTyped.$not);
+        });
       }
 
       return false;

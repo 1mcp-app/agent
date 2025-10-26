@@ -36,10 +36,10 @@ export function isProcessAlive(pid: number): boolean {
     // This doesn't actually send a signal, just checks permissions
     process.kill(pid, 0);
     return true;
-  } catch (err: any) {
+  } catch (err: unknown) {
     // ESRCH = process doesn't exist
     // EPERM = process exists but no permission (still alive)
-    return err.code === 'EPERM';
+    return err instanceof Error && 'code' in err && (err as { code: string }).code === 'EPERM';
   }
 }
 
@@ -82,7 +82,7 @@ export function readPidFile(configDir: string): ServerPidInfo | null {
     }
 
     const content = fs.readFileSync(pidFilePath, 'utf-8');
-    const serverInfo: ServerPidInfo = JSON.parse(content);
+    const serverInfo: ServerPidInfo = JSON.parse(content) as ServerPidInfo;
 
     // Validate required fields
     if (!serverInfo.pid || !serverInfo.url || !serverInfo.port) {

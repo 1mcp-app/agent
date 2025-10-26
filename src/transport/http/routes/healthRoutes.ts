@@ -53,7 +53,7 @@ export function createHealthRoutes(loadingManager?: McpLoadingManager): Router {
       // Add custom headers for monitoring tools
       res.setHeader('X-Health-Status', healthData.status);
       res.setHeader('X-Service-Version', healthData.version);
-      res.setHeader('X-Uptime-Seconds', healthData.system.uptime.toString());
+      res.setHeader('X-Uptime-Seconds', String(healthData.system.uptime));
 
       logger.debug(`Health check completed with status: ${healthData.status}`);
 
@@ -157,7 +157,18 @@ export function createHealthRoutes(loadingManager?: McpLoadingManager): Router {
         cancelled: [] as string[],
       };
 
-      const serverDetails: Record<string, any> = {};
+      interface ServerDetail {
+        state: LoadingState;
+        retryCount: number;
+        duration?: number;
+        startTime?: number;
+        endTime?: number;
+        error?: string;
+        progress?: string; // Changed from number to string to match LoadingProgressPhase
+        authorizationUrl?: string;
+      }
+
+      const serverDetails: Record<string, ServerDetail> = {};
 
       for (const [name, info] of allStates) {
         // Add to state groups
@@ -187,10 +198,10 @@ export function createHealthRoutes(loadingManager?: McpLoadingManager): Router {
           state: info.state,
           retryCount: info.retryCount,
           duration: info.duration,
-          startTime: info.startTime,
-          endTime: info.endTime,
+          startTime: info.startTime?.getTime() || undefined,
+          endTime: info.endTime?.getTime() || undefined,
           error: info.error?.message,
-          progress: info.progress,
+          progress: info.progress?.phase || undefined,
           authorizationUrl: info.authorizationUrl,
         };
       }
@@ -203,7 +214,7 @@ export function createHealthRoutes(loadingManager?: McpLoadingManager): Router {
       const responseData = {
         loading: {
           isComplete: summary.isComplete,
-          startTime: summary.startTime,
+          startTime: summary.startTime.toISOString(),
           successRate: summary.successRate,
           averageLoadTime: summary.averageLoadTime,
         },
@@ -273,9 +284,9 @@ export function createHealthRoutes(loadingManager?: McpLoadingManager): Router {
         state: serverInfo.state,
         retryCount: serverInfo.retryCount,
         duration: serverInfo.duration,
-        startTime: serverInfo.startTime,
-        endTime: serverInfo.endTime,
-        lastRetryTime: serverInfo.lastRetryTime,
+        startTime: serverInfo.startTime?.toISOString(),
+        endTime: serverInfo.endTime?.toISOString(),
+        lastRetryTime: serverInfo.lastRetryTime?.toISOString(),
         error: serverInfo.error
           ? {
               message: serverInfo.error.message,
@@ -284,7 +295,7 @@ export function createHealthRoutes(loadingManager?: McpLoadingManager): Router {
           : undefined,
         progress: serverInfo.progress,
         authorizationUrl: serverInfo.authorizationUrl,
-        oauthStartTime: serverInfo.oauthStartTime,
+        oauthStartTime: serverInfo.oauthStartTime?.toISOString(),
         timestamp: new Date().toISOString(),
       };
 

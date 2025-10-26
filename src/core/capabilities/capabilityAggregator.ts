@@ -184,7 +184,10 @@ export class CapabilityAggregator extends EventEmitter {
   /**
    * Safely list tools from a server
    */
-  private async safeListTools(serverName: string, client: any): Promise<ListToolsResult> {
+  private async safeListTools(
+    serverName: string,
+    client: { listTools(): Promise<ListToolsResult> },
+  ): Promise<ListToolsResult> {
     try {
       return await client.listTools();
     } catch (error) {
@@ -196,7 +199,10 @@ export class CapabilityAggregator extends EventEmitter {
   /**
    * Safely list resources from a server
    */
-  private async safeListResources(serverName: string, client: any): Promise<ListResourcesResult> {
+  private async safeListResources(
+    serverName: string,
+    client: { listResources(): Promise<ListResourcesResult> },
+  ): Promise<ListResourcesResult> {
     try {
       return await client.listResources();
     } catch (error) {
@@ -208,7 +214,10 @@ export class CapabilityAggregator extends EventEmitter {
   /**
    * Safely list prompts from a server
    */
-  private async safeListPrompts(serverName: string, client: any): Promise<ListPromptsResult> {
+  private async safeListPrompts(
+    serverName: string,
+    client: { listPrompts(): Promise<ListPromptsResult> },
+  ): Promise<ListPromptsResult> {
     try {
       return await client.listPrompts();
     } catch (error) {

@@ -18,7 +18,7 @@ export interface TagQuery {
   $and?: TagQuery[];
   $not?: TagQuery;
   $in?: string[];
-  [key: string]: any;
+  [key: string]: unknown;
 }
 
 export interface PresetConfig {

@@ -14,6 +14,7 @@ import {
   extractAndFilterServers,
   generateAppConfig,
   handleMultipleConfigs,
+  type MCPServerConfig,
 } from '@src/domains/discovery/appDiscovery.js';
 import {
   generateManualInstructions,
@@ -190,11 +191,12 @@ export async function consolidateCommand(options: ConsolidateOptions): Promise<v
       } else {
         console.error(`❌ ${result.message}`);
       }
-    } catch (error: any) {
+    } catch (error: unknown) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
       const errorResult: ConsolidationResult = {
         app: appName,
         status: 'failed',
-        message: `Failed to consolidate ${appName}: ${error.message}`,
+        message: `Failed to consolidate ${appName}: ${errorMessage}`,
       };
       results.push(errorResult);
       console.error(`❌ ${errorResult.message}`);
@@ -419,7 +421,7 @@ async function consolidateApp(
 /**
  * Convert MCPServerConfig to MCPServerParams format
  */
-function convertToMCPServerParams(server: any): MCPServerParams {
+function convertToMCPServerParams(server: MCPServerConfig): MCPServerParams {
   const params: MCPServerParams = {
     disabled: false,
   };
@@ -447,13 +449,18 @@ function convertToMCPServerParams(server: any): MCPServerParams {
     throw new Error(`Invalid server configuration: ${server.name} has neither command nor url`);
   }
 
+  // Ensure type is set for type safety
+  if (!params.type) {
+    throw new Error(`Failed to determine transport type for server: ${server.name}`);
+  }
+
   return params;
 }
 
 /**
  * Import MCP servers to 1mcp configuration
  */
-async function importServersTo1mcp(servers: any[]): Promise<void> {
+async function importServersTo1mcp(servers: MCPServerConfig[]): Promise<void> {
   // Use resolved config path from ConfigContext
   const configContext = ConfigContext.getInstance();
   const filePath = configContext.getResolvedConfigPath();
@@ -488,16 +495,32 @@ async function importServersTo1mcp(servers: any[]): Promise<void> {
         console.log(`   Type: ${serverParams.type}`);
         console.log(`   URL: ${serverParams.url}`);
       }
-    } catch (error: any) {
-      console.error(`❌ Failed to import server "${server.name}": ${error.message}`);
+    } catch (error: unknown) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      console.error(`❌ Failed to import server "${server.name}": ${errorMessage}`);
     }
   }
 }
 
 /**
+ * Interface for configuration choices
+ */
+interface ConfigurationChoice {
+  path: string;
+  level: 'project' | 'user' | 'system';
+  servers: MCPServerConfig[];
+  priority: number;
+  exists: boolean;
+  readable: boolean;
+  valid: boolean;
+  content?: unknown;
+  error?: string;
+}
+
+/**
  * Prompt user to choose from multiple configurations
  */
-async function promptUserChoice(configs: any[]): Promise<any> {
+async function promptUserChoice(configs: ConfigurationChoice[]): Promise<ConfigurationChoice> {
   console.log('\n📋 Multiple configurations found:');
 
   configs.forEach((config, index) => {
@@ -525,9 +548,21 @@ async function promptUserChoice(configs: any[]): Promise<any> {
 }
 
 /**
+ * Interface for operation preview
+ */
+interface OperationPreview {
+  app: string;
+  configPath: string;
+  serversToImport: string[];
+  replacementUrl: string;
+  backupPath: string;
+  risks: string[];
+}
+
+/**
  * Confirm operation with user
  */
-async function confirmOperation(preview: any): Promise<boolean> {
+async function confirmOperation(preview: OperationPreview): Promise<boolean> {
   console.log('\n📋 Operation Preview:');
   console.log(`App: ${preview.app}`);
   console.log(`Config: ${preview.configPath}`);

@@ -183,10 +183,12 @@ export async function validateServer1mcpUrl(url: string): Promise<{
     // The OAuth endpoint responding successfully indicates the server is properly running
 
     return { valid: true };
-  } catch (error: any) {
+  } catch (error) {
     return {
       valid: false,
-      error: createSafeErrorMessage(`Cannot connect to 1mcp server: ${error.message}`),
+      error: createSafeErrorMessage(
+        `Cannot connect to 1mcp server: ${error instanceof Error ? error.message : String(error)}`,
+      ),
     };
   }
 }

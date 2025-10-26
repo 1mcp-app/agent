@@ -18,7 +18,7 @@ export interface RegistryServer {
   $schema?: string;
   name: string;
   description: string;
-  status: string;
+  status: 'active' | 'deprecated' | 'archived';
   version: string;
   repository: Repository;
   packages?: ServerPackage[];
@@ -72,17 +72,9 @@ export interface ServerRemote {
   url: string;
 }
 
-export interface OfficialMeta {
-  isLatest: boolean;
-  publishedAt: string;
-  serverId: string;
-  updatedAt: string;
-  versionId: string;
-}
-
 export interface ServerMeta {
   [OFFICIAL_REGISTRY_KEY]: RegistryExtensions;
-  [key: string]: Record<string, any>;
+  [key: string]: unknown;
 }
 
 export interface ServerListOptions {
@@ -134,11 +126,13 @@ export interface ResponseMeta {
 export interface RegistryExtensions {
   isLatest: boolean;
   publishedAt: string;
-  status: 'active' | 'deprecated' | 'deleted';
+  status: 'active' | 'deprecated' | 'archived';
   updatedAt: string;
   serverId: string;
   versionId: string;
 }
+
+export interface OfficialMeta extends RegistryExtensions {}
 
 export interface ServerVersion {
   version: string;

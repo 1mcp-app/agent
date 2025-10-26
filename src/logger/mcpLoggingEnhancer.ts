@@ -1,8 +1,9 @@
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import type { RequestHandlerExtra } from '@modelcontextprotocol/sdk/shared/protocol.js';
+import type { ServerNotification, ServerRequest } from '@modelcontextprotocol/sdk/types.js';
 
 import { v4 as uuidv4 } from 'uuid';
-import { z, ZodLiteral, ZodObject } from 'zod';
+import { z } from 'zod';
 
 import logger from './logger.js';
 
@@ -12,21 +13,12 @@ interface LogContext {
   startTime: number;
 }
 
-// Use the same constraint as the SDK Protocol class
-type SDKRequestSchema = ZodObject<{
-  method: ZodLiteral<string>;
-}>;
-
-type SDKNotificationSchema = ZodObject<{
-  method: ZodLiteral<string>;
-}>;
-
-type SDKRequestHandler<T extends SDKRequestSchema> = (
+type SDKRequestHandler<T extends z.ZodType> = (
   request: z.infer<T>,
-  extra: RequestHandlerExtra<any, any>,
-) => any | Promise<any>;
+  extra: RequestHandlerExtra<ServerRequest, ServerNotification>,
+) => unknown | Promise<unknown>;
 
-type SDKNotificationHandler<T extends SDKNotificationSchema> = (notification: z.infer<T>) => void | Promise<void>;
+type SDKNotificationHandler<T extends z.ZodType> = (notification: z.infer<T>) => void | Promise<void>;
 
 const activeRequests = new Map<string, LogContext>();
 
@@ -80,7 +72,7 @@ function logNotification(method: string, params: unknown): void {
 /**
  * Wraps the original request handler with logging
  */
-function wrapRequestHandler<T extends SDKRequestSchema>(
+function wrapRequestHandler<T extends z.ZodType>(
   originalHandler: SDKRequestHandler<T>,
   method: string,
 ): SDKRequestHandler<T> {
@@ -95,20 +87,25 @@ function wrapRequestHandler<T extends SDKRequestSchema>(
       startTime,
     });
 
-    // Log request
-    logRequest(requestId, method, (request as any).params);
+    // Log request with type-safe params extraction
+    const requestParams = hasParamsProperty(request) ? request.params : undefined;
+    logRequest(requestId, method, requestParams);
 
     try {
-      // Execute original handler with the original extra object
+      // Execute original handler with enhanced extra object
       const result = await originalHandler(request, {
         ...extra,
-        sendNotification: async (notification) => {
+        sendNotification: async (notification: ServerNotification) => {
           logger.info('Sending notification', { requestId, notification });
           return extra.sendNotification(notification);
         },
-        sendRequest: async (request, resultSchema, options) => {
+        // Reason: MCP SDK sendRequest expects any schema type; Zod schemas have complex generic types
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        sendRequest: async (request: ServerRequest, resultSchema: any, options?: unknown) => {
           logger.info('Sending request', { requestId, request });
-          return extra.sendRequest(request, resultSchema, options);
+          // Reason: MCP SDK internal types don't match our wrapper signatures; any required for compatibility
+          // eslint-disable-next-line @typescript-eslint/no-unsafe-return, @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-explicit-any
+          return extra.sendRequest(request, resultSchema as any, options as any);
         },
       });
 
@@ -129,16 +126,41 @@ function wrapRequestHandler<T extends SDKRequestSchema>(
   };
 }
 
+// Type guard to check if request has params property
+function hasParamsProperty(request: unknown): request is { params: unknown } {
+  return typeof request === 'object' && request !== null && 'params' in request;
+}
+
+// Type-safe utility to extract method name from Zod schema
+function extractMethodName(schema: z.ZodType): string {
+  try {
+    // Reason: Accessing internal Zod schema properties not exposed in public types
+    // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-explicit-any
+    const schemaAny = schema as any;
+    // Reason: Navigating Zod's internal structure to extract method name from schema
+    // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-call
+    if (schemaAny._def?.shape?.()?.method?._def?.value) {
+      // Reason: Extracting method name from deep within Zod's internal schema structure
+      // eslint-disable-next-line @typescript-eslint/no-unsafe-return, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-member-access
+      return schemaAny._def.shape().method._def.value;
+    }
+  } catch {
+    // Silently fall back to default if extraction fails
+  }
+  return 'unknown';
+}
+
 /**
  * Wraps the original notification handler with logging
  */
-function wrapNotificationHandler<T extends SDKNotificationSchema>(
+function wrapNotificationHandler<T extends z.ZodType>(
   originalHandler: SDKNotificationHandler<T>,
   method: string,
 ): SDKNotificationHandler<T> {
   return async (notification) => {
-    // Log notification
-    logNotification(method, (notification as any).params);
+    // Log notification with type-safe params extraction
+    const notificationParams = hasParamsProperty(notification) ? notification.params : undefined;
+    logNotification(method, notificationParams);
 
     // Execute original handler
     await originalHandler(notification);
@@ -154,31 +176,51 @@ export function enhanceServerWithLogging(server: Server): void {
   const originalSetNotificationHandler = server.setNotificationHandler.bind(server);
   const originalNotification = server.notification.bind(server);
 
-  // Override request handler registration - cast server to bypass Zod version incompatibilities
-  const serverAny = server as any;
-  serverAny.setRequestHandler = <T extends ZodObject<{ method: ZodLiteral<string> }>>(
+  // Override request handler registration with proper type safety
+  const serverWithHandlers = server as {
+    setRequestHandler: <T extends z.ZodType>(
+      requestSchema: T,
+      handler: (
+        request: z.infer<T>,
+        extra: RequestHandlerExtra<ServerRequest, ServerNotification>,
+      ) => unknown | Promise<unknown>,
+    ) => void;
+  };
+
+  serverWithHandlers.setRequestHandler = <T extends z.ZodType>(
     requestSchema: T,
-    handler: (request: z.infer<T>, extra: RequestHandlerExtra<any, any>) => any | Promise<any>,
+    handler: (
+      request: z.infer<T>,
+      extra: RequestHandlerExtra<ServerRequest, ServerNotification>,
+    ) => unknown | Promise<unknown>,
   ): void => {
-    const wrappedHandler = wrapRequestHandler(
-      handler as SDKRequestHandler<any>,
-      (requestSchema as unknown as { _def: { shape: () => { method: { _def: { value: string } } } } })?._def?.shape?.()
-        ?.method?._def?.value || 'unknown',
-    );
+    // Extract method name safely using our type-safe utility
+    const methodName = extractMethodName(requestSchema);
+
+    const wrappedHandler = wrapRequestHandler(handler as SDKRequestHandler<T>, methodName);
+    // Reason: Original MCP SDK method signatures incompatible with our wrapped handlers; any required for override
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     return originalSetRequestHandler.call(server, requestSchema as any, wrappedHandler as any);
   };
 
-  // Override notification handler registration - cast server to bypass Zod version incompatibilities
-  serverAny.setNotificationHandler = <T extends ZodObject<{ method: ZodLiteral<string> }>>(
+  // Override notification handler registration with proper type safety
+  const serverWithNotificationHandlers = server as {
+    setNotificationHandler: <T extends z.ZodType>(
+      notificationSchema: T,
+      handler: (notification: z.infer<T>) => void | Promise<void>,
+    ) => void;
+  };
+
+  serverWithNotificationHandlers.setNotificationHandler = <T extends z.ZodType>(
     notificationSchema: T,
     handler: (notification: z.infer<T>) => void | Promise<void>,
   ): void => {
-    const wrappedHandler = wrapNotificationHandler(
-      handler as SDKNotificationHandler<any>,
-      (
-        notificationSchema as unknown as { _def: { shape: () => { method: { _def: { value: string } } } } }
-      )?._def?.shape?.()?.method?._def?.value || 'unknown',
-    );
+    // Extract method name safely using our type-safe utility
+    const methodName = extractMethodName(notificationSchema);
+
+    const wrappedHandler = wrapNotificationHandler(handler as SDKNotificationHandler<T>, methodName);
+    // Reason: Original MCP SDK method signatures incompatible with our wrapped handlers; any required for override
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     return originalSetNotificationHandler.call(server, notificationSchema as any, wrappedHandler as any);
   };
 

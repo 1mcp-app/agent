@@ -10,7 +10,7 @@ import { MCPError, MCPErrorType } from './errorTypes.js';
  * @param errorMessage The error message to use if the function fails
  * @returns The wrapped function
  */
-export function withErrorHandling<T, Args extends any[]>(
+export function withErrorHandling<T, Args extends readonly unknown[]>(
   fn: (...args: Args) => Promise<T>,
   errorMessage: string,
 ): (...args: Args) => Promise<T> {
@@ -18,7 +18,7 @@ export function withErrorHandling<T, Args extends any[]>(
     try {
       return await fn(...args);
     } catch (error) {
-      logger.error(`${errorMessage}: ${error}`);
+      logger.error(`${errorMessage}: ${error instanceof Error ? error.message : String(error)}`);
 
       // Rethrow MCPErrors as is
       if (error instanceof MCPError) {
@@ -57,6 +57,8 @@ export function normalizeError(error: unknown, errorMessage: string): MCPErrorTy
  * @param errorType The error type to check against
  * @returns True if the error is of the specified type
  */
+// Reason: Error constructors have varying signatures; any[] provides flexibility for different error types
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 export function isMCPError<T extends MCPError>(error: unknown, errorType: new (...args: any[]) => T): error is T {
   return error instanceof errorType;
 }
@@ -102,7 +104,7 @@ export function getErrorCause(error: unknown): Error | undefined {
  * @param error The error to format
  * @returns A formatted error object
  */
-export function formatErrorResponse(error: any): { code: number; message: string; data?: any } {
+export function formatErrorResponse(error: unknown): { code: number; message: string; data?: unknown } {
   if (error instanceof MCPError) {
     return {
       code: error.code,

@@ -1,7 +1,13 @@
 import { createRegistryClient } from '@src/domains/registry/mcpRegistryClient.js';
 import { SearchMCPServersArgs } from '@src/domains/registry/mcpToolSchemas.js';
 import { createSearchEngine } from '@src/domains/registry/searchFiltering.js';
-import { OFFICIAL_REGISTRY_KEY, RegistryOptions, RegistryServer } from '@src/domains/registry/types.js';
+import {
+  OFFICIAL_REGISTRY_KEY,
+  RegistryExtensions,
+  RegistryOptions,
+  RegistryServer,
+  ServerMeta,
+} from '@src/domains/registry/types.js';
 import logger from '@src/logger/logger.js';
 import { withErrorHandling } from '@src/utils/core/errorHandling.js';
 
@@ -39,7 +45,7 @@ function getSearchEngine() {
  * Search result with pagination metadata
  */
 export interface SearchMCPServersResult {
-  servers: RegistryServer[];
+  servers: (RegistryServer & { registryId: string; lastUpdated: string })[];
   next_cursor?: string;
   count: number;
 }
@@ -47,14 +53,18 @@ export interface SearchMCPServersResult {
 /**
  * Transform server data for search results
  */
-function transformServerForSearch(serverResponse: any): any {
-  const server = serverResponse.server || serverResponse; // Handle both old and new formats
-  const meta = server._meta[OFFICIAL_REGISTRY_KEY];
+function transformServerForSearch(
+  server: RegistryServer,
+): RegistryServer & { registryId: string; lastUpdated: string } {
+  const meta = server._meta[OFFICIAL_REGISTRY_KEY] as RegistryExtensions;
+  if (!meta) {
+    throw new Error('Missing registry metadata for server');
+  }
   return {
     ...server,
-    registryId: meta.serverId,
+    registryId: meta.serverId || '',
     packages: server.packages || [],
-    lastUpdated: meta.updatedAt,
+    lastUpdated: meta.updatedAt || '',
     repository: server.repository,
   };
 }
@@ -77,7 +87,7 @@ export async function handleSearchMCPServers(
     const status = args.status || 'active';
 
     // Build API parameters - pass search to API for server-side filtering
-    const apiParams: any = {
+    const apiParams: Record<string, string | number> = {
       limit,
     };
 
@@ -97,7 +107,7 @@ export async function handleSearchMCPServers(
     // Extract RegistryServer objects from ServerResponse objects and preserve metadata
     const registryServers = servers.map((sr) => ({
       ...sr.server,
-      _meta: sr._meta as any, // Preserve the metadata from ServerResponse
+      _meta: sr._meta as ServerMeta, // Preserve the metadata from ServerResponse with proper type assertion
     }));
 
     const filteredServers = engine.applyFilters(registryServers, {

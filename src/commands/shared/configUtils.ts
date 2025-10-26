@@ -43,14 +43,38 @@ export function loadConfig(configPath?: string): ServerConfig {
       throw new Error(`Configuration file not found: ${filePath}`);
     }
 
-    const configData = JSON.parse(fs.readFileSync(filePath, 'utf8'));
+    const configData = JSON.parse(fs.readFileSync(filePath, 'utf8')) as unknown;
 
-    // Ensure mcpServers exists
-    if (!configData.mcpServers) {
-      configData.mcpServers = {};
+    // Type guard to ensure configData has proper structure
+    if (!configData || typeof configData !== 'object') {
+      throw new Error(`Invalid configuration format: ${filePath}`);
     }
 
-    return configData;
+    const configObj = configData as Record<string, unknown>;
+
+    // Ensure mcpServers exists and is properly typed
+    if (!configObj.mcpServers || typeof configObj.mcpServers !== 'object') {
+      configObj.mcpServers = {} as Record<string, MCPServerParams>;
+    }
+
+    // Validate that mcpServers is properly structured
+    if (typeof configObj.mcpServers === 'object' && configObj.mcpServers !== null) {
+      // Ensure mcpServers is a Record<string, MCPServerParams>
+      const mcpServers = configObj.mcpServers as Record<string, unknown>;
+      const validatedMcpServers: Record<string, MCPServerParams> = {};
+
+      for (const [key, value] of Object.entries(mcpServers)) {
+        if (value && typeof value === 'object') {
+          // Basic validation - ensure it has at least a type property
+          const serverConfig = value as MCPServerParams;
+          validatedMcpServers[key] = serverConfig;
+        }
+      }
+
+      configObj.mcpServers = validatedMcpServers;
+    }
+
+    return configObj as unknown as ServerConfig;
   } catch (error) {
     if (error instanceof SyntaxError) {
       throw new Error(`Invalid JSON in configuration file: ${filePath}`);
@@ -79,7 +103,8 @@ export function saveConfig(config: ServerConfig): void {
 
     logger.info(`Configuration saved to: ${filePath}`);
   } catch (error) {
-    throw new Error(`Failed to save configuration to ${filePath}: ${error}`);
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    throw new Error(`Failed to save configuration to ${filePath}: ${errorMessage}`);
   }
 }
 
@@ -144,7 +169,8 @@ export function removeServer(serverName: string): boolean {
     saveConfig(config);
     return true;
   } catch (error) {
-    throw new Error(`Failed to remove server ${serverName}: ${error}`);
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    throw new Error(`Failed to remove server ${serverName}: ${errorMessage}`);
   }
 }
 
@@ -274,7 +300,8 @@ export function backupConfig(): string {
     logger.info(`Configuration backed up to: ${backupPath}`);
     return backupPath;
   } catch (error) {
-    throw new Error(`Failed to create backup: ${error}`);
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    throw new Error(`Failed to create backup: ${errorMessage}`);
   }
 }
 

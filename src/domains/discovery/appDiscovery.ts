@@ -29,7 +29,7 @@ export interface ConfigDiscovery {
     exists: boolean;
     readable: boolean;
     valid: boolean;
-    content?: any;
+    content?: unknown;
     error?: string;
   }>;
 }
@@ -99,7 +99,7 @@ export async function checkConsolidationStatus(appName: string): Promise<Consoli
       continue;
     }
 
-    const consolidationInfo = detectConsolidationPattern(config.content);
+    const consolidationInfo = detectConsolidationPattern(config.content || {});
     if (consolidationInfo.isConsolidated) {
       return {
         isConsolidated: true,
@@ -117,30 +117,43 @@ export async function checkConsolidationStatus(appName: string): Promise<Consoli
 /**
  * Detect if a configuration file contains consolidation patterns
  */
-function detectConsolidationPattern(config: any): {
+function detectConsolidationPattern(config: unknown): {
   isConsolidated: boolean;
   consolidatedUrl?: string;
   originalServers?: number;
 } {
+  // Type guard to ensure config is an object
+  if (!config || typeof config !== 'object') {
+    return { isConsolidated: false };
+  }
+
+  const configObj = config as Record<string, unknown>;
+
   // Check for different config formats
   const serverSections = [
-    config.mcpServers, // Claude Desktop format
-    config.servers, // Cursor format
-    config['mcp.servers'], // VS Code settings.json format
-    config['claude.mcpServers'], // VS Code Claude extension format
-    config['cline.mcpServers'], // VS Code Cline extension format
-    config['continue.mcpServers'], // VS Code Continue extension format
-    config.mcp?.servers, // Alternative nested format
+    configObj.mcpServers, // Claude Desktop format
+    configObj.servers, // Cursor format
+    configObj['mcp.servers'], // VS Code settings.json format
+    configObj['claude.mcpServers'], // VS Code Claude extension format
+    configObj['cline.mcpServers'], // VS Code Cline extension format
+    configObj['continue.mcpServers'], // VS Code Continue extension format
+    (configObj.mcp as Record<string, unknown>)?.servers, // Alternative nested format
   ].filter(Boolean);
 
   for (const servers of serverSections) {
-    const serverNames = Object.keys(servers || {});
+    // Type guard to ensure servers is an object
+    if (!servers || typeof servers !== 'object') {
+      continue;
+    }
+
+    const serversObj = servers as Record<string, unknown>;
+    const serverNames = Object.keys(serversObj);
 
     // Pattern 1: Only has a single '1mcp' server entry
     if (serverNames.length === 1 && (serverNames[0] === '1mcp' || serverNames[0].includes('1mcp'))) {
-      const server = servers[serverNames[0]];
-      const url = server.url;
-      const command = server.command;
+      const server = serversObj[serverNames[0]] as Record<string, unknown>;
+      const url = server.url as string;
+      const command = server.command as string;
 
       // Verify it looks like a 1mcp URL or command
       const hasValidUrl = url && (url.includes('/mcp') || url.includes('localhost') || url.includes('1mcp'));
@@ -158,20 +171,20 @@ function detectConsolidationPattern(config: any): {
     // Pattern 2: Check if all servers point to 1mcp URLs
     if (serverNames.length > 0) {
       const allServersAre1mcp = serverNames.every((name) => {
-        const server = servers[name];
+        const server = serversObj[name] as Record<string, unknown>;
         return (
           name === '1mcp' ||
           name.includes('1mcp') ||
-          (server.url && server.url.includes('1mcp')) ||
-          (server.command && server.command.includes('@1mcp/agent'))
+          ((server.url as string) && (server.url as string).includes('1mcp')) ||
+          ((server.command as string) && (server.command as string).includes('@1mcp/agent'))
         );
       });
 
       if (allServersAre1mcp) {
-        const firstServer = servers[serverNames[0]];
+        const firstServer = serversObj[serverNames[0]] as Record<string, unknown>;
         return {
           isConsolidated: true,
-          consolidatedUrl: firstServer.url || 'detected',
+          consolidatedUrl: (firstServer.url as string) || 'detected',
           originalServers: serverNames.length,
         };
       }
@@ -192,7 +205,7 @@ async function analyzeConfigFile(
   exists: boolean;
   readable: boolean;
   valid: boolean;
-  content?: any;
+  content?: unknown;
   error?: string;
 }> {
   try {
@@ -221,7 +234,7 @@ async function analyzeConfigFile(
 
     // Read and parse file
     const content = fs.readFileSync(configPath, 'utf8');
-    let parsedContent: any;
+    let parsedContent: unknown;
 
     try {
       // For VS Code settings, use JSON5 parser to handle comments
@@ -232,7 +245,7 @@ async function analyzeConfigFile(
         exists: true,
         readable: true,
         valid: false,
-        error: `Invalid JSON: ${parseError}`,
+        error: `Invalid JSON: ${parseError instanceof Error ? parseError.message : String(parseError)}`,
       };
     }
 
@@ -246,13 +259,13 @@ async function analyzeConfigFile(
       valid: true,
       content: parsedContent,
     };
-  } catch (error: any) {
+  } catch (error: unknown) {
     return {
       servers: [],
       exists: false,
       readable: false,
       valid: false,
-      error: error.message,
+      error: error instanceof Error ? error.message : String(error),
     };
   }
 }
@@ -260,57 +273,71 @@ async function analyzeConfigFile(
 /**
  * Extract MCP server configurations from parsed config based on format
  */
-function extractServersFromConfig(config: any, format: string): MCPServerConfig[] {
+function extractServersFromConfig(config: unknown, format: string): MCPServerConfig[] {
   const servers: MCPServerConfig[] = [];
 
+  // Type guard to ensure config is an object
+  if (!config || typeof config !== 'object') {
+    return servers;
+  }
+
+  const configObj = config as Record<string, unknown>;
+
   try {
-    let mcpSection: any;
+    let mcpSection: unknown;
 
     switch (format) {
       case 'claude-desktop':
-        mcpSection = config.mcpServers || {};
+        mcpSection = configObj.mcpServers || {};
         break;
       case 'vscode':
         // VS Code stores MCP servers in settings.json under extension-specific keys
         // Common patterns: mcp.servers, mcpServers, or extension-specific keys
         mcpSection =
-          config['mcp.servers'] ||
-          config.mcpServers ||
-          config['claude.mcpServers'] ||
-          config['cline.mcpServers'] ||
-          config['continue.mcpServers'] ||
+          configObj['mcp.servers'] ||
+          configObj.mcpServers ||
+          configObj['claude.mcpServers'] ||
+          configObj['cline.mcpServers'] ||
+          configObj['continue.mcpServers'] ||
           {};
         break;
       case 'cursor':
-        mcpSection = config.servers || config.mcpServers || {};
+        mcpSection = configObj.servers || configObj.mcpServers || {};
         break;
       case 'generic':
-        mcpSection = config.servers || config.mcpServers || config;
+        mcpSection = configObj.servers || configObj.mcpServers || configObj;
         break;
       default:
-        mcpSection = config.mcpServers || config.servers || {};
+        mcpSection = configObj.mcpServers || configObj.servers || {};
     }
 
-    for (const [name, serverConfig] of Object.entries(mcpSection)) {
+    // Type guard to ensure mcpSection is an object
+    if (!mcpSection || typeof mcpSection !== 'object') {
+      return servers;
+    }
+
+    const mcpSectionObj = mcpSection as Record<string, unknown>;
+
+    for (const [name, serverConfig] of Object.entries(mcpSectionObj)) {
       if (typeof serverConfig === 'object' && serverConfig !== null) {
-        const server = serverConfig as any;
+        const server = serverConfig as Record<string, unknown>;
 
         // Skip existing 1mcp entries to avoid circular references
         if (
           name === '1mcp' ||
           name.includes('1mcp') ||
-          (server.url && server.url.includes('1mcp')) ||
-          (server.command && server.command.includes('@1mcp/agent'))
+          ((server.url as string) && (server.url as string).includes('1mcp')) ||
+          ((server.command as string) && (server.command as string).includes('@1mcp/agent'))
         ) {
           continue;
         }
 
         servers.push({
           name,
-          command: server.command,
-          url: server.url,
-          args: server.args,
-          env: server.env,
+          command: Array.isArray(server.command) ? server.command.join(' ') : (server.command as string | undefined),
+          url: server.url as string | undefined,
+          args: server.args as string[] | undefined,
+          env: server.env as Record<string, string> | undefined,
         });
       }
     }
@@ -358,7 +385,7 @@ export function handleMultipleConfigs(discovery: ConfigDiscovery): ConfigStrateg
 /**
  * Filter and validate extracted servers
  */
-export function extractAndFilterServers(appConfig: any, format: string = 'generic'): MCPServerConfig[] {
+export function extractAndFilterServers(appConfig: unknown, format: string = 'generic'): MCPServerConfig[] {
   const servers = extractServersFromConfig(appConfig, format);
 
   return servers.filter((server) => {
@@ -387,7 +414,7 @@ export function extractAndFilterServers(appConfig: any, format: string = 'generi
 /**
  * Generate configuration for specific app format
  */
-export function generateAppConfig(appName: string, url: string): any {
+export function generateAppConfig(appName: string, url: string): Record<string, unknown> {
   const preset = getAppPreset(appName);
   if (!preset) {
     throw new Error(`Unsupported app: ${appName}`);

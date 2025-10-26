@@ -109,22 +109,24 @@ function mergeCapabilities<T extends Record<string, unknown>>(
       // Special handling for notification capabilities
       if (isNotificationCapability(key)) {
         // Use OR logic for boolean notification capabilities
-        if (typeof value === 'boolean' && typeof existing[key] === 'boolean') {
-          (merged as any)[key] = existing[key] || value;
+        if (typeof value === 'boolean' && typeof (existing as Record<string, unknown>)[key] === 'boolean') {
+          (merged as Record<string, unknown>)[key] = (existing as Record<string, unknown>)[key] || value;
         } else {
-          (merged as any)[key] = value; // Non-boolean, use last value
+          (merged as Record<string, unknown>)[key] = value; // Non-boolean, use last value
         }
         continue; // Skip conflict logging
       }
 
       // Check if values are different (potential conflict)
-      if (JSON.stringify(existing[key]) !== JSON.stringify(value)) {
+      if (JSON.stringify((existing as Record<string, unknown>)[key]) !== JSON.stringify(value)) {
         conflicts.push(key);
         logger.warn(`Capability conflict in ${capabilityType}.${key}: client ${clientName} overriding existing value`);
-        logger.debug(`Existing: ${JSON.stringify(existing[key])}, New: ${JSON.stringify(value)}`);
+        logger.debug(
+          `Existing: ${JSON.stringify((existing as Record<string, unknown>)[key])}, New: ${JSON.stringify(value)}`,
+        );
       }
     }
-    (merged as any)[key] = value;
+    (merged as Record<string, unknown>)[key] = value;
   }
 
   if (conflicts.length > 0) {

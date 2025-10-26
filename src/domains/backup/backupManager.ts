@@ -5,6 +5,63 @@ import path from 'path';
 
 import { getAppBackupDir, getGlobalBackupDir } from '@src/constants.js';
 
+interface ErrnoException extends Error {
+  code?: string;
+  errno?: number;
+  path?: string;
+  syscall?: string;
+}
+
+/**
+ * Type guard to check if an error is an ErrnoException with a specific code
+ */
+function isErrnoExceptionWithCode(error: unknown, code: string): error is ErrnoException & { code: string } {
+  return error instanceof Error && 'code' in error && typeof error.code === 'string' && error.code === code;
+}
+
+/**
+ * Type guard to validate if an object conforms to BackupInfo structure
+ */
+function isValidBackupInfo(obj: unknown): obj is BackupInfo {
+  if (!obj || typeof obj !== 'object') {
+    return false;
+  }
+
+  const backup = obj as Record<string, unknown>;
+
+  return Boolean(
+    typeof backup.originalPath === 'string' &&
+      typeof backup.backupPath === 'string' &&
+      typeof backup.timestamp === 'number' &&
+      typeof backup.checksum === 'string' &&
+      backup.metadata &&
+      typeof backup.metadata === 'object' &&
+      typeof (backup.metadata as Record<string, unknown>).app === 'string' &&
+      typeof (backup.metadata as Record<string, unknown>).operation === 'string' &&
+      typeof (backup.metadata as Record<string, unknown>).version === 'string' &&
+      typeof (backup.metadata as Record<string, unknown>).serverCount === 'number' &&
+      typeof (backup.metadata as Record<string, unknown>).fileSize === 'number',
+  );
+}
+
+/**
+ * Safely parse JSON and validate as BackupInfo
+ */
+function parseBackupInfo(jsonContent: string): BackupInfo {
+  try {
+    const parsed = JSON.parse(jsonContent) as unknown;
+    if (!isValidBackupInfo(parsed)) {
+      throw new Error('Invalid backup metadata structure');
+    }
+    return parsed;
+  } catch (error) {
+    if (error instanceof SyntaxError) {
+      throw new Error('Invalid JSON in backup metadata');
+    }
+    throw error;
+  }
+}
+
 /**
  * Backup and recovery system for app configuration consolidation.
  *
@@ -114,7 +171,7 @@ export async function rollbackFromBackupPath(backupPath: string): Promise<void> 
   }
 
   const metaContent = fs.readFileSync(metaPath, 'utf8');
-  const backupInfo: BackupInfo = JSON.parse(metaContent);
+  const backupInfo = parseBackupInfo(metaContent);
 
   await rollbackFromBackup(backupInfo);
 }
@@ -144,6 +201,7 @@ export function listAppBackups(app?: string): BackupListItem[] {
         }
       } catch (_error) {
         // Skip if can't read central directory
+        // Error is intentionally ignored for graceful degradation
       }
     }
   }
@@ -177,7 +235,7 @@ function scanBackupsInDirectory(dirPath: string, backups: BackupListItem[], filt
 
         try {
           const metaContent = fs.readFileSync(metaPath, 'utf8');
-          const backupInfo: BackupInfo = JSON.parse(metaContent);
+          const backupInfo = parseBackupInfo(metaContent);
 
           // Filter by app if specified
           if (filterApp && backupInfo.metadata.app !== filterApp) {
@@ -202,12 +260,14 @@ function scanBackupsInDirectory(dirPath: string, backups: BackupListItem[], filt
           });
         } catch (_error) {
           // Skip invalid metadata files
+          // Error is intentionally ignored for graceful degradation
           continue;
         }
       }
     }
   } catch (_error) {
     // Skip directories we can't read
+    // Error is intentionally ignored for graceful degradation
     return;
   }
 }
@@ -261,7 +321,7 @@ export function findBackupByMetaPath(metaPath: string): BackupInfo | null {
     }
 
     const metaContent = fs.readFileSync(metaPath, 'utf8');
-    const backupInfo: BackupInfo = JSON.parse(metaContent);
+    const backupInfo = parseBackupInfo(metaContent);
 
     // Verify backup file exists
     if (!fs.existsSync(backupInfo.backupPath)) {
@@ -364,13 +424,13 @@ export async function withFileLock<T>(filePath: string, operation: () => Promise
       fs.writeFileSync(lockPath, process.pid.toString(), { flag: 'wx' });
       lockAcquired = true;
       break;
-    } catch (error: any) {
-      if (error.code === 'EEXIST') {
+    } catch (error: unknown) {
+      if (isErrnoExceptionWithCode(error, 'EEXIST')) {
         // Lock file exists, wait and retry
         await new Promise((resolve) => setTimeout(resolve, retryDelay));
         continue;
       }
-      throw error;
+      throw error instanceof Error ? error : new Error(String(error));
     }
   }
 

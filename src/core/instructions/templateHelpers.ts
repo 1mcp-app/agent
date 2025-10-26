@@ -7,7 +7,7 @@ import Handlebars from 'handlebars';
  */
 export function registerTemplateHelpers(): void {
   // Math helpers - handles chained operations like "a '/' b '*' 100"
-  Handlebars.registerHelper('math', function (...args: any[]) {
+  Handlebars.registerHelper('math', function (...args: unknown[]) {
     // Remove the last argument (options object)
     const values = args.slice(0, -1);
 
@@ -15,12 +15,12 @@ export function registerTemplateHelpers(): void {
       return 0;
     }
 
-    let result = parseFloat(values[0]);
+    let result = parseFloat(String(values[0]));
 
     // Process operations in pairs (operator, value)
     for (let i = 1; i < values.length; i += 2) {
-      const operator = values[i];
-      const value = parseFloat(values[i + 1]);
+      const operator = String(values[i]);
+      const value = parseFloat(String(values[i + 1]));
 
       switch (operator) {
         case '+':
@@ -51,11 +51,11 @@ export function registerTemplateHelpers(): void {
   });
 
   // Comparison helpers
-  Handlebars.registerHelper('eq', function (a: any, b: any) {
+  Handlebars.registerHelper('eq', function (a: unknown, b: unknown) {
     return a === b;
   });
 
-  Handlebars.registerHelper('ne', function (a: any, b: any) {
+  Handlebars.registerHelper('ne', function (a: unknown, b: unknown) {
     return a !== b;
   });
 
@@ -68,13 +68,13 @@ export function registerTemplateHelpers(): void {
   });
 
   // Logical helpers
-  Handlebars.registerHelper('and', function (...args: any[]) {
+  Handlebars.registerHelper('and', function (...args: unknown[]) {
     // Remove the last argument (options object)
     const values = args.slice(0, -1);
     return values.every((value) => !!value);
   });
 
-  Handlebars.registerHelper('or', function (...args: any[]) {
+  Handlebars.registerHelper('or', function (...args: unknown[]) {
     // Remove the last argument (options object)
     const values = args.slice(0, -1);
     return values.some((value) => !!value);

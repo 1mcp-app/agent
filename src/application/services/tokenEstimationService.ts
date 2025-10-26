@@ -2,7 +2,7 @@ import type { Prompt, PromptArgument, Resource, Tool } from '@modelcontextprotoc
 
 import logger from '@src/logger/logger.js';
 
-import { encoding_for_model, type TiktokenModel } from 'tiktoken';
+import { encoding_for_model, Tiktoken, type TiktokenModel } from 'tiktoken';
 
 /**
  * Token breakdown by capability type
@@ -58,7 +58,7 @@ export interface ServerTokenEstimate {
  * Service for estimating MCP token usage using tiktoken
  */
 export class TokenEstimationService {
-  private encoder: any;
+  private encoder: Tiktoken | null;
   private model: TiktokenModel;
   private static readonly BASE_SERVER_OVERHEAD = 75; // Base overhead for server connection
   private static readonly FALLBACK_CHARS_PER_TOKEN = 3.5; // Character-based fallback estimation

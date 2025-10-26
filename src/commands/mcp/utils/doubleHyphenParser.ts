@@ -59,11 +59,11 @@ export function hasDoubleHyphen(rawArgs: string[]): boolean {
  * @param doubleHyphenResult Parsed " -- " arguments
  * @returns Merged arguments
  */
-export function mergeDoubleHyphenArgs<T extends Record<string, any>>(
+export function mergeDoubleHyphenArgs<T extends Record<string, unknown>>(
   yargsArgs: T,
   doubleHyphenResult: DoubleHyphenParseResult,
 ): T {
-  const merged = { ...yargsArgs } as any;
+  const merged = { ...yargsArgs } as T & { type?: string; command?: string; args?: string[] };
 
   // Only set values if they're not already explicitly provided
   if (!merged.type && doubleHyphenResult.type) {
@@ -78,5 +78,5 @@ export function mergeDoubleHyphenArgs<T extends Record<string, any>>(
     merged.args = doubleHyphenResult.args;
   }
 
-  return merged;
+  return merged as T;
 }

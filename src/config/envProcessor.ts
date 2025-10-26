@@ -12,6 +12,13 @@ export interface EnvProcessingConfig {
 }
 
 /**
+ * Generic configuration object type for environment variable substitution
+ */
+export interface ConfigObject {
+  [key: string]: unknown;
+}
+
+/**
  * Result of environment processing
  */
 export interface ProcessedEnvironment {
@@ -37,9 +44,9 @@ export function parseEnvArray(envArray: string[]): Record<string, string> {
     if (equalIndex === -1) {
       // No equals sign, treat as inheritance key
       const key = entry.trim();
-      const value = process.env[key];
-      if (value !== undefined) {
-        envObject[key] = value;
+      const envValue = process.env[key] as string | undefined;
+      if (envValue !== undefined) {
+        envObject[key] = envValue;
       }
     } else {
       // Has equals sign, treat as key=value assignment
@@ -139,12 +146,12 @@ function applyEnvPatterns(
 function getParentEnvironment(): Record<string, string> {
   const parentEnv: Record<string, string> = {};
 
-  for (const [key, value] of Object.entries(process.env)) {
+  for (const [key, value] of Object.entries(process.env as Record<string, string | undefined>)) {
     if (value === undefined) continue;
 
     // Skip bash functions and other potentially dangerous variables
     if (value.startsWith('()')) {
-      debugIf(`Skipping dangerous environment variable: ${key}`);
+      debugIf(() => ({ message: `Skipping dangerous environment variable: ${key}` }));
       continue;
     }
 
@@ -161,12 +168,13 @@ function getParentEnvironment(): Record<string, string> {
  */
 export function substituteEnvVars(configValue: string): string {
   return configValue.replace(/\$\{([^}]+)\}/g, (match, envVar) => {
-    const value = process.env[envVar.trim()];
-    if (value === undefined) {
-      logger.warn(`Environment variable ${envVar} not found, keeping placeholder: ${match}`);
+    const envVarName = (envVar as string).trim();
+    const envValue = process.env[envVarName] as string | undefined;
+    if (envValue === undefined) {
+      logger.warn(`Environment variable ${envVarName} not found, keeping placeholder: ${match}`);
       return match;
     }
-    return value;
+    return envValue;
   });
 }
 
@@ -175,7 +183,7 @@ export function substituteEnvVars(configValue: string): string {
  * @param config Configuration object
  * @returns Configuration object with environment variables substituted
  */
-export function substituteEnvVarsInConfig(config: any): any {
+export function substituteEnvVarsInConfig(config: unknown): unknown {
   if (typeof config === 'string') {
     return substituteEnvVars(config);
   }
@@ -185,8 +193,10 @@ export function substituteEnvVarsInConfig(config: any): any {
   }
 
   if (config && typeof config === 'object') {
-    const result: any = {};
-    for (const [key, value] of Object.entries(config)) {
+    const result: Record<string, unknown> = {};
+    // Use Object.keys() for safer iteration and then access properties
+    for (const key of Object.keys(config)) {
+      const value = (config as Record<string, unknown>)[key];
       result[key] = substituteEnvVarsInConfig(value);
     }
     return result;
@@ -244,8 +254,11 @@ export function processEnvironment(config: EnvProcessingConfig): ProcessedEnviro
     }
 
     // Apply environment variable substitution to custom env
-    for (const [key, value] of Object.entries(customEnv)) {
-      customEnv[key] = substituteEnvVars(value);
+    for (const key of Object.keys(customEnv)) {
+      const value = customEnv[key];
+      if (typeof value === 'string') {
+        customEnv[key] = substituteEnvVars(value);
+      }
     }
 
     customKeys = Object.keys(customEnv);

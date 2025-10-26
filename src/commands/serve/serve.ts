@@ -10,6 +10,7 @@ import { getDefaultInstructionsTemplatePath } from '@src/constants.js';
 import { getConfigDir } from '@src/constants.js';
 import { InstructionAggregator } from '@src/core/instructions/instructionAggregator.js';
 import { formatValidationError, validateTemplateContent } from '@src/core/instructions/templateValidator.js';
+import { LoadingSummary } from '@src/core/loading/loadingStateTracker.js';
 import { McpLoadingManager } from '@src/core/loading/mcpLoadingManager.js';
 import { AgentConfigManager } from '@src/core/server/agentConfig.js';
 import { registerPidFileCleanup, writePidFile } from '@src/core/server/pidFileManager.js';
@@ -142,7 +143,7 @@ function setupGracefulShutdown(
         loadingManager.shutdown();
         logger.info('Loading manager shutdown complete');
       } catch (error) {
-        logger.error(`Error shutting down loading manager: ${error}`);
+        logger.error(`Error shutting down loading manager: ${error instanceof Error ? error.message : String(error)}`);
       }
     }
 
@@ -152,7 +153,7 @@ function setupGracefulShutdown(
         expressServer.shutdown();
         logger.info('ExpressServer shutdown complete');
       } catch (error) {
-        logger.error(`Error shutting down ExpressServer: ${error}`);
+        logger.error(`Error shutting down ExpressServer: ${error instanceof Error ? error.message : String(error)}`);
       }
     }
 
@@ -162,7 +163,7 @@ function setupGracefulShutdown(
         transport?.close();
         logger.info(`Closed transport: ${sessionId}`);
       } catch (error) {
-        logger.error(`Error closing transport ${sessionId}: ${error}`);
+        logger.error(`Error closing transport ${sessionId}: ${error instanceof Error ? error.message : String(error)}`);
       }
     }
 
@@ -172,7 +173,9 @@ function setupGracefulShutdown(
         instructionAggregator.cleanup();
         logger.info('InstructionAggregator cleanup complete');
       } catch (error) {
-        logger.error(`Error cleaning up InstructionAggregator: ${error}`);
+        logger.error(
+          `Error cleaning up InstructionAggregator: ${error instanceof Error ? error.message : String(error)}`,
+        );
       }
     }
 
@@ -185,7 +188,7 @@ function setupGracefulShutdown(
         logger.info('PresetManager cleanup complete');
       }
     } catch (error) {
-      logger.error(`Error cleaning up PresetManager: ${error}`);
+      logger.error(`Error cleaning up PresetManager: ${error instanceof Error ? error.message : String(error)}`);
     }
 
     logger.info('Server shutdown complete');
@@ -377,6 +380,7 @@ export async function serveCommand(parsedArgv: ServeOptions): Promise<void> {
       case 'sse': {
         logger.warning('sse option is deprecated, use http instead');
       }
+      // Reason: Intentional fallthrough from deprecated 'sse' to 'http' case for backward compatibility
       // eslint-disable-next-line no-fallthrough
       case 'http': {
         // Use HTTP/SSE transport
@@ -410,19 +414,19 @@ export async function serveCommand(parsedArgv: ServeOptions): Promise<void> {
     setupGracefulShutdown(serverManager, loadingManager, expressServer, instructionAggregator);
 
     // Log MCP loading progress (non-blocking)
-    loadingManager.on('loading-progress', (summary) => {
+    loadingManager.on('loading-progress', (summary: LoadingSummary) => {
       logger.info(
         `MCP loading progress: ${summary.ready}/${summary.totalServers} servers ready (${summary.loading} loading, ${summary.failed} failed)`,
       );
     });
 
-    loadingManager.on('loading-complete', (summary) => {
+    loadingManager.on('loading-complete', (summary: LoadingSummary) => {
       logger.info(
-        `MCP loading complete: ${summary.ready}/${summary.totalServers} servers ready (${summary.successRate.toFixed(1)}% success rate)`,
+        `MCP loading complete: ${summary.ready}/${summary.totalServers} servers ready (${Number(summary.successRate).toFixed(1)}% success rate)`,
       );
     });
   } catch (error) {
-    logger.error('Server error:', error);
+    logger.error(`Server error: ${error instanceof Error ? error.message : String(error)}`);
     process.exit(1);
   }
 }

@@ -66,12 +66,13 @@ export class TagQueryEvaluator {
 
       // Handle field-specific operators
       if (typeof value === 'object' && value !== null) {
-        if (value.$in && Array.isArray(value.$in)) {
-          return value.$in.some((tag: string) => serverTags.includes(tag));
+        const fieldObj = value as Record<string, unknown>;
+        if (fieldObj.$in && Array.isArray(fieldObj.$in)) {
+          return fieldObj.$in.some((tag): tag is string => typeof tag === 'string' && serverTags.includes(tag));
         }
 
-        if (value.$not) {
-          const fieldMatch = key === 'tag' ? serverTags.includes(value.$not) : false; // For now, only support 'tag' field
+        if (fieldObj.$not && typeof fieldObj.$not === 'string') {
+          const fieldMatch = key === 'tag' ? serverTags.includes(fieldObj.$not) : false; // For now, only support 'tag' field
           return !fieldMatch;
         }
       }
@@ -152,7 +153,7 @@ export class TagQueryEvaluator {
     }
 
     if (query.$advanced) {
-      return query.$advanced;
+      return typeof query.$advanced === 'string' ? query.$advanced : JSON.stringify(query.$advanced);
     }
 
     // Handle complex nested queries
@@ -163,10 +164,12 @@ export class TagQueryEvaluator {
       }
 
       if (typeof value === 'object' && value !== null) {
-        if (value.$in && Array.isArray(value.$in)) {
-          parts.push(`${key}:(${value.$in.join(', ')})`);
-        } else if (value.$not) {
-          parts.push(`NOT ${key}:${value.$not}`);
+        const fieldObj = value as Record<string, unknown>;
+        if (fieldObj.$in && Array.isArray(fieldObj.$in)) {
+          const inValues = fieldObj.$in.filter((item): item is string => typeof item === 'string');
+          parts.push(`${key}:(${inValues.join(', ')})`);
+        } else if (fieldObj.$not && typeof fieldObj.$not === 'string') {
+          parts.push(`NOT ${key}:${fieldObj.$not}`);
         }
       }
     }
@@ -216,7 +219,7 @@ export class TagQueryEvaluator {
   /**
    * Build tag-to-servers mapping from MCP configuration
    */
-  public static buildTagServerMap(servers: Record<string, any>): Map<string, string[]> {
+  public static buildTagServerMap(servers: Record<string, { tags?: string[] }>): Map<string, string[]> {
     const tagServerMap = new Map<string, string[]>();
 
     for (const [serverName, serverConfig] of Object.entries(servers)) {
@@ -280,7 +283,7 @@ export class TagQueryEvaluator {
    */
   public static getMatchingServers(
     selections: TagSelection[],
-    servers: Record<string, any>,
+    servers: Record<string, { tags?: string[] }>,
     strategy: 'or' | 'and' | 'advanced' = 'or',
   ): string[] {
     const query = this.buildQueryFromSelections(selections, strategy);

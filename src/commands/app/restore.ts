@@ -223,8 +223,9 @@ async function restoreFromBackupFile(backupPath: string, options: RestoreOptions
       `✅ Successfully restored ${getAppPreset(backupInfo.metadata.app)?.displayName || backupInfo.metadata.app}`,
     );
     console.log('🔄 Restart the application to use the restored configuration.');
-  } catch (error: any) {
-    console.error(`❌ Restore failed: ${error.message}`);
+  } catch (error: unknown) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    console.error(`❌ Restore failed: ${errorMessage}`);
     process.exit(1);
   }
 }
@@ -293,12 +294,13 @@ async function restoreAllApps(options: RestoreOptions): Promise<void> {
           backupPath: backup.backupPath,
         });
       }
-    } catch (error: any) {
-      console.error(`   ❌ Failed: ${error.message}`);
+    } catch (error: unknown) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      console.error(`   ❌ Failed: ${errorMessage}`);
       results.push({
         app,
         status: 'failed',
-        message: error.message,
+        message: errorMessage,
       });
     }
   }
@@ -376,8 +378,9 @@ async function restoreSpecificApp(appName: string, options: RestoreOptions): Pro
       console.log('\n💡 Note: Servers remain in 1mcp configuration.');
       console.log('   To remove them: npx @1mcp/agent server remove <server-name>');
     }
-  } catch (error: any) {
-    console.error(`❌ Restore failed: ${error.message}`);
+  } catch (error: unknown) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    console.error(`❌ Restore failed: ${errorMessage}`);
     process.exit(1);
   }
 }
