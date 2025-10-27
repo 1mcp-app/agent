@@ -56,6 +56,13 @@ The serve command supports all configuration options. Here are the most commonly
 - **`--tag-filter, -f <expression>`** - Advanced tag filter expression
 - **`--tags, -g <tags>`** - ⚠️ Deprecated - use `--tag-filter`
 
+### Advanced Configuration Options
+
+- **`--enable-config-reload`** - Enable configuration file hot-reload
+- **`--enable-env-substitution`** - Enable environment variable substitution
+- **`--enable-session-persistence`** - Enable HTTP session persistence
+- **`--enable-client-notifications`** - Enable real-time client notifications
+
 ### Logging Options
 
 - **`--log-level <level>`** - Set log level (`debug`, `info`, `warn`, `error`)
@@ -117,7 +124,61 @@ npx -y @1mcp/agent serve \
 # Development with custom config directory
 npx -y @1mcp/agent serve \
   --config-dir=./dev-config \
-  --log-level=debug
+  --log-level=debug \
+  --enable-config-reload
+```
+
+### Advanced Configuration
+
+```bash
+# Development with all advanced features enabled
+npx -y @1mcp/agent serve \
+  --log-level=debug \
+  --enable-config-reload \
+  --config-reload-debounce=1000 \
+  --enable-env-substitution \
+  --enable-session-persistence \
+  --session-persist-requests=50 \
+  --enable-client-notifications
+
+# Production with optimized session persistence
+npx -y @1mcp/agent serve \
+  --host=0.0.0.0 \
+  --port=3051 \
+  --enable-auth \
+  --enable-session-persistence \
+  --session-persist-requests=200 \
+  --session-persist-interval=10 \
+  --session-background-flush=30 \
+  --enable-client-notifications
+
+# High-performance setup (minimal features)
+npx -y @1mcp/agent serve \
+  --transport=stdio \
+  --enable-config-reload=false \
+  --enable-env-substitution=true \
+  --enable-session-persistence=false \
+  --enable-client-notifications=false \
+  --log-level=warn
+```
+
+### Environment Variable Substitution
+
+```bash
+# Using environment variables in configuration files
+API_KEY="${API_KEY}" \
+DATABASE_URL="${DATABASE_URL}" \
+SESSION_DIR="${SESSION_STORAGE_DIR}" \
+npx -y @1mcp/agent serve \
+  --enable-env-substitution \
+  --config-dir=./config
+
+# Combined with configuration reload for dynamic updates
+API_BASE_URL="${API_BASE_URL}" \
+npx -y @1mcp/agent serve \
+  --enable-env-substitution \
+  --enable-config-reload \
+  --config-reload-debounce=2000
 ```
 
 ### Tag Filtering

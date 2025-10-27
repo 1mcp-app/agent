@@ -33,30 +33,38 @@ The agent supports three configuration methods, applied in this order of precede
 
 All available command-line options and their corresponding environment variables:
 
-| Option (CLI)                 | Environment Variable               | Description                                                                                     |  Default   |
-| :--------------------------- | :--------------------------------- | :---------------------------------------------------------------------------------------------- | :--------: |
-| `--transport`, `-t`          | `ONE_MCP_TRANSPORT`                | Choose transport type ("stdio", "http", or "sse")                                               |   "http"   |
-| `--config`, `-c`             | `ONE_MCP_CONFIG`                   | Use a specific config file                                                                      |            |
-| `--config-dir`, `-d`         | `ONE_MCP_CONFIG_DIR`               | Path to the config directory (overrides default config location)                                |            |
-| `--port`, `-P`               | `ONE_MCP_PORT`                     | Change HTTP port                                                                                |    3050    |
-| `--host`, `-H`               | `ONE_MCP_HOST`                     | Change HTTP host                                                                                | localhost  |
-| `--external-url`, `-u`       | `ONE_MCP_EXTERNAL_URL`             | External URL for OAuth callbacks and public URLs (e.g., https://example.com)                    |            |
-| `--trust-proxy`              | `ONE_MCP_TRUST_PROXY`              | Trust proxy configuration for client IP detection (boolean, IP, CIDR, preset)                   | "loopback" |
-| `--tags`, `-g`               | `ONE_MCP_TAGS`                     | Filter servers by tags (comma-separated, OR logic) ⚠️ **Deprecated - use --tag-filter**         |            |
-| `--tag-filter`, `-f`         | `ONE_MCP_TAG_FILTER`               | Advanced tag filter expression (and/or/not logic)                                               |            |
-| `--pagination`, `-p`         | `ONE_MCP_PAGINATION`               | Enable pagination for client/server lists (boolean)                                             |   false    |
-| `--enable-auth`              | `ONE_MCP_ENABLE_AUTH`              | Enable authentication (OAuth 2.1)                                                               |   false    |
-| `--enable-scope-validation`  | `ONE_MCP_ENABLE_SCOPE_VALIDATION`  | Enable tag-based scope validation (boolean)                                                     |    true    |
-| `--enable-enhanced-security` | `ONE_MCP_ENABLE_ENHANCED_SECURITY` | Enable enhanced security middleware (boolean)                                                   |   false    |
-| `--session-ttl`              | `ONE_MCP_SESSION_TTL`              | Session expiry time in minutes (number)                                                         |    1440    |
-| `--session-storage-path`     | `ONE_MCP_SESSION_STORAGE_PATH`     | Custom session storage directory path (string)                                                  |            |
-| `--rate-limit-window`        | `ONE_MCP_RATE_LIMIT_WINDOW`        | OAuth rate limit window in minutes (number)                                                     |     15     |
-| `--rate-limit-max`           | `ONE_MCP_RATE_LIMIT_MAX`           | Maximum requests per OAuth rate limit window (number)                                           |    100     |
-| `--enable-async-loading`     | `ONE_MCP_ENABLE_ASYNC_LOADING`     | Enable asynchronous MCP server loading(boolean)                                                 |   false    |
-| `--health-info-level`        | `ONE_MCP_HEALTH_INFO_LEVEL`        | Health endpoint information detail level ("full", "basic", "minimal")                           | "minimal"  |
-| `--log-level`                | `ONE_MCP_LOG_LEVEL`                | Set the log level ("debug", "info", "warn", "error")                                            |   "info"   |
-| `--log-file`                 | `ONE_MCP_LOG_FILE`                 | Write logs to a file in addition to console (disables console logging only for stdio transport) |            |
-| `--help`, `-h`               |                                    | Show help                                                                                       |            |
+| Option (CLI)                    | Environment Variable                  | Description                                                                                     |  Default   |
+| :------------------------------ | :------------------------------------ | :---------------------------------------------------------------------------------------------- | :--------: |
+| `--transport`, `-t`             | `ONE_MCP_TRANSPORT`                   | Choose transport type ("stdio", "http", or "sse")                                               |   "http"   |
+| `--config`, `-c`                | `ONE_MCP_CONFIG`                      | Use a specific config file                                                                      |            |
+| `--config-dir`, `-d`            | `ONE_MCP_CONFIG_DIR`                  | Path to the config directory (overrides default config location)                                |            |
+| `--port`, `-P`                  | `ONE_MCP_PORT`                        | Change HTTP port                                                                                |    3050    |
+| `--host`, `-H`                  | `ONE_MCP_HOST`                        | Change HTTP host                                                                                | localhost  |
+| `--external-url`, `-u`          | `ONE_MCP_EXTERNAL_URL`                | External URL for OAuth callbacks and public URLs (e.g., https://example.com)                    |            |
+| `--trust-proxy`                 | `ONE_MCP_TRUST_PROXY`                 | Trust proxy configuration for client IP detection (boolean, IP, CIDR, preset)                   | "loopback" |
+| `--tags`, `-g`                  | `ONE_MCP_TAGS`                        | Filter servers by tags (comma-separated, OR logic) ⚠️ **Deprecated - use --tag-filter**         |            |
+| `--tag-filter`, `-f`            | `ONE_MCP_TAG_FILTER`                  | Advanced tag filter expression (and/or/not logic)                                               |            |
+| `--pagination`, `-p`            | `ONE_MCP_PAGINATION`                  | Enable pagination for client/server lists (boolean)                                             |   false    |
+| `--enable-auth`                 | `ONE_MCP_ENABLE_AUTH`                 | Enable authentication (OAuth 2.1)                                                               |   false    |
+| `--enable-scope-validation`     | `ONE_MCP_ENABLE_SCOPE_VALIDATION`     | Enable tag-based scope validation (boolean)                                                     |    true    |
+| `--enable-enhanced-security`    | `ONE_MCP_ENABLE_ENHANCED_SECURITY`    | Enable enhanced security middleware (boolean)                                                   |   false    |
+| `--session-ttl`                 | `ONE_MCP_SESSION_TTL`                 | Session expiry time in minutes (number)                                                         |    1440    |
+| `--session-storage-path`        | `ONE_MCP_SESSION_STORAGE_PATH`        | Custom session storage directory path (string)                                                  |            |
+| `--rate-limit-window`           | `ONE_MCP_RATE_LIMIT_WINDOW`           | OAuth rate limit window in minutes (number)                                                     |     15     |
+| `--rate-limit-max`              | `ONE_MCP_RATE_LIMIT_MAX`              | Maximum requests per OAuth rate limit window (number)                                           |    100     |
+| `--enable-async-loading`        | `ONE_MCP_ENABLE_ASYNC_LOADING`        | Enable asynchronous MCP server loading(boolean)                                                 |   false    |
+| `--enable-config-reload`        | `ONE_MCP_ENABLE_CONFIG_RELOAD`        | Enable configuration file hot-reload (boolean)                                                  |    true    |
+| `--config-reload-debounce`      | `ONE_MCP_CONFIG_RELOAD_DEBOUNCE`      | Configuration reload debounce time in milliseconds (number)                                     |    500     |
+| `--enable-env-substitution`     | `ONE_MCP_ENABLE_ENV_SUBSTITUTION`     | Enable environment variable substitution in config files (boolean)                              |    true    |
+| `--enable-session-persistence`  | `ONE_MCP_ENABLE_SESSION_PERSISTENCE`  | Enable HTTP session persistence (boolean)                                                       |    true    |
+| `--session-persist-requests`    | `ONE_MCP_SESSION_PERSIST_REQUESTS`    | Session persistence request threshold (number)                                                  |    100     |
+| `--session-persist-interval`    | `ONE_MCP_SESSION_PERSIST_INTERVAL`    | Session persistence interval in minutes (number)                                                |     5      |
+| `--session-background-flush`    | `ONE_MCP_SESSION_BACKGROUND_FLUSH`    | Session background flush interval in seconds (number)                                           |     60     |
+| `--enable-client-notifications` | `ONE_MCP_ENABLE_CLIENT_NOTIFICATIONS` | Enable real-time client notifications (boolean)                                                 |    true    |
+| `--health-info-level`           | `ONE_MCP_HEALTH_INFO_LEVEL`           | Health endpoint information detail level ("full", "basic", "minimal")                           | "minimal"  |
+| `--log-level`                   | `ONE_MCP_LOG_LEVEL`                   | Set the log level ("debug", "info", "warn", "error")                                            |   "info"   |
+| `--log-file`                    | `ONE_MCP_LOG_FILE`                    | Write logs to a file in addition to console (disables console logging only for stdio transport) |            |
+| `--help`, `-h`                  |                                       | Show help                                                                                       |            |
 
 ---
 
@@ -289,6 +297,157 @@ ONE_MCP_PAGINATION=true \
 npx -y @1mcp/agent
 ```
 
+### Configuration Reload
+
+Control configuration file hot-reload behavior for seamless updates.
+
+**`--enable-config-reload`**
+
+- **Purpose**: Enable configuration file hot-reload
+- **Default**: `true`
+- **Environment**: `ONE_MCP_ENABLE_CONFIG_RELOAD`
+
+**`--config-reload-debounce <milliseconds>`**
+
+- **Purpose**: Debounce time for configuration reload to prevent excessive reloads
+- **Default**: `500`
+- **Environment**: `ONE_MCP_CONFIG_RELOAD_DEBOUNCE`
+
+**Examples:**
+
+```bash
+# Enable config reload with custom debounce
+npx -y @1mcp/agent --enable-config-reload --config-reload-debounce 1000
+
+# Disable config reload (useful for production stability)
+npx -y @1mcp/agent --enable-config-reload false
+
+# Environment variables
+ONE_MCP_ENABLE_CONFIG_RELOAD=true \
+ONE_MCP_CONFIG_RELOAD_DEBOUNCE=200 \
+npx -y @1mcp/agent
+```
+
+### Environment Variable Substitution
+
+Enable dynamic configuration using environment variables in config files.
+
+**`--enable-env-substitution`**
+
+- **Purpose**: Enable environment variable substitution in configuration files
+- **Default**: `true`
+- **Environment**: `ONE_MCP_ENABLE_ENV_SUBSTITUTION`
+
+**Usage:**
+
+When enabled, you can use `${VAR_NAME}` syntax in your JSON configuration files:
+
+```json
+{
+  "servers": [
+    {
+      "name": "database",
+      "command": "python",
+      "args": ["${DB_SERVER_PATH}", "--port", "${DB_PORT}"]
+    }
+  ],
+  "auth": {
+    "sessionStoragePath": "${SESSION_STORAGE_DIR}"
+  }
+}
+```
+
+**Examples:**
+
+```bash
+# Enable environment substitution (default)
+npx -y @1mcp/agent --enable-env-substitution
+
+# Disable environment substitution
+npx -y @1mcp/agent --enable-env-substitution false
+
+# Environment variables
+DB_SERVER_PATH=/opt/db-server \
+DB_PORT=5432 \
+SESSION_STORAGE_DIR=/var/lib/1mcp/sessions \
+ONE_MCP_ENABLE_ENV_SUBSTITUTION=true \
+npx -y @1mcp/agent
+```
+
+### Session Persistence
+
+Control HTTP session persistence for improved reliability across server restarts.
+
+**`--enable-session-persistence`**
+
+- **Purpose**: Enable HTTP session persistence
+- **Default**: `true`
+- **Environment**: `ONE_MCP_ENABLE_SESSION_PERSISTENCE`
+
+**`--session-persist-requests <number>`**
+
+- **Purpose**: Number of requests before triggering session persistence
+- **Default**: `100`
+- **Environment**: `ONE_MCP_SESSION_PERSIST_REQUESTS`
+
+**`--session-persist-interval <minutes>`**
+
+- **Purpose**: Time interval in minutes for automatic session persistence
+- **Default**: `5`
+- **Environment**: `ONE_MCP_SESSION_PERSIST_INTERVAL`
+
+**`--session-background-flush <seconds>`**
+
+- **Purpose**: Background flush interval in seconds for session persistence
+- **Default**: `60`
+- **Environment**: `ONE_MCP_SESSION_BACKGROUND_FLUSH`
+
+**Examples:**
+
+```bash
+# Enable session persistence with default settings
+npx -y @1mcp/agent --enable-session-persistence
+
+# Custom session persistence settings
+npx -y @1mcp/agent \
+  --enable-session-persistence \
+  --session-persist-requests 50 \
+  --session-persist-interval 10 \
+  --session-background-flush 30
+
+# Disable session persistence
+npx -y @1mcp/agent --enable-session-persistence false
+
+# Environment variables
+ONE_MCP_ENABLE_SESSION_PERSISTENCE=true \
+ONE_MCP_SESSION_PERSIST_REQUESTS=200 \
+ONE_MCP_SESSION_PERSIST_INTERVAL=15 \
+npx -y @1mcp/agent
+```
+
+### Client Notifications
+
+Control real-time notifications to connected clients about capability changes.
+
+**`--enable-client-notifications`**
+
+- **Purpose**: Enable real-time client notifications
+- **Default**: `true`
+- **Environment**: `ONE_MCP_ENABLE_CLIENT_NOTIFICATIONS`
+
+**Examples:**
+
+```bash
+# Enable client notifications (default)
+npx -y @1mcp/agent --enable-client-notifications
+
+# Disable client notifications
+npx -y @1mcp/agent --enable-client-notifications false
+
+# Environment variable
+ONE_MCP_ENABLE_CLIENT_NOTIFICATIONS=true npx -y @1mcp/agent
+```
+
 ### Monitoring and Health
 
 Configure health check endpoints and information detail levels.
@@ -390,6 +549,14 @@ All environment variables are prefixed with `ONE_MCP_` and override both configu
 - `ONE_MCP_RATE_LIMIT_WINDOW`
 - `ONE_MCP_RATE_LIMIT_MAX`
 - `ONE_MCP_ENABLE_ASYNC_LOADING`
+- `ONE_MCP_ENABLE_CONFIG_RELOAD`
+- `ONE_MCP_CONFIG_RELOAD_DEBOUNCE`
+- `ONE_MCP_ENABLE_ENV_SUBSTITUTION`
+- `ONE_MCP_ENABLE_SESSION_PERSISTENCE`
+- `ONE_MCP_SESSION_PERSIST_REQUESTS`
+- `ONE_MCP_SESSION_PERSIST_INTERVAL`
+- `ONE_MCP_SESSION_BACKGROUND_FLUSH`
+- `ONE_MCP_ENABLE_CLIENT_NOTIFICATIONS`
 - `ONE_MCP_HEALTH_INFO_LEVEL`
 - `ONE_MCP_LOG_LEVEL`
 - `ONE_MCP_LOG_FILE`
@@ -405,12 +572,14 @@ All environment variables are prefixed with `ONE_MCP_` and override both configu
 npx -y @1mcp/agent \
   --log-level debug \
   --health-info-level full \
-  --enable-async-loading
+  --enable-async-loading \
+  --enable-config-reload
 
 # Environment variables for development
 ONE_MCP_LOG_LEVEL=debug \
 ONE_MCP_HEALTH_INFO_LEVEL=full \
 ONE_MCP_ENABLE_ASYNC_LOADING=true \
+ONE_MCP_ENABLE_CONFIG_RELOAD=true \
 npx -y @1mcp/agent
 ```
 
@@ -424,7 +593,10 @@ npx -y @1mcp/agent \
   --enable-auth \
   --enable-enhanced-security \
   --trust-proxy true \
-  --external-url https://mcp.yourdomain.com
+  --external-url https://mcp.yourdomain.com \
+  --enable-session-persistence \
+  --session-persist-requests 200 \
+  --session-persist-interval 10
 
 # Docker environment variables
 docker run -p 3051:3051 \
@@ -434,6 +606,9 @@ docker run -p 3051:3051 \
   -e ONE_MCP_ENABLE_ENHANCED_SECURITY=true \
   -e ONE_MCP_TRUST_PROXY=true \
   -e ONE_MCP_EXTERNAL_URL=https://mcp.yourdomain.com \
+  -e ONE_MCP_ENABLE_SESSION_PERSISTENCE=true \
+  -e ONE_MCP_SESSION_PERSIST_REQUESTS=200 \
+  -e ONE_MCP_SESSION_PERSIST_INTERVAL=10 \
   ghcr.io/1mcp-app/agent
 ```
 
@@ -448,6 +623,39 @@ npx -y @1mcp/agent --transport stdio --tag-filter "(web,api)+production-test"
 
 # Natural language filtering
 npx -y @1mcp/agent --transport stdio --tag-filter "api and database and not test"
+```
+
+### Advanced Feature Configuration
+
+```bash
+# Full feature-enabled configuration with environment substitution
+API_KEY="${API_KEY}" \
+DB_CONNECTION="${DATABASE_URL}" \
+npx -y @1mcp/agent \
+  --enable-config-reload \
+  --config-reload-debounce 1000 \
+  --enable-env-substitution \
+  --enable-session-persistence \
+  --session-persist-requests 150 \
+  --session-persist-interval 8 \
+  --enable-client-notifications \
+  --log-level info
+
+# Configuration reload only (disable other new features for stability)
+npx -y @1mcp/agent \
+  --enable-config-reload \
+  --config-reload-debounce 2000 \
+  --enable-env-substitution false \
+  --enable-session-persistence false \
+  --enable-client-notifications false
+
+# Minimal configuration for high-performance environments
+npx -y @1mcp/agent \
+  --enable-config-reload false \
+  --enable-env-substitution true \
+  --enable-session-persistence false \
+  --enable-client-notifications false \
+  --log-level warn
 ```
 
 ---
