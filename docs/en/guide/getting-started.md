@@ -1,6 +1,29 @@
+---
+title: Getting Started with 1MCP
+description: Learn how to set up 1MCP step-by-step. From basic proxy to production deployment with OAuth 2.1 authentication. Complete guide for all skill levels.
+head:
+  - [
+      'meta',
+      {
+        name: 'keywords',
+        content: 'MCP server setup,Model Context Protocol,AI proxy setup,1MCP tutorial,getting started,OAuth 2.1,authentication,server management,configuration',
+      },
+    ]
+  - ['meta', { property: 'og:title', content: 'Getting Started with 1MCP | Complete Setup Guide' }]
+  - [
+      'meta',
+      {
+        property: 'og:description',
+        content: 'Complete step-by-step guide to setting up 1MCP. From basic proxy to production deployment.',
+      },
+    ]
+---
+
 # Getting Started with 1MCP
 
 > **🎯 Goal**: Get you from individual MCP server connections to a unified proxy in simple, practical steps.
+
+> **💡 New to 1MCP?** Start with our [quick start guide](/guide/quick-start) for a 5-minute setup, or continue here for comprehensive instructions.
 
 ## 🗺️ Your Journey Overview
 

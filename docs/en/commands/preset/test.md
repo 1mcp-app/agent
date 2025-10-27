@@ -1,3 +1,21 @@
+---
+title: Preset Test Command - Validate Preset Configuration
+description: Test presets against your current server configuration. Validate filter expressions and preview which servers will be selected.
+head:
+  - [
+      'meta',
+      { name: 'keywords', content: 'preset test,test preset,validate preset,preset validation,configuration test' },
+    ]
+  - ['meta', { property: 'og:title', content: '1MCP Preset Test Command Reference' }]
+  - [
+      'meta',
+      {
+        property: 'og:description',
+        content: 'Test presets against current server configuration and validate selections.',
+      },
+    ]
+---
+
 # preset test
 
 Test a preset against your current server configuration.

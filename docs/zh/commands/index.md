@@ -1,3 +1,12 @@
+---
+title: 命令参考 - 完整 1MCP CLI 指南
+description: 1MCP Agent 的完整命令参考。了解所有 CLI 命令，包括 serve、proxy、app、mcp 和 preset 命令及示例。
+head:
+  - ['meta', { name: 'keywords', content: '1MCP 命令,CLI 参考,命令行界面,语法,示例' }]
+  - ['meta', { property: 'og:title', content: '1MCP 命令参考 - 完整指南' }]
+  - ['meta', { property: 'og:description', content: '1MCP Agent CLI 的完整命令参考。命令、选项和示例。' }]
+---
+
 # 命令参考
 
 1MCP Agent 提供了一个全面的命令行界面，用于管理 MCP 服务器和桌面应用程序配置。

@@ -1,3 +1,15 @@
+---
+title: MCP Tokens Command - Estimate Token Usage
+description: Estimate MCP token usage for server capabilities. Analyze tools, resources, and prompts to understand token consumption and costs.
+head:
+  - ['meta', { name: 'keywords', content: 'mcp tokens,token usage,estimate tokens,cost analysis,LLM tokens,MCP costs' }]
+  - ['meta', { property: 'og:title', content: '1MCP Tokens Command Reference' }]
+  - [
+      'meta',
+      { property: 'og:description', content: 'Estimate MCP token usage for server capabilities and cost analysis.' },
+    ]
+---
+
 # mcp tokens
 
 Estimate MCP token usage for server capabilities by connecting to servers and analyzing their tools, resources, and prompts.

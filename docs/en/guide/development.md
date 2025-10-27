@@ -1,3 +1,15 @@
+---
+title: Development Guide - Build and Contribute
+description: Set up development environment for 1MCP Agent. Learn how to build from source, run tests, and contribute to the project.
+head:
+  - ['meta', { name: 'keywords', content: '1MCP development,build from source,contribute,development environment' }]
+  - ['meta', { property: 'og:title', content: '1MCP Development Guide' }]
+  - [
+      'meta',
+      { property: 'og:description', content: 'Development guide for 1MCP Agent. Build from source and contribute.' },
+    ]
+---
+
 # Development
 
 This guide covers how to set up a development environment for 1MCP Agent, build from source, and contribute to the project.

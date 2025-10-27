@@ -1,3 +1,18 @@
+---
+title: Command Reference - Complete 1MCP CLI Guide
+description: Complete command reference for 1MCP Agent. Learn all CLI commands including serve, proxy, app, mcp, and preset commands with examples.
+head:
+  - ['meta', { name: 'keywords', content: '1MCP commands,CLI reference,command-line interface,syntax,examples' }]
+  - ['meta', { property: 'og:title', content: '1MCP Command Reference - Complete Guide' }]
+  - [
+      'meta',
+      {
+        property: 'og:description',
+        content: 'Complete command reference for 1MCP Agent CLI. Commands, options, and examples.',
+      },
+    ]
+---
+
 # Command Reference
 
 1MCP Agent provides a comprehensive command-line interface for managing MCP servers and desktop application configurations.

@@ -1,3 +1,18 @@
+---
+title: Server Instructions Overrides - Customize LLM Instructions
+description: Learn how to override, filter, and customize server instructions in 1MCP using Handlebars logic. Control how instructions are presented to LLMs.
+head:
+  - ['meta', { name: 'keywords', content: 'server instructions override,Handlebars,LLM instructions,customization' }]
+  - ['meta', { property: 'og:title', content: '1MCP Server Instructions Overrides Guide' }]
+  - [
+      'meta',
+      {
+        property: 'og:description',
+        content: 'Override and customize server instructions in 1MCP using Handlebars logic.',
+      },
+    ]
+---
+
 # Server Instruction Overrides
 
 One of the most powerful features of custom templates is the ability to override, filter, or customize server instructions using Handlebars logic. This gives you complete control over how server instructions are presented to the LLM.

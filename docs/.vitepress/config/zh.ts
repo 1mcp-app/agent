@@ -5,6 +5,33 @@ export default function createConfig(version: string) {
     lang: 'zh-CN',
     description: '聚合一切的 MCP 服务器——统一的 Model Context Protocol 服务器实现',
 
+    head: [
+      // SEO Meta Tags (Chinese)
+      [
+        'meta',
+        {
+          name: 'keywords',
+          content:
+            'MCP 服务器,模型上下文协议,AI 代理,AI 聚合器,Claude Desktop,Cursor,LLM 集成,mcp-server,agent,AI 助手',
+        },
+      ],
+
+      // Open Graph tags for better WeChat sharing
+      ['meta', { property: 'og:type', content: 'website' }],
+      ['meta', { property: 'og:title', content: '1MCP Agent - 统一 MCP 服务器' }],
+      ['meta', { property: 'og:description', content: '统一的模型上下文协议服务器，聚合多个 MCP 服务器' }],
+      ['meta', { property: 'og:image', content: 'https://docs.1mcp.app/images/logo.png' }],
+
+      // WeChat specific tags
+      ['meta', { property: 'og:locale', content: 'zh_CN' }],
+      ['meta', { property: 'og:locale:alternate', content: 'en_US' }],
+
+      // Twitter Card
+      ['meta', { name: 'twitter:card', content: 'summary_large_image' }],
+      ['meta', { name: 'twitter:title', content: '1MCP Agent - 统一 MCP 服务器' }],
+      ['meta', { name: 'twitter:description', content: '统一的模型上下文协议服务器' }],
+    ],
+
     themeConfig: {
       nav: nav(version),
 

@@ -1,3 +1,18 @@
+---
+title: Custom Instructions Template - Customize LLM Instructions
+description: Customize instruction templates for LLM clients in 1MCP. Learn about Handlebars templates, variables, and custom branding.
+head:
+  - ['meta', { name: 'keywords', content: 'custom instructions template,Handlebars,LLM instructions,branding' }]
+  - ['meta', { property: 'og:title', content: '1MCP Custom Instructions Template Guide' }]
+  - [
+      'meta',
+      {
+        property: 'og:description',
+        content: 'Customize LLM instruction templates in 1MCP. Handlebars templates and variable substitution.',
+      },
+    ]
+---
+
 # Custom Instruction Templates
 
 1MCP allows you to customize the instruction templates that are sent to LLM clients. This enables you to brand your proxy, provide custom documentation, or tailor the educational content to your specific use case.

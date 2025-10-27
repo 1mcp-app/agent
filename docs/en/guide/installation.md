@@ -1,3 +1,18 @@
+---
+title: Installation Guide - Binary, NPM, Docker
+description: Install 1MCP Agent on Linux, macOS, or Windows. Choose between standalone binary, NPM package, or Docker container. Complete installation instructions.
+head:
+  - ['meta', { name: 'keywords', content: '1MCP installation,binary download,NPM install,Docker setup' }]
+  - ['meta', { property: 'og:title', content: '1MCP Installation Guide - All Platforms' }]
+  - [
+      'meta',
+      {
+        property: 'og:description',
+        content: 'Install 1MCP on any platform. Standalone binary, NPM, or Docker options available.',
+      },
+    ]
+---
+
 # Installation
 
 ## Binary Downloads (Recommended)

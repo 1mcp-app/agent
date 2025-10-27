@@ -1,3 +1,12 @@
+---
+title: 反向代理支持 - 负载均衡器部署
+description: 配置 1MCP 在反向代理和负载均衡器后面运行。为 nginx、Apache 和 Cloudflare 部署设置信任代理。
+head:
+  - ['meta', { name: 'keywords', content: '反向代理,负载均衡器,nginx,信任代理,部署' }]
+  - ['meta', { property: 'og:title', content: '1MCP 反向代理部署指南' }]
+  - ['meta', { property: 'og:description', content: '学习如何在反向代理和负载均衡器后面部署 1MCP。' }]
+---
+
 # 代理支持
 
 1MCP 支持信任代理配置，以便在负载均衡器和反向代理（如 nginx、Apache 或 Cloudflare）后面进行部署。

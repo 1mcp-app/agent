@@ -1,3 +1,18 @@
+---
+title: Server Filtering - Tag-Based Access Control
+description: Use advanced tag-based server filtering in 1MCP. Control which backend servers are accessible with boolean expressions and tag filters.
+head:
+  - ['meta', { name: 'keywords', content: 'server filtering,tag filtering,access control,boolean expressions' }]
+  - ['meta', { property: 'og:title', content: '1MCP Server Filtering Guide' }]
+  - [
+      'meta',
+      {
+        property: 'og:description',
+        content: 'Control MCP server access with tag-based filtering in 1MCP. Boolean expressions and filtering.',
+      },
+    ]
+---
+
 # Server Filtering by Tags
 
 The 1MCP Agent provides advanced tag-based server filtering, allowing you to direct requests to specific backend MCP servers using both simple OR logic and complex boolean expressions. This feature helps organize and control access to different MCP servers by their capabilities.

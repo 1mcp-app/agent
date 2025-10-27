@@ -1,3 +1,21 @@
+---
+title: App Restore Command - Restore Pre-Consolidation State
+description: Restore applications to pre-consolidation state using backup files. Learn how to revert consolidation and restore original MCP configurations.
+head:
+  - [
+      'meta',
+      {
+        name: 'keywords',
+        content: 'app restore,consolidation restore,backup restore,application management,MCP configuration',
+      },
+    ]
+  - ['meta', { property: 'og:title', content: '1MCP App Restore Command Reference' }]
+  - [
+      'meta',
+      { property: 'og:description', content: 'Restore applications to pre-consolidation state using backup files.' },
+    ]
+---
+
 # app restore
 
 Restores an application to its pre-consolidation state using a backup file.

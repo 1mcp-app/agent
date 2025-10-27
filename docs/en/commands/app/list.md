@@ -1,3 +1,21 @@
+---
+title: App List Command - List Supported Applications
+description: Lists all desktop applications supported by app consolidation feature. View available applications and their consolidation status.
+head:
+  - [
+      'meta',
+      {
+        name: 'keywords',
+        content: 'app list,supported applications,desktop applications,app consolidation,available apps',
+      },
+    ]
+  - ['meta', { property: 'og:title', content: '1MCP App List Command Reference' }]
+  - [
+      'meta',
+      { property: 'og:description', content: 'Lists all desktop applications supported by app consolidation feature.' },
+    ]
+---
+
 # app list
 
 Lists all desktop applications supported by the app consolidation feature.

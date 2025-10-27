@@ -1,3 +1,18 @@
+---
+title: Server Management Guide - Transport Types and Best Practices
+description: Learn how to manage MCP servers in 1MCP. Covers STDIO and HTTP transports, configuration best practices, and lifecycle management.
+head:
+  - ['meta', { name: 'keywords', content: 'MCP server management,transport types,STDIO transport,HTTP transport' }]
+  - ['meta', { property: 'og:title', content: '1MCP Server Management Guide' }]
+  - [
+      'meta',
+      {
+        property: 'og:description',
+        content: 'Complete guide to managing MCP servers in 1MCP. Transport types and best practices.',
+      },
+    ]
+---
+
 # Server Management Guide
 
 This guide provides a detailed overview of managing MCP servers within your 1MCP instance. It covers transport types, configuration best practices, and advanced management workflows.

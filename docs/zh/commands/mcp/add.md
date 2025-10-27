@@ -1,3 +1,12 @@
+---
+title: MCP Add 命令 - 添加服务器配置
+description: 使用 mcp add 命令向 1MCP 配置添加新 MCP 服务器。了解 STDIO 和 HTTP 传输、标签和配置选项。
+head:
+  - ['meta', { name: 'keywords', content: 'mcp add 命令,添加服务器,STDIO 传输,HTTP 传输,标签' }]
+  - ['meta', { property: 'og:title', content: '1MCP Add 命令参考' }]
+  - ['meta', { property: 'og:description', content: '使用 mcp add 命令向 1MCP 配置添加 MCP 服务器。' }]
+---
+
 # mcp add
 
 向 1MCP 配置中添加一个新的 MCP 服务器。

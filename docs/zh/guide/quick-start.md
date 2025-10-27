@@ -1,3 +1,12 @@
+---
+title: 快速入门指南 - 5 分钟启动 1MCP
+description: 使用我们的快速入门指南在 5 分钟内开始使用 1MCP。基本设置、配置和测试说明。
+head:
+  - ['meta', { name: 'keywords', content: '1MCP 快速入门,MCP 服务器设置,AI 代理设置,教程' }]
+  - ['meta', { property: 'og:title', content: '1MCP 快速入门指南 - 5 分钟设置' }]
+  - ['meta', { property: 'og:description', content: '在 5 分钟内运行 1MCP。立即 AI 集成的快速设置指南。' }]
+---
+
 # 快速入门
 
 在 5 分钟内使用基本配置让 1MCP 运行起来。

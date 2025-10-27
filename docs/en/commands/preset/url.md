@@ -1,3 +1,12 @@
+---
+title: Preset URL Command - Generate Client URLs
+description: Generate client URLs for presets. Create direct URLs that activate specific presets when accessed by MCP clients.
+head:
+  - ['meta', { name: 'keywords', content: 'preset url,generate url,client url,preset activation,direct access' }]
+  - ['meta', { property: 'og:title', content: '1MCP Preset URL Command Reference' }]
+  - ['meta', { property: 'og:description', content: 'Generate client URLs for presets and direct preset activation.' }]
+---
+
 # preset url
 
 Generate the client URL for a preset.

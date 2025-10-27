@@ -1,3 +1,18 @@
+---
+title: Quick Start Guide - Get 1MCP Running in 5 Minutes
+description: Start using 1MCP in 5 minutes with our quick start guide. Basic setup, configuration, and testing instructions for immediate use.
+head:
+  - ['meta', { name: 'keywords', content: '1MCP quick start,MCP server setup,AI proxy setup,tutorial' }]
+  - ['meta', { property: 'og:title', content: '1MCP Quick Start Guide - 5 Minute Setup' }]
+  - [
+      'meta',
+      {
+        property: 'og:description',
+        content: 'Get 1MCP running in 5 minutes. Quick setup guide for immediate AI integration.',
+      },
+    ]
+---
+
 # Quick Start
 
 Get 1MCP running in 5 minutes with a basic configuration.

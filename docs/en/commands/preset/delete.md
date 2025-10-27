@@ -1,3 +1,15 @@
+---
+title: Preset Delete Command - Remove Presets
+description: Remove presets from your configuration. Delete named presets that are no longer needed and clean up preset definitions.
+head:
+  - ['meta', { name: 'keywords', content: 'preset delete,delete preset,remove preset,cleanup presets,preset removal' }]
+  - ['meta', { property: 'og:title', content: '1MCP Preset Delete Command Reference' }]
+  - [
+      'meta',
+      { property: 'og:description', content: 'Remove presets from configuration and clean up preset definitions.' },
+    ]
+---
+
 # preset delete
 
 Remove a preset from your configuration.

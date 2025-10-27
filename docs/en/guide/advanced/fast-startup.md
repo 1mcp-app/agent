@@ -1,3 +1,18 @@
+---
+title: Fast Startup - Async Server Loading
+description: Learn how to enable async server loading in 1MCP. Start immediately with real-time capability updates for better performance.
+head:
+  - ['meta', { name: 'keywords', content: 'fast startup,async loading,performance,speed optimization' }]
+  - ['meta', { property: 'og:title', content: '1MCP Fast Startup Guide' }]
+  - [
+      'meta',
+      {
+        property: 'og:description',
+        content: 'Enable async server loading for faster 1MCP startup with real-time updates.',
+      },
+    ]
+---
+
 # Fast Startup: Async Server Loading
 
 Get your 1MCP agent running instantly with real-time capability updates, even when some servers take time to connect.

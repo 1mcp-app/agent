@@ -1,3 +1,18 @@
+---
+title: Authentication Guide - OAuth 2.1 Setup and Management
+description: Configure OAuth 2.1 authentication in 1MCP. Learn how to enable authentication, manage the OAuth dashboard, and secure your MCP servers.
+head:
+  - ['meta', { name: 'keywords', content: 'OAuth 2.1 authentication,OAuth setup,OAuth dashboard,security' }]
+  - ['meta', { property: 'og:title', content: '1MCP OAuth 2.1 Authentication Guide' }]
+  - [
+      'meta',
+      {
+        property: 'og:description',
+        content: 'Configure OAuth 2.1 authentication for 1MCP. Secure your MCP servers with industry-standard authentication.',
+      },
+    ]
+---
+
 # Authentication
 
 The 1MCP Agent uses a dynamic, SDK-based approach to OAuth 2.1 authentication. Instead of a static configuration file, the agent provides a set of command-line flags and environment variables to configure authentication, and an interactive dashboard to manage the authorization flow with backend services.

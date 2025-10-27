@@ -1,3 +1,12 @@
+---
+title: 安装指南 - 二进制、NPM、Docker
+description: 在 Linux、macOS 或 Windows 上安装 1MCP Agent。选择独立二进制、NPM 包或 Docker 容器。完整安装说明。
+head:
+  - ['meta', { name: 'keywords', content: '1MCP 安装,二进制下载,NPM 安装,Docker 设置' }]
+  - ['meta', { property: 'og:title', content: '1MCP 安装指南 - 所有平台' }]
+  - ['meta', { property: 'og:description', content: '在任何平台上安装 1MCP。提供独立二进制、NPM 或 Docker 选项。' }]
+---
+
 # 安装
 
 ## 二进制下载 (推荐)

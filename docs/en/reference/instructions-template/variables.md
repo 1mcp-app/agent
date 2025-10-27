@@ -1,3 +1,21 @@
+---
+title: Template Variables Reference - Complete Variable List
+description: Complete reference for all Handlebars template variables available in 1MCP custom instruction templates. Server state, capabilities, filtering, and more.
+head:
+  - [
+      'meta',
+      { name: 'keywords', content: 'template variables,Handlebars variables,instruction templates,custom templates' },
+    ]
+  - ['meta', { property: 'og:title', content: '1MCP Template Variables Reference' }]
+  - [
+      'meta',
+      {
+        property: 'og:description',
+        content: 'Complete list of all template variables for 1MCP custom instruction templates.',
+      },
+    ]
+---
+
 # Template Variables Reference
 
 This page provides a complete reference for all variables available in custom instruction templates.

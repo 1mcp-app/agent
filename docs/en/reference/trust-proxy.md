@@ -1,3 +1,18 @@
+---
+title: Trust Proxy Configuration - Reverse Proxy Setup
+description: Configure trust proxy settings for 1MCP behind reverse proxies. Learn about nginx, Apache, and load balancer configurations.
+head:
+  - ['meta', { name: 'keywords', content: 'trust proxy,reverse proxy,nginx,Apache,load balancer,IP detection' }]
+  - ['meta', { property: 'og:title', content: '1MCP Trust Proxy Configuration Reference' }]
+  - [
+      'meta',
+      {
+        property: 'og:description',
+        content: 'Configure trust proxy for 1MCP behind reverse proxies and load balancers.',
+      },
+    ]
+---
+
 # Trust Proxy Configuration
 
 When running 1MCP behind a reverse proxy (like nginx, Apache, or a cloud load balancer), you need to configure its trust proxy settings. This ensures that the agent correctly identifies the client's IP address for logging, rate limiting, and other security features.

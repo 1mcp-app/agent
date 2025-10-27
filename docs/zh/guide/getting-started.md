@@ -1,23 +1,40 @@
+---
+title: 1MCP 入门指南
+description: 学习如何设置 1MCP。从基本代理到生产部署，包含 OAuth 2.1 身份验证。适合所有技能水平的完整指南。
+head:
+  - [
+      'meta',
+      {
+        name: 'keywords',
+        content: 'MCP 服务器设置,模型上下文协议,AI 代理设置,1MCP 教程,入门指南,OAuth 2.1,身份验证,服务器管理,配置',
+      },
+    ]
+  - ['meta', { property: 'og:title', content: '1MCP 入门指南 | 完整设置指南' }]
+  - ['meta', { property: 'og:description', content: '完整的 1MCP 设置步骤指南。从基本代理到生产部署。' }]
+---
+
 # 1MCP 入门指南
 
 > **🎯 目标**：通过简单实用的步骤，将您从单独的 MCP 服务器连接转变为统一的代理。
+
+> **💡 刚接触 1MCP？** 从我们的[快速入门指南](/zh/guide/quick-start)开始，5分钟即可完成设置，或继续阅读此处的详细说明。
 
 ## 🗺️ 您的旅程概览
 
 ```mermaid
 graph LR
-    A[5 分钟<br/>基本设置] --> B[10 分钟<br/>添加认证]
+    A[5 分钟<br/>基本设置] --> B[10 分钟<br/>添加身份验证]
     B --> C[15 分钟<br/>生产部署]
 
     A1[单一统一的<br/>MCP 端点] -.-> A
-    B1[OAuth 2.1<br/>认证] -.-> B
+    B1[OAuth 2.1<br/>身份验证] -.-> B
     C1[稳定的生产<br/>配置] -.-> C
 ```
 
 **选择您的起点**：
 
-- 👋 **初次接触 MCP？** → 从第 1 级开始
-- 🔒 **需要认证？** → 跳转到第 2 级
+- 👋 **刚接触 MCP？** → 从第 1 级开始
+- 🔒 **需要身份验证？** → 跳转到第 2 级
 - 🏢 **生产部署？** → 前往第 3 级
 
 ---
@@ -142,7 +159,7 @@ npx @modelcontextprotocol/inspector
 # 这将在 http://localhost:5173 打开一个强大的用户界面，让您：
 # - 连接到您的 1MCP 代理 http://localhost:3050
 # - 测试所有可用的工具和资源
-# - 调试认证流程
+# - 调试身份验证流程
 # - 监控实时的 MCP 协议消息
 
 # 备选方案：通过 curl 检查健康状况
@@ -166,28 +183,28 @@ curl http://localhost:3050/health
 - **权限错误？** → 确保 ~/.config/1mcp 目录可写
 - **找不到配置？** → 使用绝对路径：`--config $(pwd)/.config/1mcp/mcp.json`
 
-**➡️ 下一级**：[添加认证和访问控制](#-第-2-级安全访问-15-分钟)
+**➡️ 下一级**：[添加身份验证和访问控制](#-第-2-级安全访问-15-分钟)
 
 ---
 
 ## 🔒 第 2 级：安全访问 (15 分钟)
 
-**🎯 目标**：添加认证和精细的访问控制
+**🎯 目标**：添加身份验证和精细的访问控制
 **👤 适用于**：团队、共享环境、注重安全的用户
 
 ### **您将实现**
 
-- ✅ 使用安全令牌管理的 OAuth 2.1 认证
+- ✅ 使用安全令牌管理的 OAuth 2.1 身份验证
 - ✅ 基于范围的权限控制 MCP 服务器访问
 - ✅ 具有自动令牌刷新功能的用户会话管理
 - ✅ 所有访问尝试的审计日志
 
-### **步骤 1：启用认证** (1 分钟)
+### **步骤 1：启用身份验证** (1 分钟)
 
 ```bash
 # 停止您现有的 1MCP 实例 (Ctrl+C)
 
-# 启用认证并启动
+# 启用身份验证并启动
 # 二进制选项：
 1mcp --config ~/.config/1mcp/mcp.json --port 3050 --enable-auth
 
@@ -195,7 +212,7 @@ curl http://localhost:3050/health
 npx -y @1mcp/agent --config ~/.config/1mcp/mcp.json --port 3050 --enable-auth
 
 # 新输出显示：
-# 🔐 认证已启用 - OAuth 2.1 端点可通过 SDK 使用
+# 🔐 身份验证已启用 - OAuth 2.1 端点可通过 SDK 使用
 # 📋 OAuth 管理仪表板：http://localhost:3050/oauth
 ```
 
@@ -229,7 +246,7 @@ EOF
 # 配置将自动热重载 - 无需重启！
 ```
 
-### **步骤 4：测试认证** (2 分钟)
+### **步骤 4：测试身份验证** (2 分钟)
 
 ```bash
 # 使用 MCP Inspector 测试 OAuth 流程 (推荐)
@@ -237,14 +254,14 @@ npx @modelcontextprotocol/inspector
 
 # 在 Inspector UI 中：
 # 1. 连接到 http://localhost:3050
-# 2. 您将看到 OAuth 认证提示
+# 2. 您将看到 OAuth 身份验证提示
 # 3. 使用内置的 OAuth 流程测试
 # 4. 使用不同的标签测试基于范围的访问
 
 # 备选方案：通过 curl 手动进行 OAuth 测试
-# 尝试在没有认证的情况下访问 SSE 端点
+# 尝试在没有身份验证的情况下访问 SSE 端点
 curl http://localhost:3050/sse
-# 当启用认证时，应要求认证
+# 当启用身份验证时，应要求身份验证
 
 # 手动令牌流程 (如果需要用于调试)
 export CLIENT_ID="your-client-id-from-step-2"
@@ -263,14 +280,14 @@ curl -X POST http://localhost:3050/token \
 - [ ] OAuth 客户端注册通过 Inspector UI 工作
 - [ ] 范围限制被正确执行 (基于标签的访问)
 - [ ] 可以使用 Inspector 界面测试不同的范围
-- [ ] 管理仪表板显示认证状态
+- [ ] 管理仪表板显示身份验证状态
 
 **🔧 常见问题**：
 
 - **MCP Inspector 无法连接？** → 验证 1MCP 是否在端口 3050 上运行
 - **Inspector 中的 OAuth 流程失败？** → 检查 1MCP 是否使用 --enable-auth 运行
 - **范围错误？** → 确保服务器标签与请求的范围匹配
-- **Inspector 显示“未授权”？** → 首先在 Inspector UI 中完成 OAuth 流程
+- **Inspector 显示"未授权"？** → 首先在 Inspector UI 中完成 OAuth 流程
 - **仪表板未加载？** → 确保使用了 --enable-auth 标志
 
 **➡️ 下一级**：[生产就绪部署](#-第-3-级生产就绪-45-分钟)
@@ -297,7 +314,7 @@ curl -X POST http://localhost:3050/token \
 sudo mkdir -p /etc/1mcp
 sudo chown $USER:$USER /etc/1mcp
 
-# 生产配置文件
+# 生产配置
 cat > /etc/1mcp/mcp.json << 'EOF'
 {
   "mcpServers": {
@@ -319,6 +336,10 @@ EOF
 ### **步骤 2：创建 Systemd 服务** (5 分钟)
 
 ```bash
+# 首先，系统范围安装二进制文件 (如果尚未完成)
+sudo curl -L -o /usr/local/bin/1mcp https://github.com/1mcp-app/agent/releases/latest/download/1mcp-linux-x64
+sudo chmod +x /usr/local/bin/1mcp
+
 # 创建 systemd 服务文件
 sudo tee /etc/systemd/system/1mcp.service << 'EOF'
 [Unit]
@@ -329,7 +350,7 @@ After=network.target
 Type=simple
 User=$USER
 WorkingDirectory=/home/$USER
-ExecStart=/usr/bin/npx -y @1mcp/agent --config /etc/1mcp/mcp.json --port 3050 --enable-auth
+ExecStart=/usr/local/bin/1mcp --config /etc/1mcp/mcp.json --port 3050 --enable-auth
 Restart=always
 RestartSec=5
 StandardOutput=journal
@@ -515,7 +536,7 @@ chmod +x ~/1mcp-log-summary.sh
 ### **环境变量参考**
 
 ```bash
-# 认证设置
+# 身份验证设置
 ONE_MCP_ENABLE_AUTH=true
 ONE_MCP_ENABLE_SCOPE_VALIDATION=true
 
@@ -534,7 +555,7 @@ ONE_MCP_SESSION_STORAGE_PATH=/var/lib/1mcp/sessions
 
 ### **✅ 设置完成！**
 
-您现在已将 1MCP 作为具有基本认证和监控的稳定服务运行。
+您现在已将 1MCP 作为具有基本身份验证和监控的稳定服务运行。
 
 ---
 
@@ -545,24 +566,27 @@ ONE_MCP_SESSION_STORAGE_PATH=/var/lib/1mcp/sessions
 #### **🔌 连接问题**
 
 ```bash
-# 问题：“连接被拒绝”
+# 问题："连接被拒绝"
 # 解决方案：检查 1MCP 是否正在运行
 systemctl status 1mcp
 # 检查应用程序日志以获取服务器状态
 
-# 问题：“MCP 服务器无响应”
-# 解决方案：检查单个服务器的健康状况
+# 问题："MCP 服务器无响应"
+# 解决方案：检查单个服务器的健康状况 (调试模式)
+# 二进制：
+ONE_MCP_LOG_LEVEL=debug 1mcp --config ~/.config/1mcp/mcp.json
+# NPM：
 ONE_MCP_LOG_LEVEL=debug npx -y @1mcp/agent --config ~/.config/1mcp/mcp.json
 ```
 
-#### **🔐 认证问题**
+#### **🔐 身份验证问题**
 
 ```bash
-# 问题：“无效令牌”
+# 问题："无效令牌"
 # 解决方案：检查令牌过期时间和范围
-# 通过 OAuth 端点检查令牌有效性 (当启用认证时)
+# 通过 OAuth 端点检查令牌有效性 (当启用身份验证时)
 
-# 问题：“范围不足”
+# 问题："范围不足"
 # 解决方案：验证服务器标签是否与令牌范围匹配
 cat ~/.config/1mcp/mcp.json | jq '.mcpServers[].tags'
 ```
@@ -591,8 +615,8 @@ journalctl -u 1mcp -f --lines=100
 
 ## 🎯 后续步骤
 
-- [探索安全功能](/reference/security)
-- [高级架构](/reference/architecture)
+- [探索安全功能](/zh/reference/security)
+- [高级架构](/zh/reference/architecture)
 
 ---
 

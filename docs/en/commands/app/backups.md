@@ -1,3 +1,21 @@
+---
+title: App Backups Command - Manage Configuration Backups
+description: Manage configuration backups created during app consolidation. List, view, and manage backup files for application restore operations.
+head:
+  - [
+      'meta',
+      {
+        name: 'keywords',
+        content: 'app backups,configuration backups,backup management,consolidation backups,restore files',
+      },
+    ]
+  - ['meta', { property: 'og:title', content: '1MCP App Backups Command Reference' }]
+  - [
+      'meta',
+      { property: 'og:description', content: 'Manage configuration backups created during app consolidation process.' },
+    ]
+---
+
 # app backups
 
 Manages the configuration backups created during the consolidation process.

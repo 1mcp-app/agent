@@ -1,3 +1,18 @@
+---
+title: 身份验证指南 - OAuth 2.1 设置和管理
+description: 在 1MCP 中配置 OAuth 2.1 身份验证。了解如何启用身份验证、管理 OAuth 仪表板并保护您的 MCP 服务器。
+head:
+  - ['meta', { name: 'keywords', content: 'OAuth 2.1 身份验证,OAuth 设置,OAuth 仪表板,安全性' }]
+  - ['meta', { property: 'og:title', content: '1MCP OAuth 2.1 身份验证指南' }]
+  - [
+      'meta',
+      {
+        property: 'og:description',
+        content: '为 1MCP 配置 OAuth 2.1 身份验证。使用行业标准身份验证保护您的 MCP 服务器。',
+      },
+    ]
+---
+
 # 身份验证
 
 1MCP 代理使用基于 SDK 的动态方法进行 OAuth 2.1 身份验证。代理不使用静态配置文件，而是提供一组命令行标志和环境变量来配置身份验证，以及一个交互式仪表板来管理与后端服务的授权流程。

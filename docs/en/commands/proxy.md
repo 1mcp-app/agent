@@ -1,3 +1,18 @@
+---
+title: Proxy Command - STDIO to HTTP Bridge
+description: Use the proxy command to bridge STDIO transport MCP clients to HTTP servers. Connect Claude Desktop to running 1MCP servers with tag filtering.
+head:
+  - ['meta', { name: 'keywords', content: 'proxy command,STDIO bridge,HTTP transport,Claude Desktop proxy' }]
+  - ['meta', { property: 'og:title', content: '1MCP Proxy Command Reference' }]
+  - [
+      'meta',
+      {
+        property: 'og:description',
+        content: 'Bridge STDIO to HTTP with 1MCP proxy command. Connect clients to centralized servers.',
+      },
+    ]
+---
+
 # Proxy Command
 
 Start STDIO proxy to connect MCP clients that only support STDIO transport to a running 1MCP HTTP server.

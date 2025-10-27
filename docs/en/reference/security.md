@@ -1,3 +1,18 @@
+---
+title: Security Features - Tags-as-OAuth-Scopes Model
+description: Learn about 1MCP security features including tags-as-OAuth-scopes model, scope validation, rate limiting, and audit logging.
+head:
+  - ['meta', { name: 'keywords', content: '1MCP security, OAuth 2.1, tags-as-scopes, security model, rate limiting' }]
+  - ['meta', { property: 'og:title', content: '1MCP Security Features Reference' }]
+  - [
+      'meta',
+      {
+        property: 'og:description',
+        content: 'Security features for 1MCP including OAuth 2.1 and tags-as-scopes model.',
+      },
+    ]
+---
+
 # Security Features
 
 This document outlines the comprehensive security features implemented in the MCP agent system.

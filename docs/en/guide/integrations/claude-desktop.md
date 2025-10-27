@@ -1,3 +1,21 @@
+---
+title: Claude Desktop Integration - Complete Setup Guide
+description: Integrate 1MCP with Claude Desktop. Step-by-step guide for local and remote setups. Includes presets, tagging, and authentication.
+head:
+  - [
+      'meta',
+      { name: 'keywords', content: 'Claude Desktop integration,MCP setup,Cursor integration,AI assistant setup' },
+    ]
+  - ['meta', { property: 'og:title', content: '1MCP Claude Desktop Integration Guide' }]
+  - [
+      'meta',
+      {
+        property: 'og:description',
+        content: 'Complete guide to integrating 1MCP with Claude Desktop. Local and remote setups.',
+      },
+    ]
+---
+
 # Claude Desktop Integration
 
 Learn how to integrate your 1MCP server with Claude Desktop using two different approaches: **local configuration consolidation** (recommended for simplicity) and **remote custom connectors** (for advanced use cases).

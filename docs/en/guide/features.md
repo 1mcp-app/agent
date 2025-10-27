@@ -1,3 +1,21 @@
+---
+title: 1MCP Features Overview - Complete Feature Guide
+description: Explore all 1MCP features including core capabilities, security, performance, enterprise features, integrations, and developer tools. Complete feature reference.
+head:
+  - [
+      'meta',
+      { name: 'keywords', content: '1MCP features,feature overview,security,performance,enterprise,integration' },
+    ]
+  - ['meta', { property: 'og:title', content: '1MCP Features Overview - Complete Guide' }]
+  - [
+      'meta',
+      {
+        property: 'og:description',
+        content: 'Explore all 1MCP features. Security, performance, enterprise capabilities, and integrations.',
+      },
+    ]
+---
+
 # 1MCP Features Overview
 
 > **🎯 Philosophy**: Every feature exists to solve a real user problem. We built capabilities you actually need, not just features that sound impressive.

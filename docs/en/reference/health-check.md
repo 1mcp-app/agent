@@ -1,3 +1,18 @@
+---
+title: Health Check API Reference
+description: Complete health check API reference for 1MCP Agent. Monitor system status, server connectivity, and operational metrics.
+head:
+  - ['meta', { name: 'keywords', content: 'health check API,monitoring,system status,metrics,endpoints' }]
+  - ['meta', { property: 'og:title', content: '1MCP Health Check API Reference' }]
+  - [
+      'meta',
+      {
+        property: 'og:description',
+        content: 'Health check API reference for monitoring 1MCP system status and server connectivity.',
+      },
+    ]
+---
+
 # Health Check API Reference
 
 The 1MCP Agent provides comprehensive health check endpoints for monitoring system status, server connectivity, and operational metrics.

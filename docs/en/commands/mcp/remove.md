@@ -1,3 +1,12 @@
+---
+title: MCP Remove Command - Delete Server Configuration
+description: Remove MCP servers from 1MCP configuration. Completely delete server settings and remove them from the active configuration.
+head:
+  - ['meta', { name: 'keywords', content: 'mcp remove,delete server,remove configuration,cleanup MCP,server deletion' }]
+  - ['meta', { property: 'og:title', content: '1MCP Remove Command Reference' }]
+  - ['meta', { property: 'og:description', content: 'Remove MCP servers from 1MCP configuration permanently.' }]
+---
+
 # mcp remove
 
 Removes an MCP server from the 1MCP configuration.

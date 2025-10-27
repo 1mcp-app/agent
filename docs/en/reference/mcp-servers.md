@@ -1,3 +1,24 @@
+---
+title: MCP Servers Configuration Reference
+description: Complete reference for configuring MCP servers in 1MCP. Learn about server settings, transport types, environment variables, and JSON configuration.
+head:
+  - [
+      'meta',
+      {
+        name: 'keywords',
+        content: 'MCP servers configuration,server settings,STDIO,HTTP transport,environment variables',
+      },
+    ]
+  - ['meta', { property: 'og:title', content: '1MCP Servers Configuration Reference' }]
+  - [
+      'meta',
+      {
+        property: 'og:description',
+        content: 'Complete reference for configuring MCP servers in 1MCP. Transport types and settings.',
+      },
+    ]
+---
+
 # MCP Servers Configuration Reference
 
 This document provides comprehensive reference documentation for configuring MCP (Model Context Protocol) servers within the 1MCP Agent.

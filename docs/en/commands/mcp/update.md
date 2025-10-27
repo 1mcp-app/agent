@@ -1,3 +1,12 @@
+---
+title: MCP Update Command - Modify Server Configuration
+description: Update existing MCP server configurations in 1MCP. Modify server settings, transport types, and configuration options without removing and re-adding.
+head:
+  - ['meta', { name: 'keywords', content: 'mcp update,update server,modify configuration,edit MCP,server settings' }]
+  - ['meta', { property: 'og:title', content: '1MCP Update Command Reference' }]
+  - ['meta', { property: 'og:description', content: 'Update existing MCP server configurations in 1MCP.' }]
+---
+
 # mcp update
 
 Updates the configuration of an existing MCP server.

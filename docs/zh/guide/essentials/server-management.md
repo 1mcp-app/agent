@@ -1,3 +1,12 @@
+---
+title: 服务器管理指南 - 传输类型和最佳实践
+description: 了解如何在 1MCP 中管理 MCP 服务器。涵盖 STDIO 和 HTTP 传输、配置最佳实践和生命周期管理。
+head:
+  - ['meta', { name: 'keywords', content: 'MCP 服务器管理,传输类型,STDIO 传输,HTTP 传输' }]
+  - ['meta', { property: 'og:title', content: '1MCP 服务器管理指南' }]
+  - ['meta', { property: 'og:description', content: '在 1MCP 中管理 MCP 服务器的完整指南。传输类型和最佳实践。' }]
+---
+
 # 服务器管理指南
 
 本指南详细概述了在您的 1MCP 实例中管理 MCP 服务器。它涵盖了传输类型、配置最佳实践和高级管理工作流程。

@@ -1,3 +1,18 @@
+---
+title: Codex Integration - Setup and Configuration Guide
+description: Learn how to integrate 1MCP with Codex. Configure HTTP transport, per-project settings, and advanced MCP server management for Codex.
+head:
+  - ['meta', { name: 'keywords', content: 'Codex integration,MCP setup,HTTP transport,per-project configuration' }]
+  - ['meta', { property: 'og:title', content: '1MCP Codex Integration Guide' }]
+  - [
+      'meta',
+      {
+        property: 'og:description',
+        content: 'Complete guide to integrating 1MCP with Codex. HTTP transport and per-project configuration.',
+      },
+    ]
+---
+
 # Codex Integration
 
 This guide covers integrating 1MCP with Codex to enable advanced MCP server management, per-project configurations, and streamable HTTP transport capabilities.

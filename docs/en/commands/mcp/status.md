@@ -1,3 +1,15 @@
+---
+title: MCP Status Command - Check Server Status
+description: Check the status and health of configured MCP servers. View connection status, capabilities, and detailed server information.
+head:
+  - ['meta', { name: 'keywords', content: 'mcp status command,server status,health check,connection status' }]
+  - ['meta', { property: 'og:title', content: '1MCP Status Command Reference' }]
+  - [
+      'meta',
+      { property: 'og:description', content: 'Check MCP server status and health in 1MCP. View connection details.' },
+    ]
+---
+
 # mcp status
 
 Checks the status and details of configured MCP servers.

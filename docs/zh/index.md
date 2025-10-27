@@ -1,5 +1,28 @@
 ---
 layout: home
+title: '1MCP Agent - 统一 MCP 服务器'
+description: '统一的模型上下文协议服务器，聚合多个 MCP 服务器，为 Claude Desktop、Cursor 等 AI 助手提供一体化服务。5 分钟快速开始，配备 OAuth 2.1 安全认证。'
+head:
+  - [
+      'meta',
+      {
+        name: 'keywords',
+        content: 'MCP 服务器,模型上下文协议,AI 代理,AI 聚合器,Claude Desktop,Cursor,MCP 集成,AI 助手工具,OAuth 2.1,代理服务器,多路复用器,LLM 集成,自动化,教程,设置指南',
+      },
+    ]
+  - ['meta', { property: 'og:title', content: '1MCP Agent - 统一 MCP 服务器' }]
+  - [
+      'meta',
+      { property: 'og:description', content: '统一的模型上下文协议服务器，聚合多个 MCP 服务器。5 分钟快速开始。' },
+    ]
+  - ['meta', { name: 'twitter:title', content: '1MCP Agent - 统一 MCP 服务器' }]
+  - [
+      'meta',
+      {
+        name: 'twitter:description',
+        content: '为 AI 助手提供统一的 MCP 服务器。5 分钟快速开始，配备 OAuth 2.1 安全认证。',
+      },
+    ]
 
 hero:
   name: '1MCP Agent'
@@ -7,7 +30,7 @@ hero:
   tagline: 一个统一的模型上下文协议服务器实现，作为多个 MCP 服务器的代理/多路复用器
   image:
     src: /images/logo.png
-    alt: 1MCP Logo
+    alt: 1MCP Agent Logo - AI 助手的统一 MCP 服务器
   actions:
     - theme: brand
       text: 开始使用
@@ -32,6 +55,7 @@ features:
   - icon: 🛡️
     title: 安全优先
     details: Stdio 传输隔离、输入净化和全面的审计日志
+
   - icon: 🔧
     title: 易于配置
     details: 单一 JSON 配置文件，支持热重载和验证
@@ -41,7 +65,7 @@ features:
 
 **问题**：AI 助手需要连接到多个 MCP 服务器，但管理数十个独立连接是复杂、不可靠且安全性密集的。
 
-**解决方案**：1MCP 作为统一的代理/多路复用器，将多个 MCP 服务器聚合在单一、可靠的接口后面。
+**解决方案**：1MCP 作为统一的代理/多路复用器，将多个 MCP 服务器聚合在单一、可靠的接口后面。了解更多关于我们的[核心功能](/zh/guide/essentials/core-features)和[安全架构](/zh/reference/security)。
 
 ```mermaid
 graph TB
@@ -73,7 +97,7 @@ graph TB
 
 ## 快速示例
 
-从简单配置开始：
+从简单配置开始。有关完整的设置说明，请参阅我们的[入门指南](/zh/guide/getting-started)和[安装说明](/zh/guide/installation)。
 
 ```json
 {
@@ -117,7 +141,7 @@ graph TB
 npx -y @1mcp/agent --config mcp.json --port 3000
 ```
 
-现在您的代理正在运行。将您的 MCP 客户端连接到 `http://localhost:3000` 开始使用您聚合的工具。
+现在您的代理正在运行。将您的 MCP 客户端连接到 `http://localhost:3000` 开始使用您聚合的工具。查看我们的[服务器管理指南](/zh/guide/essentials/server-management)了解高级配置选项。
 
 ## 主要优势
 

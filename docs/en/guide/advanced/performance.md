@@ -1,3 +1,18 @@
+---
+title: Performance & Reliability - Production-Ready MCP Management
+description: Optimize 1MCP performance with efficient request handling, automatic retry, recovery strategies, monitoring, and reliability features.
+head:
+  - ['meta', { name: 'keywords', content: '1MCP performance,reliability,retry logic,monitoring,production' }]
+  - ['meta', { property: 'og:title', content: '1MCP Performance & Reliability Guide' }]
+  - [
+      'meta',
+      {
+        property: 'og:description',
+        content: 'Optimize 1MCP for production. Performance tuning, reliability, and monitoring features.',
+      },
+    ]
+---
+
 # Performance & Reliability
 
 > **⚡ Built for Production**: Reliable, fast, and resilient MCP server management with intelligent recovery

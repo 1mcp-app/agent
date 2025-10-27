@@ -1,3 +1,12 @@
+---
+title: 1MCP 功能概述 - 完整功能指南
+description: 探索所有 1MCP 功能，包括核心能力、安全性、性能、企业功能、集成和开发工具。完整功能参考。
+head:
+  - ['meta', { name: 'keywords', content: '1MCP 功能,功能概述,安全性,性能,企业,集成' }]
+  - ['meta', { property: 'og:title', content: '1MCP 功能概述 - 完整指南' }]
+  - ['meta', { property: 'og:description', content: '探索所有 1MCP 功能。安全性、性能、企业能力和集成。' }]
+---
+
 # 1MCP 功能概述
 
 > **🎯 理念**：每个功能的存在都是为了解决一个真实的用户问题。我们构建了您实际需要的功能，而不仅仅是听起来令人印象深刻的功能。

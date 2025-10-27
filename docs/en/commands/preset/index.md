@@ -1,3 +1,24 @@
+---
+title: Preset Commands Overview - Dynamic Configuration Management
+description: Complete overview of preset commands for dynamic server configuration management. Create, switch, and manage named server presets in 1MCP.
+head:
+  - [
+      'meta',
+      {
+        name: 'keywords',
+        content: 'preset commands,configuration management,server presets,dynamic configuration,MCP contexts',
+      },
+    ]
+  - ['meta', { property: 'og:title', content: '1MCP Preset Commands - Dynamic Configuration' }]
+  - [
+      'meta',
+      {
+        property: 'og:description',
+        content: 'Complete overview of preset commands for dynamic server configuration management.',
+      },
+    ]
+---
+
 # Preset Commands
 
 Preset commands provide a powerful system for managing server configurations dynamically. Create named presets that define server selection criteria, then use them to switch server contexts without reconfiguring your MCP clients.

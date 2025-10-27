@@ -1,3 +1,18 @@
+---
+title: App Consolidation Guide - Unify Multiple Desktop App Configs
+description: Consolidate MCP server configurations from Claude Desktop, Cursor, and other desktop apps into a single 1MCP instance. Step-by-step consolidation guide.
+head:
+  - ['meta', { name: 'keywords', content: 'app consolidation,desktop apps,config management,MCP configuration' }]
+  - ['meta', { property: 'og:title', content: '1MCP App Consolidation Guide' }]
+  - [
+      'meta',
+      {
+        property: 'og:description',
+        content: 'Unify MCP server configurations from multiple desktop apps into one 1MCP instance.',
+      },
+    ]
+---
+
 # App Consolidation Guide
 
 This guide provides a comprehensive overview of the app consolidation feature in 1MCP Agent. It helps you unify MCP server configurations from multiple desktop applications into a single, manageable 1MCP instance.

@@ -1,3 +1,12 @@
+---
+title: Claude Desktop 集成 - 完整设置指南
+description: 将 1MCP 与 Claude Desktop 集成。本地和远程设置的步骤指南。包括预设、标记和身份验证。
+head:
+  - ['meta', { name: 'keywords', content: 'Claude Desktop 集成,MCP 设置,Cursor 集成,AI 助手设置' }]
+  - ['meta', { property: 'og:title', content: '1MCP Claude Desktop 集成指南' }]
+  - ['meta', { property: 'og:description', content: '将 1MCP 与 Claude Desktop 集成的完整指南。本地和远程设置。' }]
+---
+
 # Claude Desktop 集成
 
 了解如何使用两种不同的方法将您的 1MCP 服务器与 Claude Desktop 集成：**本地配置整合**（为简单起见，建议使用）和**远程自定义连接器**（用于高级用例）。

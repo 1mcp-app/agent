@@ -1,3 +1,15 @@
+---
+title: Pagination Support - Performance Optimization
+description: Enable pagination in 1MCP for better performance with large result sets. Learn about cursor-based pagination and resource management.
+head:
+  - ['meta', { name: 'keywords', content: 'pagination,performance optimization,cursor-based,large datasets' }]
+  - ['meta', { property: 'og:title', content: '1MCP Pagination Support Reference' }]
+  - [
+      'meta',
+      { property: 'og:description', content: 'Enable pagination in 1MCP for better performance with large datasets.' },
+    ]
+---
+
 # Pagination Support
 
 1MCP Agent supports pagination for MCP protocol responses to improve performance when dealing with large result sets from multiple servers. This feature helps manage resources efficiently when aggregating data from many MCP servers.

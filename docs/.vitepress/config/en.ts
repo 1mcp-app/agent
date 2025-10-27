@@ -3,7 +3,49 @@ import { DefaultTheme, defineConfig } from 'vitepress';
 export default function createConfig(version: string) {
   return defineConfig({
     lang: 'en-US',
-    description: 'One MCP server to aggregate them all - A unified Model Context Protocol server implementation',
+    description:
+      '1MCP Agent - The unified Model Context Protocol server that aggregates multiple MCP servers. Simplify AI assistant integration with one secure proxy. Complete documentation and setup guide.',
+
+    head: [
+      // SEO Meta Tags (English)
+      [
+        'meta',
+        {
+          name: 'keywords',
+          content:
+            'MCP,Model Context Protocol,AI proxy,AI aggregator,Claude Desktop,Cursor,LLM integration,mcp-server,agent,AI assistant,OAuth 2.1,server management,proxy server,multiplexer,AI tools,automation,documentation,setup guide,tutorial',
+        },
+      ],
+
+      // Open Graph tags for better social sharing
+      ['meta', { property: 'og:type', content: 'website' }],
+      ['meta', { property: 'og:title', content: '1MCP Agent - Unified MCP Server' }],
+      [
+        'meta',
+        {
+          property: 'og:description',
+          content:
+            '1MCP Agent simplifies AI assistant integration with one unified MCP server. Aggregate multiple MCP servers behind a single secure proxy with OAuth 2.1 authentication.',
+        },
+      ],
+      ['meta', { property: 'og:image', content: 'https://docs.1mcp.app/images/logo.png' }],
+
+      // WeChat and international specific tags
+      ['meta', { property: 'og:locale', content: 'en_US' }],
+      ['meta', { property: 'og:locale:alternate', content: 'zh_CN' }],
+
+      // Twitter Card
+      ['meta', { name: 'twitter:card', content: 'summary_large_image' }],
+      ['meta', { name: 'twitter:title', content: '1MCP Agent - Unified MCP Server' }],
+      [
+        'meta',
+        {
+          name: 'twitter:description',
+          content:
+            '1MCP Agent - Unified MCP server for AI assistants. Simplify integration with one secure proxy for multiple MCP servers.',
+        },
+      ],
+    ],
 
     themeConfig: {
       nav: nav(version),

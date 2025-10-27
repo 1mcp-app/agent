@@ -1,3 +1,18 @@
+---
+title: Reverse Proxy Support - Deploy Behind Load Balancers
+description: Configure 1MCP to work behind reverse proxies and load balancers. Set up trust proxy for nginx, Apache, and Cloudflare deployments.
+head:
+  - ['meta', { name: 'keywords', content: 'reverse proxy,load balancer,nginx,trust proxy,deployment' }]
+  - ['meta', { property: 'og:title', content: '1MCP Reverse Proxy Support' }]
+  - [
+      'meta',
+      {
+        property: 'og:description',
+        content: 'Deploy 1MCP behind reverse proxies and load balancers. Trust proxy configuration guide.',
+      },
+    ]
+---
+
 # Proxy Support
 
 1MCP supports trust proxy configuration for deployment behind load balancers and reverse proxies like nginx, Apache, or Cloudflare.

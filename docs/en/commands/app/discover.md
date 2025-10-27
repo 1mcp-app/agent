@@ -1,3 +1,15 @@
+---
+title: App Discover Command - Find MCP Applications
+description: Discover installed desktop applications with MCP configurations. Scan your system for supported applications and detect MCP server setups.
+head:
+  - ['meta', { name: 'keywords', content: 'app discover,find applications,detect MCP,system scan,desktop discovery' }]
+  - ['meta', { property: 'og:title', content: '1MCP App Discover Command Reference' }]
+  - [
+      'meta',
+      { property: 'og:description', content: 'Discover installed desktop applications with MCP configurations.' },
+    ]
+---
+
 # app discover
 
 Discovers installed desktop applications that have MCP configurations.

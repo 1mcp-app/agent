@@ -1,3 +1,24 @@
+---
+title: Preset Create Command - Create Server Presets
+description: Create named presets using filter expressions for dynamic server selection. Define server combinations that can be activated instantly.
+head:
+  - [
+      'meta',
+      {
+        name: 'keywords',
+        content: 'preset create,create preset,filter expressions,server selection,dynamic configuration',
+      },
+    ]
+  - ['meta', { property: 'og:title', content: '1MCP Preset Create Command Reference' }]
+  - [
+      'meta',
+      {
+        property: 'og:description',
+        content: 'Create named presets using filter expressions for dynamic server selection.',
+      },
+    ]
+---
+
 # preset create
 
 Command-line preset creation using filter expressions.

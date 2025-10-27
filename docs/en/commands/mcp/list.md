@@ -1,3 +1,18 @@
+---
+title: MCP List Command - List Configured Servers
+description: List all configured MCP servers in 1MCP. View server details, status, tags, and configuration information.
+head:
+  - ['meta', { name: 'keywords', content: 'mcp list command,list servers,server details,tags,configuration' }]
+  - ['meta', { property: 'og:title', content: '1MCP List Command Reference' }]
+  - [
+      'meta',
+      {
+        property: 'og:description',
+        content: 'List all configured MCP servers in 1MCP. View server details and status.',
+      },
+    ]
+---
+
 # mcp list
 
 Lists all configured MCP servers.

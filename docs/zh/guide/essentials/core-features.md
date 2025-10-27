@@ -1,3 +1,12 @@
+---
+title: 核心功能 - 基础 1MCP 能力
+description: 探索 1MCP 核心功能，包括通用 MCP 聚合、热配置重载、基于标签的过滤、健康监控等。
+head:
+  - ['meta', { name: 'keywords', content: '1MCP 功能,MCP 聚合,热重载,标签过滤,健康监控' }]
+  - ['meta', { property: 'og:title', content: '1MCP 核心功能 - 基础能力' }]
+  - ['meta', { property: 'og:description', content: '探索 1MCP 核心功能。MCP 聚合、热重载、过滤和监控。' }]
+---
+
 # 核心功能
 
 > **🎯 人人可得**：开箱即用的基础功能，适用于每个用户

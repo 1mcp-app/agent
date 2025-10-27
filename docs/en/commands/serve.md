@@ -1,3 +1,18 @@
+---
+title: Serve Command - Start the 1MCP Server
+description: Start the 1MCP server with serve command. Learn transport options, configuration flags, and how to run the server.
+head:
+  - ['meta', { name: 'keywords', content: '1MCP serve command,start server,transport options,configuration' }]
+  - ['meta', { property: 'og:title', content: '1MCP Serve Command Reference' }]
+  - [
+      'meta',
+      {
+        property: 'og:description',
+        content: 'Start the 1MCP server with serve command. Transport and configuration options.',
+      },
+    ]
+---
+
 # Serve Command
 
 Start the 1MCP server with various transport and configuration options.

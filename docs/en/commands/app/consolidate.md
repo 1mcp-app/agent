@@ -1,3 +1,18 @@
+---
+title: App Consolidate Command - Unify Desktop App Configs
+description: Consolidate MCP server configurations from Claude Desktop, Cursor, and other desktop apps into a single 1MCP instance.
+head:
+  - ['meta', { name: 'keywords', content: 'app consolidate command,desktop apps,config consolidation,Claude Desktop' }]
+  - ['meta', { property: 'og:title', content: '1MCP App Consolidate Command' }]
+  - [
+      'meta',
+      {
+        property: 'og:description',
+        content: 'Consolidate desktop app MCP configurations into 1MCP. Supported applications and workflow.',
+      },
+    ]
+---
+
 # app consolidate
 
 Consolidates MCP servers from desktop applications into 1MCP.

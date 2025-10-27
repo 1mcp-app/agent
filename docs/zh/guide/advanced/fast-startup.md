@@ -1,3 +1,12 @@
+---
+title: 快速启动：异步服务器加载 - 即时启动优化
+description: 学习如何在 1MCP 中启用异步服务器加载。即时启动并提供实时功能更新，提升性能和用户体验。
+head:
+  - ['meta', { name: 'keywords', content: '快速启动,异步加载,性能优化,速度优化,即时启动' }]
+  - ['meta', { property: 'og:title', content: '1MCP 快速启动指南 - 异步服务器加载' }]
+  - ['meta', { property: 'og:description', content: '学习如何在 1MCP 中启用异步服务器加载以提升启动速度。' }]
+---
+
 # 快速启动：异步服务器加载
 
 让您的 1MCP 代理即时运行，并提供实时功能更新，即使某些服务器需要时间连接。

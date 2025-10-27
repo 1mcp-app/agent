@@ -1,3 +1,12 @@
+---
+title: 性能与可靠性 - 生产级 MCP 管理
+description: 优化 1MCP 性能，包括高效请求处理、自动重试、恢复策略、监控和可靠性功能。
+head:
+  - ['meta', { name: 'keywords', content: '1MCP 性能,可靠性,重试逻辑,监控,生产环境' }]
+  - ['meta', { property: 'og:title', content: '1MCP 性能与可靠性指南' }]
+  - ['meta', { property: 'og:description', content: '优化 1MCP 性能和可靠性的完整指南。' }]
+---
+
 # 性能与可靠性
 
 > **⚡ 为生产而构建**：可靠、快速且有恢复力的 MCP 服务器管理，具备智能恢复功能

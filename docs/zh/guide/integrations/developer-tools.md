@@ -1,3 +1,12 @@
+---
+title: 开发者与集成 - API 与工具
+description: 1MCP 开发者友好的 RESTful API 和标准合规性。无缝集成、开发工具和扩展性。
+head:
+  - ['meta', { name: 'keywords', content: '开发者工具,API 集成,RESTful API,MCP 协议,开发者友好' }]
+  - ['meta', { property: 'og:title', content: '1MCP 开发者与集成指南' }]
+  - ['meta', { property: 'og:description', content: '1MCP 开发者友好的 API 和集成工具指南。' }]
+---
+
 # 开发者与集成
 
 > **🔧 开发者友好**：干净的 API、标准合规性和工具，实现无缝集成和开发

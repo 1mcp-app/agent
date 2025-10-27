@@ -1,3 +1,18 @@
+---
+title: Core Features - Essential 1MCP Capabilities
+description: Discover 1MCP core features including universal MCP aggregation, hot configuration reload, tag-based filtering, health monitoring, and more.
+head:
+  - ['meta', { name: 'keywords', content: '1MCP features,MCP aggregation,hot reload,tag filtering,health monitoring' }]
+  - ['meta', { property: 'og:title', content: '1MCP Core Features - Essential Capabilities' }]
+  - [
+      'meta',
+      {
+        property: 'og:description',
+        content: 'Discover 1MCP core features. MCP aggregation, hot reload, filtering, and monitoring.',
+      },
+    ]
+---
+
 # Core Features
 
 > **🎯 What Everyone Gets**: Essential features that work out of the box for every user

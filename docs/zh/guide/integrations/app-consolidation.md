@@ -1,3 +1,12 @@
+---
+title: 应用程序整合指南 - 统一多个桌面应用配置
+description: 将 Claude Desktop、Cursor 和其他桌面应用程序的 MCP 服务器配置整合到单个 1MCP 实例中。分步整合指南。
+head:
+  - ['meta', { name: 'keywords', content: '应用程序整合,桌面应用,配置管理,MCP 配置' }]
+  - ['meta', { property: 'og:title', content: '1MCP 应用程序整合指南' }]
+  - ['meta', { property: 'og:description', content: '将多个桌面应用的 MCP 服务器配置整合为一个 1MCP 实例。' }]
+---
+
 # 应用程序整合指南
 
 本指南全面概述了 1MCP Agent 中的应用程序整合功能。它可帮助您将来自多个桌面应用程序的 MCP 服务器配置统一到一个可管理的 1MCP 实例中。

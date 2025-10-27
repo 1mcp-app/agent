@@ -1,3 +1,12 @@
+---
+title: 1MCP 系统架构 - 设计与实现
+description: 深入了解 1MCP 系统架构。了解代理设计、传输层、OAuth 集成和系统组件。
+head:
+  - ['meta', { name: 'keywords', content: '1MCP 架构,系统设计,代理,传输,OAuth,组件' }]
+  - ['meta', { property: 'og:title', content: '1MCP 系统架构指南' }]
+  - ['meta', { property: 'og:description', content: '1MCP 的完整系统架构。设计模式、组件和实现细节。' }]
+---
+
 # 1MCP 系统架构
 
 > **愿景**：一个统一、可靠的代理，使多个 MCP 服务器看起来像一个，简化 AI 助手集成，同时保持安全性和性能。

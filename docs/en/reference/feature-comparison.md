@@ -1,3 +1,18 @@
+---
+title: 1MCP vs Alternatives - Feature Comparison
+description: Compare 1MCP with alternative approaches for managing multiple MCP servers. Objective comparison of features, pros and cons.
+head:
+  - ['meta', { name: 'keywords', content: 'feature comparison,alternatives,MCP proxy,vs alternatives' }]
+  - ['meta', { property: 'og:title', content: '1MCP vs Alternatives Comparison' }]
+  - [
+      'meta',
+      {
+        property: 'og:description',
+        content: 'Compare 1MCP with alternative MCP server management solutions. Feature comparison.',
+      },
+    ]
+---
+
 # 1MCP vs Alternatives: Why Choose 1MCP?
 
 > **🎯 Objective Comparison**: We believe in making informed decisions. Here's how 1MCP compares to other approaches for managing multiple MCP servers, with honest pros and cons for each option.

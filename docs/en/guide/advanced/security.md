@@ -1,3 +1,21 @@
+---
+title: Security & Access Control - Enterprise-Grade Protection
+description: Learn how to secure your 1MCP deployment with OAuth 2.1, scope validation, enhanced security middleware, and comprehensive access control.
+head:
+  - [
+      'meta',
+      { name: 'keywords', content: '1MCP security,OAuth 2.1,access control,enterprise security,scope validation' },
+    ]
+  - ['meta', { property: 'og:title', content: '1MCP Security & Access Control Guide' }]
+  - [
+      'meta',
+      {
+        property: 'og:description',
+        content: 'Enterprise-grade security for 1MCP. OAuth 2.1, access control, and enhanced security features.',
+      },
+    ]
+---
+
 # Security & Access Control
 
 > **🛡️ Enterprise-Grade Security**: Protect your MCP servers with industry-standard authentication and granular access control

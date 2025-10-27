@@ -1,3 +1,12 @@
+---
+title: 安全与访问控制 - 企业级保护
+description: 了解如何使用 OAuth 2.1、范围验证、增强安全中间件和综合访问控制来保护您的 1MCP 部署。
+head:
+  - ['meta', { name: 'keywords', content: '1MCP 安全性,OAuth 2.1,访问控制,企业安全,范围验证' }]
+  - ['meta', { property: 'og:title', content: '1MCP 安全与访问控制指南' }]
+  - ['meta', { property: 'og:description', content: '1MCP 的企业级安全性。OAuth 2.1、访问控制和增强安全功能。' }]
+---
+
 # 安全与访问控制
 
 > **🛡️ 企业级安全**：通过行业标准身份验证和细粒度访问控制保护您的 MCP 服务器

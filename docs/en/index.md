@@ -1,5 +1,31 @@
 ---
 layout: home
+title: '1MCP Agent - One Unified MCP Server for All'
+description: 'The unified Model Context Protocol server that aggregates multiple MCP servers for Claude Desktop, Cursor, and AI assistants. Get started in minutes with OAuth 2.1 security.'
+head:
+  - [
+      'meta',
+      {
+        name: 'keywords',
+        content: 'MCP server,Model Context Protocol,AI proxy,AI aggregator,Claude Desktop,Cursor,MCP integration,AI assistant tools,OAuth 2.1,proxy server,multiplexer,LLM integration,automation,tutorial,setup guide',
+      },
+    ]
+  - ['meta', { property: 'og:title', content: '1MCP Agent - Unified MCP Server' }]
+  - [
+      'meta',
+      {
+        property: 'og:description',
+        content: 'Unified Model Context Protocol server that aggregates multiple MCP servers. Start in 5 minutes.',
+      },
+    ]
+  - ['meta', { name: 'twitter:title', content: '1MCP Agent - Unified MCP Server' }]
+  - [
+      'meta',
+      {
+        name: 'twitter:description',
+        content: 'Unified MCP server for AI assistants. Start in 5 minutes with OAuth 2.1 security.',
+      },
+    ]
 
 hero:
   name: '1MCP Agent'
@@ -7,7 +33,7 @@ hero:
   tagline: A unified Model Context Protocol server implementation that acts as a proxy/multiplexer for multiple MCP servers
   image:
     src: /images/logo.png
-    alt: 1MCP Logo
+    alt: 1MCP Agent Logo - Unified MCP Server for AI Assistants
   actions:
     - theme: brand
       text: Get Started
@@ -42,7 +68,7 @@ features:
 
 **The Problem**: AI assistants need to connect to multiple MCP servers, but managing dozens of individual connections is complex, unreliable, and security-intensive.
 
-**The Solution**: 1MCP acts as a unified proxy/multiplexer that aggregates multiple MCP servers behind a single, reliable interface.
+**The Solution**: 1MCP acts as a unified proxy/multiplexer that aggregates multiple MCP servers behind a single, reliable interface. Learn more about our [core features](/guide/essentials/core-features) and [security architecture](/reference/security).
 
 ```mermaid
 graph TB
@@ -74,7 +100,7 @@ graph TB
 
 ## Quick Example
 
-Start with a simple configuration:
+Start with a simple configuration. For complete setup instructions, see our [getting started guide](/guide/getting-started) and [installation instructions](/guide/installation).
 
 ```json
 {
@@ -118,7 +144,7 @@ Start with a simple configuration:
 npx -y @1mcp/agent --config mcp.json --port 3000
 ```
 
-Now your agent is running. Connect your MCP client to `http://localhost:3000` to start using your aggregated tools.
+Now your agent is running. Connect your MCP client to `http://localhost:3000` to start using your aggregated tools. Check our [server management guide](/guide/essentials/server-management) for advanced configuration options.
 
 ## Key Benefits
 

@@ -1,3 +1,18 @@
+---
+title: Configuration Guide - CLI Flags and Environment Variables
+description: Complete 1MCP configuration reference. Learn about command-line flags, environment variables, transport options, authentication, and runtime behavior settings.
+head:
+  - ['meta', { name: 'keywords', content: '1MCP configuration,CLI flags,environment variables,transport settings' }]
+  - ['meta', { property: 'og:title', content: '1MCP Configuration Guide - Complete Reference' }]
+  - [
+      'meta',
+      {
+        property: 'og:description',
+        content: 'Complete configuration reference for 1MCP Agent. CLI flags, environment variables, and runtime settings.',
+      },
+    ]
+---
+
 # Configuration Deep Dive
 
 The 1MCP Agent provides extensive configuration options for runtime behavior, transport settings, authentication, and more. This guide covers command-line flags and environment variables that control how the agent operates.

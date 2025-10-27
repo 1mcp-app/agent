@@ -1,3 +1,12 @@
+---
+title: 企业版与运维 - 生产环境部署指南
+description: 在企业环境中部署 1MCP。单实例部署、扩展、监控、反向代理设置和运维最佳实践。
+head:
+  - ['meta', { name: 'keywords', content: '1MCP 企业版,生产部署,扩展,监控,反向代理' }]
+  - ['meta', { property: 'og:title', content: '1MCP 企业版与运维指南' }]
+  - ['meta', { property: 'og:description', content: '在企业环境中部署 1MCP 的完整指南。' }]
+---
+
 # 企业版与运维
 
 > **🏢 生产就绪**：适用于关键任务环境的企业级部署、监控和运营功能

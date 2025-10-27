@@ -1,0 +1,59 @@
+User-agent: *
+Allow: /
+Crawl-delay: 1
+
+# Priority crawlers
+User-agent: Googlebot
+Crawl-delay: 1
+Allow: /
+
+User-agent: Bingbot
+Crawl-delay: 1
+Allow: /
+
+# Block common aggressive crawlers that waste resources
+User-agent: AhrefsBot
+Crawl-delay: 10
+
+User-agent: SemrushBot
+Crawl-delay: 10
+
+User-agent: MJ12bot
+Crawl-delay: 10
+
+User-agent: DotBot
+Crawl-delay: 10
+
+User-agent: BLEXBot
+Crawl-delay: 10
+
+User-agent: BacklinkCrawler
+Crawl-delay: 10
+
+# Block unwanted bots entirely
+User-agent: GPTBot
+Disallow: /
+
+User-agent: ChatGPT-User
+Disallow: /
+
+User-agent: CCBot
+Disallow: /
+
+User-agent: anthropic-ai
+Disallow: /
+
+User-agent: Claude-Web
+Disallow: /
+
+# Allow important bots with reasonable delays
+User-agent: Slurp
+Crawl-delay: 5
+Allow: /
+
+User-agent: DuckDuckBot
+Crawl-delay: 3
+Allow: /
+
+Sitemap: https://docs.1mcp.app/sitemap.xml
+

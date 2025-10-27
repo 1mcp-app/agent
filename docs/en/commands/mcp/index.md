@@ -1,3 +1,21 @@
+---
+title: MCP Commands Overview - Server Management
+description: Complete overview of MCP server management commands. Add, remove, update, and manage MCP server configurations in 1MCP.
+head:
+  - [
+      'meta',
+      {
+        name: 'keywords',
+        content: 'MCP commands,server management,MCP configuration,server lifecycle,proxy management',
+      },
+    ]
+  - ['meta', { property: 'og:title', content: '1MCP Commands - MCP Server Management' }]
+  - [
+      'meta',
+      { property: 'og:description', content: 'Complete overview of MCP server management commands and configuration.' },
+    ]
+---
+
 # MCP Commands
 
 Manage MCP server configurations within your 1MCP instance.

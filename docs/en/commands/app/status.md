@@ -1,3 +1,24 @@
+---
+title: App Status Command - Check Consolidation Status
+description: Check consolidation status of desktop applications. See whether apps connect directly to MCP servers or through 1MCP instance.
+head:
+  - [
+      'meta',
+      {
+        name: 'keywords',
+        content: 'app status,consolidation status,application status,MCP connections,desktop applications',
+      },
+    ]
+  - ['meta', { property: 'og:title', content: '1MCP App Status Command Reference' }]
+  - [
+      'meta',
+      {
+        property: 'og:description',
+        content: 'Check consolidation status of desktop applications and MCP connections.',
+      },
+    ]
+---
+
 # app status
 
 Shows the current consolidation status of your desktop applications.

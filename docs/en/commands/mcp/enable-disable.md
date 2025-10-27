@@ -1,3 +1,12 @@
+---
+title: MCP Enable/Disable Commands - Toggle Server Status
+description: Enable or disable MCP servers without removing configurations. Temporarily turn servers on/off while preserving all settings.
+head:
+  - ['meta', { name: 'keywords', content: 'mcp enable,mcp disable,toggle server,server status,enable disable' }]
+  - ['meta', { property: 'og:title', content: '1MCP Enable/Disable Commands Reference' }]
+  - ['meta', { property: 'og:description', content: 'Enable or disable MCP servers without removing configurations.' }]
+---
+
 # mcp enable / disable
 
 Enables or disables an MCP server without removing its configuration.

@@ -1,3 +1,18 @@
+---
+title: MCP Add Command - Add Server to 1MCP
+description: Add new MCP servers to 1MCP configuration using mcp add command. Learn about STDIO and HTTP transport, tags, and configuration options.
+head:
+  - ['meta', { name: 'keywords', content: 'mcp add command,add server,STDIO transport,HTTP transport,tags' }]
+  - ['meta', { property: 'og:title', content: '1MCP Add Command Reference' }]
+  - [
+      'meta',
+      {
+        property: 'og:description',
+        content: 'Add MCP servers to 1MCP configuration. STDIO and HTTP transport support.',
+      },
+    ]
+---
+
 # mcp add
 
 Adds a new MCP server to the 1MCP configuration.

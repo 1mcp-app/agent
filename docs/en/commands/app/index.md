@@ -1,3 +1,24 @@
+---
+title: App Commands Overview - Desktop Application Consolidation
+description: Complete overview of app consolidation commands. Manage desktop application MCP configurations and consolidate them into unified 1MCP proxy.
+head:
+  - [
+      'meta',
+      {
+        name: 'keywords',
+        content: 'app commands,application consolidation,desktop apps,MCP configuration,app management',
+      },
+    ]
+  - ['meta', { property: 'og:title', content: '1MCP App Commands - Application Consolidation' }]
+  - [
+      'meta',
+      {
+        property: 'og:description',
+        content: 'Complete overview of app consolidation commands for desktop applications.',
+      },
+    ]
+---
+
 # App Commands
 
 The `app` command group helps you consolidate MCP server configurations from various desktop applications into a unified 1MCP proxy.

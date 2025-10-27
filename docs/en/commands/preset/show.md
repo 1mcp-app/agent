@@ -1,3 +1,18 @@
+---
+title: Preset Show Command - Display Preset Details
+description: Display detailed information about a specific preset. View server selection criteria, filter expressions, and configuration details.
+head:
+  - ['meta', { name: 'keywords', content: 'preset show,preset details,show preset,preset information,server criteria' }]
+  - ['meta', { property: 'og:title', content: '1MCP Preset Show Command Reference' }]
+  - [
+      'meta',
+      {
+        property: 'og:description',
+        content: 'Display detailed information about specific presets and their configurations.',
+      },
+    ]
+---
+
 # preset show
 
 Display detailed information about a specific preset.

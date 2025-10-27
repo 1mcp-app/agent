@@ -1,3 +1,15 @@
+---
+title: Preset List Command - Display All Presets
+description: Display all available presets in a formatted table. View preset names, descriptions, and server selection criteria at a glance.
+head:
+  - [
+      'meta',
+      { name: 'keywords', content: 'preset list,list presets,display presets,preset overview,available presets' },
+    ]
+  - ['meta', { property: 'og:title', content: '1MCP Preset List Command Reference' }]
+  - ['meta', { property: 'og:description', content: 'Display all available presets in a formatted table view.' }]
+---
+
 # preset list
 
 Display all available presets in a formatted table.

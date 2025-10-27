@@ -1,3 +1,15 @@
+---
+title: Preset Edit Command - Modify Existing Presets
+description: Edit existing presets interactively with visual server selection. Modify filter expressions and server criteria using an intuitive interface.
+head:
+  - ['meta', { name: 'keywords', content: 'preset edit,edit preset,modify preset,interactive edit,visual selection' }]
+  - ['meta', { property: 'og:title', content: '1MCP Preset Edit Command Reference' }]
+  - [
+      'meta',
+      { property: 'og:description', content: 'Edit existing presets interactively with visual server selection.' },
+    ]
+---
+
 # preset edit
 
 Edit existing preset interactively with visual server selection.

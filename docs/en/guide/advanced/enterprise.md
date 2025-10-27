@@ -1,3 +1,18 @@
+---
+title: Enterprise & Operations - Production Deployment Guide
+description: Deploy 1MCP for enterprise environments. Single-instance deployment, scaling, monitoring, reverse proxy setup, and operations best practices.
+head:
+  - ['meta', { name: 'keywords', content: '1MCP enterprise,production deployment,scaling,monitoring,reverse proxy' }]
+  - ['meta', { property: 'og:title', content: '1MCP Enterprise Deployment Guide' }]
+  - [
+      'meta',
+      {
+        property: 'og:description',
+        content: 'Enterprise-ready 1MCP deployment. Production scaling, monitoring, and operations.',
+      },
+    ]
+---
+
 # Enterprise & Operations
 
 > **🏢 Production-Ready**: Enterprise-scale deployment, monitoring, and operational features for mission-critical environments

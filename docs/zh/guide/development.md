@@ -1,3 +1,12 @@
+---
+title: 开发指南 - 构建和贡献
+description: 为 1MCP Agent 设置开发环境。了解如何从源码构建、运行测试并为项目做出贡献。
+head:
+  - ['meta', { name: 'keywords', content: '1MCP 开发,从源码构建,贡献,开发环境' }]
+  - ['meta', { property: 'og:title', content: '1MCP 开发指南' }]
+  - ['meta', { property: 'og:description', content: '1MCP Agent 的开发指南。从源码构建和贡献。' }]
+---
+
 # 开发
 
 本指南介绍如何为 1MCP Agent 设置开发环境、从源码构建以及为项目做出贡献。

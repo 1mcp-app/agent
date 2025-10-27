@@ -1,3 +1,12 @@
+---
+title: 配置指南 - CLI 标志和环境变量
+description: 完整的 1MCP 配置参考。了解命令行标志、环境变量、传输选项、身份验证和运行时行为设置。
+head:
+  - ['meta', { name: 'keywords', content: '1MCP 配置,CLI 标志,环境变量,传输设置' }]
+  - ['meta', { property: 'og:title', content: '1MCP 配置指南 - 完整参考' }]
+  - ['meta', { property: 'og:description', content: '1MCP Agent 的完整配置参考。CLI 标志、环境变量和运行时设置。' }]
+---
+
 # 配置深入指南
 
 1MCP 代理为运行时行为、传输设置、身份验证等提供了广泛的配置选项。本指南涵盖了控制代理如何运行的命令行标志和环境变量。

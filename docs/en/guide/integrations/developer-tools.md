@@ -1,3 +1,18 @@
+---
+title: Developer & Integration Tools - API and Standards
+description: Learn about 1MCP developer tools, RESTful APIs, standards compliance, CLI commands, and integration capabilities for developers.
+head:
+  - ['meta', { name: 'keywords', content: '1MCP developer tools,API,RESTful,standards,CLI,integration' }]
+  - ['meta', { property: 'og:title', content: '1MCP Developer & Integration Tools Guide' }]
+  - [
+      'meta',
+      {
+        property: 'og:description',
+        content: 'Developer tools and integration capabilities for 1MCP. APIs, CLI, and standards compliance.',
+      },
+    ]
+---
+
 # Developer & Integration
 
 > **🔧 Developer-Friendly**: Clean APIs, standards compliance, and tools for seamless integration and development

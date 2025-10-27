@@ -1,3 +1,21 @@
+---
+title: Template Examples - Ready-to-Use Instruction Templates
+description: Complete template examples for 1MCP custom instruction templates. Copy and customize templates for branding, documentation, and use cases.
+head:
+  - [
+      'meta',
+      {
+        name: 'keywords',
+        content: 'template examples,instruction templates,Handlebars examples,branding,custom templates',
+      },
+    ]
+  - ['meta', { property: 'og:title', content: '1MCP Template Examples Reference' }]
+  - [
+      'meta',
+      { property: 'og:description', content: 'Ready-to-use template examples for 1MCP custom instruction templates.' },
+    ]
+---
+
 # Template Examples
 
 This page provides complete template examples for different use cases. Copy and customize these templates for your specific needs.

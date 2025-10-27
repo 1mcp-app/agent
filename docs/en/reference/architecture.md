@@ -1,3 +1,18 @@
+---
+title: 1MCP System Architecture - Design and Implementation
+description: Deep dive into 1MCP system architecture. Learn about proxy design, transport layers, OAuth integration, and system components.
+head:
+  - ['meta', { name: 'keywords', content: '1MCP architecture,system design,proxy,transport,OAuth,components' }]
+  - ['meta', { property: 'og:title', content: '1MCP System Architecture Guide' }]
+  - [
+      'meta',
+      {
+        property: 'og:description',
+        content: 'Complete system architecture for 1MCP. Design patterns, components, and implementation details.',
+      },
+    ]
+---
+
 # 1MCP System Architecture
 
 > **Vision**: A unified, reliable proxy that makes multiple MCP servers appear as one, simplifying AI assistant integration while maintaining security and performance.
