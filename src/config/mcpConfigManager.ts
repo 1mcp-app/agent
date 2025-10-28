@@ -84,9 +84,8 @@ export class McpConfigManager extends EventEmitter {
 
       // Apply environment variable substitution if enabled
       const agentConfig = AgentConfigManager.getInstance();
-      const processedConfig = agentConfig.get('features').envSubstitution
-        ? substituteEnvVarsInConfig(configData)
-        : configData;
+      const features = agentConfig.get('features');
+      const processedConfig = features.envSubstitution ? substituteEnvVarsInConfig(configData) : configData;
 
       // Type guard to ensure processedConfig has proper structure
       if (!processedConfig || typeof processedConfig !== 'object') {
@@ -97,7 +96,7 @@ export class McpConfigManager extends EventEmitter {
 
       const configObj = processedConfig as Record<string, unknown>;
       this.transportConfig = (configObj.mcpServers as Record<string, MCPServerParams>) || {};
-      const substitutionStatus = agentConfig.get('features').envSubstitution ? 'with' : 'without';
+      const substitutionStatus = features.envSubstitution ? 'with' : 'without';
       logger.info(`Configuration loaded successfully ${substitutionStatus} environment variable substitution`);
     } catch (error) {
       logger.error(`Failed to load configuration: ${error instanceof Error ? error.message : String(error)}`);
@@ -131,7 +130,8 @@ export class McpConfigManager extends EventEmitter {
   public startWatching(): void {
     // Check if config reload is enabled
     const agentConfig = AgentConfigManager.getInstance();
-    if (!agentConfig.get('features').configReload) {
+    const features = agentConfig.get('features');
+    if (!features.configReload) {
       logger.info('Configuration hot-reload is disabled, skipping file watcher setup');
       return;
     }
@@ -218,7 +218,8 @@ export class McpConfigManager extends EventEmitter {
 
     // Get debounce delay from config
     const agentConfig = AgentConfigManager.getInstance();
-    const debounceDelayMs = agentConfig.get('configReload').debounceMs;
+    const configReload = agentConfig.get('configReload');
+    const debounceDelayMs = configReload.debounceMs;
 
     // Set new timer
     this.debounceTimer = setTimeout(() => {

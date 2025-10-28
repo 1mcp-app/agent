@@ -3,15 +3,18 @@ import { AUTH_CONFIG, HOST, PORT, RATE_LIMIT_CONFIG, STREAMABLE_HTTP_ENDPOINT } 
 /**
  * Deep merge utility for nested objects
  */
-function deepMerge<T extends Record<string, any>>(target: T, source: Partial<T>): T {
+function deepMerge<T extends Record<string, unknown>>(target: T, source: Partial<T>): T {
   const result = { ...target };
 
   for (const key in source) {
     if (source[key] !== undefined) {
       if (typeof source[key] === 'object' && source[key] !== null && !Array.isArray(source[key])) {
-        result[key] = deepMerge(result[key] || ({} as any), source[key] as any);
+        result[key] = deepMerge(
+          (result[key] || {}) as Record<string, unknown>,
+          source[key] as Record<string, unknown>,
+        ) as T[Extract<keyof T, string>];
       } else {
-        (result as any)[key] = source[key];
+        result[key] = source[key] as T[Extract<keyof T, string>];
       }
     }
   }
@@ -167,7 +170,10 @@ export class AgentConfigManager {
    * @param updates - Partial configuration object with new values
    */
   public updateConfig(updates: Partial<AgentConfig>): void {
-    this.config = deepMerge(this.config, updates);
+    this.config = deepMerge(
+      this.config as unknown as Record<string, unknown>,
+      updates as unknown as Record<string, unknown>,
+    ) as unknown as AgentConfig;
   }
 
   /**
