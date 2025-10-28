@@ -1,0 +1,22 @@
+# Dependencies
+node_modules/
+dist/
+build/
+
+# Lock files
+package-lock.json
+yarn.lock
+pnpm-lock.yaml
+
+# Coverage
+coverage/
+*.lcov
+
+# Build artifacts
+*.min.js
+*.bundle.js
+
+# Logs
+*.log
+logs/
+
