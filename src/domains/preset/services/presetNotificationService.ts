@@ -8,7 +8,7 @@ import logger from '@src/logger/logger.js';
 export interface ClientConnection {
   id: string;
   presetName?: string;
-  sendNotification(method: string, params?: any): Promise<void>;
+  sendNotification(method: string, params?: unknown): Promise<void>;
   isConnected(): boolean;
 }
 
@@ -178,7 +178,7 @@ export class PresetNotificationService extends EventEmitter {
           clientId: client.id,
           presetName,
         });
-      } catch (error) {
+      } catch (error: unknown) {
         logger.error('Failed to send preset change notification to client', {
           clientId: client.id,
           presetName,

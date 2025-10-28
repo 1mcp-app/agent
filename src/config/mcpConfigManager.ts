@@ -64,7 +64,7 @@ export class McpConfigManager extends EventEmitter {
         logger.info(`Created default config file: ${this.configFilePath}`);
       }
     } catch (error) {
-      logger.error(`Failed to ensure config exists: ${error}`);
+      logger.error(`Failed to ensure config exists: ${error instanceof Error ? error.message : String(error)}`);
       throw error;
     }
   }
@@ -80,13 +80,21 @@ export class McpConfigManager extends EventEmitter {
       const rawConfigData = fs.readFileSync(this.configFilePath, 'utf8');
 
       // Parse JSON and apply environment variable substitution
-      const configData = JSON.parse(rawConfigData);
-      const processedConfig = substituteEnvVarsInConfig(configData);
+      const configData = JSON.parse(rawConfigData) as unknown;
+      const processedConfig = substituteEnvVarsInConfig(configData) as { mcpServers?: Record<string, MCPServerParams> };
 
-      this.transportConfig = processedConfig.mcpServers || {};
+      // Type guard to ensure processedConfig has proper structure
+      if (!processedConfig || typeof processedConfig !== 'object') {
+        logger.error('Invalid configuration format');
+        this.transportConfig = {};
+        return;
+      }
+
+      const configObj = processedConfig as Record<string, unknown>;
+      this.transportConfig = (configObj.mcpServers as Record<string, MCPServerParams>) || {};
       logger.info('Configuration loaded successfully with environment variable substitution');
     } catch (error) {
-      logger.error(`Failed to load configuration: ${error}`);
+      logger.error(`Failed to load configuration: ${error instanceof Error ? error.message : String(error)}`);
       this.transportConfig = {};
     }
   }
@@ -106,7 +114,7 @@ export class McpConfigManager extends EventEmitter {
 
       return false;
     } catch (error) {
-      logger.error(`Failed to check file modification time: ${error}`);
+      logger.error(`Failed to check file modification time: ${error instanceof Error ? error.message : String(error)}`);
       return false;
     }
   }
@@ -163,7 +171,9 @@ export class McpConfigManager extends EventEmitter {
       });
       logger.info(`Started watching configuration directory: ${configDir} for file: ${configFileName}`);
     } catch (error) {
-      logger.error(`Failed to start watching configuration file: ${error}`);
+      logger.error(
+        `Failed to start watching configuration file: ${error instanceof Error ? error.message : String(error)}`,
+      );
     }
   }
 
@@ -216,7 +226,7 @@ export class McpConfigManager extends EventEmitter {
         this.emit(ConfigChangeEvent.TRANSPORT_CONFIG_CHANGED, this.transportConfig);
       }
     } catch (error) {
-      logger.error(`Failed to reload configuration: ${error}`);
+      logger.error(`Failed to reload configuration: ${error instanceof Error ? error.message : String(error)}`);
     }
   }
 

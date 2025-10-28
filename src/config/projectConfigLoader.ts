@@ -36,7 +36,7 @@ export async function loadProjectConfig(cwd: string = process.cwd()): Promise<Pr
 
     // Read and parse JSON
     const content = await readFile(configPath, 'utf-8');
-    const data = JSON5.parse(content);
+    const data = JSON5.parse(content) as unknown;
 
     // Validate with Zod schema
     const config = validateProjectConfig(data);

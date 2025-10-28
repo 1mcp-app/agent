@@ -1,6 +1,7 @@
 import { McpConfigManager } from '@src/config/mcpConfigManager.js';
 import { MCP_SERVER_CAPABILITIES, MCP_SERVER_NAME, MCP_SERVER_VERSION } from '@src/constants.js';
 import { AgentConfigManager } from '@src/core/server/agentConfig.js';
+import { AuthProviderTransport } from '@src/core/types/client.js';
 import logger, { debugIf } from '@src/logger/logger.js';
 
 import configReloadService from './application/services/configReloadService.js';
@@ -54,7 +55,8 @@ async function setupServer(): Promise<ServerSetupResult> {
       return setupServerSync(transports);
     }
   } catch (error) {
-    logger.error(`Failed to set up server: ${error}`);
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    logger.error(`Failed to set up server: ${errorMessage}`);
     throw error;
   }
 }
@@ -63,7 +65,7 @@ async function setupServer(): Promise<ServerSetupResult> {
  * Set up server with async loading (new mode)
  * HTTP server starts immediately, MCP servers load in background
  */
-async function setupServerAsync(transports: Record<string, any>): Promise<ServerSetupResult> {
+async function setupServerAsync(transports: Record<string, AuthProviderTransport>): Promise<ServerSetupResult> {
   // Initialize instruction aggregator
   const instructionAggregator = new InstructionAggregator();
   logger.info('Instruction aggregator initialized');
@@ -100,7 +102,8 @@ async function setupServerAsync(transports: Record<string, any>): Promise<Server
       logger.info('All MCP servers finished loading (successfully or failed)');
     })
     .catch((error) => {
-      logger.error('MCP loading process encountered an error:', error);
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      logger.error('MCP loading process encountered an error:', errorMessage);
     });
 
   logger.info('Async server setup completed - HTTP server ready, MCP servers loading in background');
@@ -118,7 +121,7 @@ async function setupServerAsync(transports: Record<string, any>): Promise<Server
  * Set up server with legacy synchronous loading
  * Waits for all MCP servers to load before returning
  */
-async function setupServerSync(transports: Record<string, any>): Promise<ServerSetupResult> {
+async function setupServerSync(transports: Record<string, AuthProviderTransport>): Promise<ServerSetupResult> {
   // Initialize instruction aggregator
   const instructionAggregator = new InstructionAggregator();
   logger.info('Instruction aggregator initialized');
@@ -178,7 +181,8 @@ async function initializePresetSystem(): Promise<void> {
 
     logger.info('Preset management system initialized successfully');
   } catch (error) {
-    logger.error('Failed to initialize preset system', { error });
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    logger.error('Failed to initialize preset system', { error: errorMessage });
     throw error;
   }
 }

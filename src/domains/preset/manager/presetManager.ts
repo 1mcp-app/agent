@@ -97,7 +97,7 @@ export class PresetManager {
 
       try {
         const data = await fs.readFile(this.configPath, 'utf-8');
-        const storage: PresetStorage = JSON.parse(data);
+        const storage = JSON.parse(data) as PresetStorage;
 
         // Clear existing presets
         this.presets.clear();
@@ -116,11 +116,16 @@ export class PresetManager {
         if (!skipChangeDetectorInit) {
           await this.initializeChangeDetector();
         }
-      } catch (error: any) {
-        if (error.code === 'ENOENT') {
-          // File doesn't exist, start with empty presets
-          logger.info('No preset file found, starting with empty presets');
-          await this.savePresets();
+      } catch (error: unknown) {
+        if (error instanceof Error && 'code' in error) {
+          const errorCode = (error as Error & { code?: string }).code;
+          if (errorCode === 'ENOENT') {
+            // File doesn't exist, start with empty presets
+            logger.info('No preset file found, starting with empty presets');
+            await this.savePresets();
+          } else {
+            throw error;
+          }
         } else {
           throw error;
         }
@@ -260,7 +265,7 @@ export class PresetManager {
 
       const storage: PresetStorage = {
         version: '1.0.0',
-        presets: Object.fromEntries(this.presets),
+        presets: Object.fromEntries(this.presets.entries()) as Record<string, PresetConfig>,
       };
 
       await fs.writeFile(this.configPath, JSON.stringify(storage, null, 2), 'utf-8');
@@ -284,8 +289,13 @@ export class PresetManager {
     const configDir = getConfigDir(this.configDirOption);
     try {
       await fs.mkdir(configDir, { recursive: true });
-    } catch (error: any) {
-      if (error.code !== 'EEXIST') {
+    } catch (error: unknown) {
+      if (error instanceof Error && 'code' in error) {
+        const errorCode = (error as Error & { code?: string }).code;
+        if (errorCode !== undefined && errorCode !== 'EEXIST') {
+          throw error;
+        }
+      } else {
         throw error;
       }
     }
@@ -562,7 +572,7 @@ export class PresetManager {
         let jsonQuery = preset.tagQuery;
         if (preset.strategy === 'advanced' && preset.tagQuery.$advanced) {
           // Convert legacy advanced expression to JSON format
-          jsonQuery = TagQueryParser.advancedQueryToJSON(preset.tagQuery.$advanced);
+          jsonQuery = TagQueryParser.advancedQueryToJSON(String(preset.tagQuery.$advanced));
         }
 
         matches = TagQueryEvaluator.evaluate(jsonQuery, serverTags);
@@ -594,7 +604,7 @@ export class PresetManager {
    */
   private async notifyPresetChange(presetName: string): Promise<void> {
     const promises = Array.from(this.notificationCallbacks).map((callback) =>
-      callback(presetName).catch((error) => {
+      callback(presetName).catch((error: unknown) => {
         logger.error('Preset change notification failed', { presetName, error });
       }),
     );

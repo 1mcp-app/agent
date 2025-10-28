@@ -50,13 +50,14 @@ export const sensitiveOperationLimiter = rateLimit({
     return req.path === '/health' || req.path === '/';
   },
   handler: (req: Request, res: Response) => {
-    logger.warn(`Rate limit exceeded for sensitive operation`, {
+    const logData: Record<string, unknown> = {
       ip: req.ip,
       userAgent: req.get('User-Agent'),
       path: req.path,
       method: req.method,
       timestamp: new Date().toISOString(),
-    });
+    };
+    logger.warn(`Rate limit exceeded for sensitive operation`, logData);
 
     res.status(429).json({
       error: 'rate_limit_exceeded',
@@ -83,14 +84,15 @@ export function inputValidation(req: Request, res: Response, next: NextFunction)
   const checkForMaliciousContent = (value: string, location: string): boolean => {
     return suspiciousPatterns.some((pattern) => {
       if (pattern.test(value)) {
-        logger.warn(`Suspicious content detected in ${location}`, {
+        const logData: Record<string, unknown> = {
           value: value.substring(0, 100), // Log only first 100 chars
           pattern: pattern.toString(),
           ip: req.ip,
           userAgent: req.get('User-Agent'),
           path: req.path,
           timestamp: new Date().toISOString(),
-        });
+        };
+        logger.warn(`Suspicious content detected in ${location}`, logData);
         return true;
       }
       return false;
@@ -98,7 +100,7 @@ export function inputValidation(req: Request, res: Response, next: NextFunction)
   };
 
   // Check headers
-  for (const [key, value] of Object.entries(req.headers)) {
+  for (const [key, value] of Object.entries(req.headers as Record<string, unknown>)) {
     if (typeof value === 'string' && checkForMaliciousContent(value, `header:${key}`)) {
       res.status(400).json({
         error: 'invalid_request',
@@ -109,7 +111,7 @@ export function inputValidation(req: Request, res: Response, next: NextFunction)
   }
 
   // Check query parameters
-  for (const [key, value] of Object.entries(req.query)) {
+  for (const [key, value] of Object.entries(req.query as Record<string, unknown>)) {
     if (typeof value === 'string' && checkForMaliciousContent(value, `query:${key}`)) {
       res.status(400).json({
         error: 'invalid_request',
@@ -121,7 +123,7 @@ export function inputValidation(req: Request, res: Response, next: NextFunction)
 
   // Check body for POST requests
   if (req.body && typeof req.body === 'object') {
-    for (const [key, value] of Object.entries(req.body)) {
+    for (const [key, value] of Object.entries(req.body as Record<string, unknown>)) {
       if (typeof value === 'string' && checkForMaliciousContent(value, `body:${key}`)) {
         res.status(400).json({
           error: 'invalid_request',
@@ -168,7 +170,7 @@ export function securityAuditLogger(req: Request, res: Response, next: NextFunct
     req.method === 'DELETE';
 
   if (isSecurityRelevant) {
-    logger.info('Security-relevant request', {
+    const logData: Record<string, unknown> = {
       method: req.method,
       path: req.path,
       ip: req.ip,
@@ -177,23 +179,25 @@ export function securityAuditLogger(req: Request, res: Response, next: NextFunct
       timestamp: new Date().toISOString(),
       sessionId: req.headers['mcp-session-id'] as string | undefined,
       authorization: req.headers.authorization ? 'Bearer [REDACTED]' : undefined,
-    });
+    };
+    logger.info('Security-relevant request', logData);
   }
 
   // Capture response details
-  const originalSend = res.send;
-  res.send = function (body: any) {
+  const originalSend = res.send.bind(res);
+  res.send = function (this: Response, body: unknown) {
     const duration = Date.now() - startTime;
 
     if (isSecurityRelevant) {
-      logger.info('Security-relevant response', {
+      const logData: Record<string, unknown> = {
         method: req.method,
         path: req.path,
         statusCode: res.statusCode,
         duration,
         ip: req.ip,
         timestamp: new Date().toISOString(),
-      });
+      };
+      logger.info('Security-relevant response', logData);
     }
 
     return originalSend.call(this, body);
@@ -215,8 +219,8 @@ export function timingAttackPrevention(req: Request, res: Response, next: NextFu
     // Add random delay between 10-50ms to make timing attacks harder
     const randomDelay = Math.floor(Math.random() * 40) + 10;
 
-    const originalSend = res.send;
-    res.send = function (body: any) {
+    const originalSend = res.send.bind(res);
+    res.send = function (this: Response, body: unknown) {
       const elapsed = Date.now() - startTime;
       const remainingDelay = Math.max(0, randomDelay - elapsed);
 
@@ -224,7 +228,7 @@ export function timingAttackPrevention(req: Request, res: Response, next: NextFu
         return originalSend.call(this, body);
       }, remainingDelay);
 
-      return this;
+      return res;
     };
   }
 

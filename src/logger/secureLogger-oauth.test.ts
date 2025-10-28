@@ -31,7 +31,7 @@ describe('secureLogger OAuth Security Tests', () => {
         authorizationUrl: 'https://oauth.example.com/authorize',
       };
 
-      const result = sanitizeForLogging(input);
+      const result = sanitizeForLogging(input) as Record<string, unknown>;
 
       // Should redact the authorization URL but preserve safe status info
       expect(result.status).toBe('awaiting_oauth'); // Status is safe
@@ -45,7 +45,7 @@ describe('secureLogger OAuth Security Tests', () => {
         count: 2,
       };
 
-      const result = sanitizeForLogging(input);
+      const result = sanitizeForLogging(input) as Record<string, unknown>;
 
       // Server names and counts are safe
       expect(result.count).toBe(2);

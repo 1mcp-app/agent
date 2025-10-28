@@ -69,9 +69,22 @@ export function buildTokensCommand(yargs: Argv) {
 }
 
 /**
+ * Interface for aggregate statistics
+ */
+interface AggregateStats {
+  connectedServers: number;
+  totalServers: number;
+  totalTools: number;
+  totalResources: number;
+  totalPrompts: number;
+  overallTokens: number;
+  serverBreakdown: Record<string, number>;
+}
+
+/**
  * Format output in table format
  */
-function formatTableOutput(estimates: ServerTokenEstimate[], stats: any): void {
+function formatTableOutput(estimates: ServerTokenEstimate[], stats: AggregateStats): void {
   const title = `MCP Server Token Estimates${
     estimates.length > 0 && estimates.some((e) => e.connected) ? ` (${stats.connectedServers} connected servers)` : ''
   }`;
@@ -246,7 +259,7 @@ function formatTableOutput(estimates: ServerTokenEstimate[], stats: any): void {
 /**
  * Format output in JSON format
  */
-function formatJsonOutput(estimates: ServerTokenEstimate[], stats: any): void {
+function formatJsonOutput(estimates: ServerTokenEstimate[], stats: AggregateStats): void {
   const output = {
     summary: stats,
     servers: estimates,
@@ -258,7 +271,7 @@ function formatJsonOutput(estimates: ServerTokenEstimate[], stats: any): void {
 /**
  * Format output in summary format
  */
-function formatSummaryOutput(estimates: ServerTokenEstimate[], stats: any): void {
+function formatSummaryOutput(estimates: ServerTokenEstimate[], stats: AggregateStats): void {
   const summaryContent = [
     `${chalk.green('✅ Connected Servers:')} ${chalk.bold(`${stats.connectedServers}/${stats.totalServers}`)}`,
     `${chalk.blue('📊 Total Capabilities:')} ${chalk.bold(stats.totalTools + stats.totalResources + stats.totalPrompts)}`,
@@ -281,7 +294,7 @@ function formatSummaryOutput(estimates: ServerTokenEstimate[], stats: any): void
 
   if (stats.connectedServers > 0) {
     const sortedServers = Object.entries(stats.serverBreakdown)
-      .sort(([, a], [, b]) => (b as number) - (a as number))
+      .sort(([, a], [, b]) => b - a)
       .slice(0, 5);
 
     const topServersContent = sortedServers

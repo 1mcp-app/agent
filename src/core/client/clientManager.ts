@@ -42,7 +42,7 @@ export class ClientManager {
 
   // Test utility method to reset singleton state
   public static resetInstance(): void {
-    ClientManager.instance = undefined as any;
+    ClientManager.instance = undefined as unknown as ClientManager;
   }
 
   /**

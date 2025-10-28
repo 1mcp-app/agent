@@ -2,13 +2,16 @@ import { ErrorCode } from '@modelcontextprotocol/sdk/types.js';
 
 export class MCPError extends Error {
   code: number;
-  data?: any;
+  data?: unknown;
 
-  constructor(message: string, code: number, data?: any) {
+  constructor(message: string, code: number, data?: unknown) {
     super(message);
     this.name = 'MCPError';
     this.code = code;
     this.data = data;
+
+    // Maintain proper prototype chain
+    Object.setPrototypeOf(this, MCPError.prototype);
   }
 }
 
@@ -16,6 +19,7 @@ export class ClientConnectionError extends MCPError {
   constructor(clientName: string, cause: Error) {
     super(`Failed to connect to client ${clientName}: ${cause.message}`, ErrorCode.ConnectionClosed, { cause });
     this.name = 'ClientConnectionError';
+    Object.setPrototypeOf(this, ClientConnectionError.prototype);
   }
 }
 
@@ -23,6 +27,7 @@ export class ClientNotFoundError extends MCPError {
   constructor(clientName: string) {
     super(`Client '${clientName}' not found`, ErrorCode.MethodNotFound, { clientName });
     this.name = 'ClientNotFoundError';
+    Object.setPrototypeOf(this, ClientNotFoundError.prototype);
   }
 }
 
@@ -33,13 +38,15 @@ export class ClientOperationError extends MCPError {
       context,
     });
     this.name = 'ClientOperationError';
+    Object.setPrototypeOf(this, ClientOperationError.prototype);
   }
 }
 
 export class ValidationError extends MCPError {
-  constructor(message: string, validationErrors: any) {
+  constructor(message: string, validationErrors: unknown) {
     super(message, ErrorCode.InvalidParams, { validationErrors });
     this.name = 'ValidationError';
+    Object.setPrototypeOf(this, ValidationError.prototype);
   }
 }
 
@@ -47,13 +54,15 @@ export class TransportError extends MCPError {
   constructor(transportName: string, cause: Error) {
     super(`Transport error for ${transportName}: ${cause.message}`, ErrorCode.InternalError, { cause });
     this.name = 'TransportError';
+    Object.setPrototypeOf(this, TransportError.prototype);
   }
 }
 
 export class InvalidRequestError extends MCPError {
-  constructor(message: string, data?: any) {
+  constructor(message: string, data?: unknown) {
     super(message, ErrorCode.InvalidRequest, data);
     this.name = 'InvalidRequestError';
+    Object.setPrototypeOf(this, InvalidRequestError.prototype);
   }
 }
 
@@ -63,6 +72,8 @@ export class CapabilityError extends MCPError {
       clientName,
       capability,
     });
+    this.name = 'CapabilityError';
+    Object.setPrototypeOf(this, CapabilityError.prototype);
   }
 }
 

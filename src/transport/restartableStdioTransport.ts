@@ -29,7 +29,7 @@ export class RestartableStdioTransport implements Transport {
   // Extended properties for AuthProviderTransport compatibility
   public timeout?: number;
   public tags?: string[];
-  public oauthProvider?: any;
+  public oauthProvider?: unknown;
 
   // Event handlers
   public onclose?: () => void;

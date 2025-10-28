@@ -97,7 +97,10 @@ export class StdioProxyTransport {
       try {
         debugIf(() => ({
           message: 'Forwarding message from STDIO to HTTP',
-          meta: { method: (message as any).method, id: (message as any).id },
+          meta: {
+            method: 'method' in message ? message.method : 'unknown',
+            id: 'id' in message ? message.id : 'unknown',
+          },
         }));
 
         // Forward to HTTP server
@@ -112,7 +115,10 @@ export class StdioProxyTransport {
       try {
         debugIf(() => ({
           message: 'Forwarding message from HTTP to STDIO',
-          meta: { method: (message as any).method, id: (message as any).id },
+          meta: {
+            method: 'method' in message ? message.method : 'unknown',
+            id: 'id' in message ? message.id : 'unknown',
+          },
         }));
 
         // Forward to STDIO client

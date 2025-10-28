@@ -28,7 +28,7 @@ export interface OperationPreview {
 /**
  * Validate application configuration file
  */
-export function validateAppConfig(configPath: string, content: any): ValidationResult {
+export function validateAppConfig(configPath: string, content: unknown): ValidationResult {
   const result: ValidationResult = {
     valid: true,
     errors: [],
@@ -43,20 +43,24 @@ export function validateAppConfig(configPath: string, content: any): ValidationR
     return result;
   }
 
+  const contentObj = content as Record<string, unknown>;
+
   // Check for MCP servers section
-  if (!content.mcpServers && !content.servers) {
+  if (!contentObj.mcpServers && !contentObj.servers) {
     result.warnings.push('No MCP servers section found');
   }
 
   // Server configuration validation
-  const servers = content.mcpServers || content.servers || {};
-  Object.entries(servers).forEach(([name, config]: [string, any]) => {
+  const servers = (contentObj.mcpServers || contentObj.servers || {}) as Record<string, unknown>;
+  Object.entries(servers).forEach(([name, config]: [string, unknown]) => {
     if (!config || typeof config !== 'object') {
       result.errors.push(`Server "${name}" has invalid configuration`);
       return;
     }
 
-    if (!config.command && !config.url) {
+    const configObj = config as Record<string, unknown>;
+
+    if (!configObj.command && !configObj.url) {
       result.errors.push(`Server "${name}" missing command or url`);
     }
 
@@ -65,16 +69,16 @@ export function validateAppConfig(configPath: string, content: any): ValidationR
     }
 
     // Validate URL format if present
-    if (config.url) {
+    if (configObj.url) {
       try {
-        new URL(config.url);
+        new URL(configObj.url as string);
       } catch {
         result.errors.push(`Server "${name}" has invalid URL format`);
       }
     }
 
     // Validate command format if present
-    if (config.command && typeof config.command !== 'string') {
+    if (configObj.command && typeof configObj.command !== 'string') {
       result.errors.push(`Server "${name}" command must be a string`);
     }
   });
@@ -116,10 +120,10 @@ export async function validateServer1mcpConnection(url: string): Promise<Validat
       warnings: [],
       fixable: false,
     };
-  } catch (error: any) {
+  } catch (error) {
     return {
       valid: false,
-      errors: [`Cannot connect to 1mcp server: ${error.message}`],
+      errors: [`Cannot connect to 1mcp server: ${error instanceof Error ? error.message : String(error)}`],
       warnings: ['Make sure 1mcp server is running'],
       fixable: true,
     };
@@ -129,7 +133,7 @@ export async function validateServer1mcpConnection(url: string): Promise<Validat
 /**
  * Handle file permission errors with specific diagnostics
  */
-export function handlePermissionError(filePath: string, error: any): string {
+export function handlePermissionError(filePath: string, error: unknown): string {
   const dirPath = path.dirname(filePath);
 
   try {
@@ -137,40 +141,47 @@ export function handlePermissionError(filePath: string, error: any): string {
     const currentUser = os.userInfo();
 
     // Specific permission diagnostics
-    if (error.code === 'EACCES') {
-      if (stats.uid !== currentUser.uid) {
-        return `Configuration directory owned by different user.
+    if (error && typeof error === 'object' && 'code' in error && typeof error.code === 'string') {
+      const errorCode = error.code;
+      if (errorCode === 'EACCES') {
+        if (stats.uid !== currentUser.uid) {
+          return `Configuration directory owned by different user.
 Fix: chown -R ${currentUser.username} "${dirPath}"
 Alternative: Copy config to your user directory`;
-      }
+        }
 
-      if (!(stats.mode & 0o200)) {
-        return `Configuration directory is read-only.
+        if (!(stats.mode & 0o200)) {
+          return `Configuration directory is read-only.
 Fix: chmod u+w "${dirPath}"`;
-      }
+        }
 
-      return `Permission denied. Check directory permissions:
+        return `Permission denied. Check directory permissions:
 Current: ${stats.mode.toString(8)}
 Required: Read/write access
 Fix: chmod u+rw "${dirPath}"`;
-    }
+      }
 
-    if (error.code === 'ENOENT') {
-      return `Configuration directory does not exist.
+      if (errorCode === 'ENOENT') {
+        return `Configuration directory does not exist.
 The application may not be installed or configured yet.
 Fix: Create directory "mkdir -p ${dirPath}" and run application first`;
-    }
+      }
 
-    if (error.code === 'EBUSY' || error.code === 'ETXTBSY') {
-      return `Configuration file is currently in use.
+      if (errorCode === 'EBUSY' || errorCode === 'ETXTBSY') {
+        return `Configuration file is currently in use.
 Fix: Close the application and try again`;
+      }
     }
   } catch (_statError) {
-    return `Cannot access configuration directory: ${error.message}
+    const errorMessage =
+      error && typeof error === 'object' && 'message' in error ? String(error.message) : 'Unknown error';
+    return `Cannot access configuration directory: ${errorMessage}
 Try: Check if the path exists and you have proper permissions`;
   }
 
-  return `Unexpected permission error: ${error.message}
+  const errorMessage =
+    error && typeof error === 'object' && 'message' in error ? String(error.message) : 'Unknown error';
+  return `Unexpected permission error: ${errorMessage}
 Last resort: Run with elevated permissions (not recommended)`;
 }
 
@@ -198,7 +209,7 @@ export function validateFilePermissions(configPath: string): ValidationResult {
     // Check directory permissions
     try {
       fs.accessSync(dirPath, fs.constants.R_OK | fs.constants.W_OK);
-    } catch (error: any) {
+    } catch (error) {
       result.valid = false;
       result.errors.push(handlePermissionError(configPath, error));
       return result;
@@ -208,15 +219,16 @@ export function validateFilePermissions(configPath: string): ValidationResult {
     if (fs.existsSync(configPath)) {
       try {
         fs.accessSync(configPath, fs.constants.R_OK | fs.constants.W_OK);
-      } catch (error: any) {
+      } catch (error) {
         result.valid = false;
         result.errors.push(handlePermissionError(configPath, error));
         return result;
       }
     }
-  } catch (error: any) {
+  } catch (error) {
+    const errorObj = error as Error;
     result.valid = false;
-    result.errors.push(`File system error: ${error.message}`);
+    result.errors.push(`File system error: ${errorObj.message}`);
   }
 
   return result;
@@ -262,7 +274,7 @@ export function generateOperationPreview(
  */
 export async function validateOperation(
   configPath: string,
-  content: any,
+  content: unknown,
   serverUrl: string,
 ): Promise<{
   configValidation: ValidationResult;
@@ -312,14 +324,15 @@ export function validateSafePath(filePath: string): boolean {
 /**
  * Validate JSON content safely
  */
-export function validateJsonContent(content: string): { valid: boolean; parsed?: any; error?: string } {
+export function validateJsonContent(content: string): { valid: boolean; parsed?: unknown; error?: string } {
   try {
-    const parsed = JSON.parse(content);
+    const parsed: unknown = JSON.parse(content);
     return { valid: true, parsed };
-  } catch (error: any) {
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
     return {
       valid: false,
-      error: `Invalid JSON: ${error.message}`,
+      error: `Invalid JSON: ${errorMessage}`,
     };
   }
 }

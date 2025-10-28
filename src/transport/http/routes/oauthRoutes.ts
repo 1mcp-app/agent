@@ -20,6 +20,18 @@ import { Request, RequestHandler, Response, Router } from 'express';
 import rateLimit from 'express-rate-limit';
 
 /**
+ * Service information interface for OAuth dashboard
+ */
+interface ServiceInfo {
+  name: string;
+  status: string;
+  authorizationUrl?: string;
+  oauthStartTime?: Date;
+  lastError?: string;
+  lastConnected?: Date;
+}
+
+/**
  * Creates OAuth routes with the provided OAuth provider
  */
 export function createOAuthRoutes(oauthProvider: SDKOAuthServerProvider, loadingManager?: McpLoadingManager): Router {
@@ -43,7 +55,7 @@ export function createOAuthRoutes(oauthProvider: SDKOAuthServerProvider, loading
    * Check if a server requires OAuth based on runtime behavior
    * A server requires OAuth if it has ever thrown UnauthorizedError (indicated by authorizationUrl or oauthStartTime)
    */
-  function requiresOAuth(service: any): boolean {
+  function requiresOAuth(service: ServiceInfo): boolean {
     // The most reliable indicator: server has ever had an authorization URL
     // This means the server threw UnauthorizedError and we captured the OAuth URL
     if (service.authorizationUrl) {
@@ -72,7 +84,7 @@ export function createOAuthRoutes(oauthProvider: SDKOAuthServerProvider, loading
       const serverManager = ServerManager.current;
       const clients = serverManager.getClients();
 
-      const services = Array.from(clients.entries()).map(([name, clientInfo]) => ({
+      const services: ServiceInfo[] = Array.from(clients.entries()).map(([name, clientInfo]) => ({
         name,
         status: clientInfo.status,
         authorizationUrl: clientInfo.authorizationUrl,
@@ -86,7 +98,8 @@ export function createOAuthRoutes(oauthProvider: SDKOAuthServerProvider, loading
       res.send(html);
     } catch (error) {
       logger.error('Error serving OAuth dashboard:', error);
-      res.status(500).json({ error: 'Internal server error' });
+      const errorResponse: Record<string, string> = { error: 'Internal server error' };
+      res.status(500).json(errorResponse);
     }
   });
 
@@ -100,7 +113,8 @@ export function createOAuthRoutes(oauthProvider: SDKOAuthServerProvider, loading
 
       const clientInfo = serverManager.getClient(serverName);
       if (!clientInfo) {
-        res.status(404).json({ error: 'Service not found' });
+        const errorResponse: Record<string, string> = { error: 'Service not found' };
+        res.status(404).json(errorResponse);
         return;
       }
 
@@ -120,13 +134,15 @@ export function createOAuthRoutes(oauthProvider: SDKOAuthServerProvider, loading
           res.redirect(updatedClientInfo.authorizationUrl);
           return;
         } else {
-          res.status(500).json({ error: 'Failed to generate OAuth URL' });
+          const errorResponse: Record<string, string> = { error: 'Failed to generate OAuth URL' };
+          res.status(500).json(errorResponse);
           return;
         }
       }
     } catch (error) {
       logger.error(`Error starting OAuth for ${req.params.serverName}:`, error);
-      res.status(500).json({ error: 'Failed to start OAuth flow' });
+      const errorResponse: Record<string, string> = { error: 'Failed to start OAuth flow' };
+      res.status(500).json(errorResponse);
     }
   };
 
@@ -182,17 +198,20 @@ export function createOAuthRoutes(oauthProvider: SDKOAuthServerProvider, loading
 
       const clientInfo = serverManager.getClient(serverName);
       if (!clientInfo) {
-        res.status(404).json({ error: 'Service not found' });
+        const errorResponse: Record<string, string> = { error: 'Service not found' };
+        res.status(404).json(errorResponse);
         return;
       }
 
       // Clear existing OAuth data and restart flow
       await restartOAuthFlow(serverName);
 
-      res.json({ success: true, message: 'OAuth flow restarted' });
+      const successResponse: Record<string, string> = { success: 'true', message: 'OAuth flow restarted' };
+      res.json(successResponse);
     } catch (error) {
       logger.error(`Error restarting OAuth for ${serverName}:`, error);
-      res.status(500).json({ error: 'Failed to restart OAuth flow' });
+      const errorResponse: Record<string, string> = { error: 'Failed to restart OAuth flow' };
+      res.status(500).json(errorResponse);
     }
   };
 
@@ -203,14 +222,19 @@ export function createOAuthRoutes(oauthProvider: SDKOAuthServerProvider, loading
    */
   const consentHandler: RequestHandler = async (req: Request, res: Response) => {
     try {
-      const { auth_request_id, action, scopes } = req.body;
+      // Extract and validate request body parameters
+      const body = req.body as Record<string, unknown>;
+      const auth_request_id = body.auth_request_id as string | undefined;
+      const action = body.action as string | undefined;
+      const scopes = body.scopes;
 
       // Validate required fields
       if (!auth_request_id || !action) {
-        res.status(400).json({
+        const errorResponse: Record<string, string> = {
           error: 'invalid_request',
           error_description: 'Missing required parameters',
-        });
+        };
+        res.status(400).json(errorResponse);
         return;
       }
 
@@ -218,10 +242,11 @@ export function createOAuthRoutes(oauthProvider: SDKOAuthServerProvider, loading
       const authRequest = oauthProvider.oauthStorage.getAuthorizationRequest(auth_request_id);
 
       if (!authRequest) {
-        res.status(400).json({
+        const errorResponse: Record<string, string> = {
           error: 'invalid_request',
           error_description: 'Invalid or expired authorization request',
-        });
+        };
+        res.status(400).json(errorResponse);
         return;
       }
 
@@ -230,10 +255,11 @@ export function createOAuthRoutes(oauthProvider: SDKOAuthServerProvider, loading
       const client = oauthProvider.oauthStorage.clientDataRepository.get(clientKey);
 
       if (!client) {
-        res.status(400).json({
+        const errorResponse: Record<string, string> = {
           error: 'invalid_client',
           error_description: 'Client not found',
-        });
+        };
+        res.status(400).json(errorResponse);
         return;
       }
 
@@ -248,15 +274,27 @@ export function createOAuthRoutes(oauthProvider: SDKOAuthServerProvider, loading
 
       if (action === 'approve') {
         // User approved the authorization
-        const selectedScopes = Array.isArray(scopes) ? scopes : scopes ? [scopes] : [];
+        let selectedScopes: string[];
+        if (Array.isArray(scopes)) {
+          // Ensure all items are strings
+          selectedScopes = scopes.filter((scope): scope is string => typeof scope === 'string');
+        } else if (typeof scopes === 'string') {
+          selectedScopes = [scopes];
+        } else if (scopes) {
+          // Handle other types by converting to string
+          selectedScopes = [String(scopes)];
+        } else {
+          selectedScopes = [];
+        }
 
         // Validate selected scopes
         const validation = validateScopes(selectedScopes);
         if (!validation.isValid) {
-          res.status(400).json({
+          const errorResponse: Record<string, string> = {
             error: 'invalid_scope',
             error_description: `Invalid scopes: ${validation.errors.join(', ')}`,
-          });
+          };
+          res.status(400).json(errorResponse);
           return;
         }
 
@@ -270,16 +308,18 @@ export function createOAuthRoutes(oauthProvider: SDKOAuthServerProvider, loading
       }
 
       // Invalid action
-      res.status(400).json({
+      const errorResponse: Record<string, string> = {
         error: 'invalid_request',
         error_description: 'Invalid action',
-      });
+      };
+      res.status(400).json(errorResponse);
     } catch (error) {
       logger.error('Error handling consent form:', error);
-      res.status(500).json({
+      const errorResponse: Record<string, string> = {
         error: 'server_error',
         error_description: 'Internal server error',
-      });
+      };
+      res.status(500).json(errorResponse);
     }
   };
 
@@ -347,7 +387,7 @@ export function createOAuthRoutes(oauthProvider: SDKOAuthServerProvider, loading
   /**
    * Generate OAuth dashboard HTML
    */
-  function generateOAuthDashboard(services: any[], req: Request): string {
+  function generateOAuthDashboard(services: ServiceInfo[], req: Request): string {
     const servicesHtml = services
       .map((service) => {
         const statusIcon = getStatusIcon(service.status);
@@ -484,7 +524,7 @@ export function createOAuthRoutes(oauthProvider: SDKOAuthServerProvider, loading
     }
   }
 
-  function getActionButton(service: any): string {
+  function getActionButton(service: ServiceInfo): string {
     switch (service.status) {
       case ClientStatus.Connected:
         // Check if server requires OAuth based on runtime behavior

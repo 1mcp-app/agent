@@ -15,13 +15,13 @@ import {
 } from '@src/transport/http/middlewares/scopeAuthMiddleware.js';
 import tagsExtractor from '@src/transport/http/middlewares/tagsExtractor.js';
 
-import { Request, Response, Router } from 'express';
+import { Request, RequestHandler, Response, Router } from 'express';
 
 export function setupSseRoutes(
   router: Router,
   serverManager: ServerManager,
-  authMiddleware: any,
-  availabilityMiddleware?: any,
+  authMiddleware: RequestHandler,
+  availabilityMiddleware?: RequestHandler,
   asyncOrchestrator?: AsyncLoadingOrchestrator,
   customTemplate?: string,
 ): void {

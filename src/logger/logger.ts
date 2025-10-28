@@ -179,7 +179,7 @@ export function isWarnEnabled(): boolean {
  * Conditional debug logging - only executes the message function if debug is enabled
  * @param messageOrFunc Message string or function that returns message and metadata
  */
-export function debugIf(messageOrFunc: string | (() => { message: string; meta?: any })): void {
+export function debugIf(messageOrFunc: string | (() => { message: string; meta?: Record<string, unknown> })): void {
   if (isDebugEnabled()) {
     if (typeof messageOrFunc === 'string') {
       logger.debug(messageOrFunc);
@@ -215,7 +215,7 @@ export function debugIf(messageOrFunc: string | (() => { message: string; meta?:
  * Conditional info logging - only executes the message function if info is enabled
  * @param messageOrFunc Message string or function that returns message and metadata
  */
-export function infoIf(messageOrFunc: string | (() => { message: string; meta?: any })): void {
+export function infoIf(messageOrFunc: string | (() => { message: string; meta?: Record<string, unknown> })): void {
   if (isInfoEnabled()) {
     if (typeof messageOrFunc === 'string') {
       logger.info(messageOrFunc);
@@ -251,7 +251,7 @@ export function infoIf(messageOrFunc: string | (() => { message: string; meta?: 
  * Conditional warn logging - only executes the message function if warn is enabled
  * @param messageOrFunc Message string or function that returns message and metadata
  */
-export function warnIf(messageOrFunc: string | (() => { message: string; meta?: any })): void {
+export function warnIf(messageOrFunc: string | (() => { message: string; meta?: Record<string, unknown> })): void {
   if (isWarnEnabled()) {
     if (typeof messageOrFunc === 'string') {
       logger.warn(messageOrFunc);

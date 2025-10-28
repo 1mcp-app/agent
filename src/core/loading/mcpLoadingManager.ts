@@ -4,7 +4,13 @@ import { ClientManager } from '@src/core/client/clientManager.js';
 import { AuthProviderTransport, OutboundConnections } from '@src/core/types/index.js';
 import logger, { debugIf } from '@src/logger/logger.js';
 
-import { LoadingState, LoadingStateEvent, LoadingStateTracker, LoadingSummary } from './loadingStateTracker.js';
+import {
+  LoadingState,
+  LoadingStateEvent,
+  LoadingStateTracker,
+  LoadingSummary,
+  ServerLoadingInfo,
+} from './loadingStateTracker.js';
 
 /**
  * Configuration options for MCP loading behavior
@@ -42,7 +48,7 @@ export const DEFAULT_LOADING_CONFIG: McpLoadingConfig = {
 /**
  * Result of loading a specific server
  */
-interface ServerLoadResult {
+export interface ServerLoadResult {
   readonly name: string;
   readonly success: boolean;
   readonly error?: Error;
@@ -116,7 +122,7 @@ export class McpLoadingManager extends EventEmitter {
     this.stateTracker = new LoadingStateTracker();
 
     // Forward state tracker events
-    this.stateTracker.on(LoadingStateEvent.ServerStateChanged, (name, info) => {
+    this.stateTracker.on(LoadingStateEvent.ServerStateChanged, (name: string, info: ServerLoadingInfo) => {
       if (info.state === LoadingState.Ready) {
         this.emit(McpLoadingEvent.ServerLoaded, name, {
           name,
@@ -137,11 +143,11 @@ export class McpLoadingManager extends EventEmitter {
       }
     });
 
-    this.stateTracker.on(LoadingStateEvent.LoadingProgress, (summary) => {
+    this.stateTracker.on(LoadingStateEvent.LoadingProgress, (summary: LoadingSummary) => {
       this.emit(McpLoadingEvent.LoadingProgress, summary);
     });
 
-    this.stateTracker.on(LoadingStateEvent.LoadingComplete, (summary) => {
+    this.stateTracker.on(LoadingStateEvent.LoadingComplete, (summary: LoadingSummary) => {
       this.emit(McpLoadingEvent.LoadingComplete, summary);
       this.setupBackgroundRetry();
     });
@@ -346,8 +352,9 @@ export class McpLoadingManager extends EventEmitter {
         this.emit(McpLoadingEvent.BackgroundRetry, serverInfo.name, serverInfo.retryCount + 1);
 
         // Don't wait for completion, let it run in background
-        this.loadSingleServer(serverInfo.name, transport).catch((error) => {
-          debugIf(() => ({ message: `Background retry failed for ${serverInfo.name}: ${error.message}` }));
+        this.loadSingleServer(serverInfo.name, transport).catch((error: unknown) => {
+          const errorMessage = error instanceof Error ? error.message : String(error);
+          debugIf(() => ({ message: `Background retry failed for ${serverInfo.name}: ${errorMessage}` }));
         });
       }
     }

@@ -120,12 +120,12 @@ export function sanitizeErrorMessage(error: string): string {
  * @param headers - The headers object to sanitize
  * @returns Sanitized headers object safe for logging
  */
-export function sanitizeHeaders(headers: Record<string, any>): Record<string, any> {
+export function sanitizeHeaders(headers: Record<string, unknown>): Record<string, unknown> {
   if (!headers || typeof headers !== 'object') {
     return {};
   }
 
-  const sanitized: Record<string, any> = {};
+  const sanitized: Record<string, unknown> = {};
   const sensitiveHeaders = ['authorization', 'auth', 'x-auth-token', 'x-api-key', 'cookie', 'set-cookie'];
 
   for (const [key, value] of Object.entries(headers)) {
@@ -236,6 +236,7 @@ export function validateAndSanitizeTag(tag: string): TagValidationResult {
   }
 
   // Check for control characters
+  // Reason: Control character regex patterns are flagged by ESLint but needed for security validation
   // eslint-disable-next-line no-control-regex
   const controlCharRegex = /[\x00-\x1f\x7f]/;
   if (controlCharRegex.test(decodedTag)) {
@@ -243,6 +244,7 @@ export function validateAndSanitizeTag(tag: string): TagValidationResult {
   }
 
   // Check for non-ASCII characters (international characters are OK, but warn)
+  // Reason: Non-ASCII character regex patterns are flagged by ESLint but needed for validation
   // eslint-disable-next-line no-control-regex
   const nonAsciiRegex = /[^\x00-\x7f]/;
   if (nonAsciiRegex.test(decodedTag)) {

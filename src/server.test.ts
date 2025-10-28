@@ -183,7 +183,7 @@ describe('server', () => {
       });
 
       await expect(setupServer()).rejects.toThrow('Transport creation failed');
-      expect(logger.error).toHaveBeenCalledWith('Failed to set up server: Error: Transport creation failed');
+      expect(logger.error).toHaveBeenCalledWith('Failed to set up server: Transport creation failed');
     });
 
     it('should handle client creation errors gracefully with sync loading', async () => {

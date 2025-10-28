@@ -124,8 +124,9 @@ export async function discoverCommand(options: DiscoverOptions): Promise<void> {
         console.log(`   npx @1mcp/agent app consolidate ${appsWithServers.join(' ')}`);
       }
     }
-  } catch (error: any) {
-    console.error(`❌ Discovery failed: ${error.message}`);
+  } catch (error: unknown) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    console.error(`❌ Discovery failed: ${errorMessage}`);
     process.exit(1);
   }
 }

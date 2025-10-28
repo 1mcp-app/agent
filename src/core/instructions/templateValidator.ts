@@ -1,3 +1,5 @@
+import { statSync } from 'node:fs';
+
 import Handlebars from 'handlebars';
 
 /**
@@ -246,8 +248,7 @@ export function isTemplateSizeAcceptable(
   maxSizeBytes: number = DEFAULT_TEMPLATE_VALIDATION_CONFIG.maxSizeBytes,
 ): boolean {
   try {
-    const fs = require('fs');
-    const stats = fs.statSync(filePath);
+    const stats = statSync(filePath);
     return stats.size <= maxSizeBytes;
   } catch {
     return false; // File doesn't exist or can't be accessed

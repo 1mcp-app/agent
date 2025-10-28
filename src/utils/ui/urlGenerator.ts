@@ -182,22 +182,33 @@ export class UrlGenerator {
       const urlObj = new URL(url);
       const params = urlObj.searchParams;
 
-      const result: any = {
+      const result: {
+        preset?: string;
+        tagFilter?: string;
+        tags?: string[];
+        otherParams: Record<string, string>;
+      } = {
         otherParams: {},
       };
 
       // Extract filtering parameters
       if (params.has('preset')) {
-        result.preset = params.get('preset');
+        const presetValue = params.get('preset');
+        if (presetValue) {
+          result.preset = presetValue;
+        }
       } else if (params.has('tag-filter')) {
-        result.tagFilter = params.get('tag-filter');
+        const tagFilterValue = params.get('tag-filter');
+        if (tagFilterValue) {
+          result.tagFilter = tagFilterValue;
+        }
       } else if (params.has('tags')) {
         const tagsStr = params.get('tags');
         if (tagsStr) {
           result.tags = tagsStr
             .split(',')
-            .map((tag) => tag.trim())
-            .filter((tag) => tag.length > 0);
+            .map((tag: string) => tag.trim())
+            .filter((tag: string) => tag.length > 0);
         }
       }
 
@@ -233,7 +244,8 @@ export class UrlGenerator {
   public extractPresetName(url: string): string | null {
     try {
       const urlObj = new URL(url);
-      return urlObj.searchParams.get('preset');
+      const presetValue = urlObj.searchParams.get('preset');
+      return presetValue;
     } catch {
       return null;
     }

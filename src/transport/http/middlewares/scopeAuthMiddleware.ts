@@ -1,4 +1,5 @@
 import { requireBearerAuth } from '@modelcontextprotocol/sdk/server/auth/middleware/bearerAuth.js';
+import type { AuthInfo as SDKAuthInfo } from '@modelcontextprotocol/sdk/server/auth/types.js';
 
 import { SDKOAuthServerProvider } from '@src/auth/sdkOAuthServerProvider.js';
 import { AgentConfigManager } from '@src/core/server/agentConfig.js';
@@ -8,6 +9,40 @@ import logger from '@src/logger/logger.js';
 import { auditScopeOperation, hasRequiredScopes, scopesToTags } from '@src/utils/validation/scopeValidation.js';
 
 import { NextFunction, Request, Response } from 'express';
+
+// Type augmentation to add auth property to Request and extend Response locals
+declare global {
+  namespace Express {
+    interface Request {
+      auth?: SDKAuthInfo;
+    }
+
+    interface Response {
+      locals: ResponseLocals;
+    }
+  }
+}
+
+/**
+ * Type-safe response locals interface for scope auth middleware
+ * Extends the default Express locals interface
+ */
+export interface ResponseLocals extends Record<string, unknown> {
+  /** Tags extracted from the request (may be undefined) */
+  tags?: string[];
+  /** Tags that have been validated against scopes */
+  validatedTags?: string[];
+  /** Tag expression for advanced filtering */
+  tagExpression?: TagExpression;
+  /** Tag filter mode */
+  tagFilterMode?: 'simple-or' | 'advanced' | 'preset' | 'none';
+  /** Tag query object */
+  tagQuery?: TagQuery;
+  /** Preset name if used */
+  presetName?: string;
+  /** Authentication context */
+  auth?: AuthInfo;
+}
 
 /**
  * Authentication information structure
@@ -38,7 +73,11 @@ export function createScopeAuthMiddleware(oauthProvider?: SDKOAuthServerProvider
   // If scope validation is disabled, return a pass-through middleware
   if (!serverConfig.isScopeValidationEnabled()) {
     return (_req: Request, res: Response, next: NextFunction): void => {
-      const requestedTags = res.locals.tags || [];
+      // Type-safe access to tags from res.locals
+      const localsTags = res.locals.tags as unknown;
+      const requestedTags: string[] = Array.isArray(localsTags)
+        ? (localsTags as unknown[]).filter((tag): tag is string => typeof tag === 'string')
+        : [];
       res.locals.validatedTags = requestedTags;
       next();
     };
@@ -47,7 +86,11 @@ export function createScopeAuthMiddleware(oauthProvider?: SDKOAuthServerProvider
   // If scope validation is enabled but auth is disabled, allow all tags
   if (!serverConfig.isAuthEnabled()) {
     return (_req: Request, res: Response, next: NextFunction): void => {
-      const requestedTags = res.locals.tags || [];
+      // Type-safe access to tags from res.locals
+      const localsTags = res.locals.tags as unknown;
+      const requestedTags: string[] = Array.isArray(localsTags)
+        ? (localsTags as unknown[]).filter((tag): tag is string => typeof tag === 'string')
+        : [];
       res.locals.validatedTags = requestedTags;
       next();
     };
@@ -66,21 +109,43 @@ export function createScopeAuthMiddleware(oauthProvider?: SDKOAuthServerProvider
     try {
       // First run the SDK's bearer auth middleware
       await new Promise<void>((resolve, reject) => {
-        bearerAuthMiddleware(req, res, (err?: any) => {
+        bearerAuthMiddleware(req, res, (err?: unknown) => {
           if (err) reject(err);
           else resolve();
         });
       });
 
       // If we get here, auth succeeded and req.auth is populated
-      const authInfo = req.auth!;
-      const grantedScopes = authInfo.scopes || [];
+      const authInfo = req.auth;
+      if (!authInfo) {
+        throw new Error('Authentication succeeded but req.auth is undefined');
+      }
+
+      // Type-safe access to authInfo properties
+      const grantedScopes = authInfo.scopes ? [...authInfo.scopes] : [];
       const grantedTags = scopesToTags(grantedScopes);
 
       // Get requested tags and tag expression from previous middleware (tagsExtractor)
-      const requestedTags = res.locals.tags || [];
-      const tagExpression = res.locals.tagExpression;
-      const tagFilterMode = res.locals.tagFilterMode || 'none';
+      // Type-safe access to res.locals properties
+      const localsTags = res.locals.tags as unknown;
+      const requestedTags: string[] = Array.isArray(localsTags)
+        ? (localsTags as unknown[]).filter((tag): tag is string => typeof tag === 'string')
+        : [];
+
+      const localsTagExpression = res.locals.tagExpression as unknown;
+      const tagExpression: TagExpression | undefined =
+        localsTagExpression && typeof localsTagExpression === 'object' && 'type' in localsTagExpression
+          ? (localsTagExpression as TagExpression)
+          : undefined;
+
+      const localsTagFilterMode = res.locals.tagFilterMode as unknown;
+      const tagFilterMode: 'simple-or' | 'advanced' | 'preset' | 'none' =
+        localsTagFilterMode === 'simple-or' ||
+        localsTagFilterMode === 'advanced' ||
+        localsTagFilterMode === 'preset' ||
+        localsTagFilterMode === 'none'
+          ? localsTagFilterMode
+          : 'none';
 
       let allRequestedTags: string[] = [];
 
@@ -96,7 +161,7 @@ export function createScopeAuthMiddleware(oauthProvider?: SDKOAuthServerProvider
       // Validate that all requested tags are covered by granted scopes
       if (allRequestedTags.length > 0 && !hasRequiredScopes(grantedScopes, allRequestedTags)) {
         auditScopeOperation('insufficient_scopes', {
-          clientId: authInfo.clientId,
+          clientId: authInfo.clientId as string,
           requestedScopes: allRequestedTags.map((tag: string) => `tag:${tag}`),
           grantedScopes,
           success: false,
@@ -111,19 +176,23 @@ export function createScopeAuthMiddleware(oauthProvider?: SDKOAuthServerProvider
       }
 
       // Provide authentication context to downstream handlers via res.locals
-      res.locals.auth = {
-        token: req.headers.authorization?.slice(7) || '', // Remove 'Bearer ' prefix
-        clientId: authInfo.clientId,
+      const authHeader = req.headers.authorization;
+      const token = typeof authHeader === 'string' && authHeader.startsWith('Bearer ') ? authHeader.slice(7) : '';
+
+      const authContext: AuthInfo = {
+        token,
+        clientId: (authInfo.clientId as string) || '',
         grantedScopes,
         grantedTags,
       };
+      res.locals.auth = authContext;
 
       // Provide validated tags to downstream handlers
       // If no specific tags requested, use all granted tags
       res.locals.validatedTags = allRequestedTags.length > 0 ? allRequestedTags : grantedTags;
 
       auditScopeOperation('scope_validation_success', {
-        clientId: authInfo.clientId,
+        clientId: authInfo.clientId as string,
         requestedScopes: allRequestedTags.map((tag: string) => `tag:${tag}`),
         grantedScopes,
         success: true,
@@ -180,49 +249,86 @@ export function getValidatedTags(res: Response): string[] {
   }
 
   // Ensure it's an array
-  if (!Array.isArray(res.locals.validatedTags)) {
+  const validatedTags: unknown = res.locals.validatedTags as unknown;
+  if (!Array.isArray(validatedTags)) {
     return [];
   }
 
-  return res.locals.validatedTags;
+  // Ensure all elements are strings
+  return validatedTags.filter((tag): tag is string => typeof tag === 'string');
 }
 
 /**
  * Utility function to get tag expression from response locals
  */
 export function getTagExpression(res: Response): TagExpression | undefined {
-  return res?.locals?.tagExpression;
+  const tagExpression = res.locals?.tagExpression as unknown;
+  if (!tagExpression || typeof tagExpression !== 'object') {
+    return undefined;
+  }
+  // Type guard to ensure it's a valid TagExpression
+  return 'type' in tagExpression ? (tagExpression as TagExpression) : undefined;
 }
 
 /**
  * Utility function to get tag filter mode from response locals
  */
 export function getTagFilterMode(res: Response): 'simple-or' | 'advanced' | 'preset' | 'none' {
-  return res?.locals?.tagFilterMode || 'none';
+  const tagFilterMode = res.locals?.tagFilterMode as unknown;
+  if (
+    tagFilterMode === 'simple-or' ||
+    tagFilterMode === 'advanced' ||
+    tagFilterMode === 'preset' ||
+    tagFilterMode === 'none'
+  ) {
+    return tagFilterMode;
+  }
+  return 'none';
 }
 
 /**
  * Utility function to get tag query from response locals
  */
 export function getTagQuery(res: Response): TagQuery | undefined {
-  return res?.locals?.tagQuery;
+  const tagQuery = res.locals?.tagQuery as unknown;
+  if (!tagQuery || typeof tagQuery !== 'object') {
+    return undefined;
+  }
+  // Type guard to ensure it's a valid TagQuery
+  return tagQuery as TagQuery;
 }
+
 /**
  * Utility function to get preset name from response locals
  */
 export function getPresetName(res: Response): string | undefined {
-  return res?.locals?.presetName;
+  const presetName = res.locals?.presetName as unknown;
+  return typeof presetName === 'string' ? presetName : undefined;
 }
 
 /**
  * Utility function to get authentication information from response locals
  */
 export function getAuthInfo(res: Response): AuthInfo | undefined {
-  if (!res?.locals?.auth) {
+  const auth = res.locals?.auth as unknown;
+  if (!auth || typeof auth !== 'object') {
     return undefined;
   }
 
-  return res.locals.auth;
+  // Type guard to ensure it's a valid AuthInfo object
+  const authObj = auth as Record<string, unknown>;
+  if (
+    typeof authObj.token === 'string' &&
+    typeof authObj.clientId === 'string' &&
+    Array.isArray(authObj.grantedScopes) &&
+    authObj.grantedScopes.every((scope: unknown) => typeof scope === 'string') &&
+    Array.isArray(authObj.grantedTags) &&
+    authObj.grantedTags.every((tag: unknown) => typeof tag === 'string')
+  ) {
+    return auth as AuthInfo;
+  }
+
+  return undefined;
 }
 
 // Default export for backward compatibility (creates a new provider instance)

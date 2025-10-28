@@ -176,12 +176,12 @@ export class SDKOAuthClientProvider implements OAuthClientProvider {
     if (clientSession) {
       // Load client info
       if (clientSession.clientInfo) {
-        this._clientInfo = JSON.parse(clientSession.clientInfo);
+        this._clientInfo = JSON.parse(clientSession.clientInfo) as OAuthClientInformationFull;
       }
 
       // Load tokens
       if (clientSession.tokens) {
-        this._tokens = JSON.parse(clientSession.tokens);
+        this._tokens = JSON.parse(clientSession.tokens) as OAuthTokens;
 
         // Check if tokens are expired
         if (this._tokens && this.isTokenExpired(this._tokens)) {

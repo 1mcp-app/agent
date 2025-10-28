@@ -386,7 +386,7 @@ function registerCompletionHandlers(outboundConns: OutboundConnections, inboundC
         updatedRef = { ...ref, uri: resourceName };
       } else {
         // This should be caught by the schema validation, but as a safeguard:
-        throw new Error(`Unsupported completion reference type: ${(ref as any).type}`);
+        throw new Error(`Unsupported completion reference type: ${(ref as { type: string }).type}`);
       }
 
       const params = { ...request.params, ref: updatedRef };

@@ -419,6 +419,14 @@ export function showPlatformWarningIfNeeded(): void {
 }
 
 /**
+ * Safely get environment variable value
+ */
+function getEnvVar(key: string): string | undefined {
+  // Type-safe access to environment variables
+  return process.env[key] as string | undefined;
+}
+
+/**
  * Resolve path with environment variable expansion
  */
 function resolvePath(pathStr: string): string {
@@ -429,13 +437,14 @@ function resolvePath(pathStr: string): string {
 
   // Replace %APPDATA% on Windows
   if (process.platform === 'win32' && pathStr.includes('%APPDATA%')) {
-    const appData = process.env.APPDATA || '';
+    const appData = getEnvVar('APPDATA') || '';
     pathStr = pathStr.replace('%APPDATA%', appData);
   }
 
   // Handle other environment variables
-  pathStr = pathStr.replace(/\$\{([^}]+)\}/g, (match, envVar) => {
-    return process.env[envVar] || match;
+  pathStr = pathStr.replace(/\$\{([^}]+)\}/g, (match: string, envVar: string) => {
+    const envValue = getEnvVar(envVar) as string | undefined;
+    return envValue ?? match;
   });
 
   return path.resolve(pathStr);

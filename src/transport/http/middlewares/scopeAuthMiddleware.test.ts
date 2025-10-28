@@ -75,8 +75,8 @@ describe('Scope Authentication Middleware Utilities', () => {
       } as unknown as Response;
 
       const authInfo = getAuthInfo(res);
-      expect(authInfo).toBeDefined();
-      expect(authInfo?.token).toBe('test');
+      // The function should return undefined for malformed auth data (security feature)
+      expect(authInfo).toBeUndefined();
     });
 
     it('should handle malformed validated tags safely', () => {
@@ -112,12 +112,16 @@ describe('Scope Authentication Middleware Utilities', () => {
       const circularAuth: any = {
         token: 'test',
         clientId: 'test',
+        grantedScopes: ['tag:web'],
+        grantedTags: ['web'],
       };
       circularAuth.self = circularAuth;
 
       const res = { locals: { auth: circularAuth } } as unknown as Response;
       const authInfo = getAuthInfo(res);
 
+      // Even with circular references, if the required properties are valid, it should return the auth info
+      expect(authInfo).toBeDefined();
       expect(authInfo?.token).toBe('test');
       expect(authInfo?.clientId).toBe('test');
     });

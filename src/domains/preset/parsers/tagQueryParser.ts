@@ -78,11 +78,8 @@ export class TagQueryParser {
       }
 
       return result.expression;
-    } catch (error) {
-      if (error instanceof Error) {
-        throw new Error(`Parse error: ${error.message}`);
-      }
-      throw error;
+    } catch (error: unknown) {
+      throw new Error(`Parse error: ${error instanceof Error ? error.message : String(error)}`);
     }
   }
 
@@ -141,7 +138,7 @@ export class TagQueryParser {
         return this.evaluate(expr.children[0], serverTags);
 
       default:
-        throw new Error(`Unknown expression type: ${(expr as any).type}`);
+        throw new Error(`Unknown expression type: ${expr.type}`);
     }
   }
 
@@ -468,7 +465,7 @@ export class TagQueryParser {
         return this.expressionToJSON(expr.children[0]);
 
       default:
-        throw new Error(`Unknown expression type: ${(expr as any).type}`);
+        throw new Error(`Unknown expression type: ${expr.type}`);
     }
   }
 

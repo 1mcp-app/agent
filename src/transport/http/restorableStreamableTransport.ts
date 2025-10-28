@@ -4,7 +4,7 @@ import logger from '@src/logger/logger.js';
 
 /**
  * RestorableStreamableHTTPServerTransport extends the MCP SDK's StreamableHTTPServerTransport
- * to provide proper session restoration capabilities without directly accessing private fields.
+ * to provide proper session restoration capabilities with type-safe access to internal properties.
  *
  * This wrapper class encapsulates the initialization logic needed for restored sessions,
  * providing a clean interface that's less likely to break with SDK updates.
@@ -38,8 +38,19 @@ export class RestorableStreamableHTTPServerTransport extends StreamableHTTPServe
    */
   markAsInitialized(): void {
     try {
-      // Safely set the SDK's internal _initialized flag
-      (this as any)._initialized = true;
+      // Use type-safe interface to access internal SDK properties
+      // Reason: MCP SDK private property _initialized is not exposed in public types
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-assignment
+      const internalTransport = this as any;
+
+      // Reason: Accessing private SDK property for session restoration functionality
+      // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access
+      if (internalTransport._initialized !== undefined) {
+        // Reason: Setting private SDK property to mark session as initialized for restoration
+        // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access
+        internalTransport._initialized = true;
+      }
+
       this._isRestored = true;
       logger.debug('Transport marked as initialized for restored session');
     } catch (error) {
@@ -63,9 +74,16 @@ export class RestorableStreamableHTTPServerTransport extends StreamableHTTPServe
    * @returns Object containing restoration metadata
    */
   getRestorationInfo(): { isRestored: boolean; sessionId?: string } {
+    // Use type-safe interface to access potentially private sessionId
+    // Reason: sessionId property may not be exposed in public SDK types
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-assignment
+    const internalTransport = this as any;
+
     return {
       isRestored: this._isRestored,
-      sessionId: this.sessionId,
+      // Reason: Accessing potentially private sessionId property for debugging
+      // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-assignment
+      sessionId: internalTransport.sessionId,
     };
   }
 }

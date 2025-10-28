@@ -168,7 +168,7 @@ function createStdioTransport(
   const stdioParams: StdioServerParameters = {
     command: validatedTransport.command,
     args: validatedTransport.args,
-    stderr: validatedTransport.stderr as any, // IOType validation is complex, trust Zod validation
+    stderr: validatedTransport.stderr as 'inherit' | 'pipe' | 'ignore', // IOType validation is complex, trust Zod validation
     cwd: validatedTransport.cwd,
     env: envResult.processedEnv,
   };

@@ -32,9 +32,20 @@ export function validateServerName(name: string): void {
 }
 
 /**
+ * Interface for server arguments validation
+ */
+interface ServerArgs {
+  command?: string;
+  args?: string[];
+  cwd?: string;
+  url?: string;
+  type?: string;
+}
+
+/**
  * Validate command line arguments for different server types
  */
-export function validateServerArgs(type: string, args: any): void {
+export function validateServerArgs(type: string, args: ServerArgs): void {
   switch (type) {
     case 'stdio':
       validateStdioArgs(args);
@@ -51,7 +62,7 @@ export function validateServerArgs(type: string, args: any): void {
 /**
  * Validate stdio server arguments
  */
-function validateStdioArgs(args: any): void {
+function validateStdioArgs(args: ServerArgs): void {
   if (!args.command) {
     throw new Error('Command is required for stdio servers');
   }
@@ -84,7 +95,7 @@ function validateStdioArgs(args: any): void {
 /**
  * Validate HTTP/SSE server arguments
  */
-function validateHttpArgs(args: any): void {
+function validateHttpArgs(args: ServerArgs): void {
   if (!args.url) {
     throw new Error(`URL is required for ${args.type} servers`);
   }

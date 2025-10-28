@@ -56,7 +56,7 @@ describe('withErrorHandling', () => {
     } catch (error) {
       expect(error).toBeInstanceOf(MCPError);
       expect((error as MCPError).code).toBe(ErrorCode.InternalError);
-      expect((error as MCPError).data?.originalError).toBe(originalError);
+      expect(((error as MCPError).data as any)?.originalError).toBe(originalError);
     }
   });
 
@@ -71,13 +71,13 @@ describe('withErrorHandling', () => {
       await wrappedFn();
     } catch (error) {
       expect(error).toBeInstanceOf(MCPError);
-      expect((error as MCPError).data?.originalError).toBeInstanceOf(Error);
-      expect((error as MCPError).data?.originalError.message).toBe('string error');
+      expect(((error as MCPError).data as any)?.originalError).toBeInstanceOf(Error);
+      expect(((error as MCPError).data as any)?.originalError.message).toBe('string error');
     }
   });
 
   it('should preserve function arguments and return type', async () => {
-    const fn = vi.fn().mockImplementation((a: string, b: number) => Promise.resolve(a + b));
+    const fn = vi.fn().mockImplementation((a: string, b: number) => Promise.resolve(`${a}${b}`));
     const wrappedFn = withErrorHandling(fn, 'Test operation');
 
     const result = await wrappedFn('test', 42);
@@ -100,8 +100,8 @@ describe('normalizeError', () => {
     const result = normalizeError(originalError, 'fallback message');
 
     expect(result).toBeInstanceOf(MCPError);
-    expect(result.message).toBe('Original error');
-    expect(result.code).toBe(ErrorCode.InternalError);
+    expect((result as MCPError).message).toBe('Original error');
+    expect((result as MCPError).code).toBe(ErrorCode.InternalError);
   });
 
   it('should use fallback message for Error with empty message', () => {
@@ -109,16 +109,16 @@ describe('normalizeError', () => {
     const result = normalizeError(originalError, 'fallback message');
 
     expect(result).toBeInstanceOf(MCPError);
-    expect(result.message).toBe('fallback message');
-    expect(result.code).toBe(ErrorCode.InternalError);
+    expect((result as MCPError).message).toBe('fallback message');
+    expect((result as MCPError).code).toBe(ErrorCode.InternalError);
   });
 
   it('should convert non-Error objects to MCPError', () => {
     const result = normalizeError('string error', 'fallback message');
 
     expect(result).toBeInstanceOf(MCPError);
-    expect(result.message).toBe('fallback message');
-    expect(result.code).toBe(ErrorCode.InternalError);
+    expect((result as MCPError).message).toBe('fallback message');
+    expect((result as MCPError).code).toBe(ErrorCode.InternalError);
   });
 
   it('should handle null and undefined', () => {
@@ -126,9 +126,9 @@ describe('normalizeError', () => {
     const resultUndefined = normalizeError(undefined, 'fallback message');
 
     expect(resultNull).toBeInstanceOf(MCPError);
-    expect(resultNull.message).toBe('fallback message');
+    expect((resultNull as MCPError).message).toBe('fallback message');
     expect(resultUndefined).toBeInstanceOf(MCPError);
-    expect(resultUndefined.message).toBe('fallback message');
+    expect((resultUndefined as MCPError).message).toBe('fallback message');
   });
 });
 
@@ -190,7 +190,8 @@ describe('getErrorMessage', () => {
 describe('getErrorCause', () => {
   it('should return cause from Error with cause', () => {
     const cause = new Error('Cause error');
-    const error = new Error('Main error', { cause });
+    const error = new Error('Main error') as any;
+    error.cause = cause;
     expect(getErrorCause(error)).toBe(cause);
   });
 
@@ -206,8 +207,8 @@ describe('getErrorCause', () => {
   });
 
   it('should handle Error with non-Error cause', () => {
-    const error = new Error('Main error');
-    (error as any).cause = 'string cause';
+    const error = new Error('Main error') as any;
+    error.cause = 'string cause';
     expect(getErrorCause(error)).toBe('string cause');
   });
 });

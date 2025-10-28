@@ -1,3 +1,5 @@
+import { ErrorCode } from '@modelcontextprotocol/sdk/types.js';
+
 import logger from '@src/logger/logger.js';
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -75,7 +77,7 @@ describe('operationExecution', () => {
     });
 
     it('should rethrow MCPError without wrapping', async () => {
-      const mcpError = new MCPError('Original MCP Error', 500);
+      const mcpError = new MCPError('Original MCP Error', ErrorCode.InternalError);
       const operation = vi.fn().mockRejectedValue(mcpError);
 
       await expect(executeOperation(operation, 'test-context')).rejects.toThrow(mcpError);

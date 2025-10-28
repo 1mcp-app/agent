@@ -101,9 +101,18 @@ export async function interactiveCommand(argv: InteractiveArguments): Promise<vo
 }
 
 /**
+ * Interface for preset information
+ */
+interface PresetInfo {
+  name: string;
+  strategy: string;
+  description?: string;
+}
+
+/**
  * Offer preset selection when existing presets are found
  */
-async function offerPresetSelection(availablePresets: any[], selector: InteractiveSelector): Promise<string> {
+async function offerPresetSelection(availablePresets: PresetInfo[], selector: InteractiveSelector): Promise<string> {
   console.log('🎯 Found existing presets. What would you like to do?\n');
 
   // Show available presets
