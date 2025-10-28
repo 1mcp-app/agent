@@ -75,10 +75,10 @@ export class ExpressServer {
     this.configManager = AgentConfigManager.getInstance();
 
     // Configure trust proxy setting before any middleware
-    this.app.set('trust proxy', this.configManager.getTrustProxy());
+    this.app.set('trust proxy', this.configManager.get('trustProxy'));
 
     // Initialize OAuth provider with custom session storage path if configured
-    const sessionStoragePath = this.configManager.getSessionStoragePath();
+    const sessionStoragePath = this.configManager.get('auth').sessionStoragePath;
     this.oauthProvider = new SDKOAuthServerProvider(sessionStoragePath);
 
     // Initialize streamable session repository with 'transport' subdirectory
@@ -101,7 +101,7 @@ export class ExpressServer {
    */
   private setupMiddleware(): void {
     // Conditionally apply enhanced security middleware (must be first if enabled)
-    if (this.configManager.isEnhancedSecurityEnabled()) {
+    if (this.configManager.get('features').enhancedSecurity) {
       this.app.use(...setupSecurityMiddleware());
     }
 
@@ -131,8 +131,8 @@ export class ExpressServer {
     const issuerUrl = new URL(this.configManager.getUrl());
 
     const rateLimitConfig: Partial<RateLimitOptions> = {
-      windowMs: this.configManager.getRateLimitWindowMs(),
-      max: this.configManager.getRateLimitMax(),
+      windowMs: this.configManager.get('rateLimit').windowMs,
+      max: this.configManager.get('rateLimit').max,
       message: RATE_LIMIT_CONFIG.OAUTH.MESSAGE,
       standardHeaders: true,
       legacyHeaders: false,
@@ -201,7 +201,7 @@ export class ExpressServer {
     this.app.use(router);
 
     // Log authentication status
-    if (this.configManager.isAuthEnabled()) {
+    if (this.configManager.get('features').auth) {
       logger.info('Authentication enabled - OAuth 2.1 endpoints available via SDK');
     } else {
       logger.info('Authentication disabled - all endpoints accessible without auth');
@@ -220,7 +220,7 @@ export class ExpressServer {
   public start(): void {
     const { port, host } = this.configManager.getConfig();
     this.app.listen(port, host, () => {
-      const authStatus = this.configManager.isAuthEnabled() ? 'with authentication' : 'without authentication';
+      const authStatus = this.configManager.get('features').auth ? 'with authentication' : 'without authentication';
       logger.info(`Server is running on port ${port} with HTTP/SSE and Streamable HTTP transport ${authStatus}`);
       logger.info(`📋 OAuth Management Dashboard: ${this.configManager.getUrl()}/oauth`);
     });

@@ -1,6 +1,28 @@
 import { AUTH_CONFIG, HOST, PORT, RATE_LIMIT_CONFIG, STREAMABLE_HTTP_ENDPOINT } from '@src/constants.js';
 
 /**
+ * Deep merge utility for nested objects
+ */
+function deepMerge<T extends Record<string, unknown>>(target: T, source: Partial<T>): T {
+  const result = { ...target };
+
+  for (const key in source) {
+    if (source[key] !== undefined) {
+      if (typeof source[key] === 'object' && source[key] !== null && !Array.isArray(source[key])) {
+        result[key] = deepMerge(
+          (result[key] || {}) as Record<string, unknown>,
+          source[key] as Record<string, unknown>,
+        ) as T[Extract<keyof T, string>];
+      } else {
+        result[key] = source[key] as T[Extract<keyof T, string>];
+      }
+    }
+  }
+
+  return result;
+}
+
+/**
  * Configuration interface for agent-specific settings.
  *
  * Defines the structure for authentication and session management configuration
@@ -26,6 +48,10 @@ export interface AgentConfig {
     auth: boolean;
     scopeValidation: boolean;
     enhancedSecurity: boolean;
+    configReload: boolean;
+    envSubstitution: boolean;
+    sessionPersistence: boolean;
+    clientNotifications: boolean;
   };
   health: {
     detailLevel: 'full' | 'basic' | 'minimal';
@@ -37,6 +63,14 @@ export interface AgentConfig {
     initialLoadTimeoutMs: number;
     batchNotifications: boolean;
     batchDelayMs: number;
+  };
+  configReload: {
+    debounceMs: number;
+  };
+  sessionPersistence: {
+    persistRequests: number;
+    persistIntervalMinutes: number;
+    backgroundFlushSeconds: number;
   };
 }
 
@@ -85,6 +119,10 @@ export class AgentConfigManager {
         auth: AUTH_CONFIG.SERVER.DEFAULT_ENABLED,
         scopeValidation: AUTH_CONFIG.SERVER.DEFAULT_ENABLED,
         enhancedSecurity: false,
+        configReload: true,
+        envSubstitution: true,
+        sessionPersistence: true,
+        clientNotifications: true,
       },
       health: {
         detailLevel: 'minimal',
@@ -96,6 +134,14 @@ export class AgentConfigManager {
         initialLoadTimeoutMs: 30000, // 30 seconds
         batchNotifications: true,
         batchDelayMs: 1000, // 1 second
+      },
+      configReload: {
+        debounceMs: 500,
+      },
+      sessionPersistence: {
+        persistRequests: 100,
+        persistIntervalMinutes: 5,
+        backgroundFlushSeconds: 60,
       },
     };
   }
@@ -124,26 +170,10 @@ export class AgentConfigManager {
    * @param updates - Partial configuration object with new values
    */
   public updateConfig(updates: Partial<AgentConfig>): void {
-    // Handle nested object merging properly
-    const { auth, rateLimit, features, health, asyncLoading, ...otherUpdates } = updates;
-
-    this.config = { ...this.config, ...otherUpdates };
-
-    if (auth) {
-      this.config.auth = { ...this.config.auth, ...auth };
-    }
-    if (rateLimit) {
-      this.config.rateLimit = { ...this.config.rateLimit, ...rateLimit };
-    }
-    if (features) {
-      this.config.features = { ...this.config.features, ...features };
-    }
-    if (health) {
-      this.config.health = { ...this.config.health, ...health };
-    }
-    if (asyncLoading) {
-      this.config.asyncLoading = { ...this.config.asyncLoading, ...asyncLoading };
-    }
+    this.config = deepMerge(
+      this.config as unknown as Record<string, unknown>,
+      updates as unknown as Record<string, unknown>,
+    ) as unknown as AgentConfig;
   }
 
   /**
@@ -159,191 +189,127 @@ export class AgentConfigManager {
   }
 
   /**
-   * Checks if authentication is currently enabled.
+   * Generic type-safe getter for accessing configuration properties.
    *
-   * @returns True if OAuth 2.1 authentication is enabled, false otherwise
+   * Provides type-safe access to any config property with full TypeScript
+   * inference. Use this method instead of individual getters for better
+   * maintainability and consistency.
+   *
+   * @param key - The configuration key to access
+   * @returns The configuration value with proper typing
+   *
+   * @example
+   * ```typescript
+   * const configManager = AgentConfigManager.getInstance();
+   *
+   * // Access nested properties with full type safety
+   * const sessionTtl = configManager.get('auth').sessionTtlMinutes;
+   * const rateLimitMax = configManager.get('rateLimit').max;
+   * const isAsyncEnabled = configManager.get('asyncLoading').enabled;
+   * ```
    */
-  public isAuthEnabled(): boolean {
-    return this.config.features.auth;
+  public get<K extends keyof AgentConfig>(key: K): AgentConfig[K] {
+    return this.config[key];
   }
 
-  /**
-   * Gets the session time-to-live in minutes.
-   *
-   * @returns Session TTL in minutes
-   */
-  public getSessionTtlMinutes(): number {
-    return this.config.auth.sessionTtlMinutes;
-  }
-
-  /**
-   * Gets the custom session storage path if configured.
-   *
-   * @returns Custom session storage path or undefined if using default
-   */
-  public getSessionStoragePath(): string | undefined {
-    return this.config.auth.sessionStoragePath;
-  }
-
-  /**
-   * Gets the OAuth authorization code time-to-live in milliseconds.
-   *
-   * @returns OAuth code TTL in milliseconds
-   */
-  public getOAuthCodeTtlMs(): number {
-    return this.config.auth.oauthCodeTtlMs;
-  }
-
-  /**
-   * Gets the OAuth access token time-to-live in milliseconds.
-   *
-   * @returns OAuth token TTL in milliseconds
-   */
-  public getOAuthTokenTtlMs(): number {
-    return this.config.auth.oauthTokenTtlMs;
-  }
-
-  /**
-   * Gets the rate limit window in milliseconds.
-   *
-   * @returns Rate limit window in milliseconds
-   */
-  public getRateLimitWindowMs(): number {
-    return this.config.rateLimit.windowMs;
-  }
-
-  /**
-   * Gets the maximum number of requests per rate limit window.
-   *
-   * @returns Maximum requests per window
-   */
-  public getRateLimitMax(): number {
-    return this.config.rateLimit.max;
-  }
-
-  /**
-   * Checks if scope validation is enabled.
-   *
-   * @returns True if tag-based scope validation is enabled, false otherwise
-   */
-  public isScopeValidationEnabled(): boolean {
-    return this.config.features.scopeValidation;
-  }
-
-  /**
-   * Checks if enhanced security middleware is enabled.
-   *
-   * @returns True if enhanced security middleware is enabled, false otherwise
-   */
-  public isEnhancedSecurityEnabled(): boolean {
-    return this.config.features.enhancedSecurity;
-  }
-
-  /**
-   * Gets the external URL if configured.
-   *
-   * @returns The external URL or undefined if not set
-   */
-  public getExternalUrl(): string | undefined {
-    return this.config.externalUrl;
-  }
-
-  /**
-   * Gets the trust proxy configuration for Express.js.
-   *
-   * @returns Trust proxy setting (boolean, string preset, IP address, or CIDR range)
-   */
-  public getTrustProxy(): string | boolean {
-    return this.config.trustProxy;
-  }
-
-  /**
-   * Gets the server URL, preferring external URL if set, otherwise falling back to http://host:port.
-   *
-   * @returns The server URL to use for OAuth callbacks and public URLs
-   */
+  // Convenience methods for frequently used properties
   public getUrl(): string {
-    return this.config.externalUrl || `http://${this.config.host}:${this.config.port}`;
+    return this.get('externalUrl') || `http://${this.get('host')}:${this.get('port')}`;
   }
 
-  /**
-   * Gets the streamable HTTP URL, which includes the streamable HTTP endpoint.
-   *
-   * @returns The streamable HTTP URL
-   */
   public getStreambleHttpUrl(): string {
     return `${this.getUrl()}${STREAMABLE_HTTP_ENDPOINT}`;
   }
 
-  /**
-   * Gets the health endpoint detail level configuration.
-   *
-   * @returns Health detail level ('full' | 'basic' | 'minimal')
-   */
-  public getHealthDetailLevel(): 'full' | 'basic' | 'minimal' {
-    return this.config.health.detailLevel;
+  public getTrustProxy(): string | boolean {
+    return this.get('trustProxy');
   }
 
-  /**
-   * Checks if async loading is enabled.
-   *
-   * @returns True if MCP servers should load asynchronously, false for legacy synchronous loading
-   */
+  public isAuthEnabled(): boolean {
+    return this.get('features').auth;
+  }
+
   public isAsyncLoadingEnabled(): boolean {
-    return this.config.asyncLoading.enabled;
+    return this.get('asyncLoading').enabled;
   }
 
-  /**
-   * Checks if server readiness notifications are enabled.
-   *
-   * @returns True if listChanged notifications should be sent when servers become ready
-   */
-  public isNotifyOnServerReadyEnabled(): boolean {
-    return this.config.asyncLoading.notifyOnServerReady;
+  public isConfigReloadEnabled(): boolean {
+    return this.get('features').configReload;
   }
 
-  /**
-   * Gets the minimum number of servers to wait for during startup.
-   *
-   * @returns Number of servers to wait for (0 = don't wait)
-   */
-  public getWaitForMinimumServers(): number {
-    return this.config.asyncLoading.waitForMinimumServers;
+  public isScopeValidationEnabled(): boolean {
+    return this.get('features').scopeValidation;
   }
 
-  /**
-   * Gets the initial loading timeout in milliseconds.
-   *
-   * @returns Maximum time to wait for initial server loading in milliseconds
-   */
-  public getInitialLoadTimeoutMs(): number {
-    return this.config.asyncLoading.initialLoadTimeoutMs;
+  public isEnhancedSecurityEnabled(): boolean {
+    return this.get('features').enhancedSecurity;
   }
 
-  /**
-   * Checks if notification batching is enabled.
-   *
-   * @returns True if notifications should be batched to reduce client spam
-   */
+  public getHealthDetailLevel(): 'full' | 'basic' | 'minimal' {
+    return this.get('health').detailLevel;
+  }
+
+  public isClientNotificationsEnabled(): boolean {
+    return this.get('features').clientNotifications;
+  }
+
+  public getSessionStoragePath(): string | undefined {
+    return this.get('auth').sessionStoragePath;
+  }
+
+  public getSessionTtlMinutes(): number {
+    return this.get('auth').sessionTtlMinutes;
+  }
+
+  public getOAuthCodeTtlMs(): number {
+    return this.get('auth').oauthCodeTtlMs;
+  }
+
+  public getOAuthTokenTtlMs(): number {
+    return this.get('auth').oauthTokenTtlMs;
+  }
+
+  public getRateLimitWindowMs(): number {
+    return this.get('rateLimit').windowMs;
+  }
+
+  public getRateLimitMax(): number {
+    return this.get('rateLimit').max;
+  }
+
+  public isEnvSubstitutionEnabled(): boolean {
+    return this.get('features').envSubstitution;
+  }
+
+  public getConfigReloadDebounceMs(): number {
+    return this.get('configReload').debounceMs;
+  }
+
   public isBatchNotificationsEnabled(): boolean {
-    return this.config.asyncLoading.batchNotifications;
+    return this.get('asyncLoading').batchNotifications;
   }
 
-  /**
-   * Gets the batching delay in milliseconds.
-   *
-   * @returns Delay before sending batched notifications in milliseconds
-   */
   public getBatchDelayMs(): number {
-    return this.config.asyncLoading.batchDelayMs;
+    return this.get('asyncLoading').batchDelayMs;
   }
 
-  /**
-   * Gets the complete async loading configuration.
-   *
-   * @returns Copy of async loading configuration
-   */
-  public getAsyncLoadingConfig(): AgentConfig['asyncLoading'] {
-    return { ...this.config.asyncLoading };
+  public isNotifyOnServerReadyEnabled(): boolean {
+    return this.get('asyncLoading').notifyOnServerReady;
+  }
+
+  public isSessionPersistenceEnabled(): boolean {
+    return this.get('features').sessionPersistence;
+  }
+
+  public getSessionPersistRequests(): number {
+    return this.get('sessionPersistence').persistRequests;
+  }
+
+  public getSessionPersistIntervalMinutes(): number {
+    return this.get('sessionPersistence').persistIntervalMinutes;
+  }
+
+  public getSessionBackgroundFlushSeconds(): number {
+    return this.get('sessionPersistence').backgroundFlushSeconds;
   }
 }

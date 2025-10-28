@@ -21,7 +21,7 @@ describe('HTTP Trust Proxy Configuration Integration', () => {
 
   describe('Trust Proxy Configuration Management', () => {
     it('should have default loopback trust proxy configuration', () => {
-      expect(configManager.getTrustProxy()).toBe('loopback');
+      expect(configManager.get('trustProxy')).toBe('loopback');
 
       const config = configManager.getConfig();
       expect(config.trustProxy).toBe('loopback');
@@ -29,10 +29,10 @@ describe('HTTP Trust Proxy Configuration Integration', () => {
 
     it('should handle boolean trust proxy values', () => {
       configManager.updateConfig({ trustProxy: true });
-      expect(configManager.getTrustProxy()).toBe(true);
+      expect(configManager.get('trustProxy')).toBe(true);
 
       configManager.updateConfig({ trustProxy: false });
-      expect(configManager.getTrustProxy()).toBe(false);
+      expect(configManager.get('trustProxy')).toBe(false);
     });
 
     it('should handle string preset trust proxy values', () => {
@@ -40,7 +40,7 @@ describe('HTTP Trust Proxy Configuration Integration', () => {
 
       presets.forEach((preset) => {
         configManager.updateConfig({ trustProxy: preset });
-        expect(configManager.getTrustProxy()).toBe(preset);
+        expect(configManager.get('trustProxy')).toBe(preset);
       });
     });
 
@@ -49,7 +49,7 @@ describe('HTTP Trust Proxy Configuration Integration', () => {
 
       ipAddresses.forEach((ip) => {
         configManager.updateConfig({ trustProxy: ip });
-        expect(configManager.getTrustProxy()).toBe(ip);
+        expect(configManager.get('trustProxy')).toBe(ip);
       });
     });
 
@@ -58,7 +58,7 @@ describe('HTTP Trust Proxy Configuration Integration', () => {
 
       cidrs.forEach((cidr) => {
         configManager.updateConfig({ trustProxy: cidr });
-        expect(configManager.getTrustProxy()).toBe(cidr);
+        expect(configManager.get('trustProxy')).toBe(cidr);
       });
     });
   });
@@ -72,13 +72,13 @@ describe('HTTP Trust Proxy Configuration Integration', () => {
         port: 4000,
       });
 
-      expect(configManager.getTrustProxy()).toBe('linklocal');
+      expect(configManager.get('trustProxy')).toBe('linklocal');
       expect(configManager.getConfig().host).toBe('test.com');
       expect(configManager.getConfig().port).toBe(4000);
 
       // Update other configuration, trust proxy should persist
       configManager.updateConfig({ port: 5000 });
-      expect(configManager.getTrustProxy()).toBe('linklocal');
+      expect(configManager.get('trustProxy')).toBe('linklocal');
       expect(configManager.getConfig().port).toBe(5000);
     });
 
@@ -91,7 +91,7 @@ describe('HTTP Trust Proxy Configuration Integration', () => {
         } as any,
       });
 
-      expect(configManager.getTrustProxy()).toBe('192.168.1.0/24');
+      expect(configManager.get('trustProxy')).toBe('192.168.1.0/24');
       expect(configManager.getConfig().auth.enabled).toBe(true);
       expect(configManager.getConfig().auth.sessionTtlMinutes).toBe(720);
 
@@ -104,7 +104,7 @@ describe('HTTP Trust Proxy Configuration Integration', () => {
   describe('Configuration Scenarios', () => {
     it('should handle local development scenario', () => {
       // Default configuration should be suitable for local development
-      expect(configManager.getTrustProxy()).toBe('loopback');
+      expect(configManager.get('trustProxy')).toBe('loopback');
 
       const config = configManager.getConfig();
       expect(config.host).toBe('127.0.0.1');
@@ -120,9 +120,11 @@ describe('HTTP Trust Proxy Configuration Integration', () => {
         port: 3050,
       });
 
-      expect(configManager.getTrustProxy()).toBe('192.168.1.100');
-      expect(configManager.getExternalUrl()).toBe('https://api.example.com');
-      expect(configManager.getUrl()).toBe('https://api.example.com');
+      expect(configManager.get('trustProxy')).toBe('192.168.1.100');
+      expect(configManager.get('externalUrl')).toBe('https://api.example.com');
+      expect(
+        configManager.get('externalUrl') || `http://${configManager.get('host')}:${configManager.get('port')}`,
+      ).toBe('https://api.example.com');
     });
 
     it('should handle CDN scenario', () => {
@@ -134,9 +136,9 @@ describe('HTTP Trust Proxy Configuration Integration', () => {
         } as any,
       });
 
-      expect(configManager.getTrustProxy()).toBe(true);
-      expect(configManager.getExternalUrl()).toBe('https://cdn.example.com');
-      expect(configManager.isEnhancedSecurityEnabled()).toBe(true);
+      expect(configManager.get('trustProxy')).toBe(true);
+      expect(configManager.get('externalUrl')).toBe('https://cdn.example.com');
+      expect(configManager.get('features').enhancedSecurity).toBe(true);
     });
 
     it('should handle Docker container scenario', () => {
@@ -146,36 +148,38 @@ describe('HTTP Trust Proxy Configuration Integration', () => {
         port: 3050,
       });
 
-      expect(configManager.getTrustProxy()).toBe('uniquelocal');
+      expect(configManager.get('trustProxy')).toBe('uniquelocal');
       expect(configManager.getConfig().host).toBe('0.0.0.0');
-      expect(configManager.getUrl()).toBe('http://0.0.0.0:3050');
+      expect(
+        configManager.get('externalUrl') || `http://${configManager.get('host')}:${configManager.get('port')}`,
+      ).toBe('http://0.0.0.0:3050');
     });
   });
 
   describe('Edge Cases and Validation', () => {
     it('should handle boolean false trust proxy configuration', () => {
       configManager.updateConfig({ trustProxy: false });
-      expect(configManager.getTrustProxy()).toBe(false);
-      expect(typeof configManager.getTrustProxy()).toBe('boolean');
+      expect(configManager.get('trustProxy')).toBe(false);
+      expect(typeof configManager.get('trustProxy')).toBe('boolean');
     });
 
     it('should handle empty string trust proxy configuration', () => {
       configManager.updateConfig({ trustProxy: '' });
-      expect(configManager.getTrustProxy()).toBe('');
+      expect(configManager.get('trustProxy')).toBe('');
     });
 
     it('should maintain type consistency', () => {
       // Test boolean
       configManager.updateConfig({ trustProxy: true });
-      expect(typeof configManager.getTrustProxy()).toBe('boolean');
+      expect(typeof configManager.get('trustProxy')).toBe('boolean');
 
       // Test string
       configManager.updateConfig({ trustProxy: 'loopback' });
-      expect(typeof configManager.getTrustProxy()).toBe('string');
+      expect(typeof configManager.get('trustProxy')).toBe('string');
 
       // Test IP address
       configManager.updateConfig({ trustProxy: '127.0.0.1' });
-      expect(typeof configManager.getTrustProxy()).toBe('string');
+      expect(typeof configManager.get('trustProxy')).toBe('string');
     });
 
     it('should handle rapid configuration changes', () => {
@@ -183,7 +187,7 @@ describe('HTTP Trust Proxy Configuration Integration', () => {
 
       values.forEach((value) => {
         configManager.updateConfig({ trustProxy: value });
-        expect(configManager.getTrustProxy()).toBe(value);
+        expect(configManager.get('trustProxy')).toBe(value);
       });
     });
   });

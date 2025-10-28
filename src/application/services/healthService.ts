@@ -123,7 +123,7 @@ export class HealthService {
    * Sanitize health response based on security configuration
    */
   private sanitizeHealthResponse(response: HealthCheckResponse): HealthCheckResponse {
-    const detailLevel = this.agentConfig.getHealthDetailLevel();
+    const detailLevel = this.agentConfig.get('health').detailLevel;
 
     // Apply detail level restrictions
     switch (detailLevel) {
@@ -309,7 +309,7 @@ export class HealthService {
         serverCount,
         enabledCount,
         disabledCount,
-        authEnabled: agentConfig.isAuthEnabled(),
+        authEnabled: agentConfig.get('features').auth,
         transport: 'http', // Since this is the HTTP transport layer
       };
     } catch (error) {

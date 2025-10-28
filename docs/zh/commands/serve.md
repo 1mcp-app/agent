@@ -41,6 +41,13 @@ serve 命令支持所有配置选项。以下是最常用的选项：
 - **`--tag-filter, -f <expression>`** - 高级标签过滤表达式
 - **`--tags, -g <tags>`** - ⚠️ 已弃用 - 请使用 `--tag-filter`
 
+### 高级配置选项
+
+- **`--enable-config-reload`** - 启用配置文件热重载
+- **`--enable-env-substitution`** - 启用环境变量替换
+- **`--enable-session-persistence`** - 启用 HTTP 会话持久化
+- **`--enable-client-notifications`** - 启用实时客户端通知
+
 ### 日志选项
 
 - **`--log-level <level>`** - 设置日志级别（`debug`、`info`、`warn`、`error`）
@@ -102,7 +109,61 @@ npx -y @1mcp/agent serve \
 # 使用自定义配置目录进行开发
 npx -y @1mcp/agent serve \
   --config-dir=./dev-config \
-  --log-level=debug
+  --log-level=debug \
+  --enable-config-reload
+```
+
+### 高级配置
+
+```bash
+# 启用所有高级功能的开发
+npx -y @1mcp/agent serve \
+  --log-level=debug \
+  --enable-config-reload \
+  --config-reload-debounce=1000 \
+  --enable-env-substitution \
+  --enable-session-persistence \
+  --session-persist-requests=50 \
+  --enable-client-notifications
+
+# 优化会话持久化的生产环境
+npx -y @1mcp/agent serve \
+  --host=0.0.0.0 \
+  --port=3051 \
+  --enable-auth \
+  --enable-session-persistence \
+  --session-persist-requests=200 \
+  --session-persist-interval=10 \
+  --session-background-flush=30 \
+  --enable-client-notifications
+
+# 高性能设置（最小功能）
+npx -y @1mcp/agent serve \
+  --transport=stdio \
+  --enable-config-reload=false \
+  --enable-env-substitution=true \
+  --enable-session-persistence=false \
+  --enable-client-notifications=false \
+  --log-level=warn
+```
+
+### 环境变量替换
+
+```bash
+# 在配置文件中使用环境变量
+API_KEY="${API_KEY}" \
+DATABASE_URL="${DATABASE_URL}" \
+SESSION_DIR="${SESSION_STORAGE_DIR}" \
+npx -y @1mcp/agent serve \
+  --enable-env-substitution \
+  --config-dir=./config
+
+# 结合配置重载实现动态更新
+API_BASE_URL="${API_BASE_URL}" \
+npx -y @1mcp/agent serve \
+  --enable-env-substitution \
+  --enable-config-reload \
+  --config-reload-debounce=2000
 ```
 
 ### 标签过滤

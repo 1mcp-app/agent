@@ -86,8 +86,8 @@ describe('SDKOAuthProvider', () => {
     it('should verify access tokens when auth is disabled', async () => {
       // Mock auth disabled
       const configManager = provider['configManager'];
-      const originalIsAuthEnabled = configManager.isAuthEnabled;
-      configManager.isAuthEnabled = () => false;
+      const originalIsAuthEnabled = configManager.get('features').auth;
+      configManager.get('features').auth = false;
 
       try {
         const authInfo = await provider.verifyAccessToken('any-token');
@@ -98,21 +98,21 @@ describe('SDKOAuthProvider', () => {
         );
       } finally {
         // Restore original method
-        configManager.isAuthEnabled = originalIsAuthEnabled;
+        configManager.get('features').auth = originalIsAuthEnabled;
       }
     });
 
     it('should throw error for invalid tokens when auth is enabled', async () => {
       // Mock auth enabled
       const configManager = provider['configManager'];
-      const originalIsAuthEnabled = configManager.isAuthEnabled;
-      configManager.isAuthEnabled = () => true;
+      const originalIsAuthEnabled = configManager.get('features').auth;
+      configManager.get('features').auth = true;
 
       try {
         await expect(provider.verifyAccessToken('invalid-token')).rejects.toThrow('Invalid or expired access token');
       } finally {
         // Restore original method
-        configManager.isAuthEnabled = originalIsAuthEnabled;
+        configManager.get('features').auth = originalIsAuthEnabled;
       }
     });
   });

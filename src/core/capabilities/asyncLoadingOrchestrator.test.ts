@@ -35,6 +35,16 @@ describe('AsyncLoadingOrchestrator', () => {
     };
 
     mockAgentConfig = {
+      get: vi.fn().mockImplementation((key: string) => {
+        if (key === 'asyncLoading')
+          return {
+            enabled: true,
+            notifyOnServerReady: true,
+            batchNotifications: true,
+            batchDelayMs: 1000,
+          };
+        return undefined;
+      }),
       isAsyncLoadingEnabled: vi.fn().mockReturnValue(true),
       isNotifyOnServerReadyEnabled: vi.fn().mockReturnValue(true),
       isBatchNotificationsEnabled: vi.fn().mockReturnValue(true),
@@ -81,7 +91,16 @@ describe('AsyncLoadingOrchestrator', () => {
     });
 
     it('should skip initialization when async loading is disabled', () => {
-      mockAgentConfig.isAsyncLoadingEnabled.mockReturnValue(false);
+      mockAgentConfig.get.mockImplementation((key: string) => {
+        if (key === 'asyncLoading')
+          return {
+            enabled: false,
+            notifyOnServerReady: true,
+            batchNotifications: true,
+            batchDelayMs: 1000,
+          };
+        return undefined;
+      });
 
       orchestrator.initialize();
 
@@ -111,7 +130,16 @@ describe('AsyncLoadingOrchestrator', () => {
     });
 
     it('should not initialize notifications when async loading is disabled', () => {
-      mockAgentConfig.isAsyncLoadingEnabled.mockReturnValue(false);
+      mockAgentConfig.get.mockImplementation((key: string) => {
+        if (key === 'asyncLoading')
+          return {
+            enabled: false,
+            notifyOnServerReady: true,
+            batchNotifications: true,
+            batchDelayMs: 1000,
+          };
+        return undefined;
+      });
 
       orchestrator.initializeNotifications(mockInboundConnection);
 

@@ -38,7 +38,7 @@ async function setupServer(): Promise<ServerSetupResult> {
   try {
     const mcpConfig = McpConfigManager.getInstance().getTransportConfig();
     const agentConfig = AgentConfigManager.getInstance();
-    const asyncLoadingEnabled = agentConfig.isAsyncLoadingEnabled();
+    const asyncLoadingEnabled = agentConfig.get('asyncLoading').enabled;
 
     // Initialize preset management system
     await initializePresetSystem();

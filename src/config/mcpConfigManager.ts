@@ -4,6 +4,7 @@ import path from 'path';
 
 import { substituteEnvVarsInConfig } from '@src/config/envProcessor.js';
 import { DEFAULT_CONFIG, getGlobalConfigDir, getGlobalConfigPath } from '@src/constants.js';
+import { AgentConfigManager } from '@src/core/server/agentConfig.js';
 import { MCPServerParams } from '@src/core/types/index.js';
 import logger, { debugIf } from '@src/logger/logger.js';
 
@@ -23,7 +24,6 @@ export class McpConfigManager extends EventEmitter {
   private transportConfig: Record<string, MCPServerParams> = {};
   private configFilePath: string;
   private debounceTimer: ReturnType<typeof setTimeout> | null = null;
-  private readonly debounceDelayMs: number = 500; // 500ms debounce delay
   private lastModified: number = 0;
 
   /**
@@ -81,7 +81,11 @@ export class McpConfigManager extends EventEmitter {
 
       // Parse JSON and apply environment variable substitution
       const configData = JSON.parse(rawConfigData) as unknown;
-      const processedConfig = substituteEnvVarsInConfig(configData) as { mcpServers?: Record<string, MCPServerParams> };
+
+      // Apply environment variable substitution if enabled
+      const agentConfig = AgentConfigManager.getInstance();
+      const features = agentConfig.get('features');
+      const processedConfig = features.envSubstitution ? substituteEnvVarsInConfig(configData) : configData;
 
       // Type guard to ensure processedConfig has proper structure
       if (!processedConfig || typeof processedConfig !== 'object') {
@@ -92,7 +96,8 @@ export class McpConfigManager extends EventEmitter {
 
       const configObj = processedConfig as Record<string, unknown>;
       this.transportConfig = (configObj.mcpServers as Record<string, MCPServerParams>) || {};
-      logger.info('Configuration loaded successfully with environment variable substitution');
+      const substitutionStatus = features.envSubstitution ? 'with' : 'without';
+      logger.info(`Configuration loaded successfully ${substitutionStatus} environment variable substitution`);
     } catch (error) {
       logger.error(`Failed to load configuration: ${error instanceof Error ? error.message : String(error)}`);
       this.transportConfig = {};
@@ -123,6 +128,14 @@ export class McpConfigManager extends EventEmitter {
    * Start watching the configuration file for changes
    */
   public startWatching(): void {
+    // Check if config reload is enabled
+    const agentConfig = AgentConfigManager.getInstance();
+    const features = agentConfig.get('features');
+    if (!features.configReload) {
+      logger.info('Configuration hot-reload is disabled, skipping file watcher setup');
+      return;
+    }
+
     if (this.configWatcher) {
       return;
     }
@@ -203,12 +216,17 @@ export class McpConfigManager extends EventEmitter {
       clearTimeout(this.debounceTimer);
     }
 
+    // Get debounce delay from config
+    const agentConfig = AgentConfigManager.getInstance();
+    const configReload = agentConfig.get('configReload');
+    const debounceDelayMs = configReload.debounceMs;
+
     // Set new timer
     this.debounceTimer = setTimeout(() => {
       logger.info('Debounce period completed, reloading configuration...');
       this.reloadConfig();
       this.debounceTimer = null;
-    }, this.debounceDelayMs);
+    }, debounceDelayMs);
   }
 
   /**

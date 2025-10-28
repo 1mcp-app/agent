@@ -71,7 +71,7 @@ export function createScopeAuthMiddleware(oauthProvider?: SDKOAuthServerProvider
   const serverConfig = AgentConfigManager.getInstance();
 
   // If scope validation is disabled, return a pass-through middleware
-  if (!serverConfig.isScopeValidationEnabled()) {
+  if (!serverConfig.get('features').scopeValidation) {
     return (_req: Request, res: Response, next: NextFunction): void => {
       // Type-safe access to tags from res.locals
       const localsTags = res.locals.tags as unknown;
@@ -84,7 +84,7 @@ export function createScopeAuthMiddleware(oauthProvider?: SDKOAuthServerProvider
   }
 
   // If scope validation is enabled but auth is disabled, allow all tags
-  if (!serverConfig.isAuthEnabled()) {
+  if (!serverConfig.get('features').auth) {
     return (_req: Request, res: Response, next: NextFunction): void => {
       // Type-safe access to tags from res.locals
       const localsTags = res.locals.tags as unknown;

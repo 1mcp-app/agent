@@ -1,6 +1,7 @@
 import { ConfigChangeEvent, McpConfigManager } from '@src/config/mcpConfigManager.js';
 import { setupCapabilities } from '@src/core/capabilities/capabilityManager.js';
 import { ClientManager } from '@src/core/client/clientManager.js';
+import { AgentConfigManager } from '@src/core/server/agentConfig.js';
 import { ServerManager } from '@src/core/server/serverManager.js';
 import { EnhancedTransport, InboundConnection, MCPServerParams } from '@src/core/types/index.js';
 import logger from '@src/logger/logger.js';
@@ -134,6 +135,13 @@ export class ConfigReloadService {
    * Send listChanged notifications to clients after config reload
    */
   private async sendListChangedNotifications(): Promise<void> {
+    // Check if client notifications are enabled
+    const agentConfig = AgentConfigManager.getInstance();
+    if (!agentConfig.get('features').clientNotifications) {
+      logger.info('Client notifications are disabled, skipping listChanged notifications after config reload');
+      return;
+    }
+
     try {
       const serverManager = ServerManager.current;
       const inboundConnections = serverManager.getInboundConnections();
