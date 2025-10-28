@@ -24,8 +24,74 @@ import type {
   UpdateResult,
 } from './types.js';
 
-// Re-export version utilities for backward compatibility
-export { compareVersions, getUpdateType, parseVersion } from './services/versionResolver.js';
+/**
+ * Parse semantic version string into components
+ * @internal Exported for testing
+ */
+export function parseVersion(version: string): { major: number; minor: number; patch: number } | null {
+  const parsed = semver.parse(version);
+  if (!parsed) {
+    return null;
+  }
+
+  return {
+    major: parsed.major,
+    minor: parsed.minor,
+    patch: parsed.patch,
+  };
+}
+
+/**
+ * Compare two semantic versions
+ * Returns: 1 if v1 > v2, -1 if v1 < v2, 0 if equal
+ * @internal Exported for testing
+ */
+export function compareVersions(v1: string, v2: string): number {
+  // Clean versions to handle 'v' prefix and other formats
+  const clean1 = semver.clean(v1);
+  const clean2 = semver.clean(v2);
+
+  if (!clean1 || !clean2) {
+    return 0;
+  }
+
+  return semver.compare(clean1, clean2);
+}
+
+/**
+ * Determine update type based on version comparison
+ * @internal Exported for testing
+ */
+export function getUpdateType(currentVersion: string, newVersion: string): 'major' | 'minor' | 'patch' | undefined {
+  const clean1 = semver.clean(currentVersion);
+  const clean2 = semver.clean(newVersion);
+
+  if (!clean1 || !clean2) {
+    return undefined;
+  }
+
+  // First check if new version is actually greater
+  if (!semver.gt(clean2, clean1)) {
+    return undefined;
+  }
+
+  // Now determine the type of update
+  const diff = semver.diff(clean1, clean2);
+
+  if (diff === 'major' || diff === 'premajor') {
+    return 'major';
+  }
+
+  if (diff === 'minor' || diff === 'preminor') {
+    return 'minor';
+  }
+
+  if (diff === 'patch' || diff === 'prepatch') {
+    return 'patch';
+  }
+
+  return undefined;
+}
 
 /**
  * Server installation service
@@ -41,124 +107,53 @@ export class ServerInstallationService {
   }
 
   /**
-   * Validate server name format
-   */
-  private validateServerName(serverName: string): void {
-    if (!serverName || serverName.trim().length === 0) {
-      throw new Error('Server name cannot be empty');
-    }
-
-    const trimmedName = serverName.trim();
-
-    // Check for invalid characters
-    // eslint-disable-next-line no-control-regex
-    const invalidChars = /[<>:"\\|?*\x00-\x1f]/;
-    if (invalidChars.test(trimmedName)) {
-      throw new Error(`Server name contains invalid characters: ${serverName}`);
-    }
-
-    // Check length limits
-    if (trimmedName.length > 255) {
-      throw new Error(`Server name too long (max 255 characters): ${serverName}`);
-    }
-
-    // Check for consecutive slashes or dots
-    if (trimmedName.includes('//') || trimmedName.includes('..')) {
-      throw new Error(`Server name contains invalid sequences: ${serverName}`);
-    }
-
-    // Log the validated name for debugging
-    logger.debug(`Server name validation passed: ${trimmedName}`);
-  }
-
-  /**
    * Install a server from the registry
    */
-  async installServer(registryServerId: string, version?: string, options?: InstallOptions): Promise<InstallResult> {
+  async installServer(serverName: string, version?: string, _options?: InstallOptions): Promise<InstallResult> {
     const operationId = `op_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
     const warnings: string[] = [];
     const errors: string[] = [];
 
     try {
-      const localServerName = options?.localServerName || registryServerId;
-      logger.info(
-        `Starting installation of ${registryServerId}${version ? `@${version}` : ''} as '${localServerName}'`,
-      );
-
-      // Validate local server name format (if provided)
-      if (options?.localServerName) {
-        this.validateServerName(options.localServerName);
-      }
+      logger.info(`Starting installation of ${serverName}${version ? `@${version}` : ''}`);
 
       // Get server information from registry
-      logger.debug(`Fetching server from registry: ${registryServerId}${version ? `@${version}` : ''}`);
-      const registryServer = await this.registryClient.getServerById(registryServerId, version);
+      const registryServer = await this.registryClient.getServerById(serverName, version);
 
       if (!registryServer) {
-        throw new Error(`Server '${registryServerId}' not found in registry`);
+        throw new Error(`Server '${serverName}' not found in registry`);
       }
 
       // Select appropriate remote/package for installation
       const selectedRemote = this.selectRemoteEndpoint(registryServer);
       if (!selectedRemote) {
-        throw new Error(`No compatible installation method found for ${registryServerId}`);
+        throw new Error(`No compatible installation method found for ${serverName}`);
       }
 
-      // Generate server configuration from registry data
-      const serverConfig = await this.createServerConfig(registryServer, selectedRemote);
-
-      // Apply user-provided tags, env, and args from wizard
-      if (options?.tags && options.tags.length > 0) {
-        serverConfig.tags = options.tags;
-      }
-      if (options?.env) {
-        serverConfig.env = { ...serverConfig.env, ...options.env };
-      }
-      if (options?.args && options.args.length > 0) {
-        // Merge with existing args if any
-        serverConfig.args = [...(serverConfig.args || []), ...options.args];
-      }
-
-      // Validate and persist configuration
-      validateServerConfig(serverConfig);
-      setServer(localServerName, serverConfig);
-
-      // Resolve config path for result reporting
-      const configContext = ConfigContext.getInstance();
-      const resolvedConfigPath = configContext.getResolvedConfigPath();
+      // Generate server configuration (not used in current implementation but required for future)
+      const _serverConfig = await this.createServerConfig(registryServer, selectedRemote);
 
       // Create installation result
       const result: InstallResult = {
         success: true,
-        serverName: localServerName,
+        serverName,
         version: registryServer.version,
         installedAt: new Date(),
-        configPath: resolvedConfigPath,
+        configPath: '', // Will be set by command handler
         backupPath: undefined,
         warnings,
         errors,
         operationId,
       };
 
-      logger.info(`Successfully prepared installation configuration for ${localServerName}`);
+      logger.info(`Successfully prepared installation configuration for ${serverName}`);
       return result;
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
       errors.push(errorMessage);
+      logger.error(`Installation failed for ${serverName}: ${errorMessage}`);
 
-      // Enhanced error logging with debugging context
-      logger.error(`Installation failed for ${registryServerId}: ${errorMessage}`);
-      logger.debug(`Installation failure details:`, {
-        registryServerId,
-        localServerName: options?.localServerName,
-        version,
-        errorType: error?.constructor?.name,
-        errorMessage,
-        timestamp: new Date().toISOString(),
-      });
-
-      // Re-throw with enhanced context
-      throw new Error(`Failed to install server '${registryServerId}'${version ? `@${version}` : ''}: ${errorMessage}`);
+      throw error;
     }
   }
 
@@ -166,32 +161,7 @@ export class ServerInstallationService {
    * Select appropriate remote endpoint for the current system
    */
   private selectRemoteEndpoint(registryServer: RegistryServer): { type: string; url: string } | undefined {
-    // First try packages (newer registry format)
-    const packages = registryServer.packages || [];
-
-    if (packages.length > 0) {
-      // Look for stdio transport packages (most common for MCP servers)
-      const stdioPackage = packages.find((pkg) => pkg.transport?.type === 'stdio');
-      if (stdioPackage) {
-        // Use package identifier to construct the installation command
-        const identifier = stdioPackage.identifier;
-        return { type: 'stdio', url: `npx ${identifier}` };
-      }
-
-      // Look for other transport types
-      const httpPackage = packages.find((pkg) => pkg.transport?.type === 'http' || pkg.transport?.type === 'sse');
-      if (httpPackage) {
-        return { type: httpPackage.transport!.type, url: httpPackage.transport!.url || '' };
-      }
-
-      // Fallback to first package
-      const firstPackage = packages[0];
-      if (firstPackage.transport) {
-        return { type: firstPackage.transport.type, url: firstPackage.transport.url || firstPackage.identifier };
-      }
-    }
-
-    // Fallback to remotes (legacy format)
+    // Prioritize remotes based on type
     const remotes = registryServer.remotes || [];
 
     // Prefer streamable-http (npx-based) as most common
@@ -215,37 +185,14 @@ export class ServerInstallationService {
     _registryServer: RegistryServer,
     remote: { type: string; url: string },
   ): Promise<MCPServerParams> {
-    // Create a configuration based on remote type
-    const remoteType = remote.type?.toLowerCase();
-
-    if (remoteType === 'http' || remoteType === 'sse') {
-      return {
-        type: remoteType as 'http' | 'sse',
-        url: remote.url,
-      } as MCPServerParams;
-    }
-
-    // streamable-http and other npx-based installers ? stdio
-    if (remoteType === 'streamable-http' || remoteType === 'stdio') {
-      const tokens = remote.url.trim().split(/\s+/);
-      const command = tokens.shift() || 'npx';
-      const args = tokens;
-      return {
-        type: 'stdio',
-        command,
-        args: args.length > 0 ? args : undefined,
-      } as MCPServerParams;
-    }
-
-    // Fallback: treat as stdio command
-    const tokens = remote.url.trim().split(/\s+/);
-    const command = tokens.shift() || remote.url;
-    const args = tokens;
-    return {
+    // For now, return a basic configuration
+    // Full implementation would handle different remote types
+    const config: MCPServerParams = {
       type: 'stdio',
-      command,
-      args: args.length > 0 ? args : undefined,
-    } as MCPServerParams;
+      command: remote.url,
+    };
+
+    return config;
   }
 
   /**

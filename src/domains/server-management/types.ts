@@ -16,7 +16,6 @@ export enum InstallationStatus {
   OUTDATED = 'outdated',
   CORRUPTED = 'corrupted',
   DISABLED = 'disabled',
-  NOT_INSTALLED = 'not_installed',
 }
 
 /**
@@ -94,10 +93,6 @@ export interface InstallOptions {
   force?: boolean; // Force installation even if already exists
   dryRun?: boolean; // Show what would be installed without installing
   verbose?: boolean; // Detailed output
-  localServerName?: string; // Local server name to use instead of registry ID
-  tags?: string[]; // Tags to apply to the server
-  env?: Record<string, string>; // Environment variables
-  args?: string[]; // Additional arguments
 }
 
 /**

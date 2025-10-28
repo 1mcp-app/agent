@@ -146,22 +146,55 @@ export function setupMcpCommands(yargs: Argv): Argv {
         .command({
           command: 'search [query]',
           describe: 'Search registry for MCP servers (alias for registry search)',
+<<<<<<< HEAD
           builder: (yargs) => buildRegistrySearchCommand(yargs),
+=======
+          builder: (yargs) => {
+            return yargs
+              .positional('query', {
+                describe: 'Search query',
+                type: 'string',
+              })
+              .option('category', {
+                describe: 'Filter by category',
+                type: 'string',
+              })
+              .option('tag', {
+                describe: 'Filter by tag',
+                type: 'array',
+                string: true,
+              })
+              .option('limit', {
+                describe: 'Limit results',
+                type: 'number',
+                default: 20,
+              })
+              .example([
+                ['$0 mcp search', 'Browse all servers'],
+                ['$0 mcp search filesystem', 'Search for filesystem-related servers'],
+              ]);
+          },
+>>>>>>> 100defa (feat(mcp): add install and uninstall commands for MCP server management)
           handler: async (argv) => {
             // Delegate to registry search command
             const { searchCommand } = await import('../registry/search.js');
             const searchArgs = {
               query: argv.query,
+<<<<<<< HEAD
               status: argv.status,
               type: argv.type,
               transport: argv.transport,
               limit: argv.limit,
               cursor: argv.cursor,
               format: argv.format,
+=======
+              limit: argv.limit,
+>>>>>>> 100defa (feat(mcp): add install and uninstall commands for MCP server management)
               _: argv._ || [],
               $0: argv.$0 || '1mcp',
               config: argv.config,
               'config-dir': argv['config-dir'],
+<<<<<<< HEAD
               url: argv['url'],
               timeout: argv['timeout'],
               'cache-ttl': argv['cache-ttl'],
@@ -171,6 +204,10 @@ export function setupMcpCommands(yargs: Argv): Argv {
               'proxy-auth': argv['proxy-auth'],
             } as Parameters<typeof searchCommand>[0];
             await searchCommand(searchArgs);
+=======
+            };
+            await searchCommand(searchArgs as Parameters<typeof searchCommand>[0]);
+>>>>>>> 100defa (feat(mcp): add install and uninstall commands for MCP server management)
           },
         })
         .demandCommand(1, 'You must specify a subcommand')
