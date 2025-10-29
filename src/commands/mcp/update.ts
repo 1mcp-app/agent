@@ -352,6 +352,6 @@ export async function updateCommand(argv: UpdateCommandArgs): Promise<void> {
     console.log(`\n💡 Server configuration updated. If 1mcp is running, the server will be reloaded automatically.`);
   } catch (error) {
     console.error(`❌ Failed to update server: ${error instanceof Error ? error.message : error}`);
-    process.exit(1);
+    throw error;
   }
 }

@@ -5,7 +5,12 @@ import logger from '@src/logger/logger.js';
 import type { Argv } from 'yargs';
 
 import { backupConfig, initializeConfigContext, reloadMcpConfig, serverExists } from './utils/configUtils.js';
-import { generateOperationId, parseServerNameVersion, validateServerName } from './utils/serverUtils.js';
+import {
+  generateOperationId,
+  parseServerNameVersion,
+  validateServerName,
+  validateVersion,
+} from './utils/serverUtils.js';
 
 export interface InstallCommandArgs extends GlobalOptions {
   serverName: string;
@@ -72,6 +77,11 @@ export async function installCommand(argv: InstallCommandArgs): Promise<void> {
     // Parse server name and version
     const { name: serverName, version } = parseServerNameVersion(inputServerName);
 
+    // Validate version format if provided
+    if (version && !validateVersion(version)) {
+      throw new Error(`Invalid version format: '${version}'. Expected semantic version (e.g., 1.2.3).`);
+    }
+
     if (verbose) {
       logger.info(`Parsed server name: ${serverName}, version: ${version || 'latest'}`);
     }
@@ -115,7 +125,7 @@ export async function installCommand(argv: InstallCommandArgs): Promise<void> {
       // Create backup if replacing existing server
       let backupPath: string | undefined;
       if (serverExists(serverName)) {
-        progressTracker.updateProgress(operationId, 1, 'Creating backup', `Backing up existing configuration`);
+        progressTracker.updateProgress(operationId, 2, 'Creating backup', `Backing up existing configuration`);
         backupPath = backupConfig();
         logger.info(`Backup created: ${backupPath}`);
       }
@@ -123,7 +133,7 @@ export async function installCommand(argv: InstallCommandArgs): Promise<void> {
       // Update progress: Installing
       progressTracker.updateProgress(
         operationId,
-        2,
+        3,
         'Installing server',
         `Installing ${serverName}${version ? `@${version}` : ''}`,
       );
@@ -134,8 +144,8 @@ export async function installCommand(argv: InstallCommandArgs): Promise<void> {
         verbose,
       });
 
-      // Update progress: Saving configuration
-      progressTracker.updateProgress(operationId, 3, 'Saving configuration', 'Writing to config file');
+      // Update progress: Finalizing
+      progressTracker.updateProgress(operationId, 4, 'Finalizing', 'Verifying configuration');
 
       // Save the configuration (service returns the config to be saved)
       // For now, this will be handled by the install server method directly
@@ -145,13 +155,12 @@ export async function installCommand(argv: InstallCommandArgs): Promise<void> {
       // setServer(serverName, result.serverConfig);
 
       // Update progress: Reloading
-      progressTracker.updateProgress(operationId, 4, 'Reloading configuration', 'Applying changes');
+      progressTracker.updateProgress(operationId, 5, 'Reloading configuration', 'Applying changes');
 
       // Reload MCP configuration
       reloadMcpConfig();
 
-      // Update progress: Complete
-      progressTracker.updateProgress(operationId, 5, 'Installation complete', `Successfully installed ${serverName}`);
+      // Update progress: Complete (completeOperation logs completion)
 
       // Complete the operation
       const duration = result.installedAt ? Date.now() - result.installedAt.getTime() : 0;
