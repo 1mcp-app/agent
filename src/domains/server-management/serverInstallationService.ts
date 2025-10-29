@@ -1,4 +1,11 @@
-import { getAllServers, getInstallationMetadata, getServer, setServer } from '@src/commands/mcp/utils/configUtils.js';
+import {
+  getAllServers,
+  getInstallationMetadata,
+  getServer,
+  setServer,
+  validateServerConfig,
+} from '@src/commands/mcp/utils/configUtils.js';
+import ConfigContext from '@src/config/configContext.js';
 import { MCPServerParams } from '@src/core/types/index.js';
 import logger from '@src/logger/logger.js';
 
@@ -124,8 +131,16 @@ export class ServerInstallationService {
         throw new Error(`No compatible installation method found for ${serverName}`);
       }
 
-      // Generate server configuration (not used in current implementation but required for future)
-      const _serverConfig = await this.createServerConfig(registryServer, selectedRemote);
+      // Generate server configuration from registry data
+      const serverConfig = await this.createServerConfig(registryServer, selectedRemote);
+
+      // Validate and persist configuration
+      validateServerConfig(serverConfig);
+      setServer(serverName, serverConfig);
+
+      // Resolve config path for result reporting
+      const configContext = ConfigContext.getInstance();
+      const resolvedConfigPath = configContext.getResolvedConfigPath();
 
       // Create installation result
       const result: InstallResult = {
@@ -133,7 +148,7 @@ export class ServerInstallationService {
         serverName,
         version: registryServer.version,
         installedAt: new Date(),
-        configPath: '', // Will be set by command handler
+        configPath: resolvedConfigPath,
         backupPath: undefined,
         warnings,
         errors,
@@ -179,14 +194,37 @@ export class ServerInstallationService {
     _registryServer: RegistryServer,
     remote: { type: string; url: string },
   ): Promise<MCPServerParams> {
-    // For now, return a basic configuration
-    // Full implementation would handle different remote types
-    const config: MCPServerParams = {
-      type: 'stdio',
-      command: remote.url,
-    };
+    // Create a configuration based on remote type
+    const remoteType = remote.type?.toLowerCase();
 
-    return config;
+    if (remoteType === 'http' || remoteType === 'sse') {
+      return {
+        type: remoteType as 'http' | 'sse',
+        url: remote.url,
+      } as MCPServerParams;
+    }
+
+    // streamable-http and other npx-based installers ? stdio
+    if (remoteType === 'streamable-http' || remoteType === 'stdio') {
+      const tokens = remote.url.trim().split(/\s+/);
+      const command = tokens.shift() || 'npx';
+      const args = tokens;
+      return {
+        type: 'stdio',
+        command,
+        args: args.length > 0 ? args : undefined,
+      } as MCPServerParams;
+    }
+
+    // Fallback: treat as stdio command
+    const tokens = remote.url.trim().split(/\s+/);
+    const command = tokens.shift() || remote.url;
+    const args = tokens;
+    return {
+      type: 'stdio',
+      command,
+      args: args.length > 0 ? args : undefined,
+    } as MCPServerParams;
   }
 
   /**

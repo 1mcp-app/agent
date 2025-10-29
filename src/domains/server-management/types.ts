@@ -16,6 +16,7 @@ export enum InstallationStatus {
   OUTDATED = 'outdated',
   CORRUPTED = 'corrupted',
   DISABLED = 'disabled',
+  NOT_INSTALLED = 'not_installed',
 }
 
 /**

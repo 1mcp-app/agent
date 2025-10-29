@@ -60,7 +60,7 @@ export function validateVersion(version: string): boolean {
  */
 export function calculateServerStatus(installedVersion: string, latestVersion?: string): InstallationStatus {
   if (!installedVersion) {
-    return InstallationStatus.FAILED;
+    return InstallationStatus.NOT_INSTALLED;
   }
 
   if (latestVersion && installedVersion !== latestVersion) {
