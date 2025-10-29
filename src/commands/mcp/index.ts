@@ -3,6 +3,7 @@ import { globalOptions } from '@src/globalOptions.js';
 
 import type { Argv } from 'yargs';
 
+import { buildSearchCommand as buildRegistrySearchCommand } from '../registry/search.js';
 import { buildAddCommand } from './add.js';
 import { buildDisableCommand, buildEnableCommand } from './enable.js';
 import { buildInstallCommand } from './install.js';
@@ -145,43 +146,31 @@ export function setupMcpCommands(yargs: Argv): Argv {
         .command({
           command: 'search [query]',
           describe: 'Search registry for MCP servers (alias for registry search)',
-          builder: (yargs) => {
-            return yargs
-              .positional('query', {
-                describe: 'Search query',
-                type: 'string',
-              })
-              .option('category', {
-                describe: 'Filter by category',
-                type: 'string',
-              })
-              .option('tag', {
-                describe: 'Filter by tag',
-                type: 'array',
-                string: true,
-              })
-              .option('limit', {
-                describe: 'Limit results',
-                type: 'number',
-                default: 20,
-              })
-              .example([
-                ['$0 mcp search', 'Browse all servers'],
-                ['$0 mcp search filesystem', 'Search for filesystem-related servers'],
-              ]);
-          },
+          builder: (yargs) => buildRegistrySearchCommand(yargs),
           handler: async (argv) => {
             // Delegate to registry search command
             const { searchCommand } = await import('../registry/search.js');
             const searchArgs = {
               query: argv.query,
+              status: argv.status,
+              type: argv.type,
+              transport: argv.transport,
               limit: argv.limit,
+              cursor: argv.cursor,
+              format: argv.format,
               _: argv._ || [],
               $0: argv.$0 || '1mcp',
               config: argv.config,
               'config-dir': argv['config-dir'],
-            };
-            await searchCommand(searchArgs as Parameters<typeof searchCommand>[0]);
+              url: argv['url'],
+              timeout: argv['timeout'],
+              'cache-ttl': argv['cache-ttl'],
+              'cache-max-size': argv['cache-max-size'],
+              'cache-cleanup-interval': argv['cache-cleanup-interval'],
+              proxy: argv['proxy'],
+              'proxy-auth': argv['proxy-auth'],
+            } as Parameters<typeof searchCommand>[0];
+            await searchCommand(searchArgs);
           },
         })
         .demandCommand(1, 'You must specify a subcommand')
