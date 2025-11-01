@@ -5,6 +5,21 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.27.0] - 2025-10-29
+
+### 🚀 Features
+- Add advanced configuration options and feature flags by @xizhibei in [#156](https://github.com/1mcp-app/agent/pull/156)
+
+### 📚 Documentation
+- Enhance documentation with meta tags and descriptions for improved SEO and clarity by @xizhibei
+
+### ⚙️ Miscellaneous Tasks
+- Update funding sources in FUNDING.yml by @xizhibei
+- Add ESLint and Prettier ignore files by @xizhibei
+- Update ESLint configuration and improve error handling by @xizhibei in [#159](https://github.com/1mcp-app/agent/pull/159)
+- Update version and changelog to 0.26.1 [skip ci] by @github-actions[bot]
+
+
 ## [0.26.1] - 2025-10-24
 
 ### ⚙️ Miscellaneous Tasks
@@ -810,6 +825,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 * @xizhibei made their first contribution in [#1](https://github.com/1mcp-app/agent/pull/1)
 * @dependabot[bot] made their first contribution
 
+[0.27.0]: https://github.com/1mcp-app/agent/compare/v0.26.1..v0.27.0
 [0.26.1]: https://github.com/1mcp-app/agent/compare/v0.26.0..v0.26.1
 [0.26.0]: https://github.com/1mcp-app/agent/compare/v0.25.5..v0.26.0
 [0.25.5]: https://github.com/1mcp-app/agent/compare/v0.25.4..v0.25.5
