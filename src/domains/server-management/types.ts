@@ -94,6 +94,7 @@ export interface InstallOptions {
   force?: boolean; // Force installation even if already exists
   dryRun?: boolean; // Show what would be installed without installing
   verbose?: boolean; // Detailed output
+  localServerName?: string; // Local server name to use instead of registry ID
 }
 
 /**

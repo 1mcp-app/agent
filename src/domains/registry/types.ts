@@ -73,7 +73,7 @@ export interface ServerRemote {
 }
 
 export interface ServerMeta {
-  [OFFICIAL_REGISTRY_KEY]: RegistryExtensions;
+  'io.modelcontextprotocol.registry/official': RegistryExtensions;
   [key: string]: unknown;
 }
 
@@ -128,8 +128,6 @@ export interface RegistryExtensions {
   publishedAt: string;
   status: 'active' | 'deprecated' | 'archived';
   updatedAt: string;
-  serverId: string;
-  versionId: string;
 }
 
 export interface OfficialMeta extends RegistryExtensions {}

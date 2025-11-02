@@ -54,8 +54,6 @@ describe('MCPRegistryClient', () => {
         ],
         _meta: {
           'io.modelcontextprotocol.registry/official': {
-            serverId: 'file-server-1',
-            versionId: 'v1.0.0',
             publishedAt: '2024-01-01T00:00:00Z',
             updatedAt: '2024-01-01T00:00:00Z',
             isLatest: true,
@@ -81,8 +79,6 @@ describe('MCPRegistryClient', () => {
         ],
         _meta: {
           'io.modelcontextprotocol.registry/official': {
-            serverId: 'database-server-1',
-            versionId: 'v1.0.1',
             publishedAt: '2024-01-02T00:00:00Z',
             updatedAt: '2024-01-02T00:00:00Z',
             isLatest: true,

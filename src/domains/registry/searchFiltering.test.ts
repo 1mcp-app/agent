@@ -29,8 +29,6 @@ describe('SearchEngine', () => {
         ],
         _meta: {
           'io.modelcontextprotocol.registry/official': {
-            serverId: 'file-manager-1',
-            versionId: 'v1.0.0',
             publishedAt: '2024-01-01T00:00:00Z',
             updatedAt: '2024-06-01T00:00:00Z',
             isLatest: true,
@@ -56,8 +54,6 @@ describe('SearchEngine', () => {
         ],
         _meta: {
           'io.modelcontextprotocol.registry/official': {
-            serverId: 'database-connector-1',
-            versionId: 'v2.1.0',
             publishedAt: '2024-02-01T00:00:00Z',
             updatedAt: '2024-07-01T00:00:00Z',
             isLatest: true,
@@ -83,8 +79,6 @@ describe('SearchEngine', () => {
         ],
         _meta: {
           'io.modelcontextprotocol.registry/official': {
-            serverId: 'legacy-files-1',
-            versionId: 'v0.9.0',
             publishedAt: '2023-01-01T00:00:00Z',
             updatedAt: '2023-06-01T00:00:00Z',
             isLatest: false,

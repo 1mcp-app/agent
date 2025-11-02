@@ -5,12 +5,7 @@ import logger from '@src/logger/logger.js';
 import type { Argv } from 'yargs';
 
 import { backupConfig, initializeConfigContext, reloadMcpConfig, serverExists } from './utils/configUtils.js';
-import {
-  generateOperationId,
-  parseServerNameVersion,
-  validateServerName,
-  validateVersion,
-} from './utils/serverUtils.js';
+import { generateOperationId, parseServerNameVersion, validateVersion } from './utils/serverUtils.js';
 
 export interface InstallCommandArgs extends GlobalOptions {
   serverName: string;
@@ -75,7 +70,7 @@ export async function installCommand(argv: InstallCommandArgs): Promise<void> {
     }
 
     // Parse server name and version
-    const { name: serverName, version } = parseServerNameVersion(inputServerName);
+    const { name: registryServerId, version } = parseServerNameVersion(inputServerName);
 
     // Validate version format if provided
     if (version && !validateVersion(version)) {
@@ -83,11 +78,19 @@ export async function installCommand(argv: InstallCommandArgs): Promise<void> {
     }
 
     if (verbose) {
-      logger.info(`Parsed server name: ${serverName}, version: ${version || 'latest'}`);
+      logger.info(`Parsed registry server ID: ${registryServerId}, version: ${version || 'latest'}`);
     }
 
-    // Validate server name
-    validateServerName(serverName);
+    // For registry installations, we need to validate the registry server ID format
+    // and then derive a valid local server name
+    validateRegistryServerId(registryServerId);
+
+    // Derive a valid local server name from the registry ID
+    const serverName = deriveLocalServerName(registryServerId);
+
+    if (verbose) {
+      logger.info(`Derived local server name: ${serverName} from registry ID: ${registryServerId}`);
+    }
 
     // Check if server already exists
     if (serverExists(serverName)) {
@@ -138,10 +141,12 @@ export async function installCommand(argv: InstallCommandArgs): Promise<void> {
         `Installing ${serverName}${version ? `@${version}` : ''}`,
       );
 
-      // Perform installation
-      const result = await installationService.installServer(serverName, version, {
+      // Perform installation - pass the registry server ID for fetching from registry
+      // but use the derived local name for configuration
+      const result = await installationService.installServer(registryServerId, version, {
         force,
         verbose,
+        localServerName: serverName, // Pass the derived local name
       });
 
       // Update progress: Finalizing
@@ -192,4 +197,74 @@ export async function installCommand(argv: InstallCommandArgs): Promise<void> {
     }
     throw error;
   }
+}
+
+/**
+ * Validate registry server ID format
+ * Registry server IDs can contain dots, slashes, and hyphens (e.g., io.github.user/server-name)
+ */
+function validateRegistryServerId(registryId: string): void {
+  if (!registryId || registryId.trim().length === 0) {
+    throw new Error('Registry server ID cannot be empty');
+  }
+
+  const trimmedId = registryId.trim();
+
+  // Check for invalid characters that should never be in server IDs
+  // eslint-disable-next-line no-control-regex
+  const invalidChars = /[<>"\\|?*\x00-\x1f]/;
+  if (invalidChars.test(trimmedId)) {
+    throw new Error(`Registry server ID contains invalid characters: ${registryId}`);
+  }
+
+  // Check length limits
+  if (trimmedId.length > 255) {
+    throw new Error(`Registry server ID too long (max 255 characters): ${registryId}`);
+  }
+
+  // Check for invalid patterns
+  if (trimmedId.includes('//') || trimmedId.startsWith('/') || trimmedId.endsWith('/')) {
+    throw new Error(`Registry server ID has invalid format: ${registryId}`);
+  }
+
+  logger.debug(`Registry server ID validation passed: ${trimmedId}`);
+}
+
+/**
+ * Derive a valid local server name from a registry server ID
+ * Example: io.github.SnowLeopard-AI/bigquery-mcp -> bigquery-mcp
+ */
+function deriveLocalServerName(registryId: string): string {
+  // Extract the last part after the slash, or use the full ID if no slash
+  const lastPart = registryId.includes('/') ? registryId.split('/').pop()! : registryId;
+
+  // If it already starts with a letter and only contains valid chars, use it as-is
+  const localNameRegex = /^[a-zA-Z][a-zA-Z0-9_-]*$/;
+  if (localNameRegex.test(lastPart) && lastPart.length <= 50) {
+    return lastPart;
+  }
+
+  // Otherwise, sanitize it:
+  // 1. Replace invalid characters with underscores
+  // 2. Ensure it starts with a letter
+  // 3. Truncate if too long
+  let sanitized = lastPart.replace(/[^a-zA-Z0-9_-]/g, '_');
+
+  // Ensure it starts with a letter
+  if (!/^[a-zA-Z]/.test(sanitized)) {
+    sanitized = `server_${sanitized}`;
+  }
+
+  // Truncate to 50 characters if longer
+  if (sanitized.length > 50) {
+    sanitized = sanitized.substring(0, 50);
+  }
+
+  // Ensure it's not empty after sanitization
+  if (sanitized.length === 0) {
+    sanitized = 'server';
+  }
+
+  logger.debug(`Derived local server name '${sanitized}' from registry ID '${registryId}'`);
+  return sanitized;
 }
