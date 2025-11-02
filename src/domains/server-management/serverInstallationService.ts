@@ -108,27 +108,67 @@ export class ServerInstallationService {
   }
 
   /**
+   * Validate server name format
+   */
+  private validateServerName(serverName: string): void {
+    if (!serverName || serverName.trim().length === 0) {
+      throw new Error('Server name cannot be empty');
+    }
+
+    const trimmedName = serverName.trim();
+
+    // Check for invalid characters
+    // eslint-disable-next-line no-control-regex
+    const invalidChars = /[<>:"\\|?*\x00-\x1f]/;
+    if (invalidChars.test(trimmedName)) {
+      throw new Error(`Server name contains invalid characters: ${serverName}`);
+    }
+
+    // Check length limits
+    if (trimmedName.length > 255) {
+      throw new Error(`Server name too long (max 255 characters): ${serverName}`);
+    }
+
+    // Check for consecutive slashes or dots
+    if (trimmedName.includes('//') || trimmedName.includes('..')) {
+      throw new Error(`Server name contains invalid sequences: ${serverName}`);
+    }
+
+    // Log the validated name for debugging
+    logger.debug(`Server name validation passed: ${trimmedName}`);
+  }
+
+  /**
    * Install a server from the registry
    */
-  async installServer(serverName: string, version?: string, _options?: InstallOptions): Promise<InstallResult> {
+  async installServer(registryServerId: string, version?: string, _options?: InstallOptions): Promise<InstallResult> {
     const operationId = `op_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
     const warnings: string[] = [];
     const errors: string[] = [];
 
     try {
-      logger.info(`Starting installation of ${serverName}${version ? `@${version}` : ''}`);
+      const localServerName = _options?.localServerName || registryServerId;
+      logger.info(
+        `Starting installation of ${registryServerId}${version ? `@${version}` : ''} as '${localServerName}'`,
+      );
+
+      // Validate local server name format (if provided)
+      if (_options?.localServerName) {
+        this.validateServerName(_options.localServerName);
+      }
 
       // Get server information from registry
-      const registryServer = await this.registryClient.getServerById(serverName, version);
+      logger.debug(`Fetching server from registry: ${registryServerId}${version ? `@${version}` : ''}`);
+      const registryServer = await this.registryClient.getServerById(registryServerId, version);
 
       if (!registryServer) {
-        throw new Error(`Server '${serverName}' not found in registry`);
+        throw new Error(`Server '${registryServerId}' not found in registry`);
       }
 
       // Select appropriate remote/package for installation
       const selectedRemote = this.selectRemoteEndpoint(registryServer);
       if (!selectedRemote) {
-        throw new Error(`No compatible installation method found for ${serverName}`);
+        throw new Error(`No compatible installation method found for ${registryServerId}`);
       }
 
       // Generate server configuration from registry data
@@ -136,7 +176,7 @@ export class ServerInstallationService {
 
       // Validate and persist configuration
       validateServerConfig(serverConfig);
-      setServer(serverName, serverConfig);
+      setServer(localServerName, serverConfig);
 
       // Resolve config path for result reporting
       const configContext = ConfigContext.getInstance();
@@ -145,7 +185,7 @@ export class ServerInstallationService {
       // Create installation result
       const result: InstallResult = {
         success: true,
-        serverName,
+        serverName: localServerName,
         version: registryServer.version,
         installedAt: new Date(),
         configPath: resolvedConfigPath,
@@ -155,14 +195,25 @@ export class ServerInstallationService {
         operationId,
       };
 
-      logger.info(`Successfully prepared installation configuration for ${serverName}`);
+      logger.info(`Successfully prepared installation configuration for ${localServerName}`);
       return result;
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
       errors.push(errorMessage);
-      logger.error(`Installation failed for ${serverName}: ${errorMessage}`);
 
-      throw error;
+      // Enhanced error logging with debugging context
+      logger.error(`Installation failed for ${registryServerId}: ${errorMessage}`);
+      logger.debug(`Installation failure details:`, {
+        registryServerId,
+        localServerName: _options?.localServerName,
+        version,
+        errorType: error?.constructor?.name,
+        errorMessage,
+        timestamp: new Date().toISOString(),
+      });
+
+      // Re-throw with enhanced context
+      throw new Error(`Failed to install server '${registryServerId}'${version ? `@${version}` : ''}: ${errorMessage}`);
     }
   }
 
@@ -170,7 +221,32 @@ export class ServerInstallationService {
    * Select appropriate remote endpoint for the current system
    */
   private selectRemoteEndpoint(registryServer: RegistryServer): { type: string; url: string } | undefined {
-    // Prioritize remotes based on type
+    // First try packages (newer registry format)
+    const packages = registryServer.packages || [];
+
+    if (packages.length > 0) {
+      // Look for stdio transport packages (most common for MCP servers)
+      const stdioPackage = packages.find((pkg) => pkg.transport?.type === 'stdio');
+      if (stdioPackage) {
+        // Use package identifier to construct the installation command
+        const identifier = stdioPackage.identifier;
+        return { type: 'stdio', url: `npx ${identifier}` };
+      }
+
+      // Look for other transport types
+      const httpPackage = packages.find((pkg) => pkg.transport?.type === 'http' || pkg.transport?.type === 'sse');
+      if (httpPackage) {
+        return { type: httpPackage.transport!.type, url: httpPackage.transport!.url || '' };
+      }
+
+      // Fallback to first package
+      const firstPackage = packages[0];
+      if (firstPackage.transport) {
+        return { type: firstPackage.transport.type, url: firstPackage.transport.url || firstPackage.identifier };
+      }
+    }
+
+    // Fallback to remotes (legacy format)
     const remotes = registryServer.remotes || [];
 
     // Prefer streamable-http (npx-based) as most common

@@ -95,8 +95,6 @@ describe('serverDetailFormatter', () => {
       ],
       _meta: {
         [OFFICIAL_REGISTRY_KEY]: {
-          serverId: 'test-server-id',
-          versionId: 'test-version-id',
           publishedAt: '2023-01-01T00:00:00Z',
           updatedAt: '2023-01-02T00:00:00Z',
           isLatest: true,
@@ -154,8 +152,6 @@ describe('serverDetailFormatter', () => {
         },
         _meta: {
           [OFFICIAL_REGISTRY_KEY]: {
-            serverId: 'minimal-id',
-            versionId: 'minimal-version-id',
             publishedAt: '2023-01-01T00:00:00Z',
             updatedAt: '2023-01-01T00:00:00Z',
             isLatest: true,
@@ -183,8 +179,6 @@ describe('serverDetailFormatter', () => {
         packages: [],
         _meta: {
           [OFFICIAL_REGISTRY_KEY]: {
-            serverId: 'test-server-id',
-            versionId: 'test-version-id',
             publishedAt: '2023-01-01T00:00:00Z',
             updatedAt: '2023-01-02T00:00:00Z',
             isLatest: true,
@@ -322,8 +316,6 @@ describe('serverDetailFormatter', () => {
         ],
         _meta: {
           [OFFICIAL_REGISTRY_KEY]: {
-            serverId: 'test-server-id',
-            versionId: 'test-version-id',
             publishedAt: '2023-01-01T00:00:00Z',
             updatedAt: '2023-01-02T00:00:00Z',
             isLatest: true,

@@ -69,7 +69,7 @@ function formatTableServer(server: RegistryServer): string {
   basicInfo['Published At'] = formatDate(meta.publishedAt);
   basicInfo['Updated At'] = formatDate(meta.updatedAt);
   basicInfo['Is Latest'] = meta.isLatest ? 'Yes' : 'No';
-  basicInfo['Registry ID'] = meta.serverId;
+  basicInfo['Registry ID'] = server.name || 'N/A';
 
   let result = '\nServer Details:\n';
   console.table([basicInfo]);
@@ -144,11 +144,26 @@ function formatTableServer(server: RegistryServer): string {
  * Format server with enhanced detailed display
  */
 function formatDetailedServer(server: RegistryServer): string {
-  const meta = server._meta[OFFICIAL_REGISTRY_KEY];
+  if (!server._meta) {
+    return 'Error: server._meta is undefined';
+  }
 
-  // Status badge with color
-  const statusColor = server.status === 'active' ? 'green' : server.status === 'deprecated' ? 'yellow' : 'red';
-  const statusBadge = chalk[statusColor].bold(`● ${server.status.toUpperCase()}`);
+  const meta = server._meta[OFFICIAL_REGISTRY_KEY];
+  if (!meta) {
+    return `Error: meta not found for key ${OFFICIAL_REGISTRY_KEY}`;
+  }
+
+  // Status badge with color - use status from meta if server status is not available
+  const serverStatus = server.status || meta.status || 'unknown';
+  const statusColor =
+    serverStatus === 'active'
+      ? 'green'
+      : serverStatus === 'deprecated'
+        ? 'yellow'
+        : serverStatus === 'archived'
+          ? 'red'
+          : 'gray';
+  const statusBadge = chalk[statusColor].bold(`● ${serverStatus.toUpperCase()}`);
 
   // Header with enhanced information
   const header = chalk.cyan.bold(server.name) + ' ' + chalk.gray(`(${server.version})`) + ' ' + statusBadge;
@@ -158,9 +173,9 @@ function formatDetailedServer(server: RegistryServer): string {
 
   // Enhanced basic info section
   const basicInfo = [
-    `${chalk.cyan('Repository:')} ${server.repository.url}`,
-    `${chalk.cyan('Source:')} ${server.repository.source}`,
-    server.repository.subfolder ? `${chalk.cyan('Subfolder:')} ${server.repository.subfolder}` : '',
+    `${chalk.cyan('Repository:')} ${server.repository?.url || 'N/A'}`,
+    `${chalk.cyan('Source:')} ${server.repository?.source || 'N/A'}`,
+    server.repository?.subfolder ? `${chalk.cyan('Subfolder:')} ${server.repository.subfolder}` : '',
     server.websiteUrl ? `${chalk.cyan('Website:')} ${server.websiteUrl}` : '',
     `${chalk.cyan('Published:')} ${formatRelativeDate(meta.publishedAt)}`,
     `${chalk.cyan('Updated:')} ${formatRelativeDate(meta.updatedAt)}`,
@@ -286,8 +301,8 @@ ${remotesList}`;
 
   // Enhanced registry and metadata info
   const metaInfo = [
-    `${chalk.cyan('Registry ID:')} ${meta.serverId}`,
-    `${chalk.cyan('Version ID:')} ${meta.versionId}`,
+    `${chalk.cyan('Registry ID:')} ${server.name || 'N/A'}`,
+    `${chalk.cyan('Version ID:')} ${server.version || 'N/A'}`,
   ].filter(Boolean);
 
   content += `\n\n${chalk.cyan.bold('Registry Information:')}
