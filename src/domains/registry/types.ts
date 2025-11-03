@@ -34,6 +34,7 @@ export interface Input {
   format?: string;
   isRequired?: boolean;
   isSecret?: boolean;
+  name?: string;
   value?: string;
   variables?: Record<string, Input>;
 }
