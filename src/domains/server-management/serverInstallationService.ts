@@ -9,11 +9,10 @@ import ConfigContext from '@src/config/configContext.js';
 import { MCPServerParams } from '@src/core/types/index.js';
 import logger from '@src/logger/logger.js';
 
-import semver from 'semver';
-
 import { createRegistryClient } from '../registry/mcpRegistryClient.js';
 import type { RegistryServer } from '../registry/types.js';
 import { getProgressTrackingService } from './progressTrackingService.js';
+import { compareVersions, getUpdateType } from './services/versionResolver.js';
 import type {
   InstallOptions,
   InstallResult,
@@ -25,74 +24,8 @@ import type {
   UpdateResult,
 } from './types.js';
 
-/**
- * Parse semantic version string into components
- * @internal Exported for testing
- */
-export function parseVersion(version: string): { major: number; minor: number; patch: number } | null {
-  const parsed = semver.parse(version);
-  if (!parsed) {
-    return null;
-  }
-
-  return {
-    major: parsed.major,
-    minor: parsed.minor,
-    patch: parsed.patch,
-  };
-}
-
-/**
- * Compare two semantic versions
- * Returns: 1 if v1 > v2, -1 if v1 < v2, 0 if equal
- * @internal Exported for testing
- */
-export function compareVersions(v1: string, v2: string): number {
-  // Clean versions to handle 'v' prefix and other formats
-  const clean1 = semver.clean(v1);
-  const clean2 = semver.clean(v2);
-
-  if (!clean1 || !clean2) {
-    return 0;
-  }
-
-  return semver.compare(clean1, clean2);
-}
-
-/**
- * Determine update type based on version comparison
- * @internal Exported for testing
- */
-export function getUpdateType(currentVersion: string, newVersion: string): 'major' | 'minor' | 'patch' | undefined {
-  const clean1 = semver.clean(currentVersion);
-  const clean2 = semver.clean(newVersion);
-
-  if (!clean1 || !clean2) {
-    return undefined;
-  }
-
-  // First check if new version is actually greater
-  if (!semver.gt(clean2, clean1)) {
-    return undefined;
-  }
-
-  // Now determine the type of update
-  const diff = semver.diff(clean1, clean2);
-
-  if (diff === 'major' || diff === 'premajor') {
-    return 'major';
-  }
-
-  if (diff === 'minor' || diff === 'preminor') {
-    return 'minor';
-  }
-
-  if (diff === 'patch' || diff === 'prepatch') {
-    return 'patch';
-  }
-
-  return undefined;
-}
+// Re-export version utilities for backward compatibility
+export { compareVersions, getUpdateType, parseVersion } from './services/versionResolver.js';
 
 /**
  * Server installation service
@@ -141,20 +74,20 @@ export class ServerInstallationService {
   /**
    * Install a server from the registry
    */
-  async installServer(registryServerId: string, version?: string, _options?: InstallOptions): Promise<InstallResult> {
+  async installServer(registryServerId: string, version?: string, options?: InstallOptions): Promise<InstallResult> {
     const operationId = `op_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
     const warnings: string[] = [];
     const errors: string[] = [];
 
     try {
-      const localServerName = _options?.localServerName || registryServerId;
+      const localServerName = options?.localServerName || registryServerId;
       logger.info(
         `Starting installation of ${registryServerId}${version ? `@${version}` : ''} as '${localServerName}'`,
       );
 
       // Validate local server name format (if provided)
-      if (_options?.localServerName) {
-        this.validateServerName(_options.localServerName);
+      if (options?.localServerName) {
+        this.validateServerName(options.localServerName);
       }
 
       // Get server information from registry
@@ -173,6 +106,18 @@ export class ServerInstallationService {
 
       // Generate server configuration from registry data
       const serverConfig = await this.createServerConfig(registryServer, selectedRemote);
+
+      // Apply user-provided tags, env, and args from wizard
+      if (options?.tags && options.tags.length > 0) {
+        serverConfig.tags = options.tags;
+      }
+      if (options?.env) {
+        serverConfig.env = { ...serverConfig.env, ...options.env };
+      }
+      if (options?.args && options.args.length > 0) {
+        // Merge with existing args if any
+        serverConfig.args = [...(serverConfig.args || []), ...options.args];
+      }
 
       // Validate and persist configuration
       validateServerConfig(serverConfig);
@@ -205,7 +150,7 @@ export class ServerInstallationService {
       logger.error(`Installation failed for ${registryServerId}: ${errorMessage}`);
       logger.debug(`Installation failure details:`, {
         registryServerId,
-        localServerName: _options?.localServerName,
+        localServerName: options?.localServerName,
         version,
         errorType: error?.constructor?.name,
         errorMessage,

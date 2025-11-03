@@ -52,8 +52,8 @@ export function setupMcpCommands(yargs: Argv): Argv {
           },
         })
         .command({
-          command: 'install <serverName>',
-          describe: 'Install an MCP server from the registry',
+          command: 'install [serverName]',
+          describe: 'Install an MCP server from the registry (interactive wizard if no serverName)',
           builder: buildInstallCommand,
           handler: async (argv) => {
             const { installCommand } = await import('./install.js');

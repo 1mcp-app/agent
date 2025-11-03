@@ -11,3 +11,4 @@ export * from './types.js';
 // Export services
 export * from './serverInstallationService.js';
 export * from './progressTrackingService.js';
+export * from './services/versionResolver.js';

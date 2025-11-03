@@ -95,6 +95,9 @@ export interface InstallOptions {
   dryRun?: boolean; // Show what would be installed without installing
   verbose?: boolean; // Detailed output
   localServerName?: string; // Local server name to use instead of registry ID
+  tags?: string[]; // Tags to apply to the server
+  env?: Record<string, string>; // Environment variables
+  args?: string[]; // Additional arguments
 }
 
 /**

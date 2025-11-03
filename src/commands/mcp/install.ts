@@ -1,17 +1,28 @@
+import { MCPRegistryClient } from '@src/domains/registry/mcpRegistryClient.js';
 import { createServerInstallationService, getProgressTrackingService } from '@src/domains/server-management/index.js';
 import { GlobalOptions } from '@src/globalOptions.js';
 import logger from '@src/logger/logger.js';
 
+import boxen from 'boxen';
+import chalk from 'chalk';
 import type { Argv } from 'yargs';
 
-import { backupConfig, initializeConfigContext, reloadMcpConfig, serverExists } from './utils/configUtils.js';
+import {
+  backupConfig,
+  getAllServers,
+  initializeConfigContext,
+  reloadMcpConfig,
+  serverExists,
+} from './utils/configUtils.js';
+import { InstallWizard } from './utils/installWizard.js';
 import { generateOperationId, parseServerNameVersion, validateVersion } from './utils/serverUtils.js';
 
 export interface InstallCommandArgs extends GlobalOptions {
-  serverName: string;
+  serverName?: string;
   force?: boolean;
   dryRun?: boolean;
   verbose?: boolean;
+  interactive?: boolean;
 }
 
 /**
@@ -22,7 +33,7 @@ export function buildInstallCommand(yargs: Argv) {
     .positional('serverName', {
       describe: 'Server name or name@version to install',
       type: 'string',
-      demandOption: true,
+      demandOption: false,
     })
     .option('force', {
       describe: 'Force installation even if already exists',
@@ -34,6 +45,12 @@ export function buildInstallCommand(yargs: Argv) {
       type: 'boolean',
       default: false,
     })
+    .option('interactive', {
+      describe: 'Launch interactive wizard for guided installation',
+      type: 'boolean',
+      default: false,
+      alias: 'i',
+    })
     .option('verbose', {
       describe: 'Detailed output',
       type: 'boolean',
@@ -41,8 +58,10 @@ export function buildInstallCommand(yargs: Argv) {
       alias: 'v',
     })
     .example([
+      ['$0 mcp install', 'Launch interactive installation wizard'],
       ['$0 mcp install filesystem', 'Install latest version of filesystem server'],
       ['$0 mcp install filesystem@1.0.0', 'Install specific version'],
+      ['$0 mcp install filesystem --interactive', 'Install with interactive configuration'],
       ['$0 mcp install filesystem --force', 'Force reinstallation'],
       ['$0 mcp install filesystem --dry-run', 'Preview installation'],
     ]);
@@ -60,6 +79,7 @@ export async function installCommand(argv: InstallCommandArgs): Promise<void> {
       force = false,
       dryRun = false,
       verbose = false,
+      interactive = false,
     } = argv;
 
     // Initialize configuration context
@@ -67,6 +87,12 @@ export async function installCommand(argv: InstallCommandArgs): Promise<void> {
 
     if (verbose) {
       logger.info('Starting installation process...');
+    }
+
+    // Launch interactive wizard if no server name provided or --interactive flag set
+    if (!inputServerName || interactive) {
+      await runInteractiveInstallation(argv);
+      return;
     }
 
     // Parse server name and version
@@ -267,4 +293,243 @@ function deriveLocalServerName(registryId: string): string {
 
   logger.debug(`Derived local server name '${sanitized}' from registry ID '${registryId}'`);
   return sanitized;
+}
+
+/**
+ * Run interactive installation workflow
+ */
+async function runInteractiveInstallation(argv: InstallCommandArgs): Promise<void> {
+  const {
+    serverName: initialServerId,
+    config: configPath,
+    'config-dir': configDir,
+    force = false,
+    dryRun = false,
+    verbose = false,
+  } = argv;
+
+  // Initialize configuration context
+  initializeConfigContext(configPath, configDir);
+
+  // Create registry client
+  const registryClient = new MCPRegistryClient({
+    baseUrl: 'https://registry.modelcontextprotocol.io',
+    timeout: 30000,
+    cache: {
+      defaultTtl: 300,
+      maxSize: 100,
+      cleanupInterval: 60000,
+    },
+  });
+
+  // Create wizard
+  const wizard = new InstallWizard(registryClient);
+
+  // Get existing server names for conflict detection
+  const getExistingNames = () => Object.keys(getAllServers());
+
+  // Run wizard loop (supports installing multiple servers)
+  let continueInstalling = true;
+  let currentServerId = initialServerId;
+
+  try {
+    while (continueInstalling) {
+      const existingNames = getExistingNames();
+      const wizardResult = await wizard.run(currentServerId, existingNames);
+
+      if (wizardResult.cancelled) {
+        console.log('\n❌ Installation cancelled.\n');
+        wizard.cleanup();
+        process.exit(0);
+      }
+
+      // Perform installation with collected configuration
+      try {
+        const registryServerId = wizardResult.serverId;
+        const version = wizardResult.version;
+        const serverName = wizardResult.localName || deriveLocalServerName(registryServerId);
+
+        // Use forceOverride from wizard if user selected override option
+        const shouldForce = force || wizardResult.forceOverride || false;
+
+        // Check if server already exists (early check)
+        const serverAlreadyExists = serverExists(serverName);
+        if (serverAlreadyExists && !shouldForce) {
+          console.error(`\n❌ Server '${serverName}' already exists. Use --force to reinstall.\n`);
+          wizard.cleanup();
+          if (wizardResult.installAnother) {
+            currentServerId = undefined;
+            continue;
+          }
+          process.exit(1);
+        }
+
+        // Dry run mode
+        if (dryRun) {
+          console.log('🔍 Dry run mode - no changes will be made\n');
+          console.log(`Would install: ${serverName}${version ? `@${version}` : ''}`);
+          console.log(`From registry: https://registry.modelcontextprotocol.io\n`);
+          if (wizardResult.installAnother) {
+            currentServerId = undefined;
+            continue;
+          }
+          wizard.cleanup();
+          process.exit(0);
+        }
+
+        // Create operation ID for tracking
+        const operationId = generateOperationId();
+        const progressTracker = getProgressTrackingService();
+
+        // Helper function to show step indicator
+        const showStepIndicator = (currentStep: number, skipClear = false) => {
+          if (!skipClear) {
+            console.clear();
+          }
+          const steps = ['Search', 'Select', 'Configure', 'Confirm', 'Install'];
+          const stepBar = steps
+            .map((step, index) => {
+              const num = index + 1;
+              if (num < currentStep) {
+                return chalk.green(`✓ ${step}`);
+              } else if (num === currentStep) {
+                return chalk.cyan.bold(`► ${step}`);
+              } else {
+                return chalk.gray(`○ ${step}`);
+              }
+            })
+            .join(' → ');
+          console.log(boxen(stepBar, { padding: { left: 2, right: 2, top: 0, bottom: 0 }, borderStyle: 'round' }));
+          console.log('');
+        };
+
+        // Show Install step indicator (clear screen before starting)
+        showStepIndicator(5, false);
+
+        // Start progress tracking
+        progressTracker.startOperation(operationId, 'install', 5);
+
+        try {
+          // Get installation service
+          const installationService = createServerInstallationService();
+
+          // Update progress: Validating
+          console.log(chalk.cyan('⏳ Validating server...'));
+          progressTracker.updateProgress(operationId, 1, 'Validating server', `Checking registry for ${serverName}`);
+
+          // Create backup if replacing existing server
+          let backupPath: string | undefined;
+          if (serverAlreadyExists) {
+            console.log(chalk.cyan('⏳ Creating backup...'));
+            progressTracker.updateProgress(operationId, 2, 'Creating backup', `Backing up existing configuration`);
+            backupPath = backupConfig();
+            console.log(chalk.gray(`   Backup created: ${backupPath}`));
+            logger.info(`Backup created: ${backupPath}`);
+
+            // Remove the existing server before reinstalling to prevent duplicates
+            const { removeServer } = await import('./utils/configUtils.js');
+            const removed = removeServer(serverName);
+            if (removed) {
+              console.log(chalk.gray(`   Removed existing server '${serverName}'`));
+              if (verbose) {
+                logger.info(`Removed existing server '${serverName}' before reinstalling`);
+              }
+            }
+          }
+
+          // Update progress: Installing
+          console.log(chalk.cyan(`⏳ Installing ${serverName}${version ? `@${version}` : ''}...`));
+          progressTracker.updateProgress(
+            operationId,
+            3,
+            'Installing server',
+            `Installing ${serverName}${version ? `@${version}` : ''}`,
+          );
+
+          // Perform installation
+          const result = await installationService.installServer(registryServerId, version, {
+            force: shouldForce,
+            verbose,
+            localServerName: serverName,
+            tags: wizardResult.tags,
+            env: wizardResult.env,
+            args: wizardResult.args,
+          });
+
+          // Update progress: Finalizing
+          console.log(chalk.cyan('⏳ Finalizing...'));
+          progressTracker.updateProgress(operationId, 4, 'Finalizing', 'Verifying configuration');
+
+          // Update progress: Reloading
+          console.log(chalk.cyan('⏳ Reloading configuration...'));
+          progressTracker.updateProgress(operationId, 5, 'Reloading configuration', 'Applying changes');
+
+          // Reload MCP configuration
+          reloadMcpConfig();
+
+          // Complete the operation
+          const duration = result.installedAt ? Date.now() - result.installedAt.getTime() : 0;
+          progressTracker.completeOperation(operationId, {
+            success: true,
+            operationId,
+            duration,
+            message: `Successfully installed ${serverName}`,
+          });
+
+          // Show completed step indicator with all steps marked as done (don't clear logs)
+          console.log('');
+          showStepIndicator(6, true); // 6 means all steps are completed, true = skip clear
+
+          // Report success
+          console.log(
+            chalk.green.bold(`✅ Successfully installed server '${serverName}'${version ? ` version ${version}` : ''}`),
+          );
+          if (backupPath) {
+            console.log(chalk.gray(`📁 Backup created: ${backupPath}`));
+          }
+          if (result.warnings.length > 0) {
+            console.log(chalk.yellow('\n⚠️  Warnings:'));
+            result.warnings.forEach((warning) => console.log(chalk.yellow(`   • ${warning}`)));
+          }
+        } catch (error) {
+          progressTracker.failOperation(operationId, error as Error);
+          throw error;
+        }
+      } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        console.error(`\n❌ Installation failed: ${errorMessage}\n`);
+        if (error instanceof Error && error.stack) {
+          logger.error('Installation error stack:', error.stack);
+        }
+
+        if (wizardResult.installAnother) {
+          const continueAfterError = await wizard.run(undefined, getExistingNames());
+          if (continueAfterError.cancelled) {
+            wizard.cleanup();
+            process.exit(1);
+          }
+          currentServerId = undefined;
+          continue;
+        }
+
+        wizard.cleanup();
+        process.exit(1);
+      }
+
+      // Check if user wants to install another
+      if (wizardResult.installAnother) {
+        currentServerId = undefined;
+        continueInstalling = true;
+      } else {
+        continueInstalling = false;
+      }
+    }
+  } finally {
+    // Always cleanup wizard resources
+    wizard.cleanup();
+  }
+
+  // Explicitly exit after successful completion to prevent hanging
+  // This ensures stdin doesn't keep the process alive
+  process.exit(0);
 }
