@@ -28,6 +28,8 @@ mcp.json
 /notes
 /.serena/
 /.specify
+/specs
+/openspec
 
 CLAUDE.md
 GEMINI.md
