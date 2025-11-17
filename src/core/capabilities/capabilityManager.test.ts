@@ -94,9 +94,9 @@ describe('CapabilityManager', () => {
 
     it('should collect capabilities from single client', async () => {
       const mockCapabilities: ServerCapabilities = {
-        resources: { list: true },
-        tools: { call: true },
-        prompts: { get: true },
+        resources: { subscribe: true },
+        tools: { listChanged: true },
+        prompts: { listChanged: true },
       };
 
       (mockClient1.getServerCapabilities as unknown as MockInstance).mockReturnValue(mockCapabilities);
@@ -120,13 +120,13 @@ describe('CapabilityManager', () => {
 
     it('should merge capabilities from multiple clients without conflicts', async () => {
       const capabilities1: ServerCapabilities = {
-        resources: { list: true },
-        tools: { call: true },
+        resources: { subscribe: true },
+        tools: { listChanged: true },
       };
 
       const capabilities2: ServerCapabilities = {
-        prompts: { get: true },
-        experimental: { feature1: true },
+        prompts: { listChanged: true },
+        experimental: { feature1: { test: 'value' } },
       };
 
       (mockClient1.getServerCapabilities as unknown as MockInstance).mockReturnValue(capabilities1);
@@ -149,22 +149,22 @@ describe('CapabilityManager', () => {
       const result = await setupCapabilities(clients, mockServerInfo);
 
       expect(result).toEqual({
-        resources: { list: true },
-        tools: { call: true },
-        prompts: { get: true },
-        experimental: { feature1: true },
+        resources: { subscribe: true },
+        tools: { listChanged: true },
+        prompts: { listChanged: true },
+        experimental: { feature1: { test: 'value' } },
       });
     });
 
     it('should detect and resolve capability conflicts', async () => {
       const capabilities1: ServerCapabilities = {
-        resources: { list: true, read: { encoding: 'utf-8' } },
-        tools: { call: true },
+        resources: { subscribe: true, listChanged: true },
+        tools: { listChanged: true },
       };
 
       const capabilities2: ServerCapabilities = {
-        resources: { list: false, read: { encoding: 'base64' } }, // Conflicts with client1
-        prompts: { get: true },
+        resources: { subscribe: false, listChanged: false }, // Conflicts with client1
+        prompts: { listChanged: true },
       };
 
       (mockClient1.getServerCapabilities as unknown as MockInstance).mockReturnValue(capabilities1);
@@ -188,32 +188,34 @@ describe('CapabilityManager', () => {
 
       // client2 should override client1 values
       expect(result).toEqual({
-        resources: { list: false, read: { encoding: 'base64' } },
-        tools: { call: true },
-        prompts: { get: true },
+        resources: { subscribe: true, listChanged: true },
+        tools: { listChanged: true },
+        prompts: { listChanged: true },
       });
 
       // Should log conflicts
       expect(logger.warn).toHaveBeenCalledWith(
-        'Capability conflict in resources.list: client client2 overriding existing value',
+        'Capability conflict in resources.subscribe: client client2 overriding existing value',
       );
       expect(logger.warn).toHaveBeenCalledWith(
-        'Capability conflict in resources.read: client client2 overriding existing value',
+        'Capability conflict in resources.listChanged: client client2 overriding existing value',
       );
       expect(logger.debug).toHaveBeenCalledWith('Existing: true, New: false');
-      expect(logger.debug).toHaveBeenCalledWith('Existing: {"encoding":"utf-8"}, New: {"encoding":"base64"}');
-      expect(logger.info).toHaveBeenCalledWith('Client client2 has 2 resources capability conflicts: list, read');
+      expect(logger.debug).toHaveBeenCalledWith('Existing: true, New: false');
+      expect(logger.info).toHaveBeenCalledWith(
+        'Client client2 has 2 resources capability conflicts: subscribe, listChanged',
+      );
     });
 
     it('should handle notification capabilities without logging conflicts', async () => {
       const capabilities1: ServerCapabilities = {
-        tools: { call: true, listChanged: true },
-        resources: { read: true, listChanged: true },
+        tools: { listChanged: true },
+        resources: { subscribe: true, listChanged: true },
       };
 
       const capabilities2: ServerCapabilities = {
-        tools: { call: true, listChanged: true },
-        prompts: { get: true, listChanged: true },
+        tools: { listChanged: true },
+        prompts: { listChanged: true },
       };
 
       (mockClient1.getServerCapabilities as unknown as MockInstance).mockReturnValue(capabilities1);
@@ -281,7 +283,7 @@ describe('CapabilityManager', () => {
       });
 
       const capabilities2: ServerCapabilities = {
-        tools: { call: true },
+        tools: { listChanged: true },
       };
       (mockClient2.getServerCapabilities as unknown as MockInstance).mockReturnValue(capabilities2);
 
@@ -303,7 +305,7 @@ describe('CapabilityManager', () => {
 
       // Should continue with other clients despite error
       expect(result).toEqual({
-        tools: { call: true },
+        tools: { listChanged: true },
       });
 
       expect(logger.error).toHaveBeenCalledWith(`Failed to get capabilities from client1: ${error}`);
@@ -312,31 +314,23 @@ describe('CapabilityManager', () => {
     it('should handle complex nested capability merging', async () => {
       const capabilities1: ServerCapabilities = {
         resources: {
-          list: true,
-          read: {
-            encoding: 'utf-8',
-            maxSize: 1000,
-          },
+          listChanged: true,
           subscribe: true,
         },
         experimental: {
           feature1: { enabled: true, config: { timeout: 5000 } },
-          feature2: true,
+          feature2: { test: 'value' },
         },
       };
 
       const capabilities2: ServerCapabilities = {
         resources: {
-          list: true, // Same value, no conflict
-          read: {
-            encoding: 'base64', // Conflict
-            maxSize: 2000, // Conflict
-          },
-          write: true, // New capability
+          listChanged: true, // Same value, no conflict
+          subscribe: false, // New capability
         },
         experimental: {
           feature1: { enabled: false, config: { timeout: 10000 } }, // Conflict
-          feature3: 'new', // New capability
+          feature3: { value: 'new' }, // New capability
         },
         logging: {
           level: 'debug',
@@ -364,18 +358,13 @@ describe('CapabilityManager', () => {
 
       expect(result).toEqual({
         resources: {
-          list: true,
-          read: {
-            encoding: 'base64',
-            maxSize: 2000,
-          },
+          listChanged: true,
           subscribe: true,
-          write: true,
         },
         experimental: {
           feature1: { enabled: false, config: { timeout: 10000 } },
-          feature2: true,
-          feature3: 'new',
+          feature2: { test: 'value' },
+          feature3: { value: 'new' },
         },
         logging: {
           level: 'debug',
@@ -395,15 +384,15 @@ describe('CapabilityManager', () => {
 
     it('should handle three-way capability conflicts', async () => {
       const capabilities1: ServerCapabilities = {
-        tools: { call: { version: '1.0' } },
+        tools: { listChanged: true },
       };
 
       const capabilities2: ServerCapabilities = {
-        tools: { call: { version: '2.0' } }, // Conflicts with client1
+        tools: { listChanged: false }, // Conflicts with client1
       };
 
       const capabilities3: ServerCapabilities = {
-        tools: { call: { version: '3.0' } }, // Conflicts with client2
+        tools: { listChanged: true }, // Conflicts with client2
       };
 
       (mockClient1.getServerCapabilities as unknown as MockInstance).mockReturnValue(capabilities1);
@@ -434,27 +423,27 @@ describe('CapabilityManager', () => {
 
       // Final result should have client3's value (last one wins)
       expect(result).toEqual({
-        tools: { call: { version: '3.0' } },
+        tools: { listChanged: true },
       });
 
       // Should log conflicts for both client2 and client3
       expect(logger.warn).toHaveBeenCalledWith(
-        'Capability conflict in tools.call: client client2 overriding existing value',
+        'Capability conflict in tools.listChanged: client client2 overriding existing value',
       );
       expect(logger.warn).toHaveBeenCalledWith(
-        'Capability conflict in tools.call: client client3 overriding existing value',
+        'Capability conflict in tools.listChanged: client client3 overriding existing value',
       );
     });
 
     it('should handle edge cases with null and undefined values', async () => {
       const capabilities1: ServerCapabilities = {
-        resources: { list: null as any },
-        tools: { call: undefined as any },
+        resources: { listChanged: null as any },
+        tools: { listChanged: undefined as any },
       };
 
       const capabilities2: ServerCapabilities = {
-        resources: { list: true },
-        tools: { call: false },
+        resources: { listChanged: true },
+        tools: { listChanged: false },
       };
 
       (mockClient1.getServerCapabilities as unknown as MockInstance).mockReturnValue(capabilities1);
@@ -477,26 +466,26 @@ describe('CapabilityManager', () => {
       const result = await setupCapabilities(clients, mockServerInfo);
 
       expect(result).toEqual({
-        resources: { list: true },
-        tools: { call: false },
+        resources: { listChanged: true },
+        tools: { listChanged: false },
       });
 
       // Should detect conflicts between null/undefined and actual values
       expect(logger.warn).toHaveBeenCalledWith(
-        'Capability conflict in resources.list: client client2 overriding existing value',
+        'Capability conflict in resources.listChanged: client client2 overriding existing value',
       );
       expect(logger.warn).toHaveBeenCalledWith(
-        'Capability conflict in tools.call: client client2 overriding existing value',
+        'Capability conflict in tools.listChanged: client client2 overriding existing value',
       );
     });
 
     it('should store capabilities on individual client info objects', async () => {
       const capabilities1: ServerCapabilities = {
-        resources: { list: true },
+        resources: { listChanged: true },
       };
 
       const capabilities2: ServerCapabilities = {
-        tools: { call: true },
+        tools: { listChanged: true },
       };
 
       (mockClient1.getServerCapabilities as unknown as MockInstance).mockReturnValue(capabilities1);

@@ -35,9 +35,9 @@ export class McpTestClient {
       },
       {
         capabilities: {
-          tools: {},
-          resources: {},
-          prompts: {},
+          sampling: {},
+          elicitation: {},
+          roots: {},
         },
       },
     );

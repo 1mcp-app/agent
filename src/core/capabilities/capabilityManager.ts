@@ -60,7 +60,11 @@ function collectCapabilities(clients: OutboundConnections): ServerCapabilities {
         'experimental',
         name,
       );
-      capabilities.logging = mergeCapabilities(capabilities.logging, serverCapabilities.logging, 'logging', name);
+      // For logging, just use the incoming logging capability if it exists
+      // since it's a generic object, not a Record<string, unknown>
+      if (serverCapabilities.logging) {
+        capabilities.logging = serverCapabilities.logging;
+      }
     } catch (error) {
       logger.error(`Failed to get capabilities from ${name}: ${error}`);
     }

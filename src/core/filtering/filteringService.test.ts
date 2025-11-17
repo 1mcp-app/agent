@@ -227,7 +227,7 @@ describe('FilteringService', () => {
     });
 
     it('should return empty when no connections have required capabilities', () => {
-      const filter = FilteringService.byCapabilities({ nonexistent: {} });
+      const filter = FilteringService.byCapabilities({ experimental: { nonexistent: {} } });
       const result = filter(mockConnections);
 
       expect(result.size).toBe(0);
