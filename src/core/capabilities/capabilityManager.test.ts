@@ -371,14 +371,14 @@ describe('CapabilityManager', () => {
         },
       });
 
-      // Should log conflicts for read and feature1
+      // Should log conflicts for subscribe and feature1
       expect(logger.warn).toHaveBeenCalledWith(
-        'Capability conflict in resources.read: client client2 overriding existing value',
+        'Capability conflict in resources.subscribe: client client2 overriding existing value',
       );
       expect(logger.warn).toHaveBeenCalledWith(
         'Capability conflict in experimental.feature1: client client2 overriding existing value',
       );
-      expect(logger.info).toHaveBeenCalledWith('Client client2 has 1 resources capability conflicts: read');
+      expect(logger.info).toHaveBeenCalledWith('Client client2 has 1 resources capability conflicts: subscribe');
       expect(logger.info).toHaveBeenCalledWith('Client client2 has 1 experimental capability conflicts: feature1');
     });
 
@@ -426,13 +426,11 @@ describe('CapabilityManager', () => {
         tools: { listChanged: true },
       });
 
-      // Should log conflicts for both client2 and client3
+      // Should log conflict for client2 only (client3 doesn't conflict due to OR logic)
       expect(logger.warn).toHaveBeenCalledWith(
         'Capability conflict in tools.listChanged: client client2 overriding existing value',
       );
-      expect(logger.warn).toHaveBeenCalledWith(
-        'Capability conflict in tools.listChanged: client client3 overriding existing value',
-      );
+      // Note: client3 doesn't log conflict because current value is already true (OR logic)
     });
 
     it('should handle edge cases with null and undefined values', async () => {

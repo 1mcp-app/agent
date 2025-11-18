@@ -51,17 +51,30 @@ function collectCapabilities(clients: OutboundConnections): ServerCapabilities {
         serverCapabilities.resources,
         'resources',
         name,
+        true, // Enable notification conflict logging for resources (subscribe, listChanged)
       );
-      capabilities.tools = mergeCapabilities(capabilities.tools, serverCapabilities.tools, 'tools', name);
-      capabilities.prompts = mergeCapabilities(capabilities.prompts, serverCapabilities.prompts, 'prompts', name);
+      capabilities.tools = mergeCapabilities(
+        capabilities.tools,
+        serverCapabilities.tools,
+        'tools',
+        name,
+        true, // Enable notification conflict logging for tools (listChanged)
+      );
+      capabilities.prompts = mergeCapabilities(
+        capabilities.prompts,
+        serverCapabilities.prompts,
+        'prompts',
+        name,
+        true, // Enable notification conflict logging for prompts (listChanged)
+      );
       capabilities.experimental = mergeCapabilities(
         capabilities.experimental,
         serverCapabilities.experimental,
         'experimental',
         name,
       );
-      // For logging, just use the incoming logging capability if it exists
-      // since it's a generic object, not a Record<string, unknown>
+
+      // Handle logging capability - simple replacement without conflict detection
       if (serverCapabilities.logging) {
         capabilities.logging = serverCapabilities.logging;
       }
@@ -89,6 +102,7 @@ function isNotificationCapability(key: string): boolean {
  * @param incoming The incoming capability object
  * @param capabilityType The type of capability being merged
  * @param clientName The name of the client providing the incoming capability
+ * @param logNotificationConflicts Whether to log conflicts for notification capabilities
  * @returns The merged capability object
  */
 function mergeCapabilities<T extends Record<string, unknown>>(
@@ -96,6 +110,7 @@ function mergeCapabilities<T extends Record<string, unknown>>(
   incoming: T | undefined,
   capabilityType: string,
   clientName: string,
+  logNotificationConflicts: boolean = false,
 ): T | undefined {
   if (!incoming) {
     return existing;
@@ -112,13 +127,27 @@ function mergeCapabilities<T extends Record<string, unknown>>(
     if (key in existing) {
       // Special handling for notification capabilities
       if (isNotificationCapability(key)) {
+        // Check if we should log conflicts for notification capabilities
+        if (
+          logNotificationConflicts &&
+          JSON.stringify((existing as Record<string, unknown>)[key]) !== JSON.stringify(value)
+        ) {
+          conflicts.push(key);
+          logger.warn(
+            `Capability conflict in ${capabilityType}.${key}: client ${clientName} overriding existing value`,
+          );
+          logger.debug(
+            `Existing: ${JSON.stringify((existing as Record<string, unknown>)[key])}, New: ${JSON.stringify(value)}`,
+          );
+        }
+
         // Use OR logic for boolean notification capabilities
         if (typeof value === 'boolean' && typeof (existing as Record<string, unknown>)[key] === 'boolean') {
           (merged as Record<string, unknown>)[key] = (existing as Record<string, unknown>)[key] || value;
         } else {
           (merged as Record<string, unknown>)[key] = value; // Non-boolean, use last value
         }
-        continue; // Skip conflict logging
+        continue; // Skip regular conflict detection (already handled above if needed)
       }
 
       // Check if values are different (potential conflict)
