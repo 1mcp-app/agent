@@ -13,7 +13,6 @@ import logger from '@src/logger/logger.js';
 import bodyParser from 'body-parser';
 import cors from 'cors';
 import express from 'express';
-import { Options as RateLimitOptions } from 'express-rate-limit';
 
 import errorHandler from './middlewares/errorHandler.js';
 import { httpRequestLogger } from './middlewares/httpRequestLogger.js';
@@ -25,6 +24,16 @@ import createOAuthRoutes from './routes/oauthRoutes.js';
 import { setupSseRoutes } from './routes/sseRoutes.js';
 import { setupStreamableHttpRoutes } from './routes/streamableHttpRoutes.js';
 import { StreamableSessionRepository } from './storage/streamableSessionRepository.js';
+
+// Interface compatible with both v7 and v8 of express-rate-limit
+interface CompatibleRateLimitOptions {
+  windowMs?: number;
+  max?: number;
+  message?: string | { error: string };
+  standardHeaders?: boolean;
+  legacyHeaders?: boolean;
+  handler?: (req: express.Request, res: express.Response) => void;
+}
 
 /**
  * ExpressServer orchestrates the HTTP/SSE transport layer for the MCP server.
@@ -130,7 +139,7 @@ export class ExpressServer {
     // Setup OAuth routes using SDK's mcpAuthRouter
     const issuerUrl = new URL(this.configManager.getUrl());
 
-    const rateLimitConfig: Partial<RateLimitOptions> = {
+    const rateLimitConfig: CompatibleRateLimitOptions = {
       windowMs: this.configManager.get('rateLimit').windowMs,
       max: this.configManager.get('rateLimit').max,
       message: RATE_LIMIT_CONFIG.OAUTH.MESSAGE,
