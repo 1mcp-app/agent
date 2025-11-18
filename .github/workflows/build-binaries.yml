@@ -37,7 +37,7 @@ jobs:
             script: sea:binary:win
             artifact: 1mcp-win32-x64.exe
           # macOS builds
-          - os: macos-13
+          - os: macos-15-intel
             platform: darwin-x64
             script: sea:binary:macos:x64
             artifact: 1mcp-darwin-x64
