@@ -62,7 +62,7 @@ function transformServerForSearch(
   }
   return {
     ...server,
-    registryId: meta.serverId || '',
+    registryId: server.name || '',
     packages: server.packages || [],
     lastUpdated: meta.updatedAt || '',
     repository: server.repository,
