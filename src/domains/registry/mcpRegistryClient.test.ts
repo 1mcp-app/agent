@@ -197,17 +197,18 @@ describe('MCPRegistryClient', () => {
   describe('getServerById', () => {
     it('should fetch server by ID successfully', async () => {
       const mockServerResponse = {
-        server: mockServers[0],
-        _meta: {
-          'io.modelcontextprotocol.registry/official':
-            mockServers[0]._meta['io.modelcontextprotocol.registry/official'],
-        },
+        servers: [
+          {
+            server: mockServers[0],
+            _meta: {
+              'io.modelcontextprotocol.registry/official':
+                mockServers[0]._meta['io.modelcontextprotocol.registry/official'],
+            },
+          },
+        ],
       };
       mockAxiosInstance.get.mockResolvedValueOnce({
-        data: {
-          servers: [mockServerResponse],
-          metadata: { count: 1 },
-        },
+        data: mockServerResponse,
       });
 
       const result = await client.getServerById('file-server-1');
@@ -220,17 +221,18 @@ describe('MCPRegistryClient', () => {
 
     it('should encode server ID in URL', async () => {
       const mockServerResponse = {
-        server: mockServers[0],
-        _meta: {
-          'io.modelcontextprotocol.registry/official':
-            mockServers[0]._meta['io.modelcontextprotocol.registry/official'],
-        },
+        servers: [
+          {
+            server: mockServers[0],
+            _meta: {
+              'io.modelcontextprotocol.registry/official':
+                mockServers[0]._meta['io.modelcontextprotocol.registry/official'],
+            },
+          },
+        ],
       };
       mockAxiosInstance.get.mockResolvedValueOnce({
-        data: {
-          servers: [mockServerResponse],
-          metadata: { count: 1 },
-        },
+        data: mockServerResponse,
       });
 
       await client.getServerById('server with spaces');

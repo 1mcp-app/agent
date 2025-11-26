@@ -170,6 +170,12 @@ export const serverOptions = {
     type: 'boolean' as const,
     default: true,
   },
+  // Internal tool control
+  'enable-internal-tools': {
+    describe: 'Enable internal MCP management tools (installation, configuration, etc.)',
+    type: 'boolean' as const,
+    default: false,
+  },
   'instructions-template': {
     alias: 'T',
     describe:

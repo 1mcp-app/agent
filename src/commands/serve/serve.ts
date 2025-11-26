@@ -56,6 +56,8 @@ export interface ServeOptions {
   'session-persist-interval': number;
   'session-background-flush': number;
   'enable-client-notifications': boolean;
+  // Internal tool control
+  'enable-internal-tools': boolean;
   'instructions-template'?: string;
 }
 
@@ -294,6 +296,8 @@ export async function serveCommand(parsedArgv: ServeOptions): Promise<void> {
         envSubstitution: parsedArgv['enable-env-substitution'],
         sessionPersistence: parsedArgv['enable-session-persistence'],
         clientNotifications: parsedArgv['enable-client-notifications'],
+        // Internal tool configuration from CLI flags
+        internalTools: parsedArgv['enable-internal-tools'],
       },
       health: {
         detailLevel: parsedArgv['health-info-level'] as 'full' | 'basic' | 'minimal',

@@ -24,7 +24,7 @@ export interface SearchCommandArgs extends Arguments, GlobalOptions, RegistryYar
   query?: string;
   status?: 'active' | 'archived' | 'deprecated' | 'all';
   type?: 'npm' | 'pypi' | 'docker';
-  transport?: 'stdio' | 'sse' | 'webhook';
+  transport?: 'stdio' | 'sse' | 'http';
   limit?: number;
   cursor?: string;
   format?: 'table' | 'list' | 'json';
@@ -54,7 +54,7 @@ export function buildSearchCommand(searchYargs: Argv): Argv {
       transport: {
         describe: 'Filter by transport method',
         type: 'string' as const,
-        choices: ['stdio', 'sse', 'webhook'] as const,
+        choices: ['stdio', 'sse', 'http'] as const,
       },
       limit: {
         describe: 'Maximum number of results to return',

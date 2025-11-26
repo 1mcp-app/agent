@@ -86,14 +86,14 @@ async function setupServerAsync(transports: Record<string, AuthProviderTransport
   serverManager.setInstructionAggregator(instructionAggregator);
 
   // Initialize config reload service
-  configReloadService.initialize(transports);
+  configReloadService.initialize();
 
   // Create loading manager for async MCP server initialization
   const loadingManager = new McpLoadingManager(clientManager);
 
   // Create async loading orchestrator for capability tracking and notifications
   const asyncOrchestrator = new AsyncLoadingOrchestrator(clients, serverManager, loadingManager);
-  asyncOrchestrator.initialize();
+  await asyncOrchestrator.initialize();
 
   // Start async loading (non-blocking)
   const loadingPromise = loadingManager
@@ -142,7 +142,7 @@ async function setupServerSync(transports: Record<string, AuthProviderTransport>
   serverManager.setInstructionAggregator(instructionAggregator);
 
   // Initialize config reload service
-  configReloadService.initialize(transports);
+  configReloadService.initialize();
 
   // Create a dummy loading manager for compatibility
   const loadingManager = new McpLoadingManager(clientManager);

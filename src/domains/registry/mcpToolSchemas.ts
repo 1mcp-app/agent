@@ -22,7 +22,7 @@ export const SearchMCPServersArgsSchema = {
     },
     transport: {
       type: 'string',
-      enum: ['stdio', 'sse', 'http', 'webhook'],
+      enum: ['stdio', 'sse', 'http'],
       description: 'Filter by transport method',
     },
     limit: {
@@ -57,7 +57,7 @@ export interface SearchMCPServersArgs {
   query?: string;
   status?: 'active' | 'archived' | 'deprecated' | 'all';
   registry_type?: 'npm' | 'pypi' | 'docker';
-  transport?: 'stdio' | 'sse' | 'http' | 'webhook';
+  transport?: 'stdio' | 'sse' | 'http';
   limit?: number;
   cursor?: string;
 }

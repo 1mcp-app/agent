@@ -157,7 +157,7 @@ describe('server', () => {
     it('should initialize config reload service', async () => {
       await setupServer();
 
-      expect(configReloadService.initialize).toHaveBeenCalledWith(mockTransports);
+      expect(configReloadService.initialize).toHaveBeenCalled();
     });
 
     it('should log successful setup completion', async () => {

@@ -26,6 +26,7 @@ import {
 } from '@modelcontextprotocol/sdk/types.js';
 
 import { MCP_URI_SEPARATOR } from '@src/constants.js';
+import { InternalCapabilitiesProvider } from '@src/core/capabilities/internalCapabilitiesProvider.js';
 import { ClientManager } from '@src/core/client/clientManager.js';
 import { byCapabilities } from '@src/core/filtering/clientFiltering.js';
 import { FilteringService } from '@src/core/filtering/filteringService.js';
@@ -302,6 +303,18 @@ function registerToolHandlers(outboundConns: OutboundConnections, inboundConn: I
     CallToolRequestSchema,
     withErrorHandling(async (request) => {
       const { clientName, resourceName: toolName } = parseUri(request.params.name, MCP_URI_SEPARATOR);
+
+      // Handle 1mcp tools
+      if (clientName === '1mcp') {
+        const internalProvider = InternalCapabilitiesProvider.getInstance();
+        await internalProvider.initialize();
+        return (await internalProvider.executeTool(toolName, request.params.arguments)) as {
+          content: Array<{ type: string; text: string }>;
+          isError?: boolean;
+        };
+      }
+
+      // Handle external MCP server tools
       return ClientManager.current.executeClientOperation(clientName, (outboundConn) =>
         outboundConn.client.callTool({ ...request.params, name: toolName }, CallToolResultSchema, {
           timeout: getRequestTimeout(outboundConn.transport),

@@ -114,7 +114,7 @@ describe('ConfigReloadService', () => {
 
   describe('initialize', () => {
     it('should initialize with transports for server startup', () => {
-      configReloadService.initialize(mockTransports);
+      configReloadService.initialize();
 
       expect(mockConfigManager.removeAllListeners).toHaveBeenCalledWith(ConfigChangeEvent.TRANSPORT_CONFIG_CHANGED);
       expect(mockConfigManager.setMaxListeners).toHaveBeenCalledWith(20);
@@ -154,7 +154,7 @@ describe('ConfigReloadService', () => {
 
   describe('handleConfigChange', () => {
     beforeEach(() => {
-      configReloadService.initialize(mockTransports);
+      configReloadService.initialize();
     });
 
     it('should handle config change without serverInfo', async () => {

@@ -46,10 +46,15 @@ vi.mock('./utils/serverUtils.js', () => ({
 
 vi.mock('@src/logger/logger.js', () => ({
   default: {
+    debug: vi.fn(),
     info: vi.fn(),
     error: vi.fn(),
     debug: vi.fn(),
+    warn: vi.fn(),
   },
+  debugIf: vi.fn(),
+  infoIf: vi.fn(),
+  warnIf: vi.fn(),
 }));
 
 const consoleLogMock = vi.fn();
