@@ -15,6 +15,7 @@ import {
   OutboundConnections,
   ServerCapability,
 } from '@src/core/types/index.js';
+import { CustomJsonSchemaValidator } from '@src/core/validation/CustomJsonSchemaValidator.js';
 import logger, { debugIf } from '@src/logger/logger.js';
 import { CapabilityError, ClientConnectionError, ClientNotFoundError } from '@src/utils/core/errorTypes.js';
 import { executeOperation } from '@src/utils/core/operationExecution.js';
@@ -91,6 +92,9 @@ export class ClientManager {
    * @returns A new Client instance
    */
   private createClient(): Client {
+    // Create custom validator instance for each client
+    const customValidator = new CustomJsonSchemaValidator();
+
     return new Client(
       {
         name: MCP_SERVER_NAME,
@@ -98,6 +102,7 @@ export class ClientManager {
       },
       {
         capabilities: MCP_CLIENT_CAPABILITIES,
+        jsonSchemaValidator: customValidator,
         debouncedNotificationMethods: [
           'notifications/tools/list_changed',
           'notifications/resources/list_changed',

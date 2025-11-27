@@ -96,6 +96,7 @@ function registerServerRequestHandlers(outboundConns: OutboundConnections, inbou
  * @param capabilities The server capabilities
  * @param tags Array of tags to filter clients by
  */
+
 export function registerRequestHandlers(outboundConns: OutboundConnections, inboundConn: InboundConnection): void {
   // Register logging level handler
   inboundConn.server.setRequestHandler(SetLevelRequestSchema, async (request) => {
@@ -163,10 +164,8 @@ function registerResourceHandlers(outboundConns: OutboundConnections, inboundCon
         (client, params, opts) => client.listResources(params as ListResourcesRequest['params'], opts),
         (outboundConn, result) =>
           result.resources?.map((resource) => ({
+            ...resource,
             uri: buildUri(outboundConn.name, resource.uri, MCP_URI_SEPARATOR),
-            name: resource.name,
-            description: resource.description,
-            mimeType: resource.mimeType,
           })) ?? [],
         inboundConn.enablePagination ?? false,
       );
@@ -192,10 +191,8 @@ function registerResourceHandlers(outboundConns: OutboundConnections, inboundCon
         (client, params, opts) => client.listResourceTemplates(params as ListResourceTemplatesRequest['params'], opts),
         (outboundConn, result) =>
           result.resourceTemplates?.map((template) => ({
+            ...template,
             uriTemplate: buildUri(outboundConn.name, template.uriTemplate, MCP_URI_SEPARATOR),
-            name: template.name,
-            description: template.description,
-            mimeType: template.mimeType,
           })) ?? [],
         inboundConn.enablePagination ?? false,
       );
@@ -287,11 +284,8 @@ function registerToolHandlers(outboundConns: OutboundConnections, inboundConn: I
         (client, params, opts) => client.listTools(params as ListToolsRequest['params'], opts),
         (outboundConn, result) =>
           result.tools?.map((tool) => ({
+            ...tool,
             name: buildUri(outboundConn.name, tool.name, MCP_URI_SEPARATOR),
-            description: tool.description,
-            inputSchema: tool.inputSchema,
-            outputSchema: tool.outputSchema,
-            annotations: tool.annotations,
           })) ?? [],
         inboundConn.enablePagination ?? false,
       );
@@ -337,9 +331,8 @@ function registerPromptHandlers(outboundConns: OutboundConnections, inboundConn:
         (client, params, opts) => client.listPrompts(params as ListPromptsRequest['params'], opts),
         (outboundConn, result) =>
           result.prompts?.map((prompt) => ({
+            ...prompt,
             name: buildUri(outboundConn.name, prompt.name, MCP_URI_SEPARATOR),
-            description: prompt.description,
-            arguments: prompt.arguments,
           })) ?? [],
         inboundConn.enablePagination ?? false,
       );

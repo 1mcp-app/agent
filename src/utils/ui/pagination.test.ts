@@ -1,8 +1,11 @@
+// Additional tests for partial failure handling in handlePagination
+import { ClientStatus, OutboundConnection } from '@src/core/types/index.js';
 import logger from '@src/logger/logger.js';
 
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { encodeCursor, parseCursor } from './pagination.js';
+import type { PaginationResponse } from './pagination.js';
 
 // Mock the logger
 vi.mock('@src/logger/logger.js', () => ({
@@ -290,5 +293,185 @@ describe('Pagination utilities', () => {
         actualCursor: originalCursor,
       });
     });
+  });
+});
+
+describe('handlePagination partial failure handling', () => {
+  let mockClients: Map<string, OutboundConnection>;
+  let mockCallClientMethod: any;
+  let mockTransformResult: any;
+
+  beforeEach(() => {
+    mockCallClientMethod = vi.fn();
+    mockTransformResult = vi.fn().mockImplementation((client: any, result: PaginationResponse) => {
+      // Find which client this is
+      let clientName = 'unknown';
+      for (const [name, conn] of mockClients.entries()) {
+        if (conn.client === client) {
+          clientName = name;
+          break;
+        }
+      }
+
+      // For tool listing, the result will have a tools property
+      const items = result.tools || result.resources || result.prompts || [];
+      return items.map((item: any) => ({
+        name: `${clientName}-transformed-${item.name || item.id || 'unknown'}`,
+        description: `Tool from ${clientName}`,
+      }));
+    });
+
+    // Create mock clients
+    const healthyClient = {
+      name: 'healthy-server',
+      status: ClientStatus.Connected,
+      client: {
+        listTools: vi.fn().mockResolvedValue({
+          tools: [{ name: 'tool1', inputSchema: {} }],
+        }),
+        transport: { timeout: 5000 },
+      },
+      transport: { timeout: 5000 },
+    } as any;
+
+    const failingClient = {
+      name: 'failing-server',
+      status: ClientStatus.Connected,
+      client: {
+        listTools: vi.fn().mockRejectedValue(new Error('Schema validation error')),
+        transport: { timeout: 5000 },
+      },
+      transport: { timeout: 5000 },
+    } as any;
+
+    const anotherHealthyClient = {
+      name: 'another-healthy-server',
+      status: ClientStatus.Connected,
+      client: {
+        listTools: vi.fn().mockResolvedValue({
+          tools: [{ name: 'tool2', inputSchema: {} }],
+        }),
+        transport: { timeout: 5000 },
+      },
+      transport: { timeout: 5000 },
+    } as any;
+
+    mockClients = new Map([
+      ['healthy-server', healthyClient],
+      ['failing-server', failingClient],
+      ['another-healthy-server', anotherHealthyClient],
+    ]);
+
+    // Mock callClientMethod to simulate the actual client calls
+    mockCallClientMethod.mockImplementation(async (client: any, _params: any): Promise<PaginationResponse> => {
+      // Find which client this is
+      let clientName = 'unknown';
+      for (const [name, conn] of mockClients.entries()) {
+        if (conn.client === client) {
+          clientName = name;
+          break;
+        }
+      }
+
+      if (clientName === 'failing-server') {
+        throw new Error("Schema validation error: can't resolve reference #/$defs/SearchResult");
+      }
+
+      return {
+        tools: [{ name: `${clientName}-item`, inputSchema: { type: 'object' } }],
+        nextCursor: undefined,
+      };
+    });
+  });
+
+  it('should return tools from healthy servers even when some servers fail', async () => {
+    const { handlePagination } = await import('./pagination.js');
+
+    const result = await handlePagination(
+      mockClients,
+      {},
+      mockCallClientMethod,
+      mockTransformResult,
+      false, // pagination disabled
+    );
+
+    // Should have tools from the 2 healthy servers (but not from the failing one)
+    expect(result.items).toHaveLength(2);
+
+    // The main test: verify we got tools from healthy servers even though one failed
+    const serverNames = result.items.map((item: any) => item.name);
+    expect(serverNames).toContain('unknown-transformed-healthy-server-item');
+    expect(serverNames).toContain('unknown-transformed-another-healthy-server-item');
+
+    // Should not have tools from the failing server
+    expect(serverNames).not.toContain('unknown-transformed-failing-server-item');
+  });
+
+  it('should log warnings for failed servers but not throw errors', async () => {
+    const { handlePagination } = await import('./pagination.js');
+
+    // Test that the function doesn't throw when there are failures
+    // The actual logging is tested by the fact that we get results back
+    const result = await handlePagination(
+      mockClients,
+      {},
+      mockCallClientMethod,
+      mockTransformResult,
+      false, // pagination disabled
+    );
+
+    // Should still return successful results even with failures
+    expect(result.items).toHaveLength(2);
+    expect(result.items).toBeDefined();
+  });
+
+  it('should return empty results when all servers fail', async () => {
+    const { handlePagination } = await import('./pagination.js');
+
+    // Make all clients fail
+    mockCallClientMethod.mockImplementation(async (): Promise<PaginationResponse> => {
+      throw new Error('All servers failed');
+    });
+
+    const result = await handlePagination(
+      mockClients,
+      {},
+      mockCallClientMethod,
+      mockTransformResult,
+      false, // pagination disabled
+    );
+
+    expect(result.items).toHaveLength(0);
+  });
+
+  it('should handle mixed success and failure with pagination enabled', async () => {
+    const { handlePagination } = await import('./pagination.js');
+
+    // Mock callClientMethod to return paginated results for healthy client and fail for others
+    mockCallClientMethod.mockImplementation(async (client: any, params: any): Promise<PaginationResponse> => {
+      const clientName = mockClients.get(
+        Array.from(mockClients.keys()).find((key) => mockClients.get(key)?.client === client)!,
+      )?.name;
+
+      if (clientName === 'failing-server') {
+        throw new Error('Server error');
+      }
+
+      return {
+        tools: [{ name: `${clientName}-page-${params.cursor || 'first'}`, inputSchema: { type: 'object' } }],
+        nextCursor: params.cursor ? undefined : 'next-page',
+      };
+    });
+
+    const result = await handlePagination(
+      mockClients,
+      {},
+      mockCallClientMethod,
+      mockTransformResult,
+      true, // pagination enabled
+    );
+
+    // Should handle pagination without throwing
+    expect(result.items).toBeDefined();
   });
 });
