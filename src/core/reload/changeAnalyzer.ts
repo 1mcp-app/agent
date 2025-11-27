@@ -174,13 +174,34 @@ export class ChangeAnalyzer {
     // Process modified servers
     for (const { name, old, new: newServer, changes: serverChanges } of comparison.modified) {
       const changeType = this.categorizeModification(serverChanges);
-      changes.push({
-        serverId: name,
-        changeType,
-        oldConfig: old,
-        newConfig: newServer,
-        impact: this.calculateImpact(changeType, old, newServer),
-      });
+
+      // Transport type changes should be treated as remove + add
+      if (changeType === ChangeType.TRANSPORT_CHANGE) {
+        // Add remove change
+        changes.push({
+          serverId: name,
+          changeType: ChangeType.REMOVE_SERVER,
+          oldConfig: old,
+          impact: this.calculateImpact(ChangeType.REMOVE_SERVER, old, undefined),
+        });
+
+        // Add add change
+        changes.push({
+          serverId: name,
+          changeType: ChangeType.ADD_SERVER,
+          newConfig: newServer,
+          impact: this.calculateImpact(ChangeType.ADD_SERVER, undefined, newServer),
+        });
+      } else {
+        // Regular modification
+        changes.push({
+          serverId: name,
+          changeType,
+          oldConfig: old,
+          newConfig: newServer,
+          impact: this.calculateImpact(changeType, old, newServer),
+        });
+      }
     }
 
     return changes;
@@ -365,12 +386,9 @@ export class ChangeAnalyzer {
    * Categorize modification type
    */
   private categorizeModification(changes: string[]): ChangeType {
-    if (changes.includes('type')) {
-      return ChangeType.TRANSPORT_CHANGE;
-    }
-
-    if (changes.some((c) => ['command', 'args', 'url'].includes(c))) {
-      return ChangeType.MODIFY_SERVER;
+    // Any changes to core execution parameters require remove + add
+    if (changes.some((c) => ['type', 'command', 'args', 'url'].includes(c))) {
+      return ChangeType.TRANSPORT_CHANGE; // This will be converted to remove + add
     }
 
     if (changes.some((c) => c.includes('tag'))) {

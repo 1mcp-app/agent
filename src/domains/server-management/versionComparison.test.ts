@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 // Import the module to access private functions through module exports
 // We'll need to export these functions for testing
-import { compareVersions, getUpdateType, parseVersion } from './serverInstallationService.js';
+import { compareVersions, getUpdateType, parseVersion } from './services/versionResolver.js';
 
 describe('Version Comparison Utilities', () => {
   describe('parseVersion', () => {

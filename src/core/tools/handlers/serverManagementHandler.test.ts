@@ -5,6 +5,8 @@ import {
   saveConfig,
   setServer,
 } from '@src/commands/mcp/utils/configUtils.js';
+import { McpConfigManager } from '@src/config/mcpConfigManager.js';
+import { SelectiveReloadManager } from '@src/core/reload/selectiveReloadManager.js';
 import { debugIf } from '@src/logger/logger.js';
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -31,8 +33,96 @@ vi.mock('@src/commands/mcp/utils/configUtils.js', () => ({
 
 // Mock logger
 vi.mock('@src/logger/logger.js', () => ({
+  default: {
+    info: vi.fn(),
+    error: vi.fn(),
+    debug: vi.fn(),
+    warn: vi.fn(),
+  },
   debugIf: vi.fn(),
 }));
+
+// Mock ClientManager
+vi.mock('@src/core/client/clientManager.js', () => ({
+  ClientManager: {
+    current: {
+      removeClient: vi.fn().mockResolvedValue(undefined),
+      createClient: vi.fn().mockResolvedValue(undefined),
+      createSingleClient: vi.fn().mockResolvedValue(undefined),
+    },
+  },
+}));
+
+// Mock SelectiveReloadManager with robust setup
+vi.mock('@src/core/reload/selectiveReloadManager.js', () => {
+  const mockOperation = {
+    id: 'reload_test_123',
+    status: 'completed' as const,
+    affectedServers: [],
+    impact: {
+      summary: {
+        totalChanges: 0,
+        requiresFullRestart: false,
+        canPartialReload: true,
+        affectedServers: [],
+        estimatedTotalDowntime: 0,
+        requiresConnectionMigration: false,
+      },
+    },
+    changes: {
+      toolsChanged: false,
+      resourcesChanged: false,
+      promptsChanged: false,
+      hasChanges: false,
+      addedServers: [],
+      removedServers: [],
+      current: { tools: [], resources: [], prompts: [] },
+      previous: { tools: [], resources: [], prompts: [] },
+    },
+  };
+
+  return {
+    SelectiveReloadManager: {
+      getInstance: vi.fn(() => ({
+        executeReload: vi.fn().mockResolvedValue(mockOperation),
+      })),
+    },
+  };
+});
+
+// Mock ServerManager
+vi.mock('@src/core/server/serverManager.js', () => ({
+  ServerManager: {
+    current: {
+      restart: vi.fn().mockResolvedValue(undefined),
+      stop: vi.fn().mockResolvedValue(undefined),
+      start: vi.fn().mockResolvedValue(undefined),
+    },
+  },
+}));
+
+// Mock McpConfigManager with explicit transport config
+vi.mock('@src/config/mcpConfigManager.js', () => {
+  const mockTransportConfig = {
+    'test-server': {
+      type: 'stdio',
+      command: 'node',
+      args: ['test.js'],
+      disabled: false,
+    },
+  };
+
+  const mockConfigManager = {
+    getTransportConfig: vi.fn(() => mockTransportConfig),
+    reloadConfig: vi.fn(),
+  };
+
+  return {
+    McpConfigManager: {
+      getInstance: vi.fn(() => mockConfigManager),
+    },
+  };
+});
 
 describe('serverManagementHandler', () => {
   const mockConfig = {
@@ -72,6 +162,10 @@ describe('serverManagementHandler', () => {
       // Mock successful initialization
       return Promise.resolve();
     });
+
+    // Reset singleton instances for clean test isolation
+    (McpConfigManager as any).instance = undefined;
+    (SelectiveReloadManager as any).instance = undefined;
   });
 
   afterEach(() => {
@@ -191,7 +285,7 @@ describe('serverManagementHandler', () => {
 
       expect(setServer).toHaveBeenCalledWith('default-server', {
         type: 'stdio',
-        disabled: true,
+        disabled: false,
         command: 'node',
         args: ['app.js'],
       });
@@ -210,7 +304,7 @@ describe('serverManagementHandler', () => {
 
       expect(setServer).toHaveBeenCalledWith('minimal-server', {
         type: 'stdio',
-        disabled: true,
+        disabled: false,
         command: 'python',
       });
 
@@ -548,6 +642,13 @@ describe('serverManagementHandler', () => {
         action: 'reloaded',
         timestamp: expect.any(String),
         success: true,
+        details: {
+          status: 'completed',
+          operationId: 'reload_test_123',
+          affectedServers: [],
+          changes: 0,
+          error: undefined,
+        },
       });
 
       expect(debugIf).toHaveBeenCalled();
@@ -586,6 +687,11 @@ describe('serverManagementHandler', () => {
         action: 'reloaded',
         timestamp: expect.any(String),
         success: true,
+        details: {
+          error: undefined,
+          operationId: 'reload_test_123',
+          status: 'completed',
+        },
       });
     });
 

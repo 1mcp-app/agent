@@ -144,12 +144,21 @@ export class CapabilityAggregator extends EventEmitter {
     try {
       await this.internalProvider.initialize();
       const internalTools = this.internalProvider.getAvailableTools();
+      const internalResources = this.internalProvider.getAvailableResources();
+      const internalPrompts = this.internalProvider.getAvailablePrompts();
+
       allTools.push(...internalTools);
-      readyServers.push('1mcp');
-      debugIf(() => ({
-        message: 'Added 1mcp tools to aggregation',
-        meta: { count: internalTools.length, tools: internalTools.map((t) => t.name) },
-      }));
+      allResources.push(...internalResources);
+      allPrompts.push(...internalPrompts);
+
+      // Only add 1mcp as a ready server if it provides capabilities
+      if (internalTools.length > 0 || internalResources.length > 0 || internalPrompts.length > 0) {
+        readyServers.push('1mcp');
+        debugIf(() => ({
+          message: 'Added 1mcp tools to aggregation',
+          meta: { count: internalTools.length, tools: internalTools.map((t) => t.name) },
+        }));
+      }
     } catch (error) {
       logger.warn(`Failed to load 1mcp tools: ${error}`);
     }

@@ -6,7 +6,7 @@
  */
 import { EventEmitter } from 'events';
 
-import { Tool } from '@modelcontextprotocol/sdk/types.js';
+import { Prompt, Resource, Tool } from '@modelcontextprotocol/sdk/types.js';
 
 import { FlagManager } from '@src/core/flags/flagManager.js';
 import { AgentConfigManager } from '@src/core/server/agentConfig.js';
@@ -528,5 +528,25 @@ export class InternalCapabilitiesProvider extends EventEmitter {
     cleanupInternalToolHandlers();
     this.removeAllListeners();
     this.isInitialized = false;
+  }
+
+  public getAvailableResources(): Resource[] {
+    if (!this.isInitialized) {
+      logger.warn('Internal capabilities provider not initialized');
+      return [];
+    }
+
+    // Internal provider doesn't expose resources
+    return [];
+  }
+
+  public getAvailablePrompts(): Prompt[] {
+    if (!this.isInitialized) {
+      logger.warn('Internal capabilities provider not initialized');
+      return [];
+    }
+
+    // Internal provider doesn't expose prompts
+    return [];
   }
 }

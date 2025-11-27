@@ -3,7 +3,6 @@ import { globalOptions } from '@src/globalOptions.js';
 
 import type { Argv } from 'yargs';
 
-import { buildSearchCommand as buildRegistrySearchCommand } from '../registry/search.js';
 import { buildAddCommand } from './add.js';
 import { buildDisableCommand, buildEnableCommand } from './enable.js';
 import { buildInstallCommand } from './install.js';
@@ -146,9 +145,6 @@ export function setupMcpCommands(yargs: Argv): Argv {
         .command({
           command: 'search [query]',
           describe: 'Search registry for MCP servers (alias for registry search)',
-<<<<<<< HEAD
-          builder: (yargs) => buildRegistrySearchCommand(yargs),
-=======
           builder: (yargs) => {
             return yargs
               .positional('query', {
@@ -174,40 +170,18 @@ export function setupMcpCommands(yargs: Argv): Argv {
                 ['$0 mcp search filesystem', 'Search for filesystem-related servers'],
               ]);
           },
->>>>>>> 100defa (feat(mcp): add install and uninstall commands for MCP server management)
           handler: async (argv) => {
             // Delegate to registry search command
             const { searchCommand } = await import('../registry/search.js');
             const searchArgs = {
               query: argv.query,
-<<<<<<< HEAD
-              status: argv.status,
-              type: argv.type,
-              transport: argv.transport,
               limit: argv.limit,
-              cursor: argv.cursor,
-              format: argv.format,
-=======
-              limit: argv.limit,
->>>>>>> 100defa (feat(mcp): add install and uninstall commands for MCP server management)
               _: argv._ || [],
               $0: argv.$0 || '1mcp',
               config: argv.config,
               'config-dir': argv['config-dir'],
-<<<<<<< HEAD
-              url: argv['url'],
-              timeout: argv['timeout'],
-              'cache-ttl': argv['cache-ttl'],
-              'cache-max-size': argv['cache-max-size'],
-              'cache-cleanup-interval': argv['cache-cleanup-interval'],
-              proxy: argv['proxy'],
-              'proxy-auth': argv['proxy-auth'],
-            } as Parameters<typeof searchCommand>[0];
-            await searchCommand(searchArgs);
-=======
             };
             await searchCommand(searchArgs as Parameters<typeof searchCommand>[0]);
->>>>>>> 100defa (feat(mcp): add install and uninstall commands for MCP server management)
           },
         })
         .demandCommand(1, 'You must specify a subcommand')

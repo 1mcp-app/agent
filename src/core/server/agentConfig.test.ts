@@ -79,9 +79,7 @@ describe('AgentConfigManager', () => {
           envSubstitution: true,
           sessionPersistence: true,
           clientNotifications: true,
-          internalTools: {
-            enabled: false,
-          },
+          internalTools: false,
         },
         health: {
           detailLevel: 'minimal',

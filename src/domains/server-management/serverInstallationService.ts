@@ -1,11 +1,4 @@
-import {
-  getAllServers,
-  getInstallationMetadata,
-  getServer,
-  setServer,
-  validateServerConfig,
-} from '@src/commands/mcp/utils/configUtils.js';
-import ConfigContext from '@src/config/configContext.js';
+import { getAllServers, getInstallationMetadata, getServer, setServer } from '@src/commands/mcp/utils/configUtils.js';
 import { MCPServerParams } from '@src/core/types/index.js';
 import logger from '@src/logger/logger.js';
 
@@ -23,75 +16,6 @@ import type {
   UpdateOptions,
   UpdateResult,
 } from './types.js';
-
-/**
- * Parse semantic version string into components
- * @internal Exported for testing
- */
-export function parseVersion(version: string): { major: number; minor: number; patch: number } | null {
-  const parsed = semver.parse(version);
-  if (!parsed) {
-    return null;
-  }
-
-  return {
-    major: parsed.major,
-    minor: parsed.minor,
-    patch: parsed.patch,
-  };
-}
-
-/**
- * Compare two semantic versions
- * Returns: 1 if v1 > v2, -1 if v1 < v2, 0 if equal
- * @internal Exported for testing
- */
-export function compareVersions(v1: string, v2: string): number {
-  // Clean versions to handle 'v' prefix and other formats
-  const clean1 = semver.clean(v1);
-  const clean2 = semver.clean(v2);
-
-  if (!clean1 || !clean2) {
-    return 0;
-  }
-
-  return semver.compare(clean1, clean2);
-}
-
-/**
- * Determine update type based on version comparison
- * @internal Exported for testing
- */
-export function getUpdateType(currentVersion: string, newVersion: string): 'major' | 'minor' | 'patch' | undefined {
-  const clean1 = semver.clean(currentVersion);
-  const clean2 = semver.clean(newVersion);
-
-  if (!clean1 || !clean2) {
-    return undefined;
-  }
-
-  // First check if new version is actually greater
-  if (!semver.gt(clean2, clean1)) {
-    return undefined;
-  }
-
-  // Now determine the type of update
-  const diff = semver.diff(clean1, clean2);
-
-  if (diff === 'major' || diff === 'premajor') {
-    return 'major';
-  }
-
-  if (diff === 'minor' || diff === 'preminor') {
-    return 'minor';
-  }
-
-  if (diff === 'patch' || diff === 'prepatch') {
-    return 'patch';
-  }
-
-  return undefined;
-}
 
 /**
  * Server installation service

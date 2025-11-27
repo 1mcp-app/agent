@@ -35,6 +35,26 @@ vi.mock('@src/core/capabilities/capabilityManager.js', () => ({
   setupCapabilities: vi.fn(),
 }));
 
+vi.mock('@src/core/reload/selectiveReloadManager.js', () => ({
+  SelectiveReloadManager: {
+    getInstance: vi.fn().mockReturnValue({
+      executeReload: vi.fn().mockResolvedValue({
+        status: 'completed',
+        changes: {
+          toolsChanged: false,
+          resourcesChanged: false,
+          promptsChanged: false,
+          hasChanges: false,
+          addedServers: [],
+          removedServers: [],
+          current: { tools: [], resources: [], prompts: [] },
+          previous: { tools: [], resources: [], prompts: [] },
+        },
+      }),
+    }),
+  },
+}));
+
 vi.mock('@src/core/server/serverManager.js', () => ({
   ServerManager: {
     current: {
@@ -49,6 +69,7 @@ vi.mock('@src/logger/logger.js', () => ({
     error: vi.fn(),
     debug: vi.fn(),
   },
+  debugIf: vi.fn(),
 }));
 
 vi.mock('@src/transport/transportFactory.js', () => ({
@@ -74,6 +95,7 @@ describe('ConfigReloadService', () => {
       on: vi.fn(),
       startWatching: vi.fn(),
       stopWatching: vi.fn(),
+      getTransportConfig: vi.fn().mockReturnValue({}),
     };
 
     mockTransports = {

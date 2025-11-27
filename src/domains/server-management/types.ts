@@ -9,6 +9,7 @@ import type { RegistryServer } from '@src/domains/registry/types.js';
  * Installation status enum
  */
 export enum InstallationStatus {
+  NOT_INSTALLED = 'not_installed',
   INSTALLED = 'installed',
   UPDATING = 'updating',
   FAILED = 'failed',
@@ -93,6 +94,10 @@ export interface InstallOptions {
   force?: boolean; // Force installation even if already exists
   dryRun?: boolean; // Show what would be installed without installing
   verbose?: boolean; // Detailed output
+  localServerName?: string; // Custom name for the local server configuration
+  tags?: string[]; // Tags to apply to the installed server
+  env?: Record<string, string>; // Environment variables for the server
+  args?: string[]; // Command line arguments for the server
 }
 
 /**
