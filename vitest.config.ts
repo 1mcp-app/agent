@@ -1,5 +1,5 @@
-import { defineConfig } from 'vitest/config';
 import tsconfigPaths from 'vite-tsconfig-paths';
+import { defineConfig } from 'vitest/config';
 
 export default defineConfig({
   plugins: [tsconfigPaths()],
@@ -11,7 +11,7 @@ export default defineConfig({
       provider: 'v8',
       reporter: ['text', 'json', 'html'],
       include: ['src/**/*.ts'],
-      exclude: ['src/**/*.d.ts', 'src/**/*.test.ts', 'src/test/e2e/**/*'],
+      exclude: ['src/**/*.d.ts', 'src/**/*.test.ts'],
     },
     alias: {
       '^(\\.{1,2}/.*)\\.js$': '$1',

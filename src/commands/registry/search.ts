@@ -164,7 +164,7 @@ function displayTableFormat(results: SearchMCPServersResult, searchArgs: SearchM
     Description: truncateString(server.description, 45),
     Status: (server._meta?.[OFFICIAL_REGISTRY_KEY]?.status || server.status || 'unknown').toUpperCase(),
     Version: server.version,
-    'Server ID': server._meta?.[OFFICIAL_REGISTRY_KEY]?.serverId || server.name,
+    'Server ID': server.name,
     'Registry Type': formatRegistryTypesPlain(server.packages),
     Transport: formatTransportTypesPlain(server.packages),
     'Last Updated': formatDate(server._meta?.[OFFICIAL_REGISTRY_KEY]?.updatedAt),
@@ -195,7 +195,7 @@ function displayListFormat(results: SearchMCPServersResult, searchArgs: SearchMC
     console.log(
       `    ${chalk.green('Status:')} ${formatStatus(server._meta?.[OFFICIAL_REGISTRY_KEY]?.status || server.status || 'unknown')}  ${chalk.blue('Version:')} ${server.version}`,
     );
-    console.log(`    ${chalk.yellow('ID:')} ${chalk.gray(meta?.serverId || server.name)}`);
+    console.log(`    ${chalk.yellow('ID:')} ${chalk.gray(server.name)}`);
     console.log(
       `    ${chalk.magenta('Transport:')} ${formatTransportTypesPlain(server.packages)} • ${chalk.red('Type:')} ${formatRegistryTypesPlain(server.packages)}`,
     );

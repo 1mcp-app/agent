@@ -3,12 +3,15 @@ import { globalOptions } from '@src/globalOptions.js';
 
 import type { Argv } from 'yargs';
 
+import { buildSearchCommand as buildRegistrySearchCommand } from '../registry/search.js';
 import { buildAddCommand } from './add.js';
 import { buildDisableCommand, buildEnableCommand } from './enable.js';
+import { buildInstallCommand } from './install.js';
 import { buildListCommand } from './list.js';
 import { buildRemoveCommand } from './remove.js';
 import { buildStatusCommand } from './status.js';
 import { buildTokensCommand } from './tokens.js';
+import { buildUninstallCommand } from './uninstall.js';
 import { buildUpdateCommand } from './update.js';
 
 /**
@@ -49,12 +52,30 @@ export function setupMcpCommands(yargs: Argv): Argv {
           },
         })
         .command({
+          command: 'install [serverName]',
+          describe: 'Install an MCP server from the registry (interactive wizard if no serverName)',
+          builder: buildInstallCommand,
+          handler: async (argv) => {
+            const { installCommand } = await import('./install.js');
+            await installCommand(argv);
+          },
+        })
+        .command({
           command: 'remove <name>',
           describe: 'Remove an MCP server from the configuration',
           builder: buildRemoveCommand,
           handler: async (argv) => {
             const { removeCommand } = await import('./remove.js');
             await removeCommand(argv);
+          },
+        })
+        .command({
+          command: 'uninstall <serverName>',
+          describe: 'Uninstall an MCP server',
+          builder: buildUninstallCommand,
+          handler: async (argv) => {
+            const { uninstallCommand } = await import('./uninstall.js');
+            await uninstallCommand(argv);
           },
         })
         .command({
@@ -122,6 +143,36 @@ export function setupMcpCommands(yargs: Argv): Argv {
             await tokensCommand(argv);
           },
         })
+        .command({
+          command: 'search [query]',
+          describe: 'Search registry for MCP servers (alias for registry search)',
+          builder: (yargs) => buildRegistrySearchCommand(yargs),
+          handler: async (argv) => {
+            // Delegate to registry search command
+            const { searchCommand } = await import('../registry/search.js');
+            const searchArgs = {
+              query: argv.query,
+              status: argv.status,
+              type: argv.type,
+              transport: argv.transport,
+              limit: argv.limit,
+              cursor: argv.cursor,
+              format: argv.format,
+              _: argv._ || [],
+              $0: argv.$0 || '1mcp',
+              config: argv.config,
+              'config-dir': argv['config-dir'],
+              url: argv['url'],
+              timeout: argv['timeout'],
+              'cache-ttl': argv['cache-ttl'],
+              'cache-max-size': argv['cache-max-size'],
+              'cache-cleanup-interval': argv['cache-cleanup-interval'],
+              proxy: argv['proxy'],
+              'proxy-auth': argv['proxy-auth'],
+            } as Parameters<typeof searchCommand>[0];
+            await searchCommand(searchArgs);
+          },
+        })
         .demandCommand(1, 'You must specify a subcommand')
         .help().epilogue(`
 MCP Command Group - Local MCP Server Configuration Management
@@ -129,8 +180,9 @@ MCP Command Group - Local MCP Server Configuration Management
 The mcp command group helps you manage local MCP server configurations in your 1mcp instance.
 
 This allows you to:
+• Install MCP servers from the registry
 • Add new MCP servers with various transport types (stdio, HTTP, SSE)
-• Remove servers you no longer need
+• Remove or uninstall servers you no longer need
 • Update server configurations including environment variables and tags
 • Enable/disable servers without removing them
 • List and filter servers by tags or status

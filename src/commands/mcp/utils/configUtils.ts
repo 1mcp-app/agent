@@ -259,6 +259,31 @@ export function parseTags(tagsString?: string): string[] {
 }
 
 /**
+ * Get installation metadata for a server
+ * Returns metadata about when and how the server was installed
+ */
+export function getInstallationMetadata(serverName: string): {
+  installedAt?: Date;
+  installedBy?: string;
+  version?: string;
+} | null {
+  try {
+    const server = getServer(serverName);
+    if (!server) {
+      return null;
+    }
+
+    // In future, store metadata in config or separate metadata file
+    // For now, return basic info
+    return {
+      version: (server as MCPServerParams & { version?: string }).version,
+    };
+  } catch (_error) {
+    return null;
+  }
+}
+
+/**
  * Validate configuration file path
  */
 export function validateConfigPath(configPath?: string): string {
