@@ -24,6 +24,7 @@ import {
   SubscribeRequestSchema,
   UnsubscribeRequestSchema,
 } from '@modelcontextprotocol/sdk/types.js';
+import { Tool } from '@modelcontextprotocol/sdk/types.js';
 
 import { MCP_URI_SEPARATOR } from '@src/constants.js';
 import { ClientManager } from '@src/core/client/clientManager.js';
@@ -31,6 +32,7 @@ import { byCapabilities } from '@src/core/filtering/clientFiltering.js';
 import { FilteringService } from '@src/core/filtering/filteringService.js';
 import { ServerManager } from '@src/core/server/serverManager.js';
 import { ClientStatus, InboundConnection, OutboundConnections } from '@src/core/types/index.js';
+import { CustomJsonSchemaValidator } from '@src/core/validation/CustomJsonSchemaValidator.js';
 import { setLogLevel } from '@src/logger/logger.js';
 import logger from '@src/logger/logger.js';
 import { withErrorHandling } from '@src/utils/core/errorHandling.js';
@@ -96,6 +98,28 @@ function registerServerRequestHandlers(outboundConns: OutboundConnections, inbou
  * @param capabilities The server capabilities
  * @param tags Array of tags to filter clients by
  */
+
+/**
+ * Preprocess tool schemas to add missing $defs for complete client compatibility
+ */
+function preprocessToolSchema(tool: Tool, customValidator: CustomJsonSchemaValidator): Tool {
+  const processedTool: Tool = { ...tool };
+
+  // Process inputSchema if present
+  if (processedTool.inputSchema) {
+    const preprocessedInput = customValidator.preprocessSchema(processedTool.inputSchema);
+    processedTool.inputSchema = preprocessedInput as Tool['inputSchema'];
+  }
+
+  // Process outputSchema if present
+  if (processedTool.outputSchema) {
+    const preprocessedOutput = customValidator.preprocessSchema(processedTool.outputSchema);
+    processedTool.outputSchema = preprocessedOutput as Tool['outputSchema'];
+  }
+
+  return processedTool;
+}
+
 export function registerRequestHandlers(outboundConns: OutboundConnections, inboundConn: InboundConnection): void {
   // Register logging level handler
   inboundConn.server.setRequestHandler(SetLevelRequestSchema, async (request) => {
@@ -163,10 +187,8 @@ function registerResourceHandlers(outboundConns: OutboundConnections, inboundCon
         (client, params, opts) => client.listResources(params as ListResourcesRequest['params'], opts),
         (outboundConn, result) =>
           result.resources?.map((resource) => ({
+            ...resource,
             uri: buildUri(outboundConn.name, resource.uri, MCP_URI_SEPARATOR),
-            name: resource.name,
-            description: resource.description,
-            mimeType: resource.mimeType,
           })) ?? [],
         inboundConn.enablePagination ?? false,
       );
@@ -192,10 +214,8 @@ function registerResourceHandlers(outboundConns: OutboundConnections, inboundCon
         (client, params, opts) => client.listResourceTemplates(params as ListResourceTemplatesRequest['params'], opts),
         (outboundConn, result) =>
           result.resourceTemplates?.map((template) => ({
+            ...template,
             uriTemplate: buildUri(outboundConn.name, template.uriTemplate, MCP_URI_SEPARATOR),
-            name: template.name,
-            description: template.description,
-            mimeType: template.mimeType,
           })) ?? [],
         inboundConn.enablePagination ?? false,
       );
@@ -281,18 +301,22 @@ function registerToolHandlers(outboundConns: OutboundConnections, inboundConn: I
       const capabilityFilteredClients = byCapabilities({ tools: {} })(outboundConns);
       const filteredClients = FilteringService.getFilteredConnections(capabilityFilteredClients, inboundConn);
 
+      // Create custom validator instance for schema preprocessing
+      const customValidator = new CustomJsonSchemaValidator();
+
       const result = await handlePagination(
         filteredClients,
         request.params || {},
         (client, params, opts) => client.listTools(params as ListToolsRequest['params'], opts),
         (outboundConn, result) =>
-          result.tools?.map((tool) => ({
-            name: buildUri(outboundConn.name, tool.name, MCP_URI_SEPARATOR),
-            description: tool.description,
-            inputSchema: tool.inputSchema,
-            outputSchema: tool.outputSchema,
-            annotations: tool.annotations,
-          })) ?? [],
+          result.tools?.map((tool) => {
+            // Preprocess tool schema to add missing $defs
+            const processedTool = preprocessToolSchema(tool, customValidator);
+            return {
+              ...processedTool,
+              name: buildUri(outboundConn.name, processedTool.name, MCP_URI_SEPARATOR),
+            };
+          }) ?? [],
         inboundConn.enablePagination ?? false,
       );
 
@@ -337,9 +361,8 @@ function registerPromptHandlers(outboundConns: OutboundConnections, inboundConn:
         (client, params, opts) => client.listPrompts(params as ListPromptsRequest['params'], opts),
         (outboundConn, result) =>
           result.prompts?.map((prompt) => ({
+            ...prompt,
             name: buildUri(outboundConn.name, prompt.name, MCP_URI_SEPARATOR),
-            description: prompt.description,
-            arguments: prompt.arguments,
           })) ?? [],
         inboundConn.enablePagination ?? false,
       );

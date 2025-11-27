@@ -22,7 +22,7 @@ interface PaginationResult<T> {
   nextCursor?: string;
 }
 
-interface PaginationResponse {
+export interface PaginationResponse {
   resources?: Resource[];
   resourceTemplates?: ResourceTemplate[];
   tools?: Tool[];
@@ -125,23 +125,33 @@ async function fetchAllItemsForClient<T>(
 
   logger.info(`Fetching all items for client ${outboundConn.name}`);
 
-  const items: T[] = [];
-  let result = await callClientMethod(outboundConn.client, params, {
-    timeout: getRequestTimeout(outboundConn.transport),
-  });
-  items.push(...transformResult(outboundConn, result));
-
-  while (result.nextCursor) {
-    logger.info(`Fetching next page for client ${outboundConn.name} with cursor ${result.nextCursor}`);
-    result = await callClientMethod(
-      outboundConn.client,
-      { ...params, cursor: result.nextCursor },
-      { timeout: getRequestTimeout(outboundConn.transport) },
-    );
+  try {
+    const items: T[] = [];
+    let result = await callClientMethod(outboundConn.client, params, {
+      timeout: getRequestTimeout(outboundConn.transport),
+    });
     items.push(...transformResult(outboundConn, result));
-  }
 
-  return items;
+    while (result.nextCursor) {
+      logger.info(`Fetching next page for client ${outboundConn.name} with cursor ${result.nextCursor}`);
+      result = await callClientMethod(
+        outboundConn.client,
+        { ...params, cursor: result.nextCursor },
+        { timeout: getRequestTimeout(outboundConn.transport) },
+      );
+      items.push(...transformResult(outboundConn, result));
+    }
+
+    return items;
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    logger.warn(`Failed to fetch items from client ${outboundConn.name}: ${errorMessage}`, {
+      clientName: outboundConn.name,
+      error: errorMessage,
+      params,
+    });
+    throw error; // Re-throw to be handled by Promise.allSettled
+  }
 }
 
 function getNextClientCursor(currentClientName: string, clientNames: string[]): string | undefined {
@@ -161,12 +171,30 @@ export async function handlePagination<T>(
   const clientNames = Array.from(clients.keys());
 
   if (!enablePagination) {
-    const allItems = await Promise.all(
+    const results = await Promise.allSettled(
       clientNames.map((clientName) =>
         fetchAllItemsForClient(clients.get(clientName)!, clientParams, callClientMethod, transformResult),
       ),
     );
-    return { items: allItems.flat() };
+
+    const allItems = results
+      .filter((result): result is PromiseFulfilledResult<T[]> => result.status === 'fulfilled')
+      .flatMap((result) => result.value);
+
+    // Log any failures for debugging
+    const failures = results.filter((result): result is PromiseRejectedResult => result.status === 'rejected');
+    if (failures.length > 0) {
+      logger.warn(`Failed to fetch items from ${failures.length} clients during pagination`, {
+        totalClients: clientNames.length,
+        successfulClients: results.length - failures.length,
+        failedClients: failures.length,
+        errors: failures.map((failure) => ({
+          reason: failure.reason instanceof Error ? failure.reason.message : String(failure.reason),
+        })),
+      });
+    }
+
+    return { items: allItems };
   }
 
   const { clientName, actualCursor } = parseCursor(cursor);

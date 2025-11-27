@@ -93,6 +93,8 @@
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.22.0",
+    "ajv": "^8.17.1",
+    "ajv-formats": "^3.0.1",
     "axios": "^1.12.2",
     "body-parser": "^2.2.0",
     "boxen": "^8.0.1",
@@ -118,6 +120,7 @@
     "@eslint/js": "^9.22.0",
     "@testing-library/jest-dom": "^6.6.3",
     "@trivago/prettier-plugin-sort-imports": "^5.2.2",
+    "@types/ajv": "^1.0.4",
     "@types/archiver": "^6.0.3",
     "@types/body-parser": "^1.19.5",
     "@types/cors": "^2.8.19",
