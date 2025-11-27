@@ -73,15 +73,15 @@ export class CustomJsonSchemaValidator implements jsonSchemaValidator {
 
   /**
    * Create a validator for the given JSON Schema
-   * Handles problematic schemas with preprocessing and fallback strategies
+   * Automatically patches schemas to include missing $defs and handles problematic schemas
    */
   getValidator<T>(schema: unknown): JsonSchemaValidator<T> {
     try {
-      // Try preprocessing the schema to handle common issues
-      const processedSchema = this.preprocessSchema(schema);
+      // Automatically patch the original schema to include missing $defs
+      this.patchSchemaWithMissingDefs(schema);
 
-      // Try to compile with primary Ajv instance
-      const primaryValidator = this.ajv.compile(processedSchema as AnySchema);
+      // Try to compile with the now-patched schema
+      const primaryValidator = this.ajv.compile(schema as AnySchema);
 
       return (input: unknown): JsonSchemaValidatorResult<T> => {
         try {
@@ -102,12 +102,48 @@ export class CustomJsonSchemaValidator implements jsonSchemaValidator {
           }
         } catch (_error) {
           // If primary validation fails, try fallback
-          return this.validateWithFallback<T>(input, processedSchema);
+          return this.validateWithFallback<T>(input, schema);
         }
       };
     } catch (_error) {
       // If schema compilation fails, create a very permissive fallback validator
       return this.createLenientValidator<T>(schema);
+    }
+  }
+
+  /**
+   * Automatically patch schema in-place to add missing $defs
+   * This ensures the schema object is modified directly, so callers get the complete schema
+   */
+  private patchSchemaWithMissingDefs(schema: unknown): void {
+    if (!schema || typeof schema !== 'object') {
+      return;
+    }
+
+    const schemaObj = schema as Record<string, unknown>;
+
+    // First, collect all referenced definitions that are missing
+    const missingDefs = this.findMissingDefinitions(schema);
+
+    // Inject placeholder definitions for missing ones
+    if (missingDefs.length > 0) {
+      // Check if schema uses $defs or definitions
+      if (schemaObj.$defs !== undefined) {
+        // Schema already has $defs, add missing ones
+        this.injectPlaceholderDefinitions(schemaObj.$defs as Record<string, unknown>, missingDefs);
+      } else if (schemaObj.definitions !== undefined) {
+        // Schema uses definitions (legacy format), add missing ones
+        this.injectPlaceholderDefinitions(schemaObj.definitions as Record<string, unknown>, missingDefs);
+      } else {
+        // No definitions section, create $defs (preferred modern format)
+        schemaObj.$defs = {} as Record<string, unknown>;
+        this.injectPlaceholderDefinitions(schemaObj.$defs as Record<string, unknown>, missingDefs);
+      }
+    }
+
+    // Remove fake $id that doesn't solve the real problem
+    if (schemaObj.$id === 'https://mcp.1mcp.app/generated-schema') {
+      delete schemaObj.$id;
     }
   }
 
@@ -175,8 +211,11 @@ export class CustomJsonSchemaValidator implements jsonSchemaValidator {
       const objRecord = obj as Record<string, unknown>;
       for (const [key, value] of Object.entries(objRecord)) {
         if (key === '$ref' && typeof value === 'string') {
-          // Extract definition name from $ref like "#/$defs/SearchResult"
-          const match = value.match(/^#\/\$defs\/([^/]+)$/);
+          // Extract definition name from $ref like "#/$defs/SearchResult" or "#/definitions/SearchResult"
+          const defsMatch = value.match(/^#\/\$defs\/([^/]+)$/);
+          const definitionsMatch = value.match(/^#\/definitions\/([^/]+)$/);
+
+          const match = defsMatch || definitionsMatch;
           if (match && !existingDefs.has(match[1])) {
             missingDefs.add(match[1]);
           }

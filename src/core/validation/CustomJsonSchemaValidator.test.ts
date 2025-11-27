@@ -209,7 +209,7 @@ describe('CustomJsonSchemaValidator', () => {
   });
 
   describe('robustness', () => {
-    it('should not mutate the original schema', () => {
+    it('should automatically patch the original schema with missing $defs', () => {
       const validator = new CustomJsonSchemaValidator();
       const originalSchema = {
         type: 'object',
@@ -223,8 +223,11 @@ describe('CustomJsonSchemaValidator', () => {
 
       validator.getValidator(originalSchema);
 
-      expect(originalSchema).toEqual(schemaCopy);
-      expect((originalSchema as any).$defs).toBeUndefined();
+      // Schema should be mutated to include missing $defs
+      expect(originalSchema).not.toEqual(schemaCopy);
+      expect((originalSchema as any).$defs).toBeDefined();
+      expect((originalSchema as any).$defs.Missing).toBeDefined();
+      expect((originalSchema as any).$defs.Missing.description).toContain('Placeholder definition for Missing');
     });
 
     it('should support "definitions" keyword in addition to "$defs"', () => {
