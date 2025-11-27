@@ -129,7 +129,7 @@ describe('handleSearchMCPServers', () => {
       version: '1.0.0',
       packages: expect.any(Array),
       repository: expect.any(Object),
-      registryId: 'file-server-1',
+      registryId: 'file-server',
       lastUpdated: '2024-01-01T00:00:00Z',
     });
   });
@@ -298,7 +298,7 @@ describe('handleSearchMCPServers', () => {
         source: 'github',
         subfolder: 'packages/core',
       },
-      registryId: 'file-server-1',
+      registryId: 'file-server',
       lastUpdated: '2024-01-01T00:00:00Z',
     });
   });
