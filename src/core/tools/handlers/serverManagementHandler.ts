@@ -30,6 +30,26 @@ import logger from '@src/logger/logger.js';
 import { createTransports } from '@src/transport/transportFactory.js';
 
 /**
+ * Enhanced server information interface for mcp_list
+ */
+interface EnhancedServerInfo extends Omit<MCPServerParams, 'env'> {
+  name: string;
+  status: 'enabled' | 'disabled' | 'running' | 'stopped';
+  configured: boolean;
+  env?: Record<string, string>;
+  capabilities?: {
+    tools: string;
+    resources: string;
+    prompts: string;
+  };
+  health?: {
+    connected: boolean;
+    lastConnected: string | null;
+    responseTime: number | null;
+  };
+}
+
+/**
  * Helper function to initialize config context
  */
 function initializeConfig() {
@@ -214,7 +234,8 @@ export async function handleMcpList(args: McpListToolArgs) {
   const servers = Object.entries(config.mcpServers);
 
   // Apply filters
-  let filteredServers = servers.filter(([_, server]) => {
+  let filteredServers = servers.filter(([, server]) => {
+    // Status filter
     if (args.status !== 'all') {
       const isDisabled = server.disabled;
       switch (args.status) {
@@ -222,26 +243,121 @@ export async function handleMcpList(args: McpListToolArgs) {
           return !isDisabled;
         case 'disabled':
           return isDisabled;
+        case 'running':
+        case 'stopped':
+          // For now, base on disabled status - could be enhanced with actual runtime status
+          return args.status === 'running' ? !isDisabled : isDisabled;
         default:
           return true;
       }
     }
+
+    // Transport filter
+    if (args.transport && server.type !== args.transport) {
+      return false;
+    }
+
+    // Tags filter
+    if (args.tags && args.tags.length > 0) {
+      const serverTags = server.tags || [];
+      const hasMatchingTag = args.tags.some((tag) => serverTags.includes(tag));
+      if (!hasMatchingTag) {
+        return false;
+      }
+    }
+
     return true;
   });
 
-  // Add status information
-  const serversWithStatus = filteredServers.map(([name, server]: [string, MCPServerParams]) => ({
-    name,
-    ...server,
-    status: server.disabled ? 'disabled' : 'enabled',
-    configured: true,
-  }));
+  // Enhanced server information
+  const serversWithEnhancedInfo: EnhancedServerInfo[] = await Promise.all(
+    filteredServers.map(async ([name, server]: [string, MCPServerParams]) => {
+      // Create base info by spreading all properties except env, then handle env separately
+      const { env: serverEnv, ...serverProps } = server;
+
+      const baseInfo: EnhancedServerInfo = {
+        name,
+        ...serverProps,
+        status: server.disabled ? 'disabled' : 'enabled',
+        configured: true,
+      };
+
+      // Handle env property - only include record format, not array format
+      if (serverEnv && !Array.isArray(serverEnv)) {
+        baseInfo.env = serverEnv;
+      }
+
+      // Verbose mode - add more details (these are already included via spread operator)
+      // No need to set them again as they're already in baseInfo
+
+      // Include capabilities - get from client manager if available
+      if (args.includeCapabilities) {
+        try {
+          const clientManager = ClientManager.getOrCreateInstance();
+          const connection = clientManager.getClient(name);
+          if (connection && connection.capabilities) {
+            baseInfo.capabilities = {
+              tools: connection.capabilities.tools ? 'enabled' : 'not supported',
+              resources: connection.capabilities.resources ? 'enabled' : 'not supported',
+              prompts: connection.capabilities.prompts ? 'enabled' : 'not supported',
+            };
+          } else {
+            baseInfo.capabilities = { tools: 'N/A', resources: 'N/A', prompts: 'N/A' };
+          }
+        } catch {
+          // Client not available or not connected
+          baseInfo.capabilities = { tools: 'N/A', resources: 'N/A', prompts: 'N/A' };
+        }
+      }
+
+      // Include health information
+      if (args.includeHealth) {
+        try {
+          const clientManager = ClientManager.getOrCreateInstance();
+          const connection = clientManager.getClient(name);
+          baseInfo.health = {
+            connected: !!connection,
+            lastConnected: connection?.lastConnected?.toISOString() || null,
+            responseTime: null, // We don't track response time in OutboundConnection
+          };
+        } catch {
+          baseInfo.health = {
+            connected: false,
+            lastConnected: null,
+            responseTime: null,
+          };
+        }
+      }
+
+      return baseInfo;
+    }),
+  );
+
+  // Apply sorting
+  const sortedServers = serversWithEnhancedInfo.sort((a, b) => {
+    switch (args.sortBy) {
+      case 'name':
+        return a.name.localeCompare(b.name);
+      case 'status':
+        return a.status.localeCompare(b.status);
+      case 'transport':
+        return (a.type || '').localeCompare(b.type || '');
+      case 'lastConnected': {
+        const aTime = a.health?.lastConnected || '';
+        const bTime = b.health?.lastConnected || '';
+        return bTime.localeCompare(aTime); // Most recent first
+      }
+      default:
+        return a.name.localeCompare(b.name);
+    }
+  });
 
   return {
-    servers: serversWithStatus,
+    servers: sortedServers,
     total: servers.length,
-    filtered: serversWithStatus.length,
+    filtered: sortedServers.length,
     filters: args,
+    format: args.format || 'table',
   };
 }
 

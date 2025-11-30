@@ -319,6 +319,7 @@ describe('serverManagementHandler', () => {
         name: 'test-server',
         force: false,
         preserveConfig: false,
+        graceful: true,
       };
 
       const result = await handleUninstallMCPServer(args);
@@ -336,6 +337,7 @@ describe('serverManagementHandler', () => {
         name: 'non-existent-server',
         force: false,
         preserveConfig: false,
+        graceful: true,
       };
 
       await expect(handleUninstallMCPServer(args)).rejects.toThrow("Server 'non-existent-server' not found");
@@ -483,6 +485,9 @@ describe('serverManagementHandler', () => {
         tags: undefined,
         format: 'table' as const,
         verbose: false,
+        includeCapabilities: false,
+        includeHealth: true,
+        sortBy: 'name' as const,
       };
 
       const result = await handleMcpList(args);
@@ -510,6 +515,9 @@ describe('serverManagementHandler', () => {
         tags: undefined,
         format: 'table' as const,
         verbose: false,
+        includeCapabilities: false,
+        includeHealth: true,
+        sortBy: 'name' as const,
       };
 
       const result = await handleMcpList(args);
@@ -527,6 +535,9 @@ describe('serverManagementHandler', () => {
         tags: undefined,
         format: 'table' as const,
         verbose: false,
+        includeCapabilities: false,
+        includeHealth: true,
+        sortBy: 'name' as const,
       };
 
       const result = await handleMcpList(args);
@@ -546,6 +557,9 @@ describe('serverManagementHandler', () => {
         tags: undefined,
         format: 'table' as const,
         verbose: false,
+        includeCapabilities: false,
+        includeHealth: true,
+        sortBy: 'name' as const,
       };
 
       const result = await handleMcpList(args);
@@ -735,6 +749,7 @@ describe('serverManagementHandler', () => {
         name: 'test-server',
         force: false,
         preserveConfig: false,
+        graceful: true,
       });
 
       // Test reload operation
@@ -764,12 +779,18 @@ describe('serverManagementHandler', () => {
         name: 'test-server',
         force: false,
         preserveConfig: false,
+        graceful: true,
       });
 
       await handleMcpList({
         status: 'all',
+        transport: undefined,
+        tags: undefined,
         format: 'table',
         verbose: false,
+        includeCapabilities: false,
+        includeHealth: true,
+        sortBy: 'name',
       });
 
       expect(initSpy).toHaveBeenCalledTimes(3);

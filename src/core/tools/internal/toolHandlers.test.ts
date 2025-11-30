@@ -223,6 +223,7 @@ describe('toolHandlers', () => {
         name: 'test-server',
         force: false,
         preserveConfig: false,
+        graceful: true,
       };
 
       const result = await handleMcpUninstall(args);
@@ -243,6 +244,7 @@ describe('toolHandlers', () => {
         name: 'test-server',
         force: false,
         preserveConfig: false,
+        graceful: true,
       };
 
       const result = await handleMcpUninstall(args);
@@ -259,6 +261,7 @@ describe('toolHandlers', () => {
         name: 'test-server',
         force: false,
         preserveConfig: false,
+        graceful: true,
       };
 
       const result = await handleMcpUninstall(args);
@@ -460,8 +463,13 @@ describe('toolHandlers', () => {
 
       const args = {
         status: 'all' as const,
+        transport: undefined,
+        tags: undefined,
         format: 'table' as const,
         verbose: false,
+        includeCapabilities: false,
+        includeHealth: true,
+        sortBy: 'name' as const,
       };
 
       const result = await handleMcpList(args);
@@ -480,8 +488,13 @@ describe('toolHandlers', () => {
 
       const args = {
         status: 'all' as const,
+        transport: undefined,
+        tags: undefined,
         format: 'table' as const,
         verbose: false,
+        includeCapabilities: false,
+        includeHealth: true,
+        sortBy: 'name' as const,
       };
 
       const result = await handleMcpList(args);
@@ -496,8 +509,13 @@ describe('toolHandlers', () => {
 
       const args = {
         status: 'all' as const,
+        transport: undefined,
+        tags: undefined,
         format: 'table' as const,
         verbose: false,
+        includeCapabilities: false,
+        includeHealth: true,
+        sortBy: 'name' as const,
       };
 
       const result = await handleMcpList(args);

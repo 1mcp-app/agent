@@ -48,15 +48,19 @@ describe('Internal Tools Integration', () => {
       await internalProvider.initialize();
     });
 
-    it('should return all 10 expected internal tools from provider', () => {
+    it('should return all 15 expected internal tools from provider', () => {
       const tools = internalProvider.getAvailableTools();
 
-      expect(tools).toHaveLength(10);
+      expect(tools).toHaveLength(15);
 
       const toolNames = tools.map((t) => t.name);
       const expectedTools = [
         'mcp_search',
         'mcp_registry',
+        'mcp_registry_status',
+        'mcp_registry_info',
+        'mcp_registry_list',
+        'mcp_info',
         'mcp_install',
         'mcp_uninstall',
         'mcp_update',
@@ -76,13 +80,15 @@ describe('Internal Tools Integration', () => {
       const changes = await aggregator.updateCapabilities();
       const capabilities = changes.current;
 
-      expect(capabilities.tools).toHaveLength(10);
+      expect(capabilities.tools).toHaveLength(15);
       expect(capabilities.readyServers).toContain('1mcp');
 
       const toolNames = capabilities.tools.map((t) => t.name);
       expect(toolNames).toContain('mcp_search');
       expect(toolNames).toContain('mcp_install');
       expect(toolNames).toContain('mcp_list');
+      expect(toolNames).toContain('mcp_info');
+      expect(toolNames).toContain('mcp_registry_status');
       // ... other tools can be checked if needed
     });
 
@@ -106,7 +112,7 @@ describe('Internal Tools Integration', () => {
       changes = await aggregator.updateCapabilities();
       expect(changes.hasChanges).toBe(true);
       expect(changes.toolsChanged).toBe(true);
-      expect(changes.current.tools).toHaveLength(10);
+      expect(changes.current.tools).toHaveLength(15);
       expect(changes.current.readyServers).toContain('1mcp');
       expect(changes.addedServers).toContain('1mcp');
     });
@@ -162,7 +168,7 @@ describe('Internal Tools Integration', () => {
       await internalProvider.initialize();
 
       await aggregator.updateCapabilities();
-      expect(aggregator.getCurrentCapabilities().tools.length).toBe(10);
+      expect(aggregator.getCurrentCapabilities().tools.length).toBe(15);
 
       // Now disable
       configManager.updateConfig({
@@ -230,7 +236,7 @@ describe('Internal Tools Integration', () => {
 
     it('should handle multiple configuration updates', async () => {
       const configs = [false, true, false, true];
-      const expectedLengths = [0, 10, 0, 10];
+      const expectedLengths = [0, 15, 0, 15];
 
       for (let i = 0; i < configs.length; i++) {
         configManager.updateConfig({

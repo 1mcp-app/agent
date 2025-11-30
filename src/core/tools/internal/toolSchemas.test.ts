@@ -3,8 +3,12 @@ import { describe, expect, it } from 'vitest';
 import {
   McpDisableToolSchema,
   McpEnableToolSchema,
+  McpInfoToolSchema,
   McpInstallToolSchema,
   McpListToolSchema,
+  McpRegistryInfoSchema,
+  McpRegistryListSchema,
+  McpRegistryStatusSchema,
   McpReloadToolSchema,
   McpSearchToolSchema,
   McpStatusToolSchema,
@@ -449,6 +453,107 @@ describe('toolSchemas', () => {
       expect(result.success).toBe(true);
       if (result.success) {
         expect(result.data.timeout).toBe(60000);
+      }
+    });
+  });
+
+  describe('McpInfoToolSchema', () => {
+    it('should validate valid info args', () => {
+      const validArgs = {
+        name: 'test-server',
+      };
+
+      const result = McpInfoToolSchema.safeParse(validArgs);
+      expect(result.success).toBe(true);
+      if (result.success) {
+        expect(result.data.name).toBe('test-server');
+      }
+    });
+
+    it('should apply default values', () => {
+      const minimalArgs = {
+        name: 'test-server',
+      };
+
+      const result = McpInfoToolSchema.safeParse(minimalArgs);
+      expect(result.success).toBe(true);
+      if (result.success) {
+        expect(result.data.name).toBe('test-server');
+        expect(result.data.includeCapabilities).toBe(true);
+        expect(result.data.includeConfig).toBe(true);
+        expect(result.data.format).toBe('table');
+      }
+    });
+  });
+
+  describe('McpRegistryStatusSchema', () => {
+    it('should validate valid registry status args', () => {
+      const validArgs = {
+        registry: 'community',
+      };
+
+      const result = McpRegistryStatusSchema.safeParse(validArgs);
+      expect(result.success).toBe(true);
+      if (result.success) {
+        expect(result.data.registry).toBe('community');
+      }
+    });
+
+    it('should apply default registry', () => {
+      const minimalArgs = {};
+
+      const result = McpRegistryStatusSchema.safeParse(minimalArgs);
+      expect(result.success).toBe(true);
+      if (result.success) {
+        expect(result.data.registry).toBe('official');
+      }
+    });
+  });
+
+  describe('McpRegistryInfoSchema', () => {
+    it('should validate valid registry info args', () => {
+      const validArgs = {
+        registry: 'experimental',
+      };
+
+      const result = McpRegistryInfoSchema.safeParse(validArgs);
+      expect(result.success).toBe(true);
+      if (result.success) {
+        expect(result.data.registry).toBe('experimental');
+      }
+    });
+
+    it('should apply default registry', () => {
+      const minimalArgs = {};
+
+      const result = McpRegistryInfoSchema.safeParse(minimalArgs);
+      expect(result.success).toBe(true);
+      if (result.success) {
+        expect(result.data.registry).toBe('official');
+      }
+    });
+  });
+
+  describe('McpRegistryListSchema', () => {
+    it('should validate valid registry list args', () => {
+      const validArgs = {
+        includeStats: true,
+      };
+
+      const result = McpRegistryListSchema.safeParse(validArgs);
+      expect(result.success).toBe(true);
+      if (result.success) {
+        expect(result.data.includeStats).toBe(true);
+      }
+    });
+
+    it('should apply default values', () => {
+      const minimalArgs = {};
+
+      const result = McpRegistryListSchema.safeParse(minimalArgs);
+      expect(result.success).toBe(true);
+      if (result.success) {
+        expect(result.data.includeStats).toBe(false);
       }
     });
   });

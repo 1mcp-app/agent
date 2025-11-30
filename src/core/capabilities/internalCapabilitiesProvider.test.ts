@@ -85,6 +85,10 @@ describe('InternalCapabilitiesProvider', () => {
       // Check for expected tool names
       const toolNames = tools.map((tool) => tool.name);
       expect(toolNames).toContain('mcp_search');
+      expect(toolNames).toContain('mcp_registry_status');
+      expect(toolNames).toContain('mcp_registry_info');
+      expect(toolNames).toContain('mcp_registry_list');
+      expect(toolNames).toContain('mcp_info');
       expect(toolNames).toContain('mcp_install');
       expect(toolNames).toContain('mcp_uninstall');
       expect(toolNames).toContain('mcp_update');
@@ -201,6 +205,54 @@ describe('InternalCapabilitiesProvider', () => {
           return;
         }
         // If it reaches here, validation is working
+      }
+    });
+
+    it('should execute mcp_registry_status tool', async () => {
+      try {
+        const result = await capabilitiesProvider.executeTool('mcp_registry_status', {
+          registry: 'official',
+        });
+        expect(result).toBeDefined();
+      } catch (error) {
+        // Expected if handlers are not mocked
+        expect((error as Error).message).toContain('not a function');
+      }
+    });
+
+    it('should execute mcp_registry_info tool', async () => {
+      try {
+        const result = await capabilitiesProvider.executeTool('mcp_registry_info', {
+          registry: 'official',
+        });
+        expect(result).toBeDefined();
+      } catch (error) {
+        // Expected if handlers are not mocked
+        expect((error as Error).message).toContain('not a function');
+      }
+    });
+
+    it('should execute mcp_registry_list tool', async () => {
+      try {
+        const result = await capabilitiesProvider.executeTool('mcp_registry_list', {
+          includeStats: true,
+        });
+        expect(result).toBeDefined();
+      } catch (error) {
+        // Expected if handlers are not mocked
+        expect((error as Error).message).toContain('not a function');
+      }
+    });
+
+    it('should execute mcp_info tool', async () => {
+      try {
+        const result = await capabilitiesProvider.executeTool('mcp_info', {
+          name: 'test-server',
+        });
+        expect(result).toBeDefined();
+      } catch (error) {
+        // Expected if handlers are not mocked
+        expect((error as Error).message).toContain('not a function');
       }
     });
   });
