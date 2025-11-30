@@ -154,10 +154,6 @@ export class CapabilityAggregator extends EventEmitter {
       // Only add 1mcp as a ready server if it provides capabilities
       if (internalTools.length > 0 || internalResources.length > 0 || internalPrompts.length > 0) {
         readyServers.push('1mcp');
-        debugIf(() => ({
-          message: 'Added 1mcp tools to aggregation',
-          meta: { count: internalTools.length, tools: internalTools.map((t) => t.name) },
-        }));
       }
     } catch (error) {
       logger.warn(`Failed to load 1mcp tools: ${error}`);

@@ -33,7 +33,7 @@ import {
   McpUninstallToolArgs,
   McpUpdateToolArgs,
 } from '@src/core/tools/internal/toolSchemas.js';
-import logger, { debugIf } from '@src/logger/logger.js';
+import logger from '@src/logger/logger.js';
 
 /**
  * Internal capabilities provider that serves internal management tools
@@ -67,11 +67,6 @@ export class InternalCapabilitiesProvider extends EventEmitter {
     if (this.isInitialized) {
       return;
     }
-
-    debugIf(() => ({
-      message: 'Initializing internal capabilities provider',
-      meta: {},
-    }));
 
     this.isInitialized = true;
 
@@ -109,11 +104,6 @@ export class InternalCapabilitiesProvider extends EventEmitter {
       tools.push(this.createReloadTool());
     }
 
-    debugIf(() => ({
-      message: 'Internal tools provided',
-      meta: { count: tools.length, tools: tools.map((t) => t.name) },
-    }));
-
     return tools;
   }
 
@@ -124,11 +114,6 @@ export class InternalCapabilitiesProvider extends EventEmitter {
     if (!this.isInitialized) {
       throw new Error('Internal capabilities provider not initialized');
     }
-
-    debugIf(() => ({
-      message: 'Executing internal tool',
-      meta: { toolName, args },
-    }));
 
     switch (toolName) {
       case 'mcp_search':
@@ -520,11 +505,6 @@ export class InternalCapabilitiesProvider extends EventEmitter {
    * Cleanup resources
    */
   public cleanup(): void {
-    debugIf(() => ({
-      message: 'Cleaning up internal capabilities provider',
-      meta: {},
-    }));
-
     cleanupInternalToolHandlers();
     this.removeAllListeners();
     this.isInitialized = false;
