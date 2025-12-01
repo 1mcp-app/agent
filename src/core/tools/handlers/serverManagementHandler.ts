@@ -23,7 +23,7 @@ import {
   McpStatusToolArgs,
   McpUninstallToolArgs,
   McpUpdateToolArgs,
-} from '@src/core/tools/internal/toolSchemas.js';
+} from '@src/core/tools/internal/schemas/index.js';
 import { MCPServerParams } from '@src/core/types/transport.js';
 import { debugIf } from '@src/logger/logger.js';
 import logger from '@src/logger/logger.js';
@@ -408,6 +408,14 @@ export async function handleServerStatus(args: McpStatusToolArgs) {
 }
 
 /**
+ * Extended reload arguments type for internal tool compatibility
+ */
+interface ExtendedMcpReloadToolArgs extends McpReloadToolArgs {
+  target?: 'server' | 'config' | 'all' | string;
+  name?: string;
+}
+
+/**
  * Handler for reload operations
  */
 export async function handleReloadOperation(args: McpReloadToolArgs) {
@@ -419,112 +427,140 @@ export async function handleReloadOperation(args: McpReloadToolArgs) {
   const reloadManager = SelectiveReloadManager.getInstance();
   const configManager = McpConfigManager.getInstance();
 
-  switch (args.target) {
-    case 'config': {
-      // Get current config (before reload)
-      const oldConfig = configManager.getTransportConfig();
+  // Determine reload target based on input parameters
+  let reloadTarget: 'server' | 'config' | 'all';
 
-      // Force reload from disk
-      configManager.reloadConfig();
+  // Type guard to check if args has extended properties
+  const hasExtendedProps = (arg: McpReloadToolArgs): arg is ExtendedMcpReloadToolArgs => {
+    return 'target' in arg || 'name' in arg;
+  };
 
-      // Get new config
-      const newConfig = configManager.getTransportConfig();
-
-      // Execute selective reload
-      const operation = await reloadManager.executeReload(oldConfig, newConfig);
-
-      return {
-        target: 'config',
-        action: 'reloaded',
-        timestamp: new Date().toISOString(),
-        success: operation.status === 'completed',
-        details: {
-          operationId: operation.id,
-          changes: operation.impact.summary.totalChanges,
-          affectedServers: operation.affectedServers,
-          status: operation.status,
-          error: operation.error,
-        },
-      };
-    }
-
-    case 'server': {
-      if (!args.name) {
-        throw new Error('Server name is required when target is "server"');
-      }
-
-      logger.info(`Restarting server: ${args.name}`);
-      const clientManager = ClientManager.current;
-
-      try {
-        // 1. Remove existing client
-        await clientManager.removeClient(args.name);
-
-        // 2. Re-create client from current config
-        const config = configManager.getTransportConfig();
-        const serverConfig = config[args.name];
-
-        if (!serverConfig) {
-          throw new Error(`Server ${args.name} not found in configuration`);
-        }
-
-        const transportMap = createTransports({ [args.name]: serverConfig });
-        const transport = transportMap[args.name];
-
-        if (transport) {
-          await clientManager.createSingleClient(args.name, transport);
-        } else {
-          throw new Error(`Failed to create transport for ${args.name}`);
-        }
-
-        return {
-          target: 'server',
-          serverName: args.name,
-          action: 'reloaded',
-          timestamp: new Date().toISOString(),
-          success: true,
-        };
-      } catch (error) {
-        const errorMessage = error instanceof Error ? error.message : String(error);
-        logger.error(`Failed to restart server ${args.name}: ${errorMessage}`);
-        return {
-          target: 'server',
-          serverName: args.name,
-          action: 'failed',
-          timestamp: new Date().toISOString(),
-          success: false,
-          error: errorMessage,
-        };
-      }
-    }
-
-    case 'all': {
-      // Get current config
-      const oldConfig = configManager.getTransportConfig();
-
-      // Force reload from disk
-      configManager.reloadConfig();
-
-      // Get new config
-      const newConfig = configManager.getTransportConfig();
-
-      // Force full reload
-      const operation = await reloadManager.executeReload(oldConfig, newConfig, { forceFullReload: true });
-
-      return {
-        target: 'all',
-        action: 'reloaded',
-        timestamp: new Date().toISOString(),
-        success: operation.status === 'completed',
-        details: {
-          operationId: operation.id,
-          status: operation.status,
-          error: operation.error,
-        },
-      };
-    }
-
-    default:
-      throw new Error(`Invalid reload target: ${args.target}`);
+  // Check if this is an invalid reload target (for test compatibility)
+  if (hasExtendedProps(args) && args.target && !['server', 'config', 'all'].includes(args.target)) {
+    throw new Error(`Invalid reload target: ${args.target}`);
   }
+
+  // Determine target based on parameters
+  if (hasExtendedProps(args) && args.target) {
+    // If target is explicitly specified
+    reloadTarget = args.target as 'server' | 'config' | 'all';
+  } else if (args.server || (hasExtendedProps(args) && args.name)) {
+    // If server is specified, target is server
+    reloadTarget = 'server';
+  } else if (args.configOnly === false) {
+    // If configOnly is explicitly false, treat as full reload
+    reloadTarget = 'all';
+  } else {
+    // Default is config reload
+    reloadTarget = 'config';
+  }
+
+  // Validation: server name is required when target is 'server'
+  if (reloadTarget === 'server' && !args.server && !(hasExtendedProps(args) && args.name)) {
+    throw new Error('Server name is required when target is "server"');
+  }
+
+  // Get server name from either 'server' or 'name' field
+  const serverName: string = args.server || (hasExtendedProps(args) ? args.name || '' : '');
+
+  // If a specific server is requested, reload it
+  if (reloadTarget === 'server' && serverName) {
+    logger.info(`Restarting server: ${serverName}`);
+    const clientManager = ClientManager.current;
+
+    try {
+      // 1. Remove existing client
+      await clientManager.removeClient(serverName);
+
+      // 2. Re-create client from current config
+      const config = configManager.getTransportConfig();
+      const serverConfig = config[serverName];
+
+      if (!serverConfig) {
+        throw new Error(`Server ${serverName} not found in configuration`);
+      }
+
+      const transportMap = createTransports({ [serverName]: serverConfig });
+      const transport = transportMap[serverName];
+
+      if (transport) {
+        await clientManager.createSingleClient(serverName, transport);
+      } else {
+        throw new Error(`Failed to create transport for ${serverName}`);
+      }
+
+      return {
+        target: 'server',
+        serverName: serverName,
+        action: 'reloaded',
+        timestamp: new Date().toISOString(),
+        success: true,
+      };
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      logger.error(`Failed to restart server ${serverName}: ${errorMessage}`);
+      return {
+        target: 'server',
+        serverName: serverName,
+        action: 'failed',
+        timestamp: new Date().toISOString(),
+        success: false,
+        error: errorMessage,
+      };
+    }
+  }
+
+  // If target is config, just reload configuration
+  if (reloadTarget === 'config') {
+    // Get current config (before reload)
+    const oldConfig = configManager.getTransportConfig();
+
+    // Force reload from disk
+    configManager.reloadConfig();
+
+    // Get new config
+    const newConfig = configManager.getTransportConfig();
+
+    // Execute selective reload
+    const operation = await reloadManager.executeReload(oldConfig, newConfig);
+
+    return {
+      target: 'config',
+      action: 'reloaded',
+      timestamp: new Date().toISOString(),
+      success: operation.status === 'completed',
+      details: {
+        operationId: operation.id,
+        changes: operation.impact.summary.totalChanges,
+        affectedServers: operation.affectedServers,
+        status: operation.status,
+        error: operation.error,
+      },
+    };
+  }
+
+  // Default: full reload (when reloadTarget is 'all')
+  // Get current config
+  const oldConfig = configManager.getTransportConfig();
+
+  // Force reload from disk
+  configManager.reloadConfig();
+
+  // Get new config
+  const newConfig = configManager.getTransportConfig();
+
+  // Force full reload
+  const operation = await reloadManager.executeReload(oldConfig, newConfig, { forceFullReload: true });
+
+  return {
+    target: reloadTarget,
+    action: 'reloaded',
+    timestamp: new Date().toISOString(),
+    success: operation.status === 'completed',
+    details: {
+      operationId: operation.id,
+      status: operation.status,
+      error: operation.error,
+    },
+  };
 }

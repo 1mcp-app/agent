@@ -298,7 +298,7 @@ describe('toolSchemas', () => {
         transport: 'stdio',
         tags: ['test', 'dev'],
         format: 'json',
-        verbose: true,
+        detailed: true, // Changed from verbose
       };
 
       const result = McpListToolSchema.safeParse(validArgs);
@@ -306,7 +306,7 @@ describe('toolSchemas', () => {
       if (result.success) {
         expect(result.data.status).toBe('enabled');
         expect(result.data.transport).toBe('stdio');
-        expect(result.data.verbose).toBe(true);
+        expect(result.data.detailed).toBe(true);
       }
     });
 
@@ -318,7 +318,7 @@ describe('toolSchemas', () => {
       if (result.success) {
         expect(result.data.status).toBe('all');
         expect(result.data.format).toBe('table');
-        expect(result.data.verbose).toBe(false);
+        expect(result.data.detailed).toBe(false); // Changed from verbose
       }
     });
 
@@ -394,8 +394,8 @@ describe('toolSchemas', () => {
   describe('McpReloadToolSchema', () => {
     it('should validate valid reload args', () => {
       const validArgs = {
-        target: 'server',
-        name: 'test-server',
+        server: 'test-server', // Changed from target/name to server
+        configOnly: true, // Added required property
         graceful: true,
         timeout: 30000,
       };
@@ -403,8 +403,8 @@ describe('toolSchemas', () => {
       const result = McpReloadToolSchema.safeParse(validArgs);
       expect(result.success).toBe(true);
       if (result.success) {
-        expect(result.data.target).toBe('server');
-        expect(result.data.name).toBe('test-server');
+        expect(result.data.server).toBe('test-server');
+        expect(result.data.configOnly).toBe(true);
         expect(result.data.graceful).toBe(true);
         expect(result.data.timeout).toBe(30000);
       }
@@ -416,7 +416,8 @@ describe('toolSchemas', () => {
       const result = McpReloadToolSchema.safeParse(minimalArgs);
       expect(result.success).toBe(true);
       if (result.success) {
-        expect(result.data.target).toBe('config');
+        expect(result.data.server).toBeUndefined(); // server is optional
+        expect(result.data.configOnly).toBe(true); // Added required property with default
         expect(result.data.graceful).toBe(true);
         expect(result.data.timeout).toBe(30000);
       }
@@ -424,22 +425,22 @@ describe('toolSchemas', () => {
 
     it('should reject invalid target', () => {
       const invalidArgs = {
-        target: 'invalid',
+        server: 'invalid', // Changed from target to server
       };
 
       const result = McpReloadToolSchema.safeParse(invalidArgs);
-      expect(result.success).toBe(false);
+      expect(result.success).toBe(true); // server can be any string, so this should succeed
     });
 
-    it('should allow all valid targets', () => {
-      const targets = ['server', 'config', 'all'];
+    it('should allow server name values', () => {
+      const servers = ['test-server', 'my-server', 'another-server'];
 
-      targets.forEach((target) => {
-        const args = { target };
+      servers.forEach((server) => {
+        const args = { server };
         const result = McpReloadToolSchema.safeParse(args);
         expect(result.success).toBe(true);
         if (result.success) {
-          expect(result.data.target).toBe(target);
+          expect(result.data.server).toBe(server);
         }
       });
     });

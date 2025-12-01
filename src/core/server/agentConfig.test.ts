@@ -80,6 +80,7 @@ describe('AgentConfigManager', () => {
           sessionPersistence: true,
           clientNotifications: true,
           internalTools: false,
+          internalToolsList: [],
         },
         health: {
           detailLevel: 'minimal',

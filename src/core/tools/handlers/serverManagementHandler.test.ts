@@ -182,6 +182,8 @@ describe('serverManagementHandler', () => {
         enabled: true,
         tags: ['development'],
         autoRestart: true,
+        force: false,
+        backup: true,
       };
 
       const result = await handleInstallMCPServer(args);
@@ -220,6 +222,8 @@ describe('serverManagementHandler', () => {
         enabled: false,
         tags: ['api'],
         autoRestart: false,
+        force: false,
+        backup: true,
       };
 
       const result = await handleInstallMCPServer(args);
@@ -250,6 +254,8 @@ describe('serverManagementHandler', () => {
         transport: 'sse' as const,
         enabled: true,
         autoRestart: false,
+        force: false,
+        backup: true,
       };
 
       const result = await handleInstallMCPServer(args);
@@ -279,6 +285,8 @@ describe('serverManagementHandler', () => {
         transport: 'stdio' as const,
         enabled: true,
         autoRestart: false,
+        force: false,
+        backup: true,
       };
 
       await handleInstallMCPServer(args);
@@ -298,6 +306,8 @@ describe('serverManagementHandler', () => {
         command: 'python',
         enabled: true,
         autoRestart: false,
+        force: false,
+        backup: true,
       };
 
       const result = await handleInstallMCPServer(args);
@@ -320,6 +330,8 @@ describe('serverManagementHandler', () => {
         force: false,
         preserveConfig: false,
         graceful: true,
+        backup: true,
+        removeAll: false,
       };
 
       const result = await handleUninstallMCPServer(args);
@@ -338,6 +350,8 @@ describe('serverManagementHandler', () => {
         force: false,
         preserveConfig: false,
         graceful: true,
+        backup: true,
+        removeAll: false,
       };
 
       await expect(handleUninstallMCPServer(args)).rejects.toThrow("Server 'non-existent-server' not found");
@@ -350,6 +364,8 @@ describe('serverManagementHandler', () => {
         name: 'test-server',
         autoRestart: true,
         backup: true,
+        force: false,
+        dryRun: false,
       };
 
       const result = await handleUpdateMCPServer(args);
@@ -368,6 +384,8 @@ describe('serverManagementHandler', () => {
         name: 'non-existent-server',
         autoRestart: true,
         backup: true,
+        force: false,
+        dryRun: false,
       };
 
       await expect(handleUpdateMCPServer(args)).rejects.toThrow("Server 'non-existent-server' not found");
@@ -378,6 +396,8 @@ describe('serverManagementHandler', () => {
         name: 'test-server',
         autoRestart: true,
         backup: true,
+        force: false,
+        dryRun: false,
       };
 
       const result = await handleUpdateMCPServer(args);
@@ -392,6 +412,8 @@ describe('serverManagementHandler', () => {
       const args = {
         name: 'disabled-server',
         restart: false,
+        graceful: true,
+        timeout: 30,
       };
 
       const result = await handleEnableMCPServer(args);
@@ -409,6 +431,8 @@ describe('serverManagementHandler', () => {
       const args = {
         name: 'test-server',
         restart: true,
+        graceful: true,
+        timeout: 30,
       };
 
       const result = await handleEnableMCPServer(args);
@@ -426,6 +450,8 @@ describe('serverManagementHandler', () => {
       const args = {
         name: 'non-existent-server',
         restart: false,
+        graceful: true,
+        timeout: 30,
       };
 
       await expect(handleEnableMCPServer(args)).rejects.toThrow("Server 'non-existent-server' not found");
@@ -437,6 +463,8 @@ describe('serverManagementHandler', () => {
       const args = {
         name: 'test-server',
         graceful: true,
+        timeout: 30,
+        force: false,
       };
 
       const result = await handleDisableMCPServer(args);
@@ -454,6 +482,8 @@ describe('serverManagementHandler', () => {
       const args = {
         name: 'disabled-server',
         graceful: false,
+        timeout: 30,
+        force: false,
       };
 
       const result = await handleDisableMCPServer(args);
@@ -471,6 +501,8 @@ describe('serverManagementHandler', () => {
       const args = {
         name: 'non-existent-server',
         graceful: true,
+        timeout: 30,
+        force: false,
       };
 
       await expect(handleDisableMCPServer(args)).rejects.toThrow("Server 'non-existent-server' not found");
@@ -484,7 +516,7 @@ describe('serverManagementHandler', () => {
         transport: undefined,
         tags: undefined,
         format: 'table' as const,
-        verbose: false,
+        detailed: false,
         includeCapabilities: false,
         includeHealth: true,
         sortBy: 'name' as const,
@@ -514,7 +546,7 @@ describe('serverManagementHandler', () => {
         transport: undefined,
         tags: undefined,
         format: 'table' as const,
-        verbose: false,
+        detailed: false,
         includeCapabilities: false,
         includeHealth: true,
         sortBy: 'name' as const,
@@ -534,7 +566,7 @@ describe('serverManagementHandler', () => {
         transport: undefined,
         tags: undefined,
         format: 'table' as const,
-        verbose: false,
+        detailed: false,
         includeCapabilities: false,
         includeHealth: true,
         sortBy: 'name' as const,
@@ -556,7 +588,7 @@ describe('serverManagementHandler', () => {
         transport: undefined,
         tags: undefined,
         format: 'table' as const,
-        verbose: false,
+        detailed: false,
         includeCapabilities: false,
         includeHealth: true,
         sortBy: 'name' as const,
@@ -644,9 +676,10 @@ describe('serverManagementHandler', () => {
   describe('handleReloadOperation', () => {
     it('should handle config reload', async () => {
       const args = {
-        target: 'config' as const,
+        configOnly: true,
         graceful: true,
         timeout: 30000,
+        force: false,
       };
 
       const result = await handleReloadOperation(args);
@@ -670,10 +703,11 @@ describe('serverManagementHandler', () => {
 
     it('should handle server reload', async () => {
       const args = {
-        target: 'server' as const,
-        name: 'test-server',
+        server: 'test-server',
+        configOnly: false,
         graceful: true,
         timeout: 30000,
+        force: false,
       };
 
       const result = await handleReloadOperation(args);
@@ -689,9 +723,10 @@ describe('serverManagementHandler', () => {
 
     it('should handle full reload', async () => {
       const args = {
-        target: 'all' as const,
+        configOnly: false,
         graceful: true,
         timeout: 30000,
+        force: false,
       };
 
       const result = await handleReloadOperation(args);
@@ -711,20 +746,24 @@ describe('serverManagementHandler', () => {
 
     it('should throw error when server name is missing for server reload', async () => {
       const args = {
-        target: 'server' as const,
+        target: 'server',
+        configOnly: false,
         graceful: true,
         timeout: 30000,
-      };
+        force: false,
+      } as any;
 
       await expect(handleReloadOperation(args)).rejects.toThrow('Server name is required when target is "server"');
     });
 
     it('should throw error for invalid reload target', async () => {
       const args = {
-        target: 'invalid' as any,
+        target: 'invalid',
+        configOnly: false,
         graceful: true,
         timeout: 30000,
-      };
+        force: false,
+      } as any;
 
       await expect(handleReloadOperation(args)).rejects.toThrow('Invalid reload target: invalid');
     });
@@ -742,6 +781,8 @@ describe('serverManagementHandler', () => {
         transport: 'stdio' as const,
         enabled: true,
         autoRestart: false,
+        force: false,
+        backup: true,
       });
 
       // Test uninstall operation
@@ -750,13 +791,16 @@ describe('serverManagementHandler', () => {
         force: false,
         preserveConfig: false,
         graceful: true,
+        backup: true,
+        removeAll: false,
       });
 
       // Test reload operation
       await handleReloadOperation({
-        target: 'config',
+        configOnly: true,
         graceful: true,
         timeout: 30000,
+        force: false,
       });
 
       expect(debugSpy).toHaveBeenCalledTimes(3);
@@ -773,6 +817,8 @@ describe('serverManagementHandler', () => {
         transport: 'stdio' as const,
         enabled: true,
         autoRestart: false,
+        force: false,
+        backup: true,
       });
 
       await handleUninstallMCPServer({
@@ -780,6 +826,8 @@ describe('serverManagementHandler', () => {
         force: false,
         preserveConfig: false,
         graceful: true,
+        backup: true,
+        removeAll: false,
       });
 
       await handleMcpList({
@@ -787,7 +835,7 @@ describe('serverManagementHandler', () => {
         transport: undefined,
         tags: undefined,
         format: 'table',
-        verbose: false,
+        detailed: false,
         includeCapabilities: false,
         includeHealth: true,
         sortBy: 'name',

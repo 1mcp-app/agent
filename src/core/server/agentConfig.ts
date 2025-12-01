@@ -53,6 +53,7 @@ export interface AgentConfig {
     sessionPersistence: boolean;
     clientNotifications: boolean;
     internalTools: boolean;
+    internalToolsList: string[];
   };
   health: {
     detailLevel: 'full' | 'basic' | 'minimal';
@@ -126,6 +127,7 @@ export class AgentConfigManager {
         clientNotifications: true,
         // Internal tools - disabled by default for security
         internalTools: false,
+        internalToolsList: [], // Empty list means no custom tools specified
       },
       health: {
         detailLevel: 'minimal',
@@ -319,6 +321,25 @@ export class AgentConfigManager {
   // Internal tool convenience methods
   public areInternalToolsEnabled(): boolean {
     return this.get('features').internalTools;
+  }
+
+  /**
+   * Get the internal tools list
+   */
+  public getInternalToolsList(): string[] {
+    return this.get('features').internalToolsList;
+  }
+
+  /**
+   * Set the internal tools list
+   */
+  public setInternalToolsList(toolsList: string[]): void {
+    this.updateConfig({
+      features: {
+        ...this.get('features'),
+        internalToolsList: toolsList,
+      },
+    });
   }
 
   /**

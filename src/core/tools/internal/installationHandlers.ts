@@ -5,14 +5,10 @@
  * including install, uninstall, and update functionality.
  */
 import { FlagManager } from '@src/core/flags/flagManager.js';
-import {
-  handleInstallMCPServer,
-  handleUninstallMCPServer,
-  handleUpdateMCPServer,
-} from '@src/core/tools/handlers/serverManagementHandler.js';
+import { AdapterFactory } from '@src/core/tools/internal/adapters/index.js';
 import logger, { debugIf } from '@src/logger/logger.js';
 
-import { McpInstallToolArgs, McpUninstallToolArgs, McpUpdateToolArgs } from './toolSchemas.js';
+import { McpInstallToolArgs, McpUninstallToolArgs, McpUpdateToolArgs } from './schemas/index.js';
 
 /**
  * Internal tool handler for installing MCP servers
@@ -29,7 +25,7 @@ export async function handleMcpInstall(args: McpInstallToolArgs): Promise<{
 
     // Check if installation tools are enabled
     const flagManager = FlagManager.getInstance();
-    if (!flagManager.isToolEnabled('1mcpTools', 'installation', 'install')) {
+    if (!flagManager.isToolEnabled('internalTools', 'installation', 'install')) {
       return {
         content: [
           {
@@ -44,7 +40,14 @@ export async function handleMcpInstall(args: McpInstallToolArgs): Promise<{
       };
     }
 
-    const result = await handleInstallMCPServer(args);
+    const adapter = AdapterFactory.getInstallationAdapter();
+    const result = await adapter.installServer(args.name, args.version, {
+      force: args.force,
+      backup: args.backup,
+      tags: args.tags,
+      env: args.env,
+      args: args.args,
+    });
 
     return {
       content: [
@@ -52,11 +55,17 @@ export async function handleMcpInstall(args: McpInstallToolArgs): Promise<{
           type: 'text' as const,
           text: JSON.stringify(
             {
-              success: true,
-              message: `MCP server '${result.serverName}' installed successfully`,
+              success: result.success,
+              message: `MCP server '${result.serverName}' ${result.success ? 'installed' : 'installation failed'}${result.success ? ' successfully' : ''}`,
               serverName: result.serverName,
-              serverConfig: result.serverConfig,
-              reloadRecommended: true,
+              version: result.version,
+              installedAt: result.installedAt,
+              configPath: result.configPath,
+              backupPath: result.backupPath,
+              warnings: result.warnings,
+              errors: result.errors,
+              operationId: result.operationId,
+              reloadRecommended: result.success,
             },
             null,
             2,
@@ -98,7 +107,7 @@ export async function handleMcpUninstall(args: McpUninstallToolArgs): Promise<{
 
     // Check if installation tools are enabled
     const flagManager = FlagManager.getInstance();
-    if (!flagManager.isToolEnabled('1mcpTools', 'installation', 'uninstall')) {
+    if (!flagManager.isToolEnabled('internalTools', 'installation', 'uninstall')) {
       return {
         content: [
           {
@@ -113,7 +122,12 @@ export async function handleMcpUninstall(args: McpUninstallToolArgs): Promise<{
       };
     }
 
-    const result = await handleUninstallMCPServer(args);
+    const adapter = AdapterFactory.getInstallationAdapter();
+    const result = await adapter.uninstallServer(args.name, {
+      force: args.force,
+      backup: args.backup,
+      removeAll: args.removeAll,
+    });
 
     return {
       content: [
@@ -121,12 +135,17 @@ export async function handleMcpUninstall(args: McpUninstallToolArgs): Promise<{
           type: 'text' as const,
           text: JSON.stringify(
             {
-              success: true,
-              message: `MCP server '${result.serverName}' uninstalled successfully`,
+              success: result.success,
+              message: `MCP server '${result.serverName}' ${result.success ? 'uninstalled' : 'uninstallation failed'}${result.success ? ' successfully' : ''}`,
               serverName: result.serverName,
-              removed: result.removed,
+              removed: result.success,
+              removedAt: result.removedAt,
+              configRemoved: result.configRemoved,
               gracefulShutdown: args.graceful,
-              reloadRecommended: true,
+              warnings: result.warnings,
+              errors: result.errors,
+              operationId: result.operationId,
+              reloadRecommended: result.success,
             },
             null,
             2,
@@ -168,7 +187,7 @@ export async function handleMcpUpdate(args: McpUpdateToolArgs): Promise<{
 
     // Check if installation tools are enabled
     const flagManager = FlagManager.getInstance();
-    if (!flagManager.isToolEnabled('1mcpTools', 'installation', 'update')) {
+    if (!flagManager.isToolEnabled('internalTools', 'installation', 'update')) {
       return {
         content: [
           {
@@ -183,7 +202,12 @@ export async function handleMcpUpdate(args: McpUpdateToolArgs): Promise<{
       };
     }
 
-    const result = await handleUpdateMCPServer(args);
+    const adapter = AdapterFactory.getInstallationAdapter();
+    const result = await adapter.updateServer(args.name, args.version, {
+      force: args.force,
+      backup: args.backup,
+      dryRun: args.dryRun,
+    });
 
     return {
       content: [
@@ -191,12 +215,16 @@ export async function handleMcpUpdate(args: McpUpdateToolArgs): Promise<{
           type: 'text' as const,
           text: JSON.stringify(
             {
-              success: true,
-              message: `MCP server '${result.serverName}' updated successfully`,
+              success: result.success,
+              message: `MCP server '${result.serverName}' ${result.success ? 'updated' : 'update failed'}${result.success ? ' successfully' : ''}`,
               serverName: result.serverName,
-              previousConfig: result.previousConfig,
-              newConfig: result.newConfig,
-              reloadRecommended: true,
+              previousVersion: result.previousVersion,
+              newVersion: result.newVersion,
+              updatedAt: result.updatedAt,
+              warnings: result.warnings,
+              errors: result.errors,
+              operationId: result.operationId,
+              reloadRecommended: result.success,
             },
             null,
             2,
@@ -227,6 +255,5 @@ export async function handleMcpUpdate(args: McpUpdateToolArgs): Promise<{
  * Cleanup function for installation handlers
  */
 export function cleanupInstallationHandlers(): void {
-  // No specific cleanup needed for installation handlers
-  // This function exists for consistency with other handler modules
+  AdapterFactory.cleanup();
 }

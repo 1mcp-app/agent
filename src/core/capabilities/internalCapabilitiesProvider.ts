@@ -45,7 +45,7 @@ import {
   handleMcpStatus,
   handleMcpUninstall,
   handleMcpUpdate,
-} from '@src/core/tools/internal/toolHandlers.js';
+} from '@src/core/tools/internal/index.js';
 import {
   McpDisableToolArgs,
   McpEnableToolArgs,
@@ -60,7 +60,7 @@ import {
   McpStatusToolArgs,
   McpUninstallToolArgs,
   McpUpdateToolArgs,
-} from '@src/core/tools/internal/toolSchemas.js';
+} from '@src/core/tools/internal/schemas/index.js';
 import logger from '@src/logger/logger.js';
 
 /**
@@ -113,27 +113,79 @@ export class InternalCapabilitiesProvider extends EventEmitter {
 
     const tools: Tool[] = [];
 
-    // If internal tools are enabled, expose ALL tools
-    if (this.flagManager.isToolEnabled('internalTools')) {
-      // Discovery tools
-      tools.push(createSearchTool());
-      tools.push(createRegistryTool());
-      tools.push(createRegistryStatusTool());
-      tools.push(createRegistryInfoTool());
-      tools.push(createRegistryListTool());
-      tools.push(createInfoTool());
+    // Check if internal tools are enabled in any way
+    const internalToolsEnabled = this.flagManager.isToolEnabled('internalTools');
+    const internalToolsList = this.configManager.getInternalToolsList();
 
-      // Installation tools
-      tools.push(createInstallTool());
-      tools.push(createUninstallTool());
-      tools.push(createUpdateTool());
+    // Only proceed if internal tools are enabled (either by flag or custom list)
+    if (internalToolsEnabled || internalToolsList.length > 0) {
+      // Determine which tools to expose
+      let enabledTools: string[] = [];
 
-      // Management tools
-      tools.push(createEnableTool());
-      tools.push(createDisableTool());
-      tools.push(createListTool());
-      tools.push(createStatusTool());
-      tools.push(createReloadTool());
+      if (internalToolsList.length > 0) {
+        // Use custom tools list
+        enabledTools = this.flagManager.getEnabledToolsFromList('internalTools', internalToolsList);
+      } else {
+        // Use all tools (existing behavior when --enable-internal-tools is used)
+        enabledTools = this.flagManager.getEnabledTools('internalTools');
+      }
+
+      // Add only the enabled tools
+      for (const toolName of enabledTools) {
+        switch (toolName) {
+          // Discovery tools
+          case 'search':
+            tools.push(createSearchTool());
+            break;
+          case 'registry':
+            tools.push(createRegistryTool());
+            break;
+          case 'registry_status':
+            tools.push(createRegistryStatusTool());
+            break;
+          case 'registry_info':
+            tools.push(createRegistryInfoTool());
+            break;
+          case 'registry_list':
+            tools.push(createRegistryListTool());
+            break;
+          case 'info':
+            tools.push(createInfoTool());
+            break;
+
+          // Installation tools
+          case 'install':
+            tools.push(createInstallTool());
+            break;
+          case 'uninstall':
+            tools.push(createUninstallTool());
+            break;
+          case 'update':
+            tools.push(createUpdateTool());
+            break;
+
+          // Management tools
+          case 'enable':
+            tools.push(createEnableTool());
+            break;
+          case 'disable':
+            tools.push(createDisableTool());
+            break;
+          case 'list':
+            tools.push(createListTool());
+            break;
+          case 'status':
+            tools.push(createStatusTool());
+            break;
+          case 'reload':
+            tools.push(createReloadTool());
+            break;
+
+          default:
+            logger.warn(`Unknown internal tool: ${toolName}`);
+            break;
+        }
+      }
     }
 
     return tools;

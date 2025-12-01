@@ -4,11 +4,7 @@
  * This module implements handlers for MCP discovery and information tools
  * including search, registry operations, and server information.
  */
-import {
-  cleanupSearchHandler,
-  handleSearchMCPServers,
-  SearchMCPServersResult,
-} from '@src/core/tools/handlers/searchHandler.js';
+import { AdapterFactory } from '@src/core/tools/internal/adapters/index.js';
 import logger, { debugIf } from '@src/logger/logger.js';
 
 import {
@@ -17,7 +13,7 @@ import {
   McpRegistryListToolArgs,
   McpRegistryStatusToolArgs,
   McpSearchToolArgs,
-} from './toolSchemas.js';
+} from './schemas/index.js';
 
 /**
  * Internal tool handler for searching MCP registry
@@ -32,7 +28,24 @@ export async function handleMcpSearch(args: McpSearchToolArgs): Promise<{
       meta: { args },
     }));
 
-    const result: SearchMCPServersResult = await handleSearchMCPServers(args);
+    const adapter = AdapterFactory.getDiscoveryAdapter();
+    const servers = await adapter.searchServers(args.query || '', {
+      limit: args.limit,
+      cursor: args.cursor,
+      transport: args.transport as 'stdio' | 'sse' | 'webhook' | undefined,
+      status: args.status as 'active' | 'archived' | 'deprecated' | 'all',
+      registry_type: args.type as 'npm' | 'pypi' | 'docker',
+    });
+
+    // Transform to match expected format
+    const result = {
+      servers: servers.map((server) => ({
+        ...server,
+        registryId: 'official',
+        lastUpdated: new Date().toISOString(),
+      })),
+      count: servers.length,
+    };
 
     return {
       content: [
@@ -74,16 +87,20 @@ export async function handleMcpRegistryStatus(args: McpRegistryStatusToolArgs): 
       meta: { args },
     }));
 
-    // Mock registry status - in real implementation, this would check actual registry health
+    const adapter = AdapterFactory.getDiscoveryAdapter();
+    const status = await adapter.getRegistryStatus(args.includeStats);
+
+    // Transform to match expected format
     const registryStatus = {
       registry: args.registry || 'official',
-      status: 'online',
-      responseTime: 125,
-      lastCheck: new Date().toISOString(),
+      status: status.available ? 'online' : 'offline',
+      responseTime: status.response_time_ms,
+      lastCheck: status.last_updated,
       metadata: {
         version: '1.0.0',
         supportedFormats: ['json', 'table'],
-        totalServers: 150,
+        totalServers: status.stats?.total_servers || 0,
+        ...status.stats,
       },
     };
 
@@ -265,20 +282,40 @@ export async function handleMcpInfo(args: McpInfoToolArgs): Promise<{
       meta: { args },
     }));
 
-    // Mock server info - in real implementation, this would get detailed server information
+    const adapter = AdapterFactory.getDiscoveryAdapter();
+    const server = await adapter.getServerById(args.name, args.version);
+
+    if (!server) {
+      const serverInfo = {
+        server: args.name || 'unknown',
+        found: false,
+        message: `Server '${args.name}' not found in registry`,
+      };
+
+      return {
+        content: [
+          {
+            type: 'text' as const,
+            text: JSON.stringify(serverInfo, null, 2),
+          },
+        ],
+      };
+    }
+
+    // Transform to match expected format
     const serverInfo = {
       server: args.name || 'unknown',
       found: true,
       info: {
-        name: args.name || 'Unknown Server',
-        description: 'MCP server for various operations',
-        version: '1.0.0',
-        author: 'Server Author',
-        license: 'MIT',
-        homepage: 'https://github.com/example/mcp-server',
-        repository: 'https://github.com/example/mcp-server.git',
-        tags: ['mcp', 'server', 'tools'],
-        capabilities: {
+        name: server.name,
+        description: server.description || 'MCP server for various operations',
+        version: server.version || '1.0.0',
+        author: server._meta?.author || 'Server Author',
+        license: server._meta?.license || 'MIT',
+        homepage: server.websiteUrl || 'https://github.com/example/mcp-server',
+        repository: server.repository?.url || 'https://github.com/example/mcp-server.git',
+        tags: server._meta?.tags || ['mcp', 'server', 'tools'],
+        capabilities: server._meta?.capabilities || {
           tools: {
             count: 15,
             listChanged: true,
@@ -293,12 +330,12 @@ export async function handleMcpInfo(args: McpInfoToolArgs): Promise<{
             listChanged: false,
           },
         },
-        transport: {
+        transport: server._meta?.transport || {
           stdio: true,
           sse: false,
           http: true,
         },
-        requirements: {
+        requirements: server._meta?.requirements || {
           node: '>=16.0.0',
           platform: ['linux', 'darwin', 'win32'],
         },
@@ -336,5 +373,5 @@ export async function handleMcpInfo(args: McpInfoToolArgs): Promise<{
  * Cleanup function for discovery handlers
  */
 export function cleanupDiscoveryHandlers(): void {
-  cleanupSearchHandler();
+  AdapterFactory.cleanup();
 }

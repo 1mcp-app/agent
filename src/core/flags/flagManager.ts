@@ -33,6 +33,58 @@ export interface FlagValidationResult {
 }
 
 /**
+ * Tool mapping for internal MCP tools
+ */
+const TOOL_MAPPING: Record<string, string | string[]> = {
+  // Individual tools (short name -> MCP tool name)
+  search: 'search',
+  registry: 'registry',
+  registry_status: 'registry_status',
+  registry_info: 'registry_info',
+  registry_list: 'registry_list',
+  info: 'info',
+  list: 'list',
+  status: 'status',
+  enable: 'enable',
+  disable: 'disable',
+  reload: 'reload',
+  install: 'install',
+  uninstall: 'uninstall',
+  update: 'update',
+
+  // Category shortcuts (category -> array of tool names)
+  discovery: ['search', 'registry', 'registry_status', 'registry_info', 'registry_list', 'info'],
+  management: ['list', 'status', 'enable', 'disable', 'reload'],
+  installation: ['install', 'uninstall', 'update'],
+  safe: ['search', 'registry', 'registry_info', 'registry_list', 'info', 'list', 'status'],
+};
+
+/**
+ * All available internal tool names for validation
+ */
+const ALL_AVAILABLE_TOOLS = [
+  'search',
+  'registry',
+  'registry_status',
+  'registry_info',
+  'registry_list',
+  'info',
+  'list',
+  'status',
+  'enable',
+  'disable',
+  'reload',
+  'install',
+  'uninstall',
+  'update',
+];
+
+/**
+ * All available categories for validation
+ */
+const ALL_AVAILABLE_CATEGORIES = ['discovery', 'management', 'installation', 'safe'];
+
+/**
  * FlagManager provides simplified management for feature flags
  *
  * This class manages the simplified flag structure for internal tools,
@@ -86,10 +138,76 @@ export class FlagManager extends EventEmitter {
 
     // For simplified structure, if category is enabled, all tools are enabled
     if (category === 'internalTools') {
-      return ['search', 'install', 'uninstall', 'update', 'enable', 'disable', 'list', 'status', 'reload', 'registry'];
+      return ALL_AVAILABLE_TOOLS;
     }
 
     return [];
+  }
+
+  /**
+   * Parse comma-separated tools list and resolve categories
+   */
+  public parseToolsList(toolsString: string): string[] {
+    if (!toolsString || typeof toolsString !== 'string') {
+      return [];
+    }
+
+    // Split by comma and trim whitespace
+    const requestedTools = toolsString
+      .split(',')
+      .map((tool) => tool.trim().toLowerCase())
+      .filter(Boolean);
+    const resolvedTools: string[] = [];
+    const errors: string[] = [];
+
+    for (const tool of requestedTools) {
+      // Check if it's a category shortcut
+      if (ALL_AVAILABLE_CATEGORIES.includes(tool)) {
+        const categoryTools = TOOL_MAPPING[tool] as string[];
+        if (Array.isArray(categoryTools)) {
+          resolvedTools.push(...categoryTools);
+        }
+      }
+      // Check if it's an individual tool
+      else if (ALL_AVAILABLE_TOOLS.includes(tool)) {
+        resolvedTools.push(tool);
+      } else {
+        errors.push(`Unknown tool or category: "${tool}"`);
+      }
+    }
+
+    // Remove duplicates and return
+    const uniqueTools = [...new Set(resolvedTools)];
+
+    if (errors.length > 0) {
+      throw new Error(
+        `Invalid tools list: ${errors.join(', ')}. Available tools: ${ALL_AVAILABLE_TOOLS.join(', ')}. Available categories: ${ALL_AVAILABLE_CATEGORIES.join(', ')}`,
+      );
+    }
+
+    return uniqueTools;
+  }
+
+  /**
+   * Get enabled tools based on custom tools list
+   */
+  public getEnabledToolsFromList(category: string, toolsList: string[]): string[] {
+    if (category !== 'internalTools' || !toolsList || toolsList.length === 0) {
+      return [];
+    }
+
+    // Filter out any invalid tools and return valid ones
+    return toolsList.filter((tool) => ALL_AVAILABLE_TOOLS.includes(tool));
+  }
+
+  /**
+   * Get all available tools and categories for help
+   */
+  public getAvailableToolsAndCategories(): { tools: string[]; categories: string[] } {
+    return {
+      tools: [...ALL_AVAILABLE_TOOLS],
+      categories: [...ALL_AVAILABLE_CATEGORIES],
+    };
   }
 
   /**

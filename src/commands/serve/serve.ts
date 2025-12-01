@@ -8,6 +8,7 @@ import ConfigContext from '@src/config/configContext.js';
 import { McpConfigManager } from '@src/config/mcpConfigManager.js';
 import { getDefaultInstructionsTemplatePath } from '@src/constants.js';
 import { getConfigDir } from '@src/constants.js';
+import { FlagManager } from '@src/core/flags/flagManager.js';
 import { InstructionAggregator } from '@src/core/instructions/instructionAggregator.js';
 import { formatValidationError, validateTemplateContent } from '@src/core/instructions/templateValidator.js';
 import { LoadingSummary } from '@src/core/loading/loadingStateTracker.js';
@@ -58,6 +59,7 @@ export interface ServeOptions {
   'enable-client-notifications': boolean;
   // Internal tool control
   'enable-internal-tools': boolean;
+  'internal-tools'?: string;
   'instructions-template'?: string;
 }
 
@@ -298,6 +300,19 @@ export async function serveCommand(parsedArgv: ServeOptions): Promise<void> {
         clientNotifications: parsedArgv['enable-client-notifications'],
         // Internal tool configuration from CLI flags
         internalTools: parsedArgv['enable-internal-tools'],
+        internalToolsList: parsedArgv['internal-tools']
+          ? (() => {
+              try {
+                const flagManager = FlagManager.getInstance();
+                return flagManager.parseToolsList(parsedArgv['internal-tools']);
+              } catch (error) {
+                logger.error(
+                  `Failed to parse internal-tools list: ${error instanceof Error ? error.message : String(error)}`,
+                );
+                process.exit(1);
+              }
+            })()
+          : [],
       },
       health: {
         detailLevel: parsedArgv['health-info-level'] as 'full' | 'basic' | 'minimal',

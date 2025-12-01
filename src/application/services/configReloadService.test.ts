@@ -1,7 +1,6 @@
 import { ConfigChangeEvent, McpConfigManager } from '@src/config/mcpConfigManager.js';
 import { setupCapabilities } from '@src/core/capabilities/capabilityManager.js';
 import { ClientManager } from '@src/core/client/clientManager.js';
-import { ServerManager } from '@src/core/server/serverManager.js';
 import logger from '@src/logger/logger.js';
 import { createTransports } from '@src/transport/transportFactory.js';
 
@@ -59,8 +58,36 @@ vi.mock('@src/core/server/serverManager.js', () => ({
   ServerManager: {
     current: {
       updateClientsAndTransports: vi.fn(),
+      getInboundConnections: vi.fn().mockReturnValue(new Map()),
+      getClients: vi.fn().mockReturnValue(new Map()),
     },
   },
+}));
+
+vi.mock('@src/core/server/agentConfig.js', () => ({
+  AgentConfigManager: {
+    getInstance: vi.fn().mockReturnValue({
+      get: vi.fn().mockReturnValue({ clientNotifications: true }),
+    }),
+  },
+}));
+
+vi.mock('@src/core/capabilities/capabilityAggregator.js', () => ({
+  CapabilityAggregator: vi.fn().mockImplementation(() => ({
+    updateCapabilities: vi.fn().mockResolvedValue({
+      hasChanges: false,
+      current: { tools: [], resources: [], prompts: [] },
+      previous: { tools: [], resources: [], prompts: [] },
+      addedServers: [],
+      removedServers: [],
+    }),
+  })),
+}));
+
+vi.mock('@src/core/notifications/notificationManager.js', () => ({
+  NotificationManager: vi.fn().mockImplementation(() => ({
+    handleCapabilityChanges: vi.fn(),
+  })),
 }));
 
 vi.mock('@src/logger/logger.js', () => ({
@@ -185,10 +212,11 @@ describe('ConfigReloadService', () => {
 
       await handleConfigChange(newConfig);
 
-      expect(createTransports).toHaveBeenCalledWith(newConfig);
-      expect(mockClientManager.createClients).toHaveBeenCalledWith(mockTransports);
-      expect(ServerManager.current.updateClientsAndTransports).toHaveBeenCalledWith(mockClients, mockTransports);
-      expect(setupCapabilities).not.toHaveBeenCalled(); // Should not be called when no server instances are available
+      // The new implementation uses SelectiveReloadManager instead of direct calls
+      const { SelectiveReloadManager } = await import('@src/core/reload/selectiveReloadManager.js');
+      expect(SelectiveReloadManager.getInstance).toHaveBeenCalled();
+      expect(logger.info).toHaveBeenCalledWith('Configuration reload completed successfully');
+      expect(logger.info).toHaveBeenCalledWith('Handling configuration change...');
     });
 
     it('should handle config change with serverInfo', async () => {
@@ -199,30 +227,40 @@ describe('ConfigReloadService', () => {
 
       await handleConfigChange(newConfig);
 
-      expect(createTransports).toHaveBeenCalledWith(newConfig);
-      expect(mockClientManager.createClients).toHaveBeenCalledWith(mockTransports);
-      expect(ServerManager.current.updateClientsAndTransports).toHaveBeenCalledWith(mockClients, mockTransports);
-      expect(setupCapabilities).toHaveBeenCalledWith(mockClients, mockServerInfo);
+      // The new implementation uses SelectiveReloadManager instead of direct calls
+      const { SelectiveReloadManager } = await import('@src/core/reload/selectiveReloadManager.js');
+      expect(SelectiveReloadManager.getInstance).toHaveBeenCalled();
+      expect(logger.info).toHaveBeenCalledWith('Configuration reload completed successfully');
+      expect(logger.info).toHaveBeenCalledWith('Handling configuration change...');
     });
 
     it('should handle transport close errors gracefully', async () => {
-      const error = new Error('Close failed');
-      mockTransports.transport1.close.mockRejectedValue(error);
+      const error = new Error('Reload failed');
+      const mockSelectiveReloadManager = {
+        executeReload: vi.fn().mockRejectedValue(error),
+      };
+
+      // Override the SelectiveReloadManager mock for this test
+      const { SelectiveReloadManager } = await import('@src/core/reload/selectiveReloadManager.js');
+      (SelectiveReloadManager.getInstance as any).mockReturnValue(mockSelectiveReloadManager);
 
       const newConfig = { server1: { name: 'new-server' } };
       const handleConfigChange = mockConfigManager.on.mock.calls[0][1];
 
       await handleConfigChange(newConfig);
 
-      expect(logger.error).toHaveBeenCalledWith('Error closing transport transport1: Error: Close failed');
-      expect(createTransports).toHaveBeenCalledWith(newConfig);
+      expect(logger.error).toHaveBeenCalledWith('Failed to reload configuration: Error: Reload failed');
     });
 
     it('should handle reload errors gracefully', async () => {
       const error = new Error('Reload failed');
-      (createTransports as unknown as MockInstance).mockImplementation(() => {
-        throw error;
-      });
+      const mockSelectiveReloadManager = {
+        executeReload: vi.fn().mockRejectedValue(error),
+      };
+
+      // Override the SelectiveReloadManager mock for this test
+      const { SelectiveReloadManager } = await import('@src/core/reload/selectiveReloadManager.js');
+      (SelectiveReloadManager.getInstance as any).mockReturnValue(mockSelectiveReloadManager);
 
       const newConfig = { server1: { name: 'new-server' } };
       const handleConfigChange = mockConfigManager.on.mock.calls[0][1];

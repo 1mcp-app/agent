@@ -2,6 +2,7 @@
  * Tests for installation handlers
  */
 import { FlagManager } from '@src/core/flags/flagManager.js';
+import { AdapterFactory } from '@src/core/tools/internal/adapters/index.js';
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -27,14 +28,18 @@ vi.mock('@src/logger/logger.js', () => ({
   },
 }));
 
-vi.mock('@src/core/tools/handlers/serverManagementHandler.js', () => ({
-  handleInstallMCPServer: vi.fn(),
-  handleUninstallMCPServer: vi.fn(),
-  handleUpdateMCPServer: vi.fn(),
+// Mock adapters
+vi.mock('@src/core/tools/internal/adapters/index.js', () => ({
+  AdapterFactory: {
+    getInstallationAdapter: vi.fn(),
+    cleanup: vi.fn(),
+    reset: vi.fn(),
+  },
 }));
 
 describe('installationHandlers', () => {
   let flagManager: any;
+  let mockInstallationAdapter: any;
 
   beforeEach(() => {
     vi.clearAllMocks();
@@ -42,52 +47,63 @@ describe('installationHandlers', () => {
       isToolEnabled: vi.fn().mockReturnValue(true),
     } as any;
     (FlagManager.getInstance as any).mockReturnValue(flagManager);
+
+    // Mock installation adapter
+    mockInstallationAdapter = {
+      installServer: vi.fn(),
+      uninstallServer: vi.fn(),
+      updateServer: vi.fn(),
+      listInstalledServers: vi.fn(),
+      validateTags: vi.fn(),
+      parseTags: vi.fn(),
+    };
+    (AdapterFactory.getInstallationAdapter as any).mockReturnValue(mockInstallationAdapter);
   });
 
   afterEach(() => {
     cleanupInstallationHandlers();
+    vi.restoreAllMocks();
   });
 
   describe('handleMcpInstall', () => {
     it('should execute install successfully when enabled', async () => {
-      const { handleInstallMCPServer } = await import('@src/core/tools/handlers/serverManagementHandler.js');
       const mockResult = {
-        serverName: 'test-server',
-        serverConfig: { command: 'node', args: ['server.js'] },
         success: true,
+        serverName: 'test-server',
+        version: '1.0.0',
+        installedAt: new Date(),
+        warnings: [],
+        errors: [],
+        operationId: 'test-op-id',
       };
-      (handleInstallMCPServer as any).mockResolvedValue(mockResult);
+      mockInstallationAdapter.installServer.mockResolvedValue(mockResult);
 
       const args = {
         name: 'test-server',
-        command: 'node',
-        args: ['server.js'],
+        version: '1.0.0',
         transport: 'stdio' as const,
         enabled: true,
         autoRestart: false,
+        force: false,
+        backup: false,
       };
 
       const result = await handleMcpInstall(args);
 
-      expect(result).toEqual({
-        content: [
-          {
-            type: 'text',
-            text: JSON.stringify(
-              {
-                success: true,
-                message: "MCP server 'test-server' installed successfully",
-                serverName: 'test-server',
-                serverConfig: { command: 'node', args: ['server.js'] },
-                reloadRecommended: true,
-              },
-              null,
-              2,
-            ),
-          },
-        ],
+      const resultData = JSON.parse(result.content[0].text);
+      expect(resultData.success).toBe(true);
+      expect(resultData.message).toBe("MCP server 'test-server' installed successfully");
+      expect(resultData.serverName).toBe('test-server');
+      expect(resultData.version).toBe('1.0.0');
+      expect(resultData.installedAt).toBe(mockResult.installedAt.toISOString());
+      expect(resultData.warnings).toEqual([]);
+      expect(resultData.errors).toEqual([]);
+      expect(resultData.operationId).toBe('test-op-id');
+      expect(resultData.reloadRecommended).toBe(true);
+      expect(mockInstallationAdapter.installServer).toHaveBeenCalledWith('test-server', '1.0.0', {
+        force: false,
+        backup: false,
       });
-      expect(handleInstallMCPServer).toHaveBeenCalledWith(args);
     });
 
     it('should return error when installation tools are disabled', async () => {
@@ -98,6 +114,8 @@ describe('installationHandlers', () => {
         transport: 'stdio' as const,
         enabled: true,
         autoRestart: false,
+        force: false,
+        backup: false,
       };
 
       const result = await handleMcpInstall(args);
@@ -114,18 +132,19 @@ describe('installationHandlers', () => {
         ],
         isError: true,
       });
-      expect(flagManager.isToolEnabled).toHaveBeenCalledWith('1mcpTools', 'installation', 'install');
+      expect(flagManager.isToolEnabled).toHaveBeenCalledWith('internalTools', 'installation', 'install');
     });
 
     it('should handle installation errors', async () => {
-      const { handleInstallMCPServer } = await import('@src/core/tools/handlers/serverManagementHandler.js');
-      (handleInstallMCPServer as any).mockRejectedValue(new Error('Installation failed'));
+      mockInstallationAdapter.installServer.mockRejectedValue(new Error('Installation failed'));
 
       const args = {
         name: 'test-server',
         transport: 'stdio' as const,
         enabled: true,
         autoRestart: false,
+        force: false,
+        backup: false,
       };
 
       const result = await handleMcpInstall(args);
@@ -147,43 +166,44 @@ describe('installationHandlers', () => {
 
   describe('handleMcpUninstall', () => {
     it('should execute uninstall successfully when enabled', async () => {
-      const { handleUninstallMCPServer } = await import('@src/core/tools/handlers/serverManagementHandler.js');
       const mockResult = {
-        serverName: 'test-server',
-        removed: true,
         success: true,
+        serverName: 'test-server',
+        removedAt: new Date(),
+        configRemoved: false,
+        warnings: [],
+        errors: [],
+        operationId: 'test-op-id',
       };
-      (handleUninstallMCPServer as any).mockResolvedValue(mockResult);
+      mockInstallationAdapter.uninstallServer.mockResolvedValue(mockResult);
 
       const args = {
         name: 'test-server',
         force: true,
         preserveConfig: false,
         graceful: true,
+        backup: false,
+        removeAll: false,
       };
 
       const result = await handleMcpUninstall(args);
 
-      expect(result).toEqual({
-        content: [
-          {
-            type: 'text',
-            text: JSON.stringify(
-              {
-                success: true,
-                message: "MCP server 'test-server' uninstalled successfully",
-                serverName: 'test-server',
-                removed: true,
-                gracefulShutdown: undefined,
-                reloadRecommended: true,
-              },
-              null,
-              2,
-            ),
-          },
-        ],
+      const resultData = JSON.parse(result.content[0].text);
+      expect(resultData.success).toBe(true);
+      expect(resultData.message).toBe("MCP server 'test-server' uninstalled successfully");
+      expect(resultData.serverName).toBe('test-server');
+      expect(resultData.removedAt).toBe(mockResult.removedAt.toISOString());
+      expect(resultData.configRemoved).toBe(false);
+      expect(resultData.gracefulShutdown).toBe(true);
+      expect(resultData.warnings).toEqual([]);
+      expect(resultData.errors).toEqual([]);
+      expect(resultData.operationId).toBe('test-op-id');
+      expect(resultData.reloadRecommended).toBe(true);
+      expect(mockInstallationAdapter.uninstallServer).toHaveBeenCalledWith('test-server', {
+        force: true,
+        backup: false,
+        removeAll: false,
       });
-      expect(handleUninstallMCPServer).toHaveBeenCalledWith(args);
     });
 
     it('should return error when installation tools are disabled', async () => {
@@ -194,6 +214,8 @@ describe('installationHandlers', () => {
         preserveConfig: false,
         force: false,
         graceful: true,
+        backup: false,
+        removeAll: false,
       };
 
       const result = await handleMcpUninstall(args);
@@ -210,18 +232,19 @@ describe('installationHandlers', () => {
         ],
         isError: true,
       });
-      expect(flagManager.isToolEnabled).toHaveBeenCalledWith('1mcpTools', 'installation', 'uninstall');
+      expect(flagManager.isToolEnabled).toHaveBeenCalledWith('internalTools', 'installation', 'uninstall');
     });
 
     it('should handle uninstall errors', async () => {
-      const { handleUninstallMCPServer } = await import('@src/core/tools/handlers/serverManagementHandler.js');
-      (handleUninstallMCPServer as any).mockRejectedValue(new Error('Uninstall failed'));
+      mockInstallationAdapter.uninstallServer.mockRejectedValue(new Error('Uninstall failed'));
 
       const args = {
         name: 'test-server',
         preserveConfig: false,
         force: false,
         graceful: true,
+        backup: false,
+        removeAll: false,
       };
 
       const result = await handleMcpUninstall(args);
@@ -241,19 +264,24 @@ describe('installationHandlers', () => {
     });
 
     it('should include gracefulShutdown from args', async () => {
-      const { handleUninstallMCPServer } = await import('@src/core/tools/handlers/serverManagementHandler.js');
       const mockResult = {
-        serverName: 'test-server',
-        removed: true,
         success: true,
+        serverName: 'test-server',
+        removedAt: new Date(),
+        configRemoved: false,
+        warnings: [],
+        errors: [],
+        operationId: 'test-op-id',
       };
-      (handleUninstallMCPServer as any).mockResolvedValue(mockResult);
+      mockInstallationAdapter.uninstallServer.mockResolvedValue(mockResult);
 
       const args = {
         name: 'test-server',
         preserveConfig: false,
         force: false,
         graceful: false,
+        backup: true,
+        removeAll: false,
       };
 
       const result = await handleMcpUninstall(args);
@@ -265,44 +293,45 @@ describe('installationHandlers', () => {
 
   describe('handleMcpUpdate', () => {
     it('should execute update successfully when enabled', async () => {
-      const { handleUpdateMCPServer } = await import('@src/core/tools/handlers/serverManagementHandler.js');
       const mockResult = {
-        serverName: 'test-server',
-        previousConfig: { version: '1.0.0' },
-        newConfig: { version: '2.0.0' },
         success: true,
+        serverName: 'test-server',
+        previousVersion: '1.0.0',
+        newVersion: '2.0.0',
+        updatedAt: new Date(),
+        warnings: [],
+        errors: [],
+        operationId: 'test-op-id',
       };
-      (handleUpdateMCPServer as any).mockResolvedValue(mockResult);
+      mockInstallationAdapter.updateServer.mockResolvedValue(mockResult);
 
       const args = {
         name: 'test-server',
         version: '2.0.0',
         autoRestart: false,
         backup: true,
+        force: false,
+        dryRun: false,
       };
 
       const result = await handleMcpUpdate(args);
 
-      expect(result).toEqual({
-        content: [
-          {
-            type: 'text',
-            text: JSON.stringify(
-              {
-                success: true,
-                message: "MCP server 'test-server' updated successfully",
-                serverName: 'test-server',
-                previousConfig: { version: '1.0.0' },
-                newConfig: { version: '2.0.0' },
-                reloadRecommended: true,
-              },
-              null,
-              2,
-            ),
-          },
-        ],
+      const resultData = JSON.parse(result.content[0].text);
+      expect(resultData.success).toBe(true);
+      expect(resultData.message).toBe("MCP server 'test-server' updated successfully");
+      expect(resultData.serverName).toBe('test-server');
+      expect(resultData.previousVersion).toBe('1.0.0');
+      expect(resultData.newVersion).toBe('2.0.0');
+      expect(resultData.updatedAt).toBe(mockResult.updatedAt.toISOString());
+      expect(resultData.warnings).toEqual([]);
+      expect(resultData.errors).toEqual([]);
+      expect(resultData.operationId).toBe('test-op-id');
+      expect(resultData.reloadRecommended).toBe(true);
+      expect(mockInstallationAdapter.updateServer).toHaveBeenCalledWith('test-server', '2.0.0', {
+        force: false,
+        backup: true,
+        dryRun: false,
       });
-      expect(handleUpdateMCPServer).toHaveBeenCalledWith(args);
     });
 
     it('should return error when installation tools are disabled', async () => {
@@ -312,6 +341,8 @@ describe('installationHandlers', () => {
         name: 'test-server',
         autoRestart: false,
         backup: true,
+        force: false,
+        dryRun: false,
       };
 
       const result = await handleMcpUpdate(args);
@@ -328,17 +359,18 @@ describe('installationHandlers', () => {
         ],
         isError: true,
       });
-      expect(flagManager.isToolEnabled).toHaveBeenCalledWith('1mcpTools', 'installation', 'update');
+      expect(flagManager.isToolEnabled).toHaveBeenCalledWith('internalTools', 'installation', 'update');
     });
 
     it('should handle update errors', async () => {
-      const { handleUpdateMCPServer } = await import('@src/core/tools/handlers/serverManagementHandler.js');
-      (handleUpdateMCPServer as any).mockRejectedValue(new Error('Update failed'));
+      mockInstallationAdapter.updateServer.mockRejectedValue(new Error('Update failed'));
 
       const args = {
         name: 'test-server',
         autoRestart: false,
         backup: true,
+        force: false,
+        dryRun: false,
       };
 
       const result = await handleMcpUpdate(args);

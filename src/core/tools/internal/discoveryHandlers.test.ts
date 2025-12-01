@@ -2,6 +2,7 @@
  * Tests for discovery handlers
  */
 import { FlagManager } from '@src/core/flags/flagManager.js';
+import { AdapterFactory } from '@src/core/tools/internal/adapters/index.js';
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -29,13 +30,18 @@ vi.mock('@src/logger/logger.js', () => ({
   },
 }));
 
-vi.mock('@src/core/tools/handlers/searchHandler.js', () => ({
-  handleSearchMCPServers: vi.fn(),
-  cleanupSearchHandler: vi.fn(),
+// Mock adapters
+vi.mock('@src/core/tools/internal/adapters/index.js', () => ({
+  AdapterFactory: {
+    getDiscoveryAdapter: vi.fn(),
+    cleanup: vi.fn(),
+    reset: vi.fn(),
+  },
 }));
 
 describe('discoveryHandlers', () => {
   let flagManager: any;
+  let mockDiscoveryAdapter: any;
 
   beforeEach(() => {
     vi.clearAllMocks();
@@ -43,56 +49,72 @@ describe('discoveryHandlers', () => {
       isToolEnabled: vi.fn().mockReturnValue(true),
     } as any;
     (FlagManager.getInstance as any).mockReturnValue(flagManager);
+
+    // Mock discovery adapter
+    mockDiscoveryAdapter = {
+      searchServers: vi.fn(),
+      getServerById: vi.fn(),
+      getRegistryStatus: vi.fn(),
+      discoverInstalledApps: vi.fn(),
+      discoverAppConfigs: vi.fn(),
+      checkAppConsolidationStatus: vi.fn(),
+      destroy: vi.fn(),
+    };
+    (AdapterFactory.getDiscoveryAdapter as any).mockReturnValue(mockDiscoveryAdapter);
   });
 
   afterEach(() => {
     cleanupDiscoveryHandlers();
+    vi.restoreAllMocks();
   });
 
   describe('handleMcpSearch', () => {
     it('should execute search successfully', async () => {
-      const { handleSearchMCPServers } = await import('@src/core/tools/handlers/searchHandler.js');
-      (handleSearchMCPServers as any).mockResolvedValue({
-        results: [{ name: 'test-server', version: '1.0.0' }],
-        total: 1,
-      });
+      const mockServers = [{ name: 'test-server', version: '1.0.0' }];
+      mockDiscoveryAdapter.searchServers.mockResolvedValue(mockServers);
 
       const args = {
+        status: 'all' as const,
+        format: 'json' as const,
         query: 'test',
-        status: 'active' as const,
         limit: 10,
-        format: 'table' as const,
+        offset: 0,
+        transport: undefined,
+        tags: undefined,
       };
 
       const result = await handleMcpSearch(args);
 
-      expect(result).toEqual({
-        content: [
-          {
-            type: 'text',
-            text: JSON.stringify(
-              {
-                results: [{ name: 'test-server', version: '1.0.0' }],
-                total: 1,
-              },
-              null,
-              2,
-            ),
-          },
-        ],
+      const resultData = JSON.parse(result.content[0].text);
+      expect(resultData.servers).toHaveLength(1);
+      expect(resultData.servers[0]).toMatchObject({
+        name: 'test-server',
+        version: '1.0.0',
+        registryId: 'official',
       });
-      expect(handleSearchMCPServers).toHaveBeenCalledWith(args);
+      expect(resultData.servers[0].lastUpdated).toBeTypeOf('string');
+      expect(resultData.count).toBe(1);
+      expect(mockDiscoveryAdapter.searchServers).toHaveBeenCalledWith('test', {
+        limit: 10,
+        cursor: undefined,
+        transport: undefined,
+        status: 'all',
+        registry_type: undefined,
+      });
     });
 
     it('should handle search errors', async () => {
-      const { handleSearchMCPServers } = await import('@src/core/tools/handlers/searchHandler.js');
-      (handleSearchMCPServers as any).mockRejectedValue(new Error('Search failed'));
+      mockDiscoveryAdapter.searchServers.mockRejectedValue(new Error('Search failed'));
 
       const args = {
         query: 'test',
         status: 'active' as const,
-        limit: 20,
         format: 'table' as const,
+        limit: 20,
+        offset: 0,
+        transport: undefined,
+        tags: undefined,
+        category: undefined,
       };
 
       const result = await handleMcpSearch(args);
@@ -114,8 +136,24 @@ describe('discoveryHandlers', () => {
 
   describe('handleMcpRegistryStatus', () => {
     it('should return registry status', async () => {
+      const mockStatus = {
+        available: true,
+        url: 'https://registry.modelcontextprotocol.io',
+        response_time_ms: 125,
+        last_updated: '2023-01-01T00:00:00Z',
+        stats: {
+          total_servers: 150,
+          active_servers: 120,
+          deprecated_servers: 5,
+          by_registry_type: { official: 150 },
+          by_transport: { stdio: 100, sse: 50 },
+        },
+      };
+      mockDiscoveryAdapter.getRegistryStatus.mockResolvedValue(mockStatus);
+
       const args = {
         registry: 'official',
+        includeStats: true,
       };
 
       const result = await handleMcpRegistryStatus(args);
@@ -129,31 +167,39 @@ describe('discoveryHandlers', () => {
       expect(statusData.responseTime).toBe(125);
       expect(statusData.metadata).toBeDefined();
       expect(statusData.lastCheck).toBeDefined();
+      expect(mockDiscoveryAdapter.getRegistryStatus).toHaveBeenCalledWith(true);
     });
 
     it('should use default registry when none provided', async () => {
+      const mockStatus = {
+        available: true,
+        url: 'https://registry.modelcontextprotocol.io',
+        response_time_ms: 100,
+        last_updated: '2023-01-01T00:00:00Z',
+      };
+      mockDiscoveryAdapter.getRegistryStatus.mockResolvedValue(mockStatus);
+
       const args = {
         registry: 'official',
+        includeStats: false,
       };
 
       const result = await handleMcpRegistryStatus(args);
 
       const statusData = JSON.parse(result.content[0].text);
       expect(statusData.registry).toBe('official');
+      expect(mockDiscoveryAdapter.getRegistryStatus).toHaveBeenCalledWith(false);
     });
 
     it('should handle errors', async () => {
-      const args = { registry: 'invalid' };
+      mockDiscoveryAdapter.getRegistryStatus.mockRejectedValue(new Error('Registry error'));
 
-      // Mock a scenario where error occurs
-      vi.spyOn(JSON, 'stringify').mockImplementationOnce(() => {
-        throw new Error('JSON error');
-      });
+      const args = { registry: 'invalid', includeStats: false };
 
       const result = await handleMcpRegistryStatus(args);
 
       expect(result.isError).toBe(true);
-      expect(result.content[0].text).toContain('JSON error');
+      expect(result.content[0].text).toContain('Registry error');
     });
   });
 
@@ -171,8 +217,8 @@ describe('discoveryHandlers', () => {
       const infoData = JSON.parse(result.content[0].text);
       expect(infoData.registry).toBe('official');
       expect(infoData.name).toBe('Official MCP Registry');
-      expect(infoData.version).toBe('1.0.0');
       expect(infoData.baseUrl).toBe('https://registry.modelcontextprotocol.io');
+      expect(infoData.version).toBe('1.0.0');
       expect(infoData.api).toBeDefined();
       expect(infoData.statistics).toBeDefined();
     });
@@ -191,6 +237,14 @@ describe('discoveryHandlers', () => {
 
   describe('handleMcpRegistryList', () => {
     it('should return list of registries without stats', async () => {
+      const mockStatus = {
+        available: true,
+        url: 'https://registry.modelcontextprotocol.io',
+        response_time_ms: 100,
+        last_updated: '2023-01-01T00:00:00Z',
+      };
+      mockDiscoveryAdapter.getRegistryStatus.mockResolvedValue(mockStatus);
+
       const args = {
         includeStats: false,
       };
@@ -214,6 +268,19 @@ describe('discoveryHandlers', () => {
     });
 
     it('should return list of registries with stats', async () => {
+      const mockStatus = {
+        available: true,
+        url: 'https://registry.modelcontextprotocol.io',
+        response_time_ms: 100,
+        last_updated: '2023-01-01T00:00:00Z',
+        stats: {
+          total_servers: 150,
+          active_servers: 120,
+          deprecated_servers: 5,
+        },
+      };
+      mockDiscoveryAdapter.getRegistryStatus.mockResolvedValue(mockStatus);
+
       const args = {
         includeStats: true,
       };
@@ -229,6 +296,14 @@ describe('discoveryHandlers', () => {
     });
 
     it('should include all expected registries', async () => {
+      const mockStatus = {
+        available: true,
+        url: 'https://registry.modelcontextprotocol.io',
+        response_time_ms: 100,
+        last_updated: '2023-01-01T00:00:00Z',
+      };
+      mockDiscoveryAdapter.getRegistryStatus.mockResolvedValue(mockStatus);
+
       const args = {
         includeStats: false,
       };
@@ -245,6 +320,18 @@ describe('discoveryHandlers', () => {
 
   describe('handleMcpInfo', () => {
     it('should return server information', async () => {
+      const mockServer = {
+        name: 'test-server',
+        description: 'MCP server for various operations',
+        version: '1.0.0',
+        author: 'Server Author',
+        license: 'MIT',
+        capabilities: { tools: true },
+        transport: 'stdio',
+        requirements: { node: '>=16' },
+      };
+      mockDiscoveryAdapter.getServerById.mockResolvedValue(mockServer);
+
       const args = {
         name: 'test-server',
         includeCapabilities: true,
@@ -271,9 +358,12 @@ describe('discoveryHandlers', () => {
       expect(serverInfo.capabilities).toBeDefined();
       expect(serverInfo.transport).toBeDefined();
       expect(serverInfo.requirements).toBeDefined();
+      expect(mockDiscoveryAdapter.getServerById).toHaveBeenCalledWith('test-server', undefined);
     });
 
     it('should use default name when none provided', async () => {
+      mockDiscoveryAdapter.getServerById.mockResolvedValue(null);
+
       const args = {
         name: 'unknown',
         includeCapabilities: true,
@@ -285,7 +375,43 @@ describe('discoveryHandlers', () => {
 
       const infoData = JSON.parse(result.content[0].text);
       expect(infoData.server).toBe('unknown');
-      expect(infoData.info.name).toBe('Unknown Server');
+      expect(infoData.found).toBe(false);
+      expect(infoData.message).toBe("Server 'unknown' not found in registry");
+      expect(mockDiscoveryAdapter.getServerById).toHaveBeenCalledWith('unknown', undefined);
+    });
+
+    it('should handle server not found', async () => {
+      mockDiscoveryAdapter.getServerById.mockResolvedValue(null);
+
+      const args = {
+        name: 'nonexistent-server',
+        includeCapabilities: false,
+        includeConfig: false,
+        format: 'table' as const,
+      };
+
+      const result = await handleMcpInfo(args);
+
+      const infoData = JSON.parse(result.content[0].text);
+      expect(infoData.server).toBe('nonexistent-server');
+      expect(infoData.found).toBe(false);
+      expect(infoData.message).toBe("Server 'nonexistent-server' not found in registry");
+    });
+
+    it('should handle errors', async () => {
+      mockDiscoveryAdapter.getServerById.mockRejectedValue(new Error('Server lookup failed'));
+
+      const args = {
+        name: 'test-server',
+        includeCapabilities: false,
+        includeConfig: false,
+        format: 'table' as const,
+      };
+
+      const result = await handleMcpInfo(args);
+
+      expect(result.isError).toBe(true);
+      expect(result.content[0].text).toContain('Server lookup failed');
     });
   });
 

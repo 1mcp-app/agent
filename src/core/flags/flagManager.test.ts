@@ -22,6 +22,7 @@ describe('FlagManager', () => {
         sessionPersistence: true,
         clientNotifications: true,
         internalTools: false,
+        internalToolsList: [],
       },
     });
   });
@@ -43,6 +44,7 @@ describe('FlagManager', () => {
           sessionPersistence: true,
           clientNotifications: true,
           internalTools: true,
+          internalToolsList: [],
         },
       });
 
@@ -73,6 +75,7 @@ describe('FlagManager', () => {
           sessionPersistence: true,
           clientNotifications: true,
           internalTools: true,
+          internalToolsList: [],
         },
       });
 
@@ -101,6 +104,7 @@ describe('FlagManager', () => {
           sessionPersistence: true,
           clientNotifications: true,
           internalTools: true,
+          internalToolsList: [],
         },
       });
 
@@ -130,6 +134,7 @@ describe('FlagManager', () => {
           sessionPersistence: true,
           clientNotifications: true,
           internalTools: true,
+          internalToolsList: [],
         },
       });
 
@@ -155,6 +160,7 @@ describe('FlagManager', () => {
           sessionPersistence: true,
           clientNotifications: true,
           internalTools: true,
+          internalToolsList: [],
         },
       });
 
@@ -183,6 +189,7 @@ describe('FlagManager', () => {
           sessionPersistence: true,
           clientNotifications: true,
           internalTools: true,
+          internalToolsList: [],
         },
       });
 
@@ -201,6 +208,7 @@ describe('FlagManager', () => {
           sessionPersistence: true,
           clientNotifications: true,
           internalTools: true,
+          internalToolsList: [],
         },
       });
 
@@ -209,6 +217,124 @@ describe('FlagManager', () => {
 
     it('should return true for production context with internal tools disabled', () => {
       expect(flagManager.areToolsSafeForContext('production')).toBe(true);
+    });
+  });
+
+  describe('parseToolsList', () => {
+    it('should return empty array for empty input', () => {
+      const result = flagManager.parseToolsList('');
+      expect(result).toEqual([]);
+    });
+
+    it('should return empty array for null/undefined input', () => {
+      const result1 = flagManager.parseToolsList(null as any);
+      const result2 = flagManager.parseToolsList(undefined as any);
+      expect(result1).toEqual([]);
+      expect(result2).toEqual([]);
+    });
+
+    it('should parse individual tool names', () => {
+      const result = flagManager.parseToolsList('search,list,status');
+      expect(result).toEqual(['search', 'list', 'status']);
+    });
+
+    it('should parse category shortcuts', () => {
+      const result = flagManager.parseToolsList('safe');
+      expect(result).toEqual(['search', 'registry', 'registry_info', 'registry_list', 'info', 'list', 'status']);
+    });
+
+    it('should parse mixed tools and categories', () => {
+      const result = flagManager.parseToolsList('search,management,info');
+      expect(result).toContain('search');
+      expect(result).toContain('info');
+      expect(result).toContain('list');
+      expect(result).toContain('status');
+      expect(result).toContain('enable');
+      expect(result).toContain('disable');
+    });
+
+    it('should handle whitespace and case insensitivity', () => {
+      const result = flagManager.parseToolsList('  Search , LIST , status  ');
+      expect(result).toEqual(['search', 'list', 'status']);
+    });
+
+    it('should remove duplicates', () => {
+      const result = flagManager.parseToolsList('search,search,list,search');
+      expect(result).toEqual(['search', 'list']);
+    });
+
+    it('should throw error for invalid tool names', () => {
+      expect(() => {
+        flagManager.parseToolsList('invalid_tool');
+      }).toThrow('Invalid tools list: Unknown tool or category: "invalid_tool"');
+    });
+
+    it('should throw error for invalid category names', () => {
+      expect(() => {
+        flagManager.parseToolsList('invalid_category');
+      }).toThrow('Invalid tools list: Unknown tool or category: "invalid_category"');
+    });
+
+    it('should show available options in error message', () => {
+      try {
+        flagManager.parseToolsList('invalid');
+      } catch (error) {
+        const errorMessage = (error as Error).message;
+        expect(errorMessage).toContain('Available tools:');
+        expect(errorMessage).toContain('Available categories:');
+        expect(errorMessage).toContain('search');
+        expect(errorMessage).toContain('discovery');
+      }
+    });
+  });
+
+  describe('getEnabledToolsFromList', () => {
+    it('should return empty list for non-internal tools category', () => {
+      const result = flagManager.getEnabledToolsFromList('otherCategory', ['search', 'list']);
+      expect(result).toEqual([]);
+    });
+
+    it('should return empty list for empty tools list', () => {
+      const result = flagManager.getEnabledToolsFromList('internalTools', []);
+      expect(result).toEqual([]);
+    });
+
+    it('should filter valid tools from list', () => {
+      const result = flagManager.getEnabledToolsFromList('internalTools', ['search', 'list', 'invalid_tool']);
+      expect(result).toEqual(['search', 'list']);
+    });
+
+    it('should handle all valid tools', () => {
+      const allTools = ['search', 'registry', 'list', 'status', 'install', 'enable'];
+      const result = flagManager.getEnabledToolsFromList('internalTools', allTools);
+      expect(result).toEqual(allTools);
+    });
+  });
+
+  describe('getAvailableToolsAndCategories', () => {
+    it('should return available tools and categories', () => {
+      const result = flagManager.getAvailableToolsAndCategories();
+
+      expect(result.tools).toContain('search');
+      expect(result.tools).toContain('list');
+      expect(result.tools).toContain('install');
+      expect(result.tools).toContain('enable');
+
+      expect(result.categories).toContain('discovery');
+      expect(result.categories).toContain('management');
+      expect(result.categories).toContain('installation');
+      expect(result.categories).toContain('safe');
+    });
+
+    it('should return arrays that can be modified without affecting original', () => {
+      const result1 = flagManager.getAvailableToolsAndCategories();
+      const result2 = flagManager.getAvailableToolsAndCategories();
+
+      result1.tools.push('new_tool');
+      result1.categories.push('new_category');
+
+      expect(result2.tools).not.toContain('new_tool');
+      expect(result2.categories).not.toContain('new_category');
     });
   });
 });

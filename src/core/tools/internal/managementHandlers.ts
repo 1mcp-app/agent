@@ -5,13 +5,7 @@
  * including enable/disable, list, status, and reload functionality.
  */
 import { FlagManager } from '@src/core/flags/flagManager.js';
-import {
-  handleDisableMCPServer,
-  handleEnableMCPServer,
-  handleMcpList as handleMcpListBackend,
-  handleReloadOperation,
-  handleServerStatus,
-} from '@src/core/tools/handlers/serverManagementHandler.js';
+import { AdapterFactory } from '@src/core/tools/internal/adapters/index.js';
 import logger, { debugIf } from '@src/logger/logger.js';
 
 import {
@@ -20,7 +14,7 @@ import {
   McpListToolArgs,
   McpReloadToolArgs,
   McpStatusToolArgs,
-} from './toolSchemas.js';
+} from './schemas/index.js';
 
 /**
  * Internal tool handler for enabling MCP servers
@@ -37,7 +31,7 @@ export async function handleMcpEnable(args: McpEnableToolArgs): Promise<{
 
     // Check if management tools are enabled
     const flagManager = FlagManager.getInstance();
-    if (!flagManager.isToolEnabled('1mcpTools', 'management', 'enable')) {
+    if (!flagManager.isToolEnabled('internalTools', 'management', 'enable')) {
       return {
         content: [
           {
@@ -52,7 +46,13 @@ export async function handleMcpEnable(args: McpEnableToolArgs): Promise<{
       };
     }
 
-    const result = await handleEnableMCPServer(args);
+    const adapter = AdapterFactory.getManagementAdapter();
+    const result = await adapter.enableServer(args.name, {
+      restart: args.restart,
+      tags: args.tags,
+      graceful: args.graceful,
+      timeout: args.timeout,
+    });
 
     return {
       content: [
@@ -60,12 +60,14 @@ export async function handleMcpEnable(args: McpEnableToolArgs): Promise<{
           type: 'text' as const,
           text: JSON.stringify(
             {
-              success: true,
-              message: `MCP server '${result.serverName}' enabled successfully`,
+              success: result.success,
+              message: `MCP server '${result.serverName}' ${result.success ? 'enabled' : 'enable failed'}${result.success ? ' successfully' : ''}`,
               serverName: result.serverName,
               enabled: result.enabled,
               restarted: result.restarted,
-              reloadRecommended: true,
+              warnings: result.warnings,
+              errors: result.errors,
+              reloadRecommended: result.success,
             },
             null,
             2,
@@ -107,7 +109,7 @@ export async function handleMcpDisable(args: McpDisableToolArgs): Promise<{
 
     // Check if management tools are enabled
     const flagManager = FlagManager.getInstance();
-    if (!flagManager.isToolEnabled('1mcpTools', 'management', 'disable')) {
+    if (!flagManager.isToolEnabled('internalTools', 'management', 'disable')) {
       return {
         content: [
           {
@@ -122,7 +124,13 @@ export async function handleMcpDisable(args: McpDisableToolArgs): Promise<{
       };
     }
 
-    const result = await handleDisableMCPServer(args);
+    const adapter = AdapterFactory.getManagementAdapter();
+    const result = await adapter.disableServer(args.name, {
+      graceful: args.graceful,
+      timeout: args.timeout,
+      tags: args.tags,
+      force: args.force,
+    });
 
     return {
       content: [
@@ -130,12 +138,14 @@ export async function handleMcpDisable(args: McpDisableToolArgs): Promise<{
           type: 'text' as const,
           text: JSON.stringify(
             {
-              success: true,
-              message: `MCP server '${result.serverName}' disabled successfully`,
+              success: result.success,
+              message: `MCP server '${result.serverName}' ${result.success ? 'disabled' : 'disable failed'}${result.success ? ' successfully' : ''}`,
               serverName: result.serverName,
               disabled: result.disabled,
               gracefulShutdown: result.gracefulShutdown,
-              reloadRecommended: true,
+              warnings: result.warnings,
+              errors: result.errors,
+              reloadRecommended: result.success,
             },
             null,
             2,
@@ -177,7 +187,7 @@ export async function handleMcpList(args: McpListToolArgs): Promise<{
 
     // Check if management tools are enabled
     const flagManager = FlagManager.getInstance();
-    if (!flagManager.isToolEnabled('1mcpTools', 'management', 'list')) {
+    if (!flagManager.isToolEnabled('internalTools', 'management', 'list')) {
       return {
         content: [
           {
@@ -192,7 +202,30 @@ export async function handleMcpList(args: McpListToolArgs): Promise<{
       };
     }
 
-    const result = await handleMcpListBackend(args);
+    const adapter = AdapterFactory.getManagementAdapter();
+    const servers = await adapter.listServers({
+      status: args.status as 'enabled' | 'disabled' | 'all',
+      transport: args.transport as 'stdio' | 'sse' | 'http',
+      detailed: args.detailed,
+      tags: args.tags,
+    });
+
+    // Transform to match expected format
+    const result = {
+      servers: servers.map((server) => ({
+        name: server.name,
+        ...server.config,
+        status: server.status,
+        transport: server.transport,
+        url: server.url,
+        healthStatus: server.healthStatus,
+        lastChecked: server.lastChecked,
+        metadata: server.metadata,
+      })),
+      total: servers.length,
+      count: servers.length, // Keep for backward compatibility
+      timestamp: new Date().toISOString(),
+    };
 
     return {
       content: [
@@ -236,7 +269,7 @@ export async function handleMcpStatus(args: McpStatusToolArgs): Promise<{
 
     // Check if management tools are enabled
     const flagManager = FlagManager.getInstance();
-    if (!flagManager.isToolEnabled('1mcpTools', 'management', 'status')) {
+    if (!flagManager.isToolEnabled('internalTools', 'management', 'status')) {
       return {
         content: [
           {
@@ -251,20 +284,30 @@ export async function handleMcpStatus(args: McpStatusToolArgs): Promise<{
       };
     }
 
-    const result = await handleServerStatus(args);
+    const adapter = AdapterFactory.getManagementAdapter();
+    const result = await adapter.getServerStatus(args.name);
+
+    // Transform result for single server queries
+    let transformedResult = result;
+    if (args.name && result.servers && result.servers.length > 0) {
+      const server = result.servers.find((s) => s.name === args.name);
+      if (server) {
+        transformedResult = {
+          servers: [server],
+          totalServers: 1,
+          enabledServers: server.status === 'enabled' ? 1 : 0,
+          disabledServers: server.status === 'disabled' ? 1 : 0,
+          unhealthyServers: server.healthStatus === 'unhealthy' ? 1 : 0,
+          timestamp: result.timestamp,
+        };
+      }
+    }
 
     return {
       content: [
         {
           type: 'text' as const,
-          text: JSON.stringify(
-            {
-              timestamp: new Date().toISOString(),
-              ...result,
-            },
-            null,
-            2,
-          ),
+          text: JSON.stringify(transformedResult, null, 2),
         },
       ],
     };
@@ -302,7 +345,7 @@ export async function handleMcpReload(args: McpReloadToolArgs): Promise<{
 
     // Check if management tools are enabled
     const flagManager = FlagManager.getInstance();
-    if (!flagManager.isToolEnabled('1mcpTools', 'management', 'reload')) {
+    if (!flagManager.isToolEnabled('internalTools', 'management', 'reload')) {
       return {
         content: [
           {
@@ -317,7 +360,13 @@ export async function handleMcpReload(args: McpReloadToolArgs): Promise<{
       };
     }
 
-    const result = await handleReloadOperation(args);
+    const adapter = AdapterFactory.getManagementAdapter();
+    const result = await adapter.reloadConfiguration({
+      server: args.server,
+      configOnly: args.configOnly,
+      force: args.force,
+      timeout: args.timeout,
+    });
 
     return {
       content: [
@@ -325,11 +374,14 @@ export async function handleMcpReload(args: McpReloadToolArgs): Promise<{
           type: 'text' as const,
           text: JSON.stringify(
             {
-              success: true,
-              message: `Reload completed successfully for ${result.target}`,
+              success: result.success,
+              message: `Reload ${result.success ? 'completed' : 'failed'} ${result.success ? 'successfully' : ''} for ${result.target}`,
               target: result.target,
               action: result.action,
               timestamp: result.timestamp,
+              reloadedServers: result.reloadedServers,
+              warnings: result.warnings,
+              errors: result.errors,
             },
             null,
             2,
@@ -360,6 +412,5 @@ export async function handleMcpReload(args: McpReloadToolArgs): Promise<{
  * Cleanup function for management handlers
  */
 export function cleanupManagementHandlers(): void {
-  // No specific cleanup needed for management handlers
-  // This function exists for consistency with other handler modules
+  AdapterFactory.cleanup();
 }

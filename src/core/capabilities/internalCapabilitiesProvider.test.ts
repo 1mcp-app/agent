@@ -23,6 +23,7 @@ describe('InternalCapabilitiesProvider', () => {
         sessionPersistence: true,
         clientNotifications: true,
         internalTools: false,
+        internalToolsList: [],
       },
     });
 
@@ -76,6 +77,7 @@ describe('InternalCapabilitiesProvider', () => {
           sessionPersistence: true,
           clientNotifications: true,
           internalTools: true,
+          internalToolsList: [],
         },
       });
 
@@ -111,6 +113,7 @@ describe('InternalCapabilitiesProvider', () => {
           sessionPersistence: true,
           clientNotifications: true,
           internalTools: true,
+          internalToolsList: [],
         },
       });
 
@@ -147,6 +150,7 @@ describe('InternalCapabilitiesProvider', () => {
           sessionPersistence: true,
           clientNotifications: true,
           internalTools: true,
+          internalToolsList: [],
         },
       });
     });
@@ -270,6 +274,7 @@ describe('InternalCapabilitiesProvider', () => {
           sessionPersistence: true,
           clientNotifications: true,
           internalTools: true,
+          internalToolsList: [],
         },
       });
     });
