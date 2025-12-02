@@ -5,7 +5,14 @@
  * This adapter wraps existing domain service calls and transforms data
  * between internal tool format and domain service format.
  */
-import { getAllServers, getInstallationMetadata, getServer, setServer } from '@src/commands/mcp/utils/configUtils.js';
+import {
+  getAllServers,
+  getInstallationMetadata,
+  getServer,
+  reloadMcpConfig,
+  removeServer,
+  setServer,
+} from '@src/commands/mcp/utils/configUtils.js';
 import { parseTags, validateTags } from '@src/domains/installation/configurators/tagsConfigurator.js';
 import { createServerInstallationService } from '@src/domains/server-management/serverInstallationService.js';
 import type {
@@ -174,6 +181,19 @@ export class ServerInstallationAdapter implements InstallationAdapter {
         }
       }
 
+      // Persist configuration if provided
+      if (result.success && result.config) {
+        try {
+          setServer(serverName, result.config);
+          reloadMcpConfig();
+          logger.debug(`Persisted configuration for ${serverName}`);
+        } catch (configError) {
+          const errorMessage = configError instanceof Error ? configError.message : String(configError);
+          logger.warn('Failed to persist configuration', { error: errorMessage, serverName });
+          result.warnings.push(`Failed to persist configuration: ${errorMessage}`);
+        }
+      }
+
       return result;
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
@@ -218,11 +238,12 @@ export class ServerInstallationAdapter implements InstallationAdapter {
       // If removeAll is specified, remove server from configuration
       if (result.success && options.removeAll) {
         try {
-          const allServers = getAllServers();
-          if (allServers[serverName]) {
-            delete allServers[serverName];
-            // Note: In a real implementation, we'd need to save the configuration back
+          const removed = removeServer(serverName);
+          if (removed) {
+            reloadMcpConfig();
             logger.debug(`Removed server ${serverName} from configuration`);
+          } else {
+            logger.debug(`Server ${serverName} not found in configuration`);
           }
         } catch (configError) {
           const errorMessage = configError instanceof Error ? configError.message : String(configError);

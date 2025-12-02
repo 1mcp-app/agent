@@ -64,6 +64,7 @@ export class ServerInstallationService {
         version: registryServer.version,
         installedAt: new Date(),
         configPath: '', // Will be set by command handler
+        config: _serverConfig,
         backupPath: undefined,
         warnings,
         errors,

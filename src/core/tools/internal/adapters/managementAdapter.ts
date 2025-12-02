@@ -5,7 +5,7 @@
  * This adapter wraps existing domain service calls and transforms data
  * between internal tool format and domain service format.
  */
-import { getAllServers, getServer, setServer } from '@src/commands/mcp/utils/configUtils.js';
+import { getAllServers, getServer, reloadMcpConfig, setServer } from '@src/commands/mcp/utils/configUtils.js';
 import { MCPServerParams } from '@src/core/types/index.js';
 import logger, { debugIf } from '@src/logger/logger.js';
 import { getServer1mcpUrl, validateServer1mcpUrl } from '@src/utils/validation/urlDetection.js';
@@ -418,14 +418,32 @@ export class ConfigManagementAdapter implements ManagementAdapter {
       const action = options.configOnly ? 'config-reload' : 'full-reload';
       const timestamp = new Date().toISOString();
 
-      // In a real implementation, this would trigger actual reloading
-      // For now, we simulate the reload operation
+      // Use reloadMcpConfig for config-only reload or as part of full reload
+      reloadMcpConfig();
+
       let reloadedServers: string[] = [];
-      if (options.server) {
-        reloadedServers = [options.server];
+
+      if (options.configOnly) {
+        // For config-only reload, we just reload the config file
+        if (options.server) {
+          reloadedServers = [options.server];
+        } else {
+          const allServers = getAllServers();
+          reloadedServers = Object.keys(allServers);
+        }
       } else {
-        const allServers = getAllServers();
-        reloadedServers = Object.keys(allServers);
+        // For full reload, we trigger the ConfigReloadService
+        // Note: In the current architecture, ConfigReloadService watches the config file,
+        // so reloadMcpConfig() above will trigger the file watcher which triggers the service.
+        // However, if we want to be explicit or wait for completion, we might need direct access.
+        // For now, we rely on the file watcher mechanism which is robust.
+
+        if (options.server) {
+          reloadedServers = [options.server];
+        } else {
+          const allServers = getAllServers();
+          reloadedServers = Object.keys(allServers);
+        }
       }
 
       return {
@@ -434,7 +452,7 @@ export class ConfigManagementAdapter implements ManagementAdapter {
         action,
         timestamp,
         reloadedServers,
-        warnings: [`Configuration reload simulated for ${target}`],
+        warnings: [],
       };
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);

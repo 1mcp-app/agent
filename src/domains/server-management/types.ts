@@ -129,6 +129,7 @@ export interface InstallResult {
   version: string;
   installedAt: Date;
   configPath: string;
+  config?: MCPServerParams; // Generated configuration
   backupPath?: string; // Created if replacing existing server
   warnings: string[];
   errors: string[];

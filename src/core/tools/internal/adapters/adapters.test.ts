@@ -79,6 +79,8 @@ vi.mock('@src/commands/mcp/utils/configUtils.js', () => ({
   getAllServers: vi.fn(),
   getServer: vi.fn(),
   setServer: vi.fn(),
+  removeServer: vi.fn(),
+  reloadMcpConfig: vi.fn(),
   getInstallationMetadata: vi.fn(),
 }));
 
@@ -327,6 +329,7 @@ describe('Installation Adapter', () => {
         warnings: [],
         errors: [],
         operationId: 'test-op-id',
+        config: { type: 'stdio', command: 'node', args: ['server.js'] },
       };
 
       const { createServerInstallationService } = await import(
@@ -349,7 +352,10 @@ describe('Installation Adapter', () => {
       expect(mockService.installServer).toHaveBeenCalledWith('test-server', '1.0.0', {
         force: false,
       });
+
+      const { reloadMcpConfig } = await import('@src/commands/mcp/utils/configUtils.js');
       expect(setServer).toHaveBeenCalled();
+      expect(reloadMcpConfig).toHaveBeenCalled();
     });
 
     it('should validate tags before installation', async () => {
@@ -394,8 +400,9 @@ describe('Installation Adapter', () => {
       const mockService = (createServerInstallationService as any)();
       mockService.uninstallServer.mockResolvedValue(mockResult);
 
-      const { getAllServers } = await import('@src/commands/mcp/utils/configUtils.js');
+      const { getAllServers, removeServer } = await import('@src/commands/mcp/utils/configUtils.js');
       (getAllServers as any).mockReturnValue({});
+      (removeServer as any).mockReturnValue(true);
 
       const result = await adapter.uninstallServer('test-server', {
         force: true,
@@ -407,6 +414,10 @@ describe('Installation Adapter', () => {
         force: true,
         backup: false,
       });
+
+      const { reloadMcpConfig } = await import('@src/commands/mcp/utils/configUtils.js');
+      expect(removeServer).toHaveBeenCalledWith('test-server');
+      expect(reloadMcpConfig).toHaveBeenCalled();
     });
 
     it('should handle uninstallation errors', async () => {
@@ -763,8 +774,13 @@ describe('Management Adapter', () => {
 
       expect(result.success).toBe(true);
       expect(result.target).toBe('all-servers');
+      expect(result.success).toBe(true);
+      expect(result.target).toBe('all-servers');
       expect(result.action).toBe('full-reload');
       expect(result.reloadedServers).toEqual(['server1', 'server2']);
+
+      const { reloadMcpConfig } = await import('@src/commands/mcp/utils/configUtils.js');
+      expect(reloadMcpConfig).toHaveBeenCalled();
     });
 
     it('should reload specific server', async () => {
@@ -774,12 +790,18 @@ describe('Management Adapter', () => {
       expect(result.target).toBe('test-server');
       expect(result.action).toBe('full-reload');
       expect(result.reloadedServers).toEqual(['test-server']);
+
+      const { reloadMcpConfig } = await import('@src/commands/mcp/utils/configUtils.js');
+      expect(reloadMcpConfig).toHaveBeenCalled();
     });
 
     it('should handle config-only reload', async () => {
       const result = await adapter.reloadConfiguration({ configOnly: true });
 
       expect(result.action).toBe('config-reload');
+
+      const { reloadMcpConfig } = await import('@src/commands/mcp/utils/configUtils.js');
+      expect(reloadMcpConfig).toHaveBeenCalled();
     });
 
     it('should handle reload errors', async () => {
