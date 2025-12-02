@@ -6,14 +6,20 @@
  * between internal tool format and domain service format.
  */
 import {
+  backupConfig,
   getAllServers,
   getInstallationMetadata,
   getServer,
   reloadMcpConfig,
   removeServer,
+  serverExists,
   setServer,
 } from '@src/commands/mcp/utils/configUtils.js';
+import { generateOperationId } from '@src/commands/mcp/utils/serverUtils.js';
+import { getConfigPath } from '@src/constants/paths.js';
+import { MCPServerParams } from '@src/core/types/index.js';
 import { parseTags, validateTags } from '@src/domains/installation/configurators/tagsConfigurator.js';
+import { createRegistryClient } from '@src/domains/registry/mcpRegistryClient.js';
 import { createServerInstallationService } from '@src/domains/server-management/serverInstallationService.js';
 import type {
   InstallOptions,
@@ -87,6 +93,26 @@ export interface InstallAdapterOptions extends Omit<InstallOptions, 'force' | 'b
   env?: Record<string, string>;
   /** Command line arguments */
   args?: string[];
+  /** Package name (npm, pypi, or docker image) */
+  package?: string;
+  /** Command to run for stdio transport */
+  command?: string;
+  /** URL for HTTP/SSE transport */
+  url?: string;
+  /** Transport type */
+  transport?: 'stdio' | 'http' | 'sse';
+  /** Connection timeout in milliseconds */
+  timeout?: number;
+  /** Enable server after installation */
+  enabled?: boolean;
+  /** Working directory for stdio servers */
+  cwd?: string;
+  /** Auto-restart server if it crashes */
+  autoRestart?: boolean;
+  /** Maximum number of restart attempts */
+  maxRestarts?: number;
+  /** Delay in milliseconds between restart attempts */
+  restartDelay?: number;
 }
 
 export interface UninstallAdapterOptions extends Omit<UninstallOptions, 'force' | 'backup'> {
@@ -119,9 +145,11 @@ export interface ListAdapterOptions extends ListOptions {
  */
 export class ServerInstallationAdapter implements InstallationAdapter {
   private installationService;
+  private registryClient;
 
   constructor() {
     this.installationService = createServerInstallationService();
+    this.registryClient = createRegistryClient();
   }
 
   /**
@@ -161,7 +189,115 @@ export class ServerInstallationAdapter implements InstallationAdapter {
         force: options.force || false,
       };
 
-      const result = await this.installationService.installServer(serverName, version, domainOptions);
+      // Check if this is a direct package installation (package + command/args provided)
+      if (options.package && (options.command || options.args || options.url)) {
+        debugIf(() => ({
+          message: 'Adapter: Detected direct package installation, using mcp add',
+          meta: { serverName, package: options.package, command: options.command, args: options.args },
+        }));
+
+        return await this.performDirectPackageInstallation(serverName, version, options);
+      }
+
+      // If package is provided, try to find the server that uses this package
+      let actualServerName = serverName;
+      if (options.package) {
+        try {
+          let searchResults;
+          let matchedServer = null;
+
+          // Strategy 1: Try exact package identifier match (might work for some packages)
+          searchResults = await this.registryClient.searchServers({
+            query: options.package,
+            limit: 20,
+          });
+          matchedServer = searchResults.find(
+            (server) =>
+              server.packages &&
+              server.packages.some(
+                (pkg) =>
+                  pkg.identifier === options.package ||
+                  pkg.identifier === `@${options.package}` ||
+                  pkg.identifier.endsWith(`/${options.package}`),
+              ),
+          );
+
+          // Strategy 2: Extract organization/author from package and search for that
+          if (!matchedServer && options.package.includes('/')) {
+            const orgName = options.package.split('/')[0].replace('@', '');
+            debugIf(() => ({
+              message: 'Adapter: Trying organization search',
+              meta: { packageName: options.package, orgName },
+            }));
+
+            searchResults = await this.registryClient.searchServers({
+              query: orgName,
+              limit: 50,
+            });
+
+            matchedServer = searchResults.find(
+              (server) =>
+                server.packages &&
+                server.packages.some(
+                  (pkg) =>
+                    pkg.identifier === options.package ||
+                    pkg.identifier === `@${options.package}` ||
+                    pkg.identifier.endsWith(`/${options.package}`),
+                ),
+            );
+          }
+
+          // Strategy 3: Try searching for the server name component
+          if (!matchedServer) {
+            const serverComponent = options.package.split('/').pop();
+            if (serverComponent) {
+              debugIf(() => ({
+                message: 'Adapter: Trying server component search',
+                meta: { packageName: options.package, serverComponent },
+              }));
+
+              searchResults = await this.registryClient.searchServers({
+                query: serverComponent,
+                limit: 50,
+              });
+
+              matchedServer = searchResults.find(
+                (server) =>
+                  server.packages &&
+                  server.packages.some(
+                    (pkg) =>
+                      pkg.identifier === options.package ||
+                      pkg.identifier === `@${options.package}` ||
+                      pkg.identifier.endsWith(`/${options.package}`),
+                  ),
+              );
+            }
+          }
+
+          if (matchedServer) {
+            actualServerName = matchedServer.name;
+            debugIf(() => ({
+              message: 'Adapter: Resolved package to registry server',
+              meta: { packageName: options.package, serverName: actualServerName },
+            }));
+          } else {
+            // If no server found for the package, try using the package name as server ID
+            actualServerName = options.package;
+            debugIf(() => ({
+              message: 'Adapter: Using package name as server ID',
+              meta: { packageName: options.package, serverName: actualServerName },
+            }));
+          }
+        } catch (searchError) {
+          // If search fails, fall back to using the original server name
+          debugIf(() => ({
+            message: 'Adapter: Package search failed, using original server name',
+            meta: { packageName: options.package, serverName, error: searchError },
+          }));
+        }
+      }
+
+      const result = await this.installationService.installServer(actualServerName, version, domainOptions);
 
       if (!result) {
         throw new Error('Installation service returned undefined result');
@@ -199,6 +335,128 @@ export class ServerInstallationAdapter implements InstallationAdapter {
       const errorMessage = error instanceof Error ? error.message : String(error);
       logger.error('Server installation failed', { error: errorMessage, serverName, version });
       throw new Error(`Server installation failed: ${errorMessage}`);
+    }
+  }
+
+  /**
+   * Perform direct package installation using configuration functions
+   */
+  private async performDirectPackageInstallation(
+    serverName: string,
+    version?: string,
+    options: InstallAdapterOptions = {},
+  ): Promise<{
+    success: boolean;
+    serverName: string;
+    version?: string;
+    installedAt: Date;
+    configPath?: string;
+    backupPath?: string;
+    warnings: string[];
+    errors: string[];
+    operationId: string;
+  }> {
+    const operationId = generateOperationId();
+    const warnings: string[] = [];
+    const errors: string[] = [];
+
+    debugIf(() => ({
+      message: 'Adapter: Starting direct package installation',
+      meta: { serverName, version, options },
+    }));
+
+    try {
+      // Create backup if server exists and not forced
+      let backupPath: string | undefined;
+      if (serverExists(serverName) && !options.force) {
+        errors.push(`Server '${serverName}' already exists. Use force: true to overwrite.`);
+        return {
+          success: false,
+          serverName,
+          version,
+          installedAt: new Date(),
+          warnings,
+          errors,
+          operationId,
+        };
+      }
+
+      if (serverExists(serverName) && options.force && options.backup) {
+        backupPath = backupConfig();
+        warnings.push(`Backup created: ${backupPath}`);
+      }
+
+      // Build server configuration directly
+      const serverConfig: MCPServerParams = {
+        type: options.transport || 'stdio',
+        command: options.command,
+        args: options.args || [],
+        url: options.url,
+        env: options.env || {},
+        tags: options.tags || [],
+        timeout: options.timeout,
+        disabled: options.enabled === false, // Invert logic - disabled is the opposite of enabled
+        cwd: options.cwd,
+        restartOnExit: options.autoRestart || false,
+        maxRestarts: options.maxRestarts,
+        restartDelay: options.restartDelay,
+      };
+
+      // Add the server to configuration
+      setServer(serverName, serverConfig);
+
+      // Special case: For stdio with command "npx" and args containing "-y" and a package,
+      // Convert to the -- pattern format that works with npx
+      if (
+        serverConfig.type === 'stdio' &&
+        serverConfig.command === 'npx' &&
+        serverConfig.args?.includes('-y') &&
+        options.package
+      ) {
+        // Format args as a single command string for the -- pattern
+        const args = serverConfig.args || [];
+        const packageIndex = args.indexOf('-y');
+        if (packageIndex !== -1 && packageIndex < args.length - 1) {
+          const packageName = args[packageIndex + 1];
+          // Create new server config with updated args
+          const updatedServerConfig: MCPServerParams = {
+            ...serverConfig,
+            args: ['-y', packageName],
+          };
+          setServer(serverName, updatedServerConfig);
+        }
+      }
+
+      return {
+        success: true,
+        serverName,
+        version,
+        installedAt: new Date(),
+        configPath: getConfigPath(),
+        backupPath,
+        warnings,
+        errors,
+        operationId,
+      };
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      errors.push(`Direct package installation failed: ${errorMessage}`);
+      logger.error('Direct package installation error', {
+        serverName,
+        version,
+        options,
+        error: errorMessage,
+      });
+
+      return {
+        success: false,
+        serverName,
+        version,
+        installedAt: new Date(),
+        warnings,
+        errors,
+        operationId,
+      };
     }
   }
 

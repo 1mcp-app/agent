@@ -13,7 +13,6 @@ import {
   createRegistryInfoTool,
   createRegistryListTool,
   createRegistryStatusTool,
-  createRegistryTool,
   createSearchTool,
 } from '@src/core/capabilities/internal/discoveryTools.js';
 import {
@@ -47,21 +46,61 @@ import {
   handleMcpUpdate,
 } from '@src/core/tools/internal/index.js';
 import {
-  McpDisableToolArgs,
-  McpEnableToolArgs,
-  McpInfoToolArgs,
-  McpInstallToolArgs,
-  McpListToolArgs,
-  McpRegistryInfoToolArgs,
-  McpRegistryListToolArgs,
-  McpRegistryStatusToolArgs,
-  McpReloadToolArgs,
-  McpSearchToolArgs,
-  McpStatusToolArgs,
-  McpUninstallToolArgs,
-  McpUpdateToolArgs,
+  McpDisableToolSchema,
+  McpEnableToolSchema,
+  McpInfoToolSchema,
+  McpInstallToolSchema,
+  McpListToolSchema,
+  McpRegistryInfoSchema,
+  McpRegistryListSchema,
+  McpRegistryStatusSchema,
+  McpReloadToolSchema,
+  McpSearchToolSchema,
+  McpStatusToolSchema,
+  McpUninstallToolSchema,
+  McpUpdateToolSchema,
 } from '@src/core/tools/internal/schemas/index.js';
 import logger from '@src/logger/logger.js';
+
+import { z } from 'zod';
+
+/**
+ * Validate tool arguments using a Zod schema
+ *
+ * @param schema The Zod schema to validate against
+ * @param args The raw arguments to validate
+ * @param toolName The name of the tool for error reporting
+ * @returns Validated and typed arguments
+ * @throws Error if validation fails
+ */
+function validateToolArgs<T extends z.ZodType>(schema: T, args: unknown, toolName: string): z.infer<T> {
+  try {
+    return schema.parse(args);
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      const errorMessages = error.issues.map((issue) => `${issue.path.join('.')}: ${issue.message}`).join(', ');
+
+      logger.error(`Tool argument validation failed for ${toolName}`, {
+        toolName,
+        errors: error.issues,
+        receivedArgs: args,
+      });
+
+      throw new Error(
+        `Invalid arguments for ${toolName}: ${errorMessages}. ` +
+          `Expected format: ${JSON.stringify(schema._def, null, 2)}`,
+      );
+    }
+
+    logger.error(`Unexpected validation error for ${toolName}`, {
+      toolName,
+      error: error instanceof Error ? error.message : String(error),
+      receivedArgs: args,
+    });
+
+    throw new Error(`Validation failed for ${toolName}: ${error}`);
+  }
+}
 
 /**
  * Internal capabilities provider that serves internal management tools
@@ -137,9 +176,7 @@ export class InternalCapabilitiesProvider extends EventEmitter {
           case 'search':
             tools.push(createSearchTool());
             break;
-          case 'registry':
-            tools.push(createRegistryTool());
-            break;
+          // registry case removed - mcp_registry tool has been deprecated and split into separate tools
           case 'registry_status':
             tools.push(createRegistryStatusTool());
             break;
@@ -200,37 +237,59 @@ export class InternalCapabilitiesProvider extends EventEmitter {
     }
 
     switch (toolName) {
-      case 'mcp_search':
-        return await handleMcpSearch(args as McpSearchToolArgs);
-      case 'mcp_registry':
-        // Note: mcp_registry is split into separate tools below
-        throw new Error(
-          'mcp_registry tool has been split into separate tools: mcp_registry_status, mcp_registry_info, mcp_registry_list',
-        );
-      case 'mcp_registry_status':
-        return await handleMcpRegistryStatus(args as McpRegistryStatusToolArgs);
-      case 'mcp_registry_info':
-        return await handleMcpRegistryInfo(args as McpRegistryInfoToolArgs);
-      case 'mcp_registry_list':
-        return await handleMcpRegistryList(args as McpRegistryListToolArgs);
-      case 'mcp_info':
-        return await handleMcpInfo(args as McpInfoToolArgs);
-      case 'mcp_install':
-        return await handleMcpInstall(args as McpInstallToolArgs);
-      case 'mcp_uninstall':
-        return await handleMcpUninstall(args as McpUninstallToolArgs);
-      case 'mcp_update':
-        return await handleMcpUpdate(args as McpUpdateToolArgs);
-      case 'mcp_enable':
-        return await handleMcpEnable(args as McpEnableToolArgs);
-      case 'mcp_disable':
-        return await handleMcpDisable(args as McpDisableToolArgs);
-      case 'mcp_list':
-        return await handleMcpList(args as McpListToolArgs);
-      case 'mcp_status':
-        return await handleMcpStatus(args as McpStatusToolArgs);
-      case 'mcp_reload':
-        return await handleMcpReload(args as McpReloadToolArgs);
+      case 'mcp_search': {
+        const validatedArgs = validateToolArgs(McpSearchToolSchema, args, toolName);
+        return await handleMcpSearch(validatedArgs);
+      }
+      // mcp_registry case removed - tool has been deprecated and split into separate tools
+      case 'mcp_registry_status': {
+        const validatedArgs = validateToolArgs(McpRegistryStatusSchema, args, toolName);
+        return await handleMcpRegistryStatus(validatedArgs);
+      }
+      case 'mcp_registry_info': {
+        const validatedArgs = validateToolArgs(McpRegistryInfoSchema, args, toolName);
+        return await handleMcpRegistryInfo(validatedArgs);
+      }
+      case 'mcp_registry_list': {
+        const validatedArgs = validateToolArgs(McpRegistryListSchema, args, toolName);
+        return await handleMcpRegistryList(validatedArgs);
+      }
+      case 'mcp_info': {
+        const validatedArgs = validateToolArgs(McpInfoToolSchema, args, toolName);
+        return await handleMcpInfo(validatedArgs);
+      }
+      case 'mcp_install': {
+        const validatedArgs = validateToolArgs(McpInstallToolSchema, args, toolName);
+        return await handleMcpInstall(validatedArgs);
+      }
+      case 'mcp_uninstall': {
+        const validatedArgs = validateToolArgs(McpUninstallToolSchema, args, toolName);
+        return await handleMcpUninstall(validatedArgs);
+      }
+      case 'mcp_update': {
+        const validatedArgs = validateToolArgs(McpUpdateToolSchema, args, toolName);
+        return await handleMcpUpdate(validatedArgs);
+      }
+      case 'mcp_enable': {
+        const validatedArgs = validateToolArgs(McpEnableToolSchema, args, toolName);
+        return await handleMcpEnable(validatedArgs);
+      }
+      case 'mcp_disable': {
+        const validatedArgs = validateToolArgs(McpDisableToolSchema, args, toolName);
+        return await handleMcpDisable(validatedArgs);
+      }
+      case 'mcp_list': {
+        const validatedArgs = validateToolArgs(McpListToolSchema, args, toolName);
+        return await handleMcpList(validatedArgs);
+      }
+      case 'mcp_status': {
+        const validatedArgs = validateToolArgs(McpStatusToolSchema, args, toolName);
+        return await handleMcpStatus(validatedArgs);
+      }
+      case 'mcp_reload': {
+        const validatedArgs = validateToolArgs(McpReloadToolSchema, args, toolName);
+        return await handleMcpReload(validatedArgs);
+      }
       default:
         throw new Error(`Unknown internal tool: ${toolName}`);
     }

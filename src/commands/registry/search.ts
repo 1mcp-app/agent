@@ -164,7 +164,7 @@ function displayTableFormat(results: SearchMCPServersResult, searchArgs: SearchM
     Description: truncateString(server.description, 45),
     Status: (server._meta?.[OFFICIAL_REGISTRY_KEY]?.status || server.status || 'unknown').toUpperCase(),
     Version: server.version,
-    'Server ID': server.name,
+    'Registry ID': server.name,
     'Registry Type': formatRegistryTypesPlain(server.packages),
     Transport: formatTransportTypesPlain(server.packages),
     'Last Updated': formatDate(server._meta?.[OFFICIAL_REGISTRY_KEY]?.updatedAt),
@@ -195,7 +195,9 @@ function displayListFormat(results: SearchMCPServersResult, searchArgs: SearchMC
     console.log(
       `    ${chalk.green('Status:')} ${formatStatus(server._meta?.[OFFICIAL_REGISTRY_KEY]?.status || server.status || 'unknown')}  ${chalk.blue('Version:')} ${server.version}`,
     );
-    console.log(`    ${chalk.yellow('ID:')} ${chalk.gray(server.name)}`);
+    console.log(
+      `    ${chalk.yellow('Registry ID:')} ${chalk.gray(server.name)} ${chalk.dim('(use this for installation)')}`,
+    );
     console.log(
       `    ${chalk.magenta('Transport:')} ${formatTransportTypesPlain(server.packages)} • ${chalk.red('Type:')} ${formatRegistryTypesPlain(server.packages)}`,
     );
@@ -211,10 +213,13 @@ function displayFooter(results: SearchMCPServersResult, searchArgs: SearchMCPSer
   const resultsCount = results.servers.length;
 
   // Enhanced usage instructions with colors
-  console.log(chalk.cyan.bold('\n💡 Next Steps:'));
-  console.log(chalk.white('   • View detailed information: ') + chalk.yellow('1mcp registry show <server-id>'));
-  console.log(chalk.white('   • List all versions: ') + chalk.yellow('1mcp registry versions <server-id>'));
-  console.log(chalk.white('   • Get full Server IDs: ') + chalk.yellow('1mcp registry search --json'));
+  console.log(chalk.cyan.bold('\n💡 Installation:'));
+  console.log(chalk.white('   • Install server: ') + chalk.yellow('1mcp mcp install <registry-id>'));
+  console.log(chalk.gray('     Use the exact Registry ID shown above'));
+  console.log(chalk.white('   • Interactive mode: ') + chalk.yellow('1mcp mcp install --interactive'));
+  console.log(chalk.white('   • Server details: ') + chalk.yellow('1mcp registry show <registry-id>'));
+  console.log(chalk.white('   • List versions: ') + chalk.yellow('1mcp registry versions <registry-id>'));
+  console.log(chalk.white('   • Get JSON output: ') + chalk.yellow('1mcp registry search --json'));
 
   // Show search tips if results are limited
   if (resultsCount >= 20) {

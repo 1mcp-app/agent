@@ -6,6 +6,20 @@
  */
 import { Tool } from '@modelcontextprotocol/sdk/types.js';
 
+import {
+  McpInfoOutputSchema,
+  McpInfoToolSchema,
+  McpRegistryInfoOutputSchema,
+  McpRegistryInfoSchema,
+  McpRegistryListOutputSchema,
+  McpRegistryListSchema,
+  McpRegistryStatusOutputSchema,
+  McpRegistryStatusSchema,
+  McpSearchOutputSchema,
+  McpSearchToolSchema,
+} from '@src/core/tools/internal/schemas/index.js';
+import { zodToJsonSchema } from '@src/core/tools/internal/utils/schemaUtils.js';
+
 /**
  * Create search tool definition
  */
@@ -13,74 +27,12 @@ export function createSearchTool(): Tool {
   return {
     name: 'mcp_search',
     description: 'Search for MCP servers in the registry',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        query: {
-          type: 'string',
-          description: 'Search query for MCP servers',
-        },
-        status: {
-          type: 'string',
-          enum: ['active', 'archived', 'deprecated', 'all'],
-          description: 'Filter by server status',
-          default: 'active',
-        },
-        type: {
-          type: 'string',
-          enum: ['npm', 'pypi', 'docker'],
-          description: 'Filter by package registry type',
-        },
-        transport: {
-          type: 'string',
-          enum: ['stdio', 'sse', 'http'],
-          description: 'Filter by transport type',
-        },
-        limit: {
-          type: 'number',
-          description: 'Maximum number of results to return',
-          default: 20,
-        },
-        cursor: {
-          type: 'string',
-          description: 'Pagination cursor for next page',
-        },
-        format: {
-          type: 'string',
-          enum: ['table', 'list', 'json'],
-          description: 'Output format',
-          default: 'table',
-        },
-      },
-    },
+    inputSchema: zodToJsonSchema(McpSearchToolSchema) as Tool['inputSchema'],
+    outputSchema: zodToJsonSchema(McpSearchOutputSchema) as Tool['outputSchema'],
   };
 }
 
-/**
- * Create registry tool definition
- */
-export function createRegistryTool(): Tool {
-  return {
-    name: 'mcp_registry',
-    description: 'Get information about MCP registries',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        registry: {
-          type: 'string',
-          description: 'Registry name or URL',
-          default: 'official',
-        },
-        action: {
-          type: 'string',
-          enum: ['info', 'status', 'list'],
-          description: 'Registry action to perform',
-          default: 'status',
-        },
-      },
-    },
-  };
-}
+// createRegistryTool function removed - mcp_registry tool has been deprecated and split into separate tools
 
 /**
  * Create registry status tool definition
@@ -89,16 +41,8 @@ export function createRegistryStatusTool(): Tool {
   return {
     name: 'mcp_registry_status',
     description: 'Check registry availability and performance',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        registry: {
-          type: 'string',
-          description: 'Registry name or URL',
-          default: 'official',
-        },
-      },
-    },
+    inputSchema: zodToJsonSchema(McpRegistryStatusSchema) as Tool['inputSchema'],
+    outputSchema: zodToJsonSchema(McpRegistryStatusOutputSchema) as Tool['outputSchema'],
   };
 }
 
@@ -109,16 +53,8 @@ export function createRegistryInfoTool(): Tool {
   return {
     name: 'mcp_registry_info',
     description: 'Get detailed registry information',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        registry: {
-          type: 'string',
-          description: 'Registry name or URL',
-          default: 'official',
-        },
-      },
-    },
+    inputSchema: zodToJsonSchema(McpRegistryInfoSchema) as Tool['inputSchema'],
+    outputSchema: zodToJsonSchema(McpRegistryInfoOutputSchema) as Tool['outputSchema'],
   };
 }
 
@@ -129,16 +65,8 @@ export function createRegistryListTool(): Tool {
   return {
     name: 'mcp_registry_list',
     description: 'List available registries',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        includeStats: {
-          type: 'boolean',
-          description: 'Include package statistics',
-          default: false,
-        },
-      },
-    },
+    inputSchema: zodToJsonSchema(McpRegistryListSchema) as Tool['inputSchema'],
+    outputSchema: zodToJsonSchema(McpRegistryListOutputSchema) as Tool['outputSchema'],
   };
 }
 
@@ -149,31 +77,7 @@ export function createInfoTool(): Tool {
   return {
     name: 'mcp_info',
     description: 'Get detailed information about a specific MCP server',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        name: {
-          type: 'string',
-          description: 'Name of the MCP server to get information about',
-        },
-        includeCapabilities: {
-          type: 'boolean',
-          description: 'Include tools/resources/prompts list',
-          default: true,
-        },
-        includeConfig: {
-          type: 'boolean',
-          description: 'Include configuration details',
-          default: true,
-        },
-        format: {
-          type: 'string',
-          enum: ['table', 'list', 'json'],
-          description: 'Output format',
-          default: 'table',
-        },
-      },
-      required: ['name'],
-    },
+    inputSchema: zodToJsonSchema(McpInfoToolSchema) as Tool['inputSchema'],
+    outputSchema: zodToJsonSchema(McpInfoOutputSchema) as Tool['outputSchema'],
   };
 }

@@ -41,8 +41,8 @@ export class ServerInstallationService {
     try {
       logger.info(`Starting installation of ${serverName}${version ? `@${version}` : ''}`);
 
-      // Get server information from registry
-      const registryServer = await this.registryClient.getServerById(serverName, version);
+      // Get server information from registry with ID resolution fallback
+      const registryServer = await this.resolveServerById(serverName, version);
 
       if (!registryServer) {
         throw new Error(`Server '${serverName}' not found in registry`);
@@ -101,6 +101,56 @@ export class ServerInstallationService {
     }
 
     return undefined;
+  }
+
+  /**
+   * Resolve server ID with fallback mechanism
+   * Tries direct lookup first, then search-based resolution if that fails
+   */
+  private async resolveServerById(serverName: string, version?: string): Promise<RegistryServer> {
+    try {
+      // Try direct lookup first (for exact registry ID matches)
+      return await this.registryClient.getServerById(serverName, version);
+    } catch (_error) {
+      // If direct lookup fails, try search-based resolution
+      logger.debug(`Direct lookup failed for ${serverName}, trying search-based resolution`);
+
+      try {
+        // Search for servers matching this name
+        const searchResults = await this.registryClient.searchServers({
+          query: serverName,
+          limit: 10,
+        });
+
+        // Find exact or partial matches with priority order
+        const matchedServer = searchResults.find(
+          (server) =>
+            // Exact match first
+            server.name === serverName ||
+            // Then match if it ends with the server name (e.g., "io.github/user/mysql-read-only-server" matches "mysql-read-only-server")
+            server.name.endsWith(`/${serverName}`) ||
+            // Then match if it contains the server name
+            server.name.includes(serverName),
+        );
+
+        if (matchedServer) {
+          logger.info(`Found server "${serverName}" as "${matchedServer.name}" in registry`);
+          return await this.registryClient.getServerById(matchedServer.name, version);
+        }
+
+        // If no matches found, provide helpful error message
+        throw new Error(
+          `Server '${serverName}' not found in registry. Try searching with '1mcp registry search ${serverName}' to find available servers.`,
+        );
+      } catch (_searchError) {
+        // If search also fails, provide more comprehensive error
+        throw new Error(`Server '${serverName}' not found in registry. Suggestions:
+1. Check spelling: ${serverName}
+2. Search for available servers: 1mcp registry search ${serverName}
+3. Use interactive mode: 1mcp mcp install --interactive
+4. Use full registry ID (e.g., 'io.github.username/server-name')`);
+      }
+    }
   }
 
   /**

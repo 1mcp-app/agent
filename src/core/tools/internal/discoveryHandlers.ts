@@ -8,11 +8,11 @@ import { AdapterFactory } from '@src/core/tools/internal/adapters/index.js';
 import logger, { debugIf } from '@src/logger/logger.js';
 
 import {
-  McpInfoToolArgs,
-  McpRegistryInfoToolArgs,
-  McpRegistryListToolArgs,
-  McpRegistryStatusToolArgs,
-  McpSearchToolArgs,
+  type McpInfoToolArgs,
+  type McpRegistryInfoToolArgs,
+  type McpRegistryListToolArgs,
+  type McpRegistryStatusToolArgs,
+  type McpSearchToolArgs,
 } from './schemas/index.js';
 
 /**

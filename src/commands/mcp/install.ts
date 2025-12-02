@@ -59,7 +59,9 @@ export function buildInstallCommand(yargs: Argv) {
     })
     .example([
       ['$0 mcp install', 'Launch interactive installation wizard'],
-      ['$0 mcp install filesystem', 'Install latest version of filesystem server'],
+      ['$0 mcp install filesystem', 'Install latest version (requires exact registry ID)'],
+      ['$0 mcp install io.github.user/filesystem', 'Install with full registry ID'],
+      ['1mcp registry search mysql && 1mcp mcp install <registry-id>', 'Search then install workflow'],
       ['$0 mcp install filesystem@1.0.0', 'Install specific version'],
       ['$0 mcp install filesystem --interactive', 'Install with interactive configuration'],
       ['$0 mcp install filesystem --force', 'Force reinstallation'],
@@ -71,17 +73,17 @@ export function buildInstallCommand(yargs: Argv) {
  * Install command handler
  */
 export async function installCommand(argv: InstallCommandArgs): Promise<void> {
-  try {
-    const {
-      serverName: inputServerName,
-      config: configPath,
-      'config-dir': configDir,
-      force = false,
-      dryRun = false,
-      verbose = false,
-      interactive = false,
-    } = argv;
+  const {
+    serverName: inputServerName,
+    config: configPath,
+    'config-dir': configDir,
+    force = false,
+    dryRun = false,
+    verbose = false,
+    interactive = false,
+  } = argv;
 
+  try {
     // Initialize configuration context
     initializeConfigContext(configPath, configDir);
 
@@ -217,7 +219,27 @@ export async function installCommand(argv: InstallCommandArgs): Promise<void> {
     }
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
-    console.error(`\n❌ Installation failed: ${errorMessage}\n`);
+
+    // Enhanced error guidance for registry-related failures
+    if (
+      errorMessage.includes('Failed to fetch server with ID') ||
+      errorMessage.includes('not found in registry') ||
+      (errorMessage.includes('Server') && errorMessage.includes('not found'))
+    ) {
+      console.error(`\n❌ Server '${inputServerName}' not found in registry.\n`);
+      console.error(`💡 Suggestions:\n`);
+      console.error(`   • Search for available servers:`);
+      console.error(`     1mcp registry search ${inputServerName}\n`);
+      console.error(`   • Use interactive mode to browse:`);
+      console.error(`     1mcp mcp install --interactive\n`);
+      console.error(`   • Try the full registry ID if you know it:`);
+      console.error(`     1mcp mcp install io.github.username/${inputServerName}\n`);
+      console.error(`   • View available servers:`);
+      console.error(`     1mcp registry search\n`);
+    } else {
+      console.error(`\n❌ Installation failed: ${errorMessage}\n`);
+    }
+
     if (error instanceof Error && error.stack) {
       logger.error('Installation error stack:', error.stack);
     }
@@ -497,7 +519,24 @@ async function runInteractiveInstallation(argv: InstallCommandArgs): Promise<voi
         }
       } catch (error) {
         const errorMessage = error instanceof Error ? error.message : String(error);
-        console.error(`\n❌ Installation failed: ${errorMessage}\n`);
+
+        // Enhanced error guidance for registry-related failures in interactive mode
+        if (
+          errorMessage.includes('Failed to fetch server with ID') ||
+          errorMessage.includes('not found in registry') ||
+          (errorMessage.includes('Server') && errorMessage.includes('not found'))
+        ) {
+          console.error(`\n❌ Server '${wizardResult.serverId}' not found in registry.\n`);
+          console.error(`💡 Suggestions:\n`);
+          console.error(`   • Try searching for the server first:`);
+          console.error(`     1mcp registry search ${wizardResult.serverId}\n`);
+          console.error(`   • Use the exact Registry ID from search results\n`);
+          console.error(`   • Try searching with different keywords\n`);
+          console.error(`   • Or continue to search for another server\n`);
+        } else {
+          console.error(`\n❌ Installation failed: ${errorMessage}\n`);
+        }
+
         if (error instanceof Error && error.stack) {
           logger.error('Installation error stack:', error.stack);
         }

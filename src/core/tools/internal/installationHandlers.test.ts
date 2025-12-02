@@ -103,6 +103,13 @@ describe('installationHandlers', () => {
       expect(mockInstallationAdapter.installServer).toHaveBeenCalledWith('test-server', '1.0.0', {
         force: false,
         backup: false,
+        args: undefined,
+        command: undefined,
+        env: undefined,
+        package: undefined,
+        tags: undefined,
+        transport: 'stdio',
+        url: undefined,
       });
     });
 

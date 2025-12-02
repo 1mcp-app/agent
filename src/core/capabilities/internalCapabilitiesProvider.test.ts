@@ -303,7 +303,9 @@ describe('InternalCapabilitiesProvider', () => {
       const installTool = tools.find((tool) => tool.name === 'mcp_install');
 
       expect(installTool).toBeDefined();
-      expect(installTool?.description).toBe('Install a new MCP server');
+      expect(installTool?.description).toBe(
+        'Install a new MCP server. Use package+command+args for direct package installation (e.g., npm packages), or just name for registry-based installation',
+      );
 
       const schema = installTool!.inputSchema;
       expect(schema.properties?.name).toEqual({

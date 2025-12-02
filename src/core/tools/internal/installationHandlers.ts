@@ -47,6 +47,10 @@ export async function handleMcpInstall(args: McpInstallToolArgs): Promise<{
       tags: args.tags,
       env: args.env,
       args: args.args,
+      package: args.package,
+      command: args.command,
+      url: args.url,
+      transport: args.transport,
     });
 
     return {
