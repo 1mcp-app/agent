@@ -18,7 +18,8 @@ import {
   McpStatusOutputSchema,
   McpStatusToolSchema,
 } from '@src/core/tools/internal/schemas/index.js';
-import { zodToJsonSchema } from '@src/core/tools/internal/utils/schemaUtils.js';
+
+import { z } from 'zod';
 
 /**
  * Create enable tool definition
@@ -27,8 +28,8 @@ export function createEnableTool(): Tool {
   return {
     name: 'mcp_enable',
     description: 'Enable an MCP server',
-    inputSchema: zodToJsonSchema(McpEnableToolSchema) as Tool['inputSchema'],
-    outputSchema: zodToJsonSchema(McpEnableOutputSchema) as Tool['outputSchema'],
+    inputSchema: z.toJSONSchema(McpEnableToolSchema) as Tool['inputSchema'],
+    outputSchema: z.toJSONSchema(McpEnableOutputSchema) as Tool['outputSchema'],
   };
 }
 
@@ -39,8 +40,8 @@ export function createDisableTool(): Tool {
   return {
     name: 'mcp_disable',
     description: 'Disable an MCP server',
-    inputSchema: zodToJsonSchema(McpDisableToolSchema) as Tool['inputSchema'],
-    outputSchema: zodToJsonSchema(McpDisableOutputSchema) as Tool['outputSchema'],
+    inputSchema: z.toJSONSchema(McpDisableToolSchema) as Tool['inputSchema'],
+    outputSchema: z.toJSONSchema(McpDisableOutputSchema) as Tool['outputSchema'],
   };
 }
 
@@ -51,8 +52,8 @@ export function createListTool(): Tool {
   return {
     name: 'mcp_list',
     description: 'List MCP servers',
-    inputSchema: zodToJsonSchema(McpListToolSchema) as Tool['inputSchema'],
-    outputSchema: zodToJsonSchema(McpListOutputSchema) as Tool['outputSchema'],
+    inputSchema: z.toJSONSchema(McpListToolSchema) as Tool['inputSchema'],
+    outputSchema: z.toJSONSchema(McpListOutputSchema) as Tool['outputSchema'],
   };
 }
 
@@ -63,8 +64,8 @@ export function createStatusTool(): Tool {
   return {
     name: 'mcp_status',
     description: 'Get MCP server status',
-    inputSchema: zodToJsonSchema(McpStatusToolSchema) as Tool['inputSchema'],
-    outputSchema: zodToJsonSchema(McpStatusOutputSchema) as Tool['outputSchema'],
+    inputSchema: z.toJSONSchema(McpStatusToolSchema) as Tool['inputSchema'],
+    outputSchema: z.toJSONSchema(McpStatusOutputSchema) as Tool['outputSchema'],
   };
 }
 
@@ -75,7 +76,7 @@ export function createReloadTool(): Tool {
   return {
     name: 'mcp_reload',
     description: 'Reload MCP server or configuration',
-    inputSchema: zodToJsonSchema(McpReloadToolSchema) as Tool['inputSchema'],
-    outputSchema: zodToJsonSchema(McpReloadOutputSchema) as Tool['outputSchema'],
+    inputSchema: z.toJSONSchema(McpReloadToolSchema) as Tool['inputSchema'],
+    outputSchema: z.toJSONSchema(McpReloadOutputSchema) as Tool['outputSchema'],
   };
 }

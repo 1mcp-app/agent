@@ -20,6 +20,11 @@ import {
 } from './managementHandlers.js';
 import { cleanupInternalToolHandlers } from './toolHandlers.js';
 
+// Get mocked functions
+const mockCleanupDiscoveryHandlers = vi.mocked(cleanupDiscoveryHandlers);
+const mockCleanupInstallationHandlers = vi.mocked(cleanupInstallationHandlers);
+const mockCleanupManagementHandlers = vi.mocked(cleanupManagementHandlers);
+
 // Mock FlagManager
 vi.mock('@src/core/flags/flagManager.js', () => ({
   FlagManager: {
@@ -64,6 +69,13 @@ vi.mock('./managementHandlers.js', async () => {
   };
 });
 
+// Mock AdapterFactory cleanup
+vi.mock('./adapters/index.js', () => ({
+  AdapterFactory: {
+    cleanup: vi.fn(),
+  },
+}));
+
 describe('toolHandlers', () => {
   let mockFlagManager: any;
 
@@ -97,23 +109,36 @@ describe('toolHandlers', () => {
   });
 
   describe('cleanupInternalToolHandlers', () => {
-    it('should call cleanup for search handler', async () => {
-      await cleanupInternalToolHandlers();
-      expect(cleanupDiscoveryHandlers).toHaveBeenCalled();
+    beforeEach(() => {
+      vi.clearAllMocks();
     });
 
-    it('should call cleanup for installation handler', async () => {
+    it('should call cleanup for discovery handlers', async () => {
       await cleanupInternalToolHandlers();
-      expect(cleanupInstallationHandlers).toHaveBeenCalled();
+      expect(mockCleanupDiscoveryHandlers).toHaveBeenCalled();
     });
 
-    it('should call cleanup for management handler', async () => {
+    it('should call cleanup for installation handlers', async () => {
       await cleanupInternalToolHandlers();
-      expect(cleanupManagementHandlers).toHaveBeenCalled();
+      expect(mockCleanupInstallationHandlers).toHaveBeenCalled();
+    });
+
+    it('should call cleanup for management handlers', async () => {
+      await cleanupInternalToolHandlers();
+      expect(mockCleanupManagementHandlers).toHaveBeenCalled();
     });
 
     it('should cleanup without errors', async () => {
       expect(async () => await cleanupInternalToolHandlers()).not.toThrow();
+    });
+
+    it('should call all cleanup functions', async () => {
+      await cleanupInternalToolHandlers();
+
+      // All cleanup functions should be called at least once
+      expect(mockCleanupDiscoveryHandlers).toHaveBeenCalled();
+      expect(mockCleanupInstallationHandlers).toHaveBeenCalled();
+      expect(mockCleanupManagementHandlers).toHaveBeenCalled();
     });
   });
 });
