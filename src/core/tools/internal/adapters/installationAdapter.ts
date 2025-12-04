@@ -303,13 +303,17 @@ export class ServerInstallationAdapter implements InstallationAdapter {
         throw new Error('Installation service returned undefined result');
       }
 
-      // If installation succeeded and tags are provided, update configuration
+      // If installation succeeded and tags are provided, merge them with existing tags
       if (result.success && options.tags && options.tags.length > 0) {
         const currentConfig = getServer(serverName);
         if (currentConfig) {
+          // Merge user tags with existing tags, deduplicating while preserving order
+          const existingTags = currentConfig.tags || [];
+          const mergedTags = Array.from(new Set([...existingTags, ...options.tags]));
+
           const updatedConfig = {
             ...currentConfig,
-            tags: options.tags,
+            tags: mergedTags,
             env: { ...currentConfig.env, ...options.env },
             args: options.args || currentConfig.args,
           };

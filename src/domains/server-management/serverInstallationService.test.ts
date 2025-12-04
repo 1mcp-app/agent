@@ -236,6 +236,7 @@ describe('ServerInstallationService', () => {
       expect(result.config).toEqual({
         type: 'stdio',
         command: 'npx:test-package',
+        tags: ['test-server'], // Deduplicated tags: [localServerName, registryServerId]
       });
     });
 

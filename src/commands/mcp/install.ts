@@ -175,6 +175,7 @@ export async function installCommand(argv: InstallCommandArgs): Promise<void> {
         force,
         verbose,
         localServerName: serverName, // Pass the derived local name
+        registryServerId: registryServerId, // Pass the registry ID for tagging
       });
 
       // Update progress: Finalizing
@@ -475,6 +476,7 @@ async function runInteractiveInstallation(argv: InstallCommandArgs): Promise<voi
             force: shouldForce,
             verbose,
             localServerName: serverName,
+            registryServerId: registryServerId, // Pass the registry ID for tagging
             tags: wizardResult.tags,
             env: wizardResult.env,
             args: wizardResult.args,

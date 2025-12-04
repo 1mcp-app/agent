@@ -33,7 +33,7 @@ export class ServerInstallationService {
   /**
    * Install a server from the registry
    */
-  async installServer(serverName: string, version?: string, _options?: InstallOptions): Promise<InstallResult> {
+  async installServer(serverName: string, version?: string, options?: InstallOptions): Promise<InstallResult> {
     const operationId = `op_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
     const warnings: string[] = [];
     const errors: string[] = [];
@@ -64,13 +64,23 @@ export class ServerInstallationService {
         );
       }
 
-      // Generate server configuration (not used in current implementation but required for future)
-      const _serverConfig = await this.createServerConfig(registryServer, selectedEndpoint);
+      // Determine the local server name and registry server ID for tagging
+      const localServerName = options?.localServerName || serverName;
+      const registryServerId = options?.registryServerId || registryServer.name;
+
+      // Generate server configuration with tags
+      const _serverConfig = await this.createServerConfig(
+        registryServer,
+        selectedEndpoint,
+        registryServerId,
+        localServerName,
+        options?.tags,
+      );
 
       // Create installation result
       const result: InstallResult = {
         success: true,
-        serverName,
+        serverName: localServerName,
         version: registryServer.version,
         installedAt: new Date(),
         configPath: '', // Will be set by command handler
@@ -81,7 +91,7 @@ export class ServerInstallationService {
         operationId,
       };
 
-      logger.info(`Successfully prepared installation configuration for ${serverName}`);
+      logger.info(`Successfully prepared installation configuration for ${localServerName}`);
       return result;
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
@@ -184,14 +194,26 @@ export class ServerInstallationService {
   private async createServerConfig(
     _registryServer: RegistryServer,
     endpoint: { type: string; url: string; isPackage: boolean },
+    registryServerId: string,
+    localServerName: string,
+    existingTags?: string[],
   ): Promise<MCPServerParams> {
+    // Add both local server name and registry ID as default tags
+    const defaultTags = [localServerName, registryServerId];
+    const tags = existingTags ? [...existingTags, ...defaultTags] : defaultTags;
+
+    // Remove duplicates while preserving order
+    const uniqueTags = Array.from(new Set(tags));
+
     // Handle package-based installation
     if (endpoint.isPackage) {
       const config: MCPServerParams = {
         type: 'stdio',
         command: 'npx',
         args: [endpoint.url],
+        tags: uniqueTags,
       };
+
       return config;
     }
 
@@ -199,6 +221,7 @@ export class ServerInstallationService {
     const config: MCPServerParams = {
       type: 'stdio',
       command: endpoint.url,
+      tags: uniqueTags,
     };
 
     return config;
