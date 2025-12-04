@@ -323,9 +323,18 @@ function registerToolHandlers(outboundConns: OutboundConnections, inboundConn: I
       if (clientName === '1mcp') {
         const internalProvider = InternalCapabilitiesProvider.getInstance();
         await internalProvider.initialize();
-        return (await internalProvider.executeTool(toolName, request.params.arguments)) as {
-          content: Array<{ type: string; text: string }>;
-          isError?: boolean;
+        const result = await internalProvider.executeTool(toolName, request.params.arguments);
+
+        // For tools with output schemas, return both content and structuredContent
+        // This is required by the MCP protocol when outputSchema is defined
+        return {
+          content: [
+            {
+              type: 'text' as const,
+              text: JSON.stringify(result, null, 2),
+            },
+          ],
+          structuredContent: result,
         };
       }
 

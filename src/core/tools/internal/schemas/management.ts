@@ -186,7 +186,10 @@ export const McpEnableOutputSchema = z.object({
   name: z.string().describe('Server name'),
   status: z.enum(['success', 'failed', 'already_enabled', 'not_found']).describe('Enable status'),
   message: z.string().describe('Status message'),
+  enabled: z.boolean().optional().describe('Whether server is now enabled'),
   restarted: z.boolean().optional().describe('Whether server was restarted'),
+  warnings: z.array(z.string()).optional().describe('Enable warnings'),
+  reloadRecommended: z.boolean().optional().describe('Whether config reload is recommended'),
   error: z.string().optional().describe('Error message if failed'),
 });
 
@@ -197,7 +200,10 @@ export const McpDisableOutputSchema = z.object({
   name: z.string().describe('Server name'),
   status: z.enum(['success', 'failed', 'already_disabled', 'not_found']).describe('Disable status'),
   message: z.string().describe('Status message'),
-  graceful: z.boolean().optional().describe('Whether graceful shutdown was used'),
+  disabled: z.boolean().optional().describe('Whether server is now disabled'),
+  gracefulShutdown: z.boolean().optional().describe('Whether graceful shutdown was used'),
+  warnings: z.array(z.string()).optional().describe('Disable warnings'),
+  reloadRecommended: z.boolean().optional().describe('Whether config reload is recommended'),
   error: z.string().optional().describe('Error message if failed'),
 });
 
@@ -294,11 +300,13 @@ export const McpStatusOutputSchema = z.object({
  * Output schema for mcp_reload tool
  */
 export const McpReloadOutputSchema = z.object({
-  target: z.enum(['server', 'config', 'all']).describe('What was reloaded'),
+  target: z.string().describe('What was reloaded'),
+  action: z.string().optional().describe('Action that was performed'),
   status: z.enum(['success', 'failed', 'partial']).describe('Reload status'),
   message: z.string().describe('Status message'),
-  affectedServers: z.array(z.string()).optional().describe('List of affected server names'),
   timestamp: z.string().describe('Reload timestamp'),
+  reloadedServers: z.array(z.string()).optional().describe('List of reloaded server names'),
+  affectedServers: z.array(z.string()).optional().describe('List of affected server names'),
   duration: z.number().optional().describe('Reload duration in milliseconds'),
   error: z.string().optional().describe('Error message if failed'),
 });

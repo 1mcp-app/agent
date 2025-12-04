@@ -165,14 +165,23 @@ export const McpSearchOutputSchema = z.object({
   results: z
     .array(
       z.object({
-        name: z.string().describe('Package name'),
+        name: z.string().describe('Server name'),
         version: z.string().describe('Latest version'),
-        description: z.string().describe('Package description'),
-        author: z.string().optional().describe('Package author'),
-        tags: z.array(z.string()).describe('Package tags'),
+        description: z.string().describe('Server description'),
+        author: z.string().optional().describe('Server author'),
+        tags: z.array(z.string()).describe('Server tags'),
         transport: z.array(z.string()).describe('Supported transports'),
         registry: z.string().describe('Source registry'),
         downloads: z.number().optional().describe('Download count'),
+
+        // Enhanced installation information for LLM context
+        installationMethod: z.enum(['package', 'remote', 'unknown']).describe('Primary installation method'),
+        installationHint: z.string().optional().describe('Installation method description'),
+        prerequisiteHint: z.string().optional().describe('Summary of required setup'),
+        hasEnvironmentVariables: z.boolean().describe('Server requires environment variables'),
+        hasPackageArguments: z.boolean().describe('Server requires package installation arguments'),
+        hasRuntimeArguments: z.boolean().describe('Server requires runtime arguments'),
+        installable: z.boolean().describe('Server can be installed'),
       }),
     )
     .describe('Search results'),

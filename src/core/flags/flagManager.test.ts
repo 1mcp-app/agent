@@ -240,7 +240,7 @@ describe('FlagManager', () => {
 
     it('should parse category shortcuts', () => {
       const result = flagManager.parseToolsList('safe');
-      expect(result).toEqual(['search', 'registry', 'registry_info', 'registry_list', 'info', 'list', 'status']);
+      expect(result).toEqual(['search', 'registry_info', 'registry_list', 'info', 'list', 'status']);
     });
 
     it('should parse mixed tools and categories', () => {
@@ -305,7 +305,16 @@ describe('FlagManager', () => {
     });
 
     it('should handle all valid tools', () => {
-      const allTools = ['search', 'registry', 'list', 'status', 'install', 'enable'];
+      const allTools = [
+        'search',
+        'registry_status',
+        'registry_info',
+        'registry_list',
+        'list',
+        'status',
+        'install',
+        'enable',
+      ];
       const result = flagManager.getEnabledToolsFromList('internalTools', allTools);
       expect(result).toEqual(allTools);
     });

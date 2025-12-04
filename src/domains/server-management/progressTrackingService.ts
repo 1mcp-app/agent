@@ -65,18 +65,20 @@ export class ProgressTrackingService extends EventEmitter {
       return;
     }
 
-    const newProgress = Math.round((currentStep / progress.totalSteps) * 100);
+    const newProgress = progress.totalSteps > 0 ? Math.round((currentStep / progress.totalSteps) * 100) : 0;
 
     progress.currentStep = currentStep;
     progress.stepName = stepName;
-    progress.progress = newProgress;
+    progress.progress = Math.max(0, Math.min(100, newProgress));
     progress.message = message;
     progress.updatedAt = new Date();
 
     this.emit('progress-updated', progress);
 
-    const progressBar = '█'.repeat(Math.floor(newProgress / 5)) + '░'.repeat(20 - Math.floor(newProgress / 5));
-    logger.info(`   [${progressBar}] ${newProgress}% - ${stepName}`);
+    const progressPercentage = Math.max(0, Math.min(100, newProgress));
+    const progressBarWidth = Math.floor(progressPercentage / 5);
+    const progressBar = '█'.repeat(Math.max(0, progressBarWidth)) + '░'.repeat(Math.max(0, 20 - progressBarWidth));
+    logger.info(`   [${progressBar}] ${progressPercentage}% - ${stepName}`);
   }
 
   /**

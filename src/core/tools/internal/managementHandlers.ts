@@ -9,20 +9,27 @@ import { AdapterFactory } from '@src/core/tools/internal/adapters/index.js';
 import logger, { debugIf } from '@src/logger/logger.js';
 
 import {
+  type McpDisableOutput,
+  McpDisableOutputSchema,
   McpDisableToolArgs,
+  type McpEnableOutput,
+  McpEnableOutputSchema,
   McpEnableToolArgs,
+  type McpListOutput,
+  McpListOutputSchema,
   McpListToolArgs,
+  type McpReloadOutput,
+  McpReloadOutputSchema,
   McpReloadToolArgs,
+  type McpStatusOutput,
+  McpStatusOutputSchema,
   McpStatusToolArgs,
 } from './schemas/index.js';
 
 /**
  * Internal tool handler for enabling MCP servers
  */
-export async function handleMcpEnable(args: McpEnableToolArgs): Promise<{
-  content: Array<{ type: 'text'; text: string }>;
-  isError?: boolean;
-}> {
+export async function handleMcpEnable(args: McpEnableToolArgs): Promise<McpEnableOutput> {
   try {
     debugIf(() => ({
       message: 'Executing mcp_enable tool',
@@ -32,18 +39,13 @@ export async function handleMcpEnable(args: McpEnableToolArgs): Promise<{
     // Check if management tools are enabled
     const flagManager = FlagManager.getInstance();
     if (!flagManager.isToolEnabled('internalTools', 'management', 'enable')) {
-      return {
-        content: [
-          {
-            type: 'text' as const,
-            text: JSON.stringify({
-              error: 'Management tools are disabled',
-              message: 'MCP server management is currently disabled by configuration',
-            }),
-          },
-        ],
-        isError: true,
+      const result = {
+        name: args.name,
+        status: 'failed' as const,
+        message: 'MCP server management is currently disabled by configuration',
+        error: 'Management tools are disabled',
       };
+      return McpEnableOutputSchema.parse(result);
     }
 
     const adapter = AdapterFactory.getManagementAdapter();
@@ -54,53 +56,38 @@ export async function handleMcpEnable(args: McpEnableToolArgs): Promise<{
       timeout: args.timeout,
     });
 
-    return {
-      content: [
-        {
-          type: 'text' as const,
-          text: JSON.stringify(
-            {
-              success: result.success,
-              message: `MCP server '${result.serverName}' ${result.success ? 'enabled' : 'enable failed'}${result.success ? ' successfully' : ''}`,
-              serverName: result.serverName,
-              enabled: result.enabled,
-              restarted: result.restarted,
-              warnings: result.warnings,
-              errors: result.errors,
-              reloadRecommended: result.success,
-            },
-            null,
-            2,
-          ),
-        },
-      ],
+    // Transform to match expected output schema
+    const structuredResult = {
+      name: result.serverName,
+      status: result.success ? ('success' as const) : ('failed' as const),
+      message: `MCP server '${result.serverName}' ${result.success ? 'enabled' : 'enable failed'}${result.success ? ' successfully' : ''}`,
+      enabled: result.enabled,
+      restarted: result.restarted,
+      warnings: result.warnings,
+      reloadRecommended: result.success,
+      error: result.success ? undefined : result.errors?.[0] || 'Enable operation failed',
     };
+
+    return McpEnableOutputSchema.parse(structuredResult);
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : 'Unknown error';
     logger.error('Error in mcp_enable tool handler', { error: errorMessage });
 
-    return {
-      content: [
-        {
-          type: 'text' as const,
-          text: JSON.stringify({
-            error: errorMessage,
-            message: `Enable operation failed: ${errorMessage}`,
-          }),
-        },
-      ],
-      isError: true,
+    const result = {
+      name: args.name,
+      status: 'failed' as const,
+      message: `Enable operation failed: ${errorMessage}`,
+      error: errorMessage,
     };
+
+    return McpEnableOutputSchema.parse(result);
   }
 }
 
 /**
  * Internal tool handler for disabling MCP servers
  */
-export async function handleMcpDisable(args: McpDisableToolArgs): Promise<{
-  content: Array<{ type: 'text'; text: string }>;
-  isError?: boolean;
-}> {
+export async function handleMcpDisable(args: McpDisableToolArgs): Promise<McpDisableOutput> {
   try {
     debugIf(() => ({
       message: 'Executing mcp_disable tool',
@@ -110,18 +97,13 @@ export async function handleMcpDisable(args: McpDisableToolArgs): Promise<{
     // Check if management tools are enabled
     const flagManager = FlagManager.getInstance();
     if (!flagManager.isToolEnabled('internalTools', 'management', 'disable')) {
-      return {
-        content: [
-          {
-            type: 'text' as const,
-            text: JSON.stringify({
-              error: 'Management tools are disabled',
-              message: 'MCP server management is currently disabled by configuration',
-            }),
-          },
-        ],
-        isError: true,
+      const result = {
+        name: args.name,
+        status: 'failed' as const,
+        message: 'MCP server management is currently disabled by configuration',
+        error: 'Management tools are disabled',
       };
+      return McpDisableOutputSchema.parse(result);
     }
 
     const adapter = AdapterFactory.getManagementAdapter();
@@ -132,53 +114,38 @@ export async function handleMcpDisable(args: McpDisableToolArgs): Promise<{
       force: args.force,
     });
 
-    return {
-      content: [
-        {
-          type: 'text' as const,
-          text: JSON.stringify(
-            {
-              success: result.success,
-              message: `MCP server '${result.serverName}' ${result.success ? 'disabled' : 'disable failed'}${result.success ? ' successfully' : ''}`,
-              serverName: result.serverName,
-              disabled: result.disabled,
-              gracefulShutdown: result.gracefulShutdown,
-              warnings: result.warnings,
-              errors: result.errors,
-              reloadRecommended: result.success,
-            },
-            null,
-            2,
-          ),
-        },
-      ],
+    // Transform to match expected output schema
+    const structuredResult = {
+      name: result.serverName,
+      status: result.success ? ('success' as const) : ('failed' as const),
+      message: `MCP server '${result.serverName}' ${result.success ? 'disabled' : 'disable failed'}${result.success ? ' successfully' : ''}`,
+      disabled: result.disabled,
+      gracefulShutdown: result.gracefulShutdown,
+      warnings: result.warnings,
+      reloadRecommended: result.success,
+      error: result.success ? undefined : result.errors?.[0] || 'Disable operation failed',
     };
+
+    return McpDisableOutputSchema.parse(structuredResult);
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : 'Unknown error';
     logger.error('Error in mcp_disable tool handler', { error: errorMessage });
 
-    return {
-      content: [
-        {
-          type: 'text' as const,
-          text: JSON.stringify({
-            error: errorMessage,
-            message: `Disable operation failed: ${errorMessage}`,
-          }),
-        },
-      ],
-      isError: true,
+    const result = {
+      name: args.name,
+      status: 'failed' as const,
+      message: `Disable operation failed: ${errorMessage}`,
+      error: errorMessage,
     };
+
+    return McpDisableOutputSchema.parse(result);
   }
 }
 
 /**
  * Internal tool handler for listing MCP servers
  */
-export async function handleMcpList(args: McpListToolArgs): Promise<{
-  content: Array<{ type: 'text'; text: string }>;
-  isError?: boolean;
-}> {
+export async function handleMcpList(args: McpListToolArgs): Promise<McpListOutput> {
   try {
     debugIf(() => ({
       message: 'Executing mcp_list tool',
@@ -188,18 +155,7 @@ export async function handleMcpList(args: McpListToolArgs): Promise<{
     // Check if management tools are enabled
     const flagManager = FlagManager.getInstance();
     if (!flagManager.isToolEnabled('internalTools', 'management', 'list')) {
-      return {
-        content: [
-          {
-            type: 'text' as const,
-            text: JSON.stringify({
-              error: 'Management tools are disabled',
-              message: 'MCP server management is currently disabled by configuration',
-            }),
-          },
-        ],
-        isError: true,
-      };
+      throw new Error('MCP server management is currently disabled by configuration');
     }
 
     const adapter = AdapterFactory.getManagementAdapter();
@@ -210,57 +166,61 @@ export async function handleMcpList(args: McpListToolArgs): Promise<{
       tags: args.tags,
     });
 
-    // Transform to match expected format
-    const result = {
-      servers: servers.map((server) => ({
-        name: server.name,
-        ...server.config,
-        status: server.status,
-        transport: server.transport,
-        url: server.url,
-        healthStatus: server.healthStatus,
-        lastChecked: server.lastChecked,
-        metadata: server.metadata,
-      })),
-      total: servers.length,
-      count: servers.length, // Keep for backward compatibility
-      timestamp: new Date().toISOString(),
+    // Transform to match expected output schema
+    const transformedServers = servers.map((server) => ({
+      name: server.name,
+      status: server.status as 'enabled' | 'disabled' | 'running' | 'stopped' | 'error',
+      transport: server.transport as 'stdio' | 'sse' | 'http',
+      tags: server.config?.tags,
+      lastConnected: typeof server.lastChecked === 'string' ? server.lastChecked : server.lastChecked?.toISOString(),
+      uptime: undefined, // Not available in ServerInfo interface
+      command: server.config?.command,
+      url: server.url,
+      healthStatus: server.healthStatus as 'healthy' | 'unhealthy' | 'unknown',
+      capabilities: {
+        toolCount: undefined, // Not available in metadata
+        resourceCount: undefined, // Not available in metadata
+        promptCount: undefined, // Not available in metadata
+      },
+    }));
+
+    const summary = {
+      enabled: transformedServers.filter((s) => s.status === 'enabled' || s.status === 'running').length,
+      disabled: transformedServers.filter((s) => s.status === 'disabled' || s.status === 'stopped').length,
+      running: transformedServers.filter((s) => s.status === 'running').length,
+      stopped: transformedServers.filter((s) => s.status === 'stopped').length,
     };
 
-    return {
-      content: [
-        {
-          type: 'text' as const,
-          text: JSON.stringify(result, null, 2),
-        },
-      ],
+    const result = {
+      servers: transformedServers,
+      total: transformedServers.length,
+      summary,
     };
+
+    return McpListOutputSchema.parse(result);
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : 'Unknown error';
     logger.error('Error in mcp_list tool handler', { error: errorMessage });
 
-    return {
-      content: [
-        {
-          type: 'text' as const,
-          text: JSON.stringify({
-            error: errorMessage,
-            message: `List operation failed: ${errorMessage}`,
-          }),
-        },
-      ],
-      isError: true,
+    const result = {
+      servers: [],
+      total: 0,
+      summary: {
+        enabled: 0,
+        disabled: 0,
+        running: 0,
+        stopped: 0,
+      },
     };
+
+    return McpListOutputSchema.parse(result);
   }
 }
 
 /**
  * Internal tool handler for getting MCP server status
  */
-export async function handleMcpStatus(args: McpStatusToolArgs): Promise<{
-  content: Array<{ type: 'text'; text: string }>;
-  isError?: boolean;
-}> {
+export async function handleMcpStatus(args: McpStatusToolArgs): Promise<McpStatusOutput> {
   try {
     debugIf(() => ({
       message: 'Executing mcp_status tool',
@@ -270,73 +230,70 @@ export async function handleMcpStatus(args: McpStatusToolArgs): Promise<{
     // Check if management tools are enabled
     const flagManager = FlagManager.getInstance();
     if (!flagManager.isToolEnabled('internalTools', 'management', 'status')) {
-      return {
-        content: [
-          {
-            type: 'text' as const,
-            text: JSON.stringify({
-              error: 'Management tools are disabled',
-              message: 'MCP server management is currently disabled by configuration',
-            }),
-          },
-        ],
-        isError: true,
-      };
+      throw new Error('MCP server management is currently disabled by configuration');
     }
 
     const adapter = AdapterFactory.getManagementAdapter();
     const result = await adapter.getServerStatus(args.name);
 
-    // Transform result for single server queries
-    let transformedResult = result;
-    if (args.name && result.servers && result.servers.length > 0) {
-      const server = result.servers.find((s) => s.name === args.name);
-      if (server) {
-        transformedResult = {
-          servers: [server],
-          totalServers: 1,
-          enabledServers: server.status === 'enabled' ? 1 : 0,
-          disabledServers: server.status === 'disabled' ? 1 : 0,
-          unhealthyServers: server.healthStatus === 'unhealthy' ? 1 : 0,
-          timestamp: result.timestamp,
-        };
-      }
-    }
+    // Transform to match expected output schema
+    const transformedServers = (result.servers || []).map((server) => ({
+      name: server.name,
+      status: server.status as 'running' | 'stopped' | 'error' | 'unknown',
+      transport: server.transport as 'stdio' | 'sse' | 'http',
+      uptime: undefined, // Not available in ServerStatusInfo
+      lastConnected: server.lastChecked,
+      pid: undefined, // Not available in ServerStatusInfo
+      memoryUsage: undefined, // Not available in ServerStatusInfo
+      capabilities: {
+        tools: undefined, // Not available in ServerStatusInfo
+        resources: undefined, // Not available in ServerStatusInfo
+        prompts: undefined, // Not available in ServerStatusInfo
+      },
+      health: {
+        status: server.healthStatus as 'healthy' | 'unhealthy' | 'unknown',
+        lastCheck: server.lastChecked,
+        responseTime: undefined, // Not available in ServerStatusInfo
+      },
+    }));
 
-    return {
-      content: [
-        {
-          type: 'text' as const,
-          text: JSON.stringify(transformedResult, null, 2),
-        },
-      ],
+    const overall = {
+      total: transformedServers.length,
+      running: transformedServers.filter((s) => s.status === 'running').length,
+      stopped: transformedServers.filter((s) => s.status === 'stopped').length,
+      errors: transformedServers.filter((s) => s.status === 'error').length,
     };
+
+    const schemaResult = {
+      servers: transformedServers,
+      timestamp: result.timestamp || new Date().toISOString(),
+      overall,
+    };
+
+    return McpStatusOutputSchema.parse(schemaResult);
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : 'Unknown error';
     logger.error('Error in mcp_status tool handler', { error: errorMessage });
 
-    return {
-      content: [
-        {
-          type: 'text' as const,
-          text: JSON.stringify({
-            error: errorMessage,
-            message: `Status operation failed: ${errorMessage}`,
-          }),
-        },
-      ],
-      isError: true,
+    const result = {
+      servers: [],
+      timestamp: new Date().toISOString(),
+      overall: {
+        total: 0,
+        running: 0,
+        stopped: 0,
+        errors: 0,
+      },
     };
+
+    return McpStatusOutputSchema.parse(result);
   }
 }
 
 /**
  * Internal tool handler for reloading MCP configuration
  */
-export async function handleMcpReload(args: McpReloadToolArgs): Promise<{
-  content: Array<{ type: 'text'; text: string }>;
-  isError?: boolean;
-}> {
+export async function handleMcpReload(args: McpReloadToolArgs): Promise<McpReloadOutput> {
   try {
     debugIf(() => ({
       message: 'Executing mcp_reload tool',
@@ -346,18 +303,14 @@ export async function handleMcpReload(args: McpReloadToolArgs): Promise<{
     // Check if management tools are enabled
     const flagManager = FlagManager.getInstance();
     if (!flagManager.isToolEnabled('internalTools', 'management', 'reload')) {
-      return {
-        content: [
-          {
-            type: 'text' as const,
-            text: JSON.stringify({
-              error: 'Management tools are disabled',
-              message: 'MCP server management is currently disabled by configuration',
-            }),
-          },
-        ],
-        isError: true,
+      const result = {
+        target: (args.server ? 'server' : 'config') as 'server' | 'config' | 'all',
+        status: 'failed' as const,
+        message: 'MCP server management is currently disabled by configuration',
+        timestamp: new Date().toISOString(),
+        error: 'Management tools are disabled',
       };
+      return McpReloadOutputSchema.parse(result);
     }
 
     const adapter = AdapterFactory.getManagementAdapter();
@@ -368,43 +321,31 @@ export async function handleMcpReload(args: McpReloadToolArgs): Promise<{
       timeout: args.timeout,
     });
 
-    return {
-      content: [
-        {
-          type: 'text' as const,
-          text: JSON.stringify(
-            {
-              success: result.success,
-              message: `Reload ${result.success ? 'completed' : 'failed'} ${result.success ? 'successfully' : ''} for ${result.target}`,
-              target: result.target,
-              action: result.action,
-              timestamp: result.timestamp,
-              reloadedServers: result.reloadedServers,
-              warnings: result.warnings,
-              errors: result.errors,
-            },
-            null,
-            2,
-          ),
-        },
-      ],
+    // Transform to match expected output schema
+    const structuredResult = {
+      target: result.target,
+      action: result.action,
+      status: result.success ? ('success' as const) : ('failed' as const),
+      message: `Reload ${result.success ? 'completed' : 'failed'} ${result.success ? 'successfully' : ''} for ${result.target}`,
+      timestamp: result.timestamp,
+      reloadedServers: result.reloadedServers,
+      error: result.success ? undefined : result.errors?.[0] || 'Reload operation failed',
     };
+
+    return McpReloadOutputSchema.parse(structuredResult);
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : 'Unknown error';
     logger.error('Error in mcp_reload tool handler', { error: errorMessage });
 
-    return {
-      content: [
-        {
-          type: 'text' as const,
-          text: JSON.stringify({
-            error: errorMessage,
-            message: `Reload operation failed: ${errorMessage}`,
-          }),
-        },
-      ],
-      isError: true,
+    const result = {
+      target: (args.server ? 'server' : 'config') as 'server' | 'config' | 'all',
+      status: 'failed' as const,
+      message: `Reload operation failed: ${errorMessage}`,
+      timestamp: new Date().toISOString(),
+      error: errorMessage,
     };
+
+    return McpReloadOutputSchema.parse(result);
   }
 }
 

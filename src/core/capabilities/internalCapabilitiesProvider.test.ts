@@ -255,8 +255,8 @@ describe('InternalCapabilitiesProvider', () => {
         });
         expect(result).toBeDefined();
       } catch (error) {
-        // Expected if handlers are not mocked
-        expect((error as Error).message).toContain('not a function');
+        // Expected if handlers are not mocked - registry fetch error
+        expect((error as Error).message).toContain('Server info check failed');
       }
     });
   });

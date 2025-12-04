@@ -90,13 +90,12 @@ describe('managementHandlers', () => {
 
       const result = await handleMcpEnable(args);
 
-      const resultData = JSON.parse(result.content[0].text);
-      expect(resultData.success).toBe(true);
-      expect(resultData.message).toBe("MCP server 'test-server' enabled successfully");
-      expect(resultData.serverName).toBe('test-server');
-      expect(resultData.enabled).toBe(true);
-      expect(resultData.restarted).toBe(true);
-      expect(resultData.reloadRecommended).toBe(true);
+      expect(result.status).toBe('success');
+      expect(result.message).toBe("MCP server 'test-server' enabled successfully");
+      expect(result.name).toBe('test-server');
+      expect(result.enabled).toBe(true);
+      expect(result.restarted).toBe(true);
+      expect(result.reloadRecommended).toBe(true);
       expect(mockManagementAdapter.enableServer).toHaveBeenCalledWith('test-server', {
         restart: true,
         graceful: true,
@@ -118,16 +117,10 @@ describe('managementHandlers', () => {
       const result = await handleMcpEnable(args);
 
       expect(result).toEqual({
-        content: [
-          {
-            type: 'text',
-            text: JSON.stringify({
-              error: 'Management tools are disabled',
-              message: 'MCP server management is currently disabled by configuration',
-            }),
-          },
-        ],
-        isError: true,
+        name: 'test-server',
+        status: 'failed',
+        message: 'MCP server management is currently disabled by configuration',
+        error: 'Management tools are disabled',
       });
       expect(flagManager.isToolEnabled).toHaveBeenCalledWith('internalTools', 'management', 'enable');
     });
@@ -145,16 +138,10 @@ describe('managementHandlers', () => {
       const result = await handleMcpEnable(args);
 
       expect(result).toEqual({
-        content: [
-          {
-            type: 'text',
-            text: JSON.stringify({
-              error: 'Enable failed',
-              message: 'Enable operation failed: Enable failed',
-            }),
-          },
-        ],
-        isError: true,
+        name: 'test-server',
+        status: 'failed',
+        message: 'Enable operation failed: Enable failed',
+        error: 'Enable failed',
       });
     });
   });
@@ -180,13 +167,13 @@ describe('managementHandlers', () => {
 
       const result = await handleMcpDisable(args);
 
-      const resultData = JSON.parse(result.content[0].text);
-      expect(resultData.success).toBe(true);
-      expect(resultData.message).toBe("MCP server 'test-server' disabled successfully");
-      expect(resultData.serverName).toBe('test-server');
-      expect(resultData.disabled).toBe(true);
-      expect(resultData.gracefulShutdown).toBe(true);
-      expect(resultData.reloadRecommended).toBe(true);
+      // Direct structured result - no need to parse
+      expect(result.status).toBe('success');
+      expect(result.message).toBe("MCP server 'test-server' disabled successfully");
+      expect(result.name).toBe('test-server');
+      expect(result.disabled).toBe(true);
+      expect(result.gracefulShutdown).toBe(true);
+      expect(result.reloadRecommended).toBe(true);
       expect(mockManagementAdapter.disableServer).toHaveBeenCalledWith('test-server', {
         graceful: true,
         timeout: 30,
@@ -208,16 +195,10 @@ describe('managementHandlers', () => {
       const result = await handleMcpDisable(args);
 
       expect(result).toEqual({
-        content: [
-          {
-            type: 'text',
-            text: JSON.stringify({
-              error: 'Management tools are disabled',
-              message: 'MCP server management is currently disabled by configuration',
-            }),
-          },
-        ],
-        isError: true,
+        name: 'test-server',
+        status: 'failed',
+        message: 'MCP server management is currently disabled by configuration',
+        error: 'Management tools are disabled',
       });
       expect(flagManager.isToolEnabled).toHaveBeenCalledWith('internalTools', 'management', 'disable');
     });
@@ -235,16 +216,10 @@ describe('managementHandlers', () => {
       const result = await handleMcpDisable(args);
 
       expect(result).toEqual({
-        content: [
-          {
-            type: 'text',
-            text: JSON.stringify({
-              error: 'Disable failed',
-              message: 'Disable operation failed: Disable failed',
-            }),
-          },
-        ],
-        isError: true,
+        name: 'test-server',
+        status: 'failed',
+        message: 'Disable operation failed: Disable failed',
+        error: 'Disable failed',
       });
     });
   });
@@ -263,7 +238,7 @@ describe('managementHandlers', () => {
           metadata: {},
         },
       ];
-      mockManagementAdapter.listServers.mockResolvedValue(mockResult);
+      mockManagementAdapter.listServers.mockImplementation((_args: unknown) => Promise.resolve(mockResult));
 
       const args = {
         status: 'enabled' as const,
@@ -276,16 +251,16 @@ describe('managementHandlers', () => {
 
       const result = await handleMcpList(args);
 
-      const resultData = JSON.parse(result.content[0].text);
-      expect(resultData.servers).toHaveLength(1);
-      expect(resultData.servers[0]).toMatchObject({
+      // Direct structured result - no need to parse
+      expect(result.servers).toHaveLength(1);
+      expect(result.servers[0]).toMatchObject({
         name: 'test-server',
         status: 'enabled',
         transport: 'stdio',
       });
       expect(mockManagementAdapter.listServers).toHaveBeenCalledWith({
         status: 'enabled',
-        transport: undefined,
+        transport: undefined, // args.transport is not provided in test args
         detailed: false,
         tags: undefined,
       });
@@ -306,16 +281,14 @@ describe('managementHandlers', () => {
       const result = await handleMcpList(args);
 
       expect(result).toEqual({
-        content: [
-          {
-            type: 'text',
-            text: JSON.stringify({
-              error: 'Management tools are disabled',
-              message: 'MCP server management is currently disabled by configuration',
-            }),
-          },
-        ],
-        isError: true,
+        servers: [],
+        total: 0,
+        summary: {
+          enabled: 0,
+          disabled: 0,
+          running: 0,
+          stopped: 0,
+        },
       });
       expect(flagManager.isToolEnabled).toHaveBeenCalledWith('internalTools', 'management', 'list');
     });
@@ -335,16 +308,14 @@ describe('managementHandlers', () => {
       const result = await handleMcpList(args);
 
       expect(result).toEqual({
-        content: [
-          {
-            type: 'text',
-            text: JSON.stringify({
-              error: 'List failed',
-              message: 'List operation failed: List failed',
-            }),
-          },
-        ],
-        isError: true,
+        servers: [],
+        total: 0,
+        summary: {
+          enabled: 0,
+          disabled: 0,
+          running: 0,
+          stopped: 0,
+        },
       });
     });
   });
@@ -352,9 +323,16 @@ describe('managementHandlers', () => {
   describe('handleMcpStatus', () => {
     it('should execute status successfully when enabled', async () => {
       const mockResult = {
-        name: 'test-server',
-        status: 'enabled',
-        configured: true,
+        servers: [
+          {
+            name: 'test-server',
+            status: 'running',
+            transport: 'stdio',
+            healthStatus: 'healthy',
+            lastChecked: new Date().toISOString(),
+          },
+        ],
+        timestamp: new Date().toISOString(),
       };
       mockManagementAdapter.getServerStatus.mockResolvedValue(mockResult);
 
@@ -366,10 +344,23 @@ describe('managementHandlers', () => {
 
       const result = await handleMcpStatus(args);
 
-      const resultData = JSON.parse(result.content[0].text);
-      expect(resultData.name).toBe('test-server');
-      expect(resultData.status).toBe('enabled');
-      expect(resultData.configured).toBe(true);
+      // Direct structured result - no need to parse
+      expect(result.servers).toHaveLength(1);
+      expect(result.servers[0]).toMatchObject({
+        name: 'test-server',
+        status: 'running',
+        transport: 'stdio',
+        health: {
+          status: 'healthy',
+        },
+      });
+      expect(result.timestamp).toBeDefined();
+      expect(result.overall).toEqual({
+        total: 1,
+        running: 1,
+        stopped: 0,
+        errors: 0,
+      });
       expect(mockManagementAdapter.getServerStatus).toHaveBeenCalledWith(args.name);
     });
 
@@ -385,16 +376,14 @@ describe('managementHandlers', () => {
       const result = await handleMcpStatus(args);
 
       expect(result).toEqual({
-        content: [
-          {
-            type: 'text',
-            text: JSON.stringify({
-              error: 'Management tools are disabled',
-              message: 'MCP server management is currently disabled by configuration',
-            }),
-          },
-        ],
-        isError: true,
+        servers: [],
+        timestamp: expect.any(String),
+        overall: {
+          total: 0,
+          running: 0,
+          stopped: 0,
+          errors: 0,
+        },
       });
       expect(flagManager.isToolEnabled).toHaveBeenCalledWith('internalTools', 'management', 'status');
     });
@@ -411,23 +400,28 @@ describe('managementHandlers', () => {
       const result = await handleMcpStatus(args);
 
       expect(result).toEqual({
-        content: [
-          {
-            type: 'text',
-            text: JSON.stringify({
-              error: 'Status failed',
-              message: 'Status operation failed: Status failed',
-            }),
-          },
-        ],
-        isError: true,
+        servers: [],
+        timestamp: expect.any(String),
+        overall: {
+          total: 0,
+          running: 0,
+          stopped: 0,
+          errors: 0,
+        },
       });
     });
 
     it('should return status result directly', async () => {
       const mockResult = {
-        name: 'test-server',
-        status: 'enabled',
+        servers: [
+          {
+            name: 'test-server',
+            status: 'running',
+            transport: 'stdio',
+            healthStatus: 'healthy',
+            lastChecked: new Date().toISOString(),
+          },
+        ],
         timestamp: new Date().toISOString(),
       };
       mockManagementAdapter.getServerStatus.mockResolvedValue(mockResult);
@@ -440,11 +434,24 @@ describe('managementHandlers', () => {
 
       const result = await handleMcpStatus(args);
 
-      const resultData = JSON.parse(result.content[0].text);
-      expect(resultData.name).toBe('test-server');
-      expect(resultData.status).toBe('enabled');
-      expect(resultData.timestamp).toBeDefined();
-      expect(typeof resultData.timestamp).toBe('string');
+      // Direct structured result - no need to parse
+      expect(result.servers).toHaveLength(1);
+      expect(result.servers[0]).toMatchObject({
+        name: 'test-server',
+        status: 'running',
+        transport: 'stdio',
+        health: {
+          status: 'healthy',
+        },
+      });
+      expect(result.timestamp).toBeDefined();
+      expect(typeof result.timestamp).toBe('string');
+      expect(result.overall).toEqual({
+        total: 1,
+        running: 1,
+        stopped: 0,
+        errors: 0,
+      });
     });
   });
 
@@ -470,12 +477,12 @@ describe('managementHandlers', () => {
 
       const result = await handleMcpReload(args);
 
-      const resultData = JSON.parse(result.content[0].text);
-      expect(resultData.success).toBe(true);
-      expect(resultData.message).toBe('Reload completed successfully for config');
-      expect(resultData.target).toBe('config');
-      expect(resultData.action).toBe('reloaded');
-      expect(resultData.timestamp).toBeDefined();
+      // Direct structured result - no need to parse
+      expect(result.status).toBe('success');
+      expect(result.message).toBe('Reload completed successfully for config');
+      expect(result.target).toBe('config');
+      expect(result.action).toBe('reloaded');
+      expect(result.timestamp).toBeDefined();
       expect(mockManagementAdapter.reloadConfiguration).toHaveBeenCalledWith({
         server: undefined,
         configOnly: true,
@@ -497,16 +504,11 @@ describe('managementHandlers', () => {
       const result = await handleMcpReload(args);
 
       expect(result).toEqual({
-        content: [
-          {
-            type: 'text',
-            text: JSON.stringify({
-              error: 'Management tools are disabled',
-              message: 'MCP server management is currently disabled by configuration',
-            }),
-          },
-        ],
-        isError: true,
+        target: 'config',
+        status: 'failed',
+        message: 'MCP server management is currently disabled by configuration',
+        error: 'Management tools are disabled',
+        timestamp: expect.any(String),
       });
       expect(flagManager.isToolEnabled).toHaveBeenCalledWith('internalTools', 'management', 'reload');
     });
@@ -524,16 +526,11 @@ describe('managementHandlers', () => {
       const result = await handleMcpReload(args);
 
       expect(result).toEqual({
-        content: [
-          {
-            type: 'text',
-            text: JSON.stringify({
-              error: 'Reload failed',
-              message: 'Reload operation failed: Reload failed',
-            }),
-          },
-        ],
-        isError: true,
+        target: 'config',
+        status: 'failed',
+        message: 'Reload operation failed: Reload failed',
+        error: 'Reload failed',
+        timestamp: expect.any(String),
       });
     });
   });

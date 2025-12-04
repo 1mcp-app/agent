@@ -14,8 +14,7 @@ import {
   McpUpdateOutputSchema,
   McpUpdateToolSchema,
 } from '@src/core/tools/internal/schemas/index.js';
-
-import { z } from 'zod';
+import { zodToInputSchema, zodToOutputSchema } from '@src/utils/schemaUtils.js';
 
 /**
  * Create install tool definition
@@ -25,8 +24,8 @@ export function createInstallTool(): Tool {
     name: 'mcp_install',
     description:
       'Install a new MCP server. Use package+command+args for direct package installation (e.g., npm packages), or just name for registry-based installation',
-    inputSchema: z.toJSONSchema(McpInstallToolSchema) as Tool['inputSchema'],
-    outputSchema: z.toJSONSchema(McpInstallOutputSchema) as Tool['outputSchema'],
+    inputSchema: zodToInputSchema(McpInstallToolSchema) as Tool['inputSchema'],
+    outputSchema: zodToOutputSchema(McpInstallOutputSchema) as Tool['outputSchema'],
   };
 }
 
@@ -37,8 +36,8 @@ export function createUninstallTool(): Tool {
   return {
     name: 'mcp_uninstall',
     description: 'Remove an MCP server',
-    inputSchema: z.toJSONSchema(McpUninstallToolSchema) as Tool['inputSchema'],
-    outputSchema: z.toJSONSchema(McpUninstallOutputSchema) as Tool['outputSchema'],
+    inputSchema: zodToInputSchema(McpUninstallToolSchema) as Tool['inputSchema'],
+    outputSchema: zodToOutputSchema(McpUninstallOutputSchema) as Tool['outputSchema'],
   };
 }
 
@@ -49,7 +48,7 @@ export function createUpdateTool(): Tool {
   return {
     name: 'mcp_update',
     description: 'Update an MCP server',
-    inputSchema: z.toJSONSchema(McpUpdateToolSchema) as Tool['inputSchema'],
-    outputSchema: z.toJSONSchema(McpUpdateOutputSchema) as Tool['outputSchema'],
+    inputSchema: zodToInputSchema(McpUpdateToolSchema) as Tool['inputSchema'],
+    outputSchema: zodToOutputSchema(McpUpdateOutputSchema) as Tool['outputSchema'],
   };
 }

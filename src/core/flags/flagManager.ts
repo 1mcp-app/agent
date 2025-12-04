@@ -38,7 +38,6 @@ export interface FlagValidationResult {
 const TOOL_MAPPING: Record<string, string | string[]> = {
   // Individual tools (short name -> MCP tool name)
   search: 'search',
-  registry: 'registry',
   registry_status: 'registry_status',
   registry_info: 'registry_info',
   registry_list: 'registry_list',
@@ -53,10 +52,10 @@ const TOOL_MAPPING: Record<string, string | string[]> = {
   update: 'update',
 
   // Category shortcuts (category -> array of tool names)
-  discovery: ['search', 'registry', 'registry_status', 'registry_info', 'registry_list', 'info'],
+  discovery: ['search', 'registry_status', 'registry_info', 'registry_list', 'info'],
   management: ['list', 'status', 'enable', 'disable', 'reload'],
   installation: ['install', 'uninstall', 'update'],
-  safe: ['search', 'registry', 'registry_info', 'registry_list', 'info', 'list', 'status'],
+  safe: ['search', 'registry_info', 'registry_list', 'info', 'list', 'status'],
 };
 
 /**
@@ -64,7 +63,6 @@ const TOOL_MAPPING: Record<string, string | string[]> = {
  */
 const ALL_AVAILABLE_TOOLS = [
   'search',
-  'registry',
   'registry_status',
   'registry_info',
   'registry_list',

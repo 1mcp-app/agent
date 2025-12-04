@@ -236,63 +236,81 @@ export class InternalCapabilitiesProvider extends EventEmitter {
       throw new Error('Internal capabilities provider not initialized');
     }
 
+    let result: unknown;
+
     switch (toolName) {
       case 'mcp_search': {
         const validatedArgs = validateToolArgs(McpSearchToolSchema, args, toolName);
-        return await handleMcpSearch(validatedArgs);
+        result = await handleMcpSearch(validatedArgs);
+        break;
       }
       // mcp_registry case removed - tool has been deprecated and split into separate tools
       case 'mcp_registry_status': {
         const validatedArgs = validateToolArgs(McpRegistryStatusSchema, args, toolName);
-        return await handleMcpRegistryStatus(validatedArgs);
+        result = await handleMcpRegistryStatus(validatedArgs);
+        break;
       }
       case 'mcp_registry_info': {
         const validatedArgs = validateToolArgs(McpRegistryInfoSchema, args, toolName);
-        return await handleMcpRegistryInfo(validatedArgs);
+        result = await handleMcpRegistryInfo(validatedArgs);
+        break;
       }
       case 'mcp_registry_list': {
         const validatedArgs = validateToolArgs(McpRegistryListSchema, args, toolName);
-        return await handleMcpRegistryList(validatedArgs);
+        result = await handleMcpRegistryList(validatedArgs);
+        break;
       }
       case 'mcp_info': {
         const validatedArgs = validateToolArgs(McpInfoToolSchema, args, toolName);
-        return await handleMcpInfo(validatedArgs);
+        result = await handleMcpInfo(validatedArgs);
+        break;
       }
       case 'mcp_install': {
         const validatedArgs = validateToolArgs(McpInstallToolSchema, args, toolName);
-        return await handleMcpInstall(validatedArgs);
+        result = await handleMcpInstall(validatedArgs);
+        break;
       }
       case 'mcp_uninstall': {
         const validatedArgs = validateToolArgs(McpUninstallToolSchema, args, toolName);
-        return await handleMcpUninstall(validatedArgs);
+        result = await handleMcpUninstall(validatedArgs);
+        break;
       }
       case 'mcp_update': {
         const validatedArgs = validateToolArgs(McpUpdateToolSchema, args, toolName);
-        return await handleMcpUpdate(validatedArgs);
+        result = await handleMcpUpdate(validatedArgs);
+        break;
       }
       case 'mcp_enable': {
         const validatedArgs = validateToolArgs(McpEnableToolSchema, args, toolName);
-        return await handleMcpEnable(validatedArgs);
+        result = await handleMcpEnable(validatedArgs);
+        break;
       }
       case 'mcp_disable': {
         const validatedArgs = validateToolArgs(McpDisableToolSchema, args, toolName);
-        return await handleMcpDisable(validatedArgs);
+        result = await handleMcpDisable(validatedArgs);
+        break;
       }
       case 'mcp_list': {
         const validatedArgs = validateToolArgs(McpListToolSchema, args, toolName);
-        return await handleMcpList(validatedArgs);
+        result = await handleMcpList(validatedArgs);
+        break;
       }
       case 'mcp_status': {
         const validatedArgs = validateToolArgs(McpStatusToolSchema, args, toolName);
-        return await handleMcpStatus(validatedArgs);
+        result = await handleMcpStatus(validatedArgs);
+        break;
       }
       case 'mcp_reload': {
         const validatedArgs = validateToolArgs(McpReloadToolSchema, args, toolName);
-        return await handleMcpReload(validatedArgs);
+        result = await handleMcpReload(validatedArgs);
+        break;
       }
       default:
         throw new Error(`Unknown internal tool: ${toolName}`);
     }
+
+    // Return the structured result directly - let the MCP SDK handle wrapping
+    return result;
   }
 
   /**

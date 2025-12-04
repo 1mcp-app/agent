@@ -117,11 +117,22 @@ export class MCPRegistryClient {
               serverResponse = response.servers[0]; // First one is typically the latest
             }
 
-            // Return the server with metadata merged from the response wrapper
-            return {
+            // Validate server structure and provide warnings for missing remotes
+            const server = {
               ...serverResponse.server,
               _meta: serverResponse._meta as unknown as ServerMeta,
             };
+
+            // Validate remotes and warn if missing
+            if (!server.remotes || server.remotes.length === 0) {
+              logger.warn(`Server ${id} has no remotes defined - installation methods may be limited`);
+            } else {
+              logger.debug(
+                `Server ${id} has ${server.remotes.length} remotes: ${server.remotes.map((r) => r.type).join(', ')}`,
+              );
+            }
+
+            return server;
           },
           600, // 10 minutes TTL for individual servers
           `server: ${id}${version ? ` (v${version})` : ''}`,

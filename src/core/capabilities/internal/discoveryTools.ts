@@ -18,8 +18,7 @@ import {
   McpSearchOutputSchema,
   McpSearchToolSchema,
 } from '@src/core/tools/internal/schemas/index.js';
-
-import { z } from 'zod';
+import { zodToInputSchema, zodToOutputSchema } from '@src/utils/schemaUtils.js';
 
 /**
  * Create search tool definition
@@ -28,8 +27,8 @@ export function createSearchTool(): Tool {
   return {
     name: 'mcp_search',
     description: 'Search for MCP servers in the registry',
-    inputSchema: z.toJSONSchema(McpSearchToolSchema) as Tool['inputSchema'],
-    outputSchema: z.toJSONSchema(McpSearchOutputSchema) as Tool['outputSchema'],
+    inputSchema: zodToInputSchema(McpSearchToolSchema) as Tool['inputSchema'],
+    outputSchema: zodToOutputSchema(McpSearchOutputSchema) as Tool['outputSchema'],
   };
 }
 
@@ -42,8 +41,8 @@ export function createRegistryStatusTool(): Tool {
   return {
     name: 'mcp_registry_status',
     description: 'Check registry availability and performance',
-    inputSchema: z.toJSONSchema(McpRegistryStatusSchema) as Tool['inputSchema'],
-    outputSchema: z.toJSONSchema(McpRegistryStatusOutputSchema) as Tool['outputSchema'],
+    inputSchema: zodToInputSchema(McpRegistryStatusSchema) as Tool['inputSchema'],
+    outputSchema: zodToOutputSchema(McpRegistryStatusOutputSchema) as Tool['outputSchema'],
   };
 }
 
@@ -54,8 +53,8 @@ export function createRegistryInfoTool(): Tool {
   return {
     name: 'mcp_registry_info',
     description: 'Get detailed registry information',
-    inputSchema: z.toJSONSchema(McpRegistryInfoSchema) as Tool['inputSchema'],
-    outputSchema: z.toJSONSchema(McpRegistryInfoOutputSchema) as Tool['outputSchema'],
+    inputSchema: zodToInputSchema(McpRegistryInfoSchema) as Tool['inputSchema'],
+    outputSchema: zodToOutputSchema(McpRegistryInfoOutputSchema) as Tool['outputSchema'],
   };
 }
 
@@ -66,8 +65,8 @@ export function createRegistryListTool(): Tool {
   return {
     name: 'mcp_registry_list',
     description: 'List available registries',
-    inputSchema: z.toJSONSchema(McpRegistryListSchema) as Tool['inputSchema'],
-    outputSchema: z.toJSONSchema(McpRegistryListOutputSchema) as Tool['outputSchema'],
+    inputSchema: zodToInputSchema(McpRegistryListSchema) as Tool['inputSchema'],
+    outputSchema: zodToOutputSchema(McpRegistryListOutputSchema) as Tool['outputSchema'],
   };
 }
 
@@ -78,7 +77,7 @@ export function createInfoTool(): Tool {
   return {
     name: 'mcp_info',
     description: 'Get detailed information about a specific MCP server',
-    inputSchema: z.toJSONSchema(McpInfoToolSchema) as Tool['inputSchema'],
-    outputSchema: z.toJSONSchema(McpInfoOutputSchema) as Tool['outputSchema'],
+    inputSchema: zodToInputSchema(McpInfoToolSchema) as Tool['inputSchema'],
+    outputSchema: zodToOutputSchema(McpInfoOutputSchema) as Tool['outputSchema'],
   };
 }

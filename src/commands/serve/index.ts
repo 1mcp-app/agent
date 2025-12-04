@@ -246,7 +246,13 @@ For more information: https://github.com/1mcp-app/agent
       const { serveCommand } = await import('./serve.js');
 
       // Configure logger with global options and transport awareness
-      configureGlobalLogger(argv, argv.transport);
+      const globalOptions = {
+        config: argv.config,
+        'config-dir': argv['config-dir'],
+        'log-level': argv['log-level'],
+        'log-file': argv['log-file'],
+      };
+      configureGlobalLogger(globalOptions, argv.transport);
 
       // Execute serve command
       await serveCommand(argv);

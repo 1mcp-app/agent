@@ -1,8 +1,12 @@
 /**
- * Tests for discovery handlers
+ * Unit tests for discovery handlers
+ *
+ * This module tests the MCP discovery and information tool handlers
+ * to ensure they return properly structured data matching their output schemas.
  */
 import { FlagManager } from '@src/core/flags/flagManager.js';
 import { AdapterFactory } from '@src/core/tools/internal/adapters/index.js';
+import type { RegistryServer } from '@src/domains/registry/types.js';
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -14,6 +18,13 @@ import {
   handleMcpRegistryStatus,
   handleMcpSearch,
 } from './discoveryHandlers.js';
+import {
+  McpInfoOutputSchema,
+  McpRegistryInfoOutputSchema,
+  McpRegistryListOutputSchema,
+  McpRegistryStatusOutputSchema,
+  McpSearchOutputSchema,
+} from './schemas/discovery.js';
 
 // Mock dependencies
 vi.mock('@src/core/flags/flagManager.js');
@@ -69,41 +80,166 @@ describe('discoveryHandlers', () => {
   });
 
   describe('handleMcpSearch', () => {
-    it('should execute search successfully', async () => {
-      const mockServers = [{ name: 'test-server', version: '1.0.0' }];
+    it('should return structured data matching output schema', async () => {
+      const mockServers: RegistryServer[] = [
+        {
+          name: 'test-server',
+          description: 'Test MCP server',
+          version: '1.0.0',
+          status: 'active',
+          repository: {
+            source: 'github',
+            url: 'https://github.com/test/test-server',
+          },
+          packages: [
+            {
+              identifier: 'test-server',
+              registryType: 'npm',
+              transport: {
+                type: 'stdio',
+              },
+            },
+          ],
+          _meta: {
+            'io.modelcontextprotocol.registry/official': {
+              isLatest: true,
+              publishedAt: '2023-01-01T00:00:00Z',
+              status: 'active',
+              updatedAt: '2023-01-01T00:00:00Z',
+            },
+            tags: ['test'],
+            author: 'Test Author',
+            downloads: 1000,
+          },
+        },
+      ];
       mockDiscoveryAdapter.searchServers.mockResolvedValue(mockServers);
 
       const args = {
-        status: 'all' as const,
-        format: 'json' as const,
         query: 'test',
+        status: 'active' as const,
         limit: 10,
-        offset: 0,
+        cursor: undefined,
         transport: undefined,
         tags: undefined,
+        category: undefined,
+        format: 'json' as const,
+        offset: undefined,
+        type: undefined,
       };
 
       const result = await handleMcpSearch(args);
 
-      const resultData = JSON.parse(result.content[0].text);
-      expect(resultData.servers).toHaveLength(1);
-      expect(resultData.servers[0]).toMatchObject({
-        name: 'test-server',
-        version: '1.0.0',
-        registryId: 'official',
+      expect(result).toEqual({
+        results: expect.arrayContaining([
+          expect.objectContaining({
+            name: 'test-server',
+            version: '1.0.0',
+            description: 'Test MCP server',
+            author: 'Test Author',
+            tags: ['test'],
+            transport: ['stdio'],
+            registry: 'official',
+            downloads: 1000,
+            installationMethod: 'package',
+            installationHint: 'Installable via npm packages',
+            prerequisiteHint: '',
+            hasEnvironmentVariables: false,
+            hasPackageArguments: false,
+            hasRuntimeArguments: false,
+            installable: true,
+          }),
+        ]),
+        total: 1,
+        query: 'test',
+        registry: 'official',
       });
-      expect(resultData.servers[0].lastUpdated).toBeTypeOf('string');
-      expect(resultData.count).toBe(1);
+
+      // Verify schema validation
+      const validated = McpSearchOutputSchema.parse(result);
+      expect(validated).toBeDefined();
+
       expect(mockDiscoveryAdapter.searchServers).toHaveBeenCalledWith('test', {
         limit: 10,
         cursor: undefined,
         transport: undefined,
-        status: 'all',
+        status: 'active',
         registry_type: undefined,
       });
     });
 
-    it('should handle search errors', async () => {
+    it('should handle empty results', async () => {
+      mockDiscoveryAdapter.searchServers.mockResolvedValue([]);
+
+      const args = {
+        query: 'nonexistent',
+        status: 'active' as const,
+        format: 'table' as const,
+        limit: 20,
+        offset: undefined,
+        transport: undefined,
+        tags: undefined,
+        category: undefined,
+        cursor: undefined,
+        type: undefined,
+      };
+
+      const result = await handleMcpSearch(args);
+
+      expect(result).toEqual({
+        results: [],
+        total: 0,
+        query: 'nonexistent',
+        registry: 'official',
+      });
+
+      // Verify schema validation
+      const validated = McpSearchOutputSchema.parse(result);
+      expect(validated).toBeDefined();
+    });
+
+    it('should handle servers without packages', async () => {
+      const mockServers: RegistryServer[] = [
+        {
+          name: 'no-packages-server',
+          description: 'Server without packages',
+          version: '1.0.0',
+          status: 'active',
+          repository: {
+            source: 'github',
+            url: 'https://github.com/test/no-packages-server',
+          },
+          _meta: {
+            'io.modelcontextprotocol.registry/official': {
+              isLatest: true,
+              publishedAt: '2023-01-01T00:00:00Z',
+              status: 'active',
+              updatedAt: '2023-01-01T00:00:00Z',
+            },
+          },
+        },
+      ];
+      mockDiscoveryAdapter.searchServers.mockResolvedValue(mockServers);
+
+      const args = {
+        query: 'no-packages',
+        status: 'active' as const,
+        format: 'table' as const,
+        limit: 20,
+        offset: undefined,
+        transport: undefined,
+        tags: undefined,
+        category: undefined,
+        cursor: undefined,
+        type: undefined,
+      };
+
+      const result = await handleMcpSearch(args);
+
+      expect(result.results[0].transport).toEqual([]);
+    });
+
+    it('should throw error on adapter failure', async () => {
       mockDiscoveryAdapter.searchServers.mockRejectedValue(new Error('Search failed'));
 
       const args = {
@@ -111,42 +247,28 @@ describe('discoveryHandlers', () => {
         status: 'active' as const,
         format: 'table' as const,
         limit: 20,
-        offset: 0,
+        offset: undefined,
         transport: undefined,
         tags: undefined,
         category: undefined,
+        cursor: undefined,
+        type: undefined,
       };
 
-      const result = await handleMcpSearch(args);
-
-      expect(result).toEqual({
-        content: [
-          {
-            type: 'text',
-            text: JSON.stringify({
-              error: 'Search failed',
-              message: 'Search failed: Search failed',
-            }),
-          },
-        ],
-        isError: true,
-      });
+      await expect(handleMcpSearch(args)).rejects.toThrow('Search failed: Search failed');
     });
   });
 
   describe('handleMcpRegistryStatus', () => {
-    it('should return registry status', async () => {
+    it('should return structured data for online registry', async () => {
       const mockStatus = {
         available: true,
         url: 'https://registry.modelcontextprotocol.io',
-        response_time_ms: 125,
+        response_time_ms: 150,
         last_updated: '2023-01-01T00:00:00Z',
         stats: {
-          total_servers: 150,
-          active_servers: 120,
-          deprecated_servers: 5,
-          by_registry_type: { official: 150 },
-          by_transport: { stdio: 100, sse: 50 },
+          total_servers: 100,
+          active_servers: 80,
         },
       };
       mockDiscoveryAdapter.getRegistryStatus.mockResolvedValue(mockStatus);
@@ -158,23 +280,32 @@ describe('discoveryHandlers', () => {
 
       const result = await handleMcpRegistryStatus(args);
 
-      expect(result.content).toHaveLength(1);
-      expect(result.content[0].type).toBe('text');
+      expect(result).toEqual({
+        registry: 'official',
+        status: 'online',
+        responseTime: 150,
+        lastCheck: '2023-01-01T00:00:00Z',
+        error: undefined,
+        metadata: {
+          version: '1.0.0',
+          supportedFormats: ['json', 'table'],
+          totalServers: 100,
+          active_servers: 80,
+        },
+      });
 
-      const statusData = JSON.parse(result.content[0].text);
-      expect(statusData.registry).toBe('official');
-      expect(statusData.status).toBe('online');
-      expect(statusData.responseTime).toBe(125);
-      expect(statusData.metadata).toBeDefined();
-      expect(statusData.lastCheck).toBeDefined();
+      // Verify schema validation
+      const validated = McpRegistryStatusOutputSchema.parse(result);
+      expect(validated).toBeDefined();
+
       expect(mockDiscoveryAdapter.getRegistryStatus).toHaveBeenCalledWith(true);
     });
 
-    it('should use default registry when none provided', async () => {
+    it('should return offline status for unavailable registry', async () => {
       const mockStatus = {
-        available: true,
+        available: false,
         url: 'https://registry.modelcontextprotocol.io',
-        response_time_ms: 100,
+        response_time_ms: 5000,
         last_updated: '2023-01-01T00:00:00Z',
       };
       mockDiscoveryAdapter.getRegistryStatus.mockResolvedValue(mockStatus);
@@ -186,149 +317,166 @@ describe('discoveryHandlers', () => {
 
       const result = await handleMcpRegistryStatus(args);
 
-      const statusData = JSON.parse(result.content[0].text);
-      expect(statusData.registry).toBe('official');
-      expect(mockDiscoveryAdapter.getRegistryStatus).toHaveBeenCalledWith(false);
+      expect(result.status).toBe('offline');
+      expect(result.error).toBe('Registry unavailable');
     });
 
-    it('should handle errors', async () => {
+    it('should throw error on adapter failure', async () => {
       mockDiscoveryAdapter.getRegistryStatus.mockRejectedValue(new Error('Registry error'));
 
-      const args = { registry: 'invalid', includeStats: false };
+      const args = { registry: 'official', includeStats: false };
 
-      const result = await handleMcpRegistryStatus(args);
-
-      expect(result.isError).toBe(true);
-      expect(result.content[0].text).toContain('Registry error');
+      await expect(handleMcpRegistryStatus(args)).rejects.toThrow('Registry status check failed: Registry error');
     });
   });
 
   describe('handleMcpRegistryInfo', () => {
-    it('should return registry information', async () => {
+    it('should return structured data with default registry', async () => {
       const args = {
         registry: 'official',
       };
 
       const result = await handleMcpRegistryInfo(args);
 
-      expect(result.content).toHaveLength(1);
-      expect(result.content[0].type).toBe('text');
+      expect(result).toEqual({
+        name: 'official',
+        url: 'https://registry.modelcontextprotocol.io',
+        description: 'The official Model Context Protocol server registry',
+        version: '1.0.0',
+        supportedFormats: ['json', 'table'],
+        features: ['search', 'get', 'list'],
+        statistics: {
+          totalPackages: 150,
+          lastUpdated: expect.any(String),
+        },
+      });
 
-      const infoData = JSON.parse(result.content[0].text);
-      expect(infoData.registry).toBe('official');
-      expect(infoData.name).toBe('Official MCP Registry');
-      expect(infoData.baseUrl).toBe('https://registry.modelcontextprotocol.io');
-      expect(infoData.version).toBe('1.0.0');
-      expect(infoData.api).toBeDefined();
-      expect(infoData.statistics).toBeDefined();
+      // Verify schema validation
+      const validated = McpRegistryInfoOutputSchema.parse(result);
+      expect(validated).toBeDefined();
     });
 
-    it('should use default registry when none provided', async () => {
+    it('should return structured data with custom registry', async () => {
       const args = {
-        registry: 'official',
+        registry: 'custom',
       };
 
       const result = await handleMcpRegistryInfo(args);
 
-      const infoData = JSON.parse(result.content[0].text);
-      expect(infoData.registry).toBe('official');
+      expect(result.name).toBe('custom');
     });
   });
 
   describe('handleMcpRegistryList', () => {
-    it('should return list of registries without stats', async () => {
-      const mockStatus = {
-        available: true,
-        url: 'https://registry.modelcontextprotocol.io',
-        response_time_ms: 100,
-        last_updated: '2023-01-01T00:00:00Z',
-      };
-      mockDiscoveryAdapter.getRegistryStatus.mockResolvedValue(mockStatus);
-
+    it('should return structured data without stats', async () => {
       const args = {
         includeStats: false,
       };
 
       const result = await handleMcpRegistryList(args);
 
-      expect(result.content).toHaveLength(1);
-      expect(result.content[0].type).toBe('text');
+      expect(result).toEqual({
+        registries: expect.arrayContaining([
+          {
+            name: 'Official MCP Registry',
+            url: 'https://registry.modelcontextprotocol.io',
+            status: 'online',
+            description: 'The official Model Context Protocol server registry',
+            packageCount: undefined,
+          },
+          {
+            name: 'Community Registry',
+            url: 'https://community-registry.modelcontextprotocol.io',
+            status: 'online',
+            description: 'Community-contributed MCP servers',
+            packageCount: undefined,
+          },
+          {
+            name: 'Experimental Registry',
+            url: 'https://experimental-registry.modelcontextprotocol.io',
+            status: 'unknown',
+            description: 'Experimental and cutting-edge MCP servers',
+            packageCount: undefined,
+          },
+        ]),
+        total: 3,
+      });
 
-      const listData = JSON.parse(result.content[0].text);
-      expect(listData.registries).toHaveLength(3);
-      expect(listData.total).toBe(3);
-      expect(listData.includeStats).toBe(false);
-
-      const registry = listData.registries[0];
-      expect(registry.id).toBe('official');
-      expect(registry.name).toBe('Official MCP Registry');
-      expect(registry.status).toBe('online');
-      expect(registry.serverCount).toBeUndefined();
-      expect(registry.lastUpdated).toBeUndefined();
+      // Verify schema validation
+      const validated = McpRegistryListOutputSchema.parse(result);
+      expect(validated).toBeDefined();
     });
 
-    it('should return list of registries with stats', async () => {
-      const mockStatus = {
-        available: true,
-        url: 'https://registry.modelcontextprotocol.io',
-        response_time_ms: 100,
-        last_updated: '2023-01-01T00:00:00Z',
-        stats: {
-          total_servers: 150,
-          active_servers: 120,
-          deprecated_servers: 5,
-        },
-      };
-      mockDiscoveryAdapter.getRegistryStatus.mockResolvedValue(mockStatus);
-
+    it('should return structured data with stats', async () => {
       const args = {
         includeStats: true,
       };
 
       const result = await handleMcpRegistryList(args);
 
-      const listData = JSON.parse(result.content[0].text);
-      expect(listData.includeStats).toBe(true);
-
-      const registry = listData.registries[0];
-      expect(registry.serverCount).toBe(150);
-      expect(registry.lastUpdated).toBeDefined();
+      expect(result.registries[0].packageCount).toBe(150);
+      expect(result.registries[1].packageCount).toBe(75);
+      expect(result.registries[2].packageCount).toBe(25);
     });
 
     it('should include all expected registries', async () => {
-      const mockStatus = {
-        available: true,
-        url: 'https://registry.modelcontextprotocol.io',
-        response_time_ms: 100,
-        last_updated: '2023-01-01T00:00:00Z',
-      };
-      mockDiscoveryAdapter.getRegistryStatus.mockResolvedValue(mockStatus);
-
       const args = {
         includeStats: false,
       };
 
       const result = await handleMcpRegistryList(args);
 
-      const listData = JSON.parse(result.content[0].text);
-      const registryIds = listData.registries.map((r: any) => r.id);
-      expect(registryIds).toContain('official');
-      expect(registryIds).toContain('community');
-      expect(registryIds).toContain('experimental');
+      const registryNames = result.registries.map((r) => r.name);
+      expect(registryNames).toContain('Official MCP Registry');
+      expect(registryNames).toContain('Community Registry');
+      expect(registryNames).toContain('Experimental Registry');
     });
   });
 
   describe('handleMcpInfo', () => {
-    it('should return server information', async () => {
-      const mockServer = {
+    it('should return structured data for found server', async () => {
+      const mockServer: RegistryServer = {
         name: 'test-server',
-        description: 'MCP server for various operations',
+        description: 'Test MCP server',
         version: '1.0.0',
-        author: 'Server Author',
-        license: 'MIT',
-        capabilities: { tools: true },
-        transport: 'stdio',
-        requirements: { node: '>=16' },
+        status: 'active',
+        repository: {
+          source: 'github',
+          url: 'https://github.com/test/test-server',
+        },
+        packages: [
+          {
+            identifier: 'test-server',
+            registryType: 'npm',
+            transport: {
+              type: 'stdio',
+            },
+          },
+        ],
+        _meta: {
+          'io.modelcontextprotocol.registry/official': {
+            isLatest: true,
+            publishedAt: '2023-01-01T00:00:00Z',
+            status: 'active',
+            updatedAt: '2023-01-01T00:00:00Z',
+          },
+          tags: ['test', 'mcp'],
+          capabilities: {
+            tools: {
+              count: 5,
+              list: true,
+            },
+            resources: {
+              count: 3,
+              subscribe: true,
+              list: true,
+            },
+            prompts: {
+              count: 2,
+              list: false,
+            },
+          },
+        },
       };
       mockDiscoveryAdapter.getServerById.mockResolvedValue(mockServer);
 
@@ -341,31 +489,54 @@ describe('discoveryHandlers', () => {
 
       const result = await handleMcpInfo(args);
 
-      expect(result.content).toHaveLength(1);
-      expect(result.content[0].type).toBe('text');
+      expect(result).toEqual({
+        server: {
+          name: 'test-server',
+          status: 'unknown',
+          transport: 'stdio',
+        },
+        configuration: {
+          command: 'test-server',
+          tags: ['test', 'mcp'],
+          autoRestart: false,
+          enabled: true,
+        },
+        capabilities: {
+          tools: expect.arrayContaining([
+            { name: 'tool_0', description: 'Tool 0' },
+            { name: 'tool_1', description: 'Tool 1' },
+            { name: 'tool_2', description: 'Tool 2' },
+            { name: 'tool_3', description: 'Tool 3' },
+            { name: 'tool_4', description: 'Tool 4' },
+          ]),
+          resources: expect.arrayContaining([
+            { uri: 'resource://0', name: 'Resource 0' },
+            { uri: 'resource://1', name: 'Resource 1' },
+            { uri: 'resource://2', name: 'Resource 2' },
+          ]),
+          prompts: expect.arrayContaining([
+            { name: 'prompt_0', description: 'Prompt 0' },
+            { name: 'prompt_1', description: 'Prompt 1' },
+          ]),
+        },
+        health: {
+          status: 'unknown',
+          lastCheck: expect.any(String),
+        },
+      });
 
-      const infoData = JSON.parse(result.content[0].text);
-      expect(infoData.server).toBe('test-server');
-      expect(infoData.found).toBe(true);
-      expect(infoData.info).toBeDefined();
+      // Verify schema validation
+      const validated = McpInfoOutputSchema.parse(result);
+      expect(validated).toBeDefined();
 
-      const serverInfo = infoData.info;
-      expect(serverInfo.name).toBe('test-server');
-      expect(serverInfo.description).toBe('MCP server for various operations');
-      expect(serverInfo.version).toBe('1.0.0');
-      expect(serverInfo.author).toBe('Server Author');
-      expect(serverInfo.license).toBe('MIT');
-      expect(serverInfo.capabilities).toBeDefined();
-      expect(serverInfo.transport).toBeDefined();
-      expect(serverInfo.requirements).toBeDefined();
       expect(mockDiscoveryAdapter.getServerById).toHaveBeenCalledWith('test-server', undefined);
     });
 
-    it('should use default name when none provided', async () => {
+    it('should return structured data for server not found', async () => {
       mockDiscoveryAdapter.getServerById.mockResolvedValue(null);
 
       const args = {
-        name: 'unknown',
+        name: 'nonexistent-server',
         includeCapabilities: true,
         includeConfig: true,
         format: 'table' as const,
@@ -373,18 +544,40 @@ describe('discoveryHandlers', () => {
 
       const result = await handleMcpInfo(args);
 
-      const infoData = JSON.parse(result.content[0].text);
-      expect(infoData.server).toBe('unknown');
-      expect(infoData.found).toBe(false);
-      expect(infoData.message).toBe("Server 'unknown' not found in registry");
-      expect(mockDiscoveryAdapter.getServerById).toHaveBeenCalledWith('unknown', undefined);
+      expect(result).toEqual({
+        server: {
+          name: 'nonexistent-server',
+          status: 'unknown',
+          transport: 'stdio',
+        },
+      });
+
+      expect(mockDiscoveryAdapter.getServerById).toHaveBeenCalledWith('nonexistent-server', undefined);
     });
 
-    it('should handle server not found', async () => {
-      mockDiscoveryAdapter.getServerById.mockResolvedValue(null);
+    it('should handle server without capabilities', async () => {
+      const mockServer: RegistryServer = {
+        name: 'basic-server',
+        description: 'Basic MCP server',
+        version: '1.0.0',
+        status: 'active',
+        repository: {
+          source: 'github',
+          url: 'https://github.com/test/basic-server',
+        },
+        _meta: {
+          'io.modelcontextprotocol.registry/official': {
+            isLatest: true,
+            publishedAt: '2023-01-01T00:00:00Z',
+            status: 'active',
+            updatedAt: '2023-01-01T00:00:00Z',
+          },
+        },
+      };
+      mockDiscoveryAdapter.getServerById.mockResolvedValue(mockServer);
 
       const args = {
-        name: 'nonexistent-server',
+        name: 'basic-server',
         includeCapabilities: false,
         includeConfig: false,
         format: 'table' as const,
@@ -392,13 +585,12 @@ describe('discoveryHandlers', () => {
 
       const result = await handleMcpInfo(args);
 
-      const infoData = JSON.parse(result.content[0].text);
-      expect(infoData.server).toBe('nonexistent-server');
-      expect(infoData.found).toBe(false);
-      expect(infoData.message).toBe("Server 'nonexistent-server' not found in registry");
+      expect(result.capabilities?.tools).toEqual([]);
+      expect(result.capabilities?.resources).toEqual([]);
+      expect(result.capabilities?.prompts).toEqual([]);
     });
 
-    it('should handle errors', async () => {
+    it('should throw error on adapter failure', async () => {
       mockDiscoveryAdapter.getServerById.mockRejectedValue(new Error('Server lookup failed'));
 
       const args = {
@@ -408,10 +600,70 @@ describe('discoveryHandlers', () => {
         format: 'table' as const,
       };
 
-      const result = await handleMcpInfo(args);
+      await expect(handleMcpInfo(args)).rejects.toThrow('Server info check failed: Server lookup failed');
+    });
+  });
 
-      expect(result.isError).toBe(true);
-      expect(result.content[0].text).toContain('Server lookup failed');
+  describe('Schema Validation', () => {
+    it('should validate all handlers return data matching their schemas', async () => {
+      // Mock all adapter calls for comprehensive validation
+      const mockServer: RegistryServer = {
+        name: 'test-server',
+        description: 'Test MCP server',
+        version: '1.0.0',
+        status: 'active',
+        repository: {
+          source: 'github',
+          url: 'https://github.com/test/test-server',
+        },
+        packages: [
+          {
+            identifier: 'test-server',
+            registryType: 'npm',
+            transport: {
+              type: 'stdio',
+            },
+          },
+        ],
+        _meta: {
+          'io.modelcontextprotocol.registry/official': {
+            isLatest: true,
+            publishedAt: '2023-01-01T00:00:00Z',
+            status: 'active',
+            updatedAt: '2023-01-01T00:00:00Z',
+          },
+        },
+      };
+
+      const mockStatus = {
+        available: true,
+        url: 'https://registry.modelcontextprotocol.io',
+        response_time_ms: 150,
+        last_updated: '2023-01-01T00:00:00Z',
+      };
+
+      mockDiscoveryAdapter.searchServers.mockResolvedValue([mockServer]);
+      mockDiscoveryAdapter.getRegistryStatus.mockResolvedValue(mockStatus);
+      mockDiscoveryAdapter.getServerById.mockResolvedValue(mockServer);
+
+      // Test all handlers and validate schemas
+      const searchResult = await handleMcpSearch({ query: 'test', status: 'all', limit: 10, format: 'table' });
+      const statusResult = await handleMcpRegistryStatus({ registry: 'official', includeStats: true });
+      const infoResult = await handleMcpRegistryInfo({ registry: 'official' });
+      const listResult = await handleMcpRegistryList({ includeStats: true });
+      const serverInfoResult = await handleMcpInfo({
+        name: 'test-server',
+        includeCapabilities: true,
+        includeConfig: true,
+        format: 'table',
+      });
+
+      // All these should not throw if schemas match
+      expect(McpSearchOutputSchema.parse(searchResult)).toBeDefined();
+      expect(McpRegistryStatusOutputSchema.parse(statusResult)).toBeDefined();
+      expect(McpRegistryInfoOutputSchema.parse(infoResult)).toBeDefined();
+      expect(McpRegistryListOutputSchema.parse(listResult)).toBeDefined();
+      expect(McpInfoOutputSchema.parse(serverInfoResult)).toBeDefined();
     });
   });
 

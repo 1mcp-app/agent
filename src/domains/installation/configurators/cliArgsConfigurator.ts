@@ -38,12 +38,24 @@ export async function configureCliArgs(argMetadata: ArgMetadata[]): Promise<stri
     }
 
     const argsValue = String(manualInput.args).trim();
+    if (!argsValue) {
+      return [];
+    }
+
+    // Try to parse as JSON first
+    try {
+      const parsed = JSON.parse(argsValue) as unknown;
+      if (Array.isArray(parsed)) {
+        return parsed.map((a: string) => String(a).trim()).filter((a: string) => a.length > 0);
+      }
+    } catch {
+      // If not valid JSON, treat as comma-separated
+    }
+
     return argsValue
-      ? argsValue
-          .split(',')
-          .map((a: string) => a.trim())
-          .filter((a: string) => a.length > 0)
-      : [];
+      .split(',')
+      .map((a: string) => a.trim())
+      .filter((a: string) => a.length > 0);
   }
 
   // Show summary of available args
@@ -63,8 +75,9 @@ export async function configureCliArgs(argMetadata: ArgMetadata[]): Promise<stri
   }
 
   if (!wantsToConfigure.value) {
-    // Use defaults only for required args
-    return argMetadata.filter((a) => a.isRequired && a.default).map((a) => `${a.name}=${a.default}`);
+    // Use defaults only for required args, otherwise return null
+    const defaults = argMetadata.filter((a) => a.isRequired && a.default).map((a) => `${a.name}=${a.default}`);
+    return defaults.length > 0 ? defaults : null;
   }
 
   // Let user select which args to configure
@@ -105,38 +118,46 @@ export async function configureCliArgs(argMetadata: ArgMetadata[]): Promise<stri
 
   for (const name of selectedNames) {
     const arg = argMetadata.find((a) => a.name === name);
-    if (!arg) continue;
+    if (!arg || !arg.name) continue;
 
     let result;
     if (arg.choices && arg.choices.length > 0) {
       result = await prompts({
         type: 'select',
-        name: 'value',
-        message: `${arg.name || 'Argument'}${arg.isRequired ? chalk.red(' *') : ''}:${arg.description ? `\n   ${chalk.gray(arg.description)}` : ''}`,
+        name: arg.name,
+        message: `${arg.name}${arg.isRequired ? chalk.red(' *') : ''}:${arg.description ? `\n   ${chalk.gray(arg.description)}` : ''}`,
         choices: arg.choices.map((c) => ({ title: c, value: c })),
         initial: arg.default ? arg.choices.indexOf(arg.default) : 0,
       });
     } else {
       result = await prompts({
         type: 'text',
-        name: 'value',
-        message: `${arg.name || 'Argument'}${arg.isRequired ? chalk.red(' *') : ''}:${arg.description ? `\n   ${chalk.gray(arg.description)}` : ''}`,
+        name: arg.name,
+        message: `${arg.name}${arg.isRequired ? chalk.red(' *') : ''}:${arg.description ? `\n   ${chalk.gray(arg.description)}` : ''}`,
         initial: arg.default || '',
       });
     }
 
-    if (result.value === undefined) {
-      // User can skip by pressing Ctrl+C on individual fields
+    const value = String(result[arg.name]).trim();
+
+    // Handle undefined values - if there's a default, use it
+    if (result[arg.name] === undefined) {
+      if (arg.default) {
+        args.push(`${arg.name}=${arg.default}`);
+      }
       continue;
     }
 
-    const value = String(result.value).trim();
-    if (value) {
-      // Format as name=value for CLI args
+    if (value && value !== '') {
+      // Format as name=value for CLI args (non-empty values)
       args.push(`${arg.name}=${value}`);
     } else if (arg.isRequired && arg.default) {
+      // Required arg with empty value should use default
       console.log(chalk.yellow(`⚠️  ${arg.name} is required, using default value`));
       args.push(`${arg.name}=${arg.default}`);
+    } else if (value === '') {
+      // Optional arg with empty value should be included as empty string
+      args.push(`${arg.name}=${value}`);
     }
   }
 

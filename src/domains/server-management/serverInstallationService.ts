@@ -48,14 +48,24 @@ export class ServerInstallationService {
         throw new Error(`Server '${serverName}' not found in registry`);
       }
 
-      // Select appropriate remote/package for installation
-      const selectedRemote = this.selectRemoteEndpoint(registryServer);
-      if (!selectedRemote) {
-        throw new Error(`No compatible installation method found for ${serverName}`);
+      // Select appropriate installation method (package first, remote fallback)
+      const selectedEndpoint = this.selectInstallationEndpoint(registryServer);
+      if (!selectedEndpoint) {
+        // Provide comprehensive error message showing what's available
+        const packages = registryServer.packages?.map((p) => `${p.registryType}:${p.identifier}`) || [];
+        const remotes = registryServer.remotes?.map((r) => r.type) || [];
+
+        const packageList = packages.length > 0 ? `Available packages: ${packages.join(', ')}` : '';
+        const remoteList = remotes.length > 0 ? `Available remote types: ${remotes.join(', ')}` : '';
+        const combinedList = [packageList, remoteList].filter(Boolean).join(' | ');
+
+        throw new Error(
+          `No compatible installation method found for ${serverName}. ${combinedList || 'No installation methods available'}. This server may not be compatible with your system or installation method.`,
+        );
       }
 
       // Generate server configuration (not used in current implementation but required for future)
-      const _serverConfig = await this.createServerConfig(registryServer, selectedRemote);
+      const _serverConfig = await this.createServerConfig(registryServer, selectedEndpoint);
 
       // Create installation result
       const result: InstallResult = {
@@ -83,21 +93,36 @@ export class ServerInstallationService {
   }
 
   /**
-   * Select appropriate remote endpoint for the current system
+   * Select appropriate installation endpoint (packages first, remotes fallback)
    */
-  private selectRemoteEndpoint(registryServer: RegistryServer): { type: string; url: string } | undefined {
-    // Prioritize remotes based on type
-    const remotes = registryServer.remotes || [];
+  private selectInstallationEndpoint(
+    registryServer: RegistryServer,
+  ): { type: string; url: string; isPackage: boolean } | undefined {
+    // PRIORITY 1: Check for packages first (primary installation method)
+    const packages = registryServer.packages || [];
+    if (packages.length > 0) {
+      // Prefer npm packages for broad compatibility
+      const npmPackage = packages.find((p) => p.registryType === 'npm');
+      if (npmPackage) {
+        return { type: 'npm', url: npmPackage.identifier, isPackage: true };
+      }
 
-    // Prefer streamable-http (npx-based) as most common
-    const streamableHttp = remotes.find((r) => r.type === 'streamable-http');
-    if (streamableHttp) {
-      return { type: streamableHttp.type, url: streamableHttp.url };
+      // Fallback to first available package type (pypi, docker, etc.)
+      const firstPackage = packages[0];
+      return { type: firstPackage.registryType, url: firstPackage.identifier, isPackage: true };
     }
 
-    // Fallback to first available remote
+    // PRIORITY 2: Fallback to remotes if no packages available
+    const remotes = registryServer.remotes || [];
     if (remotes.length > 0) {
-      return { type: remotes[0].type, url: remotes[0].url };
+      // Prefer streamable-http (npx-based) as most common
+      const streamableHttp = remotes.find((r) => r.type === 'streamable-http');
+      if (streamableHttp) {
+        return { type: streamableHttp.type, url: streamableHttp.url, isPackage: false };
+      }
+
+      // Fallback to first available remote
+      return { type: remotes[0].type, url: remotes[0].url, isPackage: false };
     }
 
     return undefined;
@@ -158,13 +183,22 @@ export class ServerInstallationService {
    */
   private async createServerConfig(
     _registryServer: RegistryServer,
-    remote: { type: string; url: string },
+    endpoint: { type: string; url: string; isPackage: boolean },
   ): Promise<MCPServerParams> {
-    // For now, return a basic configuration
-    // Full implementation would handle different remote types
+    // Handle package-based installation
+    if (endpoint.isPackage) {
+      const config: MCPServerParams = {
+        type: 'stdio',
+        command: 'npx',
+        args: [endpoint.url],
+      };
+      return config;
+    }
+
+    // Handle remote-based installation
     const config: MCPServerParams = {
       type: 'stdio',
-      command: remote.url,
+      command: endpoint.url,
     };
 
     return config;
@@ -179,19 +213,19 @@ export class ServerInstallationService {
     const operationId = `op_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
 
     try {
+      // Import config utilities to update configuration
+      // Get current configuration first - if server isn't installed, we can't update it
+      const currentConfig = getServer(serverName);
+      if (!currentConfig) {
+        throw new Error(`Server '${serverName}' not found in configuration`);
+      }
+
       // Get latest version from registry if not specified
       const targetVersion = version || 'latest';
       const registryServer = await this.registryClient.getServerById(serverName, targetVersion);
 
       if (!registryServer) {
         throw new Error(`Server '${serverName}' not found in registry`);
-      }
-
-      // Import config utilities to update configuration
-      // Get current configuration
-      const currentConfig = getServer(serverName);
-      if (!currentConfig) {
-        throw new Error(`Server '${serverName}' not found in configuration`);
       }
 
       // Create updated configuration with new version info

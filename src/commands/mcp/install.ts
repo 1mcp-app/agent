@@ -178,14 +178,16 @@ export async function installCommand(argv: InstallCommandArgs): Promise<void> {
       });
 
       // Update progress: Finalizing
-      progressTracker.updateProgress(operationId, 4, 'Finalizing', 'Verifying configuration');
+      progressTracker.updateProgress(operationId, 4, 'Finalizing', 'Saving configuration');
 
-      // Save the configuration (service returns the config to be saved)
-      // For now, this will be handled by the install server method directly
-      // which will call setServer internally
-
-      // In a full implementation, we would get the config from result and save it
-      // setServer(serverName, result.serverConfig);
+      // Save the configuration returned by the installation service
+      if (result.config) {
+        const { setServer } = await import('./utils/configUtils.js');
+        setServer(serverName, result.config);
+        if (verbose) {
+          logger.info(`Configuration saved for server '${serverName}'`);
+        }
+      }
 
       // Update progress: Reloading
       progressTracker.updateProgress(operationId, 5, 'Reloading configuration', 'Applying changes');
@@ -480,7 +482,16 @@ async function runInteractiveInstallation(argv: InstallCommandArgs): Promise<voi
 
           // Update progress: Finalizing
           console.log(chalk.cyan('⏳ Finalizing...'));
-          progressTracker.updateProgress(operationId, 4, 'Finalizing', 'Verifying configuration');
+          progressTracker.updateProgress(operationId, 4, 'Finalizing', 'Saving configuration');
+
+          // Save the configuration returned by the installation service
+          if (result.config) {
+            const { setServer } = await import('./utils/configUtils.js');
+            setServer(serverName, result.config);
+            if (verbose) {
+              logger.info(`Configuration saved for server '${serverName}'`);
+            }
+          }
 
           // Update progress: Reloading
           console.log(chalk.cyan('⏳ Reloading configuration...'));
