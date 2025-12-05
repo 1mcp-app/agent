@@ -1,4 +1,9 @@
-import { getAllServers, getInstallationMetadata, getServer, setServer } from '@src/commands/mcp/utils/configUtils.js';
+import {
+  getAllServers,
+  getInstallationMetadata,
+  getServer,
+  setServer,
+} from '@src/commands/mcp/utils/mcpServerConfig.js';
 import { MCPServerParams } from '@src/core/types/index.js';
 import logger from '@src/logger/logger.js';
 

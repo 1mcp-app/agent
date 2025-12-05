@@ -5,7 +5,7 @@
  * This adapter wraps existing domain service calls and transforms data
  * between internal tool format and domain service format.
  */
-import { getAllServers, getServer, reloadMcpConfig, setServer } from '@src/commands/mcp/utils/configUtils.js';
+import { getAllServers, getServer, reloadMcpConfig, setServer } from '@src/commands/mcp/utils/mcpServerConfig.js';
 import { MCPServerParams } from '@src/core/types/index.js';
 import logger, { debugIf } from '@src/logger/logger.js';
 import { getServer1mcpUrl, validateServer1mcpUrl } from '@src/utils/validation/urlDetection.js';

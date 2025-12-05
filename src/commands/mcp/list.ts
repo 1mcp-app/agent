@@ -11,7 +11,7 @@ import {
 
 import type { Argv } from 'yargs';
 
-import { getAllServers, initializeConfigContext, parseTags, validateConfigPath } from './utils/configUtils.js';
+import { getAllServers, initializeConfigContext, parseTags, validateConfigPath } from './utils/mcpServerConfig.js';
 import { calculateServerStatus } from './utils/serverUtils.js';
 import { validateTags } from './utils/validation.js';
 

@@ -1,25 +1,17 @@
 /**
- * @deprecated This file is maintained for backward compatibility.
+ * Tool schemas for internal management tools
  *
- * Internal management tools for managing the agent itself
- *
- * This module re-exports all tool schemas from the new organized structure.
- * For new development, please import directly from the domain modules:
- *
+ * This module re-exports all tool schemas from the organized structure:
  * - ./schemas/discovery.js - MCP search, registry tools
  * - ./schemas/installation.js - Install/uninstall/update tools
  * - ./schemas/management.js - Enable/disable/list/status/reload tools
  * - ./schemas/index.js - Unified exports with examples
- *
- * Migration Status: Phase 1 Complete - Organization and JSON Schema examples
- * Next Phase: Convert remaining Zod schemas to JSON Schema format
  */
 
 // Re-export everything from the new organized structure
 export * from './schemas/index.js';
 
-// Legacy re-exports for specific patterns that might not be covered by *
-// These ensure zero breaking changes during the migration
+// Explicit re-exports for commonly used patterns
 
 // Discovery domain (mcp_search, mcp_registry_*, mcp_info)
 export {

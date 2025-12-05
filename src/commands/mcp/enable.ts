@@ -11,7 +11,7 @@ import {
   serverExists,
   setServer,
   validateConfigPath,
-} from './utils/configUtils.js';
+} from './utils/mcpServerConfig.js';
 import { validateServerName } from './utils/validation.js';
 
 export interface EnableDisableCommandArgs extends GlobalOptions {

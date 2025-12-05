@@ -1,15 +1,8 @@
 /**
- * @deprecated This file has been replaced by ./index.ts
+ * Re-exports for convenience
  *
- * For backward compatibility, this file re-exports everything from the new index.ts.
- * Please update your imports to use './index.js' instead of './toolHandlers.js'.
- *
- * Migration:
- * OLD: import { handleMcpSearch } from './toolHandlers.js';
- * NEW: import { handleMcpSearch } from './index.js';
- *
- * This file will be removed in a future version.
+ * This file provides re-exports from ./index.ts for import flexibility.
  */
 
-// Re-export everything from the new index for backward compatibility
+// Re-export everything from the unified index
 export * from './index.js';

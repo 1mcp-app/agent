@@ -1,4 +1,9 @@
-import { getAllServers, getInstallationMetadata, getServer, setServer } from '@src/commands/mcp/utils/configUtils.js';
+import {
+  getAllServers,
+  getInstallationMetadata,
+  getServer,
+  setServer,
+} from '@src/commands/mcp/utils/mcpServerConfig.js';
 import type { RegistryServer } from '@src/domains/registry/types.js';
 
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -32,7 +37,7 @@ function _createMockRegistryServer(overrides: Partial<RegistryServer> = {}): Reg
 }
 
 // Mock all external dependencies
-vi.mock('@src/commands/mcp/utils/configUtils.js', () => ({
+vi.mock('@src/commands/mcp/utils/mcpServerConfig.js', () => ({
   getAllServers: vi.fn(),
   getInstallationMetadata: vi.fn(),
   getServer: vi.fn(),

@@ -352,7 +352,7 @@ vi.mock('./adapters/managementAdapter.js', () => ({
   }),
 }));
 
-vi.mock('@src/commands/mcp/utils/configUtils.js', () => ({
+vi.mock('@src/commands/mcp/utils/mcpServerConfig.js', () => ({
   getAllServers: () => ({
     'test-server': {
       name: 'test-server',

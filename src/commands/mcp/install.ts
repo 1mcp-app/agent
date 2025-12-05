@@ -7,14 +7,14 @@ import boxen from 'boxen';
 import chalk from 'chalk';
 import type { Argv } from 'yargs';
 
+import { InstallWizard } from './utils/installWizard.js';
 import {
   backupConfig,
   getAllServers,
   initializeConfigContext,
   reloadMcpConfig,
   serverExists,
-} from './utils/configUtils.js';
-import { InstallWizard } from './utils/installWizard.js';
+} from './utils/mcpServerConfig.js';
 import { generateOperationId, parseServerNameVersion, validateVersion } from './utils/serverUtils.js';
 
 export interface InstallCommandArgs extends GlobalOptions {
@@ -183,7 +183,7 @@ export async function installCommand(argv: InstallCommandArgs): Promise<void> {
 
       // Save the configuration returned by the installation service
       if (result.config) {
-        const { setServer } = await import('./utils/configUtils.js');
+        const { setServer } = await import('./utils/mcpServerConfig.js');
         setServer(serverName, result.config);
         if (verbose) {
           logger.info(`Configuration saved for server '${serverName}'`);
@@ -452,7 +452,7 @@ async function runInteractiveInstallation(argv: InstallCommandArgs): Promise<voi
             logger.info(`Backup created: ${backupPath}`);
 
             // Remove the existing server before reinstalling to prevent duplicates
-            const { removeServer } = await import('./utils/configUtils.js');
+            const { removeServer } = await import('./utils/mcpServerConfig.js');
             const removed = removeServer(serverName);
             if (removed) {
               console.log(chalk.gray(`   Removed existing server '${serverName}'`));
@@ -488,7 +488,7 @@ async function runInteractiveInstallation(argv: InstallCommandArgs): Promise<voi
 
           // Save the configuration returned by the installation service
           if (result.config) {
-            const { setServer } = await import('./utils/configUtils.js');
+            const { setServer } = await import('./utils/mcpServerConfig.js');
             setServer(serverName, result.config);
             if (verbose) {
               logger.info(`Configuration saved for server '${serverName}'`);

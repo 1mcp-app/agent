@@ -10,7 +10,7 @@ import {
   removeServer,
   saveConfig,
   setServer,
-} from '@src/commands/mcp/utils/configUtils.js';
+} from '@src/commands/mcp/utils/mcpServerConfig.js';
 import { McpConfigManager } from '@src/config/mcpConfigManager.js';
 import { ClientManager } from '@src/core/client/clientManager.js';
 import { SelectiveReloadManager } from '@src/core/reload/selectiveReloadManager.js';

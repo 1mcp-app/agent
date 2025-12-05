@@ -3,7 +3,7 @@ import { promises as fs } from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 
-import type { ServerConfig } from '@src/commands/mcp/utils/configUtils.js';
+import type { ServerConfig } from '@src/commands/mcp/utils/mcpServerConfig.js';
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 

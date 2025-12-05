@@ -19,7 +19,7 @@ export function getMockDiscoveryFunctions() {
 }
 
 export function getMockConfigUtils() {
-  return require('@src/commands/mcp/utils/configUtils.js');
+  return require('@src/commands/mcp/utils/mcpServerConfig.js');
 }
 
 export function getMockTagsConfigurator() {

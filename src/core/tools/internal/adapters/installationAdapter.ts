@@ -14,7 +14,7 @@ import {
   removeServer,
   serverExists,
   setServer,
-} from '@src/commands/mcp/utils/configUtils.js';
+} from '@src/commands/mcp/utils/mcpServerConfig.js';
 import { generateOperationId } from '@src/commands/mcp/utils/serverUtils.js';
 import { getConfigPath } from '@src/constants/paths.js';
 import { MCPServerParams } from '@src/core/types/index.js';

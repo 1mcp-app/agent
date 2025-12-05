@@ -2,7 +2,7 @@ import fs from 'fs';
 import path from 'path';
 import readline from 'readline';
 
-import { initializeConfigContext, setServer } from '@src/commands/shared/configUtils.js';
+import { initializeConfigContext, setServer } from '@src/commands/shared/baseConfigUtils.js';
 import ConfigContext from '@src/config/configContext.js';
 import { McpConfigManager } from '@src/config/mcpConfigManager.js';
 import { getAppBackupDir } from '@src/constants.js';

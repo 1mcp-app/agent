@@ -121,11 +121,10 @@ export * from './adapters/index.js';
 // ==================== BACKWARD COMPATIBILITY ====================
 
 /**
- * Legacy Export Support
+ * Unified Exports
  *
- * Maintains full backward compatibility with existing import patterns.
- * All existing code using imports from './toolHandlers.js' will continue to work
- * without any changes required.
+ * Provides all internal tool handlers, schemas, and adapters through a single entry point.
+ * All existing code using imports from this module will continue to work without changes.
  *
  * Examples of supported patterns:
  * ```typescript

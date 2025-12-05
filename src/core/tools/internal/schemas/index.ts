@@ -97,7 +97,7 @@ export * from './management.js';
 // ==================== BACKWARD COMPATIBILITY ====================
 
 /**
- * Legacy export mapping to maintain existing import patterns.
+ * Export mapping to maintain existing import patterns.
  *
  * Existing code using:
  * ```typescript

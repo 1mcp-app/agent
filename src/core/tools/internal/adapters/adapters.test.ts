@@ -75,7 +75,7 @@ vi.mock('@src/domains/server-management/serverInstallationService.js', () => ({
   createServerInstallationService: vi.fn(() => mockInstallationService),
 }));
 
-vi.mock('@src/commands/mcp/utils/configUtils.js', () => ({
+vi.mock('@src/commands/mcp/utils/mcpServerConfig.js', () => ({
   getAllServers: vi.fn(),
   getServer: vi.fn(),
   setServer: vi.fn(),
@@ -338,7 +338,7 @@ describe('Installation Adapter', () => {
       const mockService = (createServerInstallationService as any)();
       mockService.installServer.mockResolvedValue(mockResult);
 
-      const { getServer, setServer } = await import('@src/commands/mcp/utils/configUtils.js');
+      const { getServer, setServer } = await import('@src/commands/mcp/utils/mcpServerConfig.js');
       (getServer as any).mockReturnValue({ command: 'node', args: ['server.js'] });
 
       const result = await adapter.installServer('test-server', '1.0.0', {
@@ -353,7 +353,7 @@ describe('Installation Adapter', () => {
         force: false,
       });
 
-      const { reloadMcpConfig } = await import('@src/commands/mcp/utils/configUtils.js');
+      const { reloadMcpConfig } = await import('@src/commands/mcp/utils/mcpServerConfig.js');
       expect(setServer).toHaveBeenCalled();
       expect(reloadMcpConfig).toHaveBeenCalled();
     });
@@ -400,7 +400,7 @@ describe('Installation Adapter', () => {
       const mockService = (createServerInstallationService as any)();
       mockService.uninstallServer.mockResolvedValue(mockResult);
 
-      const { getAllServers, removeServer } = await import('@src/commands/mcp/utils/configUtils.js');
+      const { getAllServers, removeServer } = await import('@src/commands/mcp/utils/mcpServerConfig.js');
       (getAllServers as any).mockReturnValue({});
       (removeServer as any).mockReturnValue(true);
 
@@ -415,7 +415,7 @@ describe('Installation Adapter', () => {
         backup: false,
       });
 
-      const { reloadMcpConfig } = await import('@src/commands/mcp/utils/configUtils.js');
+      const { reloadMcpConfig } = await import('@src/commands/mcp/utils/mcpServerConfig.js');
       expect(removeServer).toHaveBeenCalledWith('test-server');
       expect(reloadMcpConfig).toHaveBeenCalled();
     });
@@ -573,7 +573,7 @@ describe('Management Adapter', () => {
         },
       };
 
-      const { getAllServers } = await import('@src/commands/mcp/utils/configUtils.js');
+      const { getAllServers } = await import('@src/commands/mcp/utils/mcpServerConfig.js');
       (getAllServers as any).mockReturnValue(mockServers);
 
       const result = await adapter.listServers({ status: 'enabled' });
@@ -604,7 +604,7 @@ describe('Management Adapter', () => {
         },
       };
 
-      const { getAllServers } = await import('@src/commands/mcp/utils/configUtils.js');
+      const { getAllServers } = await import('@src/commands/mcp/utils/mcpServerConfig.js');
       (getAllServers as any).mockReturnValue(mockServers);
 
       const result = await adapter.listServers({ transport: 'sse' });
@@ -615,7 +615,7 @@ describe('Management Adapter', () => {
     });
 
     it('should handle list errors', async () => {
-      const { getAllServers } = await import('@src/commands/mcp/utils/configUtils.js');
+      const { getAllServers } = await import('@src/commands/mcp/utils/mcpServerConfig.js');
       (getAllServers as any).mockImplementation(() => {
         throw new Error('List failed');
       });
@@ -635,7 +635,7 @@ describe('Management Adapter', () => {
         },
       };
 
-      const { getAllServers } = await import('@src/commands/mcp/utils/configUtils.js');
+      const { getAllServers } = await import('@src/commands/mcp/utils/mcpServerConfig.js');
       (getAllServers as any).mockReturnValue(mockServers);
 
       const result = await adapter.getServerStatus('test-server');
@@ -654,7 +654,7 @@ describe('Management Adapter', () => {
         server2: { name: 'server2', disabled: true },
       };
 
-      const { getAllServers } = await import('@src/commands/mcp/utils/configUtils.js');
+      const { getAllServers } = await import('@src/commands/mcp/utils/mcpServerConfig.js');
       (getAllServers as any).mockReturnValue(mockServers);
 
       const result = await adapter.getServerStatus();
@@ -666,7 +666,7 @@ describe('Management Adapter', () => {
     });
 
     it('should handle status errors', async () => {
-      const { getAllServers } = await import('@src/commands/mcp/utils/configUtils.js');
+      const { getAllServers } = await import('@src/commands/mcp/utils/mcpServerConfig.js');
       (getAllServers as any).mockImplementation(() => {
         throw new Error('Status check failed');
       });
@@ -679,7 +679,7 @@ describe('Management Adapter', () => {
     it('should enable server successfully', async () => {
       const mockConfig = { name: 'test-server', disabled: true };
 
-      const { getServer, setServer } = await import('@src/commands/mcp/utils/configUtils.js');
+      const { getServer, setServer } = await import('@src/commands/mcp/utils/mcpServerConfig.js');
       (getServer as any).mockReturnValue(mockConfig);
       (setServer as any).mockReturnValue(undefined);
 
@@ -693,7 +693,7 @@ describe('Management Adapter', () => {
     });
 
     it('should handle server not found', async () => {
-      const { getServer } = await import('@src/commands/mcp/utils/configUtils.js');
+      const { getServer } = await import('@src/commands/mcp/utils/mcpServerConfig.js');
       (getServer as any).mockReturnValue(null);
 
       await expect(adapter.enableServer('nonexistent')).rejects.toThrow(
@@ -704,7 +704,7 @@ describe('Management Adapter', () => {
     it('should handle already enabled server', async () => {
       const mockConfig = { name: 'test-server', disabled: false };
 
-      const { getServer } = await import('@src/commands/mcp/utils/configUtils.js');
+      const { getServer } = await import('@src/commands/mcp/utils/mcpServerConfig.js');
       (getServer as any).mockReturnValue(mockConfig);
 
       const result = await adapter.enableServer('test-server');
@@ -714,7 +714,7 @@ describe('Management Adapter', () => {
     });
 
     it('should handle enable errors', async () => {
-      const { getServer } = await import('@src/commands/mcp/utils/configUtils.js');
+      const { getServer } = await import('@src/commands/mcp/utils/mcpServerConfig.js');
       (getServer as any).mockImplementation(() => {
         throw new Error('Enable failed');
       });
@@ -727,7 +727,7 @@ describe('Management Adapter', () => {
     it('should disable server successfully', async () => {
       const mockConfig = { name: 'test-server', disabled: false };
 
-      const { getServer, setServer } = await import('@src/commands/mcp/utils/configUtils.js');
+      const { getServer, setServer } = await import('@src/commands/mcp/utils/mcpServerConfig.js');
       (getServer as any).mockReturnValue(mockConfig);
       (setServer as any).mockReturnValue(undefined);
 
@@ -741,7 +741,7 @@ describe('Management Adapter', () => {
     });
 
     it('should handle server not found', async () => {
-      const { getServer } = await import('@src/commands/mcp/utils/configUtils.js');
+      const { getServer } = await import('@src/commands/mcp/utils/mcpServerConfig.js');
       (getServer as any).mockReturnValue(null);
 
       await expect(adapter.disableServer('nonexistent')).rejects.toThrow(
@@ -752,7 +752,7 @@ describe('Management Adapter', () => {
     it('should handle already disabled server', async () => {
       const mockConfig = { name: 'test-server', disabled: true };
 
-      const { getServer } = await import('@src/commands/mcp/utils/configUtils.js');
+      const { getServer } = await import('@src/commands/mcp/utils/mcpServerConfig.js');
       (getServer as any).mockReturnValue(mockConfig);
 
       const result = await adapter.disableServer('test-server');
@@ -764,7 +764,7 @@ describe('Management Adapter', () => {
 
   describe('reloadConfiguration', () => {
     it('should reload configuration successfully', async () => {
-      const { getAllServers } = await import('@src/commands/mcp/utils/configUtils.js');
+      const { getAllServers } = await import('@src/commands/mcp/utils/mcpServerConfig.js');
       (getAllServers as any).mockReturnValue({
         server1: { name: 'server1' },
         server2: { name: 'server2' },
@@ -779,7 +779,7 @@ describe('Management Adapter', () => {
       expect(result.action).toBe('full-reload');
       expect(result.reloadedServers).toEqual(['server1', 'server2']);
 
-      const { reloadMcpConfig } = await import('@src/commands/mcp/utils/configUtils.js');
+      const { reloadMcpConfig } = await import('@src/commands/mcp/utils/mcpServerConfig.js');
       expect(reloadMcpConfig).toHaveBeenCalled();
     });
 
@@ -791,7 +791,7 @@ describe('Management Adapter', () => {
       expect(result.action).toBe('full-reload');
       expect(result.reloadedServers).toEqual(['test-server']);
 
-      const { reloadMcpConfig } = await import('@src/commands/mcp/utils/configUtils.js');
+      const { reloadMcpConfig } = await import('@src/commands/mcp/utils/mcpServerConfig.js');
       expect(reloadMcpConfig).toHaveBeenCalled();
     });
 
@@ -800,12 +800,12 @@ describe('Management Adapter', () => {
 
       expect(result.action).toBe('config-reload');
 
-      const { reloadMcpConfig } = await import('@src/commands/mcp/utils/configUtils.js');
+      const { reloadMcpConfig } = await import('@src/commands/mcp/utils/mcpServerConfig.js');
       expect(reloadMcpConfig).toHaveBeenCalled();
     });
 
     it('should handle reload errors', async () => {
-      const { getAllServers } = await import('@src/commands/mcp/utils/configUtils.js');
+      const { getAllServers } = await import('@src/commands/mcp/utils/mcpServerConfig.js');
       (getAllServers as any).mockImplementation(() => {
         throw new Error('Reload failed');
       });
@@ -819,7 +819,7 @@ describe('Management Adapter', () => {
       const mockConfig = { name: 'test-server', command: 'node', args: ['old.js'] };
       const configUpdate = { args: ['new.js'] };
 
-      const { getServer, setServer } = await import('@src/commands/mcp/utils/configUtils.js');
+      const { getServer, setServer } = await import('@src/commands/mcp/utils/mcpServerConfig.js');
       (getServer as any).mockReturnValue(mockConfig);
       (setServer as any).mockReturnValue(undefined);
 
@@ -834,7 +834,7 @@ describe('Management Adapter', () => {
     });
 
     it('should handle server not found', async () => {
-      const { getServer } = await import('@src/commands/mcp/utils/configUtils.js');
+      const { getServer } = await import('@src/commands/mcp/utils/mcpServerConfig.js');
       (getServer as any).mockReturnValue(null);
 
       await expect(adapter.updateServerConfig('nonexistent', {})).rejects.toThrow(
@@ -843,7 +843,7 @@ describe('Management Adapter', () => {
     });
 
     it('should handle config update errors', async () => {
-      const { getServer } = await import('@src/commands/mcp/utils/configUtils.js');
+      const { getServer } = await import('@src/commands/mcp/utils/mcpServerConfig.js');
       (getServer as any).mockImplementation(() => {
         throw new Error('Update failed');
       });

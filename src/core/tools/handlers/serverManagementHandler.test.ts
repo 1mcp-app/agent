@@ -4,7 +4,7 @@ import {
   removeServer,
   saveConfig,
   setServer,
-} from '@src/commands/mcp/utils/configUtils.js';
+} from '@src/commands/mcp/utils/mcpServerConfig.js';
 import { McpConfigManager } from '@src/config/mcpConfigManager.js';
 import { SelectiveReloadManager } from '@src/core/reload/selectiveReloadManager.js';
 import { debugIf } from '@src/logger/logger.js';
@@ -23,7 +23,7 @@ import {
 } from './serverManagementHandler.js';
 
 // Mock the config utilities
-vi.mock('@src/commands/mcp/utils/configUtils.js', () => ({
+vi.mock('@src/commands/mcp/utils/mcpServerConfig.js', () => ({
   loadConfig: vi.fn(),
   saveConfig: vi.fn(),
   setServer: vi.fn(),

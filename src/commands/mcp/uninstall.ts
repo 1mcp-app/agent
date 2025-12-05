@@ -9,7 +9,7 @@ import {
   reloadMcpConfig,
   removeServer,
   serverExists,
-} from './utils/configUtils.js';
+} from './utils/mcpServerConfig.js';
 import { checkServerInUse, validateServerName } from './utils/serverUtils.js';
 
 export interface UninstallCommandArgs extends GlobalOptions {

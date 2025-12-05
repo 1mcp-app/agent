@@ -2,7 +2,7 @@ import * as serverManagementIndex from '@src/domains/server-management/index.js'
 
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-import * as configUtils from './utils/configUtils.js';
+import * as configUtils from './utils/mcpServerConfig.js';
 import { buildInstallCommand, installCommand } from './install.js';
 
 // Mock dependencies
@@ -23,7 +23,7 @@ vi.mock('@src/domains/server-management/index.js', () => {
   };
 });
 
-vi.mock('./utils/configUtils.js', () => {
+vi.mock('./utils/mcpServerConfig.js', () => {
   return {
     initializeConfigContext: vi.fn(),
     serverExists: vi.fn(),

@@ -1,11 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-import * as configUtils from './utils/configUtils.js';
+import * as configUtils from './utils/mcpServerConfig.js';
 import * as serverUtils from './utils/serverUtils.js';
 import { buildUninstallCommand, uninstallCommand } from './uninstall.js';
 
 // Mock dependencies
-vi.mock('./utils/configUtils.js', () => ({
+vi.mock('./utils/mcpServerConfig.js', () => ({
   initializeConfigContext: vi.fn(),
   serverExists: vi.fn(),
   backupConfig: vi.fn(() => '/tmp/config.backup'),

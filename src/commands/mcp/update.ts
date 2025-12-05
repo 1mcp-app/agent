@@ -14,7 +14,7 @@ import {
   serverExists,
   setServer,
   validateConfigPath,
-} from './utils/configUtils.js';
+} from './utils/mcpServerConfig.js';
 import {
   validateEnvVars,
   validateHeaders,

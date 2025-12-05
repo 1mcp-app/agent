@@ -12,7 +12,7 @@ import {
   removeServer,
   serverExists,
   validateConfigPath,
-} from './utils/configUtils.js';
+} from './utils/mcpServerConfig.js';
 import { validateServerName } from './utils/validation.js';
 
 export interface RemoveCommandArgs extends GlobalOptions {

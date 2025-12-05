@@ -2,7 +2,7 @@ import { mkdtemp, readFile, rm, writeFile } from 'fs/promises';
 import { tmpdir } from 'os';
 import { join } from 'path';
 
-import { initializeConfigContext, serverExists, setServer } from '@src/commands/mcp/utils/configUtils.js';
+import { initializeConfigContext, serverExists, setServer } from '@src/commands/mcp/utils/mcpServerConfig.js';
 import ConfigContext from '@src/config/configContext.js';
 import { createServerInstallationService, getProgressTrackingService } from '@src/domains/server-management/index.js';
 

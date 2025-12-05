@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { buildListCommand, listCommand } from './list.js';
 
 // Mock dependencies
-vi.mock('./utils/configUtils.js', () => ({
+vi.mock('./utils/mcpServerConfig.js', () => ({
   initializeConfigContext: vi.fn(),
   getAllServers: vi.fn(() => ({})),
   validateConfigPath: vi.fn(),
