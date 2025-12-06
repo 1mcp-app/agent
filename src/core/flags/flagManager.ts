@@ -42,6 +42,7 @@ const TOOL_MAPPING: Record<string, string | string[]> = {
   registry_info: 'registry_info',
   registry_list: 'registry_list',
   info: 'info',
+  edit: 'edit',
   list: 'list',
   status: 'status',
   enable: 'enable',
@@ -53,7 +54,7 @@ const TOOL_MAPPING: Record<string, string | string[]> = {
 
   // Category shortcuts (category -> array of tool names)
   discovery: ['search', 'registry_status', 'registry_info', 'registry_list', 'info'],
-  management: ['list', 'status', 'enable', 'disable', 'reload'],
+  management: ['list', 'status', 'enable', 'disable', 'reload', 'edit'],
   installation: ['install', 'uninstall', 'update'],
   safe: ['search', 'registry_info', 'registry_list', 'info', 'list', 'status'],
 };
@@ -67,6 +68,7 @@ const ALL_AVAILABLE_TOOLS = [
   'registry_info',
   'registry_list',
   'info',
+  'edit',
   'list',
   'status',
   'enable',

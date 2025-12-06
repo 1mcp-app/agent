@@ -22,6 +22,7 @@ import {
 } from '@src/core/capabilities/internal/installationTools.js';
 import {
   createDisableTool,
+  createEditTool,
   createEnableTool,
   createListTool,
   createReloadTool,
@@ -32,6 +33,7 @@ import { AgentConfigManager } from '@src/core/server/agentConfig.js';
 import {
   cleanupInternalToolHandlers,
   handleMcpDisable,
+  handleMcpEdit,
   handleMcpEnable,
   handleMcpInfo,
   handleMcpInstall,
@@ -47,6 +49,7 @@ import {
 } from '@src/core/tools/internal/index.js';
 import {
   McpDisableToolSchema,
+  McpEditToolSchema,
   McpEnableToolSchema,
   McpInfoToolSchema,
   McpInstallToolSchema,
@@ -201,6 +204,11 @@ export class InternalCapabilitiesProvider extends EventEmitter {
             tools.push(createUpdateTool());
             break;
 
+          // Edit tools
+          case 'edit':
+            tools.push(createEditTool());
+            break;
+
           // Management tools
           case 'enable':
             tools.push(createEnableTool());
@@ -278,6 +286,11 @@ export class InternalCapabilitiesProvider extends EventEmitter {
       case 'mcp_update': {
         const validatedArgs = validateToolArgs(McpUpdateToolSchema, args, toolName);
         result = await handleMcpUpdate(validatedArgs);
+        break;
+      }
+      case 'mcp_edit': {
+        const validatedArgs = validateToolArgs(McpEditToolSchema, args, toolName);
+        result = await handleMcpEdit(validatedArgs);
         break;
       }
       case 'mcp_enable': {

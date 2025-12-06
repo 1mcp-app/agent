@@ -31,6 +31,7 @@
  */
 // ==================== HANDLER EXPORTS ====================
 // Import the handlers directly from their modules
+import { handleMcpEdit } from './adapters/managementAdapter.js';
 import {
   cleanupDiscoveryHandlers,
   handleMcpInfo,
@@ -83,10 +84,10 @@ export {
 export { handleMcpInstall, handleMcpUninstall, handleMcpUpdate, cleanupInstallationHandlers };
 
 /**
- * Management Handlers - Enable, disable, list, status, and reload operations
+ * Management Handlers - Enable, disable, list, status, edit, and reload operations
  *
  * These handlers provide tools for managing the operational state of MCP servers,
- * including enabling/disabling, listing, status checking, and configuration reloading.
+ * including enabling/disabling, listing, status checking, configuration editing, and reloading.
  */
 export {
   handleMcpEnable,
@@ -94,6 +95,7 @@ export {
   handleMcpList,
   handleMcpStatus,
   handleMcpReload,
+  handleMcpEdit,
   cleanupManagementHandlers,
 };
 
@@ -224,6 +226,7 @@ export const ManagementHandlers = {
   disable: handleMcpDisable,
   list: handleMcpList,
   status: handleMcpStatus,
+  edit: handleMcpEdit,
   reload: handleMcpReload,
   cleanup: cleanupManagementHandlers,
 } as const;

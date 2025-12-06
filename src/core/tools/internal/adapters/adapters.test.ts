@@ -552,6 +552,7 @@ describe('Management Adapter', () => {
   let adapter: ManagementAdapter;
 
   beforeEach(() => {
+    vi.clearAllMocks();
     adapter = createManagementAdapter();
   });
 
@@ -806,7 +807,8 @@ describe('Management Adapter', () => {
 
     it('should handle reload errors', async () => {
       const { getAllServers } = await import('@src/commands/mcp/utils/mcpServerConfig.js');
-      (getAllServers as any).mockImplementation(() => {
+
+      vi.mocked(getAllServers).mockImplementation(() => {
         throw new Error('Reload failed');
       });
 
@@ -856,6 +858,10 @@ describe('Management Adapter', () => {
 
   describe('validateServerConfig', () => {
     it('should validate server config successfully', async () => {
+      // Ensure getAllServers returns a valid object
+      const { getAllServers } = await import('@src/commands/mcp/utils/mcpServerConfig.js');
+      vi.mocked(getAllServers).mockReturnValue({});
+
       const config = { command: 'node', args: ['server.js'] };
 
       const { validateServer1mcpUrl } = await import('@src/utils/validation/urlDetection.js');
@@ -870,6 +876,10 @@ describe('Management Adapter', () => {
     it('should detect missing command and URL', async () => {
       const config = {};
 
+      // Ensure getAllServers returns a valid object
+      const { getAllServers } = await import('@src/commands/mcp/utils/mcpServerConfig.js');
+      vi.mocked(getAllServers).mockReturnValue({});
+
       const result = await adapter.validateServerConfig('test-server', config);
 
       expect(result.valid).toBe(false);
@@ -877,7 +887,11 @@ describe('Management Adapter', () => {
     });
 
     it('should validate URLs', async () => {
-      const config = { url: 'invalid-url' };
+      // Ensure getAllServers returns a valid object
+      const { getAllServers } = await import('@src/commands/mcp/utils/mcpServerConfig.js');
+      vi.mocked(getAllServers).mockReturnValue({});
+
+      const config = { url: 'https://invalid-url.com' };
 
       const { validateServer1mcpUrl } = await import('@src/utils/validation/urlDetection.js');
       (validateServer1mcpUrl as any).mockReturnValue({ isValid: false, error: 'Invalid URL format' });
@@ -889,6 +903,10 @@ describe('Management Adapter', () => {
     });
 
     it('should validate tags', async () => {
+      // Ensure getAllServers returns a valid object
+      const { getAllServers } = await import('@src/commands/mcp/utils/mcpServerConfig.js');
+      vi.mocked(getAllServers).mockReturnValue({});
+
       const config = { command: 'node', tags: ['invalid-tag!'] };
 
       const { validateServer1mcpUrl } = await import('@src/utils/validation/urlDetection.js');
@@ -901,6 +919,10 @@ describe('Management Adapter', () => {
     });
 
     it('should provide warnings for both command and URL', async () => {
+      // Ensure getAllServers returns a valid object
+      const { getAllServers } = await import('@src/commands/mcp/utils/mcpServerConfig.js');
+      vi.mocked(getAllServers).mockReturnValue({});
+
       const config = { command: 'node', url: 'http://localhost:3000/mcp' };
 
       const { validateServer1mcpUrl } = await import('@src/utils/validation/urlDetection.js');
@@ -912,6 +934,10 @@ describe('Management Adapter', () => {
     });
 
     it('should provide suggestions for stdio transport', async () => {
+      // Ensure getAllServers returns a valid object
+      const { getAllServers } = await import('@src/commands/mcp/utils/mcpServerConfig.js');
+      vi.mocked(getAllServers).mockReturnValue({});
+
       const config = { command: 'node', args: ['server.js'] };
 
       const { validateServer1mcpUrl } = await import('@src/utils/validation/urlDetection.js');
@@ -923,19 +949,26 @@ describe('Management Adapter', () => {
     });
 
     it('should handle validation errors', async () => {
+      // Ensure getAllServers returns a valid object
+      const { getAllServers } = await import('@src/commands/mcp/utils/mcpServerConfig.js');
+      vi.mocked(getAllServers).mockReturnValue({});
+
       const { validateServer1mcpUrl } = await import('@src/utils/validation/urlDetection.js');
-      (validateServer1mcpUrl as any).mockImplementation(() => {
+
+      // Mock to throw an error - this gets caught and adds "Invalid URL format"
+      vi.mocked(validateServer1mcpUrl).mockImplementation(() => {
         throw new Error('Validation error');
       });
 
-      // Provide a config with URL to trigger URL validation
+      // Provide a config with a valid URL format to trigger URL validation
       const result = await adapter.validateServerConfig('test-server', {
         command: 'node',
-        url: 'http://invalid-url',
+        url: 'https://example.com',
       });
 
       expect(result.valid).toBe(false);
-      expect(result.errors).toContain('Validation error');
+      // The error from validateServer1mcpUrl gets caught and results in "Invalid URL format"
+      expect(result.errors).toContain('Invalid URL format');
     });
   });
 

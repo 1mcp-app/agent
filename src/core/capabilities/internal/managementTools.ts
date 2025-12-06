@@ -2,13 +2,15 @@
  * Internal MCP tool management creators
  *
  * This module contains factory functions for creating management-related internal MCP tools
- * including enable/disable, list, status, and reload operations.
+ * including enable/disable, list, status, edit, and reload operations.
  */
 import { Tool } from '@modelcontextprotocol/sdk/types.js';
 
 import {
   McpDisableOutputSchema,
   McpDisableToolSchema,
+  McpEditOutputSchema,
+  McpEditToolSchema,
   McpEnableOutputSchema,
   McpEnableToolSchema,
   McpListOutputSchema,
@@ -65,6 +67,18 @@ export function createStatusTool(): Tool {
     description: 'Get MCP server status',
     inputSchema: zodToInputSchema(McpStatusToolSchema) as Tool['inputSchema'],
     outputSchema: zodToOutputSchema(McpStatusOutputSchema) as Tool['outputSchema'],
+  };
+}
+
+/**
+ * Create edit tool definition
+ */
+export function createEditTool(): Tool {
+  return {
+    name: 'mcp_edit',
+    description: 'Edit MCP server configuration',
+    inputSchema: zodToInputSchema(McpEditToolSchema) as Tool['inputSchema'],
+    outputSchema: zodToOutputSchema(McpEditOutputSchema) as Tool['outputSchema'],
   };
 }
 

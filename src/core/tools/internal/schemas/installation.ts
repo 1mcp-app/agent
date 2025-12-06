@@ -122,99 +122,6 @@ export const McpUpdateToolSchema = z.object({
   dryRun: z.boolean().optional().default(false).describe('Preview update without applying changes'),
 });
 
-// ==================== JSON SCHEMA EXAMPLES ====================
-
-/**
- * JSON Schema for mcp_install tool - Example migration from Zod
- */
-export const McpInstallToolJsonSchema = {
-  type: 'object',
-  properties: {
-    name: {
-      type: 'string',
-      description: 'Name for the MCP server configuration',
-    },
-    package: {
-      type: 'string',
-      description: 'Package name (npm, pypi, or docker image)',
-    },
-    version: {
-      type: 'string',
-      description: 'Version to install (latest if not specified)',
-    },
-    command: {
-      type: 'string',
-      description: 'Command to run for stdio transport',
-    },
-    args: {
-      type: 'array',
-      items: {
-        type: 'string',
-      },
-      description: 'Arguments for the command',
-    },
-    url: {
-      type: 'string',
-      description: 'URL for HTTP/SSE transport',
-    },
-    transport: {
-      type: 'string',
-      enum: ['stdio', 'sse', 'http'],
-      default: 'stdio',
-      description: 'Transport type',
-    },
-    tags: {
-      type: 'array',
-      items: {
-        type: 'string',
-      },
-      description: 'Tags for server filtering',
-    },
-    enabled: {
-      type: 'boolean',
-      default: true,
-      description: 'Enable server after installation',
-    },
-    autoRestart: {
-      type: 'boolean',
-      default: false,
-      description: 'Auto-restart server if it crashes',
-    },
-  },
-  required: ['name'],
-  additionalProperties: false,
-} as const;
-
-/**
- * JSON Schema for mcp_uninstall tool - Example migration from Zod
- */
-export const McpUninstallToolJsonSchema = {
-  type: 'object',
-  properties: {
-    name: {
-      type: 'string',
-      description: 'Name of the MCP server to remove',
-    },
-    preserveConfig: {
-      type: 'boolean',
-      default: false,
-      description: 'Preserve configuration but disable server',
-    },
-    force: {
-      type: 'boolean',
-      default: false,
-      description: 'Force removal even if server is in use',
-    },
-    graceful: {
-      type: 'boolean',
-      default: true,
-      description: 'Gracefully stop server before uninstalling',
-    },
-  },
-  required: ['name'],
-  additionalProperties: false,
-} as const;
-
 // ==================== OUTPUT SCHEMAS ====================
 
 /**
@@ -344,38 +251,6 @@ export const McpUpdateOutputSchema = z.object({
 export type McpInstallToolArgs = z.infer<typeof McpInstallToolSchema>;
 export type McpUninstallToolArgs = z.infer<typeof McpUninstallToolSchema>;
 export type McpUpdateToolArgs = z.infer<typeof McpUpdateToolSchema>;
-
-// JSON Schema types (new pattern for migration)
-export interface McpInstallToolJsonArgs {
-  name: string;
-  version?: string;
-  force?: boolean;
-  backup?: boolean;
-  tags?: string[];
-  env?: Record<string, string>;
-  args?: string[];
-  package?: string;
-  command?: string;
-  url?: string;
-  transport?: 'stdio' | 'sse' | 'http';
-  enabled?: boolean;
-  autoRestart?: boolean;
-}
-
-export interface McpUninstallToolJsonArgs {
-  name: string;
-  preserveConfig?: boolean;
-  force?: boolean;
-  graceful?: boolean;
-}
-
-export interface McpUpdateToolJsonArgs {
-  name: string;
-  version?: string;
-  package?: string;
-  autoRestart?: boolean;
-  backup?: boolean;
-}
 
 // Output types
 export type McpInstallOutput = z.infer<typeof McpInstallOutputSchema>;

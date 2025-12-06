@@ -56,6 +56,7 @@ import {
   McpSearchOutputSchema,
   McpSearchToolSchema,
 } from './discovery.js';
+import { McpEditOutputSchema, McpEditToolSchema } from './edit.js';
 import {
   McpInstallOutputSchema,
   McpInstallToolSchema,
@@ -87,12 +88,14 @@ import {
  * - Discovery: MCP search, registry operations, server information
  * - Installation: Install, uninstall, update operations
  * - Management: Enable/disable, listing, status, reload operations
+ * - Editing: Configuration editing and modification operations
  */
 
 // Re-export all schemas from domain modules for backward compatibility
 export * from './discovery.js';
 export * from './installation.js';
 export * from './management.js';
+export * from './edit.js';
 
 // ==================== BACKWARD COMPATIBILITY ====================
 
@@ -115,10 +118,6 @@ export {
   McpRegistryInfoSchema,
   McpRegistryListSchema,
   McpInfoToolSchema,
-  // JSON Schema examples
-  McpSearchToolJsonSchema,
-  McpRegistryStatusJsonSchema,
-  McpInfoToolJsonSchema,
   // Output schemas
   McpSearchOutputSchema,
   McpRegistryStatusOutputSchema,
@@ -131,9 +130,6 @@ export {
   type McpRegistryInfoToolArgs,
   type McpRegistryListToolArgs,
   type McpInfoToolArgs,
-  type McpSearchToolJsonArgs,
-  type McpRegistryStatusJsonArgs,
-  type McpInfoToolJsonArgs,
   type McpSearchOutput,
   type McpRegistryStatusOutput,
   type McpRegistryInfoOutput,
@@ -147,9 +143,6 @@ export {
   McpInstallToolSchema,
   McpUninstallToolSchema,
   McpUpdateToolSchema,
-  // JSON Schema examples
-  McpInstallToolJsonSchema,
-  McpUninstallToolJsonSchema,
   // Output schemas
   McpInstallOutputSchema,
   McpUninstallOutputSchema,
@@ -158,9 +151,6 @@ export {
   type McpInstallToolArgs,
   type McpUninstallToolArgs,
   type McpUpdateToolArgs,
-  type McpInstallToolJsonArgs,
-  type McpUninstallToolJsonArgs,
-  type McpUpdateToolJsonArgs,
   type McpInstallOutput,
   type McpUninstallOutput,
   type McpUpdateOutput,
@@ -174,10 +164,6 @@ export {
   McpListToolSchema,
   McpStatusToolSchema,
   McpReloadToolSchema,
-  // JSON Schema examples
-  McpEnableToolJsonSchema,
-  McpListToolJsonSchema,
-  McpReloadToolJsonSchema,
   // Output schemas
   McpEnableOutputSchema,
   McpDisableOutputSchema,
@@ -190,16 +176,24 @@ export {
   type McpListToolArgs,
   type McpStatusToolArgs,
   type McpReloadToolArgs,
-  type McpEnableToolJsonArgs,
-  type McpListToolJsonArgs,
-  type McpStatusToolJsonArgs,
-  type McpReloadToolJsonArgs,
   type McpEnableOutput,
   type McpDisableOutput,
   type McpListOutput,
   type McpStatusOutput,
   type McpReloadOutput,
 } from './management.js';
+
+// Edit schemas
+export {
+  // Input schemas
+  McpEditToolSchema,
+  // Output schemas
+  McpEditOutputSchema,
+  // Types
+  type McpEditToolArgs,
+  type McpEditOutput,
+  type ConfigChange,
+} from './edit.js';
 
 export default {
   // Provide a default export that contains all schemas for convenience
@@ -245,6 +239,14 @@ export default {
       McpListOutputSchema,
       McpStatusOutputSchema,
       McpReloadOutputSchema,
+    },
+  },
+  edit: {
+    input: {
+      McpEditToolSchema,
+    },
+    output: {
+      McpEditOutputSchema,
     },
   },
 };

@@ -5,6 +5,7 @@
  * - ./schemas/discovery.js - MCP search, registry tools
  * - ./schemas/installation.js - Install/uninstall/update tools
  * - ./schemas/management.js - Enable/disable/list/status/reload tools
+ * - ./schemas/edit.js - Configuration editing tools
  * - ./schemas/index.js - Unified exports with examples
  */
 
@@ -63,3 +64,12 @@ export {
   type McpStatusToolArgs,
   type McpReloadToolArgs,
 } from './schemas/management.js';
+
+// Edit domain (mcp_edit)
+export {
+  McpEditToolSchema,
+  McpEditOutputSchema,
+  type McpEditToolArgs,
+  type McpEditOutput,
+  type ConfigChange,
+} from './schemas/edit.js';
