@@ -29,10 +29,6 @@ export const MCP_CLIENT_CAPABILITIES: ClientCapabilities = {
   roots: {
     listChanged: false,
   },
-  sampling: {
-    listChanged: false,
-  },
-  elicitation: {
-    listChanged: false,
-  },
+  sampling: {},
+  elicitation: {},
 };
