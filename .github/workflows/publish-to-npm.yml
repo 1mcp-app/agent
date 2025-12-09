@@ -28,11 +28,25 @@ jobs:
       - name: Setup Node.js and pnpm
         uses: ./.github/actions/setup-node-pnpm
 
+      - name: Detect pre-release version
+        id: prerelease
+        run: |
+          VERSION="${{ github.ref_name }}"
+          if [[ "$VERSION" =~ (alpha|beta|rc|preview|next)-? ]] || [[ "$VERSION" =~ -(alpha|beta|rc|preview|next) ]]; then
+            echo "is_prerelease=true" >> $GITHUB_OUTPUT
+            echo "npm_tag=next" >> $GITHUB_OUTPUT
+            echo "Found pre-release version: $VERSION"
+          else
+            echo "is_prerelease=false" >> $GITHUB_OUTPUT
+            echo "npm_tag=latest" >> $GITHUB_OUTPUT
+            echo "Found stable version: $VERSION"
+          fi
+
       - name: Build
         run: pnpm build
 
       - name: Publish to npm
-        run: pnpm publish --no-git-checks --access public
+        run: pnpm publish --no-git-checks --access public --tag ${{ steps.prerelease.outputs.npm_tag }}
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
@@ -57,5 +71,5 @@ jobs:
           body: ${{ steps.git-cliff.outputs.content }}
           files: binaries/*/*
           draft: false
-          prerelease: false
+          prerelease: ${{ steps.prerelease.outputs.is_prerelease }}
           token: ${{ secrets.GITHUB_TOKEN }}

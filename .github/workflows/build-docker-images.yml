@@ -33,6 +33,20 @@ jobs:
         with:
           ref: main
 
+      - name: Detect pre-release version
+        id: prerelease
+        run: |
+          VERSION="${{ github.ref_name }}"
+          if [[ "$VERSION" =~ (alpha|beta|rc|preview|next)-? ]] || [[ "$VERSION" =~ -(alpha|beta|rc|preview|next) ]]; then
+            echo "is_prerelease=true" >> $GITHUB_OUTPUT
+            echo "docker_tag=next" >> $GITHUB_OUTPUT
+            echo "Found pre-release version: $VERSION"
+          else
+            echo "is_prerelease=false" >> $GITHUB_OUTPUT
+            echo "docker_tag=${{ matrix.latest }}" >> $GITHUB_OUTPUT
+            echo "Found stable version: $VERSION"
+          fi
+
       - name: Log in to the Container registry
         uses: docker/login-action@v3
         with:
@@ -46,7 +60,7 @@ jobs:
         with:
           images: ghcr.io/${{ github.repository }}
           tags: |
-            type=raw,value=${{ matrix.latest }}
+            type=raw,value=${{ steps.prerelease.outputs.docker_tag }}
             type=semver,pattern=v{{version}}${{ matrix.suffix }}
             type=semver,pattern=v{{major}}.{{minor}}${{ matrix.suffix }}
             type=semver,pattern=v{{major}}${{ matrix.suffix }}
