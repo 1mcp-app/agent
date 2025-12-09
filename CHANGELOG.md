@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.27.4] - 2025-12-09
+
+### ⚙️ Miscellaneous Tasks
+- Update @modelcontextprotocol/sdk to version 1.24.3 and adjust related dependencies in pnpm-lock.yaml; refactor MCP_CLIENT_CAPABILITIES structure in mcp.ts by @xizhibei
+- Update version and changelog to 0.27.3 [skip ci] by @github-actions[bot]
+
+
 ## [0.27.3] - 2025-11-27
 
 ### 🚀 Features
@@ -854,6 +861,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 * @xizhibei made their first contribution in [#1](https://github.com/1mcp-app/agent/pull/1)
 * @dependabot[bot] made their first contribution
 
+[0.27.4]: https://github.com/1mcp-app/agent/compare/v0.27.3..v0.27.4
 [0.27.3]: https://github.com/1mcp-app/agent/compare/v0.27.2..v0.27.3
 [0.27.2]: https://github.com/1mcp-app/agent/compare/v0.27.1..v0.27.2
 [0.27.1]: https://github.com/1mcp-app/agent/compare/v0.27.0..v0.27.1
