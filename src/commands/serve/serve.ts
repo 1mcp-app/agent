@@ -3,9 +3,8 @@ import path from 'path';
 
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 
-import configReloadService from '@src/application/services/configReloadService.js';
 import ConfigContext from '@src/config/configContext.js';
-import { McpConfigManager } from '@src/config/mcpConfigManager.js';
+import { ConfigManager } from '@src/config/configManager.js';
 import { getDefaultInstructionsTemplatePath } from '@src/constants.js';
 import { getConfigDir } from '@src/constants.js';
 import { FlagManager } from '@src/core/flags/flagManager.js';
@@ -152,7 +151,7 @@ function setupGracefulShutdown(
     logger.info('Shutting down server...');
 
     // Stop the configuration reload service
-    configReloadService.stop();
+    // Config reload handled by ConfigManager singleton
 
     // Shutdown loading manager if it exists
     if (loadingManager && typeof loadingManager.shutdown === 'function') {
@@ -235,7 +234,7 @@ export async function serveCommand(parsedArgv: ServeOptions): Promise<void> {
 
     // Initialize MCP config manager using resolved config path
     const configFilePath = configContext.getResolvedConfigPath();
-    const mcpConfigManager = McpConfigManager.getInstance(configFilePath);
+    const mcpConfigManager = ConfigManager.getInstance(configFilePath);
 
     // Get server count for logo display
     const transportConfig = mcpConfigManager.getTransportConfig();
@@ -341,7 +340,8 @@ export async function serveCommand(parsedArgv: ServeOptions): Promise<void> {
     PresetManager.getInstance(parsedArgv['config-dir']);
 
     // Initialize server and get server manager with custom config path if provided
-    const { serverManager, loadingManager, asyncOrchestrator, instructionAggregator } = await setupServer();
+    const { serverManager, loadingManager, asyncOrchestrator, instructionAggregator } =
+      await setupServer(configFilePath);
 
     // Load custom instructions template if provided (applies to all transport types)
     const customTemplate = loadInstructionsTemplate(parsedArgv['instructions-template'], parsedArgv['config-dir']);

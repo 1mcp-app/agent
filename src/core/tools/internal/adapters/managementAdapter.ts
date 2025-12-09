@@ -452,9 +452,9 @@ export class ConfigManagementAdapter implements ManagementAdapter {
           reloadedServers = Object.keys(allServers);
         }
       } else {
-        // For full reload, we trigger the ConfigReloadService
-        // Note: In the current architecture, ConfigReloadService watches the config file,
-        // so reloadMcpConfig() above will trigger the file watcher which triggers the service.
+        // For full reload, we trigger the ConfigManager
+        // Note: In the current architecture, ConfigManager watches the config file,
+        // so reloadMcpConfig() above will trigger the file watcher which triggers ConfigChangeHandler.
         // However, if we want to be explicit or wait for completion, we might need direct access.
         // For now, we rely on the file watcher mechanism which is robust.
 

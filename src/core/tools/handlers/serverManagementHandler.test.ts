@@ -5,8 +5,8 @@ import {
   saveConfig,
   setServer,
 } from '@src/commands/mcp/utils/mcpServerConfig.js';
+import { ConfigManager } from '@src/config/configManager.js';
 import { McpConfigManager } from '@src/config/mcpConfigManager.js';
-import { SelectiveReloadManager } from '@src/core/reload/selectiveReloadManager.js';
 import { debugIf } from '@src/logger/logger.js';
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -51,6 +51,43 @@ vi.mock('@src/core/client/clientManager.js', () => ({
       createSingleClient: vi.fn().mockResolvedValue(undefined),
     },
   },
+}));
+
+// Mock McpConfigManager for other tests
+vi.mock('@src/config/mcpConfigManager.js', () => ({
+  McpConfigManager: {
+    getInstance: vi.fn().mockReturnValue({
+      getTransportConfig: vi.fn().mockReturnValue({}),
+      reload: vi.fn().mockResolvedValue(undefined),
+    }),
+  },
+}));
+
+// Mock ConfigManager with default implementation for all tests
+vi.mock('@src/config/configManager.js', () => ({
+  ConfigManager: {
+    getInstance: vi.fn().mockReturnValue({
+      getTransportConfig: vi.fn().mockReturnValue({}),
+      reloadConfig: vi.fn().mockResolvedValue(undefined),
+    } as any),
+  },
+}));
+
+// Mock transportFactory with proper implementation for reload tests
+vi.mock('@src/transport/transportFactory.js', () => ({
+  createTransports: vi.fn((servers) => {
+    const result: Record<string, any> = {};
+    for (const [name, config] of Object.entries(servers)) {
+      result[name] = {
+        type: 'stdio',
+        command: 'node',
+        args: ['test-server.js'],
+        tags: ['test'],
+        ...(typeof config === 'object' && config !== null ? config : {}),
+      };
+    }
+    return result;
+  }),
 }));
 
 // Mock SelectiveReloadManager with robust setup
@@ -165,7 +202,6 @@ describe('serverManagementHandler', () => {
 
     // Reset singleton instances for clean test isolation
     (McpConfigManager as any).instance = undefined;
-    (SelectiveReloadManager as any).instance = undefined;
   });
 
   afterEach(() => {
@@ -674,6 +710,30 @@ describe('serverManagementHandler', () => {
   });
 
   describe('handleReloadOperation', () => {
+    beforeEach(() => {
+      // Reset singletons for reload tests to avoid conflicts
+      (ConfigManager as any).instance = null;
+      (McpConfigManager as any).instance = null;
+
+      // Set up ConfigManager mock for reload tests
+      vi.mocked(ConfigManager.getInstance).mockReturnValue({
+        getTransportConfig: vi.fn().mockReturnValue({
+          'test-server': {
+            type: 'stdio',
+            command: 'node',
+            args: ['test-server.js'],
+            tags: ['test'],
+          },
+        }),
+        reloadConfig: vi.fn().mockResolvedValue(undefined),
+      } as any);
+    });
+
+    afterEach(() => {
+      // Clear mocks after each test
+      vi.clearAllMocks();
+    });
+
     it('should handle config reload', async () => {
       const args = {
         configOnly: true,
@@ -690,11 +750,7 @@ describe('serverManagementHandler', () => {
         timestamp: expect.any(String),
         success: true,
         details: {
-          status: 'completed',
-          operationId: 'reload_test_123',
-          affectedServers: [],
-          changes: 0,
-          error: undefined,
+          message: 'Configuration reloaded successfully',
         },
       });
 
@@ -737,9 +793,7 @@ describe('serverManagementHandler', () => {
         timestamp: expect.any(String),
         success: true,
         details: {
-          error: undefined,
-          operationId: 'reload_test_123',
-          status: 'completed',
+          message: 'Configuration reloaded successfully',
         },
       });
     });
@@ -770,6 +824,14 @@ describe('serverManagementHandler', () => {
   });
 
   describe('debug logging', () => {
+    beforeEach(() => {
+      // Ensure ConfigManager mock is set up for reload operation
+      vi.mocked(ConfigManager.getInstance).mockReturnValue({
+        getTransportConfig: vi.fn().mockReturnValue({}),
+        reloadConfig: vi.fn().mockResolvedValue(undefined),
+      } as any);
+    });
+
     it('should log debug messages for all operations', async () => {
       const debugSpy = vi.mocked(debugIf);
 

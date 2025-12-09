@@ -1,17 +1,16 @@
-import { McpConfigManager } from '@src/config/mcpConfigManager.js';
+import { ConfigManager } from '@src/config/configManager.js';
 import { MCP_SERVER_CAPABILITIES, MCP_SERVER_NAME, MCP_SERVER_VERSION } from '@src/constants.js';
 // Import the mocked modules
 import logger from '@src/logger/logger.js';
 
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-import configReloadService from './application/services/configReloadService.js';
 import { ClientManager } from './core/client/clientManager.js';
 import { ServerManager } from './core/server/serverManager.js';
 import { setupServer } from './server.js';
 import { createTransports } from './transport/transportFactory.js';
 
-// Mock dependencies
+// Mock dependencies at top level to avoid hoisting issues
 vi.mock('@src/logger/logger.ts', () => ({
   default: {
     info: vi.fn(),
@@ -37,18 +36,15 @@ vi.mock('./core/server/serverManager.js', () => ({
   },
 }));
 
-vi.mock('@src/config/mcpConfigManager.ts', () => ({
-  McpConfigManager: {
+vi.mock('@src/config/configManager.js', () => ({
+  ConfigManager: {
     getInstance: vi.fn(),
-  },
-  ConfigChangeEvent: {
-    TRANSPORT_CONFIG_CHANGED: 'transportConfigChanged',
   },
 }));
 
-vi.mock('./application/services/configReloadService.js', () => ({
-  default: {
-    initialize: vi.fn(),
+vi.mock('@src/core/configChangeHandler.js', () => ({
+  ConfigChangeHandler: {
+    getInstance: vi.fn(),
   },
 }));
 
@@ -58,8 +54,9 @@ describe('server', () => {
   let mockServerManager: any;
   let mockConfigManager: any;
   let mockClientManager: any;
+  let mockConfigChangeHandler: any;
 
-  beforeEach(() => {
+  beforeEach(async () => {
     vi.resetAllMocks();
 
     // Setup mock transports
@@ -92,37 +89,48 @@ describe('server', () => {
 
     // Setup mock config manager
     mockConfigManager = {
-      getTransportConfig: vi.fn().mockReturnValue({ mcpServers: {} }),
+      getTransportConfig: vi.fn().mockReturnValue({}),
+      initialize: vi.fn().mockResolvedValue(undefined),
     };
-    vi.mocked(McpConfigManager.getInstance).mockReturnValue(mockConfigManager);
+    vi.mocked(ConfigManager.getInstance).mockReturnValue(mockConfigManager);
+
+    // Setup mock config change handler
+    mockConfigChangeHandler = {
+      initialize: vi.fn().mockResolvedValue(undefined),
+    };
+    const { ConfigChangeHandler } = await import('@src/core/configChangeHandler.js');
+    vi.mocked(ConfigChangeHandler.getInstance).mockReturnValue(mockConfigChangeHandler);
   });
 
   describe('setupServer', () => {
     it('should set up server successfully', async () => {
       const result = await setupServer();
 
-      expect(result.serverManager).toBe(mockServerManager);
+      expect(ConfigManager.getInstance).toHaveBeenCalled();
+      expect(mockConfigManager.getTransportConfig).toHaveBeenCalled();
+      expect(result).toBeDefined();
+      expect(result.serverManager).toBeDefined();
       expect(result.loadingManager).toBeDefined();
       expect(result.loadingPromise).toBeDefined();
       expect(result.instructionAggregator).toBeDefined();
     });
 
-    it('should get transport configuration from McpConfigManager', async () => {
+    it('should get transport configuration from ConfigManager', async () => {
       // Clear the call count before the test to isolate this test
-      vi.mocked(McpConfigManager.getInstance).mockClear();
+      vi.mocked(ConfigManager.getInstance).mockClear();
       vi.mocked(mockConfigManager.getTransportConfig).mockClear();
 
       await setupServer();
 
       // Check that methods were called during setupServer
-      expect(McpConfigManager.getInstance).toHaveBeenCalled();
+      expect(ConfigManager.getInstance).toHaveBeenCalled();
       expect(mockConfigManager.getTransportConfig).toHaveBeenCalled();
     });
 
     it('should create transports from configuration', async () => {
       await setupServer();
 
-      expect(createTransports).toHaveBeenCalledWith({ mcpServers: {} });
+      expect(createTransports).toHaveBeenCalledWith({});
     });
 
     it('should log transport creation', async () => {
@@ -154,10 +162,12 @@ describe('server', () => {
       );
     });
 
-    it('should initialize config reload service', async () => {
+    it('should initialize config change handler', async () => {
       await setupServer();
 
-      expect(configReloadService.initialize).toHaveBeenCalled();
+      const { ConfigChangeHandler } = await import('./core/configChangeHandler.js');
+      expect(ConfigChangeHandler.getInstance).toHaveBeenCalled();
+      expect(mockConfigChangeHandler.initialize).toHaveBeenCalled();
     });
 
     it('should log successful setup completion', async () => {
@@ -170,8 +180,6 @@ describe('server', () => {
       const result = await setupServer();
 
       expect(result.serverManager).toBe(mockServerManager);
-      expect(result.loadingManager).toBeDefined();
-      expect(result.loadingPromise).toBeDefined();
     });
   });
 
@@ -205,7 +213,7 @@ describe('server', () => {
 
     it('should rethrow errors after logging', async () => {
       const error = new Error('Test error');
-      vi.mocked(createTransports).mockImplementation(() => {
+      vi.mocked(ConfigManager.getInstance).mockImplementation(() => {
         throw error;
       });
 

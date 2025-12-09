@@ -1,10 +1,12 @@
-import { McpConfigManager } from '@src/config/mcpConfigManager.js';
+import path from 'path';
+
+import { ConfigManager } from '@src/config/configManager.js';
 import { MCP_SERVER_CAPABILITIES, MCP_SERVER_NAME, MCP_SERVER_VERSION } from '@src/constants.js';
+import { ConfigChangeHandler } from '@src/core/configChangeHandler.js';
 import { AgentConfigManager } from '@src/core/server/agentConfig.js';
 import { AuthProviderTransport } from '@src/core/types/client.js';
 import logger, { debugIf } from '@src/logger/logger.js';
 
-import configReloadService from './application/services/configReloadService.js';
 import { AsyncLoadingOrchestrator } from './core/capabilities/asyncLoadingOrchestrator.js';
 import { ClientManager } from './core/client/clientManager.js';
 import { InstructionAggregator } from './core/instructions/instructionAggregator.js';
@@ -34,14 +36,23 @@ export interface ServerSetupResult {
  * Main function to set up the MCP server
  * Conditionally uses async or legacy loading based on configuration
  */
-async function setupServer(): Promise<ServerSetupResult> {
+async function setupServer(configFilePath?: string): Promise<ServerSetupResult> {
   try {
-    const mcpConfig = McpConfigManager.getInstance().getTransportConfig();
+    // Initialize the new unified config management system
+    const configManager = ConfigManager.getInstance(configFilePath);
+    const configChangeHandler = ConfigChangeHandler.getInstance(configManager);
+
+    await configManager.initialize();
+    await configChangeHandler.initialize();
+
+    const mcpConfig = configManager.getTransportConfig();
     const agentConfig = AgentConfigManager.getInstance();
     const asyncLoadingEnabled = agentConfig.get('asyncLoading').enabled;
 
     // Initialize preset management system
-    await initializePresetSystem();
+    // Extract config directory from config file path if available
+    const configDir = configFilePath ? path.dirname(configFilePath) : undefined;
+    await initializePresetSystem(configDir);
 
     // Create transports from configuration
     const transports = createTransports(mcpConfig);
@@ -85,8 +96,7 @@ async function setupServerAsync(transports: Record<string, AuthProviderTransport
   );
   serverManager.setInstructionAggregator(instructionAggregator);
 
-  // Initialize config reload service
-  configReloadService.initialize();
+  // Config reload is now handled by ConfigManager and ConfigChangeHandler initialized in setupServer
 
   // Create loading manager for async MCP server initialization
   const loadingManager = new McpLoadingManager(clientManager);
@@ -141,8 +151,7 @@ async function setupServerSync(transports: Record<string, AuthProviderTransport>
   );
   serverManager.setInstructionAggregator(instructionAggregator);
 
-  // Initialize config reload service
-  configReloadService.initialize();
+  // Config reload is now handled by ConfigManager and ConfigChangeHandler initialized in setupServer
 
   // Create a dummy loading manager for compatibility
   const loadingManager = new McpLoadingManager(clientManager);
@@ -161,10 +170,10 @@ async function setupServerSync(transports: Record<string, AuthProviderTransport>
 /**
  * Initialize the preset management system
  */
-async function initializePresetSystem(): Promise<void> {
+async function initializePresetSystem(configDirOption?: string): Promise<void> {
   try {
     // Initialize preset manager with file watching
-    const presetManager = PresetManager.getInstance();
+    const presetManager = PresetManager.getInstance(configDirOption);
     await presetManager.initialize();
 
     // Initialize notification service

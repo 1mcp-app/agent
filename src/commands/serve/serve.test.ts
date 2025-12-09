@@ -8,10 +8,12 @@ import { serveCommand, ServeOptions } from './serve.js';
 
 // Mock dependencies
 vi.mock('@src/logger/configureGlobalLogger.js');
-vi.mock('@src/config/mcpConfigManager.js', () => ({
-  McpConfigManager: {
+vi.mock('@src/config/configManager.js', () => ({
+  ConfigManager: {
     getInstance: vi.fn().mockReturnValue({
       getTransportConfig: vi.fn().mockReturnValue({}),
+      initialize: vi.fn().mockResolvedValue(undefined),
+      stop: vi.fn().mockResolvedValue(undefined),
     }),
   },
 }));
@@ -31,7 +33,13 @@ vi.mock('@src/constants.js');
 vi.mock('@src/core/instructions/instructionAggregator.js');
 vi.mock('@src/core/instructions/templateValidator.js');
 vi.mock('@src/core/loading/mcpLoadingManager.js');
-vi.mock('@src/application/services/configReloadService.js');
+vi.mock('@src/core/configChangeHandler.js', () => ({
+  ConfigChangeHandler: {
+    getInstance: vi.fn().mockReturnValue({
+      initialize: vi.fn().mockResolvedValue(undefined),
+    }),
+  },
+}));
 vi.mock('@src/core/server/pidFileManager.js');
 vi.mock('@src/domains/preset/parsers/tagQueryParser.js');
 vi.mock('@src/utils/ui/logo.js');

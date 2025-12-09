@@ -74,10 +74,12 @@ describe('Index Module', () => {
       expect(typeof HOST).toBe('string');
     });
 
-    it('should have services available', async () => {
-      const configReloadService = await import('./application/services/configReloadService.js');
-      expect(typeof configReloadService.default).toBe('object');
-      expect(typeof configReloadService.default.stop).toBe('function');
+    it('should have config management available', async () => {
+      const { ConfigManager } = await import('./config/configManager.js');
+      expect(typeof ConfigManager.getInstance).toBe('function');
+
+      const { ConfigChangeHandler } = await import('./core/configChangeHandler.js');
+      expect(typeof ConfigChangeHandler.getInstance).toBe('function');
     });
   });
 
@@ -210,7 +212,8 @@ describe('Index Module', () => {
         '@modelcontextprotocol/sdk/server/stdio.js',
         './server.js',
         '@src/logger/logger.js',
-        './application/services/configReloadService.js',
+        './config/configManager.js',
+        './core/configChangeHandler.js',
         './core/server/serverManager.js',
         '@src/config/mcpConfigManager.js',
         './transport/http/server.js',

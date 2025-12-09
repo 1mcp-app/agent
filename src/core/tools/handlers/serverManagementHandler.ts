@@ -11,9 +11,8 @@ import {
   saveConfig,
   setServer,
 } from '@src/commands/mcp/utils/mcpServerConfig.js';
-import { McpConfigManager } from '@src/config/mcpConfigManager.js';
+import { ConfigManager } from '@src/config/configManager.js';
 import { ClientManager } from '@src/core/client/clientManager.js';
-import { SelectiveReloadManager } from '@src/core/reload/selectiveReloadManager.js';
 import {
   McpDisableToolArgs,
   McpEnableToolArgs,
@@ -424,8 +423,7 @@ export async function handleReloadOperation(args: McpReloadToolArgs) {
     meta: { args },
   }));
 
-  const reloadManager = SelectiveReloadManager.getInstance();
-  const configManager = McpConfigManager.getInstance();
+  const configManager = ConfigManager.getInstance();
 
   // Determine reload target based on input parameters
   let reloadTarget: 'server' | 'config' | 'all';
@@ -512,55 +510,31 @@ export async function handleReloadOperation(args: McpReloadToolArgs) {
 
   // If target is config, just reload configuration
   if (reloadTarget === 'config') {
-    // Get current config (before reload)
-    const oldConfig = configManager.getTransportConfig();
-
     // Force reload from disk
-    configManager.reloadConfig();
-
-    // Get new config
-    const newConfig = configManager.getTransportConfig();
-
-    // Execute selective reload
-    const operation = await reloadManager.executeReload(oldConfig, newConfig);
+    await configManager.reloadConfig();
 
     return {
       target: 'config',
       action: 'reloaded',
       timestamp: new Date().toISOString(),
-      success: operation.status === 'completed',
+      success: true,
       details: {
-        operationId: operation.id,
-        changes: operation.impact.summary.totalChanges,
-        affectedServers: operation.affectedServers,
-        status: operation.status,
-        error: operation.error,
+        message: 'Configuration reloaded successfully',
       },
     };
   }
 
   // Default: full reload (when reloadTarget is 'all')
-  // Get current config
-  const oldConfig = configManager.getTransportConfig();
-
   // Force reload from disk
-  configManager.reloadConfig();
-
-  // Get new config
-  const newConfig = configManager.getTransportConfig();
-
-  // Force full reload
-  const operation = await reloadManager.executeReload(oldConfig, newConfig, { forceFullReload: true });
+  await configManager.reloadConfig();
 
   return {
     target: reloadTarget,
     action: 'reloaded',
     timestamp: new Date().toISOString(),
-    success: operation.status === 'completed',
+    success: true,
     details: {
-      operationId: operation.id,
-      status: operation.status,
-      error: operation.error,
+      message: 'Configuration reloaded successfully',
     },
   };
 }
