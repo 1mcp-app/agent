@@ -13,7 +13,7 @@ import { formatValidationError, validateTemplateContent } from '@src/core/instru
 import { LoadingSummary } from '@src/core/loading/loadingStateTracker.js';
 import { McpLoadingManager } from '@src/core/loading/mcpLoadingManager.js';
 import { AgentConfigManager } from '@src/core/server/agentConfig.js';
-import { registerPidFileCleanup, writePidFile } from '@src/core/server/pidFileManager.js';
+import { cleanupPidFileOnExit, registerPidFileCleanup, writePidFile } from '@src/core/server/pidFileManager.js';
 import { ServerManager } from '@src/core/server/serverManager.js';
 import { TagExpression, TagQueryParser } from '@src/domains/preset/parsers/tagQueryParser.js';
 import logger, { debugIf } from '@src/logger/logger.js';
@@ -146,6 +146,7 @@ function setupGracefulShutdown(
   loadingManager?: McpLoadingManager,
   expressServer?: ExpressServer,
   instructionAggregator?: InstructionAggregator,
+  configDir?: string,
 ): void {
   const shutdown = async () => {
     logger.info('Shutting down server...');
@@ -205,6 +206,16 @@ function setupGracefulShutdown(
       }
     } catch (error) {
       logger.error(`Error cleaning up PresetManager: ${error instanceof Error ? error.message : String(error)}`);
+    }
+
+    // Cleanup PID file if configDir is available
+    if (configDir) {
+      try {
+        cleanupPidFileOnExit(configDir);
+        logger.info('PID file cleanup complete');
+      } catch (error) {
+        logger.error(`Error cleaning up PID file: ${error instanceof Error ? error.message : String(error)}`);
+      }
     }
 
     logger.info('Server shutdown complete');
@@ -453,7 +464,8 @@ export async function serveCommand(parsedArgv: ServeOptions): Promise<void> {
     }
 
     // Set up graceful shutdown handling
-    setupGracefulShutdown(serverManager, loadingManager, expressServer, instructionAggregator);
+    const configDir = getConfigDir(parsedArgv['config-dir']);
+    setupGracefulShutdown(serverManager, loadingManager, expressServer, instructionAggregator, configDir);
 
     // Log MCP loading progress (non-blocking)
     loadingManager.on('loading-progress', (summary: LoadingSummary) => {

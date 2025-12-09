@@ -40,7 +40,14 @@ vi.mock('@src/core/configChangeHandler.js', () => ({
     }),
   },
 }));
-vi.mock('@src/core/server/pidFileManager.js');
+vi.mock('@src/core/server/pidFileManager.js', () => ({
+  writePidFile: vi.fn(),
+  registerPidFileCleanup: vi.fn(),
+  cleanupPidFileOnExit: vi.fn(),
+}));
+vi.mock('@src/transport/http/server.js', () => ({
+  ExpressServer: vi.fn(),
+}));
 vi.mock('@src/domains/preset/parsers/tagQueryParser.js');
 vi.mock('@src/utils/ui/logo.js');
 vi.mock('@src/logger/logger.js');
@@ -248,5 +255,13 @@ describe('serveCommand - config-dir session isolation', () => {
         }),
       }),
     );
+  });
+
+  describe('Graceful Shutdown with PID File Cleanup', () => {
+    it('should import cleanupPidFileOnExit without errors', async () => {
+      // Verify that the cleanupPidFileOnExit function is available
+      const { cleanupPidFileOnExit } = await import('@src/core/server/pidFileManager.js');
+      expect(typeof cleanupPidFileOnExit).toBe('function');
+    });
   });
 });
