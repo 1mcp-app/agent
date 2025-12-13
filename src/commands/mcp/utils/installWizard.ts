@@ -48,7 +48,6 @@ export class InstallWizard {
         if (searchResult.cancelled) {
           return this.cancelledResult();
         }
-        serverId = searchResult.serverId;
         selectedServer = searchResult.server;
       } else {
         // Confirm provided server ID
