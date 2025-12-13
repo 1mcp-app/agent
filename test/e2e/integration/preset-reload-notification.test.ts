@@ -16,6 +16,30 @@ vi.mock('../../../src/config/configManager.js', () => ({
   },
 }));
 
+vi.mock('../../../src/config/mcpConfigManager.js', () => ({
+  McpConfigManager: {
+    getInstance: vi.fn().mockReturnValue({
+      getTransportConfig: () => ({
+        'web-server': {
+          command: 'node',
+          args: ['web-server.js'],
+          tags: ['web', 'frontend'],
+        },
+        'api-server': {
+          command: 'node',
+          args: ['api-server.js'],
+          tags: ['api', 'backend'],
+        },
+        'db-server': {
+          command: 'node',
+          args: ['db-server.js'],
+          tags: ['database', 'backend'],
+        },
+      }),
+    }),
+  },
+}));
+
 describe('Preset Reload Notification Integration', () => {
   let tempConfigDir: string;
   let presetsFilePath: string;
