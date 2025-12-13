@@ -1,4 +1,5 @@
 import { MCPServerParams } from '@src/core/types/index.js';
+import { createServerInstallationService } from '@src/domains/server-management/serverInstallationService.js';
 import { GlobalOptions } from '@src/globalOptions.js';
 import { inferTransportType } from '@src/transport/transportFactory.js';
 import {
@@ -10,7 +11,8 @@ import {
 
 import type { Argv } from 'yargs';
 
-import { getAllServers, initializeConfigContext, parseTags, validateConfigPath } from './utils/configUtils.js';
+import { getAllServers, initializeConfigContext, parseTags, validateConfigPath } from './utils/mcpServerConfig.js';
+import { calculateServerStatus } from './utils/serverUtils.js';
 import { validateTags } from './utils/validation.js';
 
 export interface ListCommandArgs extends GlobalOptions {
@@ -18,6 +20,7 @@ export interface ListCommandArgs extends GlobalOptions {
   'show-secrets'?: boolean;
   tags?: string;
   verbose?: boolean;
+  outdated?: boolean;
 }
 
 /**
@@ -46,11 +49,17 @@ export function buildListCommand(yargs: Argv) {
       default: false,
       alias: 'v',
     })
+    .option('outdated', {
+      describe: 'Show only servers with available updates',
+      type: 'boolean',
+      default: false,
+    })
     .example([
       ['$0 mcp list', 'List all enabled servers'],
       ['$0 mcp list --show-disabled', 'List all servers including disabled'],
       ['$0 mcp list --show-secrets', 'Show sensitive values in verbose output'],
       ['$0 mcp list --tags=prod,api', 'List servers with specific tags'],
+      ['$0 mcp list --outdated', 'List only servers with available updates'],
       ['$0 mcp list --verbose', 'List servers with detailed config'],
     ]);
 }
@@ -67,6 +76,7 @@ export async function listCommand(argv: ListCommandArgs): Promise<void> {
       'show-secrets': showSecrets = false,
       tags: tagsFilter,
       verbose = false,
+      outdated = false,
     } = argv;
 
     // Initialize config context with CLI options
@@ -89,8 +99,12 @@ export async function listCommand(argv: ListCommandArgs): Promise<void> {
       return;
     }
 
-    // Filter servers
-    const filteredServers = filterServers(allServers, showDisabled, tagsFilter);
+    // Filter servers (apply outdated filter if requested)
+    let filteredServers = filterServers(allServers, showDisabled, tagsFilter);
+
+    if (outdated) {
+      filteredServers = await getOutdatedServers(filteredServers);
+    }
 
     if (Object.keys(filteredServers).length === 0) {
       if (tagsFilter) {
@@ -151,6 +165,36 @@ export async function listCommand(argv: ListCommandArgs): Promise<void> {
 }
 
 /**
+ * Filter servers to show only those with available updates
+ */
+async function getOutdatedServers(servers: Record<string, MCPServerParams>): Promise<Record<string, MCPServerParams>> {
+  const outdated: Record<string, MCPServerParams> = {};
+
+  // Create service to check for updates
+  const installationService = createServerInstallationService();
+
+  // Get list of server names
+  const serverNames = Object.keys(servers);
+
+  // Check for updates for all servers
+  const updateResults = await installationService.checkForUpdates(serverNames);
+
+  // Filter to only servers with available updates
+  const serversWithUpdates = updateResults
+    .filter((result) => result.hasUpdate || result.updateAvailable)
+    .map((result) => result.serverName);
+
+  // Return only outdated servers
+  for (const serverName of serversWithUpdates) {
+    if (servers[serverName]) {
+      outdated[serverName] = servers[serverName];
+    }
+  }
+
+  return outdated;
+}
+
+/**
  * Filter servers based on criteria
  */
 function filterServers(
@@ -194,12 +238,27 @@ function displayServer(name: string, config: MCPServerParams, verbose: boolean, 
   const statusIcon = config.disabled ? '🔴' : '🟢';
   const statusText = config.disabled ? 'Disabled' : 'Enabled';
 
+  // Get installation metadata
+  const version = 'unknown';
+
+  // Calculate server status
+  const serverStatus = calculateServerStatus(version);
+
   // Infer type if missing
   const inferredConfig = config.type ? config : inferTransportType(config, name);
   const displayType = inferredConfig.type || 'unknown';
 
+  // Display with installation metadata
   console.log(`${statusIcon} ${name} (${statusText})`);
   console.log(`   Type: ${displayType}`);
+  console.log(`   Version: ${version}`);
+
+  // Show status if outdated
+  if (serverStatus === 'outdated') {
+    console.log(`   Status: ⚠️  Update available`);
+  }
+
+  // Installation date would be shown here when metadata storage is fully implemented
 
   // Type-specific information
   if (inferredConfig.type === 'stdio') {

@@ -1,8 +1,19 @@
 import { CustomJsonSchemaValidator } from '@src/core/validation/CustomJsonSchemaValidator.js';
 
-import { describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 describe('CustomJsonSchemaValidator', () => {
+  let consoleSpy: ReturnType<typeof vi.spyOn>;
+
+  beforeEach(() => {
+    // Suppress console.warn messages during tests to clean up output
+    consoleSpy = vi.spyOn(console, 'warn').mockImplementation(() => {}) as ReturnType<typeof vi.spyOn>;
+  });
+
+  afterEach(() => {
+    consoleSpy.mockRestore();
+  });
+
   describe('missing definition handling', () => {
     it('should inject placeholder definition for missing SearchResult', () => {
       const validator = new CustomJsonSchemaValidator();

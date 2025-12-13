@@ -1,5 +1,5 @@
 // @ts-nocheck
-import { McpConfigManager } from '@src/config/mcpConfigManager.js';
+import { ConfigManager } from '@src/config/configManager.js';
 import { LoadingState, LoadingStateTracker, ServerLoadingInfo } from '@src/core/loading/loadingStateTracker.js';
 import { McpLoadingManager } from '@src/core/loading/mcpLoadingManager.js';
 import { MCPServerParams } from '@src/core/types/index.js';
@@ -25,8 +25,8 @@ vi.mock('./scopeAuthMiddleware.js', () => ({
   getValidatedTags: vi.fn(),
 }));
 
-vi.mock('@src/config/mcpConfigManager.js', () => ({
-  McpConfigManager: {
+vi.mock('@src/config/configManager.js', () => ({
+  ConfigManager: {
     getInstance: vi.fn(),
   },
 }));
@@ -34,7 +34,7 @@ vi.mock('@src/config/mcpConfigManager.js', () => ({
 describe('McpAvailabilityMiddleware - Tag Filtering', () => {
   let mockLoadingManager: Partial<McpLoadingManager>;
   let mockStateTracker: Partial<LoadingStateTracker>;
-  let mockConfigManager: Partial<McpConfigManager>;
+  let mockConfigManager: Partial<ConfigManager>;
   let req: Partial<McpRequest>;
   let res: Partial<Response>;
   let next: NextFunction;
@@ -70,7 +70,7 @@ describe('McpAvailabilityMiddleware - Tag Filtering', () => {
       getTransportConfig: vi.fn(),
     };
 
-    vi.mocked(McpConfigManager.getInstance).mockReturnValue(mockConfigManager as McpConfigManager);
+    vi.mocked(ConfigManager.getInstance).mockReturnValue(mockConfigManager as ConfigManager);
 
     req = {};
     res = {

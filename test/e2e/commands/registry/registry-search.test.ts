@@ -27,7 +27,7 @@ describe('Registry Search Command E2E', () => {
       runner.assertOutputContains(result, 'Found');
       runner.assertOutputContains(result, 'MCP server');
       // Should show next steps information
-      runner.assertOutputContains(result, 'Next Steps');
+      runner.assertOutputContains(result, 'Installation');
     });
 
     it('should search with specific query', async () => {

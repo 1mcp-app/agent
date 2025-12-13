@@ -1,4 +1,4 @@
-import { McpConfigManager } from '@src/config/mcpConfigManager.js';
+import { ConfigManager } from '@src/config/configManager.js';
 import { LoadingState } from '@src/core/loading/loadingStateTracker.js';
 import { McpLoadingManager } from '@src/core/loading/mcpLoadingManager.js';
 import logger, { debugIf } from '@src/logger/logger.js';
@@ -101,7 +101,7 @@ export function createMcpAvailabilityMiddleware(
 
       if (requestedTags && requestedTags.length > 0) {
         // Get server configurations to access tags
-        const configManager = McpConfigManager.getInstance();
+        const configManager = ConfigManager.getInstance();
         const transportConfig = configManager.getTransportConfig();
 
         // Filter servers that have ALL requested tags

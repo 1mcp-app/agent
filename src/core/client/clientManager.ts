@@ -629,6 +629,44 @@ export class ClientManager {
 
     return executeOperation(() => operation(outboundConn), `client ${clientName}`, options);
   }
+
+  /**
+   * Remove a client and close its transport
+   * @param name The name of the client to remove
+   */
+  public async removeClient(name: string): Promise<void> {
+    const clientInfo = this.outboundConns.get(name);
+    if (!clientInfo) {
+      return;
+    }
+
+    logger.info(`Removing client ${name}...`);
+
+    try {
+      // Close transport if connected
+      if (clientInfo.transport) {
+        try {
+          await clientInfo.transport.close();
+        } catch (error) {
+          logger.warn(`Error closing transport for ${name}: ${error}`);
+        }
+      }
+
+      // Remove from collections
+      this.outboundConns.delete(name);
+      delete this.transports[name];
+
+      // Remove from instruction aggregator
+      if (this.instructionAggregator) {
+        this.instructionAggregator.removeServer(name);
+      }
+
+      logger.info(`Client ${name} removed successfully`);
+    } catch (error) {
+      logger.error(`Error removing client ${name}: ${error}`);
+      throw error;
+    }
+  }
 }
 
 /**

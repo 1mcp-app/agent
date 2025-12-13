@@ -66,7 +66,7 @@ describe('AsyncLoadingOrchestrator', () => {
     vi.mocked(AgentConfigManager.getInstance).mockReturnValue(mockAgentConfig);
 
     orchestrator = new AsyncLoadingOrchestrator(mockConnections, mockServerManager, mockLoadingManager);
-    vi.clearAllMocks(); // Clear mocks but don't reset the implementations
+    // Don't clear mocks here - we need them to track the initialize() calls
   });
 
   afterEach(() => {
@@ -83,14 +83,14 @@ describe('AsyncLoadingOrchestrator', () => {
   });
 
   describe('initialize', () => {
-    it('should initialize when async loading is enabled', () => {
-      orchestrator.initialize();
+    it('should initialize when async loading is enabled', async () => {
+      await orchestrator.initialize();
 
       expect(mockLoadingManager.on).toHaveBeenCalledWith('server-loaded', expect.any(Function));
       expect(orchestrator.isReady()).toBe(true);
     });
 
-    it('should skip initialization when async loading is disabled', () => {
+    it('should skip initialization when async loading is disabled', async () => {
       mockAgentConfig.get.mockImplementation((key: string) => {
         if (key === 'asyncLoading')
           return {
@@ -102,15 +102,15 @@ describe('AsyncLoadingOrchestrator', () => {
         return undefined;
       });
 
-      orchestrator.initialize();
+      await orchestrator.initialize();
 
       expect(mockLoadingManager.on).not.toHaveBeenCalled();
       expect(orchestrator.isReady()).toBe(false);
     });
 
-    it('should not initialize twice', () => {
-      orchestrator.initialize();
-      orchestrator.initialize();
+    it('should not initialize twice', async () => {
+      await orchestrator.initialize();
+      await orchestrator.initialize();
 
       // Should only set up events once
       expect(mockLoadingManager.on).toHaveBeenCalledTimes(1); // One event handler (server-loaded)
@@ -118,8 +118,8 @@ describe('AsyncLoadingOrchestrator', () => {
   });
 
   describe('initializeNotifications', () => {
-    beforeEach(() => {
-      orchestrator.initialize();
+    beforeEach(async () => {
+      await orchestrator.initialize();
     });
 
     it('should create notification manager when connection is provided', () => {
@@ -156,8 +156,8 @@ describe('AsyncLoadingOrchestrator', () => {
   });
 
   describe('event handling', () => {
-    beforeEach(() => {
-      orchestrator.initialize();
+    beforeEach(async () => {
+      await orchestrator.initialize();
       orchestrator.initializeNotifications(mockInboundConnection);
     });
 
@@ -216,8 +216,8 @@ describe('AsyncLoadingOrchestrator', () => {
   });
 
   describe('refreshCapabilities', () => {
-    beforeEach(() => {
-      orchestrator.initialize();
+    beforeEach(async () => {
+      await orchestrator.initialize();
     });
 
     it('should refresh capabilities when initialized', async () => {
@@ -250,8 +250,8 @@ describe('AsyncLoadingOrchestrator', () => {
   });
 
   describe('updateConfig', () => {
-    beforeEach(() => {
-      orchestrator.initialize();
+    beforeEach(async () => {
+      await orchestrator.initialize();
       orchestrator.initializeNotifications(mockInboundConnection);
     });
 
@@ -275,8 +275,8 @@ describe('AsyncLoadingOrchestrator', () => {
       expect(summary).toBe('not-initialized');
     });
 
-    it('should return detailed status when initialized', () => {
-      orchestrator.initialize();
+    it('should return detailed status when initialized', async () => {
+      await orchestrator.initialize();
 
       const summary = orchestrator.getStatusSummary();
       expect(summary).toContain('capabilities:');
@@ -285,8 +285,8 @@ describe('AsyncLoadingOrchestrator', () => {
   });
 
   describe('shutdown', () => {
-    beforeEach(() => {
-      orchestrator.initialize();
+    beforeEach(async () => {
+      await orchestrator.initialize();
       orchestrator.initializeNotifications(mockInboundConnection);
     });
 

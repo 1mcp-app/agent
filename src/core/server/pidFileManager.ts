@@ -121,7 +121,17 @@ export function cleanupPidFile(configDir: string): void {
 }
 
 /**
- * Register cleanup handlers to remove PID file on process exit
+ * Cleanup function to remove PID file
+ * @param configDir Configuration directory
+ */
+export function cleanupPidFileOnExit(configDir: string): void {
+  cleanupPidFile(configDir);
+}
+
+/**
+ * Register cleanup handler to remove PID file on process exit (only the 'exit' event)
+ * This function only registers for the 'exit' event, not signal handlers.
+ * Signal handlers should be managed by the main application to ensure proper cleanup order.
  * @param configDir Configuration directory
  */
 export function registerPidFileCleanup(configDir: string): void {
@@ -129,8 +139,23 @@ export function registerPidFileCleanup(configDir: string): void {
     cleanupPidFile(configDir);
   };
 
-  // Register cleanup for various exit scenarios
+  // Only register for the 'exit' event
+  // Signal handlers (SIGINT, SIGTERM, SIGHUP) should be managed by the main application
   process.on('exit', cleanup);
+}
+
+/**
+ * Register signal handlers with cleanup function (for standalone usage)
+ * Only use this if the application doesn't have its own signal handlers
+ * @param configDir Configuration directory
+ */
+export function registerPidFileSignalHandlers(configDir: string): void {
+  const cleanup = () => {
+    cleanupPidFile(configDir);
+  };
+
+  // Register cleanup for signal handlers
+  // NOTE: This should only be used if the main application doesn't have its own signal handlers
   process.on('SIGINT', () => {
     cleanup();
     process.exit(0);

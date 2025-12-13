@@ -4,7 +4,7 @@ import { inferTransportType } from '@src/transport/transportFactory.js';
 
 import type { Argv } from 'yargs';
 
-import { getAllServers, getServer, initializeConfigContext, validateConfigPath } from './utils/configUtils.js';
+import { getAllServers, getServer, initializeConfigContext, validateConfigPath } from './utils/mcpServerConfig.js';
 import { validateServerName } from './utils/validation.js';
 
 export interface StatusCommandArgs extends GlobalOptions {

@@ -6,13 +6,13 @@ import axios, { AxiosInstance, AxiosRequestConfig } from 'axios';
 
 import { CacheManager } from './cacheManager.js';
 import {
-  OFFICIAL_REGISTRY_KEY,
   RegistryClientOptions,
   RegistryOptions,
   RegistryServer,
   RegistryStatusResult,
   SearchOptions,
   ServerListOptions,
+  ServerMeta,
   ServersListResponse,
   ServerVersionsResponse,
 } from './types.js';
@@ -48,10 +48,13 @@ export class MCPRegistryClient {
         '/servers',
         params,
         async () => {
-          const url = `${this.baseUrl}/v0/servers${this.buildQueryString(params)}`;
+          const url = `${this.baseUrl}/v0.1/servers${this.buildQueryString(params)}`;
           const response = await this.makeRequest<ServersListResponse>(url);
-          // Extract RegistryServer objects from ServerResponse objects
-          return (response.servers || []).map((sr) => sr.server);
+          // Extract RegistryServer objects from ServerResponse objects and merge metadata
+          return (response.servers || []).map((sr) => ({
+            ...sr.server,
+            _meta: sr._meta as unknown as ServerMeta, // Cast to unknown then ServerMeta since ResponseMeta is compatible
+          }));
         },
         300, // 5 minutes TTL
         'servers list',
@@ -72,8 +75,9 @@ export class MCPRegistryClient {
         '/servers-metadata',
         params,
         async () => {
-          const url = `${this.baseUrl}/v0/servers${this.buildQueryString(params)}`;
-          return await this.makeRequest<ServersListResponse>(url);
+          const url = `${this.baseUrl}/v0.1/servers${this.buildQueryString(params)}`;
+          const response = await this.makeRequest<ServersListResponse>(url);
+          return response;
         },
         300, // 5 minutes TTL
         'servers list with metadata',
@@ -89,16 +93,46 @@ export class MCPRegistryClient {
   async getServerById(id: string, version?: string): Promise<RegistryServer> {
     const handler = withErrorHandling(
       async () => {
-        const cacheKey = version ? `/servers/${id}?version=${version}` : `/servers/${id}`;
+        const cacheKey = version ? `/servers/${id}/versions/${version}` : `/servers/${id}/versions`;
         return await this.withCache(
           cacheKey,
           undefined,
           async () => {
-            let url = `${this.baseUrl}/v0/servers/${encodeURIComponent(id)}`;
-            if (version) {
-              url += `?version=${encodeURIComponent(version)}`;
+            // The v0.1 API doesn't have direct server lookup, only versions endpoint
+            // GET /v0.1/servers/{serverName}/versions - get all versions or specific version
+            const url = `${this.baseUrl}/v0.1/servers/${encodeURIComponent(id)}/versions`;
+            const response = await this.makeRequest<ServersListResponse>(url);
+            if (!response.servers || response.servers.length === 0) {
+              throw new Error(`No versions found for server: ${id}`);
             }
-            return await this.makeRequest<RegistryServer>(url);
+
+            // Find the specific version if requested, otherwise return the first (latest)
+            let serverResponse;
+            if (version) {
+              serverResponse = response.servers.find((sr) => sr.server.version === version);
+              if (!serverResponse) {
+                throw new Error(`Version ${version} not found for server: ${id}`);
+              }
+            } else {
+              serverResponse = response.servers[0]; // First one is typically the latest
+            }
+
+            // Validate server structure and provide warnings for missing remotes
+            const server = {
+              ...serverResponse.server,
+              _meta: serverResponse._meta as unknown as ServerMeta,
+            };
+
+            // Validate remotes and warn if missing
+            if (!server.remotes || server.remotes.length === 0) {
+              logger.warn(`Server ${id} has no remotes defined - installation methods may be limited`);
+            } else {
+              logger.debug(
+                `Server ${id} has ${server.remotes.length} remotes: ${server.remotes.map((r) => r.type).join(', ')}`,
+              );
+            }
+
+            return server;
           },
           600, // 10 minutes TTL for individual servers
           `server: ${id}${version ? ` (v${version})` : ''}`,
@@ -119,20 +153,19 @@ export class MCPRegistryClient {
         `/servers/${id}/versions`,
         undefined,
         async () => {
-          const url = `${this.baseUrl}/v0/servers/${encodeURIComponent(id)}/versions`;
+          const url = `${this.baseUrl}/v0.1/servers/${encodeURIComponent(id)}/versions`;
           // The API returns servers in the same format as the main endpoint
           const response = await this.makeRequest<ServersListResponse>(url);
 
           // Transform to the expected ServerVersionsResponse format
           const versions = (response.servers || []).map((serverResponse) => {
             const server = serverResponse.server;
-            const meta = server._meta[OFFICIAL_REGISTRY_KEY];
             const registryMeta = serverResponse._meta['io.modelcontextprotocol.registry/official'];
             return {
               version: server.version,
-              publishedAt: meta.publishedAt,
-              updatedAt: meta.updatedAt,
-              isLatest: meta.isLatest,
+              publishedAt: registryMeta.publishedAt,
+              updatedAt: registryMeta.updatedAt,
+              isLatest: registryMeta.isLatest,
               status: registryMeta.status,
             };
           });
@@ -167,7 +200,7 @@ export class MCPRegistryClient {
         async () => {
           // For search, we'll use the main servers endpoint with filters
           // This assumes the registry API supports these query parameters
-          const url = `${this.baseUrl}/v0/servers${this.buildQueryString(params)}`;
+          const url = `${this.baseUrl}/v0.1/servers${this.buildQueryString(params)}`;
           const response = await this.makeRequest<ServersListResponse>(url);
           // Extract RegistryServer objects from ServerResponse objects
           return (response.servers || []).map((sr) => sr.server);
@@ -193,7 +226,7 @@ export class MCPRegistryClient {
 
           try {
             // Check registry availability using health endpoint
-            const url = `${this.baseUrl}/v0/health`;
+            const url = `${this.baseUrl}/v0.1/health`;
             const healthResponse = await this.makeRequest<{ status: string; github_client_id?: string }>(url);
             const responseTime = Date.now() - startTime;
 
@@ -320,7 +353,7 @@ export class MCPRegistryClient {
       }
 
       const response = await this.makeRequest<ServersListResponse>(
-        `${this.baseUrl}/v0/servers${this.buildQueryString(this.buildParams(params))}`,
+        `${this.baseUrl}/v0.1/servers${this.buildQueryString(this.buildParams(params))}`,
       );
 
       allServers.push(...(response.servers || []).map((sr) => sr.server));

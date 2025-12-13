@@ -170,6 +170,18 @@ export const serverOptions = {
     type: 'boolean' as const,
     default: true,
   },
+  // Internal tool control
+  'enable-internal-tools': {
+    describe: 'Enable internal MCP management tools (installation, configuration, etc.)',
+    type: 'boolean' as const,
+    default: false,
+  },
+  'internal-tools': {
+    describe:
+      'Enable specific internal MCP tools (comma-separated list: "search,list,status" or categories: "discovery,management,safe")',
+    type: 'string' as const,
+    default: undefined,
+  },
   'instructions-template': {
     alias: 'T',
     describe:
@@ -196,6 +208,9 @@ export function setupServeCommand(yargs: Argv): Argv {
           ['$0 serve --port=3000', 'Start HTTP server on port 3000'],
           ['$0 serve --filter="web,api"', 'Start server with filtered MCP servers'],
           ['$0 serve --enable-auth', 'Start server with OAuth authentication enabled'],
+          ['$0 serve --enable-internal-tools', 'Enable all internal MCP management tools'],
+          ['$0 serve --internal-tools="search,list,status"', 'Enable specific internal tools'],
+          ['$0 serve --internal-tools="discovery,management"', 'Enable tools by category'],
           ['$0 serve --instructions-template=./custom-template.md', 'Use custom instructions template'],
         ]).epilogue(`
 TRANSPORT OPTIONS:
@@ -216,6 +231,13 @@ CUSTOM TEMPLATES:
   Template files use Handlebars syntax with variables like {{serverCount}}, {{serverList}}, etc.
   Defaults to instructions-template.md in your config directory.
 
+INTERNAL TOOLS:
+  Use --enable-internal-tools to enable ALL internal MCP management tools.
+  Use --internal-tools with comma-separated list for selective control:
+  • Individual tools: "search,list,status,registry"
+  • Categories: "discovery,management,installation,safe"
+  • Examples: "safe" (read-only), "discovery,management" (no installation)
+
 For more information: https://github.com/1mcp-app/agent
         `);
     },
@@ -224,7 +246,13 @@ For more information: https://github.com/1mcp-app/agent
       const { serveCommand } = await import('./serve.js');
 
       // Configure logger with global options and transport awareness
-      configureGlobalLogger(argv, argv.transport);
+      const globalOptions = {
+        config: argv.config,
+        'config-dir': argv['config-dir'],
+        'log-level': argv['log-level'],
+        'log-file': argv['log-file'],
+      };
+      configureGlobalLogger(globalOptions, argv.transport);
 
       // Execute serve command
       await serveCommand(argv);
