@@ -26,8 +26,8 @@ jobs:
           close-issue-message: |
             This issue has been automatically closed due to inactivity.
             If you believe this issue is still relevant, please reopen it or create a new issue with updated information.
-          days-before-issue-stale: 30
-          days-before-issue-close: 7
+          days-before-issue-stale: 14
+          days-before-issue-close: 5
 
           # Pull requests configuration
           stale-pr-message: |
@@ -37,8 +37,8 @@ jobs:
           close-pr-message: |
             This pull request has been automatically closed due to inactivity.
             If you'd like to continue this work, please reopen this PR or create a new one.
-          days-before-pr-stale: 30
-          days-before-pr-close: 14
+          days-before-pr-stale: 14
+          days-before-pr-close: 5
 
           # Labels
           stale-issue-label: 'stale'
