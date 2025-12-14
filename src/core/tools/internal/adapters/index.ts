@@ -11,7 +11,7 @@ import {
   type DiscoveryAdapter,
 } from './discoveryAdapter.js';
 import { createInstallationAdapter, type InstallationAdapter } from './installationAdapter.js';
-import { createManagementAdapter, type ManagementAdapter } from './managementAdapter.js';
+import { createManagementAdapter, type ManagementAdapter } from './management/index.js';
 
 // Re-export adapters for external use
 export { type DiscoveryAdapter, RegistryDiscoveryAdapter, createDiscoveryAdapter } from './discoveryAdapter.js';
@@ -41,7 +41,8 @@ export {
   type ValidationResult,
   ConfigManagementAdapter,
   createManagementAdapter,
-} from './managementAdapter.js';
+  handleMcpEdit,
+} from './management/index.js';
 
 /**
  * Adapter factory for creating all adapters with consistent configuration

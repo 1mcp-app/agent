@@ -385,6 +385,7 @@ vi.mock('@src/commands/mcp/utils/mcpServerConfig.js', () => ({
     })[name],
   setServer: vi.fn(),
   getInstallationMetadata: () => null,
+  reloadMcpConfig: vi.fn(),
 }));
 
 vi.mock('@src/utils/validation/urlDetection.js', () => ({
@@ -810,7 +811,7 @@ describe('Internal Tools Integration Tests', () => {
       expect(result.name).toBe('test-server');
       expect(result.status).toBe('success');
       expect(result.enabled).toBe(true);
-      expect(result.restarted).toBe(false);
+      expect(result.restarted).toBeUndefined();
       expect(result.reloadRecommended).toBe(true);
     });
 
@@ -835,7 +836,7 @@ describe('Internal Tools Integration Tests', () => {
       expect(result.name).toBe('disabled-server');
       expect(result.status).toBe('success');
       expect(result.disabled).toBe(true);
-      expect(result.gracefulShutdown).toBe(true);
+      expect(result.gracefulShutdown).toBeUndefined();
       expect(result.reloadRecommended).toBe(true);
     });
 
@@ -907,8 +908,8 @@ describe('Internal Tools Integration Tests', () => {
       expect(result).toHaveProperty('timestamp');
       expect(result).toHaveProperty('reloadedServers');
 
-      expect(result.target).toBe('config');
-      expect(result.action).toBe('reloaded');
+      expect(result.target).toBe('all-servers');
+      expect(result.action).toBe('config-reload');
       expect(result.status).toBe('success');
       expect(result.timestamp).toBeDefined();
       expect(result.reloadedServers).toEqual(['test-server', 'disabled-server']);

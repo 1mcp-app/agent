@@ -31,7 +31,7 @@
  */
 // ==================== HANDLER EXPORTS ====================
 // Import the handlers directly from their modules
-import { handleMcpEdit } from './adapters/managementAdapter.js';
+import { handleMcpEdit } from './adapters/index.js';
 import {
   cleanupDiscoveryHandlers,
   handleMcpInfo,

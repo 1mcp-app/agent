@@ -74,6 +74,7 @@ vi.mock('./adapters/index.js', () => ({
   AdapterFactory: {
     cleanup: vi.fn(),
   },
+  handleMcpEdit: vi.fn(),
 }));
 
 describe('toolHandlers', () => {
