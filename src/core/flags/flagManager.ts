@@ -266,17 +266,4 @@ export class FlagManager extends EventEmitter {
 
     this.emit('flagChanged', event);
   }
-
-  /**
-   * Check if tools are safe for current context (simplified)
-   */
-  public areToolsSafeForContext(context: 'production' | 'development' | 'testing'): boolean {
-    if (context === 'production') {
-      // In production, internal tools might be risky - let the admin decide
-      // Simplified approach: just check if internal tools are enabled
-      return !this.isCategoryEnabled('internalTools');
-    }
-
-    return true;
-  }
 }

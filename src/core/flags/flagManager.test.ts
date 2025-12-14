@@ -177,49 +177,6 @@ describe('FlagManager', () => {
     });
   });
 
-  describe('areToolsSafeForContext', () => {
-    it('should return true for development context with any tools', () => {
-      configManager.updateConfig({
-        features: {
-          auth: false,
-          scopeValidation: false,
-          enhancedSecurity: false,
-          configReload: true,
-          envSubstitution: true,
-          sessionPersistence: true,
-          clientNotifications: true,
-          internalTools: true,
-          internalToolsList: [],
-        },
-      });
-
-      expect(flagManager.areToolsSafeForContext('development')).toBe(true);
-      expect(flagManager.areToolsSafeForContext('testing')).toBe(true);
-    });
-
-    it('should return false for production context with internal tools enabled', () => {
-      configManager.updateConfig({
-        features: {
-          auth: false,
-          scopeValidation: false,
-          enhancedSecurity: false,
-          configReload: true,
-          envSubstitution: true,
-          sessionPersistence: true,
-          clientNotifications: true,
-          internalTools: true,
-          internalToolsList: [],
-        },
-      });
-
-      expect(flagManager.areToolsSafeForContext('production')).toBe(false);
-    });
-
-    it('should return true for production context with internal tools disabled', () => {
-      expect(flagManager.areToolsSafeForContext('production')).toBe(true);
-    });
-  });
-
   describe('parseToolsList', () => {
     it('should return empty array for empty input', () => {
       const result = flagManager.parseToolsList('');
