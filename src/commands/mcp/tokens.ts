@@ -10,8 +10,8 @@ import boxen from 'boxen';
 import chalk from 'chalk';
 import type { Arguments, Argv } from 'yargs';
 
-import { initializeConfigContext, loadConfig, type ServerConfig } from './utils/configUtils.js';
 import { McpConnectionHelper } from './utils/connectionHelper.js';
+import { initializeConfigContext, loadConfig, type ServerConfig } from './utils/mcpServerConfig.js';
 
 interface TokensCommandArgs extends GlobalOptions {
   'tag-filter'?: string;

@@ -26,6 +26,7 @@ import {
 } from '@modelcontextprotocol/sdk/types.js';
 
 import { MCP_URI_SEPARATOR } from '@src/constants.js';
+import { InternalCapabilitiesProvider } from '@src/core/capabilities/internalCapabilitiesProvider.js';
 import { ClientManager } from '@src/core/client/clientManager.js';
 import { byCapabilities } from '@src/core/filtering/clientFiltering.js';
 import { FilteringService } from '@src/core/filtering/filteringService.js';
@@ -278,6 +279,7 @@ function registerToolHandlers(outboundConns: OutboundConnections, inboundConn: I
       const capabilityFilteredClients = byCapabilities({ tools: {} })(outboundConns);
       const filteredClients = FilteringService.getFilteredConnections(capabilityFilteredClients, inboundConn);
 
+      // Get tools from external MCP servers
       const result = await handlePagination(
         filteredClients,
         request.params || {},
@@ -290,8 +292,22 @@ function registerToolHandlers(outboundConns: OutboundConnections, inboundConn: I
         inboundConn.enablePagination ?? false,
       );
 
+      // Get internal tools if enabled
+      const internalProvider = InternalCapabilitiesProvider.getInstance();
+      await internalProvider.initialize();
+      const internalTools = internalProvider.getAvailableTools();
+
+      // Add internal tools to the result (with 1mcp prefix)
+      const internalToolsWithPrefix = internalTools.map((tool) => ({
+        ...tool,
+        name: buildUri('1mcp', tool.name, MCP_URI_SEPARATOR),
+      }));
+
+      // Combine external and internal tools
+      const allTools = [...result.items, ...internalToolsWithPrefix];
+
       return {
-        tools: result.items,
+        tools: allTools,
         nextCursor: result.nextCursor,
       };
     }, 'Error listing tools'),
@@ -302,6 +318,27 @@ function registerToolHandlers(outboundConns: OutboundConnections, inboundConn: I
     CallToolRequestSchema,
     withErrorHandling(async (request) => {
       const { clientName, resourceName: toolName } = parseUri(request.params.name, MCP_URI_SEPARATOR);
+
+      // Handle 1mcp tools
+      if (clientName === '1mcp') {
+        const internalProvider = InternalCapabilitiesProvider.getInstance();
+        await internalProvider.initialize();
+        const result = await internalProvider.executeTool(toolName, request.params.arguments);
+
+        // For tools with output schemas, return both content and structuredContent
+        // This is required by the MCP protocol when outputSchema is defined
+        return {
+          content: [
+            {
+              type: 'text' as const,
+              text: JSON.stringify(result, null, 2),
+            },
+          ],
+          structuredContent: result,
+        };
+      }
+
+      // Handle external MCP server tools
       return ClientManager.current.executeClientOperation(clientName, (outboundConn) =>
         outboundConn.client.callTool({ ...request.params, name: toolName }, CallToolResultSchema, {
           timeout: getRequestTimeout(outboundConn.transport),

@@ -8,6 +8,7 @@ import { InboundConnection, OutboundConnections } from '@src/core/types/index.js
 import logger, { debugIf } from '@src/logger/logger.js';
 
 import { CapabilityAggregator, CapabilityChanges } from './capabilityAggregator.js';
+import { InternalCapabilitiesProvider } from './internalCapabilitiesProvider.js';
 
 /**
  * Events emitted by AsyncLoadingOrchestrator
@@ -65,7 +66,7 @@ export class AsyncLoadingOrchestrator extends EventEmitter {
   /**
    * Initialize the orchestrator and wire up event handlers
    */
-  public initialize(): void {
+  public async initialize(): Promise<void> {
     if (this.isInitialized) {
       logger.warn('AsyncLoadingOrchestrator already initialized');
       return;
@@ -77,6 +78,11 @@ export class AsyncLoadingOrchestrator extends EventEmitter {
     }
 
     logger.info('Initializing AsyncLoadingOrchestrator...');
+
+    // Initialize 1mcp capabilities provider
+    const internalProvider = InternalCapabilitiesProvider.getInstance();
+    await internalProvider.initialize();
+    logger.info('1mcp capabilities provider initialized');
 
     // Wire up the event chain: LoadingManager -> CapabilityAggregator
     this.setupEventChain();

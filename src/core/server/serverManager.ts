@@ -1,13 +1,16 @@
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
 
-import configReloadService from '@src/application/services/configReloadService.js';
+import { processEnvironment } from '@src/config/envProcessor.js';
 import { setupCapabilities } from '@src/core/capabilities/capabilityManager.js';
+import { ClientManager } from '@src/core/client/clientManager.js';
 import { InstructionAggregator } from '@src/core/instructions/instructionAggregator.js';
 import type { OutboundConnection } from '@src/core/types/client.js';
 import {
+  AuthProviderTransport,
   InboundConnection,
   InboundConnectionConfig,
+  MCPServerParams,
   OperationOptions,
   OutboundConnections,
   ServerStatus,
@@ -18,6 +21,7 @@ import {
 } from '@src/domains/preset/services/presetNotificationService.js';
 import logger, { debugIf } from '@src/logger/logger.js';
 import { enhanceServerWithLogging } from '@src/logger/mcpLoggingEnhancer.js';
+import { createTransports, inferTransportType } from '@src/transport/transportFactory.js';
 import { executeOperation } from '@src/utils/core/operationExecution.js';
 
 export class ServerManager {
@@ -31,6 +35,8 @@ export class ServerManager {
   private connectionSemaphore: Map<string, Promise<void>> = new Map();
   private disconnectingIds: Set<string> = new Set();
   private instructionAggregator?: InstructionAggregator;
+  private clientManager?: ClientManager;
+  private mcpServers: Map<string, { transport: AuthProviderTransport; config: MCPServerParams }> = new Map();
 
   private constructor(
     config: { name: string; version: string },
@@ -42,6 +48,7 @@ export class ServerManager {
     this.serverCapabilities = capabilities;
     this.outboundConns = outboundConns;
     this.transports = transports;
+    this.clientManager = ClientManager.getOrCreateInstance();
   }
 
   public static getOrCreateInstance(
@@ -192,7 +199,7 @@ export class ServerManager {
     await setupCapabilities(this.outboundConns, serverInfo);
 
     // Update the configuration reload service with server info
-    configReloadService.updateServerInfo(sessionId, serverInfo);
+    // Config reload service removed - handled by ConfigChangeHandler
 
     // Store the server instance
     this.inboundConns.set(sessionId, serverInfo);
@@ -270,7 +277,7 @@ export class ServerManager {
         debugIf(() => ({ message: 'Untracked client from preset notifications', meta: { sessionId } }));
 
         this.inboundConns.delete(sessionId);
-        configReloadService.removeServerInfo(sessionId);
+        // Config reload service removed - handled by ConfigChangeHandler
         logger.info(`Disconnected transport for session ${sessionId}`);
       } finally {
         this.disconnectingIds.delete(sessionId);
@@ -342,5 +349,299 @@ export class ServerManager {
     }
 
     return executeOperation(() => operation(inboundConn), 'server', options);
+  }
+
+  /**
+   * Start a new MCP server instance
+   */
+  public async startServer(serverName: string, config: MCPServerParams): Promise<void> {
+    try {
+      logger.info(`Starting MCP server: ${serverName}`);
+
+      // Check if server is already running
+      if (this.mcpServers.has(serverName)) {
+        logger.warn(`Server ${serverName} is already running`);
+        return;
+      }
+
+      // Skip disabled servers
+      if (config.disabled) {
+        logger.info(`Server ${serverName} is disabled, skipping start`);
+        return;
+      }
+
+      // Process environment variables in config
+      const processedConfig = this.processServerConfig(config);
+
+      // Infer transport type if not specified
+      const configWithType = inferTransportType(processedConfig, serverName);
+
+      // Create transport for the server
+      const transport = await this.createServerTransport(serverName, configWithType);
+
+      // Store server info
+      this.mcpServers.set(serverName, {
+        transport,
+        config: configWithType,
+      });
+
+      // Create client connection to the server using ClientManager
+      await this.connectToServer(serverName, transport, configWithType);
+
+      logger.info(`Successfully started MCP server: ${serverName}`);
+    } catch (error) {
+      logger.error(`Failed to start MCP server ${serverName}:`, error);
+      throw error;
+    }
+  }
+
+  /**
+   * Stop a server instance
+   */
+  public async stopServer(serverName: string): Promise<void> {
+    try {
+      logger.info(`Stopping MCP server: ${serverName}`);
+
+      // Check if server is running
+      const serverInfo = this.mcpServers.get(serverName);
+      if (!serverInfo) {
+        logger.warn(`Server ${serverName} is not running`);
+        return;
+      }
+
+      // Disconnect client from the server using ClientManager
+      await this.disconnectFromServer(serverName);
+
+      // Clean up transport
+      const { transport } = serverInfo;
+      try {
+        if (transport.close) {
+          await transport.close();
+        }
+      } catch (error) {
+        logger.warn(`Error closing transport for server ${serverName}:`, error);
+      }
+
+      // Remove from tracking
+      this.mcpServers.delete(serverName);
+
+      logger.info(`Successfully stopped MCP server: ${serverName}`);
+    } catch (error) {
+      logger.error(`Failed to stop MCP server ${serverName}:`, error);
+      throw error;
+    }
+  }
+
+  /**
+   * Restart a server instance
+   */
+  public async restartServer(serverName: string, config: MCPServerParams): Promise<void> {
+    try {
+      logger.info(`Restarting MCP server: ${serverName}`);
+
+      // Check if server is currently running and stop it
+      const isCurrentlyRunning = this.mcpServers.has(serverName);
+      if (isCurrentlyRunning) {
+        logger.info(`Stopping existing server ${serverName} before restart`);
+        await this.stopServer(serverName);
+      }
+
+      // Start the server with new configuration
+      await this.startServer(serverName, config);
+
+      logger.info(`Successfully restarted MCP server: ${serverName}`);
+    } catch (error) {
+      logger.error(`Failed to restart MCP server ${serverName}:`, error);
+      throw error;
+    }
+  }
+
+  /**
+   * Process server configuration to handle environment variables
+   */
+  private processServerConfig(config: MCPServerParams): MCPServerParams {
+    try {
+      // Create a mutable copy for processing
+      const processedConfig = { ...config };
+
+      // Process environment variables if enabled - only pass env-related fields
+      const envConfig = {
+        inheritParentEnv: config.inheritParentEnv,
+        envFilter: config.envFilter,
+        env: config.env,
+      };
+
+      const processedEnv = processEnvironment(envConfig);
+
+      // Replace environment variables in the config while preserving all other fields
+      if (processedEnv.processedEnv && Object.keys(processedEnv.processedEnv).length > 0) {
+        processedConfig.env = processedEnv.processedEnv;
+      }
+
+      return processedConfig;
+    } catch (error) {
+      logger.warn(`Failed to process environment variables for server config:`, error);
+      return config;
+    }
+  }
+
+  /**
+   * Create a transport for the given server configuration
+   */
+  private async createServerTransport(serverName: string, config: MCPServerParams): Promise<AuthProviderTransport> {
+    try {
+      debugIf(() => ({
+        message: `Creating transport for server ${serverName}`,
+        meta: { serverName, type: config.type, command: config.command, url: config.url },
+      }));
+
+      // Create transport using the factory pattern
+      const transports = createTransports({ [serverName]: config });
+      const transport = transports[serverName];
+
+      if (!transport) {
+        throw new Error(`Failed to create transport for server ${serverName}`);
+      }
+
+      debugIf(() => ({
+        message: `Successfully created transport for server ${serverName}`,
+        meta: { serverName, transportType: config.type },
+      }));
+
+      return transport;
+    } catch (error) {
+      logger.error(`Failed to create transport for server ${serverName}:`, error);
+      throw error;
+    }
+  }
+
+  /**
+   * Connect to a server using ClientManager
+   */
+  private async connectToServer(
+    serverName: string,
+    transport: AuthProviderTransport,
+    _config: MCPServerParams,
+  ): Promise<void> {
+    try {
+      if (!this.clientManager) {
+        throw new Error('ClientManager not initialized');
+      }
+
+      // Create client connection using the existing ClientManager infrastructure
+      const clients = await this.clientManager.createClients({ [serverName]: transport });
+
+      // Update our local outbound connections
+      const newClient = clients.get(serverName);
+      if (newClient) {
+        this.outboundConns.set(serverName, newClient);
+        this.transports[serverName] = transport;
+      }
+
+      debugIf(() => ({
+        message: `Successfully connected to server ${serverName}`,
+        meta: { serverName, status: newClient?.status },
+      }));
+    } catch (error) {
+      logger.error(`Failed to connect to server ${serverName}:`, error);
+      throw error;
+    }
+  }
+
+  /**
+   * Disconnect from a server using ClientManager
+   */
+  private async disconnectFromServer(serverName: string): Promise<void> {
+    try {
+      if (!this.clientManager) {
+        throw new Error('ClientManager not initialized');
+      }
+
+      // Remove from outbound connections
+      this.outboundConns.delete(serverName);
+      delete this.transports[serverName];
+
+      // ClientManager doesn't have explicit disconnect method, so we clean up our references
+      // The actual transport cleanup happens in stopServer
+
+      debugIf(() => ({
+        message: `Successfully disconnected from server ${serverName}`,
+        meta: { serverName },
+      }));
+    } catch (error) {
+      logger.error(`Failed to disconnect from server ${serverName}:`, error);
+      throw error;
+    }
+  }
+
+  /**
+   * Get the status of all managed MCP servers
+   */
+  public getMcpServerStatus(): Map<string, { running: boolean; config: MCPServerParams }> {
+    const status = new Map<string, { running: boolean; config: MCPServerParams }>();
+
+    for (const [serverName, serverInfo] of this.mcpServers.entries()) {
+      status.set(serverName, {
+        running: true,
+        config: serverInfo.config,
+      });
+    }
+
+    return status;
+  }
+
+  /**
+   * Check if a specific MCP server is running
+   */
+  public isMcpServerRunning(serverName: string): boolean {
+    return this.mcpServers.has(serverName);
+  }
+
+  /**
+   * Update metadata for a running server without restarting it
+   */
+  public async updateServerMetadata(serverName: string, newConfig: MCPServerParams): Promise<void> {
+    try {
+      const serverInfo = this.mcpServers.get(serverName);
+      if (!serverInfo) {
+        logger.warn(`Cannot update metadata for ${serverName}: server not running`);
+        return;
+      }
+
+      debugIf(() => ({
+        message: `Updating metadata for server ${serverName}`,
+        meta: {
+          oldConfig: serverInfo.config,
+          newConfig,
+        },
+      }));
+
+      // Update the stored configuration with new metadata
+      serverInfo.config = { ...serverInfo.config, ...newConfig };
+
+      // Update transport metadata if supported
+      const { transport } = serverInfo;
+      if (transport && 'tags' in transport) {
+        // Update tags and other metadata on transport
+        if (newConfig.tags) {
+          transport.tags = newConfig.tags;
+        }
+      }
+
+      // Update outbound connections metadata
+      const outboundConn = this.outboundConns.get(serverName);
+      if (outboundConn && outboundConn.transport && 'tags' in outboundConn.transport) {
+        // Update tags in the outbound connection
+        outboundConn.transport.tags = newConfig.tags;
+      }
+
+      debugIf(() => ({
+        message: `Successfully updated metadata for server ${serverName}`,
+        meta: { newTags: newConfig.tags },
+      }));
+    } catch (error) {
+      logger.error(`Failed to update metadata for server ${serverName}:`, error);
+      throw error;
+    }
   }
 }

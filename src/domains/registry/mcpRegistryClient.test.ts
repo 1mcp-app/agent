@@ -54,8 +54,6 @@ describe('MCPRegistryClient', () => {
         ],
         _meta: {
           'io.modelcontextprotocol.registry/official': {
-            serverId: 'file-server-1',
-            versionId: 'v1.0.0',
             publishedAt: '2024-01-01T00:00:00Z',
             updatedAt: '2024-01-01T00:00:00Z',
             isLatest: true,
@@ -81,8 +79,6 @@ describe('MCPRegistryClient', () => {
         ],
         _meta: {
           'io.modelcontextprotocol.registry/official': {
-            serverId: 'database-server-1',
-            versionId: 'v1.0.1',
             publishedAt: '2024-01-02T00:00:00Z',
             updatedAt: '2024-01-02T00:00:00Z',
             isLatest: true,
@@ -118,7 +114,7 @@ describe('MCPRegistryClient', () => {
 
       const result = await client.getServers();
 
-      expect(mockAxiosInstance.get).toHaveBeenCalledWith('https://registry.test.com/v0/servers');
+      expect(mockAxiosInstance.get).toHaveBeenCalledWith('https://registry.test.com/v0.1/servers');
       expect(result).toEqual(mockServers);
     });
 
@@ -139,7 +135,7 @@ describe('MCPRegistryClient', () => {
       await client.getServers({ limit: 10, cursor: 'test-cursor-123' });
 
       expect(mockAxiosInstance.get).toHaveBeenCalledWith(
-        'https://registry.test.com/v0/servers?limit=10&cursor=test-cursor-123',
+        'https://registry.test.com/v0.1/servers?limit=10&cursor=test-cursor-123',
       );
     });
 
@@ -200,24 +196,50 @@ describe('MCPRegistryClient', () => {
 
   describe('getServerById', () => {
     it('should fetch server by ID successfully', async () => {
+      const mockServerResponse = {
+        servers: [
+          {
+            server: mockServers[0],
+            _meta: {
+              'io.modelcontextprotocol.registry/official':
+                mockServers[0]._meta['io.modelcontextprotocol.registry/official'],
+            },
+          },
+        ],
+      };
       mockAxiosInstance.get.mockResolvedValueOnce({
-        data: mockServers[0],
+        data: mockServerResponse,
       });
 
       const result = await client.getServerById('file-server-1');
 
-      expect(mockAxiosInstance.get).toHaveBeenCalledWith('https://registry.test.com/v0/servers/file-server-1');
+      expect(mockAxiosInstance.get).toHaveBeenCalledWith(
+        'https://registry.test.com/v0.1/servers/file-server-1/versions',
+      );
       expect(result).toEqual(mockServers[0]);
     });
 
     it('should encode server ID in URL', async () => {
+      const mockServerResponse = {
+        servers: [
+          {
+            server: mockServers[0],
+            _meta: {
+              'io.modelcontextprotocol.registry/official':
+                mockServers[0]._meta['io.modelcontextprotocol.registry/official'],
+            },
+          },
+        ],
+      };
       mockAxiosInstance.get.mockResolvedValueOnce({
-        data: mockServers[0],
+        data: mockServerResponse,
       });
 
       await client.getServerById('server with spaces');
 
-      expect(mockAxiosInstance.get).toHaveBeenCalledWith('https://registry.test.com/v0/servers/server%20with%20spaces');
+      expect(mockAxiosInstance.get).toHaveBeenCalledWith(
+        'https://registry.test.com/v0.1/servers/server%20with%20spaces/versions',
+      );
     });
   });
 
@@ -244,7 +266,7 @@ describe('MCPRegistryClient', () => {
         limit: 10,
       });
 
-      expect(mockAxiosInstance.get).toHaveBeenCalledWith('https://registry.test.com/v0/servers?limit=10&search=file');
+      expect(mockAxiosInstance.get).toHaveBeenCalledWith('https://registry.test.com/v0.1/servers?limit=10&search=file');
 
       expect(result).toHaveLength(1);
       expect(result[0].name).toBe('file-server');

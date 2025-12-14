@@ -8,10 +8,12 @@ import { serveCommand, ServeOptions } from './serve.js';
 
 // Mock dependencies
 vi.mock('@src/logger/configureGlobalLogger.js');
-vi.mock('@src/config/mcpConfigManager.js', () => ({
-  McpConfigManager: {
+vi.mock('@src/config/configManager.js', () => ({
+  ConfigManager: {
     getInstance: vi.fn().mockReturnValue({
       getTransportConfig: vi.fn().mockReturnValue({}),
+      initialize: vi.fn().mockResolvedValue(undefined),
+      stop: vi.fn().mockResolvedValue(undefined),
     }),
   },
 }));
@@ -31,8 +33,21 @@ vi.mock('@src/constants.js');
 vi.mock('@src/core/instructions/instructionAggregator.js');
 vi.mock('@src/core/instructions/templateValidator.js');
 vi.mock('@src/core/loading/mcpLoadingManager.js');
-vi.mock('@src/application/services/configReloadService.js');
-vi.mock('@src/core/server/pidFileManager.js');
+vi.mock('@src/core/configChangeHandler.js', () => ({
+  ConfigChangeHandler: {
+    getInstance: vi.fn().mockReturnValue({
+      initialize: vi.fn().mockResolvedValue(undefined),
+    }),
+  },
+}));
+vi.mock('@src/core/server/pidFileManager.js', () => ({
+  writePidFile: vi.fn(),
+  registerPidFileCleanup: vi.fn(),
+  cleanupPidFileOnExit: vi.fn(),
+}));
+vi.mock('@src/transport/http/server.js', () => ({
+  ExpressServer: vi.fn(),
+}));
 vi.mock('@src/domains/preset/parsers/tagQueryParser.js');
 vi.mock('@src/utils/ui/logo.js');
 vi.mock('@src/logger/logger.js');
@@ -102,6 +117,8 @@ describe('serveCommand - config-dir session isolation', () => {
       'session-persist-interval': 5,
       'session-background-flush': 60,
       'enable-client-notifications': true,
+      // Internal tool flags (default values for tests)
+      'enable-internal-tools': false,
     };
 
     // Get the mocked AgentConfigManager instance
@@ -161,6 +178,8 @@ describe('serveCommand - config-dir session isolation', () => {
       'session-persist-interval': 5,
       'session-background-flush': 60,
       'enable-client-notifications': true,
+      // Internal tool flags (default values for tests)
+      'enable-internal-tools': false,
     };
 
     // Get the mocked AgentConfigManager instance
@@ -213,6 +232,8 @@ describe('serveCommand - config-dir session isolation', () => {
       'session-persist-interval': 5,
       'session-background-flush': 60,
       'enable-client-notifications': true,
+      // Internal tool flags (default values for tests)
+      'enable-internal-tools': false,
     };
 
     // Get the mocked AgentConfigManager instance
@@ -234,5 +255,13 @@ describe('serveCommand - config-dir session isolation', () => {
         }),
       }),
     );
+  });
+
+  describe('Graceful Shutdown with PID File Cleanup', () => {
+    it('should import cleanupPidFileOnExit without errors', async () => {
+      // Verify that the cleanupPidFileOnExit function is available
+      const { cleanupPidFileOnExit } = await import('@src/core/server/pidFileManager.js');
+      expect(typeof cleanupPidFileOnExit).toBe('function');
+    });
   });
 });

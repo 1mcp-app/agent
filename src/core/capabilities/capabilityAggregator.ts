@@ -9,6 +9,7 @@ import {
   Tool,
 } from '@modelcontextprotocol/sdk/types.js';
 
+import { InternalCapabilitiesProvider } from '@src/core/capabilities/internalCapabilitiesProvider.js';
 import { ClientStatus, OutboundConnections } from '@src/core/types/index.js';
 import logger, { debugIf } from '@src/logger/logger.js';
 
@@ -66,11 +67,13 @@ export class CapabilityAggregator extends EventEmitter {
   private outboundConns: OutboundConnections;
   private currentCapabilities: AggregatedCapabilities;
   private isInitialized: boolean = false;
+  private internalProvider: InternalCapabilitiesProvider;
 
   constructor(outboundConnections: OutboundConnections) {
     super();
     this.outboundConns = outboundConnections;
     this.currentCapabilities = this.createEmptyCapabilities();
+    this.internalProvider = InternalCapabilitiesProvider.getInstance();
     this.setMaxListeners(50);
   }
 
@@ -137,6 +140,26 @@ export class CapabilityAggregator extends EventEmitter {
     const allResources: Resource[] = [];
     const allPrompts: Prompt[] = [];
 
+    // Add 1mcp tools first
+    try {
+      await this.internalProvider.initialize();
+      const internalTools = this.internalProvider.getAvailableTools();
+      const internalResources = this.internalProvider.getAvailableResources();
+      const internalPrompts = this.internalProvider.getAvailablePrompts();
+
+      allTools.push(...internalTools);
+      allResources.push(...internalResources);
+      allPrompts.push(...internalPrompts);
+
+      // Only add 1mcp as a ready server if it provides capabilities
+      if (internalTools.length > 0 || internalResources.length > 0 || internalPrompts.length > 0) {
+        readyServers.push('1mcp');
+      }
+    } catch (error) {
+      logger.warn(`Failed to load 1mcp tools: ${error}`);
+    }
+
+    // Add tools from external MCP servers
     for (const [serverName, connection] of this.outboundConns.entries()) {
       if (connection.status !== ClientStatus.Connected || !connection.client.transport) {
         continue;

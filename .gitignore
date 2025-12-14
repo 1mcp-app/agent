@@ -35,9 +35,9 @@ CLAUDE.md
 GEMINI.md
 AGENTS.md
 
-sea-prep.blob
-1mcp
-1mcp.exe
+/sea-prep.blob
+/1mcp
+/1mcp.exe
 *.zip
 *.tar.gz
 *.tar

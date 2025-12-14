@@ -34,6 +34,7 @@ export interface Input {
   format?: string;
   isRequired?: boolean;
   isSecret?: boolean;
+  name?: string;
   value?: string;
   variables?: Record<string, Input>;
 }
@@ -73,7 +74,7 @@ export interface ServerRemote {
 }
 
 export interface ServerMeta {
-  [OFFICIAL_REGISTRY_KEY]: RegistryExtensions;
+  'io.modelcontextprotocol.registry/official': RegistryExtensions;
   [key: string]: unknown;
 }
 
@@ -128,8 +129,6 @@ export interface RegistryExtensions {
   publishedAt: string;
   status: 'active' | 'deprecated' | 'archived';
   updatedAt: string;
-  serverId: string;
-  versionId: string;
 }
 
 export interface OfficialMeta extends RegistryExtensions {}

@@ -6,6 +6,18 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { CapabilityAggregator } from './capabilityAggregator.js';
 
+// Mock InternalCapabilitiesProvider
+vi.mock('@src/core/capabilities/internalCapabilitiesProvider.js', () => ({
+  InternalCapabilitiesProvider: {
+    getInstance: vi.fn().mockReturnValue({
+      initialize: vi.fn().mockResolvedValue(undefined),
+      getAvailableTools: vi.fn().mockReturnValue([]),
+      getAvailableResources: vi.fn().mockReturnValue([]),
+      getAvailablePrompts: vi.fn().mockReturnValue([]),
+    }),
+  },
+}));
+
 describe('CapabilityAggregator', () => {
   let aggregator: CapabilityAggregator;
   let mockConnections: OutboundConnections;

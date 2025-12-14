@@ -3,17 +3,17 @@ import path from 'path';
 
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 
-import configReloadService from '@src/application/services/configReloadService.js';
 import ConfigContext from '@src/config/configContext.js';
-import { McpConfigManager } from '@src/config/mcpConfigManager.js';
+import { ConfigManager } from '@src/config/configManager.js';
 import { getDefaultInstructionsTemplatePath } from '@src/constants.js';
 import { getConfigDir } from '@src/constants.js';
+import { FlagManager } from '@src/core/flags/flagManager.js';
 import { InstructionAggregator } from '@src/core/instructions/instructionAggregator.js';
 import { formatValidationError, validateTemplateContent } from '@src/core/instructions/templateValidator.js';
 import { LoadingSummary } from '@src/core/loading/loadingStateTracker.js';
 import { McpLoadingManager } from '@src/core/loading/mcpLoadingManager.js';
 import { AgentConfigManager } from '@src/core/server/agentConfig.js';
-import { registerPidFileCleanup, writePidFile } from '@src/core/server/pidFileManager.js';
+import { cleanupPidFileOnExit, registerPidFileCleanup, writePidFile } from '@src/core/server/pidFileManager.js';
 import { ServerManager } from '@src/core/server/serverManager.js';
 import { TagExpression, TagQueryParser } from '@src/domains/preset/parsers/tagQueryParser.js';
 import logger, { debugIf } from '@src/logger/logger.js';
@@ -56,6 +56,9 @@ export interface ServeOptions {
   'session-persist-interval': number;
   'session-background-flush': number;
   'enable-client-notifications': boolean;
+  // Internal tool control
+  'enable-internal-tools': boolean;
+  'internal-tools'?: string;
   'instructions-template'?: string;
 }
 
@@ -143,12 +146,13 @@ function setupGracefulShutdown(
   loadingManager?: McpLoadingManager,
   expressServer?: ExpressServer,
   instructionAggregator?: InstructionAggregator,
+  configDir?: string,
 ): void {
   const shutdown = async () => {
     logger.info('Shutting down server...');
 
     // Stop the configuration reload service
-    configReloadService.stop();
+    // Config reload handled by ConfigManager singleton
 
     // Shutdown loading manager if it exists
     if (loadingManager && typeof loadingManager.shutdown === 'function') {
@@ -204,6 +208,16 @@ function setupGracefulShutdown(
       logger.error(`Error cleaning up PresetManager: ${error instanceof Error ? error.message : String(error)}`);
     }
 
+    // Cleanup PID file if configDir is available
+    if (configDir) {
+      try {
+        cleanupPidFileOnExit(configDir);
+        logger.info('PID file cleanup complete');
+      } catch (error) {
+        logger.error(`Error cleaning up PID file: ${error instanceof Error ? error.message : String(error)}`);
+      }
+    }
+
     logger.info('Server shutdown complete');
     process.exit(0);
   };
@@ -231,7 +245,7 @@ export async function serveCommand(parsedArgv: ServeOptions): Promise<void> {
 
     // Initialize MCP config manager using resolved config path
     const configFilePath = configContext.getResolvedConfigPath();
-    const mcpConfigManager = McpConfigManager.getInstance(configFilePath);
+    const mcpConfigManager = ConfigManager.getInstance(configFilePath);
 
     // Get server count for logo display
     const transportConfig = mcpConfigManager.getTransportConfig();
@@ -294,6 +308,21 @@ export async function serveCommand(parsedArgv: ServeOptions): Promise<void> {
         envSubstitution: parsedArgv['enable-env-substitution'],
         sessionPersistence: parsedArgv['enable-session-persistence'],
         clientNotifications: parsedArgv['enable-client-notifications'],
+        // Internal tool configuration from CLI flags
+        internalTools: parsedArgv['enable-internal-tools'],
+        internalToolsList: parsedArgv['internal-tools']
+          ? (() => {
+              try {
+                const flagManager = FlagManager.getInstance();
+                return flagManager.parseToolsList(parsedArgv['internal-tools']);
+              } catch (error) {
+                logger.error(
+                  `Failed to parse internal-tools list: ${error instanceof Error ? error.message : String(error)}`,
+                );
+                process.exit(1);
+              }
+            })()
+          : [],
       },
       health: {
         detailLevel: parsedArgv['health-info-level'] as 'full' | 'basic' | 'minimal',
@@ -322,7 +351,8 @@ export async function serveCommand(parsedArgv: ServeOptions): Promise<void> {
     PresetManager.getInstance(parsedArgv['config-dir']);
 
     // Initialize server and get server manager with custom config path if provided
-    const { serverManager, loadingManager, asyncOrchestrator, instructionAggregator } = await setupServer();
+    const { serverManager, loadingManager, asyncOrchestrator, instructionAggregator } =
+      await setupServer(configFilePath);
 
     // Load custom instructions template if provided (applies to all transport types)
     const customTemplate = loadInstructionsTemplate(parsedArgv['instructions-template'], parsedArgv['config-dir']);
@@ -434,7 +464,8 @@ export async function serveCommand(parsedArgv: ServeOptions): Promise<void> {
     }
 
     // Set up graceful shutdown handling
-    setupGracefulShutdown(serverManager, loadingManager, expressServer, instructionAggregator);
+    const configDir = getConfigDir(parsedArgv['config-dir']);
+    setupGracefulShutdown(serverManager, loadingManager, expressServer, instructionAggregator, configDir);
 
     // Log MCP loading progress (non-blocking)
     loadingManager.on('loading-progress', (summary: LoadingSummary) => {

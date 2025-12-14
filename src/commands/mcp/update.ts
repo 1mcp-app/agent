@@ -14,7 +14,7 @@ import {
   serverExists,
   setServer,
   validateConfigPath,
-} from './utils/configUtils.js';
+} from './utils/mcpServerConfig.js';
 import {
   validateEnvVars,
   validateHeaders,
@@ -25,7 +25,9 @@ import {
 } from './utils/validation.js';
 
 export interface UpdateCommandArgs extends GlobalOptions {
-  name: string;
+  name?: string;
+  all?: boolean;
+  exclude?: string[];
   type?: string; // Will be validated as 'stdio' | 'http' | 'sse'
   command?: string;
   args?: string[];
@@ -38,6 +40,9 @@ export interface UpdateCommandArgs extends GlobalOptions {
   restartOnExit?: boolean;
   maxRestarts?: number;
   restartDelay?: number;
+  backup?: boolean;
+  'check-only'?: boolean;
+  dryRun?: boolean;
 }
 
 /**
@@ -105,11 +110,38 @@ export function buildUpdateCommand(yargs: Argv) {
       describe: 'Delay in milliseconds between restart attempts (stdio only, default: 1000)',
       type: 'number',
     })
+    .option('all', {
+      describe: 'Update all outdated servers',
+      type: 'boolean',
+      default: false,
+    })
+    .option('exclude', {
+      describe: 'Exclude servers from batch update',
+      type: 'array',
+      string: true,
+    })
+    .option('backup', {
+      describe: 'Create backup before update (default: true)',
+      type: 'boolean',
+      default: true,
+    })
+    .option('check-only', {
+      describe: 'Check for updates without installing',
+      type: 'boolean',
+      default: false,
+    })
+    .option('dry-run', {
+      describe: 'Show what would be updated',
+      type: 'boolean',
+      default: false,
+    })
     .example([
       ['$0 mcp update myserver --tags=prod,api', 'Update server tags'],
       ['$0 mcp update myserver --env=NODE_ENV=production', 'Update environment'],
       ['$0 mcp update myserver -- npx -y updated-package', 'Update using " -- " pattern'],
       ['$0 mcp update myserver --timeout=10000', 'Update timeout'],
+      ['$0 mcp update --all', 'Update all outdated servers'],
+      ['$0 mcp update --all --exclude=server1,server2', 'Update all except excluded'],
     ]);
 }
 
@@ -119,6 +151,11 @@ export function buildUpdateCommand(yargs: Argv) {
 export async function updateCommand(argv: UpdateCommandArgs): Promise<void> {
   try {
     const { name, config: configPath, 'config-dir': configDir } = argv;
+
+    // Validate that name is provided
+    if (!name) {
+      throw new Error('Server name is required');
+    }
 
     // Initialize config context with CLI options
     initializeConfigContext(configPath, configDir);
@@ -315,6 +352,6 @@ export async function updateCommand(argv: UpdateCommandArgs): Promise<void> {
     console.log(`\n💡 Server configuration updated. If 1mcp is running, the server will be reloaded automatically.`);
   } catch (error) {
     console.error(`❌ Failed to update server: ${error instanceof Error ? error.message : error}`);
-    process.exit(1);
+    throw error;
   }
 }
