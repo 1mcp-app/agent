@@ -289,7 +289,7 @@ describe('MCP Enable/Disable Commands E2E', () => {
       });
 
       runner.assertSuccess(result);
-      runner.assertOutputContains(result, 'Disable a MCP server');
+      runner.assertOutputContains(result, 'Disable an MCP server');
     });
   });
 
