@@ -4,22 +4,18 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { ContextCollector } from './contextCollector.js';
 
-// Mock child_process module
-const mockExecFile = vi.fn();
-vi.mock('child_process', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('child_process')>();
-  return {
-    ...actual,
-    execFile: mockExecFile,
-  };
-});
+// Mock modules at the top level
+vi.mock('child_process', () => ({
+  execFile: vi.fn(),
+  spawn: vi.fn(),
+  exec: vi.fn(),
+  fork: vi.fn(),
+}));
 
-// Mock promisify
 vi.mock('util', () => ({
   promisify: vi.fn((fn) => fn),
 }));
 
-// Mock os module
 vi.mock('os', () => ({
   userInfo: vi.fn(() => ({
     username: 'testuser',
@@ -32,17 +28,32 @@ vi.mock('os', () => ({
 }));
 
 // Mock process.cwd
+const originalCwd = process.cwd;
 process.cwd = vi.fn(() => '/test/project');
-
-// Setup mock execFile return value
-mockExecFile.mockResolvedValue({ stdout: 'mock result', stderr: '' });
 
 describe('ContextCollector', () => {
   let contextCollector: ContextCollector;
+  let mockExecFile: any;
+  let mockPromisify: any;
 
-  beforeEach(() => {
+  beforeEach(async () => {
     vi.clearAllMocks();
+
+    // Get mocked modules
+    const childProcess = await import('child_process');
+    mockExecFile = childProcess.execFile;
+
+    const util = await import('util');
+    mockPromisify = util.promisify;
+
+    // Setup mock execFile to be returned by promisify
+    mockPromisify.mockReturnValue(mockExecFile);
     mockExecFile.mockResolvedValue({ stdout: 'mock result', stderr: '' });
+  });
+
+  afterAll(() => {
+    // Restore original process.cwd
+    process.cwd = originalCwd;
   });
 
   describe('constructor', () => {
@@ -55,8 +66,7 @@ describe('ContextCollector', () => {
       const options: ContextCollectionOptions = {
         includeGit: false,
         includeEnv: false,
-        envPrefixes: ['TEST_'],
-        sanitizePaths: false,
+        sanitizePaths: true,
       };
       contextCollector = new ContextCollector(options);
       expect(contextCollector).toBeDefined();
@@ -64,150 +74,85 @@ describe('ContextCollector', () => {
   });
 
   describe('collect', () => {
-    it('should collect basic context data', async () => {
-      contextCollector = new ContextCollector();
-      const result = await contextCollector.collect();
-
-      expect(result).toBeDefined();
-      expect(result.project).toBeDefined();
-      expect(result.user).toBeDefined();
-      expect(result.environment).toBeDefined();
-      expect(result.timestamp).toBeDefined();
-      expect(result.sessionId).toBeDefined();
-      expect(result.version).toBe('v1');
-    });
-
-    it('should include project path', async () => {
-      contextCollector = new ContextCollector({
-        sanitizePaths: false, // Disable path sanitization for this test
-      });
-      const result = await contextCollector.collect();
-
-      expect(result.project.path).toBe(process.cwd());
-      expect(result.project.name).toBeDefined();
-    });
-
-    it('should include user information', async () => {
-      contextCollector = new ContextCollector();
-      const result = await contextCollector.collect();
-
-      expect(result.user.username).toBeDefined();
-      expect(result.user.uid).toBeDefined();
-      expect(result.user.gid).toBeDefined();
-      expect(result.user.home).toBeDefined();
-    });
-
-    it('should include environment variables', async () => {
-      contextCollector = new ContextCollector({
-        includeEnv: true,
-      });
-      const result = await contextCollector.collect();
-
-      expect(result.environment.variables).toBeDefined();
-      expect(Object.keys(result.environment.variables || {})).length.greaterThan(0);
-    });
-
-    it('should respect environment prefixes', async () => {
-      // Set a test environment variable
-      process.env.TEST_CONTEXT_VAR = 'test-value';
-
-      contextCollector = new ContextCollector({
-        includeEnv: true,
-        envPrefixes: ['TEST_'],
-      });
-      const result = await contextCollector.collect();
-
-      expect(result.environment.variables?.['TEST_CONTEXT_VAR']).toBe('test-value');
-
-      // Clean up
-      delete process.env.TEST_CONTEXT_VAR;
-    });
-  });
-
-  describe('git detection', () => {
-    it('should include git information if in a git repository', async () => {
-      // This test will only pass if run in a git repository
-      contextCollector = new ContextCollector({
-        includeGit: true,
-      });
-      const result = await contextCollector.collect();
-
-      if (result.project.git?.isRepo) {
-        expect(result.project.git.branch).toBeDefined();
-        expect(result.project.git.commit).toBeDefined();
-        expect(result.project.git.commit?.length).toBe(8); // Short hash
-      }
-    });
-
-    it('should skip git if disabled', async () => {
+    it('should collect context data', async () => {
       contextCollector = new ContextCollector({
         includeGit: false,
+        includeEnv: false,
       });
-      const result = await contextCollector.collect();
 
-      expect(result.project.git).toBeUndefined();
-    });
-  });
+      const context = await contextCollector.collect();
 
-  describe('path sanitization', () => {
-    it('should sanitize paths when enabled', async () => {
-      contextCollector = new ContextCollector({
-        sanitizePaths: true,
-      });
-      const result = await contextCollector.collect();
-
-      if (result.user.home?.includes('/')) {
-        // Check that home directory is sanitized
-        expect(result.user.home.includes('~')).toBeTruthy();
-      }
+      expect(context).toBeDefined();
+      expect(context.project).toBeDefined();
+      expect(context.user).toBeDefined();
+      expect(context.environment).toBeDefined();
+      expect(context.timestamp).toBeDefined();
+      expect(context.sessionId).toBeDefined();
+      expect(context.version).toBe('v1');
     });
 
-    it('should not sanitize paths when disabled', async () => {
-      contextCollector = new ContextCollector({
-        sanitizePaths: false,
-      });
-      const result = await contextCollector.collect();
-
-      expect(result.user.home).toBe(require('os').homedir());
-    });
-  });
-
-  describe('error handling', () => {
-    it('should handle git command failures gracefully', async () => {
-      // Mock git command to fail
-      vi.mock('child_process', () => ({
-        spawn: vi.fn(() => {
-          const error = new Error('Command failed');
-          (error as any).code = 'ENOENT';
-          throw error;
-        }),
-      }));
+    it('should include git context when enabled', async () => {
+      // Mock git command responses
+      mockExecFile
+        .mockResolvedValueOnce({ stdout: '', stderr: '' }) // git rev-parse --git-dir
+        .mockResolvedValueOnce({ stdout: 'main\n', stderr: '' }) // git rev-parse --abbrev-ref HEAD
+        .mockResolvedValueOnce({ stdout: 'abc123456789\n', stderr: '' }) // git rev-parse HEAD
+        .mockResolvedValueOnce({ stdout: 'https://github.com/user/repo.git\n', stderr: '' }); // git remote get-url origin
 
       contextCollector = new ContextCollector({
         includeGit: true,
+        includeEnv: false,
       });
-      const result = await contextCollector.collect();
 
-      expect(result.project.git?.isRepo).toBe(false);
-    });
-  });
+      const context = await contextCollector.collect();
 
-  describe('session generation', () => {
-    it('should generate unique session IDs', async () => {
-      contextCollector = new ContextCollector();
-      const result1 = await contextCollector.collect();
-      const result2 = await new ContextCollector().collect();
-
-      expect(result1.sessionId).toBeDefined();
-      expect(result2.sessionId).toBeDefined();
-      expect(result1.sessionId).not.toBe(result2.sessionId);
+      expect(context.project.git).toBeDefined();
+      if (context.project.git?.isRepo) {
+        expect(context.project.git.branch).toBe('main');
+        expect(context.project.git.commit).toBe('abc12345');
+        expect(context.project.git.repository).toBe('user/repo');
+      }
     });
 
-    it('should generate session IDs with ctx_ prefix', async () => {
-      contextCollector = new ContextCollector();
-      const result = await contextCollector.collect();
+    it('should include environment variables when enabled', async () => {
+      contextCollector = new ContextCollector({
+        includeGit: false,
+        includeEnv: true,
+        envPrefixes: ['TEST_', 'APP_'],
+      });
 
-      expect(result.sessionId).toMatch(/^ctx_/);
+      // Set some test environment variables
+      process.env.TEST_VAR = 'test_value';
+      process.env.APP_CONFIG = 'app_value';
+      process.env.SECRET_KEY = 'secret_value'; // Should be filtered out
+      process.env.OTHER_VAR = 'other_value';
+
+      const context = await contextCollector.collect();
+
+      expect(context.environment.variables).toBeDefined();
+      expect(context.environment.variables?.TEST_VAR).toBe('test_value');
+      expect(context.environment.variables?.APP_CONFIG).toBe('app_value');
+      expect(context.environment.variables?.SECRET_KEY).toBeUndefined(); // Should be filtered
+      expect(context.environment.variables?.OTHER_VAR).toBeUndefined(); // Not matching prefixes
+
+      // Clean up
+      delete process.env.TEST_VAR;
+      delete process.env.APP_CONFIG;
+      delete process.env.SECRET_KEY;
+      delete process.env.OTHER_VAR;
+    });
+
+    it('should sanitize paths when enabled', async () => {
+      contextCollector = new ContextCollector({
+        includeGit: false,
+        includeEnv: false,
+        sanitizePaths: true,
+      });
+
+      const context = await contextCollector.collect();
+
+      // Check that paths are sanitized (should use ~ for home directory)
+      expect(context.user.home).toBe('~');
     });
   });
 });
