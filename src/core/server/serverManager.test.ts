@@ -68,6 +68,17 @@ vi.mock('../../transport/transportFactory.js', () => ({
     }
     return transports;
   }),
+  createTransportsWithContext: vi.fn(async (configs, context) => {
+    const transports: Record<string, any> = {};
+    for (const [name] of Object.entries(configs)) {
+      transports[name] = {
+        name,
+        close: vi.fn().mockResolvedValue(undefined),
+        context: context, // Track that context was passed
+      };
+    }
+    return transports;
+  }),
   inferTransportType: vi.fn((config) => {
     // Only add type if it's not already present
     if (config.type) {
@@ -88,6 +99,16 @@ vi.mock('@src/domains/preset/services/presetNotificationService.js', () => ({
       untrackClient: vi.fn(),
     }),
   },
+}));
+
+vi.mock('@src/core/context/globalContextManager.js', () => ({
+  getGlobalContextManager: vi.fn(() => ({
+    getContext: vi.fn(() => undefined), // Default no context
+    updateContext: vi.fn(),
+    on: vi.fn(),
+    off: vi.fn(),
+    once: vi.fn(),
+  })),
 }));
 
 // Store original setTimeout
@@ -240,16 +261,32 @@ vi.mock('./serverManager.js', () => {
         throw new Error('Invalid transport type');
       }
 
-      const mockTransport = {
-        name: serverName,
-        close: vi.fn().mockResolvedValue(undefined),
-      };
+      // Create transport using the factory pattern with context awareness (mocked)
+      const mockTransport = await this.createServerTransport(serverName, config);
 
       this.mcpServers.set(serverName, {
         transport: mockTransport,
         config,
         running: true,
       });
+    }
+
+    async createServerTransport(serverName: string, config: any): Promise<any> {
+      // Mock implementation of createServerTransport to test context awareness
+      const { getGlobalContextManager } = await import('@src/core/context/globalContextManager.js');
+      const globalContextManager = getGlobalContextManager();
+      const currentContext = globalContextManager.getContext();
+
+      // Use the mocked functions from vi.mocked()
+      const { createTransports, createTransportsWithContext } = vi.mocked(
+        await import('../../transport/transportFactory.js'),
+      );
+
+      const transports = currentContext
+        ? await createTransportsWithContext({ [serverName]: config }, currentContext)
+        : createTransports({ [serverName]: config });
+
+      return transports[serverName];
     }
 
     async stopServer(serverName: string): Promise<void> {
@@ -552,12 +589,7 @@ describe('ServerManager', () => {
           type: 'invalid' as any,
         };
 
-        // Mock createTransports to throw an error for invalid configs
-        const { createTransports } = await import('../../transport/transportFactory.js');
-        vi.mocked(createTransports).mockImplementationOnce(() => {
-          throw new Error('Invalid transport type');
-        });
-
+        // The mock implementation will handle this by checking config.type === 'invalid'
         await expect(serverManager.startServer('invalid-server', invalidConfig)).rejects.toThrow(
           'Invalid transport type',
         );
@@ -678,6 +710,124 @@ describe('ServerManager', () => {
         await serverManager.stopServer('test-server');
 
         expect(serverManager.isMcpServerRunning('test-server')).toBe(false);
+      });
+    });
+
+    describe('Context-Aware Transport Creation', () => {
+      const mockContext = {
+        sessionId: 'test-session-123',
+        version: '1.0.0',
+        project: {
+          name: 'test-project',
+          path: '/test/path',
+          environment: 'test',
+        },
+        user: {
+          uid: 'user-456',
+          username: 'testuser',
+          email: 'test@example.com',
+        },
+        environment: {
+          variables: {},
+        },
+        timestamp: '2024-01-15T10:30:00Z',
+      };
+
+      beforeEach(() => {
+        // Clear previous mock calls
+        vi.clearAllMocks();
+      });
+
+      it('should use createTransports when no context is available', async () => {
+        const { getGlobalContextManager } = await import('@src/core/context/globalContextManager.js');
+        const { createTransports, createTransportsWithContext } = await import('../../transport/transportFactory.js');
+
+        // Mock to return no context
+        vi.mocked(getGlobalContextManager).mockReturnValue({
+          getContext: vi.fn(() => undefined),
+          updateContext: vi.fn(),
+          on: vi.fn(),
+          off: vi.fn(),
+          once: vi.fn(),
+        } as any);
+
+        const serverConfig = {
+          command: 'node',
+          args: ['server.js'],
+          type: 'stdio' as const,
+        };
+
+        await serverManager.startServer('test-server', serverConfig);
+
+        // Should use createTransports when no context
+        expect(createTransports).toHaveBeenCalledWith({ 'test-server': serverConfig });
+        expect(createTransportsWithContext).not.toHaveBeenCalled();
+      });
+
+      it('should use createTransportsWithContext when context is available', async () => {
+        const { getGlobalContextManager } = await import('@src/core/context/globalContextManager.js');
+        const { createTransports, createTransportsWithContext } = await import('../../transport/transportFactory.js');
+
+        // Mock to return context
+        vi.mocked(getGlobalContextManager).mockReturnValue({
+          getContext: vi.fn(() => mockContext),
+          updateContext: vi.fn(),
+          on: vi.fn(),
+          off: vi.fn(),
+          once: vi.fn(),
+        } as any);
+
+        const serverConfig = {
+          command: 'node',
+          args: ['server.js'],
+          type: 'stdio' as const,
+        };
+
+        await serverManager.startServer('test-server', serverConfig);
+
+        // Should use createTransportsWithContext when context is available
+        expect(createTransportsWithContext).toHaveBeenCalledWith({ 'test-server': serverConfig }, mockContext);
+        expect(createTransports).not.toHaveBeenCalled();
+      });
+
+      it('should include context information in transport when context is used', async () => {
+        const { getGlobalContextManager } = await import('@src/core/context/globalContextManager.js');
+        const { createTransportsWithContext } = await import('../../transport/transportFactory.js');
+
+        // Mock to return context and create transport with context tracking
+        vi.mocked(getGlobalContextManager).mockReturnValue({
+          getContext: vi.fn(() => mockContext),
+          updateContext: vi.fn(),
+          on: vi.fn(),
+          off: vi.fn(),
+          once: vi.fn(),
+        } as any);
+
+        // Mock createTransportsWithContext to return transport with context
+        vi.mocked(createTransportsWithContext).mockResolvedValue({
+          'test-server': {
+            close: vi.fn().mockResolvedValue(undefined),
+            context: mockContext,
+          } as any,
+        });
+
+        const serverConfig = {
+          command: 'node',
+          args: ['server.js'],
+          type: 'stdio' as const,
+        };
+
+        await serverManager.startServer('test-server', serverConfig);
+
+        // Verify the transport was created with context
+        expect(createTransportsWithContext).toHaveBeenCalledWith({ 'test-server': serverConfig }, mockContext);
+
+        // Check the server status - the server should be running with the correct config
+        const status = serverManager.getMcpServerStatus();
+        const serverInfo = status.get('test-server');
+        expect(serverInfo).toBeDefined();
+        expect(serverInfo?.running).toBe(true);
+        expect(serverInfo?.config).toMatchObject(serverConfig);
       });
     });
 

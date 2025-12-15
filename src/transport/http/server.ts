@@ -14,6 +14,7 @@ import bodyParser from 'body-parser';
 import cors from 'cors';
 import express from 'express';
 
+import { contextMiddleware } from './middlewares/contextMiddleware.js';
 import errorHandler from './middlewares/errorHandler.js';
 import { httpRequestLogger } from './middlewares/httpRequestLogger.js';
 import { createMcpAvailabilityMiddleware } from './middlewares/mcpAvailabilityMiddleware.js';
@@ -104,6 +105,7 @@ export class ExpressServer {
    * Configures the basic middleware stack required for the MCP server:
    * - Enhanced security middleware (conditional based on feature flag)
    * - HTTP request logging for all requests
+   * - Context extraction middleware for template processing
    * - CORS for cross-origin requests
    * - JSON body parsing
    * - Global error handling
@@ -116,6 +118,10 @@ export class ExpressServer {
 
     // Add HTTP request logging middleware (early in the stack for complete coverage)
     this.app.use(httpRequestLogger);
+
+    // Add context extraction middleware for template processing (before body parsing)
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    this.app.use(contextMiddleware() as any);
 
     this.app.use(cors()); // Allow all origins for local dev
     this.app.use(bodyParser.json());

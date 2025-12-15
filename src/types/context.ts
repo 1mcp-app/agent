@@ -97,8 +97,11 @@ export interface TemplateContext {
  * Context transmission headers
  */
 export interface ContextHeaders {
-  'X-1MCP-Context': string;
-  'X-1MCP-Context-Version': string;
+  'x-1mcp-context': string;
+  'x-1mcp-context-version': string;
+  'x-1mcp-session-id'?: string;
+  'X-1MCP-Context'?: string;
+  'X-1MCP-Context-Version'?: string;
   'X-1MCP-Context-Session'?: string;
   'X-1MCP-Context-Timestamp'?: string;
 }

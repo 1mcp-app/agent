@@ -110,10 +110,9 @@ describe('StdioProxyTransport - Context Support', () => {
         expect.objectContaining({
           requestInit: expect.objectContaining({
             headers: expect.objectContaining({
-              'X-1MCP-Context': expect.any(String),
-              'X-1MCP-Context-Version': 'v1',
-              'X-1MCP-Context-Session': 'ctx_test123',
-              'X-1MCP-Context-Timestamp': '2024-01-01T00:00:00.000Z',
+              'x-1mcp-context': expect.any(String),
+              'x-1mcp-context-version': 'v1',
+              'x-1mcp-session-id': 'ctx_test123',
             }),
           }),
         }),
@@ -141,8 +140,8 @@ describe('StdioProxyTransport - Context Support', () => {
         expect.objectContaining({
           requestInit: expect.objectContaining({
             headers: expect.objectContaining({
-              'X-1MCP-Context': expect.any(String),
-              'X-1MCP-Context-Version': 'v1',
+              'x-1mcp-context': expect.any(String),
+              'x-1mcp-context-version': 'v1',
             }),
           }),
         }),
@@ -186,7 +185,7 @@ describe('StdioProxyTransport - Context Support', () => {
 
       const callArgs = mockCreate.mock.calls[0];
       const headers = (callArgs[1] as any).requestInit.headers;
-      const contextHeader = headers['X-1MCP-Context'];
+      const contextHeader = headers['x-1mcp-context'];
 
       // Verify it's a valid base64 string
       expect(contextHeader).toMatch(/^[A-Za-z0-9+/]+=*$/);

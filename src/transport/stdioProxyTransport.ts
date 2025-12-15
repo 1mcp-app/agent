@@ -181,17 +181,13 @@ export class StdioProxyTransport {
     const contextBase64 = Buffer.from(contextJson, 'utf8').toString('base64');
 
     const headers: ContextHeaders = {
-      'X-1MCP-Context': contextBase64,
-      'X-1MCP-Context-Version': context.version || 'v1',
+      'x-1mcp-context': contextBase64,
+      'x-1mcp-context-version': context.version || 'v1',
     };
 
-    // Add optional headers for debugging and tracking
+    // Add session ID header required by context middleware
     if (context.sessionId) {
-      headers['X-1MCP-Context-Session'] = context.sessionId;
-    }
-
-    if (context.timestamp) {
-      headers['X-1MCP-Context-Timestamp'] = context.timestamp;
+      headers['x-1mcp-session-id'] = context.sessionId;
     }
 
     return headers;

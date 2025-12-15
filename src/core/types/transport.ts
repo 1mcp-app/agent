@@ -141,3 +141,53 @@ export type TransportConfig = HTTPBasedTransportConfig | StdioTransportConfig;
  * Type for MCP server parameters derived from transport config schema
  */
 export type MCPServerParams = z.infer<typeof transportConfigSchema>;
+
+/**
+ * Template settings for controlling template processing behavior
+ */
+export interface TemplateSettings {
+  /** Whether to validate templates on configuration reload */
+  validateOnReload?: boolean;
+  /** How to handle template processing failures */
+  failureMode?: 'strict' | 'graceful';
+  /** Whether to cache processed templates based on context hash */
+  cacheContext?: boolean;
+}
+
+/**
+ * Extended MCP server configuration that supports both static and template-based servers
+ */
+export interface MCPServerConfiguration {
+  /** Version of the configuration format for migration purposes */
+  version?: string;
+  /** Static server configurations (no template processing) */
+  mcpServers: Record<string, MCPServerParams>;
+  /** Template-based server configurations (processed with context) */
+  mcpTemplates?: Record<string, MCPServerParams>;
+  /** Template processing settings */
+  templateSettings?: TemplateSettings;
+}
+
+/**
+ * Zod schema for template settings
+ */
+export const templateSettingsSchema = z.object({
+  validateOnReload: z.boolean().optional(),
+  failureMode: z.enum(['strict', 'graceful']).optional(),
+  cacheContext: z.boolean().optional(),
+});
+
+/**
+ * Extended Zod schema for MCP server configuration with template support
+ */
+export const mcpServerConfigSchema = z.object({
+  version: z.string().optional(),
+  mcpServers: z.record(z.string(), transportConfigSchema),
+  mcpTemplates: z.record(z.string(), transportConfigSchema).optional(),
+  templateSettings: templateSettingsSchema.optional(),
+});
+
+/**
+ * Type for MCP server configuration derived from the extended schema
+ */
+export type MCPServerConfigType = z.infer<typeof mcpServerConfigSchema>;

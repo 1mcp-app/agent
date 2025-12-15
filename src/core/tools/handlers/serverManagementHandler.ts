@@ -26,6 +26,7 @@ import {
 import { MCPServerParams } from '@src/core/types/transport.js';
 import { debugIf } from '@src/logger/logger.js';
 import logger from '@src/logger/logger.js';
+import { TemplateDetector } from '@src/template/templateDetector.js';
 import { createTransports } from '@src/transport/transportFactory.js';
 
 /**
@@ -83,6 +84,19 @@ export async function handleInstallMCPServer(args: McpInstallToolArgs) {
 
   if (args.autoRestart) {
     serverConfig.restartOnExit = args.autoRestart;
+  }
+
+  // Validate that no templates are used in static server configuration
+  const templateValidation = TemplateDetector.validateTemplateFree(serverConfig);
+  if (!templateValidation.valid) {
+    const errorMessage =
+      `Template syntax detected in server configuration. Templates are not allowed in mcpServers section. ` +
+      `Found templates: ${templateValidation.templates.join(', ')}. ` +
+      `Locations: ${templateValidation.locations.join(', ')}. ` +
+      `Please move template-based servers to the mcpTemplates section in your configuration.`;
+
+    logger.error(errorMessage);
+    throw new Error(errorMessage);
   }
 
   // Add server to configuration

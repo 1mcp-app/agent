@@ -1,9 +1,11 @@
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
 
+import { ConfigManager } from '@src/config/configManager.js';
 import { processEnvironment } from '@src/config/envProcessor.js';
 import { setupCapabilities } from '@src/core/capabilities/capabilityManager.js';
 import { ClientManager } from '@src/core/client/clientManager.js';
+import { getGlobalContextManager } from '@src/core/context/globalContextManager.js';
 import { InstructionAggregator } from '@src/core/instructions/instructionAggregator.js';
 import type { OutboundConnection } from '@src/core/types/client.js';
 import {
@@ -21,7 +23,8 @@ import {
 } from '@src/domains/preset/services/presetNotificationService.js';
 import logger, { debugIf } from '@src/logger/logger.js';
 import { enhanceServerWithLogging } from '@src/logger/mcpLoggingEnhancer.js';
-import { createTransports, inferTransportType } from '@src/transport/transportFactory.js';
+import { createTransports, createTransportsWithContext, inferTransportType } from '@src/transport/transportFactory.js';
+import type { ContextData } from '@src/types/context.js';
 import { executeOperation } from '@src/utils/core/operationExecution.js';
 
 export class ServerManager {
@@ -96,7 +99,99 @@ export class ServerManager {
       this.updateServerInstructions();
     });
 
+    // Set up context change listener for template processing
+    this.setupContextChangeListener();
+
     debugIf('Instruction aggregator set for ServerManager');
+  }
+
+  /**
+   * Set up context change listener for dynamic template processing
+   */
+  private setupContextChangeListener(): void {
+    const globalContextManager = getGlobalContextManager();
+
+    globalContextManager.on('context-changed', async (data: { newContext: ContextData; sessionIdChanged: boolean }) => {
+      logger.info('Context changed, reprocessing templates', {
+        sessionId: data.newContext?.sessionId,
+        sessionChanged: data.sessionIdChanged,
+      });
+
+      try {
+        await this.reprocessTemplatesWithNewContext(data.newContext);
+      } catch (error) {
+        logger.error('Failed to reprocess templates after context change:', error);
+      }
+    });
+
+    debugIf('Context change listener set up for ServerManager');
+  }
+
+  /**
+   * Reprocess templates when context changes
+   */
+  private async reprocessTemplatesWithNewContext(context: ContextData | undefined): Promise<void> {
+    try {
+      const configManager = ConfigManager.getInstance();
+      const { staticServers, templateServers, errors } = await configManager.loadConfigWithTemplates(context);
+
+      // Merge static and template servers
+      const newConfig = { ...staticServers, ...templateServers };
+
+      // Compare with current servers and restart only those that changed
+      await this.updateServersWithNewConfig(newConfig);
+
+      if (errors.length > 0) {
+        logger.warn(`Template reprocessing completed with ${errors.length} errors:`, { errors });
+      }
+
+      const templateCount = Object.keys(templateServers).length;
+      if (templateCount > 0) {
+        logger.info(`Reprocessed ${templateCount} template servers with new context`);
+      }
+    } catch (error) {
+      logger.error('Failed to reprocess templates with new context:', error);
+    }
+  }
+
+  /**
+   * Update servers with new configuration
+   */
+  private async updateServersWithNewConfig(newConfig: Record<string, MCPServerParams>): Promise<void> {
+    const currentServerNames = new Set(this.mcpServers.keys());
+    const newServerNames = new Set(Object.keys(newConfig));
+
+    // Stop servers that are no longer in the configuration
+    for (const serverName of currentServerNames) {
+      if (!newServerNames.has(serverName)) {
+        logger.info(`Stopping server no longer in configuration: ${serverName}`);
+        await this.stopServer(serverName);
+      }
+    }
+
+    // Start or restart servers with new configurations
+    for (const [serverName, config] of Object.entries(newConfig)) {
+      const existingServerInfo = this.mcpServers.get(serverName);
+
+      if (existingServerInfo) {
+        // Check if configuration changed
+        if (this.configChanged(existingServerInfo.config, config)) {
+          logger.info(`Restarting server with updated configuration: ${serverName}`);
+          await this.restartServer(serverName, config);
+        }
+      } else {
+        // New server, start it
+        logger.info(`Starting new server: ${serverName}`);
+        await this.startServer(serverName, config);
+      }
+    }
+  }
+
+  /**
+   * Check if server configuration has changed
+   */
+  private configChanged(oldConfig: MCPServerParams, newConfig: MCPServerParams): boolean {
+    return JSON.stringify(oldConfig) !== JSON.stringify(newConfig);
   }
 
   /**
@@ -495,8 +590,13 @@ export class ServerManager {
         meta: { serverName, type: config.type, command: config.command, url: config.url },
       }));
 
-      // Create transport using the factory pattern
-      const transports = createTransports({ [serverName]: config });
+      // Create transport using the factory pattern with context awareness
+      const globalContextManager = getGlobalContextManager();
+      const currentContext = globalContextManager.getContext();
+
+      const transports = currentContext
+        ? await createTransportsWithContext({ [serverName]: config }, currentContext)
+        : createTransports({ [serverName]: config });
       const transport = transports[serverName];
 
       if (!transport) {

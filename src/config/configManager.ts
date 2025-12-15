@@ -1,3 +1,4 @@
+import { createHash } from 'crypto';
 import { EventEmitter } from 'events';
 import fs from 'fs';
 import path from 'path';
@@ -5,8 +6,17 @@ import path from 'path';
 import { substituteEnvVarsInConfig } from '@src/config/envProcessor.js';
 import { DEFAULT_CONFIG, getGlobalConfigDir, getGlobalConfigPath } from '@src/constants.js';
 import { AgentConfigManager } from '@src/core/server/agentConfig.js';
-import { MCPServerParams, transportConfigSchema } from '@src/core/types/transport.js';
+import {
+  mcpServerConfigSchema,
+  MCPServerConfiguration,
+  MCPServerParams,
+  TemplateSettings,
+  transportConfigSchema,
+} from '@src/core/types/transport.js';
 import logger, { debugIf } from '@src/logger/logger.js';
+import { TemplateProcessor } from '@src/template/templateProcessor.js';
+import { TemplateValidator } from '@src/template/templateValidator.js';
+import type { ContextData } from '@src/types/context.js';
 
 import { ZodError } from 'zod';
 
@@ -50,6 +60,12 @@ export class ConfigManager extends EventEmitter {
   private configFilePath: string;
   private debounceTimer: ReturnType<typeof setTimeout> | null = null;
   private lastModified: number = 0;
+
+  // Template processing related properties
+  private templateProcessingErrors: string[] = [];
+  private processedTemplates: Record<string, MCPServerParams> = {};
+  private lastContextHash?: string;
+  private templateProcessor?: TemplateProcessor;
 
   /**
    * Private constructor to enforce singleton pattern
@@ -195,6 +211,245 @@ export class ConfigManager extends EventEmitter {
       logger.error(`Failed to load configuration: ${error instanceof Error ? error.message : String(error)}`);
       this.transportConfig = {};
     }
+  }
+
+  /**
+   * Load configuration with template processing support
+   * @param context - Optional context data for template processing
+   * @returns Object with static servers, processed template servers, and any errors
+   */
+  public async loadConfigWithTemplates(context?: ContextData): Promise<{
+    staticServers: Record<string, MCPServerParams>;
+    templateServers: Record<string, MCPServerParams>;
+    errors: string[];
+  }> {
+    let rawConfig: unknown;
+    let config: MCPServerConfiguration;
+
+    try {
+      rawConfig = this.loadRawConfig();
+      // Parse the configuration using the extended schema
+      config = mcpServerConfigSchema.parse(rawConfig);
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      logger.error(`Failed to parse configuration: ${errorMessage}`);
+      // Return empty config on schema validation errors
+      return {
+        staticServers: {},
+        templateServers: {},
+        errors: [`Configuration parsing failed: ${errorMessage}`],
+      };
+    }
+
+    // Process static servers (existing logic)
+    const staticServers: Record<string, MCPServerParams> = {};
+    for (const [serverName, serverConfig] of Object.entries(config.mcpServers)) {
+      try {
+        staticServers[serverName] = this.validateServerConfig(serverName, serverConfig);
+      } catch (error) {
+        logger.error(
+          `Static server validation failed for ${serverName}: ${error instanceof Error ? error.message : String(error)}`,
+        );
+        // Skip invalid static server configurations
+      }
+    }
+
+    // Process templates if context available
+    let templateServers: Record<string, MCPServerParams> = {};
+    let errors: string[] = [];
+
+    if (context && config.mcpTemplates) {
+      const contextHash = this.hashContext(context);
+
+      // Use cached templates if context hasn't changed and caching is enabled
+      if (
+        config.templateSettings?.cacheContext &&
+        this.lastContextHash === contextHash &&
+        Object.keys(this.processedTemplates).length > 0
+      ) {
+        templateServers = this.processedTemplates;
+        errors = this.templateProcessingErrors;
+      } else if (config.mcpTemplates) {
+        // Process templates with validation
+        const result = await this.processTemplates(config.mcpTemplates, context, config.templateSettings);
+        templateServers = result.servers;
+        errors = result.errors;
+
+        // Cache results if caching is enabled
+        if (config.templateSettings?.cacheContext) {
+          this.processedTemplates = templateServers;
+          this.templateProcessingErrors = errors;
+          this.lastContextHash = contextHash;
+        }
+      }
+    }
+
+    return { staticServers, templateServers, errors };
+  }
+
+  /**
+   * Process template configurations with context data
+   * @param templates - Template configurations to process
+   * @param context - Context data for template substitution
+   * @param settings - Template processing settings
+   * @returns Object with processed servers and any errors
+   */
+  private async processTemplates(
+    templates: Record<string, MCPServerParams>,
+    context: ContextData,
+    settings?: TemplateSettings,
+  ): Promise<{ servers: Record<string, MCPServerParams>; errors: string[] }> {
+    const errors: string[] = [];
+
+    // Validate templates before processing
+    if (settings?.validateOnReload !== false) {
+      const validationErrors = await this.validateTemplates(templates);
+      if (validationErrors.length > 0 && settings?.failureMode === 'strict') {
+        throw new Error(`Template validation failed: ${validationErrors.join(', ')}`);
+      }
+      errors.push(...validationErrors);
+    }
+
+    // Initialize template processor
+    this.templateProcessor = new TemplateProcessor({
+      strictMode: false,
+      allowUndefined: true,
+      validateTemplates: settings?.validateOnReload !== false,
+      cacheResults: true,
+    });
+
+    const results = await this.templateProcessor.processMultipleServerConfigs(templates, context);
+    const processedServers: Record<string, MCPServerParams> = {};
+
+    for (const [serverName, result] of Object.entries(results)) {
+      if (result.success) {
+        processedServers[serverName] = result.processedConfig;
+      } else {
+        const errorMsg = `Template processing failed for ${serverName}: ${result.errors.join(', ')}`;
+        errors.push(errorMsg);
+
+        // According to user requirement: Fail fast, log errors, return to client
+        logger.error(errorMsg);
+
+        // For graceful mode, include raw config for debugging
+        if (settings?.failureMode === 'graceful') {
+          processedServers[serverName] = result.processedConfig;
+        }
+      }
+    }
+
+    return { servers: processedServers, errors };
+  }
+
+  /**
+   * Validate template configurations for syntax and security issues
+   * @param templates - Template configurations to validate
+   * @returns Array of validation error messages
+   */
+  private async validateTemplates(templates: Record<string, MCPServerParams>): Promise<string[]> {
+    const errors: string[] = [];
+    const templateValidator = new TemplateValidator();
+
+    for (const [serverName, config] of Object.entries(templates)) {
+      try {
+        // Validate template syntax in all string fields
+        const fieldErrors = this.validateConfigFields(config, templateValidator);
+
+        if (fieldErrors.length > 0) {
+          errors.push(`${serverName}: ${fieldErrors.join(', ')}`);
+        }
+      } catch (error) {
+        errors.push(`${serverName}: Validation error - ${error instanceof Error ? error.message : String(error)}`);
+      }
+    }
+
+    return errors;
+  }
+
+  /**
+   * Validate all fields in a configuration for template syntax
+   * @param config - Configuration to validate
+   * @param validator - Template validator instance
+   * @returns Array of validation error messages
+   */
+  private validateConfigFields(config: MCPServerParams, validator: TemplateValidator): string[] {
+    const errors: string[] = [];
+
+    // Validate command field
+    if (config.command) {
+      const result = validator.validate(config.command);
+      if (!result.valid) {
+        errors.push(...result.errors);
+      }
+    }
+
+    // Validate args array
+    if (config.args) {
+      config.args.forEach((arg, index) => {
+        if (typeof arg === 'string') {
+          const result = validator.validate(arg);
+          if (!result.valid) {
+            errors.push(`args[${index}]: ${result.errors.join(', ')}`);
+          }
+        }
+      });
+    }
+
+    // Validate cwd field
+    if (config.cwd) {
+      const result = validator.validate(config.cwd);
+      if (!result.valid) {
+        errors.push(`cwd: ${result.errors.join(', ')}`);
+      }
+    }
+
+    // Validate env object
+    if (config.env) {
+      for (const [key, value] of Object.entries(config.env)) {
+        if (typeof value === 'string') {
+          const result = validator.validate(value);
+          if (!result.valid) {
+            errors.push(`env.${key}: ${result.errors.join(', ')}`);
+          }
+        }
+      }
+    }
+
+    return errors;
+  }
+
+  /**
+   * Create a hash of context data for caching purposes
+   * @param context - Context data to hash
+   * @returns MD5 hash string
+   */
+  private hashContext(context: ContextData): string {
+    return createHash('md5').update(JSON.stringify(context)).digest('hex');
+  }
+
+  /**
+   * Get template processing errors from the last processing run
+   * @returns Array of template processing error messages
+   */
+  public getTemplateProcessingErrors(): string[] {
+    return [...this.templateProcessingErrors];
+  }
+
+  /**
+   * Check if there are any template processing errors
+   * @returns True if there are template processing errors
+   */
+  public hasTemplateProcessingErrors(): boolean {
+    return this.templateProcessingErrors.length > 0;
+  }
+
+  /**
+   * Clear template cache and force reprocessing on next load
+   */
+  public clearTemplateCache(): void {
+    this.processedTemplates = {};
+    this.lastContextHash = undefined;
+    this.templateProcessingErrors = [];
   }
 
   /**
