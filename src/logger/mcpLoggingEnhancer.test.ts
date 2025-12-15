@@ -10,6 +10,7 @@ vi.mock('./logger.js', () => ({
     warn: vi.fn(),
     debug: vi.fn(),
   },
+  debugIf: vi.fn(),
 }));
 
 // Mock uuid
@@ -84,6 +85,7 @@ describe('MCP Logging Enhancer', () => {
             method: { _def: { value: 'test/method' } },
           }),
         },
+        debugIf: vi.fn(),
       };
       const mockHandler = vi.fn();
 
@@ -103,6 +105,7 @@ describe('MCP Logging Enhancer', () => {
             method: { _def: { value: 'test/notification' } },
           }),
         },
+        debugIf: vi.fn(),
       };
       const mockHandler = vi.fn();
 
@@ -196,6 +199,7 @@ describe('MCP Logging Enhancer', () => {
             method: { _def: { value: 'test/method' } },
           }),
         },
+        debugIf: vi.fn(),
       };
 
       // Store original to test wrapping
@@ -223,6 +227,7 @@ describe('MCP Logging Enhancer', () => {
             method: { _def: { value: 'test/method' } },
           }),
         },
+        debugIf: vi.fn(),
       };
 
       // Enhanced server should still work
@@ -246,6 +251,7 @@ describe('MCP Logging Enhancer', () => {
             method: { _def: { value: 'test/notification' } },
           }),
         },
+        debugIf: vi.fn(),
       };
 
       // Enhanced server should maintain functionality
@@ -329,6 +335,7 @@ describe('MCP Logging Enhancer', () => {
             method: { _def: { value: undefined } }, // Malformed method
           }),
         },
+        debugIf: vi.fn(),
       };
 
       expect(() => {

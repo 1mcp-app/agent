@@ -18,6 +18,7 @@ vi.mock('@src/logger/logger.js', () => ({
   default: {
     error: vi.fn(),
   },
+  debugIf: vi.fn(),
 }));
 
 describe('withErrorHandling', () => {

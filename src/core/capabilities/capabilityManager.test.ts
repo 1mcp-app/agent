@@ -28,6 +28,7 @@ vi.mock('@src/logger/logger.js', () => ({
     warn: vi.fn(),
     error: vi.fn(),
   },
+  debugIf: vi.fn(),
 }));
 
 vi.mock('@src/core/protocol/notificationHandlers.js', () => ({

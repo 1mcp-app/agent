@@ -17,6 +17,7 @@ vi.mock('@src/logger/logger.js', () => ({
     warn: vi.fn(),
     debug: vi.fn(),
   },
+  debugIf: vi.fn(),
 }));
 
 describe('AuthRequestRepository', () => {

@@ -35,6 +35,7 @@ vi.mock('body-parser', () => ({
     json: vi.fn(() => 'json-middleware'),
     urlencoded: vi.fn(() => 'urlencoded-middleware'),
   },
+  debugIf: vi.fn(),
 }));
 
 vi.mock('cors', () => ({
@@ -52,6 +53,7 @@ vi.mock('@src/logger/logger.js', () => ({
     warn: vi.fn(),
     debug: vi.fn(),
   },
+  debugIf: vi.fn(),
 }));
 
 vi.mock('./middlewares/errorHandler.js', () => ({
@@ -96,6 +98,7 @@ vi.mock('@src/core/server/agentConfig.js', () => ({
   AgentConfigManager: {
     getInstance: vi.fn(),
   },
+  debugIf: vi.fn(),
 }));
 
 vi.mock('../../core/server/serverManager.js', () => ({

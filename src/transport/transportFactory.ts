@@ -14,6 +14,8 @@ import { AgentConfigManager } from '@src/core/server/agentConfig.js';
 import { AuthProviderTransport, transportConfigSchema } from '@src/core/types/index.js';
 import { MCPServerParams } from '@src/core/types/index.js';
 import logger, { debugIf } from '@src/logger/logger.js';
+import { TemplateProcessor } from '@src/template/templateProcessor.js';
+import type { ContextData } from '@src/types/context.js';
 
 import { z, ZodError } from 'zod';
 
@@ -244,6 +246,87 @@ export function createTransports(config: Record<string, MCPServerParams>): Recor
     try {
       const inferredParams = inferTransportType(params, name);
       const validatedTransport = transportConfigSchema.parse(inferredParams);
+      const transport = createSingleTransport(name, validatedTransport);
+
+      assignTransport(transports, name, transport, validatedTransport);
+      debugIf(`Created transport: ${name}`);
+    } catch (error) {
+      if (error instanceof ZodError) {
+        logger.error(`Invalid transport configuration for ${name}:`, error.issues);
+      } else {
+        logger.error(`Error creating transport ${name}:`, error);
+      }
+      throw error;
+    }
+  }
+
+  return transports;
+}
+
+/**
+ * Creates transport instances from configuration with context-aware template processing
+ * @param config - Configuration object with server parameters
+ * @param context - Context data for template processing
+ * @returns Record of transport instances
+ */
+export async function createTransportsWithContext(
+  config: Record<string, MCPServerParams>,
+  context?: ContextData,
+): Promise<Record<string, AuthProviderTransport>> {
+  const transports: Record<string, AuthProviderTransport> = {};
+
+  // Create template processor if context is provided
+  const templateProcessor = context
+    ? new TemplateProcessor({
+        strictMode: false,
+        allowUndefined: true,
+        validateTemplates: true,
+        cacheResults: true,
+      })
+    : null;
+
+  for (const [name, params] of Object.entries(config)) {
+    if (params.disabled) {
+      debugIf(`Skipping disabled transport: ${name}`);
+      continue;
+    }
+
+    try {
+      let processedParams = inferTransportType(params, name);
+
+      // Process templates if context is provided
+      if (templateProcessor && context) {
+        debugIf(() => ({
+          message: 'Processing templates for server',
+          meta: { serverName: name },
+        }));
+
+        const templateResult = await templateProcessor.processServerConfig(name, processedParams, context);
+
+        if (templateResult.errors.length > 0) {
+          logger.error(`Template processing errors for ${name}:`, templateResult.errors);
+          throw new Error(`Template processing failed for ${name}: ${templateResult.errors.join(', ')}`);
+        }
+
+        if (templateResult.warnings.length > 0) {
+          logger.warn(`Template processing warnings for ${name}:`, templateResult.warnings);
+        }
+
+        if (templateResult.processedTemplates.length > 0) {
+          debugIf(() => ({
+            message: 'Templates processed successfully',
+            meta: {
+              serverName: name,
+              templateCount: templateResult.processedTemplates.length,
+              templates: templateResult.processedTemplates,
+            },
+          }));
+        }
+
+        processedParams = templateResult.processedConfig;
+      }
+
+      const validatedTransport = transportConfigSchema.parse(processedParams);
       const transport = createSingleTransport(name, validatedTransport);
 
       assignTransport(transports, name, transport, validatedTransport);

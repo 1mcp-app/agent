@@ -4,6 +4,7 @@ import { JSONRPCMessage } from '@modelcontextprotocol/sdk/types.js';
 
 import { MCP_SERVER_VERSION } from '@src/constants.js';
 import logger, { debugIf } from '@src/logger/logger.js';
+import type { ContextData, ContextHeaders } from '@src/types/context.js';
 
 /**
  * STDIO Proxy Transport Options
@@ -14,6 +15,7 @@ export interface StdioProxyTransportOptions {
   filter?: string;
   tags?: string[];
   timeout?: number;
+  context?: ContextData;
 }
 
 /**
@@ -46,12 +48,31 @@ export class StdioProxyTransport {
       url.searchParams.set('tags', this.options.tags.join(','));
     }
 
-    this.httpTransport = new StreamableHTTPClientTransport(url, {
-      requestInit: {
-        headers: {
-          'User-Agent': `1MCP-Proxy/${MCP_SERVER_VERSION}`,
-        },
+    // Prepare request headers including context if provided
+    const requestInit: RequestInit = {
+      headers: {
+        'User-Agent': `1MCP-Proxy/${MCP_SERVER_VERSION}`,
       },
+    };
+
+    // Add context headers if context data is available
+    if (this.options.context) {
+      const contextHeaders = this.createContextHeaders(this.options.context);
+      Object.assign(requestInit.headers as Record<string, string>, contextHeaders);
+
+      debugIf(() => ({
+        message: 'Context headers added to HTTP transport',
+        meta: {
+          sessionId: this.options.context?.sessionId,
+          hasProject: !!this.options.context?.project.path,
+          hasUser: !!this.options.context?.user.username,
+          version: this.options.context?.version,
+        },
+      }));
+    }
+
+    this.httpTransport = new StreamableHTTPClientTransport(url, {
+      requestInit,
     });
   }
 
@@ -149,6 +170,31 @@ export class StdioProxyTransport {
       logger.warn('HTTP server connection closed');
       await this.close();
     };
+  }
+
+  /**
+   * Create context headers for HTTP transmission
+   */
+  private createContextHeaders(context: ContextData): ContextHeaders {
+    // Encode context data as base64 for safe transmission
+    const contextJson = JSON.stringify(context);
+    const contextBase64 = Buffer.from(contextJson, 'utf8').toString('base64');
+
+    const headers: ContextHeaders = {
+      'X-1MCP-Context': contextBase64,
+      'X-1MCP-Context-Version': context.version || 'v1',
+    };
+
+    // Add optional headers for debugging and tracking
+    if (context.sessionId) {
+      headers['X-1MCP-Context-Session'] = context.sessionId;
+    }
+
+    if (context.timestamp) {
+      headers['X-1MCP-Context-Timestamp'] = context.timestamp;
+    }
+
+    return headers;
   }
 
   /**

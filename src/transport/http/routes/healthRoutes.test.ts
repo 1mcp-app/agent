@@ -14,6 +14,7 @@ vi.mock('@src/logger/logger.js', () => ({
     warn: vi.fn(),
     debug: vi.fn(),
   },
+  debugIf: vi.fn(),
 }));
 
 vi.mock('@src/application/services/healthService.js', () => {

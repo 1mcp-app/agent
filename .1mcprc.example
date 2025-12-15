@@ -13,4 +13,96 @@
   // Option 3: Use simple tags (lowest priority)
   // "tags": ["web", "api", "database"],
   // "tags": "web,api,database"  // String format also supported
+
+  // Enable context-aware proxy mode (NEW!)
+  "context": {
+    // Project identifier for template substitution
+    "projectId": "my-awesome-app",
+
+    // Environment for template substitution
+    "environment": "development",
+
+    // Team or organization identifier
+    "team": "platform",
+
+    // Custom context variables available in templates
+    "custom": {
+      "apiEndpoint": "https://api.dev.local",
+      "featureFlags": ["new-ui", "beta-api"],
+      "debugMode": true
+    },
+
+    // Environment variable prefixes to include in context
+    "envPrefixes": ["MY_APP_", "API_"],
+
+    // Enable/disable git information collection
+    "includeGit": true,
+
+    // Sanitize file paths (replace home directory with ~)
+    "sanitizePaths": true
+  }
 }
+
+/*
+Template Examples for MCP Server Configurations:
+
+When context is enabled, you can use templates in your MCP server configurations:
+
+{
+  "name": "project-aware-serena",
+  "command": "npx",
+  "args": [
+    "-y",
+    "serena",
+    "{project.path}",           // Current working directory
+    "{project.name}",           // Project name from context
+    "{project.environment}",    // Environment from context
+    "{user.username}",          // Current user
+    "{project.custom.apiEndpoint}", // Custom context variable
+    "{context.timestamp}"       // Current timestamp
+  ],
+  "env": {
+    "PROJECT_ID": "{project.custom.projectId}",
+    "USER_TEAM": "{project.custom.team}",
+    "GIT_BRANCH": "{project.git.branch?:main}",
+    "SESSION_ID": "{context.sessionId}"
+  }
+}
+
+Available Template Variables:
+
+Project Context:
+  {project.path}        - Current working directory
+  {project.name}        - Project directory name
+  {project.environment} - Environment from context config
+  {project.git.branch}  - Current git branch (if git repo)
+  {project.git.commit}  - Current git commit (short hash)
+  {project.git.repository} - Git repository name
+  {project.custom.*}    - Custom variables from context
+
+User Context:
+  {user.username}       - Current system username
+  {user.name}          - User's display name
+  {user.email}         - User's email (from git config)
+  {user.home}          - User's home directory
+
+Environment Context:
+  {environment.variables.*} - Environment variables
+  {context.path}       - Alias for {project.path}
+  {context.timestamp}  - Current ISO timestamp
+  {context.sessionId}  - Unique session identifier
+  {context.version}    - Context schema version
+
+Template Functions:
+  {variable | upper}           - Convert to uppercase
+  {variable | lower}           - Convert to lowercase
+  {variable | capitalize}      - Capitalize words
+  {variable | truncate(10)}    - Truncate to length
+  {variable | replace(from,to)}- Replace text
+  {variable | basename}        - Get filename from path
+  {variable | dirname}         - Get directory from path
+  {variable | extname}         - Get file extension
+  {variable | default(value)}  - Default value if empty
+
+Example: "{project.name | upper}-{context.timestamp | date('YYYY-MM-DD')}"
+*/

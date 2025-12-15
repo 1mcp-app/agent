@@ -1,0 +1,113 @@
+// Re-export MCPServerParams from core types for template processor
+export type { MCPServerParams } from '@src/core/types/index.js';
+
+/**
+ * Git repository information
+ */
+export interface GitInfo {
+  branch?: string;
+  commit?: string;
+  repository?: string;
+  isRepo?: boolean;
+}
+
+/**
+ * Context namespace information
+ */
+export interface ContextNamespace {
+  path?: string;
+  name?: string;
+  git?: GitInfo;
+  environment?: string;
+  custom?: Record<string, unknown>;
+}
+
+/**
+ * User context information
+ */
+export interface UserContext {
+  name?: string;
+  email?: string;
+  home?: string;
+  username?: string;
+  uid?: string;
+  gid?: string;
+  shell?: string;
+}
+
+/**
+ * Environment context information
+ */
+export interface EnvironmentContext {
+  variables?: Record<string, string>;
+  prefixes?: string[];
+}
+
+/**
+ * Complete context data
+ */
+export interface ContextData {
+  project: ContextNamespace;
+  user: UserContext;
+  environment: EnvironmentContext;
+  timestamp?: string;
+  sessionId?: string;
+  version?: string;
+}
+
+/**
+ * Context collection options
+ */
+export interface ContextCollectionOptions {
+  includeGit?: boolean;
+  includeEnv?: boolean;
+  envPrefixes?: string[];
+  sanitizePaths?: boolean;
+  maxDepth?: number;
+}
+
+/**
+ * Template variable interface
+ */
+export interface TemplateVariable {
+  name: string;
+  namespace: 'project' | 'user' | 'environment' | 'context';
+  path: string[];
+  optional: boolean;
+  defaultValue?: string;
+  functions?: Array<{ name: string; args: string[] }>;
+}
+
+/**
+ * Template context for variable substitution
+ */
+export interface TemplateContext {
+  project: ContextNamespace;
+  user: UserContext;
+  environment: EnvironmentContext;
+  context: {
+    path: string;
+    timestamp: string;
+    sessionId: string;
+    version: string;
+  };
+}
+
+/**
+ * Context transmission headers
+ */
+export interface ContextHeaders {
+  'X-1MCP-Context': string;
+  'X-1MCP-Context-Version': string;
+  'X-1MCP-Context-Session'?: string;
+  'X-1MCP-Context-Timestamp'?: string;
+}
+
+// Utility functions
+export function createSessionId(): string {
+  return `ctx_${Date.now()}_${Math.random().toString(36).substring(2, 11)}`;
+}
+
+export function formatTimestamp(): string {
+  return new Date().toISOString();
+}

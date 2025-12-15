@@ -29,6 +29,7 @@ vi.mock('@src/logger/logger.js', () => ({
     warn: vi.fn(),
     error: vi.fn(),
   },
+  debugIf: vi.fn(),
 }));
 
 const mockSetServer = vi.mocked(setServer);
