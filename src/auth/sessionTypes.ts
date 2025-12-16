@@ -1,6 +1,8 @@
 // Shared session types for server and client session managers
 import { OAuthClientInformationFull } from '@modelcontextprotocol/sdk/shared/auth.js';
 
+import { ContextNamespace, EnvironmentContext, UserContext } from '@src/types/context.js';
+
 /**
  * Base interface for all data that can expire
  */
@@ -54,4 +56,11 @@ export interface StreamableSessionData extends ExpirableData {
   enablePagination?: boolean;
   customTemplate?: string;
   lastAccessedAt: number;
+  context?: {
+    project?: ContextNamespace;
+    user?: UserContext;
+    environment?: EnvironmentContext;
+    timestamp?: string;
+    version?: string;
+  };
 }

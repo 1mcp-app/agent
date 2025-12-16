@@ -136,7 +136,9 @@ describe('server', () => {
     it('should log transport creation', async () => {
       await setupServer();
 
-      expect(logger.info).toHaveBeenCalledWith('Created 2 transports');
+      expect(logger.info).toHaveBeenCalledWith(
+        'Created 2 static transports (template servers will be created per-client)',
+      );
     });
 
     it('should create clients for each transport', async () => {

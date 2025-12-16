@@ -428,11 +428,21 @@ describe('Streamable HTTP Routes', () => {
         sessionIdGenerator: expect.any(Function),
       });
       expect(mockTransport.markAsInitialized).toHaveBeenCalled();
-      expect(mockServerManager.connectTransport).toHaveBeenCalledWith(mockTransport, 'restored-session', {
-        tags: ['filesystem'],
-        tagFilterMode: 'simple-or',
-        enablePagination: true,
-      });
+      expect(mockServerManager.connectTransport).toHaveBeenCalledWith(
+        mockTransport,
+        'restored-session',
+        {
+          tags: ['filesystem'],
+          tagFilterMode: 'simple-or',
+          enablePagination: true,
+          context: undefined,
+          customTemplate: undefined,
+          presetName: undefined,
+          tagExpression: undefined,
+          tagQuery: undefined,
+        },
+        undefined,
+      );
       expect(mockSessionRepository.updateAccess).toHaveBeenCalledWith('restored-session');
       expect(mockTransport.handleRequest).toHaveBeenCalledWith(mockRequest, mockResponse, mockRequest.body);
     });

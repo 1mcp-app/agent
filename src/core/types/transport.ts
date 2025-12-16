@@ -104,6 +104,22 @@ export const oAuthConfigSchema = z.object({
 });
 
 /**
+ * Zod schema for template server configuration
+ */
+export const templateServerConfigSchema = z.object({
+  shareable: z.boolean().optional(),
+  maxInstances: z.number().min(0).optional(),
+  idleTimeout: z.number().min(0).optional(),
+  perClient: z.boolean().optional(),
+  extractionOptions: z
+    .object({
+      includeOptional: z.boolean().optional(),
+      includeEnvironment: z.boolean().optional(),
+    })
+    .optional(),
+});
+
+/**
  * Zod schema for transport configuration
  */
 export const transportConfigSchema = z.object({
@@ -130,6 +146,9 @@ export const transportConfigSchema = z.object({
   restartOnExit: z.boolean().optional(),
   maxRestarts: z.number().min(0).optional(),
   restartDelay: z.number().min(0).optional(),
+
+  // Template configuration
+  template: templateServerConfigSchema.optional(),
 });
 
 /**
@@ -152,6 +171,27 @@ export interface TemplateSettings {
   failureMode?: 'strict' | 'graceful';
   /** Whether to cache processed templates based on context hash */
   cacheContext?: boolean;
+}
+
+/**
+ * Configuration for template-based server instance management
+ */
+export interface TemplateServerConfig {
+  /** Whether this template creates shareable server instances */
+  shareable?: boolean;
+  /** Maximum instances per template (0 = unlimited) */
+  maxInstances?: number;
+  /** Idle timeout before termination in milliseconds */
+  idleTimeout?: number;
+  /** Force per-client instances (overrides shareable) */
+  perClient?: boolean;
+  /** Default options for variable extraction */
+  extractionOptions?: {
+    /** Whether to include optional variables in the result */
+    includeOptional?: boolean;
+    /** Whether to include environment variables */
+    includeEnvironment?: boolean;
+  };
 }
 
 /**

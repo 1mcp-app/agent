@@ -93,19 +93,6 @@ export interface TemplateContext {
   };
 }
 
-/**
- * Context transmission headers
- */
-export interface ContextHeaders {
-  'x-1mcp-context': string;
-  'x-1mcp-context-version': string;
-  'x-1mcp-session-id'?: string;
-  'X-1MCP-Context'?: string;
-  'X-1MCP-Context-Version'?: string;
-  'X-1MCP-Context-Session'?: string;
-  'X-1MCP-Context-Timestamp'?: string;
-}
-
 // Utility functions
 export function createSessionId(): string {
   return `ctx_${Date.now()}_${Math.random().toString(36).substring(2, 11)}`;

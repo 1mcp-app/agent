@@ -4,6 +4,7 @@ import { ServerCapabilities } from '@modelcontextprotocol/sdk/types.js';
 import { TemplateConfig } from '@src/core/instructions/templateTypes.js';
 import { TagExpression } from '@src/domains/preset/parsers/tagQueryParser.js';
 import { TagQuery } from '@src/domains/preset/types/presetTypes.js';
+import { ContextNamespace, EnvironmentContext, UserContext } from '@src/types/context.js';
 
 /**
  * Enum representing possible server connection states
@@ -26,6 +27,13 @@ export interface InboundConnectionConfig extends TemplateConfig {
   readonly tagFilterMode?: 'simple-or' | 'advanced' | 'preset' | 'none';
   readonly enablePagination?: boolean;
   readonly presetName?: string;
+  readonly context?: {
+    project?: ContextNamespace;
+    user?: UserContext;
+    environment?: EnvironmentContext;
+    timestamp?: string;
+    version?: string;
+  };
 }
 
 /**

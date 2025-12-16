@@ -254,33 +254,39 @@ export class ConfigManager extends EventEmitter {
       }
     }
 
-    // Process templates if context available
+    // Process templates if context available, otherwise return raw templates
     let templateServers: Record<string, MCPServerParams> = {};
     let errors: string[] = [];
 
-    if (context && config.mcpTemplates) {
-      const contextHash = this.hashContext(context);
+    if (config.mcpTemplates) {
+      if (context) {
+        // Context available - process templates
+        const contextHash = this.hashContext(context);
 
-      // Use cached templates if context hasn't changed and caching is enabled
-      if (
-        config.templateSettings?.cacheContext &&
-        this.lastContextHash === contextHash &&
-        Object.keys(this.processedTemplates).length > 0
-      ) {
-        templateServers = this.processedTemplates;
-        errors = this.templateProcessingErrors;
-      } else if (config.mcpTemplates) {
-        // Process templates with validation
-        const result = await this.processTemplates(config.mcpTemplates, context, config.templateSettings);
-        templateServers = result.servers;
-        errors = result.errors;
+        // Use cached templates if context hasn't changed and caching is enabled
+        if (
+          config.templateSettings?.cacheContext &&
+          this.lastContextHash === contextHash &&
+          Object.keys(this.processedTemplates).length > 0
+        ) {
+          templateServers = this.processedTemplates;
+          errors = this.templateProcessingErrors;
+        } else {
+          // Process templates with validation
+          const result = await this.processTemplates(config.mcpTemplates, context, config.templateSettings);
+          templateServers = result.servers;
+          errors = result.errors;
 
-        // Cache results if caching is enabled
-        if (config.templateSettings?.cacheContext) {
-          this.processedTemplates = templateServers;
-          this.templateProcessingErrors = errors;
-          this.lastContextHash = contextHash;
+          // Cache results if caching is enabled
+          if (config.templateSettings?.cacheContext) {
+            this.processedTemplates = templateServers;
+            this.templateProcessingErrors = errors;
+            this.lastContextHash = contextHash;
+          }
         }
+      } else {
+        // No context - return raw templates for filtering purposes
+        templateServers = config.mcpTemplates;
       }
     }
 

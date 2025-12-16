@@ -1,10 +1,8 @@
 import { loadProjectConfig, normalizeTags } from '@src/config/projectConfigLoader.js';
 import logger from '@src/logger/logger.js';
 import { StdioProxyTransport } from '@src/transport/stdioProxyTransport.js';
-import type { ContextData } from '@src/types/context.js';
 import { discoverServerWithPidFile, validateServer1mcpUrl } from '@src/utils/validation/urlDetection.js';
 
-import { ContextCollector } from './contextCollector.js';
 import { ProxyOptions } from './index.js';
 
 /**
@@ -14,43 +12,6 @@ export async function proxyCommand(options: ProxyOptions): Promise<void> {
   try {
     // Load project configuration from .1mcprc (if exists)
     const projectConfig = await loadProjectConfig();
-
-    // Collect context if enabled in project configuration
-    let context: ContextData | undefined;
-    if (projectConfig?.context) {
-      logger.info('📊 Collecting project context...');
-
-      const contextCollector = new ContextCollector({
-        includeGit: projectConfig.context.includeGit,
-        includeEnv: true, // Always include env for context-aware mode
-        envPrefixes: projectConfig.context.envPrefixes,
-        sanitizePaths: projectConfig.context.sanitizePaths,
-      });
-
-      context = await contextCollector.collect();
-
-      // Apply project-specific context overrides
-      if (projectConfig.context.projectId) {
-        context.project.name = projectConfig.context.projectId;
-      }
-      if (projectConfig.context.environment) {
-        context.project.environment = projectConfig.context.environment;
-      }
-      if (projectConfig.context.team) {
-        context.project.custom = {
-          ...context.project.custom,
-          team: projectConfig.context.team,
-        };
-      }
-      if (projectConfig.context.custom) {
-        context.project.custom = {
-          ...context.project.custom,
-          ...projectConfig.context.custom,
-        };
-      }
-
-      logger.info(`✅ Context collected: ${context.project.name} (${context.sessionId})`);
-    }
 
     // Merge configuration with priority: CLI options > .1mcprc > defaults
     const preset = options.preset || projectConfig?.preset;
@@ -106,16 +67,12 @@ export async function proxyCommand(options: ProxyOptions): Promise<void> {
       preset: finalPreset,
       filter: finalFilter,
       tags: finalTags,
-      context,
+      projectConfig: projectConfig || undefined, // Pass project config for context enrichment
     });
 
     await proxyTransport.start();
 
-    if (context) {
-      logger.info(`📡 STDIO proxy running with context (${context.sessionId}), forwarding to ${serverUrl}`);
-    } else {
-      logger.info(`📡 STDIO proxy running, forwarding to ${serverUrl}`);
-    }
+    logger.info(`📡 STDIO proxy running, forwarding to ${serverUrl}`);
 
     // Set up graceful shutdown
     const shutdown = async () => {

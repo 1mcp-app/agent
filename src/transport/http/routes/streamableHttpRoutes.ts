@@ -18,6 +18,8 @@ import {
 import tagsExtractor from '@src/transport/http/middlewares/tagsExtractor.js';
 import { RestorableStreamableHTTPServerTransport } from '@src/transport/http/restorableStreamableTransport.js';
 import { StreamableSessionRepository } from '@src/transport/http/storage/streamableSessionRepository.js';
+import { extractContextFromHeadersOrQuery } from '@src/transport/http/utils/contextExtractor.js';
+import type { ContextData } from '@src/types/context.js';
 
 import { Request, RequestHandler, Response, Router } from 'express';
 
@@ -58,8 +60,20 @@ async function restoreSession(
       logger.warn('Could not set sessionId on restored transport:', error);
     }
 
-    // Reconnect with the original configuration
-    await serverManager.connectTransport(transport, sessionId, config);
+    // Convert config context to ContextData format if available
+    const contextData = config.context
+      ? {
+          project: config.context.project || {},
+          user: config.context.user || {},
+          environment: config.context.environment || {},
+          timestamp: config.context.timestamp,
+          sessionId: sessionId,
+          version: config.context.version,
+        }
+      : undefined;
+
+    // Reconnect with the original configuration and context
+    await serverManager.connectTransport(transport, sessionId, config, contextData);
 
     // Initialize notifications for async loading if enabled
     if (asyncOrchestrator) {
@@ -118,6 +132,7 @@ export function setupStreamableHttpRoutes(
       const sessionId = req.headers['mcp-session-id'] as string | undefined;
 
       if (!sessionId) {
+        // Generate new session ID
         const id = AUTH_CONFIG.SERVER.STREAMABLE_SESSION.ID_PREFIX + randomUUID();
         transport = new StreamableHTTPServerTransport({
           sessionIdGenerator: () => id,
@@ -140,9 +155,19 @@ export function setupStreamableHttpRoutes(
           customTemplate,
         };
 
-        await serverManager.connectTransport(transport, id, config);
+        // Extract context from query parameters (proxy) or headers (direct HTTP)
+        const context = extractContextFromHeadersOrQuery(req);
 
-        // Persist session configuration for restoration
+        if (context && context.project?.name && context.sessionId) {
+          logger.info(`🔗 New session with context: ${context.project.name} (${context.sessionId})`);
+        }
+
+        // Pass context to ServerManager for template processing (only if valid)
+        const validContext =
+          context && context.project && context.user && context.environment ? (context as ContextData) : undefined;
+        await serverManager.connectTransport(transport, id, config, validContext);
+
+        // Persist session configuration for restoration with context
         sessionRepository.create(id, config);
 
         // Initialize notifications for async loading if enabled
@@ -170,6 +195,13 @@ export function setupStreamableHttpRoutes(
       } else {
         const existingTransport = serverManager.getTransport(sessionId);
         if (!existingTransport) {
+          // Extract context from query parameters (proxy) or headers (direct HTTP) for session restoration
+          const context = extractContextFromHeadersOrQuery(req);
+
+          if (context && context.project?.name && context.sessionId) {
+            logger.info(`🔄 Restoring session with context: ${context.project.name} (${context.sessionId})`);
+          }
+
           // Attempt to restore session from persistent storage
           const restoredTransport = await restoreSession(
             sessionId,

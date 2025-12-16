@@ -6,8 +6,17 @@ import { processEnvironment } from '@src/config/envProcessor.js';
 import { setupCapabilities } from '@src/core/capabilities/capabilityManager.js';
 import { ClientManager } from '@src/core/client/clientManager.js';
 import { getGlobalContextManager } from '@src/core/context/globalContextManager.js';
+import {
+  ClientTemplateTracker,
+  FilterCache,
+  getFilterCache,
+  TemplateFilteringService,
+  TemplateIndex,
+} from '@src/core/filtering/index.js';
 import { InstructionAggregator } from '@src/core/instructions/instructionAggregator.js';
+import { TemplateServerFactory } from '@src/core/server/templateServerFactory.js';
 import type { OutboundConnection } from '@src/core/types/client.js';
+import { ClientStatus } from '@src/core/types/client.js';
 import {
   AuthProviderTransport,
   InboundConnection,
@@ -17,6 +26,7 @@ import {
   OutboundConnections,
   ServerStatus,
 } from '@src/core/types/index.js';
+import type { MCPServerConfiguration } from '@src/core/types/transport.js';
 import {
   type ClientConnection,
   PresetNotificationService,
@@ -40,6 +50,14 @@ export class ServerManager {
   private instructionAggregator?: InstructionAggregator;
   private clientManager?: ClientManager;
   private mcpServers: Map<string, { transport: AuthProviderTransport; config: MCPServerParams }> = new Map();
+  private templateServerFactory?: TemplateServerFactory;
+  private serverConfigData: MCPServerConfiguration | null = null; // Cache the config data
+  private templateSessionMap?: Map<string, string>; // Maps template name to session ID for tracking
+
+  // Enhanced filtering components
+  private clientTemplateTracker = new ClientTemplateTracker();
+  private templateIndex = new TemplateIndex();
+  private filterCache = getFilterCache();
 
   private constructor(
     config: { name: string; version: string },
@@ -52,6 +70,13 @@ export class ServerManager {
     this.outboundConns = outboundConns;
     this.transports = transports;
     this.clientManager = ClientManager.getOrCreateInstance();
+
+    // Initialize the template server factory
+    this.templateServerFactory = new TemplateServerFactory({
+      maxInstances: 50, // Configurable limit
+      idleTimeout: 10 * 60 * 1000, // 10 minutes
+      cleanupInterval: 60 * 1000, // 1 minute
+    });
   }
 
   public static getOrCreateInstance(
@@ -74,11 +99,11 @@ export class ServerManager {
   }
 
   // Test utility method to reset singleton state
-  public static resetInstance(): void {
+  public static async resetInstance(): Promise<void> {
     if (ServerManager.instance) {
       // Clean up existing connections with forced close
       for (const [sessionId] of ServerManager.instance.inboundConns) {
-        ServerManager.instance.disconnectTransport(sessionId, true);
+        await ServerManager.instance.disconnectTransport(sessionId, true);
       }
       ServerManager.instance.inboundConns.clear();
       ServerManager.instance.connectionSemaphore.clear();
@@ -212,7 +237,12 @@ export class ServerManager {
     }
   }
 
-  public async connectTransport(transport: Transport, sessionId: string, opts: InboundConnectionConfig): Promise<void> {
+  public async connectTransport(
+    transport: Transport,
+    sessionId: string,
+    opts: InboundConnectionConfig,
+    context?: ContextData,
+  ): Promise<void> {
     // Check if a connection is already in progress for this session
     const existingConnection = this.connectionSemaphore.get(sessionId);
     if (existingConnection) {
@@ -228,7 +258,7 @@ export class ServerManager {
     }
 
     // Create connection promise to prevent race conditions
-    const connectionPromise = this.performConnection(transport, sessionId, opts);
+    const connectionPromise = this.performConnection(transport, sessionId, opts, context);
     this.connectionSemaphore.set(sessionId, connectionPromise);
 
     try {
@@ -243,6 +273,7 @@ export class ServerManager {
     transport: Transport,
     sessionId: string,
     opts: InboundConnectionConfig,
+    context?: ContextData,
   ): Promise<void> {
     // Set connection timeout
     const connectionTimeoutMs = 30000; // 30 seconds
@@ -252,7 +283,7 @@ export class ServerManager {
     });
 
     try {
-      await Promise.race([this.doConnect(transport, sessionId, opts), timeoutPromise]);
+      await Promise.race([this.doConnect(transport, sessionId, opts, context), timeoutPromise]);
     } catch (error) {
       // Update status to Error if connection exists
       const connection = this.inboundConns.get(sessionId);
@@ -266,7 +297,12 @@ export class ServerManager {
     }
   }
 
-  private async doConnect(transport: Transport, sessionId: string, opts: InboundConnectionConfig): Promise<void> {
+  private async doConnect(
+    transport: Transport,
+    sessionId: string,
+    opts: InboundConnectionConfig,
+    context?: ContextData,
+  ): Promise<void> {
     // Get filtered instructions based on client's filter criteria using InstructionAggregator
     const filteredInstructions = this.instructionAggregator?.getFilteredInstructions(opts, this.outboundConns) || '';
 
@@ -275,6 +311,22 @@ export class ServerManager {
       ...this.serverCapabilities,
       instructions: filteredInstructions || undefined,
     };
+
+    // Initialize outbound connections
+    // Load configuration data if not already loaded
+    if (!this.serverConfigData) {
+      const configManager = ConfigManager.getInstance();
+      const { staticServers, templateServers } = await configManager.loadConfigWithTemplates(context);
+      this.serverConfigData = {
+        mcpServers: staticServers,
+        mcpTemplates: templateServers,
+      };
+    }
+
+    // If we have context, create template-based servers
+    if (context && this.templateServerFactory && this.serverConfigData.mcpTemplates) {
+      await this.createTemplateBasedServers(sessionId, context, opts);
+    }
 
     // Create a new server instance for this transport
     const server = new Server(this.serverConfig, serverOptionsWithInstructions);
@@ -342,7 +394,140 @@ export class ServerManager {
     logger.info(`Connected transport for session ${sessionId}`);
   }
 
-  public disconnectTransport(sessionId: string, forceClose: boolean = false): void {
+  /**
+   * Create template-based servers for a client connection
+   */
+  private async createTemplateBasedServers(
+    sessionId: string,
+    context: ContextData,
+    opts: InboundConnectionConfig,
+  ): Promise<void> {
+    if (!this.templateServerFactory || !this.serverConfigData?.mcpTemplates) {
+      return;
+    }
+
+    // Get template servers that match the client's tags/preset
+    const templateConfigs = this.getMatchingTemplateConfigs(opts);
+
+    logger.info(`Creating ${templateConfigs.length} template-based servers for session ${sessionId}`, {
+      templates: templateConfigs.map(([name]) => name),
+    });
+
+    // Create servers from templates
+    for (const [templateName, templateConfig] of templateConfigs) {
+      try {
+        // Get or create server instance from template
+        const instance = await this.templateServerFactory.getOrCreateServerInstance(
+          templateName,
+          templateConfig,
+          context,
+          sessionId,
+          templateConfig.template,
+        );
+
+        // Connect to the server instance using ClientManager
+        if (this.clientManager) {
+          const clientInstance = this.clientManager.createClientInstance();
+
+          // Create transport for the server instance
+          const serverTransport = await this.createTransportForInstance(instance, context);
+
+          // Connect client to the server
+          await clientInstance.connect(serverTransport);
+          instance.clientCount++;
+
+          // CRITICAL: Register the template server in outbound connections for capability aggregation
+          // This ensures the template server's tools are included in the capabilities
+          this.outboundConns.set(templateName, {
+            name: templateName, // Use template name for clean tool namespacing (serena_1mcp_*)
+            transport: serverTransport,
+            client: clientInstance,
+            status: ClientStatus.Connected, // Template servers should be connected
+            capabilities: undefined, // Will be populated by setupCapabilities
+          });
+
+          // Store session ID mapping separately for cleanup tracking
+          if (!this.templateSessionMap) {
+            this.templateSessionMap = new Map<string, string>();
+          }
+          this.templateSessionMap.set(templateName, sessionId);
+
+          // Add to transports map as well
+          this.transports[instance.id] = serverTransport;
+
+          // Enhanced client-template tracking
+          this.clientTemplateTracker.addClientTemplate(sessionId, templateName, instance.id, {
+            shareable: templateConfig.template?.shareable,
+            perClient: templateConfig.template?.perClient,
+          });
+
+          debugIf(() => ({
+            message: `ServerManager.createTemplateBasedServers: Tracked client-template relationship`,
+            meta: {
+              sessionId,
+              templateName,
+              instanceId: instance.id,
+              shareable: templateConfig.template?.shareable,
+              perClient: templateConfig.template?.perClient,
+              registeredInOutbound: true,
+            },
+          }));
+
+          logger.info(`Connected to template server instance: ${templateName} (${instance.id})`, {
+            sessionId,
+            clientCount: instance.clientCount,
+            registeredInCapabilities: true,
+          });
+        }
+      } catch (error) {
+        logger.error(`Failed to create server from template ${templateName}:`, error);
+      }
+    }
+  }
+
+  /**
+   * Get template configurations that match the client's filter criteria
+   */
+  private getMatchingTemplateConfigs(opts: InboundConnectionConfig): Array<[string, MCPServerParams]> {
+    if (!this.serverConfigData?.mcpTemplates) {
+      return [];
+    }
+
+    const templates = Object.entries(this.serverConfigData.mcpTemplates) as Array<[string, MCPServerParams]>;
+
+    logger.info('ServerManager.getMatchingTemplateConfigs: Using enhanced filtering', {
+      totalTemplates: templates.length,
+      filterMode: opts.tagFilterMode,
+      tags: opts.tags,
+      presetName: opts.presetName,
+      templateNames: templates.map(([name]) => name),
+    });
+
+    return TemplateFilteringService.getMatchingTemplates(templates, opts);
+  }
+
+  /**
+   * Create a transport for a server instance
+   */
+  private async createTransportForInstance(
+    instance: {
+      id: string;
+      processedConfig: MCPServerParams;
+    },
+    context: ContextData,
+  ): Promise<AuthProviderTransport> {
+    // Create a transport from the processed configuration with context
+    const transports = await createTransportsWithContext(
+      {
+        [instance.id]: instance.processedConfig,
+      },
+      context,
+    );
+
+    return transports[instance.id];
+  }
+
+  public async disconnectTransport(sessionId: string, forceClose: boolean = false): Promise<void> {
     // Prevent recursive disconnection calls
     if (this.disconnectingIds.has(sessionId)) {
       return;
@@ -366,6 +551,9 @@ export class ServerManager {
           }
         }
 
+        // Clean up template-based servers for this client
+        await this.cleanupTemplateServers(sessionId);
+
         // Untrack client from preset notification service
         const notificationService = PresetNotificationService.getInstance();
         notificationService.untrackClient(sessionId);
@@ -378,6 +566,73 @@ export class ServerManager {
         this.disconnectingIds.delete(sessionId);
       }
     }
+  }
+
+  /**
+   * Clean up template-based servers when a client disconnects
+   */
+  private async cleanupTemplateServers(sessionId: string): Promise<void> {
+    // Enhanced cleanup using client template tracker
+    const instancesToCleanup = this.clientTemplateTracker.removeClient(sessionId);
+    logger.info(`Removing client from ${instancesToCleanup.length} template instances`, {
+      sessionId,
+      instancesToCleanup,
+    });
+
+    // Remove client from template server instances
+    for (const instanceKey of instancesToCleanup) {
+      const [templateName, ...instanceParts] = instanceKey.split(':');
+      const instanceId = instanceParts.join(':');
+
+      try {
+        if (this.templateServerFactory) {
+          // Remove the client from the instance
+          this.templateServerFactory.removeClientFromInstanceByKey(instanceKey, sessionId);
+
+          debugIf(() => ({
+            message: `ServerManager.cleanupTemplateServers: Successfully removed client from instance`,
+            meta: {
+              sessionId,
+              templateName,
+              instanceId,
+              instanceKey,
+            },
+          }));
+        }
+
+        // CRITICAL: Also clean up from outbound connections and transports
+        // This prevents memory leaks and ensures proper cleanup
+        // Only remove from outbound connections if this session owns it
+        if (this.templateSessionMap?.get(templateName) === sessionId) {
+          this.outboundConns.delete(templateName);
+          this.templateSessionMap.delete(templateName);
+          debugIf(() => ({
+            message: `ServerManager.cleanupTemplateServers: Removed template server from outbound connections`,
+            meta: { sessionId, templateName, instanceId },
+          }));
+        }
+
+        if (this.transports[instanceId]) {
+          delete this.transports[instanceId];
+          debugIf(() => ({
+            message: `ServerManager.cleanupTemplateServers: Removed template server transport`,
+            meta: { sessionId, instanceId, templateName },
+          }));
+        }
+      } catch (error) {
+        logger.warn(`Failed to remove client from template instance ${instanceKey}:`, {
+          error: error instanceof Error ? error.message : 'Unknown error',
+          sessionId,
+          templateName,
+          instanceId,
+        });
+      }
+    }
+
+    logger.info(`Cleaned up template servers for session ${sessionId}`, {
+      instancesCleaned: instancesToCleanup.length,
+      outboundConnectionsCleaned: instancesToCleanup.length,
+    });
   }
 
   public getTransport(sessionId: string): Transport | undefined {
@@ -743,5 +998,96 @@ export class ServerManager {
       logger.error(`Failed to update metadata for server ${serverName}:`, error);
       throw error;
     }
+  }
+
+  /**
+   * Get enhanced filtering statistics and information
+   */
+  public getFilteringStats(): {
+    tracker: ReturnType<ClientTemplateTracker['getStats']> | null;
+    cache: ReturnType<FilterCache['getStats']> | null;
+    index: ReturnType<TemplateIndex['getStats']> | null;
+    enabled: boolean;
+  } {
+    const tracker = this.clientTemplateTracker.getStats();
+    const cache = this.filterCache.getStats();
+    const index = this.templateIndex.getStats();
+
+    return {
+      tracker,
+      cache,
+      index,
+      enabled: true,
+    };
+  }
+
+  /**
+   * Get detailed client template tracking information
+   */
+  public getClientTemplateInfo(): ReturnType<ClientTemplateTracker['getDetailedInfo']> {
+    return this.clientTemplateTracker.getDetailedInfo();
+  }
+
+  /**
+   * Rebuild the template index
+   */
+  public rebuildTemplateIndex(): void {
+    if (this.serverConfigData?.mcpTemplates) {
+      this.templateIndex.buildIndex(this.serverConfigData.mcpTemplates);
+      logger.info('Template index rebuilt');
+    }
+  }
+
+  /**
+   * Clear filter cache
+   */
+  public clearFilterCache(): void {
+    this.filterCache.clear();
+    logger.info('Filter cache cleared');
+  }
+
+  /**
+   * Get idle template instances for cleanup
+   */
+  public getIdleTemplateInstances(idleTimeoutMs: number = 10 * 60 * 1000): Array<{
+    templateName: string;
+    instanceId: string;
+    idleTime: number;
+  }> {
+    return this.clientTemplateTracker.getIdleInstances(idleTimeoutMs);
+  }
+
+  /**
+   * Force cleanup of idle template instances
+   */
+  public async cleanupIdleInstances(idleTimeoutMs: number = 10 * 60 * 1000): Promise<number> {
+    if (!this.templateServerFactory) {
+      return 0;
+    }
+
+    const idleInstances = this.getIdleTemplateInstances(idleTimeoutMs);
+    let cleanedUp = 0;
+
+    for (const { templateName, instanceId } of idleInstances) {
+      try {
+        // Create the instanceKey and remove the instance from the factory
+        const instanceKey = `${templateName}:${instanceId}`;
+        this.templateServerFactory.removeInstanceByKey(instanceKey);
+
+        // Clean up tracking
+        this.clientTemplateTracker.cleanupInstance(templateName, instanceId);
+
+        cleanedUp++;
+        logger.info(`Cleaned up idle template instance: ${templateName}:${instanceId}`);
+      } catch (error) {
+        logger.warn(`Failed to cleanup idle instance ${templateName}:${instanceId}:`, error);
+      }
+    }
+
+    if (cleanedUp > 0) {
+      logger.info(`Cleaned up ${cleanedUp} idle template instances`);
+    }
+
+    return cleanedUp;
   }
 }

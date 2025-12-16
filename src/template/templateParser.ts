@@ -1,6 +1,7 @@
 import logger, { debugIf } from '@src/logger/logger.js';
 import type { ContextData, TemplateContext, TemplateVariable } from '@src/types/context.js';
 
+import { TemplateFunctions } from './templateFunctions.js';
 import { TemplateUtils } from './templateUtils.js';
 
 /**
@@ -173,10 +174,33 @@ export class TemplateParser {
         throw new Error(`Variable '${variable.name}' is null or undefined`);
       }
 
+      // Apply template functions if present
+      let processedValue = value;
+      if (variable.functions && variable.functions.length > 0) {
+        for (const func of variable.functions) {
+          try {
+            // TemplateFunctions.execute expects (name, args) where value is first arg
+            const valueAsString = String(processedValue);
+            const allArgs = [valueAsString, ...func.args];
+            processedValue = TemplateFunctions.execute(func.name, allArgs);
+          } catch (error) {
+            logger.error(`Template function execution failed: ${func.name}`, {
+              function: func.name,
+              args: func.args,
+              input: processedValue,
+              error: error instanceof Error ? error.message : String(error),
+            });
+            throw new Error(
+              `Template function '${func.name}' failed: ${error instanceof Error ? error.message : String(error)}`,
+            );
+          }
+        }
+      }
+
       // Handle object values
-      if (typeof value === 'object') {
+      if (typeof processedValue === 'object') {
         if (this.options.allowUndefined) {
-          return TemplateUtils.stringifyValue(value);
+          return TemplateUtils.stringifyValue(processedValue);
         }
         throw new Error(
           `Variable '${variable.name}' resolves to an object. Use specific path or enable allowUndefined option.`,
@@ -184,7 +208,7 @@ export class TemplateParser {
       }
 
       // Use shared utilities for string conversion
-      return TemplateUtils.stringifyValue(value);
+      return TemplateUtils.stringifyValue(processedValue);
     } catch (error) {
       if (variable.optional) {
         return variable.defaultValue || this.options.defaultValue;

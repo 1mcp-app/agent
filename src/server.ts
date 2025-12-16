@@ -17,7 +17,7 @@ import { McpLoadingManager } from './core/loading/mcpLoadingManager.js';
 import { ServerManager } from './core/server/serverManager.js';
 import { PresetManager } from './domains/preset/manager/presetManager.js';
 import { PresetNotificationService } from './domains/preset/services/presetNotificationService.js';
-import { createTransports, createTransportsWithContext } from './transport/transportFactory.js';
+import { createTransports } from './transport/transportFactory.js';
 
 /**
  * Result of server setup including both sync and async components
@@ -54,26 +54,15 @@ async function setupServer(configFilePath?: string, context?: ContextData): Prom
       context = globalContextManager.getContext();
     }
 
-    // Load configuration with template processing if context is available
+    // Load only static servers at startup - template servers are created per-client
+    // Templates should only be processed when clients connect, not at server startup
     let mcpConfig: Record<string, MCPServerParams>;
-    if (context) {
-      const { staticServers, templateServers, errors } = await configManager.loadConfigWithTemplates(context);
 
-      // Merge static and template servers (template servers take precedence)
-      mcpConfig = { ...staticServers, ...templateServers };
+    // Always load only static servers for startup
+    mcpConfig = configManager.getTransportConfig();
 
-      // Log template processing results
-      if (errors.length > 0) {
-        logger.warn(`Template processing completed with ${errors.length} errors:`, { errors });
-      }
-
-      const templateCount = Object.keys(templateServers).length;
-      if (templateCount > 0) {
-        logger.info(`Loaded ${templateCount} template servers with context`);
-      }
-    } else {
-      mcpConfig = configManager.getTransportConfig();
-    }
+    // Note: Template servers are handled in ServerManager.createTemplateBasedServers()
+    // which is called when clients connect, not at startup
 
     const agentConfig = AgentConfigManager.getInstance();
     const asyncLoadingEnabled = agentConfig.get('asyncLoading').enabled;
@@ -83,9 +72,11 @@ async function setupServer(configFilePath?: string, context?: ContextData): Prom
     const configDir = configFilePath ? path.dirname(configFilePath) : undefined;
     await initializePresetSystem(configDir);
 
-    // Create transports from configuration with context awareness
-    const transports = context ? await createTransportsWithContext(mcpConfig, context) : createTransports(mcpConfig);
-    logger.info(`Created ${Object.keys(transports).length} transports${context ? ' with context' : ''}`);
+    // Create transports from static configuration only (template servers created per-client)
+    const transports = createTransports(mcpConfig);
+    logger.info(
+      `Created ${Object.keys(transports).length} static transports (template servers will be created per-client)`,
+    );
 
     if (asyncLoadingEnabled) {
       logger.info('Using async loading mode - HTTP server will start immediately, MCP servers load in background');
