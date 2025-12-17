@@ -258,7 +258,43 @@ export class FilterCache {
     };
 
     this.expressionCache.set(expression, entry);
+
+    // Ensure capacity for expression cache too
+    this.ensureExpressionCapacity();
+
     this.stats.expressions.size = this.expressionCache.size;
+  }
+
+  /**
+   * Ensure expression cache doesn't exceed max size (LRU eviction)
+   */
+  private ensureExpressionCapacity(): void {
+    while (this.expressionCache.size > this.config.maxSize) {
+      // Find least recently used entry
+      let lruKey: string | null = null;
+      let lruTime: Date | null = null;
+      let lruAccessCount = Infinity;
+
+      for (const [key, entry] of this.expressionCache) {
+        const isLessRecent = lruTime === null || entry.lastAccessed < lruTime;
+        const isSameTime = lruTime !== null && entry.lastAccessed.getTime() === lruTime.getTime();
+        const isLessUsed = isSameTime && entry.accessCount < lruAccessCount;
+
+        if (isLessRecent || (isSameTime && isLessUsed)) {
+          lruTime = entry.lastAccessed;
+          lruKey = key;
+          lruAccessCount = entry.accessCount;
+        }
+      }
+
+      if (lruKey) {
+        this.expressionCache.delete(lruKey);
+        this.stats.evictions++;
+      } else {
+        // No entry found to evict, break to avoid infinite loop
+        break;
+      }
+    }
   }
 
   /**
@@ -402,6 +438,7 @@ export class FilterCache {
  * Global filter cache instance (singleton pattern)
  */
 let globalFilterCache: FilterCache | null = null;
+let cleanupInterval: ReturnType<typeof setInterval> | null = null;
 
 export function getFilterCache(): FilterCache {
   if (!globalFilterCache) {
@@ -411,14 +448,28 @@ export function getFilterCache(): FilterCache {
       enableStats: true,
     });
 
-    // Set up periodic cleanup
-    setInterval(() => {
+    // Set up periodic cleanup with proper cleanup tracking
+    cleanupInterval = setInterval(() => {
       globalFilterCache?.clearExpired();
     }, 60 * 1000); // Every minute
+
+    // Ensure cleanup on process exit
+    if (typeof process !== 'undefined') {
+      process.on('beforeExit', () => {
+        if (cleanupInterval) {
+          clearInterval(cleanupInterval);
+          cleanupInterval = null;
+        }
+      });
+    }
   }
   return globalFilterCache;
 }
 
 export function resetFilterCache(): void {
+  if (cleanupInterval) {
+    clearInterval(cleanupInterval);
+    cleanupInterval = null;
+  }
   globalFilterCache = null;
 }

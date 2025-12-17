@@ -152,10 +152,22 @@ export class ServerManager {
     debugIf('Context change listener set up for ServerManager');
   }
 
+  // Circuit breaker state
+  private templateProcessingErrors = 0;
+  private readonly maxTemplateProcessingErrors = 3;
+  private templateProcessingDisabled = false;
+  private templateProcessingResetTimeout?: ReturnType<typeof setTimeout>;
+
   /**
-   * Reprocess templates when context changes
+   * Reprocess templates when context changes with circuit breaker pattern
    */
   private async reprocessTemplatesWithNewContext(context: ContextData | undefined): Promise<void> {
+    // Check if template processing is disabled due to repeated failures
+    if (this.templateProcessingDisabled) {
+      logger.warn('Template processing temporarily disabled due to repeated failures');
+      return;
+    }
+
     try {
       const configManager = ConfigManager.getInstance();
       const { staticServers, templateServers, errors } = await configManager.loadConfigWithTemplates(context);
@@ -164,7 +176,14 @@ export class ServerManager {
       const newConfig = { ...staticServers, ...templateServers };
 
       // Compare with current servers and restart only those that changed
-      await this.updateServersWithNewConfig(newConfig);
+      // Handle partial failures gracefully
+      try {
+        await this.updateServersWithNewConfig(newConfig);
+      } catch (updateError) {
+        // Log the error but don't fail completely - try to update servers individually
+        logger.error('Failed to update all servers with new config, attempting individual updates:', updateError);
+        await this.updateServersIndividually(newConfig);
+      }
 
       if (errors.length > 0) {
         logger.warn(`Template reprocessing completed with ${errors.length} errors:`, { errors });
@@ -174,9 +193,56 @@ export class ServerManager {
       if (templateCount > 0) {
         logger.info(`Reprocessed ${templateCount} template servers with new context`);
       }
+
+      // Reset error count on success
+      this.templateProcessingErrors = 0;
+      if (this.templateProcessingResetTimeout) {
+        clearTimeout(this.templateProcessingResetTimeout);
+        this.templateProcessingResetTimeout = undefined;
+      }
     } catch (error) {
-      logger.error('Failed to reprocess templates with new context:', error);
+      this.templateProcessingErrors++;
+      logger.error(
+        `Failed to reprocess templates with new context (${this.templateProcessingErrors}/${this.maxTemplateProcessingErrors}):`,
+        {
+          error: error instanceof Error ? error.message : String(error),
+          context: context?.sessionId ? `session ${context.sessionId}` : 'unknown',
+        },
+      );
+
+      // Implement circuit breaker pattern
+      if (this.templateProcessingErrors >= this.maxTemplateProcessingErrors) {
+        this.templateProcessingDisabled = true;
+        logger.error(`Template processing disabled due to ${this.templateProcessingErrors} consecutive failures`);
+
+        // Reset after 5 minutes
+        this.templateProcessingResetTimeout = setTimeout(
+          () => {
+            this.templateProcessingDisabled = false;
+            this.templateProcessingErrors = 0;
+            logger.info('Template processing re-enabled after timeout');
+          },
+          5 * 60 * 1000,
+        );
+      }
     }
+  }
+
+  /**
+   * Update servers individually to handle partial failures
+   */
+  private async updateServersIndividually(newConfig: Record<string, MCPServerParams>): Promise<void> {
+    const promises = Object.entries(newConfig).map(async ([serverName, config]) => {
+      try {
+        await this.updateServerMetadata(serverName, config);
+        logger.debug(`Successfully updated server: ${serverName}`);
+      } catch (serverError) {
+        logger.error(`Failed to update server ${serverName}:`, serverError);
+        // Continue with other servers even if one fails
+      }
+    });
+
+    await Promise.allSettled(promises);
   }
 
   /**
@@ -493,7 +559,12 @@ export class ServerManager {
       return [];
     }
 
-    const templates = Object.entries(this.serverConfigData.mcpTemplates) as Array<[string, MCPServerParams]>;
+    // Validate template entries to ensure type safety
+    const templateEntries = Object.entries(this.serverConfigData.mcpTemplates);
+    const templates: Array<[string, MCPServerParams]> = templateEntries.filter(([_name, config]) => {
+      // Basic validation of MCPServerParams structure
+      return config && typeof config === 'object' && 'command' in config;
+    }) as Array<[string, MCPServerParams]>;
 
     logger.info('ServerManager.getMatchingTemplateConfigs: Using enhanced filtering', {
       totalTemplates: templates.length,

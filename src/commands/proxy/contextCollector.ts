@@ -207,9 +207,55 @@ export class ContextCollector {
   }
 
   /**
+   * Allowed commands for security - prevent command injection
+   */
+  private static readonly ALLOWED_COMMANDS = new Set([
+    'git',
+    'node',
+    'npm',
+    'pnpm',
+    'yarn',
+    'python',
+    'python3',
+    'pip',
+    'pip3',
+    'curl',
+    'wget',
+  ]);
+
+  /**
+   * Validate command arguments to prevent injection
+   */
+  private validateCommandArgs(command: string, args: string[]): void {
+    // Check if command is allowed
+    if (!ContextCollector.ALLOWED_COMMANDS.has(command)) {
+      throw new Error(`Command '${command}' is not allowed`);
+    }
+
+    // Validate arguments for dangerous patterns
+    const dangerousPatterns = [
+      /[;&|`$(){}[\]]/, // Shell metacharacters
+      /\.\./, // Path traversal
+      /^\s*rm/i, // Dangerous file operations
+      /^\s*sudo/i, // Privilege escalation
+    ];
+
+    for (const arg of args) {
+      for (const pattern of dangerousPatterns) {
+        if (pattern.test(arg)) {
+          throw new Error(`Dangerous argument detected: ${arg}`);
+        }
+      }
+    }
+  }
+
+  /**
    * Execute command using promisified execFile for cleaner async/await
    */
   private async executeCommand(command: string, args: string[], cwd: string = process.cwd()): Promise<string> {
+    // Validate for security
+    this.validateCommandArgs(command, args);
+
     try {
       const { stdout } = await execFileAsync(command, args, {
         cwd,
@@ -252,15 +298,32 @@ export class ContextCollector {
    * Sanitize file paths for security
    */
   private sanitizePath(path: string): string {
+    const pathModule = require('path') as typeof import('path');
     const os = require('os') as typeof import('os');
+
+    // Resolve path to canonical form to prevent traversal
+    const resolvedPath = pathModule.resolve(path);
     const homeDir = os.homedir();
 
+    // Check for path traversal attempts
+    if (resolvedPath.includes('..')) {
+      throw new Error(`Path traversal detected: ${path}`);
+    }
+
+    // Validate path is within allowed directories
+    const allowedPrefixes = [process.cwd(), homeDir, '/tmp', '/var/tmp'];
+
+    const isAllowed = allowedPrefixes.some((prefix) => resolvedPath.startsWith(prefix));
+    if (!isAllowed) {
+      throw new Error(`Access to path not allowed: ${resolvedPath}`);
+    }
+
     // Remove sensitive paths like user home directory specifics
-    if (path.startsWith(homeDir)) {
-      return path.replace(homeDir, '~');
+    if (resolvedPath.startsWith(homeDir)) {
+      return resolvedPath.replace(homeDir, '~');
     }
 
     // Normalize path separators
-    return path.replace(/\\/g, '/');
+    return resolvedPath.replace(/\\/g, '/');
   }
 }

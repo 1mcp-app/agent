@@ -245,6 +245,7 @@ describe('Streamable HTTP Routes', () => {
           enablePagination: true,
           customTemplate: undefined,
         },
+        undefined, // context parameter
       );
       expect(mockSessionRepository.create).toHaveBeenCalledWith('stream-550e8400-e29b-41d4-a716-446655440000', {
         tags: ['test-tag'],
@@ -337,6 +338,7 @@ describe('Streamable HTTP Routes', () => {
           enablePagination: false,
           customTemplate: undefined,
         },
+        undefined, // context parameter
       );
     });
   });

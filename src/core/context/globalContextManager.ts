@@ -16,7 +16,6 @@ export class GlobalContextManager extends EventEmitter {
   private isInitialized = false;
 
   private constructor() {
-    // Private constructor for singleton
     super();
   }
 
@@ -221,3 +220,5 @@ export function ensureGlobalContextManagerInitialized(initialContext?: ContextDa
 
   return manager;
 }
+
+// Create the singleton factory instance
