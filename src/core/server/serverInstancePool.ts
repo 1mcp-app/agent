@@ -98,10 +98,13 @@ export class ServerInstancePool {
   ): ServerInstance {
     // Create hash of template variables for comparison
     const variableHash = this.createVariableHash(templateVariables);
+
+    // Get template configuration with proper defaults
+    const templateSettings = this.getTemplateSettings(templateConfig);
     const instanceKey = this.createInstanceKey(
       templateName,
       variableHash,
-      templateConfig.template?.perClient ? clientId : undefined,
+      templateSettings.perClient ? clientId : undefined,
     );
 
     // Check for existing instance
@@ -109,9 +112,7 @@ export class ServerInstancePool {
 
     if (existingInstance && existingInstance.status !== 'terminating') {
       // Check if this template is shareable
-      const isShareable = !templateConfig.template?.perClient && templateConfig.template?.shareable !== false;
-
-      if (isShareable) {
+      if (templateSettings.shareable) {
         return this.addClientToInstance(existingInstance, clientId);
       }
     }
@@ -321,6 +322,33 @@ export class ServerInstancePool {
         instancesRemoved: instanceCount,
       },
     }));
+  }
+
+  /**
+   * Gets template configuration with proper defaults
+   */
+  private getTemplateSettings(templateConfig: MCPServerParams): {
+    shareable: boolean;
+    perClient: boolean;
+    idleTimeout: number;
+    maxInstances: number;
+  } {
+    // Apply defaults if template configuration is undefined
+    if (!templateConfig.template) {
+      return {
+        shareable: true, // Default to shareable
+        perClient: false, // Default to not per-client
+        idleTimeout: this.options.idleTimeout,
+        maxInstances: this.options.maxInstances,
+      };
+    }
+
+    return {
+      shareable: templateConfig.template.shareable !== false, // Default to true
+      perClient: templateConfig.template.perClient === true, // Default to false
+      idleTimeout: templateConfig.template.idleTimeout || this.options.idleTimeout,
+      maxInstances: templateConfig.template.maxInstances || this.options.maxInstances,
+    };
   }
 
   /**

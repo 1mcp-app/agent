@@ -53,6 +53,7 @@ export class ServerManager {
   private templateServerFactory?: TemplateServerFactory;
   private serverConfigData: MCPServerConfiguration | null = null; // Cache the config data
   private templateSessionMap?: Map<string, string>; // Maps template name to session ID for tracking
+  private cleanupTimer?: ReturnType<typeof setInterval>; // Timer for idle instance cleanup
 
   // Enhanced filtering components
   private clientTemplateTracker = new ClientTemplateTracker();
@@ -74,9 +75,36 @@ export class ServerManager {
     // Initialize the template server factory
     this.templateServerFactory = new TemplateServerFactory({
       maxInstances: 50, // Configurable limit
-      idleTimeout: 10 * 60 * 1000, // 10 minutes
-      cleanupInterval: 60 * 1000, // 1 minute
+      idleTimeout: 5 * 60 * 1000, // 5 minutes - faster cleanup for development
+      cleanupInterval: 30 * 1000, // 30 seconds - more frequent cleanup checks
     });
+
+    // Start cleanup timer for idle template instances
+    this.startCleanupTimer();
+  }
+
+  /**
+   * Starts the periodic cleanup timer for idle template instances
+   */
+  private startCleanupTimer(): void {
+    const cleanupInterval = 30 * 1000; // 30 seconds - match pool's cleanup interval
+    this.cleanupTimer = setInterval(async () => {
+      try {
+        await this.cleanupIdleInstances();
+      } catch (error) {
+        logger.error('Error during idle instance cleanup:', error);
+      }
+    }, cleanupInterval);
+
+    // Ensure the timer doesn't prevent process exit
+    if (this.cleanupTimer.unref) {
+      this.cleanupTimer.unref();
+    }
+
+    debugIf(() => ({
+      message: 'ServerManager cleanup timer started',
+      meta: { interval: cleanupInterval },
+    }));
   }
 
   public static getOrCreateInstance(
@@ -101,6 +129,12 @@ export class ServerManager {
   // Test utility method to reset singleton state
   public static async resetInstance(): Promise<void> {
     if (ServerManager.instance) {
+      // Clean up cleanup timer
+      if (ServerManager.instance.cleanupTimer) {
+        clearInterval(ServerManager.instance.cleanupTimer);
+        ServerManager.instance.cleanupTimer = undefined;
+      }
+
       // Clean up existing connections with forced close
       for (const [sessionId] of ServerManager.instance.inboundConns) {
         await ServerManager.instance.disconnectTransport(sessionId, true);
@@ -671,27 +705,31 @@ export class ServerManager {
           }));
         }
 
-        // CRITICAL: Also clean up from outbound connections and transports
-        // This prevents memory leaks and ensures proper cleanup
-        // Only remove from outbound connections if this session owns it
-        if (this.templateSessionMap?.get(templateName) === sessionId) {
-          this.outboundConns.delete(templateName);
-          this.templateSessionMap.delete(templateName);
-          debugIf(() => ({
-            message: `ServerManager.cleanupTemplateServers: Removed template server from outbound connections`,
-            meta: { sessionId, templateName, instanceId },
-          }));
-        }
+        // Check if this instance has no more clients
+        const remainingClients = this.clientTemplateTracker.getClientCount(templateName, instanceId);
 
-        if (this.transports[instanceId]) {
-          delete this.transports[instanceId];
+        if (remainingClients === 0) {
+          // No more clients, instance becomes idle
+          // The transport will be closed after idle timeout by the cleanup timer
+          const templateConfig = this.serverConfigData?.mcpTemplates?.[templateName];
+          const idleTimeout = templateConfig?.template?.idleTimeout || 5 * 60 * 1000; // 5 minutes default
+
           debugIf(() => ({
-            message: `ServerManager.cleanupTemplateServers: Removed template server transport`,
-            meta: { sessionId, instanceId, templateName },
+            message: `Template instance ${instanceId} has no more clients, marking as idle for cleanup after timeout`,
+            meta: {
+              templateName,
+              instanceId,
+              idleTimeout,
+            },
+          }));
+        } else {
+          debugIf(() => ({
+            message: `Template instance ${instanceId} still has ${remainingClients} clients, keeping transport open`,
+            meta: { instanceId, remainingClients },
           }));
         }
       } catch (error) {
-        logger.warn(`Failed to remove client from template instance ${instanceKey}:`, {
+        logger.warn(`Failed to cleanup template instance ${instanceKey}:`, {
           error: error instanceof Error ? error.message : 'Unknown error',
           sessionId,
           templateName,
@@ -702,7 +740,6 @@ export class ServerManager {
 
     logger.info(`Cleaned up template servers for session ${sessionId}`, {
       instancesCleaned: instancesToCleanup.length,
-      outboundConnectionsCleaned: instancesToCleanup.length,
     });
   }
 
@@ -1131,19 +1168,63 @@ export class ServerManager {
   /**
    * Force cleanup of idle template instances
    */
-  public async cleanupIdleInstances(idleTimeoutMs: number = 10 * 60 * 1000): Promise<number> {
+  public async cleanupIdleInstances(): Promise<number> {
     if (!this.templateServerFactory) {
       return 0;
     }
 
-    const idleInstances = this.getIdleTemplateInstances(idleTimeoutMs);
+    // Get all idle instances with their template-specific timeouts
+    const idleInstances = this.clientTemplateTracker.getIdleInstances(0); // Get all idle instances (no minimum timeout)
+    const instancesToCleanup: Array<{ templateName: string; instanceId: string }> = [];
+    const now = new Date();
+
+    // Check each idle instance against its template-specific timeout
+    for (const idle of idleInstances) {
+      // Get the template configuration to check its idle timeout
+      const templateConfig = this.serverConfigData?.mcpTemplates?.[idle.templateName];
+      const templateIdleTimeout = templateConfig?.template?.idleTimeout || 5 * 60 * 1000; // 5 minutes default
+
+      // Only cleanup if idle time exceeds the template's configured timeout
+      if (idle.idleTime >= templateIdleTimeout) {
+        instancesToCleanup.push({
+          templateName: idle.templateName,
+          instanceId: idle.instanceId,
+        });
+
+        debugIf(() => ({
+          message: `Template instance ${idle.instanceId} eligible for cleanup`,
+          meta: {
+            templateName: idle.templateName,
+            idleTime: idle.idleTime,
+            idleTimeout: templateIdleTimeout,
+            lastAccessed: new Date(now.getTime() - idle.idleTime).toISOString(),
+          },
+        }));
+      }
+    }
+
     let cleanedUp = 0;
 
-    for (const { templateName, instanceId } of idleInstances) {
+    for (const { templateName, instanceId } of instancesToCleanup) {
       try {
         // Create the instanceKey and remove the instance from the factory
         const instanceKey = `${templateName}:${instanceId}`;
         this.templateServerFactory.removeInstanceByKey(instanceKey);
+
+        // Close the transport to terminate the MCP server process
+        const transport = this.transports[instanceId];
+        if (transport && transport.close) {
+          try {
+            await transport.close();
+            logger.info(`Successfully closed transport for idle template instance ${instanceId}`);
+          } catch (error) {
+            logger.error(`Error closing transport for idle template instance ${instanceId}:`, error);
+          }
+        }
+
+        // Clean up transport references
+        delete this.transports[instanceId];
+        this.outboundConns.delete(instanceId);
 
         // Clean up tracking
         this.clientTemplateTracker.cleanupInstance(templateName, instanceId);
