@@ -250,6 +250,63 @@ vi.mock('@src/core/instructions/instructionAggregator.js', () => ({
   })),
 }));
 
+// Mock the new refactored components
+vi.mock('./templateConfigurationManager.js', () => ({
+  TemplateConfigurationManager: vi.fn().mockImplementation(() => ({
+    reprocessTemplatesWithNewContext: vi.fn(),
+    updateServersIndividually: vi.fn(),
+    updateServersWithNewConfig: vi.fn(),
+    configChanged: vi.fn(() => false),
+    isTemplateProcessingDisabled: vi.fn(() => false),
+    getErrorCount: vi.fn(() => 0),
+    resetCircuitBreaker: vi.fn(),
+    cleanup: vi.fn(),
+  })),
+}));
+
+vi.mock('./connectionManager.js', () => ({
+  ConnectionManager: vi.fn().mockImplementation(() => ({
+    connectTransport: vi.fn(),
+    disconnectTransport: vi.fn(),
+    getTransport: vi.fn(),
+    getTransports: vi.fn(() => new Map()),
+    getClientTransports: vi.fn(() => ({})),
+    getClients: vi.fn(() => new Map()),
+    getClient: vi.fn(),
+    getActiveTransportsCount: vi.fn(() => 0),
+    getServer: vi.fn(),
+    getInboundConnections: vi.fn(() => new Map()),
+    updateClientsAndTransports: vi.fn(),
+    executeServerOperation: vi.fn(),
+  })),
+}));
+
+vi.mock('./templateServerManager.js', () => ({
+  TemplateServerManager: vi.fn().mockImplementation(() => ({
+    createTemplateBasedServers: vi.fn(),
+    cleanupTemplateServers: vi.fn(),
+    getMatchingTemplateConfigs: vi.fn(() => []),
+    getIdleTemplateInstances: vi.fn(() => []),
+    cleanupIdleInstances: vi.fn().mockResolvedValue(0),
+    rebuildTemplateIndex: vi.fn(),
+    getFilteringStats: vi.fn(() => ({ tracker: null, cache: null, index: null, enabled: true })),
+    getClientTemplateInfo: vi.fn(() => ({})),
+    getClientInstancePool: vi.fn(() => ({})),
+    cleanup: vi.fn(),
+  })),
+}));
+
+vi.mock('./mcpServerLifecycleManager.js', () => ({
+  MCPServerLifecycleManager: vi.fn().mockImplementation(() => ({
+    startServer: vi.fn(),
+    stopServer: vi.fn(),
+    restartServer: vi.fn(),
+    getMcpServerStatus: vi.fn(() => new Map()),
+    isMcpServerRunning: vi.fn(() => false),
+    updateServerMetadata: vi.fn(),
+  })),
+}));
+
 // Mock ServerManager with simplified implementation focusing on client management
 vi.mock('./serverManager.js', () => {
   // Create a simple mock class that implements all the public methods
