@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { CacheManager } from './cacheManager.js';
 
@@ -40,29 +40,37 @@ describe('CacheManager', () => {
 
   describe('TTL functionality', () => {
     it('should expire entries after TTL', async () => {
+      vi.useFakeTimers();
+
       await cache.set('key1', 'value1', 0.1); // 100ms TTL
 
       // Should be available immediately
       expect(await cache.get('key1')).toBe('value1');
 
       // Wait for expiration
-      await new Promise((resolve) => setTimeout(resolve, 150));
+      vi.advanceTimersByTime(150);
 
       // Should be expired
       expect(await cache.get('key1')).toBeNull();
+
+      vi.useRealTimers();
     });
 
     it('should use default TTL when not specified', async () => {
+      vi.useFakeTimers();
+
       await cache.set('key1', 'value1');
 
       // Should be available immediately
       expect(await cache.get('key1')).toBe('value1');
 
       // Wait for default TTL (1 second)
-      await new Promise((resolve) => setTimeout(resolve, 1100));
+      vi.advanceTimersByTime(1100);
 
       // Should be expired
       expect(await cache.get('key1')).toBeNull();
+
+      vi.useRealTimers();
     });
   });
 
@@ -143,6 +151,8 @@ describe('CacheManager', () => {
 
   describe('statistics', () => {
     it('should provide cache statistics', async () => {
+      vi.useFakeTimers();
+
       // Create a cache without cleanup for this test
       const testCache = new CacheManager({
         defaultTtl: 1,
@@ -159,7 +169,7 @@ describe('CacheManager', () => {
         expect(stats.maxSize).toBe(3);
 
         // Wait for one to expire (but not be cleaned up)
-        await new Promise((resolve) => setTimeout(resolve, 150));
+        vi.advanceTimersByTime(150);
 
         const updatedStats = testCache.getStats();
         expect(updatedStats.validEntries).toBe(1);
@@ -167,16 +177,20 @@ describe('CacheManager', () => {
       } finally {
         testCache.destroy();
       }
+
+      vi.useRealTimers();
     });
   });
 
   describe('cleanup', () => {
     it('should automatically clean up expired entries', async () => {
+      vi.useFakeTimers();
+
       await cache.set('key1', 'value1', 0.1); // 100ms TTL
       await cache.set('key2', 'value2', 10); // Long TTL
 
       // Wait for cleanup cycle and expiration
-      await new Promise((resolve) => setTimeout(resolve, 250));
+      vi.advanceTimersByTime(250);
 
       // Expired entry should be cleaned up
       expect(await cache.get('key1')).toBeNull();
@@ -184,6 +198,8 @@ describe('CacheManager', () => {
 
       const stats = cache.getStats();
       expect(stats.totalEntries).toBe(1);
+
+      vi.useRealTimers();
     });
   });
 });

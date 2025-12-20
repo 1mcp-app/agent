@@ -1,6 +1,6 @@
 import { MCPServerParams } from '@src/core/types/index.js';
 
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { FilterCache, getFilterCache, resetFilterCache } from './filterCache.js';
 
@@ -143,6 +143,8 @@ describe('FilterCache', () => {
 
   describe('TTL and expiration', () => {
     it('should expire entries after TTL', async () => {
+      vi.useFakeTimers();
+
       const cacheKey = 'test-ttl-key';
       const results = [sampleTemplates[0]];
 
@@ -152,21 +154,25 @@ describe('FilterCache', () => {
       expect(cache.getCachedResults(cacheKey)).toEqual(results);
 
       // Wait for expiration
-      await new Promise((resolve) => setTimeout(resolve, 1100));
+      vi.advanceTimersByTime(1100);
 
       // Should be expired now
       const expiredResult = cache.getCachedResults(cacheKey);
       expect(expiredResult).toBeNull();
+
+      vi.useRealTimers();
     });
 
     it('should clear expired entries', async () => {
+      vi.useFakeTimers();
+
       // Set some entries
       cache.setCachedResults('key1', [sampleTemplates[0]]);
       cache.setCachedResults('key2', [sampleTemplates[1]]);
       cache.getOrParseExpression('web AND production');
 
       // Wait for expiration
-      await new Promise((resolve) => setTimeout(resolve, 1100));
+      vi.advanceTimersByTime(1100);
 
       // Clear expired entries
       cache.clearExpired();
@@ -174,6 +180,8 @@ describe('FilterCache', () => {
       const stats = cache.getStats();
       expect(stats.expressions.size).toBe(0);
       expect(stats.results.size).toBe(0);
+
+      vi.useRealTimers();
     });
   });
 
