@@ -881,4 +881,154 @@ describe('ClientInstancePool', () => {
       expect(instance.idleTimeout).toBe(5000);
     });
   });
+
+  describe('HTTP and SSE transport support', () => {
+    it('should create instances for SSE transport templates', async () => {
+      const { createTransportsWithContext } = await import('@src/transport/transportFactory.js');
+      const { ClientManager } = await import('@src/core/client/clientManager.js');
+
+      const mockSSETransport = {
+        close: vi.fn().mockResolvedValue(undefined),
+        start: vi.fn(),
+        send: vi.fn(),
+        type: 'sse',
+      } as any;
+      const mockClient = {
+        connect: vi.fn().mockResolvedValue(undefined),
+        close: vi.fn().mockResolvedValue(undefined),
+        _clientInfo: {},
+        _capabilities: {},
+        _jsonSchemaValidator: {},
+        _cachedToolOutputValidators: new Map(),
+      } as any;
+
+      vi.mocked(createTransportsWithContext).mockResolvedValue({ sseTemplate: mockSSETransport });
+      vi.mocked(ClientManager.getOrCreateInstance().createPooledClientInstance).mockReturnValue(mockClient);
+
+      const sseTemplateConfig: MCPServerParams = {
+        type: 'sse',
+        url: 'http://example.com/sse',
+        template: {
+          shareable: true,
+          maxInstances: 5,
+        },
+      };
+
+      const instance = await pool.getOrCreateClientInstance('sseTemplate', sseTemplateConfig, mockContext, 'client-1');
+
+      expect(instance).toBeDefined();
+      expect(instance.templateName).toBe('sseTemplate');
+      expect(createTransportsWithContext).toHaveBeenCalledWith({ sseTemplate: expect.any(Object) }, undefined);
+    });
+
+    it('should create instances for HTTP transport templates', async () => {
+      const { createTransportsWithContext } = await import('@src/transport/transportFactory.js');
+      const { ClientManager } = await import('@src/core/client/clientManager.js');
+
+      const mockHttpTransport = {
+        close: vi.fn().mockResolvedValue(undefined),
+        start: vi.fn(),
+        send: vi.fn(),
+        type: 'http',
+      } as any;
+      const mockClient = {
+        connect: vi.fn().mockResolvedValue(undefined),
+        close: vi.fn().mockResolvedValue(undefined),
+        _clientInfo: {},
+        _capabilities: {},
+        _jsonSchemaValidator: {},
+        _cachedToolOutputValidators: new Map(),
+      } as any;
+
+      vi.mocked(createTransportsWithContext).mockResolvedValue({ httpTemplate: mockHttpTransport });
+      vi.mocked(ClientManager.getOrCreateInstance().createPooledClientInstance).mockReturnValue(mockClient);
+
+      const httpTemplateConfig: MCPServerParams = {
+        type: 'streamableHttp',
+        url: 'http://example.com/api',
+        template: {
+          shareable: true,
+          idleTimeout: 120000,
+        },
+      };
+
+      const instance = await pool.getOrCreateClientInstance(
+        'httpTemplate',
+        httpTemplateConfig,
+        mockContext,
+        'client-1',
+      );
+
+      expect(instance).toBeDefined();
+      expect(instance.templateName).toBe('httpTemplate');
+      expect(createTransportsWithContext).toHaveBeenCalledWith({ httpTemplate: expect.any(Object) }, undefined);
+    });
+
+    it('should properly cleanup SSE and HTTP transport instances', async () => {
+      const { createTransportsWithContext } = await import('@src/transport/transportFactory.js');
+      const { ClientManager } = await import('@src/core/client/clientManager.js');
+
+      const mockSSETransport = {
+        close: vi.fn().mockResolvedValue(undefined),
+        start: vi.fn(),
+        send: vi.fn(),
+        type: 'sse',
+      } as any;
+      const mockHttpTransport = {
+        close: vi.fn().mockResolvedValue(undefined),
+        start: vi.fn(),
+        send: vi.fn(),
+        type: 'http',
+      } as any;
+      const mockClient = {
+        connect: vi.fn().mockResolvedValue(undefined),
+        close: vi.fn().mockResolvedValue(undefined),
+        _clientInfo: {},
+        _capabilities: {},
+        _jsonSchemaValidator: {},
+        _cachedToolOutputValidators: new Map(),
+      } as any;
+
+      // Mock different transports for different templates
+      vi.mocked(createTransportsWithContext).mockImplementation((configs) => {
+        const transports: Record<string, any> = {};
+        for (const [key, config] of Object.entries(configs)) {
+          if (key === 'sseTemplate' || (config as any).type === 'sse') {
+            transports[key] = mockSSETransport;
+          } else if (key === 'httpTemplate' || (config as any).type === 'streamableHttp') {
+            transports[key] = mockHttpTransport;
+          }
+        }
+        return Promise.resolve(transports);
+      });
+      vi.mocked(ClientManager.getOrCreateInstance().createPooledClientInstance).mockReturnValue(mockClient);
+
+      const sseConfig: MCPServerParams = {
+        type: 'sse',
+        url: 'http://example.com/sse',
+        template: { shareable: true },
+      };
+
+      const httpConfig: MCPServerParams = {
+        type: 'streamableHttp',
+        url: 'http://example.com/api',
+        template: { shareable: true },
+      };
+
+      // Create instances (assign to underscore to indicate intentionally unused)
+      const _sseInstance = await pool.getOrCreateClientInstance('sseTemplate', sseConfig, mockContext, 'client-1');
+      const _httpInstance = await pool.getOrCreateClientInstance('httpTemplate', httpConfig, mockContext, 'client-2');
+
+      // Remove instances to trigger cleanup
+      const sseKey = 'sseTemplate:{}';
+      const httpKey = 'httpTemplate:{}';
+
+      await pool.removeInstance(sseKey);
+      await pool.removeInstance(httpKey);
+
+      // Verify cleanup was called for both transport types
+      expect(mockSSETransport.close).toHaveBeenCalledTimes(1);
+      expect(mockHttpTransport.close).toHaveBeenCalledTimes(1);
+    });
+  });
 });

@@ -59,6 +59,7 @@ export class TemplateProcessor {
 
     this.validator = new TemplateValidator({
       allowSensitiveData: false, // Never allow sensitive data in templates
+      // Transport-specific validation can be added later if needed
     });
 
     this.fieldProcessor = new ConfigFieldProcessor(
@@ -96,12 +97,24 @@ export class TemplateProcessor {
       // Create a deep copy to avoid mutating the original
       const processedConfig: MCPServerParams = JSON.parse(JSON.stringify(config)) as MCPServerParams;
 
+      // Create enhanced context with transport information
+      const enhancedContext: ContextData = {
+        ...context,
+        transport: {
+          type: processedConfig.type || 'unknown',
+          // Don't include URL in transport context to avoid circular dependency
+          url: undefined,
+          connectionId: `conn_${Date.now()}_${Math.random().toString(36).substring(2, 11)}`,
+          connectionTimestamp: new Date().toISOString(),
+        },
+      };
+
       // Process string fields using the field processor
       if (processedConfig.command) {
         processedConfig.command = this.fieldProcessor.processStringField(
           processedConfig.command,
           'command',
-          context,
+          enhancedContext,
           errors,
           processedTemplates,
         );
@@ -112,7 +125,7 @@ export class TemplateProcessor {
         processedConfig.args = this.fieldProcessor.processArrayField(
           processedConfig.args,
           'args',
-          context,
+          enhancedContext,
           errors,
           processedTemplates,
         );
@@ -123,7 +136,7 @@ export class TemplateProcessor {
         processedConfig.cwd = this.fieldProcessor.processStringField(
           processedConfig.cwd,
           'cwd',
-          context,
+          enhancedContext,
           errors,
           processedTemplates,
         );
@@ -134,7 +147,7 @@ export class TemplateProcessor {
         processedConfig.env = this.fieldProcessor.processObjectField(
           processedConfig.env,
           'env',
-          context,
+          enhancedContext,
           errors,
           processedTemplates,
         ) as Record<string, string> | string[];
@@ -144,10 +157,36 @@ export class TemplateProcessor {
         processedConfig.headers = this.fieldProcessor.processRecordField(
           processedConfig.headers,
           'headers',
-          context,
+          enhancedContext,
           errors,
           processedTemplates,
         );
+      }
+
+      // Process URL field for HTTP/SSE transports
+      if (processedConfig.url) {
+        processedConfig.url = this.fieldProcessor.processStringField(
+          processedConfig.url,
+          'url',
+          enhancedContext,
+          errors,
+          processedTemplates,
+        );
+      }
+
+      // Process headers for HTTP/SSE transports
+      if (processedConfig.headers) {
+        for (const [headerName, headerValue] of Object.entries(processedConfig.headers)) {
+          if (typeof headerValue === 'string') {
+            processedConfig.headers[headerName] = this.fieldProcessor.processStringField(
+              headerValue,
+              `headers.${headerName}`,
+              enhancedContext,
+              errors,
+              processedTemplates,
+            );
+          }
+        }
       }
 
       // Prefix errors with server name

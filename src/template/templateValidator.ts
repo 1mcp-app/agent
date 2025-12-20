@@ -21,8 +21,17 @@ export interface TemplateValidatorOptions {
   allowSensitiveData?: boolean;
   maxTemplateLength?: number;
   maxVariableDepth?: number;
-  forbiddenNamespaces?: ('project' | 'user' | 'environment' | 'context')[];
-  requiredNamespaces?: ('project' | 'user' | 'environment' | 'context')[];
+  forbiddenNamespaces?: ('project' | 'user' | 'environment' | 'context' | 'transport')[];
+  requiredNamespaces?: ('project' | 'user' | 'environment' | 'context' | 'transport')[];
+  /** Transport-specific validation rules */
+  transportValidation?: {
+    /** Variables required for specific transport types */
+    requiredVariables?: Record<string, string[]>;
+    /** Variables forbidden for specific transport types */
+    forbiddenVariables?: Record<string, string[]>;
+    /** Custom validation rules per transport type */
+    customRules?: Record<string, (template: string, variables: TemplateVariable[]) => string[]>;
+  };
 }
 
 /**
@@ -46,6 +55,7 @@ export class TemplateValidator {
       maxVariableDepth: options.maxVariableDepth ?? 5,
       forbiddenNamespaces: options.forbiddenNamespaces ?? [],
       requiredNamespaces: options.requiredNamespaces ?? [],
+      transportValidation: options.transportValidation ?? {},
     };
   }
 
@@ -168,7 +178,7 @@ export class TemplateValidator {
     }
 
     // Check namespace validity
-    const validNamespaces = ['project', 'user', 'environment', 'context'];
+    const validNamespaces = ['project', 'user', 'environment', 'context', 'transport'];
     if (!validNamespaces.includes(variable.namespace)) {
       errors.push(`Invalid namespace '${variable.namespace}'. Valid: ${validNamespaces.join(', ')}`);
     }
@@ -220,6 +230,63 @@ export class TemplateValidator {
             errors.push(`Unknown template function: ${funcName}`);
           }
         }
+      }
+    }
+
+    return {
+      valid: errors.length === 0,
+      errors,
+      warnings,
+      variables,
+    };
+  }
+
+  /**
+   * Validate template for specific transport type
+   */
+  validateForTransport(template: string, transportType: string): ValidationResult {
+    const errors: string[] = [];
+    const warnings: string[] = [];
+    const variables: TemplateVariable[] = [];
+
+    // Basic validation first
+    const basicValidation = this.validate(template);
+    errors.push(...basicValidation.errors);
+    warnings.push(...basicValidation.warnings);
+    variables.push(...basicValidation.variables);
+
+    // Transport-specific validation
+    if (this.options.transportValidation) {
+      const { requiredVariables, forbiddenVariables, customRules } = this.options.transportValidation;
+
+      // Check required variables for this transport type
+      if (requiredVariables?.[transportType]) {
+        const required = requiredVariables[transportType];
+        const foundVars = new Set(variables.map((v) => `${v.namespace}.${v.path.join('.')}`));
+
+        for (const requiredVar of required) {
+          if (!foundVars.has(requiredVar) && !foundVars.has(`${requiredVar}?`)) {
+            errors.push(`Transport '${transportType}' requires variable '${requiredVar}' in template`);
+          }
+        }
+      }
+
+      // Check forbidden variables for this transport type
+      if (forbiddenVariables?.[transportType]) {
+        const forbidden = forbiddenVariables[transportType];
+        const foundVars = new Set(variables.map((v) => `${v.namespace}.${v.path.join('.')}`));
+
+        for (const forbiddenVar of forbidden) {
+          if (foundVars.has(forbiddenVar)) {
+            errors.push(`Transport '${transportType}' forbids variable '${forbiddenVar}' in template`);
+          }
+        }
+      }
+
+      // Apply custom validation rules
+      if (customRules?.[transportType]) {
+        const customErrors = customRules[transportType](template, variables);
+        errors.push(...customErrors);
       }
     }
 

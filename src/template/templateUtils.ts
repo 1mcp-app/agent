@@ -72,7 +72,7 @@ export class TemplateUtils {
     const path = parts.slice(1);
 
     // Validate namespace
-    const validNamespaces = ['project', 'user', 'environment', 'context'];
+    const validNamespaces = ['project', 'user', 'environment', 'context', 'transport'];
     if (!validNamespaces.includes(namespace)) {
       throw new Error(`Invalid namespace '${namespace}'. Valid namespaces: ${validNamespaces.join(', ')}`);
     }

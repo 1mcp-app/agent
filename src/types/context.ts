@@ -53,6 +53,12 @@ export interface ContextData {
   timestamp?: string;
   sessionId?: string;
   version?: string;
+  transport?: {
+    type: string;
+    url?: string;
+    connectionId?: string;
+    connectionTimestamp?: string;
+  };
 }
 
 /**
@@ -71,7 +77,7 @@ export interface ContextCollectionOptions {
  */
 export interface TemplateVariable {
   name: string;
-  namespace: 'project' | 'user' | 'environment' | 'context';
+  namespace: 'project' | 'user' | 'environment' | 'context' | 'transport';
   path: string[];
   optional: boolean;
   defaultValue?: string;
@@ -90,6 +96,12 @@ export interface TemplateContext {
     timestamp: string;
     sessionId: string;
     version: string;
+  };
+  transport?: {
+    type: string;
+    url?: string;
+    connectionId?: string;
+    connectionTimestamp?: string;
   };
 }
 

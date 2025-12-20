@@ -85,6 +85,7 @@ export class TemplateParser {
           sessionId: context.sessionId || 'unknown',
           version: context.version || 'v1',
         },
+        transport: context.transport, // Transport info injected by TemplateProcessor
       };
 
       // Process template with shared utilities
@@ -230,6 +231,8 @@ export class TemplateParser {
         return context.environment;
       case 'context':
         return context.context;
+      case 'transport':
+        return context.transport;
       default:
         throw new Error(`Unknown namespace: ${namespace}`);
     }

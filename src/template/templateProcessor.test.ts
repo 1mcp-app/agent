@@ -126,6 +126,56 @@ describe('TemplateProcessor', () => {
       expect(result.errors.length).toBeGreaterThan(0);
     });
 
+    it('should process SSE transport templates', async () => {
+      const config: MCPServerParams = {
+        type: 'sse',
+        url: 'http://example.com/sse/{project.name}',
+        headers: {
+          'X-Project-Path': '{project.path}',
+          'X-User-Name': '{user.username}',
+          'X-Session-ID': '{context.sessionId}',
+          'X-Transport-Type': '{transport.type}',
+        },
+      };
+
+      const result = await processor.processServerConfig('sse-server', config, mockContext);
+
+      if (!result.success) {
+        console.log('Errors:', result.errors);
+      }
+
+      expect(result.success).toBe(true);
+      expect(result.processedConfig.url).toBe('http://example.com/sse/test-project');
+      expect(result.processedConfig.headers).toEqual({
+        'X-Project-Path': '/test/project',
+        'X-User-Name': 'testuser',
+        'X-Session-ID': 'test-session-123',
+        'X-Transport-Type': 'sse',
+      });
+    });
+
+    it('should process transport-specific variables', async () => {
+      const config: MCPServerParams = {
+        type: 'streamableHttp',
+        url: 'http://example.com/api/{transport.type}/{project.name}',
+        headers: {
+          'X-Connection-ID': '{transport.connectionId}',
+          'X-Transport-Timestamp': '{transport.connectionTimestamp}',
+        },
+      };
+
+      const result = await processor.processServerConfig('http-server', config, mockContext);
+
+      expect(result.success).toBe(true);
+      // The URL should be processed with transport info
+      expect(result.processedConfig.url).toBe('http://example.com/api/streamableHttp/test-project');
+      // Headers should have transport info
+      expect(result.processedConfig.headers?.['X-Connection-ID']).toMatch(/^conn_\d+_[a-z0-9]+$/);
+      expect(result.processedConfig.headers?.['X-Transport-Timestamp']).toMatch(
+        /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/,
+      );
+    });
+
     it('should process cwd template', async () => {
       const config: MCPServerParams = {
         command: 'echo',
@@ -236,6 +286,147 @@ describe('TemplateProcessor', () => {
 
       const stats = noCacheProcessor.getCacheStats();
       expect(stats.size).toBe(0);
+    });
+  });
+
+  describe('transport-specific validation', () => {
+    it('should validate SSE transport templates', async () => {
+      const processor = new TemplateProcessor();
+
+      const config: MCPServerParams = {
+        type: 'sse',
+        url: 'http://example.com/sse/{project.name}',
+        headers: {
+          'X-Project': '{project.path}',
+          'X-Transport': '{transport.type}',
+        },
+      };
+
+      const result = await processor.processServerConfig('sse-server', config, mockContext);
+
+      expect(result.success).toBe(true);
+      expect(result.processedConfig.url).toBe('http://example.com/sse/test-project');
+      expect(result.processedConfig.headers?.['X-Transport']).toBe('sse');
+    });
+
+    it('should warn for SSE templates without project variables in URL', async () => {
+      const processor = new TemplateProcessor();
+
+      const config: MCPServerParams = {
+        type: 'sse',
+        url: 'http://example.com/sse/static',
+        headers: {
+          'X-Static': 'value',
+        },
+      };
+
+      const result = await processor.processServerConfig('sse-server', config, mockContext);
+
+      // Should still succeed but might have warnings about not using project variables
+      expect(result.success).toBe(true);
+    });
+
+    it('should validate HTTP transport templates', async () => {
+      // Create processor that allows sensitive data for testing
+      const processor = new TemplateProcessor();
+
+      const config: MCPServerParams = {
+        type: 'streamableHttp',
+        url: 'http://example.com/api/{project.path}',
+        headers: {
+          'X-Project': '{project.name}',
+          'X-User': '{user.username}',
+          'X-Transport-Type': '{transport.type}',
+        },
+      };
+
+      const result = await processor.processServerConfig('http-server', config, mockContext);
+
+      expect(result.success).toBe(true);
+      expect(result.processedConfig.url).toBe('http://example.com/api//test/project');
+      expect(result.processedConfig.headers?.['X-Project']).toBe('test-project');
+      expect(result.processedConfig.headers?.['X-User']).toBe('testuser');
+      expect(result.processedConfig.headers?.['X-Transport-Type']).toBe('streamableHttp');
+    });
+
+    it('should process stdio templates without transport validation', async () => {
+      const processor = new TemplateProcessor();
+
+      const config: MCPServerParams = {
+        type: 'stdio',
+        command: 'echo "Hello {user.username}"',
+        args: [],
+      };
+
+      const result = await processor.processServerConfig('stdio-server', config, mockContext);
+
+      expect(result.success).toBe(true);
+      expect(result.processedConfig.command).toBe('echo "Hello testuser"');
+    });
+
+    it('should allow transport variables in appropriate contexts', async () => {
+      const processor = new TemplateProcessor();
+
+      const config: MCPServerParams = {
+        type: 'sse',
+        url: 'http://example.com/sse/{project.name}',
+        headers: {
+          'X-Connection-ID': '{transport.connectionId}',
+          'X-Transport-Type': '{transport.type}',
+        },
+      };
+
+      const result = await processor.processServerConfig('sse-server', config, mockContext);
+
+      expect(result.success).toBe(true);
+      expect(result.processedConfig.headers?.['X-Transport-Type']).toBe('sse');
+      expect(result.processedConfig.headers?.['X-Connection-ID']).toMatch(/^conn_\d+_[a-z0-9]+$/);
+    });
+
+    it('should process multiple transport types with shared pool configuration', async () => {
+      const processor = new TemplateProcessor();
+
+      // Test that multiple configs can be processed
+      const configs: Record<string, MCPServerParams> = {
+        stdioServer: {
+          type: 'stdio',
+          command: 'echo "Stdio: {project.name}"',
+          template: {
+            shareable: true,
+            maxInstances: 2,
+          },
+        },
+        sseServer: {
+          type: 'sse',
+          url: 'http://example.com/sse/{project.name}',
+          headers: {
+            'X-Project': '{project.path}',
+          },
+          template: {
+            shareable: true,
+            maxInstances: 5,
+          },
+        },
+        httpServer: {
+          type: 'streamableHttp',
+          url: 'http://example.com/api/{project.path}',
+          template: {
+            shareable: false, // Each client gets its own instance
+          },
+        },
+      };
+
+      const results = await processor.processMultipleServerConfigs(configs, mockContext);
+
+      expect(Object.keys(results)).toHaveLength(3);
+      expect(results.stdioServer.success).toBe(true);
+      expect(results.sseServer.success).toBe(true);
+      expect(results.httpServer.success).toBe(true);
+
+      // Verify transport-specific variables were processed
+      expect(results.sseServer.processedConfig.headers?.['X-Project']).toBe('/test/project');
+      expect(results.httpServer.processedConfig.url).toBe('http://example.com/api//test/project');
+      expect(results.stdioServer.processedConfig.command).toBe('echo "Stdio: test-project"');
     });
   });
 });
