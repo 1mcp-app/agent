@@ -53,6 +53,10 @@ vi.mock('../../client/clientManager.js', () => ({
   ClientManager: {
     getOrCreateInstance: vi.fn(() => ({
       createClients: vi.fn().mockResolvedValue(new Map()),
+      createPooledClientInstance: vi.fn(() => ({
+        connect: vi.fn().mockResolvedValue(undefined),
+        close: vi.fn().mockResolvedValue(undefined),
+      })),
     })),
   },
 }));
@@ -111,6 +115,25 @@ vi.mock('@src/core/context/globalContextManager.js', () => ({
   })),
 }));
 
+// Additional mocks needed by ClientInstancePool
+vi.mock('@src/template/templateVariableExtractor.js', () => ({
+  TemplateVariableExtractor: vi.fn().mockImplementation(() => ({
+    getUsedVariables: vi.fn(() => ({})),
+  })),
+}));
+
+vi.mock('@src/template/templateProcessor.js', () => ({
+  TemplateProcessor: vi.fn().mockImplementation(() => ({
+    processServerConfig: vi.fn().mockResolvedValue({
+      processedConfig: {},
+    }),
+  })),
+}));
+
+vi.mock('@src/utils/crypto.js', () => ({
+  createVariableHash: vi.fn((vars) => JSON.stringify(vars)),
+}));
+
 // Store original setTimeout
 const originalSetTimeout = global.setTimeout;
 
@@ -131,7 +154,103 @@ const _mockMap = vi.fn().mockImplementation(() => {
   return map;
 });
 
-// Mock ServerManager completely to avoid any real async operations
+// Mock ClientInstancePool for the new architecture - but don't mock it directly yet
+// We'll mock it when we create the ServerManager mock below
+
+// Mock ClientInstancePool before we import ServerManager
+vi.mock('@src/core/server/clientInstancePool.js', () => ({
+  ClientInstancePool: vi.fn().mockImplementation(() => ({
+    getOrCreateClientInstance: vi.fn().mockResolvedValue({
+      id: 'test-instance-id',
+      templateName: 'test-template',
+      client: {
+        connect: vi.fn().mockResolvedValue(undefined),
+        close: vi.fn().mockResolvedValue(undefined),
+      },
+      transport: {
+        close: vi.fn().mockResolvedValue(undefined),
+      },
+      variableHash: 'test-hash',
+      templateVariables: {},
+      processedConfig: {},
+      referenceCount: 1,
+      createdAt: new Date(),
+      lastUsedAt: new Date(),
+      status: 'active' as const,
+      clientIds: new Set(['test-client']),
+      idleTimeout: 300000,
+    }),
+    removeClientFromInstance: vi.fn(),
+    getInstance: vi.fn(),
+    getTemplateInstances: vi.fn(() => []),
+    getAllInstances: vi.fn(() => []),
+    removeInstance: vi.fn().mockResolvedValue(undefined),
+    cleanupIdleInstances: vi.fn().mockResolvedValue(undefined),
+    shutdown: vi.fn().mockResolvedValue(undefined),
+    getStats: vi.fn(() => ({
+      totalInstances: 0,
+      activeInstances: 0,
+      idleInstances: 0,
+      templateCount: 0,
+      totalClients: 0,
+    })),
+  })),
+}));
+
+// Mock configManager
+vi.mock('@src/config/configManager.js', () => ({
+  ConfigManager: {
+    getInstance: vi.fn(() => ({
+      loadConfigWithTemplates: vi.fn().mockResolvedValue({
+        staticServers: {},
+        templateServers: {},
+        errors: [],
+      }),
+    })),
+  },
+}));
+
+// Mock the filtering components
+vi.mock('@src/core/filtering/index.js', () => ({
+  ClientTemplateTracker: vi.fn().mockImplementation(() => ({
+    addClientTemplate: vi.fn(),
+    removeClient: vi.fn(() => []),
+    getClientCount: vi.fn(() => 0),
+    getStats: vi.fn(() => ({})),
+    getDetailedInfo: vi.fn(() => ({})),
+    getIdleInstances: vi.fn(() => []),
+    cleanupInstance: vi.fn(),
+  })),
+  FilterCache: {
+    get: vi.fn(() => ({ cache: true })),
+    set: vi.fn(),
+    clear: vi.fn(),
+    getStats: vi.fn(() => ({})),
+  },
+  getFilterCache: vi.fn(() => ({
+    get: vi.fn(),
+    set: vi.fn(),
+    clear: vi.fn(),
+    getStats: vi.fn(() => ({})),
+  })),
+  TemplateFilteringService: {
+    getMatchingTemplates: vi.fn((templates) => templates),
+  },
+  TemplateIndex: vi.fn().mockImplementation(() => ({
+    buildIndex: vi.fn(),
+    getStats: vi.fn(() => ({})),
+  })),
+}));
+
+// Mock instruction aggregator
+vi.mock('@src/core/instructions/instructionAggregator.js', () => ({
+  InstructionAggregator: vi.fn().mockImplementation(() => ({
+    getFilteredInstructions: vi.fn(() => ''),
+    on: vi.fn(),
+  })),
+}));
+
+// Mock ServerManager with simplified implementation focusing on client management
 vi.mock('./serverManager.js', () => {
   // Create a simple mock class that implements all the public methods
   class MockServerManager {
@@ -142,6 +261,7 @@ vi.mock('./serverManager.js', () => {
     private transports: any;
     private serverConfig: any;
     private serverCapabilities: any;
+    private clientInstancePool: any;
 
     constructor(...args: any[]) {
       // Store constructor arguments
@@ -149,6 +269,44 @@ vi.mock('./serverManager.js', () => {
       this.serverCapabilities = args[1];
       this.outboundConns = args[3];
       this.transports = args[4];
+
+      // Initialize ClientInstancePool mock - assign mock object directly
+      this.clientInstancePool = {
+        getOrCreateClientInstance: vi.fn().mockResolvedValue({
+          id: 'test-instance-id',
+          templateName: 'test-template',
+          client: {
+            connect: vi.fn().mockResolvedValue(undefined),
+            close: vi.fn().mockResolvedValue(undefined),
+          },
+          transport: {
+            close: vi.fn().mockResolvedValue(undefined),
+          },
+          variableHash: 'test-hash',
+          templateVariables: {},
+          processedConfig: {},
+          referenceCount: 1,
+          createdAt: new Date(),
+          lastUsedAt: new Date(),
+          status: 'active' as const,
+          clientIds: new Set(['test-client']),
+          idleTimeout: 300000,
+        }),
+        removeClientFromInstance: vi.fn(),
+        getInstance: vi.fn(),
+        getTemplateInstances: vi.fn(() => []),
+        getAllInstances: vi.fn(() => []),
+        removeInstance: vi.fn().mockResolvedValue(undefined),
+        cleanupIdleInstances: vi.fn().mockResolvedValue(undefined),
+        shutdown: vi.fn().mockResolvedValue(undefined),
+        getStats: vi.fn(() => ({
+          totalInstances: 0,
+          activeInstances: 0,
+          idleInstances: 0,
+          templateCount: 0,
+          totalClients: 0,
+        })),
+      };
     }
 
     static getOrCreateInstance(...args: any[]): MockServerManager {
@@ -315,6 +473,15 @@ vi.mock('./serverManager.js', () => {
 
     setInstructionAggregator(_aggregator: any): void {
       // Mock implementation
+    }
+
+    // Add methods for ClientInstancePool interaction
+    async cleanupIdleInstances(): Promise<void> {
+      await this.clientInstancePool.cleanupIdleInstances();
+    }
+
+    async cleanupTemplateServers(): Promise<void> {
+      // Mock implementation - no longer needed with ClientInstancePool
     }
   }
 

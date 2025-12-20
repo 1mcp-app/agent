@@ -285,8 +285,9 @@ export class ConfigManager extends EventEmitter {
           }
         }
       } else {
-        // No context - return raw templates for filtering purposes
-        templateServers = config.mcpTemplates;
+        // No context - return empty templateServers object
+        // Templates require context to be processed
+        templateServers = {};
       }
     }
 

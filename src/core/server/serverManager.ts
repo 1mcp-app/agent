@@ -14,7 +14,7 @@ import {
   TemplateIndex,
 } from '@src/core/filtering/index.js';
 import { InstructionAggregator } from '@src/core/instructions/instructionAggregator.js';
-import { TemplateServerFactory } from '@src/core/server/templateServerFactory.js';
+import { ClientInstancePool, type PooledClientInstance } from '@src/core/server/clientInstancePool.js';
 import type { OutboundConnection } from '@src/core/types/client.js';
 import { ClientStatus } from '@src/core/types/client.js';
 import {
@@ -50,7 +50,7 @@ export class ServerManager {
   private instructionAggregator?: InstructionAggregator;
   private clientManager?: ClientManager;
   private mcpServers: Map<string, { transport: AuthProviderTransport; config: MCPServerParams }> = new Map();
-  private templateServerFactory?: TemplateServerFactory;
+  private clientInstancePool?: ClientInstancePool;
   private serverConfigData: MCPServerConfiguration | null = null; // Cache the config data
   private templateSessionMap?: Map<string, string>; // Maps template name to session ID for tracking
   private cleanupTimer?: ReturnType<typeof setInterval>; // Timer for idle instance cleanup
@@ -72,8 +72,8 @@ export class ServerManager {
     this.transports = transports;
     this.clientManager = ClientManager.getOrCreateInstance();
 
-    // Initialize the template server factory
-    this.templateServerFactory = new TemplateServerFactory({
+    // Initialize the client instance pool
+    this.clientInstancePool = new ClientInstancePool({
       maxInstances: 50, // Configurable limit
       idleTimeout: 5 * 60 * 1000, // 5 minutes - faster cleanup for development
       cleanupInterval: 30 * 1000, // 30 seconds - more frequent cleanup checks
@@ -424,7 +424,7 @@ export class ServerManager {
     }
 
     // If we have context, create template-based servers
-    if (context && this.templateServerFactory && this.serverConfigData.mcpTemplates) {
+    if (context && this.clientInstancePool && this.serverConfigData.mcpTemplates) {
       await this.createTemplateBasedServers(sessionId, context, opts);
     }
 
@@ -502,7 +502,7 @@ export class ServerManager {
     context: ContextData,
     opts: InboundConnectionConfig,
   ): Promise<void> {
-    if (!this.templateServerFactory || !this.serverConfigData?.mcpTemplates) {
+    if (!this.clientInstancePool || !this.serverConfigData?.mcpTemplates) {
       return;
     }
 
@@ -513,11 +513,11 @@ export class ServerManager {
       templates: templateConfigs.map(([name]) => name),
     });
 
-    // Create servers from templates
+    // Create client instances from templates
     for (const [templateName, templateConfig] of templateConfigs) {
       try {
-        // Get or create server instance from template
-        const instance = await this.templateServerFactory.getOrCreateServerInstance(
+        // Get or create client instance from template
+        const instance = await this.clientInstancePool.getOrCreateClientInstance(
           templateName,
           templateConfig,
           context,
@@ -525,62 +525,51 @@ export class ServerManager {
           templateConfig.template,
         );
 
-        // Connect to the server instance using ClientManager
-        if (this.clientManager) {
-          const clientInstance = this.clientManager.createClientInstance();
+        // CRITICAL: Register the template server in outbound connections for capability aggregation
+        // This ensures the template server's tools are included in the capabilities
+        this.outboundConns.set(templateName, {
+          name: templateName, // Use template name for clean tool namespacing (serena_1mcp_*)
+          transport: instance.transport,
+          client: instance.client,
+          status: ClientStatus.Connected, // Template servers should be connected
+          capabilities: undefined, // Will be populated by setupCapabilities
+        });
 
-          // Create transport for the server instance
-          const serverTransport = await this.createTransportForInstance(instance, context);
+        // Store session ID mapping separately for cleanup tracking
+        if (!this.templateSessionMap) {
+          this.templateSessionMap = new Map<string, string>();
+        }
+        this.templateSessionMap.set(templateName, sessionId);
 
-          // Connect client to the server
-          await clientInstance.connect(serverTransport);
-          instance.clientCount++;
+        // Add to transports map as well using instance ID
+        this.transports[instance.id] = instance.transport;
 
-          // CRITICAL: Register the template server in outbound connections for capability aggregation
-          // This ensures the template server's tools are included in the capabilities
-          this.outboundConns.set(templateName, {
-            name: templateName, // Use template name for clean tool namespacing (serena_1mcp_*)
-            transport: serverTransport,
-            client: clientInstance,
-            status: ClientStatus.Connected, // Template servers should be connected
-            capabilities: undefined, // Will be populated by setupCapabilities
-          });
+        // Enhanced client-template tracking
+        this.clientTemplateTracker.addClientTemplate(sessionId, templateName, instance.id, {
+          shareable: templateConfig.template?.shareable,
+          perClient: templateConfig.template?.perClient,
+        });
 
-          // Store session ID mapping separately for cleanup tracking
-          if (!this.templateSessionMap) {
-            this.templateSessionMap = new Map<string, string>();
-          }
-          this.templateSessionMap.set(templateName, sessionId);
-
-          // Add to transports map as well
-          this.transports[instance.id] = serverTransport;
-
-          // Enhanced client-template tracking
-          this.clientTemplateTracker.addClientTemplate(sessionId, templateName, instance.id, {
+        debugIf(() => ({
+          message: `ServerManager.createTemplateBasedServers: Tracked client-template relationship`,
+          meta: {
+            sessionId,
+            templateName,
+            instanceId: instance.id,
+            referenceCount: instance.referenceCount,
             shareable: templateConfig.template?.shareable,
             perClient: templateConfig.template?.perClient,
-          });
+            registeredInOutbound: true,
+          },
+        }));
 
-          debugIf(() => ({
-            message: `ServerManager.createTemplateBasedServers: Tracked client-template relationship`,
-            meta: {
-              sessionId,
-              templateName,
-              instanceId: instance.id,
-              shareable: templateConfig.template?.shareable,
-              perClient: templateConfig.template?.perClient,
-              registeredInOutbound: true,
-            },
-          }));
-
-          logger.info(`Connected to template server instance: ${templateName} (${instance.id})`, {
-            sessionId,
-            clientCount: instance.clientCount,
-            registeredInCapabilities: true,
-          });
-        }
+        logger.info(`Connected to template client instance: ${templateName} (${instance.id})`, {
+          sessionId,
+          clientCount: instance.referenceCount,
+          registeredInCapabilities: true,
+        });
       } catch (error) {
-        logger.error(`Failed to create server from template ${templateName}:`, error);
+        logger.error(`Failed to create client instance from template ${templateName}:`, error);
       }
     }
   }
@@ -609,27 +598,6 @@ export class ServerManager {
     });
 
     return TemplateFilteringService.getMatchingTemplates(templates, opts);
-  }
-
-  /**
-   * Create a transport for a server instance
-   */
-  private async createTransportForInstance(
-    instance: {
-      id: string;
-      processedConfig: MCPServerParams;
-    },
-    context: ContextData,
-  ): Promise<AuthProviderTransport> {
-    // Create a transport from the processed configuration with context
-    const transports = await createTransportsWithContext(
-      {
-        [instance.id]: instance.processedConfig,
-      },
-      context,
-    );
-
-    return transports[instance.id];
   }
 
   public async disconnectTransport(sessionId: string, forceClose: boolean = false): Promise<void> {
@@ -684,18 +652,18 @@ export class ServerManager {
       instancesToCleanup,
     });
 
-    // Remove client from template server instances
+    // Remove client from client instance pool
     for (const instanceKey of instancesToCleanup) {
       const [templateName, ...instanceParts] = instanceKey.split(':');
       const instanceId = instanceParts.join(':');
 
       try {
-        if (this.templateServerFactory) {
+        if (this.clientInstancePool) {
           // Remove the client from the instance
-          this.templateServerFactory.removeClientFromInstanceByKey(instanceKey, sessionId);
+          this.clientInstancePool.removeClientFromInstance(instanceKey, sessionId);
 
           debugIf(() => ({
-            message: `ServerManager.cleanupTemplateServers: Successfully removed client from instance`,
+            message: `ServerManager.cleanupTemplateServers: Successfully removed client from client instance`,
             meta: {
               sessionId,
               templateName,
@@ -710,12 +678,12 @@ export class ServerManager {
 
         if (remainingClients === 0) {
           // No more clients, instance becomes idle
-          // The transport will be closed after idle timeout by the cleanup timer
+          // The client instance will be closed after idle timeout by the cleanup timer
           const templateConfig = this.serverConfigData?.mcpTemplates?.[templateName];
           const idleTimeout = templateConfig?.template?.idleTimeout || 5 * 60 * 1000; // 5 minutes default
 
           debugIf(() => ({
-            message: `Template instance ${instanceId} has no more clients, marking as idle for cleanup after timeout`,
+            message: `Client instance ${instanceId} has no more clients, marking as idle for cleanup after timeout`,
             meta: {
               templateName,
               instanceId,
@@ -724,12 +692,12 @@ export class ServerManager {
           }));
         } else {
           debugIf(() => ({
-            message: `Template instance ${instanceId} still has ${remainingClients} clients, keeping transport open`,
+            message: `Client instance ${instanceId} still has ${remainingClients} clients, keeping connection open`,
             meta: { instanceId, remainingClients },
           }));
         }
       } catch (error) {
-        logger.warn(`Failed to cleanup template instance ${instanceKey}:`, {
+        logger.warn(`Failed to cleanup client instance ${instanceKey}:`, {
           error: error instanceof Error ? error.message : 'Unknown error',
           sessionId,
           templateName,
@@ -738,7 +706,7 @@ export class ServerManager {
       }
     }
 
-    logger.info(`Cleaned up template servers for session ${sessionId}`, {
+    logger.info(`Cleaned up template client instances for session ${sessionId}`, {
       instancesCleaned: instancesToCleanup.length,
     });
   }
@@ -1169,75 +1137,47 @@ export class ServerManager {
    * Force cleanup of idle template instances
    */
   public async cleanupIdleInstances(): Promise<number> {
-    if (!this.templateServerFactory) {
+    if (!this.clientInstancePool) {
       return 0;
     }
 
-    // Get all idle instances with their template-specific timeouts
-    const idleInstances = this.clientTemplateTracker.getIdleInstances(0); // Get all idle instances (no minimum timeout)
-    const instancesToCleanup: Array<{ templateName: string; instanceId: string }> = [];
-    const now = new Date();
+    // Get all instances from the pool
+    const allInstances = this.clientInstancePool.getAllInstances();
+    const instancesToCleanup: Array<{ templateName: string; instanceId: string; instance: PooledClientInstance }> = [];
 
-    // Check each idle instance against its template-specific timeout
-    for (const idle of idleInstances) {
-      // Get the template configuration to check its idle timeout
-      const templateConfig = this.serverConfigData?.mcpTemplates?.[idle.templateName];
-      const templateIdleTimeout = templateConfig?.template?.idleTimeout || 5 * 60 * 1000; // 5 minutes default
-
-      // Only cleanup if idle time exceeds the template's configured timeout
-      if (idle.idleTime >= templateIdleTimeout) {
+    for (const instance of allInstances) {
+      if (instance.status === 'idle') {
         instancesToCleanup.push({
-          templateName: idle.templateName,
-          instanceId: idle.instanceId,
+          templateName: instance.templateName,
+          instanceId: instance.id,
+          instance,
         });
-
-        debugIf(() => ({
-          message: `Template instance ${idle.instanceId} eligible for cleanup`,
-          meta: {
-            templateName: idle.templateName,
-            idleTime: idle.idleTime,
-            idleTimeout: templateIdleTimeout,
-            lastAccessed: new Date(now.getTime() - idle.idleTime).toISOString(),
-          },
-        }));
       }
     }
 
     let cleanedUp = 0;
 
-    for (const { templateName, instanceId } of instancesToCleanup) {
+    for (const { templateName, instanceId, instance } of instancesToCleanup) {
       try {
-        // Create the instanceKey and remove the instance from the factory
-        const instanceKey = `${templateName}:${instanceId}`;
-        this.templateServerFactory.removeInstanceByKey(instanceKey);
-
-        // Close the transport to terminate the MCP server process
-        const transport = this.transports[instanceId];
-        if (transport && transport.close) {
-          try {
-            await transport.close();
-            logger.info(`Successfully closed transport for idle template instance ${instanceId}`);
-          } catch (error) {
-            logger.error(`Error closing transport for idle template instance ${instanceId}:`, error);
-          }
-        }
+        // Remove the instance from the pool
+        await this.clientInstancePool.removeInstance(`${templateName}:${instance.variableHash}`);
 
         // Clean up transport references
         delete this.transports[instanceId];
-        this.outboundConns.delete(instanceId);
+        this.outboundConns.delete(templateName);
 
         // Clean up tracking
         this.clientTemplateTracker.cleanupInstance(templateName, instanceId);
 
         cleanedUp++;
-        logger.info(`Cleaned up idle template instance: ${templateName}:${instanceId}`);
+        logger.info(`Cleaned up idle client instance: ${templateName}:${instanceId}`);
       } catch (error) {
-        logger.warn(`Failed to cleanup idle instance ${templateName}:${instanceId}:`, error);
+        logger.warn(`Failed to cleanup idle client instance ${templateName}:${instanceId}:`, error);
       }
     }
 
     if (cleanedUp > 0) {
-      logger.info(`Cleaned up ${cleanedUp} idle template instances`);
+      logger.info(`Cleaned up ${cleanedUp} idle client instances`);
     }
 
     return cleanedUp;
