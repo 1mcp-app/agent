@@ -202,4 +202,116 @@ describe('CacheManager', () => {
       vi.useRealTimers();
     });
   });
+
+  describe('Hit/Miss Tracking', () => {
+    beforeEach(() => {
+      // Reset statistics before each test
+      cache.resetStats();
+    });
+
+    it('should track cache hits correctly', async () => {
+      // Set a value
+      await cache.set('test-key', 'test-value');
+
+      // Get the value (should be a hit)
+      const result = await cache.get('test-key');
+
+      expect(result).toBe('test-value');
+
+      const stats = cache.getStats();
+      expect(stats.hits).toBe(1);
+      expect(stats.misses).toBe(0);
+      expect(stats.totalRequests).toBe(1);
+      expect(stats.hitRatio).toBe(1);
+    });
+
+    it('should track cache misses correctly', async () => {
+      // Get a non-existent value (should be a miss)
+      const result = await cache.get('non-existent-key');
+
+      expect(result).toBeNull();
+
+      const stats = cache.getStats();
+      expect(stats.hits).toBe(0);
+      expect(stats.misses).toBe(1);
+      expect(stats.totalRequests).toBe(1);
+      expect(stats.hitRatio).toBe(0);
+    });
+
+    it('should track expired entries as misses', async () => {
+      vi.useFakeTimers();
+
+      // Set a value with 1 second TTL
+      await cache.set('expire-key', 'expire-value', 1);
+
+      // Get the value (should be a hit)
+      const result1 = await cache.get('expire-key');
+      expect(result1).toBe('expire-value');
+
+      // Advance time by 2 seconds (entry expires)
+      vi.advanceTimersByTime(2000);
+
+      // Get the value again (should be a miss due to expiration)
+      const result2 = await cache.get('expire-key');
+      expect(result2).toBeNull();
+
+      const stats = cache.getStats();
+      expect(stats.hits).toBe(1);
+      expect(stats.misses).toBe(1);
+      expect(stats.totalRequests).toBe(2);
+      expect(stats.hitRatio).toBe(0.5);
+
+      vi.useRealTimers();
+    });
+
+    it('should calculate hit ratio correctly with mixed operations', async () => {
+      // Set multiple values
+      await cache.set('key1', 'value1');
+      await cache.set('key2', 'value2');
+      await cache.set('key3', 'value3');
+
+      // Perform various operations
+      await cache.get('key1'); // hit
+      await cache.get('key2'); // hit
+      await cache.get('key4'); // miss (doesn't exist)
+      await cache.get('key3'); // hit
+      await cache.get('key5'); // miss (doesn't exist)
+
+      const stats = cache.getStats();
+      expect(stats.hits).toBe(3);
+      expect(stats.misses).toBe(2);
+      expect(stats.totalRequests).toBe(5);
+      expect(stats.hitRatio).toBe(0.6); // 3/5 = 0.6
+    });
+
+    it('should reset statistics correctly', async () => {
+      // Perform some operations
+      await cache.set('key1', 'value1');
+      await cache.get('key1'); // hit
+      await cache.get('key2'); // miss
+
+      // Verify statistics are recorded
+      let stats = cache.getStats();
+      expect(stats.totalRequests).toBe(2);
+      expect(stats.hits).toBe(1);
+      expect(stats.misses).toBe(1);
+
+      // Reset statistics
+      cache.resetStats();
+
+      // Verify statistics are reset
+      stats = cache.getStats();
+      expect(stats.totalRequests).toBe(0);
+      expect(stats.hits).toBe(0);
+      expect(stats.misses).toBe(0);
+      expect(stats.hitRatio).toBe(0);
+    });
+
+    it('should handle zero division in hit ratio calculation', async () => {
+      // No operations performed yet
+      const stats = cache.getStats();
+      expect(stats.totalRequests).toBe(0);
+      expect(stats.hitRatio).toBe(0); // Should not throw division by zero error
+    });
+  });
 });

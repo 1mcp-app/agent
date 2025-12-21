@@ -10,6 +10,11 @@ export class CacheManager {
   private cleanupTimer?: ReturnType<typeof setInterval>;
   private options: CacheOptions;
 
+  // Cache statistics tracking
+  private hits = 0;
+  private misses = 0;
+  private totalRequests = 0;
+
   constructor(options: Partial<CacheOptions> = {}) {
     this.options = {
       defaultTtl: options.defaultTtl || 300, // 5 minutes default
@@ -24,16 +29,21 @@ export class CacheManager {
    * Get a cached value by key
    */
   async get<T>(key: string): Promise<T | null> {
+    this.totalRequests++;
     const entry = this.cache.get(key);
+
     if (!entry) {
+      this.misses++;
       return null;
     }
 
     if (Date.now() > entry.expiresAt) {
+      this.misses++;
       this.cache.delete(key);
       return null;
     }
 
+    this.hits++;
     return entry.value as T | null;
   }
 
@@ -93,6 +103,9 @@ export class CacheManager {
     validEntries: number;
     expiredEntries: number;
     maxSize: number;
+    hits: number;
+    misses: number;
+    totalRequests: number;
     hitRatio: number;
   } {
     const now = Date.now();
@@ -112,6 +125,9 @@ export class CacheManager {
       validEntries: validCount,
       expiredEntries: expiredCount,
       maxSize: this.options.maxSize,
+      hits: this.hits,
+      misses: this.misses,
+      totalRequests: this.totalRequests,
       hitRatio: this.getHitRatio(),
     };
   }
@@ -184,10 +200,18 @@ export class CacheManager {
   }
 
   /**
-   * Calculate hit ratio (placeholder for future hit/miss tracking)
+   * Calculate hit ratio based on tracked statistics
    */
   private getHitRatio(): number {
-    // TODO: Implement hit/miss tracking for more accurate statistics
-    return 0;
+    return this.totalRequests > 0 ? this.hits / this.totalRequests : 0;
+  }
+
+  /**
+   * Reset cache statistics (useful for testing)
+   */
+  resetStats(): void {
+    this.hits = 0;
+    this.misses = 0;
+    this.totalRequests = 0;
   }
 }
