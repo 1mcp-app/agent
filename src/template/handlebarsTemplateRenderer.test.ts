@@ -11,8 +11,8 @@ describe('HandlebarsTemplateRenderer', () => {
     renderer = new HandlebarsTemplateRenderer();
     mockContext = {
       project: {
-        path: '/Users/x/workplace/iot-light-control',
-        name: 'iot-light-control',
+        path: '/Users/test/workplace/test-project',
+        name: 'test-project',
       },
       user: {
         username: 'testuser',
@@ -32,7 +32,7 @@ describe('HandlebarsTemplateRenderer', () => {
         args: [
           'run',
           '--directory',
-          '/Users/x/workplace/serena',
+          '/Users/test/workplace/serena',
           'serena',
           'start-mcp-server',
           '--log-level',
@@ -47,7 +47,7 @@ describe('HandlebarsTemplateRenderer', () => {
 
       const rendered = renderer.renderTemplate(serenaTemplate, mockContext);
 
-      expect(rendered.args).toContain('/Users/x/workplace/iot-light-control');
+      expect(rendered.args).toContain('/Users/test/workplace/test-project');
       expect(rendered.args).not.toContain('{{project.path}}');
     });
 
@@ -64,11 +64,11 @@ describe('HandlebarsTemplateRenderer', () => {
 
       const rendered = renderer.renderTemplate(template, mockContext);
 
-      expect(rendered.args).toEqual(['/Users/x/workplace/iot-light-control']);
+      expect(rendered.args).toEqual(['/Users/test/workplace/test-project']);
 
       // Check that env was rendered (it's now a Record<string, string>)
       const envRecord = rendered.env as Record<string, string>;
-      expect(envRecord.PROJECT_NAME).toBe('iot-light-control');
+      expect(envRecord.PROJECT_NAME).toBe('test-project');
       expect(envRecord.USER).toBe('testuser');
     });
 
