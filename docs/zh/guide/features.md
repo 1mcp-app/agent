@@ -13,20 +13,21 @@ head:
 
 ## 🚀 快速发现（选择您的路径）
 
-- **👋 我是 1MCP 的新手** → [核心功能](/guide/essentials/core-features)
-- **🔒 我需要安全** → [安全与访问控制](/guide/advanced/security)
-- **⚡ 我想要性能** → [性能与可靠性](/guide/advanced/performance)
-- **🏢 我运行生产系统** → [企业版与运维](/guide/advanced/enterprise)
-- **🔧 我是开发人员** → [开发者与集成](/guide/integrations/developer-tools)
-- **🔗 我想要整合应用** → [应用整合](/guide/integrations/app-consolidation)
-- **🖥️ 我使用 Claude Desktop** → [Claude Desktop 集成](/guide/integrations/claude-desktop)
-- **⚙️ 我需要服务器管理** → [服务器管理](/guide/essentials/server-management)
-- **🏷️ 我想要服务器过滤** → [服务器过滤](/guide/advanced/server-filtering)
-- **⚡ 我需要快速启动** → [快速启动](/guide/advanced/fast-startup)
+- **👋 我是 1MCP 的新手** → [核心功能](/zh/guide/essentials/core-features)
+- **🔒 我需要安全** → [安全与访问控制](/zh/guide/advanced/security)
+- **⚡ 我想要性能** → [性能与可靠性](/zh/guide/advanced/performance)
+- **🏢 我运行生产系统** → [企业版与运维](/zh/guide/advanced/enterprise)
+- **🔧 我是开发人员** → [开发者与集成](/zh/guide/integrations/developer-tools)
+- **🔗 我想要整合应用** → [应用整合](/zh/guide/integrations/app-consolidation)
+- **🖥️ 我使用 Claude Desktop** → [Claude Desktop 集成](/zh/guide/integrations/claude-desktop)
+- **⚙️ 我需要服务器管理** → [服务器管理](/zh/guide/essentials/server-management)
+- **🏷️ 我想要服务器过滤** → [服务器过滤](/zh/guide/advanced/server-filtering)
+- **🤖 我需要 AI 自动化** → [AI 助手内部工具](/zh/reference/internal-tools)
+- **⚡ 我需要快速启动** → [快速启动](/zh/guide/advanced/fast-startup)
 
 ---
 
-## 🌟 [核心功能](/guide/essentials/core-features)
+## 🌟 [核心功能](/zh/guide/essentials/core-features)
 
 开箱即用的基础功能，适用于每个用户：
 
@@ -38,7 +39,7 @@ head:
 
 ---
 
-## 🔒 [安全与访问控制](/guide/advanced/security)
+## 🔒 [安全与访问控制](/zh/guide/advanced/security)
 
 具有细粒度权限的企业级安全：
 
@@ -50,7 +51,7 @@ head:
 
 ---
 
-## ⚡ [性能与可靠性](/guide/advanced/performance)
+## ⚡ [性能与可靠性](/zh/guide/advanced/performance)
 
 为生产而构建，具备智能恢复功能：
 
@@ -62,7 +63,7 @@ head:
 
 ---
 
-## 🏢 [企业版与运维](/guide/advanced/enterprise)
+## 🏢 [企业版与运维](/zh/guide/advanced/enterprise)
 
 生产就绪的部署和运营功能：
 
@@ -76,7 +77,7 @@ head:
 
 ---
 
-## 🔧 [开发者与集成](/guide/integrations/developer-tools)
+## 🔧 [开发者与集成](/zh/guide/integrations/developer-tools)
 
 开发者友好的 API 和集成工具：
 
@@ -88,7 +89,7 @@ head:
 
 ---
 
-## 🔗 [应用整合](/guide/integrations/app-consolidation)
+## 🔗 [应用整合](/zh/guide/integrations/app-consolidation)
 
 统一来自多个桌面应用程序的 MCP 服务器配置：
 
@@ -100,7 +101,7 @@ head:
 
 ---
 
-## 🖥️ [Claude Desktop 集成](/guide/integrations/claude-desktop)
+## 🖥️ [Claude Desktop 集成](/zh/guide/integrations/claude-desktop)
 
 通过两种灵活方法与 Claude Desktop 无缝集成：
 
@@ -112,7 +113,7 @@ head:
 
 ---
 
-## ⚙️ [服务器管理](/guide/essentials/server-management)
+## ⚙️ [服务器管理](/zh/guide/essentials/server-management)
 
 全面的 MCP 服务器生命周期和配置管理：
 
@@ -125,7 +126,7 @@ head:
 
 ---
 
-## 🏷️ [服务器过滤](/guide/advanced/server-filtering)
+## 🏷️ [服务器过滤](/zh/guide/advanced/server-filtering)
 
 使用灵活的基于标签的过滤控制对特定 MCP 服务器的访问：
 
@@ -138,7 +139,20 @@ head:
 
 ---
 
-## ⚡ [快速启动](/guide/advanced/fast-startup)
+## 🤖 [AI 助手内部工具](/zh/reference/internal-tools)
+
+为 AI 助手提供程序化 MCP 服务器管理功能：
+
+- **🔍 发现工具（5 个）** - 搜索注册表、检查可用性、获取服务器信息
+- **⚙️ 安装工具（3 个）** - 安装、更新、卸载服务器，支持依赖解析
+- **🔧 管理工具（6 个）** - 启用/禁用服务器、监控健康、编辑配置
+- **🛡️ 安全功能** - 内置验证、备份、回滚和错误恢复
+
+适用场景：AI 助手自动化、程序化服务器管理、DevOps 工作流、智能监控
+
+---
+
+## ⚡ [快速启动](/zh/guide/advanced/fast-startup)
 
 通过异步服务器加载让 1MCP 立即运行：
 
@@ -170,6 +184,7 @@ head:
 | **Claude Desktop** | ✅ 必不可少       | 🔧 集成     | 🔧 设置     | 📊 远程     | 🛡️ 安全       |
 | **服务器管理**     | 🚫 隐藏           | ✅ 必不可少 | ✅ 关键     | ✅ 关键     | ✅ 高级       |
 | **服务器过滤**     | 🚫 透明           | 🔧 可配置   | 🛡️ 访问控制 | 🛡️ 策略     | 🛡️ 多租户     |
+| **内部工具**       | 🚫 隐藏           | 🤖 自动化   | 🔧 管理     | ⚡ 关键     | 🔧 企业       |
 
 **图例**：✅ 主要好处 | ⚡ 性能 | 🔒 安全 | 🔧 技术 | 🛡️ 保护 | 📊 监控 | 🚫 不相关
 
@@ -179,22 +194,23 @@ head:
 
 ### 快速入门路径
 
-1. **[5 分钟]** 基本 MCP 聚合 → [快速开始](/guide/getting-started)
-2. **[15 分钟]** 添加身份验证 → [安全功能](/guide/advanced/security)
-3. **[30 分钟]** 生产功能 → [企业功能](/guide/advanced/enterprise)
+1. **[5 分钟]** 基本 MCP 聚合 → [快速开始](/zh/guide/getting-started)
+2. **[15 分钟]** 添加身份验证 → [安全功能](/zh/guide/advanced/security)
+3. **[30 分钟]** 生产功能 → [企业功能](/zh/guide/advanced/enterprise)
 
 ### 特定功能指南
 
-- **安全设置** → [身份验证指南](/guide/advanced/authentication)
-- **配置** → [配置指南](/guide/essentials/configuration)
-- **开发** → [开发者功能](/guide/integrations/developer-tools)
-- **应用集成** → [应用整合指南](/guide/integrations/app-consolidation)
-- **Claude Desktop** → [Claude Desktop 集成](/guide/integrations/claude-desktop)
-- **服务器管理** → [服务器管理指南](/guide/essentials/server-management)
-- **服务器过滤** → [服务器过滤指南](/guide/advanced/server-filtering)
-- **性能** → [快速启动指南](/guide/advanced/fast-startup)
-- **架构** → [系统架构](/reference/architecture)
+- **安全设置** → [身份验证指南](/zh/guide/advanced/authentication)
+- **配置** → [配置指南](/zh/guide/essentials/configuration)
+- **开发** → [开发者功能](/zh/guide/integrations/developer-tools)
+- **应用集成** → [应用整合指南](/zh/guide/integrations/app-consolidation)
+- **Claude Desktop** → [Claude Desktop 集成](/zh/guide/integrations/claude-desktop)
+- **服务器管理** → [服务器管理指南](/zh/guide/essentials/server-management)
+- **服务器过滤** → [服务器过滤指南](/zh/guide/advanced/server-filtering)
+- **AI 自动化** → [内部工具参考](/zh/reference/internal-tools)
+- **性能** → [快速启动指南](/zh/guide/advanced/fast-startup)
+- **架构** → [系统架构](/zh/reference/architecture)
 
 ---
 
-> **💡 专业提示**：从[核心功能](/guide/essentials/core-features)开始，然后随着需求增长添加高级功能。每个功能都设计为独立工作，可以增量启用。
+> **💡 专业提示**：从[核心功能](/zh/guide/essentials/core-features)开始，然后随着需求增长添加高级功能。每个功能都设计为独立工作，可以增量启用。
