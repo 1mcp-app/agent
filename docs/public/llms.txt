@@ -1,0 +1,41 @@
+# 1MCP Agent
+
+> 1MCP is a Model Context Protocol proxy that aggregates capabilities from multiple MCP servers into a unified interface, enabling AI assistants to connect to multiple tools and services through a single connection.
+
+## Getting Started
+
+- [Installation Guide](/guide/installation.md): Set up 1MCP using binary or npm installation
+- [5-Minute Quick Start](/guide/quick-start.md): Get up and running with basic configuration
+- [Getting Started](/guide/getting-started.md): Complete setup and configuration guide
+- [Basic Configuration](/guide/essentials/configuration.md): Core configuration options and setup
+
+## Core Features
+
+- [Server Management](/guide/essentials/server-management.md): Add, remove, and manage MCP servers
+- [CLI Commands Reference](/commands/): Complete command-line interface documentation
+- [Core Features](/guide/essentials/core-features.md): Overview of main 1MCP capabilities
+- [Features Overview](/guide/features.md): Complete feature list and descriptions
+
+## Client Integration
+
+- [Claude Desktop Integration](/guide/integrations/claude-desktop.md): Connect with Claude Desktop
+- [Developer Tools Integration](/guide/integrations/developer-tools.md): Integration with development environments
+- [App Consolidation](/guide/integrations/app-consolidation.md): Application consolidation guide
+- [Codex Integration](/guide/integrations/codex.md): Codex integration setup
+
+## Advanced Topics
+
+- [Architecture](/reference/architecture.md): System design and component overview
+- [Security](/reference/security.md): Security implementation and best practices
+- [Performance](/guide/advanced/performance.md): Optimization and scaling guidance
+- [Reverse Proxy](/guide/advanced/reverse-proxy.md): Production deployment options
+- [Enterprise Setup](/guide/advanced/enterprise.md): Enterprise deployment guide
+- [Authentication](/guide/advanced/authentication.md): Advanced authentication setup
+
+## Optional
+
+- [Internal Tools](/reference/internal-tools.md): Built-in discovery and management tools
+- [Health Check](/reference/health-check.md): Health monitoring endpoints
+- [MCP Servers](/reference/mcp-servers.md): MCP server configuration reference
+- [Feature Comparison](/reference/feature-comparison.md): Version and feature comparisons
+- [Contributing](https://github.com/1mcp-app/agent/blob/main/CONTRIBUTING.md): Development contribution guidelines

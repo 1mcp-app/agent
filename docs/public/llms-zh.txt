@@ -1,0 +1,36 @@
+# 1MCP Agent - 中文文档
+
+> 1MCP 代理的完整中文文档，包含安装、配置、服务器管理和高级部署场景。
+
+## 基础指南
+
+- [安装与设置](/zh/guide/installation.md): 二进制和 npm 安装的完整设置指南
+- [快速开始](/zh/guide/quick-start.md): 5分钟设置 walkthrough 及示例
+- [入门指南](/zh/guide/getting-started.md): 完整的设置和配置指南
+- [服务器管理](/zh/guide/essentials/server-management.md): 添加、配置和管理 MCP 服务器
+- [基础配置](/zh/guide/essentials/configuration.md): 核心配置选项和设置
+
+## 命令行参考
+
+- [MCP 命令](/zh/commands/mcp/): 服务器管理命令（添加、移除、列表、安装、卸载）
+- [应用命令](/zh/commands/app/): 备份、恢复和应用管理
+- [预设命令](/zh/commands/preset/): 配置预设管理
+- [注册表命令](/zh/commands/registry/): MCP 服务器注册表集成
+- [代理和服务命令](/zh/commands/serve.md, /zh/commands/proxy.md): HTTP 代理配置和服务
+
+## 高级配置
+
+- [架构概述](/zh/reference/architecture.md): 系统设计和组件交互
+- [安全最佳实践](/zh/reference/security.md): 身份验证、授权和加固
+- [性能优化](/zh/guide/advanced/performance.md): 扩展和优化技术
+- [客户端集成](/zh/guide/integrations/): 各种 AI 助手和工具的设置
+- [企业设置](/zh/guide/advanced/enterprise.md): 企业部署配置
+- [高级身份验证](/zh/guide/advanced/authentication.md): OAuth 和高级安全设置
+
+## 可选
+
+- [内部工具](/zh/reference/internal-tools/): 内置发现、安装和管理工具
+- [健康检查](/zh/reference/health-check.md): 健康监控和状态端点
+- [MCP 服务器](/zh/reference/mcp-servers.md): MCP 服务器配置参考
+- [功能比较](/zh/reference/feature-comparison.md): 版本和功能比较
+- [核心功能](/zh/guide/essentials/core-features.md): 主要 1MCP 功能概述
