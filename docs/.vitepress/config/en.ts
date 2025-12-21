@@ -217,6 +217,16 @@ function sidebar(): DefaultTheme.Sidebar {
         ],
       },
       {
+        text: 'Internal Tools',
+        link: '/reference/internal-tools/',
+        items: [
+          { text: 'Overview', link: '/reference/internal-tools/' },
+          { text: 'Discovery Tools', link: '/reference/internal-tools/discovery' },
+          { text: 'Installation Tools', link: '/reference/internal-tools/installation' },
+          { text: 'Management Tools', link: '/reference/internal-tools/management' },
+        ],
+      },
+      {
         text: 'Configuration',
         items: [
           { text: 'MCP Servers', link: '/reference/mcp-servers' },

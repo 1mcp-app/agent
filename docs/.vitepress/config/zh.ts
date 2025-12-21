@@ -224,6 +224,16 @@ function sidebar(): DefaultTheme.Sidebar {
         items: [{ text: '健康检查 API', link: '/zh/reference/health-check' }],
       },
       {
+        text: '内部工具',
+        link: '/zh/reference/internal-tools/',
+        items: [
+          { text: '概述', link: '/zh/reference/internal-tools/' },
+          { text: '发现工具', link: '/zh/reference/internal-tools/discovery' },
+          { text: '安装工具', link: '/zh/reference/internal-tools/installation' },
+          { text: '管理工具', link: '/zh/reference/internal-tools/management' },
+        ],
+      },
+      {
         text: '配置',
         items: [
           { text: 'MCP 服务器', link: '/zh/reference/mcp-servers' },
