@@ -73,11 +73,11 @@ describe('Session Context Integration', () => {
         mcpTemplates: {
           'test-template': {
             command: 'node',
-            args: ['{project.path}/server.js'],
+            args: ['{{project.path}}/server.js'],
             env: {
-              PROJECT_ID: '{project.custom.projectId}',
-              USER_NAME: '{user.name}',
-              ENVIRONMENT: '{project.environment}',
+              PROJECT_ID: '{{project.custom.projectId}}',
+              USER_NAME: '{{user.name}}',
+              ENVIRONMENT: '{{project.environment}}',
             },
             tags: ['test'],
           },
@@ -111,7 +111,7 @@ describe('Session Context Integration', () => {
         mcpTemplates: {
           'context-test': {
             command: 'echo',
-            args: ['{project.custom.projectId}'],
+            args: ['{{project.custom.projectId}}'],
             tags: ['test'],
           },
         },
