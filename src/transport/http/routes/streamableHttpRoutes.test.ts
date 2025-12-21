@@ -382,20 +382,16 @@ describe('Streamable HTTP Routes', () => {
       expect(mockTransport.handleRequest).toHaveBeenCalledWith(mockRequest, mockResponse, mockRequest.body);
     });
 
-    it('should return 404 when session not found and cannot be restored', async () => {
+    it('should create new session when restoration fails (handles proxy use case)', async () => {
       mockRequest.headers = { 'mcp-session-id': 'non-existent' };
+      mockRequest.body = { method: 'test' };
       mockServerManager.getTransport.mockReturnValue(null);
       mockSessionRepository.get.mockReturnValue(null); // No persisted session
 
       await postHandler(mockRequest, mockResponse);
 
-      expect(mockResponse.status).toHaveBeenCalledWith(404);
-      expect(mockResponse.json).toHaveBeenCalledWith({
-        error: {
-          code: ErrorCode.InvalidParams,
-          message: 'No active streamable HTTP session found for the provided sessionId',
-        },
-      });
+      expect(mockServerManager.connectTransport).toHaveBeenCalled();
+      expect(mockSessionRepository.create).toHaveBeenCalledWith('non-existent', expect.any(Object));
     });
 
     it('should restore session from persistent storage when not in memory', async () => {

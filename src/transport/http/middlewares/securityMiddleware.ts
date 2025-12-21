@@ -217,7 +217,7 @@ export function timingAttackPrevention(req: Request, res: Response, next: NextFu
 
   if (isAuthEndpoint) {
     // Add random delay between 10-50ms to make timing attacks harder
-    const randomDelay = Math.floor(Math.random() * 40) + 10;
+    const randomDelay = Math.floor((crypto.getRandomValues(new Uint32Array(1))[0] / 4294967295) * 40) + 10;
 
     const originalSend = res.send.bind(res);
     res.send = function (this: Response, body: unknown) {

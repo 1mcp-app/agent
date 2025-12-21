@@ -341,10 +341,10 @@ export class ConfigManager extends EventEmitter {
   /**
    * Create a hash of context data for caching purposes
    * @param context - Context data to hash
-   * @returns MD5 hash string
+   * @returns SHA-256 hash string
    */
   private hashContext(context: ContextData): string {
-    return createHash('md5').update(JSON.stringify(context)).digest('hex');
+    return createHash('sha256').update(JSON.stringify(context)).digest('hex');
   }
 
   /**

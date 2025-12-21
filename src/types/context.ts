@@ -105,11 +105,6 @@ export interface TemplateContext {
   };
 }
 
-// Utility functions
-export function createSessionId(): string {
-  return `ctx_${Date.now()}_${Math.random().toString(36).substring(2, 11)}`;
-}
-
 export function formatTimestamp(): string {
   return new Date().toISOString();
 }

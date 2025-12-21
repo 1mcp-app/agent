@@ -1,36 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { createSessionId, formatTimestamp } from './context.js';
+import { formatTimestamp } from './context.js';
 
 describe('context utilities', () => {
   beforeEach(() => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2024-01-01T00:00:00Z'));
-  });
-
-  describe('createSessionId', () => {
-    it('should create a session ID with timestamp prefix', () => {
-      const sessionId = createSessionId();
-      expect(sessionId).toMatch(/^ctx_\d+_[a-z0-9]+$/);
-      expect(sessionId).toContain('ctx_1704067200000_');
-    });
-
-    it('should generate unique session IDs', () => {
-      const id1 = createSessionId();
-      const id2 = createSessionId();
-      expect(id1).not.toBe(id2);
-    });
-
-    it('should have reasonable length', () => {
-      const sessionId = createSessionId();
-      expect(sessionId.length).toBeGreaterThan(10);
-      expect(sessionId.length).toBeLessThan(50);
-    });
-
-    it('should only contain valid characters', () => {
-      const sessionId = createSessionId();
-      expect(sessionId).toMatch(/^[ctx_0-9a-z]+$/);
-    });
   });
 
   describe('formatTimestamp', () => {

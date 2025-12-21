@@ -3,7 +3,8 @@ import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { JSONRPCMessage } from '@modelcontextprotocol/sdk/types.js';
 
 import type { ProjectConfig } from '@src/config/projectConfigTypes.js';
-import { MCP_SERVER_VERSION } from '@src/constants.js';
+import { AUTH_CONFIG } from '@src/constants/auth.js';
+import { MCP_SERVER_VERSION } from '@src/constants/mcp.js';
 import logger from '@src/logger/logger.js';
 import type { ContextData } from '@src/types/context.js';
 
@@ -68,6 +69,13 @@ function enrichContextWithProjectConfig(context: ContextData, projectConfig?: Pr
 }
 
 /**
+ * Generate a secure mcp-session-id for the proxy with the correct prefix
+ */
+function generateMcpSessionId(): string {
+  return `${AUTH_CONFIG.SERVER.STREAMABLE_SESSION.ID_PREFIX}${crypto.randomUUID()}`;
+}
+
+/**
  * Auto-detects context from the proxy's environment
  */
 function detectProxyContext(projectConfig?: ProjectConfig): ContextData {
@@ -94,7 +102,7 @@ function detectProxyContext(projectConfig?: ProjectConfig): ContextData {
     },
     timestamp: new Date().toISOString(),
     version: MCP_SERVER_VERSION,
-    sessionId: `proxy-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+    sessionId: generateMcpSessionId(),
   };
 
   return enrichContextWithProjectConfig(baseContext, projectConfig);
@@ -162,6 +170,7 @@ export class StdioProxyTransport {
     const requestInit: RequestInit = {
       headers: {
         'User-Agent': `1MCP-Proxy/${MCP_SERVER_VERSION}`,
+        'mcp-session-id': this.context.sessionId!, // Non-null assertion - always set by detectProxyContext
       },
     };
 
