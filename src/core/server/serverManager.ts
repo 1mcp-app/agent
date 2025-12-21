@@ -188,14 +188,22 @@ export class ServerManager {
     // Get filtered instructions based on client's filter criteria using InstructionAggregator
     const filteredInstructions = this.instructionAggregator?.getFilteredInstructions(opts, this.outboundConns) || '';
 
-    // Load configuration data if not already loaded
+    // Load configuration data
+    // Always process templates when context is available to ensure context-specific rendering
+    const configManager = ConfigManager.getInstance();
     if (!this.serverConfigData) {
-      const configManager = ConfigManager.getInstance();
-      const { staticServers, templateServers } = await configManager.loadConfigWithTemplates(context);
+      // First load - static servers only (templates processed separately per context)
+      const { staticServers } = await configManager.loadConfigWithTemplates(undefined);
       this.serverConfigData = {
         mcpServers: staticServers,
-        mcpTemplates: templateServers,
+        mcpTemplates: {}, // Will be populated per context
       };
+    }
+
+    // Always process templates with current context when context is available
+    if (context) {
+      const { templateServers } = await configManager.loadConfigWithTemplates(context);
+      this.serverConfigData.mcpTemplates = templateServers;
     }
 
     // If we have context, create template-based servers

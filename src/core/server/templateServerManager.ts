@@ -267,7 +267,7 @@ export class TemplateServerManager {
     for (const { templateName, instanceId, instance } of instancesToCleanup) {
       try {
         // Remove the instance from the pool
-        await this.clientInstancePool.removeInstance(`${templateName}:${instance.variableHash}`);
+        await this.clientInstancePool.removeInstance(`${templateName}:${instance.renderedHash}`);
 
         // Clean up tracking
         this.clientTemplateTracker.cleanupInstance(templateName, instanceId);

@@ -5,7 +5,7 @@ import { join } from 'path';
 
 import { ConfigManager } from '@src/config/configManager.js';
 import { getGlobalContextManager } from '@src/core/context/globalContextManager.js';
-import { TemplateVariableExtractor } from '@src/template/templateVariableExtractor.js';
+import { HandlebarsTemplateRenderer } from '@src/template/handlebarsTemplateRenderer.js';
 import type { ContextData } from '@src/types/context.js';
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -74,7 +74,7 @@ describe('Comprehensive Template & Context E2E', () => {
         },
         prefixes: ['APP_', 'NODE_', 'SERVICE_'],
       },
-      timestamp: new Date().toISOString(),
+      timestamp: '2024-01-15T12:00:00Z',
     };
 
     // Initialize config manager
@@ -102,34 +102,34 @@ describe('Comprehensive Template & Context E2E', () => {
           'complex-app': {
             command: 'node',
             args: [
-              '{project.path}/app.js',
-              '--project-id={project.custom.projectId}',
-              '--env={project.environment}',
-              '--debug={project.custom.debugMode}',
+              '{{project.path}}/app.js',
+              '--project-id={{project.custom.projectId}}',
+              '--env={{project.environment}}',
+              '--debug={{project.custom.debugMode}}',
             ],
             env: {
-              PROJECT_NAME: '{project.name}',
-              USER_NAME: '{user.name}',
-              USER_EMAIL: '{user.email}',
-              NODE_ENV: '{environment.variables.NODE_ENV}',
-              API_ENDPOINT: '{project.custom.apiEndpoint}',
-              GIT_BRANCH: '{project.git.branch}',
-              GIT_COMMIT: '{project.git.commit}',
+              PROJECT_NAME: '{{project.name}}',
+              USER_NAME: '{{user.name}}',
+              USER_EMAIL: '{{user.email}}',
+              NODE_ENV: '{{environment.variables.NODE_ENV}}',
+              API_ENDPOINT: '{{project.custom.apiEndpoint}}',
+              GIT_BRANCH: '{{project.git.branch}}',
+              GIT_COMMIT: '{{project.git.commit}}',
             },
-            cwd: '{project.path}',
+            cwd: '{{project.path}}',
             tags: ['app', 'template', 'production'],
-            description: 'Complex application server with {project.custom.team} team access',
+            description: 'Complex application server with {{project.custom.team}} team access',
           },
           'service-worker': {
             command: 'npm',
             args: ['run', 'worker'],
             env: {
               SERVICE_MODE: 'background',
-              REGION: '{environment.variables.REGION}',
-              CLUSTER: '{environment.variables.CLUSTER}',
-              PERMISSIONS: '{environment.variables.PERMISSIONS}',
+              REGION: '{{environment.variables.REGION}}',
+              CLUSTER: '{{environment.variables.CLUSTER}}',
+              PERMISSIONS: '{{environment.variables.PERMISSIONS}}',
             },
-            workingDirectory: '{project.path}/workers',
+            workingDirectory: '{{project.path}}/workers',
             tags: ['worker', 'background', 'service'],
           },
         },
@@ -168,25 +168,23 @@ describe('Comprehensive Template & Context E2E', () => {
       expect(serviceWorkerEnv.PERMISSIONS).toBe('read,write,admin,test,deploy');
     });
 
-    it('should handle template variable extraction and validation', async () => {
+    it('should handle template rendering with Handlebars syntax', async () => {
       const templateConfig = {
         command: 'echo',
-        args: ['{project.custom.projectId}', '{user.username}', '{environment.variables.NODE_ENV}'],
+        args: ['{{project.custom.projectId}}', '{{user.username}}', '{{environment.variables.NODE_ENV}}'],
         env: {
-          HOME_PATH: '{project.path}',
-          TIMESTAMP: '{context.timestamp}',
+          HOME_PATH: '{{project.path}}',
+          TIMESTAMP: '{{timestamp}}',
         },
         tags: ['validation'],
       };
 
-      const extractor = new TemplateVariableExtractor();
-      const variables = extractor.getUsedVariables(templateConfig, mockContext);
+      const renderer = new HandlebarsTemplateRenderer();
+      const renderedConfig = renderer.renderTemplate(templateConfig, mockContext);
 
-      expect(variables).toHaveProperty('project.custom.projectId');
-      expect(variables).toHaveProperty('user.username');
-      expect(variables).toHaveProperty('environment.variables.NODE_ENV');
-      expect(variables).toHaveProperty('project.path');
-      expect(variables).toHaveProperty('context.timestamp');
+      expect(renderedConfig.args).toEqual(['comprehensive-proj-789', 'comprehensive_user', 'production']);
+      expect((renderedConfig.env as Record<string, string>).HOME_PATH).toBe(tempConfigDir);
+      expect((renderedConfig.env as Record<string, string>).TIMESTAMP).toBe('2024-01-15T12:00:00Z');
     });
   });
 
@@ -199,10 +197,10 @@ describe('Comprehensive Template & Context E2E', () => {
         mcpTemplates: {
           'context-aware': {
             command: 'echo',
-            args: ['{project.custom.projectId}'],
+            args: ['{{project.custom.projectId}}'],
             env: {
-              USER_CONTEXT: '{user.name} ({user.email})',
-              ENV_CONTEXT: '{environment.variables.ROLE}',
+              USER_CONTEXT: '{{user.name}} ({{user.email}})',
+              ENV_CONTEXT: '{{environment.variables.ROLE}}',
             },
             tags: ['context'],
           },
@@ -226,7 +224,7 @@ describe('Comprehensive Template & Context E2E', () => {
 
       const serverEnv = server.env as Record<string, string>;
       expect(serverEnv.USER_CONTEXT).toBe('Comprehensive Test User (comprehensive@example.com)');
-      expect(serverEnv.ENV_CONTEXT).toBe('fullstack_developer');
+      expect(serverEnv.ENV_CONTEXT).toBe('fullstack_developer'); // From environment.variables.ROLE
     });
 
     it('should handle context changes and reprocessing', async () => {
@@ -236,7 +234,7 @@ describe('Comprehensive Template & Context E2E', () => {
         mcpTemplates: {
           dynamic: {
             command: 'echo',
-            args: ['{project.custom.projectId}', '{project.environment}'],
+            args: ['{{project.custom.projectId}}', '{{project.environment}}'],
             tags: ['dynamic'],
           },
         },
@@ -292,28 +290,28 @@ describe('Comprehensive Template & Context E2E', () => {
             args: [
               'server.js',
               '--port=3000',
-              '--project={project.custom.projectId}',
-              '--env={project.environment}',
-              '--team={project.custom.team}',
+              '--project={{project.custom.projectId}}',
+              '--env={{project.environment}}',
+              '--team={{project.custom.team}}',
             ],
             env: {
               PORT: '3000',
-              PROJECT: '{project.name}',
-              USER: '{user.username}',
-              API_VERSION: '{context.version}',
-              REGION: '{environment.variables.REGION}',
+              PROJECT: '{{project.name}}',
+              USER: '{{user.username}}',
+              API_VERSION: '{{version}}',
+              REGION: '{{environment.variables.REGION}}',
             },
-            cwd: '{project.path}/api',
+            cwd: '{{project.path}}/api',
             tags: ['api', 'node', 'backend'],
-            description: 'API server for {project.name} team',
+            description: 'API server for {{project.name}} team',
           },
           'worker-service': {
             command: 'python',
-            args: ['worker.py', '--mode={project.environment}'],
+            args: ['worker.py', '--mode={{project.environment}}'],
             env: {
-              WORKER_ID: '{context.sessionId}',
-              GIT_SHA: '{project.git.commit}',
-              DEBUG: '{project.custom.debugMode}',
+              WORKER_ID: '{{sessionId}}',
+              GIT_SHA: '{{project.git.commit}}',
+              DEBUG: '{{project.custom.debugMode}}',
             },
             tags: ['worker', 'python', 'background'],
           },
@@ -374,10 +372,10 @@ describe('Comprehensive Template & Context E2E', () => {
         mcpTemplates: {
           'session-aware': {
             command: 'echo',
-            args: ['{project.custom.projectId}', '{user.username}', '{context.sessionId}'],
+            args: ['{{project.custom.projectId}}', '{{user.username}}', '{{sessionId}}'],
             env: {
-              PROJECT: '{project.name}',
-              ENV: '{project.environment}',
+              PROJECT: '{{project.name}}',
+              ENV: '{{project.environment}}',
             },
             tags: ['session', 'context'],
           },
@@ -462,12 +460,12 @@ describe('Comprehensive Template & Context E2E', () => {
         mcpTemplates: {
           'invalid-template': {
             command: 'echo',
-            args: ['{project.custom.nonexistent.field}'], // Invalid template variable
+            args: ['{{project.custom.nonexistent.field}}'], // Invalid template variable
             tags: ['invalid'],
           },
           'valid-template': {
             command: 'echo',
-            args: ['{project.name}'],
+            args: ['{{project.name}}'],
             tags: ['valid'],
           },
         },
@@ -483,8 +481,10 @@ describe('Comprehensive Template & Context E2E', () => {
       expect(result.templateServers['valid-template']).toBeDefined();
       expect(result.templateServers['valid-template'].args).toEqual(['comprehensive-test-project']);
 
-      // Should report errors for invalid template
-      expect(result.errors.length).toBeGreaterThan(0);
+      // Should handle invalid template gracefully (Handlebars renders missing fields as empty strings)
+      expect(result.templateServers['invalid-template']).toBeDefined();
+      expect(result.templateServers['invalid-template'].args).toEqual(['']); // Empty string for nonexistent field
+      expect(result.errors.length).toBe(0); // No errors with Handlebars graceful handling
     });
 
     // Optional variables test removed - syntax not supported in current template system

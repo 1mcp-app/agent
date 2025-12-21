@@ -3,9 +3,10 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { AuthProviderTransport } from '@src/core/types/index.js';
 import type { MCPServerParams } from '@src/core/types/transport.js';
 import logger, { debugIf, infoIf } from '@src/logger/logger.js';
+import { HandlebarsTemplateRenderer } from '@src/template/handlebarsTemplateRenderer.js';
 import { createTransportsWithContext } from '@src/transport/transportFactory.js';
 import type { ContextData } from '@src/types/context.js';
-import { createVariableHash } from '@src/utils/crypto.js';
+import { createHash } from '@src/utils/crypto.js';
 
 /**
  * Configuration options for client instance pool
@@ -43,10 +44,8 @@ export interface PooledClientInstance {
   client: Client;
   /** Transport connected to upstream server */
   transport: AuthProviderTransport;
-  /** Hash of the template variables used to create this instance */
-  variableHash: string;
-  /** Extracted template variables for this instance */
-  templateVariables: Record<string, unknown>;
+  /** Hash of the rendered configuration used to create this instance */
+  renderedHash: string;
   /** Processed server configuration */
   processedConfig: MCPServerParams;
   /** Number of clients currently connected to this instance */
@@ -103,34 +102,42 @@ export class ClientInstancePool {
       idleTimeout?: number;
     },
   ): Promise<PooledClientInstance> {
-    // Create hash of template variables for comparison
-    const extractor = await import('@src/template/templateVariableExtractor.js');
-    const variableExtractor = new extractor.TemplateVariableExtractor();
+    // Render template with context data
+    const renderer = new HandlebarsTemplateRenderer();
+    const renderedConfig = renderer.renderTemplate(templateConfig, context);
+    const renderedHash = createHash(JSON.stringify(renderedConfig));
 
-    const templateVariables = variableExtractor.getUsedVariables(templateConfig, context);
-    const variableHash = createVariableHash(templateVariables);
+    // Debug logging to verify template rendering
+    debugIf(() => ({
+      message: 'Template rendering details',
+      meta: {
+        templateName,
+        clientId,
+        projectPath: context.project?.path || 'undefined',
+        renderedConfig,
+        renderedHash: renderedHash.substring(0, 8) + '...',
+        hasRenderedChanges: JSON.stringify(renderedConfig) !== JSON.stringify(templateConfig),
+      },
+    }));
 
     infoIf(() => ({
       message: 'Processing template for client instance',
       meta: {
         templateName,
         clientId,
-        variableCount: Object.keys(templateVariables).length,
-        variableHash: variableHash.substring(0, 8) + '...',
+        renderedHash: renderedHash.substring(0, 8) + '...',
         shareable: !options?.perClient && options?.shareable !== false,
       },
     }));
-
-    // Process template with variables
-    const processedConfig = await this.processTemplateWithVariables(templateConfig, context, templateVariables);
 
     // Get template configuration with proper defaults
     const templateSettings = this.getTemplateSettings(templateConfig, options);
     const instanceKey = this.createInstanceKey(
       templateName,
-      variableHash,
+      renderedHash,
       templateSettings.perClient ? clientId : undefined,
     );
+    logger.info(`Template ${templateName}, renderedHash: ${renderedHash}, Instance key: ${instanceKey}`);
 
     // Check for existing instance
     const existingInstance = this.instances.get(instanceKey);
@@ -149,9 +156,8 @@ export class ClientInstancePool {
     const instance: PooledClientInstance = await this.createNewInstance(
       templateName,
       templateConfig,
-      processedConfig,
-      templateVariables,
-      variableHash,
+      renderedConfig, // Use rendered config directly
+      renderedHash, // Use rendered hash
       clientId,
       templateSettings.idleTimeout,
     );
@@ -164,7 +170,7 @@ export class ClientInstancePool {
       meta: {
         instanceId: instance.id,
         templateName,
-        variableHash: variableHash.substring(0, 8) + '...',
+        renderedHash: renderedHash.substring(0, 8) + '...',
         clientId,
         shareable: templateSettings.shareable,
       },
@@ -394,94 +400,13 @@ export class ClientInstancePool {
   }
 
   /**
-   * Processes a template configuration with specific variables
-   */
-  private async processTemplateWithVariables(
-    templateConfig: MCPServerParams,
-    fullContext: ContextData,
-    templateVariables: Record<string, unknown>,
-  ): Promise<MCPServerParams> {
-    try {
-      const { TemplateProcessor } = await import('@src/template/templateProcessor.js');
-
-      // Create a context with only the variables used by this template
-      const filteredContext: ContextData = {
-        ...fullContext,
-        // Only include the variables that are actually used
-        project: this.filterObject(fullContext.project as Record<string, unknown>, templateVariables, 'project.'),
-        user: this.filterObject(fullContext.user as Record<string, unknown>, templateVariables, 'user.'),
-        environment: this.filterObject(
-          fullContext.environment as Record<string, unknown>,
-          templateVariables,
-          'environment.',
-        ),
-      };
-
-      // Process the template
-      const templateProcessor = new TemplateProcessor({
-        strictMode: false,
-        allowUndefined: true,
-        validateTemplates: true,
-        cacheResults: true,
-      });
-
-      const result = await templateProcessor.processServerConfig('template-instance', templateConfig, filteredContext);
-
-      return result.processedConfig;
-    } catch (error) {
-      logger.warn('Template processing failed, using original config:', {
-        error: error instanceof Error ? error.message : String(error),
-        templateVariables: Object.keys(templateVariables),
-      });
-
-      return templateConfig;
-    }
-  }
-
-  /**
-   * Filters an object to only include properties referenced in templateVariables
-   */
-  private filterObject(
-    obj: Record<string, unknown> | undefined,
-    templateVariables: Record<string, unknown>,
-    prefix: string,
-  ): Record<string, unknown> {
-    if (!obj || typeof obj !== 'object') {
-      return obj || {};
-    }
-
-    const filtered: Record<string, unknown> = {};
-
-    for (const [key, value] of Object.entries(obj)) {
-      const fullKey = `${prefix}${key}`;
-
-      // Check if this property or any nested property is referenced
-      const isReferenced = Object.keys(templateVariables).some(
-        (varKey) => varKey === fullKey || varKey.startsWith(fullKey + '.'),
-      );
-
-      if (isReferenced) {
-        if (value && typeof value === 'object' && !Array.isArray(value)) {
-          // Recursively filter nested objects
-          filtered[key] = this.filterObject(value as Record<string, unknown>, templateVariables, `${fullKey}.`);
-        } else {
-          filtered[key] = value;
-        }
-      }
-    }
-
-    return filtered;
-  }
-
-  /**
    * Creates a new client instance and connects to upstream server
    */
   private async createNewInstance(
     templateName: string,
     templateConfig: MCPServerParams,
     processedConfig: MCPServerParams,
-    templateVariables: Record<string, unknown>,
-    variableHash: string,
+    renderedHash: string,
     clientId: string,
     idleTimeout: number,
   ): Promise<PooledClientInstance> {
@@ -490,7 +415,7 @@ export class ClientInstancePool {
       {
         [templateName]: processedConfig,
       },
-      undefined, // No context needed as templates are already processed
+      undefined, // No context needed as templates are already rendered
     );
 
     const transport = transports[templateName];
@@ -511,8 +436,7 @@ export class ClientInstancePool {
       templateName,
       client,
       transport,
-      variableHash,
-      templateVariables,
+      renderedHash,
       processedConfig,
       referenceCount: 1,
       createdAt: new Date(),

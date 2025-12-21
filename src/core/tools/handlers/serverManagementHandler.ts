@@ -26,8 +26,47 @@ import {
 import { MCPServerParams } from '@src/core/types/transport.js';
 import { debugIf } from '@src/logger/logger.js';
 import logger from '@src/logger/logger.js';
-import { TemplateDetector } from '@src/template/templateDetector.js';
 import { createTransports } from '@src/transport/transportFactory.js';
+
+/**
+ * Simple helper to check for Handlebars template syntax in configuration
+ */
+function hasHandlebarsTemplates(config: MCPServerParams): boolean {
+  const templateRegex = /\{\{[^}]*\}\}/;
+
+  // Check command
+  if (config.command && templateRegex.test(config.command)) {
+    return true;
+  }
+
+  // Check args array
+  if (config.args) {
+    for (const arg of config.args) {
+      if (typeof arg === 'string' && templateRegex.test(arg)) {
+        return true;
+      }
+    }
+  }
+
+  // Check other string fields
+  ['cwd', 'url'].forEach((field) => {
+    const value = config[field as keyof MCPServerParams];
+    if (typeof value === 'string' && templateRegex.test(value)) {
+      return true;
+    }
+  });
+
+  // Check env object
+  if (config.env) {
+    for (const [_key, value] of Object.entries(config.env)) {
+      if (typeof value === 'string' && templateRegex.test(value)) {
+        return true;
+      }
+    }
+  }
+
+  return false;
+}
 
 /**
  * Enhanced server information interface for mcp_list
@@ -86,13 +125,11 @@ export async function handleInstallMCPServer(args: McpInstallToolArgs) {
     serverConfig.restartOnExit = args.autoRestart;
   }
 
-  // Validate that no templates are used in static server configuration
-  const templateValidation = TemplateDetector.validateTemplateFree(serverConfig);
-  if (!templateValidation.valid) {
+  // Check for Handlebars template syntax in static server configurations
+  const hasTemplates = hasHandlebarsTemplates(serverConfig);
+  if (hasTemplates) {
     const errorMessage =
-      `Template syntax detected in server configuration. Templates are not allowed in mcpServers section. ` +
-      `Found templates: ${templateValidation.templates.join(', ')}. ` +
-      `Locations: ${templateValidation.locations.join(', ')}. ` +
+      `Handlebars template syntax detected in server configuration. Templates are not allowed in mcpServers section. ` +
       `Please move template-based servers to the mcpTemplates section in your configuration.`;
 
     logger.error(errorMessage);

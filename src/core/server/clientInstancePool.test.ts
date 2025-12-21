@@ -1,6 +1,6 @@
 import type { MCPServerParams } from '@src/core/types/transport.js';
 import type { ContextData } from '@src/types/context.js';
-import { createVariableHash } from '@src/utils/crypto.js';
+import { createHash } from '@src/utils/crypto.js';
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -30,20 +30,6 @@ vi.mock('@src/logger/logger.js', () => ({
   infoIf: vi.fn(),
   warnIf: vi.fn(),
 }));
-
-vi.mock('@src/template/templateVariableExtractor.js', () => {
-  const mockGetUsedVariables = vi.fn(() => ({}));
-  const mockTemplateVariableExtractor = {
-    getUsedVariables: mockGetUsedVariables,
-  };
-  const MockConstructor = vi.fn().mockImplementation(() => mockTemplateVariableExtractor);
-  MockConstructor.prototype.getUsedVariables = mockGetUsedVariables;
-  return {
-    TemplateVariableExtractor: MockConstructor,
-    // Export a reference to prototype for mocking
-    TemplateVariableExtractorPrototype: mockTemplateVariableExtractor,
-  };
-});
 
 vi.mock('@src/template/templateProcessor.js', () => ({
   TemplateProcessor: vi.fn().mockImplementation(() => ({
@@ -84,7 +70,7 @@ vi.mock('@src/core/client/clientManager.js', () => ({
 }));
 
 vi.mock('@src/utils/crypto.js', () => ({
-  createVariableHash: vi.fn((vars) => JSON.stringify(vars)),
+  createHash: vi.fn((data) => `hash-${data}`),
 }));
 
 describe('ClientInstancePool', () => {
@@ -319,7 +305,7 @@ describe('ClientInstancePool', () => {
       vi.mocked(ClientManager.getOrCreateInstance().createPooledClientInstance).mockReturnValue(mockClient);
 
       // Mock different variable hashes to simulate different contexts
-      vi.mocked(createVariableHash).mockReturnValueOnce('hash1').mockReturnValueOnce('hash2');
+      vi.mocked(createHash).mockReturnValueOnce('hash1').mockReturnValueOnce('hash2');
 
       // Use non-shareable config to force separate instances
       const nonShareableConfig = {
@@ -367,7 +353,7 @@ describe('ClientInstancePool', () => {
       vi.mocked(ClientManager.getOrCreateInstance().createPooledClientInstance).mockReturnValue(mockClient);
 
       // Mock different variable hashes for each call to simulate different contexts
-      vi.mocked(createVariableHash)
+      vi.mocked(createHash)
         .mockReturnValueOnce('hash1')
         .mockReturnValueOnce('hash2')
         .mockReturnValueOnce('hash3')
@@ -472,8 +458,8 @@ describe('ClientInstancePool', () => {
       pool.addClientToInstance(instance, 'client-2');
       expect(instance.referenceCount).toBe(2);
 
-      // Remove one client
-      const instanceKey = 'testTemplate:{}'; // Variable hash will be empty for our mock
+      // Remove one client using the rendered hash from the instance
+      const instanceKey = `testTemplate:${instance.renderedHash}`;
       pool.removeClientFromInstance(instanceKey, 'client-1');
 
       expect(instance.referenceCount).toBe(1);
@@ -491,7 +477,6 @@ describe('ClientInstancePool', () => {
     it('should return all instances for a template', async () => {
       const { createTransportsWithContext } = await import('@src/transport/transportFactory.js');
       const { ClientManager } = await import('@src/core/client/clientManager.js');
-      const { TemplateVariableExtractor } = await import('@src/template/templateVariableExtractor.js');
 
       const mockTransport = {
         close: vi.fn().mockResolvedValue(undefined),
@@ -510,12 +495,9 @@ describe('ClientInstancePool', () => {
       vi.mocked(createTransportsWithContext).mockResolvedValue({ testTemplate: mockTransport });
       vi.mocked(ClientManager.getOrCreateInstance().createPooledClientInstance).mockReturnValue(mockClient);
 
-      // Mock different variables to create different instances
-      vi.mocked(TemplateVariableExtractor.prototype.getUsedVariables)
-        .mockReturnValueOnce({ project: 'value1' })
-        .mockReturnValueOnce({ project: 'value2' });
+      // Use different context values to create different instances
 
-      vi.mocked(createVariableHash).mockReturnValueOnce('hash1').mockReturnValueOnce('hash2');
+      vi.mocked(createHash).mockReturnValueOnce('hash1').mockReturnValueOnce('hash2');
 
       const nonShareableConfig = {
         ...mockTemplateConfig,
@@ -602,10 +584,15 @@ describe('ClientInstancePool', () => {
       vi.mocked(createTransportsWithContext).mockResolvedValue({ testTemplate: mockTransport });
       vi.mocked(ClientManager.getOrCreateInstance().createPooledClientInstance).mockReturnValue(mockClient);
 
-      await pool.getOrCreateClientInstance('testTemplate', mockTemplateConfig, mockContext, 'client-1');
+      const instance = await pool.getOrCreateClientInstance(
+        'testTemplate',
+        mockTemplateConfig,
+        mockContext,
+        'client-1',
+      );
 
       // Remove the only client, making it idle
-      const instanceKey = 'testTemplate:{}';
+      const instanceKey = `testTemplate:${instance.renderedHash}`;
       pool.removeClientFromInstance(instanceKey, 'client-1');
 
       const stats = pool.getStats();
@@ -660,10 +647,15 @@ describe('ClientInstancePool', () => {
         },
       };
 
-      await pool.getOrCreateClientInstance('testTemplate', configWithoutCustomTimeout, mockContext, 'client-1');
+      const instance = await pool.getOrCreateClientInstance(
+        'testTemplate',
+        configWithoutCustomTimeout,
+        mockContext,
+        'client-1',
+      );
 
       // Make instance idle
-      const instanceKey = 'testTemplate:{}';
+      const instanceKey = `testTemplate:${instance.renderedHash}`;
       pool.removeClientFromInstance(instanceKey, 'client-1');
 
       // Wait for idle timeout plus some buffer
@@ -732,7 +724,7 @@ describe('ClientInstancePool', () => {
         'client-1',
       );
 
-      const instanceKey = 'testTemplate:{}';
+      const instanceKey = `testTemplate:${instance.renderedHash}`;
 
       // Verify instance exists before removal
       expect(pool.getInstance(instanceKey)).toBe(instance);
@@ -1015,13 +1007,13 @@ describe('ClientInstancePool', () => {
         template: { shareable: true },
       };
 
-      // Create instances (assign to underscore to indicate intentionally unused)
-      const _sseInstance = await pool.getOrCreateClientInstance('sseTemplate', sseConfig, mockContext, 'client-1');
-      const _httpInstance = await pool.getOrCreateClientInstance('httpTemplate', httpConfig, mockContext, 'client-2');
+      // Create instances
+      const sseInstance = await pool.getOrCreateClientInstance('sseTemplate', sseConfig, mockContext, 'client-1');
+      const httpInstance = await pool.getOrCreateClientInstance('httpTemplate', httpConfig, mockContext, 'client-2');
 
       // Remove instances to trigger cleanup
-      const sseKey = 'sseTemplate:{}';
-      const httpKey = 'httpTemplate:{}';
+      const sseKey = `sseTemplate:${sseInstance.renderedHash}`;
+      const httpKey = `httpTemplate:${httpInstance.renderedHash}`;
 
       await pool.removeInstance(sseKey);
       await pool.removeInstance(httpKey);
@@ -1029,6 +1021,126 @@ describe('ClientInstancePool', () => {
       // Verify cleanup was called for both transport types
       expect(mockSSETransport.close).toHaveBeenCalledTimes(1);
       expect(mockHttpTransport.close).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe('Template Context Isolation', () => {
+    it('should create different instances for different contexts with same template', async () => {
+      const { createTransportsWithContext } = await import('@src/transport/transportFactory.js');
+      const { ClientManager } = await import('@src/core/client/clientManager.js');
+
+      const mockTransport = {
+        close: vi.fn().mockResolvedValue(undefined),
+        start: vi.fn(),
+        send: vi.fn(),
+      } as any;
+      const mockClient = {
+        connect: vi.fn().mockResolvedValue(undefined),
+        close: vi.fn().mockResolvedValue(undefined),
+        _clientInfo: {},
+        _capabilities: {},
+      } as any;
+
+      vi.mocked(createTransportsWithContext).mockReturnValue({ testTemplate: mockTransport } as any);
+      vi.mocked(ClientManager.getOrCreateInstance).mockReturnValue({
+        createSingleClient: vi.fn().mockResolvedValue(mockClient),
+        createPooledClientInstance: vi.fn().mockReturnValue(mockClient),
+        getClient: vi.fn().mockReturnValue(mockClient),
+      } as any);
+
+      // Create a template that includes context-dependent values
+      const templateWithContext = {
+        command: 'echo',
+        args: ['{{project.path}}'],
+        type: 'stdio' as const,
+        template: {
+          shareable: true,
+          idleTimeout: 2000,
+        },
+      };
+
+      // Create two different contexts
+      const context1 = {
+        ...mockContext,
+        sessionId: 'session-1',
+        project: {
+          name: 'project-1',
+          path: '/path/to/project-1',
+          environment: 'development',
+        },
+      };
+
+      const context2 = {
+        ...mockContext,
+        sessionId: 'session-2',
+        project: {
+          name: 'project-2',
+          path: '/path/to/project-2',
+          environment: 'production',
+        },
+      };
+
+      // Create instances with different contexts
+      const instance1 = await pool.getOrCreateClientInstance('testTemplate', templateWithContext, context1, 'client-1');
+      const instance2 = await pool.getOrCreateClientInstance('testTemplate', templateWithContext, context2, 'client-1');
+
+      // Should create different instances (different rendered configs)
+      expect(instance1.id).not.toBe(instance2.id);
+      expect(instance1.processedConfig.args).toEqual(['/path/to/project-1']);
+      expect(instance2.processedConfig.args).toEqual(['/path/to/project-2']);
+
+      // Verify both instances are tracked separately
+      const stats = pool.getStats();
+      expect(stats.totalInstances).toBe(2);
+    });
+
+    it('should reuse instances when context and template are identical', async () => {
+      const { createTransportsWithContext } = await import('@src/transport/transportFactory.js');
+      const { ClientManager } = await import('@src/core/client/clientManager.js');
+
+      const mockTransport = {
+        close: vi.fn().mockResolvedValue(undefined),
+        start: vi.fn(),
+        send: vi.fn(),
+      } as any;
+      const mockClient = {
+        connect: vi.fn().mockResolvedValue(undefined),
+        close: vi.fn().mockResolvedValue(undefined),
+        _clientInfo: {},
+        _capabilities: {},
+      } as any;
+
+      vi.mocked(createTransportsWithContext).mockReturnValue({ testTemplate: mockTransport } as any);
+      vi.mocked(ClientManager.getOrCreateInstance).mockReturnValue({
+        createSingleClient: vi.fn().mockResolvedValue(mockClient),
+        createPooledClientInstance: vi.fn().mockReturnValue(mockClient),
+        getClient: vi.fn().mockReturnValue(mockClient),
+      } as any);
+
+      const templateConfig = {
+        command: 'echo',
+        args: ['hello', 'world'],
+        type: 'stdio' as const,
+        template: {
+          shareable: true,
+          idleTimeout: 2000,
+        },
+      };
+
+      const sameContext = { ...mockContext };
+
+      // Create instances with identical template and context
+      const instance1 = await pool.getOrCreateClientInstance('testTemplate', templateConfig, sameContext, 'client-1');
+      const instance2 = await pool.getOrCreateClientInstance('testTemplate', templateConfig, sameContext, 'client-2');
+
+      // Should reuse the same instance (shareable template)
+      expect(instance1.id).toBe(instance2.id);
+      expect(instance1.referenceCount).toBe(2);
+      expect(instance2.referenceCount).toBe(2);
+
+      // Should only have one instance in the pool
+      const stats = pool.getStats();
+      expect(stats.totalInstances).toBe(1);
     });
   });
 });

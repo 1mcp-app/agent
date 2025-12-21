@@ -14,8 +14,7 @@ import {
   transportConfigSchema,
 } from '@src/core/types/transport.js';
 import logger, { debugIf } from '@src/logger/logger.js';
-import { TemplateProcessor } from '@src/template/templateProcessor.js';
-import { TemplateValidator } from '@src/template/templateValidator.js';
+import { HandlebarsTemplateRenderer } from '@src/template/handlebarsTemplateRenderer.js';
 import type { ContextData } from '@src/types/context.js';
 
 import { ZodError } from 'zod';
@@ -65,7 +64,7 @@ export class ConfigManager extends EventEmitter {
   private templateProcessingErrors: string[] = [];
   private processedTemplates: Record<string, MCPServerParams> = {};
   private lastContextHash?: string;
-  private templateProcessor?: TemplateProcessor;
+  private templateRenderer?: HandlebarsTemplateRenderer;
 
   /**
    * Private constructor to enforce singleton pattern
@@ -308,31 +307,22 @@ export class ConfigManager extends EventEmitter {
   ): Promise<{ servers: Record<string, MCPServerParams>; errors: string[] }> {
     const errors: string[] = [];
 
-    // Validate templates before processing
-    if (settings?.validateOnReload !== false) {
-      const validationErrors = await this.validateTemplates(templates);
-      if (validationErrors.length > 0 && settings?.failureMode === 'strict') {
-        throw new Error(`Template validation failed: ${validationErrors.join(', ')}`);
-      }
-      errors.push(...validationErrors);
-    }
+    // Initialize template renderer
+    this.templateRenderer = new HandlebarsTemplateRenderer();
 
-    // Initialize template processor
-    this.templateProcessor = new TemplateProcessor({
-      strictMode: false,
-      allowUndefined: true,
-      validateTemplates: settings?.validateOnReload !== false,
-      cacheResults: true,
-    });
-
-    const results = await this.templateProcessor.processMultipleServerConfigs(templates, context);
     const processedServers: Record<string, MCPServerParams> = {};
 
-    for (const [serverName, result] of Object.entries(results)) {
-      if (result.success) {
-        processedServers[serverName] = result.processedConfig;
-      } else {
-        const errorMsg = `Template processing failed for ${serverName}: ${result.errors.join(', ')}`;
+    for (const [serverName, templateConfig] of Object.entries(templates)) {
+      try {
+        const processedConfig = this.templateRenderer.renderTemplate(templateConfig, context);
+        processedServers[serverName] = processedConfig;
+
+        debugIf(() => ({
+          message: 'Template processed successfully',
+          meta: { serverName },
+        }));
+      } catch (error) {
+        const errorMsg = `Template processing failed for ${serverName}: ${error instanceof Error ? error.message : String(error)}`;
         errors.push(errorMsg);
 
         // According to user requirement: Fail fast, log errors, return to client
@@ -340,89 +330,12 @@ export class ConfigManager extends EventEmitter {
 
         // For graceful mode, include raw config for debugging
         if (settings?.failureMode === 'graceful') {
-          processedServers[serverName] = result.processedConfig;
+          processedServers[serverName] = templateConfig;
         }
       }
     }
 
     return { servers: processedServers, errors };
-  }
-
-  /**
-   * Validate template configurations for syntax and security issues
-   * @param templates - Template configurations to validate
-   * @returns Array of validation error messages
-   */
-  private async validateTemplates(templates: Record<string, MCPServerParams>): Promise<string[]> {
-    const errors: string[] = [];
-    const templateValidator = new TemplateValidator();
-
-    for (const [serverName, config] of Object.entries(templates)) {
-      try {
-        // Validate template syntax in all string fields
-        const fieldErrors = this.validateConfigFields(config, templateValidator);
-
-        if (fieldErrors.length > 0) {
-          errors.push(`${serverName}: ${fieldErrors.join(', ')}`);
-        }
-      } catch (error) {
-        errors.push(`${serverName}: Validation error - ${error instanceof Error ? error.message : String(error)}`);
-      }
-    }
-
-    return errors;
-  }
-
-  /**
-   * Validate all fields in a configuration for template syntax
-   * @param config - Configuration to validate
-   * @param validator - Template validator instance
-   * @returns Array of validation error messages
-   */
-  private validateConfigFields(config: MCPServerParams, validator: TemplateValidator): string[] {
-    const errors: string[] = [];
-
-    // Validate command field
-    if (config.command) {
-      const result = validator.validate(config.command);
-      if (!result.valid) {
-        errors.push(...result.errors);
-      }
-    }
-
-    // Validate args array
-    if (config.args) {
-      config.args.forEach((arg, index) => {
-        if (typeof arg === 'string') {
-          const result = validator.validate(arg);
-          if (!result.valid) {
-            errors.push(`args[${index}]: ${result.errors.join(', ')}`);
-          }
-        }
-      });
-    }
-
-    // Validate cwd field
-    if (config.cwd) {
-      const result = validator.validate(config.cwd);
-      if (!result.valid) {
-        errors.push(`cwd: ${result.errors.join(', ')}`);
-      }
-    }
-
-    // Validate env object
-    if (config.env) {
-      for (const [key, value] of Object.entries(config.env)) {
-        if (typeof value === 'string') {
-          const result = validator.validate(value);
-          if (!result.valid) {
-            errors.push(`env.${key}: ${result.errors.join(', ')}`);
-          }
-        }
-      }
-    }
-
-    return errors;
   }
 
   /**
