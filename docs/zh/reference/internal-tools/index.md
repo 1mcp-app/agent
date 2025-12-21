@@ -30,16 +30,16 @@ head:
 
 ```bash
 # 启用所有内部工具
-./build/index.js serve --enable-internal-tools
+npx -y @1mcp/agent serve --enable-internal-tools
 
 # 按名称启用特定工具
-./build/index.js serve --internal-tools="search,list,status,registry"
+npx -y @1mcp/agent serve --internal-tools="search,list,status,registry"
 
 # 按类别启用工具
-./build/index.js serve --internal-tools="discovery,management"
+npx -y @1mcp/agent serve --internal-tools="discovery,management"
 
 # 仅启用安全（只读）工具
-./build/index.js serve --internal-tools="safe"
+npx -y @1mcp/agent serve --internal-tools="safe"
 ```
 
 ### 可用工具类别
@@ -71,16 +71,16 @@ head:
 
 ```bash
 # 开发环境 - 完全访问
-./build/index.js serve --enable-internal-tools
+npx -y @1mcp/agent serve --enable-internal-tools
 
 # 生产环境 - 仅发现和管理
-./build/index.js serve --internal-tools="discovery,management"
+npx -y @1mcp/agent serve --internal-tools="discovery,management"
 
 # 只读监控设置
-./build/index.js serve --internal-tools="safe"
+npx -y @1mcp/agent serve --internal-tools="safe"
 
 # 特定服务器管理场景
-./build/index.js serve --internal-tools="search,list,status,enable,disable"
+npx -y @1mcp/agent serve --internal-tools="search,list,status,enable,disable"
 ```
 
 ## 工具架构

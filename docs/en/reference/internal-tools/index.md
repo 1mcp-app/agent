@@ -30,16 +30,16 @@ Enable internal tools when starting the 1MCP server:
 
 ```bash
 # Enable ALL internal tools
-./build/index.js serve --enable-internal-tools
+npx -y @1mcp/agent serve --enable-internal-tools
 
 # Enable specific tools by name
-./build/index.js serve --internal-tools="search,list,status,registry"
+npx -y @1mcp/agent serve --internal-tools="search,list,status,registry"
 
 # Enable tools by category
-./build/index.js serve --internal-tools="discovery,management"
+npx -y @1mcp/agent serve --internal-tools="discovery,management"
 
 # Enable safe (read-only) tools only
-./build/index.js serve --internal-tools="safe"
+npx -y @1mcp/agent serve --internal-tools="safe"
 ```
 
 ### Available Tool Categories
@@ -71,16 +71,16 @@ When enabling internal tools:
 
 ```bash
 # Development environment - full access
-./build/index.js serve --enable-internal-tools
+npx -y @1mcp/agent serve --enable-internal-tools
 
 # Production environment - discovery and management only
-./build/index.js serve --internal-tools="discovery,management"
+npx -y @1mcp/agent serve --internal-tools="discovery,management"
 
 # Read-only monitoring setup
-./build/index.js serve --internal-tools="safe"
+npx -y @1mcp/agent serve --internal-tools="safe"
 
 # Specific server management scenario
-./build/index.js serve --internal-tools="search,list,status,enable,disable"
+npx -y @1mcp/agent serve --internal-tools="search,list,status,enable,disable"
 ```
 
 ## Tool Architecture
