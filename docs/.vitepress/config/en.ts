@@ -150,6 +150,9 @@ function sidebar(): DefaultTheme.Sidebar {
             text: 'mcp',
             link: '/commands/mcp/',
             items: [
+              { text: 'install', link: '/commands/mcp/install' },
+              { text: 'uninstall', link: '/commands/mcp/uninstall' },
+              { text: 'search', link: '/commands/mcp/search' },
               { text: 'add', link: '/commands/mcp/add' },
               { text: 'remove', link: '/commands/mcp/remove' },
               { text: 'update', link: '/commands/mcp/update' },
@@ -158,6 +161,11 @@ function sidebar(): DefaultTheme.Sidebar {
               { text: 'status', link: '/commands/mcp/status' },
               { text: 'tokens', link: '/commands/mcp/tokens' },
             ],
+          },
+          {
+            text: 'registry',
+            link: '/commands/registry/',
+            items: [{ text: 'search', link: '/commands/registry/search' }],
           },
           {
             text: 'preset',
