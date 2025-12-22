@@ -18,7 +18,7 @@ import {
 import tagsExtractor from '@src/transport/http/middlewares/tagsExtractor.js';
 import { RestorableStreamableHTTPServerTransport } from '@src/transport/http/restorableStreamableTransport.js';
 import { StreamableSessionRepository } from '@src/transport/http/storage/streamableSessionRepository.js';
-import { extractContextFromHeadersOrQuery } from '@src/transport/http/utils/contextExtractor.js';
+import { extractContextFromMeta } from '@src/transport/http/utils/contextExtractor.js';
 import type { ContextData } from '@src/types/context.js';
 
 import { Request, RequestHandler, Response, Router } from 'express';
@@ -67,8 +67,9 @@ async function restoreSession(
           user: config.context.user || {},
           environment: config.context.environment || {},
           timestamp: config.context.timestamp,
-          sessionId: sessionId,
+          sessionId: config.context.sessionId || sessionId,
           version: config.context.version,
+          transport: config.context.transport,
         }
       : undefined;
 
@@ -155,20 +156,26 @@ export function setupStreamableHttpRoutes(
           customTemplate,
         };
 
-        // Extract context from query parameters (proxy) or headers (direct HTTP)
-        const context = extractContextFromHeadersOrQuery(req);
+        // Extract context from _meta field (from STDIO proxy)
+        const context = extractContextFromMeta(req);
 
         if (context && context.project?.name && context.sessionId) {
           logger.info(`🔗 New session with context: ${context.project.name} (${context.sessionId})`);
         }
 
+        // Include full context in config for session persistence
+        const configWithContext = {
+          ...config,
+          context: context || undefined,
+        };
+
         // Pass context to ServerManager for template processing (only if valid)
         const validContext =
           context && context.project && context.user && context.environment ? (context as ContextData) : undefined;
-        await serverManager.connectTransport(transport, id, config, validContext);
+        await serverManager.connectTransport(transport, id, configWithContext, validContext);
 
-        // Persist session configuration for restoration with context
-        sessionRepository.create(id, config);
+        // Persist session configuration with full context for restoration
+        sessionRepository.create(id, configWithContext);
 
         // Initialize notifications for async loading if enabled
         if (asyncOrchestrator) {
@@ -195,8 +202,8 @@ export function setupStreamableHttpRoutes(
       } else {
         const existingTransport = serverManager.getTransport(sessionId);
         if (!existingTransport) {
-          // Extract context from query parameters (proxy) or headers (direct HTTP) for session restoration
-          const context = extractContextFromHeadersOrQuery(req);
+          // Extract context from _meta field (from STDIO proxy) for session restoration
+          const context = extractContextFromMeta(req);
 
           if (context && context.project?.name && context.sessionId) {
             logger.info(`🔄 Restoring session with context: ${context.project.name} (${context.sessionId})`);
@@ -233,8 +240,8 @@ export function setupStreamableHttpRoutes(
               customTemplate,
             };
 
-            // Extract context from query parameters (proxy) or headers (direct HTTP)
-            const context = extractContextFromHeadersOrQuery(req);
+            // Extract context from _meta field (from STDIO proxy)
+            const context = extractContextFromMeta(req);
 
             if (context && context.project?.name && context.sessionId) {
               logger.info(

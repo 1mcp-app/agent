@@ -62,5 +62,16 @@ export interface StreamableSessionData extends ExpirableData {
     environment?: EnvironmentContext;
     timestamp?: string;
     version?: string;
+    sessionId?: string;
+    transport?: {
+      type: string;
+      connectionId?: string;
+      connectionTimestamp?: string;
+      client?: {
+        name: string;
+        version: string;
+        title?: string;
+      };
+    };
   };
 }

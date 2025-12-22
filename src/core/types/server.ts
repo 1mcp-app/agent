@@ -33,6 +33,17 @@ export interface InboundConnectionConfig extends TemplateConfig {
     environment?: EnvironmentContext;
     timestamp?: string;
     version?: string;
+    sessionId?: string;
+    transport?: {
+      type: string;
+      connectionId?: string;
+      connectionTimestamp?: string;
+      client?: {
+        name: string;
+        version: string;
+        title?: string;
+      };
+    };
   };
 }
 
