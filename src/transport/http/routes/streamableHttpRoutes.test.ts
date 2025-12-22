@@ -621,6 +621,247 @@ describe('Streamable HTTP Routes', () => {
     });
   });
 
+  describe('POST Handler - Context Restoration', () => {
+    beforeEach(() => {
+      const mockAuthMiddleware = vi.fn((req, res, next) => next());
+      setupStreamableHttpRoutes(mockRouter, mockServerManager, mockSessionRepository, mockAuthMiddleware);
+      postHandler = mockRouter.post.mock.calls[0][3]; // Get the actual handler function
+    });
+
+    it('should restore session with persisted context including client info', async () => {
+      const { RestorableStreamableHTTPServerTransport } = await import(
+        '@src/transport/http/restorableStreamableTransport.js'
+      );
+
+      const mockTransport = {
+        sessionId: 'restored-session',
+        onclose: null,
+        onerror: null,
+        handleRequest: vi.fn().mockResolvedValue(undefined),
+        markAsInitialized: vi.fn(),
+        isRestored: vi.fn(() => true),
+        getRestorationInfo: vi.fn(() => ({ isRestored: true, sessionId: 'restored-session' })),
+      };
+
+      mockRequest.headers = { 'mcp-session-id': 'restored-session' };
+      mockRequest.body = {
+        jsonrpc: '2.0',
+        method: 'test',
+        params: {},
+      };
+      mockServerManager.getTransport.mockReturnValue(null); // Not in memory
+      mockSessionRepository.get.mockReturnValue({
+        tags: ['filesystem'],
+        tagFilterMode: 'simple-or',
+        enablePagination: true,
+        context: {
+          project: {
+            path: '/Users/x/workplace/restored-project',
+            name: 'restored-project',
+            environment: 'development',
+          },
+          user: {
+            username: 'restoreduser',
+            home: '/Users/restoreduser',
+          },
+          environment: {
+            variables: {
+              NODE_VERSION: 'v18.0.0',
+              PLATFORM: 'linux',
+            },
+          },
+          timestamp: '2024-01-01T00:00:00Z',
+          version: 'v2.0.0',
+          sessionId: 'restored-session-123',
+          transport: {
+            type: 'stdio-proxy',
+            connectionTimestamp: '2024-01-01T00:00:00Z',
+            client: {
+              name: 'cursor',
+              version: '0.28.3',
+              title: 'Cursor Editor',
+            },
+          },
+        },
+      });
+      vi.mocked(RestorableStreamableHTTPServerTransport).mockReturnValue(mockTransport as any);
+
+      await postHandler(mockRequest, mockResponse);
+
+      expect(mockSessionRepository.get).toHaveBeenCalledWith('restored-session');
+      expect(RestorableStreamableHTTPServerTransport).toHaveBeenCalledWith({
+        sessionIdGenerator: expect.any(Function),
+      });
+      expect(mockTransport.markAsInitialized).toHaveBeenCalled();
+      expect(mockServerManager.connectTransport).toHaveBeenCalledWith(
+        mockTransport,
+        'restored-session',
+        {
+          tags: ['filesystem'],
+          tagFilterMode: 'simple-or',
+          enablePagination: true,
+          context: {
+            project: {
+              path: '/Users/x/workplace/restored-project',
+              name: 'restored-project',
+              environment: 'development',
+            },
+            user: {
+              username: 'restoreduser',
+              home: '/Users/restoreduser',
+            },
+            environment: {
+              variables: {
+                NODE_VERSION: 'v18.0.0',
+                PLATFORM: 'linux',
+              },
+            },
+            timestamp: '2024-01-01T00:00:00Z',
+            version: 'v2.0.0',
+            sessionId: 'restored-session-123',
+            transport: {
+              type: 'stdio-proxy',
+              connectionTimestamp: '2024-01-01T00:00:00Z',
+              client: {
+                name: 'cursor',
+                version: '0.28.3',
+                title: 'Cursor Editor',
+              },
+            },
+          },
+          customTemplate: undefined,
+          presetName: undefined,
+          tagExpression: undefined,
+          tagQuery: undefined,
+        },
+        expect.objectContaining({
+          project: expect.objectContaining({
+            name: 'restored-project',
+            path: '/Users/x/workplace/restored-project',
+          }),
+          user: expect.objectContaining({
+            username: 'restoreduser',
+          }),
+          environment: expect.objectContaining({
+            variables: expect.objectContaining({
+              NODE_VERSION: 'v18.0.0',
+            }),
+          }),
+          sessionId: 'restored-session-123',
+          transport: expect.objectContaining({
+            client: expect.objectContaining({
+              name: 'cursor',
+              version: '0.28.3',
+              title: 'Cursor Editor',
+            }),
+          }),
+        }),
+      );
+    });
+
+    it('should handle restoration of session with partial context', async () => {
+      const { RestorableStreamableHTTPServerTransport } = await import(
+        '@src/transport/http/restorableStreamableTransport.js'
+      );
+
+      const mockTransport = {
+        sessionId: 'partial-context-session',
+        onclose: null,
+        onerror: null,
+        handleRequest: vi.fn().mockResolvedValue(undefined),
+        markAsInitialized: vi.fn(),
+        isRestored: vi.fn(() => true),
+        getRestorationInfo: vi.fn(() => ({ isRestored: true, sessionId: 'partial-context-session' })),
+      };
+
+      mockRequest.headers = { 'mcp-session-id': 'partial-context-session' };
+      mockRequest.body = { method: 'test' };
+      mockServerManager.getTransport.mockReturnValue(null);
+      mockSessionRepository.get.mockReturnValue({
+        tags: ['filesystem'],
+        tagFilterMode: 'simple-or',
+        context: {
+          // Only has project and transport, missing user/environment
+          project: {
+            path: '/Users/x/workplace/partial',
+            name: 'partial-project',
+          },
+          transport: {
+            type: 'stdio-proxy',
+            client: {
+              name: 'test-client',
+              version: '1.0.0',
+            },
+          },
+        },
+      });
+      vi.mocked(RestorableStreamableHTTPServerTransport).mockReturnValue(mockTransport as any);
+
+      await postHandler(mockRequest, mockResponse);
+
+      expect(mockServerManager.connectTransport).toHaveBeenCalledWith(
+        mockTransport,
+        'partial-context-session',
+        expect.objectContaining({
+          tags: ['filesystem'],
+          tagFilterMode: 'simple-or',
+          context: {
+            project: {
+              path: '/Users/x/workplace/partial',
+              name: 'partial-project',
+            },
+            transport: {
+              type: 'stdio-proxy',
+              client: {
+                name: 'test-client',
+                version: '1.0.0',
+              },
+            },
+          },
+        }),
+        expect.any(Object), // The contextData object is complex, just check it exists
+      );
+    });
+
+    it('should handle session restoration when context is missing from persisted data', async () => {
+      const { RestorableStreamableHTTPServerTransport } = await import(
+        '@src/transport/http/restorableStreamableTransport.js'
+      );
+
+      const mockTransport = {
+        sessionId: 'no-context-session',
+        onclose: null,
+        onerror: null,
+        handleRequest: vi.fn().mockResolvedValue(undefined),
+        markAsInitialized: vi.fn(),
+        isRestored: vi.fn(() => true),
+        getRestorationInfo: vi.fn(() => ({ isRestored: true, sessionId: 'no-context-session' })),
+      };
+
+      mockRequest.headers = { 'mcp-session-id': 'no-context-session' };
+      mockRequest.body = { method: 'test' };
+      mockServerManager.getTransport.mockReturnValue(null);
+      mockSessionRepository.get.mockReturnValue({
+        tags: ['filesystem'],
+        tagFilterMode: 'simple-or',
+        // No context field
+      });
+      vi.mocked(RestorableStreamableHTTPServerTransport).mockReturnValue(mockTransport as any);
+
+      await postHandler(mockRequest, mockResponse);
+
+      expect(mockServerManager.connectTransport).toHaveBeenCalledWith(
+        mockTransport,
+        'no-context-session',
+        {
+          tags: ['filesystem'],
+          tagFilterMode: 'simple-or',
+        },
+        undefined,
+      );
+    });
+  });
+
   describe('DELETE Handler', () => {
     beforeEach(() => {
       const mockAuthMiddleware = vi.fn((req, res, next) => next());

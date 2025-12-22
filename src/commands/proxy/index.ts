@@ -49,6 +49,11 @@ export function setupProxyCommand(yargs: Argv): Argv {
           describe: 'Load preset configuration (URL, filters, etc.)',
           type: 'string',
         })
+        .option('tags', {
+          describe: 'Simple comma-separated tags for server selection',
+          type: 'array',
+          string: true,
+        })
         .example([
           ['$0 proxy', 'Auto-discover and connect to running 1MCP server'],
           ['$0 proxy --url http://localhost:3051/mcp', 'Connect to specific server URL'],

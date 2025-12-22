@@ -388,4 +388,238 @@ describe('StreamableSessionRepository', () => {
       expect(() => repository.stopPeriodicFlush()).not.toThrow();
     });
   });
+
+  describe('context persistence and restoration', () => {
+    it('should persist session with full context including client info', () => {
+      // Arrange
+      const sessionId = 'test-session-with-context';
+      const config = {
+        tags: ['filesystem'],
+        tagFilterMode: 'simple-or' as const,
+        context: {
+          project: {
+            path: '/Users/x/workplace/project',
+            name: 'test-project',
+            environment: 'development',
+          },
+          user: {
+            username: 'testuser',
+            home: '/Users/testuser',
+          },
+          environment: {
+            variables: {
+              NODE_VERSION: 'v20.0.0',
+              PLATFORM: 'darwin',
+            },
+          },
+          timestamp: '2024-01-01T00:00:00Z',
+          version: 'v1.0.0',
+          sessionId: 'test-session-123',
+          transport: {
+            type: 'stdio-proxy',
+            connectionTimestamp: '2024-01-01T00:00:00Z',
+            client: {
+              name: 'claude-code',
+              version: '1.0.0',
+              title: 'Claude Code',
+            },
+          },
+        },
+      };
+
+      // Act
+      repository.create(sessionId, config);
+
+      // Assert
+      expect(mockFileStorageService.writeData).toHaveBeenCalledWith(
+        AUTH_CONFIG.SERVER.STREAMABLE_SESSION.FILE_PREFIX,
+        sessionId,
+        expect.objectContaining({
+          context: {
+            project: {
+              path: '/Users/x/workplace/project',
+              name: 'test-project',
+              environment: 'development',
+            },
+            user: {
+              username: 'testuser',
+              home: '/Users/testuser',
+            },
+            environment: {
+              variables: {
+                NODE_VERSION: 'v20.0.0',
+                PLATFORM: 'darwin',
+              },
+            },
+            timestamp: '2024-01-01T00:00:00Z',
+            version: 'v1.0.0',
+            sessionId: 'test-session-123',
+            transport: {
+              type: 'stdio-proxy',
+              connectionTimestamp: '2024-01-01T00:00:00Z',
+              client: {
+                name: 'claude-code',
+                version: '1.0.0',
+                title: 'Claude Code',
+              },
+            },
+          },
+        }),
+      );
+    });
+
+    it('should restore session with full context including client info', () => {
+      // Arrange
+      const sessionId = 'restore-session-test';
+      const persistedData = {
+        tags: ['filesystem'],
+        tagFilterMode: 'simple-or' as const,
+        context: {
+          project: {
+            path: '/Users/x/workplace/project',
+            name: 'restored-project',
+            environment: 'development',
+          },
+          user: {
+            username: 'restoreduser',
+            home: '/Users/restoreduser',
+          },
+          environment: {
+            variables: {
+              NODE_VERSION: 'v18.0.0',
+              PLATFORM: 'linux',
+            },
+          },
+          timestamp: '2024-01-01T00:00:00Z',
+          version: 'v2.0.0',
+          sessionId: 'restored-session-123',
+          transport: {
+            type: 'stdio-proxy',
+            connectionTimestamp: '2024-01-01T00:00:00Z',
+            client: {
+              name: 'cursor',
+              version: '0.28.3',
+              title: 'Cursor Editor',
+            },
+          },
+        },
+        expires: Date.now() + AUTH_CONFIG.SERVER.STREAMABLE_SESSION.TTL_MS,
+        createdAt: Date.now() - 1000,
+        lastAccessedAt: Date.now() - 500,
+      };
+
+      mockFileStorageService.readData.mockReturnValue(persistedData);
+
+      // Act
+      const result = repository.get(sessionId);
+
+      // Assert
+      expect(result).toEqual({
+        tags: ['filesystem'],
+        tagFilterMode: 'simple-or',
+        context: {
+          project: {
+            path: '/Users/x/workplace/project',
+            name: 'restored-project',
+            environment: 'development',
+          },
+          user: {
+            username: 'restoreduser',
+            home: '/Users/restoreduser',
+          },
+          environment: {
+            variables: {
+              NODE_VERSION: 'v18.0.0',
+              PLATFORM: 'linux',
+            },
+          },
+          timestamp: '2024-01-01T00:00:00Z',
+          version: 'v2.0.0',
+          sessionId: 'restored-session-123',
+          transport: {
+            type: 'stdio-proxy',
+            connectionTimestamp: '2024-01-01T00:00:00Z',
+            client: {
+              name: 'cursor',
+              version: '0.28.3',
+              title: 'Cursor Editor',
+            },
+          },
+        },
+      });
+    });
+
+    it('should handle sessions without context gracefully', () => {
+      // Arrange
+      const sessionId = 'session-no-context';
+      const persistedData = {
+        tags: ['filesystem'],
+        tagFilterMode: 'simple-or' as const,
+        expires: Date.now() + AUTH_CONFIG.SERVER.STREAMABLE_SESSION.TTL_MS,
+        createdAt: Date.now() - 1000,
+        lastAccessedAt: Date.now() - 500,
+      };
+
+      mockFileStorageService.readData.mockReturnValue(persistedData);
+
+      // Act
+      const result = repository.get(sessionId);
+
+      // Assert
+      expect(result).toEqual({
+        tags: ['filesystem'],
+        tagFilterMode: 'simple-or',
+      });
+    });
+
+    it('should handle partial context during restoration', () => {
+      // Arrange
+      const sessionId = 'session-partial-context';
+      const persistedData = {
+        tags: ['filesystem'],
+        tagFilterMode: 'simple-or' as const,
+        context: {
+          project: {
+            path: '/Users/x/workplace/project',
+            name: 'partial-project',
+          },
+          // Missing user, environment, but has transport
+          transport: {
+            type: 'stdio-proxy',
+            client: {
+              name: 'test-client',
+              version: '1.0.0',
+            },
+          },
+        },
+        expires: Date.now() + AUTH_CONFIG.SERVER.STREAMABLE_SESSION.TTL_MS,
+        createdAt: Date.now() - 1000,
+        lastAccessedAt: Date.now() - 500,
+      };
+
+      mockFileStorageService.readData.mockReturnValue(persistedData);
+
+      // Act
+      const result = repository.get(sessionId);
+
+      // Assert
+      expect(result).toEqual({
+        tags: ['filesystem'],
+        tagFilterMode: 'simple-or',
+        context: {
+          project: {
+            path: '/Users/x/workplace/project',
+            name: 'partial-project',
+          },
+          transport: {
+            type: 'stdio-proxy',
+            client: {
+              name: 'test-client',
+              version: '1.0.0',
+            },
+          },
+        },
+      });
+    });
+  });
 });
