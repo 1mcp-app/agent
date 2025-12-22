@@ -9,7 +9,7 @@ head:
 
 # mcp search
 
-搜索 MCP 注册表中可用的服务器。此命令提供快速访问服务器发现功能，是 `registry search` 命令的别名。
+搜索 MCP 注册表中可用的服务器。此命令是 `registry search` 命令的**便利别名**，选项有限。如需高级筛选和选项，请直接使用[注册表搜索](../registry/search.md)。
 
 ## 概述
 
@@ -29,6 +29,10 @@ npx -y @1mcp/agent mcp search
 
 `<query>` (可选)
 : 用于匹配服务器名称、描述和标签的搜索查询字符串。
+
+## 限制
+
+由于这是 `registry search` 的别名，它只支持基本的搜索功能。高级筛选选项如 `--status`、`--type`、`--transport` 和 `--format` 仅在完整的[注册表搜索](../registry/search.md)命令中可用。
 
 ## 示例
 

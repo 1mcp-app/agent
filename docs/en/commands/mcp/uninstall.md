@@ -50,31 +50,26 @@ npx -y @1mcp/agent mcp uninstall <server-name> --no-remove-config
 
 ## Global Options
 
---config-path `<path>`
-: Path to a specific configuration file.
-
---config-dir `<path>`
-: Path to the configuration directory containing `mcp.json`.
+- **`--config, -c <path>`** - Specify configuration file path
+- **`--config-dir, -d <path>`** - Path to the config directory
 
 ## Command-Specific Options
 
---force, -y
-: Skip confirmation prompts and proceed with uninstallation.
+- **`--force, -y`**
+  - Skip confirmation prompts and proceed with uninstallation
+  - **Default**: `false`
 
---no-backup
-: Skip automatic backup creation before removal. Not recommended for production configurations.
+- **`--backup`**
+  - Create backup before removal
+  - **Default**: `true`
 
---backup
-: Create backup before removal (default: true).
+- **`--remove-config`**
+  - Remove server configuration from mcp.json
+  - **Default**: `true`
 
---remove-config
-: Remove server configuration from mcp.json (default: true).
-
---no-remove-config
-: Keep server configuration but mark as disabled.
-
---verbose
-: Display detailed uninstallation information.
+- **`--verbose, -v`**
+  - Display detailed uninstallation information
+  - **Default**: `false`
 
 ## Examples
 
@@ -157,89 +152,26 @@ npx -y @1mcp/agent mcp uninstall database --verbose
 # ✅ Uninstall completed successfully
 ```
 
-### Disable Instead of Remove
-
-Keep configuration but disable the server:
-
-```bash
-npx -y @1mcp/agent mcp uninstall filesystem --no-remove-config
-
-# Output:
-# 🔄 Disabling 'filesystem' instead of removal...
-# ✓ Server stopped
-# ✓ Configuration retained but disabled
-# ✓ Backup created
-# ✅ Server disabled successfully
-# 💡 Use 'mcp enable filesystem' to re-enable
-```
-
 ## Safety Features
 
-### Dependency Checking
+The uninstall command includes built-in safety measures:
 
-The uninstall command checks for dependencies before removal:
-
-```bash
-npx -y @1mcp/agent mcp uninstall shared-storage
-
-# Output:
-# ❌ Cannot uninstall 'shared-storage'
-#
-# The following servers depend on 'shared-storage':
-#   • file-processor (uses shared-storage for temporary files)
-#   • backup-service (uses shared-storage for backup storage)
-#
-# Uninstall dependent servers first or use --force to proceed.
-```
-
-### Automatic Backups
-
-By default, the uninstall command creates timestamped backups:
-
-```bash
-# Backup location examples:
-~/.config/1mcp/backups/mcp-20240115-103000.json
-~/.config/1mcp/backups/mcp-20240115-103500.json
-```
-
-Backup files include:
-
-- Complete mcp.json configuration
-- Server metadata and installation info
-- Timestamp for easy identification
-
-### Graceful Shutdown
-
-Servers are gracefully stopped before removal:
-
-```bash
-# Process for graceful shutdown:
-1. Send SIGTERM signal to server process
-2. Wait up to 10 seconds for graceful shutdown
-3. Send SIGKILL if still running
-4. Verify process termination
-5. Remove from server manager
-```
+- **Dependency Checking**: Warns if other servers depend on the one being removed
+- **Automatic Backups**: Creates timestamped backups before removal (`~/.config/1mcp/backups/`)
+- **Graceful Shutdown**: Properly stops servers before removal with SIGTERM/SIGKILL handling
 
 ## Error Handling
 
-Common error scenarios and solutions:
+Common error scenarios:
 
 ```bash
 # Server not found
 npx -y @1mcp/agent mcp uninstall nonexistent-server
 # Error: Server 'nonexistent-server' not found in configuration
-# Use 'mcp list' to see available servers
-
-# Server dependencies
-npx -y @1mcp/agent mcp uninstall shared-server --force
-# Warning: Removing server with dependencies
-# Dependencies will be affected: file-processor, backup-service
 
 # Permission issues
 npx -y @1mcp/agent mcp uninstall system-server
 # Error: Permission denied when stopping server process
-# Try with elevated privileges or check server status
 ```
 
 ## Backup Restoration
@@ -252,49 +184,6 @@ ls ~/.config/1mcp/backups/
 
 # Restore from backup
 cp ~/.config/1mcp/backups/mcp-20240115-103000.json ~/.config/1mcp/mcp.json
-
-# Reload configuration
-npx -y @1mcp/agent mcp reload
-```
-
-## Cleanup Options
-
-The uninstall command provides several cleanup options:
-
-### Remove Configuration Only
-
-```bash
-npx -y @1mcp/agent mcp uninstall server-name --remove-config
-# Removes from mcp.json but keeps server running if active
-```
-
-### Keep Configuration
-
-```bash
-npx -y @1mcp/agent mcp uninstall server-name --no-remove-config
-# Disables server but keeps configuration for future use
-```
-
-### Custom Backup Location
-
-```bash
-ONE_MCP_CONFIG_DIR=/custom/path npx -y @1mcp/agent mcp uninstall server-name
-# Creates backup in custom config directory
-```
-
-## Integration with Registry
-
-For registry-installed servers, uninstall also:
-
-```bash
-# Removes registry metadata
-npx -y @1mcp/agent mcp uninstall filesystem
-
-# Registry metadata removed:
-#   • Installation timestamp
-#   • Source registry information
-#   • Version tracking data
-#   • Update notifications
 ```
 
 ## See Also

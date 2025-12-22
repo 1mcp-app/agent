@@ -61,6 +61,138 @@ Offer operational control over MCP servers including state management and config
 - **`mcp_reload`** - Reload server configuration or restart server
 - **`mcp_edit`** - Edit MCP server configuration
 
+## Example Usage
+
+### AI Assistant Workflow
+
+Here's how an AI assistant might use these internal tools to help a user:
+
+#### Example 1: Setting up a Development Environment
+
+```json
+// User: "I need to work with a PostgreSQL database and Git repository"
+
+[
+  {
+    "tool": "mcp_search",
+    "arguments": {
+      "query": "postgresql database"
+    }
+  },
+  {
+    "tool": "mcp_search",
+    "arguments": {
+      "query": "git repository"
+    }
+  },
+  {
+    "tool": "mcp_install",
+    "arguments": {
+      "serverName": "postgres",
+      "version": "2.0.1"
+    }
+  },
+  {
+    "tool": "mcp_install",
+    "arguments": {
+      "serverName": "git",
+      "version": "3.1.0"
+    }
+  },
+  {
+    "tool": "mcp_list",
+    "arguments": {
+      "filter": "enabled"
+    }
+  }
+]
+```
+
+#### Example 2: Server Health Monitoring
+
+```json
+// AI Assistant performs routine health check
+
+[
+  {
+    "tool": "mcp_list",
+    "arguments": {}
+  },
+  {
+    "tool": "mcp_status",
+    "arguments": {
+      "serverName": "filesystem"
+    }
+  },
+  {
+    "tool": "mcp_registry_status",
+    "arguments": {}
+  }
+]
+```
+
+### Programmatic Integration
+
+#### Example 3: CI/CD Pipeline Integration
+
+```bash
+# Deploy script using 1MCP internal tools via API
+#!/bin/bash
+
+# Install required MCP servers for the project
+echo "Installing MCP servers..."
+
+curl -X POST http://localhost:3050/mcp \
+  -H "Content-Type: application/json" \
+  -d '{
+    "tool": "mcp_install",
+    "arguments": {
+      "serverName": "project-dependencies",
+      "version": "latest"
+    }
+  }'
+
+# Verify installation
+curl -X POST http://localhost:3050/mcp \
+  -H "Content-Type: application/json" \
+  -d '{
+    "tool": "mcp_list",
+    "arguments": {
+      "filter": "enabled"
+    }
+  }'
+```
+
+#### Example 4: Infrastructure as Code
+
+```json
+{
+  "mcp_servers": [
+    {
+      "tool": "mcp_install",
+      "arguments": {
+        "serverName": "redis-cache",
+        "version": "1.2.1",
+        "config": {
+          "host": "localhost",
+          "port": 6379
+        }
+      }
+    },
+    {
+      "tool": "mcp_install",
+      "arguments": {
+        "serverName": "file-storage",
+        "version": "2.0.0",
+        "config": {
+          "rootPath": "/data/storage"
+        }
+      }
+    }
+  ]
+}
+```
+
 ## Use Cases
 
 ### AI Assistant Automation

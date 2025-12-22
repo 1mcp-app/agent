@@ -31,16 +31,16 @@ Browse all available servers:
 npx -y @1mcp/agent registry search
 ```
 
-Filter by category:
+Filter by transport type:
 
 ```bash
-npx -y @1mcp/agent registry search --category=filesystem
+npx -y @1mcp/agent registry search --transport=stdio
 ```
 
 Advanced filtering with multiple criteria:
 
 ```bash
-npx -y @1mcp/agent registry search --tag=database --limit=10 --sort=popularity
+npx -y @1mcp/agent registry search database --type=npm --format=json
 ```
 
 ## Arguments
@@ -50,55 +50,36 @@ npx -y @1mcp/agent registry search --tag=database --limit=10 --sort=popularity
 
 ## Global Options
 
---config-path `<path>`
-: Path to a specific configuration file.
-
---config-dir `<path>`
-: Path to the configuration directory containing `mcp.json`.
+- **`--config, -c <path>`** - Specify configuration file path
+- **`--config-dir, -d <path>`** - Path to the config directory
 
 ## Command-Specific Options
 
---category `<category>`
-: Filter by server category (filesystem, database, development, etc.).
+- **`--status <status>`**
+  - Filter by server status
+  - **Choices**: `active`, `archived`, `deprecated`, `all`
+  - **Default**: `active`
 
---tag `<tag>`
-: Filter by specific tag. Can be used multiple times.
+- **`--type <type>`**
+  - Filter by package registry type
+  - **Choices**: `npm`, `pypi`, `docker`
 
---maintainer `<maintainer>`
-: Filter by maintainer name or organization.
+- **`--transport <transport>`**
+  - Filter by transport method
+  - **Choices**: `stdio`, `sse`, `http`
 
---platform `<platform>`
-: Filter by supported platform (linux, darwin, win32).
+- **`--limit <number>`**
+  - Maximum number of results to return
+  - **Default**: `20`
+  - **Maximum**: `100`
 
---transport `<transport>`
-: Filter by transport type (stdio, http, sse).
+- **`--cursor <string>`**
+  - Pagination cursor for retrieving next page of results
 
---limit `<number>`
-: Limit number of results (default: 20, max: 100).
-
---sort `<sort-method>`
-: Sort results by: name, popularity, updated, created, downloads.
-
---order `<order>`
-: Sort order: asc or desc (default: desc).
-
---installed
-: Show only installed servers.
-
---updates
-: Show only servers with available updates.
-
---trusted
-: Show only trusted/verified servers.
-
---output `<format>`
-: Output format: table, json, list (default: table).
-
---refresh
-: Force refresh of registry cache before searching.
-
---detailed
-: Show detailed server information in results.
+- **`--format <format>`**
+  - Output format for search results
+  - **Choices**: `table`, `list`, `json`
+  - **Default**: `table`
 
 ## Examples
 
@@ -108,124 +89,30 @@ Search for filesystem-related servers:
 
 ```bash
 npx -y @1mcp/agent registry search filesystem
-
-# Output:
-# 🔍 Search Results: "filesystem"
-#
-# Name              | Category    | Version | Description
-# ----------------- | ----------- | ------- | -----------------------------------------
-# filesystem        | System      | 1.2.0   | File system access and management
-# ftp               | Network     | 1.0.1   | FTP/SFTP file operations
-# cloud-storage     | Storage     | 2.1.0   | Cloud storage integration (S3, GCS)
-# backup            | System      | 1.5.2   | File backup and synchronization
-#
-# Found 4 results (showing 4 of 4)
 ```
 
-### Category-Based Search
+### Filter by Transport
 
-Find all database-related servers:
+Find servers that use stdio transport:
 
 ```bash
-npx -y @1mcp/agent registry search --category=database
-
-# Output:
-# 🗃️  Database Servers
-#
-# Name              | Maintainer          | Version | Downloads | Description
-# ----------------- | ------------------- | ------- | --------- | -------------------------
-# postgresql        | MCP Team            | 2.0.1   | 15.2k     | PostgreSQL database operations
-# mongodb           | MongoDB MCP         | 1.3.0   | 8.7k      | MongoDB database access
-# mysql             | MySQL Community     | 1.8.2   | 12.1k     | MySQL database connectivity
-# redis             | Redis Labs          | 1.2.1   | 9.4k      | Redis cache operations
-# sqlite            | SQLite Team         | 2.1.0   | 18.3k     | SQLite database management
-#
-# Found 5 results
+npx -y @1mcp/agent registry search --transport=stdio
 ```
 
-### Tag Filtering
+### Filter by Package Type
 
-Search for servers with specific tags:
+Search for npm packages only:
 
 ```bash
-npx -y @1mcp/agent registry search --tag=api --tag=rest
-
-# Output:
-# 🔍 Servers tagged with: api, rest
-#
-# Name              | Category    | Version | Description
-# ----------------- | ----------- | ------- | -----------------------------------------
-# http-client       | Network     | 1.5.0   | HTTP/REST API client
-# api-gateway       | Development | 1.2.1   | API gateway and management
-# rest-tools        | Development | 1.0.3   | REST API development tools
-# web-scraping      | Web         | 2.0.1   | Web scraping for REST APIs
-#
-# Found 4 results
+npx -y @1mcp/agent registry search --type=npm database
 ```
 
-### Advanced Filtering
+### Limit Results
 
-Combine multiple filters for precise results:
-
-```bash
-npx -y @1mcp/agent registry search \
-  --category=development \
-  --platform=linux \
-  --transport=stdio \
-  --trusted \
-  --sort=popularity \
-  --limit=5
-
-# Output:
-# 🔍 Development Servers (Linux, stdio, trusted)
-#
-# Name              | Version | Downloads | Description
-# ----------------- | ------- | --------- | -----------------------------------------
-# git               | 3.1.0   | 25.4k     | Git repository operations
-# docker            | 2.0.1   | 18.7k     | Docker container management
-# npm               | 1.8.0   | 14.2k     | Node.js package management
-# python            | 2.2.1   | 16.9k     | Python development tools
-# terraform         | 1.5.0   | 9.8k      | Terraform infrastructure
-#
-# Found 5 of 23 total results
-```
-
-### Installed Servers
-
-Show only servers you have installed:
+Get only the first 5 results:
 
 ```bash
-npx -y @1mcp/agent registry search --installed
-
-# Output:
-# 📦 Installed Servers
-#
-# Name              | Installed | Latest | Status   | Description
-# ----------------- | --------- | ------ | -------- | -------------------------
-# filesystem        | 1.2.0     | 1.2.1  | ⬆️ Update| File system access
-# git               | 3.1.0     | 3.1.0  | ✓ Current| Git operations
-# search            | 1.0.2     | 1.1.0  | ⬆️ Update| Web search capability
-#
-# 3 servers installed, 2 have updates available
-```
-
-### Servers with Updates
-
-Find servers that can be updated:
-
-```bash
-npx -y @1mcp/agent registry search --updates
-
-# Output:
-# 🔄 Available Updates
-#
-# Server       | Current | Latest | Type      | Changes
-# ------------ | ------- | ------ | --------- | ------------------------
-# filesystem   | 1.2.0   | 1.2.1  | Patch     | Bug fixes, performance
-# search       | 1.0.2   | 1.1.0  | Minor     | New features, API
-# database     | 2.0.1   | 3.0.0  | Major     | Breaking changes, new API
-#
-# 3 updates available
+npx -y @1mcp/agent registry search database --limit=5
 ```
 
 ### JSON Output
@@ -233,69 +120,15 @@ npx -y @1mcp/agent registry search --updates
 Get machine-readable results:
 
 ```bash
-npx -y @1mcp/agent registry search database --output=json
-
-# Output:
-# {
-#   "query": "database",
-#   "total": 5,
-#   "results": [
-#     {
-#       "name": "postgresql",
-#       "displayName": "PostgreSQL Server",
-#       "description": "PostgreSQL database operations and queries",
-#       "version": "2.0.1",
-#       "category": "Database",
-#       "tags": ["database", "postgresql", "sql"],
-#       "maintainer": "MCP Team",
-#       "downloads": 15200,
-#       "trustLevel": "verified",
-#       "platforms": ["linux", "darwin", "win32"],
-#       "transport": ["stdio"],
-#       "lastUpdated": "2024-01-10T15:30:00Z"
-#     }
-#   ]
-# }
+npx -y @1mcp/agent registry search database --format=json
 ```
 
-### Detailed Output
+### List All Active Servers
 
-Show comprehensive server information:
+Browse all available servers:
 
 ```bash
-npx -y @1mcp/agent registry search git --detailed --limit=1
-
-# Output:
-# 🔍 Detailed: git
-#
-# Git Repository Operations Server
-# =================================
-#
-# Version: 3.1.0
-# Category: Development
-# Maintainer: MCP Team
-# License: MIT
-#
-# Description:
-#   Provides Git repository operations including commit, branch, merge,
-#   and file history management. Supports local and remote repositories.
-#
-# Capabilities:
-#   • Tools: git_status, git_add, git_commit, git_push, git_pull, git_branch
-#   • Resources: repository files, git history
-#
-# Requirements:
-#   • Git command-line tools
-#   • Read access to repository files
-#   • Write permissions for repository modifications
-#
-# Platforms: Linux, macOS, Windows
-# Transport: stdio
-# Downloads: 25,400
-# Last Updated: 2024-01-12
-#
-# Installation:
-#   npx -y @1mcp/agent mcp install git
+npx -y @1mcp/agent registry search --status=active
 ```
 
 ## Search Syntax

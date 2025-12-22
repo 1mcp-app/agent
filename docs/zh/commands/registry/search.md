@@ -25,16 +25,16 @@ npx -y @1mcp/agent registry search <query>
 npx -y @1mcp/agent registry search
 ```
 
-按类别筛选：
+按传输类型筛选：
 
 ```bash
-npx -y @1mcp/agent registry search --category=filesystem
+npx -y @1mcp/agent registry search --transport=stdio
 ```
 
 使用多个标准的高级筛选：
 
 ```bash
-npx -y @1mcp/agent registry search --tag=database --limit=10 --sort=popularity
+npx -y @1mcp/agent registry search database --type=npm --format=json
 ```
 
 ## 参数
@@ -44,56 +44,36 @@ npx -y @1mcp/agent registry search --tag=database --limit=10 --sort=popularity
 
 ## 全局选项
 
---config-path `<路径>`
-: 特定配置文件的路径。
-
---config-dir `<路径>`
-: 包含 `mcp.json` 的配置目录路径。
+- **`--config, -c <路径>`** - 指定配置文件路径
+- **`--config-dir, -d <路径>`** - 配置目录路径
 
 ## 命令特定选项
 
---category `<类别>`
-: 按服务器类别筛选（filesystem、database、development 等）。
+- **`--status <状态>`**
+  - 按服务器状态筛选
+  - **选择**：`active`、`archived`、`deprecated`、`all`
+  - **默认**：`active`
 
---tag `<标签>`
-: 按特定标签筛选。可多次使用。
+- **`--type <类型>`**
+  - 按包注册表类型筛选
+  - **选择**：`npm`、`pypi`、`docker`
 
---maintainer `<维护者>`
-: 按维护者名称或组织筛选。
+- **`--transport <传输>`**
+  - 按传输方式筛选
+  - **选择**：`stdio`、`sse`、`http`
 
---platform `<平台>`
-: 按支持的平台筛选（linux、darwin、win32）。
+- **`--limit <数字>`**
+  - 返回的最大结果数
+  - **默认**：`20`
+  - **最大值**：`100`
 
---transport `<传输>`
-: 按传输类型筛选（stdio、http、sse）。
+- **`--cursor <字符串>`**
+  - 用于检索下一页结果的分页游标
 
---limit `<数字>`
-: 限制结果数量（默认：20，最大：100）。
-
---sort `<排序方法>`
-: 结果排序方式：name、popularity、updated、created、downloads。
-
---order `<顺序>`
-
-- 排序顺序：asc 或 desc（默认：desc）。
-
---installed
-: 仅显示已安装的服务器。
-
---updates
-: 仅显示有可用更新的服务器。
-
---trusted
-: 仅显示受信任/已验证的服务器。
-
---output `<格式>`
-: 输出格式：table、json、list（默认：table）。
-
---refresh
-: 搜索前强制刷新注册表缓存。
-
---detailed
-: 在结果中显示详细的服务器信息。
+- **`--format <格式>`**
+  - 搜索结果的输出格式
+  - **选择**：`table`、`list`、`json`
+  - **默认**：`table`
 
 ## 示例
 
@@ -117,12 +97,12 @@ npx -y @1mcp/agent registry search filesystem
 # 找到 4 个结果（显示 4 个，共 4 个）
 ```
 
-### 基于类别的搜索
+### 按传输方式筛选
 
-查找所有与数据库相关的服务器：
+查找使用 stdio 传输的服务器：
 
 ```bash
-npx -y @1mcp/agent registry search --category=database
+npx -y @1mcp/agent registry search --transport=stdio
 
 # 输出:
 # 🗃️  数据库服务器

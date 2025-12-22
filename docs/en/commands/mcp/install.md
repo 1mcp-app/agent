@@ -1,6 +1,6 @@
 ---
-title: MCP Install Command - Registry-Based Server Installation
-description: Install MCP servers from the 1MCP registry with interactive installation. Discover and install servers with version management and dependency resolution.
+title: mcp install
+description: Install MCP servers from the 1MCP registry
 head:
   - [
       'meta',
@@ -129,17 +129,9 @@ Preview what would be installed without making changes:
 npx -y @1mcp/agent mcp install filesystem --dry-run
 
 # Output:
-# 📦 Installation Preview: filesystem@1.2.0
-#
+# 📦 Installation Preview: filesystem@latest
 # Server: filesystem - File system access and management
-# Version: 1.2.0
-# Category: System
-# Tags: filesystem, files, local
-#
-# Dependencies: None
-# Configuration: Will prompt for root directory
-#
-# Use --verbose for detailed information
+# Use without --dry-run to perform actual installation
 ```
 
 ### Force Reinstallation
@@ -166,44 +158,22 @@ npx -y @1mcp/agent mcp install airtable --verbose
 # ✓ Server installed successfully as 'airtable'
 ```
 
-## Interactive Wizard Workflow
+## Interactive Workflow
 
-When using `--interactive` or running without arguments, the install command launches an interactive wizard:
+When using `--interactive` or running without arguments, the install command launches a guided wizard that helps you:
 
-1. **Search or Browse**
-   - Search by server name or category
-   - Browse by category (System, Database, Web, Development, etc.)
-   - Filter by tags and compatibility
+1. **Search** for servers by name or browse categories
+2. **Select** a server and review its capabilities
+3. **Choose** a version (stable vs latest)
+4. **Configure** server-specific parameters
+5. **Confirm** installation
 
-2. **Server Selection**
-   - View server descriptions and capabilities
-   - Check version compatibility
-   - Review dependencies and requirements
-
-3. **Version Selection**
-   - Choose from available versions
-   - See version notes and compatibility
-   - Get recommendations for stable vs latest versions
-
-4. **Configuration**
-   - Set server-specific parameters
-   - Choose tags for organization
-   - Configure transport options if applicable
-
-5. **Confirmation**
-   - Review complete configuration
-   - See what will be installed
-   - Confirm installation
-
-## Registry Integration
-
-The install command integrates with the 1MCP registry to provide:
+## Registry Features
 
 - **Server Discovery**: Search and browse available MCP servers
 - **Version Management**: Install specific versions with compatibility checking
-- **Dependency Resolution**: Automatically install required dependencies
+- **Dependency Resolution**: Automatically handle required dependencies
 - **Security Validation**: Verify server integrity and authenticity
-- **Update Notifications**: Get notified about available updates
 
 ## Configuration Output
 

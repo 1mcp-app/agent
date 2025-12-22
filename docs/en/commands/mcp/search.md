@@ -12,7 +12,7 @@ head:
 
 # mcp search
 
-Search the MCP registry for available servers. This command provides quick access to server discovery and is an alias for the `registry search` command.
+Search the MCP registry for available servers. This command is a **convenience alias** for the `registry search` command with limited options. For advanced filtering and options, use [registry search](../registry/search.md) directly.
 
 ## Synopsis
 
@@ -32,6 +32,10 @@ npx -y @1mcp/agent mcp search
 
 `<query>` (optional)
 : Search query string to match against server names, descriptions, and tags.
+
+## Limitations
+
+Since this is an alias to `registry search`, it only supports basic search functionality. Advanced filtering options like `--status`, `--type`, `--transport`, and `--format` are only available in the full [registry search](../registry/search.md) command.
 
 ## Examples
 

@@ -28,13 +28,7 @@ npx -y @1mcp/agent mcp uninstall <server-name> --force
 移除而不创建备份：
 
 ```bash
-npx -y @1mcp/agent mcp uninstall <server-name> --no-backup
-```
-
-仅移除配置（保留服务器数据）：
-
-```bash
-npx -y @1mcp/agent mcp uninstall <server-name> --no-remove-config
+npx -y @1mcp/agent mcp uninstall <server-name> --backup=false
 ```
 
 ## 参数
@@ -44,31 +38,26 @@ npx -y @1mcp/agent mcp uninstall <server-name> --no-remove-config
 
 ## 全局选项
 
---config-path `<路径>`
-: 特定配置文件的路径。
-
---config-dir `<路径>`
-: 包含 `mcp.json` 的配置目录路径。
+- **`--config, -c <路径>`** - 指定配置文件路径
+- **`--config-dir, -d <路径>`** - 配置目录路径
 
 ## 命令特定选项
 
---force, -y
-: 跳过确认提示并继续卸载。
+- **`--force, -y`**
+  - 跳过确认提示并继续卸载
+  - **默认**：`false`
 
---no-backup
-: 移除前跳过自动备份创建。不推荐用于生产配置。
+- **`--backup`**
+  - 移除前创建备份
+  - **默认**：`true`
 
---backup
-: 移除前创建备份（默认：true）。
+- **`--remove-config`**
+  - 从 mcp.json 中移除服务器配置
+  - **默认**：`true`
 
---remove-config
-: 从 mcp.json 中移除服务器配置（默认：true）。
-
---no-remove-config
-: 保留服务器配置但标记为禁用。
-
---verbose
-: 显示详细的卸载信息。
+- **`--verbose, -v`**
+  - 显示详细的卸载信息
+  - **默认**：`false`
 
 ## 示例
 
@@ -118,7 +107,7 @@ npx -y @1mcp/agent mcp uninstall filesystem --force
 移除服务器而不创建备份（不推荐）：
 
 ```bash
-npx -y @1mcp/agent mcp uninstall test-server --no-backup
+npx -y @1mcp/agent mcp uninstall test-server --backup=false
 
 # 输出:
 # ⚠️  跳过备份创建
@@ -149,22 +138,6 @@ npx -y @1mcp/agent mcp uninstall database --verbose
 #   • 创建配置备份
 #
 # ✅ 卸载成功完成
-```
-
-### 禁用而非移除
-
-保留配置但禁用服务器：
-
-```bash
-npx -y @1mcp/agent mcp uninstall filesystem --no-remove-config
-
-# 输出:
-# 🔄 正在禁用 'filesystem' 而非移除...
-# ✓ 服务器已停止
-# ✓ 配置保留但已禁用
-# ✓ 备份已创建
-# ✅ 服务器成功禁用
-# 💡 使用 'mcp enable filesystem' 重新启用
 ```
 
 ## 安全功能
@@ -260,13 +233,6 @@ npx -y @1mcp/agent mcp reload
 ```bash
 npx -y @1mcp/agent mcp uninstall server-name --remove-config
 # 从 mcp.json 中移除但如果服务器处于活动状态则保持运行
-```
-
-### 保留配置
-
-```bash
-npx -y @1mcp/agent mcp uninstall server-name --no-remove-config
-# 禁用服务器但保留配置供将来使用
 ```
 
 ### 自定义备份位置

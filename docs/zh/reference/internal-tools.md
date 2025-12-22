@@ -29,9 +29,9 @@ MCP 内部工具是通过 Model Context Protocol 暴露给 AI 助手的工具，
 
 - **`mcp_search`** - 在 MCP 注册表中搜索服务器
 - **`mcp_registry_status`** - 检查注册表可用性和健康状况
-- **mcp_registry_info** - 获取详细的注册表信息
-- **mcp_registry_list`** - 列出可用的注册表
-- **mcp_info`** - 获取详细的服务器信息
+- **`mcp_registry_info`** - 获取详细的注册表信息
+- **`mcp_registry_list`** - 列出可用的注册表
+- **`mcp_info`** - 获取详细的服务器信息
 
 ### 安装工具
 
@@ -48,9 +48,141 @@ MCP 内部工具是通过 Model Context Protocol 暴露给 AI 助手的工具，
 - **`mcp_enable`** - 启用已禁用的 MCP 服务器
 - **`mcp_disable`** - 禁用 MCP 服务器而不移除
 - **`mcp_list`** - 列出 MCP 服务器，支持过滤和状态信息
-- **mcp_status`** - 获取详细的服务器状态和健康信息
-- **mcp_reload`** - 重新加载服务器配置或重启服务器
-- **mcp_edit`** - 编辑 MCP 服务器配置
+- **`mcp_status`** - 获取详细的服务器状态和健康信息
+- **`mcp_reload`** - 重新加载服务器配置或重启服务器
+- **`mcp_edit`** - 编辑 MCP 服务器配置
+
+## 示例用法
+
+### AI 助手工作流程
+
+以下是 AI 助手如何使用这些内部工具来帮助用户：
+
+#### 示例 1：设置开发环境
+
+```json
+// 用户："我需要使用 PostgreSQL 数据库和 Git 仓库"
+
+[
+  {
+    "tool": "mcp_search",
+    "arguments": {
+      "query": "postgresql database"
+    }
+  },
+  {
+    "tool": "mcp_search",
+    "arguments": {
+      "query": "git repository"
+    }
+  },
+  {
+    "tool": "mcp_install",
+    "arguments": {
+      "serverName": "postgres",
+      "version": "2.0.1"
+    }
+  },
+  {
+    "tool": "mcp_install",
+    "arguments": {
+      "serverName": "git",
+      "version": "3.1.0"
+    }
+  },
+  {
+    "tool": "mcp_list",
+    "arguments": {
+      "filter": "enabled"
+    }
+  }
+]
+```
+
+#### 示例 2：服务器健康监控
+
+```json
+// AI 助手执行例行健康检查
+
+[
+  {
+    "tool": "mcp_list",
+    "arguments": {}
+  },
+  {
+    "tool": "mcp_status",
+    "arguments": {
+      "serverName": "filesystem"
+    }
+  },
+  {
+    "tool": "mcp_registry_status",
+    "arguments": {}
+  }
+]
+```
+
+### 程序化集成
+
+#### 示例 3：CI/CD 流水线集成
+
+```bash
+# 使用 1MCP 内部工具通过 API 的部署脚本
+#!/bin/bash
+
+# 为项目安装所需的 MCP 服务器
+echo "正在安装 MCP 服务器..."
+
+curl -X POST http://localhost:3050/mcp \
+  -H "Content-Type: application/json" \
+  -d '{
+    "tool": "mcp_install",
+    "arguments": {
+      "serverName": "project-dependencies",
+      "version": "latest"
+    }
+  }'
+
+# 验证安装
+curl -X POST http://localhost:3050/mcp \
+  -H "Content-Type: application/json" \
+  -d '{
+    "tool": "mcp_list",
+    "arguments": {
+      "filter": "enabled"
+    }
+  }'
+```
+
+#### 示例 4：基础设施即代码
+
+```json
+{
+  "mcp_servers": [
+    {
+      "tool": "mcp_install",
+      "arguments": {
+        "serverName": "redis-cache",
+        "version": "1.2.1",
+        "config": {
+          "host": "localhost",
+          "port": 6379
+        }
+      }
+    },
+    {
+      "tool": "mcp_install",
+      "arguments": {
+        "serverName": "file-storage",
+        "version": "2.0.0",
+        "config": {
+          "rootPath": "/data/storage"
+        }
+      }
+    }
+  ]
+}
+```
 
 ## 使用场景
 
