@@ -1,21 +1,112 @@
 ---
-title: Server Management Guide - Transport Types and Best Practices
-description: Learn how to manage MCP servers in 1MCP. Covers STDIO and HTTP transports, configuration best practices, and lifecycle management.
+title: Server Management Guide - Registry-Based Installation and Configuration
+description: Learn how to manage MCP servers in 1MCP using the registry-based approach for server discovery, installation, and lifecycle management.
 head:
-  - ['meta', { name: 'keywords', content: 'MCP server management,transport types,STDIO transport,HTTP transport' }]
-  - ['meta', { property: 'og:title', content: '1MCP Server Management Guide' }]
+  - [
+      'meta',
+      {
+        name: 'keywords',
+        content: 'MCP server management,registry installation,server discovery,lifecycle management',
+      },
+    ]
+  - ['meta', { property: 'og:title', content: '1MCP Server Management Guide - Registry-Based Approach' }]
   - [
       'meta',
       {
         property: 'og:description',
-        content: 'Complete guide to managing MCP servers in 1MCP. Transport types and best practices.',
+        content: 'Complete guide to managing MCP servers in 1MCP using registry-based installation and configuration.',
       },
     ]
 ---
 
 # Server Management Guide
 
-This guide provides a detailed overview of managing MCP servers within your 1MCP instance. It covers transport types, configuration best practices, and advanced management workflows.
+This guide provides a comprehensive overview of managing MCP servers within your 1MCP instance using the recommended registry-based approach for server discovery, installation, and lifecycle management.
+
+## Registry-Based Workflow (Recommended)
+
+The 1MCP registry provides a centralized repository for discovering, installing, and managing MCP servers with automatic dependency resolution and version management. This is the recommended approach for server management.
+
+### Quick Start
+
+Install your first server from the registry:
+
+```bash
+# Search for available servers
+npx -y @1mcp/agent registry search --category=filesystem
+
+# Install the filesystem server
+npx -y @1mcp/agent mcp install filesystem
+
+# Or use the interactive wizard
+npx -y @1mcp/agent mcp wizard
+```
+
+### Registry Workflow
+
+1. **Discovery** - Find servers that match your needs
+2. **Selection** - Choose servers with version compatibility
+3. **Installation** - Automatic dependency resolution and setup
+4. **Configuration** - Server-specific customization
+5. **Management** - Updates, removal, and lifecycle control
+
+### Registry Benefits
+
+- **Server Discovery** - Browse and search across hundreds of MCP servers
+- **Version Management** - Install specific versions with compatibility checking
+- **Dependency Resolution** - Automatic installation of required dependencies
+- **Security Validation** - Verified servers with integrity checks
+- **Update Management** - Easy updates with change tracking
+- **Interactive Installation** - Guided setup with the configuration wizard
+
+### Installation Methods
+
+#### Direct Installation
+
+Install servers by name from the registry:
+
+```bash
+# Install latest version
+npx -y @1mcp/agent mcp install filesystem
+
+# Install specific version
+npx -y @1mcp/agent mcp install filesystem@1.2.0
+
+# Install with configuration
+npx -y @1mcp/agent mcp install git --repository /path/to/project
+```
+
+#### Interactive Wizard
+
+Launch the configuration wizard for guided installation:
+
+```bash
+# Start interactive wizard
+npx -y @1mcp/agent mcp wizard
+
+# Start with predefined template
+npx -y @1mcp/agent mcp wizard --template development
+```
+
+The wizard provides:
+
+- Server browsing by category
+- Step-by-step configuration
+- Compatibility checking
+- Best practice recommendations
+
+#### Search and Install
+
+Search the registry and install from results:
+
+```bash
+# Search for database servers
+npx -y @1mcp/agent registry search database
+
+# Install search results
+npx -y @1mcp/agent registry search database --limit=3 --output=list | \
+  xargs -n1 npx -y @1mcp/agent mcp install
+```
 
 ## Transport Types
 
@@ -76,32 +167,76 @@ Each server you define in 1MCP has a set of common configuration options:
 
 ## Server Management Workflow
 
-A typical workflow for managing servers looks like this:
+### Registry-Based Workflow (Recommended)
 
-1.  **Add a Server**: Add a new server to your 1MCP instance.
+The modern workflow using the registry provides automatic dependency resolution and version management:
+
+1.  **Discover Servers**: Search the registry for servers that meet your needs.
+
     ```bash
-    # Add a local git server
-    npx -y @1mcp/agent mcp add git-main --type=stdio --command="mcp-server-git" --args="--repository ."
+    # Search for development servers
+    npx -y @1mcp/agent registry search --category=development
+
+    # Browse all available servers
+    npx -y @1mcp/agent mcp wizard
     ```
-2.  **Verify the Configuration**: List your servers and check the status of the new one.
+
+2.  **Install Servers**: Install servers with automatic configuration.
+
     ```bash
-    ONE_MCP_LOG_LEVEL=debug npx -y @1mcp/agent mcp list
-    npx -y @1mcp/agent mcp status git-main
+    # Install the filesystem server
+    npx -y @1mcp/agent mcp install filesystem
+
+    # Install specific version
+    npx -y @1mcp/agent mcp install git@1.2.0
     ```
-3.  **Update as Needed**: Modify the server's configuration. For example, add a tag.
+
+3.  **Verify Installation**: Check that servers are properly installed and running.
+
     ```bash
-    npx -y @1mcp/agent mcp update git-main --tags=source-control,project-a
+    npx -y @1mcp/agent mcp list
+    npx -y @1mcp/agent mcp status filesystem
     ```
-4.  **Manage its Lifecycle**: If you need to temporarily disable the server, you can do so without losing its configuration.
+
+4.  **Manage Updates**: Keep servers updated with latest versions.
+
     ```bash
-    npx -y @1mcp/agent mcp disable git-main
-    # ...later...
-    npx -y @1mcp/agent mcp enable git-main
+    # Check for available updates
+    npx -y @1mcp/agent registry search --updates
+
+    # Update specific server
+    npx -y @1mcp/agent mcp update filesystem
     ```
-5.  **Remove When Done**: If you no longer need the server, you can permanently remove it.
+
+5.  **Manage Lifecycle**: Enable, disable, or remove servers as needed.
+
     ```bash
-    npx -y @1mcp/agent mcp remove git-main
+    # Temporarily disable
+    npx -y @1mcp/agent mcp disable filesystem
+
+    # Re-enable
+    npx -y @1mcp/agent mcp enable filesystem
+
+    # Remove with backup
+    npx -y @1mcp/agent mcp uninstall filesystem
     ```
+
+### Manual Configuration Workflow (Advanced)
+
+For custom servers not available in the registry:
+
+1.  **Add Server Manually**: Configure server details manually.
+
+    ```bash
+    npx -y @1mcp/agent mcp add custom-server --type=stdio --command="node server.js"
+    ```
+
+2.  **Configure Settings**: Set server-specific options.
+    ```bash
+    npx -y @1mcp/agent mcp update custom-server --tags=custom,experimental --args="--port=3000"
+    ```
+
+The registry-based approach is recommended for most users, with manual configuration reserved for custom or proprietary servers.
 
 ## Best Practices
 

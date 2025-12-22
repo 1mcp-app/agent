@@ -1,15 +1,100 @@
 ---
-title: 服务器管理指南 - 传输类型和最佳实践
-description: 了解如何在 1MCP 中管理 MCP 服务器。涵盖 STDIO 和 HTTP 传输、配置最佳实践和生命周期管理。
+title: 服务器管理指南 - 基于注册表的安装和配置
+description: 学习如何使用基于注册表的方法在 1MCP 中管理 MCP 服务器，包括服务器发现、安装和生命周期管理。
 head:
-  - ['meta', { name: 'keywords', content: 'MCP 服务器管理,传输类型,STDIO 传输,HTTP 传输' }]
-  - ['meta', { property: 'og:title', content: '1MCP 服务器管理指南' }]
-  - ['meta', { property: 'og:description', content: '在 1MCP 中管理 MCP 服务器的完整指南。传输类型和最佳实践。' }]
+  - ['meta', { name: 'keywords', content: 'MCP 服务器管理,注册表安装,服务器发现,生命周期管理' }]
+  - ['meta', { property: 'og:title', content: '1MCP 服务器管理指南 - 基于注册表的方法' }]
+  - ['meta', { property: 'og:description', content: '使用基于注册表的安装和配置在 1MCP 中管理 MCP 服务器的完整指南。' }]
 ---
 
 # 服务器管理指南
 
-本指南详细概述了在您的 1MCP 实例中管理 MCP 服务器。它涵盖了传输类型、配置最佳实践和高级管理工作流程。
+本指南提供了在您的 1MCP 实例中使用推荐的基于注册表的方法管理 MCP 服务器的全面概述，包括服务器发现、安装和生命周期管理。
+
+## 基于注册表的工作流程（推荐）
+
+1MCP 注册表提供了一个用于发现、安装和管理 MCP 服务器的集中式存储库，具有自动依赖解析和版本管理功能。这是推荐的服务器管理方法。
+
+### 快速开始
+
+从注册表安装您的第一个服务器：
+
+```bash
+# 搜索可用的服务器
+npx -y @1mcp/agent registry search --category=filesystem
+
+# 安装文件系统服务器
+npx -y @1mcp/agent mcp install filesystem
+
+# 或使用交互式向导
+npx -y @1mcp/agent mcp wizard
+```
+
+### 注册表工作流程
+
+1. **发现** - 找到符合您需求的服务器
+2. **选择** - 选择具有版本兼容性的服务器
+3. **安装** - 自动依赖解析和设置
+4. **配置** - 服务器特定的自定义
+5. **管理** - 更新、移除和生命周期控制
+
+### 注册表优势
+
+- **服务器发现** - 浏览和搜索数百个 MCP 服务器
+- **版本管理** - 安装具有兼容性检查的特定版本
+- **依赖解析** - 自动安装所需依赖项
+- **安全验证** - 具有完整性检查的已验证服务器
+- **更新管理** - 具有更改跟踪的简便更新
+- **交互式安装** - 使用配置向导进行引导设置
+
+### 安装方法
+
+#### 直接安装
+
+按名称从注册表安装服务器：
+
+```bash
+# 安装最新版本
+npx -y @1mcp/agent mcp install filesystem
+
+# 安装特定版本
+npx -y @1mcp/agent mcp install filesystem@1.2.0
+
+# 带配置安装
+npx -y @1mcp/agent mcp install git --repository /path/to/project
+```
+
+#### 交互式向导
+
+启动配置向导进行引导安装：
+
+```bash
+# 启动交互式向导
+npx -y @1mcp/agent mcp wizard
+
+# 使用预定义模板启动
+npx -y @1mcp/agent mcp wizard --template development
+```
+
+向导提供：
+
+- 按类别浏览服务器
+- 分步配置
+- 兼容性检查
+- 最佳实践建议
+
+#### 搜索和安装
+
+搜索注册表并从结果中安装：
+
+```bash
+# 搜索数据库服务器
+npx -y @1mcp/agent registry search database
+
+# 安装搜索结果
+npx -y @1mcp/agent registry search database --limit=3 --output=list | \
+  xargs -n1 npx -y @1mcp/agent mcp install
+```
 
 ## 传输类型
 
@@ -48,65 +133,109 @@ npx -y @1mcp/agent mcp add remote-api --type=http --url="https://mcp.example.com
 **主要功能**：
 
 - **远程访问**：连接到本地网络或互联网上的服务器。
-- **自定义标头**：为身份验证或其他目的添加自定义 HTTP 标头。
+- **自定义标头**：添加自定义 HTTP 标头用于身份验证或其他目的。
 - **连接池**：高效管理到远程服务器的连接。
 
 ### SSE 传输（已弃用）
 
-服务器发送事件是一种已弃用的传输类型。建议改用 HTTP 传输。
+Server-Sent Events 是已弃用的传输类型。建议改用 HTTP 传输。
 
-## 服务器配置详细信息
+## Server Configuration Details
 
-您在 1MCP 中定义的每个服务器都有一组通用的配置选项：
+Each server you define in 1MCP has a set of common configuration options:
 
-- **名称**：服务器的唯一、人类可读的名称（例如 `my-git-server`）。
-- **传输**：传输类型（`stdio` 或 `http`）。
-- **命令/URL**：为 `stdio` 传输执行的命令，或为 `http` 传输执行的 URL。
-- **参数**：`stdio` 服务器的命令行参数数组。
-- **环境**：`stdio` 服务器的环境变量键值对。
-- **标签**：用于组织和筛选服务器的标签列表。
-- **超时**：连接超时（以毫秒为单位）。
-- **启用/禁用**：一个标志，用于启用或禁用服务器，而无需删除其配置。
+- **Name**: A unique, human-readable name for the server (e.g., `my-git-server`).
+- **Transport**: The transport type (`stdio` or `http`).
+- **Command/URL**: The command to execute for `stdio` transports, or the URL for `http` transports.
+- **Arguments**: An array of command-line arguments for `stdio` servers.
+- **Environment**: Key-value pairs of environment variables for `stdio` servers.
+- **Tags**: A list of tags for organizing and filtering servers.
+- **Timeout**: A connection timeout in milliseconds.
+- **Enabled/Disabled**: A flag to enable or disable the server without deleting its configuration.
 
-## 服务器管理工作流程
+## Server Management Workflow
 
-管理服务器的典型工作流程如下所示：
+### Registry-Based Workflow (Recommended)
 
-1.  **添加服务器**：向您的 1MCP 实例添加新服务器。
+The modern workflow using the registry provides automatic dependency resolution and version management:
+
+1.  **Discover Servers**: Search the registry for servers that meet your needs.
+
     ```bash
-    # 添加本地 git 服务器
-    npx -y @1mcp/agent mcp add git-main --type=stdio --command="mcp-server-git" --args="--repository ."
-    ```
-2.  **验证配置**：列出您的服务器并检查新服务器的状态。
-    ```bash
-    ONE_MCP_LOG_LEVEL=debug npx -y @1mcp/agent mcp list
-    npx -y @1mcp/agent mcp status git-main
-    ```
-3.  **根据需要更新**：修改服务器的配置。例如，添加一个标签。
-    ```bash
-    npx -y @1mcp/agent mcp update git-main --tags=source-control,project-a
-    ```
-4.  **管理其生命周期**：如果您需要暂时禁用服务器，可以在不丢失其配置的情况下执行此操作。
-    ```bash
-    npx -y @1mcp/agent mcp disable git-main
-    # ...稍后...
-    npx -y @1mcp/agent mcp enable git-main
-    ```
-5.  **完成后删除**：如果您不再需要该服务器，可以永久删除它。
-    ```bash
-    npx -y @1mcp/agent mcp remove git-main
+    # Search for development servers
+    npx -y @1mcp/agent registry search --category=development
+
+    # Browse all available servers
+    npx -y @1mcp/agent mcp wizard
     ```
 
-## 最佳实践
+2.  **Install Servers**: Install servers with automatic configuration.
 
-### 配置
+    ```bash
+    # Install the filesystem server
+    npx -y @1mcp/agent mcp install filesystem
 
-- **使用描述性名称**：为您的服务器提供清晰、描述性的名称。
-- **使用标签进行组织**：应用一致的标记策略，以轻松筛选和管理您的服务器。常见的标签类别包括环境（`dev`、`prod`）、功能（`database`、`files`）和优先级（`critical`、`optional`）。
-- **设置适当的超时**：根据服务器的预期响应能力配置超时。本地服务器的超时时间可以比远程服务器短。
+    # Install specific version
+    npx -y @1mcp/agent mcp install git@1.2.0
+    ```
 
-### 安全
+3.  **Verify Installation**: Check that servers are properly installed and running.
 
-- **验证服务器来源**：仅添加来自受信任来源的 MCP 服务器。
-- **管理机密**：使用环境变量将 API 密钥等机密传递给您的服务器。避免在配置中对它们进行硬编码。
-- **限制权限**：以最低要求的权限运行 `stdio` 服务器。
+    ```bash
+    npx -y @1mcp/agent mcp list
+    npx -y @1mcp/agent mcp status filesystem
+    ```
+
+4.  **Manage Updates**: Keep servers updated with latest versions.
+
+    ```bash
+    # Check for available updates
+    npx -y @1mcp/agent registry search --updates
+
+    # Update specific server
+    npx -y @1mcp/agent mcp update filesystem
+    ```
+
+5.  **Manage Lifecycle**: Enable, disable, or remove servers as needed.
+
+    ```bash
+    # Temporarily disable
+    npx -y @1mcp/agent mcp disable filesystem
+
+    # Re-enable
+    npx -y @1mcp/agent mcp enable filesystem
+
+    # Remove with backup
+    npx -y @1mcp/agent mcp uninstall filesystem
+    ```
+
+### Manual Configuration Workflow (Advanced)
+
+For custom servers not available in the registry:
+
+1.  **Add Server Manually**: Configure server details manually.
+
+    ```bash
+    npx -y @1mcp/agent mcp add custom-server --type=stdio --command="node server.js"
+    ```
+
+2.  **Configure Settings**: Set server-specific options.
+    ```bash
+    npx -y @1mcp/agent mcp update custom-server --tags=custom,experimental --args="--port=3000"
+    ```
+
+The registry-based approach is recommended for most users, with manual configuration reserved for custom or proprietary servers.
+
+## Best Practices
+
+### Configuration
+
+- **Use Descriptive Names**: Give your servers clear, descriptive names.
+- **Use Tags for Organization**: Apply a consistent tagging strategy to easily filter and manage your servers. Common tag categories include environment (`dev`, `prod`), function (`database`, `files`), and priority (`critical`, `optional`).
+- **Set Appropriate Timeouts**: Configure timeouts based on the expected responsiveness of the server. Local servers can have shorter timeouts than remote ones.
+
+### Security
+
+- **Validate Server Sources**: Only add MCP servers from trusted sources.
+- **Manage Secrets**: Use environment variables to pass secrets like API keys to your servers. Avoid hardcoding them in your configuration.
+- **Limit Permissions**: Run `stdio` servers with the minimum required permissions.

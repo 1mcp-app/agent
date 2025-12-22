@@ -61,6 +61,8 @@ All available command-line options and their corresponding environment variables
 | `--session-persist-interval`    | `ONE_MCP_SESSION_PERSIST_INTERVAL`    | Session persistence interval in minutes (number)                                                |     5      |
 | `--session-background-flush`    | `ONE_MCP_SESSION_BACKGROUND_FLUSH`    | Session background flush interval in seconds (number)                                           |     60     |
 | `--enable-client-notifications` | `ONE_MCP_ENABLE_CLIENT_NOTIFICATIONS` | Enable real-time client notifications (boolean)                                                 |    true    |
+| `--enable-internal-tools`       | `ONE_MCP_ENABLE_INTERNAL_TOOLS`       | Enable ALL MCP internal tools for AI assistants (boolean)                                       |   false    |
+| `--internal-tools`              | `ONE_MCP_INTERNAL_TOOLS`              | Enable specific internal tool categories (discovery,installation,management,safe)               |            |
 | `--health-info-level`           | `ONE_MCP_HEALTH_INFO_LEVEL`           | Health endpoint information detail level ("full", "basic", "minimal")                           | "minimal"  |
 | `--log-level`                   | `ONE_MCP_LOG_LEVEL`                   | Set the log level ("debug", "info", "warn", "error")                                            |   "info"   |
 | `--log-file`                    | `ONE_MCP_LOG_FILE`                    | Write logs to a file in addition to console (disables console logging only for stdio transport) |            |
@@ -265,6 +267,50 @@ npx -y @1mcp/agent --tag-filter "web and api and not test"
 # Environment variables
 ONE_MCP_TAG_FILTER="network+api" npx -y @1mcp/agent
 ```
+
+### Internal Tools Options
+
+Control MCP internal tools exposure for AI assistants.
+
+**`--enable-internal-tools`**
+
+- **Purpose**: Enable ALL MCP internal tools for AI assistants
+- **Default**: `false`
+- **Environment**: `ONE_MCP_ENABLE_INTERNAL_TOOLS`
+
+**`--internal-tools <categories>`**
+
+- **Purpose**: Enable specific internal tool categories
+- **Values**: Comma-separated categories: `discovery,installation,management,safe`
+- **Default**: No categories enabled
+- **Environment**: `ONE_MCP_INTERNAL_TOOLS`
+
+**Categories**:
+
+- `discovery` - Tools for discovering MCP servers (mcp*search, mcp_registry*\*)
+- `installation` - Tools for installing/updating/removing servers (mcp_install, mcp_update, mcp_uninstall)
+- `management` - Tools for managing server lifecycle (mcp_enable, mcp_disable, mcp_list, mcp_status, mcp_reload, mcp_edit)
+- `safe` - Read-only tools only (subset of discovery and management)
+
+**Examples**:
+
+```bash
+# Enable ALL internal tools
+npx -y @1mcp/agent --enable-internal-tools
+
+# Enable only discovery and management tools
+npx -y @1mcp/agent --internal-tools "discovery,management"
+
+# Enable only safe (read-only) tools
+npx -y @1mcp/agent --internal-tools "safe"
+
+# Environment variables
+ONE_MCP_ENABLE_INTERNAL_TOOLS=true npx -y @1mcp/agent
+
+ONE_MCP_INTERNAL_TOOLS="discovery,management" npx -y @1mcp/agent
+```
+
+**Important**: Internal tools are different from CLI commands. CLI commands are for human users, while internal tools are MCP protocol tools that AI assistants can use to automate server management tasks. For detailed information about available internal tools, see the **[Internal Tools Reference](../../reference/internal-tools.md)**.
 
 ### Performance Options
 

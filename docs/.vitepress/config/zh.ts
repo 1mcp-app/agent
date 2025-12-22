@@ -160,6 +160,9 @@ function sidebar(): DefaultTheme.Sidebar {
             text: 'mcp',
             link: '/zh/commands/mcp/',
             items: [
+              { text: 'install', link: '/zh/commands/mcp/install' },
+              { text: 'uninstall', link: '/zh/commands/mcp/uninstall' },
+              { text: 'search', link: '/zh/commands/mcp/search' },
               { text: 'add', link: '/zh/commands/mcp/add' },
               { text: 'remove', link: '/zh/commands/mcp/remove' },
               { text: 'update', link: '/zh/commands/mcp/update' },
@@ -168,6 +171,11 @@ function sidebar(): DefaultTheme.Sidebar {
               { text: 'status', link: '/zh/commands/mcp/status' },
               { text: 'tokens', link: '/zh/commands/mcp/tokens' },
             ],
+          },
+          {
+            text: 'registry',
+            link: '/zh/commands/registry/',
+            items: [{ text: 'search', link: '/zh/commands/registry/search' }],
           },
           {
             text: 'preset',
@@ -214,6 +222,16 @@ function sidebar(): DefaultTheme.Sidebar {
       {
         text: 'API 参考',
         items: [{ text: '健康检查 API', link: '/zh/reference/health-check' }],
+      },
+      {
+        text: '内部工具',
+        link: '/zh/reference/internal-tools/',
+        items: [
+          { text: '概述', link: '/zh/reference/internal-tools/' },
+          { text: '发现工具', link: '/zh/reference/internal-tools/discovery' },
+          { text: '安装工具', link: '/zh/reference/internal-tools/installation' },
+          { text: '管理工具', link: '/zh/reference/internal-tools/management' },
+        ],
       },
       {
         text: '配置',

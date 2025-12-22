@@ -1,0 +1,262 @@
+---
+title: MCP 内部工具参考
+description: 1MCP 内部工具的完整参考文档 - 用于服务器发现、安装和管理的 MCP 协议工具
+head:
+  - ['meta', { name: 'keywords', content: 'MCP 内部工具,协议工具,AI 助手,服务器管理,自动化' }]
+  - ['meta', { property: 'og:title', content: 'MCP 内部工具参考 - 1MCP' }]
+  - ['meta', { property: 'og:description', content: '1MCP 内部工具的完整参考文档，用于 AI 助手的程序化服务器管理' }]
+---
+
+# MCP 内部工具
+
+MCP 内部工具是通过 Model Context Protocol 暴露给 AI 助手的工具，使其能够以编程方式发现、安装、管理和与 MCP 服务器交互。这些工具通过 MCP 协议提供，为服务器生命周期管理提供全面的自动化能力。
+
+与供人类使用的 CLI 命令不同，内部工具专为 AI 助手集成和自动化工作流设计。
+
+## 概述
+
+内部工具按功能领域分为三类：
+
+- **[发现工具](./internal-tools/discovery)** - 搜索注册表并发现 MCP 服务器
+- **[安装工具](./internal-tools/installation)** - 安装、更新和移除 MCP 服务器
+- **[管理工具](./internal-tools/management)** - 控制服务器操作状态和配置
+
+## 工具类别
+
+### 发现工具
+
+使 AI 助手能够从各种注册表和来源搜索和发现 MCP 服务器。
+
+- **`mcp_search`** - 在 MCP 注册表中搜索服务器
+- **`mcp_registry_status`** - 检查注册表可用性和健康状况
+- **`mcp_registry_info`** - 获取详细的注册表信息
+- **`mcp_registry_list`** - 列出可用的注册表
+- **`mcp_info`** - 获取详细的服务器信息
+
+### 安装工具
+
+提供完整的 MCP 服务器生命周期管理：
+
+- **`mcp_install`** - 从注册表或自定义源安装 MCP 服务器
+- **`mcp_uninstall`** - 移除 MCP 服务器，支持备份和回滚
+- **`mcp_update`** - 将 MCP 服务器更新到最新版本或指定版本
+
+### 管理工具
+
+提供对 MCP 服务器的操作控制：
+
+- **`mcp_enable`** - 启用已禁用的 MCP 服务器
+- **`mcp_disable`** - 禁用 MCP 服务器而不移除
+- **`mcp_list`** - 列出 MCP 服务器，支持过滤和状态信息
+- **`mcp_status`** - 获取详细的服务器状态和健康信息
+- **`mcp_reload`** - 重新加载服务器配置或重启服务器
+- **`mcp_edit`** - 编辑 MCP 服务器配置
+
+## 示例用法
+
+### AI 助手工作流程
+
+以下是 AI 助手如何使用这些内部工具来帮助用户：
+
+#### 示例 1：设置开发环境
+
+```json
+// 用户："我需要使用 PostgreSQL 数据库和 Git 仓库"
+
+[
+  {
+    "tool": "mcp_search",
+    "arguments": {
+      "query": "postgresql database"
+    }
+  },
+  {
+    "tool": "mcp_search",
+    "arguments": {
+      "query": "git repository"
+    }
+  },
+  {
+    "tool": "mcp_install",
+    "arguments": {
+      "serverName": "postgres",
+      "version": "2.0.1"
+    }
+  },
+  {
+    "tool": "mcp_install",
+    "arguments": {
+      "serverName": "git",
+      "version": "3.1.0"
+    }
+  },
+  {
+    "tool": "mcp_list",
+    "arguments": {
+      "filter": "enabled"
+    }
+  }
+]
+```
+
+#### 示例 2：服务器健康监控
+
+```json
+// AI 助手执行例行健康检查
+
+[
+  {
+    "tool": "mcp_list",
+    "arguments": {}
+  },
+  {
+    "tool": "mcp_status",
+    "arguments": {
+      "serverName": "filesystem"
+    }
+  },
+  {
+    "tool": "mcp_registry_status",
+    "arguments": {}
+  }
+]
+```
+
+### 程序化集成
+
+#### 示例 3：CI/CD 流水线集成
+
+```bash
+# 使用 1MCP 内部工具通过 API 的部署脚本
+#!/bin/bash
+
+# 为项目安装所需的 MCP 服务器
+echo "正在安装 MCP 服务器..."
+
+curl -X POST http://localhost:3050/mcp \
+  -H "Content-Type: application/json" \
+  -d '{
+    "tool": "mcp_install",
+    "arguments": {
+      "serverName": "project-dependencies",
+      "version": "latest"
+    }
+  }'
+
+# 验证安装
+curl -X POST http://localhost:3050/mcp \
+  -H "Content-Type: application/json" \
+  -d '{
+    "tool": "mcp_list",
+    "arguments": {
+      "filter": "enabled"
+    }
+  }'
+```
+
+#### 示例 4：基础设施即代码
+
+```json
+{
+  "mcp_servers": [
+    {
+      "tool": "mcp_install",
+      "arguments": {
+        "serverName": "redis-cache",
+        "version": "1.2.1",
+        "config": {
+          "host": "localhost",
+          "port": 6379
+        }
+      }
+    },
+    {
+      "tool": "mcp_install",
+      "arguments": {
+        "serverName": "file-storage",
+        "version": "2.0.0",
+        "config": {
+          "rootPath": "/data/storage"
+        }
+      }
+    }
+  ]
+}
+```
+
+## 使用场景
+
+### AI 助手自动化
+
+AI 助手可以使用这些工具自动：
+
+- **发现相关服务器** 用于特定任务或领域
+- **安装所需服务器** 基于用户需求或项目要求
+- **管理服务器生命周期** 包括更新、健康监控和故障排除
+- **编排复杂工作流** 涉及多个 MCP 服务器
+
+### 程序化服务器管理
+
+开发者可以将这些工具集成到：
+
+- **CI/CD 流水线** 用于自动 MCP 服务器部署
+- **基础设施即代码** 解决方案用于服务器配置
+- **监控系统** 用于服务器健康和性能跟踪
+- **自动化测试** 框架用于 MCP 服务器验证
+
+### 动态配置
+
+工具支持动态服务器管理场景：
+
+- **按需安装服务器** 基于用户需求
+- **优雅服务器更新** 支持回滚能力
+- **基于健康的故障转移** 和恢复
+- **环境间的配置同步**
+
+## 关键特性
+
+### 全面的 API 覆盖
+
+所有内部工具提供完整的输入/输出架构：
+
+- **类型化参数** 带有验证和约束
+- **结构化输出** 保持一致的数据格式
+- **错误处理** 提供详细的错误信息
+- **进度反馈** 用于长时间运行的操作
+
+### 安全操作
+
+内部工具优先考虑安全性和可靠性：
+
+- **备份和恢复** 支持破坏性操作
+- **依赖验证** 防止破坏性更改
+- **回滚支持** 用于失败的操作
+- **操作前后健康检查**
+
+### 集成友好
+
+专为 AI 助手集成设计：
+
+- **语义化命名** 遵循 MCP 约定
+- **描述性错误消息** 用于故障排除
+- **进度指示器** 提供用户反馈
+- **交叉引用** 相关操作
+
+## API 参考
+
+详细的 API 文档包括架构、参数和示例：
+
+- **[发现工具](./internal-tools/discovery)** - 发现域工具和工作流
+- **[安装工具](./internal-tools/installation)** - 安装域工具和安全功能
+- **[管理工具](./internal-tools/management)** - 管理域工具和操作控制
+
+## 入门指南
+
+AI 助手通常在连接到 1MCP 实例时通过 MCP 协议访问这些工具。工具根据服务器的能力和配置自动可用。
+
+对于 CLI 用户，许多这些功能也可通过 [1MCP 命令](../commands/) 获得，提供用户友好的相同操作界面。
+
+## 另请参阅
+
+- [服务器管理指南](../guide/essentials/server-management) - 手动服务器管理
+- [MCP 命令参考](../commands/mcp/) - CLI 服务器管理命令

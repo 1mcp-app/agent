@@ -1,0 +1,377 @@
+# 1MCP Agent - Complete Documentation
+
+> 1MCP is a Model Context Protocol proxy that aggregates capabilities from multiple MCP servers into a unified interface, enabling AI assistants to connect to multiple tools and services through a single connection. This comprehensive documentation covers installation, configuration, server management, security, and advanced deployment scenarios.
+
+## Overview
+
+1MCP Agent serves as a centralized proxy for Model Context Protocol (MCP) servers, allowing AI assistants to seamlessly connect to multiple tools, databases, and services through a single connection point. It supports both HTTP/SSE and STDIO transports, provides comprehensive server management capabilities, and includes advanced features like server filtering, preset management, and health monitoring.
+
+## Getting Started
+
+### Installation Options
+
+#### Binary Installation
+Download the latest release from GitHub releases and add to your system PATH.
+
+#### NPM Installation
+```bash
+npm install -g @1mcp/agent
+```
+
+#### Development Setup
+```bash
+git clone https://github.com/1mcp-app/agent.git
+cd agent
+pnpm install
+pnpm build
+```
+
+### Quick Start Configuration
+
+Create a basic configuration file to add MCP servers:
+```bash
+1mcp mcp add filesystem -- npx -y @modelcontextprotocol/server-filesystem /tmp
+```
+
+Start the proxy server:
+```bash
+1mcp serve --port 3051
+```
+
+## Core Features
+
+### Server Management
+
+#### Adding Servers
+```bash
+# Add MCP servers from the registry
+1mcp mcp add filesystem
+1mcp mcp add database
+
+# Add custom servers with commands
+1mcp mcp add custom-server -- npx -y @your/custom-server
+```
+
+#### Server Operations
+- **Add/Remove**: Dynamically add or remove MCP servers
+- **Enable/Disable**: Temporarily enable or disable servers without removing configuration
+- **Install/Uninstall**: Install packages from the MCP registry or uninstall them
+- **Update**: Update servers to latest versions
+- **Status**: Check server health and connectivity status
+
+#### Server Configuration
+- **Command-based servers**: Execute external processes with custom commands
+- **Registry-based servers**: Install and manage from MCP registry
+- **Tag-based filtering**: Organize servers with tags for selective access
+- **Environment variables**: Configure server-specific environment settings
+
+### Application Management
+
+#### Backup and Restore
+```bash
+# Backup current configuration
+1mcp app backup /path/to/backup.json
+
+# Restore from backup
+1mcp app restore /path/to/backup.json
+```
+
+#### Consolidation
+- **App Discovery**: Automatically discover and consolidate MCP applications
+- **Configuration Merging**: Merge multiple configurations into unified setup
+
+### Preset Management
+
+#### Configuration Presets
+```bash
+# Create new preset
+1mcp preset create development
+
+# Edit preset configuration
+1mcp preset edit development
+
+# Test preset configuration
+1mcp preset test development
+
+# Select active preset
+1mcp preset select development
+```
+
+#### Preset Features
+- **Environment-specific configurations**: Separate presets for development, staging, production
+- **Server groups**: Organize servers into logical groups
+- **Configuration testing**: Validate preset configurations before deployment
+
+### Registry Integration
+
+#### MCP Registry
+```bash
+# Search available MCP servers
+1mcp registry search filesystem
+1mcp registry search database
+
+# Install from registry
+1mcp mcp install @modelcontextprotocol/server-filesystem
+```
+
+## CLI Commands Reference
+
+### MCP Commands
+
+#### Server Management
+- `1mcp mcp add <name> [command]`: Add new MCP server
+- `1mcp mcp remove <name>`: Remove configured server
+- `1mcp mcp list`: List all configured servers
+- `1mcp mcp status [name]`: Check server status and health
+- `1mcp mcp enable <name>`: Enable a disabled server
+- `1mcp mcp disable <name>`: Disable a server temporarily
+
+#### Package Management
+- `1mcp mcp install <package>`: Install package from MCP registry
+- `1mcp mcp uninstall <name>`: Uninstall and remove server
+- `1mcp mcp update <name>`: Update server to latest version
+- `1mcp mcp search <query>`: Search MCP registry
+
+### App Commands
+
+#### Configuration Management
+- `1mcp app backup <path>`: Backup current configuration
+- `1mcp app restore <path>`: Restore configuration from backup
+- `1mcp app status`: Show application status and information
+
+#### Discovery and Consolidation
+- `1mcp app discover <path>`: Discover MCP applications in directory
+- `1mcp app consolidate`: Consolidate discovered applications
+- `1mcp app list`: List discovered applications
+
+### Preset Commands
+
+#### Preset Management
+- `1mcp preset create <name>`: Create new configuration preset
+- `1mcp preset delete <name>`: Delete existing preset
+- `1mcp preset edit <name>`: Edit preset configuration
+- `1mcp preset list`: List all available presets
+- `1mcp preset select <name>`: Select active preset
+- `1mcp preset show [name]`: Show preset details
+- `1mcp preset test <name>`: Test preset configuration
+
+### Registry Commands
+
+#### Registry Operations
+- `1mcp registry search <query>`: Search MCP registry for servers
+- `1mcp registry info <package>`: Get detailed package information
+
+### Serve and Proxy Commands
+
+#### Server Operations
+- `1mcp serve`: Start HTTP proxy server
+- `1mcp serve --port <port>`: Specify custom port
+- `1mcp serve --host <host>`: Bind to specific host
+- `1mcp proxy`: Start in proxy mode
+
+## Advanced Configuration
+
+### Configuration Structure
+
+#### Global Configuration
+Configuration is stored in JSON format with the following main sections:
+- **servers**: MCP server configurations
+- **proxy**: HTTP proxy settings
+- **logging**: Log configuration
+- **auth**: Authentication settings
+
+#### Server Configuration
+Each server configuration includes:
+- **command**: Server execution command
+- **args**: Command arguments
+- **env**: Environment variables
+- **tags**: Server tags for filtering
+- **disabled**: Enable/disable flag
+
+### Environment Variables
+
+#### Core Configuration
+- `ONE_MCP_CONFIG_DIR`: Configuration directory path
+- `ONE_MCP_LOG_LEVEL`: Logging level (debug, info, warn, error)
+- `ONE_MCP_PORT`: Default server port (default: 3051)
+- `ONE_MCP_HOST`: Default server host (default: localhost)
+
+#### Development Variables
+- `ONE_MCP_LOG_FILE`: Log file path
+- `ONE_MCP_ENABLE_AUTH`: Enable authentication
+- `ONE_MCP_ENABLE_ASYNC_LOADING`: Enable async server loading
+
+### Performance Optimization
+
+#### Server Loading
+- **Async Loading**: Orchestrate slow-starting servers gracefully
+- **Health Monitoring**: Continuous server health checks
+- **Connection Management**: Efficient connection pooling and reuse
+
+#### Resource Management
+- **Memory Optimization**: Streaming for large responses
+- **Process Management**: Proper cleanup of child processes
+- **Resource Monitoring**: Track resource usage and limits
+
+### Developer Tools
+- **IDE Integration**: Support for various development environments
+- **HTTP Transport**: Web-based client connections
+- **Tag-based Access**: Filter servers based on client requirements
+- **Real-time Updates**: Dynamic capability updates
+
+## Architecture
+
+### System Components
+
+#### Core Components
+- **ServerManager**: MCP server lifecycle management and health monitoring
+- **TransportFactory**: Protocol-specific transport creation (HTTP, STDIO)
+- **CapabilitiesManager**: Dynamic capability aggregation across servers
+- **McpConfigManager**: Configuration management with hot-reload support
+
+#### Transport Layer
+- **HTTP/SSE Transport**: Multi-client support via Server-Sent Events
+- **STDIO Transport**: Direct MCP protocol communication
+- **Connection Management**: Connection pooling and multiplexing
+
+### Design Patterns
+
+#### Singleton Pattern
+- **ServerManager**: Centralized server instance management
+- **McpConfigManager**: Global configuration management
+- **AgentConfigManager**: Application-wide settings
+
+#### Factory Pattern
+- **TransportFactory**: Protocol-specific transport instantiation
+- **Configuration Parser**: Format-specific configuration parsing
+
+## Security Features
+
+### Access Control
+- **Tag-based Filtering**: Control server access based on client tags
+- **Scope-based Authorization**: Fine-grained permission control
+- **Environment Variable Protection**: Secure handling of sensitive environment data
+
+### Configuration Security
+- **Validation**: Schema-based configuration validation
+- **Hot Reload Security**: Safe configuration updates without service interruption
+- **Process Isolation**: Isolated server processes for security
+
+## Deployment
+
+### Development Environment
+```bash
+# Start development server with hot reload
+pnpm dev
+
+# Run tests
+pnpm test
+
+# Build for production
+pnpm build
+```
+
+### Production Deployment
+
+#### Docker Deployment
+```dockerfile
+FROM node:22-alpine
+WORKDIR /app
+COPY package*.json ./
+RUN npm install -g @1mcp/agent
+EXPOSE 3051
+CMD ["1mcp", "serve", "--port", "3051"]
+```
+
+#### Service Configuration
+- **Process Management**: Use PM2 or similar for process management
+- **Reverse Proxy**: Nginx or Apache reverse proxy configuration
+- **SSL/TLS**: HTTPS termination for secure connections
+- **Monitoring**: Health check endpoints and logging
+
+## Monitoring and Observability
+
+### Health Monitoring
+- **Health Endpoints**: Built-in health check endpoints
+- **Server Status**: Real-time server connectivity monitoring
+- **Performance Metrics**: Resource usage and response times
+
+### Logging
+- **Structured Logging**: Winston-based logging with metadata
+- **Log Levels**: Configurable log levels (debug, info, warn, error)
+- **Conditional Logging**: Performance-optimized conditional logging
+- **Log Rotation**: Automatic log file rotation and archival
+
+## Troubleshooting
+
+### Common Issues
+
+#### Connection Problems
+- Server startup failures and configuration errors
+- Network connectivity and firewall issues
+- Port conflicts and binding problems
+
+#### Configuration Issues
+- Invalid JSON syntax and missing required fields
+- Environment variable conflicts and file permissions
+- Server command and argument configuration errors
+
+### Debug Tools
+
+#### Built-in Diagnostics
+- **Status Commands**: `1mcp app status`, `1mcp mcp status`
+- **Configuration Validation**: Check configuration syntax and validity
+- **Health Checks**: Verify server connectivity and responsiveness
+
+#### Debug Logging
+```bash
+# Enable debug logging
+ONE_MCP_LOG_LEVEL=debug 1mcp serve
+
+# Log to specific file
+ONE_MCP_LOG_FILE=./debug.log 1mcp serve
+```
+
+## Reference Documentation
+
+### Technical References
+- **Architecture**: Detailed system design and component interaction
+- **Security**: Security implementation details and best practices
+- **Internal Tools**: Discovery, installation, and management tools
+- **Health Check**: Health monitoring endpoint documentation
+- **MCP Servers**: MCP server configuration and management
+- **Feature Comparison**: Version differences and capability comparisons
+
+### Configuration Reference
+- **Core Features**: Detailed feature documentation
+- **Essentials**: Core configuration and management
+- **Advanced Topics**: Enterprise, performance, and security configurations
+- **Integration Guides**: Client integration and setup instructions
+
+## Contributing
+
+### Development Workflow
+1. Fork the repository
+2. Create feature branch from main
+3. Implement changes with comprehensive tests
+4. Update documentation as needed
+5. Submit pull request for review
+
+### Code Quality Standards
+- **TypeScript**: Strict type safety and comprehensive type definitions
+- **Testing**: High test coverage with unit and integration tests
+- **Code Style**: ESLint and Prettier for consistent formatting
+- **Documentation**: Comprehensive API documentation and examples
+
+## Support and Community
+
+### Getting Help
+- **GitHub Issues**: Report bugs and request features
+- **Documentation**: Comprehensive guides and reference documentation
+- **Community**: Discussion forums and community support
+
+### Resources
+- **Repository**: https://github.com/1mcp-app/agent
+- **Documentation**: https://docs.1mcp.app
+- **MCP Specification**: Model Context Protocol documentation
+- **Registry**: MCP server registry and ecosystem
