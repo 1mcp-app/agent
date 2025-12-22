@@ -182,6 +182,118 @@ describe('ConfigManager Template Integration', () => {
       expect(result.errors).toEqual([]);
     });
 
+    it('should substitute client information template variables', async () => {
+      const config = {
+        mcpServers: {
+          filesystem: {
+            command: 'npx',
+            args: ['-y', '@modelcontextprotocol/server-filesystem', '/tmp'],
+            env: {},
+            tags: ['filesystem'],
+          },
+        },
+        mcpTemplates: {
+          'client-aware-server': {
+            command: 'node',
+            args: ['{{project.path}}/servers/client-aware.js'],
+            cwd: '{{project.path}}',
+            env: {
+              PROJECT_NAME: '{{project.name}}',
+              CLIENT_NAME: '{{transport.client.name}}',
+              CLIENT_VERSION: '{{transport.client.version}}',
+              CLIENT_TITLE: '{{transport.client.title}}',
+              TRANSPORT_TYPE: '{{transport.type}}',
+              CONNECTION_TIME: '{{transport.connectionTimestamp}}',
+              IS_CLAUDE_CODE: '{{#if (eq transport.client.name "claude-code")}}true{{else}}false{{/if}}',
+              CLIENT_INFO_AVAILABLE: '{{#if transport.client}}true{{else}}false{{/if}}',
+            } as Record<string, string>,
+            tags: ['client-aware'],
+          },
+        },
+      };
+
+      await fsPromises.writeFile(configFilePath, JSON.stringify(config, null, 2));
+      configManager = ConfigManager.getInstance(configFilePath);
+      await configManager.initialize();
+
+      // Mock context with client information
+      const mockContextWithClient = {
+        ...mockContext,
+        transport: {
+          type: 'stdio-proxy',
+          connectionTimestamp: '2024-01-15T10:35:00Z',
+          client: {
+            name: 'claude-code',
+            version: '1.0.0',
+            title: 'Claude Code',
+          },
+        },
+      };
+
+      const result = await configManager.loadConfigWithTemplates(mockContextWithClient);
+
+      // Verify client information is substituted correctly
+      expect(result.templateServers).toHaveProperty('client-aware-server');
+      const clientAwareServer = result.templateServers['client-aware-server'];
+
+      expect(clientAwareServer.args).toContain('/path/to/project/servers/client-aware.js'); // {{project.path}} replaced
+      expect(clientAwareServer.cwd).toBe('/path/to/project'); // {{project.path}} replaced
+      expect((clientAwareServer.env as Record<string, string>)?.PROJECT_NAME).toBe('test-project'); // {{project.name}} replaced
+      expect((clientAwareServer.env as Record<string, string>)?.CLIENT_NAME).toBe('claude-code'); // {{transport.client.name}} replaced
+      expect((clientAwareServer.env as Record<string, string>)?.CLIENT_VERSION).toBe('1.0.0'); // {{transport.client.version}} replaced
+      expect((clientAwareServer.env as Record<string, string>)?.CLIENT_TITLE).toBe('Claude Code'); // {{transport.client.title}} replaced
+      expect((clientAwareServer.env as Record<string, string>)?.TRANSPORT_TYPE).toBe('stdio-proxy'); // {{transport.type}} replaced
+      expect((clientAwareServer.env as Record<string, string>)?.CONNECTION_TIME).toBe('2024-01-15T10:35:00Z'); // {{transport.connectionTimestamp}} replaced
+      expect((clientAwareServer.env as Record<string, string>)?.IS_CLAUDE_CODE).toBe('true'); // Handlebars conditional
+      expect((clientAwareServer.env as Record<string, string>)?.CLIENT_INFO_AVAILABLE).toBe('true'); // Handlebars conditional
+
+      expect(result.errors).toEqual([]);
+    });
+
+    it('should handle missing client information gracefully', async () => {
+      const config = {
+        mcpServers: {
+          filesystem: {
+            command: 'npx',
+            args: ['-y', '@modelcontextprotocol/server-filesystem', '/tmp'],
+            env: {},
+            tags: ['filesystem'],
+          },
+        },
+        mcpTemplates: {
+          'fallback-server': {
+            command: 'node',
+            args: ['{{project.path}}/servers/fallback.js'],
+            env: {
+              PROJECT_NAME: '{{project.name}}',
+              CLIENT_NAME: '{{transport.client.name}}',
+              CLIENT_TITLE: '{{transport.client.title}}',
+              CLIENT_INFO_AVAILABLE: '{{#if transport.client}}true{{else}}false{{/if}}',
+            } as Record<string, string>,
+            tags: ['fallback'],
+          },
+        },
+      };
+
+      await fsPromises.writeFile(configFilePath, JSON.stringify(config, null, 2));
+      configManager = ConfigManager.getInstance(configFilePath);
+      await configManager.initialize();
+
+      // Mock context without client information
+      const result = await configManager.loadConfigWithTemplates(mockContext);
+
+      // Verify missing client information is handled gracefully
+      expect(result.templateServers).toHaveProperty('fallback-server');
+      const fallbackServer = result.templateServers['fallback-server'];
+
+      expect((fallbackServer.env as Record<string, string>)?.PROJECT_NAME).toBe('test-project'); // {{project.name}} replaced
+      expect((fallbackServer.env as Record<string, string>)?.CLIENT_NAME).toBe(''); // Empty when transport.client is missing
+      expect((fallbackServer.env as Record<string, string>)?.CLIENT_TITLE).toBe(''); // Empty when transport.client is missing
+      expect((fallbackServer.env as Record<string, string>)?.CLIENT_INFO_AVAILABLE).toBe('false'); // Handlebars conditional for missing client
+
+      expect(result.errors).toEqual([]);
+    });
+
     it('should return empty template servers when no context is provided', async () => {
       const config = {
         mcpServers: {

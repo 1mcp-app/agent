@@ -99,7 +99,7 @@ describe('StdioProxyTransport', () => {
   });
 
   describe('message forwarding', () => {
-    it('should forward messages from STDIO to HTTP', async () => {
+    it('should forward messages from STDIO to HTTP with _meta field', async () => {
       proxy = new StdioProxyTransport({
         serverUrl: 'http://localhost:3050/mcp',
       });
@@ -116,8 +116,31 @@ describe('StdioProxyTransport', () => {
       // Simulate STDIO message
       await proxy['stdioTransport'].onmessage!(message);
 
-      // Verify forwarded to HTTP transport
-      expect(proxy['httpTransport'].send).toHaveBeenCalledWith(message);
+      // Verify forwarded message has _meta field with context
+      const expectedMessage = expect.objectContaining({
+        jsonrpc: '2.0',
+        method: 'initialize',
+        id: 1,
+        params: expect.objectContaining({
+          _meta: expect.objectContaining({
+            context: expect.objectContaining({
+              project: expect.objectContaining({
+                path: expect.any(String),
+                name: expect.any(String),
+              }),
+              user: expect.objectContaining({
+                username: expect.any(String),
+              }),
+              environment: expect.objectContaining({
+                variables: expect.any(Object),
+              }),
+              sessionId: expect.any(String),
+            }),
+          }),
+        }),
+      });
+
+      expect(proxy['httpTransport'].send).toHaveBeenCalledWith(expectedMessage);
     });
 
     it('should forward messages from HTTP to STDIO', async () => {
@@ -313,6 +336,146 @@ describe('StdioProxyTransport', () => {
 
       // Should not throw
       expect(() => proxy['httpTransport'].onerror!(error)).not.toThrow();
+    });
+  });
+
+  describe('client information extraction and headers', () => {
+    it('should extract client info from initialize request and update context', async () => {
+      proxy = new StdioProxyTransport({
+        serverUrl: 'http://localhost:3050/mcp',
+      });
+
+      await proxy.start();
+
+      const initializeMessage: JSONRPCMessage = {
+        jsonrpc: '2.0',
+        id: 1,
+        method: 'initialize',
+        params: {
+          protocolVersion: '2025-06-18',
+          capabilities: { roots: { listChanged: true } },
+          clientInfo: {
+            name: 'claude-code',
+            version: '1.0.0',
+            title: 'Claude Code',
+          },
+        },
+      };
+
+      // Simulate initialize request processing
+      if (proxy['stdioTransport'].onmessage) {
+        await proxy['stdioTransport'].onmessage!(initializeMessage);
+      }
+
+      // Verify client info was extracted
+      expect(proxy['clientInfo']).toEqual({
+        name: 'claude-code',
+        version: '1.0.0',
+        title: 'Claude Code',
+      });
+      expect(proxy['initializeIntercepted']).toBe(true);
+
+      // Verify the message was forwarded with client info in _meta
+      const expectedEnhancedMessage = expect.objectContaining({
+        jsonrpc: '2.0',
+        id: 1,
+        method: 'initialize',
+        params: expect.objectContaining({
+          protocolVersion: '2025-06-18',
+          capabilities: { roots: { listChanged: true } },
+          clientInfo: {
+            name: 'claude-code',
+            version: '1.0.0',
+            title: 'Claude Code',
+          },
+          _meta: expect.objectContaining({
+            context: expect.objectContaining({
+              project: expect.objectContaining({
+                path: expect.any(String),
+                name: expect.any(String),
+              }),
+              user: expect.objectContaining({
+                username: expect.any(String),
+              }),
+              environment: expect.objectContaining({
+                variables: expect.any(Object),
+              }),
+              sessionId: expect.any(String),
+              transport: expect.objectContaining({
+                type: 'stdio-proxy',
+                client: {
+                  name: 'claude-code',
+                  version: '1.0.0',
+                  title: 'Claude Code',
+                },
+                connectionTimestamp: expect.any(String),
+              }),
+            }),
+          }),
+        }),
+      });
+
+      expect(proxy['httpTransport'].send).toHaveBeenCalledWith(expectedEnhancedMessage);
+    });
+
+    it('should handle client info without title gracefully', async () => {
+      proxy = new StdioProxyTransport({
+        serverUrl: 'http://localhost:3050/mcp',
+      });
+
+      await proxy.start();
+
+      const initializeMessage: JSONRPCMessage = {
+        jsonrpc: '2.0',
+        id: 1,
+        method: 'initialize',
+        params: {
+          protocolVersion: '2025-06-18',
+          capabilities: {},
+          clientInfo: {
+            name: 'cursor',
+            version: '0.28.3',
+            // No title field
+          },
+        },
+      };
+
+      // Simulate initialize request processing
+      if (proxy['stdioTransport'].onmessage) {
+        await proxy['stdioTransport'].onmessage!(initializeMessage);
+      }
+
+      // Verify client info was extracted without title
+      expect(proxy['clientInfo']).toEqual({
+        name: 'cursor',
+        version: '0.28.3',
+        title: undefined,
+      });
+      expect(proxy['initializeIntercepted']).toBe(true);
+    });
+
+    it('should not extract client info from non-initialize requests', async () => {
+      proxy = new StdioProxyTransport({
+        serverUrl: 'http://localhost:3050/mcp',
+      });
+
+      await proxy.start();
+
+      const nonInitializeMessage: JSONRPCMessage = {
+        jsonrpc: '2.0',
+        id: 1,
+        method: 'tools/list',
+        params: {},
+      };
+
+      // Simulate non-initialize request processing
+      if (proxy['stdioTransport'].onmessage) {
+        await proxy['stdioTransport'].onmessage!(nonInitializeMessage);
+      }
+
+      // Verify no client info was extracted
+      const context = proxy['context'];
+      expect(context.transport?.client).toBeUndefined();
     });
   });
 });

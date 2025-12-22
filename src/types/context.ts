@@ -44,6 +44,18 @@ export interface EnvironmentContext {
 }
 
 /**
+ * Client information from MCP initialize request
+ */
+export interface ClientInfo {
+  /** Name of the AI client application (e.g., "claude-code", "cursor", "vscode") */
+  name: string;
+  /** Version of the AI client application */
+  version: string;
+  /** Optional human-readable display name */
+  title?: string;
+}
+
+/**
  * Complete context data
  */
 export interface ContextData {
@@ -58,6 +70,8 @@ export interface ContextData {
     url?: string;
     connectionId?: string;
     connectionTimestamp?: string;
+    /** Client information extracted from MCP initialize request */
+    client?: ClientInfo;
   };
 }
 
@@ -102,6 +116,11 @@ export interface TemplateContext {
     url?: string;
     connectionId?: string;
     connectionTimestamp?: string;
+    client?: {
+      name: string;
+      version: string;
+      title?: string;
+    };
   };
 }
 

@@ -1,7 +1,7 @@
 import { Request } from 'express';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { extractContextFromHeadersOrQuery } from './contextExtractor.js';
+import { extractContextFromMeta } from './contextExtractor.js';
 
 // Mock logger to avoid console output during tests
 vi.mock('@src/logger/logger.js', () => ({
@@ -27,225 +27,196 @@ describe('contextExtractor', () => {
     vi.clearAllMocks();
   });
 
-  describe('extractContextFromHeadersOrQuery - Individual Headers Support', () => {
-    it('should extract context from individual X-Context-* headers', () => {
-      mockRequest.headers = {
-        'x-context-project-name': 'test-project',
-        'x-context-project-path': '/Users/x/workplace/project',
-        'x-context-user-name': 'Test User',
-        'x-context-user-email': 'test@example.com',
-        'x-context-environment-name': 'development',
-        'x-context-session-id': 'session-123',
-        'x-context-timestamp': '2024-01-01T00:00:00Z',
-        'x-context-version': 'v1.0.0',
+  describe('extractContextFromMeta - _meta field support', () => {
+    it('should extract context from _meta field in request body', () => {
+      mockRequest.body = {
+        jsonrpc: '2.0',
+        method: 'initialize',
+        params: {
+          _meta: {
+            context: {
+              project: {
+                path: '/Users/x/workplace/project',
+                name: 'test-project',
+                environment: 'development',
+              },
+              user: {
+                username: 'testuser',
+                home: '/Users/testuser',
+              },
+              environment: {
+                variables: {
+                  NODE_VERSION: 'v20.0.0',
+                  PLATFORM: 'darwin',
+                  PWD: '/Users/x/workplace/project',
+                },
+              },
+              timestamp: '2024-01-01T00:00:00Z',
+              version: 'v1.0.0',
+              sessionId: 'session-123',
+              transport: {
+                type: 'stdio-proxy',
+                connectionTimestamp: '2024-01-01T00:00:00Z',
+                client: {
+                  name: 'claude-code',
+                  version: '1.0.0',
+                  title: 'Claude Code',
+                },
+              },
+            },
+          },
+        },
       };
 
-      const context = extractContextFromHeadersOrQuery(mockRequest as Request);
+      const context = extractContextFromMeta(mockRequest as Request);
 
       expect(context).toEqual({
         project: {
           path: '/Users/x/workplace/project',
           name: 'test-project',
+          environment: 'development',
         },
         user: {
-          name: 'Test User',
-          email: 'test@example.com',
+          username: 'testuser',
+          home: '/Users/testuser',
         },
         environment: {
           variables: {
-            name: 'development',
+            NODE_VERSION: 'v20.0.0',
+            PLATFORM: 'darwin',
+            PWD: '/Users/x/workplace/project',
           },
         },
-        sessionId: 'session-123',
         timestamp: '2024-01-01T00:00:00Z',
         version: 'v1.0.0',
-      });
-    });
-
-    it('should return null when required headers are missing', () => {
-      mockRequest.headers = {
-        'x-context-project-name': 'test-project',
-        // Missing project-path and session-id
-      };
-
-      const context = extractContextFromHeadersOrQuery(mockRequest as Request);
-      expect(context).toBeNull();
-    });
-
-    it('should handle missing optional headers gracefully', () => {
-      mockRequest.headers = {
-        'x-context-project-path': '/Users/x/workplace/project',
-        'x-context-session-id': 'session-123',
-        // Only required headers present
-      };
-
-      const context = extractContextFromHeadersOrQuery(mockRequest as Request);
-
-      expect(context).toEqual({
-        project: {
-          path: '/Users/x/workplace/project',
-        },
-        user: undefined,
-        environment: undefined,
         sessionId: 'session-123',
-      });
-    });
-
-    it('should handle array header values', () => {
-      mockRequest.headers = {
-        'x-context-project-path': ['/Users/x/workplace/project'],
-        'x-context-session-id': ['session-123'],
-      };
-
-      const context = extractContextFromHeadersOrQuery(mockRequest as Request);
-
-      expect(context?.sessionId).toBe('session-123');
-      expect(context?.project?.path).toBe('/Users/x/workplace/project');
-    });
-
-    it('should include environment variables when present', () => {
-      mockRequest.headers = {
-        'x-context-project-path': '/Users/x/workplace/project',
-        'x-context-session-id': 'session-123',
-        'x-context-environment-name': 'development',
-        'x-context-environment-platform': 'node',
-      };
-
-      const context = extractContextFromHeadersOrQuery(mockRequest as Request);
-
-      expect(context?.environment).toEqual({
-        variables: {
-          name: 'development',
-          platform: 'node',
+        transport: {
+          type: 'stdio-proxy',
+          connectionTimestamp: '2024-01-01T00:00:00Z',
+          client: {
+            name: 'claude-code',
+            version: '1.0.0',
+            title: 'Claude Code',
+          },
         },
       });
     });
-  });
 
-  describe('extractContextFromHeadersOrQuery', () => {
-    it('should prioritize query parameters over headers', () => {
-      mockRequest.query = {
-        project_path: '/query/path',
-        project_name: 'query-project',
-        context_session_id: 'query-session',
+    it('should return null when _meta field is missing', () => {
+      mockRequest.body = {
+        jsonrpc: '2.0',
+        method: 'initialize',
+        params: {},
       };
 
-      mockRequest.headers = {
-        'x-context-project-path': '/header/path',
-        'x-context-project-name': 'header-project',
-        'x-context-session-id': 'header-session',
-      };
-
-      const context = extractContextFromHeadersOrQuery(mockRequest as Request);
-
-      // Should use query parameters (higher priority)
-      expect(context?.project?.path).toBe('/query/path');
-      expect(context?.project?.name).toBe('query-project');
-      expect(context?.sessionId).toBe('query-session');
-    });
-
-    it('should fall back to individual headers when no query parameters', () => {
-      mockRequest.headers = {
-        'x-context-project-path': '/header/path',
-        'x-context-project-name': 'header-project',
-        'x-context-session-id': 'header-session',
-      };
-
-      const context = extractContextFromHeadersOrQuery(mockRequest as Request);
-
-      expect(context?.project?.path).toBe('/header/path');
-      expect(context?.project?.name).toBe('header-project');
-      expect(context?.sessionId).toBe('header-session');
-    });
-
-    it('should return null when no context is found', () => {
-      const context = extractContextFromHeadersOrQuery(mockRequest as Request);
+      const context = extractContextFromMeta(mockRequest as Request);
       expect(context).toBeNull();
     });
 
-    it('should fall back to combined headers when no query or individual headers', () => {
-      mockRequest.headers = {
-        'x-1mcp-context': Buffer.from(
-          JSON.stringify({
-            project: { name: 'test-project', path: '/test/path' },
-            user: { name: 'Test User' },
-            environment: { variables: { NODE_ENV: 'development' } },
-            sessionId: 'session-123',
-            timestamp: '2024-01-01T00:00:00Z',
-            version: 'v1.0.0',
-          }),
-        ).toString('base64'),
-        'mcp-session-id': 'session-123',
-        'x-1mcp-context-version': 'v1.0.0',
+    it('should return null when _meta.context field is missing', () => {
+      mockRequest.body = {
+        jsonrpc: '2.0',
+        method: 'initialize',
+        params: {
+          _meta: {
+            otherField: 'value',
+          },
+        },
       };
 
-      const context = extractContextFromHeadersOrQuery(mockRequest as Request);
-
-      expect(context).toEqual({
-        project: { name: 'test-project', path: '/test/path' },
-        user: { name: 'Test User' },
-        environment: { variables: { NODE_ENV: 'development' } },
-        sessionId: 'session-123',
-        timestamp: '2024-01-01T00:00:00Z',
-        version: 'v1.0.0',
-      });
+      const context = extractContextFromMeta(mockRequest as Request);
+      expect(context).toBeNull();
     });
-  });
 
-  describe('integration tests', () => {
-    it('should extract complete context from all available sources', () => {
-      mockRequest.headers = {
-        'x-context-project-name': 'integration-test',
-        'x-context-project-path': '/Users/x/workplace/integration',
-        'x-context-user-name': 'Integration User',
-        'x-context-user-email': 'integration@example.com',
-        'x-context-environment-name': 'test',
-        'x-context-session-id': 'integration-session-456',
-        'x-context-timestamp': '2024-12-16T23:06:00Z',
-        'x-context-version': 'v2.0.0',
+    it('should return null when request body is missing', () => {
+      mockRequest.body = undefined;
+
+      const context = extractContextFromMeta(mockRequest as Request);
+      expect(context).toBeNull();
+    });
+
+    it('should handle malformed _meta context gracefully', () => {
+      mockRequest.body = {
+        jsonrpc: '2.0',
+        method: 'initialize',
+        params: {
+          _meta: {
+            context: {
+              // Missing required fields
+              invalid: 'data',
+            },
+          },
+        },
       };
 
-      const context = extractContextFromHeadersOrQuery(mockRequest as Request);
+      const context = extractContextFromMeta(mockRequest as Request);
+      expect(context).toBeNull();
+    });
 
-      // Verify complete context structure
+    it('should preserve existing _meta fields when extracting context', () => {
+      mockRequest.body = {
+        jsonrpc: '2.0',
+        method: 'tools/call',
+        params: {
+          _meta: {
+            progressToken: 'token-123',
+            context: {
+              project: {
+                path: '/Users/x/workplace/project',
+                name: 'test-project',
+              },
+              user: {
+                username: 'testuser',
+              },
+              environment: {
+                variables: {},
+              },
+              sessionId: 'session-123',
+            },
+          },
+        },
+      };
+
+      const context = extractContextFromMeta(mockRequest as Request);
+
       expect(context).toMatchObject({
         project: {
-          path: '/Users/x/workplace/integration',
-          name: 'integration-test',
+          path: '/Users/x/workplace/project',
+          name: 'test-project',
         },
         user: {
-          name: 'Integration User',
-          email: 'integration@example.com',
+          username: 'testuser',
         },
-        environment: {
-          variables: {
-            name: 'test',
-          },
-        },
-        sessionId: 'integration-session-456',
-        timestamp: '2024-12-16T23:06:00Z',
-        version: 'v2.0.0',
+        sessionId: 'session-123',
       });
     });
+  });
 
-    it('should handle errors gracefully and return null', () => {
-      // Mock a scenario that might cause errors
-      mockRequest = {
-        query: {},
-        headers: {
-          'x-context-project-path': '/valid/path',
-          'x-context-session-id': 'session-123',
-          // Simulate a problematic header value
-          'invalid-header': 'some weird value',
+  describe('client information edge cases and error handling', () => {
+    it('should handle malformed _meta context gracefully', () => {
+      mockRequest.body = {
+        jsonrpc: '2.0',
+        method: 'initialize',
+        params: {
+          _meta: {
+            context: null,
+          },
         },
       };
 
-      // Should not throw and should still extract valid context
-      expect(() => {
-        const context = extractContextFromHeadersOrQuery(mockRequest as Request);
-        expect(context?.project?.path).toBe('/valid/path');
-        expect(context?.sessionId).toBe('session-123');
-      }).not.toThrow();
+      const context = extractContextFromMeta(mockRequest as Request);
+      expect(context).toBeNull();
+    });
+
+    it('should handle missing params in request body', () => {
+      mockRequest.body = {
+        jsonrpc: '2.0',
+        method: 'initialize',
+        // Missing params
+      };
+
+      const context = extractContextFromMeta(mockRequest as Request);
+      expect(context).toBeNull();
     });
   });
 });
