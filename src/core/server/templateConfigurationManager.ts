@@ -14,6 +14,43 @@ export class TemplateConfigurationManager {
   private templateProcessingResetTimeout?: ReturnType<typeof setTimeout>;
 
   /**
+   * Merge server configurations with conflict resolution
+   * Template servers take precedence over static servers with the same name
+   * Static servers with conflicting names are excluded
+   */
+  private mergeServerConfigurations(
+    staticServers: Record<string, MCPServerParams>,
+    templateServers: Record<string, MCPServerParams>,
+  ): Record<string, MCPServerParams> {
+    const merged: Record<string, MCPServerParams> = {};
+    let ignoredStaticCount = 0;
+    const ignoredStaticServers: string[] = [];
+
+    // First, add template servers (these always take precedence)
+    Object.assign(merged, templateServers);
+
+    // Then, add only non-conflicting static servers
+    for (const [serverName, staticConfig] of Object.entries(staticServers)) {
+      if (templateServers[serverName]) {
+        // Conflict detected - ignore static server
+        ignoredStaticCount++;
+        ignoredStaticServers.push(serverName);
+        continue;
+      }
+      // Only add static server if no template server with same name exists
+      merged[serverName] = staticConfig;
+    }
+
+    if (ignoredStaticCount > 0) {
+      logger.warn(
+        `Ignoring ${ignoredStaticCount} static server(s) that conflict with template servers: ${ignoredStaticServers.join(', ')}`,
+      );
+    }
+
+    return merged;
+  }
+
+  /**
    * Reprocess templates when context changes with circuit breaker pattern
    */
   public async reprocessTemplatesWithNewContext(
@@ -30,8 +67,8 @@ export class TemplateConfigurationManager {
       const configManager = ConfigManager.getInstance();
       const { staticServers, templateServers, errors } = await configManager.loadConfigWithTemplates(context);
 
-      // Merge static and template servers
-      const newConfig = { ...staticServers, ...templateServers };
+      // Merge static and template servers with conflict resolution
+      const newConfig = this.mergeServerConfigurations(staticServers, templateServers);
 
       // Call the callback to update servers
       await updateServersCallback(newConfig);
