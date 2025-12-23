@@ -96,29 +96,27 @@ describe('TemplateConfigurationManager', () => {
       expect(mockLogger.warn).not.toHaveBeenCalled();
     });
 
-    it('should ignore static server when conflict exists with template server', () => {
+    it('should merge with template servers overwriting static servers on conflict (spread operator behavior)', () => {
       // Act
       const merged = (templateConfigurationManager as any).mergeServerConfigurations(staticServers, templateServers);
 
-      // Assert
+      // Assert - template servers overwrite static servers with same key (standard spread behavior)
       expect(Object.keys(merged)).toHaveLength(5); // 3 template + 2 non-conflicting static
 
       // Template servers should be included
       expect(merged['template-server-1']).toEqual(templateServers['template-server-1']);
       expect(merged['template-server-2']).toEqual(templateServers['template-server-2']);
-      expect(merged['shared-server']).toEqual(templateServers['shared-server']); // Template takes precedence
+      expect(merged['shared-server']).toEqual(templateServers['shared-server']); // Template overwrites static
 
       // Non-conflicting static servers should be included
       expect(merged['static-server-1']).toEqual(staticServers['static-server-1']);
       expect(merged['static-server-2']).toEqual(staticServers['static-server-2']);
 
-      // Warning should be logged for ignored static server
-      expect(mockLogger.warn).toHaveBeenCalledWith(
-        'Ignoring 1 static server(s) that conflict with template servers: shared-server',
-      );
+      // Note: Conflict detection and warning are now handled by ConfigManager.loadConfigWithTemplates()
+      expect(mockLogger.warn).not.toHaveBeenCalled();
     });
 
-    it('should ignore multiple static servers when multiple conflicts exist', () => {
+    it('should handle multiple conflicts with template overwriting static (spread operator behavior)', () => {
       // Arrange - add more conflicts
       const staticServersWithMoreConflicts = {
         ...staticServers,
@@ -144,7 +142,7 @@ describe('TemplateConfigurationManager', () => {
         templateServersWithMoreConflicts,
       );
 
-      // Assert
+      // Assert - template servers overwrite static servers with same key (standard spread behavior)
       expect(Object.keys(merged)).toHaveLength(6); // 3 original template + 1 new conflicting template + 2 non-conflicting static
 
       // Template servers should be included
@@ -157,10 +155,8 @@ describe('TemplateConfigurationManager', () => {
       expect(merged['static-server-1']).toEqual(staticServers['static-server-1']);
       expect(merged['static-server-2']).toEqual(staticServers['static-server-2']);
 
-      // Warning should be logged for ignored static servers
-      expect(mockLogger.warn).toHaveBeenCalledWith(
-        'Ignoring 2 static server(s) that conflict with template servers: shared-server, another-static',
-      );
+      // Note: Conflict detection and warning are now handled by ConfigManager.loadConfigWithTemplates()
+      expect(mockLogger.warn).not.toHaveBeenCalled();
     });
 
     it('should include only static servers when no template servers exist', () => {
@@ -196,7 +192,7 @@ describe('TemplateConfigurationManager', () => {
       expect(mockLogger.warn).not.toHaveBeenCalled();
     });
 
-    it('should handle deep object equality properly', () => {
+    it('should handle deep object equality properly (spread operator overwrites completely)', () => {
       // Arrange - create complex objects
       const complexStatic = {
         'complex-server': {
@@ -233,12 +229,12 @@ describe('TemplateConfigurationManager', () => {
       // Act
       const merged = (templateConfigurationManager as any).mergeServerConfigurations(complexStatic, complexTemplate);
 
-      // Assert
+      // Assert - template completely overwrites static (standard spread behavior, not deep merge)
       expect(Object.keys(merged)).toHaveLength(1);
-      expect(merged['complex-server']).toEqual(complexTemplate['complex-server']); // Template takes precedence
-      expect(mockLogger.warn).toHaveBeenCalledWith(
-        'Ignoring 1 static server(s) that conflict with template servers: complex-server',
-      );
+      expect(merged['complex-server']).toEqual(complexTemplate['complex-server']); // Template overwrites completely
+
+      // Note: Conflict detection and warning are now handled by ConfigManager.loadConfigWithTemplates()
+      expect(mockLogger.warn).not.toHaveBeenCalled();
     });
   });
 

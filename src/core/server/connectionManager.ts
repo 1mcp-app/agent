@@ -210,12 +210,15 @@ export class ConnectionManager {
     // Create a new server instance for this transport
     const server = new Server(this.serverConfig, serverOptionsWithInstructions);
 
-    // Create server info object first
+    // Create server info object, merging context if provided
     const serverInfo: InboundConnection = {
       server,
       status: ServerStatus.Connecting,
       connectedAt: new Date(),
       ...opts,
+      // Ensure context is properly set from the context parameter if opts.context is missing
+      // This ensures sessionId is available for session-scoped template server filtering
+      context: context ? { ...context, ...opts.context } : opts.context,
     };
 
     // Enhance server with logging middleware

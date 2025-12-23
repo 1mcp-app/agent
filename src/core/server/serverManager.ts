@@ -204,6 +204,8 @@ export class ServerManager {
     if (context) {
       const { templateServers } = await configManager.loadConfigWithTemplates(context);
       this.serverConfigData.mcpTemplates = templateServers;
+      // Note: ConfigManager.loadConfigWithTemplates already handles conflict detection
+      // by filtering out static servers that conflict with template servers
     }
 
     // If we have context, create template-based servers
@@ -260,6 +262,10 @@ export class ServerManager {
 
   public getInboundConnections(): Map<string, InboundConnection> {
     return this.connectionManager.getInboundConnections();
+  }
+
+  public getTemplateServerManager(): TemplateServerManager {
+    return this.templateServerManager;
   }
 
   public updateClientsAndTransports(newClients: OutboundConnections, newTransports: Record<string, Transport>): void {

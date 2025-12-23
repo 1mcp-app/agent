@@ -175,6 +175,10 @@ export class ConfigManager extends EventEmitter {
 
     const configObj = processedConfig as Record<string, unknown>;
     const mcpServersConfig = (configObj.mcpServers as Record<string, unknown>) || {};
+    const mcpTemplatesConfig = (configObj.mcpTemplates as Record<string, unknown>) || {};
+
+    // Get template server names for conflict detection
+    const templateServerNames = new Set(Object.keys(mcpTemplatesConfig));
 
     // Validate each server configuration
     const validatedConfig: Record<string, MCPServerParams> = {};
@@ -190,6 +194,22 @@ export class ConfigManager extends EventEmitter {
         // Skip invalid server configurations
         continue;
       }
+    }
+
+    // Filter out static servers that conflict with template servers
+    // Template servers take precedence
+    const conflictingServers: string[] = [];
+    for (const serverName of Object.keys(validatedConfig)) {
+      if (templateServerNames.has(serverName)) {
+        conflictingServers.push(serverName);
+        delete validatedConfig[serverName];
+      }
+    }
+
+    if (conflictingServers.length > 0) {
+      logger.warn(
+        `Ignoring ${conflictingServers.length} static server(s) that conflict with template servers: ${conflictingServers.join(', ')}`,
+      );
     }
 
     return validatedConfig;
@@ -288,6 +308,22 @@ export class ConfigManager extends EventEmitter {
         // Templates require context to be processed
         templateServers = {};
       }
+    }
+
+    // Filter out static servers that conflict with template servers
+    // Template servers take precedence
+    const conflictingServers: string[] = [];
+    for (const staticServerName of Object.keys(staticServers)) {
+      if (staticServerName in templateServers) {
+        conflictingServers.push(staticServerName);
+        delete staticServers[staticServerName];
+      }
+    }
+
+    if (conflictingServers.length > 0) {
+      logger.warn(
+        `Ignoring ${conflictingServers.length} static server(s) that conflict with template servers: ${conflictingServers.join(', ')}`,
+      );
     }
 
     return { staticServers, templateServers, errors };
@@ -433,15 +469,12 @@ export class ConfigManager extends EventEmitter {
 
         if (isConfigFileEvent) {
           debugIf(() => ({
-            message: 'Configuration file change detected, checking modification time',
+            message: 'Configuration file change detected, debouncing reload',
             meta: { eventType, filename, isConfigFileEvent },
           }));
-
-          if (this.checkFileModified()) {
-            debugIf('File modification confirmed, debouncing reload');
-            this.debouncedReloadConfig();
-          }
+          this.debouncedReloadConfig();
         } else {
+          // For events that don't match our criteria, still check if file was modified
           if (this.checkFileModified()) {
             debugIf(() => ({
               message: 'File was modified but event did not match criteria, debouncing reload anyway',

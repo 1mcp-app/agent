@@ -198,15 +198,18 @@ vi.mock('@src/core/server/clientInstancePool.js', () => ({
 }));
 
 // Mock configManager
+// Create a singleton mock instance that can be shared
+const mockConfigManagerInstance = {
+  loadConfigWithTemplates: vi.fn().mockResolvedValue({
+    staticServers: {},
+    templateServers: {},
+    errors: [],
+  }),
+};
+
 vi.mock('@src/config/configManager.js', () => ({
   ConfigManager: {
-    getInstance: vi.fn(() => ({
-      loadConfigWithTemplates: vi.fn().mockResolvedValue({
-        staticServers: {},
-        templateServers: {},
-        errors: [],
-      }),
-    })),
+    getInstance: vi.fn(() => mockConfigManagerInstance),
   },
 }));
 
@@ -319,6 +322,12 @@ vi.mock('./serverManager.js', () => {
     private serverConfig: any;
     private serverCapabilities: any;
     private clientInstancePool: any;
+    private templateServerManager: any;
+    // Add serverConfigData for conflict detection
+    public serverConfigData: {
+      mcpServers: Record<string, any>;
+      mcpTemplates: Record<string, any>;
+    };
 
     constructor(...args: any[]) {
       // Store constructor arguments
@@ -326,6 +335,26 @@ vi.mock('./serverManager.js', () => {
       this.serverCapabilities = args[1];
       this.outboundConns = args[3];
       this.transports = args[4];
+
+      // Initialize serverConfigData for conflict detection
+      this.serverConfigData = {
+        mcpServers: {},
+        mcpTemplates: {},
+      };
+
+      // Initialize templateServerManager mock
+      this.templateServerManager = {
+        createTemplateBasedServers: vi.fn(),
+        cleanupTemplateServers: vi.fn(),
+        getMatchingTemplateConfigs: vi.fn(() => []),
+        getIdleTemplateInstances: vi.fn(() => []),
+        cleanupIdleInstances: vi.fn().mockResolvedValue(0),
+        rebuildTemplateIndex: vi.fn(),
+        getFilteringStats: vi.fn(() => ({ tracker: null, cache: null, index: null, enabled: true })),
+        getClientTemplateInfo: vi.fn(() => ({})),
+        getClientInstancePool: vi.fn(() => ({})),
+        cleanup: vi.fn(),
+      };
 
       // Initialize ClientInstancePool mock - assign mock object directly
       this.clientInstancePool = {
@@ -385,6 +414,41 @@ vi.mock('./serverManager.js', () => {
     }
 
     async connectTransport(transport: any, sessionId: string, opts: any): Promise<void> {
+      // Get ConfigManager to load configurations
+      const configManager = (await import('@src/config/configManager.js')).ConfigManager.getInstance();
+
+      // Load static servers (no context)
+      const staticResult = await configManager.loadConfigWithTemplates(undefined);
+      this.serverConfigData.mcpServers = staticResult.staticServers;
+
+      // Load template servers (with context if available)
+      const context = (opts as any).context;
+      if (context) {
+        const templateResult = await configManager.loadConfigWithTemplates(context);
+        this.serverConfigData.mcpTemplates = templateResult.templateServers;
+
+        // Detect conflicts between static servers and template servers
+        if (Object.keys(this.serverConfigData.mcpTemplates).length > 0) {
+          const conflictingServers: string[] = [];
+          for (const serverName of Object.keys(this.serverConfigData.mcpTemplates)) {
+            if (this.serverConfigData.mcpServers[serverName]) {
+              conflictingServers.push(serverName);
+            }
+          }
+
+          if (conflictingServers.length > 0) {
+            const logger = (await import('@src/logger/logger.js')).default;
+            logger.warn(
+              `Ignoring ${conflictingServers.length} static server(s) that conflict with template servers: ${conflictingServers.join(', ')}`,
+            );
+            // Remove conflicting static servers so they won't be connected
+            for (const serverName of conflictingServers) {
+              delete this.serverConfigData.mcpServers[serverName];
+            }
+          }
+        }
+      }
+
       // Simulate connection errors if transport mock is set to reject
       if ((transport as any)._shouldReject) {
         // Log error before throwing (matching real behavior)
@@ -463,6 +527,11 @@ vi.mock('./serverManager.js', () => {
 
     getServer(sessionId: string): any {
       return this.inboundConns.get(sessionId);
+    }
+
+    // Add getTemplateServerManager method
+    getTemplateServerManager(): any {
+      return this.templateServerManager;
     }
 
     async startServer(serverName: string, config: any): Promise<void> {
@@ -1135,6 +1204,184 @@ describe('ServerManager', () => {
         // The specific transport metadata updates would be tested through integration tests
         // For now, just verify no errors are thrown
         expect(serverManager.isMcpServerRunning('test-server')).toBe(true);
+      });
+    });
+
+    describe('Static Server Conflict Detection', () => {
+      let serverManager: any; // Use any to access MockServerManager's public serverConfigData
+      let mockConfigManager: any;
+
+      beforeEach(async () => {
+        ServerManager.resetInstance();
+        serverManager = ServerManager.getOrCreateInstance(
+          mockConfig,
+          mockCapabilities,
+          mockOutboundConns,
+          mockTransports,
+        );
+
+        // Get the mock config manager
+        mockConfigManager = vi.mocked(await import('@src/config/configManager.js')).ConfigManager.getInstance();
+      });
+
+      it('should log warning when static server conflicts with template server', async () => {
+        // Mock loadConfigWithTemplates to return conflicting servers
+        mockConfigManager.loadConfigWithTemplates.mockImplementation(async (context?: any) => {
+          if (!context) {
+            // Static servers
+            return {
+              staticServers: {
+                'conflicting-server': { command: 'node', args: ['server.js'] },
+                'static-only': { command: 'python', args: ['server.py'] },
+              },
+              templateServers: {},
+              errors: [],
+            };
+          } else {
+            // Template servers
+            return {
+              staticServers: {},
+              templateServers: {
+                'conflicting-server': { command: 'node', args: ['template.js'], template: {} },
+                'template-only': { command: 'node', args: ['template2.js'], template: {} },
+              },
+              errors: [],
+            };
+          }
+        });
+
+        vi.clearAllMocks();
+
+        // Connect with context (should trigger conflict detection)
+        await serverManager.connectTransport(mockTransport, 'test-session', {
+          context: { sessionId: 'test-session' },
+          enablePagination: false,
+        } as any);
+
+        // Should have logged a warning about conflicting servers
+        const warnCalls = (logger.warn as any).mock.calls;
+        const conflictWarning = warnCalls.find(
+          (call: any[]) =>
+            call[0]?.includes?.('Ignoring') &&
+            call[0]?.includes?.('static server') &&
+            call[0]?.includes?.('conflict with template servers'),
+        );
+
+        expect(conflictWarning).toBeDefined();
+        expect(conflictWarning[0]).toContain('conflicting-server');
+      });
+
+      it('should remove conflicting static servers from mcpServers', async () => {
+        // Mock loadConfigWithTemplates to return conflicting servers
+        const staticServers = {
+          'conflicting-server': { command: 'node', args: ['server.js'] },
+          'static-only': { command: 'python', args: ['server.py'] },
+        };
+
+        const templateServers = {
+          'conflicting-server': { command: 'node', args: ['template.js'], template: {} },
+        };
+
+        mockConfigManager.loadConfigWithTemplates.mockImplementation(async (context?: any) => {
+          if (!context) {
+            return {
+              staticServers,
+              templateServers: {},
+              errors: [],
+            };
+          } else {
+            return {
+              staticServers: {},
+              templateServers,
+              errors: [],
+            };
+          }
+        });
+
+        // Connect with context
+        await serverManager.connectTransport(mockTransport, 'test-session', {
+          context: { sessionId: 'test-session' },
+          enablePagination: false,
+        } as any);
+
+        // After conflict detection, the conflicting server should be removed from serverConfigData
+        expect(serverManager.serverConfigData.mcpServers['conflicting-server']).toBeUndefined();
+        expect(serverManager.serverConfigData.mcpServers['static-only']).toBeDefined();
+
+        // Verify the warning
+        const warnCalls = (logger.warn as any).mock.calls;
+        const conflictWarning = warnCalls.find((call: any[]) => call[0]?.includes?.('Ignoring 1 static server'));
+
+        expect(conflictWarning).toBeDefined();
+      });
+
+      it('should not log warning when there are no conflicts', async () => {
+        mockConfigManager.loadConfigWithTemplates.mockResolvedValue({
+          staticServers: {
+            'static-1': { command: 'node', args: ['server1.js'] },
+          },
+          templateServers: {
+            'template-1': { command: 'node', args: ['template1.js'], template: {} },
+          },
+          errors: [],
+        });
+
+        vi.clearAllMocks();
+
+        await serverManager.connectTransport(mockTransport, 'test-session', {
+          context: { sessionId: 'test-session' },
+          enablePagination: false,
+        } as any);
+
+        // Should not have logged any conflict warnings
+        const warnCalls = (logger.warn as any).mock.calls;
+        const conflictWarning = warnCalls.find(
+          (call: any[]) => call[0]?.includes?.('Ignoring') && call[0]?.includes?.('conflict with template servers'),
+        );
+
+        expect(conflictWarning).toBeUndefined();
+      });
+
+      it('should handle multiple conflicting servers', async () => {
+        mockConfigManager.loadConfigWithTemplates.mockImplementation(async (context?: any) => {
+          if (!context) {
+            return {
+              staticServers: {
+                'conflict-1': { command: 'node', args: ['s1.js'] },
+                'conflict-2': { command: 'python', args: ['s2.js'] },
+                'static-3': { command: 'node', args: ['s3.js'] },
+              },
+              templateServers: {},
+              errors: [],
+            };
+          } else {
+            return {
+              staticServers: {},
+              templateServers: {
+                'conflict-1': { command: 'node', args: ['t1.js'], template: {} },
+                'conflict-2': { command: 'node', args: ['t2.js'], template: {} },
+                'template-3': { command: 'node', args: ['t3.js'], template: {} },
+              },
+              errors: [],
+            };
+          }
+        });
+
+        vi.clearAllMocks();
+
+        await serverManager.connectTransport(mockTransport, 'test-session', {
+          context: { sessionId: 'test-session' },
+          enablePagination: false,
+        } as any);
+
+        // Should warn about 2 conflicting servers
+        const warnCalls = (logger.warn as any).mock.calls;
+        const conflictWarning = warnCalls.find((call: any[]) => call[0]?.includes?.('Ignoring 2 static server'));
+
+        expect(conflictWarning).toBeDefined();
+        expect(conflictWarning[0]).toContain('conflict-1');
+        expect(conflictWarning[0]).toContain('conflict-2');
+        expect(conflictWarning[0]).not.toContain('static-3');
       });
     });
   });

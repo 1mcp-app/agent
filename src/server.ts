@@ -6,7 +6,6 @@ import { ConfigChangeHandler } from '@src/core/configChangeHandler.js';
 import { getGlobalContextManager } from '@src/core/context/globalContextManager.js';
 import { AgentConfigManager } from '@src/core/server/agentConfig.js';
 import { AuthProviderTransport } from '@src/core/types/client.js';
-import { MCPServerParams } from '@src/core/types/transport.js';
 import logger, { debugIf } from '@src/logger/logger.js';
 import type { ContextData } from '@src/types/context.js';
 
@@ -56,13 +55,8 @@ async function setupServer(configFilePath?: string, context?: ContextData): Prom
 
     // Load only static servers at startup - template servers are created per-client
     // Templates should only be processed when clients connect, not at server startup
-    let mcpConfig: Record<string, MCPServerParams>;
-
-    // Always load only static servers for startup
-    mcpConfig = configManager.getTransportConfig();
-
-    // Note: Template servers are handled in ServerManager.createTemplateBasedServers()
-    // which is called when clients connect, not at startup
+    // Note: ConfigManager already filters out static servers that conflict with template servers
+    const mcpConfig = configManager.getTransportConfig();
 
     const agentConfig = AgentConfigManager.getInstance();
     const asyncLoadingEnabled = agentConfig.get('asyncLoading').enabled;
