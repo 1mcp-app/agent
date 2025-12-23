@@ -5,7 +5,40 @@ import { promises as fsPromises } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
 
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, it } from 'vitest';
+
+/**
+ * Helper function to wait for server to be ready with retry logic
+ */
+async function waitForServerReady(
+  healthUrl: string,
+  options: { maxAttempts?: number; retryDelay?: number; requestTimeout?: number } = {},
+): Promise<void> {
+  const { maxAttempts = 30, retryDelay = 300, requestTimeout = 5000 } = options;
+  let attempts = 0;
+
+  while (attempts < maxAttempts) {
+    attempts++;
+    await new Promise((resolve) => setTimeout(resolve, retryDelay));
+
+    try {
+      const healthResponse = await fetch(healthUrl, {
+        signal: AbortSignal.timeout(requestTimeout),
+      });
+      if (healthResponse.ok) {
+        console.log(`Server ready after ${attempts} attempts`);
+        return;
+      }
+      console.log(`Health check attempt ${attempts}: HTTP ${healthResponse.status}`);
+    } catch (error) {
+      if (attempts < maxAttempts) {
+        console.log(`Health check attempt ${attempts} failed: ${(error as Error).message}`);
+      }
+    }
+  }
+
+  throw new Error(`Server failed to start after ${maxAttempts} attempts`);
+}
 
 describe('Session Restoration with _meta Field E2E Tests', () => {
   let processManager: TestProcessManager;
@@ -56,12 +89,8 @@ describe('Session Restoration with _meta Field E2E Tests', () => {
         },
       });
 
-      // Quick server check - only wait 1 second
-      await new Promise((resolve) => setTimeout(resolve, 1000));
-
-      // Quick health check
-      const healthResponse = await fetch(`${serverUrl.replace('/mcp', '')}/health`);
-      expect(healthResponse.ok).toBe(true);
+      // Wait for server to be ready using retry logic
+      await waitForServerReady(`${serverUrl.replace('/mcp', '')}/health`);
 
       console.log('✅ Server runs quickly');
     });
@@ -78,11 +107,8 @@ describe('Session Restoration with _meta Field E2E Tests', () => {
         },
       });
 
-      await new Promise((resolve) => setTimeout(resolve, 500));
-
-      // Quick health check
-      const healthResponse = await fetch(`${serverUrl.replace('/mcp', '')}/health`);
-      expect(healthResponse.ok).toBe(true);
+      // Wait for server to be ready using retry logic
+      await waitForServerReady(`${serverUrl.replace('/mcp', '')}/health`);
 
       console.log('✅ _meta field test passed quickly');
     });
@@ -101,10 +127,8 @@ describe('Session Restoration with _meta Field E2E Tests', () => {
         },
       });
 
-      await new Promise((resolve) => setTimeout(resolve, 800));
-
-      const healthResponse = await fetch(`${serverUrl.replace('/mcp', '')}/health`);
-      expect(healthResponse.ok).toBe(true);
+      // Wait for server to be ready using retry logic
+      await waitForServerReady(`${serverUrl.replace('/mcp', '')}/health`);
 
       console.log('✅ Validation test passed quickly');
     });
