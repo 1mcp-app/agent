@@ -31,6 +31,10 @@ export function createEnableTool(): Tool {
     description: 'Enable an MCP server',
     inputSchema: zodToInputSchema(McpEnableToolSchema) as Tool['inputSchema'],
     outputSchema: zodToOutputSchema(McpEnableOutputSchema) as Tool['outputSchema'],
+    annotations: {
+      title: 'Enable MCP Server',
+      destructiveHint: true,
+    },
   };
 }
 
@@ -43,6 +47,10 @@ export function createDisableTool(): Tool {
     description: 'Disable an MCP server',
     inputSchema: zodToInputSchema(McpDisableToolSchema) as Tool['inputSchema'],
     outputSchema: zodToOutputSchema(McpDisableOutputSchema) as Tool['outputSchema'],
+    annotations: {
+      title: 'Disable MCP Server',
+      destructiveHint: true,
+    },
   };
 }
 
@@ -55,6 +63,10 @@ export function createListTool(): Tool {
     description: 'List MCP servers',
     inputSchema: zodToInputSchema(McpListToolSchema) as Tool['inputSchema'],
     outputSchema: zodToOutputSchema(McpListOutputSchema) as Tool['outputSchema'],
+    annotations: {
+      title: 'List MCP Servers',
+      readOnlyHint: true,
+    },
   };
 }
 
@@ -67,6 +79,10 @@ export function createStatusTool(): Tool {
     description: 'Get MCP server status',
     inputSchema: zodToInputSchema(McpStatusToolSchema) as Tool['inputSchema'],
     outputSchema: zodToOutputSchema(McpStatusOutputSchema) as Tool['outputSchema'],
+    annotations: {
+      title: 'Get Server Status',
+      readOnlyHint: true,
+    },
   };
 }
 
@@ -79,6 +95,10 @@ export function createEditTool(): Tool {
     description: 'Edit MCP server configuration',
     inputSchema: zodToInputSchema(McpEditToolSchema) as Tool['inputSchema'],
     outputSchema: zodToOutputSchema(McpEditOutputSchema) as Tool['outputSchema'],
+    annotations: {
+      title: 'Edit Server Config',
+      destructiveHint: true,
+    },
   };
 }
 
@@ -91,5 +111,10 @@ export function createReloadTool(): Tool {
     description: 'Reload MCP server or configuration',
     inputSchema: zodToInputSchema(McpReloadToolSchema) as Tool['inputSchema'],
     outputSchema: zodToOutputSchema(McpReloadOutputSchema) as Tool['outputSchema'],
+    annotations: {
+      title: 'Reload Server',
+      destructiveHint: true,
+      idempotentHint: true,
+    },
   };
 }

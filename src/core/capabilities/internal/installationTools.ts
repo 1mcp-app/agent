@@ -26,6 +26,11 @@ export function createInstallTool(): Tool {
       'Install a new MCP server. Use package+command+args for direct package installation (e.g., npm packages), or just name for registry-based installation',
     inputSchema: zodToInputSchema(McpInstallToolSchema) as Tool['inputSchema'],
     outputSchema: zodToOutputSchema(McpInstallOutputSchema) as Tool['outputSchema'],
+    annotations: {
+      title: 'Install MCP Server',
+      destructiveHint: true,
+      openWorldHint: true,
+    },
   };
 }
 
@@ -38,6 +43,10 @@ export function createUninstallTool(): Tool {
     description: 'Remove an MCP server',
     inputSchema: zodToInputSchema(McpUninstallToolSchema) as Tool['inputSchema'],
     outputSchema: zodToOutputSchema(McpUninstallOutputSchema) as Tool['outputSchema'],
+    annotations: {
+      title: 'Uninstall MCP Server',
+      destructiveHint: true,
+    },
   };
 }
 
@@ -50,5 +59,10 @@ export function createUpdateTool(): Tool {
     description: 'Update an MCP server',
     inputSchema: zodToInputSchema(McpUpdateToolSchema) as Tool['inputSchema'],
     outputSchema: zodToOutputSchema(McpUpdateOutputSchema) as Tool['outputSchema'],
+    annotations: {
+      title: 'Update MCP Server',
+      destructiveHint: true,
+      openWorldHint: true,
+    },
   };
 }
