@@ -10,6 +10,8 @@ import type {
   JsonSchemaValidatorResult,
 } from '@modelcontextprotocol/sdk/validation';
 
+import logger from '@src/logger/logger.js';
+
 import type { Ajv as AjvType, AnySchema, ErrorObject } from 'ajv';
 import Ajv from 'ajv';
 
@@ -67,7 +69,7 @@ export class CustomJsonSchemaValidator implements jsonSchemaValidator {
       addFormats(this.fallbackAjv);
     } catch {
       // If ajv-formats is not available, continue without format validation
-      console.warn('ajv-formats not available, continuing without format validation');
+      logger.warn('ajv-formats not available, continuing without format validation');
     }
   }
 
@@ -305,7 +307,7 @@ export class CustomJsonSchemaValidator implements jsonSchemaValidator {
       }
     } catch (fallbackError) {
       // If even fallback fails, return a permissive validation
-      console.warn(
+      logger.warn(
         `Validation bypassed due to schema compilation errors: ${fallbackError instanceof Error ? fallbackError.message : String(fallbackError)}`,
       );
       return {
@@ -321,7 +323,7 @@ export class CustomJsonSchemaValidator implements jsonSchemaValidator {
    * Used as a last resort when schema compilation completely fails
    */
   private createLenientValidator<T>(_schema: unknown): JsonSchemaValidator<T> {
-    console.warn(`Validation bypassed due to invalid schema structure`);
+    logger.warn(`Validation bypassed due to invalid schema structure`);
     return (input: unknown): JsonSchemaValidatorResult<T> => {
       return {
         valid: true,

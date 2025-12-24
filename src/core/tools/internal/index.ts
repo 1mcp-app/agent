@@ -29,6 +29,8 @@
  * @version 4.0.0
  * @since 1.0.0
  */
+import logger from '@src/logger/logger.js';
+
 // ==================== HANDLER EXPORTS ====================
 // Import the handlers directly from their modules
 import { handleMcpEdit } from './adapters/index.js';
@@ -176,7 +178,7 @@ export async function cleanupInternalToolHandlers(): Promise<void> {
     }),
   ]).catch((error) => {
     // Log cleanup errors but don't throw - cleanup should be best-effort
-    console.warn('Error during internal tool cleanup:', error);
+    logger.warn('Error during internal tool cleanup:', error);
   });
 
   // Clean up adapters using the AdapterFactory
@@ -185,7 +187,7 @@ export async function cleanupInternalToolHandlers(): Promise<void> {
     AdapterFactory.cleanup();
   } catch (error) {
     // Adapters module not found or other cleanup error - continue with other cleanup
-    console.debug('Adapter cleanup skipped (module not found or other error):', error);
+    logger.debug('Adapter cleanup skipped (module not found or other error):', error);
   }
 
   // Call the local cleanup functions directly
@@ -194,7 +196,7 @@ export async function cleanupInternalToolHandlers(): Promise<void> {
     cleanupInstallationHandlers();
     cleanupManagementHandlers();
   } catch (error) {
-    console.warn('Error during local cleanup:', error);
+    logger.warn('Error during local cleanup:', error);
   }
 }
 

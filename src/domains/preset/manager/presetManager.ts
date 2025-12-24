@@ -51,7 +51,7 @@ export class PresetManager {
   public static resetInstance(): void {
     if (PresetManager.instance) {
       PresetManager.instance.cleanup().catch((error) => {
-        console.warn('Failed to cleanup PresetManager during reset:', error);
+        logger.warn('Failed to cleanup PresetManager during reset:', error);
       });
       PresetManager.instance = null;
     }
