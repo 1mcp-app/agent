@@ -20,7 +20,15 @@ export interface ManagementAdapter {
     serverName: string,
     config: Partial<MCPServerParams & { newName?: string }>,
   ): Promise<ValidationResult>;
-  getServerUrl(options?: { port?: number; host?: string }): Promise<string>;
+  getServerUrl(options?: ServerUrlOptions): Promise<string>;
+}
+
+/**
+ * Options for getting server URL
+ */
+export interface ServerUrlOptions {
+  port?: number;
+  host?: string;
 }
 
 /**

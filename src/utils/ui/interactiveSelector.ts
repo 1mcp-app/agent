@@ -18,6 +18,14 @@ export interface SelectionResult {
 }
 
 /**
+ * Result of preset testing
+ */
+export interface PresetTestResult {
+  servers: string[];
+  tags: string[];
+}
+
+/**
  * Type guard to validate TagQuery objects
  */
 function isValidTagQuery(obj: unknown): obj is TagQuery {
@@ -509,7 +517,7 @@ export class InteractiveSelector {
   /**
    * Test preset and show results
    */
-  public async testPreset(name: string, testResult: { servers: string[]; tags: string[] }): Promise<void> {
+  public async testPreset(name: string, testResult: PresetTestResult): Promise<void> {
     console.log(`\n🔍 Testing preset '${name}':`);
     console.log(`   Matching servers: ${testResult.servers.join(', ') || 'none'}`);
     console.log(`   Available tags: ${testResult.tags.join(', ') || 'none'}\n`);

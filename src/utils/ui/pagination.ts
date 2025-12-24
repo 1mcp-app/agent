@@ -30,7 +30,15 @@ export interface PaginationResponse {
   nextCursor?: string;
 }
 
-export function parseCursor(cursor?: string): { clientName: string; actualCursor?: string } {
+/**
+ * Result of parsing a cursor into its components
+ */
+export interface CursorParts {
+  clientName: string;
+  actualCursor?: string;
+}
+
+export function parseCursor(cursor?: string): CursorParts {
   if (!cursor || typeof cursor !== 'string') {
     return { clientName: '' };
   }

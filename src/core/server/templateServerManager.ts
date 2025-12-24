@@ -11,6 +11,13 @@ import logger, { debugIf } from '@src/logger/logger.js';
 import type { ContextData } from '@src/types/context.js';
 
 /**
+ * Options for rebuilding the template index
+ */
+export interface TemplateRebuildOptions {
+  mcpTemplates?: Record<string, MCPServerParams>;
+}
+
+/**
  * Manages template-based server instances and client pools
  */
 
@@ -375,7 +382,7 @@ export class TemplateServerManager {
   /**
    * Rebuild the template index
    */
-  public rebuildTemplateIndex(serverConfigData?: { mcpTemplates?: Record<string, MCPServerParams> }): void {
+  public rebuildTemplateIndex(serverConfigData?: TemplateRebuildOptions): void {
     if (serverConfigData?.mcpTemplates) {
       this.templateIndex.buildIndex(serverConfigData.mcpTemplates);
       logger.info('Template index rebuilt');

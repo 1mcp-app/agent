@@ -86,10 +86,19 @@ export function setLogLevel(mcpLevel: string): void {
 }
 
 /**
+ * Configuration options for the logger
+ */
+export interface LoggerOptions {
+  logLevel?: string;
+  logFile?: string;
+  transport?: string;
+}
+
+/**
  * Configure logger with CLI options and transport awareness
  * @param options Configuration options for the logger
  */
-export function configureLogger(options: { logLevel?: string; logFile?: string; transport?: string }): void {
+export function configureLogger(options: LoggerOptions): void {
   // Determine log level priority: CLI > ONE_MCP_LOG_LEVEL > LOG_LEVEL (deprecated)
   let logLevel = options.logLevel;
 

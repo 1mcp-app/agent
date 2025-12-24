@@ -322,9 +322,18 @@ export function validateSafePath(filePath: string): boolean {
 }
 
 /**
+ * Result of JSON validation with parsed content or error message
+ */
+export interface JsonValidationResult {
+  valid: boolean;
+  parsed?: unknown;
+  error?: string;
+}
+
+/**
  * Validate JSON content safely
  */
-export function validateJsonContent(content: string): { valid: boolean; parsed?: unknown; error?: string } {
+export function validateJsonContent(content: string): JsonValidationResult {
   try {
     const parsed: unknown = JSON.parse(content);
     return { valid: true, parsed };

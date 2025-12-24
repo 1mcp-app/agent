@@ -4,6 +4,7 @@ import type {
   UninstallOptions,
   UpdateOptions,
 } from '@src/domains/server-management/types.js';
+import { TagsValidationResult } from '@src/types/validation.js';
 
 /**
  * Installation adapter interface
@@ -51,7 +52,7 @@ export interface InstallationAdapter {
     operationId: string;
   }>;
   listInstalledServers(options?: ListAdapterOptions): Promise<string[]>;
-  validateTags(tags: string[]): { valid: boolean; errors: string[] };
+  validateTags(tags: string[]): TagsValidationResult;
   parseTags(tagsString: string): string[];
 }
 

@@ -3,7 +3,9 @@ import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/
 
 import { AuthProviderTransport } from '@src/core/types/index.js';
 
-type TransportWithUrl = { _url: URL };
+interface TransportWithUrl {
+  _url: URL;
+}
 
 export class TransportRecreator {
   public recreateHttpTransport(transport: AuthProviderTransport, serverName?: string): AuthProviderTransport {

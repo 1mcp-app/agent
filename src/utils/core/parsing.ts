@@ -1,6 +1,14 @@
 import { InvalidRequestError } from './errorTypes.js';
 
 /**
+ * Result of parsing a URI into its components
+ */
+export interface UriParts {
+  clientName: string;
+  resourceName: string;
+}
+
+/**
  * Extracts client name and resource name from a URI
  * Uses split with limit to handle separators in resource names correctly.
  * @param uri The URI to parse
@@ -8,7 +16,7 @@ import { InvalidRequestError } from './errorTypes.js';
  * @returns An object with clientName and resourceName
  * @throws InvalidRequestError if the URI is invalid
  */
-export function parseUri(uri: string, separator: string): { clientName: string; resourceName: string } {
+export function parseUri(uri: string, separator: string): UriParts {
   if (typeof uri !== 'string' || !uri?.trim()) {
     throw new InvalidRequestError('URI must be a non-empty string');
   }

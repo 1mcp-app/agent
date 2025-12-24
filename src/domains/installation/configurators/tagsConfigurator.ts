@@ -1,6 +1,7 @@
 /**
  * Tags configuration helpers
  */
+import { TagsValidationResult } from '@src/types/validation.js';
 
 /**
  * Parse tags from comma-separated string
@@ -22,7 +23,7 @@ export function formatTags(tags: string[]): string {
 /**
  * Validate tags format
  */
-export function validateTags(tags: string[]): { valid: boolean; errors: string[] } {
+export function validateTags(tags: string[]): TagsValidationResult {
   const errors: string[] = [];
 
   for (const tag of tags) {
