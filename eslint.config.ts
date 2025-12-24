@@ -80,13 +80,6 @@ export default [
       // 'prefer-promise-reject-errors': 'error',
     },
   },
-  // CLI commands - allow console.log for user output
-  {
-    files: ['src/commands/**/*.ts'],
-    rules: {
-      'no-console': 'off',
-    },
-  },
   // Logger implementation - needs console for output
   {
     files: ['src/logger/**/*.ts'],
@@ -101,14 +94,21 @@ export default [
       'no-console': 'off',
     },
   },
-  // UI utilities and formatters - allow console for user output
+  // Wizard TUI - allow console.clear() for screen management
+  {
+    files: ['src/commands/mcp/wizard/**/*.ts', 'src/commands/mcp/install.ts'],
+    rules: {
+      'no-console': 'off',
+    },
+  },
+  // UI utilities - allow console for user output (core printer implementation, ASCII art, TUI)
   {
     files: [
-      'src/utils/ui/**/*.ts',
-      'src/domains/**/formatters/**/*.ts',
-      'src/domains/**/configurators/**/*.ts',
-      'src/domains/discovery/**/*.ts',
-      'src/domains/preset/services/presetErrorHandler.ts',
+      'src/utils/ui/table.ts',
+      'src/utils/ui/printer.ts',
+      'src/utils/ui/logo.ts',
+      'src/utils/ui/interactiveSelector.ts',
+      'src/utils/ui/spinner.ts',
     ],
     rules: {
       'no-console': 'off',

@@ -3,6 +3,7 @@ import { formatServerDetails } from '@src/domains/registry/formatters/serverDeta
 import { OutputFormat, RegistryOptions, ShowCommandArgs } from '@src/domains/registry/types.js';
 import { GlobalOptions } from '@src/globalOptions.js';
 import logger from '@src/logger/logger.js';
+import printer from '@src/utils/ui/printer.js';
 
 import type { Arguments, Argv } from 'yargs';
 
@@ -77,26 +78,26 @@ export async function showCommand(argv: ShowCommandCliArgs): Promise<void> {
     const output = formatServerDetails(server, showArgs.format);
 
     if (showArgs.format === 'json') {
-      console.log(output);
+      printer.raw(output);
     } else if (showArgs.format === 'detailed') {
-      console.log(output);
+      printer.raw(output);
     } else {
       // For table format, the formatServerDetails handles console.table calls internally
       // Just ensure we have proper spacing
-      console.log(output);
+      printer.raw(output);
     }
   } catch (error) {
     logger.error('Show command failed:', error);
 
     // Check if it's a 404 error and provide helpful message
     if (error instanceof Error && error.message.includes('404')) {
-      console.error(`❌ Server not found: ${argv.serverId}`);
-      console.error('   Make sure the server ID is correct and the server exists in the registry.');
+      printer.error(`Server not found: ${argv.serverId}`);
+      printer.info('   Make sure the server ID is correct and the server exists in the registry.');
       if (argv.version) {
-        console.error(`   Also check if version "${argv.version}" exists for this server.`);
+        printer.info(`   Also check if version "${argv.version}" exists for this server.`);
       }
     } else {
-      console.error(`❌ Error fetching MCP server details: ${error instanceof Error ? error.message : String(error)}`);
+      printer.error(`Error fetching MCP server details: ${error instanceof Error ? error.message : String(error)}`);
     }
     process.exit(1);
   } finally {

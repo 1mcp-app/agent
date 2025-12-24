@@ -2,6 +2,7 @@ import { listAppBackups } from '@src/domains/backup/backupManager.js';
 import { checkConsolidationStatus, discoverAppConfigs } from '@src/domains/discovery/appDiscovery.js';
 import { getAppPreset, getSupportedApps, isAppConfigurable } from '@src/domains/discovery/appPresets.js';
 import { GlobalOptions } from '@src/globalOptions.js';
+import printer from '@src/utils/ui/printer.js';
 
 import type { Argv } from 'yargs';
 
@@ -43,7 +44,8 @@ export function buildStatusCommand(yargs: Argv) {
  * Main status command handler
  */
 export async function statusCommand(options: StatusOptions): Promise<void> {
-  console.log('📊 Application MCP Configuration Status\n');
+  printer.title('Application MCP Configuration Status');
+  printer.blank();
 
   if (options['app-name']) {
     await showSpecificAppStatus(options['app-name'], options.verbose);
@@ -58,17 +60,17 @@ export async function statusCommand(options: StatusOptions): Promise<void> {
 async function showSpecificAppStatus(appName: string, verbose: boolean): Promise<void> {
   const preset = getAppPreset(appName);
   if (!preset) {
-    console.error(`❌ Unsupported application: ${appName}`);
-    console.log('Use "npx @1mcp/agent app list" to see supported applications.');
+    printer.error(`Unsupported application: ${appName}`);
+    printer.info('Use "npx @1mcp/agent app list" to see supported applications.');
     process.exit(1);
   }
 
-  console.log(`📱 ${preset.displayName} (${appName})\n`);
+  printer.subtitle(`${preset.displayName} (${appName})`);
 
   if (!isAppConfigurable(appName)) {
-    console.log('🔧 Status: Manual setup required');
-    console.log('   This application requires manual configuration.');
-    console.log('   Use: npx @1mcp/agent app consolidate ' + appName + ' --manual-only');
+    printer.info('Status: Manual setup required');
+    printer.info('   This application requires manual configuration.');
+    printer.info(`   Use: npx @1mcp/agent app consolidate ${appName} --manual-only`);
     return;
   }
 
@@ -76,8 +78,8 @@ async function showSpecificAppStatus(appName: string, verbose: boolean): Promise
   const discovery = await discoverAppConfigs(appName);
 
   if (discovery.configs.length === 0) {
-    console.log('🔴 Status: No configuration found');
-    console.log('   No MCP configuration files detected.');
+    printer.info('Status: No configuration found');
+    printer.info('   No MCP configuration files detected.');
     return;
   }
 
@@ -92,68 +94,72 @@ async function showSpecificAppStatus(appName: string, verbose: boolean): Promise
 
   // Display status
   if (consolidationStatus.isConsolidated) {
-    console.log('🟢 Status: Consolidated into 1mcp');
-    console.log(`   Application is configured to use 1mcp proxy: ${consolidationStatus.consolidatedUrl}`);
+    printer.success('Status: Consolidated into 1mcp');
+    printer.info(`   Application is configured to use 1mcp proxy: ${consolidationStatus.consolidatedUrl}`);
     if (consolidationStatus.configPath) {
-      console.log(`   Configuration: ${consolidationStatus.configPath}`);
+      printer.info(`   Configuration: ${consolidationStatus.configPath}`);
     }
   } else if (serverCount > 0) {
-    console.log(`🟡 Status: Direct MCP connections (${serverCount} servers)`);
-    console.log('   Application connects directly to MCP servers.');
+    printer.info(`Status: Direct MCP connections (${serverCount} servers)`);
+    printer.info('   Application connects directly to MCP servers.');
   } else {
-    console.log('🟡 Status: Configuration exists but no MCP servers');
-    console.log('   Configuration file found but no MCP servers configured.');
+    printer.warn('Status: Configuration exists but no MCP servers');
+    printer.info('   Configuration file found but no MCP servers configured.');
   }
 
   // Show configuration details
-  console.log(`\n📋 Configuration Details:`);
-  console.log(`   Files found: ${validConfigs.length}`);
+  printer.blank();
+  printer.subtitle('Configuration Details:');
+  printer.info(`   Files found: ${validConfigs.length}`);
 
   validConfigs.forEach((config, index) => {
-    console.log(`   ${index + 1}. ${config.path} (${config.level})`);
+    printer.raw(`   ${index + 1}. ${config.path} (${config.level})`);
     if (verbose) {
-      console.log(`      Servers: ${config.servers.length}`);
+      printer.info(`      Servers: ${config.servers.length}`);
       if (config.servers.length > 0) {
         config.servers.forEach((server) => {
           const type = server.url ? 'URL' : 'Command';
           const value = server.url || server.command;
-          console.log(`        - ${server.name} (${type}: ${value})`);
+          printer.raw(`        - ${server.name} (${type}: ${value})`);
         });
       }
     } else {
-      console.log(`      Servers: ${config.servers.map((s) => s.name).join(', ') || 'none'}`);
+      printer.info(`      Servers: ${config.servers.map((s) => s.name).join(', ') || 'none'}`);
     }
   });
 
   // Show backup information
   const backups = listAppBackups(appName);
   if (backups.length > 0) {
-    console.log(`\n💾 Backups Available: ${backups.length}`);
+    printer.blank();
+    printer.info(`Backups Available: ${backups.length}`);
     const latestBackup = backups[0]; // Most recent
-    console.log(`   Latest: ${latestBackup.age} (${latestBackup.operation})`);
+    printer.info(`   Latest: ${latestBackup.age} (${latestBackup.operation})`);
 
     if (verbose) {
-      console.log('   All backups:');
+      printer.info('   All backups:');
       backups.forEach((backup) => {
-        console.log(`     - ${backup.age}: ${backup.backupPath}`);
+        printer.raw(`     - ${backup.age}: ${backup.backupPath}`);
       });
     }
   } else {
-    console.log('\n💾 Backups: None');
+    printer.blank();
+    printer.info('Backups: None');
   }
 
   // Recommendations
-  console.log('\n💡 Recommendations:');
+  printer.blank();
+  printer.info('Recommendations:');
   if (consolidationStatus.isConsolidated) {
-    console.log('   ✅ Application is already consolidated.');
+    printer.success('   Application is already consolidated.');
     if (backups.length > 0) {
-      console.log('   🔄 To restore original config: npx @1mcp/agent app restore ' + appName);
+      printer.info(`   To restore original config: npx @1mcp/agent app restore ${appName}`);
     }
   } else if (serverCount > 0) {
-    console.log('   📦 Consolidate into 1mcp: npx @1mcp/agent app consolidate ' + appName);
-    console.log('   📋 Preview changes: npx @1mcp/agent app consolidate ' + appName + ' --dry-run');
+    printer.info(`   Consolidate into 1mcp: npx @1mcp/agent app consolidate ${appName}`);
+    printer.info(`   Preview changes: npx @1mcp/agent app consolidate ${appName} --dry-run`);
   } else {
-    console.log('   🔧 Configure MCP servers first, then consolidate.');
+    printer.info('   Configure MCP servers first, then consolidate.');
   }
 }
 
@@ -223,7 +229,7 @@ async function showAllAppsStatus(verbose: boolean): Promise<void> {
   }
 
   // Display results
-  console.log('Application Status Overview:\n');
+  printer.subtitle('Application Status Overview:');
 
   statusResults.forEach((result) => {
     let statusIcon = '';
@@ -256,11 +262,11 @@ async function showAllAppsStatus(verbose: boolean): Promise<void> {
         break;
     }
 
-    console.log(`${statusIcon} ${result.displayName.padEnd(20)} ${statusText}`);
+    printer.raw(`${statusIcon} ${result.displayName.padEnd(20)} ${statusText}`);
 
     if (verbose && result.status !== 'manual' && result.status !== 'error') {
-      console.log(
-        `   📁 Configs: ${result.configCount}, 🔧 Servers: ${result.serverCount}, 💾 Backups: ${result.hasBackups ? 'Yes' : 'No'}`,
+      printer.info(
+        `   Configs: ${result.configCount}, Servers: ${result.serverCount}, Backups: ${result.hasBackups ? 'Yes' : 'No'}`,
       );
     }
   });
@@ -271,16 +277,18 @@ async function showAllAppsStatus(verbose: boolean): Promise<void> {
   const manual = statusResults.filter((r) => r.status === 'manual').length;
   const noConfig = statusResults.filter((r) => r.status === 'no-config').length;
 
-  console.log(`\n📊 Summary (${statusResults.length} applications):`);
-  console.log(`   🟢 Consolidated: ${consolidated}`);
-  console.log(`   🟡 Direct connections: ${direct}`);
-  console.log(`   🔧 Manual setup: ${manual}`);
-  console.log(`   🔴 No configuration: ${noConfig}`);
+  printer.blank();
+  printer.subtitle(`Summary (${statusResults.length} applications):`);
+  printer.success(`   Consolidated: ${consolidated}`);
+  printer.warn(`   Direct connections: ${direct}`);
+  printer.warn(`   Manual setup: ${manual}`);
+  printer.error(`   No configuration: ${noConfig}`);
 
   if (direct > 0) {
-    console.log('\n💡 Consolidation opportunities:');
+    printer.blank();
+    printer.info('Consolidation opportunities:');
     const directApps = statusResults.filter((r) => r.status === 'direct');
     const appNames = directApps.map((r) => r.app).join(' ');
-    console.log(`   npx @1mcp/agent app consolidate ${appNames}`);
+    printer.raw(`   npx @1mcp/agent app consolidate ${appNames}`);
   }
 }

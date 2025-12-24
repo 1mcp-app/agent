@@ -5,6 +5,7 @@ import {
   showPlatformWarningIfNeeded,
 } from '@src/domains/discovery/appPresets.js';
 import { GlobalOptions } from '@src/globalOptions.js';
+import printer from '@src/utils/ui/printer.js';
 
 import type { Argv } from 'yargs';
 
@@ -49,7 +50,7 @@ export async function listCommand(options: ListOptions): Promise<void> {
   // Show platform warning if needed
   showPlatformWarningIfNeeded();
 
-  console.log('📱 Supported Desktop Applications for MCP Consolidation\n');
+  printer.title('Supported Desktop Applications for MCP Consolidation');
 
   if (options['configurable-only']) {
     showConfigurableApps();
@@ -59,9 +60,10 @@ export async function listCommand(options: ListOptions): Promise<void> {
     showAllApps();
   }
 
-  console.log('\n💡 Usage:');
-  console.log('   npx @1mcp/agent app consolidate <app-name>');
-  console.log('   npx @1mcp/agent app discover  # Find installed apps');
+  printer.blank();
+  printer.info('Usage:');
+  printer.info('   npx @1mcp/agent app consolidate <app-name>');
+  printer.info('   npx @1mcp/agent app discover  # Find installed apps');
 }
 
 /**
@@ -72,24 +74,26 @@ function showAllApps(): void {
   const manualApps = getManualOnlyApps();
 
   if (configurableApps.length > 0) {
-    console.log('✅ Auto-Configurable Applications (Automatic Consolidation):');
+    printer.subtitle('Auto-Configurable Applications (Automatic Consolidation):');
     configurableApps.forEach((appName) => {
       const preset = APP_PRESETS[appName];
-      console.log(`   ${preset.name.padEnd(15)} - ${preset.displayName}`);
+      printer.raw(`   ${preset.name.padEnd(15)} - ${preset.displayName}`);
     });
   }
 
   if (manualApps.length > 0) {
-    console.log('\n🔧 Manual Setup Applications (Instructions Provided):');
+    printer.blank();
+    printer.subtitle('Manual Setup Applications (Instructions Provided):');
     manualApps.forEach((appName) => {
       const preset = APP_PRESETS[appName];
-      console.log(`   ${preset.name.padEnd(15)} - ${preset.displayName}`);
+      printer.raw(`   ${preset.name.padEnd(15)} - ${preset.displayName}`);
     });
   }
 
-  console.log(`\n📊 Total: ${configurableApps.length + manualApps.length} applications supported`);
-  console.log(`   ✅ Auto-configurable: ${configurableApps.length}`);
-  console.log(`   🔧 Manual setup: ${manualApps.length}`);
+  printer.blank();
+  printer.info(`Total: ${configurableApps.length + manualApps.length} applications supported`);
+  printer.success(`   Auto-configurable: ${configurableApps.length}`);
+  printer.warn(`   Manual setup: ${manualApps.length}`);
 }
 
 /**
@@ -98,17 +102,18 @@ function showAllApps(): void {
 function showConfigurableApps(): void {
   const configurableApps = getConfigurableApps();
 
-  console.log('✅ Auto-Configurable Applications:\n');
-  console.log('These applications support automatic MCP server consolidation.\n');
+  printer.subtitle('Auto-Configurable Applications:');
+  printer.info('These applications support automatic MCP server consolidation.');
+  printer.blank();
 
   if (configurableApps.length === 0) {
-    console.log('No auto-configurable applications found.');
+    printer.info('No auto-configurable applications found.');
     return;
   }
 
   configurableApps.forEach((appName) => {
     const preset = APP_PRESETS[appName];
-    console.log(`📱 ${preset.displayName} (${preset.name})`);
+    printer.raw(`📱 ${preset.displayName} (${preset.name})`);
 
     // Show configuration locations
     const locations = preset.locations
@@ -116,15 +121,15 @@ function showConfigurableApps(): void {
       .sort((a, b) => b.priority - a.priority);
 
     if (locations.length > 0) {
-      console.log('   Configuration locations:');
+      printer.info('   Configuration locations:');
       locations.forEach((loc) => {
-        console.log(`     ${loc.level}: ${loc.path}`);
+        printer.raw(`     ${loc.level}: ${loc.path}`);
       });
     }
-    console.log();
+    printer.blank();
   });
 
-  console.log(`📊 ${configurableApps.length} auto-configurable applications available.`);
+  printer.info(`${configurableApps.length} auto-configurable applications available.`);
 }
 
 /**
@@ -133,22 +138,24 @@ function showConfigurableApps(): void {
 function showManualOnlyApps(): void {
   const manualApps = getManualOnlyApps();
 
-  console.log('🔧 Manual Setup Applications:\n');
-  console.log('These applications require manual configuration with provided instructions.\n');
+  printer.subtitle('Manual Setup Applications:');
+  printer.info('These applications require manual configuration with provided instructions.');
+  printer.blank();
 
   if (manualApps.length === 0) {
-    console.log('No manual setup applications found.');
+    printer.info('No manual setup applications found.');
     return;
   }
 
   manualApps.forEach((appName) => {
     const preset = APP_PRESETS[appName];
-    console.log(`📱 ${preset.displayName} (${preset.name})`);
-    console.log('   Requires manual setup - instructions will be provided during consolidation.');
-    console.log();
+    printer.raw(`📱 ${preset.displayName} (${preset.name})`);
+    printer.info('   Requires manual setup - instructions will be provided during consolidation.');
+    printer.blank();
   });
 
-  console.log(`📊 ${manualApps.length} manual setup applications available.`);
-  console.log('\n💡 To get setup instructions for a manual app:');
-  console.log('   npx @1mcp/agent app consolidate <app-name> --manual-only');
+  printer.info(`${manualApps.length} manual setup applications available.`);
+  printer.blank();
+  printer.info('To get setup instructions for a manual app:');
+  printer.info('   npx @1mcp/agent app consolidate <app-name> --manual-only');
 }

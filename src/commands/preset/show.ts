@@ -2,6 +2,7 @@ import { PresetManager } from '@src/domains/preset/manager/presetManager.js';
 import { GlobalOptions } from '@src/globalOptions.js';
 import logger from '@src/logger/logger.js';
 import { InteractiveSelector } from '@src/utils/ui/interactiveSelector.js';
+import printer from '@src/utils/ui/printer.js';
 import { UrlGenerator } from '@src/utils/ui/urlGenerator.js';
 
 import boxen from 'boxen';
@@ -39,7 +40,7 @@ export async function showCommand(argv: ShowArguments): Promise<void> {
     await showPresetDetails(argv.name, presetManager, selector, urlGenerator);
   } catch (error) {
     logger.error('Preset show command failed', { error });
-    console.error(`❌ Command failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    printer.error(`Command failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
     process.exit(1);
   }
 }
@@ -112,7 +113,7 @@ async function showPresetDetails(
     mainContent += chalk.red(`Test failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
   }
 
-  console.log(
+  printer.raw(
     boxen(mainContent, {
       padding: 1,
       borderStyle: 'round',

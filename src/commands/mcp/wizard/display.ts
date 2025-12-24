@@ -1,4 +1,5 @@
 import { RegistryServer } from '@src/domains/registry/types.js';
+import printer from '@src/utils/ui/printer.js';
 
 import boxen from 'boxen';
 import chalk from 'chalk';
@@ -22,7 +23,7 @@ export function showWelcome(): void {
     chalk.gray('  Enter   - Confirm\n') +
     chalk.gray('  Ctrl+C  - Cancel');
 
-  console.log(
+  printer.raw(
     boxen(welcomeContent, {
       padding: 1,
       margin: 1,
@@ -52,14 +53,14 @@ export function showStepIndicator(currentStep: number, _totalSteps: number, _ste
     })
     .join(chalk.gray(' → '));
 
-  console.log(
+  printer.raw(
     boxen(stepBar, {
       padding: { left: 2, right: 2, top: 0, bottom: 0 },
       borderStyle: 'single',
       borderColor: 'gray',
     }),
   );
-  console.log('');
+  printer.blank();
 }
 
 /**
@@ -79,7 +80,7 @@ export function renderResultsList(results: RegistryServer[], currentIndex: numbe
       titleAlignment: 'center',
     },
   );
-  console.log(header);
+  printer.raw(header);
 
   const listContent = results
     .map((server, index) => {
@@ -93,7 +94,7 @@ export function renderResultsList(results: RegistryServer[], currentIndex: numbe
     })
     .join('\n\n');
 
-  console.log(
+  printer.raw(
     boxen(listContent, {
       padding: 1,
       borderStyle: 'round',
@@ -114,7 +115,7 @@ export async function showServerDetails(server: RegistryServer, getKeyInput: () 
     (server.repository?.url ? chalk.yellow.bold('Repository:\n') + chalk.cyan(`${server.repository.url}\n\n`) : '') +
     chalk.gray('Press any key to return...');
 
-  console.log(
+  printer.raw(
     boxen(content, {
       padding: 1,
       borderStyle: 'round',
@@ -158,7 +159,7 @@ export function showConfirmation(
       ? chalk.yellow('Arguments: ') + chalk.white(config.args.join(' ')) + '\n'
       : '');
 
-  console.log(
+  printer.raw(
     boxen(content, {
       padding: 1,
       borderStyle: 'round',
@@ -168,5 +169,5 @@ export function showConfirmation(
     }),
   );
 
-  console.log(chalk.gray('\nPress ← (left arrow) to go back, → (enter) to proceed, Ctrl+C to cancel\n'));
+  printer.raw(chalk.gray('\nPress ← (left arrow) to go back, → (enter) to proceed, Ctrl+C to cancel\n'));
 }

@@ -3,6 +3,7 @@ import { PresetManager } from '@src/domains/preset/manager/presetManager.js';
 import { GlobalOptions } from '@src/globalOptions.js';
 import logger from '@src/logger/logger.js';
 import { InteractiveSelector } from '@src/utils/ui/interactiveSelector.js';
+import printer from '@src/utils/ui/printer.js';
 import { UrlGenerator } from '@src/utils/ui/urlGenerator.js';
 
 import type { Argv } from 'yargs';
@@ -45,7 +46,8 @@ export async function editCommand(argv: EditArguments): Promise<void> {
     const urlGenerator = new UrlGenerator();
 
     // Show current preset configuration path
-    console.log(`📁 Config directory: ${presetManager.getConfigPath()}\n`);
+    printer.info(`Config directory: ${presetManager.getConfigPath()}`);
+    printer.blank();
 
     // Load existing preset for editing
     if (!presetManager.hasPreset(argv.name)) {
@@ -59,16 +61,17 @@ export async function editCommand(argv: EditArguments): Promise<void> {
       return;
     }
 
-    console.log(`📝 Editing preset: ${argv.name}`);
+    printer.info(`Editing preset: ${argv.name}`);
     if (existingConfig.description) {
-      console.log(`   Description: ${existingConfig.description}`);
+      printer.blank();
+      printer.keyValue({ Description: existingConfig.description });
     }
 
     // Interactive server selection with existing config
     const result = await selector.selectServers(existingConfig, presetManager.getConfigPath());
 
     if (result.cancelled) {
-      console.log('Operation cancelled.');
+      printer.info('Operation cancelled.');
       process.exit(0);
     }
 
@@ -85,7 +88,7 @@ export async function editCommand(argv: EditArguments): Promise<void> {
     selector.showSaveSuccess(argv.name, url);
   } catch (error) {
     logger.error('Preset edit command failed', { error });
-    console.error(`❌ Command failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    printer.error(`Command failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
     process.exit(1);
   }
 }

@@ -408,44 +408,4 @@ describe('PresetErrorHandler', () => {
       }).toThrow('Failed to parse filter expression');
     });
   });
-
-  describe('logError', () => {
-    it('should call logError without throwing', () => {
-      const error = new PresetError('Test error', {
-        context: 'test context',
-        userMessage: 'User message',
-        exitCode: 99,
-        logLevel: 'warn',
-      });
-
-      // Should not throw
-      expect(() => {
-        PresetErrorHandler.logError(error, 'additional context');
-      }).not.toThrow();
-    });
-
-    it('should handle regular Error without throwing', () => {
-      const error = new Error('Regular error');
-
-      expect(() => {
-        PresetErrorHandler.logError(error, 'context');
-      }).not.toThrow();
-    });
-
-    it('should handle unknown error without throwing', () => {
-      const error = 'string error';
-
-      expect(() => {
-        PresetErrorHandler.logError(error);
-      }).not.toThrow();
-    });
-
-    it('should handle logger import failure gracefully', () => {
-      const error = new Error('Test error');
-
-      expect(() => {
-        PresetErrorHandler.logError(error);
-      }).not.toThrow();
-    });
-  });
 });

@@ -1,5 +1,6 @@
 import { MCPServerParams } from '@src/core/types/index.js';
 import { GlobalOptions } from '@src/globalOptions.js';
+import printer from '@src/utils/ui/printer.js';
 
 import type { Argv } from 'yargs';
 
@@ -137,7 +138,7 @@ export async function addCommand(argv: AddCommandArgs): Promise<void> {
     // Initialize config context with CLI options
     initializeConfigContext(configPath, configDir);
 
-    console.log(`Adding MCP server: ${name}`);
+    printer.info(`Adding MCP server: ${name}`);
 
     // Validate inputs
     validateServerName(name);
@@ -159,7 +160,7 @@ export async function addCommand(argv: AddCommandArgs): Promise<void> {
     } catch (error) {
       if (error instanceof Error && error.message.includes('not found')) {
         // If config file doesn't exist, we'll create it
-        console.log('Configuration file not found, will create a new one');
+        printer.info('Configuration file not found, will create a new one');
       } else {
         throw error;
       }
@@ -178,7 +179,7 @@ export async function addCommand(argv: AddCommandArgs): Promise<void> {
       backupPath = backupConfig();
     } catch (_error) {
       // Config file might not exist yet, that's ok
-      console.log('Creating new configuration file');
+      printer.info('Creating new configuration file');
     }
 
     // Build server configuration
@@ -245,62 +246,67 @@ export async function addCommand(argv: AddCommandArgs): Promise<void> {
     reloadMcpConfig();
 
     // Success message
-    console.log(`✅ Successfully added server '${name}'`);
-    console.log(`   Type: ${type}`);
+    printer.success(`Successfully added server '${name}'`);
+    printer.keyValue({ Type: type });
 
     if (type === 'stdio') {
-      console.log(`   Command: ${serverConfig.command}`);
+      if (serverConfig.command) {
+        printer.keyValue({ Command: serverConfig.command });
+      }
       if (serverConfig.args) {
-        console.log(`   Args: ${serverConfig.args.join(' ')}`);
+        printer.keyValue({ Args: serverConfig.args.join(' ') });
       }
       if (serverConfig.cwd) {
-        console.log(`   Working Directory: ${serverConfig.cwd}`);
+        printer.keyValue({ 'Working Directory': serverConfig.cwd });
       }
       if (serverConfig.restartOnExit) {
-        console.log(`   Restart on Exit: Enabled`);
+        printer.keyValue({ 'Restart on Exit': 'Enabled' });
         if (serverConfig.maxRestarts !== undefined) {
-          console.log(`   Max Restarts: ${serverConfig.maxRestarts}`);
+          printer.keyValue({ 'Max Restarts': serverConfig.maxRestarts });
         } else {
-          console.log(`   Max Restarts: Unlimited`);
+          printer.keyValue({ 'Max Restarts': 'Unlimited' });
         }
         if (serverConfig.restartDelay !== undefined) {
-          console.log(`   Restart Delay: ${serverConfig.restartDelay}ms`);
+          printer.keyValue({ 'Restart Delay': `${serverConfig.restartDelay}ms` });
         } else {
-          console.log(`   Restart Delay: 1000ms (default)`);
+          printer.keyValue({ 'Restart Delay': '1000ms (default)' });
         }
       }
     } else {
-      console.log(`   URL: ${serverConfig.url}`);
+      if (serverConfig.url) {
+        printer.keyValue({ URL: serverConfig.url });
+      }
       if (serverConfig.headers) {
-        console.log(`   Headers: ${Object.keys(serverConfig.headers).length} header(s)`);
+        printer.keyValue({ Headers: `${Object.keys(serverConfig.headers).length} header(s)` });
       }
     }
 
     if (serverConfig.env) {
-      console.log(`   Environment Variables: ${Object.keys(serverConfig.env).length} variable(s)`);
+      printer.keyValue({ 'Environment Variables': `${Object.keys(serverConfig.env).length} variable(s)` });
     }
 
     if (serverConfig.tags && serverConfig.tags.length > 0) {
-      console.log(`   Tags: ${serverConfig.tags.join(', ')}`);
+      printer.keyValue({ Tags: serverConfig.tags.join(', ') });
     }
 
     if (serverConfig.timeout) {
-      console.log(`   Timeout: ${serverConfig.timeout}ms`);
+      printer.keyValue({ Timeout: `${serverConfig.timeout}ms` });
     }
 
     if (disabled) {
-      console.log(`   Status: Disabled (use 'mcp enable ${name}' to activate)`);
+      printer.keyValue({ Status: `Disabled (use 'mcp enable ${name}' to activate)` });
     } else {
-      console.log(`   Status: Enabled`);
+      printer.keyValue({ Status: 'Enabled' });
     }
 
     if (backupPath) {
-      console.log(`   Backup created: ${backupPath}`);
+      printer.keyValue({ 'Backup created': backupPath });
     }
 
-    console.log(`\n💡 Server added to configuration. If 1mcp is running, the new server will be loaded automatically.`);
+    printer.blank();
+    printer.info('Server added to configuration. If 1mcp is running, the new server will be loaded automatically.');
   } catch (error) {
-    console.error(`❌ Failed to add server: ${error instanceof Error ? error.message : error}`);
+    printer.error(`Failed to add server: ${error instanceof Error ? error.message : error}`);
     process.exit(1);
   }
 }

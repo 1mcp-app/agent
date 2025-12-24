@@ -1,8 +1,26 @@
+import printer from '@src/utils/ui/printer.js';
+
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import * as configUtils from './utils/mcpServerConfig.js';
 import * as serverUtils from './utils/serverUtils.js';
 import { buildUninstallCommand, uninstallCommand } from './uninstall.js';
+
+// Mock printer
+vi.mock('@src/utils/ui/printer.js', () => ({
+  default: {
+    info: vi.fn(),
+    warn: vi.fn(),
+    error: vi.fn(),
+    success: vi.fn(),
+    blank: vi.fn(),
+    raw: vi.fn(),
+    title: vi.fn(),
+    subtitle: vi.fn(),
+    keyValue: vi.fn(),
+    table: vi.fn(),
+  },
+}));
 
 // Mock dependencies
 vi.mock('./utils/mcpServerConfig.js', () => ({
@@ -25,9 +43,6 @@ vi.mock('@src/logger/logger.js', () => ({
   },
   debugIf: vi.fn(),
 }));
-
-const consoleLogMock = vi.fn();
-console.log = consoleLogMock;
 
 describe('Uninstall Command', () => {
   beforeEach(() => {
@@ -72,14 +87,14 @@ describe('Uninstall Command', () => {
       expect((configUtils.backupConfig as any).mock.calls.length).toBeGreaterThan(0);
       expect(configUtils.removeServer).toHaveBeenCalledWith('ok');
       expect((configUtils.reloadMcpConfig as any).mock.calls.length).toBeGreaterThan(0);
-      expect(consoleLogMock).toHaveBeenCalledWith(expect.stringMatching(/Successfully uninstalled/));
+      expect(printer.success).toHaveBeenCalledWith(expect.stringMatching(/Successfully uninstalled/));
     });
 
     it('should skip config removal when --no-remove-config', async () => {
       const args = { serverName: 'ok', force: true, backup: false, 'remove-config': false } as any;
       await uninstallCommand(args);
       expect((configUtils.removeServer as any).mock.calls.length).toBe(0);
-      expect(consoleLogMock).toHaveBeenCalledWith(expect.stringMatching(/not removed/));
+      expect(printer.warn).toHaveBeenCalledWith(expect.stringMatching(/not removed/));
     });
   });
 });

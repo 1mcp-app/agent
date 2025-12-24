@@ -14,6 +14,7 @@ import { SearchMCPServersArgs } from '@src/domains/registry/mcpToolSchemas.js';
 import { OFFICIAL_REGISTRY_KEY, RegistryOptions } from '@src/domains/registry/types.js';
 import { GlobalOptions } from '@src/globalOptions.js';
 import logger from '@src/logger/logger.js';
+import printer from '@src/utils/ui/printer.js';
 
 import chalk from 'chalk';
 import type { Arguments, Argv } from 'yargs';
@@ -115,13 +116,13 @@ export async function searchCommand(argv: SearchCommandArgs): Promise<void> {
     const outputFormat = argv.format || 'table';
 
     if (outputFormat === 'json') {
-      console.log(JSON.stringify(results, null, 2));
+      printer.raw(JSON.stringify(results, null, 2));
       return;
     }
 
     if (results.servers.length === 0) {
-      console.log(chalk.yellow('🔍 No MCP servers found matching your criteria.'));
-      console.log(chalk.gray('   Try a different search query or remove filters.'));
+      printer.warn('No MCP servers found matching your criteria.');
+      printer.info('Try a different search query or remove filters.');
       return;
     }
 
@@ -136,7 +137,7 @@ export async function searchCommand(argv: SearchCommandArgs): Promise<void> {
     displayFooter(results, searchArgs);
   } catch (error) {
     logger.error('Search command failed:', error);
-    console.error(`Error searching MCP registry: ${error instanceof Error ? error.message : String(error)}`);
+    printer.error(`Error searching MCP registry: ${error instanceof Error ? error.message : String(error)}`);
     process.exit(1);
   } finally {
     // Cleanup resources to ensure process exits
@@ -148,15 +149,15 @@ export async function searchCommand(argv: SearchCommandArgs): Promise<void> {
  * Display results in table format
  */
 function displayTableFormat(results: SearchMCPServersResult, searchArgs: SearchMCPServersArgs): void {
-  // Enhanced header with colors
   const resultsCount = results.servers.length;
   const plural = resultsCount === 1 ? '' : 's';
-  console.log(chalk.green(`\n✅ Found ${chalk.bold(resultsCount)} MCP server${plural}:`));
+  printer.blank();
+  printer.success(`Found ${resultsCount} MCP server${plural}:`);
 
   if (searchArgs.query) {
-    console.log(chalk.gray(`   Query: "${searchArgs.query}"`));
+    printer.info(`Query: "${searchArgs.query}"`);
   }
-  console.log(); // Empty line for spacing
+  printer.blank();
 
   // Create table data
   const tableData = results.servers.map((server) => ({
@@ -170,39 +171,42 @@ function displayTableFormat(results: SearchMCPServersResult, searchArgs: SearchM
     'Last Updated': formatDate(server._meta?.[OFFICIAL_REGISTRY_KEY]?.updatedAt),
   }));
 
-  console.table(tableData);
+  printer.table({
+    columns: Object.keys(tableData[0] ?? {}).map((name) => ({ name })),
+    rows: tableData,
+  });
 }
 
 /**
  * Display results in list format
  */
 function displayListFormat(results: SearchMCPServersResult, searchArgs: SearchMCPServersArgs): void {
-  // Enhanced header with colors
   const resultsCount = results.servers.length;
   const plural = resultsCount === 1 ? '' : 's';
-  console.log(chalk.green(`\n✅ Found ${chalk.bold(resultsCount)} MCP server${plural}:`));
+  printer.blank();
+  printer.success(`Found ${resultsCount} MCP server${plural}:`);
 
   if (searchArgs.query) {
-    console.log(chalk.gray(`   Query: "${searchArgs.query}"`));
+    printer.info(`Query: "${searchArgs.query}"`);
   }
-  console.log(); // Empty line for spacing
+  printer.blank();
 
   // Display results in a clean list format
   results.servers.forEach((server, index) => {
     const meta = server._meta[OFFICIAL_REGISTRY_KEY];
-    console.log(`${chalk.gray((index + 1).toString().padStart(2))}. ${chalk.cyan.bold(server.name)}`);
-    console.log(`    ${chalk.white(truncateString(server.description, 70))}`);
-    console.log(
+    printer.raw(`${chalk.gray((index + 1).toString().padStart(2))}. ${chalk.cyan.bold(server.name)}`);
+    printer.raw(`    ${chalk.white(truncateString(server.description, 70))}`);
+    printer.raw(
       `    ${chalk.green('Status:')} ${formatStatus(server._meta?.[OFFICIAL_REGISTRY_KEY]?.status || server.status || 'unknown')}  ${chalk.blue('Version:')} ${server.version}`,
     );
-    console.log(
+    printer.raw(
       `    ${chalk.yellow('Registry ID:')} ${chalk.gray(server.name)} ${chalk.dim('(use this for installation)')}`,
     );
-    console.log(
+    printer.raw(
       `    ${chalk.magenta('Transport:')} ${formatTransportTypesPlain(server.packages)} • ${chalk.red('Type:')} ${formatRegistryTypesPlain(server.packages)}`,
     );
-    console.log(`    ${chalk.gray('Updated:')} ${formatDate(meta?.updatedAt)}`);
-    console.log(); // Empty line between entries
+    printer.raw(`    ${chalk.gray('Updated:')} ${formatDate(meta?.updatedAt)}`);
+    printer.blank();
   });
 }
 
@@ -212,30 +216,31 @@ function displayListFormat(results: SearchMCPServersResult, searchArgs: SearchMC
 function displayFooter(results: SearchMCPServersResult, searchArgs: SearchMCPServersArgs): void {
   const resultsCount = results.servers.length;
 
-  // Enhanced usage instructions with colors
-  console.log(chalk.cyan.bold('\n💡 Installation:'));
-  console.log(chalk.white('   • Install server: ') + chalk.yellow('1mcp mcp install <registry-id>'));
-  console.log(chalk.gray('     Use the exact Registry ID shown above'));
-  console.log(chalk.white('   • Interactive mode: ') + chalk.yellow('1mcp mcp install --interactive'));
-  console.log(chalk.white('   • Server details: ') + chalk.yellow('1mcp registry show <registry-id>'));
-  console.log(chalk.white('   • List versions: ') + chalk.yellow('1mcp registry versions <registry-id>'));
-  console.log(chalk.white('   • Get JSON output: ') + chalk.yellow('1mcp registry search --json'));
+  printer.blank();
+  printer.title('Installation:');
+  printer.raw('   • Install server: ' + chalk.yellow('1mcp mcp install <registry-id>'));
+  printer.info('   Use the exact Registry ID shown above');
+  printer.raw('   • Interactive mode: ' + chalk.yellow('1mcp mcp install --interactive'));
+  printer.raw('   • Server details: ' + chalk.yellow('1mcp registry show <registry-id>'));
+  printer.raw('   • List versions: ' + chalk.yellow('1mcp registry versions <registry-id>'));
+  printer.raw('   • Get JSON output: ' + chalk.yellow('1mcp registry search --json'));
 
-  // Show search tips if results are limited
   if (resultsCount >= 20) {
-    console.log(chalk.cyan.bold('\n🔍 Search Tips:'));
-    console.log(chalk.gray('   • Use specific keywords to narrow results'));
-    console.log(chalk.gray('   • Filter by --status, --type, or --transport'));
-    console.log(chalk.gray('   • Use --cursor for pagination'));
+    printer.blank();
+    printer.title('Search Tips:');
+    printer.info('   • Use specific keywords to narrow results');
+    printer.info('   • Filter by --status, --type, or --transport');
+    printer.info('   • Use --cursor for pagination');
   }
 
-  // Show pagination info if applicable
   if (results.next_cursor) {
-    console.log(chalk.cyan.bold('\n📄 Pagination:'));
-    console.log(chalk.gray('   • Next page: ') + chalk.yellow(`1mcp registry search --cursor=${results.next_cursor}`));
+    printer.blank();
+    printer.title('Pagination:');
+    printer.info('   • Next page: ' + chalk.yellow(`1mcp registry search --cursor=${results.next_cursor}`));
   }
 
   if (searchArgs.limit && results.servers.length === searchArgs.limit) {
-    console.log(`Showing ${searchArgs.limit} results. Use --cursor for pagination.`);
+    printer.blank();
+    printer.info(`Showing ${searchArgs.limit} results. Use --cursor for pagination.`);
   }
 }
