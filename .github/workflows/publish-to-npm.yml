@@ -46,7 +46,7 @@ jobs:
         run: pnpm build
 
       - name: Publish to npm
-        run: pnpm publish --no-git-checks --access public --tag ${{ steps.prerelease.outputs.npm_tag }}
+        run: pnpm publish --no-git-checks --access public --provenance --tag ${{ steps.prerelease.outputs.npm_tag }}
 
       - name: Generate release changelog
         uses: orhun/git-cliff-action@v4
