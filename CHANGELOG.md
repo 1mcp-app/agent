@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.28.2] - 2025-12-25
+## [0.28.1] - 2025-12-25
 
 ### 🚀 Features
 - Add tool annotations for improved LLM tool understanding by @triepod-ai in [#197](https://github.com/1mcp-app/agent/pull/197)
@@ -18,6 +18,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Add comprehensive project roadmap for 1MCP by @xizhibei
 
 ### ⚙️ Miscellaneous Tasks
+- Add provenance flag to npm publish step in workflow by @xizhibei
+- Update version and changelog to 0.28.2 [skip ci] by @github-actions[bot]
 - Remove NODE_AUTH_TOKEN from npm publish step in workflow by @xizhibei
 - Update version and changelog to 0.28.0 [skip ci] by @github-actions[bot]
 
@@ -897,7 +899,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 * @xizhibei made their first contribution in [#1](https://github.com/1mcp-app/agent/pull/1)
 * @dependabot[bot] made their first contribution
 
-[0.28.2]: https://github.com/1mcp-app/agent/compare/v0.28.0..v0.28.2
+[0.28.1]: https://github.com/1mcp-app/agent/compare/v0.28.0..v0.28.1
 [0.28.0]: https://github.com/1mcp-app/agent/compare/v0.27.4..v0.28.0
 [0.27.4]: https://github.com/1mcp-app/agent/compare/v0.27.3..v0.27.4
 [0.27.3]: https://github.com/1mcp-app/agent/compare/v0.27.2..v0.27.3
