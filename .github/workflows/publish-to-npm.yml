@@ -47,8 +47,6 @@ jobs:
 
       - name: Publish to npm
         run: pnpm publish --no-git-checks --access public --tag ${{ steps.prerelease.outputs.npm_tag }}
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
       - name: Generate release changelog
         uses: orhun/git-cliff-action@v4
