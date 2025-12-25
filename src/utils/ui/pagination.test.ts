@@ -15,6 +15,7 @@ vi.mock('@src/logger/logger.js', () => ({
     info: vi.fn(),
     error: vi.fn(),
   },
+  debugIf: vi.fn(),
 }));
 
 describe('Pagination utilities', () => {
@@ -331,6 +332,7 @@ describe('handlePagination partial failure handling', () => {
         }),
         transport: { timeout: 5000 },
       },
+      debugIf: vi.fn(),
       transport: { timeout: 5000 },
     } as any;
 
@@ -341,6 +343,7 @@ describe('handlePagination partial failure handling', () => {
         listTools: vi.fn().mockRejectedValue(new Error('Schema validation error')),
         transport: { timeout: 5000 },
       },
+      debugIf: vi.fn(),
       transport: { timeout: 5000 },
     } as any;
 
@@ -353,6 +356,7 @@ describe('handlePagination partial failure handling', () => {
         }),
         transport: { timeout: 5000 },
       },
+      debugIf: vi.fn(),
       transport: { timeout: 5000 },
     } as any;
 

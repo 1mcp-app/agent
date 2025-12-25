@@ -121,6 +121,16 @@ export class ClientManager {
   }
 
   /**
+   * Creates or retrieves a pooled client instance for template-based servers
+   * This method is used by ClientInstancePool for creating new client instances
+   * @returns A new Client instance with the same configuration as createClientInstance()
+   * @internal This method is intended for use by ClientInstancePool only
+   */
+  public createPooledClientInstance(): Client {
+    return this.createClient();
+  }
+
+  /**
    * Creates client instances for all transports with retry logic
    * @param transports Record of transport instances
    * @returns Record of client instances

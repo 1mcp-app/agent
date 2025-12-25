@@ -27,17 +27,137 @@ import {
 
 import { MCP_URI_SEPARATOR } from '@src/constants.js';
 import { InternalCapabilitiesProvider } from '@src/core/capabilities/internalCapabilitiesProvider.js';
-import { ClientManager } from '@src/core/client/clientManager.js';
 import { byCapabilities } from '@src/core/filtering/clientFiltering.js';
 import { FilteringService } from '@src/core/filtering/filteringService.js';
 import { ServerManager } from '@src/core/server/serverManager.js';
-import { ClientStatus, InboundConnection, OutboundConnections } from '@src/core/types/index.js';
+import { ClientStatus, InboundConnection, OutboundConnection, OutboundConnections } from '@src/core/types/index.js';
 import { setLogLevel } from '@src/logger/logger.js';
 import logger from '@src/logger/logger.js';
 import { withErrorHandling } from '@src/utils/core/errorHandling.js';
 import { buildUri, parseUri } from '@src/utils/core/parsing.js';
 import { getRequestTimeout } from '@src/utils/core/timeoutUtils.js';
 import { handlePagination } from '@src/utils/ui/pagination.js';
+
+/**
+ * Extract session ID from inbound connection context
+ * @param inboundConn The inbound connection
+ * @returns The session ID or undefined
+ */
+function getRequestSession(inboundConn: InboundConnection): string | undefined {
+  return inboundConn.context?.sessionId;
+}
+
+/**
+ * Resolve outbound connection by client name and session ID.
+ * Key format:
+ * - Static servers: name (no colon)
+ * - Shareable template servers: name:renderedHash
+ * - Per-client template servers: name:sessionId
+ *
+ * Resolution order:
+ * 1. Try session-scoped key (for per-client template servers: name:sessionId)
+ * 2. Try rendered hash-based key (for shareable template servers: name:renderedHash)
+ * 3. Fall back to direct name lookup (for static servers: name)
+ *
+ * @param clientName The client/server name
+ * @param sessionId The session ID (optional)
+ * @param outboundConns The outbound connections map
+ * @returns The resolved outbound connection or undefined
+ */
+function resolveOutboundConnection(
+  clientName: string,
+  sessionId: string | undefined,
+  outboundConns: OutboundConnections,
+): OutboundConnection | undefined {
+  // Try session-scoped key first (for per-client template servers: name:sessionId)
+  if (sessionId) {
+    const sessionKey = `${clientName}:${sessionId}`;
+    const conn = outboundConns.get(sessionKey);
+    if (conn) {
+      return conn;
+    }
+  }
+
+  // Try rendered hash-based key (for shareable template servers: name:renderedHash)
+  if (sessionId) {
+    // Access the session-to-renderedHash mapping from TemplateServerManager
+    const templateServerManager = ServerManager.current.getTemplateServerManager();
+    if (templateServerManager) {
+      const renderedHash = templateServerManager.getRenderedHashForSession(sessionId, clientName);
+      if (renderedHash) {
+        const hashKey = `${clientName}:${renderedHash}`;
+        const conn = outboundConns.get(hashKey);
+        if (conn) {
+          return conn;
+        }
+      }
+    }
+  }
+
+  // Fall back to direct name lookup (for static servers)
+  return outboundConns.get(clientName);
+}
+
+/**
+ * Filter outbound connections for a specific session.
+ * Key format:
+ * - Static servers: name (no colon) - always included
+ * - Shareable template servers: name:renderedHash - included if session uses this hash
+ * - Per-client template servers: name:sessionId - only included if session matches
+ *
+ * @param outboundConns The outbound connections map
+ * @param sessionId The session ID (optional)
+ * @returns A filtered map of outbound connections
+ */
+function filterConnectionsForSession(
+  outboundConns: OutboundConnections,
+  sessionId: string | undefined,
+): OutboundConnections {
+  const filtered = new Map<string, OutboundConnection>();
+
+  // Get rendered hashes for this session
+  const sessionHashes = getSessionRenderedHashes(sessionId);
+
+  for (const [key, conn] of outboundConns.entries()) {
+    // Static servers (no : in key) - always include
+    if (!key.includes(':')) {
+      filtered.set(key, conn);
+      continue;
+    }
+
+    // Template servers (format: name:xxx)
+    const [name, suffix] = key.split(':');
+
+    // Per-client template servers (format: name:sessionId) - only include if session matches
+    if (suffix === sessionId) {
+      filtered.set(key, conn);
+      continue;
+    }
+
+    // Shareable template servers (format: name:renderedHash) - include if this session uses this hash
+    if (sessionHashes && sessionHashes.has(name) && sessionHashes.get(name) === suffix) {
+      filtered.set(key, conn);
+    }
+  }
+
+  return filtered;
+}
+
+/**
+ * Get all rendered hashes for a specific session.
+ * Used by filterConnectionsForSession to determine which shareable connections to include.
+ * @param sessionId The session ID (optional)
+ * @returns Map of templateName to renderedHash, or undefined if no session
+ */
+function getSessionRenderedHashes(sessionId: string | undefined): Map<string, string> | undefined {
+  if (!sessionId) return undefined;
+
+  const templateServerManager = ServerManager.current.getTemplateServerManager();
+  if (templateServerManager) {
+    return templateServerManager.getAllRenderedHashesForSession(sessionId);
+  }
+  return undefined;
+}
 
 /**
  * Registers server-specific request handlers
@@ -151,12 +271,16 @@ export function registerRequestHandlers(outboundConns: OutboundConnections, inbo
  * @param serverInfo The MCP server instance
  */
 function registerResourceHandlers(outboundConns: OutboundConnections, inboundConn: InboundConnection): void {
+  const sessionId = getRequestSession(inboundConn);
+
   // List Resources handler
   inboundConn.server.setRequestHandler(
     ListResourcesRequestSchema,
     withErrorHandling(async (request: ListResourcesRequest) => {
-      // First filter by capabilities, then by tags
-      const capabilityFilteredClients = byCapabilities({ resources: {} })(outboundConns);
+      // Filter connections for this session first
+      const sessionFilteredConns = filterConnectionsForSession(outboundConns, sessionId);
+      // Then filter by capabilities, then by tags
+      const capabilityFilteredClients = byCapabilities({ resources: {} })(sessionFilteredConns);
       const filteredClients = FilteringService.getFilteredConnections(capabilityFilteredClients, inboundConn);
 
       const result = await handlePagination(
@@ -182,8 +306,39 @@ function registerResourceHandlers(outboundConns: OutboundConnections, inboundCon
   inboundConn.server.setRequestHandler(
     ListResourceTemplatesRequestSchema,
     withErrorHandling(async (request: ListResourceTemplatesRequest) => {
-      // First filter by capabilities, then by tags
-      const capabilityFilteredClients = byCapabilities({ resources: {} })(outboundConns);
+      // Filter connections for this session first
+      const sessionFilteredConns = filterConnectionsForSession(outboundConns, sessionId);
+      // Then filter by capabilities, then by tags
+      const capabilityFilteredClients = byCapabilities({ resources: {} })(sessionFilteredConns);
+      const filteredClients = FilteringService.getFilteredConnections(capabilityFilteredClients, inboundConn);
+
+      const result = await handlePagination(
+        filteredClients,
+        request.params || {},
+        (client, params, opts) => client.listResourceTemplates(params as ListResourceTemplatesRequest['params'], opts),
+        (outboundConn, result) =>
+          result.resourceTemplates?.map((template) => ({
+            ...template,
+            uriTemplate: buildUri(outboundConn.name, template.uriTemplate, MCP_URI_SEPARATOR),
+          })) ?? [],
+        inboundConn.enablePagination ?? false,
+      );
+
+      return {
+        resources: result.items,
+        nextCursor: result.nextCursor,
+      };
+    }, 'Error listing resources'),
+  );
+
+  // List Resource Templates handler
+  inboundConn.server.setRequestHandler(
+    ListResourceTemplatesRequestSchema,
+    withErrorHandling(async (request: ListResourceTemplatesRequest) => {
+      // Filter connections for this session first
+      const sessionFilteredConns = filterConnectionsForSession(outboundConns, sessionId);
+      // Then filter by capabilities, then by tags
+      const capabilityFilteredClients = byCapabilities({ resources: {} })(sessionFilteredConns);
       const filteredClients = FilteringService.getFilteredConnections(capabilityFilteredClients, inboundConn);
 
       const result = await handlePagination(
@@ -210,13 +365,15 @@ function registerResourceHandlers(outboundConns: OutboundConnections, inboundCon
     SubscribeRequestSchema,
     withErrorHandling(async (request) => {
       const { clientName, resourceName } = parseUri(request.params.uri, MCP_URI_SEPARATOR);
-      return ClientManager.current.executeClientOperation(clientName, (outboundConn) =>
-        outboundConn.client.subscribeResource(
-          { ...request.params, uri: resourceName },
-          {
-            timeout: getRequestTimeout(outboundConn.transport),
-          },
-        ),
+      const outboundConn = resolveOutboundConnection(clientName, sessionId, outboundConns);
+      if (!outboundConn) {
+        throw new Error(`Unknown client: ${clientName}`);
+      }
+      return outboundConn.client.subscribeResource(
+        { ...request.params, uri: resourceName },
+        {
+          timeout: getRequestTimeout(outboundConn.transport),
+        },
       );
     }, 'Error subscribing to resource'),
   );
@@ -226,13 +383,15 @@ function registerResourceHandlers(outboundConns: OutboundConnections, inboundCon
     UnsubscribeRequestSchema,
     withErrorHandling(async (request) => {
       const { clientName, resourceName } = parseUri(request.params.uri, MCP_URI_SEPARATOR);
-      return ClientManager.current.executeClientOperation(clientName, (outboundConn) =>
-        outboundConn.client.unsubscribeResource(
-          { ...request.params, uri: resourceName },
-          {
-            timeout: getRequestTimeout(outboundConn.transport),
-          },
-        ),
+      const outboundConn = resolveOutboundConnection(clientName, sessionId, outboundConns);
+      if (!outboundConn) {
+        throw new Error(`Unknown client: ${clientName}`);
+      }
+      return outboundConn.client.unsubscribeResource(
+        { ...request.params, uri: resourceName },
+        {
+          timeout: getRequestTimeout(outboundConn.transport),
+        },
       );
     }, 'Error unsubscribing from resource'),
   );
@@ -242,25 +401,27 @@ function registerResourceHandlers(outboundConns: OutboundConnections, inboundCon
     ReadResourceRequestSchema,
     withErrorHandling(async (request) => {
       const { clientName, resourceName } = parseUri(request.params.uri, MCP_URI_SEPARATOR);
-      return ClientManager.current.executeClientOperation(clientName, async (outboundConn) => {
-        const resource = await outboundConn.client.readResource(
-          { ...request.params, uri: resourceName },
-          {
-            timeout: getRequestTimeout(outboundConn.transport),
-          },
-        );
+      const outboundConn = resolveOutboundConnection(clientName, sessionId, outboundConns);
+      if (!outboundConn) {
+        throw new Error(`Unknown client: ${clientName}`);
+      }
+      const resource = await outboundConn.client.readResource(
+        { ...request.params, uri: resourceName },
+        {
+          timeout: getRequestTimeout(outboundConn.transport),
+        },
+      );
 
-        // Transform resource content URIs to include client name prefix
-        const transformedResource = {
-          ...resource,
-          contents: resource.contents.map((content) => ({
-            ...content,
-            uri: buildUri(outboundConn.name, content.uri, MCP_URI_SEPARATOR),
-          })),
-        };
+      // Transform resource content URIs to include client name prefix
+      const transformedResource = {
+        ...resource,
+        contents: resource.contents.map((content) => ({
+          ...content,
+          uri: buildUri(outboundConn.name, content.uri, MCP_URI_SEPARATOR),
+        })),
+      };
 
-        return transformedResource;
-      });
+      return transformedResource;
     }, 'Error reading resource'),
   );
 }
@@ -271,12 +432,16 @@ function registerResourceHandlers(outboundConns: OutboundConnections, inboundCon
  * @param serverInfo The MCP server instance
  */
 function registerToolHandlers(outboundConns: OutboundConnections, inboundConn: InboundConnection): void {
+  const sessionId = getRequestSession(inboundConn);
+
   // List Tools handler
   inboundConn.server.setRequestHandler(
     ListToolsRequestSchema,
     withErrorHandling(async (request: ListToolsRequest) => {
-      // First filter by capabilities, then by tags
-      const capabilityFilteredClients = byCapabilities({ tools: {} })(outboundConns);
+      // Filter connections for this session first
+      const sessionFilteredConns = filterConnectionsForSession(outboundConns, sessionId);
+      // Then filter by capabilities, then by tags
+      const capabilityFilteredClients = byCapabilities({ tools: {} })(sessionFilteredConns);
       const filteredClients = FilteringService.getFilteredConnections(capabilityFilteredClients, inboundConn);
 
       // Get tools from external MCP servers
@@ -339,11 +504,13 @@ function registerToolHandlers(outboundConns: OutboundConnections, inboundConn: I
       }
 
       // Handle external MCP server tools
-      return ClientManager.current.executeClientOperation(clientName, (outboundConn) =>
-        outboundConn.client.callTool({ ...request.params, name: toolName }, CallToolResultSchema, {
-          timeout: getRequestTimeout(outboundConn.transport),
-        }),
-      );
+      const outboundConn = resolveOutboundConnection(clientName, sessionId, outboundConns);
+      if (!outboundConn) {
+        throw new Error(`Unknown client: ${clientName}`);
+      }
+      return outboundConn.client.callTool({ ...request.params, name: toolName }, CallToolResultSchema, {
+        timeout: getRequestTimeout(outboundConn.transport),
+      });
     }, 'Error calling tool'),
   );
 }
@@ -354,12 +521,16 @@ function registerToolHandlers(outboundConns: OutboundConnections, inboundConn: I
  * @param serverInfo The MCP server instance
  */
 function registerPromptHandlers(outboundConns: OutboundConnections, inboundConn: InboundConnection): void {
+  const sessionId = getRequestSession(inboundConn);
+
   // List Prompts handler
   inboundConn.server.setRequestHandler(
     ListPromptsRequestSchema,
     withErrorHandling(async (request: ListPromptsRequest) => {
-      // First filter by capabilities, then by tags
-      const capabilityFilteredClients = byCapabilities({ prompts: {} })(outboundConns);
+      // Filter connections for this session first
+      const sessionFilteredConns = filterConnectionsForSession(outboundConns, sessionId);
+      // Then filter by capabilities, then by tags
+      const capabilityFilteredClients = byCapabilities({ prompts: {} })(sessionFilteredConns);
       const filteredClients = FilteringService.getFilteredConnections(capabilityFilteredClients, inboundConn);
 
       const result = await handlePagination(
@@ -386,9 +557,11 @@ function registerPromptHandlers(outboundConns: OutboundConnections, inboundConn:
     GetPromptRequestSchema,
     withErrorHandling(async (request) => {
       const { clientName, resourceName: promptName } = parseUri(request.params.name, MCP_URI_SEPARATOR);
-      return ClientManager.current.executeClientOperation(clientName, (outboundConn) =>
-        outboundConn.client.getPrompt({ ...request.params, name: promptName }),
-      );
+      const outboundConn = resolveOutboundConnection(clientName, sessionId, outboundConns);
+      if (!outboundConn) {
+        throw new Error(`Unknown client: ${clientName}`);
+      }
+      return outboundConn.client.getPrompt({ ...request.params, name: promptName });
     }, 'Error getting prompt'),
   );
 }
@@ -399,6 +572,8 @@ function registerPromptHandlers(outboundConns: OutboundConnections, inboundConn:
  * @param serverInfo The MCP server instance
  */
 function registerCompletionHandlers(outboundConns: OutboundConnections, inboundConn: InboundConnection): void {
+  const sessionId = getRequestSession(inboundConn);
+
   inboundConn.server.setRequestHandler(
     CompleteRequestSchema,
     withErrorHandling(async (request: CompleteRequest) => {
@@ -421,15 +596,13 @@ function registerCompletionHandlers(outboundConns: OutboundConnections, inboundC
 
       const params = { ...request.params, ref: updatedRef };
 
-      return ClientManager.current.executeClientOperation(
-        clientName,
-        (outboundConn) =>
-          outboundConn.client.complete(params, {
-            timeout: getRequestTimeout(outboundConn.transport),
-          }),
-        {},
-        'completions',
-      );
+      const outboundConn = resolveOutboundConnection(clientName, sessionId, outboundConns);
+      if (!outboundConn) {
+        throw new Error(`Unknown client: ${clientName}`);
+      }
+      return outboundConn.client.complete(params, {
+        timeout: getRequestTimeout(outboundConn.transport),
+      });
     }, 'Error handling completion'),
   );
 }

@@ -3,9 +3,11 @@ import path from 'path';
 import { ConfigManager } from '@src/config/configManager.js';
 import { MCP_SERVER_CAPABILITIES, MCP_SERVER_NAME, MCP_SERVER_VERSION } from '@src/constants.js';
 import { ConfigChangeHandler } from '@src/core/configChangeHandler.js';
+import { getGlobalContextManager } from '@src/core/context/globalContextManager.js';
 import { AgentConfigManager } from '@src/core/server/agentConfig.js';
 import { AuthProviderTransport } from '@src/core/types/client.js';
 import logger, { debugIf } from '@src/logger/logger.js';
+import type { ContextData } from '@src/types/context.js';
 
 import { AsyncLoadingOrchestrator } from './core/capabilities/asyncLoadingOrchestrator.js';
 import { ClientManager } from './core/client/clientManager.js';
@@ -36,7 +38,7 @@ export interface ServerSetupResult {
  * Main function to set up the MCP server
  * Conditionally uses async or legacy loading based on configuration
  */
-async function setupServer(configFilePath?: string): Promise<ServerSetupResult> {
+async function setupServer(configFilePath?: string, context?: ContextData): Promise<ServerSetupResult> {
   try {
     // Initialize the new unified config management system
     const configManager = ConfigManager.getInstance(configFilePath);
@@ -45,7 +47,17 @@ async function setupServer(configFilePath?: string): Promise<ServerSetupResult> 
     await configManager.initialize();
     await configChangeHandler.initialize();
 
+    // Check global context manager for context if not provided directly
+    if (!context) {
+      const globalContextManager = getGlobalContextManager();
+      context = globalContextManager.getContext();
+    }
+
+    // Load only static servers at startup - template servers are created per-client
+    // Templates should only be processed when clients connect, not at server startup
+    // Note: ConfigManager already filters out static servers that conflict with template servers
     const mcpConfig = configManager.getTransportConfig();
+
     const agentConfig = AgentConfigManager.getInstance();
     const asyncLoadingEnabled = agentConfig.get('asyncLoading').enabled;
 
@@ -54,16 +66,18 @@ async function setupServer(configFilePath?: string): Promise<ServerSetupResult> 
     const configDir = configFilePath ? path.dirname(configFilePath) : undefined;
     await initializePresetSystem(configDir);
 
-    // Create transports from configuration
+    // Create transports from static configuration only (template servers created per-client)
     const transports = createTransports(mcpConfig);
-    logger.info(`Created ${Object.keys(transports).length} transports`);
+    logger.info(
+      `Created ${Object.keys(transports).length} static transports (template servers will be created per-client)`,
+    );
 
     if (asyncLoadingEnabled) {
       logger.info('Using async loading mode - HTTP server will start immediately, MCP servers load in background');
-      return setupServerAsync(transports);
+      return setupServerAsync(transports, context);
     } else {
       logger.info('Using legacy synchronous loading mode - waiting for all MCP servers before starting HTTP server');
-      return setupServerSync(transports);
+      return setupServerSync(transports, context);
     }
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
@@ -76,7 +90,10 @@ async function setupServer(configFilePath?: string): Promise<ServerSetupResult> 
  * Set up server with async loading (new mode)
  * HTTP server starts immediately, MCP servers load in background
  */
-async function setupServerAsync(transports: Record<string, AuthProviderTransport>): Promise<ServerSetupResult> {
+async function setupServerAsync(
+  transports: Record<string, AuthProviderTransport>,
+  _context?: ContextData,
+): Promise<ServerSetupResult> {
   // Initialize instruction aggregator
   const instructionAggregator = new InstructionAggregator();
   logger.info('Instruction aggregator initialized');
@@ -131,7 +148,10 @@ async function setupServerAsync(transports: Record<string, AuthProviderTransport
  * Set up server with legacy synchronous loading
  * Waits for all MCP servers to load before returning
  */
-async function setupServerSync(transports: Record<string, AuthProviderTransport>): Promise<ServerSetupResult> {
+async function setupServerSync(
+  transports: Record<string, AuthProviderTransport>,
+  _context?: ContextData,
+): Promise<ServerSetupResult> {
   // Initialize instruction aggregator
   const instructionAggregator = new InstructionAggregator();
   logger.info('Instruction aggregator initialized');

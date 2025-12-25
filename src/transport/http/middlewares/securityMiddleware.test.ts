@@ -22,6 +22,7 @@ vi.mock('@src/logger/logger.js', () => ({
     error: vi.fn(),
     debug: vi.fn(),
   },
+  debugIf: vi.fn(),
 }));
 
 describe('Security Middleware', () => {

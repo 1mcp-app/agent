@@ -84,7 +84,7 @@ export function filterClientsByCapabilities(
   return filteredClients;
 }
 
-type ClientFilter = (clients: OutboundConnections) => OutboundConnections;
+export type ClientFilter = (clients: OutboundConnections) => OutboundConnections;
 
 /**
  * Filters clients by multiple criteria

@@ -2,8 +2,12 @@ import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { JSONRPCMessage } from '@modelcontextprotocol/sdk/types.js';
 
-import { MCP_SERVER_VERSION } from '@src/constants.js';
-import logger, { debugIf } from '@src/logger/logger.js';
+import type { ProjectConfig } from '@src/config/projectConfigTypes.js';
+import { AUTH_CONFIG } from '@src/constants/auth.js';
+import { MCP_SERVER_VERSION } from '@src/constants/mcp.js';
+import logger from '@src/logger/logger.js';
+import type { ClientInfo, ContextData } from '@src/types/context.js';
+import { ClientInfoExtractor } from '@src/utils/client/clientInfoExtractor.js';
 
 /**
  * STDIO Proxy Transport Options
@@ -14,6 +18,95 @@ export interface StdioProxyTransportOptions {
   filter?: string;
   tags?: string[];
   timeout?: number;
+  projectConfig?: ProjectConfig; // For context enrichment
+}
+
+/**
+ * Enrich context with project configuration
+ */
+function enrichContextWithProjectConfig(context: ContextData, projectConfig?: ProjectConfig): ContextData {
+  if (!projectConfig?.context) {
+    return context;
+  }
+
+  const enrichedContext = { ...context };
+
+  // Enrich project context
+  if (projectConfig.context) {
+    enrichedContext.project = {
+      ...context.project,
+      environment: projectConfig.context.environment || context.project.environment,
+      custom: {
+        ...context.project.custom,
+        projectId: projectConfig.context.projectId,
+        team: projectConfig.context.team,
+        ...projectConfig.context.custom,
+      },
+    };
+
+    // Handle environment variable prefixes
+    if (projectConfig.context.envPrefixes && projectConfig.context.envPrefixes.length > 0) {
+      const envVars: Record<string, string> = {};
+
+      for (const prefix of projectConfig.context.envPrefixes) {
+        for (const [key, value] of Object.entries(process.env)) {
+          if (key.startsWith(prefix) && value) {
+            envVars[key] = value;
+          }
+        }
+      }
+
+      enrichedContext.environment = {
+        ...context.environment,
+        variables: {
+          ...context.environment.variables,
+          ...envVars,
+        },
+      };
+    }
+  }
+
+  return enrichedContext;
+}
+
+/**
+ * Generate a secure mcp-session-id for the proxy with the correct prefix
+ */
+function generateMcpSessionId(): string {
+  return `${AUTH_CONFIG.SERVER.STREAMABLE_SESSION.ID_PREFIX}${crypto.randomUUID()}`;
+}
+
+/**
+ * Auto-detects context from the proxy's environment
+ */
+function detectProxyContext(projectConfig?: ProjectConfig): ContextData {
+  const cwd = process.cwd();
+  const projectName = cwd.split('/').pop() || 'unknown';
+
+  const baseContext: ContextData = {
+    project: {
+      path: cwd,
+      name: projectName,
+      environment: process.env.NODE_ENV || 'development',
+    },
+    user: {
+      username: process.env.USER || process.env.USERNAME || 'unknown',
+      home: process.env.HOME || process.env.USERPROFILE || '',
+    },
+    environment: {
+      variables: {
+        NODE_VERSION: process.version,
+        PLATFORM: process.platform,
+        ARCH: process.arch,
+        PWD: cwd,
+      },
+    },
+    timestamp: new Date().toISOString(),
+    version: MCP_SERVER_VERSION,
+    sessionId: generateMcpSessionId(),
+  };
+
+  return enrichContextWithProjectConfig(baseContext, projectConfig);
 }
 
 /**
@@ -29,29 +122,56 @@ export class StdioProxyTransport {
   private stdioTransport: StdioServerTransport;
   private httpTransport: StreamableHTTPClientTransport;
   private isConnected = false;
+  private context: ContextData;
+  private clientInfo: ClientInfo | null = null;
+  private initializeIntercepted = false;
+  private serverUrl: URL;
+  private requestInit: RequestInit;
 
   constructor(private options: StdioProxyTransportOptions) {
+    // Reset any previous state
+    ClientInfoExtractor.reset();
+
+    // Auto-detect context from proxy's environment and enrich with project config
+    this.context = detectProxyContext(this.options.projectConfig);
+
+    logger.info('🔍 Detected proxy context', {
+      projectPath: this.context.project.path,
+      projectName: this.context.project.name,
+      sessionId: this.context.sessionId,
+    });
+
     // Create STDIO server transport (for client communication)
     this.stdioTransport = new StdioServerTransport();
 
-    // Create Streamable HTTP client transport (for HTTP server communication)
-    const url = new URL(this.options.serverUrl);
+    // Prepare the server URL (no query parameters needed - using context headers)
+    this.serverUrl = new URL(this.options.serverUrl);
 
     // Apply priority: preset > filter > tags (only one will be added)
     if (this.options.preset) {
-      url.searchParams.set('preset', this.options.preset);
+      this.serverUrl.searchParams.set('preset', this.options.preset);
     } else if (this.options.filter) {
-      url.searchParams.set('filter', this.options.filter);
+      this.serverUrl.searchParams.set('filter', this.options.filter);
     } else if (this.options.tags && this.options.tags.length > 0) {
-      url.searchParams.set('tags', this.options.tags.join(','));
+      this.serverUrl.searchParams.set('tags', this.options.tags.join(','));
     }
 
-    this.httpTransport = new StreamableHTTPClientTransport(url, {
-      requestInit: {
-        headers: {
-          'User-Agent': `1MCP-Proxy/${MCP_SERVER_VERSION}`,
-        },
+    logger.info('📡 Proxy connecting with _meta field approach', {
+      url: this.serverUrl.toString(),
+      contextProvided: true,
+    });
+
+    // Prepare minimal request headers (no large context data)
+    this.requestInit = {
+      headers: {
+        'User-Agent': `1MCP-Proxy/${MCP_SERVER_VERSION}`,
+        'mcp-session-id': this.context.sessionId!, // Non-null assertion - always set by detectProxyContext
       },
+    };
+
+    // Create initial HTTP transport with minimal headers
+    this.httpTransport = new StreamableHTTPClientTransport(this.serverUrl, {
+      requestInit: this.requestInit,
     });
   }
 
@@ -60,14 +180,6 @@ export class StdioProxyTransport {
    */
   async start(): Promise<void> {
     try {
-      debugIf(() => ({
-        message: 'Starting STDIO proxy transport',
-        meta: {
-          serverUrl: this.options.serverUrl,
-          tags: this.options.tags,
-        },
-      }));
-
       // CRITICAL: Set up message forwarding BEFORE starting transports
       // This ensures handlers are ready when messages start flowing
       this.setupMessageForwarding();
@@ -95,16 +207,26 @@ export class StdioProxyTransport {
     // Forward messages from STDIO client to HTTP server
     this.stdioTransport.onmessage = async (message: JSONRPCMessage) => {
       try {
-        debugIf(() => ({
-          message: 'Forwarding message from STDIO to HTTP',
-          meta: {
-            method: 'method' in message ? message.method : 'unknown',
-            id: 'id' in message ? message.id : 'unknown',
-          },
-        }));
+        // Check for initialize request to extract client info
+        if (!this.initializeIntercepted) {
+          const clientInfo = ClientInfoExtractor.extractFromInitializeRequest(message);
+          if (clientInfo) {
+            this.clientInfo = clientInfo;
+            this.initializeIntercepted = true;
+
+            logger.info('🔍 Extracted client info from initialize request', {
+              clientName: clientInfo.name,
+              clientVersion: clientInfo.version,
+              clientTitle: clientInfo.title,
+            });
+          }
+        }
+
+        // Add context metadata to message _meta field
+        const enhancedMessage = this.addContextMeta(message);
 
         // Forward to HTTP server
-        await this.httpTransport.send(message);
+        await this.httpTransport.send(enhancedMessage);
       } catch (error) {
         logger.error(`Error forwarding STDIO message to HTTP: ${error}`);
       }
@@ -113,14 +235,6 @@ export class StdioProxyTransport {
     // Forward messages from HTTP server to STDIO client
     this.httpTransport.onmessage = async (message: JSONRPCMessage) => {
       try {
-        debugIf(() => ({
-          message: 'Forwarding message from HTTP to STDIO',
-          meta: {
-            method: 'method' in message ? message.method : 'unknown',
-            id: 'id' in message ? message.id : 'unknown',
-          },
-        }));
-
         // Forward to STDIO client
         await this.stdioTransport.send(message);
       } catch (error) {
@@ -152,6 +266,52 @@ export class StdioProxyTransport {
   }
 
   /**
+   * Type guard to check if a JSON-RPC message is a request
+   */
+  private isRequest(message: JSONRPCMessage): message is JSONRPCMessage & {
+    method: string;
+    params?: Record<string, unknown>;
+  } {
+    return 'method' in message;
+  }
+
+  /**
+   * Add context metadata to message using _meta field
+   */
+  private addContextMeta(message: JSONRPCMessage): JSONRPCMessage {
+    // Create context with client info if available
+    const contextWithClient = {
+      ...this.context,
+      ...(this.clientInfo && {
+        transport: {
+          type: 'stdio-proxy',
+          connectionTimestamp: new Date().toISOString(),
+          client: this.clientInfo,
+        },
+      }),
+    };
+
+    // Only add _meta to messages that are requests (have params)
+    if (this.isRequest(message) && message.params !== undefined) {
+      const params = message.params as Record<string, unknown>;
+      // Return a new message object with _meta field
+      return {
+        ...message,
+        params: {
+          ...params,
+          _meta: {
+            ...((params._meta as Record<string, unknown>) || {}), // Preserve existing _meta
+            context: contextWithClient, // Add our context data
+          },
+        },
+      };
+    }
+
+    // Return original message for responses or requests without params
+    return message;
+  }
+
+  /**
    * Close the proxy transport
    */
   async close(): Promise<void> {
@@ -164,8 +324,6 @@ export class StdioProxyTransport {
     this.isConnected = false;
 
     try {
-      debugIf('Closing STDIO proxy transport');
-
       // Close HTTP transport
       await this.httpTransport.close();
 

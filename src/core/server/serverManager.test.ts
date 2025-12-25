@@ -53,6 +53,10 @@ vi.mock('../../client/clientManager.js', () => ({
   ClientManager: {
     getOrCreateInstance: vi.fn(() => ({
       createClients: vi.fn().mockResolvedValue(new Map()),
+      createPooledClientInstance: vi.fn(() => ({
+        connect: vi.fn().mockResolvedValue(undefined),
+        close: vi.fn().mockResolvedValue(undefined),
+      })),
     })),
   },
 }));
@@ -64,6 +68,17 @@ vi.mock('../../transport/transportFactory.js', () => ({
       transports[name] = {
         name,
         close: vi.fn().mockResolvedValue(undefined),
+      };
+    }
+    return transports;
+  }),
+  createTransportsWithContext: vi.fn(async (configs, context) => {
+    const transports: Record<string, any> = {};
+    for (const [name] of Object.entries(configs)) {
+      transports[name] = {
+        name,
+        close: vi.fn().mockResolvedValue(undefined),
+        context: context, // Track that context was passed
       };
     }
     return transports;
@@ -90,6 +105,35 @@ vi.mock('@src/domains/preset/services/presetNotificationService.js', () => ({
   },
 }));
 
+vi.mock('@src/core/context/globalContextManager.js', () => ({
+  getGlobalContextManager: vi.fn(() => ({
+    getContext: vi.fn(() => undefined), // Default no context
+    updateContext: vi.fn(),
+    on: vi.fn(),
+    off: vi.fn(),
+    once: vi.fn(),
+  })),
+}));
+
+// Additional mocks needed by ClientInstancePool
+vi.mock('@src/template/templateVariableExtractor.js', () => ({
+  TemplateVariableExtractor: vi.fn().mockImplementation(() => ({
+    getUsedVariables: vi.fn(() => ({})),
+  })),
+}));
+
+vi.mock('@src/template/templateProcessor.js', () => ({
+  TemplateProcessor: vi.fn().mockImplementation(() => ({
+    processServerConfig: vi.fn().mockResolvedValue({
+      processedConfig: {},
+    }),
+  })),
+}));
+
+vi.mock('@src/utils/crypto.js', () => ({
+  createVariableHash: vi.fn((vars) => JSON.stringify(vars)),
+}));
+
 // Store original setTimeout
 const originalSetTimeout = global.setTimeout;
 
@@ -110,7 +154,163 @@ const _mockMap = vi.fn().mockImplementation(() => {
   return map;
 });
 
-// Mock ServerManager completely to avoid any real async operations
+// Mock ClientInstancePool for the new architecture - but don't mock it directly yet
+// We'll mock it when we create the ServerManager mock below
+
+// Mock ClientInstancePool before we import ServerManager
+vi.mock('@src/core/server/clientInstancePool.js', () => ({
+  ClientInstancePool: vi.fn().mockImplementation(() => ({
+    getOrCreateClientInstance: vi.fn().mockResolvedValue({
+      id: 'test-instance-id',
+      templateName: 'test-template',
+      client: {
+        connect: vi.fn().mockResolvedValue(undefined),
+        close: vi.fn().mockResolvedValue(undefined),
+      },
+      transport: {
+        close: vi.fn().mockResolvedValue(undefined),
+      },
+      variableHash: 'test-hash',
+      templateVariables: {},
+      processedConfig: {},
+      referenceCount: 1,
+      createdAt: new Date(),
+      lastUsedAt: new Date(),
+      status: 'active' as const,
+      clientIds: new Set(['test-client']),
+      idleTimeout: 300000,
+    }),
+    removeClientFromInstance: vi.fn(),
+    getInstance: vi.fn(),
+    getTemplateInstances: vi.fn(() => []),
+    getAllInstances: vi.fn(() => []),
+    removeInstance: vi.fn().mockResolvedValue(undefined),
+    cleanupIdleInstances: vi.fn().mockResolvedValue(undefined),
+    shutdown: vi.fn().mockResolvedValue(undefined),
+    getStats: vi.fn(() => ({
+      totalInstances: 0,
+      activeInstances: 0,
+      idleInstances: 0,
+      templateCount: 0,
+      totalClients: 0,
+    })),
+  })),
+}));
+
+// Mock configManager
+// Create a singleton mock instance that can be shared
+const mockConfigManagerInstance = {
+  loadConfigWithTemplates: vi.fn().mockResolvedValue({
+    staticServers: {},
+    templateServers: {},
+    errors: [],
+  }),
+};
+
+vi.mock('@src/config/configManager.js', () => ({
+  ConfigManager: {
+    getInstance: vi.fn(() => mockConfigManagerInstance),
+  },
+}));
+
+// Mock the filtering components
+vi.mock('@src/core/filtering/index.js', () => ({
+  ClientTemplateTracker: vi.fn().mockImplementation(() => ({
+    addClientTemplate: vi.fn(),
+    removeClient: vi.fn(() => []),
+    getClientCount: vi.fn(() => 0),
+    getStats: vi.fn(() => ({})),
+    getDetailedInfo: vi.fn(() => ({})),
+    getIdleInstances: vi.fn(() => []),
+    cleanupInstance: vi.fn(),
+  })),
+  FilterCache: {
+    get: vi.fn(() => ({ cache: true })),
+    set: vi.fn(),
+    clear: vi.fn(),
+    getStats: vi.fn(() => ({})),
+  },
+  getFilterCache: vi.fn(() => ({
+    get: vi.fn(),
+    set: vi.fn(),
+    clear: vi.fn(),
+    getStats: vi.fn(() => ({})),
+  })),
+  TemplateFilteringService: {
+    getMatchingTemplates: vi.fn((templates) => templates),
+  },
+  TemplateIndex: vi.fn().mockImplementation(() => ({
+    buildIndex: vi.fn(),
+    getStats: vi.fn(() => ({})),
+  })),
+}));
+
+// Mock instruction aggregator
+vi.mock('@src/core/instructions/instructionAggregator.js', () => ({
+  InstructionAggregator: vi.fn().mockImplementation(() => ({
+    getFilteredInstructions: vi.fn(() => ''),
+    on: vi.fn(),
+  })),
+}));
+
+// Mock the new refactored components
+vi.mock('./templateConfigurationManager.js', () => ({
+  TemplateConfigurationManager: vi.fn().mockImplementation(() => ({
+    reprocessTemplatesWithNewContext: vi.fn(),
+    updateServersIndividually: vi.fn(),
+    updateServersWithNewConfig: vi.fn(),
+    configChanged: vi.fn(() => false),
+    isTemplateProcessingDisabled: vi.fn(() => false),
+    getErrorCount: vi.fn(() => 0),
+    resetCircuitBreaker: vi.fn(),
+    cleanup: vi.fn(),
+  })),
+}));
+
+vi.mock('./connectionManager.js', () => ({
+  ConnectionManager: vi.fn().mockImplementation(() => ({
+    connectTransport: vi.fn(),
+    disconnectTransport: vi.fn(),
+    getTransport: vi.fn(),
+    getTransports: vi.fn(() => new Map()),
+    getClientTransports: vi.fn(() => ({})),
+    getClients: vi.fn(() => new Map()),
+    getClient: vi.fn(),
+    getActiveTransportsCount: vi.fn(() => 0),
+    getServer: vi.fn(),
+    getInboundConnections: vi.fn(() => new Map()),
+    updateClientsAndTransports: vi.fn(),
+    executeServerOperation: vi.fn(),
+  })),
+}));
+
+vi.mock('./templateServerManager.js', () => ({
+  TemplateServerManager: vi.fn().mockImplementation(() => ({
+    createTemplateBasedServers: vi.fn(),
+    cleanupTemplateServers: vi.fn(),
+    getMatchingTemplateConfigs: vi.fn(() => []),
+    getIdleTemplateInstances: vi.fn(() => []),
+    cleanupIdleInstances: vi.fn().mockResolvedValue(0),
+    rebuildTemplateIndex: vi.fn(),
+    getFilteringStats: vi.fn(() => ({ tracker: null, cache: null, index: null, enabled: true })),
+    getClientTemplateInfo: vi.fn(() => ({})),
+    getClientInstancePool: vi.fn(() => ({})),
+    cleanup: vi.fn(),
+  })),
+}));
+
+vi.mock('./mcpServerLifecycleManager.js', () => ({
+  MCPServerLifecycleManager: vi.fn().mockImplementation(() => ({
+    startServer: vi.fn(),
+    stopServer: vi.fn(),
+    restartServer: vi.fn(),
+    getMcpServerStatus: vi.fn(() => new Map()),
+    isMcpServerRunning: vi.fn(() => false),
+    updateServerMetadata: vi.fn(),
+  })),
+}));
+
+// Mock ServerManager with simplified implementation focusing on client management
 vi.mock('./serverManager.js', () => {
   // Create a simple mock class that implements all the public methods
   class MockServerManager {
@@ -121,6 +321,13 @@ vi.mock('./serverManager.js', () => {
     private transports: any;
     private serverConfig: any;
     private serverCapabilities: any;
+    private clientInstancePool: any;
+    private templateServerManager: any;
+    // Add serverConfigData for conflict detection
+    public serverConfigData: {
+      mcpServers: Record<string, any>;
+      mcpTemplates: Record<string, any>;
+    };
 
     constructor(...args: any[]) {
       // Store constructor arguments
@@ -128,6 +335,64 @@ vi.mock('./serverManager.js', () => {
       this.serverCapabilities = args[1];
       this.outboundConns = args[3];
       this.transports = args[4];
+
+      // Initialize serverConfigData for conflict detection
+      this.serverConfigData = {
+        mcpServers: {},
+        mcpTemplates: {},
+      };
+
+      // Initialize templateServerManager mock
+      this.templateServerManager = {
+        createTemplateBasedServers: vi.fn(),
+        cleanupTemplateServers: vi.fn(),
+        getMatchingTemplateConfigs: vi.fn(() => []),
+        getIdleTemplateInstances: vi.fn(() => []),
+        cleanupIdleInstances: vi.fn().mockResolvedValue(0),
+        rebuildTemplateIndex: vi.fn(),
+        getFilteringStats: vi.fn(() => ({ tracker: null, cache: null, index: null, enabled: true })),
+        getClientTemplateInfo: vi.fn(() => ({})),
+        getClientInstancePool: vi.fn(() => ({})),
+        cleanup: vi.fn(),
+      };
+
+      // Initialize ClientInstancePool mock - assign mock object directly
+      this.clientInstancePool = {
+        getOrCreateClientInstance: vi.fn().mockResolvedValue({
+          id: 'test-instance-id',
+          templateName: 'test-template',
+          client: {
+            connect: vi.fn().mockResolvedValue(undefined),
+            close: vi.fn().mockResolvedValue(undefined),
+          },
+          transport: {
+            close: vi.fn().mockResolvedValue(undefined),
+          },
+          variableHash: 'test-hash',
+          templateVariables: {},
+          processedConfig: {},
+          referenceCount: 1,
+          createdAt: new Date(),
+          lastUsedAt: new Date(),
+          status: 'active' as const,
+          clientIds: new Set(['test-client']),
+          idleTimeout: 300000,
+        }),
+        removeClientFromInstance: vi.fn(),
+        getInstance: vi.fn(),
+        getTemplateInstances: vi.fn(() => []),
+        getAllInstances: vi.fn(() => []),
+        removeInstance: vi.fn().mockResolvedValue(undefined),
+        cleanupIdleInstances: vi.fn().mockResolvedValue(undefined),
+        shutdown: vi.fn().mockResolvedValue(undefined),
+        getStats: vi.fn(() => ({
+          totalInstances: 0,
+          activeInstances: 0,
+          idleInstances: 0,
+          templateCount: 0,
+          totalClients: 0,
+        })),
+      };
     }
 
     static getOrCreateInstance(...args: any[]): MockServerManager {
@@ -149,6 +414,41 @@ vi.mock('./serverManager.js', () => {
     }
 
     async connectTransport(transport: any, sessionId: string, opts: any): Promise<void> {
+      // Get ConfigManager to load configurations
+      const configManager = (await import('@src/config/configManager.js')).ConfigManager.getInstance();
+
+      // Load static servers (no context)
+      const staticResult = await configManager.loadConfigWithTemplates(undefined);
+      this.serverConfigData.mcpServers = staticResult.staticServers;
+
+      // Load template servers (with context if available)
+      const context = (opts as any).context;
+      if (context) {
+        const templateResult = await configManager.loadConfigWithTemplates(context);
+        this.serverConfigData.mcpTemplates = templateResult.templateServers;
+
+        // Detect conflicts between static servers and template servers
+        if (Object.keys(this.serverConfigData.mcpTemplates).length > 0) {
+          const conflictingServers: string[] = [];
+          for (const serverName of Object.keys(this.serverConfigData.mcpTemplates)) {
+            if (this.serverConfigData.mcpServers[serverName]) {
+              conflictingServers.push(serverName);
+            }
+          }
+
+          if (conflictingServers.length > 0) {
+            const logger = (await import('@src/logger/logger.js')).default;
+            logger.warn(
+              `Ignoring ${conflictingServers.length} static server(s) that conflict with template servers: ${conflictingServers.join(', ')}`,
+            );
+            // Remove conflicting static servers so they won't be connected
+            for (const serverName of conflictingServers) {
+              delete this.serverConfigData.mcpServers[serverName];
+            }
+          }
+        }
+      }
+
       // Simulate connection errors if transport mock is set to reject
       if ((transport as any)._shouldReject) {
         // Log error before throwing (matching real behavior)
@@ -229,6 +529,11 @@ vi.mock('./serverManager.js', () => {
       return this.inboundConns.get(sessionId);
     }
 
+    // Add getTemplateServerManager method
+    getTemplateServerManager(): any {
+      return this.templateServerManager;
+    }
+
     async startServer(serverName: string, config: any): Promise<void> {
       // Skip disabled servers
       if (config.disabled) {
@@ -240,16 +545,32 @@ vi.mock('./serverManager.js', () => {
         throw new Error('Invalid transport type');
       }
 
-      const mockTransport = {
-        name: serverName,
-        close: vi.fn().mockResolvedValue(undefined),
-      };
+      // Create transport using the factory pattern with context awareness (mocked)
+      const mockTransport = await this.createServerTransport(serverName, config);
 
       this.mcpServers.set(serverName, {
         transport: mockTransport,
         config,
         running: true,
       });
+    }
+
+    async createServerTransport(serverName: string, config: any): Promise<any> {
+      // Mock implementation of createServerTransport to test context awareness
+      const { getGlobalContextManager } = await import('@src/core/context/globalContextManager.js');
+      const globalContextManager = getGlobalContextManager();
+      const currentContext = globalContextManager.getContext();
+
+      // Use the mocked functions from vi.mocked()
+      const { createTransports, createTransportsWithContext } = vi.mocked(
+        await import('../../transport/transportFactory.js'),
+      );
+
+      const transports = currentContext
+        ? await createTransportsWithContext({ [serverName]: config }, currentContext)
+        : createTransports({ [serverName]: config });
+
+      return transports[serverName];
     }
 
     async stopServer(serverName: string): Promise<void> {
@@ -278,6 +599,15 @@ vi.mock('./serverManager.js', () => {
 
     setInstructionAggregator(_aggregator: any): void {
       // Mock implementation
+    }
+
+    // Add methods for ClientInstancePool interaction
+    async cleanupIdleInstances(): Promise<void> {
+      await this.clientInstancePool.cleanupIdleInstances();
+    }
+
+    async cleanupTemplateServers(): Promise<void> {
+      // Mock implementation - no longer needed with ClientInstancePool
     }
   }
 
@@ -552,12 +882,7 @@ describe('ServerManager', () => {
           type: 'invalid' as any,
         };
 
-        // Mock createTransports to throw an error for invalid configs
-        const { createTransports } = await import('../../transport/transportFactory.js');
-        vi.mocked(createTransports).mockImplementationOnce(() => {
-          throw new Error('Invalid transport type');
-        });
-
+        // The mock implementation will handle this by checking config.type === 'invalid'
         await expect(serverManager.startServer('invalid-server', invalidConfig)).rejects.toThrow(
           'Invalid transport type',
         );
@@ -681,6 +1006,124 @@ describe('ServerManager', () => {
       });
     });
 
+    describe('Context-Aware Transport Creation', () => {
+      const mockContext = {
+        sessionId: 'test-session-123',
+        version: '1.0.0',
+        project: {
+          name: 'test-project',
+          path: '/test/path',
+          environment: 'test',
+        },
+        user: {
+          uid: 'user-456',
+          username: 'testuser',
+          email: 'test@example.com',
+        },
+        environment: {
+          variables: {},
+        },
+        timestamp: '2024-01-15T10:30:00Z',
+      };
+
+      beforeEach(() => {
+        // Clear previous mock calls
+        vi.clearAllMocks();
+      });
+
+      it('should use createTransports when no context is available', async () => {
+        const { getGlobalContextManager } = await import('@src/core/context/globalContextManager.js');
+        const { createTransports, createTransportsWithContext } = await import('../../transport/transportFactory.js');
+
+        // Mock to return no context
+        vi.mocked(getGlobalContextManager).mockReturnValue({
+          getContext: vi.fn(() => undefined),
+          updateContext: vi.fn(),
+          on: vi.fn(),
+          off: vi.fn(),
+          once: vi.fn(),
+        } as any);
+
+        const serverConfig = {
+          command: 'node',
+          args: ['server.js'],
+          type: 'stdio' as const,
+        };
+
+        await serverManager.startServer('test-server', serverConfig);
+
+        // Should use createTransports when no context
+        expect(createTransports).toHaveBeenCalledWith({ 'test-server': serverConfig });
+        expect(createTransportsWithContext).not.toHaveBeenCalled();
+      });
+
+      it('should use createTransportsWithContext when context is available', async () => {
+        const { getGlobalContextManager } = await import('@src/core/context/globalContextManager.js');
+        const { createTransports, createTransportsWithContext } = await import('../../transport/transportFactory.js');
+
+        // Mock to return context
+        vi.mocked(getGlobalContextManager).mockReturnValue({
+          getContext: vi.fn(() => mockContext),
+          updateContext: vi.fn(),
+          on: vi.fn(),
+          off: vi.fn(),
+          once: vi.fn(),
+        } as any);
+
+        const serverConfig = {
+          command: 'node',
+          args: ['server.js'],
+          type: 'stdio' as const,
+        };
+
+        await serverManager.startServer('test-server', serverConfig);
+
+        // Should use createTransportsWithContext when context is available
+        expect(createTransportsWithContext).toHaveBeenCalledWith({ 'test-server': serverConfig }, mockContext);
+        expect(createTransports).not.toHaveBeenCalled();
+      });
+
+      it('should include context information in transport when context is used', async () => {
+        const { getGlobalContextManager } = await import('@src/core/context/globalContextManager.js');
+        const { createTransportsWithContext } = await import('../../transport/transportFactory.js');
+
+        // Mock to return context and create transport with context tracking
+        vi.mocked(getGlobalContextManager).mockReturnValue({
+          getContext: vi.fn(() => mockContext),
+          updateContext: vi.fn(),
+          on: vi.fn(),
+          off: vi.fn(),
+          once: vi.fn(),
+        } as any);
+
+        // Mock createTransportsWithContext to return transport with context
+        vi.mocked(createTransportsWithContext).mockResolvedValue({
+          'test-server': {
+            close: vi.fn().mockResolvedValue(undefined),
+            context: mockContext,
+          } as any,
+        });
+
+        const serverConfig = {
+          command: 'node',
+          args: ['server.js'],
+          type: 'stdio' as const,
+        };
+
+        await serverManager.startServer('test-server', serverConfig);
+
+        // Verify the transport was created with context
+        expect(createTransportsWithContext).toHaveBeenCalledWith({ 'test-server': serverConfig }, mockContext);
+
+        // Check the server status - the server should be running with the correct config
+        const status = serverManager.getMcpServerStatus();
+        const serverInfo = status.get('test-server');
+        expect(serverInfo).toBeDefined();
+        expect(serverInfo?.running).toBe(true);
+        expect(serverInfo?.config).toMatchObject(serverConfig);
+      });
+    });
+
     describe('updateServerMetadata', () => {
       it('should update metadata for a running server', async () => {
         const originalConfig = {
@@ -761,6 +1204,184 @@ describe('ServerManager', () => {
         // The specific transport metadata updates would be tested through integration tests
         // For now, just verify no errors are thrown
         expect(serverManager.isMcpServerRunning('test-server')).toBe(true);
+      });
+    });
+
+    describe('Static Server Conflict Detection', () => {
+      let serverManager: any; // Use any to access MockServerManager's public serverConfigData
+      let mockConfigManager: any;
+
+      beforeEach(async () => {
+        ServerManager.resetInstance();
+        serverManager = ServerManager.getOrCreateInstance(
+          mockConfig,
+          mockCapabilities,
+          mockOutboundConns,
+          mockTransports,
+        );
+
+        // Get the mock config manager
+        mockConfigManager = vi.mocked(await import('@src/config/configManager.js')).ConfigManager.getInstance();
+      });
+
+      it('should log warning when static server conflicts with template server', async () => {
+        // Mock loadConfigWithTemplates to return conflicting servers
+        mockConfigManager.loadConfigWithTemplates.mockImplementation(async (context?: any) => {
+          if (!context) {
+            // Static servers
+            return {
+              staticServers: {
+                'conflicting-server': { command: 'node', args: ['server.js'] },
+                'static-only': { command: 'python', args: ['server.py'] },
+              },
+              templateServers: {},
+              errors: [],
+            };
+          } else {
+            // Template servers
+            return {
+              staticServers: {},
+              templateServers: {
+                'conflicting-server': { command: 'node', args: ['template.js'], template: {} },
+                'template-only': { command: 'node', args: ['template2.js'], template: {} },
+              },
+              errors: [],
+            };
+          }
+        });
+
+        vi.clearAllMocks();
+
+        // Connect with context (should trigger conflict detection)
+        await serverManager.connectTransport(mockTransport, 'test-session', {
+          context: { sessionId: 'test-session' },
+          enablePagination: false,
+        } as any);
+
+        // Should have logged a warning about conflicting servers
+        const warnCalls = (logger.warn as any).mock.calls;
+        const conflictWarning = warnCalls.find(
+          (call: any[]) =>
+            call[0]?.includes?.('Ignoring') &&
+            call[0]?.includes?.('static server') &&
+            call[0]?.includes?.('conflict with template servers'),
+        );
+
+        expect(conflictWarning).toBeDefined();
+        expect(conflictWarning[0]).toContain('conflicting-server');
+      });
+
+      it('should remove conflicting static servers from mcpServers', async () => {
+        // Mock loadConfigWithTemplates to return conflicting servers
+        const staticServers = {
+          'conflicting-server': { command: 'node', args: ['server.js'] },
+          'static-only': { command: 'python', args: ['server.py'] },
+        };
+
+        const templateServers = {
+          'conflicting-server': { command: 'node', args: ['template.js'], template: {} },
+        };
+
+        mockConfigManager.loadConfigWithTemplates.mockImplementation(async (context?: any) => {
+          if (!context) {
+            return {
+              staticServers,
+              templateServers: {},
+              errors: [],
+            };
+          } else {
+            return {
+              staticServers: {},
+              templateServers,
+              errors: [],
+            };
+          }
+        });
+
+        // Connect with context
+        await serverManager.connectTransport(mockTransport, 'test-session', {
+          context: { sessionId: 'test-session' },
+          enablePagination: false,
+        } as any);
+
+        // After conflict detection, the conflicting server should be removed from serverConfigData
+        expect(serverManager.serverConfigData.mcpServers['conflicting-server']).toBeUndefined();
+        expect(serverManager.serverConfigData.mcpServers['static-only']).toBeDefined();
+
+        // Verify the warning
+        const warnCalls = (logger.warn as any).mock.calls;
+        const conflictWarning = warnCalls.find((call: any[]) => call[0]?.includes?.('Ignoring 1 static server'));
+
+        expect(conflictWarning).toBeDefined();
+      });
+
+      it('should not log warning when there are no conflicts', async () => {
+        mockConfigManager.loadConfigWithTemplates.mockResolvedValue({
+          staticServers: {
+            'static-1': { command: 'node', args: ['server1.js'] },
+          },
+          templateServers: {
+            'template-1': { command: 'node', args: ['template1.js'], template: {} },
+          },
+          errors: [],
+        });
+
+        vi.clearAllMocks();
+
+        await serverManager.connectTransport(mockTransport, 'test-session', {
+          context: { sessionId: 'test-session' },
+          enablePagination: false,
+        } as any);
+
+        // Should not have logged any conflict warnings
+        const warnCalls = (logger.warn as any).mock.calls;
+        const conflictWarning = warnCalls.find(
+          (call: any[]) => call[0]?.includes?.('Ignoring') && call[0]?.includes?.('conflict with template servers'),
+        );
+
+        expect(conflictWarning).toBeUndefined();
+      });
+
+      it('should handle multiple conflicting servers', async () => {
+        mockConfigManager.loadConfigWithTemplates.mockImplementation(async (context?: any) => {
+          if (!context) {
+            return {
+              staticServers: {
+                'conflict-1': { command: 'node', args: ['s1.js'] },
+                'conflict-2': { command: 'python', args: ['s2.js'] },
+                'static-3': { command: 'node', args: ['s3.js'] },
+              },
+              templateServers: {},
+              errors: [],
+            };
+          } else {
+            return {
+              staticServers: {},
+              templateServers: {
+                'conflict-1': { command: 'node', args: ['t1.js'], template: {} },
+                'conflict-2': { command: 'node', args: ['t2.js'], template: {} },
+                'template-3': { command: 'node', args: ['t3.js'], template: {} },
+              },
+              errors: [],
+            };
+          }
+        });
+
+        vi.clearAllMocks();
+
+        await serverManager.connectTransport(mockTransport, 'test-session', {
+          context: { sessionId: 'test-session' },
+          enablePagination: false,
+        } as any);
+
+        // Should warn about 2 conflicting servers
+        const warnCalls = (logger.warn as any).mock.calls;
+        const conflictWarning = warnCalls.find((call: any[]) => call[0]?.includes?.('Ignoring 2 static server'));
+
+        expect(conflictWarning).toBeDefined();
+        expect(conflictWarning[0]).toContain('conflict-1');
+        expect(conflictWarning[0]).toContain('conflict-2');
+        expect(conflictWarning[0]).not.toContain('static-3');
       });
     });
   });

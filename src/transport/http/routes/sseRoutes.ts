@@ -63,12 +63,27 @@ export function setupSseRoutes(
         }
       }
 
+      // Set up heartbeat to detect disconnected clients
+      const heartbeatInterval = setInterval(() => {
+        try {
+          // Send a comment as heartbeat (SSE clients ignore comments)
+          res.write(': heartbeat\n\n');
+        } catch (_error) {
+          // If write fails, the connection is likely broken
+          logger.debug(`SSE heartbeat failed for session ${transport.sessionId}, closing connection`);
+          clearInterval(heartbeatInterval);
+          serverManager.disconnectTransport(transport.sessionId);
+        }
+      }, 30000); // Send heartbeat every 30 seconds
+
       transport.onclose = () => {
+        clearInterval(heartbeatInterval);
         serverManager.disconnectTransport(transport.sessionId);
         // Note: ServerManager already logs the disconnection
       };
 
       transport.onerror = (error) => {
+        clearInterval(heartbeatInterval);
         logger.error(`SSE transport error for session ${transport.sessionId}:`, error);
         const server = serverManager.getServer(transport.sessionId);
         if (server) {

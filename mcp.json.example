@@ -1,0 +1,104 @@
+{
+  "version": "1.0.0",
+  "templateSettings": {
+    "validateOnReload": true,
+    "failureMode": "graceful",
+    "cacheContext": true
+  },
+  "mcpServers": {
+    "filesystem": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-filesystem", "/tmp"],
+      "env": {},
+      "tags": ["filesystem"]
+    },
+    "github": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-github"],
+      "env": {
+        "GITHUB_PERSONAL_ACCESS_TOKEN": "${GITHUB_TOKEN}"
+      },
+      "tags": ["git", "development"]
+    },
+    "postgres": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-postgres"],
+      "env": {
+        "DATABASE_URL": "${DATABASE_URL}"
+      },
+      "tags": ["database", "production"]
+    }
+  },
+  "mcpTemplates": {
+    "project-serena": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "serena",
+        "{project.path}",
+        "--project", "{project.name}",
+        "--env", "{project.environment}",
+        "--team", "{project.custom.team}"
+      ],
+      "env": {
+        "PROJECT_ID": "{project.custom.projectId}",
+        "SESSION_ID": "{context.sessionId}",
+        "GIT_BRANCH": "{project.git.branch?:main}",
+        "API_ENDPOINT": "{project.custom.apiEndpoint}"
+      },
+      "tags": ["filesystem", "search"]
+    },
+    "context-server": {
+      "command": "node",
+      "args": ["{project.path}/servers/context.js"],
+      "cwd": "{project.path}",
+      "env": {
+        "PROJECT_NAME": "{project.name | upper}",
+        "USER_NAME": "{user.username}",
+        "TIMESTAMP": "{context.timestamp | date('YYYY-MM-DD')}",
+        "DEBUG": "{?project.custom.debugMode:true:false}"
+      },
+      "tags": ["context-aware", "development"],
+      "disabled": "{?project.environment=production}"
+    },
+    "api-server": {
+      "command": "node",
+      "args": ["{project.path}/api/server.js"],
+      "env": {
+        "API_ENDPOINT": "{project.custom.apiEndpoint}",
+        "NODE_ENV": "{project.environment}",
+        "PROJECT_ID": "{project.custom.projectId}",
+        "TEAM": "{project.custom.team}"
+      },
+      "cwd": "{project.path}/services",
+      "tags": ["api", "development"]
+    },
+    "team-tools": {
+      "command": "npx",
+      "args": ["-y", "serena", "{project.path}"],
+      "env": {
+        "PROJECT_NAME": "{project.name}",
+        "TEAM_NAME": "{project.custom.team}",
+        "USER_ROLE": "{user.custom.role}",
+        "API_ENDPOINT": "{project.custom.apiEndpoint}",
+        "ENVIRONMENT": "{project.environment}",
+        "PROJECT_ID": "{project.custom.projectId}",
+        "SESSION_ID": "{context.sessionId}"
+      },
+      "tags": ["{project.custom.team}", "development"],
+      "cwd": "{project.path}"
+    },
+    "conditional-server": {
+      "command": "node",
+      "args": ["{project.path}/conditional-server.js"],
+      "cwd": "{project.path}",
+      "env": {
+        "NODE_ENV": "{project.environment}",
+        "DEBUG": "{?project.environment=development:true}",
+        "LOG_LEVEL": "{?project.environment=production:warn:debug}"
+      },
+      "tags": ["utility"],
+      "disabled": "{?project.environment=production}"
+    }
+  }
+}

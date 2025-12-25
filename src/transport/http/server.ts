@@ -104,6 +104,7 @@ export class ExpressServer {
    * Configures the basic middleware stack required for the MCP server:
    * - Enhanced security middleware (conditional based on feature flag)
    * - HTTP request logging for all requests
+   * - Context extraction middleware for template processing
    * - CORS for cross-origin requests
    * - JSON body parsing
    * - Global error handling

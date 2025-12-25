@@ -29,6 +29,46 @@ import logger from '@src/logger/logger.js';
 import { createTransports } from '@src/transport/transportFactory.js';
 
 /**
+ * Simple helper to check for Handlebars template syntax in configuration
+ */
+function hasHandlebarsTemplates(config: MCPServerParams): boolean {
+  const templateRegex = /\{\{[^}]*\}\}/;
+
+  // Check command
+  if (config.command && templateRegex.test(config.command)) {
+    return true;
+  }
+
+  // Check args array
+  if (config.args) {
+    for (const arg of config.args) {
+      if (typeof arg === 'string' && templateRegex.test(arg)) {
+        return true;
+      }
+    }
+  }
+
+  // Check other string fields
+  ['cwd', 'url'].forEach((field) => {
+    const value = config[field as keyof MCPServerParams];
+    if (typeof value === 'string' && templateRegex.test(value)) {
+      return true;
+    }
+  });
+
+  // Check env object
+  if (config.env) {
+    for (const [_key, value] of Object.entries(config.env)) {
+      if (typeof value === 'string' && templateRegex.test(value)) {
+        return true;
+      }
+    }
+  }
+
+  return false;
+}
+
+/**
  * Enhanced server information interface for mcp_list
  */
 interface EnhancedServerInfo extends Omit<MCPServerParams, 'env'> {
@@ -83,6 +123,17 @@ export async function handleInstallMCPServer(args: McpInstallToolArgs) {
 
   if (args.autoRestart) {
     serverConfig.restartOnExit = args.autoRestart;
+  }
+
+  // Check for Handlebars template syntax in static server configurations
+  const hasTemplates = hasHandlebarsTemplates(serverConfig);
+  if (hasTemplates) {
+    const errorMessage =
+      `Handlebars template syntax detected in server configuration. Templates are not allowed in mcpServers section. ` +
+      `Please move template-based servers to the mcpTemplates section in your configuration.`;
+
+    logger.error(errorMessage);
+    throw new Error(errorMessage);
   }
 
   // Add server to configuration

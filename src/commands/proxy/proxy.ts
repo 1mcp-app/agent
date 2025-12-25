@@ -67,6 +67,7 @@ export async function proxyCommand(options: ProxyOptions): Promise<void> {
       preset: finalPreset,
       filter: finalFilter,
       tags: finalTags,
+      projectConfig: projectConfig || undefined, // Pass project config for context enrichment
     });
 
     await proxyTransport.start();

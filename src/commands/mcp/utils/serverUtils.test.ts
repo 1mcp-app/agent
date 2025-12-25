@@ -27,6 +27,7 @@ vi.mock('@src/logger/logger.js', () => ({
   default: {
     debug: vi.fn(),
   },
+  debugIf: vi.fn(),
 }));
 
 describe('serverUtils', () => {

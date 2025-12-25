@@ -1,3 +1,4 @@
+import { createHash } from 'crypto';
 import { EventEmitter } from 'events';
 import fs from 'fs';
 import path from 'path';
@@ -5,8 +6,16 @@ import path from 'path';
 import { substituteEnvVarsInConfig } from '@src/config/envProcessor.js';
 import { DEFAULT_CONFIG, getGlobalConfigDir, getGlobalConfigPath } from '@src/constants.js';
 import { AgentConfigManager } from '@src/core/server/agentConfig.js';
-import { MCPServerParams, transportConfigSchema } from '@src/core/types/transport.js';
+import {
+  mcpServerConfigSchema,
+  MCPServerConfiguration,
+  MCPServerParams,
+  TemplateSettings,
+  transportConfigSchema,
+} from '@src/core/types/transport.js';
 import logger, { debugIf } from '@src/logger/logger.js';
+import { HandlebarsTemplateRenderer } from '@src/template/handlebarsTemplateRenderer.js';
+import type { ContextData } from '@src/types/context.js';
 
 import { ZodError } from 'zod';
 
@@ -50,6 +59,12 @@ export class ConfigManager extends EventEmitter {
   private configFilePath: string;
   private debounceTimer: ReturnType<typeof setTimeout> | null = null;
   private lastModified: number = 0;
+
+  // Template processing related properties
+  private templateProcessingErrors: string[] = [];
+  private processedTemplates: Record<string, MCPServerParams> = {};
+  private lastContextHash?: string;
+  private templateRenderer?: HandlebarsTemplateRenderer;
 
   /**
    * Private constructor to enforce singleton pattern
@@ -160,6 +175,10 @@ export class ConfigManager extends EventEmitter {
 
     const configObj = processedConfig as Record<string, unknown>;
     const mcpServersConfig = (configObj.mcpServers as Record<string, unknown>) || {};
+    const mcpTemplatesConfig = (configObj.mcpTemplates as Record<string, unknown>) || {};
+
+    // Get template server names for conflict detection
+    const templateServerNames = new Set(Object.keys(mcpTemplatesConfig));
 
     // Validate each server configuration
     const validatedConfig: Record<string, MCPServerParams> = {};
@@ -175,6 +194,22 @@ export class ConfigManager extends EventEmitter {
         // Skip invalid server configurations
         continue;
       }
+    }
+
+    // Filter out static servers that conflict with template servers
+    // Template servers take precedence
+    const conflictingServers: string[] = [];
+    for (const serverName of Object.keys(validatedConfig)) {
+      if (templateServerNames.has(serverName)) {
+        conflictingServers.push(serverName);
+        delete validatedConfig[serverName];
+      }
+    }
+
+    if (conflictingServers.length > 0) {
+      logger.warn(
+        `Ignoring ${conflictingServers.length} static server(s) that conflict with template servers: ${conflictingServers.join(', ')}`,
+      );
     }
 
     return validatedConfig;
@@ -195,6 +230,182 @@ export class ConfigManager extends EventEmitter {
       logger.error(`Failed to load configuration: ${error instanceof Error ? error.message : String(error)}`);
       this.transportConfig = {};
     }
+  }
+
+  /**
+   * Load configuration with template processing support
+   * @param context - Optional context data for template processing
+   * @returns Object with static servers, processed template servers, and any errors
+   */
+  public async loadConfigWithTemplates(context?: ContextData): Promise<{
+    staticServers: Record<string, MCPServerParams>;
+    templateServers: Record<string, MCPServerParams>;
+    errors: string[];
+  }> {
+    let rawConfig: unknown;
+    let config: MCPServerConfiguration;
+
+    try {
+      rawConfig = this.loadRawConfig();
+      // Parse the configuration using the extended schema
+      config = mcpServerConfigSchema.parse(rawConfig);
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      logger.error(`Failed to parse configuration: ${errorMessage}`);
+      // Return empty config on schema validation errors
+      return {
+        staticServers: {},
+        templateServers: {},
+        errors: [`Configuration parsing failed: ${errorMessage}`],
+      };
+    }
+
+    // Process static servers (existing logic)
+    const staticServers: Record<string, MCPServerParams> = {};
+    for (const [serverName, serverConfig] of Object.entries(config.mcpServers)) {
+      try {
+        staticServers[serverName] = this.validateServerConfig(serverName, serverConfig);
+      } catch (error) {
+        logger.error(
+          `Static server validation failed for ${serverName}: ${error instanceof Error ? error.message : String(error)}`,
+        );
+        // Skip invalid static server configurations
+      }
+    }
+
+    // Process templates if context available, otherwise return raw templates
+    let templateServers: Record<string, MCPServerParams> = {};
+    let errors: string[] = [];
+
+    if (config.mcpTemplates) {
+      if (context) {
+        // Context available - process templates
+        const contextHash = this.hashContext(context);
+
+        // Use cached templates if context hasn't changed and caching is enabled
+        if (
+          config.templateSettings?.cacheContext &&
+          this.lastContextHash === contextHash &&
+          Object.keys(this.processedTemplates).length > 0
+        ) {
+          templateServers = this.processedTemplates;
+          errors = this.templateProcessingErrors;
+        } else {
+          // Process templates with validation
+          const result = await this.processTemplates(config.mcpTemplates, context, config.templateSettings);
+          templateServers = result.servers;
+          errors = result.errors;
+
+          // Cache results if caching is enabled
+          if (config.templateSettings?.cacheContext) {
+            this.processedTemplates = templateServers;
+            this.templateProcessingErrors = errors;
+            this.lastContextHash = contextHash;
+          }
+        }
+      } else {
+        // No context - return empty templateServers object
+        // Templates require context to be processed
+        templateServers = {};
+      }
+    }
+
+    // Filter out static servers that conflict with template servers
+    // Template servers take precedence
+    const conflictingServers: string[] = [];
+    for (const staticServerName of Object.keys(staticServers)) {
+      if (staticServerName in templateServers) {
+        conflictingServers.push(staticServerName);
+        delete staticServers[staticServerName];
+      }
+    }
+
+    if (conflictingServers.length > 0) {
+      logger.warn(
+        `Ignoring ${conflictingServers.length} static server(s) that conflict with template servers: ${conflictingServers.join(', ')}`,
+      );
+    }
+
+    return { staticServers, templateServers, errors };
+  }
+
+  /**
+   * Process template configurations with context data
+   * @param templates - Template configurations to process
+   * @param context - Context data for template substitution
+   * @param settings - Template processing settings
+   * @returns Object with processed servers and any errors
+   */
+  private async processTemplates(
+    templates: Record<string, MCPServerParams>,
+    context: ContextData,
+    settings?: TemplateSettings,
+  ): Promise<{ servers: Record<string, MCPServerParams>; errors: string[] }> {
+    const errors: string[] = [];
+
+    // Initialize template renderer
+    this.templateRenderer = new HandlebarsTemplateRenderer();
+
+    const processedServers: Record<string, MCPServerParams> = {};
+
+    for (const [serverName, templateConfig] of Object.entries(templates)) {
+      try {
+        const processedConfig = this.templateRenderer.renderTemplate(templateConfig, context);
+        processedServers[serverName] = processedConfig;
+
+        debugIf(() => ({
+          message: 'Template processed successfully',
+          meta: { serverName },
+        }));
+      } catch (error) {
+        const errorMsg = `Template processing failed for ${serverName}: ${error instanceof Error ? error.message : String(error)}`;
+        errors.push(errorMsg);
+
+        // According to user requirement: Fail fast, log errors, return to client
+        logger.error(errorMsg);
+
+        // For graceful mode, include raw config for debugging
+        if (settings?.failureMode === 'graceful') {
+          processedServers[serverName] = templateConfig;
+        }
+      }
+    }
+
+    return { servers: processedServers, errors };
+  }
+
+  /**
+   * Create a hash of context data for caching purposes
+   * @param context - Context data to hash
+   * @returns SHA-256 hash string
+   */
+  private hashContext(context: ContextData): string {
+    return createHash('sha256').update(JSON.stringify(context)).digest('hex');
+  }
+
+  /**
+   * Get template processing errors from the last processing run
+   * @returns Array of template processing error messages
+   */
+  public getTemplateProcessingErrors(): string[] {
+    return [...this.templateProcessingErrors];
+  }
+
+  /**
+   * Check if there are any template processing errors
+   * @returns True if there are template processing errors
+   */
+  public hasTemplateProcessingErrors(): boolean {
+    return this.templateProcessingErrors.length > 0;
+  }
+
+  /**
+   * Clear template cache and force reprocessing on next load
+   */
+  public clearTemplateCache(): void {
+    this.processedTemplates = {};
+    this.lastContextHash = undefined;
+    this.templateProcessingErrors = [];
   }
 
   /**
@@ -258,15 +469,12 @@ export class ConfigManager extends EventEmitter {
 
         if (isConfigFileEvent) {
           debugIf(() => ({
-            message: 'Configuration file change detected, checking modification time',
+            message: 'Configuration file change detected, debouncing reload',
             meta: { eventType, filename, isConfigFileEvent },
           }));
-
-          if (this.checkFileModified()) {
-            debugIf('File modification confirmed, debouncing reload');
-            this.debouncedReloadConfig();
-          }
+          this.debouncedReloadConfig();
         } else {
+          // For events that don't match our criteria, still check if file was modified
           if (this.checkFileModified()) {
             debugIf(() => ({
               message: 'File was modified but event did not match criteria, debouncing reload anyway',

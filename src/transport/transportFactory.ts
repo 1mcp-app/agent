@@ -14,6 +14,8 @@ import { AgentConfigManager } from '@src/core/server/agentConfig.js';
 import { AuthProviderTransport, transportConfigSchema } from '@src/core/types/index.js';
 import { MCPServerParams } from '@src/core/types/index.js';
 import logger, { debugIf } from '@src/logger/logger.js';
+import { HandlebarsTemplateRenderer } from '@src/template/handlebarsTemplateRenderer.js';
+import type { ContextData } from '@src/types/context.js';
 
 import { z, ZodError } from 'zod';
 
@@ -244,6 +246,63 @@ export function createTransports(config: Record<string, MCPServerParams>): Recor
     try {
       const inferredParams = inferTransportType(params, name);
       const validatedTransport = transportConfigSchema.parse(inferredParams);
+      const transport = createSingleTransport(name, validatedTransport);
+
+      assignTransport(transports, name, transport, validatedTransport);
+      debugIf(`Created transport: ${name}`);
+    } catch (error) {
+      if (error instanceof ZodError) {
+        logger.error(`Invalid transport configuration for ${name}:`, error.issues);
+      } else {
+        logger.error(`Error creating transport ${name}:`, error);
+      }
+      throw error;
+    }
+  }
+
+  return transports;
+}
+
+/**
+ * Creates transport instances from configuration with context-aware template processing
+ * @param config - Configuration object with server parameters
+ * @param context - Context data for template processing
+ * @returns Record of transport instances
+ */
+export async function createTransportsWithContext(
+  config: Record<string, MCPServerParams>,
+  context?: ContextData,
+): Promise<Record<string, AuthProviderTransport>> {
+  const transports: Record<string, AuthProviderTransport> = {};
+
+  // Create template renderer if context is provided
+  const templateRenderer = context ? new HandlebarsTemplateRenderer() : null;
+
+  for (const [name, params] of Object.entries(config)) {
+    if (params.disabled) {
+      debugIf(`Skipping disabled transport: ${name}`);
+      continue;
+    }
+
+    try {
+      let processedParams = inferTransportType(params, name);
+
+      // Process templates if context is provided
+      if (templateRenderer && context) {
+        debugIf(() => ({
+          message: 'Processing templates for server',
+          meta: { serverName: name },
+        }));
+
+        processedParams = templateRenderer.renderTemplate(processedParams, context);
+
+        debugIf(() => ({
+          message: 'Templates processed successfully',
+          meta: { serverName: name },
+        }));
+      }
+
+      const validatedTransport = transportConfigSchema.parse(processedParams);
       const transport = createSingleTransport(name, validatedTransport);
 
       assignTransport(transports, name, transport, validatedTransport);

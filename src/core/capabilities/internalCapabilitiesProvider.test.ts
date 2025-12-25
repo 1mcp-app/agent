@@ -1,17 +1,220 @@
-import { FlagManager } from '../flags/flagManager.js';
+import { vi } from 'vitest';
+
 import { AgentConfigManager } from '../server/agentConfig.js';
 import { InternalCapabilitiesProvider } from './internalCapabilitiesProvider.js';
+
+// Mock heavy dependencies to avoid loading them in tests
+vi.mock('@src/core/tools/internal/index.js', () => ({
+  handleMcpSearch: vi.fn(),
+  handleMcpRegistryStatus: vi.fn(),
+  handleMcpRegistryInfo: vi.fn(),
+  handleMcpRegistryList: vi.fn(),
+  handleMcpInfo: vi.fn(),
+  handleMcpInstall: vi.fn(),
+  handleMcpUninstall: vi.fn(),
+  handleMcpUpdate: vi.fn(),
+  handleMcpEdit: vi.fn(),
+  handleMcpEnable: vi.fn(),
+  handleMcpDisable: vi.fn(),
+  handleMcpList: vi.fn(),
+  handleMcpStatus: vi.fn(),
+  handleMcpReload: vi.fn(),
+  cleanupInternalToolHandlers: vi.fn(),
+}));
+
+// Mock the adapters to avoid loading domain services
+vi.mock('@src/core/tools/internal/adapters/index.js', () => ({
+  AdapterFactory: {
+    getDiscoveryAdapter: vi.fn(() => ({
+      searchServers: vi.fn(),
+      getServerById: vi.fn(),
+      getRegistryStatus: vi.fn(),
+    })),
+    getInstallationAdapter: vi.fn(() => ({
+      installServer: vi.fn(),
+      uninstallServer: vi.fn(),
+      updateServer: vi.fn(),
+    })),
+    getManagementAdapter: vi.fn(() => ({
+      enableServer: vi.fn(),
+      disableServer: vi.fn(),
+      listServers: vi.fn(),
+      getServerStatus: vi.fn(),
+      reloadServer: vi.fn(),
+    })),
+    cleanup: vi.fn(),
+  },
+}));
+
+// Mock the tool creation functions
+vi.mock('@src/core/capabilities/internal/discoveryTools.js', () => ({
+  createSearchTool: vi.fn(() => ({
+    name: 'mcp_search',
+    description: 'Search for MCP servers in the registry',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        query: { type: 'string', description: 'Search query for MCP servers' },
+        limit: { type: 'number', description: 'Maximum number of results to return', default: 20 },
+      },
+    },
+  })),
+  createRegistryStatusTool: vi.fn(() => ({
+    name: 'mcp_registry_status',
+    description: 'Get registry status',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        registry: { type: 'string' },
+      },
+      required: ['registry'],
+    },
+  })),
+  createRegistryInfoTool: vi.fn(() => ({
+    name: 'mcp_registry_info',
+    description: 'Get registry info',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        registry: { type: 'string' },
+      },
+      required: ['registry'],
+    },
+  })),
+  createRegistryListTool: vi.fn(() => ({
+    name: 'mcp_registry_list',
+    description: 'List registries',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        includeStats: { type: 'boolean' },
+      },
+    },
+  })),
+  createInfoTool: vi.fn(() => ({
+    name: 'mcp_info',
+    description: 'Get server info',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        name: { type: 'string' },
+      },
+      required: ['name'],
+    },
+  })),
+}));
+
+vi.mock('@src/core/capabilities/internal/installationTools.js', () => ({
+  createInstallTool: vi.fn(() => ({
+    name: 'mcp_install',
+    description:
+      'Install a new MCP server. Use package+command+args for direct package installation (e.g., npm packages), or just name for registry-based installation',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        name: { type: 'string', description: 'Name for the MCP server configuration' },
+      },
+      required: ['name'],
+    },
+  })),
+  createUninstallTool: vi.fn(() => ({
+    name: 'mcp_uninstall',
+    description: 'Uninstall an MCP server',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        name: { type: 'string' },
+      },
+      required: ['name'],
+    },
+  })),
+  createUpdateTool: vi.fn(() => ({
+    name: 'mcp_update',
+    description: 'Update an MCP server',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        name: { type: 'string' },
+      },
+      required: ['name'],
+    },
+  })),
+}));
+
+vi.mock('@src/core/capabilities/internal/managementTools.js', () => ({
+  createEnableTool: vi.fn(() => ({
+    name: 'mcp_enable',
+    description: 'Enable an MCP server',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        name: { type: 'string' },
+      },
+      required: ['name'],
+    },
+  })),
+  createDisableTool: vi.fn(() => ({
+    name: 'mcp_disable',
+    description: 'Disable an MCP server',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        name: { type: 'string' },
+      },
+      required: ['name'],
+    },
+  })),
+  createListTool: vi.fn(() => ({
+    name: 'mcp_list',
+    description: 'List MCP servers',
+    inputSchema: { type: 'object', properties: {} },
+  })),
+  createStatusTool: vi.fn(() => ({
+    name: 'mcp_status',
+    description: 'Get MCP server status',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        name: { type: 'string' },
+      },
+      required: ['name'],
+    },
+  })),
+  createReloadTool: vi.fn(() => ({
+    name: 'mcp_reload',
+    description: 'Reload MCP server',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        name: { type: 'string' },
+      },
+      required: ['name'],
+    },
+  })),
+  createEditTool: vi.fn(() => ({
+    name: 'mcp_edit',
+    description: 'Edit MCP server configuration',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        name: { type: 'string' },
+      },
+      required: ['name'],
+    },
+  })),
+}));
 
 describe('InternalCapabilitiesProvider', () => {
   let capabilitiesProvider: InternalCapabilitiesProvider;
   let configManager: AgentConfigManager;
-  let _flagManager: FlagManager;
 
-  beforeEach(async () => {
+  // Initialize once before all tests
+  beforeAll(async () => {
     capabilitiesProvider = InternalCapabilitiesProvider.getInstance();
     configManager = AgentConfigManager.getInstance();
-    _flagManager = FlagManager.getInstance();
+  });
 
+  beforeEach(async () => {
     // Reset configuration to defaults
     configManager.updateConfig({
       features: {
@@ -27,11 +230,19 @@ describe('InternalCapabilitiesProvider', () => {
       },
     });
 
-    // Reinitialize provider
-    await capabilitiesProvider.initialize();
+    // Only initialize if not already initialized
+    if (!capabilitiesProvider['isInitialized']) {
+      await capabilitiesProvider.initialize();
+    }
   });
 
   afterEach(() => {
+    // Don't cleanup after each test - reset state instead
+    // capabilitiesProvider.cleanup();
+  });
+
+  afterAll(() => {
+    // Cleanup once after all tests
     capabilitiesProvider.cleanup();
   });
 
@@ -172,92 +383,121 @@ describe('InternalCapabilitiesProvider', () => {
     });
 
     it('should execute mcp_search tool', async () => {
-      // Note: This test might fail if the handlers are not mocked
-      // The test structure is ready, but implementation may need mocking
-      try {
-        const result = await capabilitiesProvider.executeTool('mcp_search', {
-          query: 'test',
-          limit: 10,
-        });
-        expect(result).toBeDefined();
-      } catch (error) {
-        // Expected if handlers are not mocked - test structure is correct
-        expect((error as Error).message).toContain('handleMcpSearch is not a function');
-      }
+      const { handleMcpSearch } = await import('@src/core/tools/internal/index.js');
+      (handleMcpSearch as any).mockResolvedValue({ results: [] });
+
+      const result = await capabilitiesProvider.executeTool('mcp_search', {
+        query: 'test',
+        limit: 10,
+      });
+
+      expect(result).toBeDefined();
+      expect(handleMcpSearch).toHaveBeenCalledWith({
+        query: 'test',
+        limit: 10,
+        status: 'active',
+        format: 'table',
+      });
     });
 
     it('should execute mcp_install tool', async () => {
-      try {
-        const result = await capabilitiesProvider.executeTool('mcp_install', {
-          name: 'test-server',
-          package: 'test-package',
-        });
-        expect(result).toBeDefined();
-      } catch (error) {
-        // Expected if handlers are not mocked
-        expect((error as Error).message).toContain('handleMcpInstall is not a function');
-      }
+      const { handleMcpInstall } = await import('@src/core/tools/internal/index.js');
+      (handleMcpInstall as any).mockResolvedValue({ success: true });
+
+      const result = await capabilitiesProvider.executeTool('mcp_install', {
+        name: 'test-server',
+        package: 'test-package',
+      });
+
+      expect(result).toBeDefined();
+      expect(handleMcpInstall).toHaveBeenCalledWith({
+        name: 'test-server',
+        package: 'test-package',
+        transport: 'stdio',
+        enabled: true,
+        autoRestart: false,
+        backup: true,
+        force: false,
+      });
     });
 
     it('should validate required parameters for mcp_install', async () => {
-      try {
-        await capabilitiesProvider.executeTool('mcp_install', {});
-        // Should not reach here if validation works
-      } catch (error) {
-        if ((error as Error).message.includes('not a function')) {
-          // Skip validation test if handlers are not mocked
-          return;
-        }
-        // If it reaches here, validation is working
-      }
+      // Test validation by calling with missing required params
+      await expect(capabilitiesProvider.executeTool('mcp_install', {})).rejects.toThrow();
     });
 
     it('should execute mcp_registry_status tool', async () => {
-      try {
-        const result = await capabilitiesProvider.executeTool('mcp_registry_status', {
-          registry: 'official',
-        });
-        expect(result).toBeDefined();
-      } catch (error) {
-        // Expected if handlers are not mocked
-        expect((error as Error).message).toContain('not a function');
-      }
+      const { handleMcpRegistryStatus } = await import('@src/core/tools/internal/index.js');
+      (handleMcpRegistryStatus as any).mockResolvedValue({
+        available: true,
+        url: 'https://api.example.com',
+        response_time_ms: 100,
+        last_updated: '2024-01-01',
+      });
+
+      const result = await capabilitiesProvider.executeTool('mcp_registry_status', {
+        registry: 'official',
+      });
+
+      expect(result).toBeDefined();
+      expect(handleMcpRegistryStatus).toHaveBeenCalledWith({
+        registry: 'official',
+        includeStats: false,
+      });
     });
 
     it('should execute mcp_registry_info tool', async () => {
-      try {
-        const result = await capabilitiesProvider.executeTool('mcp_registry_info', {
-          registry: 'official',
-        });
-        expect(result).toBeDefined();
-      } catch (error) {
-        // Expected if handlers are not mocked
-        expect((error as Error).message).toContain('not a function');
-      }
+      const { handleMcpRegistryInfo } = await import('@src/core/tools/internal/index.js');
+      (handleMcpRegistryInfo as any).mockResolvedValue({
+        name: 'official',
+        url: 'https://api.example.com',
+      });
+
+      const result = await capabilitiesProvider.executeTool('mcp_registry_info', {
+        registry: 'official',
+      });
+
+      expect(result).toBeDefined();
+      expect(handleMcpRegistryInfo).toHaveBeenCalledWith({
+        registry: 'official',
+      });
     });
 
     it('should execute mcp_registry_list tool', async () => {
-      try {
-        const result = await capabilitiesProvider.executeTool('mcp_registry_list', {
-          includeStats: true,
-        });
-        expect(result).toBeDefined();
-      } catch (error) {
-        // Expected if handlers are not mocked
-        expect((error as Error).message).toContain('not a function');
-      }
+      const { handleMcpRegistryList } = await import('@src/core/tools/internal/index.js');
+      (handleMcpRegistryList as any).mockResolvedValue({
+        registries: ['official', 'community'],
+      });
+
+      const result = await capabilitiesProvider.executeTool('mcp_registry_list', {
+        includeStats: true,
+      });
+
+      expect(result).toBeDefined();
+      expect(handleMcpRegistryList).toHaveBeenCalledWith({
+        includeStats: true,
+      });
     });
 
     it('should execute mcp_info tool', async () => {
-      try {
-        const result = await capabilitiesProvider.executeTool('mcp_info', {
-          name: 'test-server',
-        });
-        expect(result).toBeDefined();
-      } catch (error) {
-        // Expected if handlers are not mocked - registry fetch error
-        expect((error as Error).message).toContain('Server info check failed');
-      }
+      const { handleMcpInfo } = await import('@src/core/tools/internal/index.js');
+      (handleMcpInfo as any).mockResolvedValue({
+        name: 'test-server',
+        version: '1.0.0',
+        description: 'Test server',
+      });
+
+      const result = await capabilitiesProvider.executeTool('mcp_info', {
+        name: 'test-server',
+      });
+
+      expect(result).toBeDefined();
+      expect(handleMcpInfo).toHaveBeenCalledWith({
+        name: 'test-server',
+        format: 'table',
+        includeCapabilities: true,
+        includeConfig: true,
+      });
     });
   });
 

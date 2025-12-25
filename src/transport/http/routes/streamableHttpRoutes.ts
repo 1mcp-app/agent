@@ -18,6 +18,8 @@ import {
 import tagsExtractor from '@src/transport/http/middlewares/tagsExtractor.js';
 import { RestorableStreamableHTTPServerTransport } from '@src/transport/http/restorableStreamableTransport.js';
 import { StreamableSessionRepository } from '@src/transport/http/storage/streamableSessionRepository.js';
+import { extractContextFromMeta } from '@src/transport/http/utils/contextExtractor.js';
+import type { ContextData } from '@src/types/context.js';
 
 import { Request, RequestHandler, Response, Router } from 'express';
 
@@ -58,8 +60,21 @@ async function restoreSession(
       logger.warn('Could not set sessionId on restored transport:', error);
     }
 
-    // Reconnect with the original configuration
-    await serverManager.connectTransport(transport, sessionId, config);
+    // Convert config context to ContextData format if available
+    const contextData = config.context
+      ? {
+          project: config.context.project || {},
+          user: config.context.user || {},
+          environment: config.context.environment || {},
+          timestamp: config.context.timestamp,
+          sessionId: config.context.sessionId || sessionId,
+          version: config.context.version,
+          transport: config.context.transport,
+        }
+      : undefined;
+
+    // Reconnect with the original configuration and context
+    await serverManager.connectTransport(transport, sessionId, config, contextData);
 
     // Initialize notifications for async loading if enabled
     if (asyncOrchestrator) {
@@ -118,6 +133,7 @@ export function setupStreamableHttpRoutes(
       const sessionId = req.headers['mcp-session-id'] as string | undefined;
 
       if (!sessionId) {
+        // Generate new session ID
         const id = AUTH_CONFIG.SERVER.STREAMABLE_SESSION.ID_PREFIX + randomUUID();
         transport = new StreamableHTTPServerTransport({
           sessionIdGenerator: () => id,
@@ -140,10 +156,26 @@ export function setupStreamableHttpRoutes(
           customTemplate,
         };
 
-        await serverManager.connectTransport(transport, id, config);
+        // Extract context from _meta field (from STDIO proxy)
+        const context = extractContextFromMeta(req);
 
-        // Persist session configuration for restoration
-        sessionRepository.create(id, config);
+        if (context && context.project?.name && context.sessionId) {
+          logger.info(`🔗 New session with context: ${context.project.name} (${context.sessionId})`);
+        }
+
+        // Include full context in config for session persistence
+        const configWithContext = {
+          ...config,
+          context: context || undefined,
+        };
+
+        // Pass context to ServerManager for template processing (only if valid)
+        const validContext =
+          context && context.project && context.user && context.environment ? (context as ContextData) : undefined;
+        await serverManager.connectTransport(transport, id, configWithContext, validContext);
+
+        // Persist session configuration with full context for restoration
+        sessionRepository.create(id, configWithContext);
 
         // Initialize notifications for async loading if enabled
         if (asyncOrchestrator) {
@@ -170,6 +202,13 @@ export function setupStreamableHttpRoutes(
       } else {
         const existingTransport = serverManager.getTransport(sessionId);
         if (!existingTransport) {
+          // Extract context from _meta field (from STDIO proxy) for session restoration
+          const context = extractContextFromMeta(req);
+
+          if (context && context.project?.name && context.sessionId) {
+            logger.info(`🔄 Restoring session with context: ${context.project.name} (${context.sessionId})`);
+          }
+
           // Attempt to restore session from persistent storage
           const restoredTransport = await restoreSession(
             sessionId,
@@ -178,15 +217,71 @@ export function setupStreamableHttpRoutes(
             asyncOrchestrator,
           );
           if (!restoredTransport) {
-            res.status(404).json({
-              error: {
-                code: ErrorCode.InvalidParams,
-                message: 'No active streamable HTTP session found for the provided sessionId',
-              },
+            // Session restoration failed - create new session with provided ID (handles proxy use case)
+            logger.info(`🆕 Session restoration failed, creating new session with provided ID: ${sessionId}`);
+            transport = new StreamableHTTPServerTransport({
+              sessionIdGenerator: () => sessionId,
             });
-            return;
+
+            // Use validated tags and tag expression from scope auth middleware
+            const tags = getValidatedTags(res);
+            const tagExpression = getTagExpression(res);
+            const tagFilterMode = getTagFilterMode(res);
+            const tagQuery = getTagQuery(res);
+            const presetName = getPresetName(res);
+
+            const config = {
+              tags,
+              tagExpression,
+              tagFilterMode,
+              tagQuery,
+              presetName,
+              enablePagination: req.query.pagination === 'true',
+              customTemplate,
+            };
+
+            // Extract context from _meta field (from STDIO proxy)
+            const context = extractContextFromMeta(req);
+
+            if (context && context.project?.name && context.sessionId) {
+              logger.info(
+                `🔗 New session with provided ID and context: ${context.project.name} (${context.sessionId})`,
+              );
+            }
+
+            // Pass context to ServerManager for template processing (only if valid)
+            const validContext =
+              context && context.project && context.user && context.environment ? (context as ContextData) : undefined;
+            await serverManager.connectTransport(transport, sessionId, config, validContext);
+
+            // Persist session configuration for restoration with context
+            sessionRepository.create(sessionId, config);
+
+            // Initialize notifications for async loading if enabled
+            if (asyncOrchestrator) {
+              const inboundConnection = serverManager.getServer(sessionId);
+              if (inboundConnection) {
+                asyncOrchestrator.initializeNotifications(inboundConnection);
+                logger.debug(`Async loading notifications initialized for Streamable HTTP session ${sessionId}`);
+              }
+            }
+
+            transport.onclose = () => {
+              serverManager.disconnectTransport(sessionId);
+              sessionRepository.delete(sessionId);
+            };
+
+            transport.onerror = (error) => {
+              logger.error(`Streamable HTTP transport error for session ${sessionId}:`, error);
+              const server = serverManager.getServer(sessionId);
+              if (server) {
+                server.status = ServerStatus.Error;
+                server.lastError = error instanceof Error ? error : new Error(String(error));
+              }
+            };
+          } else {
+            transport = restoredTransport;
           }
-          transport = restoredTransport;
         } else if (
           existingTransport instanceof StreamableHTTPServerTransport ||
           existingTransport instanceof RestorableStreamableHTTPServerTransport
