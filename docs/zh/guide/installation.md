@@ -29,7 +29,7 @@ head:
 # 下载并解压归档文件
 curl -L -o 1mcp-linux-x64.tar.gz https://github.com/1mcp-app/agent/releases/latest/download/1mcp-linux-x64.tar.gz
 tar -xzf 1mcp-linux-x64.tar.gz
-sudo mv 1mcp /usr/local/bin/
+sudo mv 1mcp-linux-x64 /usr/local/bin/1mcp
 sudo chmod +x /usr/local/bin/1mcp
 
 # 清理文件
@@ -45,7 +45,7 @@ rm 1mcp-linux-x64.tar.gz
 # 下载并解压归档文件
 curl -L -o 1mcp-linux-arm64.tar.gz https://github.com/1mcp-app/agent/releases/latest/download/1mcp-linux-arm64.tar.gz
 tar -xzf 1mcp-linux-arm64.tar.gz
-sudo mv 1mcp /usr/local/bin/
+sudo mv 1mcp-linux-arm64 /usr/local/bin/1mcp
 sudo chmod +x /usr/local/bin/1mcp
 
 # 清理文件
@@ -61,7 +61,7 @@ rm 1mcp-linux-arm64.tar.gz
 # 下载并解压归档文件
 curl -L -o 1mcp-darwin-arm64.tar.gz https://github.com/1mcp-app/agent/releases/latest/download/1mcp-darwin-arm64.tar.gz
 tar -xzf 1mcp-darwin-arm64.tar.gz
-sudo mv 1mcp /usr/local/bin/
+sudo mv 1mcp-darwin-arm64 /usr/local/bin/1mcp
 sudo chmod +x /usr/local/bin/1mcp
 
 # 清理文件
@@ -77,7 +77,7 @@ rm 1mcp-darwin-arm64.tar.gz
 # 下载并解压归档文件
 curl -L -o 1mcp-darwin-x64.tar.gz https://github.com/1mcp-app/agent/releases/latest/download/1mcp-darwin-x64.tar.gz
 tar -xzf 1mcp-darwin-x64.tar.gz
-sudo mv 1mcp /usr/local/bin/
+sudo mv 1mcp-darwin-x64 /usr/local/bin/1mcp
 sudo chmod +x /usr/local/bin/1mcp
 
 # 清理文件
@@ -95,7 +95,7 @@ Invoke-WebRequest -Uri "https://github.com/1mcp-app/agent/releases/latest/downlo
 Expand-Archive -Path "1mcp-win32-x64.zip" -DestinationPath "."
 
 # 选项 1：直接使用
-.\1mcp.exe --version
+.\1mcp-win32-x64.exe --version
 
 # 选项 2：添加到 PATH 以获得全局访问权限
 # 移动到 PATH 中的目录（如 C:\Windows\System32 或创建新目录）

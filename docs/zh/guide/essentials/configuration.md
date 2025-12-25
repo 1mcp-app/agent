@@ -55,6 +55,8 @@ head:
 | `--session-persist-interval`    | `ONE_MCP_SESSION_PERSIST_INTERVAL`    | 会话持久化间隔（分钟）（数字）                                           |     5      |
 | `--session-background-flush`    | `ONE_MCP_SESSION_BACKGROUND_FLUSH`    | 会话后台刷新间隔（秒）（数字）                                           |     60     |
 | `--enable-client-notifications` | `ONE_MCP_ENABLE_CLIENT_NOTIFICATIONS` | 启用实时客户端通知（布尔值）                                             |    true    |
+| `--enable-internal-tools`       | `ONE_MCP_ENABLE_INTERNAL_TOOLS`       | 为 AI 助手启用所有 MCP 内部工具（布尔值）                                |   false    |
+| `--internal-tools`              | `ONE_MCP_INTERNAL_TOOLS`              | 启用特定的内部工具类别（discovery,installation,management,safe）         |            |
 | `--health-info-level`           | `ONE_MCP_HEALTH_INFO_LEVEL`           | 健康端点信息详细级别（"full"、"basic"、"minimal"）                       | "minimal"  |
 | `--log-level`                   | `ONE_MCP_LOG_LEVEL`                   | 设置日志级别（"debug"、"info"、"warn"、"error"）                         |   "info"   |
 | `--log-file`                    | `ONE_MCP_LOG_FILE`                    | 除控制台外还将日志写入文件（仅对 stdio 传输禁用控制台日志记录）          |            |
@@ -259,6 +261,50 @@ npx -y @1mcp/agent --tag-filter "web and api and not test"
 # 环境变量
 ONE_MCP_TAG_FILTER="network+api" npx -y @1mcp/agent
 ```
+
+### 内部工具选项
+
+控制为 AI 助手暴露的 MCP 内部工具。
+
+**`--enable-internal-tools`**
+
+- **用途**：为 AI 助手启用所有 MCP 内部工具
+- **默认值**：`false`
+- **环境变量**：`ONE_MCP_ENABLE_INTERNAL_TOOLS`
+
+**`--internal-tools <类别>`**
+
+- **用途**：启用特定的内部工具类别
+- **值**：逗号分隔的类别：`discovery,installation,management,safe`
+- **默认值**：未启用任何类别
+- **环境变量**：`ONE_MCP_INTERNAL_TOOLS`
+
+**类别说明**：
+
+- `discovery` - 用于发现 MCP 服务器的工具（mcp*search, mcp_registry*\*）
+- `installation` - 用于安装/更新/移除服务器的工具（mcp_install, mcp_update, mcp_uninstall）
+- `management` - 用于管理服务器生命周期的工具（mcp_enable, mcp_disable, mcp_list, mcp_status, mcp_reload, mcp_edit）
+- `safe` - 仅限只读工具（discovery 和 management 的子集）
+
+**示例**：
+
+```bash
+# 启用所有内部工具
+npx -y @1mcp/agent --enable-internal-tools
+
+# 仅启用发现和管理工具
+npx -y @1mcp/agent --internal-tools "discovery,management"
+
+# 仅启用安全（只读）工具
+npx -y @1mcp/agent --internal-tools "safe"
+
+# 环境变量
+ONE_MCP_ENABLE_INTERNAL_TOOLS=true npx -y @1mcp/agent
+
+ONE_MCP_INTERNAL_TOOLS="discovery,management" npx -y @1mcp/agent
+```
+
+**重要提示**：内部工具与 CLI 命令不同。CLI 命令是为人类用户设计的，而内部工具是 MCP 协议工具，AI 助手可以用来自动化服务器管理任务。有关可用内部工具的详细信息，请参阅**[内部工具参考](../../reference/internal-tools.md)**。
 
 ### 性能选项
 

@@ -1,6 +1,6 @@
 {
   "name": "@1mcp/agent",
-  "version": "0.27.4",
+  "version": "0.28.1",
   "description": "One MCP server to aggregate them all - A unified Model Context Protocol server implementation",
   "keywords": [
     "mcp",
@@ -92,7 +92,7 @@
     "build:binaries:archived": "pnpm build:binaries && pnpm archive"
   },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.24.3",
+    "@modelcontextprotocol/sdk": "^1.25.1",
     "ajv": "^8.17.1",
     "ajv-formats": "^3.0.1",
     "axios": "^1.12.2",
@@ -121,7 +121,7 @@
     "@braintree/sanitize-url": "^7.1.1",
     "@eslint/js": "^9.22.0",
     "@testing-library/jest-dom": "^6.6.3",
-    "@trivago/prettier-plugin-sort-imports": "^5.2.2",
+    "@trivago/prettier-plugin-sort-imports": "^6.0.0",
     "@types/archiver": "^7.0.0",
     "@types/body-parser": "^1.19.5",
     "@types/cors": "^2.8.19",

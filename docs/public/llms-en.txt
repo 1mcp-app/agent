@@ -1,0 +1,36 @@
+# 1MCP Agent - English Documentation
+
+> Comprehensive English documentation for 1MCP, covering installation, configuration, server management, and advanced deployment scenarios.
+
+## Essential Guides
+
+- [Installation & Setup](/en/guide/installation.md): Complete setup guide for binary and npm installations
+- [Quick Start Guide](/en/guide/quick-start.md): 5-minute setup walkthrough with examples
+- [Getting Started](/en/guide/getting-started.md): Complete setup and configuration guide
+- [Server Management](/en/guide/essentials/server-management.md): Add, configure, and manage MCP servers
+- [Basic Configuration](/en/guide/essentials/configuration.md): Core configuration options and setup
+
+## CLI Reference
+
+- [MCP Commands](/en/commands/mcp/): Server management commands (add, remove, list, install, uninstall)
+- [App Commands](/en/commands/app/): Backup, restore, and application management
+- [Preset Commands](/en/commands/preset/): Configuration preset management
+- [Registry Commands](/en/commands/registry/): MCP server registry integration
+- [Proxy & Serve Commands](/en/commands/serve.md, /en/commands/proxy.md): HTTP proxy configuration and serving
+
+## Advanced Configuration
+
+- [Architecture Overview](/en/reference/architecture.md): System design and component interaction
+- [Security Best Practices](/en/reference/security.md): Authentication, authorization, and hardening
+- [Performance Optimization](/en/guide/advanced/performance.md): Scaling and optimization techniques
+- [Client Integration](/en/guide/integrations/): Setup for various AI assistants and tools
+- [Enterprise Setup](/en/guide/advanced/enterprise.md): Enterprise deployment configuration
+- [Advanced Authentication](/en/guide/advanced/authentication.md): OAuth and advanced security setup
+
+## Optional
+
+- [Internal Tools](/en/reference/internal-tools/): Built-in discovery, installation, and management tools
+- [Health Check](/en/reference/health-check.md): Health monitoring and status endpoints
+- [MCP Servers](/en/reference/mcp-servers.md): MCP server configuration reference
+- [Feature Comparison](/en/reference/feature-comparison.md): Version and feature comparisons
+- [Core Features](/en/guide/essentials/core-features.md): Overview of main 1MCP capabilities

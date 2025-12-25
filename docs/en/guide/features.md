@@ -31,6 +31,7 @@ head:
 - **🖥️ I use Claude Desktop** → [Claude Desktop Integration](/guide/integrations/claude-desktop)
 - **⚙️ I need server management** → [Server Management](/guide/essentials/server-management)
 - **🏷️ I want server filtering** → [Server Filtering](/guide/advanced/server-filtering)
+- **🤖 I need AI automation** → [Internal Tools for AI Assistants](/reference/internal-tools)
 - **⚡ I need fast startup** → [Fast Startup](/guide/advanced/fast-startup)
 
 ---
@@ -147,6 +148,19 @@ Perfect for: Multi-tenant environments, role-based access, environment separatio
 
 ---
 
+## 🤖 [Internal Tools for AI Assistants](/reference/internal-tools)
+
+Empower AI assistants with programmatic MCP server management capabilities:
+
+- **🔍 Discovery Tools (5)** - Search registry, check availability, get server information
+- **⚙️ Installation Tools (3)** - Install, update, uninstall servers with dependency resolution
+- **🔧 Management Tools (6)** - Enable/disable servers, monitor health, edit configurations
+- **🛡️ Safety Features** - Built-in validation, backups, rollback, and error recovery
+
+Perfect for: AI assistant automation, programmatic server management, DevOps workflows, intelligent monitoring
+
+---
+
 ## ⚡ [Fast Startup](/guide/advanced/fast-startup)
 
 Get 1MCP running instantly with asynchronous server loading:
@@ -179,6 +193,7 @@ Perfect for: Development workflows, unreliable networks, large server configurat
 | **Claude Desktop**    | ✅ Essential   | 🔌 Integration  | 🔧 Setup       | 📊 Remote      | 🛡️ Secure       |
 | **Server Management** | 🚫 Hidden      | ✅ Essential    | ✅ Critical    | ✅ Critical    | ✅ Advanced     |
 | **Server Filtering**  | 🚫 Transparent | 🔧 Configurable | 🛡️ Access Ctrl | 🛡️ Policies    | 🛡️ Multi-Tenant |
+| **Internal Tools**    | 🚫 Hidden      | 🤖 Automation   | 🔧 Management  | ⚡ Critical    | 🔧 Enterprise   |
 
 **Legend**: ✅ Primary benefit | ⚡ Performance | 🔒 Security | 🔧 Technical | 🛡️ Protection | 📊 Monitoring | 🚫 Not relevant
 
@@ -201,6 +216,7 @@ Perfect for: Development workflows, unreliable networks, large server configurat
 - **Claude Desktop** → [Claude Desktop Integration](/guide/integrations/claude-desktop)
 - **Server Management** → [Server Management Guide](/guide/essentials/server-management)
 - **Server Filtering** → [Server Filtering Guide](/guide/advanced/server-filtering)
+- **AI Automation** → [Internal Tools Reference](/reference/internal-tools)
 - **Performance** → [Fast Startup Guide](/guide/advanced/fast-startup)
 - **Architecture** → [System Architecture](/reference/architecture)
 

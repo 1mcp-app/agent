@@ -29,6 +29,11 @@ export function createSearchTool(): Tool {
     description: 'Search for MCP servers in the registry',
     inputSchema: zodToInputSchema(McpSearchToolSchema) as Tool['inputSchema'],
     outputSchema: zodToOutputSchema(McpSearchOutputSchema) as Tool['outputSchema'],
+    annotations: {
+      title: 'Search MCP Servers',
+      readOnlyHint: true,
+      openWorldHint: true,
+    },
   };
 }
 
@@ -43,6 +48,11 @@ export function createRegistryStatusTool(): Tool {
     description: 'Check registry availability and performance',
     inputSchema: zodToInputSchema(McpRegistryStatusSchema) as Tool['inputSchema'],
     outputSchema: zodToOutputSchema(McpRegistryStatusOutputSchema) as Tool['outputSchema'],
+    annotations: {
+      title: 'Check Registry Status',
+      readOnlyHint: true,
+      openWorldHint: true,
+    },
   };
 }
 
@@ -55,6 +65,11 @@ export function createRegistryInfoTool(): Tool {
     description: 'Get detailed registry information',
     inputSchema: zodToInputSchema(McpRegistryInfoSchema) as Tool['inputSchema'],
     outputSchema: zodToOutputSchema(McpRegistryInfoOutputSchema) as Tool['outputSchema'],
+    annotations: {
+      title: 'Get Registry Info',
+      readOnlyHint: true,
+      openWorldHint: true,
+    },
   };
 }
 
@@ -67,6 +82,11 @@ export function createRegistryListTool(): Tool {
     description: 'List available registries',
     inputSchema: zodToInputSchema(McpRegistryListSchema) as Tool['inputSchema'],
     outputSchema: zodToOutputSchema(McpRegistryListOutputSchema) as Tool['outputSchema'],
+    annotations: {
+      title: 'List Registries',
+      readOnlyHint: true,
+      openWorldHint: true,
+    },
   };
 }
 
@@ -79,5 +99,10 @@ export function createInfoTool(): Tool {
     description: 'Get detailed information about a specific MCP server',
     inputSchema: zodToInputSchema(McpInfoToolSchema) as Tool['inputSchema'],
     outputSchema: zodToOutputSchema(McpInfoOutputSchema) as Tool['outputSchema'],
+    annotations: {
+      title: 'Get Server Info',
+      readOnlyHint: true,
+      openWorldHint: true,
+    },
   };
 }
