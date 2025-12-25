@@ -24,9 +24,10 @@ class Printer {
 
   /**
    * Print an error message (red with crossmark)
+   * Uses stderr for error output following Unix conventions
    */
   error(message: string): this {
-    console.log(chalk.red('❌'), message);
+    console.error(chalk.red('❌'), message);
     return this;
   }
 
