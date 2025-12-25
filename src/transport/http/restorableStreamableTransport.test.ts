@@ -86,11 +86,11 @@ describe('RestorableStreamableHTTPServerTransport', () => {
       expect(transport.getRestorationInfo().isRestored).toBe(true);
     });
 
-    it('should set sessionId when provided', () => {
-      transport.sessionId = 'test-session';
+    it('should preserve sessionId from construction', () => {
+      const sessionId = transport.sessionId;
       transport.markAsInitialized();
 
-      expect(transport.sessionId).toBe('test-session');
+      expect(transport.sessionId).toBe(sessionId);
       expect(transport.isRestored()).toBe(true);
     });
 
@@ -154,13 +154,12 @@ describe('RestorableStreamableHTTPServerTransport', () => {
       });
     });
 
-    it('should handle undefined sessionId', () => {
-      transport.sessionId = undefined;
+    it('should return sessionId when available', () => {
       const info = transport.getRestorationInfo();
 
       expect(info).toEqual({
         isRestored: false,
-        sessionId: undefined,
+        sessionId: transport.sessionId,
       });
     });
   });
