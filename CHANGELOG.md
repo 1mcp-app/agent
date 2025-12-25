@@ -18,6 +18,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Add comprehensive project roadmap for 1MCP by @xizhibei
 
 ### ⚙️ Miscellaneous Tasks
+- Update Node.js version to 24 by @xizhibei
+- Update version and changelog to 0.28.1 [skip ci] by @github-actions[bot]
 - Add provenance flag to npm publish step in workflow by @xizhibei
 - Update version and changelog to 0.28.2 [skip ci] by @github-actions[bot]
 - Remove NODE_AUTH_TOKEN from npm publish step in workflow by @xizhibei
