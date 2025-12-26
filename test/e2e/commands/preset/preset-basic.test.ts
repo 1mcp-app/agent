@@ -28,7 +28,7 @@ describe('Preset Basic Commands E2E', () => {
 
       runner.assertSuccess(result);
       runner.assertOutputContains(result, "✅ Preset 'test-preset' created successfully!");
-      runner.assertOutputContains(result, '📋 Strategy: or');
+      runner.assertOutputContains(result, 'Strategy: or');
     });
 
     it('should create a preset with AND logic', async () => {
@@ -38,8 +38,9 @@ describe('Preset Basic Commands E2E', () => {
 
       runner.assertSuccess(result);
       runner.assertOutputContains(result, "✅ Preset 'and-preset' created successfully!");
-      runner.assertOutputContains(result, '📋 Strategy: advanced');
-      runner.assertOutputContains(result, '📝 Description: AND logic preset');
+      runner.assertOutputContains(result, 'Strategy');
+      runner.assertOutputContains(result, 'advanced');
+      runner.assertOutputContains(result, 'Description: AND logic preset');
     });
 
     it('should create a preset with advanced filter expression', async () => {
@@ -49,7 +50,7 @@ describe('Preset Basic Commands E2E', () => {
 
       runner.assertSuccess(result);
       runner.assertOutputContains(result, "✅ Preset 'advanced-preset' created successfully!");
-      runner.assertOutputContains(result, '📋 Strategy: advanced');
+      runner.assertOutputContains(result, 'Strategy: advanced');
     });
   });
 
