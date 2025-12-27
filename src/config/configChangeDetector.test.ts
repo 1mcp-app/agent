@@ -89,10 +89,13 @@ describe('ConfigChangeDetector', () => {
       const changes = changeDetector.detectChanges(oldConfig, newConfig);
 
       expect(changes).toHaveLength(1);
-      expect(changes[0].type).toBe(ConfigChangeType.MODIFIED);
-      expect(changes[0].serverName).toBe('server-1');
-      expect(changes[0].fieldsChanged).toContain('args');
-      expect(changes[0].fieldsChanged).toContain('tags');
+      const change = changes[0];
+      expect(change.type).toBe(ConfigChangeType.MODIFIED);
+      expect(change.serverName).toBe('server-1');
+      if (change.type === ConfigChangeType.MODIFIED) {
+        expect(change.fieldsChanged).toContain('args');
+        expect(change.fieldsChanged).toContain('tags');
+      }
     });
 
     it('should detect multiple types of changes', () => {
@@ -220,8 +223,11 @@ describe('ConfigChangeDetector', () => {
       const changes = changeDetector.detectChanges(oldConfig, newConfig);
 
       expect(changes).toHaveLength(1);
-      expect(changes[0].type).toBe(ConfigChangeType.MODIFIED);
-      expect(changes[0].fieldsChanged).toEqual(['tags']);
+      const change = changes[0];
+      expect(change.type).toBe(ConfigChangeType.MODIFIED);
+      if (change.type === ConfigChangeType.MODIFIED) {
+        expect(change.fieldsChanged).toEqual(['tags']);
+      }
     });
 
     it('should detect nested object changes', () => {
@@ -250,8 +256,11 @@ describe('ConfigChangeDetector', () => {
       const changes = changeDetector.detectChanges(oldConfig, newConfig);
 
       expect(changes).toHaveLength(1);
-      expect(changes[0].type).toBe(ConfigChangeType.MODIFIED);
-      expect(changes[0].fieldsChanged).toContain('env');
+      const change = changes[0];
+      expect(change.type).toBe(ConfigChangeType.MODIFIED);
+      if (change.type === ConfigChangeType.MODIFIED) {
+        expect(change.fieldsChanged).toContain('env');
+      }
     });
 
     it('should detect array changes', () => {
@@ -272,8 +281,11 @@ describe('ConfigChangeDetector', () => {
       const changes = changeDetector.detectChanges(oldConfig, newConfig);
 
       expect(changes).toHaveLength(1);
-      expect(changes[0].type).toBe(ConfigChangeType.MODIFIED);
-      expect(changes[0].fieldsChanged).toContain('args');
+      const change = changes[0];
+      expect(change.type).toBe(ConfigChangeType.MODIFIED);
+      if (change.type === ConfigChangeType.MODIFIED) {
+        expect(change.fieldsChanged).toContain('args');
+      }
     });
 
     it('should not detect changes when only order differs in arrays', () => {

@@ -38,10 +38,10 @@ export function validateTags(tags: string[]): TagsValidationResult {
     }
   }
 
-  return {
-    valid: errors.length === 0,
-    errors,
-  };
+  if (errors.length === 0) {
+    return { valid: true };
+  }
+  return { valid: false, errors };
 }
 
 /**

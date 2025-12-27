@@ -14,11 +14,16 @@ export const CONFIG_EVENTS = {
   VALIDATION_ERROR: 'validationError',
 } as const;
 
-export interface ConfigChange {
-  serverName: string;
-  type: ConfigChangeType;
-  fieldsChanged?: string[];
-}
+/**
+ * Configuration change event with discriminated union to prevent invalid states.
+ * - Added servers don't have fieldsChanged
+ * - Removed servers don't have fieldsChanged
+ * - Modified servers must have fieldsChanged
+ */
+export type ConfigChange =
+  | { serverName: string; type: ConfigChangeType.ADDED }
+  | { serverName: string; type: ConfigChangeType.REMOVED }
+  | { serverName: string; type: ConfigChangeType.MODIFIED; fieldsChanged: readonly string[] };
 
 export interface TemplateLoadResult {
   staticServers: Record<string, MCPServerParams>;

@@ -8,6 +8,10 @@ import logger, { debugIf } from '@src/logger/logger.js';
 
 import { ZodError } from 'zod';
 
+interface ErrnoException extends Error {
+  code?: string;
+}
+
 export class ConfigLoader {
   private configFilePath: string;
   private lastModified = 0;
@@ -50,7 +54,14 @@ export class ConfigLoader {
       }
       return false;
     } catch (error) {
-      logger.error(`Failed to check file modification time: ${error instanceof Error ? error.message : String(error)}`);
+      // For file modification checking, returning false is reasonable behavior
+      // when file doesn't exist or can't be accessed - there's nothing to compare
+      const errorCode = (error as ErrnoException).code;
+      if (errorCode === 'ENOENT' || errorCode === 'EACCES') {
+        logger.debug(`Cannot check file modification time for ${this.configFilePath}: ${errorCode}`);
+        return false;
+      }
+      logger.warn(`Failed to check file modification time: ${error instanceof Error ? error.message : String(error)}`);
       return false;
     }
   }
@@ -86,8 +97,9 @@ export class ConfigLoader {
     try {
       rawConfig = this.loadRawConfig();
     } catch (error) {
-      logger.error(`Failed to load raw configuration: ${error instanceof Error ? error.message : String(error)}`);
-      return {};
+      const errorMsg = `Failed to load raw configuration: ${error instanceof Error ? error.message : String(error)}`;
+      logger.error(errorMsg);
+      throw new Error(errorMsg);
     }
 
     const agentConfig = AgentConfigManager.getInstance();
@@ -96,8 +108,9 @@ export class ConfigLoader {
     const processedConfig = features.envSubstitution ? substituteEnvVarsInConfig(rawConfig) : rawConfig;
 
     if (!processedConfig || typeof processedConfig !== 'object') {
-      logger.error('Invalid configuration format');
-      return {};
+      const errorMsg = 'Invalid configuration format';
+      logger.error(errorMsg);
+      throw new Error(errorMsg);
     }
 
     const configObj = processedConfig as Record<string, unknown>;

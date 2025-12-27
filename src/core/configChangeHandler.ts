@@ -79,9 +79,12 @@ export class ConfigChangeHandler {
    * Process a single configuration change
    */
   private async processChange(change: ConfigChange, newConfig: Record<string, MCPServerParams>): Promise<void> {
+    // Access fieldsChanged only for 'modified' type using type guard
+    const fieldsChanged = change.type === 'modified' ? change.fieldsChanged : undefined;
+
     debugIf(() => ({
       message: `Processing ${change.type} change for server ${change.serverName}`,
-      meta: { change, fieldsChanged: change.fieldsChanged },
+      meta: { change, fieldsChanged },
     }));
 
     switch (change.type) {
@@ -97,8 +100,11 @@ export class ConfigChangeHandler {
         await this.handleServerModified(change.serverName, newConfig[change.serverName], change.fieldsChanged);
         break;
 
-      default:
-        logger.warn(`Unknown change type: ${String(change.type)}`);
+      default: {
+        const _exhaustive: never = change;
+        logger.warn(`Unknown change type: ${String(_exhaustive)}`);
+        break;
+      }
     }
   }
 
@@ -124,7 +130,7 @@ export class ConfigChangeHandler {
   private async handleServerModified(
     serverName: string,
     config: MCPServerParams,
-    fieldsChanged?: string[],
+    fieldsChanged?: readonly string[],
   ): Promise<void> {
     // Check if disabled field changed
     const disabledChanged = fieldsChanged?.includes('disabled');
@@ -166,7 +172,7 @@ export class ConfigChangeHandler {
   /**
    * Determine if a server restart is required based on changed fields
    */
-  private requiresServerRestart(fieldsChanged?: string[]): boolean {
+  private requiresServerRestart(fieldsChanged?: readonly string[]): boolean {
     if (!fieldsChanged || fieldsChanged.length === 0) {
       return true; // Conservative approach - restart if we don't know what changed
     }
@@ -277,8 +283,9 @@ export class ConfigChangeHandler {
         return true;
       }
 
-      if (change.type === ConfigChangeType.MODIFIED && this.requiresServerRestart(change.fieldsChanged)) {
-        return true;
+      if (change.type === ConfigChangeType.MODIFIED) {
+        const fieldsChanged = change.fieldsChanged;
+        return this.requiresServerRestart(fieldsChanged);
       }
 
       return false;

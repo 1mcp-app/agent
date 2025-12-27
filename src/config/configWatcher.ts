@@ -30,12 +30,18 @@ export class ConfigWatcher extends EventEmitter {
     }
 
     if (this.configWatcher) {
+      logger.warn('File watcher already started, ignoring duplicate call');
       return;
     }
 
     try {
       const configDir = path.dirname(this.configFilePath);
       const configFileName = path.basename(this.configFilePath);
+
+      // Verify directory exists before watching
+      if (!fs.existsSync(configDir)) {
+        throw new Error(`Configuration directory does not exist: ${configDir}`);
+      }
 
       this.configWatcher = fs.watch(configDir, (eventType: fs.WatchEventType, filename: string | null) => {
         debugIf(() => ({
@@ -58,9 +64,9 @@ export class ConfigWatcher extends EventEmitter {
       });
       logger.info(`Started watching configuration directory: ${configDir} for file: ${configFileName}`);
     } catch (error) {
-      logger.error(
-        `Failed to start watching configuration file: ${error instanceof Error ? error.message : String(error)}`,
-      );
+      const errorMsg = `Failed to start watching configuration file: ${error instanceof Error ? error.message : String(error)}`;
+      logger.error(errorMsg);
+      throw new Error(errorMsg);
     }
   }
 

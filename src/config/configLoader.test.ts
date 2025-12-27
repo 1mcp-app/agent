@@ -165,12 +165,10 @@ describe('ConfigLoader', () => {
       expect(Object.keys(config)).toHaveLength(0);
     });
 
-    it('should handle invalid JSON gracefully', async () => {
+    it('should throw on invalid JSON', async () => {
       await fsPromises.writeFile(configFilePath, 'invalid json content');
 
-      const config = loader.loadConfigWithEnvSubstitution();
-      expect(typeof config).toBe('object');
-      expect(Object.keys(config)).toHaveLength(0);
+      expect(() => loader.loadConfigWithEnvSubstitution()).toThrow();
     });
   });
 

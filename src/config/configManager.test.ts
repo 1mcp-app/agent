@@ -458,15 +458,15 @@ describe('ConfigManager (Integration)', () => {
   });
 
   describe('error handling integration', () => {
-    it('should handle invalid JSON gracefully', async () => {
+    it('should throw on invalid JSON', async () => {
       await fsPromises.writeFile(configFilePath, 'invalid json content');
 
       // Reset singleton to force creation of new instance
       (ConfigManager as any).instance = null;
+
+      // getInstance should work, but initialize should fail
       const newManager = ConfigManager.getInstance(configFilePath);
-      const config = newManager.getTransportConfig();
-      expect(typeof config).toBe('object');
-      expect(Object.keys(config)).toHaveLength(0);
+      await expect(newManager.initialize()).rejects.toThrow();
     });
 
     it('should handle missing mcpServers section', async () => {

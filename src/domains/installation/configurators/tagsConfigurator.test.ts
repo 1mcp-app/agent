@@ -44,14 +44,17 @@ describe('tagsConfigurator', () => {
       const result = validateTags(['tag1', 'tag_2', 'tag-3', 'TAG123']);
 
       expect(result.valid).toBe(true);
-      expect(result.errors).toEqual([]);
+      // With discriminated union, valid: true means no errors property
+      expect(result).toEqual({ valid: true });
     });
 
     it('should reject empty tags', () => {
       const result = validateTags(['']);
 
       expect(result.valid).toBe(false);
-      expect(result.errors).toContain('Tag cannot be empty');
+      if (!result.valid) {
+        expect(result.errors).toContain('Tag cannot be empty');
+      }
     });
 
     it('should reject tags longer than 50 characters', () => {
@@ -59,15 +62,19 @@ describe('tagsConfigurator', () => {
       const result = validateTags([longTag]);
 
       expect(result.valid).toBe(false);
-      expect(result.errors[0]).toContain('too long');
+      if (!result.valid) {
+        expect(result.errors[0]).toContain('too long');
+      }
     });
 
     it('should reject tags with invalid characters', () => {
       const result = validateTags(['tag with spaces', 'tag@special', 'tag.dot']);
 
       expect(result.valid).toBe(false);
-      expect(result.errors).toHaveLength(3);
-      expect(result.errors[0]).toContain('invalid characters');
+      if (!result.valid) {
+        expect(result.errors).toHaveLength(3);
+        expect(result.errors[0]).toContain('invalid characters');
+      }
     });
 
     it('should accept tags exactly 50 characters', () => {
@@ -81,8 +88,10 @@ describe('tagsConfigurator', () => {
       const result = validateTags(['', 'a'.repeat(51), 'invalid tag']);
 
       expect(result.valid).toBe(false);
-      // Empty tag (1) + long tag (1) + invalid tag with space (2 errors for space chars) = 4
-      expect(result.errors.length).toBeGreaterThanOrEqual(3);
+      if (!result.valid) {
+        // Empty tag (1) + long tag (1) + invalid tag with space (2 errors for space chars) = 4
+        expect(result.errors.length).toBeGreaterThanOrEqual(3);
+      }
     });
 
     it('should accept alphanumeric with underscores and hyphens', () => {

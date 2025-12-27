@@ -46,7 +46,6 @@ export class ConfigManager extends EventEmitter {
     this.watcher = new ConfigWatcher(this.loader.getConfigFilePath(), this.loader);
     this.changeDetector = new ConfigChangeDetector();
 
-    this.loadConfig();
     this.setupWatcherEvents();
   }
 
@@ -66,8 +65,15 @@ export class ConfigManager extends EventEmitter {
   }
 
   public async initialize(): Promise<void> {
-    this.watcher.startWatching();
-    logger.info('ConfigManager initialized');
+    try {
+      this.loadConfig();
+      this.watcher.startWatching();
+      logger.info('ConfigManager initialized');
+    } catch (error) {
+      const errorMsg = `Failed to initialize ConfigManager: ${error instanceof Error ? error.message : String(error)}`;
+      logger.error(errorMsg);
+      throw new Error(errorMsg);
+    }
   }
 
   public async stop(): Promise<void> {
@@ -83,8 +89,9 @@ export class ConfigManager extends EventEmitter {
       const substitutionStatus = features.envSubstitution ? 'with' : 'without';
       logger.info(`Configuration loaded successfully ${substitutionStatus} environment variable substitution`);
     } catch (error) {
-      logger.error(`Failed to load configuration: ${error instanceof Error ? error.message : String(error)}`);
-      this.transportConfig = {};
+      const errorMsg = `Failed to load configuration: ${error instanceof Error ? error.message : String(error)}`;
+      logger.error(errorMsg);
+      throw new Error(errorMsg);
     }
   }
 
