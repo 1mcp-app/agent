@@ -96,7 +96,7 @@ describe('MCP Add Command E2E', () => {
       // Verify HTTP server was added
       const listResult = await runner.runMcpCommand('list', { args: ['--verbose'] });
       runner.assertOutputContains(listResult, 'http-server');
-      runner.assertOutputContains(listResult, 'Type: http');
+      runner.assertOutputContains(listResult, 'Type   : http');
       runner.assertOutputContains(listResult, 'URL: http://localhost:8080/mcp');
     });
 

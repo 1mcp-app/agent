@@ -5,6 +5,7 @@ import { TagQueryEvaluator } from '@src/domains/preset/parsers/tagQueryEvaluator
 import { type TagExpression, TagQueryParser } from '@src/domains/preset/parsers/tagQueryParser.js';
 import { GlobalOptions } from '@src/globalOptions.js';
 import logger from '@src/logger/logger.js';
+import printer from '@src/utils/ui/printer.js';
 
 import boxen from 'boxen';
 import chalk from 'chalk';
@@ -89,7 +90,7 @@ function formatTableOutput(estimates: ServerTokenEstimate[], stats: AggregateSta
     estimates.length > 0 && estimates.some((e) => e.connected) ? ` (${stats.connectedServers} connected servers)` : ''
   }`;
 
-  console.log(
+  printer.raw(
     boxen(chalk.bold.blue(title), {
       padding: 1,
       margin: 1,
@@ -99,19 +100,19 @@ function formatTableOutput(estimates: ServerTokenEstimate[], stats: AggregateSta
   );
 
   if (estimates.length === 0) {
-    console.log(chalk.yellow('⚠️  No MCP servers found in configuration.'));
+    printer.raw(chalk.yellow('⚠️  No MCP servers found in configuration.'));
     return;
   }
 
   const connectedEstimates = estimates.filter((est) => est.connected && !est.error);
 
   if (connectedEstimates.length === 0) {
-    console.log(chalk.red('❌ No connected MCP servers found.'));
+    printer.raw(chalk.red('❌ No connected MCP servers found.'));
     estimates.forEach((est) => {
       if (est.error) {
-        console.log(chalk.red(`  ${est.serverName} (Disconnected): ${est.error}`));
+        printer.raw(chalk.red(`  ${est.serverName} (Disconnected): ${est.error}`));
       } else {
-        console.log(chalk.gray(`  ${est.serverName} (Disconnected)`));
+        printer.raw(chalk.gray(`  ${est.serverName} (Disconnected)`));
       }
     });
     return;
@@ -124,18 +125,18 @@ function formatTableOutput(estimates: ServerTokenEstimate[], stats: AggregateSta
 
   // TOOLS section
   if (hasTools) {
-    console.log(chalk.bold.green('\n🔧 TOOLS'));
-    console.log(chalk.gray('─'.repeat(50)));
+    printer.raw(chalk.bold.green('\n🔧 TOOLS'));
+    printer.raw(chalk.gray('─'.repeat(50)));
     connectedEstimates.forEach((est) => {
       if (est.breakdown.tools.length > 0) {
-        console.log(chalk.cyan(`${est.serverName} ${chalk.green('(Connected)')}`));
+        printer.raw(chalk.cyan(`${est.serverName} ${chalk.green('(Connected)')}`));
         est.breakdown.tools.forEach((tool) => {
           const desc = tool.description ? chalk.gray(` - ${tool.description.slice(0, 50)}...`) : '';
-          console.log(`├── ${chalk.white(tool.name)}: ${chalk.yellow(`~${tool.tokens} tokens`)}${desc}`);
+          printer.raw(`├── ${chalk.white(tool.name)}: ${chalk.yellow(`~${tool.tokens} tokens`)}${desc}`);
         });
         const toolTotal = est.breakdown.tools.reduce((sum, tool) => sum + tool.tokens, 0);
-        console.log(`└── ${chalk.bold(`Subtotal: ~${toolTotal} tokens`)}`);
-        console.log();
+        printer.raw(`└── ${chalk.bold(`Subtotal: ~${toolTotal} tokens`)}`);
+        printer.blank();
       }
     });
 
@@ -143,25 +144,25 @@ function formatTableOutput(estimates: ServerTokenEstimate[], stats: AggregateSta
       (sum, est) => sum + est.breakdown.tools.reduce((toolSum, tool) => toolSum + tool.tokens, 0),
       0,
     );
-    console.log(chalk.bold.green(`Tools Total: ~${totalToolTokens} tokens`));
-    console.log();
+    printer.raw(chalk.bold.green(`Tools Total: ~${totalToolTokens} tokens`));
+    printer.blank();
   }
 
   // RESOURCES section
   if (hasResources) {
-    console.log(chalk.bold.magenta('\n📁 RESOURCES'));
-    console.log(chalk.gray('─'.repeat(50)));
+    printer.raw(chalk.bold.magenta('\n📁 RESOURCES'));
+    printer.raw(chalk.gray('─'.repeat(50)));
     connectedEstimates.forEach((est) => {
       if (est.breakdown.resources.length > 0) {
-        console.log(chalk.cyan(`${est.serverName} ${chalk.green('(Connected)')}`));
+        printer.raw(chalk.cyan(`${est.serverName} ${chalk.green('(Connected)')}`));
         est.breakdown.resources.forEach((resource) => {
           const name = resource.name || resource.uri.split('/').pop() || 'unnamed';
           const mimeType = resource.mimeType ? chalk.gray(` (${resource.mimeType})`) : '';
-          console.log(`├── ${chalk.white(name)}: ${chalk.yellow(`~${resource.tokens} tokens`)}${mimeType}`);
+          printer.raw(`├── ${chalk.white(name)}: ${chalk.yellow(`~${resource.tokens} tokens`)}${mimeType}`);
         });
         const resourceTotal = est.breakdown.resources.reduce((sum, resource) => sum + resource.tokens, 0);
-        console.log(`└── ${chalk.bold(`Subtotal: ~${resourceTotal} tokens`)}`);
-        console.log();
+        printer.raw(`└── ${chalk.bold(`Subtotal: ~${resourceTotal} tokens`)}`);
+        printer.blank();
       }
     });
 
@@ -169,24 +170,24 @@ function formatTableOutput(estimates: ServerTokenEstimate[], stats: AggregateSta
       (sum, est) => sum + est.breakdown.resources.reduce((resSum, resource) => resSum + resource.tokens, 0),
       0,
     );
-    console.log(chalk.bold.magenta(`Resources Total: ~${totalResourceTokens} tokens`));
-    console.log();
+    printer.raw(chalk.bold.magenta(`Resources Total: ~${totalResourceTokens} tokens`));
+    printer.blank();
   }
 
   // PROMPTS section
   if (hasPrompts) {
-    console.log(chalk.bold.blue('\n💬 PROMPTS'));
-    console.log(chalk.gray('─'.repeat(50)));
+    printer.raw(chalk.bold.blue('\n💬 PROMPTS'));
+    printer.raw(chalk.gray('─'.repeat(50)));
     connectedEstimates.forEach((est) => {
       if (est.breakdown.prompts.length > 0) {
-        console.log(chalk.cyan(`${est.serverName} ${chalk.green('(Connected)')}`));
+        printer.raw(chalk.cyan(`${est.serverName} ${chalk.green('(Connected)')}`));
         est.breakdown.prompts.forEach((prompt) => {
           const desc = prompt.description ? chalk.gray(` - ${prompt.description}`) : '';
-          console.log(`├── ${chalk.white(prompt.name)}: ${chalk.yellow(`~${prompt.tokens} tokens`)}${desc}`);
+          printer.raw(`├── ${chalk.white(prompt.name)}: ${chalk.yellow(`~${prompt.tokens} tokens`)}${desc}`);
         });
         const promptTotal = est.breakdown.prompts.reduce((sum, prompt) => sum + prompt.tokens, 0);
-        console.log(`└── ${chalk.bold(`Subtotal: ~${promptTotal} tokens`)}`);
-        console.log();
+        printer.raw(`└── ${chalk.bold(`Subtotal: ~${promptTotal} tokens`)}`);
+        printer.blank();
       }
     });
 
@@ -194,8 +195,8 @@ function formatTableOutput(estimates: ServerTokenEstimate[], stats: AggregateSta
       (sum, est) => sum + est.breakdown.prompts.reduce((promptSum, prompt) => promptSum + prompt.tokens, 0),
       0,
     );
-    console.log(chalk.bold.blue(`Prompts Total: ~${totalPromptTokens} tokens`));
-    console.log();
+    printer.raw(chalk.bold.blue(`Prompts Total: ~${totalPromptTokens} tokens`));
+    printer.blank();
   }
 
   // SUMMARY section
@@ -219,7 +220,7 @@ function formatTableOutput(estimates: ServerTokenEstimate[], stats: AggregateSta
     `${chalk.bold.yellow('📊 Overall Total:')} ${chalk.bold.yellow(`~${stats.overallTokens} tokens`)}`,
   ].join('\n');
 
-  console.log(
+  printer.raw(
     boxen(summaryContent, {
       title: '📈 Summary',
       titleAlignment: 'center',
@@ -243,7 +244,7 @@ function formatTableOutput(estimates: ServerTokenEstimate[], stats: AggregateSta
       })
       .join('\n');
 
-    console.log(
+    printer.raw(
       boxen(disconnectedContent, {
         title: '⚠️  Disconnected Servers',
         titleAlignment: 'center',
@@ -265,7 +266,7 @@ function formatJsonOutput(estimates: ServerTokenEstimate[], stats: AggregateStat
     servers: estimates,
     timestamp: new Date().toISOString(),
   };
-  console.log(JSON.stringify(output, null, 2));
+  printer.raw(JSON.stringify(output, null, 2));
 }
 
 /**
@@ -281,7 +282,7 @@ function formatSummaryOutput(estimates: ServerTokenEstimate[], stats: AggregateS
     `${chalk.yellow('🏷️  Estimated Token Usage:')} ${chalk.bold.yellow(`~${stats.overallTokens} tokens`)}`,
   ].join('\n');
 
-  console.log(
+  printer.raw(
     boxen(summaryContent, {
       title: '📈 MCP Token Usage Summary',
       titleAlignment: 'center',
@@ -303,7 +304,7 @@ function formatSummaryOutput(estimates: ServerTokenEstimate[], stats: AggregateS
       )
       .join('\n');
 
-    console.log(
+    printer.raw(
       boxen(topServersContent, {
         title: '🏆 Top Servers by Token Usage',
         titleAlignment: 'center',
@@ -329,7 +330,7 @@ function formatSummaryOutput(estimates: ServerTokenEstimate[], stats: AggregateS
         });
     }
 
-    console.log(
+    printer.raw(
       boxen(disconnectedContent, {
         title: '⚠️  Connection Issues',
         titleAlignment: 'center',
@@ -422,8 +423,8 @@ export async function tokensCommand(argv: Arguments<TokensCommandArgs>): Promise
     const config: ServerConfig = loadConfig();
 
     if (!config.mcpServers || Object.keys(config.mcpServers).length === 0) {
-      console.log(chalk.yellow('⚠️  No MCP servers configured.'));
-      console.log(chalk.gray('💡 Use "1mcp mcp add" to add servers.'));
+      printer.warn('No MCP servers configured.');
+      printer.info('Use "1mcp mcp add" to add servers.');
       return;
     }
 
@@ -440,11 +441,8 @@ export async function tokensCommand(argv: Arguments<TokensCommandArgs>): Promise
 
         const preset = presetManager.getPreset(argv.preset);
         if (!preset) {
-          console.error(chalk.red(`❌ Preset not found: ${argv.preset}`));
-          console.error(
-            chalk.gray('Available presets:'),
-            chalk.cyan(presetManager.getPresetNames().join(', ') || 'none'),
-          );
+          printer.error(`Preset not found: ${argv.preset}`);
+          printer.info(`Available presets: ${presetManager.getPresetNames().join(', ') || 'none'}`);
           process.exit(1);
         }
 
@@ -457,10 +455,8 @@ export async function tokensCommand(argv: Arguments<TokensCommandArgs>): Promise
           return TagQueryEvaluator.evaluate(preset.tagQuery, serverTags);
         });
       } catch (error) {
-        console.error(
-          chalk.red(
-            `❌ Error loading preset "${argv.preset}": ${error instanceof Error ? error.message : 'Unknown error'}`,
-          ),
+        printer.error(
+          `Error loading preset "${argv.preset}": ${error instanceof Error ? error.message : 'Unknown error'}`,
         );
         process.exit(1);
       }
@@ -476,18 +472,14 @@ export async function tokensCommand(argv: Arguments<TokensCommandArgs>): Promise
           return TagQueryParser.evaluate(tagExpression!, serverTags);
         });
       } catch (error) {
-        console.error(
-          chalk.red(`❌ Invalid tag-filter expression: ${error instanceof Error ? error.message : 'Unknown error'}`),
-        );
+        printer.error(`Invalid tag-filter expression: ${error instanceof Error ? error.message : 'Unknown error'}`);
         process.exit(1);
       }
     }
 
     if (filteredServers.length === 0) {
-      console.log(
-        filterDescription
-          ? chalk.yellow(`⚠️  No servers match the ${filterDescription}`)
-          : chalk.yellow('⚠️  No servers found in configuration.'),
+      printer.warn(
+        filterDescription ? `No servers match the ${filterDescription}` : 'No servers found in configuration.',
       );
       return;
     }
@@ -501,7 +493,7 @@ export async function tokensCommand(argv: Arguments<TokensCommandArgs>): Promise
       }));
 
     if (serverConfigs.length === 0) {
-      console.log(chalk.yellow('⚠️  No enabled servers found for token estimation.'));
+      printer.warn('No enabled servers found for token estimation.');
       return;
     }
 
@@ -511,7 +503,7 @@ export async function tokensCommand(argv: Arguments<TokensCommandArgs>): Promise
     // Only show connecting message for non-JSON formats and when not suppressing logs
     const format = argv.format || 'table';
     if (format !== 'json' && !suppressLogs) {
-      console.log(chalk.blue(`🔄 Connecting to ${serverConfigs.length} MCP server(s) to analyze token usage...`));
+      printer.info(`Connecting to ${serverConfigs.length} MCP server(s) to analyze token usage...`);
     }
 
     // Collect server capabilities and estimate tokens
@@ -537,7 +529,7 @@ export async function tokensCommand(argv: Arguments<TokensCommandArgs>): Promise
     }
   } catch (error) {
     logger.error('Error in tokens command:', error);
-    console.error(chalk.red(`❌ Error: ${error instanceof Error ? error.message : 'Unknown error'}`));
+    printer.error(`Error: ${error instanceof Error ? error.message : 'Unknown error'}`);
     process.exit(1);
   }
 }

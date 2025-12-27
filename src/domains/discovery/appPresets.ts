@@ -1,6 +1,8 @@
 import os from 'os';
 import path from 'path';
 
+import printer from '@src/utils/ui/printer.js';
+
 /**
  * Desktop application preset configurations for MCP consolidation.
  *
@@ -408,13 +410,14 @@ export function showPlatformWarningIfNeeded(): void {
   if (platform !== 'darwin') {
     const platformName = platform === 'win32' ? 'Windows' : 'Linux';
 
-    console.log('⚠️  PLATFORM SUPPORT WARNING');
-    console.log(`${platformName} support is experimental - paths researched but untested.`);
-    console.log('If you encounter issues, please contribute by:');
-    console.log('  1. Testing the functionality');
-    console.log('  2. Reporting results at https://github.com/1mcp-app/agent/issues');
-    console.log('  3. Submitting corrections if needed');
-    console.log('');
+    printer.warn('PLATFORM SUPPORT WARNING');
+    printer.blank();
+    printer.raw(`${platformName} support is experimental - paths researched but untested.`);
+    printer.raw('If you encounter issues, please contribute by:');
+    printer.raw('  1. Testing the functionality');
+    printer.raw('  2. Reporting results at https://github.com/1mcp-app/agent/issues');
+    printer.raw('  3. Submitting corrections if needed');
+    printer.blank();
   }
 }
 

@@ -10,11 +10,19 @@ import prompts from 'prompts';
 
 /**
  * Interactive server selection result
+ *
+ * Uses discriminated union to prevent invalid states:
+ * - Cancelled selections don't have strategy/tagQuery data
+ * - Completed selections must have strategy/tagQuery data
  */
-export interface SelectionResult {
-  strategy: PresetStrategy;
-  tagQuery: TagQuery;
-  cancelled: boolean;
+export type SelectionResult = { cancelled: true } | { cancelled: false; strategy: PresetStrategy; tagQuery: TagQuery };
+
+/**
+ * Result of preset testing
+ */
+export interface PresetTestResult {
+  servers: string[];
+  tags: string[];
 }
 
 /**
@@ -118,11 +126,7 @@ export class InteractiveSelector {
             borderColor: 'red',
           }),
         );
-        return {
-          strategy: 'or',
-          tagQuery: {} as TagQuery,
-          cancelled: true,
-        };
+        return { cancelled: true };
       }
 
       // Collect all available tags from all servers
@@ -143,11 +147,7 @@ export class InteractiveSelector {
             borderColor: 'red',
           }),
         );
-        return {
-          strategy: 'or',
-          tagQuery: {} as TagQuery,
-          cancelled: true,
-        };
+        return { cancelled: true };
       }
 
       // Main interaction loop with back navigation support
@@ -184,11 +184,7 @@ export class InteractiveSelector {
         });
 
         if (strategySelection.strategy === undefined) {
-          return {
-            strategy: 'or',
-            tagQuery: {} as TagQuery,
-            cancelled: true,
-          };
+          return { cancelled: true };
         }
 
         strategy = strategySelection.strategy as PresetStrategy;
@@ -235,11 +231,7 @@ export class InteractiveSelector {
           });
 
           if (queryInput.query === undefined || queryInput.query === null || queryInput.query === '') {
-            return {
-              strategy: 'or',
-              tagQuery: {} as TagQuery,
-              cancelled: true,
-            };
+            return { cancelled: true };
           }
 
           // Ensure queryInput.query is properly typed and not null/undefined
@@ -278,11 +270,7 @@ export class InteractiveSelector {
             }
 
             if (tagSelectionResult.cancelled) {
-              return {
-                strategy: 'or',
-                tagQuery: {} as TagQuery,
-                cancelled: true,
-              };
+              return { cancelled: true };
             }
 
             tagQuery = tagSelectionResult.tagQuery;
@@ -326,9 +314,9 @@ export class InteractiveSelector {
       }
 
       return {
+        cancelled: false,
         strategy: strategy!,
         tagQuery,
-        cancelled: false,
       };
     } catch (error) {
       logger.error('Interactive selection failed', { error });
@@ -340,11 +328,7 @@ export class InteractiveSelector {
         }),
       );
 
-      return {
-        strategy: 'or',
-        tagQuery: {} as TagQuery,
-        cancelled: true,
-      };
+      return { cancelled: true };
     }
   }
 
@@ -509,7 +493,7 @@ export class InteractiveSelector {
   /**
    * Test preset and show results
    */
-  public async testPreset(name: string, testResult: { servers: string[]; tags: string[] }): Promise<void> {
+  public async testPreset(name: string, testResult: PresetTestResult): Promise<void> {
     console.log(`\n🔍 Testing preset '${name}':`);
     console.log(`   Matching servers: ${testResult.servers.join(', ') || 'none'}`);
     console.log(`   Available tags: ${testResult.tags.join(', ') || 'none'}\n`);

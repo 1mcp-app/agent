@@ -21,6 +21,14 @@ import logger, { debugIf } from '@src/logger/logger.js';
 import type { ContextData } from '@src/types/context.js';
 
 /**
+ * Event data for context change events
+ */
+export interface ContextChangedEventData {
+  newContext: ContextData;
+  sessionIdChanged: boolean;
+}
+
+/**
  * Refactored ServerManager that coordinates various server management components
  *
  * This class acts as a facade that delegates to specialized managers:
@@ -115,7 +123,7 @@ export class ServerManager {
   private setupContextChangeListener(): void {
     const globalContextManager = getGlobalContextManager();
 
-    globalContextManager.on('context-changed', async (data: { newContext: ContextData; sessionIdChanged: boolean }) => {
+    globalContextManager.on('context-changed', async (data: ContextChangedEventData) => {
       logger.info('Context changed, reprocessing templates', {
         sessionId: data.newContext?.sessionId,
         sessionChanged: data.sessionIdChanged,

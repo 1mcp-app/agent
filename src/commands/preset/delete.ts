@@ -2,6 +2,7 @@ import { PresetManager } from '@src/domains/preset/manager/presetManager.js';
 import { GlobalOptions } from '@src/globalOptions.js';
 import logger from '@src/logger/logger.js';
 import { InteractiveSelector } from '@src/utils/ui/interactiveSelector.js';
+import printer from '@src/utils/ui/printer.js';
 
 import type { Argv } from 'yargs';
 
@@ -36,7 +37,7 @@ export async function deleteCommand(argv: DeleteArguments): Promise<void> {
     await deletePreset(argv.name, presetManager, selector);
   } catch (error) {
     logger.error('Preset delete command failed', { error });
-    console.error(`❌ Command failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    printer.error(`Command failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
     process.exit(1);
   }
 }
@@ -53,7 +54,8 @@ async function deletePreset(name: string, presetManager: PresetManager, selector
   const deleted = await presetManager.deletePreset(name);
 
   if (deleted) {
-    console.log(`✅ Preset '${name}' deleted successfully.\n`);
+    printer.success(`Preset '${name}' deleted successfully.`);
+    printer.blank();
   } else {
     selector.showError(`Failed to delete preset '${name}'`);
   }

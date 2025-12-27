@@ -1,8 +1,14 @@
 /**
  * Server name conflict detection and resolution
  */
+import { ValidationResult } from '@src/types/validation.js';
 
 export type ConflictResolution = 'rename' | 'override' | 'cancel';
+
+/**
+ * Validation result for conflict detection
+ */
+export type ConflictValidationResult = ValidationResult;
 
 export interface ConflictResult {
   hasConflict: boolean;
@@ -41,7 +47,7 @@ export function generateAlternativeNames(baseName: string, existingNames: string
 /**
  * Validate that a proposed name doesn't conflict
  */
-export function validateNoConflict(name: string, existingNames: string[]): { valid: boolean; error?: string } {
+export function validateNoConflict(name: string, existingNames: string[]): ConflictValidationResult {
   if (existingNames.includes(name)) {
     return {
       valid: false,

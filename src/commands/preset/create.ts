@@ -3,6 +3,7 @@ import { TagQueryParser } from '@src/domains/preset/parsers/tagQueryParser.js';
 import { PresetErrorHandler } from '@src/domains/preset/services/presetErrorHandler.js';
 import { GlobalOptions } from '@src/globalOptions.js';
 import logger from '@src/logger/logger.js';
+import printer from '@src/utils/ui/printer.js';
 import { UrlGenerator } from '@src/utils/ui/urlGenerator.js';
 
 import type { Argv } from 'yargs';
@@ -131,13 +132,12 @@ export async function createCommand(argv: CreateArguments): Promise<void> {
     const urlGenerator = new UrlGenerator();
     const url = urlGenerator.generatePresetUrl(argv.name);
 
-    console.log(`✅ Preset '${argv.name}' created successfully!`);
-    console.log(`📋 Strategy: ${strategy}`);
-    console.log(`🔗 URL: ${url}`);
-
-    if (argv.description) {
-      console.log(`📝 Description: ${argv.description}`);
-    }
+    printer.success(`Preset '${argv.name}' created successfully!`);
+    printer.keyValue({
+      Strategy: strategy,
+      URL: url,
+      ...(argv.description ? { Description: argv.description } : {}),
+    });
   } catch (error) {
     logger.error('Preset create command failed', { error });
     PresetErrorHandler.handleCliError(error, 'preset create');

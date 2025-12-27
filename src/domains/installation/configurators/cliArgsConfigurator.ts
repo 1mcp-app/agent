@@ -1,3 +1,5 @@
+import printer from '@src/utils/ui/printer.js';
+
 import chalk from 'chalk';
 import prompts from 'prompts';
 
@@ -59,8 +61,10 @@ export async function configureCliArgs(argMetadata: ArgMetadata[]): Promise<stri
   }
 
   // Show summary of available args
-  console.log(chalk.cyan.bold('\n⚙️  Available Runtime Arguments:'));
-  console.log(chalk.gray(`   Found ${argMetadata.length} runtime arguments\n`));
+  printer.blank();
+  printer.title('⚙️  Available Runtime Arguments:');
+  printer.raw(`   Found ${argMetadata.length} runtime arguments`);
+  printer.blank();
 
   // Ask if user wants to configure any
   const wantsToConfigure = await prompts({
@@ -113,7 +117,8 @@ export async function configureCliArgs(argMetadata: ArgMetadata[]): Promise<stri
   }
 
   // Prompt for each selected arg
-  console.log(chalk.cyan.bold('\n📝 Configure Selected Arguments:\n'));
+  printer.blank();
+  printer.title('📝 Configure Selected Arguments:');
   const args: string[] = [];
 
   for (const name of selectedNames) {
@@ -153,7 +158,7 @@ export async function configureCliArgs(argMetadata: ArgMetadata[]): Promise<stri
       args.push(`${arg.name}=${value}`);
     } else if (arg.isRequired && arg.default) {
       // Required arg with empty value should use default
-      console.log(chalk.yellow(`⚠️  ${arg.name} is required, using default value`));
+      printer.warn(`${arg.name} is required, using default value`);
       args.push(`${arg.name}=${arg.default}`);
     } else if (value === '') {
       // Optional arg with empty value should be included as empty string

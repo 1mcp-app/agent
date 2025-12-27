@@ -3,6 +3,14 @@ import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/
 import logger from '@src/logger/logger.js';
 
 /**
+ * Information about the restoration state of a transport
+ */
+export interface RestorationInfo {
+  isRestored: boolean;
+  sessionId?: string;
+}
+
+/**
  * RestorableStreamableHTTPServerTransport extends the MCP SDK's StreamableHTTPServerTransport
  * to provide proper session restoration capabilities with type-safe access to internal properties.
  *
@@ -73,7 +81,7 @@ export class RestorableStreamableHTTPServerTransport extends StreamableHTTPServe
    *
    * @returns Object containing restoration metadata
    */
-  getRestorationInfo(): { isRestored: boolean; sessionId?: string } {
+  getRestorationInfo(): RestorationInfo {
     // Use type-safe interface to access potentially private sessionId
     // Reason: sessionId property may not be exposed in public SDK types
     // eslint-disable-next-line @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-assignment

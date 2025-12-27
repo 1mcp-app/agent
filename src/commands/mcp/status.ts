@@ -1,6 +1,7 @@
 import { MCPServerParams } from '@src/core/types/index.js';
 import { GlobalOptions } from '@src/globalOptions.js';
 import { inferTransportType } from '@src/transport/transportFactory.js';
+import printer from '@src/utils/ui/printer.js';
 
 import type { Argv } from 'yargs';
 
@@ -55,7 +56,7 @@ export async function statusCommand(argv: StatusCommandArgs): Promise<void> {
       await showAllServersStatus(verbose);
     }
   } catch (error) {
-    console.error(`❌ Failed to get server status: ${error instanceof Error ? error.message : error}`);
+    printer.error(`Failed to get server status: ${error instanceof Error ? error.message : error}`);
     process.exit(1);
   }
 }
@@ -73,7 +74,9 @@ async function showServerStatus(serverName: string, verbose: boolean = false): P
     throw new Error(`Server '${serverName}' does not exist.`);
   }
 
-  console.log(`\n🔍 Server Status: ${serverName}\n`);
+  printer.blank();
+  printer.title(`Server Status: ${serverName}`);
+  printer.blank();
 
   displayDetailedServerStatus(serverName, serverConfig, verbose);
 }
@@ -85,14 +88,17 @@ async function showAllServersStatus(verbose: boolean = false): Promise<void> {
   const allServers = getAllServers();
 
   if (Object.keys(allServers).length === 0) {
-    console.log('No MCP servers are configured.');
-    console.log('\n💡 Use "mcp add <name>" to add your first server.');
+    printer.info('No MCP servers are configured.');
+    printer.info('Use "mcp add <name>" to add your first server.');
     return;
   }
 
-  console.log(
-    `\n📊 MCP Servers Status (${Object.keys(allServers).length} server${Object.keys(allServers).length === 1 ? '' : 's'}):\n`,
-  );
+  printer
+    .blank()
+    .title(
+      `MCP Servers Status (${Object.keys(allServers).length} server${Object.keys(allServers).length === 1 ? '' : 's'})`,
+    )
+    .blank();
 
   // Sort servers by name for consistent output
   const sortedServerNames = Object.keys(allServers).sort();
@@ -100,7 +106,7 @@ async function showAllServersStatus(verbose: boolean = false): Promise<void> {
   for (const serverName of sortedServerNames) {
     const config = allServers[serverName];
     displayServerStatusSummary(serverName, config);
-    console.log(); // Empty line between servers
+    printer.blank(); // Empty line between servers
   }
 
   // Overall summary
@@ -110,13 +116,17 @@ async function showAllServersStatus(verbose: boolean = false): Promise<void> {
   const httpCount = sortedServerNames.filter((name) => allServers[name].type === 'http').length;
   const sseCount = sortedServerNames.filter((name) => allServers[name].type === 'sse').length;
 
-  console.log(`📈 Overall Summary:`);
-  console.log(`   Total Servers: ${sortedServerNames.length}`);
-  console.log(`   Enabled: ${enabledCount} | Disabled: ${disabledCount}`);
-  console.log(`   Transport Types:`);
-  console.log(`     • stdio: ${stdioCount}`);
-  console.log(`     • http: ${httpCount}`);
-  console.log(`     • sse: ${sseCount}`);
+  printer.subtitle('Overall Summary:');
+  printer.keyValue({
+    'Total Servers': sortedServerNames.length,
+    'Enabled | Disabled': `${enabledCount} | ${disabledCount}`,
+  });
+  printer.subtitle('Transport Types:');
+  printer.keyValue({
+    stdio: stdioCount,
+    http: httpCount,
+    sse: sseCount,
+  });
 
   // Get unique tags
   const allTags = new Set<string>();
@@ -127,11 +137,12 @@ async function showAllServersStatus(verbose: boolean = false): Promise<void> {
   }
 
   if (allTags.size > 0) {
-    console.log(`   Available Tags: ${Array.from(allTags).sort().join(', ')}`);
+    printer.keyValue({ 'Available Tags': Array.from(allTags).sort().join(', ') });
   }
 
   if (verbose) {
-    console.log(`\n💡 Use "mcp status <name>" to see detailed information for a specific server.`);
+    printer.blank();
+    printer.info('Use "mcp status <name>" to see detailed information for a specific server.');
   }
 }
 
@@ -146,19 +157,20 @@ function displayServerStatusSummary(name: string, config: MCPServerParams): void
   const inferredConfig = config.type ? config : inferTransportType(config, name);
   const displayType = inferredConfig.type || 'unknown';
 
-  console.log(`${statusIcon} ${name}`);
-  console.log(`   Status: ${statusText}`);
-  console.log(`   Type: ${displayType}`);
+  printer.raw(`${statusIcon} ${name}`);
+  printer.keyValue({
+    Status: statusText,
+    Type: displayType,
+  });
 
-  // Brief description of endpoint/command
-  if (inferredConfig.type === 'stdio') {
-    console.log(`   Command: ${inferredConfig.command}`);
-  } else {
-    console.log(`   URL: ${inferredConfig.url}`);
+  if (inferredConfig.type === 'stdio' && inferredConfig.command) {
+    printer.keyValue({ Command: inferredConfig.command });
+  } else if ((inferredConfig.type === 'http' || inferredConfig.type === 'sse') && inferredConfig.url) {
+    printer.keyValue({ URL: inferredConfig.url });
   }
 
   if (config.tags && config.tags.length > 0) {
-    console.log(`   Tags: ${config.tags.join(', ')}`);
+    printer.keyValue({ Tags: config.tags.join(', ') });
   }
 }
 
@@ -173,103 +185,101 @@ function displayDetailedServerStatus(name: string, config: MCPServerParams, verb
   const inferredConfig = config.type ? config : inferTransportType(config, name);
   const displayType = inferredConfig.type || 'unknown';
 
-  console.log(`📋 Configuration:`);
-  console.log(`   Name: ${name}`);
-  console.log(`   Status: ${statusIcon} ${statusText}`);
-  console.log(`   Type: ${displayType}`);
+  printer.subtitle('Configuration:');
+  printer.keyValue({
+    Name: name,
+    Status: `${statusIcon} ${statusText}`,
+    Type: displayType,
+  });
 
   // Type-specific configuration
   if (inferredConfig.type === 'stdio') {
-    console.log(`   Command: ${inferredConfig.command}`);
+    if (inferredConfig.command) {
+      printer.keyValue({ Command: inferredConfig.command });
+    }
 
     if (inferredConfig.args && inferredConfig.args.length > 0) {
-      console.log(`   Arguments:`);
+      printer.keyValue({ Arguments: '(see below)' });
       inferredConfig.args.forEach((arg, index) => {
-        console.log(`     [${index}]: ${arg}`);
+        printer.raw(`     [${index}]: ${arg}`);
       });
     } else {
-      console.log(`   Arguments: (none)`);
+      printer.keyValue({ Arguments: '(none)' });
     }
 
-    if (inferredConfig.cwd) {
-      console.log(`   Working Directory: ${inferredConfig.cwd}`);
-    } else {
-      console.log(`   Working Directory: (current directory)`);
-    }
+    printer.keyValue({ 'Working Directory': inferredConfig.cwd || '(current directory)' });
   } else if (inferredConfig.type === 'http' || inferredConfig.type === 'sse') {
-    console.log(`   URL: ${inferredConfig.url}`);
+    if (inferredConfig.url) {
+      printer.keyValue({ URL: inferredConfig.url });
+    }
 
     if (inferredConfig.headers && Object.keys(inferredConfig.headers).length > 0) {
-      console.log(`   Headers:`);
+      printer.keyValue({ Headers: '(see below)' });
       for (const [key, value] of Object.entries(inferredConfig.headers)) {
-        console.log(`     ${key}: ${value}`);
+        printer.raw(`     ${key}: ${value}`);
       }
     } else {
-      console.log(`   Headers: (none)`);
+      printer.keyValue({ Headers: '(none)' });
     }
   }
 
   // Common configuration
-  if (inferredConfig.timeout) {
-    console.log(`   Timeout: ${inferredConfig.timeout}ms`);
-  } else {
-    console.log(`   Timeout: (default)`);
-  }
-
-  if (inferredConfig.tags && inferredConfig.tags.length > 0) {
-    console.log(`   Tags: ${inferredConfig.tags.join(', ')}`);
-  } else {
-    console.log(`   Tags: (none)`);
-  }
+  printer.keyValue({ Timeout: inferredConfig.timeout ? `${inferredConfig.timeout}ms` : '(default)' });
+  printer.keyValue({
+    Tags: inferredConfig.tags && inferredConfig.tags.length > 0 ? inferredConfig.tags.join(', ') : '(none)',
+  });
 
   // Environment variables
   if (inferredConfig.env && Object.keys(inferredConfig.env).length > 0) {
-    console.log(`   Environment Variables:`);
+    printer.keyValue({ 'Environment Variables': '(see below)' });
     for (const [key, value] of Object.entries(inferredConfig.env)) {
       // Show first few characters for security, unless verbose mode
       if (verbose) {
-        console.log(`     ${key}=${value}`);
+        printer.raw(`     ${key}=${value}`);
       } else {
         const strValue = String(value);
         const displayValue = strValue.length > 20 ? `${strValue.substring(0, 20)}...` : strValue;
-        console.log(`     ${key}=${displayValue}`);
+        printer.raw(`     ${key}=${displayValue}`);
       }
     }
   } else {
-    console.log(`   Environment Variables: (none)`);
+    printer.keyValue({ 'Environment Variables': '(none)' });
   }
 
   // Runtime status (this would require integration with ServerManager to get actual runtime status)
-  console.log(`\n🔧 Runtime Information:`);
-  console.log(`   Configuration File: ${config}`);
+  printer.blank();
+  printer.subtitle('Runtime Information:');
+  printer.keyValue({ 'Configuration File': JSON.stringify(config) });
 
   if (config.disabled) {
-    console.log(`   Runtime Status: ⏹️  Not running (disabled)`);
-    console.log(`   Note: Use 'mcp enable ${name}' to enable this server.`);
+    printer.keyValue({ 'Runtime Status': '⏹️  Not running (disabled)' });
+    printer.info(`Use 'mcp enable ${name}' to enable this server.`);
   } else {
-    console.log(`   Runtime Status: ❓ Unknown (requires 1mcp to be running)`);
-    console.log(`   Note: Start 1mcp to see actual runtime status.`);
+    printer.keyValue({ 'Runtime Status': '❓ Unknown (requires 1mcp to be running)' });
+    printer.info('Start 1mcp to see actual runtime status.');
   }
 
   // Validation status
-  console.log(`\n✅ Validation:`);
+  printer.blank();
+  printer.subtitle('Validation:');
   try {
     validateServerConfiguration(config);
-    console.log(`   Configuration: Valid ✓`);
+    printer.info('Configuration: Valid ✓');
   } catch (error) {
-    console.log(`   Configuration: Invalid ❌`);
-    console.log(`   Error: ${error instanceof Error ? error.message : error}`);
+    printer.error('Configuration: Invalid ❌');
+    printer.info(`Error: ${error instanceof Error ? error.message : error}`);
   }
 
   // Quick actions
-  console.log(`\n🚀 Quick Actions:`);
+  printer.blank();
+  printer.subtitle('Quick Actions:');
   if (config.disabled) {
-    console.log(`   • Enable: mcp enable ${name}`);
+    printer.info(`   • Enable: mcp enable ${name}`);
   } else {
-    console.log(`   • Disable: mcp disable ${name}`);
+    printer.info(`   • Disable: mcp disable ${name}`);
   }
-  console.log(`   • Update: mcp update ${name} [options]`);
-  console.log(`   • Remove: server remove ${name}`);
+  printer.info(`   • Update: mcp update ${name} [options]`);
+  printer.info(`   • Remove: server remove ${name}`);
 }
 
 /**

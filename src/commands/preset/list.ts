@@ -2,6 +2,7 @@ import { PresetManager } from '@src/domains/preset/manager/presetManager.js';
 import { GlobalOptions } from '@src/globalOptions.js';
 import logger from '@src/logger/logger.js';
 import { InteractiveSelector } from '@src/utils/ui/interactiveSelector.js';
+import printer from '@src/utils/ui/printer.js';
 
 import boxen from 'boxen';
 import chalk from 'chalk';
@@ -30,7 +31,7 @@ export async function listCommand(argv?: ListArguments): Promise<void> {
     await listPresets(presetManager, selector);
   } catch (error) {
     logger.error('Preset list command failed', { error });
-    console.error(`❌ Command failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    printer.error(`Command failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
     process.exit(1);
   }
 }
@@ -42,7 +43,7 @@ async function listPresets(presetManager: PresetManager, _selector: InteractiveS
   const presets = presetManager.getPresetList();
 
   if (presets.length === 0) {
-    console.log(
+    printer.raw(
       boxen(chalk.red.bold('⚠️  No presets found'), {
         padding: 1,
         borderStyle: 'round',
@@ -51,9 +52,10 @@ async function listPresets(presetManager: PresetManager, _selector: InteractiveS
         titleAlignment: 'center',
       }),
     );
-    console.log(chalk.yellow('\nCreate your first preset with:'));
-    console.log(chalk.cyan('  1mcp preset create <name> --filter "web,api,database"'));
-    console.log(chalk.cyan('  1mcp preset select --save <name> --url'));
+    printer.blank();
+    printer.info('Create your first preset with:');
+    printer.raw(chalk.cyan('  1mcp preset create <name> --filter "web,api,database"'));
+    printer.raw(chalk.cyan('  1mcp preset select --save <name> --url'));
     return;
   }
 
@@ -70,7 +72,7 @@ async function listPresets(presetManager: PresetManager, _selector: InteractiveS
       titleAlignment: 'center',
     },
   );
-  console.log(headerMessage);
+  printer.raw(headerMessage);
 
   // Create clean table layout
   let tableContent = '';
@@ -103,7 +105,7 @@ async function listPresets(presetManager: PresetManager, _selector: InteractiveS
     titleAlignment: 'center',
   });
 
-  console.log(tableBox);
+  printer.raw(tableBox);
 
   // Commands help section
   const commandsContent =
@@ -124,8 +126,8 @@ async function listPresets(presetManager: PresetManager, _selector: InteractiveS
     chalk.green('1mcp preset delete <name>') +
     chalk.gray('        Delete preset');
 
-  console.log('');
-  console.log(
+  printer.blank();
+  printer.raw(
     boxen(commandsContent, {
       padding: 1,
       borderStyle: 'single',
@@ -134,7 +136,7 @@ async function listPresets(presetManager: PresetManager, _selector: InteractiveS
       titleAlignment: 'center',
     }),
   );
-  console.log('');
+  printer.blank();
 }
 
 /**

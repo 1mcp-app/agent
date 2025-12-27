@@ -1,6 +1,7 @@
 import { discoverInstalledApps } from '@src/domains/discovery/appDiscovery.js';
 import { getAppPreset, showPlatformWarningIfNeeded } from '@src/domains/discovery/appPresets.js';
 import { GlobalOptions } from '@src/globalOptions.js';
+import printer from '@src/utils/ui/printer.js';
 
 import type { Argv } from 'yargs';
 
@@ -45,7 +46,8 @@ export async function discoverCommand(options: DiscoverOptions): Promise<void> {
   // Show platform warning if needed
   showPlatformWarningIfNeeded();
 
-  console.log('🔍 Discovering installed desktop applications with MCP configurations...\n');
+  printer.title('Discovering installed desktop applications with MCP configurations');
+  printer.blank();
 
   try {
     const discovery = await discoverInstalledApps();
@@ -58,75 +60,80 @@ export async function discoverCommand(options: DiscoverOptions): Promise<void> {
 
     // Show configurable apps
     if (configurableApps.length > 0) {
-      console.log('✅ Found Applications with MCP Configurations:\n');
+      printer.subtitle('Found Applications with MCP Configurations:');
 
       configurableApps.forEach((app) => {
         const preset = getAppPreset(app.name);
         const statusIcon = app.hasConfig ? (app.serverCount > 0 ? '🟢' : '🟡') : '🔴';
 
-        console.log(`${statusIcon} ${preset?.displayName || app.name} (${app.name})`);
+        printer.raw(`${statusIcon} ${preset?.displayName || app.name} (${app.name})`);
 
         if (app.hasConfig) {
-          console.log(`   📋 Configurations found: ${app.configCount}`);
-          console.log(`   🔧 MCP servers: ${app.serverCount}`);
+          printer.info(`   Configurations found: ${app.configCount}`);
+          printer.info(`   MCP servers: ${app.serverCount}`);
 
           if (options['show-paths'] && app.paths.length > 0) {
-            console.log('   📁 Configuration paths:');
+            printer.info('   Configuration paths:');
             app.paths.forEach((path) => {
-              console.log(`      ${path}`);
+              printer.raw(`      ${path}`);
             });
           }
         } else {
-          console.log('   ⚪ No configuration files found');
+          printer.info('   No configuration files found');
         }
 
-        console.log();
+        printer.blank();
       });
     } else {
-      console.log('ℹ️ No applications with MCP configurations found.');
+      printer.info('No applications with MCP configurations found.');
 
       if (!options['show-empty']) {
-        console.log(
-          '\nTip: Use --show-empty to see all supported applications, including those without configurations.',
+        printer.blank();
+        printer.info(
+          'Tip: Use --show-empty to see all supported applications, including those without configurations.',
         );
       }
     }
 
     // Show manual-only apps
     if (discovery.manualOnly.length > 0) {
-      console.log('🔧 Manual Setup Applications (Configuration not accessible):');
+      printer.blank();
+      printer.info('Manual Setup Applications (Configuration not accessible):');
       discovery.manualOnly.forEach((appName) => {
         const preset = getAppPreset(appName);
-        console.log(`   📱 ${preset?.displayName || appName} (${appName})`);
+        printer.raw(`   📱 ${preset?.displayName || appName} (${appName})`);
       });
-      console.log();
+      printer.blank();
     }
 
     // Summary
     const totalWithServers = configurableApps.filter((app) => app.serverCount > 0).length;
     const totalServers = configurableApps.reduce((sum, app) => sum + app.serverCount, 0);
 
-    console.log('📊 Discovery Summary:');
-    console.log(`   🎯 Apps with MCP servers: ${totalWithServers}`);
-    console.log(`   🔧 Total MCP servers found: ${totalServers}`);
-    console.log(`   📱 Manual setup apps: ${discovery.manualOnly.length}`);
+    printer.blank();
+    printer.subtitle('Discovery Summary:');
+    printer.info(`   Apps with MCP servers: ${totalWithServers}`);
+    printer.info(`   Total MCP servers found: ${totalServers}`);
+    printer.info(`   Manual setup apps: ${discovery.manualOnly.length}`);
 
     if (totalWithServers > 0) {
-      console.log('\n💡 Next steps:');
-      console.log('   1. Review the applications and their MCP servers above');
-      console.log('   2. Consolidate into 1mcp: npx @1mcp/agent app consolidate <app-name>');
-      console.log('   3. Start 1mcp server to proxy all your MCP servers');
+      printer.blank();
+      printer.info('Next steps:');
+      printer.info('   1. Review the applications and their MCP servers above');
+      printer.info('   2. Consolidate into 1mcp: npx @1mcp/agent app consolidate <app-name>');
+      printer.info('   3. Start 1mcp server to proxy all your MCP servers');
 
-      console.log('\n🚀 Quick consolidation (all apps):');
+      printer.blank();
+      printer.info('Quick consolidation (all apps):');
       const appsWithServers = configurableApps.filter((app) => app.serverCount > 0).map((app) => app.name);
 
       if (appsWithServers.length > 0) {
-        console.log(`   npx @1mcp/agent app consolidate ${appsWithServers.join(' ')}`);
+        printer.raw(`   npx @1mcp/agent app consolidate ${appsWithServers.join(' ')}`);
       }
     }
   } catch (error: unknown) {
     const errorMessage = error instanceof Error ? error.message : String(error);
-    console.error(`❌ Discovery failed: ${errorMessage}`);
+    printer.error(`Discovery failed: ${errorMessage}`);
     process.exit(1);
   }
 }

@@ -6,6 +6,7 @@ import {
 } from '@src/domains/backup/backupManager.js';
 import { getAppPreset } from '@src/domains/discovery/appPresets.js';
 import { GlobalOptions } from '@src/globalOptions.js';
+import printer from '@src/utils/ui/printer.js';
 
 import type { Argv } from 'yargs';
 
@@ -52,7 +53,8 @@ export function buildBackupsCommand(yargs: Argv) {
  * Main backups command handler
  */
 export async function backupsCommand(options: BackupsOptions): Promise<void> {
-  console.log('💾 MCP Configuration Backup Management\n');
+  printer.title('MCP Configuration Backup Management');
+  printer.blank();
 
   // Cleanup mode
   if (options.cleanup !== undefined) {
@@ -72,19 +74,20 @@ async function listBackupsWithDetails(appName?: string, verify: boolean = false)
 
   if (backups.length === 0) {
     if (appName) {
-      console.log(`📭 No backups found for ${appName}.`);
+      printer.info(`No backups found for ${appName}.`);
     } else {
-      console.log('📭 No backups found.');
+      printer.info('No backups found.');
     }
-    console.log('\n💡 Backups are created automatically during consolidation.');
+    printer.blank();
+    printer.info('Backups are created automatically during consolidation.');
     return;
   }
 
   if (appName) {
     const preset = getAppPreset(appName);
-    console.log(`📋 Backups for ${preset?.displayName || appName}:\n`);
+    printer.title(`Backups for ${preset?.displayName || appName}:`);
   } else {
-    console.log('📋 All Available Backups:\n');
+    printer.title('All Available Backups:');
   }
 
   // Group by application
@@ -105,49 +108,50 @@ async function listBackupsWithDetails(appName?: string, verify: boolean = false)
 
   for (const [app, appBackups] of Object.entries(groupedBackups)) {
     const preset = getAppPreset(app);
-    console.log(`📱 ${preset?.displayName || app} (${app}):`);
+    printer.raw(`📱 ${preset?.displayName || app} (${app}):`);
 
     for (const backup of appBackups) {
       const backupInfo = findBackupByMetaPath(backup.metaPath);
 
-      console.log(`   🕐 ${backup.age} - ${backup.operation} operation`);
-      console.log(`      📁 ${backup.backupPath}`);
-      console.log(`      🔧 ${backup.serverCount} servers backed up`);
+      printer.raw(`   🕐 ${backup.age} - ${backup.operation} operation`);
+      printer.raw(`      📁 ${backup.backupPath}`);
+      printer.raw(`      🔧 ${backup.serverCount} servers backed up`);
 
       if (backupInfo) {
         const fileSizeKB = Math.round(backupInfo.metadata.fileSize / 1024);
         totalSize += backupInfo.metadata.fileSize;
-        console.log(`      📊 Size: ${fileSizeKB} KB`);
+        printer.raw(`      📊 Size: ${fileSizeKB} KB`);
 
         // Verify integrity if requested
         if (verify) {
           const isValid = verifyBackupIntegrity(backupInfo);
           if (isValid) {
-            console.log(`      ✅ Integrity: Valid`);
+            printer.raw(`      ✅ Integrity: Valid`);
             verifiedCount++;
           } else {
-            console.log(`      ❌ Integrity: Corrupted`);
+            printer.raw(`      ❌ Integrity: Corrupted`);
             corruptedCount++;
           }
         }
       }
 
-      console.log(`      📝 Metadata: ${backup.metaPath}`);
-      console.log();
+      printer.raw(`      📝 Metadata: ${backup.metaPath}`);
+      printer.blank();
     }
   }
 
   // Summary
   const totalSizeMB = Math.round((totalSize / (1024 * 1024)) * 100) / 100;
-  console.log('📊 Backup Summary:');
-  console.log(`   📦 Total backups: ${backups.length}`);
-  console.log(`   📱 Applications: ${Object.keys(groupedBackups).length}`);
-  console.log(`   💽 Total size: ${totalSizeMB} MB`);
+  printer.blank();
+  printer.subtitle('Backup Summary:');
+  printer.info(`   Total backups: ${backups.length}`);
+  printer.info(`   Applications: ${Object.keys(groupedBackups).length}`);
+  printer.info(`   Total size: ${totalSizeMB} MB`);
 
   if (verify) {
-    console.log(`   ✅ Verified: ${verifiedCount}`);
+    printer.success(`   Verified: ${verifiedCount}`);
     if (corruptedCount > 0) {
-      console.log(`   ❌ Corrupted: ${corruptedCount}`);
+      printer.error(`   Corrupted: ${corruptedCount}`);
     }
   }
 
@@ -155,20 +159,22 @@ async function listBackupsWithDetails(appName?: string, verify: boolean = false)
   if (backups.length > 1) {
     const oldest = backups[backups.length - 1];
     const newest = backups[0];
-    console.log(`   🕐 Oldest: ${oldest.age} (${getAppPreset(oldest.app)?.displayName || oldest.app})`);
-    console.log(`   🕐 Newest: ${newest.age} (${getAppPreset(newest.app)?.displayName || newest.app})`);
+    printer.info(`   Oldest: ${oldest.age} (${getAppPreset(oldest.app)?.displayName || oldest.app})`);
+    printer.info(`   Newest: ${newest.age} (${getAppPreset(newest.app)?.displayName || newest.app})`);
   }
 
   // Usage recommendations
-  console.log('\n💡 Management Commands:');
-  console.log('   📋 List app backups: npx @1mcp/agent app backups <app-name>');
-  console.log('   🔍 Verify integrity: npx @1mcp/agent app backups --verify');
-  console.log('   🧹 Cleanup old: npx @1mcp/agent app backups --cleanup=30');
-  console.log('   🔄 Restore: npx @1mcp/agent app restore <app-name>');
+  printer.blank();
+  printer.info('Management Commands:');
+  printer.info('   List app backups: npx @1mcp/agent app backups <app-name>');
+  printer.info('   Verify integrity: npx @1mcp/agent app backups --verify');
+  printer.info('   Cleanup old: npx @1mcp/agent app backups --cleanup=30');
+  printer.info('   Restore: npx @1mcp/agent app restore <app-name>');
 
   if (corruptedCount > 0) {
-    console.log('\n⚠️ Warning: Some backups failed integrity verification.');
-    console.log('   Consider creating fresh backups for affected applications.');
+    printer.blank();
+    printer.warn('Warning: Some backups failed integrity verification.');
+    printer.info('   Consider creating fresh backups for affected applications.');
   }
 }
 
@@ -176,10 +182,11 @@ async function listBackupsWithDetails(appName?: string, verify: boolean = false)
  * Cleanup old backups
  */
 async function cleanupBackups(maxAgeDays: number): Promise<void> {
-  console.log(`🧹 Cleaning up backups older than ${maxAgeDays} days...\n`);
+  printer.info(`Cleaning up backups older than ${maxAgeDays} days...`);
+  printer.blank();
 
   if (maxAgeDays < 1) {
-    console.error('❌ Invalid age: must be at least 1 day.');
+    printer.error('Invalid age: must be at least 1 day.');
     process.exit(1);
   }
 
@@ -189,11 +196,12 @@ async function cleanupBackups(maxAgeDays: number): Promise<void> {
   const oldBackups = allBackups.filter((backup) => backup.timestamp < cutoffTime);
 
   if (oldBackups.length === 0) {
-    console.log(`✅ No backups older than ${maxAgeDays} days found.`);
+    printer.success(`No backups older than ${maxAgeDays} days found.`);
     return;
   }
 
-  console.log(`📋 Found ${oldBackups.length} backups to delete:\n`);
+  printer.info(`Found ${oldBackups.length} backups to delete:`);
+  printer.blank();
 
   const groupedOld = oldBackups.reduce(
     (groups, backup) => {
@@ -208,22 +216,23 @@ async function cleanupBackups(maxAgeDays: number): Promise<void> {
 
   Object.entries(groupedOld).forEach(([app, appBackups]) => {
     const preset = getAppPreset(app);
-    console.log(`📱 ${preset?.displayName || app}: ${appBackups.length} backups`);
+    printer.raw(`📱 ${preset?.displayName || app}: ${appBackups.length} backups`);
     appBackups.forEach((backup) => {
-      console.log(`   🕐 ${backup.age} - ${backup.operation}`);
+      printer.raw(`   🕐 ${backup.age} - ${backup.operation}`);
     });
   });
 
   // Perform cleanup
-  console.log('\n🗑️ Deleting old backups...');
+  printer.blank();
+  printer.info('Deleting old backups...');
   const deletedCount = cleanupOldBackups(maxAgeDays);
 
   if (deletedCount > 0) {
-    console.log(`✅ Successfully deleted ${deletedCount} old backups.`);
+    printer.success(`Successfully deleted ${deletedCount} old backups.`);
 
     // Show remaining backups
     const remainingBackups = listAppBackups();
-    console.log(`📦 Remaining backups: ${remainingBackups.length}`);
+    printer.info(`Remaining backups: ${remainingBackups.length}`);
 
     if (remainingBackups.length > 0) {
       const totalSize = remainingBackups.reduce((sum, backup) => {
@@ -231,11 +240,12 @@ async function cleanupBackups(maxAgeDays: number): Promise<void> {
         return sum + (backupInfo?.metadata.fileSize || 0);
       }, 0);
       const totalSizeMB = Math.round((totalSize / (1024 * 1024)) * 100) / 100;
-      console.log(`💽 Total size: ${totalSizeMB} MB`);
+      printer.info(`Total size: ${totalSizeMB} MB`);
     }
   } else {
-    console.log('⚠️ No backups were deleted (they may have been removed already).');
+    printer.warn('No backups were deleted (they may have been removed already).');
   }
 
-  console.log('\n💡 To see remaining backups: npx @1mcp/agent app backups');
+  printer.blank();
+  printer.info('To see remaining backups: npx @1mcp/agent app backups');
 }

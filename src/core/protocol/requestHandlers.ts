@@ -160,12 +160,20 @@ function getSessionRenderedHashes(sessionId: string | undefined): Map<string, st
 }
 
 /**
+ * Type for extended server capabilities that include experimental features
+ */
+type ExtendedServerCapabilities = Record<string, unknown>;
+
+/**
  * Registers server-specific request handlers
  * @param outboundConns Record of client instances
  * @param serverInfo The MCP server instance
  */
 function registerServerRequestHandlers(outboundConns: OutboundConnections, inboundConn: InboundConnection): void {
   Array.from(outboundConns.entries()).forEach(([_, outboundConn]) => {
+    const capabilities = outboundConn.capabilities as ExtendedServerCapabilities | undefined;
+
+    // Ping is always supported
     outboundConn.client.setRequestHandler(
       PingRequestSchema,
       withErrorHandling(async () => {
@@ -175,38 +183,47 @@ function registerServerRequestHandlers(outboundConns: OutboundConnections, inbou
       }, 'Error pinging'),
     );
 
-    outboundConn.client.setRequestHandler(
-      CreateMessageRequestSchema,
-      withErrorHandling(async (request: CreateMessageRequest) => {
-        return ServerManager.current.executeServerOperation(inboundConn, (inboundConn: InboundConnection) =>
-          inboundConn.server.createMessage(request.params, {
-            timeout: getRequestTimeout(outboundConn.transport),
-          }),
-        );
-      }, 'Error creating message'),
-    );
+    // Only register CreateMessage handler if server supports sampling capability
+    if (capabilities?.sampling) {
+      outboundConn.client.setRequestHandler(
+        CreateMessageRequestSchema,
+        withErrorHandling(async (request: CreateMessageRequest) => {
+          return ServerManager.current.executeServerOperation(inboundConn, (inboundConn: InboundConnection) =>
+            inboundConn.server.createMessage(request.params, {
+              timeout: getRequestTimeout(outboundConn.transport),
+            }),
+          );
+        }, 'Error creating message'),
+      );
+    }
 
-    outboundConn.client.setRequestHandler(
-      ElicitRequestSchema,
-      withErrorHandling(async (request: ElicitRequest) => {
-        return ServerManager.current.executeServerOperation(inboundConn, (inboundConn: InboundConnection) =>
-          inboundConn.server.elicitInput(request.params, {
-            timeout: getRequestTimeout(outboundConn.transport),
-          }),
-        );
-      }, 'Error eliciting input'),
-    );
+    // Only register ElicitRequest handler if server supports elicitation capability
+    if (capabilities?.elicitation) {
+      outboundConn.client.setRequestHandler(
+        ElicitRequestSchema,
+        withErrorHandling(async (request: ElicitRequest) => {
+          return ServerManager.current.executeServerOperation(inboundConn, (inboundConn: InboundConnection) =>
+            inboundConn.server.elicitInput(request.params, {
+              timeout: getRequestTimeout(outboundConn.transport),
+            }),
+          );
+        }, 'Error eliciting input'),
+      );
+    }
 
-    outboundConn.client.setRequestHandler(
-      ListRootsRequestSchema,
-      withErrorHandling(async (request: ListRootsRequest) => {
-        return ServerManager.current.executeServerOperation(inboundConn, (inboundConn: InboundConnection) =>
-          inboundConn.server.listRoots(request.params, {
-            timeout: getRequestTimeout(outboundConn.transport),
-          }),
-        );
-      }, 'Error listing roots'),
-    );
+    // Only register ListRoots handler if server supports roots capability
+    if (capabilities?.roots) {
+      outboundConn.client.setRequestHandler(
+        ListRootsRequestSchema,
+        withErrorHandling(async (request: ListRootsRequest) => {
+          return ServerManager.current.executeServerOperation(inboundConn, (inboundConn: InboundConnection) =>
+            inboundConn.server.listRoots(request.params, {
+              timeout: getRequestTimeout(outboundConn.transport),
+            }),
+          );
+        }, 'Error listing roots'),
+      );
+    }
   });
 }
 

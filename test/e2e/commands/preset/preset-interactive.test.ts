@@ -28,7 +28,7 @@ describe('Preset Interactive Command E2E', () => {
 
       runner.assertSuccess(result);
       // Should proceed to create new preset workflow
-      runner.assertOutputContains(result, '📁 Config directory:');
+      runner.assertOutputContains(result, '💡 Config directory:');
       expect(result.stdout.length).toBeGreaterThan(0);
     });
 
@@ -46,7 +46,7 @@ describe('Preset Interactive Command E2E', () => {
       });
 
       runner.assertSuccess(result);
-      runner.assertOutputContains(result, '🎯 Found existing presets');
+      runner.assertOutputContains(result, '💡 Found existing presets');
       runner.assertOutputContains(result, 'test-preset-1');
       runner.assertOutputContains(result, 'test-preset-2');
       runner.assertOutputContains(result, 'Create new preset');
@@ -59,7 +59,7 @@ describe('Preset Interactive Command E2E', () => {
       });
 
       runner.assertSuccess(result);
-      runner.assertOutputContains(result, '📁 Config directory:');
+      runner.assertOutputContains(result, '💡 Config directory:');
       runner.assertOutputContains(result, 'presets.json');
     });
   });

@@ -1,4 +1,5 @@
 import { OutputFormat, ServerVersionsResponse } from '@src/domains/registry/types.js';
+import printer from '@src/utils/ui/printer.js';
 
 import boxen from 'boxen';
 import chalk from 'chalk';
@@ -43,10 +44,14 @@ function formatTableVersions(versionsResponse: ServerVersionsResponse): string {
     Updated: formatDate(version.updatedAt),
   }));
 
-  let result = `\nVersions for ${name} (${versions.length} total):\n`;
-  console.table(tableData);
+  // Use printer.table() for formatted output
+  printer.table({
+    columns: [{ name: 'Version' }, { name: 'Status' }, { name: 'Latest' }, { name: 'Published' }, { name: 'Updated' }],
+    rows: tableData,
+    title: `\nVersions for ${name} (${versions.length} total)`,
+  });
 
-  return result;
+  return `\nVersions for ${name} (${versions.length} total):\n`;
 }
 
 /**

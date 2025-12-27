@@ -100,11 +100,20 @@ export function getErrorCause(error: unknown): Error | undefined {
 }
 
 /**
+ * Error response format for JSON-RPC errors
+ */
+export interface ErrorResponse {
+  code: number;
+  message: string;
+  data?: unknown;
+}
+
+/**
  * Formats an error for JSON-RPC response
  * @param error The error to format
  * @returns A formatted error object
  */
-export function formatErrorResponse(error: unknown): { code: number; message: string; data?: unknown } {
+export function formatErrorResponse(error: unknown): ErrorResponse {
   if (error instanceof MCPError) {
     return {
       code: error.code,

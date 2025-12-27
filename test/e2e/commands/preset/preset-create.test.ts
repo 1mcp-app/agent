@@ -28,8 +28,8 @@ describe('Preset Create Command E2E', () => {
 
       runner.assertSuccess(result);
       runner.assertOutputContains(result, "✅ Preset 'or-preset' created successfully!");
-      runner.assertOutputContains(result, '📋 Strategy: or');
-      runner.assertOutputContains(result, '🔗 URL:');
+      runner.assertOutputContains(result, 'Strategy:');
+      runner.assertOutputMatches(result, /URL\s*:/);
 
       // Verify the preset was actually created by listing presets
       const listResult = await runner.runCommand('preset', 'list');
@@ -43,8 +43,9 @@ describe('Preset Create Command E2E', () => {
 
       runner.assertSuccess(result);
       runner.assertOutputContains(result, "✅ Preset 'and-preset' created successfully!");
-      runner.assertOutputContains(result, '📋 Strategy: advanced');
-      runner.assertOutputContains(result, '📝 Description: AND logic preset');
+      runner.assertOutputContains(result, 'Strategy');
+      runner.assertOutputContains(result, 'advanced');
+      runner.assertOutputContains(result, 'Description: AND logic preset');
     });
 
     it('should create a preset with advanced filter expression', async () => {
@@ -54,7 +55,8 @@ describe('Preset Create Command E2E', () => {
 
       runner.assertSuccess(result);
       runner.assertOutputContains(result, "✅ Preset 'advanced-preset' created successfully!");
-      runner.assertOutputContains(result, '📋 Strategy: advanced');
+      runner.assertOutputContains(result, 'Strategy:');
+      runner.assertOutputContains(result, 'advanced');
     });
 
     it('should create a preset with single tag', async () => {
@@ -64,7 +66,8 @@ describe('Preset Create Command E2E', () => {
 
       runner.assertSuccess(result);
       runner.assertOutputContains(result, "✅ Preset 'single-tag-preset' created successfully!");
-      runner.assertOutputContains(result, '📋 Strategy: or');
+      runner.assertOutputContains(result, 'Strategy:');
+      runner.assertOutputContains(result, 'or');
     });
   });
 

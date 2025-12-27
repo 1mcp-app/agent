@@ -1,12 +1,25 @@
 import { OFFICIAL_REGISTRY_KEY, RegistryServer } from '@src/domains/registry/types.js';
+import printer from '@src/utils/ui/printer.js';
 
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { formatServerDetails } from './serverDetailFormatter.js';
 
-// Mock console.table to capture table output
-const mockConsoleTable = vi.fn();
-vi.stubGlobal('console', { ...console, table: mockConsoleTable });
+// Mock printer
+vi.mock('@src/utils/ui/printer.js', () => ({
+  default: {
+    table: vi.fn(),
+    raw: vi.fn(),
+    blank: vi.fn(),
+    title: vi.fn(),
+    info: vi.fn(),
+    warn: vi.fn(),
+    error: vi.fn(),
+    success: vi.fn(),
+    subtitle: vi.fn(),
+    keyValue: vi.fn(),
+  },
+}));
 
 describe('serverDetailFormatter', () => {
   let mockServer: RegistryServer;
@@ -115,7 +128,7 @@ describe('serverDetailFormatter', () => {
       const result = formatServerDetails(mockServer);
 
       expect(result).toContain('Server Details:');
-      expect(mockConsoleTable).toHaveBeenCalledTimes(5); // Basic info + packages + env vars + args + remotes
+      expect(printer.table).toHaveBeenCalledTimes(5); // Basic info + packages + env vars + args + remotes
     });
 
     it('should format server details in table format explicitly', () => {
@@ -126,7 +139,7 @@ describe('serverDetailFormatter', () => {
       expect(result).toContain('Environment Variables:');
       expect(result).toContain('Arguments:');
       expect(result).toContain('Remote Endpoints:');
-      expect(mockConsoleTable).toHaveBeenCalledTimes(5);
+      expect(printer.table).toHaveBeenCalledTimes(5);
     });
 
     it('should format server details in detailed format', () => {
@@ -163,7 +176,7 @@ describe('serverDetailFormatter', () => {
       const result = formatServerDetails(minimalServer, 'table');
 
       expect(result).toContain('Server Details:');
-      expect(mockConsoleTable).toHaveBeenCalledTimes(1); // Only basic info table
+      expect(printer.table).toHaveBeenCalledTimes(1); // Only basic info table
     });
 
     it('should handle server with empty packages array', () => {
@@ -191,7 +204,7 @@ describe('serverDetailFormatter', () => {
 
       expect(result).toContain('Server Details:');
       expect(result).not.toContain('Packages:');
-      expect(mockConsoleTable).toHaveBeenCalledTimes(1); // Only basic info
+      expect(printer.table).toHaveBeenCalledTimes(1); // Only basic info
     });
 
     it('should handle server with empty remotes array', () => {
@@ -284,10 +297,10 @@ describe('serverDetailFormatter', () => {
 
       formatServerDetails(serverWithObjectTransport, 'table');
 
-      expect(mockConsoleTable).toHaveBeenCalled();
+      expect(printer.table).toHaveBeenCalled();
       // Check that the transport type is in the basic info table
-      const basicInfoCall = mockConsoleTable.mock.calls[0][0];
-      expect(basicInfoCall[0]['Transport Types']).toContain('custom-transport');
+      const basicInfoCall = (printer.table as any).mock.calls[0][0];
+      expect(basicInfoCall.rows[0]['Transport Types']).toContain('custom-transport');
     });
 
     it('should show install commands in detailed format', () => {
@@ -342,9 +355,9 @@ describe('serverDetailFormatter', () => {
 
       expect(result).toContain('Server Details:');
       // Should not contain subfolder field
-      expect(mockConsoleTable).toHaveBeenCalled();
-      const tableCall = mockConsoleTable.mock.calls[0][0];
-      expect(tableCall[0]).not.toHaveProperty('Repository Subfolder');
+      expect(printer.table).toHaveBeenCalled();
+      const tableCall = (printer.table as any).mock.calls[0][0];
+      expect(tableCall.rows[0]).not.toHaveProperty('Repository Subfolder');
     });
 
     it('should format non-latest version', () => {

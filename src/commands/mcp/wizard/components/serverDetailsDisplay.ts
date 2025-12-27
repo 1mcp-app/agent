@@ -1,4 +1,5 @@
 import type { RegistryServer } from '@src/domains/registry/types.js';
+import printer from '@src/utils/ui/printer.js';
 
 import boxen from 'boxen';
 import chalk from 'chalk';
@@ -18,7 +19,7 @@ export function renderResultsList(results: RegistryServer[], currentIndex: numbe
       titleAlignment: 'center',
     },
   );
-  console.log(header);
+  printer.raw(header);
 
   const listContent = results
     .map((server, index) => {
@@ -32,7 +33,7 @@ export function renderResultsList(results: RegistryServer[], currentIndex: numbe
     })
     .join('\n\n');
 
-  console.log(
+  printer.raw(
     boxen(listContent, {
       padding: 1,
       borderStyle: 'round',
@@ -61,7 +62,7 @@ export function formatServerDetails(server: RegistryServer): string {
 export function displayServerDetails(server: RegistryServer): void {
   const content = formatServerDetails(server);
 
-  console.log(
+  printer.raw(
     boxen(content, {
       padding: 1,
       borderStyle: 'round',

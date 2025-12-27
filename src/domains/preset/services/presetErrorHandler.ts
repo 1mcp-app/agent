@@ -1,6 +1,7 @@
 /**
  * Standardized error handling utilities for preset operations
  */
+import printer from '@src/utils/ui/printer.js';
 
 export interface PresetErrorOptions {
   context?: string;
@@ -47,11 +48,11 @@ export class PresetErrorHandler {
   static handleCliError(error: unknown, context?: string): never {
     if (error instanceof PresetError) {
       if (error.userMessage) {
-        console.error(`❌ ${error.userMessage}`);
+        printer.error(error.userMessage);
       }
 
       if (error.context || context) {
-        console.error(`Context: ${error.context || context}`);
+        printer.error(`Context: ${error.context || context}`);
       }
 
       process.exit(error.exitCode || 1);
@@ -59,7 +60,7 @@ export class PresetErrorHandler {
 
     // Handle unknown errors
     const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-    console.error(`❌ ${context ? `${context}: ` : ''}${errorMessage}`);
+    printer.error(`${context ? `${context}: ` : ''}${errorMessage}`);
     process.exit(1);
   }
 
@@ -138,45 +139,17 @@ export class PresetErrorHandler {
    * Create a user-friendly error message for filter examples
    */
   static createFilterError(expression: string): never {
-    console.error(`❌ Invalid filter expression: ${expression}`);
-    console.error('Examples:');
-    console.error('  --filter "web,api,database"           # OR logic (comma-separated)');
-    console.error('  --filter "web AND database"           # AND logic');
-    console.error('  --filter "(web OR api) AND database"  # Complex expressions');
+    printer.error(`Invalid filter expression: ${expression}`);
+    printer.blank();
+    printer.raw('Examples:');
+    printer.raw('  --filter "web,api,database"           # OR logic (comma-separated)');
+    printer.raw('  --filter "web AND database"           # AND logic');
+    printer.raw('  --filter "(web OR api) AND database"  # Complex expressions');
 
     this.parseError(expression, 'Invalid syntax', {
       userMessage: `Invalid filter expression: "${expression}"`,
       context: 'filter parsing',
       exitCode: 1,
     });
-  }
-
-  /**
-   * Log error with structured format
-   */
-  static logError(error: unknown, context?: string): void {
-    // Import logger dynamically to avoid circular dependencies
-    import('@src/logger/logger.js')
-      .then(({ default: logger }) => {
-        if (error instanceof PresetError) {
-          logger[error.logLevel](error.message, {
-            context: error.context || context,
-            userMessage: error.userMessage,
-            exitCode: error.exitCode,
-            stack: error.stack,
-          });
-        } else {
-          const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-          logger.error('Unexpected error', {
-            context,
-            error: errorMessage,
-            stack: error instanceof Error ? error.stack : undefined,
-          });
-        }
-      })
-      .catch(() => {
-        // Fallback to console if logger import fails
-        console.error('Error logging failed:', error);
-      });
   }
 }

@@ -3,6 +3,7 @@ import { PresetManager } from '@src/domains/preset/manager/presetManager.js';
 import { GlobalOptions } from '@src/globalOptions.js';
 import logger from '@src/logger/logger.js';
 import { InteractiveSelector } from '@src/utils/ui/interactiveSelector.js';
+import printer from '@src/utils/ui/printer.js';
 import { UrlGenerator } from '@src/utils/ui/urlGenerator.js';
 
 /**
@@ -25,7 +26,8 @@ export async function interactiveCommand(argv: InteractiveArguments): Promise<vo
     const urlGenerator = new UrlGenerator();
 
     // Show current preset configuration path
-    console.log(`📁 Config directory: ${presetManager.getConfigPath()}\n`);
+    printer.info(`Config directory: ${presetManager.getConfigPath()}`);
+    printer.blank();
 
     // Check if we should offer to load existing presets
     const availablePresets = presetManager.getPresetList();
@@ -34,7 +36,7 @@ export async function interactiveCommand(argv: InteractiveArguments): Promise<vo
     if (availablePresets.length > 0) {
       const selectedAction = await offerPresetSelection(availablePresets, selector);
       if (selectedAction === 'cancel') {
-        console.log('Operation cancelled.');
+        printer.info('Operation cancelled.');
         return;
       } else if (selectedAction === 'new') {
         // Continue with new preset creation
@@ -46,9 +48,10 @@ export async function interactiveCommand(argv: InteractiveArguments): Promise<vo
           return;
         }
 
-        console.log(`📝 Editing preset: ${selectedAction}`);
+        printer.info(`Editing preset: ${selectedAction}`);
         if (preset.description) {
-          console.log(`   Description: ${preset.description}`);
+          printer.blank();
+          printer.keyValue({ Description: preset.description });
         }
         existingConfig = preset;
       }
@@ -58,7 +61,7 @@ export async function interactiveCommand(argv: InteractiveArguments): Promise<vo
     const result = await selector.selectServers(existingConfig, presetManager.getConfigPath());
 
     if (result.cancelled) {
-      console.log('Operation cancelled.');
+      printer.info('Operation cancelled.');
       return;
     }
 
@@ -87,15 +90,19 @@ export async function interactiveCommand(argv: InteractiveArguments): Promise<vo
         selector.showSaveSuccess(saveResult.name, url);
       } else {
         // Just show preview without saving
-        console.log('\n📋 Selection Summary:');
-        console.log(`   Strategy: ${result.strategy}`);
-        console.log(`   Query: ${JSON.stringify(result.tagQuery)}`);
-        console.log('\nTo save this selection, run the command with a specific name.');
+        printer.blank();
+        printer.title('Selection Summary');
+        printer.keyValue({
+          Strategy: result.strategy,
+          Query: JSON.stringify(result.tagQuery),
+        });
+        printer.blank();
+        printer.info('To save this selection, run the command with a specific name.');
       }
     }
   } catch (error) {
     logger.error('Preset interactive command failed', { error });
-    console.error(`❌ Command failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    printer.error(`Command failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
     process.exit(1);
   }
 }
@@ -113,21 +120,23 @@ interface PresetInfo {
  * Offer preset selection when existing presets are found
  */
 async function offerPresetSelection(availablePresets: PresetInfo[], selector: InteractiveSelector): Promise<string> {
-  console.log('🎯 Found existing presets. What would you like to do?\n');
+  printer.info('Found existing presets. What would you like to do?');
+  printer.blank();
 
   // Show available presets
   for (let i = 0; i < availablePresets.length; i++) {
     const preset = availablePresets[i];
     const strategyDesc = getStrategyDescription(preset.strategy);
 
-    console.log(`   ${i + 1}. ${preset.name} (${strategyDesc})`);
+    printer.info(`${i + 1}. ${preset.name} (${strategyDesc})`);
     if (preset.description) {
-      console.log(`      ${preset.description}`);
+      printer.raw(`      ${preset.description}`);
     }
   }
 
-  console.log(`   ${availablePresets.length + 1}. Create new preset`);
-  console.log(`   ${availablePresets.length + 2}. Cancel\n`);
+  printer.info(`${availablePresets.length + 1}. Create new preset`);
+  printer.info(`${availablePresets.length + 2}. Cancel`);
+  printer.blank();
 
   const choice = await selector.getChoice('Select an option:', 1, availablePresets.length + 2);
 

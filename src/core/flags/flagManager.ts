@@ -33,6 +33,14 @@ export interface FlagValidationResult {
 }
 
 /**
+ * Result containing available tools and categories
+ */
+export interface AvailableToolsResult {
+  tools: string[];
+  categories: string[];
+}
+
+/**
  * Tool mapping for internal MCP tools
  */
 const TOOL_MAPPING: Record<string, string | string[]> = {
@@ -203,7 +211,7 @@ export class FlagManager extends EventEmitter {
   /**
    * Get all available tools and categories for help
    */
-  public getAvailableToolsAndCategories(): { tools: string[]; categories: string[] } {
+  public getAvailableToolsAndCategories(): AvailableToolsResult {
     return {
       tools: [...ALL_AVAILABLE_TOOLS],
       categories: [...ALL_AVAILABLE_CATEGORIES],

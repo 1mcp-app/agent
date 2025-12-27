@@ -3,6 +3,7 @@ import { formatServerVersions } from '@src/domains/registry/formatters/versionsF
 import { OutputFormat, RegistryOptions, VersionsCommandArgs } from '@src/domains/registry/types.js';
 import { GlobalOptions } from '@src/globalOptions.js';
 import logger from '@src/logger/logger.js';
+import printer from '@src/utils/ui/printer.js';
 
 import type { Arguments, Argv } from 'yargs';
 
@@ -68,23 +69,23 @@ export async function versionsCommand(argv: VersionsCommandCliArgs): Promise<voi
     const output = formatServerVersions(versionsResponse, versionsArgs.format);
 
     if (versionsArgs.format === 'json') {
-      console.log(output);
+      printer.raw(output);
     } else if (versionsArgs.format === 'detailed') {
-      console.log(output);
+      printer.raw(output);
     } else {
       // For table format, the formatServerVersions handles console.table calls internally
-      console.log(output);
+      printer.raw(output);
     }
   } catch (error) {
     logger.error('Versions command failed:', error);
 
     // Check if it's a 404 error and provide helpful message
     if (error instanceof Error && error.message.includes('404')) {
-      console.error(`❌ Server not found: ${argv.serverId}`);
-      console.error('   Make sure the server ID is correct and the server exists in the registry.');
-      console.error('   Use "registry search" to find available servers.');
+      printer.error(`Server not found: ${argv.serverId}`);
+      printer.info('   Make sure the server ID is correct and the server exists in the registry.');
+      printer.info('   Use "registry search" to find available servers.');
     } else {
-      console.error(`❌ Error fetching MCP server versions: ${error instanceof Error ? error.message : String(error)}`);
+      printer.error(`Error fetching MCP server versions: ${error instanceof Error ? error.message : String(error)}`);
     }
     process.exit(1);
   } finally {

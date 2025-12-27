@@ -25,7 +25,8 @@ describe('Registry Basic Commands E2E', () => {
 
       runner.assertSuccess(result);
       runner.assertOutputContains(result, 'MCP Registry Status');
-      runner.assertOutputContains(result, 'Status:');
+      // Use regex to match Status field with flexible spacing for table formatting
+      runner.assertOutputMatches(result, /Status\s+:/);
     });
 
     it('should handle registry status in JSON format', async () => {

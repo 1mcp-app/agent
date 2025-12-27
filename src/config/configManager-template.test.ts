@@ -481,8 +481,9 @@ describe('ConfigManager Template Integration', () => {
     it('should handle malformed JSON in config file', async () => {
       await fsPromises.writeFile(configFilePath, '{ invalid json }');
       configManager = ConfigManager.getInstance(configFilePath);
-      await configManager.initialize();
 
+      // Don't call initialize() as it will throw on invalid JSON
+      // loadConfigWithTemplates() should handle errors gracefully
       const result = await configManager.loadConfigWithTemplates();
 
       // Should handle JSON parsing errors gracefully

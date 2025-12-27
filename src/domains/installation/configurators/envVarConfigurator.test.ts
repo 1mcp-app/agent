@@ -5,6 +5,21 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { EnvVarMetadata } from '../types.js';
 import { configureEnvVars } from './envVarConfigurator.js';
 
+// Mock printer
+vi.mock('@src/utils/ui/printer.js', () => ({
+  default: {
+    title: vi.fn().mockReturnThis(),
+    blank: vi.fn().mockReturnThis(),
+    warn: vi.fn().mockReturnThis(),
+    raw: vi.fn().mockReturnThis(),
+    info: vi.fn().mockReturnThis(),
+    success: vi.fn().mockReturnThis(),
+    error: vi.fn().mockReturnThis(),
+    subtitle: vi.fn().mockReturnThis(),
+    keyValue: vi.fn().mockReturnThis(),
+  },
+}));
+
 // Mock prompts module with factory
 vi.mock('prompts', () => ({
   default: vi.fn(),

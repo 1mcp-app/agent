@@ -1,3 +1,5 @@
+import printer from '@src/utils/ui/printer.js';
+
 import boxen from 'boxen';
 import chalk from 'chalk';
 
@@ -24,14 +26,14 @@ export function showStepIndicator(currentStep: number, skipClear = false): void 
     }
   }).join(chalk.gray(' → '));
 
-  console.log(
+  printer.raw(
     boxen(stepBar, {
       padding: { left: 2, right: 2, top: 0, bottom: 0 },
       borderStyle: 'single',
       borderColor: 'gray',
     }),
   );
-  console.log('');
+  printer.blank();
 }
 
 /**

@@ -1,3 +1,5 @@
+import printer from '@src/utils/ui/printer.js';
+
 import chalk from 'chalk';
 import prompts from 'prompts';
 
@@ -49,8 +51,10 @@ export async function configureEnvVars(envVarMetadata: EnvVarMetadata[]): Promis
   }
 
   // Show summary of available env vars
-  console.log(chalk.cyan.bold('\n📋 Available Environment Variables:'));
-  console.log(chalk.gray(`   Found ${envVarMetadata.length} environment variables\n`));
+  printer.blank();
+  printer.title('📋 Available Environment Variables:');
+  printer.raw(`   Found ${envVarMetadata.length} environment variables`);
+  printer.blank();
 
   // Ask if user wants to configure any
   const wantsToConfigure = await prompts({
@@ -108,7 +112,8 @@ export async function configureEnvVars(envVarMetadata: EnvVarMetadata[]): Promis
   }
 
   // Prompt for each selected env var
-  console.log(chalk.cyan.bold('\n📝 Configure Selected Variables:\n'));
+  printer.blank();
+  printer.title('📝 Configure Selected Variables:');
   const env: Record<string, string> = {};
 
   for (const key of selectedKeys) {
@@ -131,7 +136,7 @@ export async function configureEnvVars(envVarMetadata: EnvVarMetadata[]): Promis
     if (value) {
       env[envVar.key] = value;
     } else if (envVar.isRequired) {
-      console.log(chalk.yellow(`⚠️  ${envVar.key} is required, using default or empty value`));
+      printer.warn(`${envVar.key} is required, using default or empty value`);
       env[envVar.key] = envVar.default || '';
     }
   }

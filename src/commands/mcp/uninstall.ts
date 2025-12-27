@@ -1,5 +1,6 @@
 import { GlobalOptions } from '@src/globalOptions.js';
 import logger from '@src/logger/logger.js';
+import printer from '@src/utils/ui/printer.js';
 
 import type { Argv } from 'yargs';
 
@@ -92,8 +93,8 @@ export async function uninstallCommand(argv: UninstallCommandArgs): Promise<void
     const inUse = checkServerInUse(serverName);
 
     if (inUse && !force) {
-      console.log(`⚠️  Warning: Server '${serverName}' appears to be currently in use.`);
-      console.log('Use --force to uninstall anyway.');
+      printer.warn(`Warning: Server '${serverName}' appears to be currently in use.`);
+      printer.info('Use --force to uninstall anyway.');
       throw new Error('Server is in use. Use --force to override.');
     }
 
@@ -121,17 +122,18 @@ export async function uninstallCommand(argv: UninstallCommandArgs): Promise<void
       // Reload MCP configuration
       reloadMcpConfig();
 
-      console.log(`\n✅ Successfully uninstalled server '${serverName}'`);
+      printer.success(`Successfully uninstalled server '${serverName}'`);
 
       if (backupPath) {
-        console.log(`📁 Backup created: ${backupPath}`);
+        printer.keyValue({ 'Backup created': backupPath });
       }
     } else {
-      console.log(`\n⚠️  Server configuration not removed (--no-remove-config specified)`);
+      printer.blank();
+      printer.warn('Server configuration not removed (--no-remove-config specified)');
     }
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
-    console.error(`\n❌ Uninstall failed: ${errorMessage}\n`);
+    printer.error(`Uninstall failed: ${errorMessage}`);
     if (error instanceof Error && error.stack) {
       logger.error('Uninstall error stack:', error.stack);
     }

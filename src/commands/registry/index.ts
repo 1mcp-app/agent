@@ -1,5 +1,6 @@
 import { GlobalOptions, globalOptions } from '@src/globalOptions.js';
 import { configureGlobalLogger } from '@src/logger/configureGlobalLogger.js';
+import printer from '@src/utils/ui/printer.js';
 
 import type { Argv } from 'yargs';
 
@@ -89,7 +90,7 @@ export function setupRegistryCommands(yargs: Argv): Argv {
     },
     () => {
       // Default handler - show help
-      console.log('Use --help to see available registry commands');
+      printer.info('Use --help to see available registry commands');
     },
   );
 }

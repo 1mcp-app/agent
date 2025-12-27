@@ -23,6 +23,7 @@ import type {
   UpdateOptions,
 } from '@src/domains/server-management/types.js';
 import logger, { debugIf } from '@src/logger/logger.js';
+import { TagsValidationResult } from '@src/types/validation.js';
 
 import { performDirectPackageInstallation } from './installation/directInstallation.js';
 import { PackageResolver } from './installation/packageResolver.js';
@@ -330,7 +331,7 @@ export class ServerInstallationAdapter implements InstallationAdapter {
   /**
    * Validate tags format
    */
-  validateTags(tags: string[]): { valid: boolean; errors: string[] } {
+  validateTags(tags: string[]): TagsValidationResult {
     debugIf(() => ({
       message: 'Adapter: Validating tags',
       meta: { tags },

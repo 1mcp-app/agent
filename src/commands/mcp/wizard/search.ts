@@ -1,6 +1,7 @@
 import { MCPRegistryClient } from '@src/domains/registry/mcpRegistryClient.js';
 import { RegistryServer } from '@src/domains/registry/types.js';
 import logger from '@src/logger/logger.js';
+import printer from '@src/utils/ui/printer.js';
 
 import boxen from 'boxen';
 import chalk from 'chalk';
@@ -56,7 +57,7 @@ export async function searchServers(
     searchTerm = String(searchInput.query).trim();
 
     // Perform search
-    console.log(chalk.cyan(`\n🔍 Searching for "${searchTerm}"...\n`));
+    printer.raw(chalk.cyan(`\n🔍 Searching for "${searchTerm}"...\n`));
 
     try {
       searchResults = await registryClient.searchServers({
@@ -65,7 +66,7 @@ export async function searchServers(
       });
 
       if (searchResults.length === 0) {
-        console.log(
+        printer.raw(
           boxen(chalk.yellow.bold('⚠️  No servers found matching your search'), {
             padding: 1,
             borderStyle: 'round',
@@ -102,7 +103,7 @@ export async function searchServers(
       };
     } catch (error) {
       logger.error('Search failed', { searchTerm, error });
-      console.log(
+      printer.raw(
         boxen(chalk.red.bold('❌ Search failed - please try again'), {
           padding: 1,
           borderStyle: 'round',

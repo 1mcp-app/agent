@@ -25,6 +25,7 @@ import {
 } from '@src/domains/discovery/appPresets.js';
 import { generateSupportedAppsHelp } from '@src/domains/discovery/appPresets.js';
 import { GlobalOptions } from '@src/globalOptions.js';
+import printer from '@src/utils/ui/printer.js';
 import { getServer1mcpUrl, validateServer1mcpUrl } from '@src/utils/validation/urlDetection.js';
 import { generateOperationPreview, validateOperation } from '@src/utils/validation/validationHelpers.js';
 
@@ -127,46 +128,49 @@ export async function consolidateCommand(options: ConsolidateOptions): Promise<v
 
   // Check if app names were provided
   if (!appNames || appNames.length === 0) {
-    console.error('❌ Error: No application names provided.');
-    console.log('Please specify at least one application to consolidate.');
-    console.log('Example: npx @1mcp/agent app consolidate claude-desktop');
-    console.log('Use "npx @1mcp/agent app list" to see supported applications.');
+    printer.error('Error: No application names provided.');
+    printer.info('Please specify at least one application to consolidate.');
+    printer.info('Example: npx @1mcp/agent app consolidate claude-desktop');
+    printer.info('Use "npx @1mcp/agent app list" to see supported applications.');
     process.exit(1);
   }
 
   // Show platform warning if needed
   showPlatformWarningIfNeeded();
 
-  console.log('🔍 Starting MCP server consolidation...\n');
+  printer.title('Starting MCP server consolidation');
+  printer.blank();
 
   // Validate all app names first
   const invalidApps = appNames.filter((app) => !isAppSupported(app));
   if (invalidApps.length > 0) {
-    console.error(`❌ Unsupported applications: ${invalidApps.join(', ')}`);
-    console.log('Use "npx @1mcp/agent app list" to see supported applications.');
+    printer.error(`Unsupported applications: ${invalidApps.join(', ')}`);
+    printer.info('Use "npx @1mcp/agent app list" to see supported applications.');
     process.exit(1);
   }
 
   // Get 1mcp server URL
   const serverUrl = await getServer1mcpUrl(options.url);
-  console.log(`🔗 Using 1mcp server: ${serverUrl}`);
+  printer.info(`Using 1mcp server: ${serverUrl}`);
 
   // Validate server connectivity (unless force mode)
   if (!options.force) {
     const connectivityCheck = await validateServer1mcpUrl(serverUrl);
     if (!connectivityCheck.valid) {
-      console.error(`❌ Cannot connect to 1mcp server: Server connectivity issue`);
-      console.log('Make sure the 1mcp server is running or use --force to skip validation.');
+      printer.error(`Cannot connect to 1mcp server: Server connectivity issue`);
+      printer.info('Make sure the 1mcp server is running or use --force to skip validation.');
       process.exit(1);
     }
-    console.log('✅ 1mcp server connectivity verified\n');
+    printer.success('1mcp server connectivity verified');
+    printer.blank();
   }
 
   const results: ConsolidationResult[] = [];
 
   // Process each app
   for (const appName of appNames) {
-    console.log(`\n🔍 Processing ${getAppPreset(appName)?.displayName || appName}...`);
+    printer.blank();
+    printer.info(`Processing ${getAppPreset(appName)?.displayName || appName}...`);
 
     try {
       const result = await consolidateApp(appName, serverUrl, options);
@@ -174,22 +178,22 @@ export async function consolidateCommand(options: ConsolidateOptions): Promise<v
 
       // Display result
       if (result.status === 'success') {
-        console.log(`✅ ${result.message}`);
+        printer.success(`${result.message}`);
         if (result.serversImported !== undefined) {
-          console.log(`📋 Imported ${result.serversImported} MCP servers`);
+          printer.info(`Imported ${result.serversImported} MCP servers`);
         }
         if (result.backupPath) {
-          console.log(`💾 Backup created: ${result.backupPath}`);
+          printer.info(`Backup created: ${result.backupPath}`);
         }
       } else if (result.status === 'manual') {
-        console.log(`🔧 ${result.message}`);
+        printer.info(`${result.message}`);
         if (result.manualInstructions) {
-          console.log(result.manualInstructions);
+          printer.raw(result.manualInstructions);
         }
       } else if (result.status === 'skipped') {
-        console.log(`⏭️ ${result.message}`);
+        printer.info(`${result.message}`);
       } else {
-        console.error(`❌ ${result.message}`);
+        printer.error(`${result.message}`);
       }
     } catch (error: unknown) {
       const errorMessage = error instanceof Error ? error.message : String(error);
@@ -199,32 +203,35 @@ export async function consolidateCommand(options: ConsolidateOptions): Promise<v
         message: `Failed to consolidate ${appName}: ${errorMessage}`,
       };
       results.push(errorResult);
-      console.error(`❌ ${errorResult.message}`);
+      printer.error(`${errorResult.message}`);
     }
   }
 
   // Final summary
-  console.log('\n' + '='.repeat(60));
-  console.log('📊 Consolidation Summary:');
+  printer.blank();
+  printer.raw('='.repeat(60));
+  printer.subtitle('Consolidation Summary:');
 
   const successful = results.filter((r) => r.status === 'success');
   const manual = results.filter((r) => r.status === 'manual');
   const failed = results.filter((r) => r.status === 'failed');
   const skipped = results.filter((r) => r.status === 'skipped');
 
-  console.log(`✅ Successful: ${successful.length}`);
-  console.log(`🔧 Manual setup required: ${manual.length}`);
-  console.log(`⏭️ Skipped: ${skipped.length}`);
-  console.log(`❌ Failed: ${failed.length}`);
+  printer.success(`Successful: ${successful.length}`);
+  printer.warn(`Manual setup required: ${manual.length}`);
+  printer.info(`Skipped: ${skipped.length}`);
+  printer.error(`Failed: ${failed.length}`);
 
   if (successful.length > 0) {
-    console.log('\n🔄 Restart the following applications to use consolidated configuration:');
+    printer.blank();
+    printer.info('Restart the following applications to use consolidated configuration:');
     successful.forEach((result) => {
-      console.log(`   - ${getAppPreset(result.app)?.displayName || result.app}`);
+      printer.raw(`   - ${getAppPreset(result.app)?.displayName || result.app}`);
     });
 
-    console.log('\n💡 To undo consolidation, use:');
-    console.log('   npx @1mcp/agent app restore <app-name>');
+    printer.blank();
+    printer.info('To undo consolidation, use:');
+    printer.info('   npx @1mcp/agent app restore <app-name>');
   }
 
   if (failed.length > 0) {
@@ -361,12 +368,13 @@ async function consolidateApp(
 
   // Dry run mode - just show what would happen
   if (options['dry-run']) {
-    console.log('\n📋 Dry Run Preview:');
-    console.log(`App: ${getAppPreset(appName)?.displayName || appName}`);
-    console.log(`Config: ${targetConfig.path}`);
-    console.log(`Servers to import: ${servers.map((s) => s.name).join(', ') || 'none'}`);
-    console.log(`Replacement URL: ${serverUrl}`);
-    console.log(`Backup would be created: ${backupPath}`);
+    printer.blank();
+    printer.subtitle('Dry Run Preview:');
+    printer.info(`App: ${getAppPreset(appName)?.displayName || appName}`);
+    printer.info(`Config: ${targetConfig.path}`);
+    printer.info(`Servers to import: ${servers.map((s) => s.name).join(', ') || 'none'}`);
+    printer.info(`Replacement URL: ${serverUrl}`);
+    printer.info(`Backup would be created: ${backupPath}`);
 
     return {
       app: appName,
@@ -473,7 +481,7 @@ async function importServersTo1mcp(servers: MCPServerConfig[]): Promise<void> {
   for (const server of servers) {
     // Check if server already exists
     if (currentConfig[server.name]) {
-      console.log(`⚠️ Server "${server.name}" already exists in 1mcp config - skipping`);
+      printer.warn(`Server "${server.name}" already exists in 1mcp config - skipping`);
       continue;
     }
 
@@ -484,20 +492,20 @@ async function importServersTo1mcp(servers: MCPServerConfig[]): Promise<void> {
       // Add server to configuration
       setServer(server.name, serverParams);
 
-      console.log(`✅ Imported server: ${server.name}`);
+      printer.success(`Imported server: ${server.name}`);
 
       // Log what was imported
       if (serverParams.type === 'stdio') {
-        console.log(`   Type: stdio`);
-        console.log(`   Command: ${serverParams.command}`);
-        if (serverParams.args) console.log(`   Args: ${serverParams.args.join(' ')}`);
+        printer.info(`   Type: stdio`);
+        printer.info(`   Command: ${serverParams.command}`);
+        if (serverParams.args) printer.info(`   Args: ${serverParams.args.join(' ')}`);
       } else if (serverParams.type === 'http' || serverParams.type === 'sse') {
-        console.log(`   Type: ${serverParams.type}`);
-        console.log(`   URL: ${serverParams.url}`);
+        printer.info(`   Type: ${serverParams.type}`);
+        printer.info(`   URL: ${serverParams.url}`);
       }
     } catch (error: unknown) {
       const errorMessage = error instanceof Error ? error.message : String(error);
-      console.error(`❌ Failed to import server "${server.name}": ${errorMessage}`);
+      printer.error(`Failed to import server "${server.name}": ${errorMessage}`);
     }
   }
 }
@@ -521,10 +529,11 @@ interface ConfigurationChoice {
  * Prompt user to choose from multiple configurations
  */
 async function promptUserChoice(configs: ConfigurationChoice[]): Promise<ConfigurationChoice> {
-  console.log('\n📋 Multiple configurations found:');
+  printer.blank();
+  printer.info('Multiple configurations found:');
 
   configs.forEach((config, index) => {
-    console.log(`${index + 1}. ${config.path} (${config.level}, ${config.servers.length} servers)`);
+    printer.raw(`${index + 1}. ${config.path} (${config.level}, ${config.servers.length} servers)`);
   });
 
   const rl = readline.createInterface({
@@ -540,7 +549,7 @@ async function promptUserChoice(configs: ConfigurationChoice[]): Promise<Configu
       if (choice >= 1 && choice <= configs.length) {
         resolve(configs[choice - 1]);
       } else {
-        console.log('Invalid choice, using first option.');
+        printer.warn('Invalid choice, using first option.');
         resolve(configs[0]);
       }
     });
@@ -563,16 +572,18 @@ interface OperationPreview {
  * Confirm operation with user
  */
 async function confirmOperation(preview: OperationPreview): Promise<boolean> {
-  console.log('\n📋 Operation Preview:');
-  console.log(`App: ${preview.app}`);
-  console.log(`Config: ${preview.configPath}`);
-  console.log(`Servers to import: ${preview.serversToImport.join(', ') || 'none'}`);
-  console.log(`Replacement URL: ${preview.replacementUrl}`);
-  console.log(`Backup will be created: ${preview.backupPath}`);
+  printer.blank();
+  printer.subtitle('Operation Preview:');
+  printer.info(`App: ${preview.app}`);
+  printer.info(`Config: ${preview.configPath}`);
+  printer.info(`Servers to import: ${preview.serversToImport.join(', ') || 'none'}`);
+  printer.info(`Replacement URL: ${preview.replacementUrl}`);
+  printer.info(`Backup will be created: ${preview.backupPath}`);
 
   if (preview.risks.length > 0) {
-    console.log('\n⚠️ Potential Issues:');
-    preview.risks.forEach((risk: string) => console.log(`  - ${risk}`));
+    printer.blank();
+    printer.warn('Potential Issues:');
+    preview.risks.forEach((risk: string) => printer.raw(`  - ${risk}`));
   }
 
   const rl = readline.createInterface({

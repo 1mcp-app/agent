@@ -7,10 +7,18 @@ import logger from '@src/logger/logger.js';
  */
 
 /**
+ * Result of parsing a server name with optional version
+ */
+export interface ServerNameVersion {
+  name: string;
+  version?: string;
+}
+
+/**
  * Parse server name and version from input string
  * Supports formats: "server-name", "server-name@1.0.0"
  */
-export function parseServerNameVersion(input: string): { name: string; version?: string } {
+export function parseServerNameVersion(input: string): ServerNameVersion {
   const atIndex = input.lastIndexOf('@');
   if (atIndex === -1) {
     return { name: input };

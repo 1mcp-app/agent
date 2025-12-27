@@ -68,15 +68,18 @@ describe('conflictDetector', () => {
       const result = validateNoConflict('new-server', ['existing-server']);
 
       expect(result.valid).toBe(true);
-      expect(result.error).toBeUndefined();
+      // With discriminated union, valid: true means no error property
+      expect(result).toEqual({ valid: true });
     });
 
     it('should invalidate when name conflicts', () => {
       const result = validateNoConflict('test-server', ['test-server', 'other']);
 
       expect(result.valid).toBe(false);
-      expect(result.error).toContain('test-server');
-      expect(result.error).toContain('already exists');
+      if (!result.valid) {
+        expect(result.error).toContain('test-server');
+        expect(result.error).toContain('already exists');
+      }
     });
 
     it('should handle empty existing names', () => {

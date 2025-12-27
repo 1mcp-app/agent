@@ -847,13 +847,13 @@ describe('PresetManager', () => {
       // Mock cleanup to fail
       vi.spyOn(instance, 'cleanup').mockRejectedValue(new Error('Cleanup failed'));
 
-      // Mock console.warn
-      const mockWarn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      // Mock logger.warn to return logger for chaining
+      const mockWarn = vi.spyOn(logger, 'warn').mockReturnValue(logger);
 
       // Should not throw despite cleanup failure
       expect(() => PresetManager.resetInstance()).not.toThrow();
 
-      // Wait for the async cleanup promise to reject and console.warn to be called
+      // Wait for the async cleanup promise to reject and logger.warn to be called
       await new Promise((resolve) => setTimeout(resolve, 0));
 
       // Should log warning about cleanup failure
