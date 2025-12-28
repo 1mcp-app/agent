@@ -11,31 +11,53 @@ body = """
 {%- endmacro -%}
 
 {% if version %}\
+{%- set version_no_v = version | trim_start_matches(pat="v") -%}
+{%- set is_prerelease = version_no_v is search("(alpha|beta|rc|preview|next)[-._]") or version_no_v is search("[-._](alpha|beta|rc|preview|next)") -%}
 ## 📦 Downloads
+
+{%- if is_prerelease %}
+> **⚠️ Pre-release Version**: This is a pre-release build. Use `@next` tag for NPM and avoid `:latest` Docker tags in production.
+{%- endif %}
 
 ### Binary Downloads
 Compressed archives containing platform-specific binaries:
 
-- **Linux (x64)**: [`1mcp-linux-x64.tar.gz`]({{ self::remote_url() }}/releases/download/v{{ version | trim_start_matches(pat="v") }}/1mcp-linux-x64.tar.gz)
-- **Linux (ARM64)**: [`1mcp-linux-arm64.tar.gz`]({{ self::remote_url() }}/releases/download/v{{ version | trim_start_matches(pat="v") }}/1mcp-linux-arm64.tar.gz)
-- **Windows (x64)**: [`1mcp-win32-x64.zip`]({{ self::remote_url() }}/releases/download/v{{ version | trim_start_matches(pat="v") }}/1mcp-win32-x64.zip)
-- **macOS (ARM64)**: [`1mcp-darwin-arm64.tar.gz`]({{ self::remote_url() }}/releases/download/v{{ version | trim_start_matches(pat="v") }}/1mcp-darwin-arm64.tar.gz)
-- **macOS (Intel)**: [`1mcp-darwin-x64.tar.gz`]({{ self::remote_url() }}/releases/download/v{{ version | trim_start_matches(pat="v") }}/1mcp-darwin-x64.tar.gz)
+- **Linux (x64)**: [`1mcp-linux-x64.tar.gz`]({{ self::remote_url() }}/releases/download/v{{ version_no_v }}/1mcp-linux-x64.tar.gz)
+- **Linux (ARM64)**: [`1mcp-linux-arm64.tar.gz`]({{ self::remote_url() }}/releases/download/v{{ version_no_v }}/1mcp-linux-arm64.tar.gz)
+- **Windows (x64)**: [`1mcp-win32-x64.zip`]({{ self::remote_url() }}/releases/download/v{{ version_no_v }}/1mcp-win32-x64.zip)
+- **macOS (ARM64)**: [`1mcp-darwin-arm64.tar.gz`]({{ self::remote_url() }}/releases/download/v{{ version_no_v }}/1mcp-darwin-arm64.tar.gz)
+- **macOS (Intel)**: [`1mcp-darwin-x64.tar.gz`]({{ self::remote_url() }}/releases/download/v{{ version_no_v }}/1mcp-darwin-x64.tar.gz)
 
 ### Docker Images
 ```bash
+{%- if is_prerelease %}
+# Pre-release version - use specific version tag
 # Extended version (recommended)
-docker pull ghcr.io/1mcp-app/agent:v{{ version | trim_start_matches(pat="v") }}
+docker pull ghcr.io/1mcp-app/agent:v{{ version_no_v }}
+
+# Lite version (minimal dependencies)
+docker pull ghcr.io/1mcp-app/agent:v{{ version_no_v }}-lite
+
+# ⚠️ Do NOT use :latest, :lite tags for pre-release versions
+{%- else %}
+# Stable version
+# Extended version (recommended)
+docker pull ghcr.io/1mcp-app/agent:v{{ version_no_v }}
 docker pull ghcr.io/1mcp-app/agent:latest
 
 # Lite version (minimal dependencies)
-docker pull ghcr.io/1mcp-app/agent:v{{ version | trim_start_matches(pat="v") }}-lite
+docker pull ghcr.io/1mcp-app/agent:v{{ version_no_v }}-lite
 docker pull ghcr.io/1mcp-app/agent:lite
+{%- endif %}
 ```
 
 ### NPM Installation
 ```bash
-npm install -g @1mcp/agent
+{%- if is_prerelease %}
+npm install -g @1mcp/agent@next
+{%- else %}
+npm install -g @1mcp/agent@latest
+{%- endif %}
 ```
 
 {% endif %}\
@@ -114,10 +136,11 @@ commit_parsers = [
 protect_breaking_commits = false
 # filter out the commits that are not matched by commit parsers
 filter_commits = false
-# regex for matching git tags
-# tag_pattern = "v[0-9].*"
-# regex for skipping tags
-# skip_tags = ""
+# regex for matching git tags - include both stable and pre-release versions
+tag_pattern = "v[0-9].*"
+# regex for skipping tags - skip pre-release tags when generating stable release notes
+# Pre-release identifiers: alpha, beta, rc, preview, next
+skip_tags = "^v.*(-(alpha|beta|rc|preview|next)\\.|(alpha|beta|rc|preview|next)-).*$"
 # regex for ignoring tags
 # ignore_tags = ""
 # sort the tags topologically

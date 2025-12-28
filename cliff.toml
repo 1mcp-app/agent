@@ -118,6 +118,11 @@ commit_parsers = [
 ]
 # filter out the commits that are not matched by commit parsers
 filter_commits = false
+# regex for matching git tags - include both stable and pre-release versions
+tag_pattern = "v[0-9].*"
+# regex for skipping tags - skip pre-release tags when generating stable changelog
+# Pre-release identifiers: alpha, beta, rc, preview, next
+skip_tags = "^v.*(-(alpha|beta|rc|preview|next)\\.|(alpha|beta|rc|preview|next)-).*$"
 # sort the tags topologically
 topo_order = false
 # sort the commits inside sections by oldest/newest order
