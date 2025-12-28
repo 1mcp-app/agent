@@ -21,7 +21,7 @@ try {
     Write-Host "1. Testing version display..."
     $versionOutput = & $AbsoluteBinaryPath --version
     Write-Host "Version: $versionOutput"
-    if ($versionOutput -match '^\d+\.\d+\.\d+$') {
+    if ($versionOutput -match '^\d+\.\d+\.\d+(-[a-zA-Z0-9.]+)?$') {
         Write-Host "Version format valid"
     } else {
         Write-Host "Invalid version format: $versionOutput"

@@ -14,7 +14,7 @@ echo "🧪 Testing $PLATFORM binary at $BINARY_PATH..."
 echo "1️⃣ Testing version display..."
 VERSION_OUTPUT=$("$BINARY_PATH" --version)
 echo "Version: $VERSION_OUTPUT"
-if [[ "$VERSION_OUTPUT" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+if [[ "$VERSION_OUTPUT" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9.]+)?$ ]]; then
   echo "✅ Version format valid"
 else
   echo "❌ Invalid version format: $VERSION_OUTPUT"
