@@ -11,12 +11,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Add context-aware proxy mode with template support for MCP server configurations by @xizhibei in [#195](https://github.com/1mcp-app/agent/pull/195)
 
 ### 🐛 Bug Fixes
+- Support semver pre-release formats in binary tests by @xizhibei
 - Check server capabilities before registering request handlers by @xizhibei
 
 ### 🚜 Refactor
 - Introduce named types and improve code modularity by @xizhibei in [#199](https://github.com/1mcp-app/agent/pull/199)
 
 ### ⚙️ Miscellaneous Tasks
+- Update version and changelog to 0.29.0-beta1 [skip ci] by @github-actions[bot]
 - Update version and changelog to 0.28.1 [skip ci] by @github-actions[bot]
 
 
