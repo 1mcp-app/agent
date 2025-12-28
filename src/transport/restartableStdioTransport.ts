@@ -16,6 +16,14 @@ export interface RestartableTransportConfig {
 }
 
 /**
+ * Restart statistics for the transport
+ */
+export interface RestartStats {
+  restartCount: number;
+  isRestarting: boolean;
+}
+
+/**
  * Wrapper around StdioClientTransport that provides automatic restart functionality
  * Implements Transport interface and adds OAuth provider support
  */
@@ -219,7 +227,7 @@ export class RestartableStdioTransport implements Transport {
   /**
    * Gets restart statistics
    */
-  getRestartStats(): { restartCount: number; isRestarting: boolean } {
+  getRestartStats(): RestartStats {
     return {
       restartCount: this._restartCount,
       isRestarting: this._isStarting,

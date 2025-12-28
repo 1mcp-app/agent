@@ -1,6 +1,7 @@
 import readline from 'readline';
 
 import { GlobalOptions } from '@src/globalOptions.js';
+import printer from '@src/utils/ui/printer.js';
 
 import type { Argv } from 'yargs';
 
@@ -52,7 +53,7 @@ export async function removeCommand(argv: RemoveCommandArgs): Promise<void> {
     // Initialize config context with CLI options
     initializeConfigContext(configPath, configDir);
 
-    console.log(`Removing MCP server: ${name}`);
+    printer.info(`Removing MCP server: ${name}`);
 
     // Validate inputs
     validateServerName(name);
@@ -72,34 +73,39 @@ export async function removeCommand(argv: RemoveCommandArgs): Promise<void> {
     }
 
     // Show server details
-    console.log(`\nServer Details:`);
-    console.log(`  Name: ${name}`);
-    console.log(`  Type: ${serverConfig.type}`);
+    printer.blank();
+    printer.title('Server Details:');
+    printer.keyValue({ Name: name });
+    if (serverConfig.type) {
+      printer.keyValue({ Type: serverConfig.type });
+    }
 
     if (serverConfig.type === 'stdio') {
-      console.log(`  Command: ${serverConfig.command}`);
-      if (serverConfig.args) {
-        console.log(`  Args: ${serverConfig.args.join(' ')}`);
+      if (serverConfig.command) {
+        printer.keyValue({ Command: serverConfig.command });
       }
-    } else {
-      console.log(`  URL: ${serverConfig.url}`);
+      if (serverConfig.args) {
+        printer.keyValue({ Args: serverConfig.args.join(' ') });
+      }
+    } else if (serverConfig.url) {
+      printer.keyValue({ URL: serverConfig.url });
     }
 
     if (serverConfig.tags && serverConfig.tags.length > 0) {
-      console.log(`  Tags: ${serverConfig.tags.join(', ')}`);
+      printer.keyValue({ Tags: serverConfig.tags.join(', ') });
     }
 
     if (serverConfig.disabled) {
-      console.log(`  Status: Disabled`);
+      printer.keyValue({ Status: 'Disabled' });
     } else {
-      console.log(`  Status: Enabled`);
+      printer.keyValue({ Status: 'Enabled' });
     }
 
     // Confirmation prompt unless --yes flag is used
     if (!yes) {
       const confirmed = await confirmRemoval(name);
       if (!confirmed) {
-        console.log('Operation cancelled.');
+        printer.info('Operation cancelled.');
         return;
       }
     }
@@ -117,13 +123,12 @@ export async function removeCommand(argv: RemoveCommandArgs): Promise<void> {
     reloadMcpConfig();
 
     // Success message
-    console.log(`✅ Successfully removed server '${name}'`);
-    console.log(`   Backup created: ${backupPath}`);
-    console.log(
-      `\n💡 Server removed from configuration. If 1mcp is running, the server will be unloaded automatically.`,
-    );
+    printer.success(`Successfully removed server '${name}'`);
+    printer.keyValue({ 'Backup created': backupPath });
+    printer.blank();
+    printer.info('Server removed from configuration. If 1mcp is running, the server will be unloaded automatically.');
   } catch (error) {
-    console.error(`❌ Failed to remove server: ${error instanceof Error ? error.message : error}`);
+    printer.error(`Failed to remove server: ${error instanceof Error ? error.message : error}`);
     process.exit(1);
   }
 }

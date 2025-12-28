@@ -1,5 +1,6 @@
 import { MCPServerParams } from '@src/core/types/index.js';
 import { GlobalOptions } from '@src/globalOptions.js';
+import printer from '@src/utils/ui/printer.js';
 
 import type { Argv } from 'yargs';
 
@@ -160,7 +161,7 @@ export async function updateCommand(argv: UpdateCommandArgs): Promise<void> {
     // Initialize config context with CLI options
     initializeConfigContext(configPath, configDir);
 
-    console.log(`Updating MCP server: ${name}`);
+    printer.info(`Updating MCP server: ${name}`);
 
     // Validate inputs
     validateServerName(name);
@@ -321,7 +322,7 @@ export async function updateCommand(argv: UpdateCommandArgs): Promise<void> {
 
     // Check if any changes were made
     if (changes.length === 0) {
-      console.log(`No changes specified for server '${name}'. Configuration remains unchanged.`);
+      printer.info(`No changes specified for server '${name}'. Configuration remains unchanged.`);
       return;
     }
 
@@ -343,15 +344,17 @@ export async function updateCommand(argv: UpdateCommandArgs): Promise<void> {
     reloadMcpConfig();
 
     // Success message
-    console.log(`✅ Successfully updated server '${name}'`);
-    console.log(`   Changes made:`);
+    printer.success(`Successfully updated server '${name}'`);
+    printer.blank();
+    printer.subtitle('Changes made:');
     for (const change of changes) {
-      console.log(`     • ${change}`);
+      printer.raw(`     • ${change}`);
     }
-    console.log(`   Backup created: ${backupPath}`);
-    console.log(`\n💡 Server configuration updated. If 1mcp is running, the server will be reloaded automatically.`);
+    printer.keyValue({ 'Backup created': backupPath });
+    printer.blank();
+    printer.info('Server configuration updated. If 1mcp is running, the server will be reloaded automatically.');
   } catch (error) {
-    console.error(`❌ Failed to update server: ${error instanceof Error ? error.message : error}`);
+    printer.error(`Failed to update server: ${error instanceof Error ? error.message : error}`);
     throw error;
   }
 }

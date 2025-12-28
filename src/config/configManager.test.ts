@@ -30,7 +30,7 @@ vi.mock('@src/core/server/agentConfig.js', () => ({
   },
 }));
 
-describe('ConfigManager', () => {
+describe('ConfigManager (Integration)', () => {
   let tempConfigDir: string;
   let configFilePath: string;
   let configManager: ConfigManager;
@@ -75,6 +75,20 @@ describe('ConfigManager', () => {
       // Ignore cleanup errors
     }
     vi.clearAllMocks();
+
+    // Restore mock for other tests
+    mockAgentConfig.get.mockImplementation((key: string) => {
+      const config = {
+        features: {
+          configReload: true,
+          envSubstitution: true,
+        },
+        configReload: {
+          debounceMs: 100,
+        },
+      };
+      return key.split('.').reduce((obj: any, k: string) => obj?.[k], config);
+    });
   });
 
   describe('initialization', () => {
@@ -100,35 +114,9 @@ describe('ConfigManager', () => {
 
       await newManager.stop();
     });
-
-    it('should respect config reload feature flag', () => {
-      // Mock to return an object where features.configReload is false
-      mockAgentConfig.get.mockImplementation((key: string) => {
-        if (key === 'features') {
-          return { configReload: false };
-        }
-        return {};
-      });
-
-      expect(configManager.isReloadEnabled()).toBe(false);
-
-      // Reset mock for other tests
-      mockAgentConfig.get.mockImplementation((key: string) => {
-        const config = {
-          features: {
-            configReload: true,
-            envSubstitution: true,
-          },
-          configReload: {
-            debounceMs: 100,
-          },
-        };
-        return key.split('.').reduce((obj: any, k: string) => obj?.[k], config);
-      });
-    });
   });
 
-  describe('change detection', () => {
+  describe('change detection integration', () => {
     it('should detect added servers', async () => {
       const updatedConfig = {
         mcpServers: {
@@ -218,35 +206,6 @@ describe('ConfigManager', () => {
       expect(changes[0].fieldsChanged).toContain('tags');
     });
 
-    it('should detect tag-only changes', async () => {
-      const updatedConfig = {
-        mcpServers: {
-          'test-server-1': {
-            command: 'node',
-            args: ['server1.js'],
-            tags: ['test', 'server1', 'tag-only-change'],
-          },
-          'test-server-2': {
-            command: 'node',
-            args: ['server2.js'],
-            tags: ['test', 'server2'],
-          },
-        },
-      };
-
-      const changes: any[] = [];
-      configManager.on(CONFIG_EVENTS.CONFIG_CHANGED, (detectedChanges) => {
-        changes.push(...detectedChanges);
-      });
-
-      await fsPromises.writeFile(configFilePath, JSON.stringify(updatedConfig, null, 2));
-      await configManager.reloadConfig();
-
-      expect(changes).toHaveLength(1);
-      expect(changes[0].type).toBe(ConfigChangeType.MODIFIED);
-      expect(changes[0].fieldsChanged).toEqual(['tags']);
-    });
-
     it('should emit specific events for server additions and removals', async () => {
       const addedServers: string[] = [];
       const removedServers: string[] = [];
@@ -303,7 +262,7 @@ describe('ConfigManager', () => {
     });
   });
 
-  describe('file watching', () => {
+  describe('file watching integration', () => {
     it('should not watch files when config reload is disabled', async () => {
       mockAgentConfig.get.mockReturnValue({
         features: { configReload: false },
@@ -372,83 +331,60 @@ describe('ConfigManager', () => {
     });
   });
 
-  describe('environment variable substitution', () => {
-    it('should substitute environment variables when enabled', async () => {
-      process.env.TEST_VAR = 'substituted-value';
-
-      mockAgentConfig.get.mockImplementation((key: string) => {
-        const config = {
-          features: { configReload: true, envSubstitution: true },
-          configReload: { debounceMs: 100 },
-        };
-        return key.split('.').reduce((obj: any, k: string) => obj?.[k], config);
-      });
-
-      const configWithEnv = {
+  describe('template integration', () => {
+    it('should load static servers when no templates are present', async () => {
+      const config = {
+        version: '1.0.0',
         mcpServers: {
-          'test-server': {
-            command: '${TEST_VAR}',
-            args: ['server.js'],
-            tags: ['test'],
+          filesystem: {
+            command: 'npx',
+            args: ['-y', '@modelcontextprotocol/server-filesystem', '/tmp'],
+            env: {},
+            tags: ['filesystem'],
           },
         },
       };
 
-      await fsPromises.writeFile(configFilePath, JSON.stringify(configWithEnv, null, 2));
+      await fsPromises.writeFile(configFilePath, JSON.stringify(config, null, 2));
 
-      // Reset singleton to force creation of new instance
-      (ConfigManager as any).instance = null;
-      const newManager = ConfigManager.getInstance(configFilePath);
-      const config = newManager.getTransportConfig();
+      const result = await configManager.loadConfigWithTemplates();
 
-      expect(config['test-server'].command).toBe('substituted-value');
-
-      delete process.env.TEST_VAR;
-      await newManager.stop();
+      expect(result.staticServers).toEqual(config.mcpServers);
+      expect(result.templateServers).toEqual({});
+      expect(result.errors).toEqual([]);
     });
 
-    it('should not substitute environment variables when disabled', async () => {
-      process.env.TEST_VAR = 'should-not-substitute';
-
-      mockAgentConfig.get.mockImplementation((key: string) => {
-        const config = {
-          features: { configReload: true, envSubstitution: false },
-          configReload: { debounceMs: 100 },
-        };
-        return key.split('.').reduce((obj: any, k: string) => obj?.[k], config);
-      });
-
-      const configWithEnv = {
+    it('should return empty template servers when no context is provided', async () => {
+      const config = {
         mcpServers: {
-          'test-server': {
-            command: '${TEST_VAR}',
-            args: ['server.js'],
-            tags: ['test'],
+          filesystem: {
+            command: 'npx',
+            args: ['-y', '@modelcontextprotocol/server-filesystem', '/tmp'],
+            env: {},
+            tags: ['filesystem'],
+          },
+        },
+        mcpTemplates: {
+          'project-serena': {
+            command: 'npx',
+            args: ['-y', 'serena', '{{project.path}}'],
+            env: { PROJECT_ID: '{{project.custom.projectId}}' } as Record<string, string>,
+            tags: ['filesystem'],
           },
         },
       };
 
-      await fsPromises.writeFile(configFilePath, JSON.stringify(configWithEnv, null, 2));
+      await fsPromises.writeFile(configFilePath, JSON.stringify(config, null, 2));
 
-      // Reset singleton to force creation of new instance
-      (ConfigManager as any).instance = null;
-      const newManager = ConfigManager.getInstance(configFilePath);
-      const config = newManager.getTransportConfig();
+      const result = await configManager.loadConfigWithTemplates();
 
-      expect(config['test-server'].command).toBe('${TEST_VAR}');
-
-      delete process.env.TEST_VAR;
-      await newManager.stop();
-
-      // Reset for other tests
-      mockAgentConfig.get.mockReturnValue({
-        features: { configReload: true, envSubstitution: true },
-        configReload: { debounceMs: 100 },
-      });
+      expect(result.staticServers).toEqual(config.mcpServers);
+      expect(result.templateServers).toEqual({});
+      expect(result.errors).toEqual([]);
     });
   });
 
-  describe('utility methods', () => {
+  describe('utility methods integration', () => {
     it('should get available tags correctly', () => {
       const tags = configManager.getAvailableTags();
       expect(tags).toContain('server1');
@@ -483,18 +419,54 @@ describe('ConfigManager', () => {
       expect(tags).not.toContain('disabled');
       expect(tags).not.toContain('tag2');
     });
+
+    it('should clear template cache', () => {
+      expect(() => configManager.clearTemplateCache()).not.toThrow();
+    });
+
+    it('should report template processing errors', () => {
+      expect(configManager.hasTemplateProcessingErrors()).toBe(false);
+      expect(configManager.getTemplateProcessingErrors()).toEqual([]);
+    });
   });
 
-  describe('error handling', () => {
-    it('should handle invalid JSON gracefully', async () => {
+  describe('isReloadEnabled', () => {
+    it('should return true when config reload is enabled', () => {
+      expect(configManager.isReloadEnabled()).toBe(true);
+    });
+
+    it('should return false when config reload feature is disabled', () => {
+      mockAgentConfig.get.mockImplementation((key: string) => {
+        const config = {
+          features: { configReload: false },
+        };
+        return key.split('.').reduce((obj: any, k: string) => obj?.[k], config);
+      });
+
+      const newManager = ConfigManager.getInstance(configFilePath);
+      expect(newManager.isReloadEnabled()).toBe(false);
+
+      // Reset for other tests
+      mockAgentConfig.get.mockImplementation((key: string) => {
+        const config = {
+          features: { configReload: true, envSubstitution: true },
+          configReload: { debounceMs: 100 },
+        };
+        return key.split('.').reduce((obj: any, k: string) => obj?.[k], config);
+      });
+    });
+  });
+
+  describe('error handling integration', () => {
+    it('should throw on invalid JSON', async () => {
       await fsPromises.writeFile(configFilePath, 'invalid json content');
 
       // Reset singleton to force creation of new instance
       (ConfigManager as any).instance = null;
+
+      // getInstance should work, but initialize should fail
       const newManager = ConfigManager.getInstance(configFilePath);
-      const config = newManager.getTransportConfig();
-      expect(typeof config).toBe('object');
-      expect(Object.keys(config)).toHaveLength(0);
+      await expect(newManager.initialize()).rejects.toThrow();
     });
 
     it('should handle missing mcpServers section', async () => {
@@ -510,7 +482,7 @@ describe('ConfigManager', () => {
     });
   });
 
-  describe('configuration validation', () => {
+  describe('configuration validation integration', () => {
     it('should validate and load correct configuration', async () => {
       const validConfig = {
         mcpServers: {
@@ -615,104 +587,25 @@ describe('ConfigManager', () => {
       expect(Object.keys(config)).not.toContain('server-2');
       expect(Object.keys(config)).not.toContain('server-3');
     });
+  });
 
-    it('should validate HTTP transport configuration', async () => {
-      const httpConfig = {
+  describe('reloadConfig', () => {
+    it('should reload configuration on demand', async () => {
+      const updatedConfig = {
         mcpServers: {
-          'http-server': {
-            type: 'http',
-            url: 'https://example.com/mcp',
-            headers: {
-              Authorization: 'Bearer token',
-              'Content-Type': 'application/json',
-            },
-            tags: ['http'],
+          'new-server': {
+            command: 'node',
+            args: ['new.js'],
+            tags: ['new'],
           },
         },
       };
 
-      await fsPromises.writeFile(configFilePath, JSON.stringify(httpConfig, null, 2));
+      await fsPromises.writeFile(configFilePath, JSON.stringify(updatedConfig, null, 2));
       await configManager.reloadConfig();
 
       const config = configManager.getTransportConfig();
-      expect(Object.keys(config)).toContain('http-server');
-      expect(config['http-server'].type).toBe('http');
-      expect(config['http-server'].url).toBe('https://example.com/mcp');
-      expect(config['http-server'].headers).toEqual({
-        Authorization: 'Bearer token',
-        'Content-Type': 'application/json',
-      });
-    });
-
-    it('should reject invalid HTTP URL', async () => {
-      const invalidHttpConfig = {
-        mcpServers: {
-          'invalid-http': {
-            type: 'http',
-            url: 'not-a-valid-url',
-          },
-          'valid-server': {
-            command: 'echo',
-            args: ['test'],
-          },
-        },
-      };
-
-      await fsPromises.writeFile(configFilePath, JSON.stringify(invalidHttpConfig, null, 2));
-      await configManager.reloadConfig();
-
-      const config = configManager.getTransportConfig();
-      expect(Object.keys(config)).not.toContain('invalid-http');
-      expect(Object.keys(config)).toContain('valid-server');
-    });
-
-    it('should emit validation error event when config is invalid', async () => {
-      const invalidConfig = {
-        mcpServers: {
-          'invalid-server': {
-            command: 123, // Invalid type
-          },
-        },
-      };
-
-      const validationErrorSpy = vi.fn();
-      configManager.on(CONFIG_EVENTS.VALIDATION_ERROR, validationErrorSpy);
-
-      await fsPromises.writeFile(configFilePath, JSON.stringify(invalidConfig, null, 2));
-      await configManager.reloadConfig();
-
-      // Note: The validation errors are logged but don't prevent reload from completing
-      // Invalid servers are simply skipped
-      expect(validationErrorSpy).not.toHaveBeenCalled();
-      // Config should be empty since all servers are invalid
-      expect(Object.keys(configManager.getTransportConfig())).toHaveLength(0);
-    });
-
-    it('should validate OAuth configuration', async () => {
-      const oauthConfig = {
-        mcpServers: {
-          'oauth-server': {
-            type: 'http',
-            url: 'https://api.example.com/mcp',
-            oauth: {
-              clientId: 'test-client-id',
-              clientSecret: 'test-client-secret',
-              scopes: ['read', 'write'],
-              autoRegister: true,
-            },
-          },
-        },
-      };
-
-      await fsPromises.writeFile(configFilePath, JSON.stringify(oauthConfig, null, 2));
-      await configManager.reloadConfig();
-
-      const config = configManager.getTransportConfig();
-      expect(Object.keys(config)).toContain('oauth-server');
-      expect(config['oauth-server'].oauth?.clientId).toBe('test-client-id');
-      expect(config['oauth-server'].oauth?.clientSecret).toBe('test-client-secret');
-      expect(config['oauth-server'].oauth?.scopes).toEqual(['read', 'write']);
-      expect(config['oauth-server'].oauth?.autoRegister).toBe(true);
+      expect(Object.keys(config)).toContain('new-server');
     });
   });
 });

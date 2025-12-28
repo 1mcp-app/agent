@@ -1,10 +1,6 @@
 import { createHash } from 'crypto';
 import { EventEmitter } from 'events';
-import fs from 'fs';
-import path from 'path';
 
-import { substituteEnvVarsInConfig } from '@src/config/envProcessor.js';
-import { DEFAULT_CONFIG, getGlobalConfigDir, getGlobalConfigPath } from '@src/constants.js';
 import { AgentConfigManager } from '@src/core/server/agentConfig.js';
 import {
   mcpServerConfigSchema,
@@ -17,48 +13,21 @@ import logger, { debugIf } from '@src/logger/logger.js';
 import { HandlebarsTemplateRenderer } from '@src/template/handlebarsTemplateRenderer.js';
 import type { ContextData } from '@src/types/context.js';
 
-import { ZodError } from 'zod';
+import { z } from 'zod';
 
-/**
- * Configuration change types
- */
-export enum ConfigChangeType {
-  ADDED = 'added',
-  REMOVED = 'removed',
-  MODIFIED = 'modified',
-}
+import { ConfigChangeDetector } from './configChangeDetector.js';
+import { ConfigLoader } from './configLoader.js';
+import { ConfigWatcher } from './configWatcher.js';
+import { TemplateProcessor } from './templateProcessor.js';
+import { CONFIG_EVENTS, ConfigChange, ConfigChangeType } from './types.js';
 
-/**
- * Event constants for better maintainability
- */
-export const CONFIG_EVENTS = {
-  CONFIG_CHANGED: 'configChanged',
-  SERVER_ADDED: 'serverAdded',
-  SERVER_REMOVED: 'serverRemoved',
-  METADATA_UPDATED: 'metadataUpdated',
-  VALIDATION_ERROR: 'validationError',
-} as const;
-
-/**
- * Configuration change information
- */
-export interface ConfigChange {
-  serverName: string;
-  type: ConfigChangeType;
-  fieldsChanged?: string[]; // For detailed tracking if needed
-}
-
-/**
- * Unified configuration manager that handles loading, watching, and detecting changes
- * Replaces McpConfigManager, ConfigReloadService, SelectiveReloadManager, and ChangeAnalyzer
- */
 export class ConfigManager extends EventEmitter {
   private static instance: ConfigManager;
-  private configWatcher: fs.FSWatcher | null = null;
   private transportConfig: Record<string, MCPServerParams> = {};
-  private configFilePath: string;
-  private debounceTimer: ReturnType<typeof setTimeout> | null = null;
-  private lastModified: number = 0;
+  private loader: ConfigLoader;
+  private templateProcessor: TemplateProcessor;
+  private watcher: ConfigWatcher;
+  private changeDetector: ConfigChangeDetector;
 
   // Template processing related properties
   private templateProcessingErrors: string[] = [];
@@ -72,15 +41,14 @@ export class ConfigManager extends EventEmitter {
    */
   private constructor(configFilePath?: string) {
     super();
-    this.configFilePath = configFilePath || getGlobalConfigPath();
-    this.ensureConfigExists();
-    this.loadConfig();
+    this.loader = new ConfigLoader(configFilePath);
+    this.templateProcessor = new TemplateProcessor();
+    this.watcher = new ConfigWatcher(this.loader.getConfigFilePath(), this.loader);
+    this.changeDetector = new ConfigChangeDetector();
+
+    this.setupWatcherEvents();
   }
 
-  /**
-   * Get the singleton instance of ConfigManager
-   * @param configFilePath - Optional path to the config file
-   */
   public static getInstance(configFilePath?: string): ConfigManager {
     if (!ConfigManager.instance) {
       ConfigManager.instance = new ConfigManager(configFilePath);
@@ -88,147 +56,42 @@ export class ConfigManager extends EventEmitter {
     return ConfigManager.instance;
   }
 
-  /**
-   * Initialize the config manager (start watching if enabled)
-   */
-  public async initialize(): Promise<void> {
-    this.startWatching();
-    logger.info('ConfigManager initialized');
+  private setupWatcherEvents(): void {
+    this.watcher.on('reload', () => {
+      this.handleConfigChange().catch((error) => {
+        logger.error(`Error handling config change: ${error}`);
+      });
+    });
   }
 
-  /**
-   * Stop the config manager and clean up resources
-   */
+  public async initialize(): Promise<void> {
+    try {
+      this.loadConfig();
+      this.watcher.startWatching();
+      logger.info('ConfigManager initialized');
+    } catch (error) {
+      const errorMsg = `Failed to initialize ConfigManager: ${error instanceof Error ? error.message : String(error)}`;
+      logger.error(errorMsg);
+      throw new Error(errorMsg);
+    }
+  }
+
   public async stop(): Promise<void> {
-    this.stopWatching();
+    this.watcher.stopWatching();
     logger.info('ConfigManager stopped');
   }
-
-  /**
-   * Ensure the config directory and file exist
-   */
-  private ensureConfigExists(): void {
-    try {
-      const configDir = getGlobalConfigDir();
-      if (!fs.existsSync(configDir)) {
-        fs.mkdirSync(configDir, { recursive: true });
-        logger.info(`Created config directory: ${configDir}`);
-      }
-
-      if (!fs.existsSync(this.configFilePath)) {
-        fs.writeFileSync(this.configFilePath, JSON.stringify(DEFAULT_CONFIG, null, 2));
-        logger.info(`Created default config file: ${this.configFilePath}`);
-      }
-    } catch (error) {
-      logger.error(`Failed to ensure config exists: ${error instanceof Error ? error.message : String(error)}`);
-      throw error;
-    }
-  }
-
-  /**
-   * Load the raw configuration from the config file
-   */
-  private loadRawConfig(): unknown {
-    try {
-      const stats = fs.statSync(this.configFilePath);
-      this.lastModified = stats.mtime.getTime();
-
-      const rawConfigData = fs.readFileSync(this.configFilePath, 'utf8');
-      return JSON.parse(rawConfigData);
-    } catch (error) {
-      logger.error(`Failed to load configuration: ${error instanceof Error ? error.message : String(error)}`);
-      throw error;
-    }
-  }
-
-  /**
-   * Load configuration with environment variable substitution
-   */
-  private validateServerConfig(serverName: string, config: unknown): MCPServerParams {
-    try {
-      return transportConfigSchema.parse(config);
-    } catch (error) {
-      if (error instanceof ZodError) {
-        const fieldErrors = error.issues.map((e) => `${e.path.join('.')}: ${e.message}`).join(', ');
-        throw new Error(`Invalid configuration for server '${serverName}': ${fieldErrors}`);
-      }
-      throw new Error(
-        `Invalid configuration for server '${serverName}': ${error instanceof Error ? error.message : String(error)}`,
-      );
-    }
-  }
-
-  private loadConfigWithEnvSubstitution(): Record<string, MCPServerParams> {
-    const rawConfig = this.loadRawConfig();
-
-    // Apply environment variable substitution if enabled
-    const agentConfig = AgentConfigManager.getInstance();
-    const features = agentConfig.get('features');
-
-    const processedConfig = features.envSubstitution ? substituteEnvVarsInConfig(rawConfig) : rawConfig;
-
-    // Type guard to ensure processedConfig has proper structure
-    if (!processedConfig || typeof processedConfig !== 'object') {
-      logger.error('Invalid configuration format');
-      return {};
-    }
-
-    const configObj = processedConfig as Record<string, unknown>;
-    const mcpServersConfig = (configObj.mcpServers as Record<string, unknown>) || {};
-    const mcpTemplatesConfig = (configObj.mcpTemplates as Record<string, unknown>) || {};
-
-    // Get template server names for conflict detection
-    const templateServerNames = new Set(Object.keys(mcpTemplatesConfig));
-
-    // Validate each server configuration
-    const validatedConfig: Record<string, MCPServerParams> = {};
-    for (const [serverName, serverConfig] of Object.entries(mcpServersConfig)) {
-      try {
-        validatedConfig[serverName] = this.validateServerConfig(serverName, serverConfig);
-        debugIf(() => ({
-          message: `Validated configuration for server: ${serverName}`,
-          meta: { serverName },
-        }));
-      } catch (error) {
-        logger.error(`Configuration validation failed: ${error instanceof Error ? error.message : String(error)}`);
-        // Skip invalid server configurations
-        continue;
-      }
-    }
-
-    // Filter out static servers that conflict with template servers
-    // Template servers take precedence
-    const conflictingServers: string[] = [];
-    for (const serverName of Object.keys(validatedConfig)) {
-      if (templateServerNames.has(serverName)) {
-        conflictingServers.push(serverName);
-        delete validatedConfig[serverName];
-      }
-    }
-
-    if (conflictingServers.length > 0) {
-      logger.warn(
-        `Ignoring ${conflictingServers.length} static server(s) that conflict with template servers: ${conflictingServers.join(', ')}`,
-      );
-    }
-
-    return validatedConfig;
-  }
-
-  /**
-   * Load the configuration from the config file
-   */
   private loadConfig(): void {
     try {
-      this.transportConfig = this.loadConfigWithEnvSubstitution();
+      this.transportConfig = this.loader.loadConfigWithEnvSubstitution();
 
       const agentConfig = AgentConfigManager.getInstance();
       const features = agentConfig.get('features');
       const substitutionStatus = features.envSubstitution ? 'with' : 'without';
       logger.info(`Configuration loaded successfully ${substitutionStatus} environment variable substitution`);
     } catch (error) {
-      logger.error(`Failed to load configuration: ${error instanceof Error ? error.message : String(error)}`);
-      this.transportConfig = {};
+      const errorMsg = `Failed to load configuration: ${error instanceof Error ? error.message : String(error)}`;
+      logger.error(errorMsg);
+      throw new Error(errorMsg);
     }
   }
 
@@ -409,202 +272,42 @@ export class ConfigManager extends EventEmitter {
   }
 
   /**
-   * Check if reload is enabled via feature flag
+   * Validate server configuration
+   * @param serverName - Name of the server
+   * @param config - Server configuration to validate
+   * @returns Validated server configuration
    */
-  public isReloadEnabled(): boolean {
-    const agentConfig = AgentConfigManager.getInstance();
-    return agentConfig.get('features').configReload;
-  }
-
-  /**
-   * Check if the configuration file has been modified
-   */
-  private checkFileModified(): boolean {
+  private validateServerConfig(serverName: string, config: unknown): MCPServerParams {
     try {
-      const stats = fs.statSync(this.configFilePath);
-      const currentModified = stats.mtime.getTime();
-
-      if (currentModified !== this.lastModified) {
-        this.lastModified = currentModified;
-        return true;
+      return transportConfigSchema.parse(config);
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        const fieldErrors = error.issues.map((e) => `${e.path.join('.')}: ${e.message}`).join(', ');
+        throw new Error(`Invalid configuration for server '${serverName}': ${fieldErrors}`);
       }
-
-      return false;
-    } catch (error) {
-      logger.error(`Failed to check file modification time: ${error instanceof Error ? error.message : String(error)}`);
-      return false;
-    }
-  }
-
-  /**
-   * Start watching the configuration file for changes
-   */
-  public startWatching(): void {
-    // Check if config reload is enabled
-    if (!this.isReloadEnabled()) {
-      logger.info('Configuration hot-reload is disabled, skipping file watcher setup');
-      return;
-    }
-
-    if (this.configWatcher) {
-      return;
-    }
-
-    try {
-      const configDir = path.dirname(this.configFilePath);
-      const configFileName = path.basename(this.configFilePath);
-
-      // Watch the directory instead of the file to handle atomic operations like vim's :x
-      this.configWatcher = fs.watch(configDir, (eventType: fs.WatchEventType, filename: string | null) => {
-        debugIf(() => ({
-          message: 'Directory change detected',
-          meta: { eventType, filename, configDir, configFileName },
-        }));
-
-        // Check if the change is related to our config file
-        const isConfigFileEvent =
-          filename === configFileName ||
-          (filename && filename.startsWith(configFileName)) ||
-          (eventType === 'rename' && filename && filename.includes(path.parse(configFileName).name));
-
-        if (isConfigFileEvent) {
-          debugIf(() => ({
-            message: 'Configuration file change detected, debouncing reload',
-            meta: { eventType, filename, isConfigFileEvent },
-          }));
-          this.debouncedReloadConfig();
-        } else {
-          // For events that don't match our criteria, still check if file was modified
-          if (this.checkFileModified()) {
-            debugIf(() => ({
-              message: 'File was modified but event did not match criteria, debouncing reload anyway',
-              meta: { eventType, filename, configFileName },
-            }));
-            this.debouncedReloadConfig();
-          }
-        }
-      });
-      logger.info(`Started watching configuration directory: ${configDir} for file: ${configFileName}`);
-    } catch (error) {
-      logger.error(
-        `Failed to start watching configuration file: ${error instanceof Error ? error.message : String(error)}`,
+      throw new Error(
+        `Invalid configuration for server '${serverName}': ${error instanceof Error ? error.message : String(error)}`,
       );
     }
   }
 
   /**
-   * Stop watching the configuration file
+   * Load raw configuration from file
+   * @returns Parsed raw configuration
    */
-  public stopWatching(): void {
-    if (this.configWatcher) {
-      this.configWatcher.close();
-      this.configWatcher = null;
-      logger.info('Stopped watching configuration file');
-    }
-
-    // Clear any pending debounce timer
-    if (this.debounceTimer) {
-      clearTimeout(this.debounceTimer);
-      this.debounceTimer = null;
-    }
+  private loadRawConfig(): unknown {
+    const rawConfig = this.loader.loadRawConfig();
+    return rawConfig;
   }
 
   /**
-   * Debounced configuration reload to prevent excessive reloading
+   * Check if reload is enabled via feature flag
    */
-  private debouncedReloadConfig(): void {
-    // Clear existing timer
-    if (this.debounceTimer) {
-      clearTimeout(this.debounceTimer);
-    }
-
-    // Get debounce delay from config
-    const agentConfig = AgentConfigManager.getInstance();
-    const configReload = agentConfig.get('configReload');
-    const debounceDelayMs = configReload.debounceMs;
-
-    // Set new timer
-    this.debounceTimer = setTimeout(() => {
-      logger.info('Debounce period completed, reloading configuration...');
-      this.handleConfigChange();
-      this.debounceTimer = null;
-    }, debounceDelayMs);
+  public isReloadEnabled(): boolean {
+    return this.loader.isReloadEnabled();
   }
 
-  /**
-   * Simple deep equality check for objects
-   */
-  private deepEqual(obj1: unknown, obj2: unknown): boolean {
-    if (obj1 === obj2) return true;
-    if (obj1 == null || obj2 == null) return false;
-    return JSON.stringify(obj1) === JSON.stringify(obj2);
-  }
-
-  /**
-   * Get the fields that changed between two configurations
-   */
-  private getChangedFields(oldConfig: MCPServerParams, newConfig: MCPServerParams): string[] {
-    const changed: string[] = [];
-
-    for (const key of Object.keys(newConfig) as (keyof MCPServerParams)[]) {
-      if (!(key in oldConfig) || !this.deepEqual(oldConfig[key], newConfig[key])) {
-        changed.push(key);
-      }
-    }
-
-    return changed;
-  }
-
-  /**
-   * Detect changes between old and new configurations
-   */
-  private detectChanges(
-    oldConfig: Record<string, MCPServerParams>,
-    newConfig: Record<string, MCPServerParams>,
-  ): ConfigChange[] {
-    const changes: ConfigChange[] = [];
-    const oldKeys = new Set(Object.keys(oldConfig));
-    const newKeys = new Set(Object.keys(newConfig));
-
-    // Added servers
-    for (const name of newKeys) {
-      if (!oldKeys.has(name)) {
-        changes.push({ serverName: name, type: ConfigChangeType.ADDED });
-      }
-    }
-
-    // Removed servers
-    for (const name of oldKeys) {
-      if (!newKeys.has(name)) {
-        changes.push({ serverName: name, type: ConfigChangeType.REMOVED });
-      }
-    }
-
-    // Modified servers
-    for (const name of newKeys) {
-      if (oldKeys.has(name)) {
-        const oldServer = oldConfig[name];
-        const newServer = newConfig[name];
-
-        if (!this.deepEqual(oldServer, newServer)) {
-          const fieldsChanged = this.getChangedFields(oldServer, newServer);
-          changes.push({
-            serverName: name,
-            type: ConfigChangeType.MODIFIED,
-            fieldsChanged,
-          });
-        }
-      }
-    }
-
-    return changes;
-  }
-
-  /**
-   * Handle configuration changes
-   */
   private async handleConfigChange(): Promise<void> {
-    // Check if reload is enabled via feature flag
     if (!this.isReloadEnabled()) {
       logger.info('Configuration hot-reload is disabled, ignoring file changes');
       return;
@@ -614,27 +317,21 @@ export class ConfigManager extends EventEmitter {
     let newConfig: Record<string, MCPServerParams>;
 
     try {
-      newConfig = this.loadConfigWithEnvSubstitution();
+      newConfig = this.loader.loadConfigWithEnvSubstitution();
     } catch (error) {
       logger.error(
         `Failed to load or validate configuration: ${error instanceof Error ? error.message : String(error)}`,
       );
-      // Emit validation error event for possible UI handling
       this.emit(CONFIG_EVENTS.VALIDATION_ERROR, error);
       return;
     }
 
-    const changes = this.detectChanges(oldConfig, newConfig);
-
-    // Update the transport config BEFORE emitting events so handlers get the latest config
+    const changes = this.changeDetector.detectChanges(oldConfig, newConfig);
     this.transportConfig = newConfig;
 
-    // Let business logic determine what to do with the changes
-    // ConfigManager only detects changes and reports them
     logger.info(`Detected ${changes.length} configuration changes`);
     this.emit(CONFIG_EVENTS.CONFIG_CHANGED, changes);
 
-    // Also emit specific events for easier handling
     for (const change of changes) {
       switch (change.type) {
         case ConfigChangeType.ADDED:
@@ -643,47 +340,24 @@ export class ConfigManager extends EventEmitter {
         case ConfigChangeType.REMOVED:
           this.emit(CONFIG_EVENTS.SERVER_REMOVED, change.serverName);
           break;
-        case ConfigChangeType.MODIFIED:
-          // Business logic will determine if this requires restart or just metadata update
-          break;
       }
     }
   }
 
-  /**
-   * Reload the configuration from the config file
-   */
   public async reloadConfig(): Promise<void> {
     await this.handleConfigChange();
   }
 
-  /**
-   * Get the current transport configuration
-   */
   public getTransportConfig(): Record<string, MCPServerParams> {
-    return { ...this.transportConfig };
+    return this.loader.getTransportConfig(this.transportConfig);
   }
 
-  /**
-   * Get all available tags from the configured servers
-   */
   public getAvailableTags(): string[] {
-    const tags = new Set<string>();
-
-    for (const [_serverName, serverParams] of Object.entries(this.transportConfig)) {
-      // Skip disabled servers
-      if (serverParams.disabled) {
-        continue;
-      }
-
-      // Add tags from server configuration
-      if (serverParams.tags && Array.isArray(serverParams.tags)) {
-        serverParams.tags.forEach((tag) => tags.add(tag));
-      }
-    }
-
-    return Array.from(tags).sort();
+    return this.loader.getAvailableTags(this.transportConfig);
   }
 }
+
+export type { ConfigChange };
+export { ConfigChangeType, CONFIG_EVENTS };
 
 export default ConfigManager;

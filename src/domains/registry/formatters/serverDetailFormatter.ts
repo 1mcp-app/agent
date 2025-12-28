@@ -5,6 +5,7 @@ import {
   ServerPackage,
   Transport,
 } from '@src/domains/registry/types.js';
+import printer from '@src/utils/ui/printer.js';
 
 import boxen from 'boxen';
 import chalk from 'chalk';
@@ -72,7 +73,13 @@ function formatTableServer(server: RegistryServer): string {
   basicInfo['Registry ID'] = server.name || 'N/A';
 
   let result = '\nServer Details:\n';
-  console.table([basicInfo]);
+
+  // Use printer.table() for basic info
+  printer.table({
+    columns: Object.keys(basicInfo).map((name) => ({ name })),
+    rows: [basicInfo],
+    title: 'Server Details',
+  });
 
   // Add packages table if available
   if (packages.length > 0) {
@@ -84,10 +91,26 @@ function formatTableServer(server: RegistryServer): string {
       Version: pkg.version || server.version,
       Transport: formatDetailTransport(pkg.transport) || 'stdio',
       Runtime: pkg.runtimeHint || 'N/A',
-      'Env Vars': (pkg.environmentVariables?.length || 0) > 0 ? pkg.environmentVariables?.length : 'None',
-      Args: (pkg.packageArguments?.length || 0) + (pkg.runtimeArguments?.length || 0) || 'None',
+      'Env Vars': (pkg.environmentVariables?.length ?? 0) > 0 ? String(pkg.environmentVariables?.length ?? 0) : 'None',
+      Args:
+        (pkg.packageArguments?.length ?? 0) + (pkg.runtimeArguments?.length ?? 0) > 0
+          ? String((pkg.packageArguments?.length ?? 0) + (pkg.runtimeArguments?.length ?? 0))
+          : 'None',
     }));
-    console.table(packageData);
+    printer.table({
+      columns: [
+        { name: 'Index' },
+        { name: 'Registry Type' },
+        { name: 'Identifier' },
+        { name: 'Version' },
+        { name: 'Transport' },
+        { name: 'Runtime' },
+        { name: 'Env Vars' },
+        { name: 'Args' },
+      ],
+      rows: packageData,
+      title: 'Packages',
+    });
   }
 
   // Add environment variables table if available
@@ -102,7 +125,18 @@ function formatTableServer(server: RegistryServer): string {
       Default: envVar.default || 'N/A',
       Description: envVar.description || 'N/A',
     }));
-    console.table(envVarData);
+    printer.table({
+      columns: [
+        { name: 'Index' },
+        { name: 'Name' },
+        { name: 'Required' },
+        { name: 'Secret' },
+        { name: 'Default' },
+        { name: 'Description' },
+      ],
+      rows: envVarData,
+      title: 'Environment Variables',
+    });
   }
 
   // Add arguments table if available
@@ -122,7 +156,20 @@ function formatTableServer(server: RegistryServer): string {
       Default: arg.default || 'N/A',
       Description: arg.description || 'N/A',
     }));
-    console.table(argData);
+    printer.table({
+      columns: [
+        { name: 'Index' },
+        { name: 'Name' },
+        { name: 'Type' },
+        { name: 'Required' },
+        { name: 'Secret' },
+        { name: 'Repeated' },
+        { name: 'Default' },
+        { name: 'Description' },
+      ],
+      rows: argData,
+      title: 'Arguments',
+    });
   }
 
   // Add remotes table if available
@@ -132,9 +179,13 @@ function formatTableServer(server: RegistryServer): string {
       Index: index + 1,
       Type: remote.type,
       URL: remote.url,
-      Headers: (remote.headers?.length || 0) > 0 ? remote.headers?.length : 'None',
+      Headers: (remote.headers?.length ?? 0) > 0 ? String(remote.headers?.length ?? 0) : 'None',
     }));
-    console.table(remoteData);
+    printer.table({
+      columns: [{ name: 'Index' }, { name: 'Type' }, { name: 'URL' }, { name: 'Headers' }],
+      rows: remoteData,
+      title: 'Remote Endpoints',
+    });
   }
 
   return result;

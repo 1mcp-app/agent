@@ -5,6 +5,14 @@
 import { TagQuery } from '@src/domains/preset/types/presetTypes.js';
 
 /**
+ * Validation result for tag queries
+ */
+export interface QueryValidationResult {
+  isValid: boolean;
+  errors: string[];
+}
+
+/**
  * Three-state tag selection states
  */
 export type TagState = 'empty' | 'selected' | 'not-selected';
@@ -180,7 +188,7 @@ export class TagQueryEvaluator {
   /**
    * Validate JSON query structure
    */
-  public static validateQuery(query: TagQuery): { isValid: boolean; errors: string[] } {
+  public static validateQuery(query: TagQuery): QueryValidationResult {
     const errors: string[] = [];
 
     if (!query || typeof query !== 'object') {

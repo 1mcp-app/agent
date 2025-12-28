@@ -1,12 +1,25 @@
 import { ServerVersionsResponse } from '@src/domains/registry/types.js';
+import printer from '@src/utils/ui/printer.js';
 
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { formatServerVersions } from './versionsFormatter.js';
 
-// Mock console.table to capture table output
-const mockConsoleTable = vi.fn();
-vi.stubGlobal('console', { ...console, table: mockConsoleTable });
+// Mock printer
+vi.mock('@src/utils/ui/printer.js', () => ({
+  default: {
+    table: vi.fn(),
+    raw: vi.fn(),
+    blank: vi.fn(),
+    title: vi.fn(),
+    info: vi.fn(),
+    warn: vi.fn(),
+    error: vi.fn(),
+    success: vi.fn(),
+    subtitle: vi.fn(),
+    keyValue: vi.fn(),
+  },
+}));
 
 // Mock chalk to capture color formatting
 vi.mock('chalk', () => {
@@ -104,12 +117,12 @@ describe('versionsFormatter', () => {
       const result = formatServerVersions(mockVersionsResponse);
 
       expect(result).toContain('Versions for test-server (4 total):');
-      expect(mockConsoleTable).toHaveBeenCalledTimes(1);
+      expect(printer.table).toHaveBeenCalledTimes(1);
 
       // Check that the table was called with proper data
-      const tableData = mockConsoleTable.mock.calls[0][0];
-      expect(tableData).toHaveLength(4);
-      expect(tableData[0]).toEqual({
+      const tableCall = (printer.table as any).mock.calls[0][0];
+      expect(tableCall.rows).toHaveLength(4);
+      expect(tableCall.rows[0]).toEqual({
         Version: '1.2.0',
         Status: 'active',
         Latest: 'Yes',
@@ -122,7 +135,7 @@ describe('versionsFormatter', () => {
       const result = formatServerVersions(mockVersionsResponse, 'table');
 
       expect(result).toContain('Versions for test-server (4 total):');
-      expect(mockConsoleTable).toHaveBeenCalledTimes(1);
+      expect(printer.table).toHaveBeenCalledTimes(1);
     });
 
     it('should format versions in detailed format', () => {
@@ -186,20 +199,20 @@ describe('versionsFormatter', () => {
 
       formatServerVersions(unsortedVersionsResponse, 'table');
 
-      const tableData = mockConsoleTable.mock.calls[0][0];
-      expect(tableData[0].Version).toBe('1.2.0'); // Newest first
-      expect(tableData[1].Version).toBe('1.1.0');
-      expect(tableData[2].Version).toBe('1.0.0'); // Oldest last
+      const tableCall = (printer.table as any).mock.calls[0][0];
+      expect(tableCall.rows[0].Version).toBe('1.2.0'); // Newest first
+      expect(tableCall.rows[1].Version).toBe('1.1.0');
+      expect(tableCall.rows[2].Version).toBe('1.0.0'); // Oldest last
     });
 
     it('should show "Yes" for latest version and "No" for others', () => {
       formatServerVersions(mockVersionsResponse, 'table');
 
-      const tableData = mockConsoleTable.mock.calls[0][0];
-      expect(tableData[0].Latest).toBe('Yes'); // 1.2.0
-      expect(tableData[1].Latest).toBe('No'); // 1.1.0
-      expect(tableData[2].Latest).toBe('No'); // 1.0.0
-      expect(tableData[3].Latest).toBe('No'); // 0.9.0
+      const tableCall = (printer.table as any).mock.calls[0][0];
+      expect(tableCall.rows[0].Latest).toBe('Yes'); // 1.2.0
+      expect(tableCall.rows[1].Latest).toBe('No'); // 1.1.0
+      expect(tableCall.rows[2].Latest).toBe('No'); // 1.0.0
+      expect(tableCall.rows[3].Latest).toBe('No'); // 0.9.0
     });
 
     it('should handle versions with same published and updated dates', () => {

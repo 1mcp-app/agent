@@ -3,6 +3,7 @@ import readline from 'readline';
 import { findBackupByMetaPath, listAppBackups, rollbackFromBackupPath } from '@src/domains/backup/backupManager.js';
 import { getAppPreset, isAppSupported } from '@src/domains/discovery/appPresets.js';
 import { GlobalOptions } from '@src/globalOptions.js';
+import printer from '@src/utils/ui/printer.js';
 
 import type { Argv } from 'yargs';
 
@@ -94,7 +95,8 @@ EXAMPLE WORKFLOW:
  * Main restore command handler
  */
 export async function restoreCommand(options: RestoreOptions): Promise<void> {
-  console.log('🔄 Starting MCP configuration restoration...\n');
+  printer.info('Starting MCP configuration restoration...');
+  printer.blank();
 
   // List mode
   if (options.list) {
@@ -121,12 +123,13 @@ export async function restoreCommand(options: RestoreOptions): Promise<void> {
   }
 
   // No specific action - show available options
-  console.log('❓ Please specify what to restore:');
-  console.log('   --list                     List available backups');
-  console.log('   --all                      Restore all backed up apps');
-  console.log('   --backup <path>            Restore from specific backup file');
-  console.log('   <app-name>                 Restore specific app');
-  console.log('\nUse --help for more options.');
+  printer.info('Please specify what to restore:');
+  printer.info('   --list                     List available backups');
+  printer.info('   --all                      Restore all backed up apps');
+  printer.info('   --backup <path>            Restore from specific backup file');
+  printer.info('   <app-name>                 Restore specific app');
+  printer.blank();
+  printer.info('Use --help for more options.');
 }
 
 /**
@@ -137,18 +140,19 @@ async function listBackups(appName?: string): Promise<void> {
 
   if (backups.length === 0) {
     if (appName) {
-      console.log(`📭 No backups found for ${appName}.`);
+      printer.info(`No backups found for ${appName}.`);
     } else {
-      console.log('📭 No backups found.');
+      printer.info('No backups found.');
     }
-    console.log('\n💡 Backups are created automatically during consolidation.');
+    printer.blank();
+    printer.info('Backups are created automatically during consolidation.');
     return;
   }
 
   if (appName) {
-    console.log(`📋 Available backups for ${getAppPreset(appName)?.displayName || appName}:\n`);
+    printer.title(`Available backups for ${getAppPreset(appName)?.displayName || appName}:`);
   } else {
-    console.log('📋 Available backups:\n');
+    printer.title('Available backups:');
   }
 
   // Group by app
@@ -165,21 +169,22 @@ async function listBackups(appName?: string): Promise<void> {
 
   Object.entries(groupedBackups).forEach(([app, appBackups]) => {
     const preset = getAppPreset(app);
-    console.log(`📱 ${preset?.displayName || app} (${app}):`);
+    printer.raw(`📱 ${preset?.displayName || app} (${app}):`);
 
     appBackups.forEach((backup) => {
-      console.log(`   🕐 ${backup.age} - ${backup.operation} operation`);
-      console.log(`      📁 ${backup.backupPath}`);
-      console.log(`      🔧 ${backup.serverCount} servers backed up`);
-      console.log();
+      printer.raw(`   🕐 ${backup.age} - ${backup.operation} operation`);
+      printer.raw(`      📁 ${backup.backupPath}`);
+      printer.raw(`      🔧 ${backup.serverCount} servers backed up`);
+      printer.blank();
     });
   });
 
-  console.log(`📊 Total: ${backups.length} backups available`);
+  printer.info(`Total: ${backups.length} backups available`);
 
-  console.log('\n💡 To restore:');
-  console.log('   npx @1mcp/agent app restore <app-name>');
-  console.log('   npx @1mcp/agent app restore --backup <backup-file.meta>');
+  printer.blank();
+  printer.info('To restore:');
+  printer.info('   npx @1mcp/agent app restore <app-name>');
+  printer.info('   npx @1mcp/agent app restore --backup <backup-file.meta>');
 }
 
 /**
@@ -190,20 +195,21 @@ async function restoreFromBackupFile(backupPath: string, options: RestoreOptions
     const backupInfo = findBackupByMetaPath(backupPath);
 
     if (!backupInfo) {
-      console.error(`❌ Backup metadata not found or invalid: ${backupPath}`);
+      printer.error(`Backup metadata not found or invalid: ${backupPath}`);
       process.exit(1);
     }
 
-    console.log(`🔄 Restoring from backup: ${backupPath}`);
-    console.log(`📱 App: ${getAppPreset(backupInfo.metadata.app)?.displayName || backupInfo.metadata.app}`);
-    console.log(`📁 Original path: ${backupInfo.originalPath}`);
-    console.log(`🕐 Created: ${new Date(backupInfo.timestamp).toLocaleString()}`);
-    console.log(`🔧 Servers: ${backupInfo.metadata.serverCount}`);
+    printer.info(`Restoring from backup: ${backupPath}`);
+    printer.info(`App: ${getAppPreset(backupInfo.metadata.app)?.displayName || backupInfo.metadata.app}`);
+    printer.info(`Original path: ${backupInfo.originalPath}`);
+    printer.info(`Created: ${new Date(backupInfo.timestamp).toLocaleString()}`);
+    printer.info(`Servers: ${backupInfo.metadata.serverCount}`);
 
     // Dry run
     if (options['dry-run']) {
-      console.log('\n📋 Dry Run - would restore configuration to:');
-      console.log(`   ${backupInfo.originalPath}`);
+      printer.blank();
+      printer.info('Dry Run - would restore configuration to:');
+      printer.info(`   ${backupInfo.originalPath}`);
       return;
     }
 
@@ -211,7 +217,7 @@ async function restoreFromBackupFile(backupPath: string, options: RestoreOptions
     if (!options.yes) {
       const confirmed = await confirmRestore();
       if (!confirmed) {
-        console.log('⏭️ Restore cancelled by user.');
+        printer.info('Restore cancelled by user.');
         return;
       }
     }
@@ -219,13 +225,13 @@ async function restoreFromBackupFile(backupPath: string, options: RestoreOptions
     // Perform restore
     await rollbackFromBackupPath(backupPath);
 
-    console.log(
-      `✅ Successfully restored ${getAppPreset(backupInfo.metadata.app)?.displayName || backupInfo.metadata.app}`,
+    printer.success(
+      `Successfully restored ${getAppPreset(backupInfo.metadata.app)?.displayName || backupInfo.metadata.app}`,
     );
-    console.log('🔄 Restart the application to use the restored configuration.');
+    printer.info('Restart the application to use the restored configuration.');
   } catch (error: unknown) {
     const errorMessage = error instanceof Error ? error.message : String(error);
-    console.error(`❌ Restore failed: ${errorMessage}`);
+    printer.error(`Restore failed: ${errorMessage}`);
     process.exit(1);
   }
 }
@@ -237,7 +243,7 @@ async function restoreAllApps(options: RestoreOptions): Promise<void> {
   const backups = listAppBackups();
 
   if (backups.length === 0) {
-    console.log('📭 No backups found to restore.');
+    printer.info('No backups found to restore.');
     return;
   }
 
@@ -253,32 +259,32 @@ async function restoreAllApps(options: RestoreOptions): Promise<void> {
   );
 
   const appsToRestore = Object.keys(latestBackups);
-  console.log(`🔄 Found backups for ${appsToRestore.length} applications:`);
+  printer.info(`Found backups for ${appsToRestore.length} applications:`);
   appsToRestore.forEach((app) => {
     const preset = getAppPreset(app);
-    console.log(`   📱 ${preset?.displayName || app}`);
+    printer.raw(`   📱 ${preset?.displayName || app}`);
   });
 
   // Confirmation
   if (!options.yes && !options['dry-run']) {
     const confirmed = await confirmRestore();
     if (!confirmed) {
-      console.log('⏭️ Restore cancelled by user.');
+      printer.info('Restore cancelled by user.');
       return;
     }
   }
 
-  console.log();
+  printer.blank();
   const results: RestoreResult[] = [];
 
   // Restore each app
   for (const app of appsToRestore) {
     const backup = latestBackups[app];
-    console.log(`🔄 Restoring ${getAppPreset(app)?.displayName || app}...`);
+    printer.info(`Restoring ${getAppPreset(app)?.displayName || app}...`);
 
     try {
       if (options['dry-run']) {
-        console.log(`   📋 Would restore from: ${backup.backupPath}`);
+        printer.info(`   Would restore from: ${backup.backupPath}`);
         results.push({
           app,
           status: 'success',
@@ -286,7 +292,7 @@ async function restoreAllApps(options: RestoreOptions): Promise<void> {
         });
       } else {
         await rollbackFromBackupPath(backup.backupPath);
-        console.log(`   ✅ Restored successfully`);
+        printer.success(`   Restored successfully`);
         results.push({
           app,
           status: 'success',
@@ -296,7 +302,7 @@ async function restoreAllApps(options: RestoreOptions): Promise<void> {
       }
     } catch (error: unknown) {
       const errorMessage = error instanceof Error ? error.message : String(error);
-      console.error(`   ❌ Failed: ${errorMessage}`);
+      printer.error(`Failed: ${errorMessage}`);
       results.push({
         app,
         status: 'failed',
@@ -306,19 +312,21 @@ async function restoreAllApps(options: RestoreOptions): Promise<void> {
   }
 
   // Summary
-  console.log('\n' + '='.repeat(60));
-  console.log('📊 Restore Summary:');
+  printer.blank();
+  printer.raw('='.repeat(60));
+  printer.title('Restore Summary:');
 
   const successful = results.filter((r) => r.status === 'success');
   const failed = results.filter((r) => r.status === 'failed');
 
-  console.log(`✅ Successful: ${successful.length}`);
-  console.log(`❌ Failed: ${failed.length}`);
+  printer.success(`Successful: ${successful.length}`);
+  printer.error(`Failed: ${failed.length}`);
 
   if (successful.length > 0 && !options['dry-run']) {
-    console.log('\n🔄 Restart the following applications to use restored configurations:');
+    printer.blank();
+    printer.info('Restart the following applications to use restored configurations:');
     successful.forEach((result) => {
-      console.log(`   - ${getAppPreset(result.app)?.displayName || result.app}`);
+      printer.raw(`   - ${getAppPreset(result.app)?.displayName || result.app}`);
     });
   }
 
@@ -332,30 +340,32 @@ async function restoreAllApps(options: RestoreOptions): Promise<void> {
  */
 async function restoreSpecificApp(appName: string, options: RestoreOptions): Promise<void> {
   if (!isAppSupported(appName)) {
-    console.error(`❌ Unsupported application: ${appName}`);
-    console.log('Use "npx @1mcp/agent app list" to see supported applications.');
+    printer.error(`Unsupported application: ${appName}`);
+    printer.info('Use "npx @1mcp/agent app list" to see supported applications.');
     process.exit(1);
   }
 
   const backups = listAppBackups(appName);
 
   if (backups.length === 0) {
-    console.log(`📭 No backups found for ${getAppPreset(appName)?.displayName || appName}.`);
-    console.log('\n💡 Backups are created automatically during consolidation.');
+    printer.info(`No backups found for ${getAppPreset(appName)?.displayName || appName}.`);
+    printer.blank();
+    printer.info('Backups are created automatically during consolidation.');
     return;
   }
 
   // Use most recent backup
   const latestBackup = backups[0]; // Already sorted by timestamp descending
 
-  console.log(`🔄 Restoring ${getAppPreset(appName)?.displayName || appName}...`);
-  console.log(`📁 Backup: ${latestBackup.backupPath}`);
-  console.log(`🕐 Created: ${latestBackup.age}`);
-  console.log(`🔧 Servers: ${latestBackup.serverCount}`);
+  printer.info(`Restoring ${getAppPreset(appName)?.displayName || appName}...`);
+  printer.info(`Backup: ${latestBackup.backupPath}`);
+  printer.info(`Created: ${latestBackup.age}`);
+  printer.info(`Servers: ${latestBackup.serverCount}`);
 
   // Dry run
   if (options['dry-run']) {
-    console.log('\n📋 Dry Run - would restore configuration.');
+    printer.blank();
+    printer.info('Dry Run - would restore configuration.');
     return;
   }
 
@@ -363,7 +373,7 @@ async function restoreSpecificApp(appName: string, options: RestoreOptions): Pro
   if (!options.yes) {
     const confirmed = await confirmRestore();
     if (!confirmed) {
-      console.log('⏭️ Restore cancelled by user.');
+      printer.info('Restore cancelled by user.');
       return;
     }
   }
@@ -371,16 +381,17 @@ async function restoreSpecificApp(appName: string, options: RestoreOptions): Pro
   try {
     await rollbackFromBackupPath(latestBackup.backupPath);
 
-    console.log(`✅ Successfully restored ${getAppPreset(appName)?.displayName || appName}`);
-    console.log('🔄 Restart the application to use the restored configuration.');
+    printer.success(`Successfully restored ${getAppPreset(appName)?.displayName || appName}`);
+    printer.info('Restart the application to use the restored configuration.');
 
     if (!options['keep-in-1mcp']) {
-      console.log('\n💡 Note: Servers remain in 1mcp configuration.');
-      console.log('   To remove them: npx @1mcp/agent server remove <server-name>');
+      printer.blank();
+      printer.info('Note: Servers remain in 1mcp configuration.');
+      printer.info('   To remove them: npx @1mcp/agent server remove <server-name>');
     }
   } catch (error: unknown) {
     const errorMessage = error instanceof Error ? error.message : String(error);
-    console.error(`❌ Restore failed: ${errorMessage}`);
+    printer.error(`Restore failed: ${errorMessage}`);
     process.exit(1);
   }
 }

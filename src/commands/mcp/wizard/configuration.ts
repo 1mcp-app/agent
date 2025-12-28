@@ -1,4 +1,5 @@
 import { RegistryServer } from '@src/domains/registry/types.js';
+import printer from '@src/utils/ui/printer.js';
 
 import boxen from 'boxen';
 import chalk from 'chalk';
@@ -31,7 +32,7 @@ export async function collectConfiguration(
   console.clear();
   showStepIndicator(3, 5, 'Configure');
 
-  console.log(
+  printer.raw(
     boxen(chalk.magenta.bold(`⚙️  Configure: ${server.name}`), {
       padding: 1,
       borderStyle: 'round',
@@ -188,8 +189,8 @@ export async function configureEnvVars(server: RegistryServer): Promise<Record<s
   }
 
   // Show summary of available env vars
-  console.log(chalk.cyan.bold('\n📋 Available Environment Variables:'));
-  console.log(chalk.gray(`   Found ${envVarMetadata.length} environment variables\n`));
+  printer.raw(chalk.cyan.bold('\n📋 Available Environment Variables:'));
+  printer.raw(chalk.gray(`   Found ${envVarMetadata.length} environment variables\n`));
 
   // Ask if user wants to configure any
   const wantsToConfigure = await prompts({
@@ -247,7 +248,7 @@ export async function configureEnvVars(server: RegistryServer): Promise<Record<s
   }
 
   // Prompt for each selected env var
-  console.log(chalk.cyan.bold('\n📝 Configure Selected Variables:\n'));
+  printer.raw(chalk.cyan.bold('\n📝 Configure Selected Variables:\n'));
   const env: Record<string, string> = {};
 
   for (const key of selectedKeys) {
@@ -270,7 +271,7 @@ export async function configureEnvVars(server: RegistryServer): Promise<Record<s
     if (value) {
       env[envVar.key] = value;
     } else if (envVar.isRequired) {
-      console.log(chalk.yellow(`⚠️  ${envVar.key} is required, using default or empty value`));
+      printer.raw(chalk.yellow(`⚠️  ${envVar.key} is required, using default or empty value`));
       env[envVar.key] = envVar.default || '';
     }
   }
@@ -323,8 +324,8 @@ export async function configureArgs(server: RegistryServer): Promise<string[] | 
   }
 
   // Show summary of available args
-  console.log(chalk.cyan.bold('\n⚙️  Available Runtime Arguments:'));
-  console.log(chalk.gray(`   Found ${argMetadata.length} runtime arguments\n`));
+  printer.raw(chalk.cyan.bold('\n⚙️  Available Runtime Arguments:'));
+  printer.raw(chalk.gray(`   Found ${argMetadata.length} runtime arguments\n`));
 
   // Ask if user wants to configure any
   const wantsToConfigure = await prompts({
@@ -376,7 +377,7 @@ export async function configureArgs(server: RegistryServer): Promise<string[] | 
   }
 
   // Prompt for each selected arg
-  console.log(chalk.cyan.bold('\n📝 Configure Selected Arguments:\n'));
+  printer.raw(chalk.cyan.bold('\n📝 Configure Selected Arguments:\n'));
   const args: string[] = [];
 
   for (const name of selectedNames) {
@@ -411,7 +412,7 @@ export async function configureArgs(server: RegistryServer): Promise<string[] | 
       // Format as name=value for CLI args
       args.push(`${arg.name}=${value}`);
     } else if (arg.isRequired && arg.default) {
-      console.log(chalk.yellow(`⚠️  ${arg.name} is required, using default value`));
+      printer.raw(chalk.yellow(`⚠️  ${arg.name} is required, using default value`));
       args.push(`${arg.name}=${arg.default}`);
     }
   }

@@ -2,6 +2,7 @@ import { MCPServerParams } from '@src/core/types/index.js';
 import { createServerInstallationService } from '@src/domains/server-management/serverInstallationService.js';
 import { GlobalOptions } from '@src/globalOptions.js';
 import { inferTransportType } from '@src/transport/transportFactory.js';
+import printer from '@src/utils/ui/printer.js';
 import {
   redactCommandArgs,
   redactSensitiveValue,
@@ -94,8 +95,9 @@ export async function listCommand(argv: ListCommandArgs): Promise<void> {
     const allServers = getAllServers();
 
     if (Object.keys(allServers).length === 0) {
-      console.log('No MCP servers are configured.');
-      console.log('\n💡 Use "server add <name>" to add your first server.');
+      printer.info('No MCP servers are configured.');
+      printer.blank();
+      printer.info('Use "server add <name>" to add your first server.');
       return;
     }
 
@@ -108,22 +110,23 @@ export async function listCommand(argv: ListCommandArgs): Promise<void> {
 
     if (Object.keys(filteredServers).length === 0) {
       if (tagsFilter) {
-        console.log(`No servers found matching the specified tags: ${tagsFilter}`);
+        printer.warn(`No servers found matching the specified tags: ${tagsFilter}`);
       } else if (!showDisabled) {
-        console.log('No enabled servers found.');
-        console.log(
-          '\n💡 Use --show-disabled to include disabled servers, or "server enable <name>" to enable servers.',
-        );
+        printer.warn('No enabled servers found.');
+        printer.blank();
+        printer.info('Use --show-disabled to include disabled servers, or "server enable <name>" to enable servers.');
       } else {
-        console.log('No servers found.');
+        printer.warn('No servers found.');
       }
       return;
     }
 
     // Display results
-    console.log(
-      `\n📋 MCP Servers (${Object.keys(filteredServers).length} server${Object.keys(filteredServers).length === 1 ? '' : 's'}):\n`,
-    );
+    const serverCount = Object.keys(filteredServers).length;
+    printer
+      .blank()
+      .title(`MCP Servers (${serverCount} server${serverCount === 1 ? '' : 's'})`)
+      .blank();
 
     // Sort servers by name for consistent output
     const sortedServerNames = Object.keys(filteredServers).sort();
@@ -131,35 +134,40 @@ export async function listCommand(argv: ListCommandArgs): Promise<void> {
     for (const serverName of sortedServerNames) {
       const config = filteredServers[serverName];
       displayServer(serverName, config, verbose, showSecrets);
-      console.log(); // Empty line between servers
+      printer.blank();
     }
 
     // Summary information
     const enabledCount = sortedServerNames.filter((name) => !filteredServers[name].disabled).length;
     const disabledCount = sortedServerNames.length - enabledCount;
 
-    console.log(`📊 Summary:`);
-    console.log(`   Total: ${sortedServerNames.length} server${sortedServerNames.length === 1 ? '' : 's'}`);
-    console.log(`   Enabled: ${enabledCount}`);
+    printer.subtitle('Summary:');
+    printer.keyValue({
+      Total: `${sortedServerNames.length} server${sortedServerNames.length === 1 ? '' : 's'}`,
+      Enabled: enabledCount,
+    });
+
     if (showDisabled && disabledCount > 0) {
-      console.log(`   Disabled: ${disabledCount}`);
+      printer.keyValue({ Disabled: disabledCount });
     }
 
     if (tagsFilter) {
-      console.log(`   Filtered by tags: ${tagsFilter}`);
+      printer.keyValue({ 'Filtered by tags': tagsFilter });
     }
 
     if (showSecrets) {
-      console.log(`\n⚠️  Sensitive information is being displayed. Use with caution.`);
+      printer.blank();
+      printer.warn('Sensitive information is being displayed. Use with caution.');
     }
 
     if (!showDisabled && disabledCount > 0) {
-      console.log(
-        `\n💡 ${disabledCount} disabled server${disabledCount === 1 ? '' : 's'} hidden. Use --show-disabled to see all servers.`,
+      printer.blank();
+      printer.info(
+        `${disabledCount} disabled server${disabledCount === 1 ? '' : 's'} hidden. Use --show-disabled to see all servers.`,
       );
     }
   } catch (error) {
-    console.error(`❌ Failed to list servers: ${error instanceof Error ? error.message : error}`);
+    printer.error(`Failed to list servers: ${error instanceof Error ? error.message : error}`);
     process.exit(1);
   }
 }
@@ -235,8 +243,7 @@ function filterServers(
  * Display a single server's information
  */
 function displayServer(name: string, config: MCPServerParams, verbose: boolean, showSecrets: boolean = false): void {
-  const statusIcon = config.disabled ? '🔴' : '🟢';
-  const statusText = config.disabled ? 'Disabled' : 'Enabled';
+  const enabled = !config.disabled;
 
   // Get installation metadata
   const version = 'unknown';
@@ -249,50 +256,54 @@ function displayServer(name: string, config: MCPServerParams, verbose: boolean, 
   const displayType = inferredConfig.type || 'unknown';
 
   // Display with installation metadata
-  console.log(`${statusIcon} ${name} (${statusText})`);
-  console.log(`   Type: ${displayType}`);
-  console.log(`   Version: ${version}`);
+  printer.serverStatus(name, enabled);
+
+  // Type and version info
+  printer.keyValue({
+    Type: displayType,
+    Version: version,
+  });
 
   // Show status if outdated
   if (serverStatus === 'outdated') {
-    console.log(`   Status: ⚠️  Update available`);
+    printer.warn('   ⚠️  Update available');
   }
-
-  // Installation date would be shown here when metadata storage is fully implemented
 
   // Type-specific information
   if (inferredConfig.type === 'stdio') {
-    console.log(`   Command: ${inferredConfig.command}`);
+    if (inferredConfig.command) {
+      printer.keyValue({ Command: inferredConfig.command });
+    }
     if (inferredConfig.args && inferredConfig.args.length > 0) {
       const displayArgs = showSecrets ? inferredConfig.args : redactCommandArgs(inferredConfig.args);
-      console.log(`   Args: ${displayArgs.join(' ')}`);
+      printer.keyValue({ Args: displayArgs.join(' ') });
     }
     if (inferredConfig.cwd) {
-      console.log(`   Working Directory: ${inferredConfig.cwd}`);
+      printer.keyValue({ 'Working Directory': inferredConfig.cwd });
     }
 
     // Restart configuration (stdio only)
     if (inferredConfig.restartOnExit) {
-      console.log(`   Restart on Exit: Enabled`);
+      printer.keyValue({ 'Restart on Exit': 'Enabled' });
       if (inferredConfig.maxRestarts !== undefined) {
-        console.log(`   Max Restarts: ${inferredConfig.maxRestarts}`);
+        printer.keyValue({ 'Max Restarts': inferredConfig.maxRestarts });
       } else {
-        console.log(`   Max Restarts: Unlimited`);
+        printer.keyValue({ 'Max Restarts': 'Unlimited' });
       }
       const delay = inferredConfig.restartDelay ?? 1000;
-      console.log(`   Restart Delay: ${delay}ms`);
+      printer.keyValue({ 'Restart Delay': `${delay}ms` });
     }
   } else if (inferredConfig.type === 'http' || inferredConfig.type === 'sse') {
     const displayUrl = showSecrets ? inferredConfig.url || '' : redactUrl(inferredConfig.url || '');
-    console.log(`   URL: ${displayUrl}`);
+    printer.keyValue({ URL: displayUrl });
     if (inferredConfig.headers && Object.keys(inferredConfig.headers).length > 0) {
       const headerCount = Object.keys(inferredConfig.headers).length;
-      console.log(`   Headers: ${headerCount} header${headerCount === 1 ? '' : 's'}`);
+      printer.keyValue({ Headers: `${headerCount} header${headerCount === 1 ? '' : 's'}` });
 
       if (verbose) {
         const displayHeaders = showSecrets ? inferredConfig.headers : sanitizeHeaders(inferredConfig.headers);
         for (const [key, value] of Object.entries(displayHeaders)) {
-          console.log(`     ${key}: ${value}`);
+          printer.raw(`     ${key}: ${value}`);
         }
       }
     }
@@ -300,21 +311,21 @@ function displayServer(name: string, config: MCPServerParams, verbose: boolean, 
 
   // Common properties
   if (inferredConfig.tags && inferredConfig.tags.length > 0) {
-    console.log(`   Tags: ${inferredConfig.tags.join(', ')}`);
+    printer.keyValue({ Tags: inferredConfig.tags.join(', ') });
   }
 
   if (inferredConfig.timeout) {
-    console.log(`   Timeout: ${inferredConfig.timeout}ms`);
+    printer.keyValue({ Timeout: `${inferredConfig.timeout}ms` });
   }
 
   if (inferredConfig.env && Object.keys(inferredConfig.env).length > 0) {
     const envCount = Object.keys(inferredConfig.env).length;
-    console.log(`   Environment: ${envCount} variable${envCount === 1 ? '' : 's'}`);
+    printer.keyValue({ Environment: `${envCount} variable${envCount === 1 ? '' : 's'}` });
 
     if (verbose) {
       for (const [key, value] of Object.entries(inferredConfig.env)) {
         const displayValue = showSecrets ? value : redactSensitiveValue(String(value));
-        console.log(`     ${key}=${displayValue}`);
+        printer.raw(`     ${key}=${displayValue}`);
       }
     }
   }

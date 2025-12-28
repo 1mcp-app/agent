@@ -1,3 +1,5 @@
+import printer from '@src/utils/ui/printer.js';
+
 import boxen from 'boxen';
 import chalk from 'chalk';
 
@@ -16,7 +18,7 @@ export function showWelcomeScreen(): void {
     chalk.gray('  Enter   - Confirm\n') +
     chalk.gray('  Ctrl+C  - Cancel');
 
-  console.log(
+  printer.raw(
     boxen(welcomeContent, {
       padding: 1,
       margin: 1,

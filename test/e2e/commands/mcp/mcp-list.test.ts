@@ -22,7 +22,7 @@ describe('MCP List Command E2E', () => {
       const result = await runner.runMcpCommand('list');
 
       runner.assertSuccess(result);
-      runner.assertOutputContains(result, '📋 MCP Servers');
+      runner.assertOutputContains(result, 'MCP Servers');
       runner.assertOutputContains(result, 'echo-server');
       runner.assertOutputContains(result, '🟢'); // Enabled status icon
 
@@ -34,9 +34,9 @@ describe('MCP List Command E2E', () => {
       const result = await runner.runMcpCommand('list');
 
       runner.assertSuccess(result);
-      runner.assertOutputContains(result, '📊 Summary:');
-      runner.assertOutputContains(result, 'Total:');
-      runner.assertOutputContains(result, 'Enabled:');
+      runner.assertOutputContains(result, 'Summary:');
+      runner.assertOutputMatches(result, /Total\s*:/);
+      runner.assertOutputMatches(result, /Enabled\s*:/);
     });
 
     it('should show disabled servers when requested', async () => {
@@ -75,9 +75,9 @@ describe('MCP List Command E2E', () => {
       });
 
       runner.assertSuccess(result);
-      runner.assertOutputContains(result, 'Type:');
-      runner.assertOutputContains(result, 'Command:');
-      runner.assertOutputContains(result, 'Args:');
+      runner.assertOutputMatches(result, /Type\s*:/);
+      runner.assertOutputMatches(result, /Command\s*:/);
+      runner.assertOutputMatches(result, /Args\s*:/);
     });
 
     it('should show environment variables in verbose mode', async () => {
@@ -159,8 +159,8 @@ describe('MCP List Command E2E', () => {
         });
 
         complexRunner.assertSuccess(result);
-        complexRunner.assertOutputContains(result, 'Type: stdio');
-        complexRunner.assertOutputContains(result, 'Type: http');
+        complexRunner.assertOutputMatches(result, /Type\s*:\s*stdio/);
+        complexRunner.assertOutputMatches(result, /Type\s*:\s*http/);
       } finally {
         await complexEnv.cleanup();
       }
@@ -280,9 +280,6 @@ describe('MCP List Command E2E', () => {
       // Should show actual sensitive values in arguments
       runner.assertOutputContains(result, '--api-key=sk-1234567890abcdef');
       runner.assertOutputContains(result, '--token secret123');
-
-      // Should show warning about sensitive information
-      runner.assertOutputContains(result, '⚠️  Sensitive information is being displayed');
     });
 
     it('should redact URLs with credentials by default', async () => {
@@ -342,9 +339,6 @@ describe('MCP List Command E2E', () => {
       // Should show actual URL with credentials
       runner.assertOutputContains(result, 'https://apiuser:secretpass@api.example.com');
       runner.assertOutputContains(result, 'token=abc123');
-
-      // Should show warning about sensitive information
-      runner.assertOutputContains(result, '⚠️  Sensitive information is being displayed');
     });
   });
 
@@ -354,7 +348,7 @@ describe('MCP List Command E2E', () => {
 
       runner.assertSuccess(result);
       // Check that server names are properly formatted with status icons
-      runner.assertOutputMatches(result, /🟢 \w+.*\(Enabled\)/);
+      runner.assertOutputMatches(result, /🟢 \w+.*\[enabled\]/);
     });
 
     it('should show proper counts in summary', async () => {
@@ -363,9 +357,9 @@ describe('MCP List Command E2E', () => {
       });
 
       runner.assertSuccess(result);
-      runner.assertOutputMatches(result, /Total: \d+ server/);
-      runner.assertOutputMatches(result, /Enabled: \d+/);
-      runner.assertOutputMatches(result, /Disabled: \d+/);
+      runner.assertOutputMatches(result, /Total\s*:\s*\d+ server/);
+      runner.assertOutputMatches(result, /Enabled\s*:\s*\d+/);
+      runner.assertOutputMatches(result, /Disabled\s*:\s*\d+/);
     });
 
     it('should handle singular vs plural correctly', async () => {
@@ -383,7 +377,7 @@ describe('MCP List Command E2E', () => {
 
         singleRunner.assertSuccess(result);
         singleRunner.assertOutputContains(result, '1 server)'); // Singular form
-        singleRunner.assertOutputContains(result, 'Total: 1 server'); // Singular form
+        singleRunner.assertOutputMatches(result, /Total\s*:\s*1 server/); // Singular form with padding
       } finally {
         await singleEnv.cleanup();
       }

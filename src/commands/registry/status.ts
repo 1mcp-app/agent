@@ -4,6 +4,7 @@ import { GetRegistryStatusArgs } from '@src/domains/registry/mcpToolSchemas.js';
 import { RegistryOptions } from '@src/domains/registry/types.js';
 import { GlobalOptions } from '@src/globalOptions.js';
 import logger from '@src/logger/logger.js';
+import printer from '@src/utils/ui/printer.js';
 
 import type { Arguments, Argv } from 'yargs';
 
@@ -60,45 +61,53 @@ export async function registryStatusCommand(argv: RegistryStatusCommandArgs): Pr
     const result = await handleGetRegistryStatus(statusArgs, registryOptions);
 
     if (argv.json) {
-      console.log(JSON.stringify(result, null, 2));
+      printer.raw(JSON.stringify(result, null, 2));
       return;
     }
 
     // Format status display
-    console.log('\n📊 MCP Registry Status\n');
+    printer.blank();
+    printer.title('MCP Registry Status');
+    printer.blank();
 
-    const statusIcon = result.available ? '✅' : '❌';
     const statusText = result.available ? 'Available' : 'Unavailable';
-
-    console.log(`Status: ${statusIcon} ${statusText}`);
-    console.log(`URL: ${result.url}`);
-    console.log(`Response Time: ${result.response_time_ms}ms`);
-    console.log(`Last Checked: ${formatTimestamp(result.last_updated)}`);
+    printer.keyValue({
+      Status: `${result.available ? '✅' : '❌'} ${statusText}`,
+      URL: result.url,
+      'Response Time': `${result.response_time_ms}ms`,
+      'Last Checked': formatTimestamp(result.last_updated),
+    });
 
     if (result.stats) {
-      console.log('\n📈 Registry Statistics\n');
+      printer.blank();
+      printer.title('Registry Statistics');
+      printer.blank();
 
-      console.log(`Total Servers: ${result.stats.total_servers}`);
-      console.log(`Active Servers: ${result.stats.active_servers}`);
-      console.log(`Deprecated Servers: ${result.stats.deprecated_servers}`);
+      printer.keyValue({
+        'Total Servers': result.stats.total_servers,
+        'Active Servers': result.stats.active_servers,
+        'Deprecated Servers': result.stats.deprecated_servers,
+      });
 
       if (Object.keys(result.stats.by_registry_type).length > 0) {
-        console.log('\nBy Registry Type:');
+        printer.blank();
+        printer.subtitle('By Registry Type:');
         Object.entries(result.stats.by_registry_type).forEach(([type, count]) => {
-          console.log(`  ${type}: ${count}`);
+          printer.info(`  ${type}: ${count}`);
         });
       }
 
       if (Object.keys(result.stats.by_transport).length > 0) {
-        console.log('\nBy Transport:');
+        printer.blank();
+        printer.subtitle('By Transport:');
         Object.entries(result.stats.by_transport).forEach(([transport, count]) => {
-          console.log(`  ${transport}: ${count}`);
+          printer.info(`  ${transport}: ${count}`);
         });
       }
     }
   } catch (error) {
     logger.error('Registry status command failed:', error);
-    console.error(`Error getting registry status: ${error instanceof Error ? error.message : String(error)}`);
+    printer.error(`Error getting registry status: ${error instanceof Error ? error.message : String(error)}`);
     process.exit(1);
   } finally {
     // Cleanup resources to ensure process exits

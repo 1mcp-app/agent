@@ -1,5 +1,6 @@
 import { MCPServerParams } from '@src/core/types/index.js';
 import { GlobalOptions } from '@src/globalOptions.js';
+import printer from '@src/utils/ui/printer.js';
 
 import type { Argv } from 'yargs';
 
@@ -54,7 +55,7 @@ export async function enableCommand(argv: EnableDisableCommandArgs): Promise<voi
     // Initialize config context with CLI options
     initializeConfigContext(configPath, configDir);
 
-    console.log(`Enabling MCP server: ${name}`);
+    printer.info(`Enabling MCP server: ${name}`);
 
     // Validate inputs
     validateServerName(name);
@@ -75,7 +76,7 @@ export async function enableCommand(argv: EnableDisableCommandArgs): Promise<voi
 
     // Check if server is already enabled
     if (!currentConfig.disabled) {
-      console.log(`Server '${name}' is already enabled.`);
+      printer.info(`Server '${name}' is already enabled.`);
       return;
     }
 
@@ -98,12 +99,12 @@ export async function enableCommand(argv: EnableDisableCommandArgs): Promise<voi
     reloadMcpConfig();
 
     // Success message
-    console.log(`✅ Successfully enabled server '${name}'`);
-    console.log(`   Status: Disabled → Enabled`);
-    console.log(`   Backup created: ${backupPath}`);
-    console.log(`\n💡 Server enabled. If 1mcp is running, the server will be started automatically.`);
+    printer.success(`Successfully enabled server '${name}'`);
+    printer.keyValue({ Status: 'Disabled → Enabled', 'Backup created': backupPath });
+    printer.blank();
+    printer.info('Server enabled. If 1mcp is running, the server will be started automatically.');
   } catch (error) {
-    console.error(`❌ Failed to enable server: ${error instanceof Error ? error.message : error}`);
+    printer.error(`Failed to enable server: ${error instanceof Error ? error.message : error}`);
     process.exit(1);
   }
 }
@@ -118,7 +119,7 @@ export async function disableCommand(argv: EnableDisableCommandArgs): Promise<vo
     // Initialize config context with CLI options
     initializeConfigContext(configPath, configDir);
 
-    console.log(`Disabling MCP server: ${name}`);
+    printer.info(`Disabling MCP server: ${name}`);
 
     // Validate inputs
     validateServerName(name);
@@ -139,7 +140,7 @@ export async function disableCommand(argv: EnableDisableCommandArgs): Promise<vo
 
     // Check if server is already disabled
     if (currentConfig.disabled) {
-      console.log(`Server '${name}' is already disabled.`);
+      printer.info(`Server '${name}' is already disabled.`);
       return;
     }
 
@@ -159,13 +160,13 @@ export async function disableCommand(argv: EnableDisableCommandArgs): Promise<vo
     reloadMcpConfig();
 
     // Success message
-    console.log(`✅ Successfully disabled server '${name}'`);
-    console.log(`   Status: Enabled → Disabled`);
-    console.log(`   Backup created: ${backupPath}`);
-    console.log(`\n💡 Server disabled. If 1mcp is running, the server will be stopped automatically.`);
-    console.log(`   Use 'mcp enable ${name}' to re-enable it later.`);
+    printer.success(`Successfully disabled server '${name}'`);
+    printer.keyValue({ Status: 'Enabled → Disabled', 'Backup created': backupPath });
+    printer.blank();
+    printer.info('Server disabled. If 1mcp is running, the server will be stopped automatically.');
+    printer.info(`Use 'mcp enable ${name}' to re-enable it later.`);
   } catch (error) {
-    console.error(`❌ Failed to disable server: ${error instanceof Error ? error.message : error}`);
+    printer.error(`Failed to disable server: ${error instanceof Error ? error.message : error}`);
     process.exit(1);
   }
 }

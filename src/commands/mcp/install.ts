@@ -2,6 +2,7 @@ import { MCPRegistryClient } from '@src/domains/registry/mcpRegistryClient.js';
 import { createServerInstallationService, getProgressTrackingService } from '@src/domains/server-management/index.js';
 import { GlobalOptions } from '@src/globalOptions.js';
 import logger from '@src/logger/logger.js';
+import printer from '@src/utils/ui/printer.js';
 
 import boxen from 'boxen';
 import chalk from 'chalk';
@@ -132,10 +133,10 @@ export async function installCommand(argv: InstallCommandArgs): Promise<void> {
 
     // Dry run mode
     if (dryRun) {
-      console.log('🔍 Dry run mode - no changes will be made\n');
-      console.log(`Would install: ${serverName}${version ? `@${version}` : ''}`);
-      console.log(`From registry: https://registry.modelcontextprotocol.io\n`);
-      console.log('Use without --dry-run to perform actual installation.');
+      printer.info('Dry run mode - no changes will be made');
+      printer.keyValue({ 'Would install': `${serverName}${version ? `@${version}` : ''}` });
+      printer.info('From registry: https://registry.modelcontextprotocol.io');
+      printer.info('Use without --dry-run to perform actual installation.');
       return;
     }
 
@@ -208,13 +209,13 @@ export async function installCommand(argv: InstallCommandArgs): Promise<void> {
       });
 
       // Report success
-      console.log(`\n✅ Successfully installed server '${serverName}'${version ? ` version ${version}` : ''}`);
+      printer.success(`Successfully installed server '${serverName}'${version ? ` version ${version}` : ''}`);
       if (backupPath) {
-        console.log(`📁 Backup created: ${backupPath}`);
+        printer.keyValue({ 'Backup created': backupPath });
       }
       if (result.warnings.length > 0) {
-        console.log('\n⚠️  Warnings:');
-        result.warnings.forEach((warning) => console.log(`   • ${warning}`));
+        printer.warn('Warnings:');
+        result.warnings.forEach((warning) => printer.info(`   • ${warning}`));
       }
     } catch (error) {
       progressTracker.failOperation(operationId, error as Error);
@@ -229,18 +230,17 @@ export async function installCommand(argv: InstallCommandArgs): Promise<void> {
       errorMessage.includes('not found in registry') ||
       (errorMessage.includes('Server') && errorMessage.includes('not found'))
     ) {
-      console.error(`\n❌ Server '${inputServerName}' not found in registry.\n`);
-      console.error(`💡 Suggestions:\n`);
-      console.error(`   • Search for available servers:`);
-      console.error(`     1mcp registry search ${inputServerName}\n`);
-      console.error(`   • Use interactive mode to browse:`);
-      console.error(`     1mcp mcp install --interactive\n`);
-      console.error(`   • Try the full registry ID if you know it:`);
-      console.error(`     1mcp mcp install io.github.username/${inputServerName}\n`);
-      console.error(`   • View available servers:`);
-      console.error(`     1mcp registry search\n`);
+      printer.error(`Server '${inputServerName}' not found in registry.`);
+      printer.blank();
+      printer.info('Suggestions:');
+      printer.info(`   • Search for available servers: 1mcp registry search ${inputServerName}`);
+      printer.info('   • Use interactive mode to browse: 1mcp mcp install --interactive');
+      printer.info(
+        `   • Try the full registry ID if you know it: 1mcp mcp install io.github.username/${inputServerName}`,
+      );
+      printer.info('   • View available servers: 1mcp registry search');
     } else {
-      console.error(`\n❌ Installation failed: ${errorMessage}\n`);
+      printer.error(`Installation failed: ${errorMessage}`);
     }
 
     if (error instanceof Error && error.stack) {
@@ -363,7 +363,7 @@ async function runInteractiveInstallation(argv: InstallCommandArgs): Promise<voi
       const wizardResult = await wizard.run(currentServerId, existingNames);
 
       if (wizardResult.cancelled) {
-        console.log('\n❌ Installation cancelled.\n');
+        printer.info('\nInstallation cancelled.');
         wizard.cleanup();
         process.exit(0);
       }
@@ -380,7 +380,7 @@ async function runInteractiveInstallation(argv: InstallCommandArgs): Promise<voi
         // Check if server already exists (early check)
         const serverAlreadyExists = serverExists(serverName);
         if (serverAlreadyExists && !shouldForce) {
-          console.error(`\n❌ Server '${serverName}' already exists. Use --force to reinstall.\n`);
+          printer.error(`Server '${serverName}' already exists. Use --force to reinstall.`);
           wizard.cleanup();
           if (wizardResult.installAnother) {
             currentServerId = undefined;
@@ -391,9 +391,9 @@ async function runInteractiveInstallation(argv: InstallCommandArgs): Promise<voi
 
         // Dry run mode
         if (dryRun) {
-          console.log('🔍 Dry run mode - no changes will be made\n');
-          console.log(`Would install: ${serverName}${version ? `@${version}` : ''}`);
-          console.log(`From registry: https://registry.modelcontextprotocol.io\n`);
+          printer.info('Dry run mode - no changes will be made');
+          printer.keyValue({ 'Would install': `${serverName}${version ? `@${version}` : ''}` });
+          printer.info('From registry: https://registry.modelcontextprotocol.io');
           if (wizardResult.installAnother) {
             currentServerId = undefined;
             continue;
@@ -424,8 +424,8 @@ async function runInteractiveInstallation(argv: InstallCommandArgs): Promise<voi
               }
             })
             .join(' → ');
-          console.log(boxen(stepBar, { padding: { left: 2, right: 2, top: 0, bottom: 0 }, borderStyle: 'round' }));
-          console.log('');
+          printer.raw(boxen(stepBar, { padding: { left: 2, right: 2, top: 0, bottom: 0 }, borderStyle: 'round' }));
+          printer.blank();
         };
 
         // Show Install step indicator (clear screen before starting)
@@ -439,23 +439,23 @@ async function runInteractiveInstallation(argv: InstallCommandArgs): Promise<voi
           const installationService = createServerInstallationService();
 
           // Update progress: Validating
-          console.log(chalk.cyan('⏳ Validating server...'));
+          printer.raw(chalk.cyan('⏳ Validating server...'));
           progressTracker.updateProgress(operationId, 1, 'Validating server', `Checking registry for ${serverName}`);
 
           // Create backup if replacing existing server
           let backupPath: string | undefined;
           if (serverAlreadyExists) {
-            console.log(chalk.cyan('⏳ Creating backup...'));
+            printer.raw(chalk.cyan('⏳ Creating backup...'));
             progressTracker.updateProgress(operationId, 2, 'Creating backup', `Backing up existing configuration`);
             backupPath = backupConfig();
-            console.log(chalk.gray(`   Backup created: ${backupPath}`));
+            printer.raw(chalk.gray(`   Backup created: ${backupPath}`));
             logger.info(`Backup created: ${backupPath}`);
 
             // Remove the existing server before reinstalling to prevent duplicates
             const { removeServer } = await import('./utils/mcpServerConfig.js');
             const removed = removeServer(serverName);
             if (removed) {
-              console.log(chalk.gray(`   Removed existing server '${serverName}'`));
+              printer.raw(chalk.gray(`   Removed existing server '${serverName}'`));
               if (verbose) {
                 logger.info(`Removed existing server '${serverName}' before reinstalling`);
               }
@@ -463,7 +463,7 @@ async function runInteractiveInstallation(argv: InstallCommandArgs): Promise<voi
           }
 
           // Update progress: Installing
-          console.log(chalk.cyan(`⏳ Installing ${serverName}${version ? `@${version}` : ''}...`));
+          printer.raw(chalk.cyan(`⏳ Installing ${serverName}${version ? `@${version}` : ''}...`));
           progressTracker.updateProgress(
             operationId,
             3,
@@ -483,7 +483,7 @@ async function runInteractiveInstallation(argv: InstallCommandArgs): Promise<voi
           });
 
           // Update progress: Finalizing
-          console.log(chalk.cyan('⏳ Finalizing...'));
+          printer.raw(chalk.cyan('⏳ Finalizing...'));
           progressTracker.updateProgress(operationId, 4, 'Finalizing', 'Saving configuration');
 
           // Save the configuration returned by the installation service
@@ -496,7 +496,7 @@ async function runInteractiveInstallation(argv: InstallCommandArgs): Promise<voi
           }
 
           // Update progress: Reloading
-          console.log(chalk.cyan('⏳ Reloading configuration...'));
+          printer.raw(chalk.cyan('⏳ Reloading configuration...'));
           progressTracker.updateProgress(operationId, 5, 'Reloading configuration', 'Applying changes');
 
           // Reload MCP configuration
@@ -512,19 +512,19 @@ async function runInteractiveInstallation(argv: InstallCommandArgs): Promise<voi
           });
 
           // Show completed step indicator with all steps marked as done (don't clear logs)
-          console.log('');
+          printer.blank();
           showStepIndicator(6, true); // 6 means all steps are completed, true = skip clear
 
           // Report success
-          console.log(
+          printer.raw(
             chalk.green.bold(`✅ Successfully installed server '${serverName}'${version ? ` version ${version}` : ''}`),
           );
           if (backupPath) {
-            console.log(chalk.gray(`📁 Backup created: ${backupPath}`));
+            printer.raw(chalk.gray(`📁 Backup created: ${backupPath}`));
           }
           if (result.warnings.length > 0) {
-            console.log(chalk.yellow('\n⚠️  Warnings:'));
-            result.warnings.forEach((warning) => console.log(chalk.yellow(`   • ${warning}`)));
+            printer.raw(chalk.yellow('\n⚠️  Warnings:'));
+            result.warnings.forEach((warning) => printer.raw(chalk.yellow(`   • ${warning}`)));
           }
         } catch (error) {
           progressTracker.failOperation(operationId, error as Error);
@@ -539,15 +539,15 @@ async function runInteractiveInstallation(argv: InstallCommandArgs): Promise<voi
           errorMessage.includes('not found in registry') ||
           (errorMessage.includes('Server') && errorMessage.includes('not found'))
         ) {
-          console.error(`\n❌ Server '${wizardResult.serverId}' not found in registry.\n`);
-          console.error(`💡 Suggestions:\n`);
-          console.error(`   • Try searching for the server first:`);
-          console.error(`     1mcp registry search ${wizardResult.serverId}\n`);
-          console.error(`   • Use the exact Registry ID from search results\n`);
-          console.error(`   • Try searching with different keywords\n`);
-          console.error(`   • Or continue to search for another server\n`);
+          printer.error(`Server '${wizardResult.serverId}' not found in registry.`);
+          printer.blank();
+          printer.info('Suggestions:');
+          printer.info(`   • Try searching for the server first: 1mcp registry search ${wizardResult.serverId}`);
+          printer.info('   • Use the exact Registry ID from search results');
+          printer.info('   • Try searching with different keywords');
+          printer.info('   • Or continue to search for another server');
         } else {
-          console.error(`\n❌ Installation failed: ${errorMessage}\n`);
+          printer.error(`Installation failed: ${errorMessage}`);
         }
 
         if (error instanceof Error && error.stack) {

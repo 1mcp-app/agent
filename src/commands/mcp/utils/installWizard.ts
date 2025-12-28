@@ -1,6 +1,7 @@
 import { MCPRegistryClient } from '@src/domains/registry/mcpRegistryClient.js';
 import { RegistryServer } from '@src/domains/registry/types.js';
 import logger from '@src/logger/logger.js';
+import printer from '@src/utils/ui/printer.js';
 
 import boxen from 'boxen';
 import chalk from 'chalk';
@@ -66,7 +67,7 @@ export class InstallWizard {
           selectedServer = await this.registryClient.getServerById(serverId);
         } catch (error) {
           logger.error('Failed to fetch server details', { serverId, error });
-          console.log(
+          printer.raw(
             boxen(chalk.red.bold(`❌ Server '${serverId}' not found in registry`), {
               padding: 1,
               borderStyle: 'round',
@@ -141,7 +142,7 @@ export class InstallWizard {
       };
     } catch (error) {
       logger.error('Wizard failed', { error });
-      console.log(
+      printer.raw(
         boxen(chalk.red.bold('❌ Installation wizard failed - see logs for details'), {
           padding: 1,
           borderStyle: 'round',

@@ -1,4 +1,5 @@
 import { globalOptions } from '@src/globalOptions.js';
+import printer from '@src/utils/ui/printer.js';
 
 import type { Argv } from 'yargs';
 
@@ -98,7 +99,7 @@ For more information about each command, use: $0 app <command> --help
     },
     () => {
       // This handler runs when 'app' is called without a subcommand
-      console.log('Please specify a subcommand. Use --help for available commands.');
+      printer.info('Please specify a subcommand. Use --help for available commands.');
       process.exit(1);
     },
   );

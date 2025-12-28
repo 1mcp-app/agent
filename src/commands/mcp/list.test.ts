@@ -1,6 +1,22 @@
+import printer from '@src/utils/ui/printer.js';
+
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { buildListCommand, listCommand } from './list.js';
+
+// Mock printer
+vi.mock('@src/utils/ui/printer.js', () => ({
+  default: {
+    info: vi.fn(),
+    warn: vi.fn(),
+    error: vi.fn(),
+    success: vi.fn(),
+    blank: vi.fn(),
+    raw: vi.fn(),
+    title: vi.fn(),
+    table: vi.fn(),
+  },
+}));
 
 // Mock dependencies
 vi.mock('./utils/mcpServerConfig.js', () => ({
@@ -17,11 +33,6 @@ vi.mock('./utils/serverUtils.js', () => ({
 vi.mock('./utils/validation.js', () => ({
   validateTags: vi.fn(),
 }));
-
-const consoleLogMock = vi.fn();
-console.log = consoleLogMock;
-const consoleErrorMock = vi.fn();
-console.error = consoleErrorMock;
 
 describe('List Command', () => {
   beforeEach(() => {
@@ -52,7 +63,7 @@ describe('List Command', () => {
 
       await listCommand(args as any);
 
-      expect(consoleLogMock).toHaveBeenCalledWith('No MCP servers are configured.');
+      expect(printer.info).toHaveBeenCalledWith('No MCP servers are configured.');
     });
   });
 });

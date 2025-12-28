@@ -22,6 +22,7 @@ import {
   ReloadResult,
   ServerInfo,
   ServerStatusInfo,
+  ServerUrlOptions,
   UpdateConfigResult,
   ValidationResult,
 } from './types.js';
@@ -436,7 +437,7 @@ export class ConfigManagementAdapter implements ManagementAdapter {
   /**
    * Get 1mcp server URL for current configuration
    */
-  async getServerUrl(options?: { port?: number; host?: string }): Promise<string> {
+  async getServerUrl(options?: ServerUrlOptions): Promise<string> {
     debugIf(() => ({
       message: 'Adapter: Getting server URL',
       meta: { options },

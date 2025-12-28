@@ -256,7 +256,8 @@ describe('InteractiveSelector', () => {
       const result = await selector.selectServers();
 
       expect(result.cancelled).toBe(true);
-      expect(result.tagQuery).toEqual({});
+      // With discriminated union, cancelled: true means no tagQuery property
+      expect(result).toEqual({ cancelled: true });
       expect(mockConsoleLog).toHaveBeenCalled();
       const output = mockConsoleLog.mock.calls.map((call) => call[0]).join('\n');
       expect(output).toContain('⚠️  No MCP servers found in configuration');
@@ -286,7 +287,8 @@ describe('InteractiveSelector', () => {
       const result = await selector.selectServers(existingConfig);
 
       expect(result.cancelled).toBe(true);
-      expect(result.tagQuery).toEqual({});
+      // With discriminated union, cancelled: true means no tagQuery property
+      expect(result).toEqual({ cancelled: true });
     });
   });
 });
