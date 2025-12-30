@@ -71,7 +71,14 @@ export class ConfigLoader {
       const stats = fs.statSync(this.configFilePath);
       this.lastModified = stats.mtime.getTime();
       const rawConfigData = fs.readFileSync(this.configFilePath, 'utf8');
-      return JSON.parse(rawConfigData);
+      const config = JSON.parse(rawConfigData) as Record<string, unknown>;
+
+      // Ensure $schema field is present for IDE autocompletion
+      if (config && typeof config === 'object' && !('$schema' in config)) {
+        config.$schema = 'https://docs.1mcp.app/schemas/v1.0.0/mcp-config.json';
+      }
+
+      return config;
     } catch (error) {
       logger.error(`Failed to load configuration: ${error instanceof Error ? error.message : String(error)}`);
       throw error;
