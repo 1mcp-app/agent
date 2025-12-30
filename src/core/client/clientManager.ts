@@ -1,6 +1,8 @@
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 
+import { DEFAULT_MAX_CONCURRENT_LOADS } from '@src/constants/mcp.js';
 import { InstructionAggregator } from '@src/core/instructions/instructionAggregator.js';
+import { ParallelExecutor } from '@src/core/loading/parallelExecutor.js';
 import {
   AuthProviderTransport,
   ClientStatus,
@@ -102,9 +104,12 @@ export class ClientManager {
     this.transports = transports;
     this.outboundConns.clear();
 
-    for (const [name, transport] of Object.entries(transports)) {
-      await this.createClient(name, transport);
-    }
+    const executor = new ParallelExecutor<[string, AuthProviderTransport], void>();
+    const serverEntries = Object.entries(transports);
+
+    await executor.execute(serverEntries, async ([name, transport]) => this.createClient(name, transport), {
+      maxConcurrent: DEFAULT_MAX_CONCURRENT_LOADS,
+    });
 
     return this.outboundConns;
   }

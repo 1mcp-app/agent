@@ -1,6 +1,7 @@
 import os from 'os';
 
 import { getConfigDir, getConfigPath, getGlobalConfigDir, getGlobalConfigPath } from '@src/constants.js';
+import { DEFAULT_MAX_CONCURRENT_LOADS } from '@src/constants/mcp.js';
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -385,6 +386,22 @@ describe('constants', () => {
     it('should handle undefined config directory', () => {
       const result = getConfigPath(undefined);
       expect(result).toBe('/Users/testuser/.config/1mcp/mcp.json');
+    });
+  });
+
+  describe('MCP constants', () => {
+    it('should export DEFAULT_MAX_CONCURRENT_LOADS constant', () => {
+      expect(DEFAULT_MAX_CONCURRENT_LOADS).toBeDefined();
+      expect(typeof DEFAULT_MAX_CONCURRENT_LOADS).toBe('number');
+    });
+
+    it('should have DEFAULT_MAX_CONCURRENT_LOADS set to 5', () => {
+      expect(DEFAULT_MAX_CONCURRENT_LOADS).toBe(5);
+    });
+
+    it('should be a positive integer', () => {
+      expect(DEFAULT_MAX_CONCURRENT_LOADS).toBeGreaterThan(0);
+      expect(Number.isInteger(DEFAULT_MAX_CONCURRENT_LOADS)).toBe(true);
     });
   });
 });

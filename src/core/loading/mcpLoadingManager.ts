@@ -1,5 +1,6 @@
 import { EventEmitter } from 'events';
 
+import { DEFAULT_MAX_CONCURRENT_LOADS } from '@src/constants/mcp.js';
 import { ClientManager } from '@src/core/client/clientManager.js';
 import { AuthProviderTransport, OutboundConnections } from '@src/core/types/index.js';
 import logger, { debugIf } from '@src/logger/logger.js';
@@ -11,6 +12,7 @@ import {
   LoadingSummary,
   ServerLoadingInfo,
 } from './loadingStateTracker.js';
+import { ParallelExecutor } from './parallelExecutor.js';
 
 /**
  * Configuration options for MCP loading behavior
@@ -39,7 +41,7 @@ export const DEFAULT_LOADING_CONFIG: McpLoadingConfig = {
   serverTimeoutMs: 30000, // 30 seconds per server
   maxRetries: 3,
   retryDelayMs: 2000, // 2 seconds initial delay
-  maxConcurrentLoads: 5, // Load 5 servers at once
+  maxConcurrentLoads: DEFAULT_MAX_CONCURRENT_LOADS,
   continueOnFailure: true,
   enableBackgroundRetry: true,
   backgroundRetryIntervalMs: 60000, // Retry every minute
@@ -110,7 +112,6 @@ export class McpLoadingManager extends EventEmitter {
   private clientManager: ClientManager;
   private config: McpLoadingConfig;
   private stateTracker: LoadingStateTracker;
-  private loadingSemaphore: Map<string, Promise<ServerLoadResult>> = new Map();
   private backgroundRetryTimer?: ReturnType<typeof setTimeout>;
   private isShuttingDown: boolean = false;
   private abortControllers: Map<string, AbortController> = new Map();
@@ -179,36 +180,15 @@ export class McpLoadingManager extends EventEmitter {
   }
 
   /**
-   * Load servers with concurrency control
+   * Load servers with concurrency control using ParallelExecutor
    */
   private async loadServersWithConcurrency(transports: Record<string, AuthProviderTransport>): Promise<void> {
+    const executor = new ParallelExecutor<[string, AuthProviderTransport], void>();
     const serverEntries = Object.entries(transports);
-    const semaphore = new Map<string, Promise<void>>();
 
-    // Process servers in batches based on maxConcurrentLoads
-    for (let i = 0; i < serverEntries.length; i += this.config.maxConcurrentLoads) {
-      const batch = serverEntries.slice(i, i + this.config.maxConcurrentLoads);
-
-      // Start all servers in this batch
-      const batchPromises = batch.map(([name, transport]) => {
-        const loadPromise = this.loadSingleServer(name, transport);
-        semaphore.set(name, loadPromise);
-        return loadPromise;
-      });
-
-      // Wait for this batch to complete before starting next batch
-      await Promise.allSettled(batchPromises);
-
-      // Clean up completed promises
-      for (const [name] of batch) {
-        semaphore.delete(name);
-      }
-
-      if (this.isShuttingDown) {
-        logger.info('Loading cancelled due to shutdown');
-        break;
-      }
-    }
+    await executor.execute(serverEntries, async ([name, transport]) => this.loadSingleServer(name, transport), {
+      maxConcurrent: this.config.maxConcurrentLoads,
+    });
 
     logger.info('Initial server loading phase completed');
   }

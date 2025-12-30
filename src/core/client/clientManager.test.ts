@@ -213,6 +213,34 @@ describe('ClientManager (Integration)', () => {
       const client = clientManager.getClient('test-client');
       expect(client.instructions).toBe('Server instructions for testing');
     });
+
+    it('should use parallel execution with concurrency limit', async () => {
+      const { DEFAULT_MAX_CONCURRENT_LOADS } = await import('@src/constants/mcp.js');
+
+      // Create more transports than the concurrency limit
+      const transports: Record<string, Transport> = {};
+      for (let i = 0; i < DEFAULT_MAX_CONCURRENT_LOADS + 2; i++) {
+        transports[`client-${i}`] = {
+          name: `transport-${i}`,
+          start: vi.fn(),
+          send: vi.fn(),
+          close: vi.fn(),
+        } as Transport;
+      }
+
+      (mockClient.connect as unknown as MockInstance).mockResolvedValue(undefined);
+      (mockClient.getServerVersion as unknown as MockInstance).mockResolvedValue({
+        name: 'test-server',
+        version: '1.0.0',
+      });
+
+      const clientsPromise = clientManager.createClients(transports as Record<string, AuthProviderTransport>);
+      await vi.runAllTimersAsync();
+      await clientsPromise;
+
+      const clients = clientManager.getClients();
+      expect(clients.size).toBe(DEFAULT_MAX_CONCURRENT_LOADS + 2);
+    });
   });
 
   describe('createSingleClient', () => {
