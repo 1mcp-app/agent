@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.29.0-beta2] - 2026-01-06
+
+### 🚀 Features
+- Add client info to User-Agent header by @xizhibei in [#206](https://github.com/1mcp-app/agent/pull/206)
+
+### 💼 Other
+- Enhance cliff-release and cliff configuration for pre-release support by @xizhibei
+
+### ⚙️ Miscellaneous Tasks
+- Update version and changelog to 0.29.0-beta1 [skip ci] by @github-actions[bot]
+
+
 ## [0.29.0-beta1] - 2025-12-28
 
 ### 🚀 Features
@@ -918,6 +930,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 * @xizhibei made their first contribution in [#1](https://github.com/1mcp-app/agent/pull/1)
 * @dependabot[bot] made their first contribution
 
+[0.29.0-beta2]: https://github.com/1mcp-app/agent/compare/v0.29.0-beta1..v0.29.0-beta2
 [0.29.0-beta1]: https://github.com/1mcp-app/agent/compare/v0.28.1..v0.29.0-beta1
 [0.28.1]: https://github.com/1mcp-app/agent/compare/v0.28.0..v0.28.1
 [0.28.0]: https://github.com/1mcp-app/agent/compare/v0.27.4..v0.28.0
