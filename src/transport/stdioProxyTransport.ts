@@ -164,7 +164,7 @@ export class StdioProxyTransport {
     // Prepare minimal request headers (no large context data)
     this.requestInit = {
       headers: {
-        'User-Agent': `1MCP-Proxy/${MCP_SERVER_VERSION}`,
+        'User-Agent': this.buildUserAgent(),
         'mcp-session-id': this.context.sessionId!, // Non-null assertion - always set by detectProxyContext
       },
     };
@@ -201,6 +201,33 @@ export class StdioProxyTransport {
   }
 
   /**
+   * Set up HTTP transport message handlers
+   * Extracted to allow re-setup after transport recreation
+   */
+  private setupHttpTransportMessageHandlers(): void {
+    // Forward messages from HTTP server to STDIO client
+    this.httpTransport.onmessage = async (message: JSONRPCMessage) => {
+      try {
+        // Forward to STDIO client
+        await this.stdioTransport.send(message);
+      } catch (error) {
+        logger.error(`Error forwarding HTTP message to STDIO: ${error}`);
+      }
+    };
+
+    // Handle errors from HTTP transport
+    this.httpTransport.onerror = (error: Error) => {
+      logger.error(`HTTP transport error: ${error.message}`);
+    };
+
+    // Handle HTTP transport close
+    this.httpTransport.onclose = async () => {
+      logger.warn('HTTP server connection closed');
+      await this.close();
+    };
+  }
+
+  /**
    * Set up bidirectional message forwarding between STDIO and HTTP
    */
   private setupMessageForwarding(): void {
@@ -219,6 +246,12 @@ export class StdioProxyTransport {
               clientVersion: clientInfo.version,
               clientTitle: clientInfo.title,
             });
+
+            // Recreate transport with enhanced User-Agent
+            this.recreateHttpTransport();
+            logger.info('✅ Updated User-Agent with client info', {
+              userAgent: this.buildUserAgent(),
+            });
           }
         }
 
@@ -232,24 +265,12 @@ export class StdioProxyTransport {
       }
     };
 
-    // Forward messages from HTTP server to STDIO client
-    this.httpTransport.onmessage = async (message: JSONRPCMessage) => {
-      try {
-        // Forward to STDIO client
-        await this.stdioTransport.send(message);
-      } catch (error) {
-        logger.error(`Error forwarding HTTP message to STDIO: ${error}`);
-      }
-    };
+    // Set up HTTP transport message handlers
+    this.setupHttpTransportMessageHandlers();
 
     // Handle errors from STDIO transport
     this.stdioTransport.onerror = (error: Error) => {
       logger.error(`STDIO transport error: ${error.message}`);
-    };
-
-    // Handle errors from HTTP transport
-    this.httpTransport.onerror = (error: Error) => {
-      logger.error(`HTTP transport error: ${error.message}`);
     };
 
     // Handle STDIO transport close
@@ -257,12 +278,50 @@ export class StdioProxyTransport {
       logger.info('STDIO transport closed');
       await this.close();
     };
+  }
 
-    // Handle HTTP transport close
-    this.httpTransport.onclose = async () => {
-      logger.warn('HTTP server connection closed');
-      await this.close();
+  /**
+   * Build User-Agent string with optional client info
+   */
+  private buildUserAgent(): string {
+    const base = `1MCP-Proxy/${MCP_SERVER_VERSION}`;
+    if (this.clientInfo) {
+      const { name, version, title } = this.clientInfo;
+      const clientString = title ? `${name}/${version} (${title})` : `${name}/${version}`;
+      return `${base} ${clientString}`;
+    }
+    return base;
+  }
+
+  /**
+   * Recreate HTTP transport with updated User-Agent header
+   * Called after client info extraction to include client details in User-Agent
+   */
+  private recreateHttpTransport(): void {
+    const oldTransport = this.httpTransport;
+
+    // Update requestInit with new User-Agent
+    this.requestInit = {
+      headers: {
+        'User-Agent': this.buildUserAgent(),
+        'mcp-session-id': this.context.sessionId!,
+      },
     };
+
+    // Create new transport
+    this.httpTransport = new StreamableHTTPClientTransport(this.serverUrl, {
+      requestInit: this.requestInit,
+    });
+
+    // Re-setup message forwarding for new transport
+    this.setupHttpTransportMessageHandlers();
+
+    // Close old transport gracefully
+    oldTransport.close().catch((error) => {
+      logger.warn(`Error closing old HTTP transport: ${error}`);
+    });
+
+    logger.info('HTTP transport recreated with updated User-Agent');
   }
 
   /**

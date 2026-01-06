@@ -477,5 +477,154 @@ describe('StdioProxyTransport', () => {
       const context = proxy['context'];
       expect(context.transport?.client).toBeUndefined();
     });
+
+    it('should build base User-Agent without client info', () => {
+      proxy = new StdioProxyTransport({
+        serverUrl: 'http://localhost:3050/mcp',
+      });
+
+      // Before client info extraction, User-Agent should be base only
+      const userAgent = proxy['buildUserAgent']();
+      expect(userAgent).toMatch(/^1MCP-Proxy\/[\d.]+(?:-[a-zA-Z0-9.]+)?$/);
+    });
+
+    it('should build User-Agent with client info including title', async () => {
+      proxy = new StdioProxyTransport({
+        serverUrl: 'http://localhost:3050/mcp',
+      });
+
+      await proxy.start();
+
+      const initializeMessage: JSONRPCMessage = {
+        jsonrpc: '2.0',
+        id: 1,
+        method: 'initialize',
+        params: {
+          protocolVersion: '2025-06-18',
+          capabilities: {},
+          clientInfo: {
+            name: 'claude-code',
+            version: '1.0.0',
+            title: 'Claude Code',
+          },
+        },
+      };
+
+      // Simulate initialize request processing
+      if (proxy['stdioTransport'].onmessage) {
+        await proxy['stdioTransport'].onmessage!(initializeMessage);
+      }
+
+      // User-Agent should include client info with title
+      const userAgent = proxy['buildUserAgent']();
+      expect(userAgent).toMatch(/^1MCP-Proxy\/[\d.]+(?:-[a-zA-Z0-9.]+)? claude-code\/1\.0\.0 \(Claude Code\)$/);
+    });
+
+    it('should build User-Agent with client info without title', async () => {
+      proxy = new StdioProxyTransport({
+        serverUrl: 'http://localhost:3050/mcp',
+      });
+
+      await proxy.start();
+
+      const initializeMessage: JSONRPCMessage = {
+        jsonrpc: '2.0',
+        id: 1,
+        method: 'initialize',
+        params: {
+          protocolVersion: '2025-06-18',
+          capabilities: {},
+          clientInfo: {
+            name: 'cursor',
+            version: '0.28.3',
+          },
+        },
+      };
+
+      // Simulate initialize request processing
+      if (proxy['stdioTransport'].onmessage) {
+        await proxy['stdioTransport'].onmessage!(initializeMessage);
+      }
+
+      // User-Agent should include client info without title
+      const userAgent = proxy['buildUserAgent']();
+      expect(userAgent).toMatch(/^1MCP-Proxy\/[\d.]+(?:-[a-zA-Z0-9.]+)? cursor\/0\.28\.3$/);
+    });
+
+    it('should recreate HTTP transport after client info extraction', async () => {
+      proxy = new StdioProxyTransport({
+        serverUrl: 'http://localhost:3050/mcp',
+      });
+
+      await proxy.start();
+
+      // Get the initial HTTP transport
+      const initialTransport = proxy['httpTransport'];
+
+      const initializeMessage: JSONRPCMessage = {
+        jsonrpc: '2.0',
+        id: 1,
+        method: 'initialize',
+        params: {
+          protocolVersion: '2025-06-18',
+          capabilities: {},
+          clientInfo: {
+            name: 'claude-code',
+            version: '1.0.0',
+            title: 'Claude Code',
+          },
+        },
+      };
+
+      // Simulate initialize request processing
+      if (proxy['stdioTransport'].onmessage) {
+        await proxy['stdioTransport'].onmessage!(initializeMessage);
+      }
+
+      // Verify a new transport was created
+      expect(proxy['httpTransport']).toBeDefined();
+      expect(proxy['httpTransport']).not.toBe(initialTransport);
+
+      // Verify the old transport was closed
+      expect(initialTransport.close).toHaveBeenCalled();
+    });
+
+    it('should update requestInit with new User-Agent after client info extraction', async () => {
+      proxy = new StdioProxyTransport({
+        serverUrl: 'http://localhost:3050/mcp',
+      });
+
+      await proxy.start();
+
+      // Get initial requestInit
+      const initialRequestInit = proxy['requestInit'];
+
+      const initializeMessage: JSONRPCMessage = {
+        jsonrpc: '2.0',
+        id: 1,
+        method: 'initialize',
+        params: {
+          protocolVersion: '2025-06-18',
+          capabilities: {},
+          clientInfo: {
+            name: 'vscode-mcp',
+            version: '2.1.0',
+            title: 'VSCode MCP',
+          },
+        },
+      };
+
+      // Simulate initialize request processing
+      if (proxy['stdioTransport'].onmessage) {
+        await proxy['stdioTransport'].onmessage!(initializeMessage);
+      }
+
+      // Verify requestInit was updated with new User-Agent
+      const updatedRequestInit = proxy['requestInit'];
+      expect(updatedRequestInit).not.toBe(initialRequestInit);
+      expect(updatedRequestInit.headers).toBeDefined();
+      const headers = updatedRequestInit.headers as Record<string, string>;
+      expect(headers['User-Agent']).toContain('vscode-mcp/2.1.0 (VSCode MCP)');
+    });
   });
 });
