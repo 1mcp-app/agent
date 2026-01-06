@@ -122,6 +122,7 @@ commit_parsers = [
   { message = "^style", group = "<!-- 5 -->🎨 Styling" },
   { message = "^test", group = "<!-- 6 -->🧪 Testing" },
   { message = "^chore\\(release\\): prepare for", skip = true },
+  { message = "^chore: update version and changelog", skip = true },
   { message = "^chore\\(deps.*\\)", skip = true },
   { message = "^chore\\(pr\\)", skip = true },
   { message = "^chore\\(pull\\)", skip = true },
@@ -138,11 +139,6 @@ protect_breaking_commits = false
 filter_commits = false
 # regex for matching git tags - include both stable and pre-release versions
 tag_pattern = "v[0-9].*"
-# regex for skipping tags - skip pre-release tags when generating stable release notes
-# Pre-release identifiers: alpha, beta, rc, preview, next
-skip_tags = "^v.*(-(alpha|beta|rc|preview|next)\\.|(alpha|beta|rc|preview|next)-).*$"
-# regex for ignoring tags
-# ignore_tags = ""
 # sort the tags topologically
 topo_order = false
 # sort the commits inside sections by oldest/newest order
