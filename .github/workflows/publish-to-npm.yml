@@ -53,7 +53,7 @@ jobs:
         id: git-cliff
         with:
           config: cliff-release.toml
-          args: -vv --latest --strip header
+          args: --latest --strip header
         env:
           GITHUB_REPO: ${{ github.repository }}
 
