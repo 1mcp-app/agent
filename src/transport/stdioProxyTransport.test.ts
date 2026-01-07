@@ -626,5 +626,224 @@ describe('StdioProxyTransport', () => {
       const headers = updatedRequestInit.headers as Record<string, string>;
       expect(headers['User-Agent']).toContain('vscode-mcp/2.1.0 (VSCode MCP)');
     });
+
+    it('should start new HTTP transport during recreation', async () => {
+      proxy = new StdioProxyTransport({
+        serverUrl: 'http://localhost:3050/mcp',
+      });
+
+      await proxy.start();
+
+      // Get the initial HTTP transport
+      const initialTransport = proxy['httpTransport'];
+
+      const initializeMessage: JSONRPCMessage = {
+        jsonrpc: '2.0',
+        id: 1,
+        method: 'initialize',
+        params: {
+          protocolVersion: '2025-06-18',
+          capabilities: {},
+          clientInfo: {
+            name: 'claude-code',
+            version: '1.0.0',
+            title: 'Claude Code',
+          },
+        },
+      };
+
+      // Simulate initialize request processing
+      if (proxy['stdioTransport'].onmessage) {
+        await proxy['stdioTransport'].onmessage!(initializeMessage);
+      }
+
+      // Verify new transport was started
+      const newTransport = proxy['httpTransport'];
+      expect(newTransport).not.toBe(initialTransport);
+      expect(newTransport.start).toHaveBeenCalled();
+
+      // Verify old transport was closed
+      expect(initialTransport.close).toHaveBeenCalled();
+    });
+
+    it('should handle transport start failure during recreation with rollback', async () => {
+      proxy = new StdioProxyTransport({
+        serverUrl: 'http://localhost:3050/mcp',
+      });
+
+      await proxy.start();
+
+      // Get the initial HTTP transport
+      const initialTransport = proxy['httpTransport'];
+
+      // Mock StreamableHTTPClientTransport to fail on start for new instances
+      const { StreamableHTTPClientTransport } = await import('@modelcontextprotocol/sdk/client/streamableHttp.js');
+      const originalMock = StreamableHTTPClientTransport as unknown as ReturnType<typeof vi.fn>;
+
+      // Create a new mock that fails on start
+      const failingTransportMock = {
+        start: vi.fn().mockRejectedValue(new Error('Connection failed')),
+        close: vi.fn().mockResolvedValue(undefined),
+        send: vi.fn().mockResolvedValue(undefined),
+        onmessage: undefined,
+        onerror: undefined,
+        onclose: undefined,
+      };
+
+      // Replace the mock temporarily
+      originalMock.mockReturnValueOnce(failingTransportMock);
+
+      const initializeMessage: JSONRPCMessage = {
+        jsonrpc: '2.0',
+        id: 1,
+        method: 'initialize',
+        params: {
+          protocolVersion: '2025-06-18',
+          capabilities: {},
+          clientInfo: {
+            name: 'claude-code',
+            version: '1.0.0',
+            title: 'Claude Code',
+          },
+        },
+      };
+
+      // Simulate initialize request processing - should handle error gracefully
+      if (proxy['stdioTransport'].onmessage) {
+        await proxy['stdioTransport'].onmessage!(initializeMessage);
+      }
+
+      // Verify old transport was restored after failure
+      expect(proxy['httpTransport']).toBe(initialTransport);
+
+      // Verify old transport was NOT closed since rollback occurred
+      expect(initialTransport.close).not.toHaveBeenCalled();
+    });
+
+    it('should handle old transport close errors gracefully during recreation', async () => {
+      proxy = new StdioProxyTransport({
+        serverUrl: 'http://localhost:3050/mcp',
+      });
+
+      await proxy.start();
+
+      // Get the initial HTTP transport and make close fail
+      const initialTransport = proxy['httpTransport'];
+      initialTransport.close = vi.fn().mockRejectedValue(new Error('Close failed'));
+
+      const initializeMessage: JSONRPCMessage = {
+        jsonrpc: '2.0',
+        id: 1,
+        method: 'initialize',
+        params: {
+          protocolVersion: '2025-06-18',
+          capabilities: {},
+          clientInfo: {
+            name: 'claude-code',
+            version: '1.0.0',
+            title: 'Claude Code',
+          },
+        },
+      };
+
+      // Simulate initialize request processing - should not throw despite close error
+      if (proxy['stdioTransport'].onmessage) {
+        await expect(proxy['stdioTransport'].onmessage!(initializeMessage)).resolves.not.toThrow();
+      }
+
+      // Verify new transport was created and started despite old transport close error
+      expect(proxy['httpTransport']).not.toBe(initialTransport);
+      expect(proxy['httpTransport'].start).toHaveBeenCalled();
+    });
+
+    it('should handle initialize followed by tools/list without transport closed error', async () => {
+      proxy = new StdioProxyTransport({
+        serverUrl: 'http://localhost:3050/mcp',
+      });
+
+      await proxy.start();
+
+      // Send initialize request
+      const initializeMessage: JSONRPCMessage = {
+        jsonrpc: '2.0',
+        id: 1,
+        method: 'initialize',
+        params: {
+          protocolVersion: '2025-06-18',
+          capabilities: {},
+          clientInfo: {
+            name: 'claude-code',
+            version: '1.0.0',
+            title: 'Claude Code',
+          },
+        },
+      };
+
+      if (proxy['stdioTransport'].onmessage) {
+        await proxy['stdioTransport'].onmessage!(initializeMessage);
+      }
+
+      // Immediately send tools/list request
+      const toolsListMessage: JSONRPCMessage = {
+        jsonrpc: '2.0',
+        id: 2,
+        method: 'tools/list',
+        params: {},
+      };
+
+      // This should not throw "Transport closed" error
+      if (proxy['stdioTransport'].onmessage) {
+        await expect(proxy['stdioTransport'].onmessage!(toolsListMessage)).resolves.not.toThrow();
+      }
+
+      // Verify both messages were sent through HTTP transport
+      expect(proxy['httpTransport'].send).toHaveBeenCalledTimes(2);
+    });
+
+    it('should await old transport closure before completing recreation', async () => {
+      proxy = new StdioProxyTransport({
+        serverUrl: 'http://localhost:3050/mcp',
+      });
+
+      await proxy.start();
+
+      // Track closure timing
+      let oldTransportClosed = false;
+      let recreationCompleted = false;
+
+      const initialTransport = proxy['httpTransport'];
+      initialTransport.close = vi.fn(async () => {
+        // Simulate slow close
+        await new Promise((resolve) => setTimeout(resolve, 10));
+        oldTransportClosed = true;
+      });
+
+      const initializeMessage: JSONRPCMessage = {
+        jsonrpc: '2.0',
+        id: 1,
+        method: 'initialize',
+        params: {
+          protocolVersion: '2025-06-18',
+          capabilities: {},
+          clientInfo: {
+            name: 'claude-code',
+            version: '1.0.0',
+            title: 'Claude Code',
+          },
+        },
+      };
+
+      // Simulate initialize request processing
+      if (proxy['stdioTransport'].onmessage) {
+        await proxy['stdioTransport'].onmessage!(initializeMessage);
+      }
+
+      recreationCompleted = true;
+
+      // Verify old transport was closed before recreation completed
+      expect(oldTransportClosed).toBe(true);
+      expect(recreationCompleted).toBe(true);
+      expect(initialTransport.close).toHaveBeenCalled();
+    });
   });
 });

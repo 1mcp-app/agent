@@ -248,7 +248,7 @@ export class StdioProxyTransport {
             });
 
             // Recreate transport with enhanced User-Agent
-            this.recreateHttpTransport();
+            await this.recreateHttpTransport();
             logger.info('✅ Updated User-Agent with client info', {
               userAgent: this.buildUserAgent(),
             });
@@ -297,7 +297,7 @@ export class StdioProxyTransport {
    * Recreate HTTP transport with updated User-Agent header
    * Called after client info extraction to include client details in User-Agent
    */
-  private recreateHttpTransport(): void {
+  private async recreateHttpTransport(): Promise<void> {
     const oldTransport = this.httpTransport;
 
     // Update requestInit with new User-Agent
@@ -316,12 +316,23 @@ export class StdioProxyTransport {
     // Re-setup message forwarding for new transport
     this.setupHttpTransportMessageHandlers();
 
-    // Close old transport gracefully
-    oldTransport.close().catch((error) => {
-      logger.warn(`Error closing old HTTP transport: ${error}`);
-    });
+    // Start new transport before closing old one
+    try {
+      await this.httpTransport.start();
+      logger.info('HTTP transport recreated and started with updated User-Agent');
+    } catch (error) {
+      logger.error(`Failed to start new HTTP transport: ${error}`);
+      // Restore old transport on failure
+      this.httpTransport = oldTransport;
+      throw error;
+    }
 
-    logger.info('HTTP transport recreated with updated User-Agent');
+    // Close old transport after new one is ready
+    try {
+      await oldTransport.close();
+    } catch (error) {
+      logger.warn(`Error closing old HTTP transport: ${error}`);
+    }
   }
 
   /**
