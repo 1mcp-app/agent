@@ -12,7 +12,8 @@ body = """
 
 {% if version %}\
 {%- set version_no_v = version | trim_start_matches(pat="v") -%}
-{%- set is_prerelease = version_no_v is search("(alpha|beta|rc|preview|next)[-._]") or version_no_v is search("[-._](alpha|beta|rc|preview|next)") -%}
+{%- set version_clean = version_no_v | replace(from="-alpha", to="") | replace(from="-beta", to="") | replace(from="-rc", to="") | replace(from="-preview", to="") | replace(from="-next", to="") -%}
+{%- set is_prerelease = version_clean != version_no_v -%}
 ## 📦 Downloads
 
 {%- if is_prerelease %}
