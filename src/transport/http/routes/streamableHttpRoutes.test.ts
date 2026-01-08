@@ -130,6 +130,9 @@ describe('Streamable HTTP Routes', () => {
       query: {},
       headers: { 'content-type': 'application/json' },
       body: {},
+      socket: {
+        on: vi.fn(),
+      },
     };
 
     mockResponse = {
@@ -137,6 +140,8 @@ describe('Streamable HTTP Routes', () => {
       json: vi.fn().mockReturnThis(),
       end: vi.fn().mockReturnThis(),
       locals: {},
+      writableEnded: false,
+      on: vi.fn(),
     };
   });
 
