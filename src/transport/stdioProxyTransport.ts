@@ -126,7 +126,6 @@ export class StdioProxyTransport {
   private clientInfo: ClientInfo | null = null;
   private initializeIntercepted = false;
   private serverUrl: URL;
-  private requestInit: RequestInit;
 
   constructor(private options: StdioProxyTransportOptions) {
     // Reset any previous state
@@ -161,17 +160,11 @@ export class StdioProxyTransport {
       contextProvided: true,
     });
 
-    // Prepare minimal request headers (no large context data)
-    this.requestInit = {
-      headers: {
-        'User-Agent': this.buildUserAgent(),
-        'mcp-session-id': this.context.sessionId!, // Non-null assertion - always set by detectProxyContext
-      },
-    };
-
-    // Create initial HTTP transport with minimal headers
+    // Create HTTP transport with custom fetch that dynamically injects User-Agent
+    // Note: sessionId is passed as a parameter, SDK will handle adding it to headers
     this.httpTransport = new StreamableHTTPClientTransport(this.serverUrl, {
-      requestInit: this.requestInit,
+      fetch: this.createDynamicHeaderFetch(),
+      sessionId: this.context.sessionId,
     });
   }
 
@@ -247,9 +240,9 @@ export class StdioProxyTransport {
               clientTitle: clientInfo.title,
             });
 
-            // Recreate transport with enhanced User-Agent
-            await this.recreateHttpTransport();
-            logger.info('✅ Updated User-Agent with client info', {
+            // Client info is now available - custom fetch will dynamically inject
+            // the updated User-Agent header for all subsequent HTTP requests
+            logger.info('✅ Client info extracted - User-Agent will be updated for all requests', {
               userAgent: this.buildUserAgent(),
             });
           }
@@ -294,45 +287,39 @@ export class StdioProxyTransport {
   }
 
   /**
-   * Recreate HTTP transport with updated User-Agent header
-   * Called after client info extraction to include client details in User-Agent
+   * Create a custom fetch function that dynamically injects User-Agent header
+   *
+   * This ensures the HTTP server sees updated client info for all requests after
+   * the initialize message is processed. The custom fetch wraps the global fetch
+   * and merges the current User-Agent (which includes client info if available)
+   * with the request headers.
+   *
+   * Why custom fetch instead of requestInit?
+   * - The SDK's StreamableHTTPClientTransport uses _fetch directly for all requests
+   * - Updating requestInit after transport creation doesn't affect existing connections
+   * - Custom fetch allows dynamic header injection without recreating the transport
+   * - Avoids "Transport closed" errors from mid-session transport recreation
+   *
+   * @returns A fetch function that injects the current User-Agent header
    */
-  private async recreateHttpTransport(): Promise<void> {
-    const oldTransport = this.httpTransport;
+  private createDynamicHeaderFetch(): typeof fetch {
+    return async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+      // Build current User-Agent (includes client info if available)
+      const currentUserAgent = this.buildUserAgent();
 
-    // Update requestInit with new User-Agent
-    this.requestInit = {
-      headers: {
-        'User-Agent': this.buildUserAgent(),
-        'mcp-session-id': this.context.sessionId!,
-      },
+      // Merge headers: preserve existing headers, add/update User-Agent
+      const headers = new Headers(init?.headers);
+      headers.set('User-Agent', currentUserAgent);
+
+      // Create new init with updated headers
+      const updatedInit: RequestInit = {
+        ...init,
+        headers,
+      };
+
+      // Call global fetch with updated headers
+      return fetch(input, updatedInit);
     };
-
-    // Create new transport
-    this.httpTransport = new StreamableHTTPClientTransport(this.serverUrl, {
-      requestInit: this.requestInit,
-    });
-
-    // Re-setup message forwarding for new transport
-    this.setupHttpTransportMessageHandlers();
-
-    // Start new transport before closing old one
-    try {
-      await this.httpTransport.start();
-      logger.info('HTTP transport recreated and started with updated User-Agent');
-    } catch (error) {
-      logger.error(`Failed to start new HTTP transport: ${error}`);
-      // Restore old transport on failure
-      this.httpTransport = oldTransport;
-      throw error;
-    }
-
-    // Close old transport after new one is ready
-    try {
-      await oldTransport.close();
-    } catch (error) {
-      logger.warn(`Error closing old HTTP transport: ${error}`);
-    }
   }
 
   /**

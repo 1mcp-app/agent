@@ -551,7 +551,7 @@ describe('StdioProxyTransport', () => {
       expect(userAgent).toMatch(/^1MCP-Proxy\/[\d.]+(?:-[a-zA-Z0-9.]+)? cursor\/0\.28\.3$/);
     });
 
-    it('should recreate HTTP transport after client info extraction', async () => {
+    it('should extract client info without recreating transport', async () => {
       proxy = new StdioProxyTransport({
         serverUrl: 'http://localhost:3050/mcp',
       });
@@ -581,23 +581,19 @@ describe('StdioProxyTransport', () => {
         await proxy['stdioTransport'].onmessage!(initializeMessage);
       }
 
-      // Verify a new transport was created
-      expect(proxy['httpTransport']).toBeDefined();
-      expect(proxy['httpTransport']).not.toBe(initialTransport);
+      // Verify transport was NOT recreated (same instance)
+      expect(proxy['httpTransport']).toBe(initialTransport);
 
-      // Verify the old transport was closed
-      expect(initialTransport.close).toHaveBeenCalled();
+      // Verify old transport was NOT closed
+      expect(initialTransport.close).not.toHaveBeenCalled();
     });
 
-    it('should update requestInit with new User-Agent after client info extraction', async () => {
+    it('should use custom fetch that dynamically injects User-Agent', async () => {
       proxy = new StdioProxyTransport({
         serverUrl: 'http://localhost:3050/mcp',
       });
 
       await proxy.start();
-
-      // Get initial requestInit
-      const initialRequestInit = proxy['requestInit'];
 
       const initializeMessage: JSONRPCMessage = {
         jsonrpc: '2.0',
@@ -619,141 +615,58 @@ describe('StdioProxyTransport', () => {
         await proxy['stdioTransport'].onmessage!(initializeMessage);
       }
 
-      // Verify requestInit was updated with new User-Agent
-      const updatedRequestInit = proxy['requestInit'];
-      expect(updatedRequestInit).not.toBe(initialRequestInit);
-      expect(updatedRequestInit.headers).toBeDefined();
-      const headers = updatedRequestInit.headers as Record<string, string>;
-      expect(headers['User-Agent']).toContain('vscode-mcp/2.1.0 (VSCode MCP)');
+      // Verify client info was extracted
+      expect(proxy['clientInfo']).toEqual({
+        name: 'vscode-mcp',
+        version: '2.1.0',
+        title: 'VSCode MCP',
+      });
+
+      // Verify buildUserAgent returns updated User-Agent
+      const userAgent = proxy['buildUserAgent']();
+      expect(userAgent).toContain('vscode-mcp/2.1.0 (VSCode MCP)');
     });
 
-    it('should start new HTTP transport during recreation', async () => {
+    it('should inject updated User-Agent for all HTTP requests after client info extraction', async () => {
       proxy = new StdioProxyTransport({
         serverUrl: 'http://localhost:3050/mcp',
       });
 
-      await proxy.start();
+      // Verify the custom fetch function is created and used
+      const customFetch = proxy['createDynamicHeaderFetch']();
+      expect(customFetch).toBeDefined();
+      expect(typeof customFetch).toBe('function');
 
-      // Get the initial HTTP transport
-      const initialTransport = proxy['httpTransport'];
+      // Test the custom fetch function directly
+      const mockResponse = new Response(null, { status: 200 });
+      const originalFetch = global.fetch;
+      global.fetch = vi.fn().mockResolvedValue(mockResponse);
 
-      const initializeMessage: JSONRPCMessage = {
-        jsonrpc: '2.0',
-        id: 1,
-        method: 'initialize',
-        params: {
-          protocolVersion: '2025-06-18',
-          capabilities: {},
-          clientInfo: {
-            name: 'claude-code',
-            version: '1.0.0',
-            title: 'Claude Code',
-          },
-        },
+      // Before client info extraction
+      await customFetch('http://test.com', { headers: { 'X-Test': 'value' } });
+      let fetchCall = (global.fetch as any).mock.calls[0];
+      let headers = new Headers(fetchCall[1].headers);
+      expect(headers.get('User-Agent')).toMatch(/^1MCP-Proxy\/[\d.]+(?:-[a-zA-Z0-9.]+)?$/);
+      expect(headers.get('X-Test')).toBe('value');
+
+      // Extract client info
+      proxy['clientInfo'] = {
+        name: 'claude-code',
+        version: '1.0.0',
+        title: 'Claude Code',
       };
 
-      // Simulate initialize request processing
-      if (proxy['stdioTransport'].onmessage) {
-        await proxy['stdioTransport'].onmessage!(initializeMessage);
-      }
+      // After client info extraction
+      await customFetch('http://test.com', { headers: { 'X-Test': 'value2' } });
+      fetchCall = (global.fetch as any).mock.calls[1];
+      headers = new Headers(fetchCall[1].headers);
+      expect(headers.get('User-Agent')).toMatch(
+        /^1MCP-Proxy\/[\d.]+(?:-[a-zA-Z0-9.]+)? claude-code\/1\.0\.0 \(Claude Code\)$/,
+      );
+      expect(headers.get('X-Test')).toBe('value2');
 
-      // Verify new transport was started
-      const newTransport = proxy['httpTransport'];
-      expect(newTransport).not.toBe(initialTransport);
-      expect(newTransport.start).toHaveBeenCalled();
-
-      // Verify old transport was closed
-      expect(initialTransport.close).toHaveBeenCalled();
-    });
-
-    it('should handle transport start failure during recreation with rollback', async () => {
-      proxy = new StdioProxyTransport({
-        serverUrl: 'http://localhost:3050/mcp',
-      });
-
-      await proxy.start();
-
-      // Get the initial HTTP transport
-      const initialTransport = proxy['httpTransport'];
-
-      // Mock StreamableHTTPClientTransport to fail on start for new instances
-      const { StreamableHTTPClientTransport } = await import('@modelcontextprotocol/sdk/client/streamableHttp.js');
-      const originalMock = StreamableHTTPClientTransport as unknown as ReturnType<typeof vi.fn>;
-
-      // Create a new mock that fails on start
-      const failingTransportMock = {
-        start: vi.fn().mockRejectedValue(new Error('Connection failed')),
-        close: vi.fn().mockResolvedValue(undefined),
-        send: vi.fn().mockResolvedValue(undefined),
-        onmessage: undefined,
-        onerror: undefined,
-        onclose: undefined,
-      };
-
-      // Replace the mock temporarily
-      originalMock.mockReturnValueOnce(failingTransportMock);
-
-      const initializeMessage: JSONRPCMessage = {
-        jsonrpc: '2.0',
-        id: 1,
-        method: 'initialize',
-        params: {
-          protocolVersion: '2025-06-18',
-          capabilities: {},
-          clientInfo: {
-            name: 'claude-code',
-            version: '1.0.0',
-            title: 'Claude Code',
-          },
-        },
-      };
-
-      // Simulate initialize request processing - should handle error gracefully
-      if (proxy['stdioTransport'].onmessage) {
-        await proxy['stdioTransport'].onmessage!(initializeMessage);
-      }
-
-      // Verify old transport was restored after failure
-      expect(proxy['httpTransport']).toBe(initialTransport);
-
-      // Verify old transport was NOT closed since rollback occurred
-      expect(initialTransport.close).not.toHaveBeenCalled();
-    });
-
-    it('should handle old transport close errors gracefully during recreation', async () => {
-      proxy = new StdioProxyTransport({
-        serverUrl: 'http://localhost:3050/mcp',
-      });
-
-      await proxy.start();
-
-      // Get the initial HTTP transport and make close fail
-      const initialTransport = proxy['httpTransport'];
-      initialTransport.close = vi.fn().mockRejectedValue(new Error('Close failed'));
-
-      const initializeMessage: JSONRPCMessage = {
-        jsonrpc: '2.0',
-        id: 1,
-        method: 'initialize',
-        params: {
-          protocolVersion: '2025-06-18',
-          capabilities: {},
-          clientInfo: {
-            name: 'claude-code',
-            version: '1.0.0',
-            title: 'Claude Code',
-          },
-        },
-      };
-
-      // Simulate initialize request processing - should not throw despite close error
-      if (proxy['stdioTransport'].onmessage) {
-        await expect(proxy['stdioTransport'].onmessage!(initializeMessage)).resolves.not.toThrow();
-      }
-
-      // Verify new transport was created and started despite old transport close error
-      expect(proxy['httpTransport']).not.toBe(initialTransport);
-      expect(proxy['httpTransport'].start).toHaveBeenCalled();
+      // Restore original fetch
+      global.fetch = originalFetch;
     });
 
     it('should handle initialize followed by tools/list without transport closed error', async () => {
@@ -798,52 +711,6 @@ describe('StdioProxyTransport', () => {
 
       // Verify both messages were sent through HTTP transport
       expect(proxy['httpTransport'].send).toHaveBeenCalledTimes(2);
-    });
-
-    it('should await old transport closure before completing recreation', async () => {
-      proxy = new StdioProxyTransport({
-        serverUrl: 'http://localhost:3050/mcp',
-      });
-
-      await proxy.start();
-
-      // Track closure timing
-      let oldTransportClosed = false;
-      let recreationCompleted = false;
-
-      const initialTransport = proxy['httpTransport'];
-      initialTransport.close = vi.fn(async () => {
-        // Simulate slow close
-        await new Promise((resolve) => setTimeout(resolve, 10));
-        oldTransportClosed = true;
-      });
-
-      const initializeMessage: JSONRPCMessage = {
-        jsonrpc: '2.0',
-        id: 1,
-        method: 'initialize',
-        params: {
-          protocolVersion: '2025-06-18',
-          capabilities: {},
-          clientInfo: {
-            name: 'claude-code',
-            version: '1.0.0',
-            title: 'Claude Code',
-          },
-        },
-      };
-
-      // Simulate initialize request processing
-      if (proxy['stdioTransport'].onmessage) {
-        await proxy['stdioTransport'].onmessage!(initializeMessage);
-      }
-
-      recreationCompleted = true;
-
-      // Verify old transport was closed before recreation completed
-      expect(oldTransportClosed).toBe(true);
-      expect(recreationCompleted).toBe(true);
-      expect(initialTransport.close).toHaveBeenCalled();
     });
   });
 });
