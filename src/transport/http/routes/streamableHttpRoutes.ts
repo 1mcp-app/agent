@@ -111,6 +111,38 @@ async function restoreSession(
   }
 }
 
+/**
+ * Sets up client disconnect detection for a request/response pair.
+ * Cleans up the transport when the client disconnects, but preserves the session.
+ */
+function setupDisconnectDetection(req: Request, res: Response, sessionId: string, serverManager: ServerManager): void {
+  let responseClosed = false;
+
+  // Mark response as closed when it ends normally
+  res.on('finish', () => {
+    responseClosed = true;
+  });
+
+  // Detect abnormal client disconnect (connection closed before response finished)
+  res.on('close', () => {
+    if (!responseClosed && !res.writableEnded) {
+      // Client disconnected without calling DELETE
+      logger.debug(`Client disconnected for session ${sessionId}, cleaning up transport`);
+      serverManager.disconnectTransport(sessionId);
+      // Note: Session persists in repository for reconnection
+    }
+  });
+
+  // Also detect socket-level close
+  req.socket?.on('close', () => {
+    if (!responseClosed && !res.writableEnded) {
+      logger.debug(`Socket closed for session ${sessionId}, cleaning up transport`);
+      serverManager.disconnectTransport(sessionId);
+      // Note: Session persists in repository for reconnection
+    }
+  });
+}
+
 export function setupStreamableHttpRoutes(
   router: Router,
   serverManager: ServerManager,
@@ -340,6 +372,10 @@ export function setupStreamableHttpRoutes(
         // Update last accessed time for active sessions with dual-trigger persistence
         sessionRepository.updateAccess(sessionId);
       }
+
+      // Set up disconnect detection for SSE stream (GET endpoint maintains persistent connection)
+      setupDisconnectDetection(req, res, sessionId, serverManager);
+
       await transport.handleRequest(req, res, req.body);
     } catch (error) {
       logger.error('Streamable HTTP error:', error);
