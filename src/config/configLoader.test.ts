@@ -64,7 +64,11 @@ describe('ConfigLoader', () => {
       await fsPromises.writeFile(configFilePath, JSON.stringify(config, null, 2));
 
       const rawConfig = loader.loadRawConfig();
-      expect(rawConfig).toEqual(config);
+      // loadRawConfig automatically adds $schema for IDE autocompletion
+      expect(rawConfig).toEqual({
+        $schema: 'https://docs.1mcp.app/schemas/v1.0.0/mcp-config.json',
+        ...config,
+      });
     });
 
     it('should create default config if file does not exist', () => {
