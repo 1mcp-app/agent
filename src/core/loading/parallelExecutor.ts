@@ -1,5 +1,7 @@
 import { EventEmitter } from 'events';
 
+import logger from '@src/logger/logger.js';
+
 /**
  * Events emitted by ParallelExecutor during execution
  */
@@ -27,8 +29,6 @@ export interface ParallelExecutorEvents<T, R> {
 export interface ParallelExecutorOptions {
   /** Maximum number of items to process concurrently */
   readonly maxConcurrent: number;
-  /** Optional timeout for each item in milliseconds */
-  readonly timeout?: number;
 }
 
 /**
@@ -74,7 +74,12 @@ export class ParallelExecutor<T, R> extends EventEmitter {
    * @param items - Array of items to process
    * @param handler - Async function that processes each item
    * @param options - Execution options including max concurrency
-   * @returns Map of items to their results (success values or Errors)
+   * @returns Map of items to their successful results only. Failed items are not included
+   *          but can be tracked via ItemComplete events (which emit Error objects)
+   * @throws Never throws - individual item failures are caught and logged, other items continue processing
+   * @remarks Errors from individual items do not prevent other items from processing.
+   *          Failed items emit ItemComplete events with Error objects and are logged,
+   *          then excluded from the returned results Map. Use event listeners to track failures.
    */
   async execute(items: T[], handler: (item: T) => Promise<R>, options: ParallelExecutorOptions): Promise<Map<T, R>> {
     const results = new Map<T, R>();
@@ -102,7 +107,26 @@ export class ParallelExecutor<T, R> extends EventEmitter {
       });
 
       // Wait for this batch to complete before starting next batch
-      await Promise.allSettled(batchPromises);
+      const batchResults = await Promise.allSettled(batchPromises);
+
+      // Log and track failed items from this batch
+      const failedItems: Array<{ item: T; result: PromiseRejectedResult }> = [];
+      batchResults.forEach((result, index) => {
+        if (result.status === 'rejected') {
+          failedItems.push({ item: batch[index], result });
+        }
+      });
+
+      if (failedItems.length > 0) {
+        for (const { item, result } of failedItems) {
+          const error = result.reason as unknown;
+          const errorMessage = error instanceof Error ? error.message : String(error);
+          logger.error(`Failed to process item in parallel execution: ${item}`, {
+            error: errorMessage,
+            itemType: typeof item,
+          });
+        }
+      }
 
       // Emit batch complete event
       this.emit(ParallelExecutorEvent.BatchComplete, batch);
