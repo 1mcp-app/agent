@@ -1,6 +1,8 @@
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 
+import { DEFAULT_MAX_CONCURRENT_LOADS } from '@src/constants/mcp.js';
 import { InstructionAggregator } from '@src/core/instructions/instructionAggregator.js';
+import { ParallelExecutor } from '@src/core/loading/parallelExecutor.js';
 import {
   AuthProviderTransport,
   ClientStatus,
@@ -79,7 +81,13 @@ export class ClientManager {
         debugIf(() => ({ message: `No instructions available for ${name}`, meta: { name } }));
       }
     } catch (error) {
-      logger.warn(`Failed to extract instructions from ${name}: ${error}`);
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      logger.warn(`Failed to extract instructions from ${name}: ${errorMessage}`, {
+        error: errorMessage,
+        clientName: name,
+        transportType: this.outboundConns.get(name)?.transport?.constructor.name,
+        connectionStatus: this.outboundConns.get(name)?.status,
+      });
     }
   }
 
@@ -98,12 +106,54 @@ export class ClientManager {
     };
   }
 
+  /**
+   * Create multiple MCP clients in parallel with controlled concurrency
+   *
+   * @remarks Uses ParallelExecutor to create clients concurrently with a maximum
+   * of DEFAULT_MAX_CONCURRENT_LOADS (5) simultaneous connections. Individual
+   * client creation failures are captured in the OutboundConnections map with
+   * appropriate error status, allowing other clients to continue loading.
+   *
+   * Error handling details:
+   * - OAuthRequiredError: Client status set to AwaitingOAuth
+   * - Other errors: Client status set to Error with lastError populated
+   *
+   * @param transports - Map of server names to their transport configurations
+   * @returns Map of all attempted connections (successful, failed, and awaiting OAuth)
+   */
   public async createClients(transports: Record<string, AuthProviderTransport>): Promise<OutboundConnections> {
     this.transports = transports;
     this.outboundConns.clear();
 
-    for (const [name, transport] of Object.entries(transports)) {
-      await this.createClient(name, transport);
+    const executor = new ParallelExecutor<[string, AuthProviderTransport], void>();
+    const serverEntries = Object.entries(transports);
+    const initialCount = serverEntries.length;
+
+    await executor.execute(serverEntries, async ([name, transport]) => this.createClient(name, transport), {
+      maxConcurrent: DEFAULT_MAX_CONCURRENT_LOADS,
+    });
+
+    // Check for failures and log summary
+    let failedClientCount = 0;
+    for (const conn of this.outboundConns.values()) {
+      if (conn.status === ClientStatus.Error) {
+        failedClientCount++;
+      }
+    }
+
+    if (failedClientCount > 0) {
+      logger.error(`Some clients failed to initialize: ${failedClientCount}/${initialCount}`);
+    }
+
+    let oauthClientCount = 0;
+    for (const conn of this.outboundConns.values()) {
+      if (conn.status === ClientStatus.AwaitingOAuth) {
+        oauthClientCount++;
+      }
+    }
+
+    if (oauthClientCount > 0) {
+      logger.info(`Clients awaiting OAuth authorization: ${oauthClientCount}/${initialCount}`);
     }
 
     return this.outboundConns;
@@ -135,7 +185,12 @@ export class ClientManager {
 
   private handleClientCreationError(name: string, transport: AuthProviderTransport, error: unknown): void {
     if (error instanceof OAuthRequiredError) {
-      logger.info(`OAuth authorization required for ${name}`);
+      logger.info(`OAuth authorization required for ${name}`, {
+        reason: error.message,
+        hasAuthorizationUrl: !!this.oauthFlowHandler.extractAuthorizationUrl(transport),
+        clientName: name,
+        transportType: transport.constructor.name,
+      });
       const authorizationUrl = this.oauthFlowHandler.extractAuthorizationUrl(transport);
       this.outboundConns.set(name, {
         name,
@@ -146,7 +201,14 @@ export class ClientManager {
         oauthStartTime: new Date(),
       });
     } else {
-      logger.error(`Failed to create client for ${name}: ${error}`);
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      logger.error(`Failed to create client for ${name}: ${errorMessage}`, {
+        error: errorMessage,
+        clientName: name,
+        transportType: transport.constructor.name,
+        connectionStatus: this.outboundConns.get(name)?.status,
+        stack: error instanceof Error ? error.stack : undefined,
+      });
       this.outboundConns.set(name, {
         name,
         transport,
@@ -231,7 +293,12 @@ export class ClientManager {
 
   private handleSingleClientError(name: string, transport: AuthProviderTransport, error: unknown): void {
     if (error instanceof OAuthRequiredError) {
-      logger.info(`OAuth authorization required for ${name}`);
+      logger.info(`OAuth authorization required for ${name}`, {
+        reason: error.message,
+        hasAuthorizationUrl: !!this.oauthFlowHandler.extractAuthorizationUrl(transport),
+        clientName: name,
+        transportType: transport.constructor.name,
+      });
       const authorizationUrl = this.oauthFlowHandler.extractAuthorizationUrl(transport);
       this.outboundConns.set(name, {
         name,
@@ -242,7 +309,14 @@ export class ClientManager {
         oauthStartTime: new Date(),
       });
     } else {
-      logger.error(`Failed to create client for ${name}: ${error}`);
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      logger.error(`Failed to create client for ${name}: ${errorMessage}`, {
+        error: errorMessage,
+        clientName: name,
+        transportType: transport.constructor.name,
+        connectionStatus: this.outboundConns.get(name)?.status,
+        stack: error instanceof Error ? error.stack : undefined,
+      });
       this.outboundConns.set(name, {
         name,
         transport,
@@ -332,7 +406,12 @@ export class ClientManager {
         try {
           await clientInfo.transport.close();
         } catch (error) {
-          logger.warn(`Error closing transport for ${name}: ${error}`);
+          const errorMessage = error instanceof Error ? error.message : String(error);
+          logger.warn(`Error closing transport for ${name}: ${errorMessage}`, {
+            error: errorMessage,
+            clientName: name,
+            transportType: clientInfo.transport?.constructor.name,
+          });
         }
       }
 
@@ -342,7 +421,12 @@ export class ClientManager {
 
       logger.info(`Client ${name} removed successfully`);
     } catch (error) {
-      logger.error(`Error removing client ${name}: ${error}`);
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      logger.error(`Error removing client ${name}: ${errorMessage}`, {
+        error: errorMessage,
+        clientName: name,
+        stack: error instanceof Error ? error.stack : undefined,
+      });
       throw error;
     }
   }

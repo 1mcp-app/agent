@@ -11,6 +11,11 @@ export const MCP_SERVER_VERSION = '0.29.0-beta4';
 
 export const MCP_URI_SEPARATOR = '_1mcp_';
 
+/**
+ * Default maximum number of MCP servers to load concurrently
+ */
+export const DEFAULT_MAX_CONCURRENT_LOADS = 5;
+
 export const MCP_SERVER_CAPABILITIES: ServerCapabilities = {
   completions: {},
   resources: {
