@@ -1,0 +1,65 @@
+{
+  "$schema": "https://json-schema.org/draft-07/schema#",
+  "$id": "https://docs.1mcp.app/schemas/v1.0.0/project-config.json",
+  "title": "project config configuration schema v1.0.0",
+  "description": "JSON Schema for 1MCP project-level configuration files (v1.0.0)",
+  "type": "object",
+  "properties": {
+    "$schema": {
+      "type": "string",
+      "format": "uri",
+      "description": "JSON Schema reference for IDE autocompletion and validation"
+    },
+    "preset": {
+      "type": "string"
+    },
+    "tags": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      ]
+    },
+    "filter": {
+      "type": "string"
+    },
+    "context": {
+      "type": "object",
+      "properties": {
+        "projectId": {
+          "type": "string"
+        },
+        "environment": {
+          "type": "string"
+        },
+        "team": {
+          "type": "string"
+        },
+        "custom": {
+          "type": "object",
+          "additionalProperties": {}
+        },
+        "envPrefixes": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "includeGit": {
+          "default": true,
+          "type": "boolean"
+        },
+        "sanitizePaths": {
+          "default": true,
+          "type": "boolean"
+        }
+      }
+    }
+  }
+}

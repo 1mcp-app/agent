@@ -9,7 +9,24 @@ import { MCP_CONFIG_FILE, MCP_INSTRUCTIONS_TEMPLATE_FILE } from './mcp.js';
 export const CONFIG_DIR_NAME = '1mcp';
 export const BACKUP_DIR_NAME = 'backups';
 export const DEFAULT_CONFIG = {
+  $schema: 'https://docs.1mcp.app/schemas/v1.0.0/mcp-config.json',
   mcpServers: {},
+};
+
+// Local development alternative with relative path for development
+export const DEFAULT_CONFIG_LOCAL = {
+  $schema: './schemas/v1.0.0/mcp-config.json',
+  mcpServers: {},
+};
+
+// Default project configuration for .1mcprc files
+export const DEFAULT_PROJECT_CONFIG = {
+  $schema: 'https://docs.1mcp.app/schemas/v1.0.0/project-config.json',
+};
+
+// Local development alternative for project config
+export const DEFAULT_PROJECT_CONFIG_LOCAL = {
+  $schema: './schemas/v1.0.0/project-config.json',
 };
 
 /**
