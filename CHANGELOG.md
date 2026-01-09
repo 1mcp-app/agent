@@ -8,6 +8,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [unreleased]
 
 ### 🚀 Features
+- Add parallel loading for sync and async paths by @xizhibei in [#208](https://github.com/1mcp-app/agent/pull/208)
+- Detect SSE client disconnect while preserving session by @xizhibei in [#210](https://github.com/1mcp-app/agent/pull/210)
+- Add client info to User-Agent via dynamic header injection by @xizhibei
 - Add client info to User-Agent header by @xizhibei in [#206](https://github.com/1mcp-app/agent/pull/206)
 - Add context-aware proxy mode with template support for MCP server configurations by @xizhibei in [#195](https://github.com/1mcp-app/agent/pull/195)
 
