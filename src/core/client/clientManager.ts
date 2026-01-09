@@ -134,25 +134,26 @@ export class ClientManager {
     });
 
     // Check for failures and log summary
-    const failedClients = Array.from(this.outboundConns.values()).filter((conn) => conn.status === ClientStatus.Error);
-
-    if (failedClients.length > 0) {
-      logger.error(`Some clients failed to initialize: ${failedClients.length}/${initialCount}`, {
-        failedClients: failedClients.map((c) => ({
-          name: c.name,
-          error: c.lastError?.message,
-        })),
-      });
+    let failedClientCount = 0;
+    for (const conn of this.outboundConns.values()) {
+      if (conn.status === ClientStatus.Error) {
+        failedClientCount++;
+      }
     }
 
-    const oauthClients = Array.from(this.outboundConns.values()).filter(
-      (conn) => conn.status === ClientStatus.AwaitingOAuth,
-    );
+    if (failedClientCount > 0) {
+      logger.error(`Some clients failed to initialize: ${failedClientCount}/${initialCount}`);
+    }
 
-    if (oauthClients.length > 0) {
-      logger.info(`Clients awaiting OAuth authorization: ${oauthClients.length}/${initialCount}`, {
-        oauthClients: oauthClients.map((c) => ({ name: c.name, hasAuthUrl: !!c.authorizationUrl })),
-      });
+    let oauthClientCount = 0;
+    for (const conn of this.outboundConns.values()) {
+      if (conn.status === ClientStatus.AwaitingOAuth) {
+        oauthClientCount++;
+      }
+    }
+
+    if (oauthClientCount > 0) {
+      logger.info(`Clients awaiting OAuth authorization: ${oauthClientCount}/${initialCount}`);
     }
 
     return this.outboundConns;
