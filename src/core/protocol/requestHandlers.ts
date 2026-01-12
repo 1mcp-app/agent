@@ -27,6 +27,7 @@ import {
 
 import { MCP_URI_SEPARATOR } from '@src/constants.js';
 import { InternalCapabilitiesProvider } from '@src/core/capabilities/internalCapabilitiesProvider.js';
+import { LazyLoadingOrchestrator } from '@src/core/capabilities/lazyLoadingOrchestrator.js';
 import { byCapabilities } from '@src/core/filtering/clientFiltering.js';
 import { FilteringService } from '@src/core/filtering/filteringService.js';
 import { ServerManager } from '@src/core/server/serverManager.js';
@@ -235,7 +236,11 @@ function registerServerRequestHandlers(outboundConns: OutboundConnections, inbou
  * @param tags Array of tags to filter clients by
  */
 
-export function registerRequestHandlers(outboundConns: OutboundConnections, inboundConn: InboundConnection): void {
+export function registerRequestHandlers(
+  outboundConns: OutboundConnections,
+  inboundConn: InboundConnection,
+  lazyLoadingOrchestrator?: LazyLoadingOrchestrator,
+): void {
   // Register logging level handler
   inboundConn.server.setRequestHandler(SetLevelRequestSchema, async (request) => {
     setLogLevel(request.params.level);
@@ -270,7 +275,7 @@ export function registerRequestHandlers(outboundConns: OutboundConnections, inbo
   registerResourceHandlers(outboundConns, inboundConn);
 
   // Register tool-related handlers
-  registerToolHandlers(outboundConns, inboundConn);
+  registerToolHandlers(outboundConns, inboundConn, lazyLoadingOrchestrator);
 
   // Register prompt-related handlers
   registerPromptHandlers(outboundConns, inboundConn);
@@ -448,13 +453,42 @@ function registerResourceHandlers(outboundConns: OutboundConnections, inboundCon
  * @param clients Record of client instances
  * @param serverInfo The MCP server instance
  */
-function registerToolHandlers(outboundConns: OutboundConnections, inboundConn: InboundConnection): void {
+function registerToolHandlers(
+  outboundConns: OutboundConnections,
+  inboundConn: InboundConnection,
+  lazyLoadingOrchestrator?: LazyLoadingOrchestrator,
+): void {
   const sessionId = getRequestSession(inboundConn);
+  const lazyLoadingEnabled = lazyLoadingOrchestrator?.isEnabled();
 
   // List Tools handler
   inboundConn.server.setRequestHandler(
     ListToolsRequestSchema,
     withErrorHandling(async (request: ListToolsRequest) => {
+      // If lazy loading is enabled, use LazyLoadingOrchestrator for tool listing
+      if (lazyLoadingEnabled && lazyLoadingOrchestrator) {
+        const capabilities = await lazyLoadingOrchestrator.getCapabilities();
+
+        // Get internal tools (always fully loaded)
+        const internalProvider = InternalCapabilitiesProvider.getInstance();
+        await internalProvider.initialize();
+        const internalTools = internalProvider.getAvailableTools();
+
+        // Add internal tools to the result (with 1mcp prefix)
+        const internalToolsWithPrefix = internalTools.map((tool) => ({
+          ...tool,
+          name: buildUri('1mcp', tool.name, MCP_URI_SEPARATOR),
+        }));
+
+        // Combine lazy-loaded tools with internal tools
+        const allTools = [...capabilities.tools, ...internalToolsWithPrefix];
+
+        return {
+          tools: allTools,
+        };
+      }
+
+      // Normal mode: get tools from external MCP servers
       // Filter connections for this session first
       const sessionFilteredConns = filterConnectionsForSession(outboundConns, sessionId);
       // Then filter by capabilities, then by tags
@@ -500,6 +534,31 @@ function registerToolHandlers(outboundConns: OutboundConnections, inboundConn: I
     CallToolRequestSchema,
     withErrorHandling(async (request) => {
       const { clientName, resourceName: toolName } = parseUri(request.params.name, MCP_URI_SEPARATOR);
+
+      // Check if this is a meta-tool call (when lazy loading is enabled)
+      // Meta-tools are called directly without a server prefix
+      const isMetaTool =
+        lazyLoadingEnabled && lazyLoadingOrchestrator && lazyLoadingOrchestrator.isMetaTool(request.params.name);
+
+      if (isMetaTool && lazyLoadingOrchestrator) {
+        const result = (await lazyLoadingOrchestrator.callMetaTool(request.params.name, request.params.arguments)) as {
+          isError: boolean;
+          content: Array<{ type: string; text: string }>;
+          _meta?: Record<string, unknown>;
+          _errorType?: string;
+        };
+
+        // Handle meta-tool error responses
+        if (result.isError) {
+          throw new Error(result.content[0]?.text || `Meta-tool error: ${result._errorType || 'unknown'}`);
+        }
+
+        // Return the meta-tool result
+        return {
+          content: result.content,
+          _meta: result._meta,
+        };
+      }
 
       // Handle 1mcp tools
       if (clientName === '1mcp') {

@@ -2,6 +2,7 @@ import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
 
 import { setupCapabilities } from '@src/core/capabilities/capabilityManager.js';
+import { LazyLoadingOrchestrator } from '@src/core/capabilities/lazyLoadingOrchestrator.js';
 import type { OutboundConnections } from '@src/core/types/client.js';
 import { InboundConnection, InboundConnectionConfig, OperationOptions, ServerStatus } from '@src/core/types/index.js';
 import {
@@ -20,12 +21,30 @@ export class ConnectionManager {
   private inboundConns: Map<string, InboundConnection> = new Map();
   private connectionSemaphore: Map<string, Promise<void>> = new Map();
   private disconnectingIds: Set<string> = new Set();
+  private lazyLoadingOrchestrator?: LazyLoadingOrchestrator;
 
   constructor(
     private serverConfig: { name: string; version: string },
     private serverCapabilities: { capabilities: Record<string, unknown> },
     private outboundConns: OutboundConnections,
-  ) {}
+    lazyLoadingOrchestrator?: LazyLoadingOrchestrator,
+  ) {
+    this.lazyLoadingOrchestrator = lazyLoadingOrchestrator;
+  }
+
+  /**
+   * Set the lazy loading orchestrator
+   */
+  public setLazyLoadingOrchestrator(orchestrator: LazyLoadingOrchestrator): void {
+    this.lazyLoadingOrchestrator = orchestrator;
+  }
+
+  /**
+   * Get the lazy loading orchestrator
+   */
+  public getLazyLoadingOrchestrator(): LazyLoadingOrchestrator | undefined {
+    return this.lazyLoadingOrchestrator;
+  }
 
   /**
    * Connect a transport with the given session ID and configuration
@@ -225,7 +244,7 @@ export class ConnectionManager {
     enhanceServerWithLogging(server);
 
     // Set up capabilities for this server instance
-    await setupCapabilities(this.outboundConns, serverInfo);
+    await setupCapabilities(this.outboundConns, serverInfo, this.lazyLoadingOrchestrator);
 
     // Store the server instance
     this.inboundConns.set(sessionId, serverInfo);

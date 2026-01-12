@@ -90,7 +90,7 @@ describe('CapabilityManager', () => {
       expect(result).toEqual({});
       expect(setupClientToServerNotifications).toHaveBeenCalledWith(clients, mockServerInfo);
       expect(setupServerToClientNotifications).toHaveBeenCalledWith(clients, mockServerInfo);
-      expect(registerRequestHandlers).toHaveBeenCalledWith(clients, mockServerInfo);
+      expect(registerRequestHandlers).toHaveBeenCalledWith(clients, mockServerInfo, undefined);
     });
 
     it('should collect capabilities from single client', async () => {

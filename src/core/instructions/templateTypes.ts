@@ -70,6 +70,57 @@ export interface TemplateVariables {
 
   /** Array of tool examples for documentation */
   examples: TemplateExample[];
+
+  // Lazy loading state (present when lazy loading is configured)
+  /** Lazy loading configuration and statistics */
+  lazyLoading?: LazyLoadingState;
+}
+
+/**
+ * Lazy loading state for template variables
+ * Present when lazy loading is configured (enabled or disabled)
+ */
+export interface LazyLoadingState {
+  /** Whether lazy loading is enabled */
+  enabled: boolean;
+
+  /** Lazy loading mode */
+  mode: 'metatool' | 'hybrid' | 'full';
+
+  /** Total number of tools available across all servers */
+  availableToolsCount: number;
+
+  /** Number of tools exposed via tools/list (varies by mode) */
+  exposedToolsCount: number;
+
+  /** Number of tools in directExpose list (hybrid mode only) */
+  directExposeCount: number;
+
+  /** Number of tools currently cached with schemas */
+  cachedToolsCount: number;
+
+  /** Meta-tool names (metatool mode only) */
+  metaTools?: string[];
+
+  /** Full tool catalog (if inlineCatalog=true) */
+  catalog?: ToolCatalogEntry[];
+}
+
+/**
+ * Tool catalog entry for inline catalog
+ */
+export interface ToolCatalogEntry {
+  /** Tool name */
+  name: string;
+
+  /** Server name */
+  server: string;
+
+  /** Tool description */
+  description?: string;
+
+  /** Tool category (derived from server name) */
+  category?: string;
 }
 
 /**
@@ -187,6 +238,7 @@ The following sections contain instructions from each connected MCP server. Each
 
 Connected servers are available but have not provided instructions yet. Tools and capabilities will become available once servers provide their instructions.
 {{/if}}
+
 {{else}}
 You are interacting with 1MCP, a proxy server that aggregates capabilities from multiple MCP (Model Context Protocol) servers.
 

@@ -1,6 +1,7 @@
 import { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
 
 import { ConfigManager } from '@src/config/configManager.js';
+import { LazyLoadingOrchestrator } from '@src/core/capabilities/lazyLoadingOrchestrator.js';
 import { getGlobalContextManager } from '@src/core/context/globalContextManager.js';
 import { ClientTemplateTracker, FilterCache, getFilterCache, TemplateIndex } from '@src/core/filtering/index.js';
 import { InstructionAggregator } from '@src/core/instructions/instructionAggregator.js';
@@ -45,6 +46,7 @@ export class ServerManager {
   private transports: Record<string, Transport>;
   private serverConfigData: MCPServerConfiguration | null = null; // Cache the config data
   private instructionAggregator?: InstructionAggregator;
+  private lazyLoadingOrchestrator?: LazyLoadingOrchestrator;
 
   // Component managers
   private connectionManager: ConnectionManager;
@@ -115,6 +117,25 @@ export class ServerManager {
     this.setupContextChangeListener();
 
     debugIf('Instruction aggregator set for ServerManager');
+  }
+
+  /**
+   * Set the lazy loading orchestrator instance
+   */
+  public setLazyLoadingOrchestrator(orchestrator: LazyLoadingOrchestrator): void {
+    this.lazyLoadingOrchestrator = orchestrator;
+    this.connectionManager.setLazyLoadingOrchestrator(orchestrator);
+    if (this.instructionAggregator) {
+      this.instructionAggregator.setLazyLoadingOrchestrator(orchestrator);
+    }
+    debugIf('Lazy loading orchestrator set for ServerManager');
+  }
+
+  /**
+   * Get the lazy loading orchestrator instance
+   */
+  public getLazyLoadingOrchestrator(): LazyLoadingOrchestrator | undefined {
+    return this.lazyLoadingOrchestrator;
   }
 
   /**

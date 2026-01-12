@@ -101,6 +101,29 @@ describe('AgentConfigManager', () => {
           persistIntervalMinutes: 5,
           backgroundFlushSeconds: 60,
         },
+        lazyLoading: {
+          enabled: false,
+          mode: 'full',
+          metaTools: {
+            enabled: true,
+            inlineCatalog: false,
+            catalogFormat: 'grouped',
+          },
+          directExpose: [],
+          cache: {
+            maxEntries: 1000,
+            strategy: 'lru',
+            ttlMs: undefined,
+          },
+          preload: {
+            patterns: [],
+            keywords: [],
+          },
+          fallback: {
+            onError: 'skip',
+            timeoutMs: 5000,
+          },
+        },
       });
     });
 

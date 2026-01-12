@@ -48,6 +48,17 @@ export interface ServeOptions {
   'async-batch-notifications': boolean;
   'async-batch-delay': number;
   'async-notify-on-ready': boolean;
+  'enable-lazy-loading': boolean;
+  'lazy-mode': string;
+  'lazy-inline-catalog': boolean;
+  'lazy-catalog-format': string;
+  'lazy-direct-expose'?: string;
+  'lazy-cache-max-entries': number;
+  'lazy-cache-ttl'?: number;
+  'lazy-preload'?: string;
+  'lazy-preload-keywords'?: string;
+  'lazy-fallback-on-error'?: string;
+  'lazy-fallback-timeout'?: number;
   'enable-config-reload': boolean;
   'config-reload-debounce': number;
   'enable-env-substitution': boolean;
@@ -334,6 +345,33 @@ export async function serveCommand(parsedArgv: ServeOptions): Promise<void> {
         initialLoadTimeoutMs: parsedArgv['async-timeout'],
         batchNotifications: parsedArgv['async-batch-notifications'],
         batchDelayMs: parsedArgv['async-batch-delay'],
+      },
+      lazyLoading: {
+        enabled: parsedArgv['enable-lazy-loading'],
+        mode: (parsedArgv['lazy-mode'] || 'full') as 'metatool' | 'hybrid' | 'full',
+        metaTools: {
+          enabled: true, // Always enabled when mode is metatool
+          inlineCatalog: parsedArgv['lazy-inline-catalog'],
+          catalogFormat: (parsedArgv['lazy-catalog-format'] || 'grouped') as 'flat' | 'grouped' | 'categorized',
+        },
+        directExpose: parsedArgv['lazy-direct-expose']
+          ? parsedArgv['lazy-direct-expose'].split(',').map((s) => s.trim())
+          : [],
+        cache: {
+          maxEntries: parsedArgv['lazy-cache-max-entries'],
+          strategy: 'lru' as const,
+          ttlMs: parsedArgv['lazy-cache-ttl'],
+        },
+        preload: {
+          patterns: parsedArgv['lazy-preload'] ? parsedArgv['lazy-preload'].split(',').map((s) => s.trim()) : [],
+          keywords: parsedArgv['lazy-preload-keywords']
+            ? parsedArgv['lazy-preload-keywords'].split(',').map((s) => s.trim())
+            : [],
+        },
+        fallback: {
+          onError: (parsedArgv['lazy-fallback-on-error'] || 'skip') as 'skip' | 'full',
+          timeoutMs: parsedArgv['lazy-fallback-timeout'] ?? 30000,
+        },
       },
       configReload: {
         debounceMs: parsedArgv['config-reload-debounce'],

@@ -1,5 +1,6 @@
 import { EventEmitter } from 'events';
 
+import { LazyLoadingOrchestrator } from '@src/core/capabilities/lazyLoadingOrchestrator.js';
 import { FilteringService } from '@src/core/filtering/filteringService.js';
 import { InboundConnectionConfig, OutboundConnections } from '@src/core/types/index.js';
 import logger, { debugIf } from '@src/logger/logger.js';
@@ -10,6 +11,7 @@ import { registerTemplateHelpers } from './templateHelpers.js';
 import {
   DEFAULT_INSTRUCTION_TEMPLATE,
   DEFAULT_TEMPLATE_CONFIG,
+  LazyLoadingState,
   ServerData,
   TemplateVariables,
 } from './templateTypes.js';
@@ -43,6 +45,7 @@ export interface InstructionAggregatorEvents {
 export class InstructionAggregator extends EventEmitter {
   private serverInstructions = new Map<string, string>();
   private isInitialized: boolean = false;
+  private lazyLoadingOrchestrator?: LazyLoadingOrchestrator;
 
   constructor() {
     super();
@@ -50,6 +53,21 @@ export class InstructionAggregator extends EventEmitter {
 
     // Register custom Handlebars helpers for template processing
     registerTemplateHelpers();
+  }
+
+  /**
+   * Set the lazy loading orchestrator instance
+   */
+  public setLazyLoadingOrchestrator(orchestrator: LazyLoadingOrchestrator): void {
+    this.lazyLoadingOrchestrator = orchestrator;
+    debugIf('Lazy loading orchestrator set for InstructionAggregator');
+  }
+
+  /**
+   * Get the lazy loading orchestrator instance
+   */
+  public getLazyLoadingOrchestrator(): LazyLoadingOrchestrator | undefined {
+    return this.lazyLoadingOrchestrator;
   }
 
   /**
@@ -350,6 +368,45 @@ export class InstructionAggregator extends EventEmitter {
       toolPattern: templateConfig.toolPattern,
       title: templateConfig.title,
       examples: templateConfig.examples,
+
+      // Lazy loading state
+      lazyLoading: this.generateLazyLoadingState(),
+    };
+  }
+
+  /**
+   * Generate lazy loading state for template variables
+   * @returns Lazy loading state object or undefined
+   */
+  private generateLazyLoadingState(): LazyLoadingState | undefined {
+    if (!this.lazyLoadingOrchestrator) {
+      return undefined;
+    }
+
+    const isEnabled = this.lazyLoadingOrchestrator.isEnabled();
+    const mode = this.lazyLoadingOrchestrator.getMode();
+    const stats = this.lazyLoadingOrchestrator.getStatistics();
+
+    // Calculate exposed tools based on mode
+    let exposedToolsCount = stats.registeredToolCount;
+    if (isEnabled && mode === 'metatool') {
+      // Meta-tool mode: only meta-tools exposed
+      exposedToolsCount = 3; // mcp_list_available_tools, mcp_describe_tool, mcp_call_tool
+    }
+
+    // Get meta-tools list if in metatool mode
+    const metaTools =
+      isEnabled && mode === 'metatool' ? ['mcp_list_available_tools', 'mcp_describe_tool', 'mcp_call_tool'] : undefined;
+
+    return {
+      enabled: isEnabled,
+      mode,
+      availableToolsCount: stats.registeredToolCount,
+      exposedToolsCount,
+      directExposeCount: 0, // TODO: get from config
+      cachedToolsCount: stats.cachedToolCount,
+      metaTools,
+      catalog: undefined, // TODO: implement inline catalog
     };
   }
 
