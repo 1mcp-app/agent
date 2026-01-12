@@ -53,12 +53,8 @@ async function restoreSession(
     // Mark the transport as initialized for restored session
     // The wrapper class safely handles the SDK's internal _initialized flag
     transport.markAsInitialized();
-    // Safely set sessionId if possible
-    try {
-      (transport as { sessionId?: string }).sessionId = sessionId;
-    } catch (error) {
-      logger.warn('Could not set sessionId on restored transport:', error);
-    }
+    // Set the sessionId for the restored session
+    transport.setSessionId(sessionId);
 
     // Convert config context to ContextData format if available
     const contextData = config.context

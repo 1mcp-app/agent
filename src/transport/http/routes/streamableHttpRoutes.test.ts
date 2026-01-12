@@ -33,6 +33,7 @@ vi.mock('@src/transport/http/restorableStreamableTransport.js', () => ({
       markAsInitialized: vi.fn(),
       isRestored: vi.fn(() => true),
       getRestorationInfo: vi.fn(() => ({ isRestored: true, sessionId: options?.sessionIdGenerator?.() })),
+      setSessionId: vi.fn(),
     };
     return transport;
   }),
@@ -412,6 +413,7 @@ describe('Streamable HTTP Routes', () => {
         markAsInitialized: vi.fn(),
         isRestored: vi.fn(() => true),
         getRestorationInfo: vi.fn(() => ({ isRestored: true, sessionId: 'restored-session' })),
+        setSessionId: vi.fn(),
       };
 
       mockRequest.headers = { 'mcp-session-id': 'restored-session' };
@@ -462,6 +464,7 @@ describe('Streamable HTTP Routes', () => {
         handleRequest: vi.fn().mockResolvedValue(undefined),
         markAsInitialized: vi.fn(),
         isRestored: vi.fn(() => true),
+        setSessionId: vi.fn(),
       };
 
       mockRequest.headers = { 'mcp-session-id': 'test-restore' };
@@ -646,6 +649,7 @@ describe('Streamable HTTP Routes', () => {
         markAsInitialized: vi.fn(),
         isRestored: vi.fn(() => true),
         getRestorationInfo: vi.fn(() => ({ isRestored: true, sessionId: 'restored-session' })),
+        setSessionId: vi.fn(),
       };
 
       mockRequest.headers = { 'mcp-session-id': 'restored-session' };
@@ -777,6 +781,7 @@ describe('Streamable HTTP Routes', () => {
         markAsInitialized: vi.fn(),
         isRestored: vi.fn(() => true),
         getRestorationInfo: vi.fn(() => ({ isRestored: true, sessionId: 'partial-context-session' })),
+        setSessionId: vi.fn(),
       };
 
       mockRequest.headers = { 'mcp-session-id': 'partial-context-session' };
@@ -841,6 +846,7 @@ describe('Streamable HTTP Routes', () => {
         markAsInitialized: vi.fn(),
         isRestored: vi.fn(() => true),
         getRestorationInfo: vi.fn(() => ({ isRestored: true, sessionId: 'no-context-session' })),
+        setSessionId: vi.fn(),
       };
 
       mockRequest.headers = { 'mcp-session-id': 'no-context-session' };

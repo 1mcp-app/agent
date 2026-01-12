@@ -33,6 +33,59 @@ export interface RestorationInfo {
  */
 export class RestorableStreamableHTTPServerTransport extends StreamableHTTPServerTransport {
   private _isRestored = false;
+  private _restoredSessionId?: string;
+
+  /**
+   * Sets the sessionId for a restored session.
+   *
+   * When restoring a session, we need to ensure the sessionId is available immediately
+   * without waiting for the sessionIdGenerator to be called by the SDK. This method
+   * directly sets the sessionId on the underlying transport.
+   *
+   * @param sessionId - The sessionId to set for the restored session
+   */
+  setSessionId(sessionId: string): void {
+    this._restoredSessionId = sessionId;
+    try {
+      // Access the underlying _webStandardTransport where sessionId is stored
+      // Reason: StreamableHTTPServerTransport is a wrapper with getter-only sessionId
+      // The actual sessionId is on _webStandardTransport which allows setting
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-assignment
+      const internalTransport = this as any;
+      // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-assignment
+      const webStandardTransport = internalTransport._webStandardTransport;
+      if (webStandardTransport) {
+        // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access
+        webStandardTransport.sessionId = sessionId;
+      }
+    } catch (error) {
+      logger.warn('Could not set sessionId on underlying transport:', error);
+    }
+  }
+
+  /**
+   * Override sessionId getter to return restored sessionId if available.
+   *
+   * This ensures that even if the underlying transport hasn't generated the sessionId yet,
+   * we return the correct restored sessionId.
+   */
+  override get sessionId(): string | undefined {
+    // First check if we have a restored sessionId
+    if (this._restoredSessionId) {
+      return this._restoredSessionId;
+    }
+    // Otherwise delegate to parent class's getter directly
+    // Use Object.getOwnPropertyDescriptor to get the parent's property descriptor
+    // and call the getter with the parent's context
+    // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
+    const proto = Object.getPrototypeOf(Object.getPrototypeOf(this));
+    const descriptor = Object.getOwnPropertyDescriptor(proto, 'sessionId');
+    if (descriptor?.get) {
+      // eslint-disable-next-line @typescript-eslint/no-unsafe-return
+      return descriptor.get.call(this);
+    }
+    return undefined;
+  }
 
   /**
    * Marks the transport as initialized for restored sessions.

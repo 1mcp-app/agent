@@ -7,19 +7,32 @@ import { RestorableStreamableHTTPServerTransport } from './restorableStreamableT
 // Mock the MCP SDK transport
 vi.mock('@modelcontextprotocol/sdk/server/streamableHttp.js', () => ({
   StreamableHTTPServerTransport: vi.fn().mockImplementation((options) => {
-    const sessionId = options?.sessionIdGenerator?.() || 'mock-session-id';
+    const sessionIdValue = options?.sessionIdGenerator?.() || 'mock-session-id';
+    // Create _webStandardTransport first
+    const webStandardTransport = {
+      sessionId: sessionIdValue,
+    };
+
     const transport = {
-      sessionId,
       onclose: null,
       onerror: null,
       handleRequest: vi.fn().mockResolvedValue(undefined),
       _initialized: false, // Mock the private field - will be set to true by markAsInitialized
+      // Mock _webStandardTransport for testing setSessionId()
+      _webStandardTransport: webStandardTransport,
     };
 
-    // Make sessionId property writable
+    // Make sessionId a getter that delegates to _webStandardTransport.sessionId
+    // This simulates the real SDK's behavior
     Object.defineProperty(transport, 'sessionId', {
-      value: sessionId,
-      writable: true,
+      get() {
+        return this._webStandardTransport?.sessionId;
+      },
+      set(value: string) {
+        if (this._webStandardTransport) {
+          this._webStandardTransport.sessionId = value;
+        }
+      },
       enumerable: true,
       configurable: true,
     });
@@ -27,6 +40,14 @@ vi.mock('@modelcontextprotocol/sdk/server/streamableHttp.js', () => ({
     // Make _initialized property writable so it can be updated by markAsInitialized
     Object.defineProperty(transport, '_initialized', {
       value: false,
+      writable: true,
+      enumerable: true,
+      configurable: true,
+    });
+
+    // Make _webStandardTransport.sessionId writable
+    Object.defineProperty(webStandardTransport, 'sessionId', {
+      value: sessionIdValue,
       writable: true,
       enumerable: true,
       configurable: true,
@@ -205,6 +226,104 @@ describe('RestorableStreamableHTTPServerTransport', () => {
       const info = transport.getRestorationInfo();
       expect(info.isRestored).toBe(true);
       // Skip sessionId check due to mock limitations
+    });
+  });
+
+  describe('setSessionId', () => {
+    beforeEach(() => {
+      transport = new RestorableStreamableHTTPServerTransport(mockOptions);
+    });
+
+    it('should set the sessionId for restoration', () => {
+      const newSessionId = 'custom-session-id';
+      transport.setSessionId(newSessionId);
+
+      // After setting sessionId, the restoration info should include it
+      const info = transport.getRestorationInfo();
+      expect(info.sessionId).toBe(newSessionId);
+    });
+
+    it('should store the restored sessionId internally', () => {
+      const restoredSessionId = 'restored-abc-123';
+      transport.setSessionId(restoredSessionId);
+
+      // The restoration info should reflect the restored sessionId
+      const info = transport.getRestorationInfo();
+      expect(info.sessionId).toBe(restoredSessionId);
+    });
+
+    it('should handle missing _webStandardTransport gracefully', () => {
+      // Create a transport without _webStandardTransport
+      const bareTransport = new RestorableStreamableHTTPServerTransport(mockOptions);
+
+      // Remove _webStandardTransport to simulate error condition
+
+      delete (bareTransport as any)._webStandardTransport;
+
+      // Should not throw
+      expect(() => bareTransport.setSessionId('test-id')).not.toThrow();
+    });
+  });
+
+  describe('sessionId getter override', () => {
+    it('should return the restored sessionId when set via getRestorationInfo', () => {
+      transport = new RestorableStreamableHTTPServerTransport(mockOptions);
+      const restoredSessionId = 'my-restored-session';
+      transport.setSessionId(restoredSessionId);
+
+      // Use getRestorationInfo to verify the sessionId
+      const info = transport.getRestorationInfo();
+      expect(info.sessionId).toBe(restoredSessionId);
+    });
+
+    it('should include sessionId in restoration info after setting', () => {
+      transport = new RestorableStreamableHTTPServerTransport({
+        sessionIdGenerator: () => 'generator-session-id',
+      });
+
+      // Set a custom sessionId for restoration
+      transport.setSessionId('override-session-id');
+
+      // Verify it's in the restoration info
+      const info = transport.getRestorationInfo();
+      expect(info.sessionId).toBe('override-session-id');
+    });
+
+    it('should prioritize restored sessionId over generator sessionId', () => {
+      transport = new RestorableStreamableHTTPServerTransport({
+        sessionIdGenerator: () => 'generator-session-id',
+      });
+
+      // First get the info without setting
+      const infoBefore = transport.getRestorationInfo();
+
+      // Then set a custom sessionId
+      transport.setSessionId('override-session-id');
+
+      const infoAfter = transport.getRestorationInfo();
+      expect(infoAfter.sessionId).toBe('override-session-id');
+      expect(infoAfter.sessionId).not.toBe(infoBefore.sessionId);
+    });
+  });
+
+  describe('setSessionId with markAsInitialized', () => {
+    it('should work correctly when called together for session restoration', () => {
+      const restoredSessionId = 'fully-restored-session';
+      transport = new RestorableStreamableHTTPServerTransport({
+        sessionIdGenerator: () => restoredSessionId,
+      });
+
+      // Simulate the full restoration flow
+      transport.setSessionId(restoredSessionId);
+      transport.markAsInitialized();
+
+      // Verify both are set correctly
+      expect(transport.sessionId).toBe(restoredSessionId);
+      expect(transport.isRestored()).toBe(true);
+
+      const info = transport.getRestorationInfo();
+      expect(info.sessionId).toBe(restoredSessionId);
+      expect(info.isRestored).toBe(true);
     });
   });
 });
