@@ -157,7 +157,7 @@
     "tsc-alias": "^1.8.16",
     "tsc-watch": "^7.1.1",
     "typescript": "^5.3.3",
-    "vite-tsconfig-paths": "^5.1.4",
+    "vite-tsconfig-paths": "^6.0.4",
     "vitepress": "^1.6.3",
     "vitepress-plugin-mermaid": "^2.0.17",
     "vitest": "^1.4.0"
