@@ -191,12 +191,72 @@ export const DEFAULT_INSTRUCTION_TEMPLATE = `# {{title}}
 {{#if hasServers}}
 You are interacting with 1MCP, a proxy server that aggregates capabilities from multiple MCP (Model Context Protocol) servers. 1MCP acts as a unified gateway, allowing you to access tools and resources from various specialized MCP servers through a single connection.
 
+{{#if lazyLoading.enabled}}
+## Tool Access: Meta-Tool Discovery Mode
+
+1MCP is running in {{lazyLoading.mode}} mode for optimized token usage. Tools are loaded on-demand using meta-tools for discovery.
+
+### Meta-Tool Workflow
+
+When you need to use a tool, follow this three-step discovery process:
+
+1. **List Available Tools**: Call \`mcp_list_available_tools\` to see all available tools
+   - Returns tool names, source servers, and descriptions
+   - Use optional filters: \`server\`, \`pattern\`, \`tag\`, \`limit\`, \`cursor\`
+
+2. **Describe Tool**: Call \`mcp_describe_tool\` with \`server\` and \`toolName\` to get the full input schema
+   - Returns complete tool definition including required parameters
+   - Load schema only when you need to use the tool
+
+3. **Call Tool**: Invoke \`mcp_call_tool\` with \`server\`, \`toolName\`, and \`args\`
+   - Executes the tool on the upstream server
+   - Returns the result with structured responses
+
+### Error Handling
+
+Meta-tools use structured error responses with \`_errorType\` field:
+
+- **validation_error**: Missing or invalid parameters
+  - Fix: Provide all required parameters with correct types
+
+- **not_found_error**: Tool or server not found
+  - Fix: Call \`mcp_list_available_tools\` to verify tool exists
+
+- **upstream_error**: Server-side error or connection issue
+  - Fix: This is an upstream server issue - may need to retry or report
+
+### Tool Categories
+
+Tools are organized by server for easier discovery:
+{{#each servers}}
+- **{{name}}**: {{#if hasInstructions}}{{description}}{{else}}Various tools from {{name}}{{/if}}
+{{/each}}
+
+{{#if lazyLoading.catalog}}
+### Tool Catalog ({{lazyLoading.availableToolsCount}} tools)
+
+{{#each lazyLoading.catalog}}
+- \`{{server}}:{{name}}\` - {{description}}
+{{/each}}
+
+{{#if (gt lazyLoading.availableToolsCount 100)}}
+### Pagination for Large Tool Sets
+
+When working with many tools, use pagination:
+- Start with \`mcp_list_available_tools\` with \`limit\` parameter
+- Use returned \`cursor\` for next page
+- Continue until \`hasMore\` is false
+{{/if}}
+{{/if}}
+
+{{else}}
 ## How 1MCP Works
 
 - **Unified Access**: Connect to multiple MCP servers through one proxy
 - **Tool Aggregation**: All tools are available with the naming pattern \`{{toolPattern}}\`
 - **Resource Sharing**: Access files, data, and capabilities across different servers
 - **Intelligent Routing**: Your requests are automatically routed to the appropriate servers
+{{/if}}
 
 ## Currently Connected Servers
 
@@ -207,6 +267,7 @@ You are interacting with 1MCP, a proxy server that aggregates capabilities from 
 {{/each}}
 
 {{#if hasInstructionalServers}}
+{{#unless lazyLoading.enabled}}
 ## Available Capabilities
 
 All tools from connected servers are accessible using the format: \`{{toolPattern}}\`
@@ -215,6 +276,7 @@ Examples:
 {{#each examples}}
 - \`{{name}}\` - {{description}}
 {{/each}}
+{{/unless}}
 
 ## Server-Specific Instructions
 
@@ -231,7 +293,14 @@ The following sections contain instructions from each connected MCP server. Each
 
 ## Tips for Using 1MCP
 
+{{#if lazyLoading.enabled}}
+- Use meta-tools for efficient tool discovery and on-demand loading
+- Tools are organized by server name to avoid naming conflicts
+- Cache statistics: {{lazyLoading.cachedToolsCount}}/{{lazyLoading.availableToolsCount}} tools loaded
+- Call \`mcp_list_available_tools\` first to discover available tools
+{{else}}
 - Tools are namespaced by server to avoid conflicts
+{{/if}}
 
 {{else}}
 ## Status

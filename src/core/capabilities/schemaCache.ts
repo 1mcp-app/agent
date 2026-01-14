@@ -278,6 +278,21 @@ export class SchemaCache {
   }
 
   /**
+   * Log current cache statistics (for monitoring and observability)
+   * @param forceLog - Force logging even if debug mode is off
+   */
+  public logStats(forceLog = false): void {
+    const stats = this.getStats();
+    const message = `SchemaCache stats: size=${this.cache.size}/${this.config.maxEntries}, hits=${stats.hits}, misses=${stats.misses}, hitRate=${stats.hitRate.toFixed(1)}%, coalesced=${stats.coalesced}, evictions=${stats.evictions}`;
+
+    if (forceLog) {
+      logger.info(message);
+    } else {
+      debugIf(message);
+    }
+  }
+
+  /**
    * Preload tool schemas in batch
    */
   public async preload(

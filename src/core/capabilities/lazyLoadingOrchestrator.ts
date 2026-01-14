@@ -224,6 +224,25 @@ export class LazyLoadingOrchestrator extends EventEmitter {
   }
 
   /**
+   * Preload a specific list of tools (for internal management tool)
+   */
+  public async preloadToolsList(tools: Array<{ server: string; toolName: string }>): Promise<void> {
+    if (tools.length === 0) {
+      debugIf('No tools to preload');
+      return;
+    }
+
+    debugIf(() => ({ message: `Preloading ${tools.length} specific tools` }));
+
+    // Preload schemas
+    await this.schemaCache.preload(tools, async (server, toolName) => {
+      return this.loadSchemaFromServer(server, toolName);
+    });
+
+    logger.info(`Preloaded ${tools.length} tool schemas`);
+  }
+
+  /**
    * Get aggregated capabilities based on lazy loading mode
    */
   public async getCapabilities(): Promise<AggregatedCapabilities> {
@@ -448,5 +467,93 @@ export class LazyLoadingOrchestrator extends EventEmitter {
    */
   public getMode(): 'metatool' | 'hybrid' | 'full' {
     return this.config.get('lazyLoading').mode;
+  }
+
+  /**
+   * Health check for lazy loading subsystem
+   * @returns Health status with details
+   */
+  public getHealthStatus(): {
+    healthy: boolean;
+    enabled: boolean;
+    mode: 'metatool' | 'hybrid' | 'full';
+    cache: {
+      size: number;
+      maxEntries: number;
+      utilizationRate: number;
+    };
+    stats: {
+      hitRate: number;
+      coalescedRequests: number;
+      evictions: number;
+    };
+    issues: string[];
+  } {
+    const lazyConfig = this.config.get('lazyLoading');
+    const cacheStats = this.schemaCache.getStats();
+    const cacheSize = this.schemaCache.size();
+    const issues: string[] = [];
+
+    // Check cache utilization
+    const utilizationRate = (cacheSize / lazyConfig.cache.maxEntries) * 100;
+    if (utilizationRate > 90) {
+      issues.push(`Cache utilization high: ${utilizationRate.toFixed(1)}%`);
+    }
+
+    // Check hit rate
+    const totalRequests = cacheStats.hits + cacheStats.misses;
+    const hitRate = totalRequests > 0 ? cacheStats.hitRate : 0;
+
+    // Only warn about low hit rate if we've had enough requests
+    if (totalRequests > 100 && hitRate < 50) {
+      issues.push(`Low cache hit rate: ${hitRate.toFixed(1)}%`);
+    }
+
+    // Check eviction rate
+    if (cacheStats.evictions > 100) {
+      issues.push(`High eviction count: ${cacheStats.evictions}`);
+    }
+
+    return {
+      healthy: issues.length === 0,
+      enabled: lazyConfig.enabled,
+      mode: lazyConfig.mode,
+      cache: {
+        size: cacheSize,
+        maxEntries: lazyConfig.cache.maxEntries,
+        utilizationRate,
+      },
+      stats: {
+        hitRate,
+        coalescedRequests: cacheStats.coalesced,
+        evictions: cacheStats.evictions,
+      },
+      issues,
+    };
+  }
+
+  /**
+   * Log periodic lazy loading statistics (for monitoring and observability)
+   * @param forceLog - Force logging even if debug mode is off
+   */
+  public logStatistics(forceLog = false): void {
+    const stats = this.getStatistics();
+    const health = this.getHealthStatus();
+
+    const message =
+      `LazyLoading stats: ` +
+      `enabled=${stats.enabled}, mode=${stats.mode}, ` +
+      `tools=${stats.registeredToolCount}, cached=${stats.cachedToolCount}, ` +
+      `tokenSavings=${stats.tokenSavings.savingsPercentage.toFixed(1)}%, ` +
+      `cacheHitRate=${stats.cacheHitRate.toFixed(1)}%, ` +
+      `coalesced=${health.stats.coalescedRequests}, ` +
+      `health=${health.healthy ? 'OK' : 'WARN'}` +
+      (health.issues.length > 0 ? ` [${health.issues.join(', ')}]` : '');
+
+    if (forceLog) {
+      logger.info(message);
+    } else {
+      debugIf(message);
+    }
   }
 }

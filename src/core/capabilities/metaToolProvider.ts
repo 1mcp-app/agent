@@ -55,14 +55,14 @@ export interface CallToolArgs {
 }
 
 /**
- * MetaToolProvider provides three meta-tools for lazy loading:
+ * MetaToolProvider provides meta-tools for lazy loading:
  * 1. mcp_list_available_tools - List all tools (names + descriptions only)
  * 2. mcp_describe_tool - Get full tool schema on-demand
  * 3. mcp_call_tool - Invoke any tool by server and name
  *
  * @example
  * ```typescript
- * const provider = new MetaToolProvider(toolRegistry, schemaCache);
+ * const provider = new MetaToolProvider(toolRegistry, schemaCache, outboundConnections);
  * const tools = provider.getMetaTools();
  * const result = await provider.callMetaTool('mcp_list_available_tools', { server: 'filesystem' });
  * ```
@@ -79,7 +79,7 @@ export class MetaToolProvider {
   }
 
   /**
-   * Get the three meta-tools
+   * Get all available meta-tools (3 discovery tools)
    */
   public getMetaTools(): Tool[] {
     return [this.createListToolsMetaTool(), this.createDescribeToolMetaTool(), this.createCallToolMetaTool()];
