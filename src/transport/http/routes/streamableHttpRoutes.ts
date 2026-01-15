@@ -88,7 +88,7 @@ async function restoreSession(
     // Set up handlers for the restored transport
     transport.onclose = () => {
       serverManager.disconnectTransport(sessionId);
-      sessionRepository.delete(sessionId);
+      // Don't delete session - preserve for session restore
     };
 
     transport.onerror = (error) => {
@@ -220,7 +220,7 @@ export function setupStreamableHttpRoutes(
 
         transport.onclose = () => {
           serverManager.disconnectTransport(id);
-          sessionRepository.delete(id);
+          // Don't delete session - preserve for session restore
         };
 
         transport.onerror = (error) => {
@@ -300,7 +300,7 @@ export function setupStreamableHttpRoutes(
 
             transport.onclose = () => {
               serverManager.disconnectTransport(sessionId);
-              sessionRepository.delete(sessionId);
+              // Don't delete session - preserve for session restore
             };
 
             transport.onerror = (error) => {

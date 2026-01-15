@@ -300,7 +300,8 @@ describe('Streamable HTTP Routes', () => {
         expect(mockServerManager.disconnectTransport).toHaveBeenCalledWith(
           'stream-550e8400-e29b-41d4-a716-446655440001',
         );
-        expect(mockSessionRepository.delete).toHaveBeenCalledWith('stream-550e8400-e29b-41d4-a716-446655440001');
+        // Session should NOT be deleted - preserved for session restore
+        expect(mockSessionRepository.delete).not.toHaveBeenCalled();
       }
     });
 
