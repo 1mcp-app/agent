@@ -14,11 +14,9 @@ export interface RestorationInfo {
 
 /**
  * Result type for operations that may fail.
+ * Uses discriminated union to make invalid states unrepresentable.
  */
-export interface OperationResult {
-  success: boolean;
-  error?: string;
-}
+export type OperationResult = { success: true; error?: never } | { success: false; error: string };
 
 /**
  * RestorableStreamableHTTPServerTransport extends the MCP SDK's StreamableHTTPServerTransport
@@ -70,7 +68,11 @@ export class RestorableStreamableHTTPServerTransport extends StreamableHTTPServe
         webStandardTransport.sessionId = sessionId;
         return { success: true };
       }
-      return { success: false, error: 'No webStandardTransport found' };
+      return {
+        success: false,
+        error:
+          'No webStandardTransport found - SDK internal structure may have changed or transport is not properly initialized',
+      };
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
       logger.warn(`Failed to set sessionId "${sessionId}" on underlying transport: ${errorMessage}`);
@@ -135,6 +137,8 @@ export class RestorableStreamableHTTPServerTransport extends StreamableHTTPServe
         // Setting private SDK property to mark session as initialized for restoration
         internalTransport._initialized = true;
       }
+      // Note: If _initialized is undefined, we still mark as restored since the SDK may have changed
+      // This provides graceful degradation while allowing session restoration to proceed
 
       this._isRestored = true;
       logger.debug('Transport marked as initialized for restored session');

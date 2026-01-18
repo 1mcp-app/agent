@@ -238,7 +238,10 @@ describe('Streamable HTTP Routes', () => {
         sessionId: 'new-session-id',
         handleRequest: vi.fn().mockResolvedValue(undefined),
       };
-      mockSessionService.createSession.mockResolvedValue(mockTransport);
+      mockSessionService.createSession.mockResolvedValue({
+        transport: mockTransport,
+        persisted: true,
+      });
 
       mockRequest.headers = {};
       await postHandler(mockRequest, mockResponse);
@@ -267,7 +270,10 @@ describe('Streamable HTTP Routes', () => {
         sessionId: 'restored-failed-new-session',
         handleRequest: vi.fn().mockResolvedValue(undefined),
       };
-      mockSessionService.createSession.mockResolvedValue(mockTransport);
+      mockSessionService.createSession.mockResolvedValue({
+        transport: mockTransport,
+        persisted: true,
+      });
 
       mockRequest.headers = { 'mcp-session-id': 'unknown-session-id' };
       await postHandler(mockRequest, mockResponse);

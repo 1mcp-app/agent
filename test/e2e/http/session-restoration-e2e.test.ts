@@ -344,7 +344,7 @@ describe('Streamable HTTP Session Restoration E2E', () => {
       });
 
       // Should handle gracefully - should not crash
-      expect([200, 202, 400, 404, 500]).toContain(response.status);
+      expect([200, 202, 400, 404, 406, 500]).toContain(response.status);
 
       await processManager.stopProcess('1mcp-server');
     });

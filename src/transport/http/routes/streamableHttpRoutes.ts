@@ -108,7 +108,13 @@ export function setupStreamableHttpRoutes(
         // Extract context from _meta field (from STDIO proxy)
         const context = extractContextFromMeta(req);
 
-        transport = await sessionService.createSession(config, context || undefined, id);
+        const createResult = await sessionService.createSession(config, context || undefined, id);
+        transport = createResult.transport;
+
+        // Log warning if session was not persisted
+        if (!createResult.persisted) {
+          logger.warn(`New session ${id} was created but not persisted: ${createResult.persistenceError}`);
+        }
       } else {
         transport = await sessionService.getSession(sessionId);
 
@@ -121,7 +127,15 @@ export function setupStreamableHttpRoutes(
           // Extract context from _meta field (from STDIO proxy)
           const context = extractContextFromMeta(req);
 
-          transport = await sessionService.createSession(config, context || undefined, sessionId);
+          const createResult = await sessionService.createSession(config, context || undefined, sessionId);
+          transport = createResult.transport;
+
+          // Log warning if session was not persisted
+          if (!createResult.persisted) {
+            logger.warn(
+              `Fallback session ${sessionId} was created but not persisted: ${createResult.persistenceError}`,
+            );
+          }
         }
       }
 

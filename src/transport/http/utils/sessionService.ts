@@ -21,6 +21,16 @@ export interface SessionRestoreResult {
 }
 
 /**
+ * Result type for session creation operations.
+ * Indicates whether the session was successfully persisted to storage.
+ */
+export interface SessionCreateResult {
+  transport: StreamableHTTPServerTransport | RestorableStreamableHTTPServerTransport;
+  persisted: boolean;
+  persistenceError?: string;
+}
+
+/**
  * Validates a session ID format.
  *
  * @param sessionId - The session ID to validate
@@ -160,14 +170,14 @@ export class SessionService {
    * @param config - The inbound connection configuration
    * @param context - Optional context data for the session
    * @param providedSessionId - Optional session ID to use instead of generating one
-   * @returns The created transport
-   * @throws Error if session creation fails
+   * @returns SessionCreateResult with transport and persistence status
+   * @throws Error if session creation fails (but not if persistence fails)
    */
   async createSession(
     config: InboundConnectionConfig,
     context?: Partial<ContextData>,
     providedSessionId?: string,
-  ): Promise<StreamableHTTPServerTransport | RestorableStreamableHTTPServerTransport> {
+  ): Promise<SessionCreateResult> {
     const sessionId = providedSessionId || AUTH_CONFIG.SERVER.STREAMABLE_SESSION.ID_PREFIX + randomUUID();
 
     let transport: StreamableHTTPServerTransport;
@@ -205,12 +215,15 @@ export class SessionService {
       throw new Error(`Session creation failed: connection error - ${errorMessage}`);
     }
 
+    // Try to persist session to storage
+    let persisted = false;
+    let persistenceError: string | undefined;
     try {
-      // Persist session
       this.sessionRepository.create(sessionId, configWithContext);
+      persisted = true;
     } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : String(error);
-      logger.warn(`Failed to persist session ${sessionId} to repository: ${errorMessage}`);
+      persistenceError = error instanceof Error ? error.message : String(error);
+      logger.warn(`Failed to persist session ${sessionId} to repository: ${persistenceError}`);
       // Continue anyway - transport is connected, just not persisted
     }
 
@@ -220,7 +233,7 @@ export class SessionService {
     // Set up handlers
     this.setupTransportHandlers(transport, sessionId);
 
-    return transport;
+    return { transport, persisted, persistenceError } satisfies SessionCreateResult;
   }
 
   /**
