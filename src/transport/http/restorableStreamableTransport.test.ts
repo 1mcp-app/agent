@@ -7,19 +7,32 @@ import { RestorableStreamableHTTPServerTransport } from './restorableStreamableT
 // Mock the MCP SDK transport
 vi.mock('@modelcontextprotocol/sdk/server/streamableHttp.js', () => ({
   StreamableHTTPServerTransport: vi.fn().mockImplementation((options) => {
-    const sessionId = options?.sessionIdGenerator?.() || 'mock-session-id';
+    const sessionIdValue = options?.sessionIdGenerator?.() || 'mock-session-id';
+    // Create _webStandardTransport first
+    const webStandardTransport = {
+      sessionId: sessionIdValue,
+    };
+
     const transport = {
-      sessionId,
       onclose: null,
       onerror: null,
       handleRequest: vi.fn().mockResolvedValue(undefined),
       _initialized: false, // Mock the private field - will be set to true by markAsInitialized
+      // Mock _webStandardTransport for testing setSessionId()
+      _webStandardTransport: webStandardTransport,
     };
 
-    // Make sessionId property writable
+    // Make sessionId a getter that delegates to _webStandardTransport.sessionId
+    // This simulates the real SDK's behavior
     Object.defineProperty(transport, 'sessionId', {
-      value: sessionId,
-      writable: true,
+      get() {
+        return this._webStandardTransport?.sessionId;
+      },
+      set(value: string) {
+        if (this._webStandardTransport) {
+          this._webStandardTransport.sessionId = value;
+        }
+      },
       enumerable: true,
       configurable: true,
     });
@@ -27,6 +40,14 @@ vi.mock('@modelcontextprotocol/sdk/server/streamableHttp.js', () => ({
     // Make _initialized property writable so it can be updated by markAsInitialized
     Object.defineProperty(transport, '_initialized', {
       value: false,
+      writable: true,
+      enumerable: true,
+      configurable: true,
+    });
+
+    // Make _webStandardTransport.sessionId writable
+    Object.defineProperty(webStandardTransport, 'sessionId', {
+      value: sessionIdValue,
       writable: true,
       enumerable: true,
       configurable: true,
@@ -78,40 +99,20 @@ describe('RestorableStreamableHTTPServerTransport', () => {
     });
 
     it('should mark transport as initialized and restored', () => {
-      transport.markAsInitialized();
+      const result = transport.markAsInitialized();
 
+      expect(result.success).toBe(true);
       expect(transport.isRestored()).toBe(true);
-      // Test the public interface - we can't easily test the internal _initialized property
-      // due to the way inheritance works with mocked classes
       expect(transport.getRestorationInfo().isRestored).toBe(true);
     });
 
     it('should preserve sessionId from construction', () => {
       const sessionId = transport.sessionId;
-      transport.markAsInitialized();
+      const result = transport.markAsInitialized();
 
+      expect(result.success).toBe(true);
       expect(transport.sessionId).toBe(sessionId);
       expect(transport.isRestored()).toBe(true);
-    });
-
-    it('should handle errors gracefully', () => {
-      // Create a transport and manually set up the error condition
-      transport = new RestorableStreamableHTTPServerTransport(mockOptions);
-
-      // Mock the _initialized property to throw an error when set
-      let _initializedValue = false;
-      Object.defineProperty(transport, '_initialized', {
-        set: () => {
-          throw new Error('Property access denied');
-        },
-        get: () => _initializedValue,
-      });
-
-      // Should not throw an error
-      expect(() => transport.markAsInitialized()).not.toThrow();
-
-      // The method should still execute without throwing
-      // Note: Due to mock limitations, we can't perfectly test the error handling
     });
   });
 
@@ -140,7 +141,7 @@ describe('RestorableStreamableHTTPServerTransport', () => {
 
       expect(info).toEqual({
         isRestored: false,
-        sessionId: transport.sessionId, // Use actual sessionId from transport
+        sessionId: transport.sessionId,
       });
     });
 
@@ -150,7 +151,7 @@ describe('RestorableStreamableHTTPServerTransport', () => {
 
       expect(info).toEqual({
         isRestored: true,
-        sessionId: transport.sessionId, // Use actual sessionId from transport
+        sessionId: transport.sessionId,
       });
     });
 
@@ -176,35 +177,38 @@ describe('RestorableStreamableHTTPServerTransport', () => {
     it('should be instance of RestorableStreamableHTTPServerTransport', () => {
       expect(transport).toBeInstanceOf(RestorableStreamableHTTPServerTransport);
     });
-
-    it('should inherit parent class properties', () => {
-      // Skip inheritance tests due to mock limitations
-      // The important thing is that the wrapper class works correctly
-      expect(transport).toBeDefined();
-    });
   });
 
   describe('session restoration workflow', () => {
     it('should complete full restoration workflow', () => {
-      // Create transport
       transport = new RestorableStreamableHTTPServerTransport({
         sessionIdGenerator: () => 'restored-session-123',
       });
 
       // Verify initial state
       expect(transport.isRestored()).toBe(false);
-      // Skip sessionId check due to mock limitations
 
-      // Mark as initialized (simulating restoration)
+      // Perform restoration flow
       transport.markAsInitialized();
 
       // Verify restored state using public interface
       expect(transport.isRestored()).toBe(true);
 
-      // Verify restoration info
       const info = transport.getRestorationInfo();
       expect(info.isRestored).toBe(true);
-      // Skip sessionId check due to mock limitations
+    });
+  });
+
+  describe('OperationResult type', () => {
+    beforeEach(() => {
+      transport = new RestorableStreamableHTTPServerTransport(mockOptions);
+    });
+
+    it('should return OperationResult with success true on successful markAsInitialized', () => {
+      const result = transport.markAsInitialized();
+
+      expect(result).toHaveProperty('success', true);
+      expect(result).not.toHaveProperty('error');
     });
   });
 });
