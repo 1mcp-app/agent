@@ -25,6 +25,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Enhance cliff-release and cliff configuration for pre-release support by @xizhibei
 
 ### 🚜 Refactor
+- Extract SessionService for session management by @xizhibei in [#216](https://github.com/1mcp-app/agent/pull/216)
 - Introduce named types and improve code modularity by @xizhibei in [#199](https://github.com/1mcp-app/agent/pull/199)
 
 
