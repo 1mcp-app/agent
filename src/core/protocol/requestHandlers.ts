@@ -544,22 +544,29 @@ function registerToolHandlers(
         lazyLoadingEnabled && lazyLoadingOrchestrator && lazyLoadingOrchestrator.isMetaTool(toolName);
 
       if (isUnprefixedMetaTool && lazyLoadingOrchestrator) {
-        const result = (await lazyLoadingOrchestrator.callMetaTool(toolName, request.params.arguments)) as {
-          isError: boolean;
-          content: Array<{ type: string; text: string }>;
-          _meta?: Record<string, unknown>;
-          _errorType?: string;
-        };
+        const result = await lazyLoadingOrchestrator.callMetaTool(toolName, request.params.arguments);
 
-        // Handle meta-tool error responses
-        if (result.isError) {
-          throw new Error(result.content[0]?.text || `Meta-tool error: ${result._errorType || 'unknown'}`);
+        // Check for errors in the new format
+        if (
+          result &&
+          typeof result === 'object' &&
+          'error' in result &&
+          result.error &&
+          typeof result.error === 'object' &&
+          'message' in result.error
+        ) {
+          throw new Error((result.error.message as string) || 'Meta-tool error');
         }
 
-        // Return the meta-tool result
+        // Return both content and structuredContent (required by MCP protocol for tools with outputSchema)
         return {
-          content: result.content,
-          _meta: result._meta,
+          content: [
+            {
+              type: 'text' as const,
+              text: JSON.stringify(result, null, 2),
+            },
+          ],
+          structuredContent: result,
         };
       }
 

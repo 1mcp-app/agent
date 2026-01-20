@@ -273,21 +273,15 @@ export class InternalCapabilitiesProvider extends EventEmitter {
         if (!this.lazyLoadingOrchestrator) {
           throw new Error('Lazy loading not available');
         }
-        const metaResult = await this.lazyLoadingOrchestrator.callMetaTool(toolName, args);
-        if (
-          typeof metaResult === 'object' &&
-          metaResult !== null &&
-          'isError' in metaResult &&
-          (metaResult as { isError: boolean }).isError
-        ) {
-          const errorResult = metaResult as {
-            isError: boolean;
-            content: Array<{ type: string; text: string }>;
-            _errorType?: string;
-          };
-          throw new Error(errorResult.content[0]?.text || 'Tool error');
+        const result = await this.lazyLoadingOrchestrator.callMetaTool(toolName, args);
+
+        // Check for error field in structured result
+        if (typeof result === 'object' && result !== null && 'error' in result && result.error) {
+          const errorResult = result as { error: { type: string; message: string } };
+          throw new Error(errorResult.error.message);
         }
-        return metaResult;
+
+        return result;
       }
       // === Internal Tools ===
       case 'mcp_search': {

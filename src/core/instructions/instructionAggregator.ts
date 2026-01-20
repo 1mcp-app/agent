@@ -326,7 +326,11 @@ export class InstructionAggregator extends EventEmitter {
     // Sort filtered connections by name for consistent output
     const sortedConnections = Array.from(filteredConnections.entries()).sort(([a], [b]) => a.localeCompare(b));
 
-    for (const [serverName, _connection] of sortedConnections) {
+    for (const [_key, connection] of sortedConnections) {
+      // Use clean name from connection object instead of Map key
+      // Template servers use hash-based keys (e.g., "serena:6fa053f1...") but we want
+      // to display the clean name (e.g., "serena") in instructions
+      const serverName = connection.name;
       const serverInstructions = this.serverInstructions.get(serverName);
       const instructions = serverInstructions?.trim() || '';
       if (instructions) {

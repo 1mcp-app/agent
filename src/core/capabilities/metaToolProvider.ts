@@ -48,38 +48,48 @@ const ToolListOutputSchema = z.object({
   servers: z.array(z.string()),
   hasMore: z.boolean(),
   nextCursor: z.string().optional(),
+  error: z
+    .object({
+      type: z.enum(['validation', 'upstream', 'not_found']),
+      message: z.string(),
+    })
+    .optional(),
 });
 
 const ToolSchemaOutputSchema = z.object({
   schema: z.object({}).loose(), // The full Tool schema
   fromCache: z.boolean().optional(),
+  error: z
+    .object({
+      type: z.enum(['validation', 'upstream', 'not_found']),
+      message: z.string(),
+    })
+    .optional(),
 });
 
 const ToolInvokeOutputSchema = z.object({
   result: z.object({}).loose(), // The upstream tool result
   server: z.string(),
   tool: z.string(),
+  error: z
+    .object({
+      type: z.enum(['validation', 'upstream', 'not_found']),
+      message: z.string(),
+    })
+    .optional(),
 });
 
 /**
- * Result of calling a meta-tool
+ * Result types for meta-tools
  */
-export interface MetaToolResult {
-  content: Array<{ type: string; text: string }>;
-  isError?: boolean;
-  _errorType?: 'validation' | 'upstream' | 'not_found';
-  _meta?: Record<string, unknown>;
-}
+export type ListToolsResult = z.infer<typeof ToolListOutputSchema>;
+export type DescribeToolResult = z.infer<typeof ToolSchemaOutputSchema>;
+export type CallToolResult = z.infer<typeof ToolInvokeOutputSchema>;
 
 /**
  * Function to load tool schema from upstream server
  */
 export type SchemaLoader = (server: string, toolName: string) => Promise<Tool>;
-
-/**
- * Function to call a tool on upstream server
- */
-export type ToolCaller = (server: string, toolName: string, args: unknown) => Promise<MetaToolResult>;
 
 /**
  * Arguments for tool_list
@@ -163,7 +173,10 @@ export class MetaToolProvider {
   /**
    * Call a meta-tool by name
    */
-  public async callMetaTool(name: string, args: unknown): Promise<MetaToolResult> {
+  public async callMetaTool(
+    name: string,
+    args: unknown,
+  ): Promise<ListToolsResult | DescribeToolResult | CallToolResult> {
     switch (name) {
       case 'tool_list':
         return this.listAvailableTools(args as ListAvailableToolsArgs);
@@ -173,15 +186,15 @@ export class MetaToolProvider {
         return this.callTool(args as CallToolArgs);
       default:
         return {
-          content: [
-            {
-              type: 'text',
-              text: `Unknown meta-tool: ${name}. Valid meta-tools are: tool_list, tool_schema, tool_invoke`,
-            },
-          ],
-          isError: true,
-          _errorType: 'not_found',
-        };
+          tools: [],
+          totalCount: 0,
+          servers: [],
+          hasMore: false,
+          error: {
+            type: 'not_found',
+            message: `Unknown meta-tool: ${name}. Valid meta-tools are: tool_list, tool_schema, tool_invoke`,
+          },
+        } as ListToolsResult;
     }
   }
 
@@ -200,7 +213,7 @@ export class MetaToolProvider {
   /**
    * Implement tool_list
    */
-  private async listAvailableTools(args: ListAvailableToolsArgs): Promise<MetaToolResult> {
+  private async listAvailableTools(args: ListAvailableToolsArgs): Promise<ListToolsResult> {
     try {
       const registry = this.toolRegistry();
       debugIf(() => ({
@@ -219,38 +232,25 @@ export class MetaToolProvider {
 
       const servers = registry.getServers();
 
-      // Build the structured result matching outputSchema
-      const structuredResult = {
+      // Return structured result matching outputSchema
+      return {
         tools,
         totalCount: result.totalCount,
         servers,
         hasMore: result.hasMore,
         ...(result.nextCursor ? { nextCursor: result.nextCursor } : {}),
       };
-
-      return {
-        content: [
-          {
-            type: 'text',
-            text: JSON.stringify(structuredResult, null, 2),
-          },
-        ],
-        _meta: {
-          // Keep implementation metadata separate from the result
-          fromCache: false,
-        },
-      };
     } catch (error) {
       logger.error(`Error in tool_list: ${error}`);
       return {
-        content: [
-          {
-            type: 'text',
-            text: `Error listing tools: ${error}`,
-          },
-        ],
-        isError: true,
-        _errorType: 'upstream',
+        tools: [],
+        totalCount: 0,
+        servers: [],
+        hasMore: false,
+        error: {
+          type: 'upstream',
+          message: `Error listing tools: ${error}`,
+        },
       };
     }
   }
@@ -270,33 +270,27 @@ export class MetaToolProvider {
   /**
    * Implement tool_schema
    */
-  private async describeTool(args: DescribeToolArgs): Promise<MetaToolResult> {
+  private async describeTool(args: DescribeToolArgs): Promise<DescribeToolResult> {
     try {
       // Validate arguments
       if (!args.server || !args.toolName) {
         return {
-          content: [
-            {
-              type: 'text',
-              text: 'Validation Error: "server" and "toolName" are required parameters',
-            },
-          ],
-          isError: true,
-          _errorType: 'validation',
+          schema: {},
+          error: {
+            type: 'validation',
+            message: 'Validation Error: "server" and "toolName" are required parameters',
+          },
         };
       }
 
       // Check if tool exists in registry
       if (!this.toolRegistry().hasTool(args.server, args.toolName)) {
         return {
-          content: [
-            {
-              type: 'text',
-              text: `Tool not found: ${args.server}:${args.toolName}. Call tool_list to see available tools.`,
-            },
-          ],
-          isError: true,
-          _errorType: 'not_found',
+          schema: {},
+          error: {
+            type: 'not_found',
+            message: `Tool not found: ${args.server}:${args.toolName}. Call tool_list to see available tools.`,
+          },
         };
       }
 
@@ -304,18 +298,9 @@ export class MetaToolProvider {
       const cached = this.schemaCache.getIfCached(args.server, args.toolName);
       if (cached) {
         debugIf(() => ({ message: `Cache hit for tool schema: ${args.server}:${args.toolName}` }));
-        const structuredResult = {
+        return {
           schema: cached,
           fromCache: true,
-        };
-        return {
-          content: [
-            {
-              type: 'text',
-              text: JSON.stringify(structuredResult, null, 2),
-            },
-          ],
-          _meta: { fromCache: true },
         };
       }
 
@@ -333,55 +318,38 @@ export class MetaToolProvider {
             throw new Error('Unexpected preload request');
           });
 
-          const structuredResult = {
+          return {
             schema: tool,
             fromCache: false,
           };
-          return {
-            content: [
-              {
-                type: 'text',
-                text: JSON.stringify(structuredResult, null, 2),
-              },
-            ],
-            _meta: { fromCache: false },
-          };
         } catch (loadError) {
           return {
-            content: [
-              {
-                type: 'text',
-                text: `Failed to load schema from server: ${loadError}`,
-              },
-            ],
-            isError: true,
-            _errorType: 'upstream',
+            schema: {},
+            error: {
+              type: 'upstream',
+              message: `Failed to load schema from server: ${loadError}`,
+            },
           };
         }
       }
 
       // No SchemaLoader available - return error
       return {
-        content: [
-          {
-            type: 'text',
-            text: `Tool schema not loaded and no SchemaLoader available. Please use the tool invocation flow to load schema on first use.`,
-          },
-        ],
-        isError: true,
-        _errorType: 'upstream',
+        schema: {},
+        error: {
+          type: 'upstream',
+          message:
+            'Tool schema not loaded and no SchemaLoader available. Please use the tool invocation flow to load schema on first use.',
+        },
       };
     } catch (error) {
       logger.error(`Error in tool_schema: ${error}`);
       return {
-        content: [
-          {
-            type: 'text',
-            text: `Error describing tool: ${error}`,
-          },
-        ],
-        isError: true,
-        _errorType: 'upstream',
+        schema: {},
+        error: {
+          type: 'upstream',
+          message: `Error describing tool: ${error}`,
+        },
       };
     }
   }
@@ -401,33 +369,31 @@ export class MetaToolProvider {
   /**
    * Implement tool_invoke
    */
-  private async callTool(args: CallToolArgs): Promise<MetaToolResult> {
+  private async callTool(args: CallToolArgs): Promise<CallToolResult> {
     try {
       // Validate arguments
       if (!args.server || !args.toolName) {
         return {
-          content: [
-            {
-              type: 'text',
-              text: 'Validation Error: "server" and "toolName" are required parameters',
-            },
-          ],
-          isError: true,
-          _errorType: 'validation',
+          result: {},
+          server: args.server,
+          tool: args.toolName,
+          error: {
+            type: 'validation',
+            message: 'Validation Error: "server" and "toolName" are required parameters',
+          },
         };
       }
 
       // Check if tool exists
       if (!this.toolRegistry().hasTool(args.server, args.toolName)) {
         return {
-          content: [
-            {
-              type: 'text',
-              text: `Tool not found: ${args.server}:${args.toolName}. Call tool_list to see available tools.`,
-            },
-          ],
-          isError: true,
-          _errorType: 'not_found',
+          result: {},
+          server: args.server,
+          tool: args.toolName,
+          error: {
+            type: 'not_found',
+            message: `Tool not found: ${args.server}:${args.toolName}. Call tool_list to see available tools.`,
+          },
         };
       }
 
@@ -435,14 +401,13 @@ export class MetaToolProvider {
       const connection = this.outboundConnections.get(args.server);
       if (!connection || !connection.client) {
         return {
-          content: [
-            {
-              type: 'text',
-              text: `Server not connected: ${args.server}`,
-            },
-          ],
-          isError: true,
-          _errorType: 'upstream',
+          result: {},
+          server: args.server,
+          tool: args.toolName,
+          error: {
+            type: 'upstream',
+            message: `Server not connected: ${args.server}`,
+          },
         };
       }
 
@@ -452,24 +417,11 @@ export class MetaToolProvider {
         arguments: args.args as Record<string, unknown>,
       });
 
-      // Wrap the result in a structured format
-      const structuredResult = {
+      // Return structured result matching outputSchema
+      return {
         result: upstreamResult,
         server: args.server,
         tool: args.toolName,
-      };
-
-      return {
-        content: [
-          {
-            type: 'text',
-            text: JSON.stringify(structuredResult, null, 2),
-          },
-        ],
-        _meta: {
-          server: args.server,
-          tool: args.toolName,
-        },
       };
     } catch (error) {
       logger.error(`Error in tool_invoke: ${error}`);
@@ -477,26 +429,24 @@ export class MetaToolProvider {
       // Check if it's a tool not found error from upstream
       if (error instanceof Error && error.message.includes('not found')) {
         return {
-          content: [
-            {
-              type: 'text',
-              text: `Tool not found: ${args.server}:${args.toolName}`,
-            },
-          ],
-          isError: true,
-          _errorType: 'not_found',
+          result: {},
+          server: args.server,
+          tool: args.toolName,
+          error: {
+            type: 'not_found',
+            message: `Tool not found: ${args.server}:${args.toolName}`,
+          },
         };
       }
 
       return {
-        content: [
-          {
-            type: 'text',
-            text: `Server Error: ${error}. This is an upstream server issue - please report it.`,
-          },
-        ],
-        isError: true,
-        _errorType: 'upstream',
+        result: {},
+        server: args.server,
+        tool: args.toolName,
+        error: {
+          type: 'upstream',
+          message: `Server Error: ${error}. This is an upstream server issue - please report it.`,
+        },
       };
     }
   }

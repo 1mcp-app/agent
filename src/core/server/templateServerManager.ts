@@ -1,6 +1,7 @@
 import { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
 
 import { ClientTemplateTracker, TemplateFilteringService, TemplateIndex } from '@src/core/filtering/index.js';
+import { InstructionAggregator } from '@src/core/instructions/instructionAggregator.js';
 import { ClientInstancePool, type PooledClientInstance } from '@src/core/server/clientInstancePool.js';
 import type { AuthProviderTransport } from '@src/core/types/client.js';
 import type { OutboundConnections } from '@src/core/types/client.js';
@@ -25,6 +26,7 @@ export class TemplateServerManager {
   private clientInstancePool: ClientInstancePool;
   private templateSessionMap?: Map<string, string>; // Maps template name to session ID for tracking
   private cleanupTimer?: ReturnType<typeof setInterval>; // Timer for idle instance cleanup
+  private instructionAggregator?: InstructionAggregator;
 
   // Maps sessionId -> (templateName -> renderedHash) for routing shareable servers
   private sessionToRenderedHash = new Map<string, Map<string, string>>();
@@ -43,6 +45,13 @@ export class TemplateServerManager {
 
     // Start cleanup timer for idle template instances
     this.startCleanupTimer();
+  }
+
+  /**
+   * Set the instruction aggregator for extracting and caching server instructions
+   */
+  public setInstructionAggregator(aggregator: InstructionAggregator): void {
+    this.instructionAggregator = aggregator;
   }
 
   /**
@@ -114,6 +123,24 @@ export class TemplateServerManager {
           status: ClientStatus.Connected, // Template servers should be connected
           capabilities: undefined, // Will be populated by setupCapabilities
         });
+
+        // Extract and cache instructions for template servers
+        // This ensures instructions are available on first connection
+        if (this.instructionAggregator) {
+          try {
+            const instructions = instance.client.getInstructions();
+            if (instructions?.trim()) {
+              // Use clean template name (not the hash-suffixed outboundKey)
+              this.instructionAggregator.setInstructions(templateName, instructions);
+              debugIf(() => ({
+                message: `Cached instructions for template server: ${templateName}`,
+                meta: { templateName, instructionLength: instructions.length },
+              }));
+            }
+          } catch (error) {
+            logger.warn(`Failed to extract instructions from template server ${templateName}: ${error}`);
+          }
+        }
 
         // Track session -> rendered hash mapping for routing
         if (!this.sessionToRenderedHash.has(sessionId)) {

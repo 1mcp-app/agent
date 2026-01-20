@@ -108,6 +108,10 @@ export class ServerManager {
   public setInstructionAggregator(aggregator: InstructionAggregator): void {
     this.instructionAggregator = aggregator;
 
+    // Set instruction aggregator on template server manager
+    // This ensures template servers can extract and cache their instructions
+    this.templateServerManager.setInstructionAggregator(aggregator);
+
     // Listen for instruction changes and update existing server instances
     aggregator.on('instructions-changed', () => {
       this.updateServerInstructions();
@@ -214,9 +218,6 @@ export class ServerManager {
     opts: InboundConnectionConfig,
     context?: ContextData,
   ): Promise<void> {
-    // Get filtered instructions based on client's filter criteria using InstructionAggregator
-    const filteredInstructions = this.instructionAggregator?.getFilteredInstructions(opts, this.outboundConns) || '';
-
     // Load configuration data
     // Always process templates when context is available to ensure context-specific rendering
     const configManager = ConfigManager.getInstance();
@@ -248,6 +249,10 @@ export class ServerManager {
         this.transports,
       );
     }
+
+    // IMPORTANT: Get filtered instructions AFTER template servers are created
+    // This ensures template server instructions are included in the initialize response
+    const filteredInstructions = this.instructionAggregator?.getFilteredInstructions(opts, this.outboundConns) || '';
 
     // Connect the transport
     await this.connectionManager.connectTransport(transport, sessionId, opts, context, filteredInstructions);

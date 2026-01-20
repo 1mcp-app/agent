@@ -68,17 +68,22 @@ export class ClientManager {
         connectionInfo.instructions = instructions;
       }
 
+      // Use clean name from connection object for instruction aggregation
+      // Template servers use hash-based keys (e.g., "serena:6fa053f1...") but we want
+      // to display the clean name (e.g., "serena") in instructions
+      const cleanName = connectionInfo?.name || name;
+
       if (this.instructionAggregator) {
-        this.instructionAggregator.setInstructions(name, instructions);
+        this.instructionAggregator.setInstructions(cleanName, instructions);
       }
 
       if (instructions?.trim()) {
         debugIf(() => ({
-          message: `Cached instructions for ${name}: ${instructions.length} characters`,
-          meta: { name, instructionLength: instructions.length },
+          message: `Cached instructions for ${cleanName}: ${instructions.length} characters`,
+          meta: { name: cleanName, instructionLength: instructions.length },
         }));
       } else {
-        debugIf(() => ({ message: `No instructions available for ${name}`, meta: { name } }));
+        debugIf(() => ({ message: `No instructions available for ${cleanName}`, meta: { name: cleanName } }));
       }
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);

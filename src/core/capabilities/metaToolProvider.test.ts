@@ -100,46 +100,72 @@ describe('MetaToolProvider', () => {
     it('should list all tools without filters', async () => {
       const result = await provider.callMetaTool('tool_list', {});
 
-      expect(result.isError).toBeFalsy();
-      expect(result.content).toBeDefined();
-      const data = JSON.parse(result.content[0].text);
-      expect(data.totalCount).toBe(3);
-      expect(data.tools).toBeDefined();
-      expect(data.tools).toHaveLength(3);
+      expect(result).toBeDefined();
+      if ('error' in result && result.error) {
+        throw new Error(result.error.message);
+      }
+      // Type guard: if no error and has tools, it's a ListToolsResult
+      if ('tools' in result && 'totalCount' in result) {
+        expect(result.totalCount).toBe(3);
+        expect(result.tools).toHaveLength(3);
+      } else {
+        throw new Error('Expected ListToolsResult');
+      }
     });
 
     it('should filter by server', async () => {
       const result = await provider.callMetaTool('tool_list', { server: 'filesystem' });
 
-      expect(result.isError).toBeFalsy();
-      const data = JSON.parse(result.content[0].text);
-      expect(data.totalCount).toBe(3);
+      expect(result).toBeDefined();
+      if ('error' in result && result.error) {
+        throw new Error(result.error.message);
+      }
+      if ('tools' in result && 'totalCount' in result) {
+        expect(result.totalCount).toBe(3);
+      } else {
+        throw new Error('Expected ListToolsResult');
+      }
     });
 
     it('should filter by pattern', async () => {
       const result = await provider.callMetaTool('tool_list', { pattern: '*file*' });
 
-      expect(result.isError).toBeFalsy();
-      const data = JSON.parse(result.content[0].text);
-      expect(data.totalCount).toBe(2);
+      expect(result).toBeDefined();
+      if ('error' in result && result.error) {
+        throw new Error(result.error.message);
+      }
+      if ('tools' in result && 'totalCount' in result) {
+        expect(result.totalCount).toBe(2);
+      } else {
+        throw new Error('Expected ListToolsResult');
+      }
     });
 
     it('should support pagination', async () => {
       const result = await provider.callMetaTool('tool_list', { limit: 2 });
 
-      expect(result.isError).toBeFalsy();
-      const data = JSON.parse(result.content[0].text);
-      expect(data.tools).toHaveLength(2);
-      expect(data.hasMore).toBe(true);
-      expect(data.nextCursor).toBeDefined();
+      expect(result).toBeDefined();
+      if ('error' in result && result.error) {
+        throw new Error(result.error.message);
+      }
+      if ('tools' in result && 'hasMore' in result) {
+        expect(result.tools).toHaveLength(2);
+        expect(result.hasMore).toBe(true);
+        expect(result.nextCursor).toBeDefined();
+      } else {
+        throw new Error('Expected ListToolsResult');
+      }
     });
 
     it('should handle unknown meta-tool', async () => {
       const result = await provider.callMetaTool('unknown_tool', {});
 
-      expect(result.isError).toBe(true);
-      expect(result._errorType).toBe('not_found');
-      expect(result.content[0].text).toContain('Unknown meta-tool');
+      expect('error' in result).toBe(true);
+      expect(result.error).toBeDefined();
+      if ('error' in result && result.error) {
+        expect(result.error.type).toBe('not_found');
+        expect(result.error.message).toContain('Unknown meta-tool');
+      }
     });
   });
 
@@ -147,9 +173,12 @@ describe('MetaToolProvider', () => {
     it('should require server and toolName', async () => {
       const result = await provider.callMetaTool('tool_schema', {});
 
-      expect(result.isError).toBe(true);
-      expect(result._errorType).toBe('validation');
-      expect(result.content[0].text).toContain('Validation Error');
+      expect('error' in result).toBe(true);
+      expect(result.error).toBeDefined();
+      if ('error' in result && result.error) {
+        expect(result.error.type).toBe('validation');
+        expect(result.error.message).toContain('Validation Error');
+      }
     });
 
     it('should return error for non-existent tool', async () => {
@@ -158,9 +187,12 @@ describe('MetaToolProvider', () => {
         toolName: 'not_exists',
       });
 
-      expect(result.isError).toBe(true);
-      expect(result._errorType).toBe('not_found');
-      expect(result.content[0].text).toContain('Tool not found');
+      expect('error' in result).toBe(true);
+      expect(result.error).toBeDefined();
+      if ('error' in result && result.error) {
+        expect(result.error.type).toBe('not_found');
+        expect(result.error.message).toContain('Tool not found');
+      }
     });
 
     it('should return schema from cache if available', async () => {
@@ -177,9 +209,13 @@ describe('MetaToolProvider', () => {
         toolName: 'read_file',
       });
 
-      expect(result.isError).toBeFalsy();
-      expect(result._meta?.fromCache).toBe(true);
-      expect(result.content[0].text).toContain('read_file');
+      expect('error' in result).toBe(false);
+      if ('schema' in result && 'fromCache' in result) {
+        expect(result.fromCache).toBe(true);
+        expect(result.schema.name).toBe('read_file');
+      } else {
+        throw new Error('Expected DescribeToolResult');
+      }
     });
 
     it('should return upstream error if schema not loaded', async () => {
@@ -188,8 +224,11 @@ describe('MetaToolProvider', () => {
         toolName: 'read_file',
       });
 
-      expect(result.isError).toBe(true);
-      expect(result._errorType).toBe('upstream');
+      expect('error' in result).toBe(true);
+      expect(result.error).toBeDefined();
+      if ('error' in result && result.error) {
+        expect(result.error.type).toBe('upstream');
+      }
     });
   });
 
@@ -197,8 +236,11 @@ describe('MetaToolProvider', () => {
     it('should require server and toolName', async () => {
       const result = await provider.callMetaTool('tool_invoke', {});
 
-      expect(result.isError).toBe(true);
-      expect(result._errorType).toBe('validation');
+      expect('error' in result).toBe(true);
+      expect(result.error).toBeDefined();
+      if ('error' in result && result.error) {
+        expect(result.error.type).toBe('validation');
+      }
     });
 
     it('should return error for non-existent tool', async () => {
@@ -208,8 +250,11 @@ describe('MetaToolProvider', () => {
         args: {},
       });
 
-      expect(result.isError).toBe(true);
-      expect(result._errorType).toBe('not_found');
+      expect('error' in result).toBe(true);
+      expect(result.error).toBeDefined();
+      if ('error' in result && result.error) {
+        expect(result.error.type).toBe('not_found');
+      }
     });
 
     it('should return error for disconnected server', async () => {
@@ -238,9 +283,12 @@ describe('MetaToolProvider', () => {
         args: {},
       });
 
-      expect(result.isError).toBe(true);
-      expect(result._errorType).toBe('upstream');
-      expect(result.content[0].text).toContain('not connected');
+      expect('error' in result).toBe(true);
+      expect(result.error).toBeDefined();
+      if ('error' in result && result.error) {
+        expect(result.error.type).toBe('upstream');
+        expect(result.error.message).toContain('not connected');
+      }
     });
 
     it('should call tool on upstream server', async () => {
@@ -256,7 +304,13 @@ describe('MetaToolProvider', () => {
         args: { path: '/test/file.txt' },
       });
 
-      expect(result.isError).toBeFalsy();
+      expect('error' in result).toBe(false);
+      if ('result' in result && 'server' in result) {
+        expect(result.server).toBe('filesystem');
+        expect(result.tool).toBe('read_file');
+      } else {
+        throw new Error('Expected CallToolResult');
+      }
       expect(mockClient.callTool).toHaveBeenCalledWith({
         name: 'read_file',
         arguments: { path: '/test/file.txt' },
@@ -272,9 +326,12 @@ describe('MetaToolProvider', () => {
         args: {},
       });
 
-      expect(result.isError).toBe(true);
-      expect(result._errorType).toBe('upstream');
-      expect(result.content[0].text).toContain('Server Error');
+      expect('error' in result).toBe(true);
+      expect(result.error).toBeDefined();
+      if ('error' in result && result.error) {
+        expect(result.error.type).toBe('upstream');
+        expect(result.error.message).toContain('Server Error');
+      }
     });
 
     it('should detect not found errors from upstream', async () => {
@@ -286,8 +343,11 @@ describe('MetaToolProvider', () => {
         args: {},
       });
 
-      expect(result.isError).toBe(true);
-      expect(result._errorType).toBe('not_found');
+      expect('error' in result).toBe(true);
+      expect(result.error).toBeDefined();
+      if ('error' in result && result.error) {
+        expect(result.error.type).toBe('not_found');
+      }
     });
   });
 
@@ -295,7 +355,11 @@ describe('MetaToolProvider', () => {
     it('should include error type in validation errors', async () => {
       const result = await provider.callMetaTool('tool_schema', {});
 
-      expect(result._errorType).toBe('validation');
+      if ('error' in result && result.error) {
+        expect(result.error.type).toBe('validation');
+      } else {
+        throw new Error('Expected error in result');
+      }
     });
 
     it('should include error type in not_found errors', async () => {
@@ -304,7 +368,11 @@ describe('MetaToolProvider', () => {
         toolName: 'not_exists',
       });
 
-      expect(result._errorType).toBe('not_found');
+      if ('error' in result && result.error) {
+        expect(result.error.type).toBe('not_found');
+      } else {
+        throw new Error('Expected error in result');
+      }
     });
 
     it('should include error type in upstream errors', async () => {
@@ -316,7 +384,11 @@ describe('MetaToolProvider', () => {
         arguments: {},
       });
 
-      expect(result._errorType).toBe('upstream');
+      if ('error' in result && result.error) {
+        expect(result.error.type).toBe('upstream');
+      } else {
+        throw new Error('Expected error in result');
+      }
     });
   });
 });

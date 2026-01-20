@@ -48,17 +48,35 @@ const ToolListOutputSchema = z.object({
   servers: z.array(z.string()),
   hasMore: z.boolean(),
   nextCursor: z.string().optional(),
+  error: z
+    .object({
+      type: z.enum(['validation', 'upstream', 'not_found']),
+      message: z.string(),
+    })
+    .optional(),
 });
 
 const ToolSchemaOutputSchema = z.object({
   schema: z.object({}).loose(),
   fromCache: z.boolean().optional(),
+  error: z
+    .object({
+      type: z.enum(['validation', 'upstream', 'not_found']),
+      message: z.string(),
+    })
+    .optional(),
 });
 
 const ToolInvokeOutputSchema = z.object({
   result: z.object({}).loose(),
   server: z.string(),
   tool: z.string(),
+  error: z
+    .object({
+      type: z.enum(['validation', 'upstream', 'not_found']),
+      message: z.string(),
+    })
+    .optional(),
 });
 
 export function createToolListTool(): Tool {

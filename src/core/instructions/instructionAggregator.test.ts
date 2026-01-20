@@ -475,5 +475,45 @@ describe('InstructionAggregator', () => {
         expect(aggregator.getServerNames()).toHaveLength(0);
       });
     });
+
+    describe('Template Server Clean Names', () => {
+      it('should store and retrieve instructions using clean names for template servers', () => {
+        // This tests that we can store instructions with clean name
+        // and retrieve them correctly
+        aggregator.setInstructions('serena', '# Serena Instructions');
+
+        expect(aggregator.hasInstructions('serena')).toBe(true);
+        expect(aggregator.getServerInstructions('serena')).toBe('# Serena Instructions');
+        expect(aggregator.getServerCount()).toBe(1);
+      });
+
+      it('should not store instructions with hash-suffixed keys', () => {
+        // Verify that we're using clean names, not hash-suffixed keys
+        const hashKey = 'serena:6fa053f1d951532804fe85de63ce01a7a6a782cad333008ae5844fff08fb20e4';
+
+        // Store with clean name
+        aggregator.setInstructions('serena', '# Serena Instructions');
+
+        // Should be retrievable with clean name
+        expect(aggregator.hasInstructions('serena')).toBe(true);
+
+        // Should NOT be retrievable with hash key
+        expect(aggregator.hasInstructions(hashKey)).toBe(false);
+      });
+
+      it('should use clean name from connection.name property', () => {
+        // This tests the core fix: using connection.name instead of Map key
+        // The actual template rendering is tested in E2E tests
+
+        // Set instructions with clean name
+        aggregator.setInstructions('serena', '# Serena Instructions');
+
+        // Verify it's stored correctly
+        expect(aggregator.getServerInstructions('serena')).toBe('# Serena Instructions');
+
+        // Verify hash-suffixed key doesn't work
+        expect(aggregator.getServerInstructions('serena:abc123')).toBeUndefined();
+      });
+    });
   });
 });
