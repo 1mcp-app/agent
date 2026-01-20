@@ -273,14 +273,7 @@ export class InternalCapabilitiesProvider extends EventEmitter {
         if (!this.lazyLoadingOrchestrator) {
           throw new Error('Lazy loading not available');
         }
-        // Map new names to old meta-tool names for compatibility
-        const metaToolName =
-          toolName === 'tool_list'
-            ? 'mcp_list_available_tools'
-            : toolName === 'tool_schema'
-              ? 'mcp_describe_tool'
-              : 'mcp_call_tool';
-        const metaResult = await this.lazyLoadingOrchestrator.callMetaTool(metaToolName, args);
+        const metaResult = await this.lazyLoadingOrchestrator.callMetaTool(toolName, args);
         if (
           typeof metaResult === 'object' &&
           metaResult !== null &&

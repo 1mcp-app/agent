@@ -241,6 +241,29 @@ export class InstructionAggregator extends EventEmitter {
   }
 
   /**
+   * Extract a short description from server instructions
+   * @param instructions The full server instructions
+   * @returns A short description or undefined
+   */
+  private extractDescription(instructions: string): string | undefined {
+    if (!instructions) return undefined;
+
+    // Try to extract first line or first sentence
+    const firstLine = instructions.split('\n')[0].trim();
+    if (firstLine && firstLine.length < 100) {
+      return firstLine.replace(/^#+\s*/, ''); // Remove markdown heading
+    }
+
+    // Look for a sentence ending with period
+    const firstSentence = instructions.match(/^[^.]*\./)?.[0];
+    if (firstSentence && firstSentence.length < 100) {
+      return firstSentence.trim();
+    }
+
+    return undefined; // No suitable description found
+  }
+
+  /**
    * Render a Handlebars template with template variables
    * @param template Template string (custom or default)
    * @param filteredConnections Filtered server connections
@@ -311,11 +334,15 @@ export class InstructionAggregator extends EventEmitter {
         const wrappedInstructions = `<${serverName}>\n${instructions}\n</${serverName}>`;
         serverInstructionSections.push(wrappedInstructions);
 
+        // Extract description from instructions
+        const description = this.extractDescription(instructions);
+
         // Add individual server data for iteration
         servers.push({
           name: serverName,
           instructions: instructions,
           hasInstructions: true,
+          description: description,
         });
       } else {
         servers.push({

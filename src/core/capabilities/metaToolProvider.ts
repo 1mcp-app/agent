@@ -82,7 +82,7 @@ export type SchemaLoader = (server: string, toolName: string) => Promise<Tool>;
 export type ToolCaller = (server: string, toolName: string, args: unknown) => Promise<MetaToolResult>;
 
 /**
- * Arguments for mcp_list_available_tools
+ * Arguments for tool_list
  */
 export interface ListAvailableToolsArgs {
   server?: string;
@@ -93,7 +93,7 @@ export interface ListAvailableToolsArgs {
 }
 
 /**
- * Arguments for mcp_describe_tool
+ * Arguments for tool_schema
  */
 export interface DescribeToolArgs {
   server: string;
@@ -101,7 +101,7 @@ export interface DescribeToolArgs {
 }
 
 /**
- * Arguments for mcp_call_tool
+ * Arguments for tool_invoke
  */
 export interface CallToolArgs {
   server: string;
@@ -399,7 +399,7 @@ export class MetaToolProvider {
   }
 
   /**
-   * Implement mcp_call_tool
+   * Implement tool_invoke
    */
   private async callTool(args: CallToolArgs): Promise<MetaToolResult> {
     try {
@@ -423,7 +423,7 @@ export class MetaToolProvider {
           content: [
             {
               type: 'text',
-              text: `Tool not found: ${args.server}:${args.toolName}. Call mcp_list_available_tools to see available tools.`,
+              text: `Tool not found: ${args.server}:${args.toolName}. Call tool_list to see available tools.`,
             },
           ],
           isError: true,
@@ -472,7 +472,7 @@ export class MetaToolProvider {
         },
       };
     } catch (error) {
-      logger.error(`Error in mcp_call_tool: ${error}`);
+      logger.error(`Error in tool_invoke: ${error}`);
 
       // Check if it's a tool not found error from upstream
       if (error instanceof Error && error.message.includes('not found')) {

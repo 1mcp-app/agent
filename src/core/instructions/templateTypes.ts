@@ -10,6 +10,9 @@ export interface ServerData {
 
   /** Whether this server has instructions */
   hasInstructions: boolean;
+
+  /** Optional description for tool categories (extracted from instructions) */
+  description?: string;
 }
 
 /**
@@ -200,15 +203,15 @@ You are interacting with 1MCP, a proxy server that aggregates capabilities from 
 
 When you need to use a tool, follow this three-step discovery process:
 
-1. **List Available Tools**: Call \`mcp_list_available_tools\` to see all available tools
+1. **List Available Tools**: Call \`tool_list\` to see all available tools
    - Returns tool names, source servers, and descriptions
    - Use optional filters: \`server\`, \`pattern\`, \`tag\`, \`limit\`, \`cursor\`
 
-2. **Describe Tool**: Call \`mcp_describe_tool\` with \`server\` and \`toolName\` to get the full input schema
+2. **Describe Tool**: Call \`tool_schema\` with \`server\` and \`toolName\` to get the full input schema
    - Returns complete tool definition including required parameters
    - Load schema only when you need to use the tool
 
-3. **Call Tool**: Invoke \`mcp_call_tool\` with \`server\`, \`toolName\`, and \`args\`
+3. **Call Tool**: Invoke \`tool_invoke\` with \`server\`, \`toolName\`, and \`args\`
    - Executes the tool on the upstream server
    - Returns the result with structured responses
 
@@ -220,7 +223,7 @@ Meta-tools use structured error responses with \`_errorType\` field:
   - Fix: Provide all required parameters with correct types
 
 - **not_found_error**: Tool or server not found
-  - Fix: Call \`mcp_list_available_tools\` to verify tool exists
+  - Fix: Call \`tool_list\` to verify tool exists
 
 - **upstream_error**: Server-side error or connection issue
   - Fix: This is an upstream server issue - may need to retry or report
@@ -243,7 +246,7 @@ Tools are organized by server for easier discovery:
 ### Pagination for Large Tool Sets
 
 When working with many tools, use pagination:
-- Start with \`mcp_list_available_tools\` with \`limit\` parameter
+- Start with \`tool_list\` with \`limit\` parameter
 - Use returned \`cursor\` for next page
 - Continue until \`hasMore\` is false
 {{/if}}
@@ -297,7 +300,7 @@ The following sections contain instructions from each connected MCP server. Each
 - Use meta-tools for efficient tool discovery and on-demand loading
 - Tools are organized by server name to avoid naming conflicts
 - Cache statistics: {{lazyLoading.cachedToolsCount}}/{{lazyLoading.availableToolsCount}} tools loaded
-- Call \`mcp_list_available_tools\` first to discover available tools
+- Call \`tool_list\` first to discover available tools
 {{else}}
 - Tools are namespaced by server to avoid conflicts
 {{/if}}
