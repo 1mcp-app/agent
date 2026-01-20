@@ -103,12 +103,8 @@ describe('AgentConfigManager', () => {
         },
         lazyLoading: {
           enabled: false,
-          mode: 'full',
-          metaTools: {
-            enabled: true,
-            inlineCatalog: false,
-            catalogFormat: 'grouped',
-          },
+          inlineCatalog: false,
+          catalogFormat: 'grouped',
           directExpose: [],
           cache: {
             maxEntries: 1000,

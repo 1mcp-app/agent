@@ -3,9 +3,10 @@ import { EventEmitter } from 'events';
 import { Tool } from '@modelcontextprotocol/sdk/types.js';
 
 import { AgentConfigManager } from '@src/core/server/agentConfig.js';
-import { OutboundConnections } from '@src/core/types/index.js';
+import { ClientStatus, OutboundConnections } from '@src/core/types/index.js';
 import logger, { debugIf } from '@src/logger/logger.js';
 
+import { AsyncLoadingOrchestrator } from './asyncLoadingOrchestrator.js';
 import { AggregatedCapabilities, CapabilityAggregator } from './capabilityAggregator.js';
 import { MetaToolProvider } from './metaToolProvider.js';
 import { SchemaCache, SchemaCacheConfig } from './schemaCache.js';
@@ -16,7 +17,6 @@ import { ToolRegistry } from './toolRegistry.js';
  */
 export interface LazyLoadingStats {
   enabled: boolean;
-  mode: 'metatool' | 'hybrid' | 'full';
   registeredToolCount: number;
   loadedToolCount: number;
   cachedToolCount: number;
@@ -56,11 +56,17 @@ export class LazyLoadingOrchestrator extends EventEmitter {
   private metaToolProvider?: MetaToolProvider;
   private capabilityAggregator: CapabilityAggregator;
   private isInitialized: boolean = false;
+  private asyncOrchestrator?: AsyncLoadingOrchestrator;
 
-  constructor(outboundConnections: OutboundConnections, config: AgentConfigManager) {
+  constructor(
+    outboundConnections: OutboundConnections,
+    config: AgentConfigManager,
+    asyncOrchestrator?: AsyncLoadingOrchestrator,
+  ) {
     super();
     this.outboundConnections = outboundConnections;
     this.config = config;
+    this.asyncOrchestrator = asyncOrchestrator;
 
     // Get lazy loading config
     const lazyConfig = config.get('lazyLoading');
@@ -78,9 +84,22 @@ export class LazyLoadingOrchestrator extends EventEmitter {
     // Initialize capability aggregator (for resources/prompts and full mode)
     this.capabilityAggregator = new CapabilityAggregator(outboundConnections);
 
-    // Initialize meta-tool provider if enabled
-    if (lazyConfig.enabled && lazyConfig.metaTools.enabled) {
-      this.metaToolProvider = new MetaToolProvider(this.toolRegistry, this.schemaCache, outboundConnections);
+    // Initialize meta-tool provider if lazy loading is enabled
+    if (lazyConfig.enabled) {
+      this.metaToolProvider = new MetaToolProvider(
+        () => this.toolRegistry,
+        this.schemaCache,
+        outboundConnections,
+        this.loadSchemaFromServer.bind(this),
+      );
+    }
+
+    // Listen to server-capabilities-updated events from async orchestrator
+    if (asyncOrchestrator) {
+      asyncOrchestrator.on('server-capabilities-updated', async (serverName: string) => {
+        debugIf(() => ({ message: `Server ${serverName} capabilities updated, refreshing tool registry` }));
+        await this.refreshCapabilities();
+      });
     }
 
     this.setMaxListeners(50);
@@ -100,7 +119,7 @@ export class LazyLoadingOrchestrator extends EventEmitter {
     // Update capabilities first
     await this.capabilityAggregator.updateCapabilities();
 
-    if (lazyConfig.enabled && lazyConfig.mode !== 'full') {
+    if (lazyConfig.enabled) {
       // Build tool registry from aggregated capabilities
       await this.buildToolRegistry();
 
@@ -109,9 +128,7 @@ export class LazyLoadingOrchestrator extends EventEmitter {
         await this.preloadTools();
       }
 
-      logger.info(
-        `LazyLoadingOrchestrator initialized in ${lazyConfig.mode} mode with ${this.toolRegistry.size()} tools`,
-      );
+      logger.info(`LazyLoadingOrchestrator initialized with ${this.toolRegistry.size()} tools`);
     } else {
       logger.info('LazyLoadingOrchestrator initialized in full mode (disabled)');
     }
@@ -123,32 +140,35 @@ export class LazyLoadingOrchestrator extends EventEmitter {
    * Build tool registry from aggregated capabilities
    */
   private async buildToolRegistry(): Promise<void> {
-    const capabilities = this.capabilityAggregator.getCurrentCapabilities();
-
-    // Build tools map for registry (exclude 1mcp internal tools)
+    // Build tools map for registry by fetching tools directly from each connection
     const toolsMap = new Map<string, Tool[]>();
     const serverTags = new Map<string, string[]>();
 
     for (const [serverName, connection] of this.outboundConnections.entries()) {
-      if (!connection.client) {
+      if (!connection.client || connection.status !== ClientStatus.Connected) {
         continue;
       }
 
-      // Get tags from transport
-      const tags = connection.transport.tags || [];
-      serverTags.set(serverName, tags);
+      try {
+        // Get tools directly from this server's client
+        const toolsResult = await connection.client.listTools();
+        const serverTools = toolsResult.tools || [];
 
-      // Get tools from capabilities
-      // We need to track which tools belong to which server
-      // For now, use all tools except internal 1mcp tools
-      const serverTools = capabilities.tools.filter((_tool) => {
-        // Check if tool is from this server
-        // This is a simplification - in production, we'd track tool-to-server mapping
-        return true; // For now, include all external tools
-      });
+        if (serverTools.length > 0) {
+          toolsMap.set(serverName, serverTools);
+        }
 
-      if (serverTools.length > 0) {
-        toolsMap.set(serverName, serverTools);
+        // Get tags from transport
+        const tags = connection.transport.tags || [];
+        serverTags.set(serverName, tags);
+
+        debugIf(() => ({
+          message: `Registered ${serverTools.length} tools from ${serverName}`,
+          meta: { server: serverName, toolCount: serverTools.length },
+        }));
+      } catch (error) {
+        logger.warn(`Failed to list tools from ${serverName}: ${error}`);
+        // Continue with other servers
       }
     }
 
@@ -243,36 +263,22 @@ export class LazyLoadingOrchestrator extends EventEmitter {
   }
 
   /**
-   * Get aggregated capabilities based on lazy loading mode
+   * Get aggregated capabilities based on lazy loading configuration
    */
   public async getCapabilities(): Promise<AggregatedCapabilities> {
     const lazyConfig = this.config.get('lazyLoading');
     const baseCapabilities = this.capabilityAggregator.getCurrentCapabilities();
 
-    if (!lazyConfig.enabled || lazyConfig.mode === 'full') {
-      // Full mode: return all capabilities normally
+    if (!lazyConfig.enabled) {
+      // Disabled: return all capabilities normally
       return baseCapabilities;
     }
 
-    if (lazyConfig.mode === 'metatool') {
-      // Meta-tool mode: only 3 meta-tools + all resources/prompts
-      const metaTools = this.metaToolProvider?.getMetaTools() || [];
-
-      return {
-        tools: metaTools,
-        resources: baseCapabilities.resources,
-        prompts: baseCapabilities.prompts,
-        readyServers: baseCapabilities.readyServers,
-        timestamp: new Date(),
-      };
-    }
-
-    // Hybrid mode: meta-tools + direct-exposed tools + resources/prompts
+    // Meta-tool mode: only 3 meta-tools + all resources/prompts
     const metaTools = this.metaToolProvider?.getMetaTools() || [];
-    const directTools = this.getDirectExposedTools(lazyConfig.directExpose);
 
     return {
-      tools: [...metaTools, ...directTools],
+      tools: metaTools,
       resources: baseCapabilities.resources,
       prompts: baseCapabilities.prompts,
       readyServers: baseCapabilities.readyServers,
@@ -281,61 +287,18 @@ export class LazyLoadingOrchestrator extends EventEmitter {
   }
 
   /**
-   * Get tools that should be directly exposed (not lazy-loaded)
-   */
-  private getDirectExposedTools(patterns: string[]): Tool[] {
-    if (patterns.length === 0) {
-      return [];
-    }
-
-    const allCapabilities = this.capabilityAggregator.getCurrentCapabilities();
-    const directTools: Tool[] = [];
-
-    for (const pattern of patterns) {
-      const regex = new RegExp(`^${pattern.replace(/\*/g, '.*')}$`);
-
-      for (const tool of allCapabilities.tools) {
-        if (regex.test(tool.name)) {
-          directTools.push(tool);
-        }
-      }
-    }
-
-    return directTools;
-  }
-
-  /**
-   * Handle listChanged notifications based on mode
+   * Handle listChanged notifications based on lazy loading state
    */
   public shouldNotifyListChanged(): boolean {
     const lazyConfig = this.config.get('lazyLoading');
 
-    switch (lazyConfig.mode) {
-      case 'metatool':
-        // No listChanged in meta-tool mode (static tool list)
-        return false;
-      case 'hybrid':
-        // Notify only if directly-exposed tools changed
-        return this.directToolsChanged();
-      case 'full':
-      default:
-        // Standard MCP behavior
-        return true;
-    }
-  }
-
-  /**
-   * Check if directly-exposed tools have changed
-   */
-  private directToolsChanged(): boolean {
-    const lazyConfig = this.config.get('lazyLoading');
-    if (lazyConfig.directExpose.length === 0) {
+    if (lazyConfig.enabled) {
+      // No listChanged in meta-tool mode (static tool list)
       return false;
     }
 
-    // Compare current direct tools with previous snapshot
-    // This is a simplified check - production would track actual changes
-    return false;
+    // Standard MCP behavior when disabled
+    return true;
   }
 
   /**
@@ -367,7 +330,6 @@ export class LazyLoadingOrchestrator extends EventEmitter {
 
     return {
       enabled: lazyConfig.enabled,
-      mode: lazyConfig.mode,
       registeredToolCount: registeredCount,
       loadedToolCount: this.schemaCache.size(),
       cachedToolCount: this.schemaCache.size(),
@@ -387,7 +349,7 @@ export class LazyLoadingOrchestrator extends EventEmitter {
   private calculateCurrentTokens(): number {
     const lazyConfig = this.config.get('lazyLoading');
 
-    if (!lazyConfig.enabled || lazyConfig.mode === 'full') {
+    if (!lazyConfig.enabled) {
       return this.calculateFullLoadTokens();
     }
 
@@ -438,7 +400,7 @@ export class LazyLoadingOrchestrator extends EventEmitter {
    * Check if a tool call is a meta-tool
    */
   public isMetaTool(name: string): boolean {
-    return name === 'mcp_list_available_tools' || name === 'mcp_describe_tool' || name === 'mcp_call_tool';
+    return name === 'tool_list' || name === 'tool_schema' || name === 'tool_invoke';
   }
 
   /**
@@ -463,20 +425,12 @@ export class LazyLoadingOrchestrator extends EventEmitter {
   }
 
   /**
-   * Get the current mode
-   */
-  public getMode(): 'metatool' | 'hybrid' | 'full' {
-    return this.config.get('lazyLoading').mode;
-  }
-
-  /**
    * Health check for lazy loading subsystem
    * @returns Health status with details
    */
   public getHealthStatus(): {
     healthy: boolean;
     enabled: boolean;
-    mode: 'metatool' | 'hybrid' | 'full';
     cache: {
       size: number;
       maxEntries: number;
@@ -517,7 +471,6 @@ export class LazyLoadingOrchestrator extends EventEmitter {
     return {
       healthy: issues.length === 0,
       enabled: lazyConfig.enabled,
-      mode: lazyConfig.mode,
       cache: {
         size: cacheSize,
         maxEntries: lazyConfig.cache.maxEntries,
@@ -542,7 +495,7 @@ export class LazyLoadingOrchestrator extends EventEmitter {
 
     const message =
       `LazyLoading stats: ` +
-      `enabled=${stats.enabled}, mode=${stats.mode}, ` +
+      `enabled=${stats.enabled}, ` +
       `tools=${stats.registeredToolCount}, cached=${stats.cachedToolCount}, ` +
       `tokenSavings=${stats.tokenSavings.savingsPercentage.toFixed(1)}%, ` +
       `cacheHitRate=${stats.cacheHitRate.toFixed(1)}%, ` +

@@ -89,12 +89,8 @@ describe('Lazy Loading Performance Tests', () => {
         if (key === 'lazyLoading') {
           return {
             enabled: true,
-            mode: 'metatool',
-            metaTools: {
-              enabled: true,
-              inlineCatalog: false,
-              catalogFormat: 'grouped',
-            },
+            inlineCatalog: false,
+            catalogFormat: 'grouped',
             directExpose: [],
             cache: {
               maxEntries: 1000,
@@ -125,7 +121,7 @@ describe('Lazy Loading Performance Tests', () => {
 
       // In metatool mode, lazy loading should be enabled
       expect(stats.enabled).toBe(true);
-      expect(stats.mode).toBe('metatool');
+      // stats.mode removed from LazyLoadingStats interface
     });
 
     it('should measure token usage with full loading (disabled)', async () => {
@@ -133,8 +129,8 @@ describe('Lazy Loading Performance Tests', () => {
         if (key === 'lazyLoading') {
           return {
             enabled: false,
-            mode: 'full',
-            metaTools: { enabled: true, inlineCatalog: false, catalogFormat: 'grouped' },
+            inlineCatalog: false,
+            catalogFormat: 'grouped',
             directExpose: [],
             cache: { maxEntries: 1000, strategy: 'lru' },
             preload: { patterns: [], keywords: [] },

@@ -68,12 +68,8 @@ export interface AgentConfig {
   };
   lazyLoading: {
     enabled: boolean;
-    mode: 'metatool' | 'hybrid' | 'full';
-    metaTools: {
-      enabled: boolean;
-      inlineCatalog: boolean;
-      catalogFormat: 'flat' | 'grouped' | 'categorized';
-    };
+    inlineCatalog: boolean;
+    catalogFormat: 'flat' | 'grouped' | 'categorized';
     directExpose: string[];
     cache: {
       maxEntries: number;
@@ -165,13 +161,9 @@ export class AgentConfigManager {
       },
       lazyLoading: {
         enabled: false, // Default: disabled (opt-in behavior)
-        mode: 'full', // Default: full loading (backward compatible)
-        metaTools: {
-          enabled: true, // Enable meta-tools when mode is metatool
-          inlineCatalog: false, // Don't include full catalog by default
-          catalogFormat: 'grouped', // Group tools by server
-        },
-        directExpose: [], // No direct exposure in hybrid mode by default
+        inlineCatalog: false, // Don't include full catalog by default
+        catalogFormat: 'grouped', // Group tools by server
+        directExpose: [], // No direct exposure by default
         cache: {
           maxEntries: 1000, // LRU cache max entries
           strategy: 'lru', // Only LRU supported currently

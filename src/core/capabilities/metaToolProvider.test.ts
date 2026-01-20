@@ -50,7 +50,7 @@ describe('MetaToolProvider', () => {
       ],
     ]) as OutboundConnections;
 
-    provider = new MetaToolProvider(toolRegistry, schemaCache, outboundConnections);
+    provider = new MetaToolProvider(() => toolRegistry, schemaCache, outboundConnections);
   });
 
   describe('getMetaTools', () => {
@@ -59,74 +59,79 @@ describe('MetaToolProvider', () => {
       expect(metaTools).toHaveLength(3);
     });
 
-    it('should include mcp_list_available_tools', () => {
+    it('should include tool_list', () => {
       const metaTools = provider.getMetaTools();
-      const listTool = metaTools.find((t) => t.name === 'mcp_list_available_tools');
+      const listTool = metaTools.find((t) => t.name === 'tool_list');
       expect(listTool).toBeDefined();
       expect(listTool?.description).toContain('List all available MCP tools');
     });
 
-    it('should include mcp_describe_tool', () => {
+    it('should include tool_schema', () => {
       const metaTools = provider.getMetaTools();
-      const describeTool = metaTools.find((t) => t.name === 'mcp_describe_tool');
+      const describeTool = metaTools.find((t) => t.name === 'tool_schema');
       expect(describeTool).toBeDefined();
-      expect(describeTool?.description).toContain('complete definition');
+      expect(describeTool?.description).toContain('Get the full schema for a specific tool');
     });
 
-    it('should include mcp_call_tool', () => {
+    it('should include tool_invoke', () => {
       const metaTools = provider.getMetaTools();
-      const callTool = metaTools.find((t) => t.name === 'mcp_call_tool');
+      const callTool = metaTools.find((t) => t.name === 'tool_invoke');
       expect(callTool).toBeDefined();
-      expect(callTool?.description).toContain('Invoke any available MCP tool');
+      expect(callTool?.description).toContain('Execute any tool on any MCP server');
     });
 
     it('should require server and toolName for describe_tool', () => {
       const metaTools = provider.getMetaTools();
-      const describeTool = metaTools.find((t) => t.name === 'mcp_describe_tool');
+      const describeTool = metaTools.find((t) => t.name === 'tool_schema');
       expect(describeTool?.inputSchema.required).toContain('server');
       expect(describeTool?.inputSchema.required).toContain('toolName');
     });
 
     it('should require server, toolName, and args for call_tool', () => {
       const metaTools = provider.getMetaTools();
-      const callTool = metaTools.find((t) => t.name === 'mcp_call_tool');
+      const callTool = metaTools.find((t) => t.name === 'tool_invoke');
       expect(callTool?.inputSchema.required).toContain('server');
       expect(callTool?.inputSchema.required).toContain('toolName');
       expect(callTool?.inputSchema.required).toContain('args');
     });
   });
 
-  describe('callMetaTool - mcp_list_available_tools', () => {
+  describe('callMetaTool - tool_list', () => {
     it('should list all tools without filters', async () => {
-      const result = await provider.callMetaTool('mcp_list_available_tools', {});
+      const result = await provider.callMetaTool('tool_list', {});
 
       expect(result.isError).toBeFalsy();
       expect(result.content).toBeDefined();
-      expect(result._meta?.totalCount).toBe(3);
-      expect((result._meta as any).tools).toBeDefined();
+      const data = JSON.parse(result.content[0].text);
+      expect(data.totalCount).toBe(3);
+      expect(data.tools).toBeDefined();
+      expect(data.tools).toHaveLength(3);
     });
 
     it('should filter by server', async () => {
-      const result = await provider.callMetaTool('mcp_list_available_tools', { server: 'filesystem' });
+      const result = await provider.callMetaTool('tool_list', { server: 'filesystem' });
 
       expect(result.isError).toBeFalsy();
-      expect(result._meta?.totalCount).toBe(3);
+      const data = JSON.parse(result.content[0].text);
+      expect(data.totalCount).toBe(3);
     });
 
     it('should filter by pattern', async () => {
-      const result = await provider.callMetaTool('mcp_list_available_tools', { pattern: '*file*' });
+      const result = await provider.callMetaTool('tool_list', { pattern: '*file*' });
 
       expect(result.isError).toBeFalsy();
-      expect(result._meta?.totalCount).toBe(2);
+      const data = JSON.parse(result.content[0].text);
+      expect(data.totalCount).toBe(2);
     });
 
     it('should support pagination', async () => {
-      const result = await provider.callMetaTool('mcp_list_available_tools', { limit: 2 });
+      const result = await provider.callMetaTool('tool_list', { limit: 2 });
 
       expect(result.isError).toBeFalsy();
-      expect((result._meta as any)?.tools.length).toBe(2);
-      expect(result._meta?.hasMore).toBe(true);
-      expect(result._meta?.nextCursor).toBeDefined();
+      const data = JSON.parse(result.content[0].text);
+      expect(data.tools).toHaveLength(2);
+      expect(data.hasMore).toBe(true);
+      expect(data.nextCursor).toBeDefined();
     });
 
     it('should handle unknown meta-tool', async () => {
@@ -138,9 +143,9 @@ describe('MetaToolProvider', () => {
     });
   });
 
-  describe('callMetaTool - mcp_describe_tool', () => {
+  describe('callMetaTool - tool_schema', () => {
     it('should require server and toolName', async () => {
-      const result = await provider.callMetaTool('mcp_describe_tool', {});
+      const result = await provider.callMetaTool('tool_schema', {});
 
       expect(result.isError).toBe(true);
       expect(result._errorType).toBe('validation');
@@ -148,7 +153,7 @@ describe('MetaToolProvider', () => {
     });
 
     it('should return error for non-existent tool', async () => {
-      const result = await provider.callMetaTool('mcp_describe_tool', {
+      const result = await provider.callMetaTool('tool_schema', {
         server: 'filesystem',
         toolName: 'not_exists',
       });
@@ -167,7 +172,7 @@ describe('MetaToolProvider', () => {
 
       schemaCache.set('filesystem', 'read_file', mockTool);
 
-      const result = await provider.callMetaTool('mcp_describe_tool', {
+      const result = await provider.callMetaTool('tool_schema', {
         server: 'filesystem',
         toolName: 'read_file',
       });
@@ -178,7 +183,7 @@ describe('MetaToolProvider', () => {
     });
 
     it('should return upstream error if schema not loaded', async () => {
-      const result = await provider.callMetaTool('mcp_describe_tool', {
+      const result = await provider.callMetaTool('tool_schema', {
         server: 'filesystem',
         toolName: 'read_file',
       });
@@ -188,16 +193,16 @@ describe('MetaToolProvider', () => {
     });
   });
 
-  describe('callMetaTool - mcp_call_tool', () => {
+  describe('callMetaTool - tool_invoke', () => {
     it('should require server and toolName', async () => {
-      const result = await provider.callMetaTool('mcp_call_tool', {});
+      const result = await provider.callMetaTool('tool_invoke', {});
 
       expect(result.isError).toBe(true);
       expect(result._errorType).toBe('validation');
     });
 
     it('should return error for non-existent tool', async () => {
-      const result = await provider.callMetaTool('mcp_call_tool', {
+      const result = await provider.callMetaTool('tool_invoke', {
         server: 'filesystem',
         toolName: 'not_exists',
         args: {},
@@ -225,9 +230,9 @@ describe('MetaToolProvider', () => {
         ],
       ]) as any as OutboundConnections;
 
-      const disconnectedProvider = new MetaToolProvider(toolRegistry, schemaCache, disconnectedConnections);
+      const disconnectedProvider = new MetaToolProvider(() => toolRegistry, schemaCache, disconnectedConnections);
 
-      const result = await disconnectedProvider.callMetaTool('mcp_call_tool', {
+      const result = await disconnectedProvider.callMetaTool('tool_invoke', {
         server: 'filesystem',
         toolName: 'read_file',
         args: {},
@@ -245,7 +250,7 @@ describe('MetaToolProvider', () => {
 
       mockClient.callTool.mockResolvedValue(mockResult);
 
-      const result = await provider.callMetaTool('mcp_call_tool', {
+      const result = await provider.callMetaTool('tool_invoke', {
         server: 'filesystem',
         toolName: 'read_file',
         args: { path: '/test/file.txt' },
@@ -261,7 +266,7 @@ describe('MetaToolProvider', () => {
     it('should handle upstream server errors', async () => {
       mockClient.callTool.mockRejectedValue(new Error('Upstream error'));
 
-      const result = await provider.callMetaTool('mcp_call_tool', {
+      const result = await provider.callMetaTool('tool_invoke', {
         server: 'filesystem',
         toolName: 'read_file',
         args: {},
@@ -275,7 +280,7 @@ describe('MetaToolProvider', () => {
     it('should detect not found errors from upstream', async () => {
       mockClient.callTool.mockRejectedValue(new Error('Tool not found: read_file'));
 
-      const result = await provider.callMetaTool('mcp_call_tool', {
+      const result = await provider.callMetaTool('tool_invoke', {
         server: 'filesystem',
         toolName: 'read_file',
         args: {},
@@ -288,13 +293,13 @@ describe('MetaToolProvider', () => {
 
   describe('Error Response Format', () => {
     it('should include error type in validation errors', async () => {
-      const result = await provider.callMetaTool('mcp_describe_tool', {});
+      const result = await provider.callMetaTool('tool_schema', {});
 
       expect(result._errorType).toBe('validation');
     });
 
     it('should include error type in not_found errors', async () => {
-      const result = await provider.callMetaTool('mcp_describe_tool', {
+      const result = await provider.callMetaTool('tool_schema', {
         server: 'filesystem',
         toolName: 'not_exists',
       });
@@ -305,7 +310,7 @@ describe('MetaToolProvider', () => {
     it('should include error type in upstream errors', async () => {
       mockClient.callTool.mockRejectedValue(new Error('Server error'));
 
-      const result = await provider.callMetaTool('mcp_call_tool', {
+      const result = await provider.callMetaTool('tool_invoke', {
         server: 'filesystem',
         toolName: 'read_file',
         arguments: {},

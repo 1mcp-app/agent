@@ -348,12 +348,8 @@ export async function serveCommand(parsedArgv: ServeOptions): Promise<void> {
       },
       lazyLoading: {
         enabled: parsedArgv['enable-lazy-loading'],
-        mode: (parsedArgv['lazy-mode'] || 'full') as 'metatool' | 'hybrid' | 'full',
-        metaTools: {
-          enabled: true, // Always enabled when mode is metatool
-          inlineCatalog: parsedArgv['lazy-inline-catalog'],
-          catalogFormat: (parsedArgv['lazy-catalog-format'] || 'grouped') as 'flat' | 'grouped' | 'categorized',
-        },
+        inlineCatalog: parsedArgv['lazy-inline-catalog'],
+        catalogFormat: (parsedArgv['lazy-catalog-format'] || 'grouped') as 'flat' | 'grouped' | 'categorized',
         directExpose: parsedArgv['lazy-direct-expose']
           ? parsedArgv['lazy-direct-expose'].split(',').map((s) => s.trim())
           : [],

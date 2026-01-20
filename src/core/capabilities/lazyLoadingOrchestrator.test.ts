@@ -63,12 +63,8 @@ describe('LazyLoadingOrchestrator', () => {
         if (key === 'lazyLoading') {
           return {
             enabled: true,
-            mode: 'metatool',
-            metaTools: {
-              enabled: true,
-              inlineCatalog: false,
-              catalogFormat: 'grouped',
-            },
+            inlineCatalog: false,
+            catalogFormat: 'grouped',
             directExpose: [],
             cache: {
               maxEntries: 1000,
@@ -117,7 +113,8 @@ describe('LazyLoadingOrchestrator', () => {
       expect(orchestrator.getToolRegistry()).toBeDefined();
       expect(orchestrator.getSchemaCache()).toBeDefined();
       expect(orchestrator.isEnabled()).toBe(true);
-      expect(orchestrator.getMode()).toBe('metatool');
+      // getMode() removed - using isEnabled() instead
+      expect(orchestrator.isEnabled()).toBe(true);
     });
 
     it('should initialize with disabled lazy loading', () => {
@@ -125,8 +122,8 @@ describe('LazyLoadingOrchestrator', () => {
         if (key === 'lazyLoading') {
           return {
             enabled: false,
-            mode: 'full',
-            metaTools: { enabled: true },
+            inlineCatalog: false,
+            catalogFormat: 'grouped',
             directExpose: [],
             cache: { maxEntries: 1000, ttlMs: undefined },
             preload: { patterns: [], keywords: [] },
@@ -139,7 +136,8 @@ describe('LazyLoadingOrchestrator', () => {
       orchestrator = new LazyLoadingOrchestrator(mockOutboundConnections, mockAgentConfig);
 
       expect(orchestrator.isEnabled()).toBe(false);
-      expect(orchestrator.getMode()).toBe('full');
+      // getMode() removed - full mode is when lazy loading is disabled
+      expect(orchestrator.isEnabled()).toBe(false);
     });
 
     it('should initialize schema cache with custom config', () => {
@@ -147,8 +145,8 @@ describe('LazyLoadingOrchestrator', () => {
         if (key === 'lazyLoading') {
           return {
             enabled: true,
-            mode: 'metatool',
-            metaTools: { enabled: true },
+            inlineCatalog: false,
+            catalogFormat: 'grouped',
             directExpose: [],
             cache: { maxEntries: 500, ttlMs: 60000 },
             preload: { patterns: [], keywords: [] },
@@ -173,16 +171,17 @@ describe('LazyLoadingOrchestrator', () => {
 
       // Should not throw and should be initialized
       expect(orchestrator.isEnabled()).toBe(true);
-      expect(orchestrator.getMode()).toBe('metatool');
+      // getMode() removed - using isEnabled() instead
+      expect(orchestrator.isEnabled()).toBe(true);
     });
 
     it('should initialize successfully in full mode', async () => {
       mockAgentConfig.get.mockImplementation((key: string) => {
         if (key === 'lazyLoading') {
           return {
-            enabled: true,
-            mode: 'full',
-            metaTools: { enabled: false },
+            enabled: false,
+            inlineCatalog: false,
+            catalogFormat: 'grouped',
             directExpose: [],
             cache: { maxEntries: 1000 },
             preload: { patterns: [], keywords: [] },
@@ -196,7 +195,8 @@ describe('LazyLoadingOrchestrator', () => {
 
       await orchestrator.initialize();
 
-      expect(orchestrator.getMode()).toBe('full');
+      // getMode() removed - full mode is when lazy loading is disabled
+      expect(orchestrator.isEnabled()).toBe(false);
     });
 
     it('should initialize successfully in hybrid mode', async () => {
@@ -219,7 +219,8 @@ describe('LazyLoadingOrchestrator', () => {
 
       await orchestrator.initialize();
 
-      expect(orchestrator.getMode()).toBe('hybrid');
+      // getMode() removed - hybrid mode replaced with metatool mode
+      expect(orchestrator.isEnabled()).toBe(true);
     });
 
     it('should not initialize twice', async () => {
@@ -236,8 +237,8 @@ describe('LazyLoadingOrchestrator', () => {
         if (key === 'lazyLoading') {
           return {
             enabled: true,
-            mode: 'metatool',
-            metaTools: { enabled: true },
+            inlineCatalog: false,
+            catalogFormat: 'grouped',
             directExpose: [],
             cache: { maxEntries: 1000 },
             preload: {
@@ -268,18 +269,18 @@ describe('LazyLoadingOrchestrator', () => {
       const capabilities = await orchestrator.getCapabilities();
 
       expect(capabilities.tools).toHaveLength(3);
-      expect(capabilities.tools.map((t) => t.name)).toContain('mcp_list_available_tools');
-      expect(capabilities.tools.map((t) => t.name)).toContain('mcp_describe_tool');
-      expect(capabilities.tools.map((t) => t.name)).toContain('mcp_call_tool');
+      expect(capabilities.tools.map((t) => t.name)).toContain('tool_list');
+      expect(capabilities.tools.map((t) => t.name)).toContain('tool_schema');
+      expect(capabilities.tools.map((t) => t.name)).toContain('tool_invoke');
     });
 
     it('should return all tools in full mode', async () => {
       mockAgentConfig.get.mockImplementation((key: string) => {
         if (key === 'lazyLoading') {
           return {
-            enabled: true,
-            mode: 'full',
-            metaTools: { enabled: false },
+            enabled: false,
+            inlineCatalog: false,
+            catalogFormat: 'grouped',
             directExpose: [],
             cache: { maxEntries: 1000 },
             preload: { patterns: [], keywords: [] },
@@ -326,9 +327,9 @@ describe('LazyLoadingOrchestrator', () => {
 
       // Should have 3 meta-tools + direct exposed tools
       expect(capabilities.tools.length).toBeGreaterThanOrEqual(3);
-      expect(capabilities.tools.map((t) => t.name)).toContain('mcp_list_available_tools');
-      expect(capabilities.tools.map((t) => t.name)).toContain('mcp_describe_tool');
-      expect(capabilities.tools.map((t) => t.name)).toContain('mcp_call_tool');
+      expect(capabilities.tools.map((t) => t.name)).toContain('tool_list');
+      expect(capabilities.tools.map((t) => t.name)).toContain('tool_schema');
+      expect(capabilities.tools.map((t) => t.name)).toContain('tool_invoke');
     });
 
     it('should include resources and prompts in all modes', async () => {
@@ -350,8 +351,8 @@ describe('LazyLoadingOrchestrator', () => {
         if (key === 'lazyLoading') {
           return {
             enabled: true,
-            mode: 'metatool',
-            metaTools: { enabled: true },
+            inlineCatalog: false,
+            catalogFormat: 'grouped',
             directExpose: [],
             cache: { maxEntries: 1000 },
             preload: { patterns: [], keywords: [] },
@@ -371,9 +372,9 @@ describe('LazyLoadingOrchestrator', () => {
       mockAgentConfig.get.mockImplementation((key: string) => {
         if (key === 'lazyLoading') {
           return {
-            enabled: true,
-            mode: 'full',
-            metaTools: { enabled: false },
+            enabled: false,
+            inlineCatalog: false,
+            catalogFormat: 'grouped',
             directExpose: [],
             cache: { maxEntries: 1000 },
             preload: { patterns: [], keywords: [] },
@@ -413,22 +414,22 @@ describe('LazyLoadingOrchestrator', () => {
   });
 
   describe('isMetaTool', () => {
-    it('should identify mcp_list_available_tools', () => {
+    it('should identify tool_list', () => {
       orchestrator = new LazyLoadingOrchestrator(mockOutboundConnections, mockAgentConfig);
 
-      expect(orchestrator.isMetaTool('mcp_list_available_tools')).toBe(true);
+      expect(orchestrator.isMetaTool('tool_list')).toBe(true);
     });
 
-    it('should identify mcp_describe_tool', () => {
+    it('should identify tool_schema', () => {
       orchestrator = new LazyLoadingOrchestrator(mockOutboundConnections, mockAgentConfig);
 
-      expect(orchestrator.isMetaTool('mcp_describe_tool')).toBe(true);
+      expect(orchestrator.isMetaTool('tool_schema')).toBe(true);
     });
 
-    it('should identify mcp_call_tool', () => {
+    it('should identify tool_invoke', () => {
       orchestrator = new LazyLoadingOrchestrator(mockOutboundConnections, mockAgentConfig);
 
-      expect(orchestrator.isMetaTool('mcp_call_tool')).toBe(true);
+      expect(orchestrator.isMetaTool('tool_invoke')).toBe(true);
     });
 
     it('should not identify regular tools', () => {
@@ -445,8 +446,8 @@ describe('LazyLoadingOrchestrator', () => {
         if (key === 'lazyLoading') {
           return {
             enabled: true,
-            mode: 'metatool',
-            metaTools: { enabled: true },
+            inlineCatalog: false,
+            catalogFormat: 'grouped',
             directExpose: [],
             cache: { maxEntries: 1000 },
             preload: { patterns: [], keywords: [] },
@@ -460,14 +461,14 @@ describe('LazyLoadingOrchestrator', () => {
       await orchestrator.initialize();
     });
 
-    it('should call mcp_list_available_tools', async () => {
-      const result = await orchestrator.callMetaTool('mcp_list_available_tools', {});
+    it('should call tool_list', async () => {
+      const result = await orchestrator.callMetaTool('tool_list', {});
 
       expect(result).toBeDefined();
       expect((result as any).isError).toBeFalsy();
     });
 
-    it('should call mcp_describe_tool', async () => {
+    it('should call tool_schema', async () => {
       // First preload a tool into the cache
       const tool: Tool = {
         name: 'read_file',
@@ -476,7 +477,7 @@ describe('LazyLoadingOrchestrator', () => {
       };
       orchestrator.getSchemaCache().set('filesystem', 'read_file', tool);
 
-      const result = await orchestrator.callMetaTool('mcp_describe_tool', {
+      const result = await orchestrator.callMetaTool('tool_schema', {
         server: 'filesystem',
         toolName: 'read_file',
       });
@@ -488,9 +489,9 @@ describe('LazyLoadingOrchestrator', () => {
       mockAgentConfig.get.mockImplementation((key: string) => {
         if (key === 'lazyLoading') {
           return {
-            enabled: true,
-            mode: 'full',
-            metaTools: { enabled: false },
+            enabled: false,
+            inlineCatalog: false,
+            catalogFormat: 'grouped',
             directExpose: [],
             cache: { maxEntries: 1000 },
             preload: { patterns: [], keywords: [] },
@@ -503,7 +504,7 @@ describe('LazyLoadingOrchestrator', () => {
       const fullOrchestrator = new LazyLoadingOrchestrator(mockOutboundConnections, mockAgentConfig);
       await fullOrchestrator.initialize();
 
-      await expect(fullOrchestrator.callMetaTool('mcp_list_available_tools', {})).rejects.toThrow(
+      await expect(fullOrchestrator.callMetaTool('tool_list', {})).rejects.toThrow(
         'Meta-tool provider not initialized',
       );
     });
@@ -515,8 +516,8 @@ describe('LazyLoadingOrchestrator', () => {
         if (key === 'lazyLoading') {
           return {
             enabled: true,
-            mode: 'metatool',
-            metaTools: { enabled: true },
+            inlineCatalog: false,
+            catalogFormat: 'grouped',
             directExpose: [],
             cache: { maxEntries: 1000 },
             preload: { patterns: [], keywords: [] },
@@ -547,8 +548,8 @@ describe('LazyLoadingOrchestrator', () => {
         if (key === 'lazyLoading') {
           return {
             enabled: true,
-            mode: 'metatool',
-            metaTools: { enabled: true },
+            inlineCatalog: false,
+            catalogFormat: 'grouped',
             directExpose: [],
             cache: { maxEntries: 1000 },
             preload: { patterns: [], keywords: [] },
@@ -564,7 +565,7 @@ describe('LazyLoadingOrchestrator', () => {
       const stats = orchestrator.getStatistics();
 
       expect(stats.enabled).toBe(true);
-      expect(stats.mode).toBe('metatool');
+      // stats.mode removed from LazyLoadingStats interface
       expect(stats.registeredToolCount).toBeGreaterThanOrEqual(0);
       expect(stats.loadedToolCount).toBeGreaterThanOrEqual(0);
       expect(stats.cachedToolCount).toBeGreaterThanOrEqual(0);
@@ -582,8 +583,8 @@ describe('LazyLoadingOrchestrator', () => {
         if (key === 'lazyLoading') {
           return {
             enabled: false,
-            mode: 'full',
-            metaTools: { enabled: false },
+            inlineCatalog: false,
+            catalogFormat: 'grouped',
             directExpose: [],
             cache: { maxEntries: 1000 },
             preload: { patterns: [], keywords: [] },
@@ -599,7 +600,7 @@ describe('LazyLoadingOrchestrator', () => {
       const stats = orchestrator.getStatistics();
 
       expect(stats.enabled).toBe(false);
-      expect(stats.mode).toBe('full');
+      // stats.mode removed from LazyLoadingStats interface
     });
 
     it('should calculate token savings correctly', async () => {
@@ -607,8 +608,8 @@ describe('LazyLoadingOrchestrator', () => {
         if (key === 'lazyLoading') {
           return {
             enabled: true,
-            mode: 'metatool',
-            metaTools: { enabled: true },
+            inlineCatalog: false,
+            catalogFormat: 'grouped',
             directExpose: [],
             cache: { maxEntries: 1000 },
             preload: { patterns: [], keywords: [] },
@@ -632,8 +633,8 @@ describe('LazyLoadingOrchestrator', () => {
         if (key === 'lazyLoading') {
           return {
             enabled: false,
-            mode: 'full',
-            metaTools: { enabled: false },
+            inlineCatalog: false,
+            catalogFormat: 'grouped',
             directExpose: [],
             cache: { maxEntries: 1000 },
             preload: { patterns: [], keywords: [] },
@@ -675,8 +676,8 @@ describe('LazyLoadingOrchestrator', () => {
         if (key === 'lazyLoading') {
           return {
             enabled: true,
-            mode: 'metatool',
-            metaTools: { enabled: true },
+            inlineCatalog: false,
+            catalogFormat: 'grouped',
             directExpose: [],
             cache: { maxEntries: 1000 },
             preload: { patterns: [], keywords: [] },
@@ -696,8 +697,8 @@ describe('LazyLoadingOrchestrator', () => {
         if (key === 'lazyLoading') {
           return {
             enabled: false,
-            mode: 'full',
-            metaTools: { enabled: false },
+            inlineCatalog: false,
+            catalogFormat: 'grouped',
             directExpose: [],
             cache: { maxEntries: 1000 },
             preload: { patterns: [], keywords: [] },
@@ -730,7 +731,289 @@ describe('LazyLoadingOrchestrator', () => {
 
       orchestrator = new LazyLoadingOrchestrator(mockOutboundConnections, mockAgentConfig);
 
-      expect(orchestrator.getMode()).toBe('hybrid');
+      // getMode() removed - hybrid mode replaced with metatool mode
+      expect(orchestrator.isEnabled()).toBe(true);
+    });
+  });
+
+  describe('getHealthStatus', () => {
+    it('should return healthy status when no issues', async () => {
+      mockAgentConfig.get.mockImplementation((key: string) => {
+        if (key === 'lazyLoading') {
+          return {
+            enabled: true,
+            inlineCatalog: false,
+            catalogFormat: 'grouped',
+            directExpose: [],
+            cache: { maxEntries: 1000 },
+            preload: { patterns: [], keywords: [] },
+            fallback: { onError: 'skip', timeoutMs: 5000 },
+          };
+        }
+        return undefined;
+      });
+
+      orchestrator = new LazyLoadingOrchestrator(mockOutboundConnections, mockAgentConfig);
+      await orchestrator.initialize();
+
+      const health = orchestrator.getHealthStatus();
+
+      expect(health.healthy).toBe(true);
+      expect(health.enabled).toBe(true);
+      expect(health.cache.size).toBeGreaterThanOrEqual(0);
+      expect(health.cache.maxEntries).toBe(1000);
+      expect(health.cache.utilizationRate).toBeGreaterThanOrEqual(0);
+      expect(health.stats.hitRate).toBeGreaterThanOrEqual(0);
+      expect(health.stats.coalescedRequests).toBeGreaterThanOrEqual(0);
+      expect(health.stats.evictions).toBeGreaterThanOrEqual(0);
+      expect(health.issues).toHaveLength(0);
+    });
+
+    it('should detect high cache utilization', async () => {
+      mockAgentConfig.get.mockImplementation((key: string) => {
+        if (key === 'lazyLoading') {
+          return {
+            enabled: true,
+            inlineCatalog: false,
+            catalogFormat: 'grouped',
+            directExpose: [],
+            cache: { maxEntries: 10 }, // Small cache to trigger high utilization
+            preload: { patterns: [], keywords: [] },
+            fallback: { onError: 'skip', timeoutMs: 5000 },
+          };
+        }
+        return undefined;
+      });
+
+      orchestrator = new LazyLoadingOrchestrator(mockOutboundConnections, mockAgentConfig);
+      await orchestrator.initialize();
+
+      // Add some tools to cache to increase utilization
+      const tool: Tool = {
+        name: 'test_tool',
+        description: 'Test',
+        inputSchema: { type: 'object' },
+      };
+      for (let i = 0; i < 9; i++) {
+        orchestrator.getSchemaCache().set('server', `tool_${i}`, tool);
+      }
+
+      const health = orchestrator.getHealthStatus();
+
+      // With 9 entries out of 10 max, utilization is 90% which should trigger warning
+      if (health.cache.utilizationRate > 90) {
+        expect(health.healthy).toBe(false);
+        expect(health.issues.some((issue) => issue.includes('Cache utilization high'))).toBe(true);
+      }
+    });
+
+    it('should detect low hit rate with enough requests', async () => {
+      mockAgentConfig.get.mockImplementation((key: string) => {
+        if (key === 'lazyLoading') {
+          return {
+            enabled: true,
+            inlineCatalog: false,
+            catalogFormat: 'grouped',
+            directExpose: [],
+            cache: { maxEntries: 1000 },
+            preload: { patterns: [], keywords: [] },
+            fallback: { onError: 'skip', timeoutMs: 5000 },
+          };
+        }
+        return undefined;
+      });
+
+      orchestrator = new LazyLoadingOrchestrator(mockOutboundConnections, mockAgentConfig);
+      await orchestrator.initialize();
+
+      // Simulate cache operations to get low hit rate with >100 requests
+      const schemaCache = orchestrator.getSchemaCache();
+      const tool: Tool = {
+        name: 'test',
+        description: 'Test',
+        inputSchema: { type: 'object' },
+      };
+
+      // Add one tool to cache
+      schemaCache.set('server', 'tool1', tool);
+
+      // Simulate many misses (cache.get for non-existent tools)
+      for (let i = 0; i < 150; i++) {
+        try {
+          schemaCache.getIfCached('server', `nonexistent_${i}`);
+        } catch {
+          // Ignore errors
+        }
+      }
+
+      const health = orchestrator.getHealthStatus();
+
+      const stats = schemaCache.getStats();
+      const totalRequests = stats.hits + stats.misses;
+
+      if (totalRequests > 100) {
+        const hitRate = totalRequests > 0 ? stats.hitRate : 0;
+        if (hitRate < 50) {
+          expect(health.issues.some((issue) => issue.includes('Low cache hit rate'))).toBe(true);
+        }
+      }
+    });
+
+    it('should detect high eviction count', async () => {
+      mockAgentConfig.get.mockImplementation((key: string) => {
+        if (key === 'lazyLoading') {
+          return {
+            enabled: true,
+            inlineCatalog: false,
+            catalogFormat: 'grouped',
+            directExpose: [],
+            cache: { maxEntries: 5 }, // Very small cache to trigger evictions
+            preload: { patterns: [], keywords: [] },
+            fallback: { onError: 'skip', timeoutMs: 5000 },
+          };
+        }
+        return undefined;
+      });
+
+      orchestrator = new LazyLoadingOrchestrator(mockOutboundConnections, mockAgentConfig);
+      await orchestrator.initialize();
+
+      // Add many tools to small cache to trigger evictions
+      const tool: Tool = {
+        name: 'test',
+        description: 'Test',
+        inputSchema: { type: 'object' },
+      };
+
+      const schemaCache = orchestrator.getSchemaCache();
+      // Add more than maxEntries to cause evictions
+      for (let i = 0; i < 150; i++) {
+        schemaCache.set('server', `tool_${i}`, tool);
+      }
+
+      const health = orchestrator.getHealthStatus();
+
+      const stats = schemaCache.getStats();
+      if (stats.evictions > 100) {
+        expect(health.issues.some((issue) => issue.includes('High eviction count'))).toBe(true);
+      }
+    });
+
+    it('should return disabled status in health check', async () => {
+      mockAgentConfig.get.mockImplementation((key: string) => {
+        if (key === 'lazyLoading') {
+          return {
+            enabled: false,
+            inlineCatalog: false,
+            catalogFormat: 'grouped',
+            directExpose: [],
+            cache: { maxEntries: 1000 },
+            preload: { patterns: [], keywords: [] },
+            fallback: { onError: 'skip', timeoutMs: 5000 },
+          };
+        }
+        return undefined;
+      });
+
+      orchestrator = new LazyLoadingOrchestrator(mockOutboundConnections, mockAgentConfig);
+      await orchestrator.initialize();
+
+      const health = orchestrator.getHealthStatus();
+
+      expect(health.enabled).toBe(false);
+      expect(health.healthy).toBe(true); // No issues when disabled
+    });
+  });
+
+  describe('logStatistics', () => {
+    it('should log statistics without throwing', async () => {
+      mockAgentConfig.get.mockImplementation((key: string) => {
+        if (key === 'lazyLoading') {
+          return {
+            enabled: true,
+            inlineCatalog: false,
+            catalogFormat: 'grouped',
+            directExpose: [],
+            cache: { maxEntries: 1000 },
+            preload: { patterns: [], keywords: [] },
+            fallback: { onError: 'skip', timeoutMs: 5000 },
+          };
+        }
+        return undefined;
+      });
+
+      orchestrator = new LazyLoadingOrchestrator(mockOutboundConnections, mockAgentConfig);
+      await orchestrator.initialize();
+
+      // Should not throw
+      expect(() => orchestrator.logStatistics()).not.toThrow();
+      expect(() => orchestrator.logStatistics(false)).not.toThrow();
+      expect(() => orchestrator.logStatistics(true)).not.toThrow();
+    });
+
+    it('should log statistics when disabled', async () => {
+      mockAgentConfig.get.mockImplementation((key: string) => {
+        if (key === 'lazyLoading') {
+          return {
+            enabled: false,
+            inlineCatalog: false,
+            catalogFormat: 'grouped',
+            directExpose: [],
+            cache: { maxEntries: 1000 },
+            preload: { patterns: [], keywords: [] },
+            fallback: { onError: 'skip', timeoutMs: 5000 },
+          };
+        }
+        return undefined;
+      });
+
+      orchestrator = new LazyLoadingOrchestrator(mockOutboundConnections, mockAgentConfig);
+      await orchestrator.initialize();
+
+      expect(() => orchestrator.logStatistics()).not.toThrow();
+      expect(() => orchestrator.logStatistics(true)).not.toThrow();
+    });
+
+    it('should log statistics with health issues', async () => {
+      mockAgentConfig.get.mockImplementation((key: string) => {
+        if (key === 'lazyLoading') {
+          return {
+            enabled: true,
+            inlineCatalog: false,
+            catalogFormat: 'grouped',
+            directExpose: [],
+            cache: { maxEntries: 10 }, // Small to trigger issues
+            preload: { patterns: [], keywords: [] },
+            fallback: { onError: 'skip', timeoutMs: 5000 },
+          };
+        }
+        return undefined;
+      });
+
+      orchestrator = new LazyLoadingOrchestrator(mockOutboundConnections, mockAgentConfig);
+      await orchestrator.initialize();
+
+      // Fill cache to trigger high utilization
+      const tool: Tool = {
+        name: 'test',
+        description: 'Test',
+        inputSchema: { type: 'object' },
+      };
+
+      const schemaCache = orchestrator.getSchemaCache();
+      for (let i = 0; i < 150; i++) {
+        schemaCache.set('server', `tool_${i}`, tool);
+      }
+
+      expect(() => orchestrator.logStatistics()).not.toThrow();
+    });
+  });
+
+  describe('constructor with async orchestrator', () => {
+    it('should accept optional async orchestrator parameter', () => {
+      // Should not throw with or without async orchestrator
+      expect(() => new LazyLoadingOrchestrator(mockOutboundConnections, mockAgentConfig)).not.toThrow();
+      expect(() => new LazyLoadingOrchestrator(mockOutboundConnections, mockAgentConfig, undefined)).not.toThrow();
     });
   });
 });

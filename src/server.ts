@@ -10,6 +10,7 @@ import logger, { debugIf } from '@src/logger/logger.js';
 import type { ContextData } from '@src/types/context.js';
 
 import { AsyncLoadingOrchestrator } from './core/capabilities/asyncLoadingOrchestrator.js';
+import { InternalCapabilitiesProvider } from './core/capabilities/internalCapabilitiesProvider.js';
 import { LazyLoadingOrchestrator } from './core/capabilities/lazyLoadingOrchestrator.js';
 import { ClientManager } from './core/client/clientManager.js';
 import { InstructionAggregator } from './core/instructions/instructionAggregator.js';
@@ -132,9 +133,14 @@ async function setupServerAsync(
   const lazyLoadingEnabled = agentConfig.get('lazyLoading').enabled;
   let lazyLoadingOrchestrator: LazyLoadingOrchestrator | undefined;
   if (lazyLoadingEnabled) {
-    lazyLoadingOrchestrator = new LazyLoadingOrchestrator(clients, agentConfig);
+    lazyLoadingOrchestrator = new LazyLoadingOrchestrator(clients, agentConfig, asyncOrchestrator);
     await lazyLoadingOrchestrator.initialize();
     serverManager.setLazyLoadingOrchestrator(lazyLoadingOrchestrator);
+
+    // Inject lazy loading orchestrator into internal capabilities provider
+    const internalProvider = InternalCapabilitiesProvider.getInstance();
+    internalProvider.setLazyLoadingOrchestrator(lazyLoadingOrchestrator);
+
     logger.info('Lazy loading orchestrator initialized');
   }
 
@@ -193,13 +199,18 @@ async function setupServerSync(
 
   // Config reload is now handled by ConfigManager and ConfigChangeHandler initialized in setupServer
 
-  // Create lazy loading orchestrator if enabled
+  // Create lazy loading orchestrator if enabled (no async orchestrator in sync mode)
   const lazyLoadingEnabled = agentConfig.get('lazyLoading').enabled;
   let lazyLoadingOrchestrator: LazyLoadingOrchestrator | undefined;
   if (lazyLoadingEnabled) {
-    lazyLoadingOrchestrator = new LazyLoadingOrchestrator(clients, agentConfig);
+    lazyLoadingOrchestrator = new LazyLoadingOrchestrator(clients, agentConfig, undefined);
     await lazyLoadingOrchestrator.initialize();
     serverManager.setLazyLoadingOrchestrator(lazyLoadingOrchestrator);
+
+    // Inject lazy loading orchestrator into internal capabilities provider
+    const internalProvider = InternalCapabilitiesProvider.getInstance();
+    internalProvider.setLazyLoadingOrchestrator(lazyLoadingOrchestrator);
+
     logger.info('Lazy loading orchestrator initialized');
   }
 

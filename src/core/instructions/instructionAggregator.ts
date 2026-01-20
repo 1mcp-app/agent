@@ -384,23 +384,21 @@ export class InstructionAggregator extends EventEmitter {
     }
 
     const isEnabled = this.lazyLoadingOrchestrator.isEnabled();
-    const mode = this.lazyLoadingOrchestrator.getMode();
     const stats = this.lazyLoadingOrchestrator.getStatistics();
 
-    // Calculate exposed tools based on mode
+    // Calculate exposed tools based on enabled state
     let exposedToolsCount = stats.registeredToolCount;
-    if (isEnabled && mode === 'metatool') {
+    if (isEnabled) {
       // Meta-tool mode: only meta-tools exposed
-      exposedToolsCount = 3; // mcp_list_available_tools, mcp_describe_tool, mcp_call_tool
+      exposedToolsCount = 3; // tool_list, tool_schema, tool_invoke
     }
 
-    // Get meta-tools list if in metatool mode
-    const metaTools =
-      isEnabled && mode === 'metatool' ? ['mcp_list_available_tools', 'mcp_describe_tool', 'mcp_call_tool'] : undefined;
+    // Get meta-tools list if enabled
+    const metaTools = isEnabled ? ['tool_list', 'tool_schema', 'tool_invoke'] : undefined;
 
     return {
       enabled: isEnabled,
-      mode,
+      mode: isEnabled ? 'metatool' : 'full',
       availableToolsCount: stats.registeredToolCount,
       exposedToolsCount,
       directExposeCount: 0, // TODO: get from config

@@ -21,6 +21,11 @@ import {
   createUpdateTool,
 } from '@src/core/capabilities/internal/installationTools.js';
 import {
+  createToolInvokeTool,
+  createToolListTool,
+  createToolSchemaTool,
+} from '@src/core/capabilities/internal/lazyTools.js';
+import {
   createDisableTool,
   createEditTool,
   createEnableTool,
@@ -28,6 +33,7 @@ import {
   createReloadTool,
   createStatusTool,
 } from '@src/core/capabilities/internal/managementTools.js';
+import { LazyLoadingOrchestrator } from '@src/core/capabilities/lazyLoadingOrchestrator.js';
 import { FlagManager } from '@src/core/flags/flagManager.js';
 import { AgentConfigManager } from '@src/core/server/agentConfig.js';
 import {
@@ -113,6 +119,7 @@ export class InternalCapabilitiesProvider extends EventEmitter {
   private configManager: AgentConfigManager;
   private flagManager: FlagManager;
   private isInitialized = false;
+  private lazyLoadingOrchestrator?: LazyLoadingOrchestrator;
 
   private constructor() {
     super();
@@ -145,6 +152,13 @@ export class InternalCapabilitiesProvider extends EventEmitter {
   }
 
   /**
+   * Set the lazy loading orchestrator for lazy tool support
+   */
+  public setLazyLoadingOrchestrator(orchestrator: LazyLoadingOrchestrator): void {
+    this.lazyLoadingOrchestrator = orchestrator;
+  }
+
+  /**
    * Get all available internal tools based on current feature flags
    */
   public getAvailableTools(): Tool[] {
@@ -155,7 +169,7 @@ export class InternalCapabilitiesProvider extends EventEmitter {
 
     const tools: Tool[] = [];
 
-    // Check if internal tools are enabled in any way
+    // === Internal Tools (controlled by features.internalTools) ===
     const internalToolsEnabled = this.flagManager.isToolEnabled('internalTools');
     const internalToolsList = this.configManager.getInternalToolsList();
 
@@ -233,6 +247,11 @@ export class InternalCapabilitiesProvider extends EventEmitter {
       }
     }
 
+    // === Lazy Tools (controlled by lazyLoading.enabled) ===
+    if (this.flagManager.isToolEnabled('lazyTools')) {
+      tools.push(createToolListTool(), createToolSchemaTool(), createToolInvokeTool());
+    }
+
     return tools;
   }
 
@@ -247,6 +266,37 @@ export class InternalCapabilitiesProvider extends EventEmitter {
     let result: unknown;
 
     switch (toolName) {
+      // === Lazy Tools ===
+      case 'tool_list':
+      case 'tool_schema':
+      case 'tool_invoke': {
+        if (!this.lazyLoadingOrchestrator) {
+          throw new Error('Lazy loading not available');
+        }
+        // Map new names to old meta-tool names for compatibility
+        const metaToolName =
+          toolName === 'tool_list'
+            ? 'mcp_list_available_tools'
+            : toolName === 'tool_schema'
+              ? 'mcp_describe_tool'
+              : 'mcp_call_tool';
+        const metaResult = await this.lazyLoadingOrchestrator.callMetaTool(metaToolName, args);
+        if (
+          typeof metaResult === 'object' &&
+          metaResult !== null &&
+          'isError' in metaResult &&
+          (metaResult as { isError: boolean }).isError
+        ) {
+          const errorResult = metaResult as {
+            isError: boolean;
+            content: Array<{ type: string; text: string }>;
+            _errorType?: string;
+          };
+          throw new Error(errorResult.content[0]?.text || 'Tool error');
+        }
+        return metaResult;
+      }
+      // === Internal Tools ===
       case 'mcp_search': {
         const validatedArgs = validateToolArgs(McpSearchToolSchema, args, toolName);
         result = await handleMcpSearch(validatedArgs);

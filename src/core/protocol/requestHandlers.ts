@@ -469,13 +469,17 @@ function registerToolHandlers(
       if (lazyLoadingEnabled && lazyLoadingOrchestrator) {
         const capabilities = await lazyLoadingOrchestrator.getCapabilities();
 
-        // Get internal tools (always fully loaded)
+        // Get internal tools (always fully loaded) - filter out lazy tools when lazy loading is enabled
         const internalProvider = InternalCapabilitiesProvider.getInstance();
         await internalProvider.initialize();
         const internalTools = internalProvider.getAvailableTools();
 
+        // Filter out lazy tools since they're provided by the MetaToolProvider
+        const lazyToolNames = ['tool_list', 'tool_schema', 'tool_invoke'];
+        const nonLazyTools = internalTools.filter((tool) => !lazyToolNames.includes(tool.name));
+
         // Add internal tools to the result (with 1mcp prefix)
-        const internalToolsWithPrefix = internalTools.map((tool) => ({
+        const internalToolsWithPrefix = nonLazyTools.map((tool) => ({
           ...tool,
           name: buildUri('1mcp', tool.name, MCP_URI_SEPARATOR),
         }));
@@ -533,15 +537,14 @@ function registerToolHandlers(
   inboundConn.server.setRequestHandler(
     CallToolRequestSchema,
     withErrorHandling(async (request) => {
-      const { clientName, resourceName: toolName } = parseUri(request.params.name, MCP_URI_SEPARATOR);
+      const toolName = request.params.name;
 
-      // Check if this is a meta-tool call (when lazy loading is enabled)
-      // Meta-tools are called directly without a server prefix
-      const isMetaTool =
-        lazyLoadingEnabled && lazyLoadingOrchestrator && lazyLoadingOrchestrator.isMetaTool(request.params.name);
+      // Check if this is an unprefixed meta-tool call (when lazy loading is enabled)
+      const isUnprefixedMetaTool =
+        lazyLoadingEnabled && lazyLoadingOrchestrator && lazyLoadingOrchestrator.isMetaTool(toolName);
 
-      if (isMetaTool && lazyLoadingOrchestrator) {
-        const result = (await lazyLoadingOrchestrator.callMetaTool(request.params.name, request.params.arguments)) as {
+      if (isUnprefixedMetaTool && lazyLoadingOrchestrator) {
+        const result = (await lazyLoadingOrchestrator.callMetaTool(toolName, request.params.arguments)) as {
           isError: boolean;
           content: Array<{ type: string; text: string }>;
           _meta?: Record<string, unknown>;
@@ -560,11 +563,13 @@ function registerToolHandlers(
         };
       }
 
-      // Handle 1mcp tools
+      const { clientName, resourceName: extractedToolName } = parseUri(toolName, MCP_URI_SEPARATOR);
+
+      // Handle 1mcp tools (includes both internal tools and lazy tools)
       if (clientName === '1mcp') {
         const internalProvider = InternalCapabilitiesProvider.getInstance();
         await internalProvider.initialize();
-        const result = await internalProvider.executeTool(toolName, request.params.arguments);
+        const result = await internalProvider.executeTool(extractedToolName, request.params.arguments);
 
         // For tools with output schemas, return both content and structuredContent
         // This is required by the MCP protocol when outputSchema is defined
@@ -584,7 +589,7 @@ function registerToolHandlers(
       if (!outboundConn) {
         throw new Error(`Unknown client: ${clientName}`);
       }
-      return outboundConn.client.callTool({ ...request.params, name: toolName }, CallToolResultSchema, {
+      return outboundConn.client.callTool({ ...request.params, name: extractedToolName }, CallToolResultSchema, {
         timeout: getRequestTimeout(outboundConn.transport),
       });
     }, 'Error calling tool'),
