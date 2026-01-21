@@ -4,6 +4,7 @@ import { tmpdir } from 'os';
 import { join } from 'path';
 
 import { ConfigLoader } from '@src/config/configLoader.js';
+import { MCP_CONFIG_SCHEMA_URL } from '@src/constants/schema.js';
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -66,9 +67,32 @@ describe('ConfigLoader', () => {
       const rawConfig = loader.loadRawConfig();
       // loadRawConfig automatically adds $schema for IDE autocompletion
       expect(rawConfig).toEqual({
-        $schema: 'https://docs.1mcp.app/schemas/v1.0.0/mcp-config.json',
+        $schema: MCP_CONFIG_SCHEMA_URL,
         ...config,
       });
+    });
+
+    it('should add $schema field for IDE autocompletion', async () => {
+      const config = { mcpServers: {} };
+      await fsPromises.writeFile(configFilePath, JSON.stringify(config, null, 2));
+
+      const rawConfig = loader.loadRawConfig() as Record<string, unknown>;
+
+      expect(rawConfig).toHaveProperty('$schema', MCP_CONFIG_SCHEMA_URL);
+      expect(rawConfig.mcpServers).toEqual(config.mcpServers);
+    });
+
+    it('should preserve existing $schema field', async () => {
+      const customSchemaUrl = 'https://example.com/custom-schema.json';
+      const config = {
+        $schema: customSchemaUrl,
+        mcpServers: {},
+      };
+      await fsPromises.writeFile(configFilePath, JSON.stringify(config, null, 2));
+
+      const rawConfig = loader.loadRawConfig() as Record<string, unknown>;
+
+      expect(rawConfig).toHaveProperty('$schema', customSchemaUrl);
     });
 
     it('should create default config if file does not exist', () => {

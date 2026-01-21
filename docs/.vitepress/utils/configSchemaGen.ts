@@ -9,16 +9,7 @@ import { dirname } from 'path';
 
 import { z } from 'zod';
 
-/**
- * Schema version configuration
- * This version is independent from package version and only changes when schema structure changes.
- */
-export const SCHEMA_VERSION = 'v1.0.0';
-
-/**
- * Base URL for schema hosting
- */
-export const SCHEMA_BASE_URL = 'https://docs.1mcp.app/schemas';
+import { SCHEMA_BASE_URL, SCHEMA_VERSION } from '../../../src/constants/schema.js';
 
 /**
  * Generate JSON Schema from Zod schema with proper metadata
@@ -29,24 +20,30 @@ export const SCHEMA_BASE_URL = 'https://docs.1mcp.app/schemas';
  * @returns JSON Schema object with metadata
  */
 export function generateConfigSchema(zodSchema: z.ZodType, name: string, description: string): Record<string, unknown> {
-  // Convert Zod schema to JSON Schema using draft-07
-  const schema = z.toJSONSchema(zodSchema, {
-    target: 'jsonSchema7',
-    io: 'input',
-    unrepresentable: 'any',
-  });
+  try {
+    // Convert Zod schema to JSON Schema using draft-07
+    const schema = z.toJSONSchema(zodSchema, {
+      target: 'draft-7',
+      io: 'input',
+      unrepresentable: 'any',
+    });
 
-  // Build the schema ID with version
-  const $id = `${SCHEMA_BASE_URL}/${SCHEMA_VERSION}/${name}.json`;
+    // Build the schema ID with version
+    const $id = `${SCHEMA_BASE_URL}/${SCHEMA_VERSION}/${name}.json`;
 
-  // Create the full schema with metadata
-  return {
-    $schema: 'https://json-schema.org/draft-07/schema#',
-    $id,
-    title: `${name.replace(/-/g, ' ')} configuration schema ${SCHEMA_VERSION}`,
-    description: `${description} (${SCHEMA_VERSION})`,
-    ...schema,
-  };
+    // Create the full schema with metadata
+    return {
+      $schema: 'https://json-schema.org/draft-07/schema#',
+      $id,
+      title: `${name.replace(/-/g, ' ')} configuration schema ${SCHEMA_VERSION}`,
+      description: `${description} (${SCHEMA_VERSION})`,
+      ...schema,
+    };
+  } catch (error) {
+    const message = `Failed to generate JSON schema for '${name}': ${error instanceof Error ? error.message : String(error)}`;
+    process.stderr.write(`[schema-gen] ${message}\n`);
+    throw new Error(message);
+  }
 }
 
 /**
@@ -56,11 +53,17 @@ export function generateConfigSchema(zodSchema: z.ZodType, name: string, descrip
  * @param outputPath - Full path to output file
  */
 export async function writeSchemaFile(schema: Record<string, unknown>, outputPath: string): Promise<void> {
-  // Ensure directory exists
-  await mkdir(dirname(outputPath), { recursive: true });
+  try {
+    // Ensure directory exists
+    await mkdir(dirname(outputPath), { recursive: true });
 
-  // Write schema with proper formatting
-  await writeFile(outputPath, JSON.stringify(schema, null, 2), 'utf-8');
+    // Write schema with proper formatting
+    await writeFile(outputPath, JSON.stringify(schema, null, 2), 'utf-8');
+  } catch (error) {
+    const message = `Failed to write schema file to '${outputPath}': ${error instanceof Error ? error.message : String(error)}`;
+    process.stderr.write(`[schema-gen] ${message}\n`);
+    throw new Error(message);
+  }
 }
 
 /**
@@ -69,27 +72,33 @@ export async function writeSchemaFile(schema: Record<string, unknown>, outputPat
  * Wraps the transport config schema in the full MCP server configuration structure
  * that includes mcpServers, mcpTemplates, and templateSettings.
  *
- * @param zodSchema - The base transport config schema
+ * @param _zodSchema - The base transport config schema (unused, kept for API compatibility)
  * @param fullConfigSchema - The full server config schema with mcpServers
  * @returns JSON Schema for complete mcp.json configuration
  */
-export function generateMcpConfigSchema(zodSchema: z.ZodType, fullConfigSchema: z.ZodType): Record<string, unknown> {
-  // Convert the full config schema to JSON Schema
-  const schema = z.toJSONSchema(fullConfigSchema, {
-    target: 'jsonSchema7',
-    io: 'input',
-    unrepresentable: 'any',
-  });
+export function generateMcpConfigSchema(_zodSchema: z.ZodType, fullConfigSchema: z.ZodType): Record<string, unknown> {
+  try {
+    // Convert the full config schema to JSON Schema
+    const schema = z.toJSONSchema(fullConfigSchema, {
+      target: 'draft-7',
+      io: 'input',
+      unrepresentable: 'any',
+    });
 
-  const $id = `${SCHEMA_BASE_URL}/${SCHEMA_VERSION}/mcp-config.json`;
+    const $id = `${SCHEMA_BASE_URL}/${SCHEMA_VERSION}/mcp-config.json`;
 
-  return {
-    $schema: 'https://json-schema.org/draft-07/schema#',
-    $id,
-    title: `1MCP Server Configuration ${SCHEMA_VERSION}`,
-    description: `JSON Schema for 1MCP server configuration files (${SCHEMA_VERSION})`,
-    ...schema,
-  };
+    return {
+      $schema: 'https://json-schema.org/draft-07/schema#',
+      $id,
+      title: `1MCP Server Configuration ${SCHEMA_VERSION}`,
+      description: `JSON Schema for 1MCP server configuration files (${SCHEMA_VERSION})`,
+      ...schema,
+    };
+  } catch (error) {
+    const message = `Failed to generate MCP config schema: ${error instanceof Error ? error.message : String(error)}`;
+    process.stderr.write(`[schema-gen] ${message}\n`);
+    throw new Error(message);
+  }
 }
 
 /**
@@ -102,7 +111,11 @@ export function generateMcpConfigSchema(zodSchema: z.ZodType, fullConfigSchema: 
  * @returns JSON Schema with $schema property support
  */
 export function addSchemaPropertySupport(baseSchema: Record<string, unknown>): Record<string, unknown> {
-  const properties = (baseSchema.properties as Record<string, unknown>) || {};
+  // Safely extract properties with validation
+  const properties =
+    baseSchema.properties && typeof baseSchema.properties === 'object'
+      ? (baseSchema.properties as Record<string, unknown>)
+      : {};
 
   // Add $schema property as optional
   return {
@@ -117,3 +130,8 @@ export function addSchemaPropertySupport(baseSchema: Record<string, unknown>): R
     },
   };
 }
+
+/**
+ * Re-export schema constants for use in the plugin
+ */
+export { SCHEMA_BASE_URL, SCHEMA_VERSION } from '../../../src/constants/schema.js';

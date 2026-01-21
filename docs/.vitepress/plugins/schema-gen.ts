@@ -81,10 +81,12 @@ export function SchemaGenPlugin(options: SchemaGenPluginOptions = {}): Plugin {
         process.stderr.write(`  - ${relative(docsRoot, mcpConfigPath)}\n`);
         process.stderr.write(`  - ${relative(docsRoot, projectConfigPath)}\n`);
       } catch (error) {
-        process.stderr.write(
-          `[schema-gen] Failed to generate schemas: ${error instanceof Error ? error.message : String(error)}\n`,
-        );
-        throw error;
+        const message = `Failed to generate schemas: ${error instanceof Error ? error.message : String(error)}`;
+        process.stderr.write(`[schema-gen] ${message}\n`);
+        if (error instanceof Error && error.stack) {
+          process.stderr.write(`[schema-gen] Stack trace:\n${error.stack}\n`);
+        }
+        throw new Error(message);
       }
     },
   };
