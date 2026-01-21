@@ -5,6 +5,7 @@ import { fileURLToPath } from 'url';
 import { defineConfig } from 'vitepress';
 import { withMermaid } from 'vitepress-plugin-mermaid';
 
+import { SchemaGenPlugin } from '../plugins/schema-gen.js';
 import enConfig from './en';
 import zhConfig from './zh';
 
@@ -137,6 +138,7 @@ export default withMermaid(
       optimizeDeps: {
         include: ['mermaid', '@braintree/sanitize-url', 'dayjs', 'debug', 'cytoscape', 'cytoscape-cose-bilkent'],
       },
+      plugins: [SchemaGenPlugin()],
     },
 
     themeConfig: {

@@ -125,6 +125,7 @@ mkdir -p ~/.config/1mcp
 # Create basic configuration file
 cat > ~/.config/1mcp/mcp.json << 'EOF'
 {
+  "$schema": "https://docs.1mcp.app/schemas/v1.0.0/mcp-config.json",
   "mcpServers": {
     "filesystem": {
       "command": "npx",
@@ -140,6 +141,17 @@ cat > ~/.config/1mcp/mcp.json << 'EOF'
 }
 EOF
 ```
+
+::: tip JSON Schema Support
+The `$schema` field enables IDE autocompletion and validation. Most modern editors will automatically provide:
+
+- Property autocompletion as you type
+- Inline documentation on hover
+- Real-time error highlighting
+- Schema-aware refactoring
+
+For local development, use: `"$schema": "./schemas/v1.0.0/mcp-config.json"`
+:::
 
 ### **Step 3: Start 1MCP** (1 minute)
 
@@ -234,6 +246,7 @@ Visit the dashboard in your browser to see the status of your services and autho
 # Update your configuration with more detailed tagging
 cat > ~/.config/1mcp/mcp.json << 'EOF'
 {
+  "$schema": "https://docs.1mcp.app/schemas/v1.0.0/mcp-config.json",
   "mcpServers": {
     "filesystem": {
       "command": "npx",
@@ -323,6 +336,7 @@ sudo chown $USER:$USER /etc/1mcp
 # Production configuration
 cat > /etc/1mcp/mcp.json << 'EOF'
 {
+  "$schema": "https://docs.1mcp.app/schemas/v1.0.0/mcp-config.json",
   "mcpServers": {
     "filesystem": {
       "command": "npx",

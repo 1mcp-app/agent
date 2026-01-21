@@ -29,6 +29,7 @@ Get 1MCP running in 5 minutes with a basic configuration.
     # Create a basic config file
     cat > mcp.json << 'EOF'
     {
+      "$schema": "https://docs.1mcp.app/schemas/v1.0.0/mcp-config.json",
       "mcpServers": {
         "filesystem": {
           "command": "npx",
@@ -39,6 +40,17 @@ Get 1MCP running in 5 minutes with a basic configuration.
     }
     EOF
     ```
+
+    ::: tip JSON Schema Support
+    The `$schema` field enables IDE autocompletion, validation, and inline documentation for your configuration files. Most modern editors (VS Code, WebStorm, etc.) will automatically provide these features when the `$schema` field is present.
+
+    For local development, you can use a relative path instead:
+
+    ```json
+    "$schema": "./schemas/v1.0.0/mcp-config.json"
+    ```
+
+    :::
 
 2.  **Start the Server**
 
@@ -70,11 +82,20 @@ For projects that regularly use the proxy command, create a `.1mcprc` file to se
 
 ```bash
 # Create project configuration with preset
-echo '{"preset": "my-setup"}' > .1mcprc
+cat > .1mcprc << 'EOF'
+{
+  "$schema": "https://docs.1mcp.app/schemas/v1.0.0/project-config.json",
+  "preset": "my-setup"
+}
+EOF
 
 # Now simply run:
 npx -y @1mcp/agent proxy
 ```
+
+::: tip Project Config Schema
+The `.1mcprc` file also supports JSON Schema for IDE autocompletion. Use the production URL (`https://docs.1mcp.app/schemas/v1.0.0/project-config.json`) for deployed projects or a relative path (`./schemas/v1.0.0/project-config.json`) for local development.
+:::
 
 We recommend using presets for better configuration management. See the [Proxy Command](/commands/proxy) documentation for details.
 

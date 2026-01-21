@@ -4,12 +4,19 @@
 import os from 'os';
 
 import { MCP_CONFIG_FILE, MCP_INSTRUCTIONS_TEMPLATE_FILE } from './mcp.js';
+import { DEFAULT_MCP_SERVERS, MCP_CONFIG_SCHEMA_URL, PROJECT_CONFIG_SCHEMA_URL } from './schema.js';
 
 // Global config paths
 export const CONFIG_DIR_NAME = '1mcp';
 export const BACKUP_DIR_NAME = 'backups';
 export const DEFAULT_CONFIG = {
-  mcpServers: {},
+  $schema: MCP_CONFIG_SCHEMA_URL,
+  mcpServers: DEFAULT_MCP_SERVERS,
+};
+
+// Default project configuration for .1mcprc files
+export const DEFAULT_PROJECT_CONFIG = {
+  $schema: PROJECT_CONFIG_SCHEMA_URL,
 };
 
 /**
