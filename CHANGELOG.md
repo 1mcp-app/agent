@@ -8,6 +8,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [unreleased]
 
 ### 🚀 Features
+- Support template strings in disabled field by @xizhibei
+- Add JSON Schema support for IDE autocompletion by @xizhibei in [#207](https://github.com/1mcp-app/agent/pull/207)
 - Add parallel loading for sync and async paths by @xizhibei in [#208](https://github.com/1mcp-app/agent/pull/208)
 - Detect SSE client disconnect while preserving session by @xizhibei in [#210](https://github.com/1mcp-app/agent/pull/210)
 - Add client info to User-Agent via dynamic header injection by @xizhibei
@@ -27,6 +29,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### 🚜 Refactor
 - Extract SessionService for session management by @xizhibei in [#216](https://github.com/1mcp-app/agent/pull/216)
 - Introduce named types and improve code modularity by @xizhibei in [#199](https://github.com/1mcp-app/agent/pull/199)
+
+### 📚 Documentation
+- Add descriptions to all Zod schema fields by @xizhibei
 
 
 ## [0.28.1] - 2025-12-25
