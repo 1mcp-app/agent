@@ -467,7 +467,38 @@ function registerToolHandlers(
     withErrorHandling(async (request: ListToolsRequest) => {
       // If lazy loading is enabled, use LazyLoadingOrchestrator for tool listing
       if (lazyLoadingEnabled && lazyLoadingOrchestrator) {
-        const capabilities = await lazyLoadingOrchestrator.getCapabilities();
+        // Apply the same filtering chain as normal mode
+        // Step 1: Filter by session (for template servers like serena)
+        const sessionFilteredConns = filterConnectionsForSession(outboundConns, sessionId);
+        // Step 2: Filter by capability (servers with tools)
+        const capabilityFilteredClients = byCapabilities({ tools: {} })(sessionFilteredConns);
+        // Step 3: Filter by preset/tag configuration
+        const filteredClients = FilteringService.getFilteredConnections(capabilityFilteredClients, inboundConn);
+
+        // Get the set of filtered server names
+        const filteredServerNames = new Set(filteredClients.keys());
+
+        // Debug logging
+        logger.info('Lazy loading: filtered servers', {
+          totalOutbound: outboundConns.size,
+          sessionFiltered: sessionFilteredConns.size,
+          capabilityFiltered: capabilityFilteredClients.size,
+          finalFiltered: filteredClients.size,
+          filteredServerNames: Array.from(filteredServerNames),
+          inboundConfig: {
+            tagFilterMode: inboundConn.tagFilterMode,
+            tags: inboundConn.tags,
+            tagExpression: inboundConn.tagExpression,
+          },
+        });
+
+        // Get capabilities from orchestrator with filtered servers
+        // Store the session filter so that subsequent tool_list meta-tool calls
+        // will return only tools from the filtered servers
+        const capabilities = await lazyLoadingOrchestrator.getCapabilitiesForFilteredServers(
+          filteredServerNames,
+          sessionId,
+        );
 
         // Get internal tools (always fully loaded) - filter out lazy tools when lazy loading is enabled
         const internalProvider = InternalCapabilitiesProvider.getInstance();
@@ -544,19 +575,20 @@ function registerToolHandlers(
         lazyLoadingEnabled && lazyLoadingOrchestrator && lazyLoadingOrchestrator.isMetaTool(toolName);
 
       if (isUnprefixedMetaTool && lazyLoadingOrchestrator) {
-        const result = await lazyLoadingOrchestrator.callMetaTool(toolName, request.params.arguments);
-
-        // Check for errors in the new format
-        if (
-          result &&
-          typeof result === 'object' &&
-          'error' in result &&
-          result.error &&
-          typeof result.error === 'object' &&
-          'message' in result.error
-        ) {
-          throw new Error((result.error.message as string) || 'Meta-tool error');
+        let result;
+        try {
+          result = await lazyLoadingOrchestrator.callMetaTool(toolName, request.params.arguments, sessionId);
+        } catch (metaToolError) {
+          logger.error(`Meta-tool ${toolName} execution failed: ${metaToolError}`);
+          throw new Error(
+            `Meta-tool ${toolName} failed: ${metaToolError instanceof Error ? metaToolError.message : String(metaToolError)}`,
+          );
         }
+
+        // CRITICAL: Do not throw errors for structured error responses
+        // Meta-tools return structured errors in the result itself (with error.type and error.message)
+        // These should be returned to the client as-is, not thrown as exceptions
+        // The client will parse the structured error from the content field
 
         // Return both content and structuredContent (required by MCP protocol for tools with outputSchema)
         return {
@@ -567,6 +599,29 @@ function registerToolHandlers(
             },
           ],
           structuredContent: result,
+        };
+      }
+
+      // CRITICAL: Handle unprefixed tool names when lazy loading is enabled
+      // If lazy loading is on and the tool name doesn't have the URI separator format,
+      // return a proper error instead of throwing during URI parsing
+      const isUnprefixedTool = lazyLoadingEnabled && !toolName.includes(MCP_URI_SEPARATOR);
+      if (isUnprefixedTool) {
+        // Unknown unprefixed tool in lazy loading mode
+        const errorResult = {
+          error: {
+            type: 'not_found',
+            message: `Unknown tool: ${toolName}. In lazy loading mode, use meta-tools (tool_list, tool_schema, tool_invoke) to discover and call tools.`,
+          },
+        };
+        return {
+          content: [
+            {
+              type: 'text' as const,
+              text: JSON.stringify(errorResult, null, 2),
+            },
+          ],
+          structuredContent: errorResult,
         };
       }
 

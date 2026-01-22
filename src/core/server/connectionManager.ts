@@ -3,6 +3,8 @@ import { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
 
 import { setupCapabilities } from '@src/core/capabilities/capabilityManager.js';
 import { LazyLoadingOrchestrator } from '@src/core/capabilities/lazyLoadingOrchestrator.js';
+import { byCapabilities } from '@src/core/filtering/clientFiltering.js';
+import { FilteringService } from '@src/core/filtering/filteringService.js';
 import type { OutboundConnections } from '@src/core/types/client.js';
 import { InboundConnection, InboundConnectionConfig, OperationOptions, ServerStatus } from '@src/core/types/index.js';
 import {
@@ -230,14 +232,22 @@ export class ConnectionManager {
     const server = new Server(this.serverConfig, serverOptionsWithInstructions);
 
     // Create server info object, merging context if provided
+    // CRITICAL: Ensure sessionId is always set in context for session-scoped filtering
+    // This is needed for lazy loading to store and retrieve session filters correctly
+    // Priority: opts.context.sessionId > context.sessionId > transport sessionId (fallback)
+    const mergedContext = {
+      ...(context || {}),
+      ...(opts.context || {}),
+      // Use opts.context.sessionId if provided, otherwise fall back to transport sessionId
+      sessionId: opts.context?.sessionId || context?.sessionId || sessionId,
+    };
+
     const serverInfo: InboundConnection = {
       server,
       status: ServerStatus.Connecting,
       connectedAt: new Date(),
       ...opts,
-      // Ensure context is properly set from the context parameter if opts.context is missing
-      // This ensures sessionId is available for session-scoped template server filtering
-      context: context ? { ...context, ...opts.context } : opts.context,
+      context: mergedContext,
     };
 
     // Enhance server with logging middleware
@@ -256,12 +266,55 @@ export class ConnectionManager {
     serverInfo.status = ServerStatus.Connected;
     serverInfo.lastConnected = new Date();
 
+    // Initialize session filter for lazy loading if enabled
+    if (this.lazyLoadingOrchestrator?.isEnabled()) {
+      await this.initializeSessionFilter(sessionId, serverInfo);
+    }
+
     // Register client with preset notification service if preset is used
     if (opts.presetName) {
       await this.registerClientForPresets(sessionId, opts.presetName, serverInfo);
     }
 
     logger.info(`Connected transport for session ${sessionId}`);
+  }
+
+  /**
+   * Initialize session filter for lazy loading
+   * This applies tag/preset filtering to the session so that tool_list meta-tool
+   * returns only tools from filtered servers
+   */
+  private async initializeSessionFilter(sessionId: string, serverInfo: InboundConnection): Promise<void> {
+    if (!this.lazyLoadingOrchestrator) {
+      return;
+    }
+
+    // Apply the same filtering chain as used in tools/list handler
+    const sessionFilteredConns = this.outboundConns;
+    const capabilityFilteredConns = byCapabilities({ tools: {} })(sessionFilteredConns);
+    const filteredConns = FilteringService.getFilteredConnections(capabilityFilteredConns, serverInfo);
+
+    // Get the set of filtered server names using clean names from connection.name
+    // This ensures consistency with how the tool registry is built
+    // Template servers use hash-suffixed keys (e.g., "serena:abc123") but
+    // connection.name contains the clean name (e.g., "serena")
+    const filteredServerNames = new Set(Array.from(filteredConns.values()).map((conn) => conn.name));
+
+    debugIf(() => ({
+      message: 'Initializing session filter for lazy loading',
+      meta: {
+        sessionId,
+        totalServers: this.outboundConns.size,
+        filteredServers: filteredServerNames.size,
+        serverNames: Array.from(filteredServerNames),
+        mapKeys: Array.from(filteredConns.keys()), // For debugging key mismatch
+        tagFilterMode: serverInfo.tagFilterMode,
+        tags: serverInfo.tags,
+      },
+    }));
+
+    // Store the session filter so tool_list returns filtered results
+    await this.lazyLoadingOrchestrator.getCapabilitiesForFilteredServers(filteredServerNames, sessionId);
   }
 
   /**

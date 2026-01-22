@@ -1,5 +1,6 @@
 export { TestProcessManager } from './TestProcessManager.js';
 export { McpTestClient } from './McpTestClient.js';
+export { SimpleMcpClient } from './SimpleMcpClient.js';
 export { ConfigBuilder } from './ConfigBuilder.js';
 export { ProtocolValidator } from './ProtocolValidator.js';
 export { TestServerSetup } from './TestServerSetup.js';

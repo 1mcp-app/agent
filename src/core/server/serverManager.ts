@@ -248,6 +248,12 @@ export class ServerManager {
         this.outboundConns,
         this.transports,
       );
+
+      // CRITICAL: Refresh tool registry after template servers are added
+      // This ensures template server tools are included in lazy loading mode
+      if (this.lazyLoadingOrchestrator) {
+        await this.lazyLoadingOrchestrator.refreshCapabilities();
+      }
     }
 
     // IMPORTANT: Get filtered instructions AFTER template servers are created

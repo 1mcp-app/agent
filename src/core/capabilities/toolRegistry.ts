@@ -268,6 +268,17 @@ export class ToolRegistry {
   }
 
   /**
+   * Filter the registry to only include tools from specific servers
+   *
+   * @param serverNames - Set of server names to include
+   * @returns A new ToolRegistry instance with filtered tools
+   */
+  public filterByServers(serverNames: Set<string>): ToolRegistry {
+    const filteredTools = this.tools.filter((tool) => serverNames.has(tool.server));
+    return new ToolRegistry(filteredTools);
+  }
+
+  /**
    * Encode pagination cursor to base64 string
    */
   private static encodeCursor(cursor: PaginationCursor): string {

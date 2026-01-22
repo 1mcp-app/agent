@@ -89,6 +89,14 @@ export class PresetManager {
   }
 
   /**
+   * Load presets from storage without starting file watcher
+   * This is useful for quick loading when file watching is not needed (e.g., STDIO transport)
+   */
+  public async loadPresetsWithoutWatcher(): Promise<void> {
+    await this.loadPresets(true);
+  }
+
+  /**
    * Load presets from storage file
    */
   private async loadPresets(skipChangeDetectorInit: boolean = false): Promise<void> {

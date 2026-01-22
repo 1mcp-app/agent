@@ -74,9 +74,10 @@ export default function tagsExtractor(req: Request, res: Response, next: NextFun
   const hasPreset = req.query.preset !== undefined;
   const hasTags = req.query.tags !== undefined;
   const hasTagFilter = req.query['tag-filter'] !== undefined;
+  const hasFilter = req.query.filter !== undefined;
 
   // Mutual exclusion check - preset takes priority
-  const paramCount = [hasPreset, hasTags, hasTagFilter].filter(Boolean).length;
+  const paramCount = [hasPreset, hasTags, hasTagFilter, hasFilter].filter(Boolean).length;
   if (paramCount > 1) {
     res.status(400).json({
       error: {
@@ -270,6 +271,70 @@ export default function tagsExtractor(req: Request, res: Response, next: NextFun
       });
     }
     return;
+  }
+
+  // Handle filter parameter (STDIO proxy compatibility)
+  if (hasFilter) {
+    const filterStr = req.query.filter as string;
+
+    if (typeof filterStr !== 'string') {
+      res.status(400).json({
+        error: {
+          code: ErrorCode.InvalidParams,
+          message: 'Invalid params: filter must be a string',
+        },
+      });
+      return;
+    }
+
+    try {
+      // Try to parse as advanced expression first
+      try {
+        const expression = TagQueryParser.parseAdvanced(filterStr);
+        res.locals.tagExpression = expression;
+        res.locals.tagFilterMode = 'advanced';
+        res.locals.tags = expression.type === 'tag' ? [expression.value!] : undefined;
+        debugIf(() => ({
+          message: 'Filter parameter processed (advanced mode)',
+          meta: { filterStr, expression },
+        }));
+        next();
+        return;
+      } catch (_advancedError) {
+        // Fall back to simple parsing for comma-separated tags
+        const rawTags = TagQueryParser.parseSimple(filterStr);
+        if (rawTags.length > 0) {
+          const validation = validateAndSanitizeTags(rawTags);
+
+          if (validation.errors.length > 0) {
+            res.status(400).json({
+              error: {
+                code: ErrorCode.InvalidParams,
+                message: `Invalid filter: ${validation.errors.join('; ')}`,
+              },
+            });
+            return;
+          }
+
+          res.locals.tags = validation.validTags.length > 0 ? validation.validTags : undefined;
+          res.locals.tagFilterMode = 'simple-or';
+          debugIf(() => ({
+            message: 'Filter parameter processed (simple mode)',
+            meta: { filterStr, tags: res.locals.tags },
+          }));
+          next();
+          return;
+        }
+      }
+    } catch (error) {
+      res.status(400).json({
+        error: {
+          code: ErrorCode.InvalidParams,
+          message: `Invalid filter: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        },
+      });
+      return;
+    }
   }
 
   // No filtering

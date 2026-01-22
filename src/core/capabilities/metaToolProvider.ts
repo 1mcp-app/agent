@@ -143,24 +143,39 @@ export class MetaToolProvider {
   private schemaCache: SchemaCache;
   private outboundConnections: OutboundConnections;
   private loadSchema?: SchemaLoader;
+  private allowedServers?: Set<string>;
 
   constructor(
     getToolRegistry: ToolRegistryProvider,
     schemaCache: SchemaCache,
     outboundConnections: OutboundConnections,
     loadSchema?: SchemaLoader,
+    allowedServers?: Set<string>,
   ) {
     this.getToolRegistry = getToolRegistry;
     this.schemaCache = schemaCache;
     this.outboundConnections = outboundConnections;
     this.loadSchema = loadSchema;
+    this.allowedServers = allowedServers;
   }
 
   /**
-   * Get the current tool registry
+   * Set the allowed servers filter
+   * @param serverNames - Set of server names to allow, or undefined to allow all
+   */
+  public setAllowedServers(serverNames?: Set<string>): void {
+    this.allowedServers = serverNames;
+  }
+
+  /**
+   * Get the current tool registry, optionally filtered by allowed servers
    */
   private toolRegistry(): ToolRegistry {
-    return this.getToolRegistry();
+    const registry = this.getToolRegistry();
+    if (this.allowedServers && this.allowedServers.size > 0) {
+      return registry.filterByServers(this.allowedServers);
+    }
+    return registry;
   }
 
   /**
@@ -216,11 +231,8 @@ export class MetaToolProvider {
   private async listAvailableTools(args: ListAvailableToolsArgs): Promise<ListToolsResult> {
     try {
       const registry = this.toolRegistry();
-      debugIf(() => ({
-        message: `tool_list called, registry size: ${registry.size()}`,
-        meta: { registrySize: registry.size() },
-      }));
       const result = registry.listTools(args);
+      const servers = registry.getServers();
 
       // Format tools for response
       const tools = result.tools.map((tool: ToolMetadata) => ({
@@ -230,16 +242,16 @@ export class MetaToolProvider {
         tags: tool.tags,
       }));
 
-      const servers = registry.getServers();
-
       // Return structured result matching outputSchema
-      return {
+      const response: ListToolsResult = {
         tools,
         totalCount: result.totalCount,
         servers,
         hasMore: result.hasMore,
         ...(result.nextCursor ? { nextCursor: result.nextCursor } : {}),
       };
+
+      return response;
     } catch (error) {
       logger.error(`Error in tool_list: ${error}`);
       return {

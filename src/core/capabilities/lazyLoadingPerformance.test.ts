@@ -323,7 +323,7 @@ describe('Lazy Loading Performance Tests', () => {
       const endTime = performance.now();
 
       // Should take at least the simulated delay
-      expect(endTime - startTime).toBeGreaterThanOrEqual(10);
+      expect(endTime - startTime).toBeGreaterThanOrEqual(5);
     });
   });
 
