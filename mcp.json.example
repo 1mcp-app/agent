@@ -1,4 +1,5 @@
 {
+  "$schema": "https://docs.1mcp.app/schemas/v1.0.0/mcp-config.json",
   "version": "1.0.0",
   "templateSettings": {
     "validateOnReload": true,

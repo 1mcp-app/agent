@@ -62,7 +62,8 @@ export interface BaseTransportConfig {
   readonly timeout?: number;
   readonly connectionTimeout?: number;
   readonly requestTimeout?: number;
-  readonly disabled?: boolean;
+  /** Disable this server. Can be a boolean or a template string that evaluates to a boolean */
+  readonly disabled?: boolean | string;
   readonly tags?: string[];
   readonly oauth?: OAuthConfig;
 }
@@ -124,7 +125,7 @@ export const templateServerConfigSchema = z.object({
  */
 export const transportConfigSchema = z.object({
   type: z.enum(['stdio', 'sse', 'http', 'streamableHttp']).optional(),
-  disabled: z.boolean().optional(),
+  disabled: z.union([z.boolean(), z.string()]).optional(),
   timeout: z.number().optional(), // Deprecated: use connectionTimeout and requestTimeout
   connectionTimeout: z.number().optional(),
   requestTimeout: z.number().optional(),

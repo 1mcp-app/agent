@@ -1,5 +1,5 @@
 {
-  "$schema": "https://json-schema.org/draft-07/schema#",
+  "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "https://docs.1mcp.app/schemas/v1.0.0/project-config.json",
   "title": "project config configuration schema v1.0.0",
   "description": "JSON Schema for 1MCP project-level configuration files (v1.0.0)",
@@ -43,6 +43,9 @@
         },
         "custom": {
           "type": "object",
+          "propertyNames": {
+            "type": "string"
+          },
           "additionalProperties": {}
         },
         "envPrefixes": {
