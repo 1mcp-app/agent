@@ -99,6 +99,44 @@ export class MetaToolProvider {
   }
 
   /**
+   * Resolve a clean server name to the actual connection key
+   *
+   * Template servers are stored with hash-suffixed keys like:
+   * - "template-server:abc123" (shareable template with renderedHash)
+   * - "template-server:sessionId" (per-client template)
+   *
+   * But the ToolRegistry uses clean names like "template-server".
+   * This method finds the actual connection key by matching the clean name.
+   *
+   * @param cleanServerName - The clean server name (without hash suffix)
+   * @returns The actual connection key, or the original name if not found
+   */
+  private resolveConnectionKey(cleanServerName: string): string {
+    // First try direct lookup (for static servers)
+    if (this.outboundConnections.has(cleanServerName)) {
+      return cleanServerName;
+    }
+
+    // For template servers, search for keys that match the pattern
+    // Key format: "serverName:hash" where hash is either renderedHash or sessionId
+    for (const [key, connection] of this.outboundConnections.entries()) {
+      // Check if connection.name matches the clean server name
+      if (connection.name === cleanServerName) {
+        return key;
+      }
+
+      // Also check if the key starts with the server name followed by colon
+      // This handles cases where connection.name might not be set correctly
+      if (key.startsWith(cleanServerName + ':')) {
+        return key;
+      }
+    }
+
+    // Not found - return original name
+    return cleanServerName;
+  }
+
+  /**
    * Set the allowed servers filter
    * @param serverNames - Set of server names to allow, or undefined to allow all
    */
@@ -297,7 +335,10 @@ export class MetaToolProvider {
       if (this.loadSchema) {
         try {
           debugIf(() => ({ message: `Loading schema from server: ${args.server}:${args.toolName}` }));
-          const tool = await this.loadSchema(args.server, args.toolName);
+
+          // Resolve the clean server name to the actual connection key
+          const connectionKey = this.resolveConnectionKey(args.server);
+          const tool = await this.loadSchema(connectionKey, args.toolName);
 
           // Cache the loaded schema
           await this.schemaCache.preload([{ server: args.server, toolName: args.toolName }], async (s, t) => {
@@ -386,8 +427,9 @@ export class MetaToolProvider {
         };
       }
 
-      // Get connection
-      const connection = this.outboundConnections.get(args.server);
+      // Get connection - resolve clean server name to actual connection key
+      const connectionKey = this.resolveConnectionKey(args.server);
+      const connection = this.outboundConnections.get(connectionKey);
       if (!connection || !connection.client) {
         return {
           result: {},
