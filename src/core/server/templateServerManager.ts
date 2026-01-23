@@ -35,6 +35,14 @@ export class TemplateServerManager {
   private clientTemplateTracker = new ClientTemplateTracker();
   private templateIndex = new TemplateIndex();
 
+  // Track failed template server creation attempts
+  private failedTemplates: Array<{
+    templateName: string;
+    sessionId: string;
+    error: string;
+    timestamp: Date;
+  }> = [];
+
   constructor() {
     // Initialize the client instance pool
     this.clientInstancePool = new ClientInstancePool({
@@ -184,7 +192,21 @@ export class TemplateServerManager {
           registeredInCapabilities: true,
         });
       } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : String(error);
         logger.error(`Failed to create client instance from template ${templateName}:`, error);
+
+        // Track the failure
+        this.failedTemplates.push({
+          templateName,
+          sessionId,
+          error: errorMessage,
+          timestamp: new Date(),
+        });
+
+        // Keep only last 100 failures to prevent memory growth
+        if (this.failedTemplates.length > 100) {
+          this.failedTemplates.shift();
+        }
       }
     }
   }
@@ -446,6 +468,18 @@ export class TemplateServerManager {
    */
   public getClientInstancePool(): ClientInstancePool {
     return this.clientInstancePool;
+  }
+
+  /**
+   * Get failed template server creation attempts
+   */
+  public getFailedTemplates(): Array<{
+    templateName: string;
+    sessionId: string;
+    error: string;
+    timestamp: Date;
+  }> {
+    return [...this.failedTemplates];
   }
 
   /**

@@ -53,7 +53,6 @@ export class LazyLoadingOrchestrator extends EventEmitter {
   private outboundConnections: OutboundConnections;
   private config: AgentConfigManager;
   private toolRegistry: ToolRegistry;
-  private registryIds = new WeakMap<ToolRegistry, string>(); // Track registry IDs for debugging
   private schemaCache: SchemaCache;
   private metaToolProvider?: MetaToolProvider;
   private capabilityAggregator: CapabilityAggregator;

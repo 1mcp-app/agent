@@ -240,7 +240,7 @@ export class CapabilityAggregator extends EventEmitter {
     try {
       return await client.listTools();
     } catch (error) {
-      debugIf(() => ({ message: `Failed to list tools from ${serverName}: ${error}` }));
+      logger.warn(`Failed to list tools from ${serverName}`, { error: String(error) });
       return { tools: [] };
     }
   }
@@ -255,7 +255,7 @@ export class CapabilityAggregator extends EventEmitter {
     try {
       return await client.listResources();
     } catch (error) {
-      debugIf(() => ({ message: `Failed to list resources from ${serverName}: ${error}` }));
+      logger.warn(`Failed to list resources from ${serverName}`, { error: String(error) });
       return { resources: [] };
     }
   }
@@ -270,7 +270,7 @@ export class CapabilityAggregator extends EventEmitter {
     try {
       return await client.listPrompts();
     } catch (error) {
-      debugIf(() => ({ message: `Failed to list prompts from ${serverName}: ${error}` }));
+      logger.warn(`Failed to list prompts from ${serverName}`, { error: String(error) });
       return { prompts: [] };
     }
   }

@@ -1016,4 +1016,261 @@ describe('LazyLoadingOrchestrator', () => {
       expect(() => new LazyLoadingOrchestrator(mockOutboundConnections, mockAgentConfig, undefined)).not.toThrow();
     });
   });
+
+  describe('Session-based server filtering', () => {
+    beforeEach(async () => {
+      mockAgentConfig.get.mockImplementation((key: string) => {
+        if (key === 'lazyLoading') {
+          return {
+            enabled: true,
+            inlineCatalog: false,
+            catalogFormat: 'grouped',
+            directExpose: [],
+            cache: { maxEntries: 1000, strategy: 'lru', ttlMs: undefined },
+            preload: { patterns: [], keywords: [] },
+            fallback: { onError: 'skip', timeoutMs: 5000 },
+          };
+        }
+        return undefined;
+      });
+
+      orchestrator = new LazyLoadingOrchestrator(mockOutboundConnections, mockAgentConfig);
+      await orchestrator.initialize();
+    });
+
+    it('should store and retrieve session-specific allowed servers', () => {
+      const sessionId = 'session-123';
+      const allowedServers = new Set(['filesystem', 'database']);
+
+      // Initially no filter
+      expect(orchestrator.getSessionAllowedServers(sessionId)).toBeUndefined();
+
+      // Store filter via getCapabilitiesForFilteredServers
+      orchestrator.getCapabilitiesForFilteredServers(allowedServers, sessionId);
+
+      // Should retrieve the same filter
+      const retrieved = orchestrator.getSessionAllowedServers(sessionId);
+      expect(retrieved).toBeDefined();
+      expect(retrieved?.size).toBe(2);
+      expect(retrieved?.has('filesystem')).toBe(true);
+      expect(retrieved?.has('database')).toBe(true);
+    });
+
+    it('should filter capabilities by session when calling getCapabilitiesForFilteredServers', async () => {
+      const sessionId = 'session-456';
+      const allowedServers = new Set(['filesystem']);
+
+      // Mock base capabilities with multiple servers
+      const mockCapabilities = {
+        tools: [],
+        resources: [
+          { name: 'filesystem_1mcp_resource1', uri: 'file://test1', mimeType: 'text/plain' },
+          { name: 'database_1mcp_resource2', uri: 'db://test2', mimeType: 'application/json' },
+        ],
+        prompts: [
+          { name: 'filesystem_1mcp_prompt1', description: 'FS prompt' },
+          { name: 'database_1mcp_prompt2', description: 'DB prompt' },
+        ],
+        readyServers: ['filesystem', 'database'],
+        timestamp: new Date(),
+      };
+
+      vi.spyOn(orchestrator['capabilityAggregator'], 'getCurrentCapabilities').mockReturnValue(mockCapabilities);
+
+      const filteredCaps = await orchestrator.getCapabilitiesForFilteredServers(allowedServers, sessionId);
+
+      // Should only include filesystem resources/prompts/servers
+      expect(filteredCaps.resources.length).toBe(1);
+      expect(filteredCaps.resources[0].name).toBe('filesystem_1mcp_resource1');
+
+      expect(filteredCaps.prompts.length).toBe(1);
+      expect(filteredCaps.prompts[0].name).toBe('filesystem_1mcp_prompt1');
+
+      expect(filteredCaps.readyServers.length).toBe(1);
+      expect(filteredCaps.readyServers[0]).toBe('filesystem');
+
+      // Meta-tools should still be present
+      expect(filteredCaps.tools.length).toBe(3);
+      expect(filteredCaps.tools.map((t) => t.name)).toContain('tool_list');
+      expect(filteredCaps.tools.map((t) => t.name)).toContain('tool_schema');
+      expect(filteredCaps.tools.map((t) => t.name)).toContain('tool_invoke');
+    });
+
+    it('should clear session filter correctly', async () => {
+      const sessionId = 'session-789';
+      const allowedServers = new Set(['filesystem']);
+
+      // Set filter
+      await orchestrator.getCapabilitiesForFilteredServers(allowedServers, sessionId);
+      expect(orchestrator.getSessionAllowedServers(sessionId)).toBeDefined();
+
+      // Clear filter
+      orchestrator.clearSessionFilter(sessionId);
+      expect(orchestrator.getSessionAllowedServers(sessionId)).toBeUndefined();
+    });
+
+    it('should isolate filters between different sessions', async () => {
+      const session1 = 'session-aaa';
+      const session2 = 'session-bbb';
+      const allowedServers1 = new Set(['filesystem']);
+      const allowedServers2 = new Set(['database']);
+
+      // Set different filters for different sessions
+      await orchestrator.getCapabilitiesForFilteredServers(allowedServers1, session1);
+      await orchestrator.getCapabilitiesForFilteredServers(allowedServers2, session2);
+
+      // Verify isolation
+      const filter1 = orchestrator.getSessionAllowedServers(session1);
+      const filter2 = orchestrator.getSessionAllowedServers(session2);
+
+      expect(filter1?.has('filesystem')).toBe(true);
+      expect(filter1?.has('database')).toBe(false);
+
+      expect(filter2?.has('database')).toBe(true);
+      expect(filter2?.has('filesystem')).toBe(false);
+
+      // Clear one session shouldn't affect the other
+      orchestrator.clearSessionFilter(session1);
+      expect(orchestrator.getSessionAllowedServers(session1)).toBeUndefined();
+      expect(orchestrator.getSessionAllowedServers(session2)).toBeDefined();
+    });
+
+    it('should apply session filter when calling callMetaTool with sessionId', async () => {
+      const sessionId = 'session-ccc';
+      const allowedServers = new Set(['filesystem']);
+
+      // Set session filter
+      await orchestrator.getCapabilitiesForFilteredServers(allowedServers, sessionId);
+
+      // Call tool_list meta-tool with sessionId
+      const result = await orchestrator.callMetaTool('tool_list', {}, sessionId);
+
+      expect(result).toBeDefined();
+      expect((result as any).isError).toBeFalsy();
+
+      // The result should respect the session filter
+      // (actual filtering logic is in MetaToolProvider, we just verify it receives sessionId)
+      const sessionFilter = orchestrator.getSessionAllowedServers(sessionId);
+      expect(sessionFilter).toBeDefined();
+      expect(sessionFilter?.has('filesystem')).toBe(true);
+    });
+
+    it('should handle undefined sessionId gracefully', async () => {
+      const allowedServers = new Set(['filesystem', 'database']);
+
+      // Set filter with undefined sessionId
+      await orchestrator.getCapabilitiesForFilteredServers(allowedServers, undefined);
+
+      // Should store under undefined key
+      const retrieved = orchestrator.getSessionAllowedServers(undefined);
+      expect(retrieved).toBeDefined();
+      expect(retrieved?.size).toBe(2);
+
+      // Clear undefined session
+      orchestrator.clearSessionFilter(undefined);
+      expect(orchestrator.getSessionAllowedServers(undefined)).toBeUndefined();
+    });
+
+    it('should handle empty filter set', async () => {
+      const sessionId = 'session-empty';
+      const emptyServers = new Set<string>();
+
+      const mockCapabilities = {
+        tools: [],
+        resources: [{ name: 'filesystem_1mcp_resource1', uri: 'file://test1', mimeType: 'text/plain' }],
+        prompts: [{ name: 'filesystem_1mcp_prompt1', description: 'FS prompt' }],
+        readyServers: ['filesystem'],
+        timestamp: new Date(),
+      };
+
+      vi.spyOn(orchestrator['capabilityAggregator'], 'getCurrentCapabilities').mockReturnValue(mockCapabilities);
+
+      const filteredCaps = await orchestrator.getCapabilitiesForFilteredServers(emptyServers, sessionId);
+
+      // All resources/prompts/servers should be filtered out
+      expect(filteredCaps.resources.length).toBe(0);
+      expect(filteredCaps.prompts.length).toBe(0);
+      expect(filteredCaps.readyServers.length).toBe(0);
+
+      // Meta-tools should still be present
+      expect(filteredCaps.tools.length).toBe(3);
+    });
+
+    it('should not apply filtering when lazy loading is disabled', async () => {
+      // Reconfigure with lazy loading disabled
+      mockAgentConfig.get.mockImplementation((key: string) => {
+        if (key === 'lazyLoading') {
+          return {
+            enabled: false,
+            inlineCatalog: false,
+            catalogFormat: 'grouped',
+            directExpose: [],
+            cache: { maxEntries: 1000, strategy: 'lru', ttlMs: undefined },
+            preload: { patterns: [], keywords: [] },
+            fallback: { onError: 'skip', timeoutMs: 5000 },
+          };
+        }
+        return undefined;
+      });
+
+      const disabledOrchestrator = new LazyLoadingOrchestrator(mockOutboundConnections, mockAgentConfig);
+      await disabledOrchestrator.initialize();
+
+      const sessionId = 'session-disabled';
+      const allowedServers = new Set(['filesystem']);
+
+      const mockCapabilities = {
+        tools: [
+          {
+            name: 'some_tool',
+            description: 'Test',
+            inputSchema: { type: 'object' as const, properties: {} },
+          },
+        ],
+        resources: [
+          { name: 'filesystem_1mcp_resource1', uri: 'file://test1', mimeType: 'text/plain' },
+          { name: 'database_1mcp_resource2', uri: 'db://test2', mimeType: 'application/json' },
+        ],
+        prompts: [],
+        readyServers: ['filesystem', 'database'],
+        timestamp: new Date(),
+      };
+
+      vi.spyOn(disabledOrchestrator['capabilityAggregator'], 'getCurrentCapabilities').mockReturnValue(
+        mockCapabilities,
+      );
+
+      const caps = await disabledOrchestrator.getCapabilitiesForFilteredServers(allowedServers, sessionId);
+
+      // When disabled, should return all capabilities without filtering
+      expect(caps.resources.length).toBe(2);
+      expect(caps.readyServers.length).toBe(2);
+    });
+
+    it('should filter resources with complex server names correctly', async () => {
+      const sessionId = 'session-complex';
+      const allowedServers = new Set(['server-with-dashes', 'server_with_underscores']);
+
+      const mockCapabilities = {
+        tools: [],
+        resources: [
+          { name: 'server-with-dashes_1mcp_resource1', uri: 'test://1', mimeType: 'text/plain' },
+          { name: 'server_with_underscores_1mcp_resource2', uri: 'test://2', mimeType: 'text/plain' },
+          { name: 'other-server_1mcp_resource3', uri: 'test://3', mimeType: 'text/plain' },
+        ],
+        prompts: [],
+        readyServers: ['server-with-dashes', 'server_with_underscores', 'other-server'],
+        timestamp: new Date(),
+      };
+
+      vi.spyOn(orchestrator['capabilityAggregator'], 'getCurrentCapabilities').mockReturnValue(mockCapabilities);
+
+      const filteredCaps = await orchestrator.getCapabilitiesForFilteredServers(allowedServers, sessionId);
+
+      expect(filteredCaps.resources.length).toBe(2);
+      expect(filteredCaps.resources.map((r) => r.name)).toContain('server-with-dashes_1mcp_resource1');
+      expect(filteredCaps.resources.map((r) => r.name)).toContain('server_with_underscores_1mcp_resource2');
+      expect(filteredCaps.readyServers.length).toBe(2);
+    });
+  });
 });

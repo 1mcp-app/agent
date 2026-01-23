@@ -177,7 +177,7 @@ describe('MetaToolProvider', () => {
       expect(result.error).toBeDefined();
       if ('error' in result && result.error) {
         expect(result.error.type).toBe('validation');
-        expect(result.error.message).toContain('Validation Error');
+        expect(result.error.message).toContain('Invalid arguments');
       }
     });
 
@@ -381,13 +381,540 @@ describe('MetaToolProvider', () => {
       const result = await provider.callMetaTool('tool_invoke', {
         server: 'filesystem',
         toolName: 'read_file',
-        arguments: {},
+        args: {}, // Changed from 'arguments' to 'args' to match schema
       });
 
       if ('error' in result && result.error) {
         expect(result.error.type).toBe('upstream');
       } else {
         throw new Error('Expected error in result');
+      }
+    });
+  });
+
+  describe('tool_schema with SchemaLoader', () => {
+    let providerWithLoader: MetaToolProvider;
+    let mockSchemaLoader: any;
+
+    beforeEach(() => {
+      // Create a mock SchemaLoader function
+      mockSchemaLoader = vi.fn();
+
+      // Create provider with SchemaLoader
+      providerWithLoader = new MetaToolProvider(() => toolRegistry, schemaCache, outboundConnections, mockSchemaLoader);
+    });
+
+    it('should load schema from server when not cached and loader is available', async () => {
+      const mockSchema: Tool = {
+        name: 'read_file',
+        description: 'Read file contents',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            path: { type: 'string', description: 'File path' },
+          },
+          required: ['path'],
+        },
+      };
+
+      mockSchemaLoader.mockResolvedValue(mockSchema);
+
+      const result = await providerWithLoader.callMetaTool('tool_schema', {
+        server: 'filesystem',
+        toolName: 'read_file',
+      });
+
+      expect(mockSchemaLoader).toHaveBeenCalledWith('filesystem', 'read_file');
+      expect('error' in result).toBe(false);
+      if ('schema' in result && 'fromCache' in result) {
+        expect(result.schema).toEqual(mockSchema);
+        expect(result.fromCache).toBe(false);
+      } else {
+        throw new Error('Expected DescribeToolResult');
+      }
+    });
+
+    it('should cache loaded schema after successful load', async () => {
+      const mockSchema: Tool = {
+        name: 'write_file',
+        description: 'Write file contents',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            path: { type: 'string' },
+            content: { type: 'string' },
+          },
+          required: ['path', 'content'],
+        },
+      };
+
+      mockSchemaLoader.mockResolvedValue(mockSchema);
+
+      // First call - should load from server
+      await providerWithLoader.callMetaTool('tool_schema', {
+        server: 'filesystem',
+        toolName: 'write_file',
+      });
+
+      expect(mockSchemaLoader).toHaveBeenCalledTimes(1);
+
+      // Verify schema is now in cache
+      const cached = schemaCache.getIfCached('filesystem', 'write_file');
+      expect(cached).toEqual(mockSchema);
+    });
+
+    it('should return fromCache: false for freshly loaded schemas', async () => {
+      const mockSchema: Tool = {
+        name: 'search',
+        description: 'Search files',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            query: { type: 'string' },
+          },
+        },
+      };
+
+      mockSchemaLoader.mockResolvedValue(mockSchema);
+
+      const result = await providerWithLoader.callMetaTool('tool_schema', {
+        server: 'filesystem',
+        toolName: 'search',
+      });
+
+      expect('error' in result).toBe(false);
+      if ('schema' in result && 'fromCache' in result) {
+        expect(result.fromCache).toBe(false);
+        expect(result.schema).toEqual(mockSchema);
+      } else {
+        throw new Error('Expected DescribeToolResult');
+      }
+    });
+
+    it('should return fromCache: true for cached schemas', async () => {
+      const mockSchema: Tool = {
+        name: 'read_file',
+        description: 'Read file',
+        inputSchema: { type: 'object' },
+      };
+
+      mockSchemaLoader.mockResolvedValue(mockSchema);
+
+      // First call - loads from server
+      const firstResult = await providerWithLoader.callMetaTool('tool_schema', {
+        server: 'filesystem',
+        toolName: 'read_file',
+      });
+
+      if ('schema' in firstResult && 'fromCache' in firstResult) {
+        expect(firstResult.fromCache).toBe(false);
+      } else {
+        throw new Error('Expected DescribeToolResult');
+      }
+
+      // Second call - should use cache
+      const secondResult = await providerWithLoader.callMetaTool('tool_schema', {
+        server: 'filesystem',
+        toolName: 'read_file',
+      });
+
+      expect(mockSchemaLoader).toHaveBeenCalledTimes(1); // Should not call loader again
+      if ('schema' in secondResult && 'fromCache' in secondResult) {
+        expect(secondResult.fromCache).toBe(true);
+        expect(secondResult.schema).toEqual(mockSchema);
+      } else {
+        throw new Error('Expected DescribeToolResult');
+      }
+    });
+
+    it('should return upstream error when loader fails', async () => {
+      const loadError = new Error('Connection timeout');
+      mockSchemaLoader.mockRejectedValue(loadError);
+
+      const result = await providerWithLoader.callMetaTool('tool_schema', {
+        server: 'filesystem',
+        toolName: 'read_file',
+      });
+
+      expect(mockSchemaLoader).toHaveBeenCalledWith('filesystem', 'read_file');
+      expect('error' in result).toBe(true);
+      if ('error' in result && result.error) {
+        expect(result.error.type).toBe('upstream');
+        expect(result.error.message).toContain('Failed to load schema from server');
+        expect(result.error.message).toContain('Connection timeout');
+      } else {
+        throw new Error('Expected error in result');
+      }
+    });
+
+    it('should preload schema into cache after loading', async () => {
+      const mockSchema: Tool = {
+        name: 'read_file',
+        description: 'Read file',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            path: { type: 'string' },
+          },
+        },
+      };
+
+      mockSchemaLoader.mockResolvedValue(mockSchema);
+
+      // Verify cache is empty before loading
+      expect(schemaCache.getIfCached('filesystem', 'read_file')).toBeFalsy();
+
+      // Load schema
+      await providerWithLoader.callMetaTool('tool_schema', {
+        server: 'filesystem',
+        toolName: 'read_file',
+      });
+
+      // Verify schema was preloaded into cache
+      const cached = schemaCache.getIfCached('filesystem', 'read_file');
+      expect(cached).toBeDefined();
+      expect(cached).toEqual(mockSchema);
+    });
+
+    it('should handle loader errors gracefully without caching', async () => {
+      mockSchemaLoader.mockRejectedValue(new Error('Server unavailable'));
+
+      await providerWithLoader.callMetaTool('tool_schema', {
+        server: 'filesystem',
+        toolName: 'read_file',
+      });
+
+      // Verify nothing was cached on error
+      expect(schemaCache.getIfCached('filesystem', 'read_file')).toBeFalsy();
+
+      // Verify loader is called again on retry (not cached)
+      mockSchemaLoader.mockClear();
+      mockSchemaLoader.mockRejectedValue(new Error('Still unavailable'));
+
+      await providerWithLoader.callMetaTool('tool_schema', {
+        server: 'filesystem',
+        toolName: 'read_file',
+      });
+
+      expect(mockSchemaLoader).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe('Server filtering in MetaToolProvider', () => {
+    let multiServerProvider: MetaToolProvider;
+    let multiServerRegistry: ToolRegistry;
+    let multiServerConnections: OutboundConnections;
+
+    beforeEach(() => {
+      // Create tools for multiple servers
+      const filesystemTools: Tool[] = [
+        { name: 'read_file', description: 'Read file', inputSchema: { type: 'object' } },
+        { name: 'write_file', description: 'Write file', inputSchema: { type: 'object' } },
+      ];
+
+      const searchTools: Tool[] = [
+        { name: 'search', description: 'Search', inputSchema: { type: 'object' } },
+        { name: 'grep', description: 'Grep', inputSchema: { type: 'object' } },
+      ];
+
+      const databaseTools: Tool[] = [{ name: 'query', description: 'Query database', inputSchema: { type: 'object' } }];
+
+      const toolsMap = new Map<string, Tool[]>([
+        ['filesystem', filesystemTools],
+        ['search', searchTools],
+        ['database', databaseTools],
+      ]);
+
+      const tagsMap = new Map<string, string[]>([
+        ['filesystem', ['fs', 'file']],
+        ['search', ['search', 'text']],
+        ['database', ['db', 'sql']],
+      ]);
+
+      multiServerRegistry = ToolRegistry.fromToolsMap(toolsMap, tagsMap);
+
+      // Create connections for all servers
+      multiServerConnections = new Map([
+        [
+          'filesystem',
+          {
+            name: 'filesystem',
+            client: { callTool: vi.fn() } as any,
+            status: ClientStatus.Connected,
+            transport: {
+              tags: ['fs', 'file'],
+              start: vi.fn(),
+              send: vi.fn(),
+              close: vi.fn(),
+            } as any,
+            lastConnected: new Date(),
+          },
+        ],
+        [
+          'search',
+          {
+            name: 'search',
+            client: { callTool: vi.fn() },
+            status: ClientStatus.Connected,
+            transport: { tags: ['search', 'text'] },
+            lastConnected: new Date(),
+          },
+        ],
+        [
+          'database',
+          {
+            name: 'database',
+            client: { callTool: vi.fn() },
+            status: ClientStatus.Connected,
+            transport: { tags: ['db', 'sql'] },
+            lastConnected: new Date(),
+          },
+        ],
+      ]) as OutboundConnections;
+
+      multiServerProvider = new MetaToolProvider(() => multiServerRegistry, schemaCache, multiServerConnections);
+    });
+
+    it('should filter tool_list results when allowedServers is set', async () => {
+      // Set allowed servers to only filesystem and search
+      multiServerProvider.setAllowedServers(new Set(['filesystem', 'search']));
+
+      const result = await multiServerProvider.callMetaTool('tool_list', {});
+
+      expect(result).toBeDefined();
+      if ('error' in result && result.error) {
+        throw new Error(result.error.message);
+      }
+
+      if ('tools' in result && 'totalCount' in result) {
+        // Should only see tools from filesystem (2) and search (2) = 4 total
+        expect(result.totalCount).toBe(4);
+        expect(result.tools).toHaveLength(4);
+
+        // Verify no database tools are included
+        const toolServers = result.tools.map((t) => t.server);
+        expect(toolServers).not.toContain('database');
+        expect(toolServers).toContain('filesystem');
+        expect(toolServers).toContain('search');
+
+        // Verify servers list is filtered
+        expect(result.servers).toHaveLength(2);
+        expect(result.servers).toContain('filesystem');
+        expect(result.servers).toContain('search');
+        expect(result.servers).not.toContain('database');
+      } else {
+        throw new Error('Expected ListToolsResult');
+      }
+    });
+
+    it('should return all tools when allowedServers is undefined', async () => {
+      // Clear any filtering
+      multiServerProvider.setAllowedServers(undefined);
+
+      const result = await multiServerProvider.callMetaTool('tool_list', {});
+
+      expect(result).toBeDefined();
+      if ('error' in result && result.error) {
+        throw new Error(result.error.message);
+      }
+
+      if ('tools' in result && 'totalCount' in result) {
+        // Should see all tools: filesystem (2) + search (2) + database (1) = 5 total
+        expect(result.totalCount).toBe(5);
+        expect(result.tools).toHaveLength(5);
+
+        // Verify all servers are included
+        expect(result.servers).toHaveLength(3);
+        expect(result.servers).toContain('filesystem');
+        expect(result.servers).toContain('search');
+        expect(result.servers).toContain('database');
+      } else {
+        throw new Error('Expected ListToolsResult');
+      }
+    });
+
+    it('should return empty list when allowedServers is empty set', async () => {
+      // Set allowed servers to empty set
+      multiServerProvider.setAllowedServers(new Set([]));
+
+      const result = await multiServerProvider.callMetaTool('tool_list', {});
+
+      expect(result).toBeDefined();
+      if ('error' in result && result.error) {
+        throw new Error(result.error.message);
+      }
+
+      if ('tools' in result && 'totalCount' in result) {
+        // Should see no tools
+        expect(result.totalCount).toBe(0);
+        expect(result.tools).toHaveLength(0);
+        expect(result.servers).toHaveLength(0);
+      } else {
+        throw new Error('Expected ListToolsResult');
+      }
+    });
+
+    it('should filter tool_schema access to allowed servers only', async () => {
+      // Set allowed servers to only filesystem
+      multiServerProvider.setAllowedServers(new Set(['filesystem']));
+
+      // Cache a tool from filesystem server
+      const filesystemTool: Tool = {
+        name: 'read_file',
+        description: 'Read file',
+        inputSchema: { type: 'object', properties: { path: { type: 'string' } } },
+      };
+      schemaCache.set('filesystem', 'read_file', filesystemTool);
+
+      // Cache a tool from database server (blocked)
+      const databaseTool: Tool = {
+        name: 'query',
+        description: 'Query database',
+        inputSchema: { type: 'object', properties: { sql: { type: 'string' } } },
+      };
+      schemaCache.set('database', 'query', databaseTool);
+
+      // Should succeed for allowed server
+      const allowedResult = await multiServerProvider.callMetaTool('tool_schema', {
+        server: 'filesystem',
+        toolName: 'read_file',
+      });
+
+      expect('error' in allowedResult && allowedResult.error).toBe(false);
+      if ('schema' in allowedResult && 'fromCache' in allowedResult) {
+        expect(allowedResult.schema.name).toBe('read_file');
+        expect(allowedResult.fromCache).toBe(true);
+      } else {
+        throw new Error('Expected DescribeToolResult');
+      }
+
+      // Should fail for blocked server
+      const blockedResult = await multiServerProvider.callMetaTool('tool_schema', {
+        server: 'database',
+        toolName: 'query',
+      });
+
+      expect('error' in blockedResult).toBe(true);
+      if ('error' in blockedResult && blockedResult.error) {
+        expect(blockedResult.error.type).toBe('not_found');
+        expect(blockedResult.error.message).toContain('Tool not found');
+      } else {
+        throw new Error('Expected error in result');
+      }
+    });
+
+    it('should filter tool_invoke access to allowed servers only', async () => {
+      // Set allowed servers to only search
+      multiServerProvider.setAllowedServers(new Set(['search']));
+
+      const searchClient = multiServerConnections.get('search')?.client;
+      const filesystemClient = multiServerConnections.get('filesystem')?.client;
+
+      if (!searchClient || !filesystemClient) {
+        throw new Error('Clients not found');
+      }
+
+      // Mock successful response
+      (searchClient.callTool as any).mockResolvedValue({
+        content: [{ type: 'text', text: 'Search results' }],
+      });
+
+      // Should succeed for allowed server
+      const allowedResult = await multiServerProvider.callMetaTool('tool_invoke', {
+        server: 'search',
+        toolName: 'search',
+        args: { query: 'test' },
+      });
+
+      expect('error' in allowedResult && allowedResult.error).toBe(false);
+      if ('result' in allowedResult && 'server' in allowedResult) {
+        expect(allowedResult.server).toBe('search');
+        expect(allowedResult.tool).toBe('search');
+        expect(searchClient.callTool).toHaveBeenCalledWith({
+          name: 'search',
+          arguments: { query: 'test' },
+        });
+      } else {
+        throw new Error('Expected CallToolResult');
+      }
+
+      // Should fail for blocked server
+      const blockedResult = await multiServerProvider.callMetaTool('tool_invoke', {
+        server: 'filesystem',
+        toolName: 'read_file',
+        args: { path: '/test' },
+      });
+
+      expect('error' in blockedResult).toBe(true);
+      if ('error' in blockedResult && blockedResult.error) {
+        expect(blockedResult.error.type).toBe('not_found');
+        expect(blockedResult.error.message).toContain('Tool not found');
+      } else {
+        throw new Error('Expected error in result');
+      }
+
+      // Verify filesystem client was never called
+      expect(filesystemClient.callTool).not.toHaveBeenCalled();
+    });
+
+    it('should return not_found error for filtered servers', async () => {
+      // Set allowed servers to only database
+      multiServerProvider.setAllowedServers(new Set(['database']));
+
+      // Try to access a tool from filtered-out filesystem server
+      const result = await multiServerProvider.callMetaTool('tool_invoke', {
+        server: 'filesystem',
+        toolName: 'read_file',
+        args: { path: '/test/file.txt' },
+      });
+
+      expect('error' in result).toBe(true);
+      if ('error' in result && result.error) {
+        expect(result.error.type).toBe('not_found');
+        expect(result.error.message).toContain('Tool not found: filesystem:read_file');
+        expect(result.error.message).toContain('Call tool_list to see available tools');
+      } else {
+        throw new Error('Expected error in result');
+      }
+
+      // Verify the correct server context
+      if ('server' in result && 'tool' in result) {
+        expect(result.server).toBe('filesystem');
+        expect(result.tool).toBe('read_file');
+      }
+    });
+
+    it('should dynamically update filtering when setAllowedServers is called multiple times', async () => {
+      // Start with all servers allowed
+      multiServerProvider.setAllowedServers(undefined);
+
+      let result = await multiServerProvider.callMetaTool('tool_list', {});
+      if ('tools' in result && 'totalCount' in result) {
+        expect(result.totalCount).toBe(5); // All tools
+      }
+
+      // Filter to only filesystem
+      multiServerProvider.setAllowedServers(new Set(['filesystem']));
+
+      result = await multiServerProvider.callMetaTool('tool_list', {});
+      if ('tools' in result && 'totalCount' in result) {
+        expect(result.totalCount).toBe(2); // Only filesystem tools
+      }
+
+      // Filter to filesystem and database
+      multiServerProvider.setAllowedServers(new Set(['filesystem', 'database']));
+
+      result = await multiServerProvider.callMetaTool('tool_list', {});
+      if ('tools' in result && 'totalCount' in result) {
+        expect(result.totalCount).toBe(3); // filesystem (2) + database (1)
+      }
+
+      // Clear filter again
+      multiServerProvider.setAllowedServers(undefined);
+
+      result = await multiServerProvider.callMetaTool('tool_list', {});
+      if ('tools' in result && 'totalCount' in result) {
+        expect(result.totalCount).toBe(5); // All tools again
       }
     });
   });

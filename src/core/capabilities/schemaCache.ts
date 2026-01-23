@@ -84,8 +84,8 @@ export class SchemaCache {
   }
 
   /**
-   * Evict oldest entry when cache is full (LRU eviction)
-   * This is a simple FIFO eviction - for true LRU we'd need to track access order
+   * Evict oldest entry when cache is full (FIFO eviction by insertion time)
+   * Note: This is not true LRU - for that we'd need to track access order
    */
   private evictOldest(): void {
     let oldestKey: string | null = null;
@@ -294,23 +294,35 @@ export class SchemaCache {
 
   /**
    * Preload tool schemas in batch
+   * @returns Object with loaded count and array of failures
    */
   public async preload(
     tools: Array<{ server: string; toolName: string }>,
     loader: (server: string, toolName: string) => Promise<Tool>,
-  ): Promise<void> {
+  ): Promise<{ loaded: number; failed: Array<{ server: string; toolName: string; error: string }> }> {
     debugIf(() => ({ message: `Preloading ${tools.length} tool schemas` }));
+
+    const failed: Array<{ server: string; toolName: string; error: string }> = [];
 
     // Load in parallel for efficiency
     await Promise.all(
       tools.map(({ server, toolName }) =>
         this.getOrLoad(server, toolName, loader).catch((error) => {
-          logger.warn(`Failed to preload tool schema ${server}:${toolName}: ${error}`);
-          // Continue with other tools even if one fails
+          const errorMessage = error instanceof Error ? error.message : String(error);
+          logger.warn(`Failed to preload tool schema ${server}:${toolName}: ${errorMessage}`);
+          failed.push({ server, toolName, error: errorMessage });
         }),
       ),
     );
 
-    logger.info(`Preloaded tool schemas, cache size: ${this.cache.size}`);
+    const loaded = tools.length - failed.length;
+
+    if (failed.length > 0) {
+      logger.warn(`Preload completed with ${failed.length} failures out of ${tools.length} tools`, { failed });
+    }
+
+    logger.info(`Preloaded ${loaded} tool schemas, cache size: ${this.cache.size}`);
+
+    return { loaded, failed };
   }
 }

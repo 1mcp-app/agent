@@ -152,8 +152,12 @@ export class InstructionAggregator extends EventEmitter {
           templateLength: config.customTemplate.length,
         });
 
-        // Fall back to default template
-        return this.renderTemplate(DEFAULT_INSTRUCTION_TEMPLATE, filteredConnections, config);
+        // Fall back to default template with LLM-directed notice
+        const fallbackContent = this.renderTemplate(DEFAULT_INSTRUCTION_TEMPLATE, filteredConnections, config);
+
+        // Prepend notice for LLM to inform the user about template failure
+        const llmNotice = `⚠️ IMPORTANT: The user's custom instruction template failed to render due to an error: "${errorMessage}". Please inform the user that their custom template configuration has an issue and the default template is being used instead. They should check their template syntax.\n\n`;
+        return llmNotice + fallbackContent;
       }
     } else {
       // Use default template directly

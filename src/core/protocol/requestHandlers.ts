@@ -347,35 +347,6 @@ function registerResourceHandlers(outboundConns: OutboundConnections, inboundCon
       );
 
       return {
-        resources: result.items,
-        nextCursor: result.nextCursor,
-      };
-    }, 'Error listing resources'),
-  );
-
-  // List Resource Templates handler
-  inboundConn.server.setRequestHandler(
-    ListResourceTemplatesRequestSchema,
-    withErrorHandling(async (request: ListResourceTemplatesRequest) => {
-      // Filter connections for this session first
-      const sessionFilteredConns = filterConnectionsForSession(outboundConns, sessionId);
-      // Then filter by capabilities, then by tags
-      const capabilityFilteredClients = byCapabilities({ resources: {} })(sessionFilteredConns);
-      const filteredClients = FilteringService.getFilteredConnections(capabilityFilteredClients, inboundConn);
-
-      const result = await handlePagination(
-        filteredClients,
-        request.params || {},
-        (client, params, opts) => client.listResourceTemplates(params as ListResourceTemplatesRequest['params'], opts),
-        (outboundConn, result) =>
-          result.resourceTemplates?.map((template) => ({
-            ...template,
-            uriTemplate: buildUri(outboundConn.name, template.uriTemplate, MCP_URI_SEPARATOR),
-          })) ?? [],
-        inboundConn.enablePagination ?? false,
-      );
-
-      return {
         resourceTemplates: result.items,
         nextCursor: result.nextCursor,
       };
@@ -476,7 +447,7 @@ function registerToolHandlers(
         const filteredClients = FilteringService.getFilteredConnections(capabilityFilteredClients, inboundConn);
 
         // Get the set of filtered server names
-        const filteredServerNames = new Set(filteredClients.keys());
+        const filteredServerNames = new Set(Array.from(filteredClients.values()).map((conn) => conn.name));
 
         // Debug logging
         logger.info('Lazy loading: filtered servers', {
@@ -631,7 +602,7 @@ function registerToolHandlers(
       if (clientName === '1mcp') {
         const internalProvider = InternalCapabilitiesProvider.getInstance();
         await internalProvider.initialize();
-        const result = await internalProvider.executeTool(extractedToolName, request.params.arguments);
+        const result = await internalProvider.executeTool(extractedToolName, request.params.arguments, sessionId);
 
         // For tools with output schemas, return both content and structuredContent
         // This is required by the MCP protocol when outputSchema is defined

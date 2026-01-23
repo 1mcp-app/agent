@@ -4,87 +4,26 @@ import { OutboundConnections } from '@src/core/types/index.js';
 import logger, { debugIf } from '@src/logger/logger.js';
 import { zodToInputSchema, zodToOutputSchema } from '@src/utils/schemaUtils.js';
 
-import { z } from 'zod';
-
 import { SchemaCache } from './schemaCache.js';
+import {
+  ToolInvokeInputSchema,
+  ToolInvokeOutput,
+  ToolInvokeOutputSchema,
+  ToolListInputSchema,
+  ToolListOutput,
+  ToolListOutputSchema,
+  ToolSchemaInputSchema,
+  ToolSchemaOutput,
+  ToolSchemaOutputSchema,
+} from './schemas/metaToolSchemas.js';
 import { ToolMetadata, ToolRegistry } from './toolRegistry.js';
-
-/**
- * Zod schemas for meta-tool inputs
- */
-
-const ToolListInputSchema = z.object({
-  server: z.string().optional(),
-  pattern: z.string().optional(),
-  tag: z.string().optional(),
-  limit: z.number().optional(),
-});
-
-const ToolSchemaInputSchema = z.object({
-  server: z.string(),
-  toolName: z.string(),
-});
-
-const ToolInvokeInputSchema = z.object({
-  server: z.string(),
-  toolName: z.string(),
-  args: z.object({}).loose(),
-});
-
-/**
- * Zod schemas for meta-tool outputs
- */
-
-const ToolMetadataSchema = z.object({
-  name: z.string(),
-  server: z.string(),
-  description: z.string(),
-  tags: z.array(z.string()).optional(),
-});
-
-const ToolListOutputSchema = z.object({
-  tools: z.array(ToolMetadataSchema),
-  totalCount: z.number(),
-  servers: z.array(z.string()),
-  hasMore: z.boolean(),
-  nextCursor: z.string().optional(),
-  error: z
-    .object({
-      type: z.enum(['validation', 'upstream', 'not_found']),
-      message: z.string(),
-    })
-    .optional(),
-});
-
-const ToolSchemaOutputSchema = z.object({
-  schema: z.object({}).loose(), // The full Tool schema
-  fromCache: z.boolean().optional(),
-  error: z
-    .object({
-      type: z.enum(['validation', 'upstream', 'not_found']),
-      message: z.string(),
-    })
-    .optional(),
-});
-
-const ToolInvokeOutputSchema = z.object({
-  result: z.object({}).loose(), // The upstream tool result
-  server: z.string(),
-  tool: z.string(),
-  error: z
-    .object({
-      type: z.enum(['validation', 'upstream', 'not_found']),
-      message: z.string(),
-    })
-    .optional(),
-});
 
 /**
  * Result types for meta-tools
  */
-export type ListToolsResult = z.infer<typeof ToolListOutputSchema>;
-export type DescribeToolResult = z.infer<typeof ToolSchemaOutputSchema>;
-export type CallToolResult = z.infer<typeof ToolInvokeOutputSchema>;
+export type ListToolsResult = ToolListOutput;
+export type DescribeToolResult = ToolSchemaOutput;
+export type CallToolResult = ToolInvokeOutput;
 
 /**
  * Function to load tool schema from upstream server
@@ -172,7 +111,7 @@ export class MetaToolProvider {
    */
   private toolRegistry(): ToolRegistry {
     const registry = this.getToolRegistry();
-    if (this.allowedServers && this.allowedServers.size > 0) {
+    if (this.allowedServers !== undefined) {
       return registry.filterByServers(this.allowedServers);
     }
     return registry;
@@ -193,12 +132,50 @@ export class MetaToolProvider {
     args: unknown,
   ): Promise<ListToolsResult | DescribeToolResult | CallToolResult> {
     switch (name) {
-      case 'tool_list':
-        return this.listAvailableTools(args as ListAvailableToolsArgs);
-      case 'tool_schema':
-        return this.describeTool(args as DescribeToolArgs);
-      case 'tool_invoke':
-        return this.callTool(args as CallToolArgs);
+      case 'tool_list': {
+        const parsed = ToolListInputSchema.safeParse(args);
+        if (!parsed.success) {
+          return {
+            tools: [],
+            totalCount: 0,
+            servers: [],
+            hasMore: false,
+            error: {
+              type: 'validation',
+              message: `Invalid arguments for tool_list: ${parsed.error.message}`,
+            },
+          } as ListToolsResult;
+        }
+        return this.listAvailableTools(parsed.data);
+      }
+      case 'tool_schema': {
+        const parsed = ToolSchemaInputSchema.safeParse(args);
+        if (!parsed.success) {
+          return {
+            schema: {},
+            error: {
+              type: 'validation',
+              message: `Invalid arguments for tool_schema: ${parsed.error.message}`,
+            },
+          } as DescribeToolResult;
+        }
+        return this.describeTool(parsed.data);
+      }
+      case 'tool_invoke': {
+        const parsed = ToolInvokeInputSchema.safeParse(args);
+        if (!parsed.success) {
+          return {
+            result: {},
+            server: '',
+            tool: '',
+            error: {
+              type: 'validation',
+              message: `Invalid arguments for tool_invoke: ${parsed.error.message}`,
+            },
+          } as CallToolResult;
+        }
+        return this.callTool(parsed.data);
+      }
       default:
         return {
           tools: [],

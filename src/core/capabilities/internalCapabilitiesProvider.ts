@@ -258,7 +258,7 @@ export class InternalCapabilitiesProvider extends EventEmitter {
   /**
    * Execute an internal tool
    */
-  public async executeTool(toolName: string, args: unknown): Promise<unknown> {
+  public async executeTool(toolName: string, args: unknown, sessionId?: string): Promise<unknown> {
     if (!this.isInitialized) {
       throw new Error('Internal capabilities provider not initialized');
     }
@@ -273,7 +273,7 @@ export class InternalCapabilitiesProvider extends EventEmitter {
         if (!this.lazyLoadingOrchestrator) {
           throw new Error('Lazy loading not available');
         }
-        const result = await this.lazyLoadingOrchestrator.callMetaTool(toolName, args);
+        const result = await this.lazyLoadingOrchestrator.callMetaTool(toolName, args, sessionId);
 
         // Check for error field in structured result
         if (typeof result === 'object' && result !== null && 'error' in result && result.error) {
