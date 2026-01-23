@@ -34,6 +34,8 @@ export function createEnableTool(): Tool {
     annotations: {
       title: 'Enable MCP Server',
       destructiveHint: true,
+      idempotentHint: true,
+      openWorldHint: false,
     },
   };
 }
@@ -50,6 +52,8 @@ export function createDisableTool(): Tool {
     annotations: {
       title: 'Disable MCP Server',
       destructiveHint: true,
+      idempotentHint: true,
+      openWorldHint: false,
     },
   };
 }
@@ -66,6 +70,7 @@ export function createListTool(): Tool {
     annotations: {
       title: 'List MCP Servers',
       readOnlyHint: true,
+      openWorldHint: false,
     },
   };
 }
@@ -82,6 +87,7 @@ export function createStatusTool(): Tool {
     annotations: {
       title: 'Get Server Status',
       readOnlyHint: true,
+      openWorldHint: false,
     },
   };
 }
@@ -98,6 +104,8 @@ export function createEditTool(): Tool {
     annotations: {
       title: 'Edit Server Config',
       destructiveHint: true,
+      idempotentHint: true,
+      openWorldHint: false,
     },
   };
 }
@@ -115,6 +123,7 @@ export function createReloadTool(): Tool {
       title: 'Reload Server',
       destructiveHint: true,
       idempotentHint: true,
+      openWorldHint: false,
     },
   };
 }

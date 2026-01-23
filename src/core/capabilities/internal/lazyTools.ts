@@ -22,6 +22,11 @@ export function createToolListTool(): Tool {
     description: 'List all available MCP tools with names and descriptions. Use for tool discovery.',
     inputSchema: zodToInputSchema(ToolListInputSchema) as Tool['inputSchema'],
     outputSchema: zodToOutputSchema(ToolListOutputSchema) as Tool['outputSchema'],
+    annotations: {
+      title: 'List Available Tools',
+      readOnlyHint: true,
+      openWorldHint: false,
+    },
   };
 }
 
@@ -31,6 +36,11 @@ export function createToolSchemaTool(): Tool {
     description: 'Get the full schema for a specific tool including input validation rules',
     inputSchema: zodToInputSchema(ToolSchemaInputSchema) as Tool['inputSchema'],
     outputSchema: zodToOutputSchema(ToolSchemaOutputSchema) as Tool['outputSchema'],
+    annotations: {
+      title: 'Get Tool Schema',
+      readOnlyHint: true,
+      openWorldHint: false,
+    },
   };
 }
 
@@ -40,6 +50,12 @@ export function createToolInvokeTool(): Tool {
     description: 'Execute any tool on any MCP server with proper argument validation',
     inputSchema: zodToInputSchema(ToolInvokeInputSchema) as Tool['inputSchema'],
     outputSchema: zodToOutputSchema(ToolInvokeOutputSchema) as Tool['outputSchema'],
+    annotations: {
+      title: 'Invoke Tool',
+      destructiveHint: true,
+      idempotentHint: false,
+      openWorldHint: true,
+    },
   };
 }
 
