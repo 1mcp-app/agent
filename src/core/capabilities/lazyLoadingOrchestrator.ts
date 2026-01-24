@@ -4,6 +4,7 @@ import { Tool } from '@modelcontextprotocol/sdk/types.js';
 
 import { MCP_URI_SEPARATOR } from '@src/constants.js';
 import { AgentConfigManager } from '@src/core/server/agentConfig.js';
+import { ConnectionResolver, TemplateHashProvider } from '@src/core/server/connectionResolver.js';
 import { ClientStatus, OutboundConnections } from '@src/core/types/index.js';
 import logger, { debugIf } from '@src/logger/logger.js';
 
@@ -60,16 +61,19 @@ export class LazyLoadingOrchestrator extends EventEmitter {
   private asyncOrchestrator?: AsyncLoadingOrchestrator;
   // Session-specific filters for allowed servers (keyed by sessionId)
   private sessionAllowedServers: Map<string | undefined, Set<string>> = new Map();
+  private connectionResolver: ConnectionResolver;
 
   constructor(
     outboundConnections: OutboundConnections,
     config: AgentConfigManager,
     asyncOrchestrator?: AsyncLoadingOrchestrator,
+    templateHashProvider?: TemplateHashProvider,
   ) {
     super();
     this.outboundConnections = outboundConnections;
     this.config = config;
     this.asyncOrchestrator = asyncOrchestrator;
+    this.connectionResolver = new ConnectionResolver(outboundConnections, templateHashProvider);
 
     // Get lazy loading config
     const lazyConfig = config.get('lazyLoading');
@@ -94,6 +98,8 @@ export class LazyLoadingOrchestrator extends EventEmitter {
         this.schemaCache,
         outboundConnections,
         this.loadSchemaFromServer.bind(this),
+        undefined, // allowedServers - set later per session
+        templateHashProvider,
       );
     }
 
@@ -230,13 +236,14 @@ export class LazyLoadingOrchestrator extends EventEmitter {
    * Load tool schema from upstream server
    */
   private async loadSchemaFromServer(server: string, toolName: string): Promise<Tool> {
-    const connection = this.outboundConnections.get(server);
-    if (!connection || !connection.client) {
+    // Use ConnectionResolver to find the connection (handles template servers with hash-suffixed keys)
+    const result = this.connectionResolver.findByServerName(server);
+    if (!result || !result.connection.client) {
       throw new Error(`Server not connected: ${server}`);
     }
 
     // Get the tool from server's listTools
-    const toolsResult = await connection.client.listTools();
+    const toolsResult = await result.connection.client.listTools();
     const tool = toolsResult.tools.find((t) => t.name === toolName);
 
     if (!tool) {

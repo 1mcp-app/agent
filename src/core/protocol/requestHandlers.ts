@@ -30,6 +30,7 @@ import { InternalCapabilitiesProvider } from '@src/core/capabilities/internalCap
 import { LazyLoadingOrchestrator } from '@src/core/capabilities/lazyLoadingOrchestrator.js';
 import { byCapabilities } from '@src/core/filtering/clientFiltering.js';
 import { FilteringService } from '@src/core/filtering/filteringService.js';
+import { createConnectionResolver } from '@src/core/server/connectionResolver.js';
 import { ServerManager } from '@src/core/server/serverManager.js';
 import { ClientStatus, InboundConnection, OutboundConnection, OutboundConnections } from '@src/core/types/index.js';
 import { setLogLevel } from '@src/logger/logger.js';
@@ -70,33 +71,10 @@ function resolveOutboundConnection(
   sessionId: string | undefined,
   outboundConns: OutboundConnections,
 ): OutboundConnection | undefined {
-  // Try session-scoped key first (for per-client template servers: name:sessionId)
-  if (sessionId) {
-    const sessionKey = `${clientName}:${sessionId}`;
-    const conn = outboundConns.get(sessionKey);
-    if (conn) {
-      return conn;
-    }
-  }
-
-  // Try rendered hash-based key (for shareable template servers: name:renderedHash)
-  if (sessionId) {
-    // Access the session-to-renderedHash mapping from TemplateServerManager
-    const templateServerManager = ServerManager.current.getTemplateServerManager();
-    if (templateServerManager) {
-      const renderedHash = templateServerManager.getRenderedHashForSession(sessionId, clientName);
-      if (renderedHash) {
-        const hashKey = `${clientName}:${renderedHash}`;
-        const conn = outboundConns.get(hashKey);
-        if (conn) {
-          return conn;
-        }
-      }
-    }
-  }
-
-  // Fall back to direct name lookup (for static servers)
-  return outboundConns.get(clientName);
+  // Delegate to ConnectionResolver for cleaner abstraction
+  const templateServerManager = ServerManager.current.getTemplateServerManager();
+  const resolver = createConnectionResolver(outboundConns, templateServerManager);
+  return resolver.resolve(clientName, sessionId);
 }
 
 /**
@@ -114,50 +92,10 @@ function filterConnectionsForSession(
   outboundConns: OutboundConnections,
   sessionId: string | undefined,
 ): OutboundConnections {
-  const filtered = new Map<string, OutboundConnection>();
-
-  // Get rendered hashes for this session
-  const sessionHashes = getSessionRenderedHashes(sessionId);
-
-  for (const [key, conn] of outboundConns.entries()) {
-    // Static servers (no : in key) - always include
-    if (!key.includes(':')) {
-      filtered.set(key, conn);
-      continue;
-    }
-
-    // Template servers (format: name:xxx)
-    const [name, suffix] = key.split(':');
-
-    // Per-client template servers (format: name:sessionId) - only include if session matches
-    if (suffix === sessionId) {
-      filtered.set(key, conn);
-      continue;
-    }
-
-    // Shareable template servers (format: name:renderedHash) - include if this session uses this hash
-    if (sessionHashes && sessionHashes.has(name) && sessionHashes.get(name) === suffix) {
-      filtered.set(key, conn);
-    }
-  }
-
-  return filtered;
-}
-
-/**
- * Get all rendered hashes for a specific session.
- * Used by filterConnectionsForSession to determine which shareable connections to include.
- * @param sessionId The session ID (optional)
- * @returns Map of templateName to renderedHash, or undefined if no session
- */
-function getSessionRenderedHashes(sessionId: string | undefined): Map<string, string> | undefined {
-  if (!sessionId) return undefined;
-
+  // Delegate to ConnectionResolver for cleaner abstraction
   const templateServerManager = ServerManager.current.getTemplateServerManager();
-  if (templateServerManager) {
-    return templateServerManager.getAllRenderedHashesForSession(sessionId);
-  }
-  return undefined;
+  const resolver = createConnectionResolver(outboundConns, templateServerManager);
+  return resolver.filterForSession(sessionId);
 }
 
 /**

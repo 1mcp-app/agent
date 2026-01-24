@@ -1,5 +1,6 @@
 import { Tool } from '@modelcontextprotocol/sdk/types.js';
 
+import { ConnectionResolver, TemplateHashProvider } from '@src/core/server/connectionResolver.js';
 import { OutboundConnections } from '@src/core/types/index.js';
 import logger, { debugIf } from '@src/logger/logger.js';
 import { zodToInputSchema, zodToOutputSchema } from '@src/utils/schemaUtils.js';
@@ -83,6 +84,7 @@ export class MetaToolProvider {
   private outboundConnections: OutboundConnections;
   private loadSchema?: SchemaLoader;
   private allowedServers?: Set<string>;
+  private connectionResolver: ConnectionResolver;
 
   constructor(
     getToolRegistry: ToolRegistryProvider,
@@ -90,50 +92,26 @@ export class MetaToolProvider {
     outboundConnections: OutboundConnections,
     loadSchema?: SchemaLoader,
     allowedServers?: Set<string>,
+    templateHashProvider?: TemplateHashProvider,
   ) {
     this.getToolRegistry = getToolRegistry;
     this.schemaCache = schemaCache;
     this.outboundConnections = outboundConnections;
     this.loadSchema = loadSchema;
     this.allowedServers = allowedServers;
+    this.connectionResolver = new ConnectionResolver(outboundConnections, templateHashProvider);
   }
 
   /**
-   * Resolve a clean server name to the actual connection key
-   *
-   * Template servers are stored with hash-suffixed keys like:
-   * - "template-server:abc123" (shareable template with renderedHash)
-   * - "template-server:sessionId" (per-client template)
-   *
-   * But the ToolRegistry uses clean names like "template-server".
-   * This method finds the actual connection key by matching the clean name.
+   * Resolve a clean server name to the actual connection key.
+   * Delegates to ConnectionResolver.findByServerName for unified resolution logic.
    *
    * @param cleanServerName - The clean server name (without hash suffix)
    * @returns The actual connection key, or the original name if not found
    */
   private resolveConnectionKey(cleanServerName: string): string {
-    // First try direct lookup (for static servers)
-    if (this.outboundConnections.has(cleanServerName)) {
-      return cleanServerName;
-    }
-
-    // For template servers, search for keys that match the pattern
-    // Key format: "serverName:hash" where hash is either renderedHash or sessionId
-    for (const [key, connection] of this.outboundConnections.entries()) {
-      // Check if connection.name matches the clean server name
-      if (connection.name === cleanServerName) {
-        return key;
-      }
-
-      // Also check if the key starts with the server name followed by colon
-      // This handles cases where connection.name might not be set correctly
-      if (key.startsWith(cleanServerName + ':')) {
-        return key;
-      }
-    }
-
-    // Not found - return original name
-    return cleanServerName;
+    const result = this.connectionResolver.findByServerName(cleanServerName);
+    return result?.key ?? cleanServerName;
   }
 
   /**

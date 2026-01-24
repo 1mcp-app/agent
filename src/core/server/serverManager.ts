@@ -5,6 +5,7 @@ import { LazyLoadingOrchestrator } from '@src/core/capabilities/lazyLoadingOrche
 import { getGlobalContextManager } from '@src/core/context/globalContextManager.js';
 import { ClientTemplateTracker, FilterCache, getFilterCache, TemplateIndex } from '@src/core/filtering/index.js';
 import { InstructionAggregator } from '@src/core/instructions/instructionAggregator.js';
+import { ServerRegistry } from '@src/core/server/adapters/ServerRegistry.js';
 import { ConnectionManager } from '@src/core/server/connectionManager.js';
 import { MCPServerLifecycleManager } from '@src/core/server/mcpServerLifecycleManager.js';
 import { TemplateConfigurationManager } from '@src/core/server/templateConfigurationManager.js';
@@ -53,6 +54,7 @@ export class ServerManager {
   private templateServerManager: TemplateServerManager;
   private mcpServerLifecycleManager: MCPServerLifecycleManager;
   private templateConfigurationManager: TemplateConfigurationManager;
+  private serverRegistry: ServerRegistry;
 
   // Filtering cache (kept separate as it's a shared resource)
   private filterCache = getFilterCache();
@@ -73,6 +75,7 @@ export class ServerManager {
     this.templateServerManager = new TemplateServerManager();
     this.mcpServerLifecycleManager = new MCPServerLifecycleManager();
     this.templateConfigurationManager = new TemplateConfigurationManager();
+    this.serverRegistry = new ServerRegistry(outboundConns, this.templateServerManager);
   }
 
   public static getOrCreateInstance(
@@ -238,6 +241,15 @@ export class ServerManager {
       // by filtering out static servers that conflict with template servers
     }
 
+    // Populate server registry with external servers
+    if (this.serverConfigData.mcpServers) {
+      for (const [name, config] of Object.entries(this.serverConfigData.mcpServers)) {
+        if (!this.serverRegistry.has(name)) {
+          this.serverRegistry.registerExternal(name, config);
+        }
+      }
+    }
+
     // If we have context, create template-based servers
     if (context && this.serverConfigData.mcpTemplates) {
       await this.templateServerManager.createTemplateBasedServers(
@@ -248,6 +260,13 @@ export class ServerManager {
         this.outboundConns,
         this.transports,
       );
+
+      // Populate server registry with template servers
+      for (const [name, config] of Object.entries(this.serverConfigData.mcpTemplates)) {
+        if (!this.serverRegistry.has(name)) {
+          this.serverRegistry.registerTemplate(name, config);
+        }
+      }
 
       // CRITICAL: Refresh tool registry after template servers are added
       // This ensures template server tools are included in lazy loading mode
@@ -306,6 +325,10 @@ export class ServerManager {
 
   public getTemplateServerManager(): TemplateServerManager {
     return this.templateServerManager;
+  }
+
+  public getServerRegistry(): ServerRegistry {
+    return this.serverRegistry;
   }
 
   public updateClientsAndTransports(newClients: OutboundConnections, newTransports: Record<string, Transport>): void {
