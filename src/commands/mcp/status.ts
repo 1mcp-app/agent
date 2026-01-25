@@ -229,6 +229,46 @@ function displayDetailedServerStatus(name: string, config: MCPServerParams, verb
     Tags: inferredConfig.tags && inferredConfig.tags.length > 0 ? inferredConfig.tags.join(', ') : '(none)',
   });
 
+  // Capability filtering configuration
+  printer.blank();
+  printer.subtitle('Capability Filtering:');
+
+  const hasFilters =
+    (inferredConfig.disabledTools && inferredConfig.disabledTools.length > 0) ||
+    (inferredConfig.enabledTools && inferredConfig.enabledTools.length > 0) ||
+    (inferredConfig.disabledResources && inferredConfig.disabledResources.length > 0) ||
+    (inferredConfig.enabledResources && inferredConfig.enabledResources.length > 0) ||
+    (inferredConfig.disabledPrompts && inferredConfig.disabledPrompts.length > 0) ||
+    (inferredConfig.enabledPrompts && inferredConfig.enabledPrompts.length > 0);
+
+  if (!hasFilters) {
+    printer.info('No capability filtering configured (all tools, resources, and prompts are exposed)');
+  } else {
+    // Tools
+    if (inferredConfig.enabledTools && inferredConfig.enabledTools.length > 0) {
+      printer.keyValue({ 'Enabled Tools': inferredConfig.enabledTools.join(', ') });
+    }
+    if (inferredConfig.disabledTools && inferredConfig.disabledTools.length > 0) {
+      printer.keyValue({ 'Disabled Tools': inferredConfig.disabledTools.join(', ') });
+    }
+
+    // Resources
+    if (inferredConfig.enabledResources && inferredConfig.enabledResources.length > 0) {
+      printer.keyValue({ 'Enabled Resources': inferredConfig.enabledResources.join(', ') });
+    }
+    if (inferredConfig.disabledResources && inferredConfig.disabledResources.length > 0) {
+      printer.keyValue({ 'Disabled Resources': inferredConfig.disabledResources.join(', ') });
+    }
+
+    // Prompts
+    if (inferredConfig.enabledPrompts && inferredConfig.enabledPrompts.length > 0) {
+      printer.keyValue({ 'Enabled Prompts': inferredConfig.enabledPrompts.join(', ') });
+    }
+    if (inferredConfig.disabledPrompts && inferredConfig.disabledPrompts.length > 0) {
+      printer.keyValue({ 'Disabled Prompts': inferredConfig.disabledPrompts.join(', ') });
+    }
+  }
+
   // Environment variables
   if (inferredConfig.env && Object.keys(inferredConfig.env).length > 0) {
     printer.keyValue({ 'Environment Variables': '(see below)' });
