@@ -172,6 +172,52 @@ function displayServerStatusSummary(name: string, config: MCPServerParams): void
   if (config.tags && config.tags.length > 0) {
     printer.keyValue({ Tags: config.tags.join(', ') });
   }
+
+  // Show capability filtering indicator
+  const filteringInfo = getFilteringSummary(config);
+  if (filteringInfo) {
+    printer.keyValue({ Filtering: filteringInfo });
+  }
+}
+
+/**
+ * Get a summary string describing the filtering configuration for a server
+ */
+export function getFilteringSummary(config: MCPServerParams): string | null {
+  const parts: string[] = [];
+
+  const disabledToolsCount = config.disabledTools?.length || 0;
+  const enabledToolsCount = config.enabledTools?.length || 0;
+  const disabledResourcesCount = config.disabledResources?.length || 0;
+  const enabledResourcesCount = config.enabledResources?.length || 0;
+  const disabledPromptsCount = config.disabledPrompts?.length || 0;
+  const enabledPromptsCount = config.enabledPrompts?.length || 0;
+
+  const pluralize = (count: number, singular: string) => `${count} ${count === 1 ? singular : `${singular}s`}`;
+
+  if (enabledToolsCount > 0) {
+    parts.push(`${pluralize(enabledToolsCount, 'tool')} (enabled)`);
+  } else if (disabledToolsCount > 0) {
+    parts.push(`${pluralize(disabledToolsCount, 'tool')}`);
+  }
+
+  if (enabledResourcesCount > 0) {
+    parts.push(`${pluralize(enabledResourcesCount, 'resource')} (enabled)`);
+  } else if (disabledResourcesCount > 0) {
+    parts.push(`${pluralize(disabledResourcesCount, 'resource')}`);
+  }
+
+  if (enabledPromptsCount > 0) {
+    parts.push(`${pluralize(enabledPromptsCount, 'prompt')} (enabled)`);
+  } else if (disabledPromptsCount > 0) {
+    parts.push(`${pluralize(disabledPromptsCount, 'prompt')}`);
+  }
+
+  if (parts.length === 0) {
+    return null;
+  }
+
+  return parts.join(', ');
 }
 
 /**
