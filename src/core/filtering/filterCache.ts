@@ -2,6 +2,7 @@ import { MCPServerParams } from '@src/core/types/index.js';
 import { TagExpression, TagQueryParser } from '@src/domains/preset/parsers/tagQueryParser.js';
 import { TagQuery } from '@src/domains/preset/types/presetTypes.js';
 import logger, { debugIf } from '@src/logger/logger.js';
+import { TIMEOUTS } from '@src/constants/timeouts.js';
 
 /**
  * Cache entry with TTL support
@@ -451,7 +452,7 @@ export function getFilterCache(): FilterCache {
     // Set up periodic cleanup with proper cleanup tracking
     cleanupInterval = setInterval(() => {
       globalFilterCache?.clearExpired();
-    }, 60 * 1000); // Every minute
+    }, TIMEOUTS.CLEANUP_INTERVAL);
 
     // Ensure cleanup on process exit
     if (typeof process !== 'undefined') {

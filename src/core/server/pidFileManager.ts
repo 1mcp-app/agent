@@ -180,17 +180,12 @@ export function registerPidFileSignalHandlers(configDir: string): void {
 
   // Register cleanup for signal handlers
   // NOTE: This should only be used if the main application doesn't have its own signal handlers
-  process.on('SIGINT', () => {
-    cleanup();
-    process.exit(0);
-  });
-  process.on('SIGTERM', () => {
-    cleanup();
-    process.exit(0);
-  });
-  process.on('SIGHUP', () => {
-    cleanup();
-    process.exit(0);
-  });
+  const signals = ['SIGINT', 'SIGTERM', 'SIGHUP'] as const;
+  for (const signal of signals) {
+    process.on(signal, () => {
+      cleanup();
+      process.exit(0);
+    });
+  }
   signalHandlersRegistered = true;
 }
