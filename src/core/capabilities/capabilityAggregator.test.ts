@@ -252,4 +252,422 @@ describe('CapabilityAggregator', () => {
       expect(capabilities.prompts).toHaveLength(0);
     });
   });
+
+  describe('capability filtering', () => {
+    it('should filter out disabled tools', async () => {
+      const tools: Tool[] = [
+        {
+          name: 'safe-tool',
+          description: 'A safe tool',
+          inputSchema: { type: 'object', properties: {}, required: [] },
+        },
+        {
+          name: 'dangerous-tool',
+          description: 'A dangerous tool',
+          inputSchema: { type: 'object', properties: {}, required: [] },
+        },
+        {
+          name: 'another-safe-tool',
+          description: 'Another safe tool',
+          inputSchema: { type: 'object', properties: {}, required: [] },
+        },
+      ];
+
+      const mockClient = {
+        listTools: vi.fn().mockResolvedValue({ tools }),
+        listResources: vi.fn().mockResolvedValue({ resources: [] }),
+        listPrompts: vi.fn().mockResolvedValue({ prompts: [] }),
+        transport: {
+          start: vi.fn(),
+          send: vi.fn(),
+          close: vi.fn(),
+        },
+      } as any;
+
+      mockConnections.set('github', {
+        name: 'github',
+        client: mockClient,
+        status: ClientStatus.Connected,
+        transport: {
+          start: vi.fn(),
+          send: vi.fn(),
+          close: vi.fn(),
+          onerror: vi.fn(),
+          onclose: vi.fn(),
+        },
+        lastConnected: new Date(),
+        serverConfig: {
+          disabledTools: ['dangerous-tool'],
+        },
+      });
+
+      const changes = await aggregator.updateCapabilities();
+
+      expect(changes.current.tools).toHaveLength(2);
+      expect(changes.current.tools.map(t => t.name)).toContain('safe-tool');
+      expect(changes.current.tools.map(t => t.name)).toContain('another-safe-tool');
+      expect(changes.current.tools.map(t => t.name)).not.toContain('dangerous-tool');
+    });
+
+    it('should only include enabled tools (whitelist mode)', async () => {
+      const tools: Tool[] = [
+        { name: 'tool-a', description: 'Tool A', inputSchema: { type: 'object', properties: {}, required: [] } },
+        { name: 'tool-b', description: 'Tool B', inputSchema: { type: 'object', properties: {}, required: [] } },
+        { name: 'tool-c', description: 'Tool C', inputSchema: { type: 'object', properties: {}, required: [] } },
+      ];
+
+      const mockClient = {
+        listTools: vi.fn().mockResolvedValue({ tools }),
+        listResources: vi.fn().mockResolvedValue({ resources: [] }),
+        listPrompts: vi.fn().mockResolvedValue({ prompts: [] }),
+        transport: {
+          start: vi.fn(),
+          send: vi.fn(),
+          close: vi.fn(),
+        },
+      } as any;
+
+      mockConnections.set('limited-server', {
+        name: 'limited-server',
+        client: mockClient,
+        status: ClientStatus.Connected,
+        transport: {
+          start: vi.fn(),
+          send: vi.fn(),
+          close: vi.fn(),
+          onerror: vi.fn(),
+          onclose: vi.fn(),
+        },
+        lastConnected: new Date(),
+        serverConfig: {
+          enabledTools: ['tool-a', 'tool-b'],
+        },
+      });
+
+      const changes = await aggregator.updateCapabilities();
+
+      expect(changes.current.tools).toHaveLength(2);
+      expect(changes.current.tools.map(t => t.name)).toContain('tool-a');
+      expect(changes.current.tools.map(t => t.name)).toContain('tool-b');
+      expect(changes.current.tools.map(t => t.name)).not.toContain('tool-c');
+    });
+
+    it('should filter out disabled resources', async () => {
+      const resources: Resource[] = [
+        { uri: 'file:///safe/data.json', name: 'Safe Data' },
+        { uri: 'file:///etc/passwd', name: 'Sensitive File' },
+        { uri: 'file:///var/log/app.log', name: 'App Log' },
+      ];
+
+      const mockClient = {
+        listTools: vi.fn().mockResolvedValue({ tools: [] }),
+        listResources: vi.fn().mockResolvedValue({ resources }),
+        listPrompts: vi.fn().mockResolvedValue({ prompts: [] }),
+        transport: {
+          start: vi.fn(),
+          send: vi.fn(),
+          close: vi.fn(),
+        },
+      } as any;
+
+      mockConnections.set('filesystem', {
+        name: 'filesystem',
+        client: mockClient,
+        status: ClientStatus.Connected,
+        transport: {
+          start: vi.fn(),
+          send: vi.fn(),
+          close: vi.fn(),
+          onerror: vi.fn(),
+          onclose: vi.fn(),
+        },
+        lastConnected: new Date(),
+        serverConfig: {
+          disabledResources: ['file:///etc/passwd'],
+        },
+      });
+
+      const changes = await aggregator.updateCapabilities();
+
+      expect(changes.current.resources).toHaveLength(2);
+      expect(changes.current.resources.map(r => r.uri)).toContain('file:///safe/data.json');
+      expect(changes.current.resources.map(r => r.uri)).toContain('file:///var/log/app.log');
+      expect(changes.current.resources.map(r => r.uri)).not.toContain('file:///etc/passwd');
+    });
+
+    it('should only include enabled resources (whitelist mode)', async () => {
+      const resources: Resource[] = [
+        { uri: 'public://data.json', name: 'Public Data' },
+        { uri: 'private://secrets.json', name: 'Secrets' },
+        { uri: 'internal://config.json', name: 'Config' },
+      ];
+
+      const mockClient = {
+        listTools: vi.fn().mockResolvedValue({ tools: [] }),
+        listResources: vi.fn().mockResolvedValue({ resources }),
+        listPrompts: vi.fn().mockResolvedValue({ prompts: [] }),
+        transport: {
+          start: vi.fn(),
+          send: vi.fn(),
+          close: vi.fn(),
+        },
+      } as any;
+
+      mockConnections.set('api-server', {
+        name: 'api-server',
+        client: mockClient,
+        status: ClientStatus.Connected,
+        transport: {
+          start: vi.fn(),
+          send: vi.fn(),
+          close: vi.fn(),
+          onerror: vi.fn(),
+          onclose: vi.fn(),
+        },
+        lastConnected: new Date(),
+        serverConfig: {
+          enabledResources: ['public://data.json', 'internal://config.json'],
+        },
+      });
+
+      const changes = await aggregator.updateCapabilities();
+
+      expect(changes.current.resources).toHaveLength(2);
+      expect(changes.current.resources.map(r => r.uri)).toContain('public://data.json');
+      expect(changes.current.resources.map(r => r.uri)).toContain('internal://config.json');
+      expect(changes.current.resources.map(r => r.uri)).not.toContain('private://secrets.json');
+    });
+
+    it('should filter out disabled prompts', async () => {
+      const prompts: Prompt[] = [
+        { name: 'safe-prompt', description: 'A safe prompt' },
+        { name: 'dangerous-prompt', description: 'A dangerous prompt' },
+        { name: 'another-safe-prompt', description: 'Another safe prompt' },
+      ];
+
+      const mockClient = {
+        listTools: vi.fn().mockResolvedValue({ tools: [] }),
+        listResources: vi.fn().mockResolvedValue({ resources: [] }),
+        listPrompts: vi.fn().mockResolvedValue({ prompts }),
+        transport: {
+          start: vi.fn(),
+          send: vi.fn(),
+          close: vi.fn(),
+        },
+      } as any;
+
+      mockConnections.set('github', {
+        name: 'github',
+        client: mockClient,
+        status: ClientStatus.Connected,
+        transport: {
+          start: vi.fn(),
+          send: vi.fn(),
+          close: vi.fn(),
+          onerror: vi.fn(),
+          onclose: vi.fn(),
+        },
+        lastConnected: new Date(),
+        serverConfig: {
+          disabledPrompts: ['dangerous-prompt'],
+        },
+      });
+
+      const changes = await aggregator.updateCapabilities();
+
+      expect(changes.current.prompts).toHaveLength(2);
+      expect(changes.current.prompts.map(p => p.name)).toContain('safe-prompt');
+      expect(changes.current.prompts.map(p => p.name)).toContain('another-safe-prompt');
+      expect(changes.current.prompts.map(p => p.name)).not.toContain('dangerous-prompt');
+    });
+
+    it('should only include enabled prompts (whitelist mode)', async () => {
+      const prompts: Prompt[] = [
+        { name: 'prompt-a', description: 'Prompt A' },
+        { name: 'prompt-b', description: 'Prompt B' },
+        { name: 'prompt-c', description: 'Prompt C' },
+      ];
+
+      const mockClient = {
+        listTools: vi.fn().mockResolvedValue({ tools: [] }),
+        listResources: vi.fn().mockResolvedValue({ resources: [] }),
+        listPrompts: vi.fn().mockResolvedValue({ prompts }),
+        transport: {
+          start: vi.fn(),
+          send: vi.fn(),
+          close: vi.fn(),
+        },
+      } as any;
+
+      mockConnections.set('limited-server', {
+        name: 'limited-server',
+        client: mockClient,
+        status: ClientStatus.Connected,
+        transport: {
+          start: vi.fn(),
+          send: vi.fn(),
+          close: vi.fn(),
+          onerror: vi.fn(),
+          onclose: vi.fn(),
+        },
+        lastConnected: new Date(),
+        serverConfig: {
+          enabledPrompts: ['prompt-a', 'prompt-b'],
+        },
+      });
+
+      const changes = await aggregator.updateCapabilities();
+
+      expect(changes.current.prompts).toHaveLength(2);
+      expect(changes.current.prompts.map(p => p.name)).toContain('prompt-a');
+      expect(changes.current.prompts.map(p => p.name)).toContain('prompt-b');
+      expect(changes.current.prompts.map(p => p.name)).not.toContain('prompt-c');
+    });
+
+    it('should pass through all capabilities when no server config', async () => {
+      const tools: Tool[] = [
+        { name: 'tool-1', description: 'Tool 1', inputSchema: { type: 'object', properties: {}, required: [] } },
+        { name: 'tool-2', description: 'Tool 2', inputSchema: { type: 'object', properties: {}, required: [] } },
+      ];
+      const resources: Resource[] = [
+        { uri: 'file://test', name: 'Test' },
+      ];
+      const prompts: Prompt[] = [
+        { name: 'prompt-1', description: 'Prompt 1' },
+      ];
+
+      const mockClient = {
+        listTools: vi.fn().mockResolvedValue({ tools }),
+        listResources: vi.fn().mockResolvedValue({ resources }),
+        listPrompts: vi.fn().mockResolvedValue({ prompts }),
+        transport: {
+          start: vi.fn(),
+          send: vi.fn(),
+          close: vi.fn(),
+        },
+      } as any;
+
+      mockConnections.set('unfiltered-server', {
+        name: 'unfiltered-server',
+        client: mockClient,
+        status: ClientStatus.Connected,
+        transport: {
+          start: vi.fn(),
+          send: vi.fn(),
+          close: vi.fn(),
+          onerror: vi.fn(),
+          onclose: vi.fn(),
+        },
+        lastConnected: new Date(),
+        // No serverConfig - should pass through all
+      });
+
+      const changes = await aggregator.updateCapabilities();
+
+      expect(changes.current.tools).toHaveLength(2);
+      expect(changes.current.resources).toHaveLength(1);
+      expect(changes.current.prompts).toHaveLength(1);
+    });
+
+    it('should filter multiple capability types simultaneously', async () => {
+      const tools: Tool[] = [
+        { name: 'safe-tool', description: 'Safe', inputSchema: { type: 'object', properties: {}, required: [] } },
+        { name: 'dangerous-tool', description: 'Dangerous', inputSchema: { type: 'object', properties: {}, required: [] } },
+      ];
+      const resources: Resource[] = [
+        { uri: 'safe://data', name: 'Safe' },
+        { uri: 'secret://data', name: 'Secret' },
+      ];
+      const prompts: Prompt[] = [
+        { name: 'safe-prompt', description: 'Safe' },
+        { name: 'admin-prompt', description: 'Admin' },
+      ];
+
+      const mockClient = {
+        listTools: vi.fn().mockResolvedValue({ tools }),
+        listResources: vi.fn().mockResolvedValue({ resources }),
+        listPrompts: vi.fn().mockResolvedValue({ prompts }),
+        transport: {
+          start: vi.fn(),
+          send: vi.fn(),
+          close: vi.fn(),
+        },
+      } as any;
+
+      mockConnections.set('multi-filtered', {
+        name: 'multi-filtered',
+        client: mockClient,
+        status: ClientStatus.Connected,
+        transport: {
+          start: vi.fn(),
+          send: vi.fn(),
+          close: vi.fn(),
+          onerror: vi.fn(),
+          onclose: vi.fn(),
+        },
+        lastConnected: new Date(),
+        serverConfig: {
+          disabledTools: ['dangerous-tool'],
+          disabledResources: ['secret://data'],
+          disabledPrompts: ['admin-prompt'],
+        },
+      });
+
+      const changes = await aggregator.updateCapabilities();
+
+      // Tools: 1 (dangerous-tool filtered)
+      expect(changes.current.tools).toHaveLength(1);
+      expect(changes.current.tools[0].name).toBe('safe-tool');
+
+      // Resources: 1 (secret://data filtered)
+      expect(changes.current.resources).toHaveLength(1);
+      expect(changes.current.resources[0].uri).toBe('safe://data');
+
+      // Prompts: 1 (admin-prompt filtered)
+      expect(changes.current.prompts).toHaveLength(1);
+      expect(changes.current.prompts[0].name).toBe('safe-prompt');
+    });
+
+    it('should apply enabledTools over disabledTools (whitelist takes precedence)', async () => {
+      const tools: Tool[] = [
+        { name: 'tool-a', description: 'Tool A', inputSchema: { type: 'object', properties: {}, required: [] } },
+        { name: 'tool-b', description: 'Tool B', inputSchema: { type: 'object', properties: {}, required: [] } },
+      ];
+
+      const mockClient = {
+        listTools: vi.fn().mockResolvedValue({ tools }),
+        listResources: vi.fn().mockResolvedValue({ resources: [] }),
+        listPrompts: vi.fn().mockResolvedValue({ prompts: [] }),
+        transport: {
+          start: vi.fn(),
+          send: vi.fn(),
+          close: vi.fn(),
+        },
+      } as any;
+
+      mockConnections.set('priority-test', {
+        name: 'priority-test',
+        client: mockClient,
+        status: ClientStatus.Connected,
+        transport: {
+          start: vi.fn(),
+          send: vi.fn(),
+          close: vi.fn(),
+          onerror: vi.fn(),
+          onclose: vi.fn(),
+        },
+        lastConnected: new Date(),
+        serverConfig: {
+          enabledTools: ['tool-a'],
+          disabledTools: ['tool-a', 'tool-b'], // enabled takes precedence
+        },
+      });
+
+      const changes = await aggregator.updateCapabilities();
+
+      // Only tool-a should be present (enabled takes precedence over disabled)
+      expect(changes.current.tools).toHaveLength(1);
+      expect(changes.current.tools[0].name).toBe('tool-a');
+    });
+  });
 });
