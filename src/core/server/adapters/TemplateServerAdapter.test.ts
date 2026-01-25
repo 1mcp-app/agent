@@ -2,7 +2,7 @@ import type { TemplateServerManager } from '@src/core/server/templateServerManag
 import { ClientStatus, OutboundConnection, OutboundConnections } from '@src/core/types/client.js';
 import { MCPServerParams } from '@src/core/types/index.js';
 
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { TemplateServerAdapter } from './TemplateServerAdapter.js';
 import { ServerStatus } from './types.js';
@@ -228,6 +228,58 @@ describe('TemplateServerAdapter', () => {
       const key = adapter.getConnectionKey({ sessionId: 'unknown-session' });
 
       expect(key).toBeUndefined();
+    });
+  });
+
+  describe('buildConnectionKeys error handling', () => {
+    it('should handle templateManager.getRenderedHashForSession errors gracefully', () => {
+      const errorThrowingManager = {
+        getRenderedHashForSession: vi.fn(() => {
+          throw new Error('Session lookup failed');
+        }),
+      } as any;
+
+      const adapter = new TemplateServerAdapter('template1', serverConfig, outboundConns, errorThrowingManager);
+      const keys = adapter['buildConnectionKeys']('session1');
+
+      // Should not throw, should return session-scoped key only
+      expect(keys).toEqual(['template1:session1']);
+      expect(errorThrowingManager.getRenderedHashForSession).toHaveBeenCalledOnce();
+    });
+
+    it('should handle non-Error exceptions gracefully', () => {
+      const errorThrowingManager = {
+        getRenderedHashForSession: vi.fn(() => {
+          throw 'string error';
+        }),
+      } as any;
+
+      const adapter = new TemplateServerAdapter('template1', serverConfig, outboundConns, errorThrowingManager);
+      const keys = adapter['buildConnectionKeys']('session1');
+
+      // Should not throw, should return session-scoped key only
+      expect(keys).toEqual(['template1:session1']);
+      expect(errorThrowingManager.getRenderedHashForSession).toHaveBeenCalledOnce();
+    });
+  });
+
+  describe('resolveConnection error handling and logging', () => {
+    it('should handle missing sessionId gracefully', () => {
+      const adapter = new TemplateServerAdapter('template1', serverConfig, outboundConns, mockTemplateManager);
+
+      // Should not throw
+      expect(() => adapter.resolveConnection()).not.toThrow();
+      // Should return undefined
+      expect(adapter.resolveConnection()).toBeUndefined();
+    });
+
+    it('should handle missing connection gracefully', () => {
+      const adapter = new TemplateServerAdapter('template1', serverConfig, outboundConns, mockTemplateManager);
+
+      // Should not throw
+      expect(() => adapter.resolveConnection({ sessionId: 'nonexistent' })).not.toThrow();
+      // Should return undefined
+      expect(adapter.resolveConnection({ sessionId: 'nonexistent' })).toBeUndefined();
     });
   });
 });

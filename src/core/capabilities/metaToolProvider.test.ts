@@ -218,7 +218,7 @@ describe('MetaToolProvider', () => {
       }
     });
 
-    it('should return upstream error if schema not loaded', async () => {
+    it('should return internal error if schema not loaded', async () => {
       const result = await provider.callMetaTool('tool_schema', {
         server: 'filesystem',
         toolName: 'read_file',
@@ -227,7 +227,7 @@ describe('MetaToolProvider', () => {
       expect('error' in result).toBe(true);
       expect(result.error).toBeDefined();
       if ('error' in result && result.error) {
-        expect(result.error.type).toBe('upstream');
+        expect(result.error.type).toBe('internal');
       }
     });
   });
@@ -915,6 +915,89 @@ describe('MetaToolProvider', () => {
       result = await multiServerProvider.callMetaTool('tool_list', {});
       if ('tools' in result && 'totalCount' in result) {
         expect(result.totalCount).toBe(5); // All tools again
+      }
+    });
+  });
+
+  describe('internal error type handling', () => {
+    it('should return internal error type for listAvailableTools registry failures', async () => {
+      const failingRegistry: any = {
+        listTools: vi.fn(() => {
+          throw new Error('Registry corrupted');
+        }),
+        getServers: vi.fn(() => []),
+        filterByServers: vi.fn(function (this: any) {
+          return this;
+        }),
+        hasTool: vi.fn(),
+      };
+
+      const internalProvider = new MetaToolProvider(() => failingRegistry, schemaCache, outboundConnections);
+      const result = await internalProvider.callMetaTool('tool_list', {});
+
+      expect('error' in result).toBe(true);
+      if ('error' in result && result.error) {
+        expect(result.error.type).toBe('internal');
+        expect(result.error.message).toContain('Internal error listing tools');
+      }
+    });
+
+    it('should return internal error type for describeTool failures', async () => {
+      const failingRegistry: any = {
+        listTools: vi.fn(() => ({ tools: [] })),
+        getServers: vi.fn(() => []),
+        filterByServers: vi.fn(function (this: any) {
+          return this;
+        }),
+        hasTool: vi.fn(() => true), // Tool exists
+      };
+
+      const internalProvider = new MetaToolProvider(
+        () => failingRegistry,
+        schemaCache,
+        outboundConnections,
+        undefined,
+        undefined,
+      );
+
+      const result = await internalProvider.callMetaTool('tool_schema', {
+        server: 'nonexistent',
+        toolName: 'test_tool',
+      });
+
+      expect('error' in result).toBe(true);
+      if ('error' in result && result.error) {
+        expect(result.error.type).toBe('internal');
+        expect(result.error.message).toContain('Tool schema not loaded and no SchemaLoader available');
+      }
+    });
+
+    it('should distinguish between not_found and internal errors', async () => {
+      // Test not_found error path - unknown meta-tool
+      const notFoundResult = await provider.callMetaTool('unknown_tool', {});
+      expect('error' in notFoundResult).toBe(true);
+      if ('error' in notFoundResult && notFoundResult.error) {
+        expect(notFoundResult.error.type).toBe('not_found');
+      }
+
+      // Test internal error path - registry failure
+      const failingRegistry: any = {
+        listTools: vi.fn(() => {
+          throw new Error('Internal failure');
+        }),
+        getServers: vi.fn(() => []),
+        filterByServers: vi.fn(function (this: any) {
+          return this;
+        }),
+        hasTool: vi.fn(),
+      };
+
+      const internalProvider = new MetaToolProvider(() => failingRegistry, schemaCache, outboundConnections);
+      const internalResult = await internalProvider.callMetaTool('tool_list', {});
+
+      expect('error' in internalResult).toBe(true);
+      if ('error' in internalResult && internalResult.error) {
+        expect(internalResult.error.type).toBe('internal');
       }
     });
   });

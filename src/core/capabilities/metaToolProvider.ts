@@ -2,7 +2,7 @@ import { Tool } from '@modelcontextprotocol/sdk/types.js';
 
 import { ConnectionResolver, TemplateHashProvider } from '@src/core/server/connectionResolver.js';
 import { OutboundConnections } from '@src/core/types/index.js';
-import logger, { debugIf } from '@src/logger/logger.js';
+import logger, { debugIf, errorIf } from '@src/logger/logger.js';
 import { zodToInputSchema, zodToOutputSchema } from '@src/utils/schemaUtils.js';
 
 import { SchemaCache } from './schemaCache.js';
@@ -246,15 +246,20 @@ export class MetaToolProvider {
 
       return response;
     } catch (error) {
-      logger.error(`Error in tool_list: ${error}`);
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      errorIf(() => ({
+        message: 'Error in tool_list meta-tool',
+        meta: { args, error: errorMessage },
+      }));
+
       return {
         tools: [],
         totalCount: 0,
         servers: [],
         hasMore: false,
         error: {
-          type: 'upstream',
-          message: `Error listing tools: ${error}`,
+          type: 'internal',
+          message: `Internal error listing tools: ${errorMessage}`,
         },
       };
     }
@@ -345,18 +350,23 @@ export class MetaToolProvider {
       return {
         schema: {},
         error: {
-          type: 'upstream',
+          type: 'internal',
           message:
             'Tool schema not loaded and no SchemaLoader available. Please use the tool invocation flow to load schema on first use.',
         },
       };
     } catch (error) {
-      logger.error(`Error in tool_schema: ${error}`);
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      errorIf(() => ({
+        message: 'Error in tool_schema meta-tool',
+        meta: { server: args.server, toolName: args.toolName, error: errorMessage },
+      }));
+
       return {
         schema: {},
         error: {
-          type: 'upstream',
-          message: `Error describing tool: ${error}`,
+          type: 'internal',
+          message: `Internal error describing tool: ${errorMessage}`,
         },
       };
     }

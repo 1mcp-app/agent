@@ -1,4 +1,5 @@
 import type { OutboundConnection, OutboundConnections } from '@src/core/types/client.js';
+import { errorIf } from '@src/logger/logger.js';
 
 /**
  * Interface for accessing template server hash mappings.
@@ -93,8 +94,19 @@ export class ConnectionResolver {
         continue;
       }
 
-      // Template servers (format: name:xxx)
-      const [name, suffix] = key.split(':');
+      // Template servers (format: name:suffix)
+      const parts = key.split(':', 2);
+
+      // Validate split result - must have exactly 2 parts
+      if (parts.length !== 2) {
+        errorIf(() => ({
+          message: 'Invalid connection key format: expected exactly one colon delimiter',
+          meta: { key, parts: parts.length },
+        }));
+        continue; // Skip malformed keys
+      }
+
+      const [name, suffix] = parts;
 
       // Per-client template servers (format: name:sessionId) - only include if session matches
       if (suffix === sessionId) {

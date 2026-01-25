@@ -6,7 +6,7 @@ import { MCP_URI_SEPARATOR } from '@src/constants.js';
 import { AgentConfigManager } from '@src/core/server/agentConfig.js';
 import { ConnectionResolver, TemplateHashProvider } from '@src/core/server/connectionResolver.js';
 import { ClientStatus, OutboundConnections } from '@src/core/types/index.js';
-import logger, { debugIf } from '@src/logger/logger.js';
+import logger, { debugIf, errorIf } from '@src/logger/logger.js';
 
 import { AsyncLoadingOrchestrator } from './asyncLoadingOrchestrator.js';
 import { AggregatedCapabilities, CapabilityAggregator } from './capabilityAggregator.js';
@@ -106,8 +106,16 @@ export class LazyLoadingOrchestrator extends EventEmitter {
     // Listen to server-capabilities-updated events from async orchestrator
     if (asyncOrchestrator) {
       asyncOrchestrator.on('server-capabilities-updated', async (serverName: string) => {
-        debugIf(() => ({ message: `Server ${serverName} capabilities updated, refreshing tool registry` }));
-        await this.refreshCapabilities();
+        try {
+          debugIf(() => ({ message: `Server ${serverName} capabilities updated, refreshing tool registry` }));
+          await this.refreshCapabilities();
+        } catch (error) {
+          const errorMessage = error instanceof Error ? error.message : String(error);
+          errorIf(() => ({
+            message: 'Failed to refresh capabilities after server update',
+            meta: { serverName, error: errorMessage },
+          }));
+        }
       });
     }
 

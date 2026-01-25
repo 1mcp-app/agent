@@ -1,6 +1,7 @@
 import type { TemplateServerManager } from '@src/core/server/templateServerManager.js';
 import type { OutboundConnection, OutboundConnections } from '@src/core/types/client.js';
 import type { MCPServerParams } from '@src/core/types/index.js';
+import { debugIf, errorIf } from '@src/logger/logger.js';
 
 import { mapClientStatusToServerStatus, ServerAdapter, ServerContext, ServerStatus, ServerType } from './types.js';
 
@@ -32,9 +33,17 @@ export class TemplateServerAdapter implements ServerAdapter {
   private buildConnectionKeys(sessionId: string): string[] {
     const keys: string[] = [`${this.name}:${sessionId}`];
 
-    const renderedHash = this.templateManager.getRenderedHashForSession(sessionId, this.name);
-    if (renderedHash) {
-      keys.push(`${this.name}:${renderedHash}`);
+    try {
+      const renderedHash = this.templateManager.getRenderedHashForSession(sessionId, this.name);
+      if (renderedHash) {
+        keys.push(`${this.name}:${renderedHash}`);
+      }
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      errorIf(() => ({
+        message: `Failed to get rendered hash for template server`,
+        meta: { serverName: this.name, sessionId, error: errorMessage },
+      }));
     }
 
     return keys;
@@ -47,15 +56,26 @@ export class TemplateServerAdapter implements ServerAdapter {
   resolveConnection(context?: ServerContext): OutboundConnection | undefined {
     const sessionId = context?.sessionId;
     if (!sessionId) {
+      debugIf(() => ({
+        message: 'TemplateServerAdapter: No sessionId provided in context',
+        meta: { serverName: this.name },
+      }));
       return undefined;
     }
 
-    for (const key of this.buildConnectionKeys(sessionId)) {
+    const keys = this.buildConnectionKeys(sessionId);
+
+    for (const key of keys) {
       const conn = this.outboundConns.get(key);
       if (conn) {
         return conn;
       }
     }
+
+    debugIf(() => ({
+      message: 'TemplateServerAdapter: No connection found for template server',
+      meta: { serverName: this.name, sessionId, attemptedKeys: keys },
+    }));
 
     return undefined;
   }

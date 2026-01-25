@@ -46,7 +46,7 @@ export const ToolListOutputSchema = z.object({
   nextCursor: z.string().optional(),
   error: z
     .object({
-      type: z.enum(['validation', 'upstream', 'not_found']),
+      type: z.enum(['validation', 'upstream', 'not_found', 'internal']),
       message: z.string(),
     })
     .optional(),
@@ -57,7 +57,7 @@ export const ToolSchemaOutputSchema = z.object({
   fromCache: z.boolean().optional(),
   error: z
     .object({
-      type: z.enum(['validation', 'upstream', 'not_found']),
+      type: z.enum(['validation', 'upstream', 'not_found', 'internal']),
       message: z.string(),
     })
     .optional(),
@@ -69,7 +69,7 @@ export const ToolInvokeOutputSchema = z.object({
   tool: z.string(),
   error: z
     .object({
-      type: z.enum(['validation', 'upstream', 'not_found']),
+      type: z.enum(['validation', 'upstream', 'not_found', 'internal']),
       message: z.string(),
     })
     .optional(),

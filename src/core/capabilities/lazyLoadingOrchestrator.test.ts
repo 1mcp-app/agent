@@ -1273,4 +1273,65 @@ describe('LazyLoadingOrchestrator', () => {
       expect(filteredCaps.readyServers.length).toBe(2);
     });
   });
+
+  describe('server-capabilities-updated event error handling', () => {
+    it('should handle errors in refreshCapabilities gracefully', async () => {
+      const mockAsyncOrchestrator = {
+        on: vi.fn(),
+        emit: vi.fn(),
+      } as any;
+
+      orchestrator = new LazyLoadingOrchestrator(mockOutboundConnections, mockAgentConfig, mockAsyncOrchestrator);
+      await orchestrator.initialize();
+
+      vi.spyOn(orchestrator, 'refreshCapabilities').mockRejectedValue(new Error('Refresh failed'));
+
+      const emitHandler = mockAsyncOrchestrator.on.mock.calls[0]?.[1];
+      if (emitHandler) {
+        // Should not throw
+        await expect(emitHandler('test-server')).resolves.toBeUndefined();
+
+        // Wait for async handler
+        await new Promise((resolve) => setTimeout(resolve, 100));
+
+        // Orchestrator should still be functional - verify it can get capabilities
+        const caps = await orchestrator.getCapabilities();
+        expect(caps).toBeDefined();
+      }
+    });
+
+    it('should continue handling events after one fails', async () => {
+      const mockAsyncOrchestrator = {
+        on: vi.fn(),
+        emit: vi.fn(),
+      } as any;
+
+      orchestrator = new LazyLoadingOrchestrator(mockOutboundConnections, mockAgentConfig, mockAsyncOrchestrator);
+      await orchestrator.initialize();
+
+      let callCount = 0;
+      const realRefresh = orchestrator['refreshCapabilities'].bind(orchestrator);
+      vi.spyOn(orchestrator, 'refreshCapabilities').mockImplementation(async () => {
+        callCount++;
+        if (callCount === 1) {
+          throw new Error('First fails');
+        }
+        // Second succeeds - call real implementation
+        return realRefresh();
+      });
+
+      const emitHandler = mockAsyncOrchestrator.on.mock.calls[0]?.[1];
+      if (emitHandler) {
+        // First event fails
+        await emitHandler('server1');
+        await new Promise((resolve) => setTimeout(resolve, 100));
+
+        // Second event succeeds
+        await emitHandler('server2');
+        await new Promise((resolve) => setTimeout(resolve, 100));
+
+        expect(callCount).toBe(2);
+      }
+    });
+  });
 });

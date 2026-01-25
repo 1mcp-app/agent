@@ -308,4 +308,44 @@ describe('ConnectionResolver', () => {
       expect(result?.key).toBe('server:hash');
     });
   });
+
+  describe('filterForSession key validation', () => {
+    it('should handle keys with empty segments gracefully', () => {
+      const outboundConns = new Map([
+        [':emptyname', createMockConnection('empty')],
+        ['emptyvalue:', createMockConnection('empty')],
+        ['::doublecolon', createMockConnection('double')],
+      ]) as OutboundConnections;
+
+      const resolver = new ConnectionResolver(outboundConns);
+
+      // Should not throw
+      expect(() => resolver.filterForSession('session1')).not.toThrow();
+
+      const filtered = resolver.filterForSession('session1');
+      // All malformed keys should be skipped
+      expect(filtered.size).toBe(0);
+    });
+
+    it('should validate split result has exactly 2 parts', () => {
+      const outboundConns = new Map([
+        ['valid:key', createMockConnection('valid')],
+        ['invalid', createMockConnection('invalid')],
+        ['template1:session1', createMockConnection('template1')],
+      ]) as OutboundConnections;
+
+      const resolver = new ConnectionResolver(outboundConns);
+
+      // Should not throw
+      expect(() => resolver.filterForSession('session1')).not.toThrow();
+
+      const filtered = resolver.filterForSession('session1');
+      // Static server without colon should be included
+      expect(filtered.has('invalid')).toBe(true);
+      // Template server matching sessionId should be included
+      expect(filtered.has('template1:session1')).toBe(true);
+      // Template server not matching sessionId should be excluded
+      expect(filtered.has('valid:key')).toBe(false);
+    });
+  });
 });
