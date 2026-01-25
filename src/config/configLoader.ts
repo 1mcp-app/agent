@@ -2,6 +2,7 @@ import fs from 'fs';
 
 import { substituteEnvVarsInConfig } from '@src/config/envProcessor.js';
 import { DEFAULT_CONFIG, getGlobalConfigDir, getGlobalConfigPath } from '@src/constants.js';
+import { MCP_CONFIG_SCHEMA_URL } from '@src/constants/schema.js';
 import { AgentConfigManager } from '@src/core/server/agentConfig.js';
 import { MCPServerParams, transportConfigSchema } from '@src/core/types/transport.js';
 import logger, { debugIf } from '@src/logger/logger.js';
@@ -71,9 +72,29 @@ export class ConfigLoader {
       const stats = fs.statSync(this.configFilePath);
       this.lastModified = stats.mtime.getTime();
       const rawConfigData = fs.readFileSync(this.configFilePath, 'utf8');
-      return JSON.parse(rawConfigData);
+      const config = JSON.parse(rawConfigData) as Record<string, unknown>;
+
+      // Ensure $schema field is present for IDE autocompletion
+      if (config && typeof config === 'object' && !('$schema' in config)) {
+        config.$schema = MCP_CONFIG_SCHEMA_URL;
+
+        // Log the enhancement for debugging and transparency
+        debugIf(() => ({
+          message: `Added $schema property to config for IDE autocompletion`,
+          meta: {
+            configPath: this.configFilePath,
+            schemaUrl: MCP_CONFIG_SCHEMA_URL,
+          },
+        }));
+      }
+
+      return config;
     } catch (error) {
-      logger.error(`Failed to load configuration: ${error instanceof Error ? error.message : String(error)}`);
+      const message = `Failed to load configuration from '${this.configFilePath}': ${error instanceof Error ? error.message : String(error)}`;
+      logger.error(message, {
+        configPath: this.configFilePath,
+        error: error instanceof Error ? { name: error.name, message: error.message } : String(error),
+      });
       throw error;
     }
   }

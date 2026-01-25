@@ -1,0 +1,430 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://docs.1mcp.app/schemas/v1.0.0/mcp-config.json",
+  "title": "1MCP Server Configuration v1.0.0",
+  "description": "JSON Schema for 1MCP server configuration files (v1.0.0)",
+  "type": "object",
+  "properties": {
+    "$schema": {
+      "type": "string",
+      "format": "uri",
+      "description": "JSON Schema reference for IDE autocompletion and validation"
+    },
+    "version": {
+      "description": "Version of the configuration format for migration purposes",
+      "type": "string"
+    },
+    "mcpServers": {
+      "type": "object",
+      "propertyNames": {
+        "type": "string"
+      },
+      "additionalProperties": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "description": "Transport type for connecting to the MCP server",
+            "type": "string",
+            "enum": ["stdio", "sse", "http", "streamableHttp"]
+          },
+          "disabled": {
+            "description": "Disable this server. Can be a boolean value or a template string that evaluates to a boolean (e.g., \"{?project.environment=production}\")",
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "string"
+              }
+            ]
+          },
+          "timeout": {
+            "description": "Deprecated: Use connectionTimeout and requestTimeout instead. Fallback timeout in milliseconds",
+            "type": "number"
+          },
+          "connectionTimeout": {
+            "description": "Timeout for establishing initial connection in milliseconds (takes precedence over timeout)",
+            "type": "number"
+          },
+          "requestTimeout": {
+            "description": "Timeout for individual request operations in milliseconds (takes precedence over timeout)",
+            "type": "number"
+          },
+          "tags": {
+            "description": "Tags for filtering and organizing servers",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "oauth": {
+            "description": "OAuth configuration for authentication",
+            "type": "object",
+            "properties": {
+              "clientId": {
+                "description": "OAuth client ID for authentication",
+                "type": "string"
+              },
+              "clientSecret": {
+                "description": "OAuth client secret for authentication",
+                "type": "string"
+              },
+              "scopes": {
+                "description": "OAuth scopes to request",
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "autoRegister": {
+                "description": "Automatically register OAuth client if not already registered",
+                "type": "boolean"
+              }
+            }
+          },
+          "url": {
+            "description": "URL for HTTP or SSE transport",
+            "type": "string",
+            "format": "uri"
+          },
+          "headers": {
+            "description": "Custom HTTP headers to send with requests",
+            "type": "object",
+            "propertyNames": {
+              "type": "string"
+            },
+            "additionalProperties": {
+              "type": "string"
+            }
+          },
+          "command": {
+            "description": "Command to execute for stdio transport",
+            "type": "string"
+          },
+          "args": {
+            "description": "Command-line arguments for the command",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "stderr": {
+            "description": "How to handle stderr output (inherit, ignore, pipe, or file descriptor)",
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "number"
+              }
+            ]
+          },
+          "cwd": {
+            "description": "Working directory for the command",
+            "type": "string"
+          },
+          "env": {
+            "description": "Environment variables as object or array of KEY=VALUE strings",
+            "anyOf": [
+              {
+                "type": "object",
+                "propertyNames": {
+                  "type": "string"
+                },
+                "additionalProperties": {
+                  "type": "string"
+                }
+              },
+              {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            ]
+          },
+          "inheritParentEnv": {
+            "description": "Whether to inherit environment variables from parent process",
+            "type": "boolean"
+          },
+          "envFilter": {
+            "description": "List of environment variable names to include when inheritParentEnv is true",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "restartOnExit": {
+            "description": "Automatically restart the server if it exits",
+            "type": "boolean"
+          },
+          "maxRestarts": {
+            "description": "Maximum number of restart attempts (0 = unlimited)",
+            "type": "number",
+            "minimum": 0
+          },
+          "restartDelay": {
+            "description": "Delay in milliseconds before restarting",
+            "type": "number",
+            "minimum": 0
+          },
+          "template": {
+            "description": "Template-based server instance management configuration",
+            "type": "object",
+            "properties": {
+              "shareable": {
+                "description": "Whether this template creates shareable server instances",
+                "type": "boolean"
+              },
+              "maxInstances": {
+                "description": "Maximum instances per template (0 = unlimited)",
+                "type": "number",
+                "minimum": 0
+              },
+              "idleTimeout": {
+                "description": "Idle timeout before termination in milliseconds",
+                "type": "number",
+                "minimum": 0
+              },
+              "perClient": {
+                "description": "Force per-client instances (overrides shareable)",
+                "type": "boolean"
+              },
+              "extractionOptions": {
+                "description": "Default options for variable extraction",
+                "type": "object",
+                "properties": {
+                  "includeOptional": {
+                    "description": "Whether to include optional variables in the result",
+                    "type": "boolean"
+                  },
+                  "includeEnvironment": {
+                    "description": "Whether to include environment variables",
+                    "type": "boolean"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "description": "Static server configurations (no template processing)"
+    },
+    "mcpTemplates": {
+      "description": "Template-based server configurations (processed with context data)",
+      "type": "object",
+      "propertyNames": {
+        "type": "string"
+      },
+      "additionalProperties": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "description": "Transport type for connecting to the MCP server",
+            "type": "string",
+            "enum": ["stdio", "sse", "http", "streamableHttp"]
+          },
+          "disabled": {
+            "description": "Disable this server. Can be a boolean value or a template string that evaluates to a boolean (e.g., \"{?project.environment=production}\")",
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "string"
+              }
+            ]
+          },
+          "timeout": {
+            "description": "Deprecated: Use connectionTimeout and requestTimeout instead. Fallback timeout in milliseconds",
+            "type": "number"
+          },
+          "connectionTimeout": {
+            "description": "Timeout for establishing initial connection in milliseconds (takes precedence over timeout)",
+            "type": "number"
+          },
+          "requestTimeout": {
+            "description": "Timeout for individual request operations in milliseconds (takes precedence over timeout)",
+            "type": "number"
+          },
+          "tags": {
+            "description": "Tags for filtering and organizing servers",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "oauth": {
+            "description": "OAuth configuration for authentication",
+            "type": "object",
+            "properties": {
+              "clientId": {
+                "description": "OAuth client ID for authentication",
+                "type": "string"
+              },
+              "clientSecret": {
+                "description": "OAuth client secret for authentication",
+                "type": "string"
+              },
+              "scopes": {
+                "description": "OAuth scopes to request",
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "autoRegister": {
+                "description": "Automatically register OAuth client if not already registered",
+                "type": "boolean"
+              }
+            }
+          },
+          "url": {
+            "description": "URL for HTTP or SSE transport",
+            "type": "string",
+            "format": "uri"
+          },
+          "headers": {
+            "description": "Custom HTTP headers to send with requests",
+            "type": "object",
+            "propertyNames": {
+              "type": "string"
+            },
+            "additionalProperties": {
+              "type": "string"
+            }
+          },
+          "command": {
+            "description": "Command to execute for stdio transport",
+            "type": "string"
+          },
+          "args": {
+            "description": "Command-line arguments for the command",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "stderr": {
+            "description": "How to handle stderr output (inherit, ignore, pipe, or file descriptor)",
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "number"
+              }
+            ]
+          },
+          "cwd": {
+            "description": "Working directory for the command",
+            "type": "string"
+          },
+          "env": {
+            "description": "Environment variables as object or array of KEY=VALUE strings",
+            "anyOf": [
+              {
+                "type": "object",
+                "propertyNames": {
+                  "type": "string"
+                },
+                "additionalProperties": {
+                  "type": "string"
+                }
+              },
+              {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            ]
+          },
+          "inheritParentEnv": {
+            "description": "Whether to inherit environment variables from parent process",
+            "type": "boolean"
+          },
+          "envFilter": {
+            "description": "List of environment variable names to include when inheritParentEnv is true",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "restartOnExit": {
+            "description": "Automatically restart the server if it exits",
+            "type": "boolean"
+          },
+          "maxRestarts": {
+            "description": "Maximum number of restart attempts (0 = unlimited)",
+            "type": "number",
+            "minimum": 0
+          },
+          "restartDelay": {
+            "description": "Delay in milliseconds before restarting",
+            "type": "number",
+            "minimum": 0
+          },
+          "template": {
+            "description": "Template-based server instance management configuration",
+            "type": "object",
+            "properties": {
+              "shareable": {
+                "description": "Whether this template creates shareable server instances",
+                "type": "boolean"
+              },
+              "maxInstances": {
+                "description": "Maximum instances per template (0 = unlimited)",
+                "type": "number",
+                "minimum": 0
+              },
+              "idleTimeout": {
+                "description": "Idle timeout before termination in milliseconds",
+                "type": "number",
+                "minimum": 0
+              },
+              "perClient": {
+                "description": "Force per-client instances (overrides shareable)",
+                "type": "boolean"
+              },
+              "extractionOptions": {
+                "description": "Default options for variable extraction",
+                "type": "object",
+                "properties": {
+                  "includeOptional": {
+                    "description": "Whether to include optional variables in the result",
+                    "type": "boolean"
+                  },
+                  "includeEnvironment": {
+                    "description": "Whether to include environment variables",
+                    "type": "boolean"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "templateSettings": {
+      "description": "Template processing settings",
+      "type": "object",
+      "properties": {
+        "validateOnReload": {
+          "description": "Whether to validate templates on configuration reload",
+          "type": "boolean"
+        },
+        "failureMode": {
+          "description": "How to handle template processing failures (strict = throw error, graceful = log and continue)",
+          "type": "string",
+          "enum": ["strict", "graceful"]
+        },
+        "cacheContext": {
+          "description": "Whether to cache processed templates based on context hash",
+          "type": "boolean"
+        }
+      }
+    }
+  },
+  "required": ["mcpServers"]
+}

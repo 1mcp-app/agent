@@ -74,7 +74,24 @@ export class HandlebarsTemplateRenderer {
       }
     });
 
+    // Render and convert disabled field if it's a string template
+    if (config.disabled !== undefined && typeof config.disabled === 'string') {
+      const renderedValue = this.renderString(config.disabled as string, context);
+      config.disabled = this.stringToBoolean(renderedValue);
+    }
+
     return config;
+  }
+
+  /**
+   * Convert a string value to boolean
+   *
+   * @param value - String to convert to boolean
+   * @returns Boolean representation of the string
+   */
+  private stringToBoolean(value: string): boolean {
+    const trimmed = value.trim().toLowerCase();
+    return trimmed === 'true' || trimmed === '1' || trimmed === 'yes';
   }
 
   /**

@@ -62,7 +62,8 @@ export interface BaseTransportConfig {
   readonly timeout?: number;
   readonly connectionTimeout?: number;
   readonly requestTimeout?: number;
-  readonly disabled?: boolean;
+  /** Disable this server. Can be a boolean or a template string that evaluates to a boolean */
+  readonly disabled?: boolean | string;
   readonly tags?: string[];
   readonly oauth?: OAuthConfig;
 }
@@ -97,58 +98,85 @@ export interface StdioTransportConfig extends BaseTransportConfig {
  * Zod schema for OAuth configuration
  */
 export const oAuthConfigSchema = z.object({
-  clientId: z.string().optional(),
-  clientSecret: z.string().optional(),
-  scopes: z.array(z.string()).optional(),
-  autoRegister: z.boolean().optional(),
+  clientId: z.string().optional().describe('OAuth client ID for authentication'),
+  clientSecret: z.string().optional().describe('OAuth client secret for authentication'),
+  scopes: z.array(z.string()).optional().describe('OAuth scopes to request'),
+  autoRegister: z.boolean().optional().describe('Automatically register OAuth client if not already registered'),
 });
 
 /**
  * Zod schema for template server configuration
  */
 export const templateServerConfigSchema = z.object({
-  shareable: z.boolean().optional(),
-  maxInstances: z.number().min(0).optional(),
-  idleTimeout: z.number().min(0).optional(),
-  perClient: z.boolean().optional(),
+  shareable: z.boolean().optional().describe('Whether this template creates shareable server instances'),
+  maxInstances: z.number().min(0).optional().describe('Maximum instances per template (0 = unlimited)'),
+  idleTimeout: z.number().min(0).optional().describe('Idle timeout before termination in milliseconds'),
+  perClient: z.boolean().optional().describe('Force per-client instances (overrides shareable)'),
   extractionOptions: z
     .object({
-      includeOptional: z.boolean().optional(),
-      includeEnvironment: z.boolean().optional(),
+      includeOptional: z.boolean().optional().describe('Whether to include optional variables in the result'),
+      includeEnvironment: z.boolean().optional().describe('Whether to include environment variables'),
     })
-    .optional(),
+    .optional()
+    .describe('Default options for variable extraction'),
 });
 
 /**
  * Zod schema for transport configuration
  */
 export const transportConfigSchema = z.object({
-  type: z.enum(['stdio', 'sse', 'http', 'streamableHttp']).optional(),
-  disabled: z.boolean().optional(),
-  timeout: z.number().optional(), // Deprecated: use connectionTimeout and requestTimeout
-  connectionTimeout: z.number().optional(),
-  requestTimeout: z.number().optional(),
-  tags: z.array(z.string()).optional(),
-  oauth: oAuthConfigSchema.optional(),
+  type: z
+    .enum(['stdio', 'sse', 'http', 'streamableHttp'])
+    .optional()
+    .describe('Transport type for connecting to the MCP server'),
+  disabled: z
+    .union([z.boolean(), z.string()])
+    .optional()
+    .describe(
+      'Disable this server. Can be a boolean value or a template string that evaluates to a boolean (e.g., "{?project.environment=production}")',
+    ),
+  timeout: z
+    .number()
+    .optional()
+    .describe('Deprecated: Use connectionTimeout and requestTimeout instead. Fallback timeout in milliseconds'),
+  connectionTimeout: z
+    .number()
+    .optional()
+    .describe('Timeout for establishing initial connection in milliseconds (takes precedence over timeout)'),
+  requestTimeout: z
+    .number()
+    .optional()
+    .describe('Timeout for individual request operations in milliseconds (takes precedence over timeout)'),
+  tags: z.array(z.string()).optional().describe('Tags for filtering and organizing servers'),
+  oauth: oAuthConfigSchema.optional().describe('OAuth configuration for authentication'),
 
   // HTTP/SSE Parameters
-  url: z.string().url().optional(),
-  headers: z.record(z.string(), z.string()).optional(),
+  url: z.string().url().optional().describe('URL for HTTP or SSE transport'),
+  headers: z.record(z.string(), z.string()).optional().describe('Custom HTTP headers to send with requests'),
 
   // StdioServerParameters fields
-  command: z.string().optional(),
-  args: z.array(z.string()).optional(),
-  stderr: z.union([z.string(), z.number()]).optional(), // Note: IOType validation is complex, keeping simple validation
-  cwd: z.string().optional(),
-  env: z.union([z.record(z.string(), z.string()), z.array(z.string())]).optional(),
-  inheritParentEnv: z.boolean().optional(),
-  envFilter: z.array(z.string()).optional(),
-  restartOnExit: z.boolean().optional(),
-  maxRestarts: z.number().min(0).optional(),
-  restartDelay: z.number().min(0).optional(),
+  command: z.string().optional().describe('Command to execute for stdio transport'),
+  args: z.array(z.string()).optional().describe('Command-line arguments for the command'),
+  stderr: z
+    .union([z.string(), z.number()])
+    .optional()
+    .describe('How to handle stderr output (inherit, ignore, pipe, or file descriptor)'),
+  cwd: z.string().optional().describe('Working directory for the command'),
+  env: z
+    .union([z.record(z.string(), z.string()), z.array(z.string())])
+    .optional()
+    .describe('Environment variables as object or array of KEY=VALUE strings'),
+  inheritParentEnv: z.boolean().optional().describe('Whether to inherit environment variables from parent process'),
+  envFilter: z
+    .array(z.string())
+    .optional()
+    .describe('List of environment variable names to include when inheritParentEnv is true'),
+  restartOnExit: z.boolean().optional().describe('Automatically restart the server if it exits'),
+  maxRestarts: z.number().min(0).optional().describe('Maximum number of restart attempts (0 = unlimited)'),
+  restartDelay: z.number().min(0).optional().describe('Delay in milliseconds before restarting'),
 
   // Template configuration
-  template: templateServerConfigSchema.optional(),
+  template: templateServerConfigSchema.optional().describe('Template-based server instance management configuration'),
 });
 
 /**
@@ -212,19 +240,27 @@ export interface MCPServerConfiguration {
  * Zod schema for template settings
  */
 export const templateSettingsSchema = z.object({
-  validateOnReload: z.boolean().optional(),
-  failureMode: z.enum(['strict', 'graceful']).optional(),
-  cacheContext: z.boolean().optional(),
+  validateOnReload: z.boolean().optional().describe('Whether to validate templates on configuration reload'),
+  failureMode: z
+    .enum(['strict', 'graceful'])
+    .optional()
+    .describe('How to handle template processing failures (strict = throw error, graceful = log and continue)'),
+  cacheContext: z.boolean().optional().describe('Whether to cache processed templates based on context hash'),
 });
 
 /**
  * Extended Zod schema for MCP server configuration with template support
  */
 export const mcpServerConfigSchema = z.object({
-  version: z.string().optional(),
-  mcpServers: z.record(z.string(), transportConfigSchema),
-  mcpTemplates: z.record(z.string(), transportConfigSchema).optional(),
-  templateSettings: templateSettingsSchema.optional(),
+  version: z.string().optional().describe('Version of the configuration format for migration purposes'),
+  mcpServers: z
+    .record(z.string(), transportConfigSchema)
+    .describe('Static server configurations (no template processing)'),
+  mcpTemplates: z
+    .record(z.string(), transportConfigSchema)
+    .optional()
+    .describe('Template-based server configurations (processed with context data)'),
+  templateSettings: templateSettingsSchema.optional().describe('Template processing settings'),
 });
 
 /**
