@@ -116,10 +116,12 @@ export class TemplateServerManager {
         });
 
         // Track session -> rendered hash mapping for routing
-        if (!this.sessionToRenderedHash.has(sessionId)) {
-          this.sessionToRenderedHash.set(sessionId, new Map());
+        let sessionMap = this.sessionToRenderedHash.get(sessionId);
+        if (!sessionMap) {
+          sessionMap = new Map();
+          this.sessionToRenderedHash.set(sessionId, sessionMap);
         }
-        this.sessionToRenderedHash.get(sessionId)!.set(templateName, renderedHash);
+        sessionMap.set(templateName, renderedHash);
 
         // Store session ID mapping separately for cleanup tracking
         if (!this.templateSessionMap) {
@@ -438,6 +440,8 @@ export class TemplateServerManager {
     return this.sessionToRenderedHash.get(sessionId);
   }
 
+  private exitHandlerRegistered = false;
+
   /**
    * Clean up resources (for shutdown)
    */
@@ -457,8 +461,9 @@ export class TemplateServerManager {
     // Clean up the client instance pool
     this.clientInstancePool?.cleanupIdleInstances();
 
-    // Register process exit handler for graceful shutdown
-    if (typeof process !== 'undefined') {
+    // Register process exit handler for graceful shutdown (only once)
+    if (typeof process !== 'undefined' && !this.exitHandlerRegistered) {
+      this.exitHandlerRegistered = true;
       process.on('exit', () => this.cleanup());
     }
   }
