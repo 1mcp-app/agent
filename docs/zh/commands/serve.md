@@ -35,6 +35,9 @@ serve 命令支持所有配置选项。以下是最常用的选项：
 - **`--enable-auth`** - 启用 OAuth 2.1 身份验证
 - **`--enable-enhanced-security`** - 启用增强安全中间件
 - **`--trust-proxy <config>`** - 信任代理配置
+- **`--cors-origins <origins>`** - 逗号分隔的允许 CORS 来源列表
+- **`--enable-hsts`** - 启用 HTTP 严格传输安全头
+- **`--token-encryption-key <key>`** - 令牌存储加密密钥
 
 ### 过滤选项
 
@@ -94,6 +97,32 @@ npx -y @1mcp/agent serve \
 # 使用外部 URL 进行 OAuth 重定向
 npx -y @1mcp/agent serve \
   --external-url=https://mcp.yourdomain.com \
+  --enable-auth
+```
+
+### 完整安全配置的生产部署
+
+```bash
+# 启用所有安全功能的生产部署
+npx -y @1mcp/agent serve \
+  --host=0.0.0.0 \
+  --port=3051 \
+  --external-url=https://mcp.yourdomain.com \
+  --enable-auth \
+  --enable-enhanced-security \
+  --trust-proxy=true \
+  --cors-origins="https://app.yourdomain.com,https://admin.yourdomain.com" \
+  --enable-hsts \
+  --token-encryption-key="${TOKEN_ENCRYPTION_KEY}"
+
+# 使用环境变量
+export ONE_MCP_CORS_ORIGINS="https://app.yourdomain.com,https://admin.yourdomain.com"
+export ONE_MCP_ENABLE_HSTS=true
+export ONE_MCP_TOKEN_ENCRYPTION_KEY="your-secure-encryption-key"
+
+npx -y @1mcp/agent serve \
+  --host=0.0.0.0 \
+  --port=3051 \
   --enable-auth
 ```
 

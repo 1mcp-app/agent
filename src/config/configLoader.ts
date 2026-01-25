@@ -135,6 +135,32 @@ export class ConfigLoader {
     }
 
     const configObj = processedConfig as Record<string, unknown>;
+
+    // Load security settings from config file if present
+    const securityConfig = configObj.security as Record<string, unknown> | undefined;
+    if (securityConfig) {
+      const currentSecurity = agentConfig.get('security');
+      const mergedSecurity: { corsOrigins: string[]; hstsEnabled: boolean; tokenEncryptionKey?: string } = {
+        ...currentSecurity,
+        ...securityConfig,
+      };
+
+      // Handle corsOrigins specially - it can be a string or array in config
+      if (typeof securityConfig.corsOrigins === 'string') {
+        mergedSecurity.corsOrigins = securityConfig.corsOrigins.split(',').map((o) => o.trim()).filter(Boolean);
+      } else if (Array.isArray(securityConfig.corsOrigins)) {
+        mergedSecurity.corsOrigins = securityConfig.corsOrigins.map((o) => String(o));
+      }
+
+      // Handle boolean conversions
+      if (typeof securityConfig.hstsEnabled === 'string') {
+        mergedSecurity.hstsEnabled = securityConfig.hstsEnabled === 'true';
+      }
+
+      agentConfig.updateConfig({ security: mergedSecurity });
+      logger.info('Security settings loaded from config file');
+    }
+
     const mcpServersConfig = (configObj.mcpServers as Record<string, unknown>) || {};
     const mcpTemplatesConfig = (configObj.mcpTemplates as Record<string, unknown>) || {};
     const templateServerNames = new Set(Object.keys(mcpTemplatesConfig));

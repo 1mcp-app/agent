@@ -91,7 +91,9 @@ export class ExpressServer {
     this.oauthProvider = new SDKOAuthServerProvider(sessionStoragePath);
 
     // Initialize streamable session repository with 'transport' subdirectory
-    const fileStorageService = new FileStorageService(sessionStoragePath, STORAGE_SUBDIRS.TRANSPORT);
+    // Pass encryption key if token encryption is configured
+    const encryptionKey = this.configManager.isTokenEncryptionEnabled() ? this.configManager.getTokenEncryptionKey() : undefined;
+    const fileStorageService = new FileStorageService(sessionStoragePath, STORAGE_SUBDIRS.TRANSPORT, encryptionKey);
     this.streamableSessionRepository = new StreamableSessionRepository(fileStorageService);
 
     this.setupMiddleware();
@@ -118,7 +120,19 @@ export class ExpressServer {
     // Add HTTP request logging middleware (early in the stack for complete coverage)
     this.app.use(httpRequestLogger);
 
-    this.app.use(cors()); // Allow all origins for local dev
+    // CORS configuration - use whitelist if configured, otherwise allow all for local dev
+    const corsOrigins = this.configManager.getCorsOrigins();
+    if (corsOrigins.length > 0) {
+      this.app.use(
+        cors({
+          origin: corsOrigins,
+          credentials: true,
+        }),
+      );
+    } else {
+      // Allow all origins for local development
+      this.app.use(cors());
+    }
     this.app.use(bodyParser.json());
     this.app.use(bodyParser.urlencoded({ extended: true }));
 

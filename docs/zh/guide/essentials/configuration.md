@@ -46,6 +46,9 @@ head:
 | `--session-storage-path`        | `ONE_MCP_SESSION_STORAGE_PATH`        | 自定义会话存储目录路径（字符串）                                         |            |
 | `--rate-limit-window`           | `ONE_MCP_RATE_LIMIT_WINDOW`           | OAuth 速率限制窗口（分钟）（数字）                                       |     15     |
 | `--rate-limit-max`              | `ONE_MCP_RATE_LIMIT_MAX`              | 每个 OAuth 速率限制窗口的最大请求数（数字）                              |    100     |
+| `--cors-origins`                | `ONE_MCP_CORS_ORIGINS`                | 逗号分隔的允许 CORS 来源列表（空 = 允许所有）                            |            |
+| `--enable-hsts`                 | `ONE_MCP_ENABLE_HSTS`                 | 启用 HTTP 严格传输安全头（布尔值）                                       |   false    |
+| `--token-encryption-key`        | `ONE_MCP_TOKEN_ENCRYPTION_KEY`        | 令牌存储加密密钥（AES-256-GCM）                                          |            |
 | `--enable-async-loading`        | `ONE_MCP_ENABLE_ASYNC_LOADING`        | 启用异步 MCP 服务器加载（布尔值）                                        |   false    |
 | `--enable-config-reload`        | `ONE_MCP_ENABLE_CONFIG_RELOAD`        | 启用配置文件热重载（布尔值）                                             |    true    |
 | `--config-reload-debounce`      | `ONE_MCP_CONFIG_RELOAD_DEBOUNCE`      | 配置重载防抖时间（毫秒）（数字）                                         |    500     |
@@ -225,6 +228,66 @@ npx -y @1mcp/agent --trust-proxy 10.0.0.0/8
 ```
 
 有关详细的信任代理配置，请参阅 **[信任代理参考](../../reference/trust-proxy.md)**。
+
+### 传输安全
+
+为生产部署配置传输层安全设置。
+
+**`--cors-origins <origins>`**
+
+- **用途**：限制跨域请求的允许 CORS 来源
+- **默认值**：空（允许所有来源以进行本地开发）
+- **环境变量**：`ONE_MCP_CORS_ORIGINS`
+- **格式**：逗号分隔的 URL 列表
+
+**`--enable-hsts`**
+
+- **用途**：启用 HTTP 严格传输安全（HSTS）头
+- **默认值**：`false`
+- **环境变量**：`ONE_MCP_ENABLE_HSTS`
+- **注意**：HTTPS 生产部署必需
+
+**`--token-encryption-key <key>`**
+
+- **用途**：令牌存储加密密钥（AES-256-GCM）
+- **默认值**：无加密
+- **环境变量**：`ONE_MCP_TOKEN_ENCRYPTION_KEY`
+- **注意**：密钥至少需要 8 个字符
+
+**示例：**
+
+```bash
+# 限制 CORS 到特定来源以用于生产
+npx -y @1mcp/agent --cors-origins "https://app.example.com,https://admin.example.com"
+
+# 为 HTTPS 部署启用 HSTS
+npx -y @1mcp/agent --enable-hsts --external-url https://mcp.example.com
+
+# 使用加密密钥加密令牌存储
+npx -y @1mcp/agent --token-encryption-key "${TOKEN_ENCRYPTION_KEY}"
+
+# 启用所有安全功能的生产部署
+npx -y @1mcp/agent \
+  --host 0.0.0.0 \
+  --port 3051 \
+  --enable-auth \
+  --cors-origins "https://app.example.com" \
+  --enable-hsts \
+  --token-encryption-key "${TOKEN_ENCRYPTION_KEY}"
+
+# 环境变量
+ONE_MCP_CORS_ORIGINS="https://app.example.com,https://admin.example.com" \
+ONE_MCP_ENABLE_HSTS=true \
+ONE_MCP_TOKEN_ENCRYPTION_KEY="your-secure-key-here" \
+npx -y @1mcp/agent
+```
+
+> **安全说明**：对于生产部署，请同时使用所有三个安全选项：
+> - 将 CORS 限制为应用程序的来源
+> - 使用 HTTPS 时启用 HSTS
+> - 加密令牌存储以在文件系统受损时保护敏感数据
+
+有关详细信息，请参阅 **[安全参考](../../reference/security.md)**。
 
 ### 服务器过滤
 
@@ -588,6 +651,9 @@ npx -y @1mcp/agent --log-level debug
 - `ONE_MCP_SESSION_STORAGE_PATH`
 - `ONE_MCP_RATE_LIMIT_WINDOW`
 - `ONE_MCP_RATE_LIMIT_MAX`
+- `ONE_MCP_CORS_ORIGINS`
+- `ONE_MCP_ENABLE_HSTS`
+- `ONE_MCP_TOKEN_ENCRYPTION_KEY`
 - `ONE_MCP_ENABLE_ASYNC_LOADING`
 - `ONE_MCP_ENABLE_CONFIG_RELOAD`
 - `ONE_MCP_CONFIG_RELOAD_DEBOUNCE`

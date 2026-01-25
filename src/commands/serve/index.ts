@@ -189,6 +189,24 @@ export const serverOptions = {
     type: 'string' as const,
     default: undefined,
   },
+  // Security options
+  'cors-origins': {
+    describe:
+      'Comma-separated list of allowed CORS origins (empty = allow all). Use in production to restrict access',
+    type: 'string' as const,
+    default: undefined,
+  },
+  'enable-hsts': {
+    describe: 'Enable HTTP Strict-Transport-Security (HSTS) header for production HTTPS deployments',
+    type: 'boolean' as const,
+    default: false,
+  },
+  'token-encryption-key': {
+    describe:
+      'Encryption key for token storage at rest (AES-256-GCM). Key should be at least 8 characters. Use a secure key in production',
+    type: 'string' as const,
+    default: undefined,
+  },
 };
 
 /**
@@ -212,6 +230,9 @@ export function setupServeCommand(yargs: Argv): Argv {
           ['$0 serve --internal-tools="search,list,status"', 'Enable specific internal tools'],
           ['$0 serve --internal-tools="discovery,management"', 'Enable tools by category'],
           ['$0 serve --instructions-template=./custom-template.md', 'Use custom instructions template'],
+          ['$0 serve --cors-origins="https://example.com,https://app.example.com"', 'Restrict CORS to specific origins'],
+          ['$0 serve --enable-hsts', 'Enable HSTS header for HTTPS production deployments'],
+          ['$0 serve --token-encryption-key="your-secure-key-here"', 'Encrypt tokens at rest with AES-256-GCM'],
         ]).epilogue(`
 TRANSPORT OPTIONS:
   stdio: Use stdin/stdout for communication (for programmatic use)
@@ -237,6 +258,11 @@ INTERNAL TOOLS:
   • Individual tools: "search,list,status,registry"
   • Categories: "discovery,management,installation,safe"
   • Examples: "safe" (read-only), "discovery,management" (no installation)
+
+SECURITY OPTIONS:
+  --cors-origins: Restrict CORS to specific origins for production deployments
+  --enable-hsts: Enable HSTS header for HTTPS (required for production HTTPS)
+  --token-encryption-key: Encrypt OAuth tokens at rest with AES-256-GCM
 
 For more information: https://github.com/1mcp-app/agent
         `);

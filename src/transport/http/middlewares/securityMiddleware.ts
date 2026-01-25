@@ -2,6 +2,7 @@ import logger from '@src/logger/logger.js';
 
 import { NextFunction, Request, Response } from 'express';
 import rateLimit from 'express-rate-limit';
+import { AgentConfigManager } from '@src/core/server/agentConfig.js';
 
 /**
  * Security headers middleware to protect against common attacks
@@ -18,6 +19,13 @@ export function securityHeaders(req: Request, res: Response, next: NextFunction)
 
   // Prevent referrer leakage
   res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+
+  // HSTS - Enforce HTTPS connections (only when enabled via config)
+  // max-age=31536000 = 1 year, includeSubDomains applies to all subdomains
+  const configManager = AgentConfigManager.getInstance();
+  if (configManager.isHstsEnabled()) {
+    res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
+  }
 
   // Content Security Policy for HTML responses (disabled for OAuth/auth paths)
   if (req.accepts('html') && !req.path.includes('/oauth/') && !req.path.includes('/auth/')) {

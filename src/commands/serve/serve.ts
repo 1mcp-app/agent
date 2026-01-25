@@ -60,6 +60,10 @@ export interface ServeOptions {
   'enable-internal-tools': boolean;
   'internal-tools'?: string;
   'instructions-template'?: string;
+  // Security options
+  'cors-origins'?: string;
+  'enable-hsts': boolean;
+  'token-encryption-key'?: string;
 }
 
 /**
@@ -342,6 +346,14 @@ export async function serveCommand(parsedArgv: ServeOptions): Promise<void> {
         persistRequests: parsedArgv['session-persist-requests'],
         persistIntervalMinutes: parsedArgv['session-persist-interval'],
         backgroundFlushSeconds: parsedArgv['session-background-flush'],
+      },
+      security: {
+        // Parse CORS origins from comma-separated string to array
+        corsOrigins: parsedArgv['cors-origins']
+          ? parsedArgv['cors-origins'].split(',').map((origin) => origin.trim()).filter(Boolean)
+          : [],
+        hstsEnabled: parsedArgv['enable-hsts'] ?? false,
+        tokenEncryptionKey: parsedArgv['token-encryption-key'],
       },
     });
 

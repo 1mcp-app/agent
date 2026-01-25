@@ -73,6 +73,62 @@
 - **X-XSS-Protection**：在浏览器中启用 XSS 保护
 - **Content-Security-Policy**：限制 HTML 响应的资源加载
 - **Referrer-Policy**：控制引荐来源信息泄漏
+- **Strict-Transport-Security**：强制 HTTPS 连接（设置 `--enable-hsts` 时）
+
+### 传输安全
+
+服务器支持额外的传输层安全功能：
+
+#### CORS 来源限制
+
+- **用途**：限制哪些域可以通过跨域请求访问 MCP 服务器
+- **配置**：`--cors-origins` CLI 标志或 `ONE_MCP_CORS_ORIGINS` 环境变量，或 `security.corsOrigins` 配置文件
+- **格式**：逗号分隔的 URL 列表
+- **默认值**：空（允许所有来源以进行本地开发）
+- **生产建议**：限制为应用程序的域
+
+#### HTTP 严格传输安全 (HSTS)
+
+- **用途**：强制浏览器仅通过 HTTPS 连接
+- **配置**：`--enable-hsts` CLI 标志或 `ONE_MCP_ENABLE_HSTS` 环境变量，或 `security.hstsEnabled` 配置文件
+- **持续时间**：1 年（31536000 秒）
+- **包含子域**：是
+- **生产建议**：为所有 HTTPS 部署启用
+
+#### 令牌加密存储
+
+- **用途**：使用 AES-256-GCM 加密存储在磁盘上的 OAuth 令牌
+- **配置**：`--token-encryption-key` CLI 标志或 `ONE_MCP_TOKEN_ENCRYPTION_KEY` 环境变量，或 `security.tokenEncryptionKey` 配置文件
+- **加密**：带有 scrypt 派生密钥的 AES-256-GCM
+- **安全性**：如果文件系统受损，保护令牌
+- **生产建议**：使用强密钥（16+ 个字符）并存储在密钥管理器中
+
+**CLI 示例：**
+```bash
+npx -y @1mcp/agent serve \
+  --cors-origins="https://app.example.com" \
+  --enable-hsts \
+  --token-encryption-key="${TOKEN_ENCRYPTION_KEY}"
+```
+
+**配置文件示例：**
+```json
+{
+  "mcpServers": { ... },
+  "security": {
+    "corsOrigins": ["https://app.example.com", "https://admin.example.com"],
+    "hstsEnabled": true,
+    "tokenEncryptionKey": "${TOKEN_ENCRYPTION_KEY}"
+  }
+}
+```
+
+**环境变量示例：**
+```bash
+export ONE_MCP_CORS_ORIGINS="https://app.example.com,https://admin.example.com"
+export ONE_MCP_ENABLE_HSTS=true
+export ONE_MCP_TOKEN_ENCRYPTION_KEY="your-secure-key"
+```
 
 ### 输入验证
 

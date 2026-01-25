@@ -151,6 +151,7 @@ describe('ExpressServer', () => {
         if (key === 'port') return 3050;
         if (key === 'rateLimit') return { windowMs: 900000, max: 100 };
         if (key === 'sessionPersistence') return { backgroundFlushSeconds: 30 };
+        if (key === 'security') return { corsOrigins: [], hstsEnabled: false, tokenEncryptionKey: undefined };
         return undefined;
       }),
       getSessionStoragePath: vi.fn(() => '/tmp/sessions'),
@@ -161,6 +162,10 @@ describe('ExpressServer', () => {
       getRateLimitMax: vi.fn(() => 100),
       isAuthEnabled: vi.fn(() => false),
       getUrl: vi.fn(() => 'http://localhost:3050'),
+      getCorsOrigins: vi.fn(() => []),
+      isHstsEnabled: vi.fn(() => false),
+      isTokenEncryptionEnabled: vi.fn(() => false),
+      getTokenEncryptionKey: vi.fn(() => undefined),
     };
 
     const { AgentConfigManager } = await import('@src/core/server/agentConfig.js');
