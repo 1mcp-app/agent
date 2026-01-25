@@ -3,7 +3,7 @@ import { ServerCapabilities } from '@modelcontextprotocol/sdk/types.js';
 
 import { SDKOAuthClientProvider } from '@src/auth/sdkOAuthClientProvider.js';
 
-import { EnhancedTransport } from './transport.js';
+import { EnhancedTransport, MCPServerParams } from './transport.js';
 
 /**
  * Enum representing possible client connection states
@@ -43,6 +43,8 @@ export interface OutboundConnection {
   authorizationUrl?: string;
   /** When OAuth authorization was initiated */
   oauthStartTime?: Date;
+  /** Server configuration including disabledTools, enabledTools, etc. */
+  serverConfig?: MCPServerParams;
 }
 
 /**

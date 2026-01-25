@@ -446,6 +446,151 @@ Set a custom working directory for the process:
 
 ---
 
+## Selective Capability Filtering
+
+1MCP allows you to selectively disable or enable specific tools, resources, and prompts from individual MCP servers. This provides fine-grained control over what capabilities are exposed to AI assistants without having to disable entire servers.
+
+### Overview
+
+By default, all tools, resources, and prompts from an MCP server are exposed. You can use the following configuration options to filter capabilities:
+
+- **`disabledTools`**: List of tool names to exclude from the server
+- **`enabledTools`**: List of tool names to include (whitelist mode - only these tools will be available)
+- **`disabledResources`**: List of resource URIs to exclude from the server
+- **`enabledResources`**: List of resource URIs to include (whitelist mode)
+- **`disabledPrompts`**: List of prompt names to exclude from the server
+- **`enabledPrompts`**: List of prompt names to include (whitelist mode)
+
+### Use Cases
+
+1. **Security**: Disable potentially dangerous tools like `delete`, `deploy`, or `merge_pull_request`
+2. **Scope Reduction**: Limit AI assistants to only the tools they need for their specific task
+3. **Clean Context**: Reduce the number of tools presented to avoid overwhelming context
+
+### Disabling Specific Tools
+
+Use `disabledTools` to exclude specific tools while keeping the server fully enabled:
+
+```json
+{
+  "mcpServers": {
+    "github": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-github"],
+      "tags": ["git", "development"],
+      "disabledTools": [
+        "create_pull_request",
+        "merge_pull_request",
+        "delete_file"
+      ]
+    },
+    "production-deploy": {
+      "command": "npx",
+      "args": ["-y", "@trigger.dev/server"],
+      "tags": ["deployment", "production"],
+      "disabledTools": ["deploy", "rollback", "delete_deployment"]
+    }
+  }
+}
+```
+
+### Enabling Only Specific Tools
+
+Use `enabledTools` for whitelist mode - only the specified tools will be available:
+
+```json
+{
+  "mcpServers": {
+    "postgres": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-postgres"],
+      "tags": ["database"],
+      "enabledTools": ["query", "list_tables", "describe_table"]
+    },
+    "limited-server": {
+      "command": "npx",
+      "args": ["-y", "some-mcp-server"],
+      "tags": ["utility"],
+      "enabledTools": ["safe_tool_1", "safe_tool_2"]
+    }
+  }
+}
+```
+
+### Filtering Resources and Prompts
+
+The same filtering mechanism applies to resources and prompts:
+
+```json
+{
+  "mcpServers": {
+    "database-server": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-postgres"],
+      "tags": ["database"],
+      "enabledTools": ["query", "list_tables"],
+      "disabledResources": [
+        "sensitive-table://*",
+        "admin-panel://*"
+      ],
+      "disabledPrompts": ["generate_admin_report"]
+    }
+  }
+}
+```
+
+### Complete Filtering Example
+
+```json
+{
+  "mcpServers": {
+    "github": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-github"],
+      "tags": ["git", "development"],
+      "disabledTools": [
+        "create_pull_request",
+        "merge_pull_request",
+        "create_issue",
+        "close_issue"
+      ],
+      "disabledPrompts": ["review_code"]
+    },
+    "production-systems": {
+      "command": "npx",
+      "args": ["-y", "production-mcp-server"],
+      "tags": ["production", "systems"],
+      "enabledTools": [
+        "get_status",
+        "list_services",
+        "get_logs"
+      ],
+      "disabledResources": [
+        "secrets://*",
+        "configs/production/*"
+      ]
+    },
+    "filesystem": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-filesystem", "/tmp"],
+      "tags": ["filesystem"],
+      "enabledTools": ["read_file", "list_directory"],
+      "enabledResources": ["file:///tmp/*"],
+      "disabledResources": ["file:///etc/*", "file:///root/*"]
+    }
+  }
+}
+```
+
+### Priority Rules
+
+When both `enabled` and `disabled` lists are present:
+
+1. If `enabledTools`/`enabledResources`/`enabledPrompts` is specified, **only** items in that list are included
+2. If only `disabledTools`/`disabledResources`/`disabledPrompts` is specified, all items **except** those in the list are included
+
+---
+
 ## Hot-Reloading
 
 The agent supports hot-reloading of the configuration file. If you modify the JSON file while the agent is running, it will automatically apply the new configuration without a restart.
