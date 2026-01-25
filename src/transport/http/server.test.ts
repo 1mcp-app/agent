@@ -621,5 +621,33 @@ describe('CORS Origin Validation', () => {
       expect(result).toContain('https://example.com/api');
       expect(result).toContain('https://example.com/path/to/resource');
     });
+
+    it('should accept common dev server ports', () => {
+      const devPorts = ['http://localhost:5173', 'http://localhost:5174', 'http://localhost:5500', 'http://localhost:6000', 'http://localhost:7000', 'http://localhost:8081', 'http://localhost:9090', 'http://localhost:9200'];
+      const result = validateCorsOrigins(devPorts);
+      expect(result).toHaveLength(devPorts.length);
+    });
+
+    it('should reject non-standard ports on localhost', () => {
+      const result = validateCorsOrigins(['http://localhost:12345', 'http://127.0.0.1:99999']);
+      expect(result).toHaveLength(0);
+    });
+  });
+
+  describe('CORS Strict Mode', () => {
+    it('should accept strictCORS in security config schema', async () => {
+      const { securityConfigSchema } = await import('../../config/configLoader.js');
+      const result = securityConfigSchema.safeParse({ strictCORS: true });
+      expect(result.success).toBe(true);
+      expect(result.data?.strictCORS).toBe(true);
+    });
+
+    it('should accept strictCORS as string in config', async () => {
+      const { securityConfigSchema } = await import('../../config/configLoader.js');
+      const result = securityConfigSchema.safeParse({ strictCORS: 'true' });
+      expect(result.success).toBe(true);
+      // String 'true' is preserved (zod union doesn't coerce types)
+      expect(result.data?.strictCORS).toBe('true');
+    });
   });
 });

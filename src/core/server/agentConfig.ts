@@ -78,6 +78,7 @@ export interface AgentConfig {
     corsOrigins: string[];
     hstsEnabled: boolean;
     tokenEncryptionKey?: string;
+    strictCORS: boolean;
   };
 }
 
@@ -157,6 +158,7 @@ export class AgentConfigManager {
         corsOrigins: [], // Empty = allow all origins (for local dev)
         hstsEnabled: false, // Disabled by default (enable via CLI flag for production)
         tokenEncryptionKey: undefined, // Optional: key for encrypting tokens at rest
+        strictCORS: false, // When true, fails on invalid CORS origins instead of falling back to allow-all
       },
     };
   }
@@ -409,6 +411,28 @@ export class AgentConfigManager {
       security: {
         ...this.get('security'),
         hstsEnabled: enabled,
+      },
+    });
+  }
+
+  /**
+   * Check if strict CORS mode is enabled
+   * When enabled, invalid CORS origins will cause startup failure instead of falling back to allow-all
+   * @returns True if strict CORS mode is enabled
+   */
+  public isStrictCORSEnabled(): boolean {
+    return this.get('security').strictCORS;
+  }
+
+  /**
+   * Enable or disable strict CORS mode
+   * @param enabled - True to enable strict CORS mode (fail on invalid origins)
+   */
+  public setStrictCORSEnabled(enabled: boolean): void {
+    this.updateConfig({
+      security: {
+        ...this.get('security'),
+        strictCORS: enabled,
       },
     });
   }

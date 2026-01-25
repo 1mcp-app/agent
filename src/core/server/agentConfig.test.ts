@@ -105,6 +105,7 @@ describe('AgentConfigManager', () => {
           corsOrigins: [],
           hstsEnabled: false,
           tokenEncryptionKey: undefined,
+          strictCORS: false,
         },
       });
     });

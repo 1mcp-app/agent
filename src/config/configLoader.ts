@@ -17,10 +17,11 @@ interface ErrnoException extends Error {
  * Schema for validating security configuration from config file.
  * Ensures type safety and catches invalid config values early.
  */
-const securityConfigSchema = z.object({
+export const securityConfigSchema = z.object({
   corsOrigins: z.union([z.string(), z.array(z.string())]).optional(),
   hstsEnabled: z.union([z.boolean(), z.string()]).optional(),
   tokenEncryptionKey: z.string().optional(),
+  strictCORS: z.union([z.boolean(), z.string()]).optional(),
 });
 
 /**
@@ -166,7 +167,7 @@ export class ConfigLoader {
 
       const securityConfig = validationResult.data;
       const currentSecurity = agentConfig.get('security');
-      const mergedSecurity: { corsOrigins: string[]; hstsEnabled: boolean; tokenEncryptionKey?: string } = {
+      const mergedSecurity: { corsOrigins: string[]; hstsEnabled: boolean; tokenEncryptionKey?: string; strictCORS: boolean } = {
         ...currentSecurity,
       };
 
@@ -191,6 +192,15 @@ export class ConfigLoader {
       // Handle tokenEncryptionKey
       if (securityConfig.tokenEncryptionKey !== undefined) {
         mergedSecurity.tokenEncryptionKey = securityConfig.tokenEncryptionKey;
+      }
+
+      // Handle strictCORS
+      if (securityConfig.strictCORS !== undefined) {
+        if (typeof securityConfig.strictCORS === 'string') {
+          mergedSecurity.strictCORS = securityConfig.strictCORS === 'true';
+        } else {
+          mergedSecurity.strictCORS = securityConfig.strictCORS;
+        }
       }
 
       agentConfig.updateConfig({ security: mergedSecurity });

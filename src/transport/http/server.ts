@@ -52,8 +52,8 @@ function isValidCorsOrigin(origin: string): boolean {
     // Reject localhost with non-standard ports that could be confused
     if (url.hostname === 'localhost' || url.hostname === '127.0.0.1') {
       const port = url.port;
-      // Allow standard ports and common dev ports
-      const allowedPorts = ['', '80', '443', '3000', '4000', '5000', '8080', '9000'];
+      // Allow standard ports and common dev ports (including Vite, Next.js, Angular, etc.)
+      const allowedPorts = ['', '80', '443', '3000', '4000', '5000', '5173', '5174', '5500', '6000', '7000', '8080', '8081', '9000', '9001', '9090', '9200'];
       if (port && !allowedPorts.includes(port)) {
         return false;
       }
@@ -191,9 +191,14 @@ export class ExpressServer {
             credentials: true,
           }),
         );
+      } else if (this.configManager.isStrictCORSEnabled()) {
+        // In strict mode, fail on invalid origins instead of falling back
+        const invalidCount = configuredOrigins.length;
+        logger.error(`Strict CORS mode: All ${invalidCount} configured CORS origins are invalid`);
+        throw new Error(`Invalid CORS configuration: All ${invalidCount} configured origins were rejected. Check your configuration.`);
       } else {
-        // Fall back to allow all if all origins were invalid
-        logger.warn('All configured CORS origins were invalid - allowing all origins');
+        // Fall back to allow all if all origins were invalid (default behavior for backwards compatibility)
+        logger.warn(`All configured CORS origins were invalid (${configuredOrigins.join(', ')}) - allowing all origins`);
         this.app.use(cors());
       }
     } else {

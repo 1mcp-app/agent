@@ -22,8 +22,9 @@ export function securityHeaders(req: Request, res: Response, next: NextFunction)
 
   // HSTS - Enforce HTTPS connections (only when enabled via config)
   // max-age=31536000 = 1 year, includeSubDomains applies to all subdomains
-  // preload enables inclusion in browser HSTS preload lists (https://hstspreload.org/)
-  // WARNING: Once added to preload lists, removal requires submitting a request and can take months
+  // preload enables inclusion in browser HSTS preload lists
+  // See: https://hstspreload.org/ - NOTE: To be included in browser preload lists,
+  // you must submit your domain at https://hstspreload.org/. Removal takes months!
   const configManager = AgentConfigManager.getInstance();
   if (configManager.isHstsEnabled()) {
     res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains; preload');
