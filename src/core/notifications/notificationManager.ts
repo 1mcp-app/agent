@@ -202,30 +202,28 @@ export class NotificationManager extends EventEmitter {
    * Send ToolListChangedNotification to client
    */
   private sendToolListChangedNotification(): void {
-    this.sendNotification('tools', {
-      method: 'notifications/tools/list_changed',
-      params: {},
-    });
+    this.sendListChangedNotification('tools', 'notifications/tools/list_changed');
   }
 
   /**
    * Send ResourceListChangedNotification to client
    */
   private sendResourceListChangedNotification(): void {
-    this.sendNotification('resources', {
-      method: 'notifications/resources/list_changed',
-      params: {},
-    });
+    this.sendListChangedNotification('resources', 'notifications/resources/list_changed');
   }
 
   /**
    * Send PromptListChangedNotification to client
    */
   private sendPromptListChangedNotification(): void {
-    this.sendNotification('prompts', {
-      method: 'notifications/prompts/list_changed',
-      params: {},
-    });
+    this.sendListChangedNotification('prompts', 'notifications/prompts/list_changed');
+  }
+
+  /**
+   * Send a list changed notification to the connected client
+   */
+  private sendListChangedNotification(type: 'tools' | 'resources' | 'prompts', method: string): void {
+    this.sendNotification(type, { method, params: {} });
   }
 
   /**

@@ -15,6 +15,10 @@ export const TIMEOUTS = {
   CLEANUP_INTERVAL: 60 * 1000,
   /** File storage cleanup interval (5 minutes) */
   FILE_STORAGE_CLEANUP: 5 * 60 * 1000,
+  /** Template server cleanup interval (30 seconds) */
+  TEMPLATE_CLEANUP_INTERVAL: 30 * 1000,
+  /** Default idle timeout for templates (10 minutes) */
+  TEMPLATE_IDLE_TIMEOUT: 10 * 60 * 1000,
 } as const;
 
 /** Type representing timeout values from the TIMEOUTS object */
