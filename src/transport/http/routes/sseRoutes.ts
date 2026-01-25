@@ -5,7 +5,7 @@ import { MESSAGES_ENDPOINT, SSE_ENDPOINT } from '@src/constants.js';
 import { AsyncLoadingOrchestrator } from '@src/core/capabilities/asyncLoadingOrchestrator.js';
 import { ServerManager } from '@src/core/server/serverManager.js';
 import { ServerStatus } from '@src/core/types/index.js';
-import logger from '@src/logger/logger.js';
+import logger, { debugIf } from '@src/logger/logger.js';
 import {
   getPresetName,
   getTagExpression,
@@ -33,8 +33,9 @@ export function setupSseRoutes(
   }
 
   router.get(SSE_ENDPOINT, ...middlewares, async (req: Request, res: Response) => {
+    let transport: SSEServerTransport | undefined;
     try {
-      const transport = new SSEServerTransport(MESSAGES_ENDPOINT, res);
+      transport = new SSEServerTransport(MESSAGES_ENDPOINT, res);
 
       // Use validated tags and tag expression from scope auth middleware
       const tags = getValidatedTags(res);
@@ -68,11 +69,14 @@ export function setupSseRoutes(
         try {
           // Send a comment as heartbeat (SSE clients ignore comments)
           res.write(': heartbeat\n\n');
-        } catch (_error) {
+        } catch (error) {
           // If write fails, the connection is likely broken
-          logger.debug(`SSE heartbeat failed for session ${transport.sessionId}, closing connection`);
+          debugIf(() => ({
+            message: `SSE heartbeat failed for session ${transport?.sessionId}`,
+            meta: { error: error instanceof Error ? error.message : String(error) },
+          }));
           clearInterval(heartbeatInterval);
-          serverManager.disconnectTransport(transport.sessionId);
+          serverManager.disconnectTransport(transport?.sessionId);
         }
       }, 30000); // Send heartbeat every 30 seconds
 
@@ -94,6 +98,12 @@ export function setupSseRoutes(
     } catch (error) {
       logger.error('SSE connection error:', error);
       res.status(500).end();
+      // Clean up transport on error if it was created
+      if (transport) {
+        transport.close?.().catch(() => {
+          // Ignore close errors during cleanup
+        });
+      }
     }
   });
 

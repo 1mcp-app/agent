@@ -448,7 +448,18 @@ export class TemplateServerManager {
       this.cleanupTimer = undefined;
     }
 
+    // Clear session-to-rendered-hash mapping
+    this.sessionToRenderedHash.clear();
+
+    // Clear template session map
+    this.templateSessionMap?.clear();
+
     // Clean up the client instance pool
     this.clientInstancePool?.cleanupIdleInstances();
+
+    // Register process exit handler for graceful shutdown
+    if (typeof process !== 'undefined') {
+      process.on('exit', () => this.cleanup());
+    }
   }
 }

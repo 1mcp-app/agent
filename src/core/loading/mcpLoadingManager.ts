@@ -301,7 +301,11 @@ export class McpLoadingManager extends EventEmitter {
     }
 
     this.backgroundRetryTimer = setInterval(() => {
-      this.performBackgroundRetry();
+      try {
+        this.performBackgroundRetry();
+      } catch (error) {
+        logger.error('Error during background retry:', error);
+      }
     }, this.config.backgroundRetryIntervalMs);
 
     logger.info('Background retry enabled for failed servers');

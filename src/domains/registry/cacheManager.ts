@@ -73,7 +73,14 @@ export class CacheManager {
    * Invalidate cache entries matching a pattern
    */
   async invalidate(pattern: string): Promise<void> {
-    const regex = new RegExp(pattern);
+    let regex: RegExp;
+    try {
+      regex = new RegExp(pattern);
+    } catch (error) {
+      logger.warn(`Invalid regex pattern for cache invalidation: "${pattern}"`, error);
+      return;
+    }
+
     const keysToDelete: string[] = [];
 
     for (const key of this.cache.keys()) {
@@ -160,6 +167,11 @@ export class CacheManager {
     if (this.cleanupTimer) {
       clearInterval(this.cleanupTimer);
       this.cleanupTimer = undefined;
+    }
+
+    // Register process exit handler for graceful shutdown
+    if (typeof process !== 'undefined') {
+      process.on('exit', () => this.destroy());
     }
   }
 

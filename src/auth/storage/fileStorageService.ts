@@ -341,6 +341,13 @@ export class FileStorageService {
       },
       5 * 60 * 1000,
     );
+
+    // Ensure cleanup on process exit
+    if (typeof process !== 'undefined') {
+      process.on('beforeExit', () => {
+        this.shutdown();
+      });
+    }
   }
 
   /**

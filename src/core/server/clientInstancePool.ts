@@ -309,7 +309,7 @@ export class ClientInstancePool {
       const idleTime = now.getTime() - instance.lastUsedAt.getTime();
 
       // Use instance-specific timeout if available, otherwise use pool-wide timeout
-      const timeoutThreshold = instance.idleTimeout || this.options.idleTimeout!;
+      const timeoutThreshold = instance.idleTimeout ?? this.options.idleTimeout ?? DEFAULT_POOL_OPTIONS.idleTimeout;
 
       if (instance.status === 'idle' && idleTime > timeoutThreshold) {
         instancesToRemove.push(instanceKey);
@@ -468,16 +468,16 @@ export class ClientInstancePool {
       return {
         shareable: options?.shareable !== false, // Default to true
         perClient: options?.perClient === true, // Default to false
-        idleTimeout: options?.idleTimeout || this.options.idleTimeout!,
-        maxInstances: this.options.maxInstances!,
+        idleTimeout: options?.idleTimeout ?? this.options.idleTimeout ?? DEFAULT_POOL_OPTIONS.idleTimeout,
+        maxInstances: this.options.maxInstances ?? DEFAULT_POOL_OPTIONS.maxInstances,
       };
     }
 
     return {
       shareable: templateConfig.template.shareable !== false, // Default to true
       perClient: templateConfig.template.perClient === true, // Default to false
-      idleTimeout: templateConfig.template.idleTimeout || this.options.idleTimeout!,
-      maxInstances: templateConfig.template.maxInstances || this.options.maxInstances!,
+      idleTimeout: templateConfig.template.idleTimeout ?? this.options.idleTimeout ?? DEFAULT_POOL_OPTIONS.idleTimeout,
+      maxInstances: templateConfig.template.maxInstances ?? this.options.maxInstances ?? DEFAULT_POOL_OPTIONS.maxInstances,
     };
   }
 
@@ -502,13 +502,14 @@ export class ClientInstancePool {
    * Checks if creating a new instance would exceed limits
    */
   private checkInstanceLimits(templateName: string): void {
+    const maxInstances = this.options.maxInstances ?? DEFAULT_POOL_OPTIONS.maxInstances;
     // Check per-template limit
-    if (this.options.maxInstances! > 0) {
+    if (maxInstances > 0) {
       const templateInstances = this.getTemplateInstances(templateName);
       const activeCount = templateInstances.filter((instance) => instance.status !== 'terminating').length;
 
-      if (activeCount >= this.options.maxInstances!) {
-        throw new Error(`Maximum instances (${this.options.maxInstances}) reached for template '${templateName}'`);
+      if (activeCount >= maxInstances) {
+        throw new Error(`Maximum instances (${maxInstances}) reached for template '${templateName}'`);
       }
     }
 
@@ -531,7 +532,10 @@ export class ClientInstancePool {
     if (!this.templateToInstances.has(templateName)) {
       this.templateToInstances.set(templateName, new Set());
     }
-    this.templateToInstances.get(templateName)!.add(instanceKey);
+    const instanceSet = this.templateToInstances.get(templateName);
+    if (instanceSet) {
+      instanceSet.add(instanceKey);
+    }
   }
 
   /**
@@ -551,12 +555,13 @@ export class ClientInstancePool {
    * Starts the periodic cleanup timer
    */
   private startCleanupTimer(): void {
-    if (this.options.cleanupInterval! > 0) {
+    const cleanupInterval = this.options.cleanupInterval ?? DEFAULT_POOL_OPTIONS.cleanupInterval;
+    if (cleanupInterval > 0) {
       this.cleanupTimer = setInterval(() => {
         this.cleanupIdleInstances().catch((error) => {
           logger.error('Error during client instance cleanup:', error);
         });
-      }, this.options.cleanupInterval!);
+      }, cleanupInterval);
 
       // Ensure the timer doesn't prevent process exit
       if (this.cleanupTimer.unref) {
