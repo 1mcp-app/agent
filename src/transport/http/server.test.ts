@@ -549,3 +549,77 @@ describe('ExpressServer', () => {
     });
   });
 });
+
+describe('CORS Origin Validation', () => {
+  let validateCorsOrigins: (origins: string[]) => string[];
+
+  beforeEach(async () => {
+    const module = await import('./server.js');
+    validateCorsOrigins = module.validateCorsOrigins;
+  });
+
+  describe('validateCorsOrigins', () => {
+    it('should accept valid HTTP origins', () => {
+      const result = validateCorsOrigins(['http://example.com', 'http://localhost:3000']);
+      expect(result).toContain('http://example.com');
+      expect(result).toContain('http://localhost:3000');
+    });
+
+    it('should accept valid HTTPS origins', () => {
+      const result = validateCorsOrigins(['https://secure.example.com', 'https://api.example.com:8443']);
+      expect(result).toContain('https://secure.example.com');
+      expect(result).toContain('https://api.example.com:8443');
+    });
+
+    it('should reject origins with invalid protocols', () => {
+      const result = validateCorsOrigins(['ftp://example.com', 'file://local/path', 'javascript:alert(1)']);
+      expect(result).toHaveLength(0);
+    });
+
+    it('should reject malformed URLs', () => {
+      const result = validateCorsOrigins(['not-a-url', 'http://', '://example.com']);
+      expect(result).toHaveLength(0);
+    });
+
+    it('should reject origins with embedded credentials', () => {
+      const result = validateCorsOrigins(['http://user:pass@example.com', 'https://admin:secret@api.com']);
+      expect(result).toHaveLength(0);
+    });
+
+    it('should accept localhost with standard ports', () => {
+      const result = validateCorsOrigins(['http://localhost', 'http://localhost:3000', 'http://127.0.0.1:8080']);
+      expect(result).toContain('http://localhost');
+      expect(result).toContain('http://localhost:3000');
+      expect(result).toContain('http://127.0.0.1:8080');
+    });
+
+    it('should reject localhost with non-standard ports', () => {
+      const result = validateCorsOrigins(['http://localhost:12345', 'http://127.0.0.1:99999']);
+      expect(result).toHaveLength(0);
+    });
+
+    it('should handle mixed valid and invalid origins', () => {
+      const result = validateCorsOrigins([
+        'https://valid.example.com',
+        'ftp://invalid.com',
+        'http://localhost:3000',
+        'not-a-url',
+      ]);
+      expect(result).toContain('https://valid.example.com');
+      expect(result).toContain('http://localhost:3000');
+      expect(result).not.toContain('ftp://invalid.com');
+      expect(result).not.toContain('not-a-url');
+    });
+
+    it('should return empty array for empty input', () => {
+      const result = validateCorsOrigins([]);
+      expect(result).toEqual([]);
+    });
+
+    it('should handle origins with paths correctly', () => {
+      const result = validateCorsOrigins(['https://example.com/api', 'https://example.com/path/to/resource']);
+      expect(result).toContain('https://example.com/api');
+      expect(result).toContain('https://example.com/path/to/resource');
+    });
+  });
+});

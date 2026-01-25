@@ -14,6 +14,13 @@ export interface EncryptionResult {
 }
 
 /**
+ * Salt used for key derivation via scrypt.
+ * Using a constant salt is acceptable here as it doesn't reduce security -
+ * the salt is not meant to be secret, just unique per application.
+ */
+export const ENCRYPTION_SALT = '1mcp-salt';
+
+/**
  * Encrypt data using AES-256-GCM
  *
  * @param plaintext - The data to encrypt
@@ -23,7 +30,7 @@ export interface EncryptionResult {
  */
 export function encrypt(plaintext: string, key: string): EncryptionResult {
   // Derive a proper 32-byte key using scrypt
-  const derivedKey = scryptSync(key, '1mcp-salt', 32);
+  const derivedKey = scryptSync(key, ENCRYPTION_SALT, 32);
 
   // Generate a random IV (12 bytes for GCM)
   const iv = randomBytes(12);
@@ -57,7 +64,7 @@ export function encrypt(plaintext: string, key: string): EncryptionResult {
  */
 export function decrypt(encryptedData: string, iv: string, authTag: string, key: string): string {
   // Derive the same key
-  const derivedKey = scryptSync(key, '1mcp-salt', 32);
+  const derivedKey = scryptSync(key, ENCRYPTION_SALT, 32);
 
   // Create decipher
   const decipher = createDecipheriv('aes-256-gcm', derivedKey, Buffer.from(iv, 'base64'));

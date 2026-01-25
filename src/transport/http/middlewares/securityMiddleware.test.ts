@@ -25,6 +25,12 @@ vi.mock('@src/logger/logger.js', () => ({
   debugIf: vi.fn(),
 }));
 
+// Mock AgentConfigManager - using spyOn in tests instead
+vi.mock('@src/core/server/agentConfig.js', async () => {
+  const { AgentConfigManager } = await vi.importActual('@src/core/server/agentConfig.js');
+  return { AgentConfigManager };
+});
+
 describe('Security Middleware', () => {
   let mockRequest: any;
   let mockResponse: any;

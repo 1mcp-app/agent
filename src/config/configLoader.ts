@@ -7,11 +7,26 @@ import { AgentConfigManager } from '@src/core/server/agentConfig.js';
 import { MCPServerParams, transportConfigSchema } from '@src/core/types/transport.js';
 import logger, { debugIf } from '@src/logger/logger.js';
 
-import { ZodError } from 'zod';
+import { ZodError, z } from 'zod';
 
 interface ErrnoException extends Error {
   code?: string;
 }
+
+/**
+ * Schema for validating security configuration from config file.
+ * Ensures type safety and catches invalid config values early.
+ */
+const securityConfigSchema = z.object({
+  corsOrigins: z.union([z.string(), z.array(z.string())]).optional(),
+  hstsEnabled: z.union([z.boolean(), z.string()]).optional(),
+  tokenEncryptionKey: z.string().optional(),
+});
+
+/**
+ * Type inferred from the security config schema.
+ */
+export type SecurityConfigInput = z.infer<typeof securityConfigSchema>;
 
 export class ConfigLoader {
   private configFilePath: string;
@@ -137,24 +152,45 @@ export class ConfigLoader {
     const configObj = processedConfig as Record<string, unknown>;
 
     // Load security settings from config file if present
-    const securityConfig = configObj.security as Record<string, unknown> | undefined;
-    if (securityConfig) {
+    const securityConfigRaw = configObj.security as Record<string, unknown> | undefined;
+    if (securityConfigRaw) {
+      // Validate security config using Zod schema
+      const validationResult = securityConfigSchema.safeParse(securityConfigRaw);
+      if (!validationResult.success) {
+        const errorMessages = validationResult.error.issues
+          .map((issue) => `${issue.path.join('.')}: ${issue.message}`)
+          .join(', ');
+        logger.error(`Invalid security configuration: ${errorMessages}`);
+        throw new Error(`Invalid security configuration: ${errorMessages}`);
+      }
+
+      const securityConfig = validationResult.data;
       const currentSecurity = agentConfig.get('security');
       const mergedSecurity: { corsOrigins: string[]; hstsEnabled: boolean; tokenEncryptionKey?: string } = {
         ...currentSecurity,
-        ...securityConfig,
       };
 
-      // Handle corsOrigins specially - it can be a string or array in config
-      if (typeof securityConfig.corsOrigins === 'string') {
-        mergedSecurity.corsOrigins = securityConfig.corsOrigins.split(',').map((o) => o.trim()).filter(Boolean);
-      } else if (Array.isArray(securityConfig.corsOrigins)) {
-        mergedSecurity.corsOrigins = securityConfig.corsOrigins.map((o) => String(o));
+      // Handle corsOrigins - it can be a string or array in config
+      if (securityConfig.corsOrigins !== undefined) {
+        if (typeof securityConfig.corsOrigins === 'string') {
+          mergedSecurity.corsOrigins = securityConfig.corsOrigins.split(',').map((o) => o.trim()).filter(Boolean);
+        } else if (Array.isArray(securityConfig.corsOrigins)) {
+          mergedSecurity.corsOrigins = securityConfig.corsOrigins.map((o) => String(o));
+        }
       }
 
-      // Handle boolean conversions
-      if (typeof securityConfig.hstsEnabled === 'string') {
-        mergedSecurity.hstsEnabled = securityConfig.hstsEnabled === 'true';
+      // Handle hstsEnabled (already validated by Zod)
+      if (securityConfig.hstsEnabled !== undefined) {
+        if (typeof securityConfig.hstsEnabled === 'string') {
+          mergedSecurity.hstsEnabled = securityConfig.hstsEnabled === 'true';
+        } else {
+          mergedSecurity.hstsEnabled = securityConfig.hstsEnabled;
+        }
+      }
+
+      // Handle tokenEncryptionKey
+      if (securityConfig.tokenEncryptionKey !== undefined) {
+        mergedSecurity.tokenEncryptionKey = securityConfig.tokenEncryptionKey;
       }
 
       agentConfig.updateConfig({ security: mergedSecurity });
