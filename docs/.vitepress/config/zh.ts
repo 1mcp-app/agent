@@ -135,6 +135,7 @@ function sidebar(): DefaultTheme.Sidebar {
         items: [
           { text: '指令模板', link: '/zh/guide/custom-instructions-template' },
           { text: '服务器指令覆盖', link: '/zh/guide/server-instructions-overrides' },
+          { text: 'MCP 服务器模板', link: '/zh/guide/mcp-server-templates' },
         ],
       },
       {
@@ -246,6 +247,10 @@ function sidebar(): DefaultTheme.Sidebar {
           { text: '模板变量', link: '/zh/reference/instructions-template/variables' },
           { text: '模板示例', link: '/zh/reference/instructions-template/examples' },
         ],
+      },
+      {
+        text: 'MCP 服务器模板',
+        items: [{ text: '模板语法', link: '/zh/reference/mcp-templates/syntax' }],
       },
     ],
   };

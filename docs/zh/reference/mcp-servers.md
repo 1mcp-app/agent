@@ -431,6 +431,140 @@ npx -y @1mcp/agent --config-dir ./project-config
 
 ---
 
+## MCP 服务器模板
+
+MCP 服务器模板支持动态、上下文感知的服务器配置。您可以定义模板配置，这些配置会根据运行时上下文（如当前项目、用户、环境或客户端连接）自动调整，而无需硬编码服务器设置。
+
+### 模板配置
+
+模板在配置的 `mcpTemplates` 部分中定义：
+
+::: v-pre
+
+```json
+{
+  "mcpTemplates": {
+    "project-filesystem": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-filesystem", "{{project.path}}"],
+      "tags": ["filesystem", "project"]
+    },
+    "conditional-server": {
+      "command": "node",
+      "args": ["{{project.path}}/server.js"],
+      "env": {
+        "NODE_ENV": "{{project.environment}}",
+        "DEBUG": "{{#if (eq project.environment 'development')}}true{{else}}false{{/if}}"
+      },
+      "disabled": "{{#if (eq project.environment 'production')}}true{{else}}false{{/if}}"
+    }
+  }
+}
+```
+
+:::
+
+### 可用的模板变量
+
+模板可以访问四个命名空间的上下文变量：
+
+**项目变量** (`project.*`):
+
+- `project.path` - 当前项目的绝对路径
+- `project.name` - 项目目录名称
+- `project.environment` - 环境名称
+- `project.git.branch` - Git 分支名称
+- `project.custom.*` - 来自 `.1mcprc` 文件的自定义值
+
+**用户变量** (`user.*`):
+
+- `user.username` - 系统用户名
+- `user.name` - 用户全名
+- `user.email` - 用户邮箱地址
+- `user.home` - 主目录路径
+
+**上下文变量** (`context.*`):
+
+- `context.path` - 当前工作目录
+- `context.timestamp` - ISO 8601 时间戳
+- `context.sessionId` - 唯一连接会话 ID
+- `context.version` - 1MCP 版本
+
+**传输变量** (`transport.*`):
+
+- `transport.type` - 传输协议 (`http`、`sse`、`stdio`)
+- `transport.client.name` - 客户端应用名称 (`cursor`、`claude-code`)
+- `transport.client.version` - 客户端版本
+
+### 模板语法
+
+1MCP 使用 [Handlebars](https://handlebarsjs.com/) 进行模板渲染：
+
+::: v-pre
+
+```text
+{{project.path}}
+<!-- 变量访问 -->
+{{#if (eq project.environment 'production')}}
+  <!-- 条件语句 -->
+  production-value
+{{else}}
+  development-value
+{{/if}}
+{{#if (and condition1 condition2)}}
+  <!-- 逻辑运算符 -->
+{{/if}}
+```
+
+:::
+
+### 上下文增强 (.1mcprc)
+
+项目级别的上下文可以通过 `.1mcprc` 文件增强：
+
+```json
+{
+  "preset": "my-team-preset",
+  "tags": ["team-a", "backend"],
+  "context": {
+    "projectId": "myapp-backend",
+    "environment": "development",
+    "team": "platform",
+    "custom": {
+      "teamId": "team-a",
+      "region": "us-west",
+      "apiEndpoint": "https://dev-api.example.com"
+    }
+  }
+}
+```
+
+自定义值可以在模板中作为 <span v-pre>`{{project.custom.*}}`</span> 访问。
+
+### 模板设置
+
+控制模板处理行为：
+
+```json
+{
+  "templateSettings": {
+    "validateOnReload": true,
+    "failureMode": "graceful",
+    "cacheContext": true
+  }
+}
+```
+
+| 设置               | 类型                   | 描述                       |
+| ------------------ | ---------------------- | -------------------------- |
+| `validateOnReload` | boolean                | 重新加载配置时验证模板     |
+| `failureMode`      | `'strict'\|'graceful'` | 如何处理模板错误           |
+| `cacheContext`     | boolean                | 按上下文哈希缓存渲染的模板 |
+
+有关模板的完整文档，请参阅 [MCP 服务器模板指南](/zh/guide/mcp-server-templates) 和 [模板语法参考](/zh/reference/mcp-templates/syntax)。
+
+---
+
 ## 另请参阅
 
 - **[配置深入指南](../guide/essentials/configuration.md)** - CLI 标志和环境变量

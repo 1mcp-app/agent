@@ -452,6 +452,137 @@ The agent supports hot-reloading of the configuration file. If you modify the JS
 
 ---
 
+## MCP Server Templates
+
+MCP Server Templates enable dynamic, context-aware server configuration. Instead of hardcoding server settings, you can define template configurations that automatically adapt based on runtime context like the current project, user, environment, or client connection.
+
+### Template Configuration
+
+Templates are defined in the `mcpTemplates` section of your configuration:
+
+::: v-pre
+
+```json
+{
+  "mcpTemplates": {
+    "project-filesystem": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-filesystem", "{{project.path}}"],
+      "tags": ["filesystem", "project"]
+    },
+    "conditional-server": {
+      "command": "node",
+      "args": ["{{project.path}}/server.js"],
+      "env": {
+        "NODE_ENV": "{{project.environment}}",
+        "DEBUG": "{{#if (eq project.environment 'development')}}true{{else}}false{{/if}}"
+      },
+      "disabled": "{{#if (eq project.environment 'production')}}true{{else}}false{{/if}}"
+    }
+  }
+}
+```
+
+:::
+
+### Available Template Variables
+
+Templates have access to four namespaces of context variables:
+
+**Project Variables** (`project.*`):
+
+- `project.path` - Absolute path to current project
+- `project.name` - Project directory name
+- `project.environment` - Environment name
+- `project.git.branch` - Git branch name
+- `project.custom.*` - Custom values from `.1mcprc` file
+
+**User Variables** (`user.*`):
+
+- `user.username` - System username
+- `user.name` - User's full name
+- `user.email` - User email address
+- `user.home` - Home directory path
+
+**Context Variables** (`context.*`):
+
+- `context.path` - Current working directory
+- `context.timestamp` - ISO 8601 timestamp
+- `context.sessionId` - Unique connection session ID
+- `context.version` - 1MCP version
+
+**Transport Variables** (`transport.*`):
+
+- `transport.type` - Transport protocol (`http`, `sse`, `stdio`)
+- `transport.client.name` - Client application name (`cursor`, `claude-code`)
+- `transport.client.version` - Client version
+
+### Template Syntax
+
+1MCP uses [Handlebars](https://handlebarsjs.com/) for template rendering:
+
+::: v-pre
+
+```text
+{{project.path}}                           <!-- Variable access -->
+{{#if (eq project.environment 'production')}}  <!-- Conditionals -->
+  production-value
+{{else}}
+  development-value
+{{/if}}
+{{#if (and condition1 condition2)}}        <!-- Logical operators -->
+{{/if}}
+```
+
+:::
+
+### Context Enrichment (.1mcprc)
+
+Project-level context can be enriched with a `.1mcprc` file:
+
+```json
+{
+  "preset": "my-team-preset",
+  "tags": ["team-a", "backend"],
+  "context": {
+    "projectId": "myapp-backend",
+    "environment": "development",
+    "team": "platform",
+    "custom": {
+      "teamId": "team-a",
+      "region": "us-west",
+      "apiEndpoint": "https://dev-api.example.com"
+    }
+  }
+}
+```
+
+Custom values are available as <span v-pre>`{{project.custom.*}}`</span> in templates.
+
+### Template Settings
+
+Control template processing behavior:
+
+```json
+{
+  "templateSettings": {
+    "validateOnReload": true,
+    "failureMode": "graceful",
+    "cacheContext": true
+  }
+}
+```
+
+| Setting            | Type                   | Description                                |
+| ------------------ | ---------------------- | ------------------------------------------ |
+| `validateOnReload` | boolean                | Validate templates when config is reloaded |
+| `failureMode`      | `'strict'\|'graceful'` | How to handle template errors              |
+| `cacheContext`     | boolean                | Cache rendered templates by context hash   |
+
+For complete documentation on templates, see the [MCP Server Templates Guide](/guide/mcp-server-templates) and [Template Syntax Reference](/reference/mcp-templates/syntax).
+
+---
+
 ## See Also
 
 - **[Configuration Deep Dive](../guide/essentials/configuration.md)** - CLI flags and environment variables
