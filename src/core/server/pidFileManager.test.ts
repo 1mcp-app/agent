@@ -3,6 +3,7 @@ import fs from 'fs';
 import path from 'path';
 
 import {
+  _resetHandlerFlags,
   cleanupPidFile,
   cleanupPidFileOnExit,
   getPidFilePath,
@@ -376,6 +377,9 @@ describe('pidFileManager', () => {
     });
 
     it('should call process.exit when registerPidFileSignalHandlers is used', () => {
+      // Reset handler flags to allow registration in test
+      _resetHandlerFlags();
+
       const serverInfo: ServerPidInfo = {
         pid: process.pid,
         url: 'http://localhost:3050/mcp',

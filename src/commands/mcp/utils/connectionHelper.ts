@@ -6,6 +6,13 @@ import type { MCPServerParams } from '@src/core/types/index.js';
 import logger from '@src/logger/logger.js';
 import { createTransports } from '@src/transport/transportFactory.js';
 
+/**
+ * Creates a timeout promise that rejects after the specified duration
+ */
+export function createTimeout(ms: number, message: string): Promise<never> {
+  return new Promise((_, reject) => setTimeout(() => reject(new Error(message)), ms));
+}
+
 export interface ServerCapabilities {
   serverName: string;
   connected: boolean;
@@ -129,7 +136,7 @@ export class McpConnectionHelper {
       try {
         const toolsResult = await Promise.race([
           connection.client.listTools({}),
-          new Promise<never>((_, reject) => setTimeout(() => reject(new Error('Tools listing timeout')), 5000)),
+          createTimeout(5000, 'Tools listing timeout'),
         ]);
 
         if (toolsResult && toolsResult.tools) {
@@ -144,7 +151,7 @@ export class McpConnectionHelper {
       try {
         const resourcesResult = await Promise.race([
           connection.client.listResources({}),
-          new Promise<never>((_, reject) => setTimeout(() => reject(new Error('Resources listing timeout')), 5000)),
+          createTimeout(5000, 'Resources listing timeout'),
         ]);
 
         if (resourcesResult && resourcesResult.resources) {
@@ -159,7 +166,7 @@ export class McpConnectionHelper {
       try {
         const promptsResult = await Promise.race([
           connection.client.listPrompts({}),
-          new Promise<never>((_, reject) => setTimeout(() => reject(new Error('Prompts listing timeout')), 5000)),
+          createTimeout(5000, 'Prompts listing timeout'),
         ]);
 
         if (promptsResult && promptsResult.prompts) {
@@ -191,7 +198,7 @@ export class McpConnectionHelper {
             // Add timeout to close operation
             await Promise.race([
               connection.client.close(),
-              new Promise<never>((_, reject) => setTimeout(() => reject(new Error('Close operation timeout')), 3000)),
+              createTimeout(3000, 'Close operation timeout'),
             ]);
           }
           logger.debug(`Closed connection to ${serverName}`);

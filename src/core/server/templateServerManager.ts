@@ -9,6 +9,7 @@ import { MCPServerParams } from '@src/core/types/index.js';
 import type { InboundConnectionConfig } from '@src/core/types/server.js';
 import logger, { debugIf } from '@src/logger/logger.js';
 import type { ContextData } from '@src/types/context.js';
+import { TIMEOUTS } from '@src/constants/timeouts.js';
 
 /**
  * Options for rebuilding the template index
@@ -37,8 +38,8 @@ export class TemplateServerManager {
     // Initialize the client instance pool
     this.clientInstancePool = new ClientInstancePool({
       maxInstances: 50, // Configurable limit
-      idleTimeout: 5 * 60 * 1000, // 5 minutes - faster cleanup for development
-      cleanupInterval: 30 * 1000, // 30 seconds - more frequent cleanup checks
+      idleTimeout: TIMEOUTS.IDLE_TIMEOUT,
+      cleanupInterval: TIMEOUTS.TEMPLATE_CLEANUP_INTERVAL,
     });
 
     // Start cleanup timer for idle template instances
@@ -49,14 +50,13 @@ export class TemplateServerManager {
    * Starts the periodic cleanup timer for idle template instances
    */
   private startCleanupTimer(): void {
-    const cleanupInterval = 30 * 1000; // 30 seconds - match pool's cleanup interval
     this.cleanupTimer = setInterval(async () => {
       try {
         await this.cleanupIdleInstances();
       } catch (error) {
         logger.error('Error during idle instance cleanup:', error);
       }
-    }, cleanupInterval);
+    }, TIMEOUTS.TEMPLATE_CLEANUP_INTERVAL);
 
     // Ensure the timer doesn't prevent process exit
     if (this.cleanupTimer.unref) {
@@ -116,10 +116,12 @@ export class TemplateServerManager {
         });
 
         // Track session -> rendered hash mapping for routing
-        if (!this.sessionToRenderedHash.has(sessionId)) {
-          this.sessionToRenderedHash.set(sessionId, new Map());
+        let sessionMap = this.sessionToRenderedHash.get(sessionId);
+        if (!sessionMap) {
+          sessionMap = new Map();
+          this.sessionToRenderedHash.set(sessionId, sessionMap);
         }
-        this.sessionToRenderedHash.get(sessionId)!.set(templateName, renderedHash);
+        sessionMap.set(templateName, renderedHash);
 
         // Store session ID mapping separately for cleanup tracking
         if (!this.templateSessionMap) {
@@ -329,7 +331,7 @@ export class TemplateServerManager {
   /**
    * Get idle template instances for cleanup
    */
-  public getIdleTemplateInstances(idleTimeoutMs: number = 10 * 60 * 1000): Array<{
+  public getIdleTemplateInstances(idleTimeoutMs: number = TIMEOUTS.TEMPLATE_IDLE_TIMEOUT): Array<{
     templateName: string;
     instanceId: string;
     idleTime: number;
@@ -438,6 +440,8 @@ export class TemplateServerManager {
     return this.sessionToRenderedHash.get(sessionId);
   }
 
+  private exitHandlerRegistered = false;
+
   /**
    * Clean up resources (for shutdown)
    */
@@ -448,7 +452,19 @@ export class TemplateServerManager {
       this.cleanupTimer = undefined;
     }
 
+    // Clear session-to-rendered-hash mapping
+    this.sessionToRenderedHash.clear();
+
+    // Clear template session map
+    this.templateSessionMap?.clear();
+
     // Clean up the client instance pool
     this.clientInstancePool?.cleanupIdleInstances();
+
+    // Register process exit handler for graceful shutdown (only once)
+    if (typeof process !== 'undefined' && !this.exitHandlerRegistered) {
+      this.exitHandlerRegistered = true;
+      process.on('exit', () => this.cleanup());
+    }
   }
 }

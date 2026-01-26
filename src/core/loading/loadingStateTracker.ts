@@ -244,10 +244,10 @@ export class LoadingStateTracker extends EventEmitter {
     const isComplete = pending === 0 && loading === 0;
     const successRate = states.length > 0 ? (ready / states.length) * 100 : 0;
 
+    const durations = completedStates.filter((s) => s.duration !== undefined);
     const averageLoadTime =
-      completedStates.length > 0
-        ? completedStates.filter((s) => s.duration !== undefined).reduce((sum, s) => sum + (s.duration || 0), 0) /
-          completedStates.length
+      durations.length > 0
+        ? durations.reduce((sum, s) => sum + (s.duration || 0), 0) / durations.length
         : undefined;
 
     return {

@@ -73,7 +73,14 @@ export class CacheManager {
    * Invalidate cache entries matching a pattern
    */
   async invalidate(pattern: string): Promise<void> {
-    const regex = new RegExp(pattern);
+    let regex: RegExp;
+    try {
+      regex = new RegExp(pattern);
+    } catch (error) {
+      logger.warn(`Invalid regex pattern for cache invalidation: "${pattern}"`, error);
+      return;
+    }
+
     const keysToDelete: string[] = [];
 
     for (const key of this.cache.keys()) {
@@ -153,6 +160,8 @@ export class CacheManager {
     }, this.options.cleanupInterval);
   }
 
+  private exitHandlerRegistered = false;
+
   /**
    * Stop the cleanup timer
    */
@@ -160,6 +169,12 @@ export class CacheManager {
     if (this.cleanupTimer) {
       clearInterval(this.cleanupTimer);
       this.cleanupTimer = undefined;
+    }
+
+    // Register process exit handler for graceful shutdown (only once)
+    if (typeof process !== 'undefined' && !this.exitHandlerRegistered) {
+      this.exitHandlerRegistered = true;
+      process.on('exit', () => this.destroy());
     }
   }
 
@@ -188,10 +203,14 @@ export class CacheManager {
    */
   private evictOldest(): void {
     const entries = Array.from(this.cache.entries());
+    if (entries.length === 0) {
+      return;
+    }
+
     entries.sort((a, b) => a[1].createdAt - b[1].createdAt);
 
-    const toRemove = Math.ceil(this.options.maxSize * 0.1); // Remove 10% of entries
-    for (let i = 0; i < toRemove && entries.length > 0; i++) {
+    const toRemove = Math.min(Math.ceil(this.options.maxSize * 0.1), entries.length); // Remove 10% of entries, capped at available entries
+    for (let i = 0; i < toRemove; i++) {
       const [key] = entries[i];
       this.cache.delete(key);
     }

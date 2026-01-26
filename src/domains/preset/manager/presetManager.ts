@@ -472,6 +472,8 @@ export class PresetManager {
     // Validate name
     if (!name || typeof name !== 'string') {
       errors.push('Preset name is required and must be a string');
+    } else if (name.length < 1) {
+      errors.push('Preset name must be at least 1 character');
     } else if (name.length > 50) {
       errors.push('Preset name must be 50 characters or less');
     } else if (!/^[a-zA-Z0-9_-]+$/.test(name)) {

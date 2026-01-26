@@ -18,6 +18,19 @@ export interface ServerPidInfo {
 
 const PID_FILE_NAME = 'server.pid';
 
+// Track registered handlers to prevent multiple registrations
+let cleanupRegistered = false;
+let signalHandlersRegistered = false;
+
+/**
+ * Reset handler registration flags (for testing purposes only)
+ * @internal
+ */
+export function _resetHandlerFlags(): void {
+  cleanupRegistered = false;
+  signalHandlersRegistered = false;
+}
+
 /**
  * Get PID file path for a given config directory
  */
@@ -135,6 +148,11 @@ export function cleanupPidFileOnExit(configDir: string): void {
  * @param configDir Configuration directory
  */
 export function registerPidFileCleanup(configDir: string): void {
+  // Prevent multiple registrations
+  if (cleanupRegistered) {
+    return;
+  }
+
   const cleanup = () => {
     cleanupPidFile(configDir);
   };
@@ -142,6 +160,7 @@ export function registerPidFileCleanup(configDir: string): void {
   // Only register for the 'exit' event
   // Signal handlers (SIGINT, SIGTERM, SIGHUP) should be managed by the main application
   process.on('exit', cleanup);
+  cleanupRegistered = true;
 }
 
 /**
@@ -150,22 +169,23 @@ export function registerPidFileCleanup(configDir: string): void {
  * @param configDir Configuration directory
  */
 export function registerPidFileSignalHandlers(configDir: string): void {
+  // Prevent multiple registrations
+  if (signalHandlersRegistered) {
+    return;
+  }
+
   const cleanup = () => {
     cleanupPidFile(configDir);
   };
 
   // Register cleanup for signal handlers
   // NOTE: This should only be used if the main application doesn't have its own signal handlers
-  process.on('SIGINT', () => {
-    cleanup();
-    process.exit(0);
-  });
-  process.on('SIGTERM', () => {
-    cleanup();
-    process.exit(0);
-  });
-  process.on('SIGHUP', () => {
-    cleanup();
-    process.exit(0);
-  });
+  const signals = ['SIGINT', 'SIGTERM', 'SIGHUP'] as const;
+  for (const signal of signals) {
+    process.on(signal, () => {
+      cleanup();
+      process.exit(0);
+    });
+  }
+  signalHandlersRegistered = true;
 }
