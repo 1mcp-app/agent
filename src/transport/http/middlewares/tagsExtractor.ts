@@ -4,6 +4,7 @@ import { PresetManager } from '@src/domains/preset/manager/presetManager.js';
 import { TagQueryParser } from '@src/domains/preset/parsers/tagQueryParser.js';
 import { TagQuery } from '@src/domains/preset/types/presetTypes.js';
 import logger, { debugIf } from '@src/logger/logger.js';
+import { logWarn } from '@src/transport/http/utils/unifiedLogger.js';
 import { validateAndSanitizeTags } from '@src/utils/validation/sanitization.js';
 
 import { NextFunction, Request, Response } from 'express';
@@ -78,6 +79,12 @@ export default function tagsExtractor(req: Request, res: Response, next: NextFun
   // Mutual exclusion check - preset takes priority
   const paramCount = [hasPreset, hasTags, hasTagFilter].filter(Boolean).length;
   if (paramCount > 1) {
+    logWarn('HTTP error 400', {
+      method: req.method,
+      path: req.path,
+      statusCode: 400,
+      reason: 'Multiple filter parameters used simultaneously',
+    });
     res.status(400).json({
       error: {
         code: ErrorCode.InvalidParams,
@@ -92,6 +99,12 @@ export default function tagsExtractor(req: Request, res: Response, next: NextFun
   if (hasPreset) {
     const presetName = req.query.preset as string;
     if (typeof presetName !== 'string') {
+      logWarn('HTTP error 400', {
+        method: req.method,
+        path: req.path,
+        statusCode: 400,
+        reason: 'Invalid preset parameter type',
+      });
       res.status(400).json({
         error: {
           code: ErrorCode.InvalidParams,
@@ -106,6 +119,12 @@ export default function tagsExtractor(req: Request, res: Response, next: NextFun
       const tagExpression = presetManager.resolvePresetToExpression(presetName);
 
       if (!tagExpression) {
+        logWarn('HTTP error 400', {
+          method: req.method,
+          path: req.path,
+          statusCode: 400,
+          reason: `Preset '${presetName}' not found`,
+        });
         res.status(400).json({
           error: {
             code: ErrorCode.InvalidParams,
@@ -119,6 +138,12 @@ export default function tagsExtractor(req: Request, res: Response, next: NextFun
       // Use the preset's JSON tagQuery directly instead of parsing string expression
       const preset = presetManager.getPreset(presetName);
       if (!preset) {
+        logWarn('HTTP error 400', {
+          method: req.method,
+          path: req.path,
+          statusCode: 400,
+          reason: `Preset '${presetName}' configuration invalid`,
+        });
         res.status(400).json({
           error: {
             code: ErrorCode.InvalidParams,
@@ -151,6 +176,12 @@ export default function tagsExtractor(req: Request, res: Response, next: NextFun
         return;
       } catch (error) {
         logger.error('Failed to process preset tag query', { presetName, tagQuery: preset.tagQuery, error });
+        logWarn('HTTP error 400', {
+          method: req.method,
+          path: req.path,
+          statusCode: 400,
+          reason: `Preset '${presetName}' has invalid tag query`,
+        });
         res.status(400).json({
           error: {
             code: ErrorCode.InvalidParams,
@@ -175,6 +206,12 @@ export default function tagsExtractor(req: Request, res: Response, next: NextFun
   if (hasTags) {
     const tagsStr = req.query.tags as string;
     if (typeof tagsStr !== 'string') {
+      logWarn('HTTP error 400', {
+        method: req.method,
+        path: req.path,
+        statusCode: 400,
+        reason: 'Invalid tags parameter type',
+      });
       res.status(400).json({
         error: {
           code: ErrorCode.InvalidParams,
@@ -199,7 +236,12 @@ export default function tagsExtractor(req: Request, res: Response, next: NextFun
           originalTags: rawTags,
           invalidTags: validation.invalidTags,
         });
-
+        logWarn('HTTP error 400', {
+          method: req.method,
+          path: req.path,
+          statusCode: 400,
+          reason: `Invalid tags: ${validation.errors.join('; ')}`,
+        });
         res.status(400).json({
           error: {
             code: ErrorCode.InvalidParams,
@@ -239,6 +281,12 @@ export default function tagsExtractor(req: Request, res: Response, next: NextFun
   if (hasTagFilter) {
     const filterStr = req.query['tag-filter'] as string;
     if (typeof filterStr !== 'string') {
+      logWarn('HTTP error 400', {
+        method: req.method,
+        path: req.path,
+        statusCode: 400,
+        reason: 'Invalid tag-filter parameter type',
+      });
       res.status(400).json({
         error: {
           code: ErrorCode.InvalidParams,
@@ -256,6 +304,12 @@ export default function tagsExtractor(req: Request, res: Response, next: NextFun
       res.locals.tags = expression.type === 'tag' ? [expression.value!] : undefined;
       next();
     } catch (error) {
+      logWarn('HTTP error 400', {
+        method: req.method,
+        path: req.path,
+        statusCode: 400,
+        reason: `Invalid tag-filter: ${error instanceof Error ? error.message : 'Unknown error'}`,
+      });
       res.status(400).json({
         error: {
           code: ErrorCode.InvalidParams,

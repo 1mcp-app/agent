@@ -19,8 +19,87 @@ import { RestorableStreamableHTTPServerTransport } from '@src/transport/http/res
 import { StreamableSessionRepository } from '@src/transport/http/storage/streamableSessionRepository.js';
 import { extractContextFromMeta } from '@src/transport/http/utils/contextExtractor.js';
 import { SessionService } from '@src/transport/http/utils/sessionService.js';
+import { logError, logWarn } from '@src/transport/http/utils/unifiedLogger.js';
 
 import { Request, RequestHandler, Response, Router } from 'express';
+
+/**
+ * Wraps an Express response to log when status >= 400 is set.
+ * This catches SDK responses that don't throw errors.
+ */
+function wrapResponseForLogging(req: Request, res: Response): Response {
+  const originalJson = res.json.bind(res);
+  const originalStatus = res.status.bind(res);
+  const originalWrite = res.write.bind(res);
+  const originalEnd = res.end.bind(res);
+  let logged = false;
+
+  const logIfNeeded = () => {
+    if (logged || res.statusCode < 400) return;
+    logged = true;
+
+    const level = res.statusCode >= 500 ? 'error' : 'warn';
+    const logFn = level === 'error' ? logError : logWarn;
+    logFn(`HTTP error ${res.statusCode}`, {
+      method: req.method,
+      path: req.path,
+      sessionId: req.headers['mcp-session-id'] as string | undefined,
+      statusCode: res.statusCode,
+      reason: 'SDK request validation failed',
+    });
+  };
+
+  // Intercept res.status() to detect when error codes are set
+  res.status = function (code: number): Response {
+    const result = originalStatus(code);
+    if (code >= 400) {
+      logIfNeeded();
+    }
+    return result;
+  };
+
+  // Intercept res.json()
+  res.json = function (body: unknown): Response {
+    logIfNeeded();
+    return originalJson(body);
+  };
+
+  // Intercept res.write() for SSE and streaming responses
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  res.write = function (...args: any[]): boolean {
+    // Only log on first write to avoid duplicate logs
+    logIfNeeded();
+    // Handle different overloads of res.write()
+    if (args.length === 1) {
+      return originalWrite(args[0]);
+    } else if (args.length === 2 && typeof args[1] === 'function') {
+      // eslint-disable-next-line @typescript-eslint/no-unsafe-argument
+      return originalWrite(args[0], args[1]);
+    } else if (args.length >= 2) {
+      // eslint-disable-next-line @typescript-eslint/no-unsafe-argument
+      return originalWrite(args[0], args[1] || 'utf8', args[2]);
+    }
+    // Fallback: return false (write failed)
+    return false;
+  };
+
+  // Intercept res.end()
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  res.end = function (...args: any[]): Response {
+    logIfNeeded();
+    // Handle different overloads of res.end()
+    if (args.length === 0 || (args.length === 1 && args[0] === undefined)) {
+      return originalEnd();
+    } else if (args.length === 1) {
+      return originalEnd(args[0]);
+    } else {
+      // eslint-disable-next-line @typescript-eslint/no-unsafe-argument
+      return originalEnd(args[0], args[1]);
+    }
+  };
+
+  return res;
+}
 
 /**
  * Builds the inbound connection config from request data.
@@ -139,10 +218,21 @@ export function setupStreamableHttpRoutes(
         }
       }
 
-      await transport.handleRequest(req, res, req.body);
+      // Wrap response to catch SDK errors
+      const wrappedRes = wrapResponseForLogging(req, res);
+      await transport.handleRequest(req, wrappedRes, req.body);
     } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : String(error);
-      logger.error('Streamable HTTP POST error:', { error: errorMessage, sessionId: req.headers['mcp-session-id'] });
+      logError('HTTP error 500', {
+        method: req.method,
+        path: req.path,
+        sessionId: req.headers['mcp-session-id'] as string | undefined,
+        phase: 'handleRequest',
+        error,
+        headers: {
+          'content-type': req.headers['content-type'],
+          'user-agent': req.headers['user-agent'],
+        },
+      });
       res.status(500).json({
         error: {
           code: ErrorCode.InternalError,
@@ -156,6 +246,12 @@ export function setupStreamableHttpRoutes(
     try {
       const sessionId = req.headers['mcp-session-id'] as string | undefined;
       if (!sessionId) {
+        logWarn('HTTP error 400', {
+          method: req.method,
+          path: req.path,
+          statusCode: 400,
+          reason: 'Missing sessionId header',
+        });
         res.status(400).json({
           error: {
             code: ErrorCode.InvalidParams,
@@ -168,6 +264,13 @@ export function setupStreamableHttpRoutes(
       const transport = await sessionService.getSession(sessionId);
 
       if (!transport) {
+        logWarn('HTTP error 404', {
+          method: req.method,
+          path: req.path,
+          sessionId,
+          statusCode: 404,
+          reason: 'Session not found',
+        });
         res.status(404).json({
           error: {
             code: ErrorCode.InvalidParams,
@@ -180,10 +283,18 @@ export function setupStreamableHttpRoutes(
       // Set up disconnect detection for SSE stream (GET endpoint maintains persistent connection)
       setupDisconnectDetection(req, res, sessionId, serverManager);
 
-      await transport.handleRequest(req, res, req.body);
+      // Wrap response to catch SDK errors
+      const wrappedRes = wrapResponseForLogging(req, res);
+      await transport.handleRequest(req, wrappedRes, req.body);
     } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : String(error);
-      logger.error('Streamable HTTP GET error:', { error: errorMessage, sessionId: req.headers['mcp-session-id'] });
+      logError('HTTP error 500', {
+        method: req.method,
+        path: req.path,
+        sessionId: req.headers['mcp-session-id'] as string | undefined,
+        statusCode: 500,
+        phase: 'handleRequest',
+        error,
+      });
       res.status(500).json({
         error: {
           code: ErrorCode.InternalError,
@@ -197,6 +308,12 @@ export function setupStreamableHttpRoutes(
     try {
       const sessionId = req.headers['mcp-session-id'] as string | undefined;
       if (!sessionId) {
+        logWarn('HTTP error 400', {
+          method: req.method,
+          path: req.path,
+          statusCode: 400,
+          reason: 'Missing sessionId header',
+        });
         res.status(400).json({
           error: {
             code: ErrorCode.InvalidParams,
@@ -209,6 +326,13 @@ export function setupStreamableHttpRoutes(
       const transport = await sessionService.getSession(sessionId);
 
       if (!transport) {
+        logWarn('HTTP error 404', {
+          method: req.method,
+          path: req.path,
+          sessionId,
+          statusCode: 404,
+          reason: 'Session not found',
+        });
         res.status(404).json({
           error: {
             code: ErrorCode.InvalidParams,
@@ -218,12 +342,20 @@ export function setupStreamableHttpRoutes(
         return;
       }
 
-      await transport.handleRequest(req, res);
+      // Wrap response to catch SDK errors
+      const wrappedRes = wrapResponseForLogging(req, res);
+      await transport.handleRequest(req, wrappedRes);
       // Delete session from storage after explicit delete request
       await sessionService.deleteSession(sessionId);
     } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : String(error);
-      logger.error('Streamable HTTP DELETE error:', { error: errorMessage, sessionId: req.headers['mcp-session-id'] });
+      logError('HTTP error 500', {
+        method: req.method,
+        path: req.path,
+        sessionId: req.headers['mcp-session-id'] as string | undefined,
+        statusCode: 500,
+        phase: 'handleRequest',
+        error,
+      });
       res.status(500).json({
         error: {
           code: ErrorCode.InternalError,

@@ -132,6 +132,7 @@ describe('Streamable HTTP Routes', () => {
     mockResponse = {
       status: vi.fn().mockReturnThis(),
       json: vi.fn().mockReturnThis(),
+      write: vi.fn().mockReturnThis(),
       end: vi.fn().mockReturnThis(),
       locals: {},
       writableEnded: false,
@@ -140,10 +141,13 @@ describe('Streamable HTTP Routes', () => {
 
     // Default mock implementations for SessionService
     mockSessionService.createSession.mockResolvedValue({
-      sessionId: 'mock-session-id',
-      handleRequest: vi.fn().mockResolvedValue(undefined),
-      onclose: null,
-      onerror: null,
+      transport: {
+        sessionId: 'mock-session-id',
+        handleRequest: vi.fn().mockResolvedValue(undefined),
+        onclose: null,
+        onerror: null,
+      },
+      persisted: true,
     });
     mockSessionService.getSession.mockResolvedValue(null);
   });
