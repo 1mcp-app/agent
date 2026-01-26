@@ -3,14 +3,15 @@ import { ChildProcess } from 'child_process';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { SSEClientTransport } from '@modelcontextprotocol/sdk/client/sse.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
+import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import {
-  CallToolRequestSchema,
-  ListResourcesRequestSchema,
-  ListToolsRequestSchema,
+  CallToolResultSchema,
+  ListResourcesResultSchema,
+  ListToolsResultSchema,
 } from '@modelcontextprotocol/sdk/types.js';
 
 export interface McpClientConfig {
-  transport: 'stdio' | 'sse';
+  transport: 'stdio' | 'sse' | 'streamable-http';
   stdioConfig?: {
     command: string;
     args?: string[];
@@ -20,11 +21,15 @@ export interface McpClientConfig {
     url: string;
     headers?: Record<string, string>;
   };
+  streamableHttpConfig?: {
+    url: string;
+    sessionId?: string;
+  };
 }
 
 export class McpTestClient {
   private client: Client;
-  private transport!: StdioClientTransport | SSEClientTransport;
+  private transport!: StdioClientTransport | SSEClientTransport | StreamableHTTPClientTransport;
   private process?: ChildProcess;
 
   constructor(private config: McpClientConfig) {
@@ -54,12 +59,25 @@ export class McpTestClient {
         args: this.config.stdioConfig.args,
         env: this.config.stdioConfig.env,
       });
-    } else {
+    } else if (this.config.transport === 'sse') {
       if (!this.config.sseConfig) {
         throw new Error('SSE config required for SSE transport');
       }
 
       this.transport = new SSEClientTransport(new URL(this.config.sseConfig.url), this.config.sseConfig.headers);
+    } else if (this.config.transport === 'streamable-http') {
+      if (!this.config.streamableHttpConfig) {
+        throw new Error('Streamable HTTP config required for streamable-http transport');
+      }
+
+      this.transport = new StreamableHTTPClientTransport(
+        new URL(this.config.streamableHttpConfig.url),
+        this.config.streamableHttpConfig.sessionId
+          ? { sessionId: this.config.streamableHttpConfig.sessionId }
+          : undefined,
+      );
+    } else {
+      throw new Error(`Unknown transport type: ${this.config.transport}`);
     }
 
     await this.client.connect(this.transport);
@@ -72,11 +90,11 @@ export class McpTestClient {
   }
 
   async listTools() {
-    return await this.client.request({ method: 'tools/list' }, ListToolsRequestSchema);
+    return await this.client.request({ method: 'tools/list' }, ListToolsResultSchema);
   }
 
   async listResources() {
-    return await this.client.request({ method: 'resources/list' }, ListResourcesRequestSchema);
+    return await this.client.request({ method: 'resources/list' }, ListResourcesResultSchema);
   }
 
   async callTool(name: string, arguments_?: Record<string, unknown>) {
@@ -88,7 +106,7 @@ export class McpTestClient {
           arguments: arguments_ || {},
         },
       },
-      CallToolRequestSchema,
+      CallToolResultSchema,
     );
   }
 

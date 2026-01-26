@@ -8,14 +8,20 @@ import { registerRequestHandlers } from '@src/core/protocol/requestHandlers.js';
 import { InboundConnection, OutboundConnections } from '@src/core/types/index.js';
 import logger from '@src/logger/logger.js';
 
+import { LazyLoadingOrchestrator } from './lazyLoadingOrchestrator.js';
+
 /**
  * Collects capabilities from all clients and registers them with the server
  * @param clients Record of client instances
- * @param server The MCP server instance
+ * @param serverInfo The MCP server instance
  * @param tags Array of tags to filter clients by
  * @returns The combined server capabilities
  */
-export async function setupCapabilities(clients: OutboundConnections, serverInfo: InboundConnection) {
+export async function setupCapabilities(
+  clients: OutboundConnections,
+  serverInfo: InboundConnection,
+  lazyLoadingOrchestrator?: LazyLoadingOrchestrator,
+) {
   // Collect capabilities from all clients
   const capabilities = collectCapabilities(clients);
 
@@ -24,7 +30,7 @@ export async function setupCapabilities(clients: OutboundConnections, serverInfo
   setupServerToClientNotifications(clients, serverInfo);
 
   // Register request handlers based on capabilities
-  registerRequestHandlers(clients, serverInfo);
+  registerRequestHandlers(clients, serverInfo, lazyLoadingOrchestrator);
 
   return capabilities;
 }

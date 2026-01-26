@@ -54,6 +54,32 @@ vi.mock('@src/logger/logger.js', () => {
   };
 });
 
+vi.mock('@src/core/filtering/clientFiltering.js', () => ({
+  byCapabilities: vi.fn(() => (conns: any) => conns),
+}));
+
+vi.mock('@src/core/filtering/filteringService.js', () => ({
+  FilteringService: {
+    getFilteredConnections: vi.fn((conns: any, serverInfo: any) => {
+      // If no tags specified, return all connections
+      if (!serverInfo.tags || serverInfo.tags.length === 0) {
+        return conns;
+      }
+
+      // Filter connections by matching tags
+      const filtered = new Map();
+      for (const [key, conn] of conns.entries()) {
+        const connTags = (conn as any).tags || [];
+        const hasMatchingTag = serverInfo.tags.some((tag: string) => connTags.includes(tag));
+        if (hasMatchingTag) {
+          filtered.set(key, conn);
+        }
+      }
+      return filtered;
+    }),
+  },
+}));
+
 describe('ConnectionManager', () => {
   let connectionManager: ConnectionManager;
   let mockTransport: Transport;
@@ -194,7 +220,9 @@ describe('ConnectionManager', () => {
 
       const server = connectionManager.getServer(sessionId);
       expect(server).toBeDefined();
-      expect(server?.context).toBeUndefined();
+      // Context should contain sessionId even when both context and opts.context are undefined
+      // This is critical for lazy loading session filters to work correctly
+      expect(server?.context).toEqual({ sessionId: 'test-session-000' });
     });
 
     it('should preserve all other opts properties when merging context', async () => {
@@ -386,6 +414,167 @@ describe('ConnectionManager', () => {
     it('should return empty map when no transports are active', () => {
       const transports = connectionManager.getTransports();
       expect(transports.size).toBe(0);
+    });
+  });
+
+  describe('initializeSessionFilter - template servers', () => {
+    it('should use clean names from connection.name for template servers with hash-suffixed keys', async () => {
+      const sessionId = 'test-session-template';
+
+      // Mock lazy loading orchestrator
+      const mockOrchestrator = {
+        isEnabled: vi.fn().mockReturnValue(true),
+        getCapabilitiesForFilteredServers: vi.fn().mockResolvedValue(undefined),
+      };
+      connectionManager.setLazyLoadingOrchestrator(mockOrchestrator as any);
+
+      // Add template servers with hash-suffixed keys to outboundConnections
+      mockOutboundConns.set('serena:abc123', {
+        name: 'serena', // Clean name
+        client: {} as any,
+        capabilities: { tools: {} },
+        tags: ['memory'],
+      } as any);
+      mockOutboundConns.set('context7:def456', {
+        name: 'context7', // Clean name
+        client: {} as any,
+        capabilities: { tools: {} },
+        tags: ['docs'],
+      } as any);
+
+      const opts = {
+        tags: ['memory', 'docs'],
+        enablePagination: false,
+      };
+
+      await connectionManager.connectTransport(mockTransport, sessionId, opts);
+
+      // Verify that getCapabilitiesForFilteredServers was called with clean names
+      expect(mockOrchestrator.getCapabilitiesForFilteredServers).toHaveBeenCalled();
+      const [filteredServerNames, calledSessionId] = mockOrchestrator.getCapabilitiesForFilteredServers.mock.calls[0];
+
+      expect(calledSessionId).toBe(sessionId);
+      expect(filteredServerNames).toBeInstanceOf(Set);
+      // Should contain clean names, not hash-suffixed keys
+      expect(Array.from(filteredServerNames)).toEqual(expect.arrayContaining(['serena', 'context7']));
+      expect(Array.from(filteredServerNames)).not.toContain('serena:abc123');
+      expect(Array.from(filteredServerNames)).not.toContain('context7:def456');
+    });
+
+    it('should handle mix of template servers and regular servers', async () => {
+      const sessionId = 'test-session-mixed';
+
+      const mockOrchestrator = {
+        isEnabled: vi.fn().mockReturnValue(true),
+        getCapabilitiesForFilteredServers: vi.fn().mockResolvedValue(undefined),
+      };
+      connectionManager.setLazyLoadingOrchestrator(mockOrchestrator as any);
+
+      // Add mix of template servers (hash-suffixed) and regular servers
+      mockOutboundConns.set('serena:abc123', {
+        name: 'serena', // Template server with clean name
+        client: {} as any,
+        capabilities: { tools: {} },
+        tags: ['memory'],
+      } as any);
+      mockOutboundConns.set('filesystem', {
+        name: 'filesystem', // Regular server
+        client: {} as any,
+        capabilities: { tools: {} },
+        tags: ['files'],
+      } as any);
+      mockOutboundConns.set('postgres:session123', {
+        name: 'postgres', // Template server with session suffix
+        client: {} as any,
+        capabilities: { tools: {} },
+        tags: ['database'],
+      } as any);
+
+      const opts = {
+        tags: ['memory', 'files', 'database'],
+        enablePagination: false,
+      };
+
+      await connectionManager.connectTransport(mockTransport, sessionId, opts);
+
+      const [filteredServerNames] = mockOrchestrator.getCapabilitiesForFilteredServers.mock.calls[0];
+
+      // Should contain clean names for all servers
+      expect(Array.from(filteredServerNames)).toEqual(expect.arrayContaining(['serena', 'filesystem', 'postgres']));
+      // Should not contain any suffixed keys
+      expect(Array.from(filteredServerNames)).not.toContain('serena:abc123');
+      expect(Array.from(filteredServerNames)).not.toContain('postgres:session123');
+    });
+
+    it('should filter template servers by tags correctly', async () => {
+      const sessionId = 'test-session-tag-filter';
+
+      const mockOrchestrator = {
+        isEnabled: vi.fn().mockReturnValue(true),
+        getCapabilitiesForFilteredServers: vi.fn().mockResolvedValue(undefined),
+      };
+      connectionManager.setLazyLoadingOrchestrator(mockOrchestrator as any);
+
+      // Add template servers with different tags
+      mockOutboundConns.set('serena:abc123', {
+        name: 'serena',
+        client: {} as any,
+        capabilities: { tools: {} },
+        tags: ['memory', 'search'],
+      } as any);
+      mockOutboundConns.set('context7:def456', {
+        name: 'context7',
+        client: {} as any,
+        capabilities: { tools: {} },
+        tags: ['docs', 'reference'],
+      } as any);
+      mockOutboundConns.set('filesystem', {
+        name: 'filesystem',
+        client: {} as any,
+        capabilities: { tools: {} },
+        tags: ['files', 'storage'],
+      } as any);
+
+      const opts = {
+        tags: ['memory'], // Only filter for memory tag
+        enablePagination: false,
+      };
+
+      await connectionManager.connectTransport(mockTransport, sessionId, opts);
+
+      const [filteredServerNames] = mockOrchestrator.getCapabilitiesForFilteredServers.mock.calls[0];
+
+      // Should only contain servers with memory tag
+      expect(Array.from(filteredServerNames)).toContain('serena');
+      // Should use clean name, not hash-suffixed key
+      expect(Array.from(filteredServerNames)).not.toContain('serena:abc123');
+    });
+
+    it('should not call lazy loading orchestrator when disabled', async () => {
+      const sessionId = 'test-session-disabled';
+
+      const mockOrchestrator = {
+        isEnabled: vi.fn().mockReturnValue(false), // Disabled
+        getCapabilitiesForFilteredServers: vi.fn().mockResolvedValue(undefined),
+      };
+      connectionManager.setLazyLoadingOrchestrator(mockOrchestrator as any);
+
+      mockOutboundConns.set('serena:abc123', {
+        name: 'serena',
+        client: {} as any,
+        capabilities: { tools: {} },
+        tags: ['memory'],
+      } as any);
+
+      const opts = {
+        tags: ['memory'],
+        enablePagination: false,
+      };
+
+      await connectionManager.connectTransport(mockTransport, sessionId, opts);
+
+      // Should not call getCapabilitiesForFilteredServers when lazy loading is disabled
+      expect(mockOrchestrator.getCapabilitiesForFilteredServers).not.toHaveBeenCalled();
     });
   });
 

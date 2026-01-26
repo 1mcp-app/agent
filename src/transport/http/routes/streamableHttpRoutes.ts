@@ -15,7 +15,6 @@ import {
   getValidatedTags,
 } from '@src/transport/http/middlewares/scopeAuthMiddleware.js';
 import tagsExtractor from '@src/transport/http/middlewares/tagsExtractor.js';
-import { RestorableStreamableHTTPServerTransport } from '@src/transport/http/restorableStreamableTransport.js';
 import { StreamableSessionRepository } from '@src/transport/http/storage/streamableSessionRepository.js';
 import { extractContextFromMeta } from '@src/transport/http/utils/contextExtractor.js';
 import { SessionService } from '@src/transport/http/utils/sessionService.js';
@@ -96,7 +95,7 @@ export function setupStreamableHttpRoutes(
 
   router.post(STREAMABLE_HTTP_ENDPOINT, ...middlewares, async (req: Request, res: Response) => {
     try {
-      let transport: StreamableHTTPServerTransport | RestorableStreamableHTTPServerTransport | null;
+      let transport: StreamableHTTPServerTransport | null;
       const sessionId = req.headers['mcp-session-id'] as string | undefined;
 
       if (!sessionId) {
