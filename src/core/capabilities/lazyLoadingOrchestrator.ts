@@ -160,6 +160,7 @@ export class LazyLoadingOrchestrator extends EventEmitter {
     // Build tools map for registry by fetching tools directly from each connection
     const toolsMap = new Map<string, Tool[]>();
     const serverTags = new Map<string, string[]>();
+    const failedServers: Array<{ server: string; error: string }> = [];
 
     for (const [serverName, connection] of this.outboundConnections.entries()) {
       if (!connection.client || connection.status !== ClientStatus.Connected) {
@@ -184,8 +185,23 @@ export class LazyLoadingOrchestrator extends EventEmitter {
           serverTags.set(effectiveServerName, tags);
         }
       } catch (error) {
-        logger.warn(`Failed to list tools from ${serverName}: ${error}`);
-        // Continue with other servers
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        errorIf(() => ({
+          message: 'Failed to list tools from server during registry build',
+          meta: { serverName, error: errorMessage },
+        }));
+        failedServers.push({ server: serverName, error: errorMessage });
+      }
+    }
+
+    // Warn if significant failures
+    if (failedServers.length > 0) {
+      const failureRate = failedServers.length / this.outboundConnections.size;
+      if (failureRate > 0.5) {
+        errorIf(() => ({
+          message: `Tool registry built with ${failedServers.length}/${this.outboundConnections.size} server failures`,
+          meta: { failedServers },
+        }));
       }
     }
 
@@ -210,8 +226,17 @@ export class LazyLoadingOrchestrator extends EventEmitter {
     for (const tool of allTools) {
       // Check server pattern match
       const serverMatch = preload.patterns.some((pattern) => {
-        const regex = new RegExp(`^${pattern.replace(/\*/g, '.*')}$`);
-        return regex.test(tool.server);
+        try {
+          const escaped = pattern.replace(/[.+^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '.*');
+          const regex = new RegExp(`^${escaped}$`);
+          return regex.test(tool.server);
+        } catch (error) {
+          errorIf(() => ({
+            message: 'Invalid pattern in preload configuration',
+            meta: { pattern, error },
+          }));
+          return false;
+        }
       });
 
       // Check keyword match

@@ -157,6 +157,133 @@ describe('MetaToolProvider', () => {
       }
     });
 
+    it('should support cursor-based pagination', async () => {
+      // Get first page
+      const page1 = await provider.callMetaTool('tool_list', { limit: 2 });
+
+      expect(page1).toBeDefined();
+      if ('error' in page1 && page1.error) {
+        throw new Error(page1.error.message);
+      }
+      if ('tools' in page1 && 'nextCursor' in page1) {
+        expect(page1.tools).toHaveLength(2);
+        expect(page1.hasMore).toBe(true);
+        expect(page1.nextCursor).toBeDefined();
+
+        // Get second page using cursor
+        const page2 = await provider.callMetaTool('tool_list', {
+          limit: 2,
+          cursor: page1.nextCursor,
+        });
+
+        expect(page2).toBeDefined();
+        if ('error' in page2 && page2.error) {
+          throw new Error(page2.error.message);
+        }
+        if ('tools' in page2 && 'hasMore' in page2) {
+          expect(page2.tools).toHaveLength(1); // Only 1 tool remaining
+          expect(page2.hasMore).toBe(false);
+          expect(page2.nextCursor).toBeUndefined();
+
+          // Verify page2 has different tools than page1
+          const page1ToolNames = page1.tools.map((t) => t.name);
+          const page2ToolNames = page2.tools.map((t) => t.name);
+          expect(page1ToolNames).not.toEqual(page2ToolNames);
+        } else {
+          throw new Error('Expected ListToolsResult');
+        }
+      } else {
+        throw new Error('Expected ListToolsResult with nextCursor');
+      }
+    });
+
+    it('should preserve filters across pagination with cursor', async () => {
+      // Create a larger registry for filter testing
+      const largeTools: Tool[] = [
+        { name: 'read_file', description: 'Read file', inputSchema: { type: 'object' } },
+        { name: 'write_file', description: 'Write file', inputSchema: { type: 'object' } },
+        { name: 'search', description: 'Search', inputSchema: { type: 'object' } },
+        { name: 'delete_file', description: 'Delete file', inputSchema: { type: 'object' } },
+        { name: 'copy_file', description: 'Copy file', inputSchema: { type: 'object' } },
+        { name: 'move_file', description: 'Move file', inputSchema: { type: 'object' } },
+        { name: 'read_dir', description: 'Read dir', inputSchema: { type: 'object' } },
+        { name: 'make_dir', description: 'Make dir', inputSchema: { type: 'object' } },
+      ];
+
+      const toolsMap = new Map<string, Tool[]>([['filesystem', largeTools]]);
+      const tagsMap = new Map<string, string[]>([['filesystem', ['fs']]]);
+      const largeRegistry = ToolRegistry.fromToolsMap(toolsMap, tagsMap);
+
+      const largeProvider = new MetaToolProvider(() => largeRegistry, schemaCache, outboundConnections);
+
+      // Filter by pattern and paginate
+      const page1 = await largeProvider.callMetaTool('tool_list', {
+        pattern: '*file*',
+        limit: 3,
+      });
+
+      if ('error' in page1 && page1.error) {
+        throw new Error(page1.error.message);
+      }
+      if ('tools' in page1 && 'nextCursor' in page1) {
+        expect(page1.tools.length).toBeGreaterThan(0);
+        expect(page1.nextCursor).toBeDefined();
+
+        // All tools should match the pattern
+        expect(page1.tools.every((t) => t.name.includes('file'))).toBe(true);
+
+        // Get second page with cursor - filter should be preserved
+        const page2 = await largeProvider.callMetaTool('tool_list', {
+          cursor: page1.nextCursor,
+          limit: 3,
+        });
+
+        if ('error' in page2 && page2.error) {
+          throw new Error(page2.error.message);
+        }
+        if ('tools' in page2) {
+          // All tools should still match the pattern (filter preserved from cursor)
+          expect(page2.tools.every((t) => t.name.includes('file'))).toBe(true);
+        }
+      } else {
+        throw new Error('Expected ListToolsResult with nextCursor');
+      }
+    });
+
+    it('should handle invalid cursor gracefully', async () => {
+      const result = await provider.callMetaTool('tool_list', {
+        cursor: 'invalid-cursor-value',
+      });
+
+      expect(result).toBeDefined();
+      if ('error' in result && result.error) {
+        throw new Error(result.error.message);
+      }
+      // Should return results (defaulting to offset 0) rather than crashing
+      if ('tools' in result && 'totalCount' in result) {
+        expect(result.tools).toBeDefined();
+        expect(result.totalCount).toBeGreaterThan(0);
+      } else {
+        throw new Error('Expected ListToolsResult');
+      }
+    });
+
+    it('should return empty nextCursor when no more results', async () => {
+      const result = await provider.callMetaTool('tool_list', { limit: 100 });
+
+      expect(result).toBeDefined();
+      if ('error' in result && result.error) {
+        throw new Error(result.error.message);
+      }
+      // Check if it's a ListToolsResult by checking for tools and hasMore
+      if ('tools' in result && 'hasMore' in result) {
+        expect(result.hasMore).toBe(false);
+        expect(result.nextCursor).toBeUndefined();
+      } else {
+        throw new Error('Expected ListToolsResult');
+      }
+    });
+
     it('should handle unknown meta-tool', async () => {
       const result = await provider.callMetaTool('unknown_tool', {});
 

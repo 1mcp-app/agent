@@ -1334,4 +1334,158 @@ describe('LazyLoadingOrchestrator', () => {
       }
     });
   });
+
+  describe('preload pattern validation', () => {
+    it('should handle preload patterns with special regex characters', async () => {
+      mockAgentConfig.get.mockImplementation((key: string) => {
+        if (key === 'lazyLoading') {
+          return {
+            enabled: true,
+            inlineCatalog: false,
+            catalogFormat: 'grouped',
+            directExpose: [],
+            cache: { maxEntries: 1000 },
+            preload: {
+              // Patterns with special characters that should be escaped
+              patterns: ['filesystem', 'data[base]', 'test+server', 'foo$bar'],
+              keywords: [],
+            },
+            fallback: { onError: 'skip', timeoutMs: 5000 },
+          };
+        }
+        return undefined;
+      });
+
+      // Create connections with special server names
+      const specialMockOutboundConnections = new Map([
+        [
+          'filesystem',
+          {
+            name: 'filesystem',
+            client: mockClient,
+            status: ClientStatus.Connected,
+            transport: { tags: [], start: async () => {}, send: async () => undefined, close: async () => {} },
+            capabilities: {},
+            lastConnected: new Date(),
+          },
+        ],
+        [
+          'data[base]',
+          {
+            name: 'data[base]',
+            client: mockClient,
+            status: ClientStatus.Connected,
+            transport: { tags: [], start: async () => {}, send: async () => undefined, close: async () => {} },
+            capabilities: {},
+            lastConnected: new Date(),
+          },
+        ],
+        [
+          'test+server',
+          {
+            name: 'test+server',
+            client: mockClient,
+            status: ClientStatus.Connected,
+            transport: { tags: [], start: async () => {}, send: async () => undefined, close: async () => {} },
+            capabilities: {},
+            lastConnected: new Date(),
+          },
+        ],
+      ]) as OutboundConnections;
+
+      orchestrator = new LazyLoadingOrchestrator(specialMockOutboundConnections, mockAgentConfig);
+
+      // Should initialize without crashing on invalid patterns
+      await expect(orchestrator.initialize()).resolves.toBeUndefined();
+    });
+
+    it('should escape special characters in preload patterns', async () => {
+      mockAgentConfig.get.mockImplementation((key: string) => {
+        if (key === 'lazyLoading') {
+          return {
+            enabled: true,
+            inlineCatalog: false,
+            catalogFormat: 'grouped',
+            directExpose: [],
+            cache: { maxEntries: 1000 },
+            preload: {
+              patterns: ['filesystem*'],
+              keywords: [],
+            },
+            fallback: { onError: 'skip', timeoutMs: 5000 },
+          };
+        }
+        return undefined;
+      });
+
+      // Create connections to test wildcard matching
+      const wildcardMockOutboundConnections = new Map([
+        [
+          'filesystem-1',
+          {
+            name: 'filesystem-1',
+            client: mockClient,
+            status: ClientStatus.Connected,
+            transport: { tags: [], start: async () => {}, send: async () => undefined, close: async () => {} },
+            capabilities: {},
+            lastConnected: new Date(),
+          },
+        ],
+        [
+          'filesystem-2',
+          {
+            name: 'filesystem-2',
+            client: mockClient,
+            status: ClientStatus.Connected,
+            transport: { tags: [], start: async () => {}, send: async () => undefined, close: async () => {} },
+            capabilities: {},
+            lastConnected: new Date(),
+          },
+        ],
+        [
+          'database',
+          {
+            name: 'database',
+            client: mockClient,
+            status: ClientStatus.Connected,
+            transport: { tags: [], start: async () => {}, send: async () => undefined, close: async () => {} },
+            capabilities: {},
+            lastConnected: new Date(),
+          },
+        ],
+      ]) as OutboundConnections;
+
+      orchestrator = new LazyLoadingOrchestrator(wildcardMockOutboundConnections, mockAgentConfig);
+
+      // Should initialize without crashing
+      await expect(orchestrator.initialize()).resolves.toBeUndefined();
+      expect(orchestrator.isEnabled()).toBe(true);
+    });
+
+    it('should handle invalid preload patterns gracefully', async () => {
+      mockAgentConfig.get.mockImplementation((key: string) => {
+        if (key === 'lazyLoading') {
+          return {
+            enabled: true,
+            inlineCatalog: false,
+            catalogFormat: 'grouped',
+            directExpose: [],
+            cache: { maxEntries: 1000 },
+            preload: {
+              // Pattern with unmatched brackets - invalid regex but should be handled
+              patterns: ['filesystem[', 'test(incomplete'],
+              keywords: [],
+            },
+            fallback: { onError: 'skip', timeoutMs: 5000 },
+          };
+        }
+        return undefined;
+      });
+
+      orchestrator = new LazyLoadingOrchestrator(mockOutboundConnections, mockAgentConfig);
+
+      // Should initialize without crashing even with invalid patterns
+      await expect(orchestrator.initialize()).resolves.toBeUndefined();
+    });
+  });
 });

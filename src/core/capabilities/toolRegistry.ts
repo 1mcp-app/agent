@@ -1,6 +1,6 @@
 import { Tool } from '@modelcontextprotocol/sdk/types.js';
 
-import logger, { debugIf } from '@src/logger/logger.js';
+import logger, { debugIf, errorIf } from '@src/logger/logger.js';
 
 /**
  * Lightweight tool metadata (name + description only, no inputSchema)
@@ -146,8 +146,22 @@ export class ToolRegistry {
 
     if (options.pattern) {
       filtered = filtered.filter((t) => {
-        const patternRegex = new RegExp('^' + options.pattern!.replace(/\*/g, '.*').replace(/\?/g, '.') + '$');
-        return patternRegex.test(t.name);
+        try {
+          // Escape special regex characters except * and ?
+          const escaped = options
+            .pattern!.replace(/[.+^${}()|[\]\\]/g, '\\$&') // Escape special chars
+            .replace(/\*/g, '.*') // * becomes .*
+            .replace(/\?/g, '.'); // ? becomes .
+          const patternRegex = new RegExp(`^${escaped}$`);
+          return patternRegex.test(t.name);
+        } catch (error) {
+          // Invalid regex pattern - log and exclude this tool
+          errorIf(() => ({
+            message: 'Invalid pattern regex in tool filter',
+            meta: { pattern: options.pattern, error },
+          }));
+          return false;
+        }
       });
     }
 

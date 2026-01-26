@@ -14,6 +14,7 @@ export const ToolListInputSchema = z.object({
   pattern: z.string().optional(),
   tag: z.string().optional(),
   limit: z.number().optional(),
+  cursor: z.string().optional(),
 });
 
 export const ToolSchemaInputSchema = z.object({
