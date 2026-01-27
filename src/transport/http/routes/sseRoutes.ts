@@ -6,6 +6,7 @@ import { AsyncLoadingOrchestrator } from '@src/core/capabilities/asyncLoadingOrc
 import { ServerManager } from '@src/core/server/serverManager.js';
 import { ServerStatus } from '@src/core/types/index.js';
 import logger from '@src/logger/logger.js';
+import { LoggingSSEServerTransport } from '@src/transport/http/loggingSseTransport.js';
 import {
   getPresetName,
   getTagExpression,
@@ -34,7 +35,7 @@ export function setupSseRoutes(
 
   router.get(SSE_ENDPOINT, ...middlewares, async (req: Request, res: Response) => {
     try {
-      const transport = new SSEServerTransport(MESSAGES_ENDPOINT, res);
+      const transport = new LoggingSSEServerTransport(MESSAGES_ENDPOINT, res);
 
       // Use validated tags and tag expression from scope auth middleware
       const tags = getValidatedTags(res);

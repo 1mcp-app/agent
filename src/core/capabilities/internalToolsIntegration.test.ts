@@ -18,6 +18,7 @@ const createFeatureConfig = (internalTools: boolean) => ({
   envSubstitution: false,
   sessionPersistence: false,
   clientNotifications: false,
+  jsonRpcErrorLogging: true,
   internalTools,
   internalToolsList: [],
 });

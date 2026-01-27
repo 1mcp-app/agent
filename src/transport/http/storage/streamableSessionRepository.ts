@@ -6,6 +6,7 @@ import { InboundConnectionConfig } from '@src/core/types/index.js';
 import { TagExpression } from '@src/domains/preset/parsers/tagQueryParser.js';
 import { TagQuery } from '@src/domains/preset/types/presetTypes.js';
 import logger from '@src/logger/logger.js';
+import { logError } from '@src/transport/http/utils/unifiedLogger.js';
 
 /**
  * Repository for streamable HTTP session operations
@@ -63,6 +64,38 @@ export class StreamableSessionRepository {
     } else {
       logger.info(`Created streamable session (memory-only): ${sessionId}`);
     }
+  }
+
+  /**
+   * Retrieves raw session data by ID including initialize response data.
+   *
+   * This returns the full StreamableSessionData object, not just the config.
+   * Used for session restoration where we need access to initialize response data.
+   *
+   * @param sessionId - The session ID to retrieve
+   * @returns The full session data including initializeResponse, or null if not found
+   */
+  getSessionData(sessionId: string): StreamableSessionData | null {
+    // Check in-memory store first
+    let sessionData = this.inMemorySessions.get(sessionId);
+
+    // If not in memory and persistence is enabled, try reading from disk
+    if (!sessionData) {
+      const agentConfig = AgentConfigManager.getInstance();
+      if (agentConfig.get('features').sessionPersistence) {
+        const diskData = this.storage.readData<StreamableSessionData>(
+          AUTH_CONFIG.SERVER.STREAMABLE_SESSION.FILE_PREFIX,
+          sessionId,
+        );
+        // Cache in memory if found
+        if (diskData) {
+          sessionData = diskData;
+          this.inMemorySessions.set(sessionId, diskData);
+        }
+      }
+    }
+
+    return sessionData || null;
   }
 
   /**
@@ -169,6 +202,92 @@ export class StreamableSessionRepository {
 
     if (count >= persistRequests || timeSince >= persistIntervalMs) {
       this.persistSessionAccess(sessionId, now);
+    }
+  }
+
+  /**
+   * Stores initialize response data for a session to enable proper restoration.
+   *
+   * This data is used to replay the initialize handshake through the SDK's
+   * public API during session restoration, avoiding fragile private property access.
+   *
+   * @param sessionId - The session ID to update
+   * @param initializeResponse - The initialize response data to store
+   */
+  storeInitializeResponse(
+    sessionId: string,
+    initializeResponse: {
+      protocolVersion: string;
+      capabilities: Record<string, unknown>;
+      serverInfo: { name: string; version: string };
+    },
+  ): void {
+    try {
+      let sessionData = this.inMemorySessions.get(sessionId);
+
+      // If not in memory, try reading from disk
+      if (!sessionData) {
+        const agentConfig = AgentConfigManager.getInstance();
+        if (agentConfig.get('features').sessionPersistence) {
+          try {
+            const diskData = this.storage.readData<StreamableSessionData>(
+              AUTH_CONFIG.SERVER.STREAMABLE_SESSION.FILE_PREFIX,
+              sessionId,
+            );
+            if (diskData) {
+              sessionData = diskData;
+              this.inMemorySessions.set(sessionId, diskData);
+            }
+          } catch (readError) {
+            logError('Failed to read session from disk for initialize response storage', {
+              method: 'storeInitializeResponse',
+              path: 'streamableSessionRepository',
+              sessionId,
+              phase: 'disk read',
+              error: readError,
+            });
+            return;
+          }
+        }
+      }
+
+      if (sessionData) {
+        sessionData.initializeResponse = initializeResponse;
+
+        // Persist to disk if enabled
+        const agentConfig = AgentConfigManager.getInstance();
+        if (agentConfig.get('features').sessionPersistence) {
+          try {
+            this.storage.writeData(AUTH_CONFIG.SERVER.STREAMABLE_SESSION.FILE_PREFIX, sessionId, sessionData);
+          } catch (writeError) {
+            logError('Failed to persist initialize response to disk', {
+              method: 'storeInitializeResponse',
+              path: 'streamableSessionRepository',
+              sessionId,
+              phase: 'disk write',
+              error: writeError,
+            });
+            // Session is in memory, so continue with warning
+          }
+        }
+        logger.debug(`Stored initialize response for session ${sessionId}`);
+      } else {
+        logError('Session not found for storing initialize response', {
+          method: 'storeInitializeResponse',
+          path: 'streamableSessionRepository',
+          sessionId,
+          phase: 'session lookup',
+          context: { reason: 'Session not in memory or on disk' },
+        });
+      }
+    } catch (error) {
+      logError('Unexpected error storing initialize response', {
+        method: 'storeInitializeResponse',
+        path: 'streamableSessionRepository',
+        sessionId,
+        phase: 'unknown',
+        error,
+      });
     }
   }
 
