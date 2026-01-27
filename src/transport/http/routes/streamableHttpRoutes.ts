@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 
-import { AUTH_CONFIG, STREAMABLE_HTTP_ENDPOINT } from '@src/constants.js';
+import { AUTH_CONFIG, MCP_SERVER_NAME, MCP_SERVER_VERSION, STREAMABLE_HTTP_ENDPOINT } from '@src/constants.js';
 import { AsyncLoadingOrchestrator } from '@src/core/capabilities/asyncLoadingOrchestrator.js';
 import { ServerManager } from '@src/core/server/serverManager.js';
 import logger from '@src/logger/logger.js';
@@ -277,7 +277,7 @@ export function setupStreamableHttpRoutes(
           sessionService.storeInitializeResponse(actualSessionId, {
             protocolVersion,
             capabilities: {}, // Minimal capabilities - actual capabilities are aggregated dynamically
-            serverInfo: { name: '1mcp', version: '1.0.0' },
+            serverInfo: { name: MCP_SERVER_NAME, version: MCP_SERVER_VERSION },
           });
           logger.debug(`Stored initialize response for session ${actualSessionId}`);
         } catch (err) {
