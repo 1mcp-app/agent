@@ -87,7 +87,7 @@ export function logHttp(level: LogLevel, message: string, options: HttpLogOption
     baseContext.errorType = errorType;
     if (errorStack) baseContext.stack = errorStack;
     // Include full error context for non-Error objects
-    if (typeof error === 'object' && error !== null && !(error instanceof Error)) {
+    if (typeof error === 'object' && !(error instanceof Error)) {
       baseContext.errorContext = error;
     }
   }

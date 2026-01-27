@@ -129,7 +129,10 @@ export class SessionService {
       const internals = transport as unknown as SdkInternals;
       if (internals._webStandardTransport) {
         // Validate that required properties exist before assignment
-        if (typeof internals._webStandardTransport._initialized !== 'boolean') {
+        if (
+          internals._webStandardTransport._initialized !== undefined &&
+          typeof internals._webStandardTransport._initialized !== 'boolean'
+        ) {
           logError('SDK internal property _initialized is not a boolean', {
             method: 'setInitializedState',
             path: 'sessionService',
@@ -139,7 +142,10 @@ export class SessionService {
           });
           return false;
         }
-        if (typeof internals._webStandardTransport.sessionId !== 'string') {
+        if (
+          internals._webStandardTransport.sessionId !== undefined &&
+          typeof internals._webStandardTransport.sessionId !== 'string'
+        ) {
           logError('SDK internal property sessionId is not a string', {
             method: 'setInitializedState',
             path: 'sessionService',
