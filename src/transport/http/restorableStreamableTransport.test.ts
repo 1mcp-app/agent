@@ -6,55 +6,36 @@ import { RestorableStreamableHTTPServerTransport } from './restorableStreamableT
 
 // Mock the MCP SDK transport
 vi.mock('@modelcontextprotocol/sdk/server/streamableHttp.js', () => ({
-  StreamableHTTPServerTransport: vi.fn().mockImplementation((options) => {
-    const sessionIdValue = options?.sessionIdGenerator?.() || 'mock-session-id';
-    // Create _webStandardTransport first
-    const webStandardTransport = {
-      sessionId: sessionIdValue,
-    };
+  StreamableHTTPServerTransport: class extends class {} {
+    onclose: null;
+    onerror: null;
+    handleRequest: any;
+    _requestContext: WeakMap<object, unknown>;
+    _sessionId: string;
+    _requestListener: any;
 
-    const transport = {
-      onclose: null,
-      onerror: null,
-      handleRequest: vi.fn().mockResolvedValue(undefined),
-      _initialized: false, // Mock the private field - will be set to true by markAsInitialized
-      // Mock _webStandardTransport for testing setSessionId()
-      _webStandardTransport: webStandardTransport,
-    };
+    constructor(options: { sessionIdGenerator?: () => string } = {}) {
+      super();
+      const sessionIdValue = options.sessionIdGenerator?.() || 'mock-session-id';
 
-    // Make sessionId a getter that delegates to _webStandardTransport.sessionId
-    // This simulates the real SDK's behavior
-    Object.defineProperty(transport, 'sessionId', {
-      get() {
-        return this._webStandardTransport?.sessionId;
-      },
-      set(value: string) {
-        if (this._webStandardTransport) {
-          this._webStandardTransport.sessionId = value;
-        }
-      },
-      enumerable: true,
-      configurable: true,
-    });
+      // Set properties on this instance
+      this.onclose = null;
+      this.onerror = null;
+      this.handleRequest = vi.fn().mockResolvedValue(undefined);
+      this._requestContext = new WeakMap();
+      this._sessionId = sessionIdValue;
+      this._requestListener = vi.fn();
 
-    // Make _initialized property writable so it can be updated by markAsInitialized
-    Object.defineProperty(transport, '_initialized', {
-      value: false,
-      writable: true,
-      enumerable: true,
-      configurable: true,
-    });
-
-    // Make _webStandardTransport.sessionId writable
-    Object.defineProperty(webStandardTransport, 'sessionId', {
-      value: sessionIdValue,
-      writable: true,
-      enumerable: true,
-      configurable: true,
-    });
-
-    return transport;
-  }),
+      // Make sessionId a getter that returns _sessionId
+      Object.defineProperty(this, 'sessionId', {
+        get() {
+          return this._sessionId;
+        },
+        enumerable: true,
+        configurable: true,
+      });
+    }
+  },
 }));
 
 // Mock logger
@@ -82,7 +63,6 @@ describe('RestorableStreamableHTTPServerTransport', () => {
     it('should create transport with valid options', () => {
       transport = new RestorableStreamableHTTPServerTransport(mockOptions);
 
-      expect(StreamableHTTPServerTransport).toHaveBeenCalledWith(mockOptions);
       expect(transport).toBeDefined();
     });
 
@@ -93,25 +73,23 @@ describe('RestorableStreamableHTTPServerTransport', () => {
     });
   });
 
-  describe('markAsInitialized', () => {
+  describe('markAsRestored', () => {
     beforeEach(() => {
       transport = new RestorableStreamableHTTPServerTransport(mockOptions);
     });
 
-    it('should mark transport as initialized and restored', () => {
-      const result = transport.markAsInitialized();
+    it('should mark transport as restored', () => {
+      expect(transport.isRestored()).toBe(false);
 
-      expect(result.success).toBe(true);
+      transport.markAsRestored();
+
       expect(transport.isRestored()).toBe(true);
-      expect(transport.getRestorationInfo().isRestored).toBe(true);
     });
 
-    it('should preserve sessionId from construction', () => {
-      const sessionId = transport.sessionId;
-      const result = transport.markAsInitialized();
+    it('should be idempotent', () => {
+      transport.markAsRestored();
+      transport.markAsRestored();
 
-      expect(result.success).toBe(true);
-      expect(transport.sessionId).toBe(sessionId);
       expect(transport.isRestored()).toBe(true);
     });
   });
@@ -125,8 +103,9 @@ describe('RestorableStreamableHTTPServerTransport', () => {
       expect(transport.isRestored()).toBe(false);
     });
 
-    it('should return true after markAsInitialized', () => {
-      transport.markAsInitialized();
+    it('should return true after markAsRestored is called', () => {
+      transport.markAsRestored();
+
       expect(transport.isRestored()).toBe(true);
     });
   });
@@ -141,27 +120,25 @@ describe('RestorableStreamableHTTPServerTransport', () => {
 
       expect(info).toEqual({
         isRestored: false,
-        sessionId: transport.sessionId,
+        sessionId: 'test-session-id',
       });
     });
 
     it('should return restoration info for restored transport', () => {
-      transport.markAsInitialized();
+      transport.markAsRestored();
+
       const info = transport.getRestorationInfo();
 
       expect(info).toEqual({
         isRestored: true,
-        sessionId: transport.sessionId,
+        sessionId: 'test-session-id',
       });
     });
 
-    it('should return sessionId when available', () => {
+    it('should return sessionId from parent class', () => {
       const info = transport.getRestorationInfo();
 
-      expect(info).toEqual({
-        isRestored: false,
-        sessionId: transport.sessionId,
-      });
+      expect(info.sessionId).toBe('test-session-id');
     });
   });
 
@@ -179,36 +156,22 @@ describe('RestorableStreamableHTTPServerTransport', () => {
     });
   });
 
-  describe('session restoration workflow', () => {
-    it('should complete full restoration workflow', () => {
+  describe('sessionId from sessionIdGenerator', () => {
+    it('should use sessionIdGenerator to set sessionId', () => {
       transport = new RestorableStreamableHTTPServerTransport({
-        sessionIdGenerator: () => 'restored-session-123',
+        sessionIdGenerator: () => 'custom-session-id',
       });
 
-      // Verify initial state
-      expect(transport.isRestored()).toBe(false);
-
-      // Perform restoration flow
-      transport.markAsInitialized();
-
-      // Verify restored state using public interface
-      expect(transport.isRestored()).toBe(true);
-
-      const info = transport.getRestorationInfo();
-      expect(info.isRestored).toBe(true);
-    });
-  });
-
-  describe('OperationResult type', () => {
-    beforeEach(() => {
-      transport = new RestorableStreamableHTTPServerTransport(mockOptions);
+      expect(transport.sessionId).toBe('custom-session-id');
     });
 
-    it('should return OperationResult with success true on successful markAsInitialized', () => {
-      const result = transport.markAsInitialized();
+    it('should return sessionId provided by generator', () => {
+      const storedSessionId = 'restored-session-abc123';
+      transport = new RestorableStreamableHTTPServerTransport({
+        sessionIdGenerator: () => storedSessionId,
+      });
 
-      expect(result).toHaveProperty('success', true);
-      expect(result).not.toHaveProperty('error');
+      expect(transport.sessionId).toBe(storedSessionId);
     });
   });
 });

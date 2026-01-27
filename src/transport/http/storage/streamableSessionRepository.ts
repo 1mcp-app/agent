@@ -66,6 +66,38 @@ export class StreamableSessionRepository {
   }
 
   /**
+   * Retrieves raw session data by ID including initialize response data.
+   *
+   * This returns the full StreamableSessionData object, not just the config.
+   * Used for session restoration where we need access to initialize response data.
+   *
+   * @param sessionId - The session ID to retrieve
+   * @returns The full session data including initializeResponse, or null if not found
+   */
+  getSessionData(sessionId: string): StreamableSessionData | null {
+    // Check in-memory store first
+    let sessionData = this.inMemorySessions.get(sessionId);
+
+    // If not in memory and persistence is enabled, try reading from disk
+    if (!sessionData) {
+      const agentConfig = AgentConfigManager.getInstance();
+      if (agentConfig.get('features').sessionPersistence) {
+        const diskData = this.storage.readData<StreamableSessionData>(
+          AUTH_CONFIG.SERVER.STREAMABLE_SESSION.FILE_PREFIX,
+          sessionId,
+        );
+        // Cache in memory if found
+        if (diskData) {
+          sessionData = diskData;
+          this.inMemorySessions.set(sessionId, diskData);
+        }
+      }
+    }
+
+    return sessionData || null;
+  }
+
+  /**
    * Retrieves a session by ID and returns the configuration
    */
   get(sessionId: string): InboundConnectionConfig | null {
@@ -169,6 +201,54 @@ export class StreamableSessionRepository {
 
     if (count >= persistRequests || timeSince >= persistIntervalMs) {
       this.persistSessionAccess(sessionId, now);
+    }
+  }
+
+  /**
+   * Stores initialize response data for a session to enable proper restoration.
+   *
+   * This data is used to replay the initialize handshake through the SDK's
+   * public API during session restoration, avoiding fragile private property access.
+   *
+   * @param sessionId - The session ID to update
+   * @param initializeResponse - The initialize response data to store
+   */
+  storeInitializeResponse(
+    sessionId: string,
+    initializeResponse: {
+      protocolVersion: string;
+      capabilities: Record<string, unknown>;
+      serverInfo: { name: string; version: string };
+    },
+  ): void {
+    let sessionData = this.inMemorySessions.get(sessionId);
+
+    // If not in memory, try reading from disk
+    if (!sessionData) {
+      const agentConfig = AgentConfigManager.getInstance();
+      if (agentConfig.get('features').sessionPersistence) {
+        const diskData = this.storage.readData<StreamableSessionData>(
+          AUTH_CONFIG.SERVER.STREAMABLE_SESSION.FILE_PREFIX,
+          sessionId,
+        );
+        if (diskData) {
+          sessionData = diskData;
+          this.inMemorySessions.set(sessionId, diskData);
+        }
+      }
+    }
+
+    if (sessionData) {
+      sessionData.initializeResponse = initializeResponse;
+
+      // Persist to disk if enabled
+      const agentConfig = AgentConfigManager.getInstance();
+      if (agentConfig.get('features').sessionPersistence) {
+        this.storage.writeData(AUTH_CONFIG.SERVER.STREAMABLE_SESSION.FILE_PREFIX, sessionId, sessionData);
+      }
+      logger.debug(`Stored initialize response for session ${sessionId}`);
+    } else {
+      logger.warn(`Session ${sessionId} not found for storing initialize response`);
     }
   }
 

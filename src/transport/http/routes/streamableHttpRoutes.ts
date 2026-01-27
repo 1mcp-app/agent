@@ -24,17 +24,50 @@ import { logError, logWarn } from '@src/transport/http/utils/unifiedLogger.js';
 import { Request, RequestHandler, Response, Router } from 'express';
 
 /**
+ * Type guard to check if a request body is an initialize request.
+ */
+function isInitializeRequest(body: unknown): boolean {
+  return (
+    typeof body === 'object' &&
+    body !== null &&
+    'method' in body &&
+    body.method === 'initialize' &&
+    'jsonrpc' in body &&
+    body.jsonrpc === '2.0'
+  );
+}
+
+/**
+ * Extract protocol version from initialize request body.
+ * Similar to contextExtractor pattern - extract directly from req.body.params
+ */
+function extractProtocolVersion(body: unknown): string | null {
+  try {
+    const reqBody = body as {
+      params?: {
+        protocolVersion?: unknown;
+      };
+    };
+
+    if (reqBody?.params?.protocolVersion && typeof reqBody.params.protocolVersion === 'string') {
+      return reqBody.params.protocolVersion;
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Wraps an Express response to log when status >= 400 is set.
  * This catches SDK responses that don't throw errors.
  */
-function wrapResponseForLogging(req: Request, res: Response): Response {
-  const originalJson = res.json.bind(res);
+function wrapResponseForLogging(req: Request, res: Response, sessionId: string | undefined): Response {
   const originalStatus = res.status.bind(res);
-  const originalWrite = res.write.bind(res);
-  const originalEnd = res.end.bind(res);
+  const originalJson = res.json.bind(res);
   let logged = false;
 
-  const logIfNeeded = () => {
+  const logIfNeeded = (responseBody?: unknown) => {
     if (logged || res.statusCode < 400) return;
     logged = true;
 
@@ -43,9 +76,15 @@ function wrapResponseForLogging(req: Request, res: Response): Response {
     logFn(`HTTP error ${res.statusCode}`, {
       method: req.method,
       path: req.path,
-      sessionId: req.headers['mcp-session-id'] as string | undefined,
+      sessionId,
       statusCode: res.statusCode,
       reason: 'SDK request validation failed',
+    });
+    // Log request/response details at debug level for troubleshooting
+    logger.debug('SDK error details', {
+      sessionId,
+      requestBody: req.body as unknown,
+      responseBody,
     });
   };
 
@@ -58,45 +97,25 @@ function wrapResponseForLogging(req: Request, res: Response): Response {
     return result;
   };
 
-  // Intercept res.json()
+  // Intercept res.json() to capture response body for error logging
   res.json = function (body: unknown): Response {
-    logIfNeeded();
+    if (res.statusCode >= 400) {
+      logIfNeeded(body);
+    }
     return originalJson(body);
   };
 
-  // Intercept res.write() for SSE and streaming responses
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  res.write = function (...args: any[]): boolean {
-    // Only log on first write to avoid duplicate logs
-    logIfNeeded();
-    // Handle different overloads of res.write()
-    if (args.length === 1) {
-      return originalWrite(args[0]);
-    } else if (args.length === 2 && typeof args[1] === 'function') {
-      // eslint-disable-next-line @typescript-eslint/no-unsafe-argument
-      return originalWrite(args[0], args[1]);
-    } else if (args.length >= 2) {
-      // eslint-disable-next-line @typescript-eslint/no-unsafe-argument
-      return originalWrite(args[0], args[1] || 'utf8', args[2]);
+  // Intercept res.writeHead() - SDK uses this via Hono adapter
+  /* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-argument */
+  const origWriteHead = res.writeHead.bind(res) as (...args: any[]) => Response;
+  res.writeHead = function (statusCode: number, ...rest: any[]): Response {
+    if (statusCode >= 400) {
+      res.statusCode = statusCode;
+      logIfNeeded();
     }
-    // Fallback: return false (write failed)
-    return false;
+    return origWriteHead(statusCode, ...rest);
   };
-
-  // Intercept res.end()
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  res.end = function (...args: any[]): Response {
-    logIfNeeded();
-    // Handle different overloads of res.end()
-    if (args.length === 0 || (args.length === 1 && args[0] === undefined)) {
-      return originalEnd();
-    } else if (args.length === 1) {
-      return originalEnd(args[0]);
-    } else {
-      // eslint-disable-next-line @typescript-eslint/no-unsafe-argument
-      return originalEnd(args[0], args[1]);
-    }
-  };
+  /* eslint-enable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-argument */
 
   return res;
 }
@@ -176,11 +195,13 @@ export function setupStreamableHttpRoutes(
   router.post(STREAMABLE_HTTP_ENDPOINT, ...middlewares, async (req: Request, res: Response) => {
     try {
       let transport: StreamableHTTPServerTransport | RestorableStreamableHTTPServerTransport | null;
+      let actualSessionId: string;
       const sessionId = req.headers['mcp-session-id'] as string | undefined;
 
       if (!sessionId) {
         // Generate new session ID
         const id = AUTH_CONFIG.SERVER.STREAMABLE_SESSION.ID_PREFIX + randomUUID();
+        actualSessionId = id;
 
         const config = buildConfigFromRequest(res, req, customTemplate);
 
@@ -195,32 +216,80 @@ export function setupStreamableHttpRoutes(
           logger.warn(`New session ${id} was created but not persisted: ${createResult.persistenceError}`);
         }
       } else {
+        actualSessionId = sessionId;
         transport = await sessionService.getSession(sessionId);
 
         if (!transport) {
-          // Session restoration failed - create new session with provided ID (handles proxy use case)
-          logger.error(`Session restoration failed for ${sessionId}, creating new session as fallback`);
+          // Session doesn't exist - only allow creation via initialize request
+          if (isInitializeRequest(req.body)) {
+            // Allow creating new session with specific ID via initialize
+            logger.info(`Creating new session ${sessionId} via initialize request`);
 
-          const config = buildConfigFromRequest(res, req, customTemplate);
+            const config = buildConfigFromRequest(res, req, customTemplate);
 
-          // Extract context from _meta field (from STDIO proxy)
-          const context = extractContextFromMeta(req);
+            // Extract context from _meta field (from STDIO proxy)
+            const context = extractContextFromMeta(req);
 
-          const createResult = await sessionService.createSession(config, context || undefined, sessionId);
-          transport = createResult.transport;
+            const createResult = await sessionService.createSession(config, context || undefined, sessionId);
+            transport = createResult.transport;
 
-          // Log warning if session was not persisted
-          if (!createResult.persisted) {
-            logger.warn(
-              `Fallback session ${sessionId} was created but not persisted: ${createResult.persistenceError}`,
-            );
+            // Log warning if session was not persisted
+            if (!createResult.persisted) {
+              logger.warn(`New session ${sessionId} was created but not persisted: ${createResult.persistenceError}`);
+            }
+          } else {
+            // Non-initialize request for non-existent session → 404
+            logWarn('HTTP error 404', {
+              method: req.method,
+              path: req.path,
+              sessionId,
+              statusCode: 404,
+              reason: 'Session not found - send initialize request first to create a new session',
+            });
+            res.status(404).json({
+              error: {
+                code: ErrorCode.InvalidParams,
+                message: 'Session not found. Send an initialize request first to create a new session.',
+              },
+            });
+            return;
           }
         }
       }
 
       // Wrap response to catch SDK errors
-      const wrappedRes = wrapResponseForLogging(req, res);
+      const wrappedRes = wrapResponseForLogging(req, res, actualSessionId);
+
+      // Check if this is an initialize request
+      const isInitialize = isInitializeRequest(req.body);
+      const protocolVersion = isInitialize ? extractProtocolVersion(req.body) : null;
+
+      // Log request details for debugging restored sessions
+      if (transport instanceof RestorableStreamableHTTPServerTransport && transport.isRestored()) {
+        logger.debug('Handling request for restored session', {
+          sessionId: actualSessionId,
+          isInitialize,
+          method: (req.body as { method?: string })?.method,
+        });
+      }
+
       await transport.handleRequest(req, wrappedRes, req.body);
+
+      // After handleRequest completes for initialize, store the response data
+      if (isInitialize && protocolVersion) {
+        try {
+          // Store minimal initialize response data for session restoration
+          // The exact capabilities don't matter for restoration - we just need protocol version and server info
+          sessionService.storeInitializeResponse(actualSessionId, {
+            protocolVersion,
+            capabilities: {}, // Minimal capabilities - actual capabilities are aggregated dynamically
+            serverInfo: { name: '1mcp', version: '1.0.0' },
+          });
+          logger.debug(`Stored initialize response for session ${actualSessionId}`);
+        } catch (err) {
+          logger.warn(`Failed to store initialize response for ${actualSessionId}:`, err);
+        }
+      }
     } catch (error) {
       logError('HTTP error 500', {
         method: req.method,
@@ -284,7 +353,7 @@ export function setupStreamableHttpRoutes(
       setupDisconnectDetection(req, res, sessionId, serverManager);
 
       // Wrap response to catch SDK errors
-      const wrappedRes = wrapResponseForLogging(req, res);
+      const wrappedRes = wrapResponseForLogging(req, res, sessionId);
       await transport.handleRequest(req, wrappedRes, req.body);
     } catch (error) {
       logError('HTTP error 500', {
@@ -343,7 +412,7 @@ export function setupStreamableHttpRoutes(
       }
 
       // Wrap response to catch SDK errors
-      const wrappedRes = wrapResponseForLogging(req, res);
+      const wrappedRes = wrapResponseForLogging(req, res, sessionId);
       await transport.handleRequest(req, wrappedRes);
       // Delete session from storage after explicit delete request
       await sessionService.deleteSession(sessionId);
