@@ -3,6 +3,7 @@ import { ServerResponse } from 'node:http';
 import { SSEServerTransport } from '@modelcontextprotocol/sdk/server/sse.js';
 import { JSONRPCMessage } from '@modelcontextprotocol/sdk/types.js';
 
+import { AgentConfigManager } from '@src/core/server/agentConfig.js';
 import { logJsonRpc } from '@src/transport/http/utils/unifiedLogger.js';
 
 /**
@@ -18,7 +19,8 @@ export class LoggingSSEServerTransport extends SSEServerTransport {
   override async send(message: JSONRPCMessage): Promise<void> {
     // Check if message is a JSON-RPC error response
     if ('error' in message && message.error?.code !== undefined) {
-      const isErrorLoggingEnabled = process.env.ONE_MCP_LOG_JSONRPC_ERRORS !== 'false';
+      const agentConfig = AgentConfigManager.getInstance();
+      const isErrorLoggingEnabled = agentConfig.isJsonRpcErrorLoggingEnabled();
 
       if (isErrorLoggingEnabled) {
         logJsonRpc('warn', 'JSON-RPC error response', {

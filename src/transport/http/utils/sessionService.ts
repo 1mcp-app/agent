@@ -10,6 +10,7 @@ import { InboundConnectionConfig, ServerStatus } from '@src/core/types/index.js'
 import logger from '@src/logger/logger.js';
 import { RestorableStreamableHTTPServerTransport } from '@src/transport/http/restorableStreamableTransport.js';
 import { StreamableSessionRepository } from '@src/transport/http/storage/streamableSessionRepository.js';
+import { logError } from '@src/transport/http/utils/unifiedLogger.js';
 import type { ContextData } from '@src/types/context.js';
 
 /**
@@ -127,15 +128,47 @@ export class SessionService {
     try {
       const internals = transport as unknown as SdkInternals;
       if (internals._webStandardTransport) {
+        // Validate that required properties exist before assignment
+        if (typeof internals._webStandardTransport._initialized !== 'boolean') {
+          logError('SDK internal property _initialized is not a boolean', {
+            method: 'setInitializedState',
+            path: 'sessionService',
+            sessionId,
+            phase: 'SDK internal validation',
+            context: { property: '_initialized', type: typeof internals._webStandardTransport._initialized },
+          });
+          return false;
+        }
+        if (typeof internals._webStandardTransport.sessionId !== 'string') {
+          logError('SDK internal property sessionId is not a string', {
+            method: 'setInitializedState',
+            path: 'sessionService',
+            sessionId,
+            phase: 'SDK internal validation',
+            context: { property: 'sessionId', type: typeof internals._webStandardTransport.sessionId },
+          });
+          return false;
+        }
         internals._webStandardTransport._initialized = true;
         internals._webStandardTransport.sessionId = sessionId;
         return true;
       }
-      logger.warn('SDK internal structure changed - _webStandardTransport not found');
+      logError('SDK internal structure changed - _webStandardTransport not found', {
+        method: 'setInitializedState',
+        path: 'sessionService',
+        sessionId,
+        phase: 'SDK internal access',
+        context: { reason: '_webStandardTransport property missing' },
+      });
       return false;
     } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : String(error);
-      logger.warn(`Failed to set initialized state: ${errorMessage}`);
+      logError('Failed to set initialized state', {
+        method: 'setInitializedState',
+        path: 'sessionService',
+        sessionId,
+        phase: 'SDK internal mutation',
+        error,
+      });
       return false;
     }
   }
@@ -211,8 +244,14 @@ export class SessionService {
       // This is simple but fragile - if SDK changes, client can re-initialize
       const initialized = this.setInitializedState(transport, sessionId);
       if (!initialized) {
-        logger.warn(`Could not set initialized state for ${sessionId}, client may need to re-initialize`);
-        // Don't fail - let the client re-initialize if needed
+        logError('Could not set initialized state during session restoration', {
+          method: 'restoreSession',
+          path: 'sessionService',
+          sessionId,
+          phase: 'SDK initialization',
+          context: { reason: 'SDK internal structure inaccessible' },
+        });
+        // Continue anyway - client can re-initialize if needed
       }
 
       // Mark as restored
@@ -313,16 +352,25 @@ export class SessionService {
   /**
    * Deletes a session and cleans up resources.
    *
+   * Best-effort deletion: client is disconnecting anyway, so we log but don't throw.
+   * The session will expire naturally via TTL if repository deletion fails.
+   *
    * @param sessionId - The session ID to delete
    */
   async deleteSession(sessionId: string): Promise<void> {
     try {
       this.sessionRepository.delete(sessionId);
     } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : String(error);
-      logger.error(`Failed to delete session ${sessionId} from repository: ${errorMessage}`);
-      // Consider: should this throw? Or is best-effort deletion acceptable?
-      // At minimum, the error is logged for monitoring
+      // Best-effort deletion: client is disconnecting, so we log but don't throw
+      // The session will expire naturally via TTL
+      logError('Session deletion failed', {
+        method: 'deleteSession',
+        path: 'sessionService',
+        sessionId,
+        phase: 'session cleanup',
+        error,
+        context: { reason: 'Repository delete failed - session will expire via TTL' },
+      });
     }
   }
 

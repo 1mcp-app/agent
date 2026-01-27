@@ -6,6 +6,7 @@ import { InboundConnectionConfig } from '@src/core/types/index.js';
 import { TagExpression } from '@src/domains/preset/parsers/tagQueryParser.js';
 import { TagQuery } from '@src/domains/preset/types/presetTypes.js';
 import logger from '@src/logger/logger.js';
+import { logError } from '@src/transport/http/utils/unifiedLogger.js';
 
 /**
  * Repository for streamable HTTP session operations
@@ -221,34 +222,72 @@ export class StreamableSessionRepository {
       serverInfo: { name: string; version: string };
     },
   ): void {
-    let sessionData = this.inMemorySessions.get(sessionId);
+    try {
+      let sessionData = this.inMemorySessions.get(sessionId);
 
-    // If not in memory, try reading from disk
-    if (!sessionData) {
-      const agentConfig = AgentConfigManager.getInstance();
-      if (agentConfig.get('features').sessionPersistence) {
-        const diskData = this.storage.readData<StreamableSessionData>(
-          AUTH_CONFIG.SERVER.STREAMABLE_SESSION.FILE_PREFIX,
-          sessionId,
-        );
-        if (diskData) {
-          sessionData = diskData;
-          this.inMemorySessions.set(sessionId, diskData);
+      // If not in memory, try reading from disk
+      if (!sessionData) {
+        const agentConfig = AgentConfigManager.getInstance();
+        if (agentConfig.get('features').sessionPersistence) {
+          try {
+            const diskData = this.storage.readData<StreamableSessionData>(
+              AUTH_CONFIG.SERVER.STREAMABLE_SESSION.FILE_PREFIX,
+              sessionId,
+            );
+            if (diskData) {
+              sessionData = diskData;
+              this.inMemorySessions.set(sessionId, diskData);
+            }
+          } catch (readError) {
+            logError('Failed to read session from disk for initialize response storage', {
+              method: 'storeInitializeResponse',
+              path: 'streamableSessionRepository',
+              sessionId,
+              phase: 'disk read',
+              error: readError,
+            });
+            return;
+          }
         }
       }
-    }
 
-    if (sessionData) {
-      sessionData.initializeResponse = initializeResponse;
+      if (sessionData) {
+        sessionData.initializeResponse = initializeResponse;
 
-      // Persist to disk if enabled
-      const agentConfig = AgentConfigManager.getInstance();
-      if (agentConfig.get('features').sessionPersistence) {
-        this.storage.writeData(AUTH_CONFIG.SERVER.STREAMABLE_SESSION.FILE_PREFIX, sessionId, sessionData);
+        // Persist to disk if enabled
+        const agentConfig = AgentConfigManager.getInstance();
+        if (agentConfig.get('features').sessionPersistence) {
+          try {
+            this.storage.writeData(AUTH_CONFIG.SERVER.STREAMABLE_SESSION.FILE_PREFIX, sessionId, sessionData);
+          } catch (writeError) {
+            logError('Failed to persist initialize response to disk', {
+              method: 'storeInitializeResponse',
+              path: 'streamableSessionRepository',
+              sessionId,
+              phase: 'disk write',
+              error: writeError,
+            });
+            // Session is in memory, so continue with warning
+          }
+        }
+        logger.debug(`Stored initialize response for session ${sessionId}`);
+      } else {
+        logError('Session not found for storing initialize response', {
+          method: 'storeInitializeResponse',
+          path: 'streamableSessionRepository',
+          sessionId,
+          phase: 'session lookup',
+          context: { reason: 'Session not in memory or on disk' },
+        });
       }
-      logger.debug(`Stored initialize response for session ${sessionId}`);
-    } else {
-      logger.warn(`Session ${sessionId} not found for storing initialize response`);
+    } catch (error) {
+      logError('Unexpected error storing initialize response', {
+        method: 'storeInitializeResponse',
+        path: 'streamableSessionRepository',
+        sessionId,
+        phase: 'unknown',
+        error,
+      });
     }
   }
 

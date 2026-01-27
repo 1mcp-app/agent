@@ -81,9 +81,15 @@ export function logHttp(level: LogLevel, message: string, options: HttpLogOption
   if (level === 'error' && error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
     const errorStack = error instanceof Error ? error.stack : undefined;
+    const errorType = error instanceof Error ? error.constructor.name : typeof error;
 
     baseContext.errorMessage = errorMessage;
+    baseContext.errorType = errorType;
     if (errorStack) baseContext.stack = errorStack;
+    // Include full error context for non-Error objects
+    if (typeof error === 'object' && error !== null && !(error instanceof Error)) {
+      baseContext.errorContext = error;
+    }
   }
 
   log(level, message, { sessionId, context: baseContext });

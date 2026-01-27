@@ -1,7 +1,6 @@
 import { randomUUID } from 'node:crypto';
 
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
-import { ErrorCode } from '@modelcontextprotocol/sdk/types.js';
 
 import { AUTH_CONFIG, STREAMABLE_HTTP_ENDPOINT } from '@src/constants.js';
 import { AsyncLoadingOrchestrator } from '@src/core/capabilities/asyncLoadingOrchestrator.js';
@@ -18,6 +17,7 @@ import tagsExtractor from '@src/transport/http/middlewares/tagsExtractor.js';
 import { RestorableStreamableHTTPServerTransport } from '@src/transport/http/restorableStreamableTransport.js';
 import { StreamableSessionRepository } from '@src/transport/http/storage/streamableSessionRepository.js';
 import { extractContextFromMeta } from '@src/transport/http/utils/contextExtractor.js';
+import { sendBadRequest, sendInternalError, sendNotFound } from '@src/transport/http/utils/httpErrorHandler.js';
 import { SessionService } from '@src/transport/http/utils/sessionService.js';
 import { logError, logWarn } from '@src/transport/http/utils/unifiedLogger.js';
 
@@ -53,7 +53,11 @@ function extractProtocolVersion(body: unknown): string | null {
       return reqBody.params.protocolVersion;
     }
     return null;
-  } catch {
+  } catch (error) {
+    logWarn('Failed to extract protocol version from request body', {
+      reason: 'Request body structure incompatible',
+      context: { error },
+    });
     return null;
   }
 }
@@ -239,18 +243,8 @@ export function setupStreamableHttpRoutes(
             }
           } else {
             // Non-initialize request for non-existent session → 404
-            logWarn('HTTP error 404', {
-              method: req.method,
-              path: req.path,
+            sendNotFound(res, 'Session not found. Send an initialize request first to create a new session.', {
               sessionId,
-              statusCode: 404,
-              reason: 'Session not found - send initialize request first to create a new session',
-            });
-            res.status(404).json({
-              error: {
-                code: ErrorCode.InvalidParams,
-                message: 'Session not found. Send an initialize request first to create a new session.',
-              },
             });
             return;
           }
@@ -291,22 +285,11 @@ export function setupStreamableHttpRoutes(
         }
       }
     } catch (error) {
-      logError('HTTP error 500', {
+      sendInternalError(res, error, {
         method: req.method,
         path: req.path,
         sessionId: req.headers['mcp-session-id'] as string | undefined,
         phase: 'handleRequest',
-        error,
-        headers: {
-          'content-type': req.headers['content-type'],
-          'user-agent': req.headers['user-agent'],
-        },
-      });
-      res.status(500).json({
-        error: {
-          code: ErrorCode.InternalError,
-          message: 'An internal server error occurred while processing the request',
-        },
       });
     }
   });
@@ -315,37 +298,14 @@ export function setupStreamableHttpRoutes(
     try {
       const sessionId = req.headers['mcp-session-id'] as string | undefined;
       if (!sessionId) {
-        logWarn('HTTP error 400', {
-          method: req.method,
-          path: req.path,
-          statusCode: 400,
-          reason: 'Missing sessionId header',
-        });
-        res.status(400).json({
-          error: {
-            code: ErrorCode.InvalidParams,
-            message: 'Invalid params: sessionId is required',
-          },
-        });
+        sendBadRequest(res, 'Invalid params: sessionId is required');
         return;
       }
 
       const transport = await sessionService.getSession(sessionId);
 
       if (!transport) {
-        logWarn('HTTP error 404', {
-          method: req.method,
-          path: req.path,
-          sessionId,
-          statusCode: 404,
-          reason: 'Session not found',
-        });
-        res.status(404).json({
-          error: {
-            code: ErrorCode.InvalidParams,
-            message: 'No active streamable HTTP session found for the provided sessionId',
-          },
-        });
+        sendNotFound(res, 'No active streamable HTTP session found for the provided sessionId', { sessionId });
         return;
       }
 
@@ -356,19 +316,11 @@ export function setupStreamableHttpRoutes(
       const wrappedRes = wrapResponseForLogging(req, res, sessionId);
       await transport.handleRequest(req, wrappedRes, req.body);
     } catch (error) {
-      logError('HTTP error 500', {
+      sendInternalError(res, error, {
         method: req.method,
         path: req.path,
         sessionId: req.headers['mcp-session-id'] as string | undefined,
-        statusCode: 500,
         phase: 'handleRequest',
-        error,
-      });
-      res.status(500).json({
-        error: {
-          code: ErrorCode.InternalError,
-          message: 'An internal server error occurred while processing the request',
-        },
       });
     }
   });
@@ -377,37 +329,14 @@ export function setupStreamableHttpRoutes(
     try {
       const sessionId = req.headers['mcp-session-id'] as string | undefined;
       if (!sessionId) {
-        logWarn('HTTP error 400', {
-          method: req.method,
-          path: req.path,
-          statusCode: 400,
-          reason: 'Missing sessionId header',
-        });
-        res.status(400).json({
-          error: {
-            code: ErrorCode.InvalidParams,
-            message: 'Invalid params: sessionId is required',
-          },
-        });
+        sendBadRequest(res, 'Invalid params: sessionId is required');
         return;
       }
 
       const transport = await sessionService.getSession(sessionId);
 
       if (!transport) {
-        logWarn('HTTP error 404', {
-          method: req.method,
-          path: req.path,
-          sessionId,
-          statusCode: 404,
-          reason: 'Session not found',
-        });
-        res.status(404).json({
-          error: {
-            code: ErrorCode.InvalidParams,
-            message: 'No active streamable HTTP session found for the provided sessionId',
-          },
-        });
+        sendNotFound(res, 'No active streamable HTTP session found for the provided sessionId', { sessionId });
         return;
       }
 
@@ -417,19 +346,11 @@ export function setupStreamableHttpRoutes(
       // Delete session from storage after explicit delete request
       await sessionService.deleteSession(sessionId);
     } catch (error) {
-      logError('HTTP error 500', {
+      sendInternalError(res, error, {
         method: req.method,
         path: req.path,
         sessionId: req.headers['mcp-session-id'] as string | undefined,
-        statusCode: 500,
         phase: 'handleRequest',
-        error,
-      });
-      res.status(500).json({
-        error: {
-          code: ErrorCode.InternalError,
-          message: 'An internal server error occurred while processing the request',
-        },
       });
     }
   });
