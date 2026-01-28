@@ -19,7 +19,9 @@
       "env": {
         "GITHUB_PERSONAL_ACCESS_TOKEN": "${GITHUB_TOKEN}"
       },
-      "tags": ["git", "development"]
+      "tags": ["git", "development"],
+      "disabledTools": ["create_pull_request", "merge_pull_request"],
+      "disabledPrompts": ["review_code"]
     },
     "postgres": {
       "command": "npx",
@@ -27,7 +29,26 @@
       "env": {
         "DATABASE_URL": "${DATABASE_URL}"
       },
-      "tags": ["database", "production"]
+      "tags": ["database", "production"],
+      "enabledTools": ["query", "list_tables", "describe_table"],
+      "disabledResources": ["sensitive-table-uri"]
+    },
+    "production-deploy": {
+      "command": "npx",
+      "args": ["-y", "@trigger.dev/server"],
+      "env": {
+        "TRIGGER_API_KEY": "${TRIGGER_API_KEY}"
+      },
+      "tags": ["deployment", "production"],
+      "disabledTools": ["deploy", "rollback"]
+    },
+    "limited-server": {
+      "command": "npx",
+      "args": ["-y", "some-mcp-server"],
+      "tags": ["utility"],
+      "enabledTools": ["safe_tool_1", "safe_tool_2"],
+      "enabledPrompts": ["safe_prompt"],
+      "enabledResources": ["safe-resource-uri"]
     }
   },
   "mcpTemplates": {
