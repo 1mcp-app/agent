@@ -116,18 +116,24 @@ describe('Streamable HTTP Routes', () => {
     mockResponse = {
       status: vi.fn().mockReturnThis(),
       json: vi.fn().mockReturnThis(),
+      write: vi.fn().mockReturnThis(),
       end: vi.fn().mockReturnThis(),
+      writeHead: vi.fn().mockReturnThis(),
       locals: {},
       writableEnded: false,
+      statusCode: 200,
       on: vi.fn(),
     };
 
     // Default mock implementations for SessionService
     mockSessionService.createSession.mockResolvedValue({
-      sessionId: 'mock-session-id',
-      handleRequest: vi.fn().mockResolvedValue(undefined),
-      onclose: null,
-      onerror: null,
+      transport: {
+        sessionId: 'mock-session-id',
+        handleRequest: vi.fn().mockResolvedValue(undefined),
+        onclose: null,
+        onerror: null,
+      },
+      persisted: true,
     });
     mockSessionService.getSession.mockResolvedValue(null);
   });
@@ -231,7 +237,8 @@ describe('Streamable HTTP Routes', () => {
       await postHandler(mockRequest, mockResponse);
 
       expect(mockSessionService.createSession).toHaveBeenCalled();
-      expect(mockTransport.handleRequest).toHaveBeenCalledWith(mockRequest, mockResponse, mockRequest.body);
+      // Response is wrapped for logging, so we check with expect.any(Object)
+      expect(mockTransport.handleRequest).toHaveBeenCalledWith(mockRequest, expect.any(Object), mockRequest.body);
     });
 
     it('should use existing session when sessionId header provided and session found', async () => {
@@ -245,13 +252,34 @@ describe('Streamable HTTP Routes', () => {
       await postHandler(mockRequest, mockResponse);
 
       expect(mockSessionService.getSession).toHaveBeenCalledWith('existing-session-id');
-      expect(mockTransport.handleRequest).toHaveBeenCalledWith(mockRequest, mockResponse, mockRequest.body);
+      // Response is wrapped for logging, so we check with expect.any(Object)
+      expect(mockTransport.handleRequest).toHaveBeenCalledWith(mockRequest, expect.any(Object), mockRequest.body);
     });
 
-    it('should create new session (restoration failed behavior) when session not found', async () => {
+    it('should return 404 when session not found and request is not initialize', async () => {
+      mockSessionService.getSession.mockResolvedValue(null);
+
+      mockRequest.headers = { 'mcp-session-id': 'unknown-session-id' };
+      mockRequest.body = { jsonrpc: '2.0', id: 1, method: 'tools/list' };
+      await postHandler(mockRequest, mockResponse);
+
+      expect(mockSessionService.getSession).toHaveBeenCalledWith('unknown-session-id');
+      expect(mockSessionService.createSession).not.toHaveBeenCalled();
+      expect(mockResponse.status).toHaveBeenCalledWith(404);
+      expect(mockResponse.json).toHaveBeenCalledWith(
+        expect.objectContaining({
+          error: expect.objectContaining({
+            code: ErrorCode.InvalidParams,
+            message: 'Session not found. Send an initialize request first to create a new session.',
+          }),
+        }),
+      );
+    });
+
+    it('should create new session when session not found but request is initialize', async () => {
       mockSessionService.getSession.mockResolvedValue(null);
       const mockTransport = {
-        sessionId: 'restored-failed-new-session',
+        sessionId: 'new-session-from-initialize',
         handleRequest: vi.fn().mockResolvedValue(undefined),
       };
       mockSessionService.createSession.mockResolvedValue({
@@ -260,11 +288,26 @@ describe('Streamable HTTP Routes', () => {
       });
 
       mockRequest.headers = { 'mcp-session-id': 'unknown-session-id' };
+      mockRequest.body = {
+        jsonrpc: '2.0',
+        id: 1,
+        method: 'initialize',
+        params: {
+          protocolVersion: '2024-11-05',
+          capabilities: {},
+          clientInfo: { name: 'test', version: '1.0' },
+        },
+      };
       await postHandler(mockRequest, mockResponse);
 
       expect(mockSessionService.getSession).toHaveBeenCalledWith('unknown-session-id');
-      expect(mockSessionService.createSession).toHaveBeenCalled(); // Should attempt to create/restore with provided ID
-      expect(mockTransport.handleRequest).toHaveBeenCalledWith(mockRequest, mockResponse, mockRequest.body);
+      expect(mockSessionService.createSession).toHaveBeenCalledWith(
+        expect.any(Object),
+        undefined,
+        'unknown-session-id',
+      );
+      // Response is wrapped for logging, so we check with expect.any(Object)
+      expect(mockTransport.handleRequest).toHaveBeenCalledWith(mockRequest, expect.any(Object), mockRequest.body);
     });
 
     it('should handle errors gracefully', async () => {

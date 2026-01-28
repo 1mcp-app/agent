@@ -127,6 +127,7 @@ describe('serveCommand - config-dir session isolation', () => {
       'session-persist-interval': 5,
       'session-background-flush': 60,
       'enable-client-notifications': true,
+      'enable-jsonrpc-error-logging': true,
       // Internal tool flags (default values for tests)
       'enable-internal-tools': false,
     };
@@ -198,6 +199,7 @@ describe('serveCommand - config-dir session isolation', () => {
       'session-persist-interval': 5,
       'session-background-flush': 60,
       'enable-client-notifications': true,
+      'enable-jsonrpc-error-logging': true,
       // Internal tool flags (default values for tests)
       'enable-internal-tools': false,
     };
@@ -262,6 +264,7 @@ describe('serveCommand - config-dir session isolation', () => {
       'session-persist-interval': 5,
       'session-background-flush': 60,
       'enable-client-notifications': true,
+      'enable-jsonrpc-error-logging': true,
       // Internal tool flags (default values for tests)
       'enable-internal-tools': false,
     };

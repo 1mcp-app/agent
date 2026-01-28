@@ -228,6 +228,11 @@ export const serverOptions = {
     type: 'boolean' as const,
     default: true,
   },
+  'enable-jsonrpc-error-logging': {
+    describe: 'Enable logging of JSON-RPC error responses',
+    type: 'boolean' as const,
+    default: true,
+  },
   // Internal tool control
   'enable-internal-tools': {
     describe: 'Enable internal MCP management tools (installation, configuration, etc.)',

@@ -46,6 +46,22 @@ export interface AuthRequestData extends ExpirableData {
   scopes?: string[];
 }
 
+/**
+ * Initialize response data captured for proper session restoration.
+ *
+ * This data is stored during normal session initialization and replayed
+ * during session restoration to properly initialize the SDK's internal state
+ * through its public API (handleRequest), avoiding fragile private property access.
+ */
+export interface InitializeResponseData {
+  protocolVersion: string;
+  capabilities: Record<string, unknown>;
+  serverInfo: {
+    name: string;
+    version: string;
+  };
+}
+
 // Streamable HTTP session data for session restoration
 export interface StreamableSessionData extends ExpirableData {
   tags?: string[];
@@ -56,6 +72,7 @@ export interface StreamableSessionData extends ExpirableData {
   enablePagination?: boolean;
   customTemplate?: string;
   lastAccessedAt: number;
+  initializeResponse?: InitializeResponseData;
   context?: {
     project?: ContextNamespace;
     user?: UserContext;

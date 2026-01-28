@@ -52,6 +52,7 @@ export interface AgentConfig {
     envSubstitution: boolean;
     sessionPersistence: boolean;
     clientNotifications: boolean;
+    jsonRpcErrorLogging: boolean;
     internalTools: boolean;
     internalToolsList: string[];
   };
@@ -144,6 +145,7 @@ export class AgentConfigManager {
         envSubstitution: true,
         sessionPersistence: true,
         clientNotifications: true,
+        jsonRpcErrorLogging: true,
         // Internal tools - disabled by default for security
         internalTools: false,
         internalToolsList: [], // Empty list means no custom tools specified
@@ -354,6 +356,10 @@ export class AgentConfigManager {
 
   public getSessionBackgroundFlushSeconds(): number {
     return this.get('sessionPersistence').backgroundFlushSeconds;
+  }
+
+  public isJsonRpcErrorLoggingEnabled(): boolean {
+    return this.get('features').jsonRpcErrorLogging;
   }
 
   // Internal tool convenience methods

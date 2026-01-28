@@ -1,9 +1,8 @@
 import { randomUUID } from 'node:crypto';
 
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
-import { ErrorCode } from '@modelcontextprotocol/sdk/types.js';
 
-import { AUTH_CONFIG, STREAMABLE_HTTP_ENDPOINT } from '@src/constants.js';
+import { AUTH_CONFIG, MCP_SERVER_NAME, MCP_SERVER_VERSION, STREAMABLE_HTTP_ENDPOINT } from '@src/constants.js';
 import { AsyncLoadingOrchestrator } from '@src/core/capabilities/asyncLoadingOrchestrator.js';
 import { ServerManager } from '@src/core/server/serverManager.js';
 import logger from '@src/logger/logger.js';
@@ -15,11 +14,115 @@ import {
   getValidatedTags,
 } from '@src/transport/http/middlewares/scopeAuthMiddleware.js';
 import tagsExtractor from '@src/transport/http/middlewares/tagsExtractor.js';
+import { RestorableStreamableHTTPServerTransport } from '@src/transport/http/restorableStreamableTransport.js';
 import { StreamableSessionRepository } from '@src/transport/http/storage/streamableSessionRepository.js';
 import { extractContextFromMeta } from '@src/transport/http/utils/contextExtractor.js';
+import { sendBadRequest, sendInternalError, sendNotFound } from '@src/transport/http/utils/httpErrorHandler.js';
 import { SessionService } from '@src/transport/http/utils/sessionService.js';
+import { logError, logWarn } from '@src/transport/http/utils/unifiedLogger.js';
 
 import { Request, RequestHandler, Response, Router } from 'express';
+
+/**
+ * Type guard to check if a request body is an initialize request.
+ */
+function isInitializeRequest(body: unknown): boolean {
+  return (
+    typeof body === 'object' &&
+    body !== null &&
+    'method' in body &&
+    body.method === 'initialize' &&
+    'jsonrpc' in body &&
+    body.jsonrpc === '2.0'
+  );
+}
+
+/**
+ * Extract protocol version from initialize request body.
+ * Similar to contextExtractor pattern - extract directly from req.body.params
+ */
+function extractProtocolVersion(body: unknown): string | null {
+  try {
+    const reqBody = body as {
+      params?: {
+        protocolVersion?: unknown;
+      };
+    };
+
+    if (reqBody?.params?.protocolVersion && typeof reqBody.params.protocolVersion === 'string') {
+      return reqBody.params.protocolVersion;
+    }
+    return null;
+  } catch (error) {
+    logWarn('Failed to extract protocol version from request body', {
+      reason: 'Request body structure incompatible',
+      context: { error },
+    });
+    return null;
+  }
+}
+
+/**
+ * Wraps an Express response to log when status >= 400 is set.
+ * This catches SDK responses that don't throw errors.
+ */
+function wrapResponseForLogging(req: Request, res: Response, sessionId: string | undefined): Response {
+  const originalStatus = res.status.bind(res);
+  const originalJson = res.json.bind(res);
+  let logged = false;
+
+  const logIfNeeded = (responseBody?: unknown) => {
+    if (logged || res.statusCode < 400) return;
+    logged = true;
+
+    const level = res.statusCode >= 500 ? 'error' : 'warn';
+    const logFn = level === 'error' ? logError : logWarn;
+    logFn(`HTTP error ${res.statusCode}`, {
+      method: req.method,
+      path: req.path,
+      sessionId,
+      statusCode: res.statusCode,
+      reason: 'SDK request validation failed',
+    });
+    // Log request/response details at debug level for troubleshooting
+    logger.debug('SDK error details', {
+      sessionId,
+      requestBody: req.body as unknown,
+      responseBody,
+    });
+  };
+
+  // Intercept res.status() to detect when error codes are set
+  res.status = function (code: number): Response {
+    const result = originalStatus(code);
+    if (code >= 400) {
+      logIfNeeded();
+    }
+    return result;
+  };
+
+  // Intercept res.json() to capture response body for error logging
+  res.json = function (body: unknown): Response {
+    if (res.statusCode >= 400) {
+      logIfNeeded(body);
+    }
+    return originalJson(body);
+  };
+
+  // Intercept res.writeHead() - SDK uses this via Hono adapter
+  /* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-argument */
+  const origWriteHead = res.writeHead.bind(res) as (...args: any[]) => Response;
+  res.writeHead = function (statusCode: number, ...rest: any[]): Response {
+    if (statusCode >= 400) {
+      res.statusCode = statusCode;
+      logIfNeeded();
+    }
+    return origWriteHead(statusCode, ...rest);
+  };
+  /* eslint-enable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-argument */
+
+  return res;
+}
 
 /**
  * Builds the inbound connection config from request data.
@@ -95,12 +198,14 @@ export function setupStreamableHttpRoutes(
 
   router.post(STREAMABLE_HTTP_ENDPOINT, ...middlewares, async (req: Request, res: Response) => {
     try {
-      let transport: StreamableHTTPServerTransport | null;
+      let transport: StreamableHTTPServerTransport | RestorableStreamableHTTPServerTransport | null;
+      let actualSessionId: string;
       const sessionId = req.headers['mcp-session-id'] as string | undefined;
 
       if (!sessionId) {
         // Generate new session ID
         const id = AUTH_CONFIG.SERVER.STREAMABLE_SESSION.ID_PREFIX + randomUUID();
+        actualSessionId = id;
 
         const config = buildConfigFromRequest(res, req, customTemplate);
 
@@ -115,38 +220,76 @@ export function setupStreamableHttpRoutes(
           logger.warn(`New session ${id} was created but not persisted: ${createResult.persistenceError}`);
         }
       } else {
+        actualSessionId = sessionId;
         transport = await sessionService.getSession(sessionId);
 
         if (!transport) {
-          // Session restoration failed - create new session with provided ID (handles proxy use case)
-          logger.error(`Session restoration failed for ${sessionId}, creating new session as fallback`);
+          // Session doesn't exist - only allow creation via initialize request
+          if (isInitializeRequest(req.body)) {
+            // Allow creating new session with specific ID via initialize
+            logger.info(`Creating new session ${sessionId} via initialize request`);
 
-          const config = buildConfigFromRequest(res, req, customTemplate);
+            const config = buildConfigFromRequest(res, req, customTemplate);
 
-          // Extract context from _meta field (from STDIO proxy)
-          const context = extractContextFromMeta(req);
+            // Extract context from _meta field (from STDIO proxy)
+            const context = extractContextFromMeta(req);
 
-          const createResult = await sessionService.createSession(config, context || undefined, sessionId);
-          transport = createResult.transport;
+            const createResult = await sessionService.createSession(config, context || undefined, sessionId);
+            transport = createResult.transport;
 
-          // Log warning if session was not persisted
-          if (!createResult.persisted) {
-            logger.warn(
-              `Fallback session ${sessionId} was created but not persisted: ${createResult.persistenceError}`,
-            );
+            // Log warning if session was not persisted
+            if (!createResult.persisted) {
+              logger.warn(`New session ${sessionId} was created but not persisted: ${createResult.persistenceError}`);
+            }
+          } else {
+            // Non-initialize request for non-existent session → 404
+            sendNotFound(res, 'Session not found. Send an initialize request first to create a new session.', {
+              sessionId,
+            });
+            return;
           }
         }
       }
 
-      await transport.handleRequest(req, res, req.body);
+      // Wrap response to catch SDK errors
+      const wrappedRes = wrapResponseForLogging(req, res, actualSessionId);
+
+      // Check if this is an initialize request
+      const isInitialize = isInitializeRequest(req.body);
+      const protocolVersion = isInitialize ? extractProtocolVersion(req.body) : null;
+
+      // Log request details for debugging restored sessions
+      if (transport instanceof RestorableStreamableHTTPServerTransport && transport.isRestored()) {
+        logger.debug('Handling request for restored session', {
+          sessionId: actualSessionId,
+          isInitialize,
+          method: (req.body as { method?: string })?.method,
+        });
+      }
+
+      await transport.handleRequest(req, wrappedRes, req.body);
+
+      // After handleRequest completes for initialize, store the response data
+      if (isInitialize && protocolVersion) {
+        try {
+          // Store minimal initialize response data for session restoration
+          // The exact capabilities don't matter for restoration - we just need protocol version and server info
+          sessionService.storeInitializeResponse(actualSessionId, {
+            protocolVersion,
+            capabilities: {}, // Minimal capabilities - actual capabilities are aggregated dynamically
+            serverInfo: { name: MCP_SERVER_NAME, version: MCP_SERVER_VERSION },
+          });
+          logger.debug(`Stored initialize response for session ${actualSessionId}`);
+        } catch (err) {
+          logger.warn(`Failed to store initialize response for ${actualSessionId}:`, err);
+        }
+      }
     } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : String(error);
-      logger.error('Streamable HTTP POST error:', { error: errorMessage, sessionId: req.headers['mcp-session-id'] });
-      res.status(500).json({
-        error: {
-          code: ErrorCode.InternalError,
-          message: 'An internal server error occurred while processing the request',
-        },
+      sendInternalError(res, error, {
+        method: req.method,
+        path: req.path,
+        sessionId: req.headers['mcp-session-id'] as string | undefined,
+        phase: 'handleRequest',
       });
     }
   });
@@ -155,39 +298,29 @@ export function setupStreamableHttpRoutes(
     try {
       const sessionId = req.headers['mcp-session-id'] as string | undefined;
       if (!sessionId) {
-        res.status(400).json({
-          error: {
-            code: ErrorCode.InvalidParams,
-            message: 'Invalid params: sessionId is required',
-          },
-        });
+        sendBadRequest(res, 'Invalid params: sessionId is required');
         return;
       }
 
       const transport = await sessionService.getSession(sessionId);
 
       if (!transport) {
-        res.status(404).json({
-          error: {
-            code: ErrorCode.InvalidParams,
-            message: 'No active streamable HTTP session found for the provided sessionId',
-          },
-        });
+        sendNotFound(res, 'No active streamable HTTP session found for the provided sessionId', { sessionId });
         return;
       }
 
       // Set up disconnect detection for SSE stream (GET endpoint maintains persistent connection)
       setupDisconnectDetection(req, res, sessionId, serverManager);
 
-      await transport.handleRequest(req, res, req.body);
+      // Wrap response to catch SDK errors
+      const wrappedRes = wrapResponseForLogging(req, res, sessionId);
+      await transport.handleRequest(req, wrappedRes, req.body);
     } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : String(error);
-      logger.error('Streamable HTTP GET error:', { error: errorMessage, sessionId: req.headers['mcp-session-id'] });
-      res.status(500).json({
-        error: {
-          code: ErrorCode.InternalError,
-          message: 'An internal server error occurred while processing the request',
-        },
+      sendInternalError(res, error, {
+        method: req.method,
+        path: req.path,
+        sessionId: req.headers['mcp-session-id'] as string | undefined,
+        phase: 'handleRequest',
       });
     }
   });
@@ -196,38 +329,28 @@ export function setupStreamableHttpRoutes(
     try {
       const sessionId = req.headers['mcp-session-id'] as string | undefined;
       if (!sessionId) {
-        res.status(400).json({
-          error: {
-            code: ErrorCode.InvalidParams,
-            message: 'Invalid params: sessionId is required',
-          },
-        });
+        sendBadRequest(res, 'Invalid params: sessionId is required');
         return;
       }
 
       const transport = await sessionService.getSession(sessionId);
 
       if (!transport) {
-        res.status(404).json({
-          error: {
-            code: ErrorCode.InvalidParams,
-            message: 'No active streamable HTTP session found for the provided sessionId',
-          },
-        });
+        sendNotFound(res, 'No active streamable HTTP session found for the provided sessionId', { sessionId });
         return;
       }
 
-      await transport.handleRequest(req, res);
+      // Wrap response to catch SDK errors
+      const wrappedRes = wrapResponseForLogging(req, res, sessionId);
+      await transport.handleRequest(req, wrappedRes);
       // Delete session from storage after explicit delete request
       await sessionService.deleteSession(sessionId);
     } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : String(error);
-      logger.error('Streamable HTTP DELETE error:', { error: errorMessage, sessionId: req.headers['mcp-session-id'] });
-      res.status(500).json({
-        error: {
-          code: ErrorCode.InternalError,
-          message: 'An internal server error occurred while processing the request',
-        },
+      sendInternalError(res, error, {
+        method: req.method,
+        path: req.path,
+        sessionId: req.headers['mcp-session-id'] as string | undefined,
+        phase: 'handleRequest',
       });
     }
   });

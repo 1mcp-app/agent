@@ -68,6 +68,7 @@ export interface ServeOptions {
   'session-persist-interval': number;
   'session-background-flush': number;
   'enable-client-notifications': boolean;
+  'enable-jsonrpc-error-logging': boolean;
   // Internal tool control
   'enable-internal-tools': boolean;
   'internal-tools'?: string;
@@ -320,6 +321,7 @@ export async function serveCommand(parsedArgv: ServeOptions): Promise<void> {
         envSubstitution: parsedArgv['enable-env-substitution'],
         sessionPersistence: parsedArgv['enable-session-persistence'],
         clientNotifications: parsedArgv['enable-client-notifications'],
+        jsonRpcErrorLogging: parsedArgv['enable-jsonrpc-error-logging'],
         // Internal tool configuration from CLI flags
         internalTools: parsedArgv['enable-internal-tools'],
         internalToolsList: parsedArgv['internal-tools']

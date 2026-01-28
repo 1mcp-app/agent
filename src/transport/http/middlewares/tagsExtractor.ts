@@ -4,6 +4,7 @@ import { PresetManager } from '@src/domains/preset/manager/presetManager.js';
 import { TagQueryParser } from '@src/domains/preset/parsers/tagQueryParser.js';
 import { TagQuery } from '@src/domains/preset/types/presetTypes.js';
 import logger, { debugIf } from '@src/logger/logger.js';
+import { sendBadRequest } from '@src/transport/http/utils/httpErrorHandler.js';
 import { validateAndSanitizeTags } from '@src/utils/validation/sanitization.js';
 
 import { NextFunction, Request, Response } from 'express';
@@ -79,13 +80,10 @@ export default function tagsExtractor(req: Request, res: Response, next: NextFun
   // Mutual exclusion check - preset takes priority
   const paramCount = [hasPreset, hasTags, hasTagFilter, hasFilter].filter(Boolean).length;
   if (paramCount > 1) {
-    res.status(400).json({
-      error: {
-        code: ErrorCode.InvalidParams,
-        message:
-          'Cannot use multiple filtering parameters simultaneously. Use "preset" for dynamic presets, "tag-filter" for advanced expressions, or "tags" for simple OR filtering.',
-      },
-    });
+    sendBadRequest(
+      res,
+      'Cannot use multiple filtering parameters simultaneously. Use "preset" for dynamic presets, "tag-filter" for advanced expressions, or "tags" for simple OR filtering.',
+    );
     return;
   }
 
@@ -93,12 +91,7 @@ export default function tagsExtractor(req: Request, res: Response, next: NextFun
   if (hasPreset) {
     const presetName = req.query.preset as string;
     if (typeof presetName !== 'string') {
-      res.status(400).json({
-        error: {
-          code: ErrorCode.InvalidParams,
-          message: 'Invalid params: preset must be a string',
-        },
-      });
+      sendBadRequest(res, 'Invalid params: preset must be a string');
       return;
     }
 
@@ -107,12 +100,8 @@ export default function tagsExtractor(req: Request, res: Response, next: NextFun
       const tagExpression = presetManager.resolvePresetToExpression(presetName);
 
       if (!tagExpression) {
-        res.status(400).json({
-          error: {
-            code: ErrorCode.InvalidParams,
-            message: `Preset '${presetName}' not found`,
-            examples: ['preset=development', 'preset=production', 'preset=staging'],
-          },
+        sendBadRequest(res, `Preset '${presetName}' not found`, {
+          examples: ['preset=development', 'preset=production', 'preset=staging'],
         });
         return;
       }
@@ -120,12 +109,7 @@ export default function tagsExtractor(req: Request, res: Response, next: NextFun
       // Use the preset's JSON tagQuery directly instead of parsing string expression
       const preset = presetManager.getPreset(presetName);
       if (!preset) {
-        res.status(400).json({
-          error: {
-            code: ErrorCode.InvalidParams,
-            message: `Preset '${presetName}' configuration invalid`,
-          },
-        });
+        sendBadRequest(res, `Preset '${presetName}' configuration invalid`);
         return;
       }
 
@@ -152,12 +136,7 @@ export default function tagsExtractor(req: Request, res: Response, next: NextFun
         return;
       } catch (error) {
         logger.error('Failed to process preset tag query', { presetName, tagQuery: preset.tagQuery, error });
-        res.status(400).json({
-          error: {
-            code: ErrorCode.InvalidParams,
-            message: `Preset '${presetName}' has invalid tag query`,
-          },
-        });
+        sendBadRequest(res, `Preset '${presetName}' has invalid tag query`);
         return;
       }
     } catch (error) {
@@ -176,12 +155,7 @@ export default function tagsExtractor(req: Request, res: Response, next: NextFun
   if (hasTags) {
     const tagsStr = req.query.tags as string;
     if (typeof tagsStr !== 'string') {
-      res.status(400).json({
-        error: {
-          code: ErrorCode.InvalidParams,
-          message: 'Invalid params: tags must be a string',
-        },
-      });
+      sendBadRequest(res, 'Invalid params: tags must be a string');
       return;
     }
 
@@ -200,16 +174,11 @@ export default function tagsExtractor(req: Request, res: Response, next: NextFun
           originalTags: rawTags,
           invalidTags: validation.invalidTags,
         });
-
-        res.status(400).json({
-          error: {
-            code: ErrorCode.InvalidParams,
-            message: `Invalid tags: ${validation.errors.join('; ')}`,
-            details: {
-              errors: validation.errors,
-              warnings: validation.warnings,
-              invalidTags: validation.invalidTags,
-            },
+        sendBadRequest(res, `Invalid tags: ${validation.errors.join('; ')}`, {
+          details: {
+            errors: validation.errors,
+            warnings: validation.warnings,
+            invalidTags: validation.invalidTags,
           },
         });
         return;
@@ -240,12 +209,7 @@ export default function tagsExtractor(req: Request, res: Response, next: NextFun
   if (hasTagFilter) {
     const filterStr = req.query['tag-filter'] as string;
     if (typeof filterStr !== 'string') {
-      res.status(400).json({
-        error: {
-          code: ErrorCode.InvalidParams,
-          message: 'Invalid params: tag-filter must be a string',
-        },
-      });
+      sendBadRequest(res, 'Invalid params: tag-filter must be a string');
       return;
     }
 
@@ -257,17 +221,13 @@ export default function tagsExtractor(req: Request, res: Response, next: NextFun
       res.locals.tags = expression.type === 'tag' ? [expression.value!] : undefined;
       next();
     } catch (error) {
-      res.status(400).json({
-        error: {
-          code: ErrorCode.InvalidParams,
-          message: `Invalid tag-filter: ${error instanceof Error ? error.message : 'Unknown error'}`,
-          examples: [
-            'tag-filter=web+api',
-            'tag-filter=(web,api)+prod',
-            'tag-filter=web+api-test',
-            'tag-filter=!development',
-          ],
-        },
+      sendBadRequest(res, `Invalid tag-filter: ${error instanceof Error ? error.message : 'Unknown error'}`, {
+        examples: [
+          'tag-filter=web+api',
+          'tag-filter=(web,api)+prod',
+          'tag-filter=web+api-test',
+          'tag-filter=!development',
+        ],
       });
     }
     return;

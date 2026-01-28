@@ -79,6 +79,7 @@ describe('AgentConfigManager', () => {
           envSubstitution: true,
           sessionPersistence: true,
           clientNotifications: true,
+          jsonRpcErrorLogging: true,
           internalTools: false,
           internalToolsList: [],
         },

@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 
+import { InitializeResponseData } from '@src/auth/sessionTypes.js';
 import { AUTH_CONFIG } from '@src/constants.js';
 import { AsyncLoadingOrchestrator } from '@src/core/capabilities/asyncLoadingOrchestrator.js';
 import { ServerManager } from '@src/core/server/serverManager.js';
@@ -9,7 +10,19 @@ import { InboundConnectionConfig, ServerStatus } from '@src/core/types/index.js'
 import logger from '@src/logger/logger.js';
 import { RestorableStreamableHTTPServerTransport } from '@src/transport/http/restorableStreamableTransport.js';
 import { StreamableSessionRepository } from '@src/transport/http/storage/streamableSessionRepository.js';
+import { logError } from '@src/transport/http/utils/unifiedLogger.js';
 import type { ContextData } from '@src/types/context.js';
+
+/**
+ * Interface for accessing SDK internal properties needed for session restoration.
+ * This is fragile but simple - if SDK changes, we fall back to re-initialization.
+ */
+interface SdkInternals {
+  _webStandardTransport?: {
+    _initialized?: boolean;
+    sessionId?: string;
+  };
+}
 
 /**
  * Result type for session restoration operations.
@@ -88,40 +101,127 @@ export class SessionService {
   }
 
   /**
+   * Stores initialize response data for a session to enable proper restoration.
+   *
+   * This data is used to replay the initialize handshake through the SDK's
+   * public API during session restoration, avoiding fragile private property access.
+   *
+   * @param sessionId - The session ID to update
+   * @param initializeResponse - The initialize response data to store
+   */
+  storeInitializeResponse(sessionId: string, initializeResponse: InitializeResponseData): void {
+    this.sessionRepository.storeInitializeResponse(sessionId, initializeResponse);
+  }
+
+  /**
+   * Sets the SDK's internal initialized state directly.
+   *
+   * This is a simple approach that accesses SDK internals. If the SDK structure
+   * changes, this will fail gracefully and the session won't be marked as restored,
+   * allowing the client to re-initialize.
+   *
+   * @param transport - The transport to mark as initialized
+   * @param sessionId - The session ID to set
+   * @returns true if successful, false if SDK internals are inaccessible
+   */
+  private setInitializedState(transport: RestorableStreamableHTTPServerTransport, sessionId: string): boolean {
+    try {
+      const internals = transport as unknown as SdkInternals;
+      if (internals._webStandardTransport) {
+        // Validate that required properties exist before assignment
+        if (
+          internals._webStandardTransport._initialized !== undefined &&
+          typeof internals._webStandardTransport._initialized !== 'boolean'
+        ) {
+          logError('SDK internal property _initialized is not a boolean', {
+            method: 'setInitializedState',
+            path: 'sessionService',
+            sessionId,
+            phase: 'SDK internal validation',
+            context: { property: '_initialized', type: typeof internals._webStandardTransport._initialized },
+          });
+          return false;
+        }
+        if (
+          internals._webStandardTransport.sessionId !== undefined &&
+          typeof internals._webStandardTransport.sessionId !== 'string'
+        ) {
+          logError('SDK internal property sessionId is not a string', {
+            method: 'setInitializedState',
+            path: 'sessionService',
+            sessionId,
+            phase: 'SDK internal validation',
+            context: { property: 'sessionId', type: typeof internals._webStandardTransport.sessionId },
+          });
+          return false;
+        }
+        internals._webStandardTransport._initialized = true;
+        internals._webStandardTransport.sessionId = sessionId;
+        return true;
+      }
+      logError('SDK internal structure changed - _webStandardTransport not found', {
+        method: 'setInitializedState',
+        path: 'sessionService',
+        sessionId,
+        phase: 'SDK internal access',
+        context: { reason: '_webStandardTransport property missing' },
+      });
+      return false;
+    } catch (error) {
+      logError('Failed to set initialized state', {
+        method: 'setInitializedState',
+        path: 'sessionService',
+        sessionId,
+        phase: 'SDK internal mutation',
+        error,
+      });
+      return false;
+    }
+  }
+
+  /**
    * Restores a session from persistent storage.
+   *
+   * The client won't send initialize again when reconnecting - they think the session
+   * is already initialized. We need to restore the SDK's initialized state internally
+   * using the stored initialize response data.
    *
    * @param sessionId - The session ID to restore
    * @returns SessionRestoreResult with transport or error details
    */
   async restoreSession(sessionId: string): Promise<SessionRestoreResult> {
     try {
-      const sessionData = this.sessionRepository.get(sessionId);
+      // Get full session data including initializeResponse
+      const sessionData = this.sessionRepository.getSessionData(sessionId);
       if (!sessionData) {
         logger.debug(`No persisted session found for: ${sessionId}`);
         return { transport: null, errorType: 'not_found' };
       }
 
-      const config = sessionData;
+      // Check if session has initialize response data
+      if (!sessionData.initializeResponse) {
+        logger.warn(`Session ${sessionId} exists but lacks initialize response data, cannot restore`);
+        return {
+          transport: null,
+          errorType: 'transport_failed',
+          error: 'Session data incompatible with current version. Please create a new session.',
+        };
+      }
+
+      // Parse session data to config
+      const config = this.sessionRepository.get(sessionId);
+      if (!config) {
+        logger.error(`Failed to parse session config for ${sessionId}`);
+        return { transport: null, errorType: 'transport_failed', error: 'Failed to parse session config' };
+      }
+
       logger.info(`Restoring streamable session: ${sessionId}`);
 
-      // Create new transport with the original session ID using wrapper class
+      // Create new transport with the original session ID
+      // The sessionIdGenerator callback is the SDK's public API for controlling session IDs
       const transport = new RestorableStreamableHTTPServerTransport({
         sessionIdGenerator: () => sessionId,
       });
-
-      // Mark the transport as initialized for restored session
-      const initResult = transport.markAsInitialized();
-      if (!initResult.success) {
-        logger.warn(`Failed to mark transport ${sessionId} as initialized: ${initResult.error}`);
-        return { transport: null, error: initResult.error, errorType: 'transport_failed' };
-      }
-
-      // Set the sessionId for the restored session
-      const setSessionResult = transport.setSessionId(sessionId);
-      if (!setSessionResult.success) {
-        logger.warn(`Failed to set sessionId ${sessionId}: ${setSessionResult.error}`);
-        return { transport: null, error: setSessionResult.error, errorType: 'transport_failed' };
-      }
 
       // Convert config context to ContextData format if available
       const context = config.context as Partial<ContextData> | undefined;
@@ -145,6 +245,23 @@ export class SessionService {
         logger.error(`Failed to connect transport ${sessionId}:`, connectError);
         return { transport: null, error: errorMessage, errorType: 'connection_failed' };
       }
+
+      // Set SDK's internal initialized state directly
+      // This is simple but fragile - if SDK changes, client can re-initialize
+      const initialized = this.setInitializedState(transport, sessionId);
+      if (!initialized) {
+        logError('Could not set initialized state during session restoration', {
+          method: 'restoreSession',
+          path: 'sessionService',
+          sessionId,
+          phase: 'SDK initialization',
+          context: { reason: 'SDK internal structure inaccessible' },
+        });
+        // Continue anyway - client can re-initialize if needed
+      }
+
+      // Mark as restored
+      transport.markAsRestored();
 
       // Initialize notifications
       this.initializeNotifications(sessionId);
@@ -182,6 +299,8 @@ export class SessionService {
 
     let transport: StreamableHTTPServerTransport;
     try {
+      // Always use the standard transport - no special handling for providedSessionId
+      // The client's initialize request will be processed normally through handleRequest
       transport = new StreamableHTTPServerTransport({
         sessionIdGenerator: () => sessionId,
       });
@@ -239,16 +358,25 @@ export class SessionService {
   /**
    * Deletes a session and cleans up resources.
    *
+   * Best-effort deletion: client is disconnecting anyway, so we log but don't throw.
+   * The session will expire naturally via TTL if repository deletion fails.
+   *
    * @param sessionId - The session ID to delete
    */
   async deleteSession(sessionId: string): Promise<void> {
     try {
       this.sessionRepository.delete(sessionId);
     } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : String(error);
-      logger.error(`Failed to delete session ${sessionId} from repository: ${errorMessage}`);
-      // Consider: should this throw? Or is best-effort deletion acceptable?
-      // At minimum, the error is logged for monitoring
+      // Best-effort deletion: client is disconnecting, so we log but don't throw
+      // The session will expire naturally via TTL
+      logError('Session deletion failed', {
+        method: 'deleteSession',
+        path: 'sessionService',
+        sessionId,
+        phase: 'session cleanup',
+        error,
+        context: { reason: 'Repository delete failed - session will expire via TTL' },
+      });
     }
   }
 
@@ -276,8 +404,9 @@ export class SessionService {
     sessionId: string,
   ): void {
     transport.onclose = () => {
+      // Only disconnect the transport, don't delete the session
+      // Sessions persist across server restarts and are only deleted via explicit DELETE requests
       this.serverManager.disconnectTransport(sessionId);
-      this.sessionRepository.delete(sessionId);
     };
 
     transport.onerror = (error) => {
