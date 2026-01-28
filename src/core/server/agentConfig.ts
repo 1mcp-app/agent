@@ -75,6 +75,12 @@ export interface AgentConfig {
     persistIntervalMinutes: number;
     backgroundFlushSeconds: number;
   };
+  security: {
+    corsOrigins: string[];
+    hstsEnabled: boolean;
+    tokenEncryptionKey?: string;
+    strictCORS: boolean;
+  };
 }
 
 /**
@@ -149,6 +155,12 @@ export class AgentConfigManager {
         persistRequests: 100,
         persistIntervalMinutes: 5,
         backgroundFlushSeconds: 60,
+      },
+      security: {
+        corsOrigins: [], // Empty = allow all origins (for local dev)
+        hstsEnabled: false, // Disabled by default (enable via CLI flag for production)
+        tokenEncryptionKey: undefined, // Optional: key for encrypting tokens at rest
+        strictCORS: false, // When true, fails on invalid CORS origins instead of falling back to allow-all
       },
     };
   }
@@ -334,6 +346,101 @@ export class AgentConfigManager {
    */
   public getInternalToolsList(): string[] {
     return this.get('features').internalToolsList;
+  }
+
+  // Security convenience methods
+
+  /**
+   * Get allowed CORS origins
+   * @returns Array of allowed origins (empty = allow all)
+   */
+  public getCorsOrigins(): string[] {
+    return this.get('security').corsOrigins;
+  }
+
+  /**
+   * Check if HSTS is enabled
+   * @returns True if HSTS header should be set
+   */
+  public isHstsEnabled(): boolean {
+    return this.get('security').hstsEnabled;
+  }
+
+  /**
+   * Get the token encryption key (if configured)
+   * @returns Encryption key or undefined
+   */
+  public getTokenEncryptionKey(): string | undefined {
+    return this.get('security').tokenEncryptionKey;
+  }
+
+  /**
+   * Check if token encryption is configured
+   * @returns True if encryption key is set
+   */
+  public isTokenEncryptionEnabled(): boolean {
+    return !!this.get('security').tokenEncryptionKey;
+  }
+
+  /**
+   * Set the token encryption key
+   * @param key - Encryption key (should be 32 bytes for AES-256)
+   */
+  public setTokenEncryptionKey(key: string): void {
+    this.updateConfig({
+      security: {
+        ...this.get('security'),
+        tokenEncryptionKey: key,
+      },
+    });
+  }
+
+  /**
+   * Set allowed CORS origins
+   * @param origins - Array of allowed origins (empty = allow all)
+   */
+  public setCorsOrigins(origins: string[]): void {
+    this.updateConfig({
+      security: {
+        ...this.get('security'),
+        corsOrigins: origins,
+      },
+    });
+  }
+
+  /**
+   * Enable or disable HSTS
+   * @param enabled - True to enable HSTS header
+   */
+  public setHstsEnabled(enabled: boolean): void {
+    this.updateConfig({
+      security: {
+        ...this.get('security'),
+        hstsEnabled: enabled,
+      },
+    });
+  }
+
+  /**
+   * Check if strict CORS mode is enabled
+   * When enabled, invalid CORS origins will cause startup failure instead of falling back to allow-all
+   * @returns True if strict CORS mode is enabled
+   */
+  public isStrictCORSEnabled(): boolean {
+    return this.get('security').strictCORS;
+  }
+
+  /**
+   * Enable or disable strict CORS mode
+   * @param enabled - True to enable strict CORS mode (fail on invalid origins)
+   */
+  public setStrictCORSEnabled(enabled: boolean): void {
+    this.updateConfig({
+      security: {
+        ...this.get('security'),
+        strictCORS: enabled,
+      },
+    });
   }
 
   /**

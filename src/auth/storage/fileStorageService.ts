@@ -4,6 +4,7 @@ import path from 'path';
 import { ExpirableData } from '@src/auth/sessionTypes.js';
 import { AUTH_CONFIG, FILE_PREFIX_MAPPING, getGlobalConfigDir, STORAGE_SUBDIRS } from '@src/constants.js';
 import logger from '@src/logger/logger.js';
+import { decrypt, encrypt } from '@src/utils/encryption.js';
 
 /**
  * Generic file storage service with unified cleanup for all expirable data types.
@@ -17,17 +18,24 @@ import logger from '@src/logger/logger.js';
  * - Path traversal protection
  * - Automatic directory creation
  * - Corruption handling (removes corrupted files)
+ * - Optional encryption at rest for sensitive data
  */
 export class FileStorageService {
   private storageDir: string;
   private cleanupInterval: ReturnType<typeof setInterval> | null = null;
+  private encryptionKey: string | null = null;
 
-  constructor(baseDir?: string, subDir?: string) {
+  constructor(baseDir?: string, subDir?: string, encryptionKey?: string) {
     const configDir = baseDir || getGlobalConfigDir();
     const sessionsDir = AUTH_CONFIG.SERVER.STORAGE.DIR;
 
     // If subDir provided, use sessions/subDir/, otherwise just sessions/
     this.storageDir = subDir ? path.join(configDir, sessionsDir, subDir) : path.join(configDir, sessionsDir);
+
+    // Store encryption key if provided
+    if (encryptionKey) {
+      this.encryptionKey = encryptionKey;
+    }
 
     this.ensureDirectory();
     this.migrateOldFilesIfNeeded();
@@ -263,12 +271,29 @@ export class FileStorageService {
 
   /**
    * Writes data to a file with the specified prefix and ID
+   * Optionally encrypts data if encryption key is configured
    */
   writeData<T extends ExpirableData>(filePrefix: string, id: string, data: T): void {
     try {
       const filePath = this.getFilePath(filePrefix, id);
-      fs.writeFileSync(filePath, JSON.stringify(data, null, 2));
-      logger.debug(`Wrote data to ${filePath}`);
+
+      let content: string;
+      if (this.encryptionKey) {
+        // Encrypt the data
+        const encrypted = encrypt(JSON.stringify(data), this.encryptionKey);
+        content = JSON.stringify({
+          encrypted: true,
+          iv: encrypted.iv,
+          authTag: encrypted.authTag,
+          data: encrypted.encrypted,
+        });
+      } else {
+        // Plain JSON storage
+        content = JSON.stringify(data, null, 2);
+      }
+
+      fs.writeFileSync(filePath, content);
+      logger.debug(`Wrote data to ${filePath}${this.encryptionKey ? ' (encrypted)' : ''}`);
     } catch (error) {
       logger.error(`Failed to write data for ${id}: ${error}`);
       throw error;
@@ -278,6 +303,7 @@ export class FileStorageService {
   /**
    * Reads data from a file with the specified prefix and ID
    * Returns null if file doesn't exist or data is expired
+   * Decrypts data if encryption is configured
    */
   readData<T extends ExpirableData>(filePrefix: string, id: string): T | null {
     if (!this.isValidId(id)) {
@@ -291,16 +317,32 @@ export class FileStorageService {
         return null;
       }
 
-      const data = fs.readFileSync(filePath, 'utf8');
-      const parsedData: T = JSON.parse(data) as T;
+      const fileContent = fs.readFileSync(filePath, 'utf8');
+
+      // Check if file is encrypted
+      let data: T;
+      try {
+        const parsedContent = JSON.parse(fileContent) as { encrypted?: boolean; data?: string; iv?: string; authTag?: string };
+        if (parsedContent.encrypted === true && this.encryptionKey && parsedContent.data && parsedContent.iv && parsedContent.authTag) {
+          // Decrypt the data
+          const decrypted = decrypt(parsedContent.data, parsedContent.iv, parsedContent.authTag, this.encryptionKey);
+          data = JSON.parse(decrypted) as T;
+        } else {
+          // Plain JSON storage
+          data = parsedContent as T;
+        }
+      } catch {
+        // Fallback for non-JSON or corrupted files
+        data = JSON.parse(fileContent) as T;
+      }
 
       // Check if data is expired
-      if (parsedData.expires < Date.now()) {
+      if (data.expires < Date.now()) {
         this.deleteData(filePrefix, id);
         return null;
       }
 
-      return parsedData;
+      return data;
     } catch (error) {
       logger.error(`Failed to read data for ${id}: ${error}`);
       return null;

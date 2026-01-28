@@ -151,6 +151,7 @@ describe('ExpressServer', () => {
         if (key === 'port') return 3050;
         if (key === 'rateLimit') return { windowMs: 900000, max: 100 };
         if (key === 'sessionPersistence') return { backgroundFlushSeconds: 30 };
+        if (key === 'security') return { corsOrigins: [], hstsEnabled: false, tokenEncryptionKey: undefined };
         return undefined;
       }),
       getSessionStoragePath: vi.fn(() => '/tmp/sessions'),
@@ -161,6 +162,10 @@ describe('ExpressServer', () => {
       getRateLimitMax: vi.fn(() => 100),
       isAuthEnabled: vi.fn(() => false),
       getUrl: vi.fn(() => 'http://localhost:3050'),
+      getCorsOrigins: vi.fn(() => []),
+      isHstsEnabled: vi.fn(() => false),
+      isTokenEncryptionEnabled: vi.fn(() => false),
+      getTokenEncryptionKey: vi.fn(() => undefined),
     };
 
     const { AgentConfigManager } = await import('@src/core/server/agentConfig.js');
@@ -541,6 +546,108 @@ describe('ExpressServer', () => {
       expressServer.start();
 
       expect(mockApp.listen).toHaveBeenCalledTimes(2);
+    });
+  });
+});
+
+describe('CORS Origin Validation', () => {
+  let validateCorsOrigins: (origins: string[]) => string[];
+
+  beforeEach(async () => {
+    const module = await import('./server.js');
+    validateCorsOrigins = module.validateCorsOrigins;
+  });
+
+  describe('validateCorsOrigins', () => {
+    it('should accept valid HTTP origins', () => {
+      const result = validateCorsOrigins(['http://example.com', 'http://localhost:3000']);
+      expect(result).toContain('http://example.com');
+      expect(result).toContain('http://localhost:3000');
+    });
+
+    it('should accept valid HTTPS origins', () => {
+      const result = validateCorsOrigins(['https://secure.example.com', 'https://api.example.com:8443']);
+      expect(result).toContain('https://secure.example.com');
+      expect(result).toContain('https://api.example.com:8443');
+    });
+
+    it('should reject origins with invalid protocols', () => {
+      const result = validateCorsOrigins(['ftp://example.com', 'file://local/path', 'javascript:alert(1)']);
+      expect(result).toHaveLength(0);
+    });
+
+    it('should reject malformed URLs', () => {
+      const result = validateCorsOrigins(['not-a-url', 'http://', '://example.com']);
+      expect(result).toHaveLength(0);
+    });
+
+    it('should reject origins with embedded credentials', () => {
+      const result = validateCorsOrigins(['http://user:pass@example.com', 'https://admin:secret@api.com']);
+      expect(result).toHaveLength(0);
+    });
+
+    it('should accept localhost with standard ports', () => {
+      const result = validateCorsOrigins(['http://localhost', 'http://localhost:3000', 'http://127.0.0.1:8080']);
+      expect(result).toContain('http://localhost');
+      expect(result).toContain('http://localhost:3000');
+      expect(result).toContain('http://127.0.0.1:8080');
+    });
+
+    it('should reject localhost with non-standard ports', () => {
+      const result = validateCorsOrigins(['http://localhost:12345', 'http://127.0.0.1:99999']);
+      expect(result).toHaveLength(0);
+    });
+
+    it('should handle mixed valid and invalid origins', () => {
+      const result = validateCorsOrigins([
+        'https://valid.example.com',
+        'ftp://invalid.com',
+        'http://localhost:3000',
+        'not-a-url',
+      ]);
+      expect(result).toContain('https://valid.example.com');
+      expect(result).toContain('http://localhost:3000');
+      expect(result).not.toContain('ftp://invalid.com');
+      expect(result).not.toContain('not-a-url');
+    });
+
+    it('should return empty array for empty input', () => {
+      const result = validateCorsOrigins([]);
+      expect(result).toEqual([]);
+    });
+
+    it('should handle origins with paths correctly', () => {
+      const result = validateCorsOrigins(['https://example.com/api', 'https://example.com/path/to/resource']);
+      expect(result).toContain('https://example.com/api');
+      expect(result).toContain('https://example.com/path/to/resource');
+    });
+
+    it('should accept common dev server ports', () => {
+      const devPorts = ['http://localhost:5173', 'http://localhost:5174', 'http://localhost:5500', 'http://localhost:6000', 'http://localhost:7000', 'http://localhost:8081', 'http://localhost:9090', 'http://localhost:9200'];
+      const result = validateCorsOrigins(devPorts);
+      expect(result).toHaveLength(devPorts.length);
+    });
+
+    it('should reject non-standard ports on localhost', () => {
+      const result = validateCorsOrigins(['http://localhost:12345', 'http://127.0.0.1:99999']);
+      expect(result).toHaveLength(0);
+    });
+  });
+
+  describe('CORS Strict Mode', () => {
+    it('should accept strictCORS in security config schema', async () => {
+      const { securityConfigSchema } = await import('../../config/configLoader.js');
+      const result = securityConfigSchema.safeParse({ strictCORS: true });
+      expect(result.success).toBe(true);
+      expect(result.data?.strictCORS).toBe(true);
+    });
+
+    it('should accept strictCORS as string in config', async () => {
+      const { securityConfigSchema } = await import('../../config/configLoader.js');
+      const result = securityConfigSchema.safeParse({ strictCORS: 'true' });
+      expect(result.success).toBe(true);
+      // String 'true' is preserved (zod union doesn't coerce types)
+      expect(result.data?.strictCORS).toBe('true');
     });
   });
 });

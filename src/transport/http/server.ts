@@ -36,6 +36,65 @@ interface CompatibleRateLimitOptions {
 }
 
 /**
+ * Validates a CORS origin URL for security.
+ * Rejects invalid protocols, malformed URLs, and potential security risks.
+ *
+ * @param origin - The origin URL to validate
+ * @returns True if the origin is valid and safe
+ */
+function isValidCorsOrigin(origin: string): boolean {
+  try {
+    const url = new URL(origin);
+    // Only allow http and https protocols
+    if (!['http:', 'https:'].includes(url.protocol)) {
+      return false;
+    }
+    // Reject localhost with non-standard ports that could be confused
+    if (url.hostname === 'localhost' || url.hostname === '127.0.0.1') {
+      const port = url.port;
+      // Allow standard ports and common dev ports (including Vite, Next.js, Angular, etc.)
+      const allowedPorts = ['', '80', '443', '3000', '4000', '5000', '5173', '5174', '5500', '6000', '7000', '8080', '8081', '9000', '9001', '9090', '9200'];
+      if (port && !allowedPorts.includes(port)) {
+        return false;
+      }
+    }
+    // Reject origins with credentials embedded
+    if (url.username || url.password) {
+      return false;
+    }
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Validates and sanitizes a list of CORS origins.
+ * Filters out invalid origins and logs warnings for removed entries.
+ *
+ * @param origins - Array of origin URLs
+ * @returns Array of valid origins
+ */
+export function validateCorsOrigins(origins: string[]): string[] {
+  const validOrigins: string[] = [];
+  const invalidOrigins: string[] = [];
+
+  for (const origin of origins) {
+    if (isValidCorsOrigin(origin)) {
+      validOrigins.push(origin);
+    } else {
+      invalidOrigins.push(origin);
+    }
+  }
+
+  if (invalidOrigins.length > 0) {
+    logger.warn(`Invalid CORS origins removed: ${invalidOrigins.join(', ')}`);
+  }
+
+  return validOrigins;
+}
+
+/**
  * ExpressServer orchestrates the HTTP/SSE transport layer for the MCP server.
  *
  * This class manages the Express application, authentication, and route setup.
@@ -91,7 +150,9 @@ export class ExpressServer {
     this.oauthProvider = new SDKOAuthServerProvider(sessionStoragePath);
 
     // Initialize streamable session repository with 'transport' subdirectory
-    const fileStorageService = new FileStorageService(sessionStoragePath, STORAGE_SUBDIRS.TRANSPORT);
+    // Pass encryption key if token encryption is configured
+    const encryptionKey = this.configManager.isTokenEncryptionEnabled() ? this.configManager.getTokenEncryptionKey() : undefined;
+    const fileStorageService = new FileStorageService(sessionStoragePath, STORAGE_SUBDIRS.TRANSPORT, encryptionKey);
     this.streamableSessionRepository = new StreamableSessionRepository(fileStorageService);
 
     this.setupMiddleware();
@@ -118,7 +179,32 @@ export class ExpressServer {
     // Add HTTP request logging middleware (early in the stack for complete coverage)
     this.app.use(httpRequestLogger);
 
-    this.app.use(cors()); // Allow all origins for local dev
+    // CORS configuration - use validated whitelist if configured, otherwise allow all for local dev
+    const configuredOrigins = this.configManager.getCorsOrigins();
+    if (configuredOrigins.length > 0) {
+      // Validate and sanitize CORS origins
+      const validOrigins = validateCorsOrigins(configuredOrigins);
+      if (validOrigins.length > 0) {
+        this.app.use(
+          cors({
+            origin: validOrigins,
+            credentials: true,
+          }),
+        );
+      } else if (this.configManager.isStrictCORSEnabled()) {
+        // In strict mode, fail on invalid origins instead of falling back
+        const invalidCount = configuredOrigins.length;
+        logger.error(`Strict CORS mode: All ${invalidCount} configured CORS origins are invalid`);
+        throw new Error(`Invalid CORS configuration: All ${invalidCount} configured origins were rejected. Check your configuration.`);
+      } else {
+        // Fall back to allow all if all origins were invalid (default behavior for backwards compatibility)
+        logger.warn(`All configured CORS origins were invalid (${configuredOrigins.join(', ')}) - allowing all origins`);
+        this.app.use(cors());
+      }
+    } else {
+      // Allow all origins for local development
+      this.app.use(cors());
+    }
     this.app.use(bodyParser.json());
     this.app.use(bodyParser.urlencoded({ extended: true }));
 

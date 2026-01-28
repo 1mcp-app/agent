@@ -52,6 +52,9 @@ All available command-line options and their corresponding environment variables
 | `--session-storage-path`        | `ONE_MCP_SESSION_STORAGE_PATH`        | Custom session storage directory path (string)                                                  |            |
 | `--rate-limit-window`           | `ONE_MCP_RATE_LIMIT_WINDOW`           | OAuth rate limit window in minutes (number)                                                     |     15     |
 | `--rate-limit-max`              | `ONE_MCP_RATE_LIMIT_MAX`              | Maximum requests per OAuth rate limit window (number)                                           |    100     |
+| `--cors-origins`                | `ONE_MCP_CORS_ORIGINS`                | Comma-separated list of allowed CORS origins (empty = allow all)                                |            |
+| `--enable-hsts`                 | `ONE_MCP_ENABLE_HSTS`                 | Enable HTTP Strict-Transport-Security header (boolean)                                          |   false    |
+| `--token-encryption-key`        | `ONE_MCP_TOKEN_ENCRYPTION_KEY`        | Encryption key for token storage at rest (AES-256-GCM)                                          |            |
 | `--enable-async-loading`        | `ONE_MCP_ENABLE_ASYNC_LOADING`        | Enable asynchronous MCP server loading(boolean)                                                 |   false    |
 | `--enable-config-reload`        | `ONE_MCP_ENABLE_CONFIG_RELOAD`        | Enable configuration file hot-reload (boolean)                                                  |    true    |
 | `--config-reload-debounce`      | `ONE_MCP_CONFIG_RELOAD_DEBOUNCE`      | Configuration reload debounce time in milliseconds (number)                                     |    500     |
@@ -231,6 +234,66 @@ npx -y @1mcp/agent --trust-proxy 10.0.0.0/8
 ```
 
 For detailed trust proxy configuration, see the **[Trust Proxy Reference](../../reference/trust-proxy.md)**.
+
+### Transport Security
+
+Configure transport-layer security settings for production deployments.
+
+**`--cors-origins <origins>`**
+
+- **Purpose**: Restrict allowed CORS origins for cross-origin requests
+- **Default**: Empty (allow all origins for local development)
+- **Environment**: `ONE_MCP_CORS_ORIGINS`
+- **Format**: Comma-separated list of URLs
+
+**`--enable-hsts`**
+
+- **Purpose**: Enable HTTP Strict-Transport-Security (HSTS) header
+- **Default**: `false`
+- **Environment**: `ONE_MCP_ENABLE_HSTS`
+- **Note**: Required for HTTPS production deployments
+
+**`--token-encryption-key <key>`**
+
+- **Purpose**: Encryption key for OAuth tokens stored at rest (AES-256-GCM)
+- **Default**: No encryption
+- **Environment**: `ONE_MCP_TOKEN_ENCRYPTION_KEY`
+- **Note**: Key should be at least 8 characters
+
+**Examples:**
+
+```bash
+# Restrict CORS to specific origins for production
+npx -y @1mcp/agent --cors-origins "https://app.example.com,https://admin.example.com"
+
+# Enable HSTS for HTTPS deployments
+npx -y @1mcp/agent --enable-hsts --external-url https://mcp.example.com
+
+# Encrypt tokens at rest with a secure key
+npx -y @1mcp/agent --token-encryption-key "${TOKEN_ENCRYPTION_KEY}"
+
+# Production deployment with all security features
+npx -y @1mcp/agent \
+  --host 0.0.0.0 \
+  --port 3051 \
+  --enable-auth \
+  --cors-origins "https://app.example.com" \
+  --enable-hsts \
+  --token-encryption-key "${TOKEN_ENCRYPTION_KEY}"
+
+# Environment variables
+ONE_MCP_CORS_ORIGINS="https://app.example.com,https://admin.example.com" \
+ONE_MCP_ENABLE_HSTS=true \
+ONE_MCP_TOKEN_ENCRYPTION_KEY="your-secure-key-here" \
+npx -y @1mcp/agent
+```
+
+> **Security Note**: For production deployments, use all three security options together:
+> - Restrict CORS to your application's origins
+> - Enable HSTS when using HTTPS
+> - Encrypt tokens at rest to protect sensitive data if the filesystem is compromised
+
+For detailed security information, see the **[Security Reference](../../reference/security.md)**.
 
 ### Server Filtering
 
@@ -594,6 +657,9 @@ All environment variables are prefixed with `ONE_MCP_` and override both configu
 - `ONE_MCP_SESSION_STORAGE_PATH`
 - `ONE_MCP_RATE_LIMIT_WINDOW`
 - `ONE_MCP_RATE_LIMIT_MAX`
+- `ONE_MCP_CORS_ORIGINS`
+- `ONE_MCP_ENABLE_HSTS`
+- `ONE_MCP_TOKEN_ENCRYPTION_KEY`
 - `ONE_MCP_ENABLE_ASYNC_LOADING`
 - `ONE_MCP_ENABLE_CONFIG_RELOAD`
 - `ONE_MCP_CONFIG_RELOAD_DEBOUNCE`
