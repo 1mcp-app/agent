@@ -287,4 +287,43 @@ export function warnIf(messageOrFunc: string | (() => { message: string; meta?: 
   }
 }
 
+/**
+ * Check if error logging is enabled
+ * Use this to avoid expensive operations when error logging is disabled
+ */
+export function isErrorEnabled(): boolean {
+  return logger.isErrorEnabled();
+}
+
+/**
+ * Conditional error logging - only executes the message function if error is enabled
+ * @param messageOrFunc Message string or function that returns message and metadata
+ */
+export function errorIf(messageOrFunc: string | (() => { message: string; meta?: Record<string, unknown> })): void {
+  if (isErrorEnabled()) {
+    if (typeof messageOrFunc === 'string') {
+      logger.error(messageOrFunc);
+    } else {
+      try {
+        const result = messageOrFunc();
+        if (result && typeof result === 'object' && 'message' in result) {
+          const { message, meta } = result;
+          if (meta) {
+            logger.error(message, meta);
+          } else {
+            logger.error(message);
+          }
+        } else {
+          // Fallback for malformed callback results
+          logger.error('[errorIf: Invalid callback result]', { callbackResult: result });
+        }
+      } catch (error) {
+        // Never let logging errors crash the application
+        // For errorIf, we use console.error as last resort to avoid recursion
+        console.error('errorIf callback failed:', error instanceof Error ? error.message : String(error));
+      }
+    }
+  }
+}
+
 export default logger;

@@ -4,7 +4,7 @@ import path from 'path';
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { configureLogger } from './logger.js';
+import { configureLogger, errorIf } from './logger.js';
 import logger from './logger.js';
 
 describe('logger configuration', () => {
@@ -229,5 +229,85 @@ describe('logger configuration', () => {
         expect(logger.level).toBe(expectedWinston);
       });
     });
+  });
+});
+
+describe('errorIf', () => {
+  const originalLevel = logger.level;
+
+  afterEach(() => {
+    logger.level = originalLevel;
+  });
+
+  it('should log error message when error level is enabled', () => {
+    logger.level = 'error';
+    const errorSpy = vi.spyOn(logger, 'error').mockImplementation(() => logger);
+
+    errorIf('Test error message');
+
+    expect(errorSpy).toHaveBeenCalledWith('Test error message');
+    expect(logger.isErrorEnabled()).toBe(true);
+    errorSpy.mockRestore();
+  });
+
+  it('should not log when error level is disabled', () => {
+    logger.level = 'none';
+    const errorSpy = vi.spyOn(logger, 'error').mockImplementation(() => logger);
+
+    errorIf('Test error message');
+
+    expect(errorSpy).not.toHaveBeenCalled();
+    expect(logger.isErrorEnabled()).toBe(false);
+    errorSpy.mockRestore();
+  });
+
+  it('should execute callback and log with metadata when enabled', () => {
+    logger.level = 'error';
+    const errorSpy = vi.spyOn(logger, 'error').mockImplementation(() => logger);
+    const meta = { server: 'test', error: 'Test error' };
+
+    errorIf(() => ({
+      message: 'Test error with metadata',
+      meta,
+    }));
+
+    expect(errorSpy).toHaveBeenCalledWith('Test error with metadata', meta);
+    errorSpy.mockRestore();
+  });
+
+  it('should handle callback execution errors gracefully', () => {
+    logger.level = 'error';
+    const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    expect(() => {
+      errorIf(() => {
+        throw new Error('Callback failed');
+      });
+    }).not.toThrow();
+
+    expect(consoleSpy).toHaveBeenCalledWith('errorIf callback failed:', 'Callback failed');
+    consoleSpy.mockRestore();
+  });
+
+  it('should handle malformed callback results', () => {
+    logger.level = 'error';
+    const errorSpy = vi.spyOn(logger, 'error').mockImplementation(() => logger);
+
+    expect(() => {
+      errorIf(
+        () =>
+          ({
+            invalid: 'result',
+          }) as any,
+      );
+    }).not.toThrow();
+
+    expect(errorSpy).toHaveBeenCalledWith(
+      '[errorIf: Invalid callback result]',
+      expect.objectContaining({
+        callbackResult: expect.any(Object),
+      }),
+    );
+    errorSpy.mockRestore();
   });
 });
