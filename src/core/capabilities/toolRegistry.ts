@@ -178,7 +178,8 @@ export class ToolRegistry {
       offset = decoded.offset;
     }
 
-    const limit = options.limit ? Math.min(options.limit, 5000) : filtered.length;
+    const DEFAULT_PAGE_SIZE = 20;
+    const limit = options.limit ? Math.min(options.limit, 5000) : DEFAULT_PAGE_SIZE;
     const paginated = filtered.slice(offset, offset + limit);
     const hasMore = offset + limit < filtered.length;
 

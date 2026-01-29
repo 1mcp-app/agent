@@ -165,6 +165,54 @@ describe('ToolRegistry', () => {
       expect(page2.tools[0].server).toBe('database');
       expect(page2.tools[0].name).not.toBe(page1.tools[0].name);
     });
+
+    it('should use default limit of 20 when not specified', () => {
+      // Create registry with 25+ tools
+      const manyTools = Array.from({ length: 25 }, (_, i) => ({
+        tool: { name: `tool_${i}`, description: `Tool ${i}`, inputSchema: { type: 'object' as const } },
+        server: 'server1',
+        tags: [],
+      }));
+      const largeRegistry = ToolRegistry.fromToolsWithServer(manyTools);
+
+      const result = largeRegistry.listTools({});
+      expect(result.tools).toHaveLength(20);
+      expect(result.totalCount).toBe(25);
+      expect(result.hasMore).toBe(true);
+      expect(result.nextCursor).toBeDefined();
+    });
+
+    it('should paginate through all tools with default limit', () => {
+      const manyTools = Array.from({ length: 45 }, (_, i) => ({
+        tool: { name: `tool_${i}`, description: `Tool ${i}`, inputSchema: { type: 'object' as const } },
+        server: 'server1',
+        tags: [],
+      }));
+      const largeRegistry = ToolRegistry.fromToolsWithServer(manyTools);
+
+      // Page 1: 20 tools
+      const page1 = largeRegistry.listTools({});
+      expect(page1.tools).toHaveLength(20);
+      expect(page1.hasMore).toBe(true);
+
+      // Page 2: 20 tools
+      const page2 = largeRegistry.listTools({ cursor: page1.nextCursor });
+      expect(page2.tools).toHaveLength(20);
+      expect(page2.hasMore).toBe(true);
+
+      // Page 3: 5 remaining tools
+      const page3 = largeRegistry.listTools({ cursor: page2.nextCursor });
+      expect(page3.tools).toHaveLength(5);
+      expect(page3.hasMore).toBe(false);
+      expect(page3.nextCursor).toBeUndefined();
+    });
+
+    it('should return all tools when total is less than default limit', () => {
+      const result = registry.listTools({});
+      expect(result.tools).toHaveLength(6); // mockTools has 6 tools
+      expect(result.hasMore).toBe(false);
+      expect(result.nextCursor).toBeUndefined();
+    });
   });
 
   describe('Server and Tag Operations', () => {
