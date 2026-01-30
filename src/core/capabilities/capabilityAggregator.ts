@@ -201,8 +201,9 @@ export class CapabilityAggregator extends EventEmitter {
             if (resourcesResult.resources) {
               allResources.push(...resourcesResult.resources);
             }
-            resultIndex++;
           }
+          // Always increment index when resources capability exists, regardless of fulfillment
+          resultIndex++;
         }
 
         // Process prompts (third if available)

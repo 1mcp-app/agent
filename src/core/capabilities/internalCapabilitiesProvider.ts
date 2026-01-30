@@ -248,7 +248,8 @@ export class InternalCapabilitiesProvider extends EventEmitter {
     }
 
     // === Lazy Tools (controlled by lazyLoading.enabled) ===
-    if (this.flagManager.isToolEnabled('lazyTools')) {
+    // Only expose lazy tools when orchestrator is wired to avoid exposing non-functional tools
+    if (this.flagManager.isToolEnabled('lazyTools') && this.lazyLoadingOrchestrator) {
       tools.push(createToolListTool(), createToolSchemaTool(), createToolInvokeTool());
     }
 

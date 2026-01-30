@@ -285,6 +285,14 @@ export default function tagsExtractor(req: Request, res: Response, next: NextFun
           next();
           return;
         }
+        // Empty filter after parsing - treat as invalid
+        res.status(400).json({
+          error: {
+            code: ErrorCode.InvalidParams,
+            message: `Invalid filter: empty or malformed filter expression`,
+          },
+        });
+        return;
       }
     } catch (error) {
       res.status(400).json({

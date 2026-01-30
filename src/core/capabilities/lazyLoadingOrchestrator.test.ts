@@ -1038,7 +1038,7 @@ describe('LazyLoadingOrchestrator', () => {
       await orchestrator.initialize();
     });
 
-    it('should store and retrieve session-specific allowed servers', () => {
+    it('should store and retrieve session-specific allowed servers', async () => {
       const sessionId = 'session-123';
       const allowedServers = new Set(['filesystem', 'database']);
 
@@ -1046,7 +1046,7 @@ describe('LazyLoadingOrchestrator', () => {
       expect(orchestrator.getSessionAllowedServers(sessionId)).toBeUndefined();
 
       // Store filter via getCapabilitiesForFilteredServers
-      orchestrator.getCapabilitiesForFilteredServers(allowedServers, sessionId);
+      await orchestrator.getCapabilitiesForFilteredServers(allowedServers, sessionId);
 
       // Should retrieve the same filter
       const retrieved = orchestrator.getSessionAllowedServers(sessionId);

@@ -102,7 +102,9 @@ export class ClientManager {
       if (clientInfo) {
         clientInfo.status = ClientStatus.Disconnected;
       }
-      this.instructionAggregator?.removeServer(name);
+      // Use cleanName for removal to match the key used during caching
+      const cleanName = clientInfo?.name || name;
+      this.instructionAggregator?.removeServer(cleanName);
       logger.info(`Client ${name} disconnected`);
     };
 

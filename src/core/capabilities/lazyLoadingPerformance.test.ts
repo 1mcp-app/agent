@@ -20,6 +20,9 @@ describe('Lazy Loading Performance Tests', () => {
   const mockTools: Tool[] = [];
 
   beforeEach(() => {
+    // Reset mockTools to prevent growth across test runs
+    mockTools.length = 0;
+
     // Create 100 mock tools
     for (let i = 1; i <= 100; i++) {
       mockTools.push({

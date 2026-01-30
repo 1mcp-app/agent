@@ -175,7 +175,21 @@ export class ToolRegistry {
     let offset = 0;
     if (options.cursor) {
       const decoded = ToolRegistry.decodeCursor(options.cursor);
-      offset = decoded.offset;
+      // Validate that cursor matches current filters to prevent pagination inconsistency
+      // Only validate if filters are explicitly provided (undefined means "use cursor's filters")
+      const serverMismatch = options.server !== undefined && decoded.server !== options.server;
+      const patternMismatch = options.pattern !== undefined && decoded.pattern !== options.pattern;
+      const tagMismatch = options.tag !== undefined && decoded.tag !== options.tag;
+
+      if (serverMismatch || patternMismatch || tagMismatch) {
+        errorIf(() => ({
+          message: 'Cursor does not match current filters, resetting to first page',
+          meta: { cursor: decoded, currentFilters: options },
+        }));
+        offset = 0;
+      } else {
+        offset = decoded.offset;
+      }
     }
 
     const DEFAULT_PAGE_SIZE = 20;

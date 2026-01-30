@@ -225,7 +225,6 @@ export class MetaToolProvider {
     try {
       const registry = this.toolRegistry();
       const result = registry.listTools(args);
-      const servers = registry.getServers();
 
       // Format tools for response
       const tools = result.tools.map((tool: ToolMetadata) => ({
@@ -234,6 +233,9 @@ export class MetaToolProvider {
         description: tool.description,
         tags: tool.tags,
       }));
+
+      // Get unique servers from filtered results to keep output consistent with applied filters
+      const servers = Array.from(new Set(result.tools.map((t) => t.server))).sort();
 
       // Return structured result matching outputSchema
       const response: ListToolsResult = {

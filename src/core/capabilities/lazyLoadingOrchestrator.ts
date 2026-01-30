@@ -227,7 +227,11 @@ export class LazyLoadingOrchestrator extends EventEmitter {
       // Check server pattern match
       const serverMatch = preload.patterns.some((pattern) => {
         try {
-          const escaped = pattern.replace(/[.+^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '.*');
+          // Escape special regex chars and convert glob patterns: * -> .*, ? -> .
+          const escaped = pattern
+            .replace(/[.+^${}()|[\]\\]/g, '\\$&')
+            .replace(/\*/g, '.*')
+            .replace(/\?/g, '.');
           const regex = new RegExp(`^${escaped}$`);
           return regex.test(tool.server);
         } catch (error) {
@@ -585,8 +589,9 @@ export class LazyLoadingOrchestrator extends EventEmitter {
     const cacheSize = this.schemaCache.size();
     const issues: string[] = [];
 
-    // Check cache utilization
-    const utilizationRate = (cacheSize / lazyConfig.cache.maxEntries) * 100;
+    // Check cache utilization (guard against division by zero)
+    const maxEntries = lazyConfig.cache.maxEntries;
+    const utilizationRate = maxEntries > 0 ? (cacheSize / maxEntries) * 100 : 0;
     if (utilizationRate > 90) {
       issues.push(`Cache utilization high: ${utilizationRate.toFixed(1)}%`);
     }
