@@ -29,6 +29,7 @@ export function createInstallTool(): Tool {
     annotations: {
       title: 'Install MCP Server',
       destructiveHint: true,
+      idempotentHint: true,
       openWorldHint: true,
     },
   };
@@ -46,6 +47,8 @@ export function createUninstallTool(): Tool {
     annotations: {
       title: 'Uninstall MCP Server',
       destructiveHint: true,
+      idempotentHint: true,
+      openWorldHint: false,
     },
   };
 }
@@ -62,6 +65,7 @@ export function createUpdateTool(): Tool {
     annotations: {
       title: 'Update MCP Server',
       destructiveHint: true,
+      idempotentHint: false,
       openWorldHint: true,
     },
   };

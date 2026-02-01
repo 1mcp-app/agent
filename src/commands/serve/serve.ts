@@ -16,6 +16,7 @@ import { AgentConfigManager } from '@src/core/server/agentConfig.js';
 import { cleanupPidFileOnExit, registerPidFileCleanup, writePidFile } from '@src/core/server/pidFileManager.js';
 import { ServerManager } from '@src/core/server/serverManager.js';
 import { TagExpression, TagQueryParser } from '@src/domains/preset/parsers/tagQueryParser.js';
+import type { TagQuery } from '@src/domains/preset/types/presetTypes.js';
 import logger, { debugIf } from '@src/logger/logger.js';
 import { setupServer } from '@src/server.js';
 import { ExpressServer } from '@src/transport/http/server.js';
@@ -48,6 +49,17 @@ export interface ServeOptions {
   'async-batch-notifications': boolean;
   'async-batch-delay': number;
   'async-notify-on-ready': boolean;
+  'enable-lazy-loading': boolean;
+  'lazy-mode': string;
+  'lazy-inline-catalog': boolean;
+  'lazy-catalog-format': string;
+  'lazy-direct-expose'?: string;
+  'lazy-cache-max-entries': number;
+  'lazy-cache-ttl'?: number;
+  'lazy-preload'?: string;
+  'lazy-preload-keywords'?: string;
+  'lazy-fallback-on-error'?: string;
+  'lazy-fallback-timeout'?: number;
   'enable-config-reload': boolean;
   'config-reload-debounce': number;
   'enable-env-substitution': boolean;
@@ -337,6 +349,29 @@ export async function serveCommand(parsedArgv: ServeOptions): Promise<void> {
         batchNotifications: parsedArgv['async-batch-notifications'],
         batchDelayMs: parsedArgv['async-batch-delay'],
       },
+      lazyLoading: {
+        enabled: parsedArgv['enable-lazy-loading'],
+        inlineCatalog: parsedArgv['lazy-inline-catalog'],
+        catalogFormat: (parsedArgv['lazy-catalog-format'] || 'grouped') as 'flat' | 'grouped' | 'categorized',
+        directExpose: parsedArgv['lazy-direct-expose']
+          ? parsedArgv['lazy-direct-expose'].split(',').map((s) => s.trim())
+          : [],
+        cache: {
+          maxEntries: parsedArgv['lazy-cache-max-entries'],
+          strategy: 'lru' as const,
+          ttlMs: parsedArgv['lazy-cache-ttl'],
+        },
+        preload: {
+          patterns: parsedArgv['lazy-preload'] ? parsedArgv['lazy-preload'].split(',').map((s) => s.trim()) : [],
+          keywords: parsedArgv['lazy-preload-keywords']
+            ? parsedArgv['lazy-preload-keywords'].split(',').map((s) => s.trim())
+            : [],
+        },
+        fallback: {
+          onError: (parsedArgv['lazy-fallback-on-error'] || 'skip') as 'skip' | 'full',
+          timeoutMs: parsedArgv['lazy-fallback-timeout'] ?? 30000,
+        },
+      },
       configReload: {
         debounceMs: parsedArgv['config-reload-debounce'],
       },
@@ -378,9 +413,59 @@ export async function serveCommand(parsedArgv: ServeOptions): Promise<void> {
         // Parse and validate filter from CLI if provided
         let tags: string[] | undefined;
         let tagExpression: TagExpression | undefined;
-        let tagFilterMode: 'simple-or' | 'advanced' | 'none' = 'none';
+        let tagQuery: TagQuery | undefined;
+        let tagFilterMode: 'simple-or' | 'advanced' | 'preset' | 'none' = 'none';
+        let presetName: string | undefined;
 
-        if (parsedArgv.filter) {
+        // Check for preset environment variable (for STDIO transport)
+        const presetEnv = process.env.ONE_MCP_PRESET;
+        if (presetEnv) {
+          const PresetManager = (await import('@src/domains/preset/manager/presetManager.js')).PresetManager;
+          const presetManager = PresetManager.getInstance(parsedArgv['config-dir']);
+
+          // Load presets synchronously for STDIO transport (skip file watching to avoid blocking)
+          try {
+            await presetManager.loadPresetsWithoutWatcher();
+          } catch (error) {
+            logger.warn(`Failed to load presets: ${error instanceof Error ? error.message : 'Unknown error'}`);
+          }
+
+          // Load presets if not already loaded
+          if (presetManager.hasPreset(presetEnv)) {
+            const preset = presetManager.getPreset(presetEnv);
+            if (preset) {
+              presetName = presetEnv;
+              tagQuery = preset.tagQuery;
+              tagFilterMode = 'preset';
+
+              // Convert tagQuery to tagExpression for compatibility
+              try {
+                // Convert JSON query to expression string first
+                const queryStr = presetManager.resolvePresetToExpression(presetEnv);
+                if (queryStr) {
+                  tagExpression = TagQueryParser.parseAdvanced(queryStr);
+                  // Provide simple tags for backward compat where possible
+                  if (tagExpression?.type === 'tag') {
+                    tags = [tagExpression.value!];
+                  }
+                }
+                logger.info(`Loaded preset '${presetEnv}' for STDIO transport`, {
+                  strategy: preset.strategy,
+                  tagQuery,
+                });
+              } catch (error) {
+                logger.warn(
+                  `Failed to parse preset tag query as expression: ${error instanceof Error ? error.message : 'Unknown error'}`,
+                );
+              }
+            }
+          } else {
+            logger.warn(`Preset '${presetEnv}' not found, ignoring preset environment variable`);
+          }
+        }
+
+        // Fall back to CLI filter if no preset was loaded
+        if (!presetName && parsedArgv.filter) {
           try {
             // First try to parse as advanced expression
             tagExpression = TagQueryParser.parseAdvanced(parsedArgv.filter);
@@ -415,7 +500,9 @@ export async function serveCommand(parsedArgv: ServeOptions): Promise<void> {
         await serverManager.connectTransport(transport, 'stdio', {
           tags,
           tagExpression,
+          tagQuery,
           tagFilterMode,
+          presetName,
           enablePagination: parsedArgv.pagination,
           customTemplate,
         });

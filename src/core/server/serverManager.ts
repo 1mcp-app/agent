@@ -1,9 +1,11 @@
 import { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
 
 import { ConfigManager } from '@src/config/configManager.js';
+import { LazyLoadingOrchestrator } from '@src/core/capabilities/lazyLoadingOrchestrator.js';
 import { getGlobalContextManager } from '@src/core/context/globalContextManager.js';
 import { ClientTemplateTracker, FilterCache, getFilterCache, TemplateIndex } from '@src/core/filtering/index.js';
 import { InstructionAggregator } from '@src/core/instructions/instructionAggregator.js';
+import { ServerRegistry } from '@src/core/server/adapters/ServerRegistry.js';
 import { ConnectionManager } from '@src/core/server/connectionManager.js';
 import { MCPServerLifecycleManager } from '@src/core/server/mcpServerLifecycleManager.js';
 import { TemplateConfigurationManager } from '@src/core/server/templateConfigurationManager.js';
@@ -45,12 +47,14 @@ export class ServerManager {
   private transports: Record<string, Transport>;
   private serverConfigData: MCPServerConfiguration | null = null; // Cache the config data
   private instructionAggregator?: InstructionAggregator;
+  private lazyLoadingOrchestrator?: LazyLoadingOrchestrator;
 
   // Component managers
   private connectionManager: ConnectionManager;
   private templateServerManager: TemplateServerManager;
   private mcpServerLifecycleManager: MCPServerLifecycleManager;
   private templateConfigurationManager: TemplateConfigurationManager;
+  private serverRegistry: ServerRegistry;
 
   // Filtering cache (kept separate as it's a shared resource)
   private filterCache = getFilterCache();
@@ -71,6 +75,7 @@ export class ServerManager {
     this.templateServerManager = new TemplateServerManager();
     this.mcpServerLifecycleManager = new MCPServerLifecycleManager();
     this.templateConfigurationManager = new TemplateConfigurationManager();
+    this.serverRegistry = new ServerRegistry(outboundConns, this.templateServerManager);
   }
 
   public static getOrCreateInstance(
@@ -106,6 +111,10 @@ export class ServerManager {
   public setInstructionAggregator(aggregator: InstructionAggregator): void {
     this.instructionAggregator = aggregator;
 
+    // Set instruction aggregator on template server manager
+    // This ensures template servers can extract and cache their instructions
+    this.templateServerManager.setInstructionAggregator(aggregator);
+
     // Listen for instruction changes and update existing server instances
     aggregator.on('instructions-changed', () => {
       this.updateServerInstructions();
@@ -115,6 +124,25 @@ export class ServerManager {
     this.setupContextChangeListener();
 
     debugIf('Instruction aggregator set for ServerManager');
+  }
+
+  /**
+   * Set the lazy loading orchestrator instance
+   */
+  public setLazyLoadingOrchestrator(orchestrator: LazyLoadingOrchestrator): void {
+    this.lazyLoadingOrchestrator = orchestrator;
+    this.connectionManager.setLazyLoadingOrchestrator(orchestrator);
+    if (this.instructionAggregator) {
+      this.instructionAggregator.setLazyLoadingOrchestrator(orchestrator);
+    }
+    debugIf('Lazy loading orchestrator set for ServerManager');
+  }
+
+  /**
+   * Get the lazy loading orchestrator instance
+   */
+  public getLazyLoadingOrchestrator(): LazyLoadingOrchestrator | undefined {
+    return this.lazyLoadingOrchestrator;
   }
 
   /**
@@ -193,9 +221,6 @@ export class ServerManager {
     opts: InboundConnectionConfig,
     context?: ContextData,
   ): Promise<void> {
-    // Get filtered instructions based on client's filter criteria using InstructionAggregator
-    const filteredInstructions = this.instructionAggregator?.getFilteredInstructions(opts, this.outboundConns) || '';
-
     // Load configuration data
     // Always process templates when context is available to ensure context-specific rendering
     const configManager = ConfigManager.getInstance();
@@ -216,6 +241,15 @@ export class ServerManager {
       // by filtering out static servers that conflict with template servers
     }
 
+    // Populate server registry with external servers
+    if (this.serverConfigData.mcpServers) {
+      for (const [name, config] of Object.entries(this.serverConfigData.mcpServers)) {
+        if (!this.serverRegistry.has(name)) {
+          this.serverRegistry.registerExternal(name, config);
+        }
+      }
+    }
+
     // If we have context, create template-based servers
     if (context && this.serverConfigData.mcpTemplates) {
       await this.templateServerManager.createTemplateBasedServers(
@@ -226,7 +260,24 @@ export class ServerManager {
         this.outboundConns,
         this.transports,
       );
+
+      // Populate server registry with template servers
+      for (const [name, config] of Object.entries(this.serverConfigData.mcpTemplates)) {
+        if (!this.serverRegistry.has(name)) {
+          this.serverRegistry.registerTemplate(name, config);
+        }
+      }
+
+      // CRITICAL: Refresh tool registry after template servers are added
+      // This ensures template server tools are included in lazy loading mode
+      if (this.lazyLoadingOrchestrator) {
+        await this.lazyLoadingOrchestrator.refreshCapabilities();
+      }
     }
+
+    // IMPORTANT: Get filtered instructions AFTER template servers are created
+    // This ensures template server instructions are included in the initialize response
+    const filteredInstructions = this.instructionAggregator?.getFilteredInstructions(opts, this.outboundConns) || '';
 
     // Connect the transport
     await this.connectionManager.connectTransport(transport, sessionId, opts, context, filteredInstructions);
@@ -274,6 +325,10 @@ export class ServerManager {
 
   public getTemplateServerManager(): TemplateServerManager {
     return this.templateServerManager;
+  }
+
+  public getServerRegistry(): ServerRegistry {
+    return this.serverRegistry;
   }
 
   public updateClientsAndTransports(newClients: OutboundConnections, newTransports: Record<string, Transport>): void {

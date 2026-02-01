@@ -168,26 +168,53 @@ export class CapabilityAggregator extends EventEmitter {
       try {
         readyServers.push(serverName);
 
-        // Fetch tools, resources, and prompts in parallel
-        const [toolsResult, resourcesResult, promptsResult] = await Promise.allSettled([
-          this.safeListTools(serverName, connection.client),
-          this.safeListResources(serverName, connection.client),
-          this.safeListPrompts(serverName, connection.client),
-        ]);
+        // Get server capabilities to check what's supported
+        const serverCapabilities = connection.client.getServerCapabilities() || {};
 
-        // Process tools
-        if (toolsResult.status === 'fulfilled' && toolsResult.value.tools) {
-          allTools.push(...toolsResult.value.tools);
+        // Build promises array based on actual capabilities
+        const promises: Promise<unknown>[] = [this.safeListTools(serverName, connection.client)];
+
+        if (serverCapabilities.resources) {
+          promises.push(this.safeListResources(serverName, connection.client));
+        }
+        if (serverCapabilities.prompts) {
+          promises.push(this.safeListPrompts(serverName, connection.client));
         }
 
-        // Process resources
-        if (resourcesResult.status === 'fulfilled' && resourcesResult.value.resources) {
-          allResources.push(...resourcesResult.value.resources);
+        // Fetch capabilities in parallel (only those supported)
+        const results = await Promise.allSettled(promises);
+
+        // Process tools (always first in promises array)
+        if (results[0]?.status === 'fulfilled') {
+          const toolsResult = results[0].value as ListToolsResult;
+          if (toolsResult.tools) {
+            allTools.push(...toolsResult.tools);
+          }
         }
 
-        // Process prompts
-        if (promptsResult.status === 'fulfilled' && promptsResult.value.prompts) {
-          allPrompts.push(...promptsResult.value.prompts);
+        // Process resources (second if available)
+        let resultIndex = 1;
+        if (serverCapabilities.resources) {
+          const resourceResult = results[resultIndex];
+          if (resourceResult && resourceResult.status === 'fulfilled') {
+            const resourcesResult = resourceResult.value as ListResourcesResult;
+            if (resourcesResult.resources) {
+              allResources.push(...resourcesResult.resources);
+            }
+          }
+          // Always increment index when resources capability exists, regardless of fulfillment
+          resultIndex++;
+        }
+
+        // Process prompts (third if available)
+        if (serverCapabilities.prompts) {
+          const promptResult = results[resultIndex];
+          if (promptResult && promptResult.status === 'fulfilled') {
+            const promptsResult = promptResult.value as ListPromptsResult;
+            if (promptsResult.prompts) {
+              allPrompts.push(...promptsResult.prompts);
+            }
+          }
         }
       } catch (error) {
         logger.warn(`Failed to aggregate capabilities from ${serverName}: ${error}`);
@@ -214,7 +241,7 @@ export class CapabilityAggregator extends EventEmitter {
     try {
       return await client.listTools();
     } catch (error) {
-      debugIf(() => ({ message: `Failed to list tools from ${serverName}: ${error}` }));
+      logger.warn(`Failed to list tools from ${serverName}`, { error: String(error) });
       return { tools: [] };
     }
   }
@@ -229,7 +256,7 @@ export class CapabilityAggregator extends EventEmitter {
     try {
       return await client.listResources();
     } catch (error) {
-      debugIf(() => ({ message: `Failed to list resources from ${serverName}: ${error}` }));
+      logger.warn(`Failed to list resources from ${serverName}`, { error: String(error) });
       return { resources: [] };
     }
   }
@@ -244,7 +271,7 @@ export class CapabilityAggregator extends EventEmitter {
     try {
       return await client.listPrompts();
     } catch (error) {
-      debugIf(() => ({ message: `Failed to list prompts from ${serverName}: ${error}` }));
+      logger.warn(`Failed to list prompts from ${serverName}`, { error: String(error) });
       return { prompts: [] };
     }
   }

@@ -70,6 +70,7 @@ describe('CapabilityAggregator', () => {
         listTools: vi.fn().mockResolvedValue({ tools: [mockTool] }),
         listResources: vi.fn().mockResolvedValue({ resources: [mockResource] }),
         listPrompts: vi.fn().mockResolvedValue({ prompts: [mockPrompt] }),
+        getServerCapabilities: vi.fn().mockReturnValue({ resources: true, prompts: true }),
         transport: {
           start: vi.fn(),
           send: vi.fn(),
@@ -154,6 +155,7 @@ describe('CapabilityAggregator', () => {
         listTools: vi.fn().mockResolvedValue({ tools: [mockTool] }),
         listResources: vi.fn().mockResolvedValue({ resources: [] }),
         listPrompts: vi.fn().mockResolvedValue({ prompts: [] }),
+        getServerCapabilities: vi.fn().mockReturnValue({ resources: true, prompts: true }),
         transport: {
           start: vi.fn(),
           send: vi.fn(),
@@ -165,6 +167,7 @@ describe('CapabilityAggregator', () => {
         listTools: vi.fn().mockResolvedValue({ tools: [duplicateTool] }),
         listResources: vi.fn().mockResolvedValue({ resources: [] }),
         listPrompts: vi.fn().mockResolvedValue({ prompts: [] }),
+        getServerCapabilities: vi.fn().mockReturnValue({ resources: true, prompts: true }),
         transport: {
           start: vi.fn(),
           send: vi.fn(),
@@ -214,6 +217,7 @@ describe('CapabilityAggregator', () => {
         listTools: vi.fn().mockResolvedValue({ tools: [mockTool] }),
         listResources: vi.fn().mockResolvedValue({ resources: [mockResource] }),
         listPrompts: vi.fn().mockResolvedValue({ prompts: [mockPrompt] }),
+        getServerCapabilities: vi.fn().mockReturnValue({ resources: true, prompts: true }),
         transport: {
           start: vi.fn(),
           send: vi.fn(),
