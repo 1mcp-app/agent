@@ -88,6 +88,62 @@ Tags are mapped to OAuth 2.1 scopes using the format `tag:{tag-name}` (e.g., `ta
 - **X-XSS-Protection**: Enables XSS protection in browsers
 - **Content-Security-Policy**: Restricts resource loading for HTML responses
 - **Referrer-Policy**: Controls referrer information leakage
+- **Strict-Transport-Security**: Enforces HTTPS connections (when `--enable-hsts` is set)
+
+### Transport Security
+
+The server supports additional transport-layer security features:
+
+#### CORS Origin Restriction
+
+- **Purpose**: Restrict which domains can access the MCP server via cross-origin requests
+- **Configuration**: `--cors-origins` CLI flag or `ONE_MCP_CORS_ORIGINS` environment variable
+- **Format**: Comma-separated list of URLs
+- **Default**: Empty (allow all origins for local development)
+- **Production recommendation**: Restrict to your application's domains
+
+#### HTTP Strict-Transport-Security (HSTS)
+
+- **Purpose**: Forces browsers to only connect via HTTPS
+- **Configuration**: `--enable-hsts` CLI flag or `ONE_MCP_ENABLE_HSTS` environment variable
+- **Duration**: 1 year (31536000 seconds)
+- **Includes subdomains**: Yes
+- **Production recommendation**: Enable for all HTTPS deployments
+
+#### Token Encryption at Rest
+
+- **Purpose**: Encrypt OAuth tokens stored on disk using AES-256-GCM
+- **Configuration**: `--token-encryption-key` CLI flag, `ONE_MCP_TOKEN_ENCRYPTION_KEY` environment variable, or `security.tokenEncryptionKey` in config file
+- **Encryption**: AES-256-GCM with scrypt-derived key
+- **Security**: Protects tokens if filesystem is compromised
+- **Production recommendation**: Use a strong key (16+ characters) stored in secrets manager
+
+**CLI Example:**
+```bash
+npx -y @1mcp/agent serve \
+  --cors-origins="https://app.example.com" \
+  --enable-hsts \
+  --token-encryption-key="${TOKEN_ENCRYPTION_KEY}"
+```
+
+**Config File Example:**
+```json
+{
+  "mcpServers": { ... },
+  "security": {
+    "corsOrigins": ["https://app.example.com", "https://admin.example.com"],
+    "hstsEnabled": true,
+    "tokenEncryptionKey": "${TOKEN_ENCRYPTION_KEY}"
+  }
+}
+```
+
+**Environment Variable Example:**
+```bash
+export ONE_MCP_CORS_ORIGINS="https://app.example.com,https://admin.example.com"
+export ONE_MCP_ENABLE_HSTS=true
+export ONE_MCP_TOKEN_ENCRYPTION_KEY="your-secure-key"
+```
 
 ### Input Validation
 

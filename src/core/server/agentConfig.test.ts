@@ -102,6 +102,12 @@ describe('AgentConfigManager', () => {
           persistIntervalMinutes: 5,
           backgroundFlushSeconds: 60,
         },
+        security: {
+          corsOrigins: [],
+          hstsEnabled: false,
+          tokenEncryptionKey: undefined,
+          strictCORS: false,
+        },
       });
     });
 

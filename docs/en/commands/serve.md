@@ -50,6 +50,9 @@ The serve command supports all configuration options. Here are the most commonly
 - **`--enable-auth`** - Enable OAuth 2.1 authentication
 - **`--enable-enhanced-security`** - Enable enhanced security middleware
 - **`--trust-proxy <config>`** - Trust proxy configuration
+- **`--cors-origins <origins>`** - Comma-separated list of allowed CORS origins
+- **`--enable-hsts`** - Enable HTTP Strict-Transport-Security header
+- **`--token-encryption-key <key>`** - Encryption key for token storage at rest
 
 ### Filtering Options
 
@@ -109,6 +112,32 @@ npx -y @1mcp/agent serve \
 # With external URL for OAuth redirects
 npx -y @1mcp/agent serve \
   --external-url=https://mcp.yourdomain.com \
+  --enable-auth
+```
+
+### Production Deployment with Full Security
+
+```bash
+# Production deployment with all security features
+npx -y @1mcp/agent serve \
+  --host=0.0.0.0 \
+  --port=3051 \
+  --external-url=https://mcp.yourdomain.com \
+  --enable-auth \
+  --enable-enhanced-security \
+  --trust-proxy=true \
+  --cors-origins="https://app.yourdomain.com,https://admin.yourdomain.com" \
+  --enable-hsts \
+  --token-encryption-key="${TOKEN_ENCRYPTION_KEY}"
+
+# Using environment variables
+export ONE_MCP_CORS_ORIGINS="https://app.yourdomain.com,https://admin.yourdomain.com"
+export ONE_MCP_ENABLE_HSTS=true
+export ONE_MCP_TOKEN_ENCRYPTION_KEY="your-secure-encryption-key"
+
+npx -y @1mcp/agent serve \
+  --host=0.0.0.0 \
+  --port=3051 \
   --enable-auth
 ```
 
