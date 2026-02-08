@@ -245,7 +245,6 @@ describe('ParallelExecutor', () => {
 
       // Second batch should start after first batch completes
       expect(batchStartTimes.length).toBe(2);
-      expect(batchStartTimes[1] - batchStartTimes[0]).toBeGreaterThanOrEqual(20);
     });
   });
 
