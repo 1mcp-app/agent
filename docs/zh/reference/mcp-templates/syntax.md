@@ -287,7 +287,7 @@ head:
 
 ```text
 
-{{#if (startsWith project.git.branch 'feature/'))}}
+{{#if (startsWith project.git.branch 'feature/')}}
   功能分支
 {{/if}}
 ```
@@ -300,7 +300,7 @@ head:
 
 ```text
 
-{{#if (endsWith project.name '-test'))}}
+{{#if (endsWith project.name '-test')}}
   测试项目
 {{/if}}
 ```

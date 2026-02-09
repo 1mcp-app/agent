@@ -125,6 +125,7 @@ Templates have access to four namespaces of context variables:
 | `user.email`    | string? | User email          | `jane@example.com` |
 | `user.home`     | string? | Home directory path | `/Users/developer` |
 | `user.uid`      | string? | User ID             | `501`              |
+| `user.gid`      | string? | Group ID            | `20`               |
 | `user.shell`    | string? | Default shell       | `/bin/zsh`         |
 
 ### Context Variables (`context.*`)
@@ -221,10 +222,10 @@ Combine conditions with `and`/`or`:
 {{#if (contains project.name 'admin')}}
 {{/if}}
 
-{{#if (startsWith project.git.branch 'feature/'))}}
+{{#if (startsWith project.git.branch 'feature/')}}
 {{/if}}
 
-{{#if (endsWith project.name '-test'))}}
+{{#if (endsWith project.name '-test')}}
 {{/if}}
 ```
 

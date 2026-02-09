@@ -274,7 +274,7 @@ Properties that may be undefined will render as empty strings:
 ::: v-pre
 
 ```text
-{{#if (startsWith project.git.branch 'feature/'))}}
+{{#if (startsWith project.git.branch 'feature/')}}
   Feature branch
 {{/if}}
 ```
@@ -286,7 +286,7 @@ Properties that may be undefined will render as empty strings:
 ::: v-pre
 
 ```text
-{{#if (endsWith project.name '-test'))}}
+{{#if (endsWith project.name '-test')}}
   Test project
 {{/if}}
 ```
