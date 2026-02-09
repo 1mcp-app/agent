@@ -168,6 +168,48 @@
             "type": "number",
             "minimum": 0
           },
+          "disabledTools": {
+            "description": "List of tool names to disable for this server",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "enabledTools": {
+            "description": "List of tool names to enable for this server (only these tools will be available)",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "disabledResources": {
+            "description": "List of resource URIs to disable for this server",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "enabledResources": {
+            "description": "List of resource URIs to enable for this server (only these resources will be available)",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "disabledPrompts": {
+            "description": "List of prompt names to disable for this server",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "enabledPrompts": {
+            "description": "List of prompt names to enable for this server (only these prompts will be available)",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
           "template": {
             "description": "Template-based server instance management configuration",
             "type": "object",
@@ -364,6 +406,48 @@
             "description": "Delay in milliseconds before restarting",
             "type": "number",
             "minimum": 0
+          },
+          "disabledTools": {
+            "description": "List of tool names to disable for this server",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "enabledTools": {
+            "description": "List of tool names to enable for this server (only these tools will be available)",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "disabledResources": {
+            "description": "List of resource URIs to disable for this server",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "enabledResources": {
+            "description": "List of resource URIs to enable for this server (only these resources will be available)",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "disabledPrompts": {
+            "description": "List of prompt names to disable for this server",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "enabledPrompts": {
+            "description": "List of prompt names to enable for this server (only these prompts will be available)",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
           },
           "template": {
             "description": "Template-based server instance management configuration",

@@ -61,6 +61,12 @@ export class MCPServerLifecycleManager {
       // Create client connection to the server using ClientManager
       await this.connectToServer(serverName, transport, configWithType, outboundConns, transports);
 
+      // Store the server config on the connection for tool/resource/prompt filtering
+      const connection = outboundConns.get(serverName);
+      if (connection) {
+        connection.serverConfig = configWithType;
+      }
+
       logger.info(`Successfully started MCP server: ${serverName}`);
     } catch (error) {
       logger.error(`Failed to start MCP server ${serverName}:`, error);

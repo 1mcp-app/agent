@@ -175,6 +175,35 @@ export const transportConfigSchema = z.object({
   maxRestarts: z.number().min(0).optional().describe('Maximum number of restart attempts (0 = unlimited)'),
   restartDelay: z.number().min(0).optional().describe('Delay in milliseconds before restarting'),
 
+  // Tool/Resource/Prompt filtering
+  /**
+   * List of tool names to exclude from this server.
+   * Use this to hide specific tools you don't want exposed to AI assistants.
+   */
+  disabledTools: z.array(z.string()).optional().describe('List of tool names to disable for this server'),
+  /**
+   * List of tool names to include from this server.
+   * When specified, only these tools will be available (inverse of disabledTools).
+   * Useful for whitelisting specific tools when a server provides many tools.
+   */
+  enabledTools: z.array(z.string()).optional().describe('List of tool names to enable for this server (only these tools will be available)'),
+  /**
+   * List of resource URIs to exclude from this server.
+   */
+  disabledResources: z.array(z.string()).optional().describe('List of resource URIs to disable for this server'),
+  /**
+   * List of resource URIs to include from this server.
+   */
+  enabledResources: z.array(z.string()).optional().describe('List of resource URIs to enable for this server (only these resources will be available)'),
+  /**
+   * List of prompt names to exclude from this server.
+   */
+  disabledPrompts: z.array(z.string()).optional().describe('List of prompt names to disable for this server'),
+  /**
+   * List of prompt names to include from this server.
+   */
+  enabledPrompts: z.array(z.string()).optional().describe('List of prompt names to enable for this server (only these prompts will be available)'),
+
   // Template configuration
   template: templateServerConfigSchema.optional().describe('Template-based server instance management configuration'),
 });

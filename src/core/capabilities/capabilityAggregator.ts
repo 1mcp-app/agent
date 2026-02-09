@@ -10,8 +10,67 @@ import {
 } from '@modelcontextprotocol/sdk/types.js';
 
 import { InternalCapabilitiesProvider } from '@src/core/capabilities/internalCapabilitiesProvider.js';
-import { ClientStatus, OutboundConnections } from '@src/core/types/index.js';
+import { ClientStatus, OutboundConnections, MCPServerParams } from '@src/core/types/index.js';
 import logger, { debugIf } from '@src/logger/logger.js';
+
+/**
+ * Filter capabilities based on server configuration
+ */
+function filterCapabilities<T extends { name: string } | { uri: string }>(
+  items: T[],
+  _serverName: string,
+  config: MCPServerParams | undefined,
+  itemType: 'tool' | 'resource' | 'prompt',
+  itemKey: 'name' | 'uri',
+): T[] {
+  if (!config) {
+    return items;
+  }
+
+  // Get the disabled and enabled lists based on item type
+  const disabledItems: string[] = [];
+  const enabledItems: string[] | undefined = (() => {
+    switch (itemType) {
+      case 'tool':
+        return config.enabledTools;
+      case 'resource':
+        return config.enabledResources;
+      case 'prompt':
+        return config.enabledPrompts;
+    }
+  })();
+
+  // Get disabled items based on item type
+  switch (itemType) {
+    case 'tool':
+      if (config.disabledTools) {
+        disabledItems.push(...config.disabledTools);
+      }
+      break;
+    case 'resource':
+      if (config.disabledResources) {
+        disabledItems.push(...config.disabledResources);
+      }
+      break;
+    case 'prompt':
+      if (config.disabledPrompts) {
+        disabledItems.push(...config.disabledPrompts);
+      }
+      break;
+  }
+
+  return items.filter((item) => {
+    const itemIdentifier = itemKey === 'name' ? (item as { name: string }).name : (item as { uri: string }).uri;
+
+    // If enabledItems is specified, only include items in that list
+    if (enabledItems && enabledItems.length > 0) {
+      return enabledItems.includes(itemIdentifier);
+    }
+
+    // Otherwise, exclude items in the disabled list
+    return !disabledItems.includes(itemIdentifier);
+  });
+}
 
 /**
  * Represents a snapshot of aggregated capabilities from all ready servers
@@ -175,19 +234,64 @@ export class CapabilityAggregator extends EventEmitter {
           this.safeListPrompts(serverName, connection.client),
         ]);
 
-        // Process tools
+        // Get server config for filtering (if available)
+        const serverConfig = connection.serverConfig;
+
+        // Process tools with filtering
         if (toolsResult.status === 'fulfilled' && toolsResult.value.tools) {
-          allTools.push(...toolsResult.value.tools);
+          const filteredTools = filterCapabilities(
+            toolsResult.value.tools,
+            serverName,
+            serverConfig,
+            'tool',
+            'name',
+          );
+          if (filteredTools.length !== toolsResult.value.tools.length) {
+            const disabledCount = toolsResult.value.tools.length - filteredTools.length;
+            debugIf(() => ({
+              message: `Filtered ${disabledCount} tools from ${serverName}`,
+              meta: { serverName, disabledCount, remainingCount: filteredTools.length },
+            }));
+          }
+          allTools.push(...filteredTools);
         }
 
-        // Process resources
+        // Process resources with filtering
         if (resourcesResult.status === 'fulfilled' && resourcesResult.value.resources) {
-          allResources.push(...resourcesResult.value.resources);
+          const filteredResources = filterCapabilities(
+            resourcesResult.value.resources,
+            serverName,
+            serverConfig,
+            'resource',
+            'uri',
+          );
+          if (filteredResources.length !== resourcesResult.value.resources.length) {
+            const disabledCount = resourcesResult.value.resources.length - filteredResources.length;
+            debugIf(() => ({
+              message: `Filtered ${disabledCount} resources from ${serverName}`,
+              meta: { serverName, disabledCount, remainingCount: filteredResources.length },
+            }));
+          }
+          allResources.push(...filteredResources);
         }
 
-        // Process prompts
+        // Process prompts with filtering
         if (promptsResult.status === 'fulfilled' && promptsResult.value.prompts) {
-          allPrompts.push(...promptsResult.value.prompts);
+          const filteredPrompts = filterCapabilities(
+            promptsResult.value.prompts,
+            serverName,
+            serverConfig,
+            'prompt',
+            'name',
+          );
+          if (filteredPrompts.length !== promptsResult.value.prompts.length) {
+            const disabledCount = promptsResult.value.prompts.length - filteredPrompts.length;
+            debugIf(() => ({
+              message: `Filtered ${disabledCount} prompts from ${serverName}`,
+              meta: { serverName, disabledCount, remainingCount: filteredPrompts.length },
+            }));
+          }
+          allPrompts.push(...filteredPrompts);
         }
       } catch (error) {
         logger.warn(`Failed to aggregate capabilities from ${serverName}: ${error}`);

@@ -172,6 +172,52 @@ function displayServerStatusSummary(name: string, config: MCPServerParams): void
   if (config.tags && config.tags.length > 0) {
     printer.keyValue({ Tags: config.tags.join(', ') });
   }
+
+  // Show capability filtering indicator
+  const filteringInfo = getFilteringSummary(config);
+  if (filteringInfo) {
+    printer.keyValue({ Filtering: filteringInfo });
+  }
+}
+
+/**
+ * Get a summary string describing the filtering configuration for a server
+ */
+export function getFilteringSummary(config: MCPServerParams): string | null {
+  const parts: string[] = [];
+
+  const disabledToolsCount = config.disabledTools?.length || 0;
+  const enabledToolsCount = config.enabledTools?.length || 0;
+  const disabledResourcesCount = config.disabledResources?.length || 0;
+  const enabledResourcesCount = config.enabledResources?.length || 0;
+  const disabledPromptsCount = config.disabledPrompts?.length || 0;
+  const enabledPromptsCount = config.enabledPrompts?.length || 0;
+
+  const pluralize = (count: number, singular: string) => `${count} ${count === 1 ? singular : `${singular}s`}`;
+
+  if (enabledToolsCount > 0) {
+    parts.push(`${pluralize(enabledToolsCount, 'tool')} (enabled)`);
+  } else if (disabledToolsCount > 0) {
+    parts.push(`${pluralize(disabledToolsCount, 'tool')}`);
+  }
+
+  if (enabledResourcesCount > 0) {
+    parts.push(`${pluralize(enabledResourcesCount, 'resource')} (enabled)`);
+  } else if (disabledResourcesCount > 0) {
+    parts.push(`${pluralize(disabledResourcesCount, 'resource')}`);
+  }
+
+  if (enabledPromptsCount > 0) {
+    parts.push(`${pluralize(enabledPromptsCount, 'prompt')} (enabled)`);
+  } else if (disabledPromptsCount > 0) {
+    parts.push(`${pluralize(disabledPromptsCount, 'prompt')}`);
+  }
+
+  if (parts.length === 0) {
+    return null;
+  }
+
+  return parts.join(', ');
 }
 
 /**
@@ -228,6 +274,46 @@ function displayDetailedServerStatus(name: string, config: MCPServerParams, verb
   printer.keyValue({
     Tags: inferredConfig.tags && inferredConfig.tags.length > 0 ? inferredConfig.tags.join(', ') : '(none)',
   });
+
+  // Capability filtering configuration
+  printer.blank();
+  printer.subtitle('Capability Filtering:');
+
+  const hasFilters =
+    (inferredConfig.disabledTools && inferredConfig.disabledTools.length > 0) ||
+    (inferredConfig.enabledTools && inferredConfig.enabledTools.length > 0) ||
+    (inferredConfig.disabledResources && inferredConfig.disabledResources.length > 0) ||
+    (inferredConfig.enabledResources && inferredConfig.enabledResources.length > 0) ||
+    (inferredConfig.disabledPrompts && inferredConfig.disabledPrompts.length > 0) ||
+    (inferredConfig.enabledPrompts && inferredConfig.enabledPrompts.length > 0);
+
+  if (!hasFilters) {
+    printer.info('No capability filtering configured (all tools, resources, and prompts are exposed)');
+  } else {
+    // Tools
+    if (inferredConfig.enabledTools && inferredConfig.enabledTools.length > 0) {
+      printer.keyValue({ 'Enabled Tools': inferredConfig.enabledTools.join(', ') });
+    }
+    if (inferredConfig.disabledTools && inferredConfig.disabledTools.length > 0) {
+      printer.keyValue({ 'Disabled Tools': inferredConfig.disabledTools.join(', ') });
+    }
+
+    // Resources
+    if (inferredConfig.enabledResources && inferredConfig.enabledResources.length > 0) {
+      printer.keyValue({ 'Enabled Resources': inferredConfig.enabledResources.join(', ') });
+    }
+    if (inferredConfig.disabledResources && inferredConfig.disabledResources.length > 0) {
+      printer.keyValue({ 'Disabled Resources': inferredConfig.disabledResources.join(', ') });
+    }
+
+    // Prompts
+    if (inferredConfig.enabledPrompts && inferredConfig.enabledPrompts.length > 0) {
+      printer.keyValue({ 'Enabled Prompts': inferredConfig.enabledPrompts.join(', ') });
+    }
+    if (inferredConfig.disabledPrompts && inferredConfig.disabledPrompts.length > 0) {
+      printer.keyValue({ 'Disabled Prompts': inferredConfig.disabledPrompts.join(', ') });
+    }
+  }
 
   // Environment variables
   if (inferredConfig.env && Object.keys(inferredConfig.env).length > 0) {
