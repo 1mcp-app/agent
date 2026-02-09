@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.29.2] - 2026-02-08
+
+### 🧪 Testing
+- Remove redundant assertion for batch start time in ParallelExecutor tests by @xizhibei
+
+
 ## [0.29.1] - 2026-01-27
 
 ### 🚀 Features
@@ -43,7 +49,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.28.1] - 2025-12-25
 
 ### 🚀 Features
-- Add tool annotations for improved LLM tool understanding by @triepod-ai in [#197](https://github.com/1mcp-app/agent/pull/197)
+- Add tool annotations for improved LLM tool understanding by @bryankthompson in [#197](https://github.com/1mcp-app/agent/pull/197)
 - Add comprehensive registry-based MCP management and internal tools documentation by @xizhibei in [#196](https://github.com/1mcp-app/agent/pull/196)
 
 ### 🐛 Bug Fixes
@@ -58,7 +64,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Remove NODE_AUTH_TOKEN from npm publish step in workflow by @xizhibei
 
 ## New Contributors
-* @triepod-ai made their first contribution in [#197](https://github.com/1mcp-app/agent/pull/197)
+* @bryankthompson made their first contribution in [#197](https://github.com/1mcp-app/agent/pull/197)
 
 ## [0.28.0] - 2025-12-21
 
@@ -918,6 +924,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 * @xizhibei made their first contribution in [#1](https://github.com/1mcp-app/agent/pull/1)
 * @dependabot[bot] made their first contribution
 
+[0.29.2]: https://github.com/1mcp-app/agent/compare/v0.29.1..v0.29.2
 [0.29.1]: https://github.com/1mcp-app/agent/compare/v0.29.0..v0.29.1
 [0.29.0]: https://github.com/1mcp-app/agent/compare/v0.28.1..v0.29.0
 [0.28.1]: https://github.com/1mcp-app/agent/compare/v0.28.0..v0.28.1
