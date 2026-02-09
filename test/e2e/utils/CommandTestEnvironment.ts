@@ -1,5 +1,4 @@
 import { mkdir, mkdtemp, rm, writeFile } from 'fs/promises';
-import { tmpdir } from 'os';
 import { join } from 'path';
 
 import { ConfigBuilder } from './ConfigBuilder.js';
@@ -47,8 +46,10 @@ export class CommandTestEnvironment {
    * Initialize the test environment with temporary directories and mock data
    */
   async setup(): Promise<void> {
-    // Create temporary directory
-    this.tempDir = await mkdtemp(join(tmpdir(), `1mcp-test-${this.config.name}-`));
+    // Create temporary directory under ./build/
+    const buildDir = join(process.cwd(), 'build');
+    await mkdir(buildDir, { recursive: true });
+    this.tempDir = await mkdtemp(join(buildDir, `.tmp-test-${this.config.name}-`));
 
     // Create subdirectories
     await mkdir(join(this.tempDir, 'config'), { recursive: true });

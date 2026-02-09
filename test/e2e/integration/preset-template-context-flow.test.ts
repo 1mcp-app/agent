@@ -1,6 +1,5 @@
 import { randomBytes } from 'crypto';
 import { promises as fs } from 'fs';
-import { tmpdir } from 'os';
 import { join } from 'path';
 
 import { ConfigManager } from '@src/config/configManager.js';
@@ -139,8 +138,10 @@ describe('Preset + Template Context Flow Integration', () => {
   beforeEach(async () => {
     vi.clearAllMocks();
 
-    // Create temporary config directory
-    tempConfigDir = join(tmpdir(), `preset-template-e2e-${randomBytes(4).toString('hex')}`);
+    // Create temporary config directory under ./build/
+    const buildDir = join(process.cwd(), 'build');
+    await fs.mkdir(buildDir, { recursive: true });
+    tempConfigDir = join(buildDir, `.tmp-test-preset-template-e2e-${randomBytes(4).toString('hex')}`);
     await fs.mkdir(tempConfigDir, { recursive: true });
 
     mcpConfigPath = join(tempConfigDir, 'mcp.json');

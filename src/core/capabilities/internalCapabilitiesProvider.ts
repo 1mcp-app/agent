@@ -21,6 +21,11 @@ import {
   createUpdateTool,
 } from '@src/core/capabilities/internal/installationTools.js';
 import {
+  createToolInvokeTool,
+  createToolListTool,
+  createToolSchemaTool,
+} from '@src/core/capabilities/internal/lazyTools.js';
+import {
   createDisableTool,
   createEditTool,
   createEnableTool,
@@ -28,6 +33,7 @@ import {
   createReloadTool,
   createStatusTool,
 } from '@src/core/capabilities/internal/managementTools.js';
+import { LazyLoadingOrchestrator } from '@src/core/capabilities/lazyLoadingOrchestrator.js';
 import { FlagManager } from '@src/core/flags/flagManager.js';
 import { AgentConfigManager } from '@src/core/server/agentConfig.js';
 import {
@@ -113,6 +119,7 @@ export class InternalCapabilitiesProvider extends EventEmitter {
   private configManager: AgentConfigManager;
   private flagManager: FlagManager;
   private isInitialized = false;
+  private lazyLoadingOrchestrator?: LazyLoadingOrchestrator;
 
   private constructor() {
     super();
@@ -145,6 +152,13 @@ export class InternalCapabilitiesProvider extends EventEmitter {
   }
 
   /**
+   * Set the lazy loading orchestrator for lazy tool support
+   */
+  public setLazyLoadingOrchestrator(orchestrator: LazyLoadingOrchestrator): void {
+    this.lazyLoadingOrchestrator = orchestrator;
+  }
+
+  /**
    * Get all available internal tools based on current feature flags
    */
   public getAvailableTools(): Tool[] {
@@ -155,7 +169,7 @@ export class InternalCapabilitiesProvider extends EventEmitter {
 
     const tools: Tool[] = [];
 
-    // Check if internal tools are enabled in any way
+    // === Internal Tools (controlled by features.internalTools) ===
     const internalToolsEnabled = this.flagManager.isToolEnabled('internalTools');
     const internalToolsList = this.configManager.getInternalToolsList();
 
@@ -233,13 +247,19 @@ export class InternalCapabilitiesProvider extends EventEmitter {
       }
     }
 
+    // === Lazy Tools (controlled by lazyLoading.enabled) ===
+    // Only expose lazy tools when orchestrator is wired to avoid exposing non-functional tools
+    if (this.flagManager.isToolEnabled('lazyTools') && this.lazyLoadingOrchestrator) {
+      tools.push(createToolListTool(), createToolSchemaTool(), createToolInvokeTool());
+    }
+
     return tools;
   }
 
   /**
    * Execute an internal tool
    */
-  public async executeTool(toolName: string, args: unknown): Promise<unknown> {
+  public async executeTool(toolName: string, args: unknown, sessionId?: string): Promise<unknown> {
     if (!this.isInitialized) {
       throw new Error('Internal capabilities provider not initialized');
     }
@@ -247,6 +267,24 @@ export class InternalCapabilitiesProvider extends EventEmitter {
     let result: unknown;
 
     switch (toolName) {
+      // === Lazy Tools ===
+      case 'tool_list':
+      case 'tool_schema':
+      case 'tool_invoke': {
+        if (!this.lazyLoadingOrchestrator) {
+          throw new Error('Lazy loading not available');
+        }
+        const result = await this.lazyLoadingOrchestrator.callMetaTool(toolName, args, sessionId);
+
+        // Check for error field in structured result
+        if (typeof result === 'object' && result !== null && 'error' in result && result.error) {
+          const errorResult = result as { error: { type: string; message: string } };
+          throw new Error(errorResult.error.message);
+        }
+
+        return result;
+      }
+      // === Internal Tools ===
       case 'mcp_search': {
         const validatedArgs = validateToolArgs(McpSearchToolSchema, args, toolName);
         result = await handleMcpSearch(validatedArgs);

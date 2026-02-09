@@ -67,6 +67,25 @@ export interface AgentConfig {
     batchNotifications: boolean;
     batchDelayMs: number;
   };
+  lazyLoading: {
+    enabled: boolean;
+    inlineCatalog: boolean;
+    catalogFormat: 'flat' | 'grouped' | 'categorized';
+    directExpose: string[];
+    cache: {
+      maxEntries: number;
+      strategy: 'lru';
+      ttlMs?: number;
+    };
+    preload: {
+      patterns: string[];
+      keywords: string[];
+    };
+    fallback: {
+      onError: 'skip' | 'full';
+      timeoutMs: number;
+    };
+  };
   configReload: {
     debounceMs: number;
   };
@@ -141,6 +160,25 @@ export class AgentConfigManager {
         initialLoadTimeoutMs: 30000, // 30 seconds
         batchNotifications: true,
         batchDelayMs: 1000, // 1 second
+      },
+      lazyLoading: {
+        enabled: false, // Default: disabled (opt-in behavior)
+        inlineCatalog: false, // Don't include full catalog by default
+        catalogFormat: 'grouped', // Group tools by server
+        directExpose: [], // No direct exposure by default
+        cache: {
+          maxEntries: 1000, // LRU cache max entries
+          strategy: 'lru', // Only LRU supported currently
+          ttlMs: undefined, // No TTL by default (LRU only)
+        },
+        preload: {
+          patterns: [], // No preload patterns by default
+          keywords: [], // No preload keywords by default
+        },
+        fallback: {
+          onError: 'skip', // Skip failed tools, don't fallback to full
+          timeoutMs: 5000, // 5 second timeout for on-demand loading
+        },
       },
       configReload: {
         debounceMs: 500,

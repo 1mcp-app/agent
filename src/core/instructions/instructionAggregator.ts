@@ -1,5 +1,6 @@
 import { EventEmitter } from 'events';
 
+import { LazyLoadingOrchestrator } from '@src/core/capabilities/lazyLoadingOrchestrator.js';
 import { FilteringService } from '@src/core/filtering/filteringService.js';
 import { InboundConnectionConfig, OutboundConnections } from '@src/core/types/index.js';
 import logger, { debugIf } from '@src/logger/logger.js';
@@ -10,6 +11,7 @@ import { registerTemplateHelpers } from './templateHelpers.js';
 import {
   DEFAULT_INSTRUCTION_TEMPLATE,
   DEFAULT_TEMPLATE_CONFIG,
+  LazyLoadingState,
   ServerData,
   TemplateVariables,
 } from './templateTypes.js';
@@ -43,6 +45,7 @@ export interface InstructionAggregatorEvents {
 export class InstructionAggregator extends EventEmitter {
   private serverInstructions = new Map<string, string>();
   private isInitialized: boolean = false;
+  private lazyLoadingOrchestrator?: LazyLoadingOrchestrator;
 
   constructor() {
     super();
@@ -50,6 +53,21 @@ export class InstructionAggregator extends EventEmitter {
 
     // Register custom Handlebars helpers for template processing
     registerTemplateHelpers();
+  }
+
+  /**
+   * Set the lazy loading orchestrator instance
+   */
+  public setLazyLoadingOrchestrator(orchestrator: LazyLoadingOrchestrator): void {
+    this.lazyLoadingOrchestrator = orchestrator;
+    debugIf('Lazy loading orchestrator set for InstructionAggregator');
+  }
+
+  /**
+   * Get the lazy loading orchestrator instance
+   */
+  public getLazyLoadingOrchestrator(): LazyLoadingOrchestrator | undefined {
+    return this.lazyLoadingOrchestrator;
   }
 
   /**
@@ -134,8 +152,12 @@ export class InstructionAggregator extends EventEmitter {
           templateLength: config.customTemplate.length,
         });
 
-        // Fall back to default template
-        return this.renderTemplate(DEFAULT_INSTRUCTION_TEMPLATE, filteredConnections, config);
+        // Fall back to default template with LLM-directed notice
+        const fallbackContent = this.renderTemplate(DEFAULT_INSTRUCTION_TEMPLATE, filteredConnections, config);
+
+        // Prepend notice for LLM to inform the user about template failure
+        const llmNotice = `⚠️ IMPORTANT: The user's custom instruction template failed to render due to an error: "${errorMessage}". Please inform the user that their custom template configuration has an issue and the default template is being used instead. They should check their template syntax.\n\n`;
+        return llmNotice + fallbackContent;
       }
     } else {
       // Use default template directly
@@ -223,6 +245,29 @@ export class InstructionAggregator extends EventEmitter {
   }
 
   /**
+   * Extract a short description from server instructions
+   * @param instructions The full server instructions
+   * @returns A short description or undefined
+   */
+  private extractDescription(instructions: string): string | undefined {
+    if (!instructions) return undefined;
+
+    // Try to extract first line or first sentence
+    const firstLine = instructions.split('\n')[0].trim();
+    if (firstLine && firstLine.length < 100) {
+      return firstLine.replace(/^#+\s*/, ''); // Remove markdown heading
+    }
+
+    // Look for a sentence ending with period
+    const firstSentence = instructions.match(/^[^.]*\./)?.[0];
+    if (firstSentence && firstSentence.length < 100) {
+      return firstSentence.trim();
+    }
+
+    return undefined; // No suitable description found
+  }
+
+  /**
    * Render a Handlebars template with template variables
    * @param template Template string (custom or default)
    * @param filteredConnections Filtered server connections
@@ -285,7 +330,11 @@ export class InstructionAggregator extends EventEmitter {
     // Sort filtered connections by name for consistent output
     const sortedConnections = Array.from(filteredConnections.entries()).sort(([a], [b]) => a.localeCompare(b));
 
-    for (const [serverName, _connection] of sortedConnections) {
+    for (const [_key, connection] of sortedConnections) {
+      // Use clean name from connection object instead of Map key
+      // Template servers use hash-based keys (e.g., "serena:6fa053f1...") but we want
+      // to display the clean name (e.g., "serena") in instructions
+      const serverName = connection.name;
       const serverInstructions = this.serverInstructions.get(serverName);
       const instructions = serverInstructions?.trim() || '';
       if (instructions) {
@@ -293,11 +342,15 @@ export class InstructionAggregator extends EventEmitter {
         const wrappedInstructions = `<${serverName}>\n${instructions}\n</${serverName}>`;
         serverInstructionSections.push(wrappedInstructions);
 
+        // Extract description from instructions
+        const description = this.extractDescription(instructions);
+
         // Add individual server data for iteration
         servers.push({
           name: serverName,
           instructions: instructions,
           hasInstructions: true,
+          description: description,
         });
       } else {
         servers.push({
@@ -350,6 +403,43 @@ export class InstructionAggregator extends EventEmitter {
       toolPattern: templateConfig.toolPattern,
       title: templateConfig.title,
       examples: templateConfig.examples,
+
+      // Lazy loading state
+      lazyLoading: this.generateLazyLoadingState(),
+    };
+  }
+
+  /**
+   * Generate lazy loading state for template variables
+   * @returns Lazy loading state object or undefined
+   */
+  private generateLazyLoadingState(): LazyLoadingState | undefined {
+    if (!this.lazyLoadingOrchestrator) {
+      return undefined;
+    }
+
+    const isEnabled = this.lazyLoadingOrchestrator.isEnabled();
+    const stats = this.lazyLoadingOrchestrator.getStatistics();
+
+    // Calculate exposed tools based on enabled state
+    let exposedToolsCount = stats.registeredToolCount;
+    if (isEnabled) {
+      // Meta-tool mode: only meta-tools exposed
+      exposedToolsCount = 3; // tool_list, tool_schema, tool_invoke
+    }
+
+    // Get meta-tools list if enabled
+    const metaTools = isEnabled ? ['tool_list', 'tool_schema', 'tool_invoke'] : undefined;
+
+    return {
+      enabled: isEnabled,
+      mode: isEnabled ? 'metatool' : 'full',
+      availableToolsCount: stats.registeredToolCount,
+      exposedToolsCount,
+      directExposeCount: 0, // TODO: get from config
+      cachedToolsCount: stats.cachedToolCount,
+      metaTools,
+      catalog: undefined, // TODO: implement inline catalog
     };
   }
 

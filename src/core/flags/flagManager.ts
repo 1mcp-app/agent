@@ -104,6 +104,7 @@ export class FlagManager extends EventEmitter {
   // Simplified tool categories
   private readonly toolCategories: ToolCategory[] = [
     { category: 'internalTools', description: 'Internal MCP management tools' },
+    { category: 'lazyTools', description: 'Lazy loading discovery tools' },
   ];
 
   private constructor() {
@@ -126,7 +127,18 @@ export class FlagManager extends EventEmitter {
    */
   public isToolEnabled(category: string, subcategory?: string, tool?: string): boolean {
     const configManager = AgentConfigManager.getInstance();
-    return configManager.isToolEnabled(category, subcategory, tool);
+
+    // Internal tools are controlled by features.internalTools
+    if (category === 'internalTools') {
+      return configManager.isToolEnabled(category, subcategory, tool);
+    }
+
+    // Lazy tools are enabled when lazy loading is enabled
+    if (category === 'lazyTools') {
+      return configManager.get('lazyLoading').enabled;
+    }
+
+    return false;
   }
 
   /**
@@ -147,6 +159,11 @@ export class FlagManager extends EventEmitter {
     // For simplified structure, if category is enabled, all tools are enabled
     if (category === 'internalTools') {
       return ALL_AVAILABLE_TOOLS;
+    }
+
+    // Lazy tools
+    if (category === 'lazyTools') {
+      return ['tool_list', 'tool_schema', 'tool_invoke'];
     }
 
     return [];

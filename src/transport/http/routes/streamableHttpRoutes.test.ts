@@ -23,22 +23,6 @@ vi.mock('@modelcontextprotocol/sdk/server/streamableHttp.js', () => ({
   }),
 }));
 
-vi.mock('@src/transport/http/restorableStreamableTransport.js', () => ({
-  RestorableStreamableHTTPServerTransport: vi.fn().mockImplementation((options) => {
-    const transport = {
-      sessionId: options?.sessionIdGenerator?.() || 'mock-session-id',
-      onclose: null,
-      onerror: null,
-      handleRequest: vi.fn().mockResolvedValue(undefined),
-      markAsInitialized: vi.fn(),
-      isRestored: vi.fn(() => true),
-      getRestorationInfo: vi.fn(() => ({ isRestored: true, sessionId: options?.sessionIdGenerator?.() })),
-      setSessionId: vi.fn(),
-    };
-    return transport;
-  }),
-}));
-
 vi.mock('@src/logger/logger.js', () => ({
   default: {
     info: vi.fn(),
@@ -49,7 +33,7 @@ vi.mock('@src/logger/logger.js', () => ({
   debugIf: vi.fn(),
 }));
 
-vi.mock('../middlewares/tagsExtractor.js', () => ({
+vi.mock('@src/transport/http/middlewares/tagsExtractor.js', () => ({
   default: vi.fn((req: any, res: any, next: any) => {
     req.tags = ['test'];
     next();

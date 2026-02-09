@@ -10,6 +10,8 @@ import logger, { debugIf } from '@src/logger/logger.js';
 import type { ContextData } from '@src/types/context.js';
 
 import { AsyncLoadingOrchestrator } from './core/capabilities/asyncLoadingOrchestrator.js';
+import { InternalCapabilitiesProvider } from './core/capabilities/internalCapabilitiesProvider.js';
+import { LazyLoadingOrchestrator } from './core/capabilities/lazyLoadingOrchestrator.js';
 import { ClientManager } from './core/client/clientManager.js';
 import { InstructionAggregator } from './core/instructions/instructionAggregator.js';
 import { McpLoadingManager } from './core/loading/mcpLoadingManager.js';
@@ -30,6 +32,8 @@ export interface ServerSetupResult {
   loadingPromise: Promise<void>;
   /** Async loading orchestrator (only present in async mode) */
   asyncOrchestrator?: AsyncLoadingOrchestrator;
+  /** Lazy loading orchestrator (only present when lazy loading is enabled) */
+  lazyLoadingOrchestrator?: LazyLoadingOrchestrator;
   /** Instruction aggregator for combining server instructions */
   instructionAggregator: InstructionAggregator;
 }
@@ -94,6 +98,9 @@ async function setupServerAsync(
   transports: Record<string, AuthProviderTransport>,
   _context?: ContextData,
 ): Promise<ServerSetupResult> {
+  // Get agent config for feature flags
+  const agentConfig = AgentConfigManager.getInstance();
+
   // Initialize instruction aggregator
   const instructionAggregator = new InstructionAggregator();
   logger.info('Instruction aggregator initialized');
@@ -122,6 +129,21 @@ async function setupServerAsync(
   const asyncOrchestrator = new AsyncLoadingOrchestrator(clients, serverManager, loadingManager);
   await asyncOrchestrator.initialize();
 
+  // Create lazy loading orchestrator if enabled
+  const lazyLoadingEnabled = agentConfig.get('lazyLoading').enabled;
+  let lazyLoadingOrchestrator: LazyLoadingOrchestrator | undefined;
+  if (lazyLoadingEnabled) {
+    lazyLoadingOrchestrator = new LazyLoadingOrchestrator(clients, agentConfig, asyncOrchestrator);
+    await lazyLoadingOrchestrator.initialize();
+    serverManager.setLazyLoadingOrchestrator(lazyLoadingOrchestrator);
+
+    // Inject lazy loading orchestrator into internal capabilities provider
+    const internalProvider = InternalCapabilitiesProvider.getInstance();
+    internalProvider.setLazyLoadingOrchestrator(lazyLoadingOrchestrator);
+
+    logger.info('Lazy loading orchestrator initialized');
+  }
+
   // Start async loading (non-blocking)
   const loadingPromise = loadingManager
     .startAsyncLoading(transports)
@@ -140,6 +162,7 @@ async function setupServerAsync(
     loadingManager,
     loadingPromise,
     asyncOrchestrator,
+    lazyLoadingOrchestrator,
     instructionAggregator,
   };
 }
@@ -152,6 +175,9 @@ async function setupServerSync(
   transports: Record<string, AuthProviderTransport>,
   _context?: ContextData,
 ): Promise<ServerSetupResult> {
+  // Get agent config for feature flags
+  const agentConfig = AgentConfigManager.getInstance();
+
   // Initialize instruction aggregator
   const instructionAggregator = new InstructionAggregator();
   logger.info('Instruction aggregator initialized');
@@ -173,6 +199,21 @@ async function setupServerSync(
 
   // Config reload is now handled by ConfigManager and ConfigChangeHandler initialized in setupServer
 
+  // Create lazy loading orchestrator if enabled (no async orchestrator in sync mode)
+  const lazyLoadingEnabled = agentConfig.get('lazyLoading').enabled;
+  let lazyLoadingOrchestrator: LazyLoadingOrchestrator | undefined;
+  if (lazyLoadingEnabled) {
+    lazyLoadingOrchestrator = new LazyLoadingOrchestrator(clients, agentConfig, undefined);
+    await lazyLoadingOrchestrator.initialize();
+    serverManager.setLazyLoadingOrchestrator(lazyLoadingOrchestrator);
+
+    // Inject lazy loading orchestrator into internal capabilities provider
+    const internalProvider = InternalCapabilitiesProvider.getInstance();
+    internalProvider.setLazyLoadingOrchestrator(lazyLoadingOrchestrator);
+
+    logger.info('Lazy loading orchestrator initialized');
+  }
+
   // Create a dummy loading manager for compatibility
   const loadingManager = new McpLoadingManager(clientManager);
   const loadingPromise = Promise.resolve(); // Already loaded
@@ -183,6 +224,7 @@ async function setupServerSync(
     serverManager,
     loadingManager,
     loadingPromise,
+    lazyLoadingOrchestrator,
     instructionAggregator,
   };
 }

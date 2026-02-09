@@ -130,6 +130,64 @@ export const serverOptions = {
     type: 'boolean' as const,
     default: true,
   },
+  'enable-lazy-loading': {
+    describe: 'Enable lazy loading for tools (tools loaded on-demand, reduces token usage by ~95%)',
+    type: 'boolean' as const,
+    default: false,
+  },
+  'lazy-mode': {
+    describe: 'Lazy loading mode (metatool: 3 meta-tools only, hybrid: direct + meta-tools, full: disabled)',
+    type: 'string' as const,
+    choices: ['metatool', 'hybrid', 'full'] as const,
+    default: 'full',
+  },
+  'lazy-cache-max-entries': {
+    describe: 'Maximum number of tool schemas to cache in LRU cache (when lazy loading enabled)',
+    type: 'number' as const,
+    default: 1000,
+  },
+  'lazy-preload': {
+    describe: 'Comma-separated list of tool patterns to preload at startup (when lazy loading enabled)',
+    type: 'string' as const,
+    default: undefined,
+  },
+  'lazy-preload-keywords': {
+    describe: 'Comma-separated list of tool name keywords to preload at startup (when lazy loading enabled)',
+    type: 'string' as const,
+    default: undefined,
+  },
+  'lazy-inline-catalog': {
+    describe: 'Include full tool catalog in initialize template (when lazy loading enabled)',
+    type: 'boolean' as const,
+    default: false,
+  },
+  'lazy-catalog-format': {
+    describe: 'Format for inline tool catalog (flat, grouped, categorized)',
+    type: 'string' as const,
+    choices: ['flat', 'grouped', 'categorized'] as const,
+    default: 'grouped',
+  },
+  'lazy-direct-expose': {
+    describe: 'Comma-separated glob patterns for tools to expose directly in hybrid mode',
+    type: 'string' as const,
+    default: undefined,
+  },
+  'lazy-cache-ttl': {
+    describe: 'Cache TTL in milliseconds for tool schemas (optional, default: no TTL)',
+    type: 'number' as const,
+    default: undefined,
+  },
+  'lazy-fallback-on-error': {
+    describe: 'Behavior when on-demand loading fails (skip or full)',
+    type: 'string' as const,
+    choices: ['skip', 'full'] as const,
+    default: 'skip',
+  },
+  'lazy-fallback-timeout': {
+    describe: 'Timeout in milliseconds for on-demand schema loading',
+    type: 'number' as const,
+    default: 5000,
+  },
   'enable-config-reload': {
     describe: 'Enable automatic configuration hot-reload on file changes',
     type: 'boolean' as const,
@@ -242,6 +300,18 @@ INTERNAL TOOLS:
   • Individual tools: "search,list,status,registry"
   • Categories: "discovery,management,installation,safe"
   • Examples: "safe" (read-only), "discovery,management" (no installation)
+
+LAZY LOADING:
+  Use --enable-lazy-loading to enable lazy tool loading for token optimization.
+  Lazy loading reduces initial token usage by ~95% by loading tools on-demand.
+  Modes:
+  • metatool: Expose only 3 meta-tools (list/describe/call) - maximum savings
+  • hybrid: Common tools direct + meta-tools for rest - balanced approach
+  • full: Disabled, load all tools normally (default, backward compatible)
+  Examples:
+  • --enable-lazy-loading --lazy-mode=metatool
+  • --enable-lazy-loading --lazy-mode=hybrid --lazy-preload=filesystem,search
+  • --enable-lazy-loading --lazy-cache-max-entries=2000
 
 For more information: https://github.com/1mcp-app/agent
         `);
