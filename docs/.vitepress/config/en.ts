@@ -106,6 +106,7 @@ function sidebar(): DefaultTheme.Sidebar {
           { text: 'Codex Integration', link: '/guide/integrations/codex' },
           { text: 'App Consolidation', link: '/guide/integrations/app-consolidation' },
           { text: 'Developer Tools', link: '/guide/integrations/developer-tools' },
+          { text: 'Serena Integration', link: '/guide/integrations/serena' },
         ],
       },
       {

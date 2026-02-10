@@ -116,6 +116,7 @@ function sidebar(): DefaultTheme.Sidebar {
           { text: 'Codex 集成', link: '/zh/guide/integrations/codex' },
           { text: '应用程序整合', link: '/zh/guide/integrations/app-consolidation' },
           { text: '开发者工具', link: '/zh/guide/integrations/developer-tools' },
+          { text: 'Serena 集成', link: '/zh/guide/integrations/serena' },
         ],
       },
       {
