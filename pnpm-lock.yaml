@@ -10,7 +10,7 @@ importers:
     dependencies:
       '@modelcontextprotocol/sdk':
         specifier: ^1.25.1
-        version: 1.26.0(zod@4.3.5)
+        version: 1.26.0(zod@4.3.6)
       ajv:
         specifier: ^8.17.1
         version: 8.18.0
@@ -79,7 +79,7 @@ importers:
         version: 22.0.0
       zod:
         specifier: ^4.1.8
-        version: 4.3.5
+        version: 4.3.6
     devDependencies:
       '@braintree/sanitize-url':
         specifier: ^7.1.1
@@ -3810,8 +3810,8 @@ packages:
     peerDependencies:
       zod: ^3.25 || ^4
 
-  zod@4.3.5:
-    resolution: {integrity: sha512-k7Nwx6vuWx1IJ9Bjuf4Zt1PEllcwe7cls3VNzm4CQ1/hgtFUK2bRNG3rvnpPUhFjmqJKAKtjV576KnUkHocg/g==}
+  zod@4.3.6:
+    resolution: {integrity: sha512-rftlrkhHZOcjDwkGlnUtZZkvaPHCsDATp4pGpuOOMDaTdDDXF91wuVDJoWoPsKX/3YPQ5fHuF3STjcYyKr+Qhg==}
 
   zwitch@2.0.4:
     resolution: {integrity: sha512-bXE4cR/kVZhKZX/RjPEflHaKVhUVl85noU3v6b8apfQEc1x4A+zBxjZ4lN8LqGd6WZ3dl98pY4o717VFmoPp+A==}
@@ -4318,7 +4318,7 @@ snapshots:
     dependencies:
       langium: 3.3.1
 
-  '@modelcontextprotocol/sdk@1.26.0(zod@4.3.5)':
+  '@modelcontextprotocol/sdk@1.26.0(zod@4.3.6)':
     dependencies:
       '@hono/node-server': 1.19.9(hono@4.12.3)
       ajv: 8.18.0
@@ -4335,8 +4335,8 @@ snapshots:
       json-schema-typed: 8.0.2
       pkce-challenge: 5.0.1
       raw-body: 3.0.2
-      zod: 4.3.5
-      zod-to-json-schema: 3.25.1(zod@4.3.5)
+      zod: 4.3.6
+      zod-to-json-schema: 3.25.1(zod@4.3.6)
     transitivePeerDependencies:
       - supports-color
 
@@ -7601,10 +7601,10 @@ snapshots:
       compress-commons: 6.0.2
       readable-stream: 4.7.0
 
-  zod-to-json-schema@3.25.1(zod@4.3.5):
+  zod-to-json-schema@3.25.1(zod@4.3.6):
     dependencies:
-      zod: 4.3.5
+      zod: 4.3.6
 
-  zod@4.3.5: {}
+  zod@4.3.6: {}
 
   zwitch@2.0.4: {}
