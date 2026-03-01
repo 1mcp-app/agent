@@ -103,7 +103,7 @@ This is a dictionary of all the backend MCP servers the agent will manage.
 **Common Properties:**
 
 - `transport` (string, optional): `stdio` or `http`. Defaults to `stdio` if `command` is present, `http` if `url` is present.
-- `tags` (array of strings, required): Tags for routing and access control.
+- `tags` (array of strings, optional): Tags for routing and access control. Required for preset filtering to work correctly.
 - `connectionTimeout` (number, optional): Connection timeout in milliseconds. Used when establishing initial connection. Takes precedence over `timeout`.
 - `requestTimeout` (number, optional): Request timeout in milliseconds. Used for individual MCP operations (callTool, readResource, etc.). Takes precedence over `timeout`.
 - `timeout` (number, optional): **Deprecated** fallback timeout in milliseconds. Used when specific timeouts are not set. New configurations should use `connectionTimeout` and `requestTimeout`.
@@ -231,14 +231,7 @@ Use `envFilter` to control which variables are inherited using pattern matching:
 ```json
 {
   "inheritParentEnv": true,
-  "envFilter": [
-    "PATH", // Allow PATH variable
-    "HOME", // Allow HOME variable
-    "NODE_*", // Allow all NODE_* variables
-    "NPM_*", // Allow all NPM_* variables
-    "!SECRET_*", // Block all SECRET_* variables
-    "!BASH_FUNC_*" // Block bash function definitions
-  ]
+  "envFilter": ["PATH", "HOME", "NODE_*", "NPM_*", "!SECRET_*", "!BASH_FUNC_*"]
 }
 ```
 
@@ -267,12 +260,7 @@ Use `envFilter` to control which variables are inherited using pattern matching:
 
 ```json
 {
-  "env": [
-    "NODE_ENV=production",
-    "DEBUG=false",
-    "PATH", // Inherit PATH from parent
-    "API_TIMEOUT=${TIMEOUT_VALUE}"
-  ]
+  "env": ["NODE_ENV=production", "DEBUG=false", "PATH", "API_TIMEOUT=${TIMEOUT_VALUE}"]
 }
 ```
 
@@ -320,33 +308,17 @@ Set a custom working directory for the process:
       "args": ["dist/server.js"],
       "cwd": "/app",
 
-      // Environment inheritance with security filtering
       "inheritParentEnv": true,
-      "envFilter": [
-        "PATH",
-        "HOME",
-        "USER", // Basic system vars
-        "NODE_*",
-        "NPM_*", // Node.js related
-        "!SECRET_*",
-        "!KEY_*", // Block secrets
-        "!BASH_FUNC_*" // Block functions
-      ],
-
-      // Custom environment with substitution
+      "envFilter": ["PATH", "HOME", "USER", "NODE_*", "NPM_*", "!SECRET_*", "!KEY_*", "!BASH_FUNC_*"],
       "env": {
         "NODE_ENV": "production",
         "API_KEY": "${PROD_API_KEY}",
         "DB_URL": "${DATABASE_CONNECTION}",
         "LOG_LEVEL": "info"
       },
-
-      // Process management
       "restartOnExit": true,
       "maxRestarts": 3,
       "restartDelay": 1500,
-
-      // Standard MCP properties
       "tags": ["production", "api"],
       "connectionTimeout": 10000,
       "requestTimeout": 30000
@@ -503,13 +475,6 @@ Templates have access to four namespaces of context variables:
 - `user.name` - User's full name
 - `user.email` - User email address
 - `user.home` - Home directory path
-
-**Context Variables** (`context.*`):
-
-- `context.path` - Current working directory
-- `context.timestamp` - ISO 8601 timestamp
-- `context.sessionId` - Unique connection session ID
-- `context.version` - 1MCP version
 
 **Transport Variables** (`transport.*`):
 

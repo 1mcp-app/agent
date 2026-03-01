@@ -519,12 +519,14 @@ This enables proper server filtering with presets.
 ```json
 {
   "env": {
-    "SERENA_PROJECT": "{{project.path}}" // Serena ignores this
+    "SERENA_PROJECT": "{{project.path}}"
   }
 }
 ```
 
 :::
+
+Serena ignores environment variables for configuration.
 
 ✅ **Correct**:
 
@@ -532,11 +534,13 @@ This enables proper server filtering with presets.
 
 ```json
 {
-  "args": ["--project", "{{project.path}}"] // Use CLI args
+  "args": ["--project", "{{project.path}}"]
 }
 ```
 
 :::
+
+Pass the project path via CLI arguments instead.
 
 </ClientOnly>
 
@@ -677,9 +681,8 @@ Create custom contexts via `~/.serena/serena_config.yml`.
 
 **Solutions**:
 
-1. Use `--project-from-cwd` if your agent starts in the project directory
-2. Verify <span v-pre>`{{project.path}}`</span> resolves correctly
-3. Initialize project: `serena project create` in your project root
+1. Verify <span v-pre>`{{project.path}}`</span> resolves correctly by enabling debug logging
+2. Initialize project: `serena project create` in your project root
 
 </ClientOnly>
 

@@ -223,7 +223,10 @@ function sidebar(): DefaultTheme.Sidebar {
       },
       {
         text: 'API 参考',
-        items: [{ text: '健康检查 API', link: '/zh/reference/health-check' }],
+        items: [
+          { text: '健康检查 API', link: '/zh/reference/health-check' },
+          { text: '分页', link: '/zh/reference/pagination' },
+        ],
       },
       {
         text: '内部工具',

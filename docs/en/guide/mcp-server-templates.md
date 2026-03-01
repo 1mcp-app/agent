@@ -41,7 +41,6 @@ Templates allow you to:
 
 - <span v-pre>`{{project.path}}`</span> - Project directory path
 - <span v-pre>`{{user.username}}`</span> - Current user
-- <span v-pre>`{{context.sessionId}}`</span> - Connection session
 
 **Instruction Templates** customize LLM instructions with variables like:
 
@@ -128,15 +127,6 @@ Templates have access to four namespaces of context variables:
 | `user.gid`      | string? | Group ID            | `20`               |
 | `user.shell`    | string? | Default shell       | `/bin/zsh`         |
 
-### Context Variables (`context.*`)
-
-| Variable            | Type   | Description                  | Example                |
-| ------------------- | ------ | ---------------------------- | ---------------------- |
-| `context.path`      | string | Working directory path       | `/Users/dev/myapp`     |
-| `context.timestamp` | string | ISO 8601 timestamp           | `2025-01-25T10:30:00Z` |
-| `context.sessionId` | string | Unique connection session ID | `sess_abc123`          |
-| `context.version`   | string | 1MCP version                 | `0.29.0`               |
-
 ### Transport Variables (`transport.*`)
 
 | Variable                        | Type    | Description             | Example                 |
@@ -160,7 +150,6 @@ Templates have access to four namespaces of context variables:
 ```text
 {{project.path}}              <!-- /Users/dev/project -->
 {{user.username}}             <!-- developer -->
-{{context.sessionId}}         <!-- sess_abc123 -->
 {{transport.client.name}}     <!-- cursor -->
 {{project.custom.teamId}}     <!-- Custom value from .1mcprc -->
 ```
@@ -319,10 +308,13 @@ Here's a comprehensive template configuration:
       "disabled": "{{#if (eq transport.client.name 'claude-code')}}false{{else}}true{{/if}}"
     },
     "team-serena": {
-      "command": "npx",
+      "command": "uvx",
       "args": [
-        "-y",
+        "--from",
+        "git+https://github.com/oraios/serena",
         "serena",
+        "start-mcp-server",
+        "--project",
         "{{project.path}}",
         "--team",
         "{{project.custom.team}}",
@@ -331,12 +323,11 @@ Here's a comprehensive template configuration:
       ],
       "env": {
         "PROJECT_ID": "{{project.custom.projectId}}",
-        "SESSION_ID": "{{context.sessionId}}",
         "GIT_BRANCH": "{{project.git.branch}}",
         "API_ENDPOINT": "{{project.custom.apiEndpoint}}"
       },
       "cwd": "{{project.path}}",
-      "tags": ["filesystem", "search", "{{project.custom.team}}"]
+      "tags": ["filesystem", "search"]
     },
     "conditional-debug-server": {
       "command": "node",
@@ -388,15 +379,15 @@ Control template processing behavior with `templateSettings`:
 }
 ```
 
-| Setting            | Type                   | Default    | Description                                |
-| ------------------ | ---------------------- | ---------- | ------------------------------------------ |
-| `validateOnReload` | boolean                | `false`    | Validate templates when config is reloaded |
-| `failureMode`      | `'strict'\|'graceful'` | `'strict'` | How to handle template errors              |
-| `cacheContext`     | boolean                | `true`     | Cache rendered templates by context hash   |
+| Setting            | Type                   | Default    | Description                                      |
+| ------------------ | ---------------------- | ---------- | ------------------------------------------------ |
+| `validateOnReload` | boolean                | `false`    | Reserved for future use; currently has no effect |
+| `failureMode`      | `'strict'\|'graceful'` | `'strict'` | How to handle template errors                    |
+| `cacheContext`     | boolean                | `true`     | Cache rendered templates by context hash         |
 
 ### Failure Modes
 
-- **`strict`**: Template errors prevent server startup
+- **`strict`**: Template errors cause the affected template server to be skipped; the error is logged. Other servers continue normally.
 - **`graceful`**: Template errors are logged, original template used as fallback
 
 ## Conditional Disable
@@ -452,7 +443,7 @@ The `disabled` field evaluates the template and converts the result to a boolean
 {{math value1 '/' value2}}           <!-- Division -->
 {{math value1 '%' value2}}           <!-- Modulo -->
 {{math value1 '**' value2}}          <!-- Exponentiation -->
-{{math value '/' 100 '*' 100}}       <!-- Chained operations (rounded)
+{{math value '/' 100 '*' 100}}       <!-- Chained operations (all results rounded) -->
 ```
 
 :::
@@ -589,7 +580,7 @@ Prevent template errors from breaking production:
 
 ### 5. Tag Templates Appropriately
 
-Use dynamic tags for better filtering:
+Use static tags to enable proper filtering with presets:
 
 ::: v-pre
 
@@ -597,13 +588,15 @@ Use dynamic tags for better filtering:
 {
   "mcpTemplates": {
     "team-server": {
-      "tags": ["team-{{project.custom.team}}", "{{project.environment}}", "region-{{project.custom.region}}"]
+      "tags": ["filesystem", "search", "team"]
     }
   }
 }
 ```
 
 :::
+
+> **Note**: Template expressions inside `tags` arrays (e.g. `"team-{{project.custom.team}}"`) are not rendered — they will be used as literal tag strings. Use static tag values only.
 
 ## Troubleshooting
 

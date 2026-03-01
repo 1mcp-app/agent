@@ -36,7 +36,6 @@ head:
 ```text
 {{project.path}}
 {{user.username}}
-{{context.sessionId}}
 {{transport.client.name}}
 {{project.custom.teamId}}
 ```
@@ -95,15 +94,6 @@ head:
 | `user.uid`      | string? | 用户 ID         |
 | `user.gid`      | string? | 组 ID           |
 | `user.shell`    | string? | 默认 shell 路径 |
-
-### 上下文变量
-
-| 变量                | 类型   | 描述            |
-| ------------------- | ------ | --------------- |
-| `context.path`      | string | 当前工作目录    |
-| `context.timestamp` | string | ISO 8601 时间戳 |
-| `context.sessionId` | string | 唯一连接会话 ID |
-| `context.version`   | string | 1MCP 版本       |
 
 ### 传输变量
 
@@ -356,12 +346,6 @@ interface ContextData {
     gid?: string;
     shell?: string;
   };
-  context: {
-    path: string;
-    timestamp: string;
-    sessionId: string;
-    version: string;
-  };
   transport?: {
     type: string;
     url?: string;
@@ -408,7 +392,7 @@ interface ContextData {
 
 ### 步骤 4：验证
 
-如果启用了 `validateOnReload`，则根据 MCP 服务器架构验证渲染后的配置。
+`validateOnReload` 保留供将来使用，当前无效果。
 
 ### 步骤 5：服务器创建
 
@@ -424,7 +408,7 @@ interface ContextData {
 
 如果模板具有无效的 Handlebars 语法：
 
-- **严格模式**：服务器启动失败，记录错误
+- **严格模式**：受影响的模板服务器被跳过；错误会被记录。其他服务器正常继续。
 - **优雅模式**：使用原始模板而不进行渲染，记录错误
 
 ### 缺失变量

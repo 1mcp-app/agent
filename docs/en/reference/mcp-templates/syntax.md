@@ -36,7 +36,6 @@ All template variables use double curly braces:
 ```text
 {{project.path}}
 {{user.username}}
-{{context.sessionId}}
 {{transport.client.name}}
 {{project.custom.teamId}}
 ```
@@ -95,15 +94,6 @@ Properties that may be undefined will render as empty strings:
 | `user.uid`      | string? | User ID             |
 | `user.gid`      | string? | Group ID            |
 | `user.shell`    | string? | Default shell path  |
-
-### Context Variables
-
-| Variable            | Type   | Description                  |
-| ------------------- | ------ | ---------------------------- |
-| `context.path`      | string | Current working directory    |
-| `context.timestamp` | string | ISO 8601 timestamp           |
-| `context.sessionId` | string | Unique connection session ID |
-| `context.version`   | string | 1MCP version                 |
 
 ### Transport Variables
 
@@ -340,12 +330,6 @@ interface ContextData {
     gid?: string;
     shell?: string;
   };
-  context: {
-    path: string;
-    timestamp: string;
-    sessionId: string;
-    version: string;
-  };
   transport?: {
     type: string;
     url?: string;
@@ -392,7 +376,7 @@ Each template configuration is rendered by substituting:
 
 ### Step 4: Validation
 
-If `validateOnReload` is enabled, the rendered configuration is validated against the MCP server schema.
+`validateOnReload` is reserved for future use and currently has no effect.
 
 ### Step 5: Server Creation
 
@@ -408,7 +392,7 @@ When `cacheContext` is enabled (default), rendered templates are cached by conte
 
 If a template has invalid Handlebars syntax:
 
-- **strict mode**: Server startup fails, error is logged
+- **strict mode**: The affected template server is skipped; the error is logged. Other servers continue normally.
 - **graceful mode**: Original template is used without rendering, error is logged
 
 ### Missing Variables
