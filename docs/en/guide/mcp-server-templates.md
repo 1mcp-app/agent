@@ -172,7 +172,7 @@ Templates have access to four namespaces of context variables:
 ::: v-pre
 Use `{{#if}}` for conditional logic:
 
-```
+```text
 
 {{#if (eq project.environment 'production')}}
   <!-- Production configuration -->
