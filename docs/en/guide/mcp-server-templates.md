@@ -596,7 +596,7 @@ Use static tags to enable proper filtering with presets:
 
 :::
 
-> **Note**: Template expressions inside `tags` arrays (e.g. `"team-{{project.custom.team}}"`) are not rendered — they will be used as literal tag strings. Use static tag values only.
+> **Note**: Template expressions inside `tags` arrays (e.g. <span v-pre>`"team-{{project.custom.team}}"`</span>) are not rendered — they will be used as literal tag strings. Use static tag values only.
 
 ## Troubleshooting
 
