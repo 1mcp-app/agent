@@ -103,7 +103,7 @@ This is a dictionary of all the backend MCP servers the agent will manage.
 **Common Properties:**
 
 - `transport` (string, optional): `stdio` or `http`. Defaults to `stdio` if `command` is present, `http` if `url` is present.
-- `tags` (array of strings, required): Tags for routing and access control.
+- `tags` (array of strings, optional): Tags for routing and access control. Required for preset filtering to work correctly.
 - `connectionTimeout` (number, optional): Connection timeout in milliseconds. Used when establishing initial connection. Takes precedence over `timeout`.
 - `requestTimeout` (number, optional): Request timeout in milliseconds. Used for individual MCP operations (callTool, readResource, etc.). Takes precedence over `timeout`.
 - `timeout` (number, optional): **Deprecated** fallback timeout in milliseconds. Used when specific timeouts are not set. New configurations should use `connectionTimeout` and `requestTimeout`.
@@ -231,14 +231,7 @@ Use `envFilter` to control which variables are inherited using pattern matching:
 ```json
 {
   "inheritParentEnv": true,
-  "envFilter": [
-    "PATH", // Allow PATH variable
-    "HOME", // Allow HOME variable
-    "NODE_*", // Allow all NODE_* variables
-    "NPM_*", // Allow all NPM_* variables
-    "!SECRET_*", // Block all SECRET_* variables
-    "!BASH_FUNC_*" // Block bash function definitions
-  ]
+  "envFilter": ["PATH", "HOME", "NODE_*", "NPM_*", "!SECRET_*", "!BASH_FUNC_*"]
 }
 ```
 
@@ -267,12 +260,7 @@ Use `envFilter` to control which variables are inherited using pattern matching:
 
 ```json
 {
-  "env": [
-    "NODE_ENV=production",
-    "DEBUG=false",
-    "PATH", // Inherit PATH from parent
-    "API_TIMEOUT=${TIMEOUT_VALUE}"
-  ]
+  "env": ["NODE_ENV=production", "DEBUG=false", "PATH", "API_TIMEOUT=${TIMEOUT_VALUE}"]
 }
 ```
 
@@ -320,33 +308,17 @@ Set a custom working directory for the process:
       "args": ["dist/server.js"],
       "cwd": "/app",
 
-      // Environment inheritance with security filtering
       "inheritParentEnv": true,
-      "envFilter": [
-        "PATH",
-        "HOME",
-        "USER", // Basic system vars
-        "NODE_*",
-        "NPM_*", // Node.js related
-        "!SECRET_*",
-        "!KEY_*", // Block secrets
-        "!BASH_FUNC_*" // Block functions
-      ],
-
-      // Custom environment with substitution
+      "envFilter": ["PATH", "HOME", "USER", "NODE_*", "NPM_*", "!SECRET_*", "!KEY_*", "!BASH_FUNC_*"],
       "env": {
         "NODE_ENV": "production",
         "API_KEY": "${PROD_API_KEY}",
         "DB_URL": "${DATABASE_CONNECTION}",
         "LOG_LEVEL": "info"
       },
-
-      // Process management
       "restartOnExit": true,
       "maxRestarts": 3,
       "restartDelay": 1500,
-
-      // Standard MCP properties
       "tags": ["production", "api"],
       "connectionTimeout": 10000,
       "requestTimeout": 30000
@@ -449,6 +421,130 @@ Set a custom working directory for the process:
 ## Hot-Reloading
 
 The agent supports hot-reloading of the configuration file. If you modify the JSON file while the agent is running, it will automatically apply the new configuration without a restart.
+
+---
+
+## MCP Server Templates
+
+MCP Server Templates enable dynamic, context-aware server configuration. Instead of hardcoding server settings, you can define template configurations that automatically adapt based on runtime context like the current project, user, environment, or client connection.
+
+### Template Configuration
+
+Templates are defined in the `mcpTemplates` section of your configuration:
+
+::: v-pre
+
+```json
+{
+  "mcpTemplates": {
+    "project-filesystem": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-filesystem", "{{project.path}}"],
+      "tags": ["filesystem", "project"]
+    },
+    "conditional-server": {
+      "command": "node",
+      "args": ["{{project.path}}/server.js"],
+      "env": {
+        "NODE_ENV": "{{project.environment}}",
+        "DEBUG": "{{#if (eq project.environment 'development')}}true{{else}}false{{/if}}"
+      },
+      "disabled": "{{#if (eq project.environment 'production')}}true{{else}}false{{/if}}"
+    }
+  }
+}
+```
+
+:::
+
+### Available Template Variables
+
+Templates have access to four namespaces of context variables:
+
+**Project Variables** (`project.*`):
+
+- `project.path` - Absolute path to current project
+- `project.name` - Project directory name
+- `project.environment` - Environment name
+- `project.git.branch` - Git branch name
+- `project.custom.*` - Custom values from `.1mcprc` file
+
+**User Variables** (`user.*`):
+
+- `user.username` - System username
+- `user.name` - User's full name
+- `user.email` - User email address
+- `user.home` - Home directory path
+
+**Transport Variables** (`transport.*`):
+
+- `transport.type` - Transport protocol (`http`, `sse`, `stdio`)
+- `transport.client.name` - Client application name (`cursor`, `claude-code`)
+- `transport.client.version` - Client version
+
+### Template Syntax
+
+1MCP uses [Handlebars](https://handlebarsjs.com/) for template rendering:
+
+::: v-pre
+
+```text
+{{project.path}}                           <!-- Variable access -->
+{{#if (eq project.environment 'production')}}  <!-- Conditionals -->
+  production-value
+{{else}}
+  development-value
+{{/if}}
+{{#if (and condition1 condition2)}}        <!-- Logical operators -->
+{{/if}}
+```
+
+:::
+
+### Context Enrichment (.1mcprc)
+
+Project-level context can be enriched with a `.1mcprc` file:
+
+```json
+{
+  "preset": "my-team-preset",
+  "tags": ["team-a", "backend"],
+  "context": {
+    "projectId": "myapp-backend",
+    "environment": "development",
+    "team": "platform",
+    "custom": {
+      "teamId": "team-a",
+      "region": "us-west",
+      "apiEndpoint": "https://dev-api.example.com"
+    }
+  }
+}
+```
+
+Custom values are available as <span v-pre>`{{project.custom.*}}`</span> in templates.
+
+### Template Settings
+
+Control template processing behavior:
+
+```json
+{
+  "templateSettings": {
+    "validateOnReload": true,
+    "failureMode": "graceful",
+    "cacheContext": true
+  }
+}
+```
+
+| Setting            | Type                   | Description                                |
+| ------------------ | ---------------------- | ------------------------------------------ |
+| `validateOnReload` | boolean                | Validate templates when config is reloaded |
+| `failureMode`      | `'strict'\|'graceful'` | How to handle template errors              |
+| `cacheContext`     | boolean                | Cache rendered templates by context hash   |
+
+For complete documentation on templates, see the [MCP Server Templates Guide](/guide/mcp-server-templates) and [Template Syntax Reference](/reference/mcp-templates/syntax).
 
 ---
 

@@ -82,7 +82,7 @@ npx -y @1mcp/agent --config-dir ./project-config
 **通用属性：**
 
 - `transport` (字符串, 可选): `stdio` 或 `http`。如果存在 `command` 则默认为 `stdio`，如果存在 `url` 则默认为 `http`。
-- `tags` (字符串数组, 必需): 用于路由和访问控制的标签。
+- `tags` (字符串数组, 可选): 用于路由和访问控制的标签。预设过滤功能需要此字段才能正常工作。
 - `connectionTimeout` (数字, 可选): 连接超时时间（毫秒）。用于建立初始连接。优先级高于 `timeout`。
 - `requestTimeout` (数字, 可选): 请求超时时间（毫秒）。用于单个 MCP 操作（callTool、readResource 等）。优先级高于 `timeout`。
 - `timeout` (数字, 可选): **已弃用** 的回退超时时间（毫秒）。当未设置特定超时时使用。新配置应使用 `connectionTimeout` 和 `requestTimeout`。
@@ -210,14 +210,7 @@ npx -y @1mcp/agent --config-dir ./project-config
 ```json
 {
   "inheritParentEnv": true,
-  "envFilter": [
-    "PATH", // 允许 PATH 变量
-    "HOME", // 允许 HOME 变量
-    "NODE_*", // 允许所有 NODE_* 变量
-    "NPM_*", // 允许所有 NPM_* 变量
-    "!SECRET_*", // 阻止所有 SECRET_* 变量
-    "!BASH_FUNC_*" // 阻止 bash 函数定义
-  ]
+  "envFilter": ["PATH", "HOME", "NODE_*", "NPM_*", "!SECRET_*", "!BASH_FUNC_*"]
 }
 ```
 
@@ -246,12 +239,7 @@ npx -y @1mcp/agent --config-dir ./project-config
 
 ```json
 {
-  "env": [
-    "NODE_ENV=production",
-    "DEBUG=false",
-    "PATH", // 从父级继承 PATH
-    "API_TIMEOUT=${TIMEOUT_VALUE}"
-  ]
+  "env": ["NODE_ENV=production", "DEBUG=false", "PATH", "API_TIMEOUT=${TIMEOUT_VALUE}"]
 }
 ```
 
@@ -299,33 +287,17 @@ npx -y @1mcp/agent --config-dir ./project-config
       "args": ["dist/server.js"],
       "cwd": "/app",
 
-      // 带有安全过滤的环境继承
       "inheritParentEnv": true,
-      "envFilter": [
-        "PATH",
-        "HOME",
-        "USER", // 基本系统变量
-        "NODE_*",
-        "NPM_*", // Node.js 相关
-        "!SECRET_*",
-        "!KEY_*", // 阻止密钥
-        "!BASH_FUNC_*" // 阻止函数
-      ],
-
-      // 带有替换的自定义环境
+      "envFilter": ["PATH", "HOME", "USER", "NODE_*", "NPM_*", "!SECRET_*", "!KEY_*", "!BASH_FUNC_*"],
       "env": {
         "NODE_ENV": "production",
         "API_KEY": "${PROD_API_KEY}",
         "DB_URL": "${DATABASE_CONNECTION}",
         "LOG_LEVEL": "info"
       },
-
-      // 进程管理
       "restartOnExit": true,
       "maxRestarts": 3,
       "restartDelay": 1500,
-
-      // 标准 MCP 属性
       "tags": ["production", "api"],
       "connectionTimeout": 10000,
       "requestTimeout": 30000
@@ -428,6 +400,133 @@ npx -y @1mcp/agent --config-dir ./project-config
 ## 热重载
 
 代理支持配置文件的热重载。如果您在代理运行时修改 JSON 文件，它将自动应用新配置而无需重启。
+
+---
+
+## MCP 服务器模板
+
+MCP 服务器模板支持动态、上下文感知的服务器配置。您可以定义模板配置，这些配置会根据运行时上下文（如当前项目、用户、环境或客户端连接）自动调整，而无需硬编码服务器设置。
+
+### 模板配置
+
+模板在配置的 `mcpTemplates` 部分中定义：
+
+::: v-pre
+
+```json
+{
+  "mcpTemplates": {
+    "project-filesystem": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-filesystem", "{{project.path}}"],
+      "tags": ["filesystem", "project"]
+    },
+    "conditional-server": {
+      "command": "node",
+      "args": ["{{project.path}}/server.js"],
+      "env": {
+        "NODE_ENV": "{{project.environment}}",
+        "DEBUG": "{{#if (eq project.environment 'development')}}true{{else}}false{{/if}}"
+      },
+      "disabled": "{{#if (eq project.environment 'production')}}true{{else}}false{{/if}}"
+    }
+  }
+}
+```
+
+:::
+
+### 可用的模板变量
+
+模板可以访问四个命名空间的上下文变量：
+
+**项目变量** (`project.*`):
+
+- `project.path` - 当前项目的绝对路径
+- `project.name` - 项目目录名称
+- `project.environment` - 环境名称
+- `project.git.branch` - Git 分支名称
+- `project.custom.*` - 来自 `.1mcprc` 文件的自定义值
+
+**用户变量** (`user.*`):
+
+- `user.username` - 系统用户名
+- `user.name` - 用户全名
+- `user.email` - 用户邮箱地址
+- `user.home` - 主目录路径
+
+**传输变量** (`transport.*`):
+
+- `transport.type` - 传输协议 (`http`、`sse`、`stdio`)
+- `transport.client.name` - 客户端应用名称 (`cursor`、`claude-code`)
+- `transport.client.version` - 客户端版本
+
+### 模板语法
+
+1MCP 使用 [Handlebars](https://handlebarsjs.com/) 进行模板渲染：
+
+::: v-pre
+
+```text
+{{project.path}}
+<!-- 变量访问 -->
+{{#if (eq project.environment 'production')}}
+  <!-- 条件语句 -->
+  production-value
+{{else}}
+  development-value
+{{/if}}
+{{#if (and condition1 condition2)}}
+  <!-- 逻辑运算符 -->
+{{/if}}
+```
+
+:::
+
+### 上下文增强 (.1mcprc)
+
+项目级别的上下文可以通过 `.1mcprc` 文件增强：
+
+```json
+{
+  "preset": "my-team-preset",
+  "tags": ["team-a", "backend"],
+  "context": {
+    "projectId": "myapp-backend",
+    "environment": "development",
+    "team": "platform",
+    "custom": {
+      "teamId": "team-a",
+      "region": "us-west",
+      "apiEndpoint": "https://dev-api.example.com"
+    }
+  }
+}
+```
+
+自定义值可以在模板中作为 <span v-pre>`{{project.custom.*}}`</span> 访问。
+
+### 模板设置
+
+控制模板处理行为：
+
+```json
+{
+  "templateSettings": {
+    "validateOnReload": true,
+    "failureMode": "graceful",
+    "cacheContext": true
+  }
+}
+```
+
+| 设置               | 类型                   | 描述                       |
+| ------------------ | ---------------------- | -------------------------- |
+| `validateOnReload` | boolean                | 重新加载配置时验证模板     |
+| `failureMode`      | `'strict'\|'graceful'` | 如何处理模板错误           |
+| `cacheContext`     | boolean                | 按上下文哈希缓存渲染的模板 |
+
+有关模板的完整文档，请参阅 [MCP 服务器模板指南](/zh/guide/mcp-server-templates) 和 [模板语法参考](/zh/reference/mcp-templates/syntax)。
 
 ---
 

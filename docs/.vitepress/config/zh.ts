@@ -116,6 +116,7 @@ function sidebar(): DefaultTheme.Sidebar {
           { text: 'Codex 集成', link: '/zh/guide/integrations/codex' },
           { text: '应用程序整合', link: '/zh/guide/integrations/app-consolidation' },
           { text: '开发者工具', link: '/zh/guide/integrations/developer-tools' },
+          { text: 'Serena 集成', link: '/zh/guide/integrations/serena' },
         ],
       },
       {
@@ -135,6 +136,7 @@ function sidebar(): DefaultTheme.Sidebar {
         items: [
           { text: '指令模板', link: '/zh/guide/custom-instructions-template' },
           { text: '服务器指令覆盖', link: '/zh/guide/server-instructions-overrides' },
+          { text: 'MCP 服务器模板', link: '/zh/guide/mcp-server-templates' },
         ],
       },
       {
@@ -221,7 +223,10 @@ function sidebar(): DefaultTheme.Sidebar {
       },
       {
         text: 'API 参考',
-        items: [{ text: '健康检查 API', link: '/zh/reference/health-check' }],
+        items: [
+          { text: '健康检查 API', link: '/zh/reference/health-check' },
+          { text: '分页', link: '/zh/reference/pagination' },
+        ],
       },
       {
         text: '内部工具',
@@ -246,6 +251,10 @@ function sidebar(): DefaultTheme.Sidebar {
           { text: '模板变量', link: '/zh/reference/instructions-template/variables' },
           { text: '模板示例', link: '/zh/reference/instructions-template/examples' },
         ],
+      },
+      {
+        text: 'MCP 服务器模板',
+        items: [{ text: '模板语法', link: '/zh/reference/mcp-templates/syntax' }],
       },
     ],
   };

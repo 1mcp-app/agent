@@ -106,6 +106,7 @@ function sidebar(): DefaultTheme.Sidebar {
           { text: 'Codex Integration', link: '/guide/integrations/codex' },
           { text: 'App Consolidation', link: '/guide/integrations/app-consolidation' },
           { text: 'Developer Tools', link: '/guide/integrations/developer-tools' },
+          { text: 'Serena Integration', link: '/guide/integrations/serena' },
         ],
       },
       {
@@ -125,6 +126,7 @@ function sidebar(): DefaultTheme.Sidebar {
         items: [
           { text: 'Instructions Template', link: '/guide/custom-instructions-template' },
           { text: 'Server Instructions Overrides', link: '/guide/server-instructions-overrides' },
+          { text: 'MCP Server Templates', link: '/guide/mcp-server-templates' },
         ],
       },
       {
@@ -239,6 +241,10 @@ function sidebar(): DefaultTheme.Sidebar {
           { text: 'Variables', link: '/reference/instructions-template/variables' },
           { text: 'Examples', link: '/reference/instructions-template/examples' },
         ],
+      },
+      {
+        text: 'MCP Server Templates',
+        items: [{ text: 'Template Syntax', link: '/reference/mcp-templates/syntax' }],
       },
     ],
   };
