@@ -4,6 +4,12 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { buildListCommand, listCommand } from './list.js';
 
+const mockedFns = vi.hoisted(() => ({
+  mockGetAllServers: vi.fn(() => ({})),
+  mockGetAllEffectiveServers: vi.fn(() => ({})),
+  mockGetGlobalConfig: vi.fn(() => ({})),
+}));
+
 // Mock printer
 vi.mock('@src/utils/ui/printer.js', () => ({
   default: {
@@ -14,14 +20,19 @@ vi.mock('@src/utils/ui/printer.js', () => ({
     blank: vi.fn(),
     raw: vi.fn(),
     title: vi.fn(),
+    subtitle: vi.fn(),
     table: vi.fn(),
+    keyValue: vi.fn(),
+    serverStatus: vi.fn(),
   },
 }));
 
 // Mock dependencies
 vi.mock('./utils/mcpServerConfig.js', () => ({
   initializeConfigContext: vi.fn(),
-  getAllServers: vi.fn(() => ({})),
+  getAllServers: mockedFns.mockGetAllServers,
+  getAllEffectiveServers: mockedFns.mockGetAllEffectiveServers,
+  getGlobalConfig: mockedFns.mockGetGlobalConfig,
   validateConfigPath: vi.fn(),
   parseTags: vi.fn((tags) => tags.split(',')),
 }));
@@ -37,6 +48,9 @@ vi.mock('./utils/validation.js', () => ({
 describe('List Command', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockedFns.mockGetAllServers.mockReturnValue({});
+    mockedFns.mockGetAllEffectiveServers.mockReturnValue({});
+    mockedFns.mockGetGlobalConfig.mockReturnValue({});
   });
 
   describe('buildListCommand', () => {

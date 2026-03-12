@@ -3,10 +3,21 @@ import fs from 'fs';
 import path from 'path';
 
 import { substituteEnvVarsInConfig } from '@src/config/envProcessor.js';
+import { getUnknownGlobalConfigKeys, mergeGlobalAndServerConfig } from '@src/config/mcpConfigMerge.js';
 import { DEFAULT_CONFIG, getGlobalConfigDir, getGlobalConfigPath } from '@src/constants.js';
 import { AgentConfigManager } from '@src/core/server/agentConfig.js';
-import { MCPServerParams } from '@src/core/types/index.js';
+import {
+  ApplicationConfig,
+  applicationConfigSchema,
+  GlobalTransportConfig,
+  globalTransportConfigSchema,
+  MCPServerParams,
+  transportConfigSchema,
+} from '@src/core/types/index.js';
 import logger, { debugIf } from '@src/logger/logger.js';
+
+import { parse as parseToml } from 'smol-toml';
+import { ZodError } from 'zod';
 
 /**
  * Configuration change event types
@@ -22,6 +33,8 @@ export class McpConfigManager extends EventEmitter {
   private static instance: McpConfigManager;
   private configWatcher: fs.FSWatcher | null = null;
   private transportConfig: Record<string, MCPServerParams> = {};
+  private globalConfig: GlobalTransportConfig = {};
+  private appConfig: ApplicationConfig = {};
   private configFilePath: string;
   private debounceTimer: ReturnType<typeof setTimeout> | null = null;
   private lastModified: number = 0;
@@ -95,11 +108,60 @@ export class McpConfigManager extends EventEmitter {
       }
 
       const configObj = processedConfig as Record<string, unknown>;
-      this.transportConfig = (configObj.mcpServers as Record<string, MCPServerParams>) || {};
+      const rawGlobal = configObj.serverDefaults;
+      const unknownGlobalKeys = getUnknownGlobalConfigKeys(rawGlobal);
+      if (unknownGlobalKeys.length > 0) {
+        logger.warn(`Unknown properties in global MCP configuration were ignored: ${unknownGlobalKeys.join(', ')}`);
+      }
+
+      let validatedGlobalConfig: GlobalTransportConfig = {};
+      if (rawGlobal !== undefined) {
+        try {
+          validatedGlobalConfig = globalTransportConfigSchema.parse(rawGlobal);
+        } catch (error) {
+          if (error instanceof ZodError) {
+            const fieldErrors = error.issues.map((issue) => `${issue.path.join('.')}: ${issue.message}`).join(', ');
+            throw new Error(`Invalid global configuration: ${fieldErrors}`);
+          }
+          throw error;
+        }
+      }
+
+      // Warn if legacy app key is present in mcp.json
+      if (configObj.app !== undefined) {
+        const tomlPath = path.join(path.dirname(this.configFilePath), 'config.toml');
+        logger.warn(
+          `The "app" key in mcp.json is deprecated. Please move your app settings to ${tomlPath}. ` +
+            `The "app" key in mcp.json will be ignored.`,
+        );
+      }
+
+      const validatedAppConfig: ApplicationConfig = this.loadAppConfigFromToml();
+
+      const servers = (configObj.mcpServers as Record<string, unknown>) || {};
+      const validatedServers: Record<string, MCPServerParams> = {};
+      for (const [serverName, serverConfig] of Object.entries(servers)) {
+        try {
+          const parsedServerConfig = transportConfigSchema.parse(serverConfig);
+          validatedServers[serverName] = transportConfigSchema.parse(
+            mergeGlobalAndServerConfig(validatedGlobalConfig, parsedServerConfig),
+          );
+        } catch (error) {
+          logger.error(
+            `Invalid configuration for server '${serverName}': ${error instanceof Error ? error.message : String(error)}`,
+          );
+        }
+      }
+
+      this.globalConfig = validatedGlobalConfig;
+      this.appConfig = validatedAppConfig;
+      this.transportConfig = validatedServers;
       const substitutionStatus = features.envSubstitution ? 'with' : 'without';
       logger.info(`Configuration loaded successfully ${substitutionStatus} environment variable substitution`);
     } catch (error) {
       logger.error(`Failed to load configuration: ${error instanceof Error ? error.message : String(error)}`);
+      this.globalConfig = {};
+      this.appConfig = {};
       this.transportConfig = {};
     }
   }
@@ -254,6 +316,53 @@ export class McpConfigManager extends EventEmitter {
    */
   public getTransportConfig(): Record<string, MCPServerParams> {
     return { ...this.transportConfig };
+  }
+
+  /**
+   * Get the current global MCP configuration.
+   */
+  public getGlobalConfig(): GlobalTransportConfig {
+    return { ...this.globalConfig };
+  }
+
+  /**
+   * Load app configuration from config.toml in the same directory as mcp.json.
+   */
+  private loadAppConfigFromToml(): ApplicationConfig {
+    const tomlPath = path.join(path.dirname(this.configFilePath), 'config.toml');
+    try {
+      if (!fs.existsSync(tomlPath)) {
+        return {};
+      }
+      const raw = fs.readFileSync(tomlPath, 'utf8');
+      const parsed = parseToml(raw);
+      return applicationConfigSchema.parse(parsed);
+    } catch (error) {
+      if (error instanceof ZodError) {
+        const fieldErrors = error.issues.map((issue) => `${issue.path.join('.')}: ${issue.message}`).join(', ');
+        logger.warn(`Invalid app configuration in config.toml (ignored): ${fieldErrors}`);
+      } else {
+        logger.warn(
+          `Failed to load app configuration from ${tomlPath}: ${error instanceof Error ? error.message : String(error)}`,
+        );
+      }
+      return {};
+    }
+  }
+
+  /**
+   * Get the application-level configuration from config.toml.
+   * CLI args always take precedence over these values.
+   */
+  public getAppConfig(): ApplicationConfig {
+    return { ...this.appConfig };
+  }
+
+  /**
+   * Get the effective merged configuration for a specific server.
+   */
+  public getEffectiveServerConfig(serverName: string): MCPServerParams | undefined {
+    return this.transportConfig[serverName] ? { ...this.transportConfig[serverName] } : undefined;
   }
 
   /**

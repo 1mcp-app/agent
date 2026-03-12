@@ -1,11 +1,19 @@
-import { MCPServerParams } from '@src/core/types/index.js';
+import { GlobalTransportConfig, MCPServerParams } from '@src/core/types/index.js';
 import { GlobalOptions } from '@src/globalOptions.js';
 import { inferTransportType } from '@src/transport/transportFactory.js';
 import printer from '@src/utils/ui/printer.js';
 
 import type { Argv } from 'yargs';
 
-import { getAllServers, getServer, initializeConfigContext, validateConfigPath } from './utils/mcpServerConfig.js';
+import {
+  getAllEffectiveServers,
+  getAllServers,
+  getEffectiveServerConfig,
+  getGlobalConfig,
+  getServer,
+  initializeConfigContext,
+  validateConfigPath,
+} from './utils/mcpServerConfig.js';
 import { validateServerName } from './utils/validation.js';
 
 export interface StatusCommandArgs extends GlobalOptions {
@@ -23,7 +31,7 @@ export function buildStatusCommand(yargs: Argv) {
       type: 'string',
     })
     .option('verbose', {
-      describe: 'Show detailed status information',
+      describe: 'Show detailed status information with effective merged configuration',
       type: 'boolean',
       default: false,
       alias: 'v',
@@ -69,8 +77,9 @@ async function showServerStatus(serverName: string, verbose: boolean = false): P
   validateServerName(serverName);
 
   // Get server configuration
-  const serverConfig = getServer(serverName);
-  if (!serverConfig) {
+  const rawServerConfig = getServer(serverName);
+  const effectiveServerConfig = getEffectiveServerConfig(serverName);
+  if (!rawServerConfig || !effectiveServerConfig) {
     throw new Error(`Server '${serverName}' does not exist.`);
   }
 
@@ -78,7 +87,7 @@ async function showServerStatus(serverName: string, verbose: boolean = false): P
   printer.title(`Server Status: ${serverName}`);
   printer.blank();
 
-  displayDetailedServerStatus(serverName, serverConfig, verbose);
+  displayDetailedServerStatus(serverName, rawServerConfig, effectiveServerConfig, getGlobalConfig(), verbose);
 }
 
 /**
@@ -86,8 +95,10 @@ async function showServerStatus(serverName: string, verbose: boolean = false): P
  */
 async function showAllServersStatus(verbose: boolean = false): Promise<void> {
   const allServers = getAllServers();
+  const allEffectiveServers = getAllEffectiveServers();
+  const globalConfig = getGlobalConfig();
 
-  if (Object.keys(allServers).length === 0) {
+  if (Object.keys(allEffectiveServers).length === 0) {
     printer.info('No MCP servers are configured.');
     printer.info('Use "mcp add <name>" to add your first server.');
     return;
@@ -96,25 +107,42 @@ async function showAllServersStatus(verbose: boolean = false): Promise<void> {
   printer
     .blank()
     .title(
-      `MCP Servers Status (${Object.keys(allServers).length} server${Object.keys(allServers).length === 1 ? '' : 's'})`,
+      `MCP Servers Status (${Object.keys(allEffectiveServers).length} server${Object.keys(allEffectiveServers).length === 1 ? '' : 's'})`,
     )
     .blank();
 
+  if (Object.keys(globalConfig).length > 0) {
+    printer.subtitle('Global Defaults:');
+    printer.keyValue({
+      timeout: globalConfig.timeout !== undefined ? `${globalConfig.timeout}ms` : '(none)',
+      connectionTimeout:
+        globalConfig.connectionTimeout !== undefined ? `${globalConfig.connectionTimeout}ms` : '(none)',
+      requestTimeout: globalConfig.requestTimeout !== undefined ? `${globalConfig.requestTimeout}ms` : '(none)',
+    });
+    printer.blank();
+  }
+
   // Sort servers by name for consistent output
-  const sortedServerNames = Object.keys(allServers).sort();
+  const sortedServerNames = Object.keys(allEffectiveServers).sort();
 
   for (const serverName of sortedServerNames) {
-    const config = allServers[serverName];
-    displayServerStatusSummary(serverName, config);
+    const effectiveConfig = allEffectiveServers[serverName];
+    displayServerStatusSummary(serverName, effectiveConfig);
+    if (verbose && allServers[serverName]) {
+      const inherited = getInheritedKeys(allServers[serverName], effectiveConfig, globalConfig);
+      if (inherited.length > 0) {
+        printer.keyValue({ Inherited: inherited.join(', ') });
+      }
+    }
     printer.blank(); // Empty line between servers
   }
 
   // Overall summary
-  const enabledCount = sortedServerNames.filter((name) => !allServers[name].disabled).length;
+  const enabledCount = sortedServerNames.filter((name) => !allEffectiveServers[name].disabled).length;
   const disabledCount = sortedServerNames.length - enabledCount;
-  const stdioCount = sortedServerNames.filter((name) => allServers[name].type === 'stdio').length;
-  const httpCount = sortedServerNames.filter((name) => allServers[name].type === 'http').length;
-  const sseCount = sortedServerNames.filter((name) => allServers[name].type === 'sse').length;
+  const stdioCount = sortedServerNames.filter((name) => allEffectiveServers[name].type === 'stdio').length;
+  const httpCount = sortedServerNames.filter((name) => allEffectiveServers[name].type === 'http').length;
+  const sseCount = sortedServerNames.filter((name) => allEffectiveServers[name].type === 'sse').length;
 
   printer.subtitle('Overall Summary:');
   printer.keyValue({
@@ -130,7 +158,7 @@ async function showAllServersStatus(verbose: boolean = false): Promise<void> {
 
   // Get unique tags
   const allTags = new Set<string>();
-  for (const config of Object.values(allServers)) {
+  for (const config of Object.values(allEffectiveServers)) {
     if (config.tags) {
       config.tags.forEach((tag) => allTags.add(tag));
     }
@@ -177,12 +205,18 @@ function displayServerStatusSummary(name: string, config: MCPServerParams): void
 /**
  * Display detailed status for a server (used in single server view)
  */
-function displayDetailedServerStatus(name: string, config: MCPServerParams, verbose: boolean): void {
-  const statusIcon = config.disabled ? '🔴' : '🟢';
-  const statusText = config.disabled ? 'Disabled' : 'Enabled';
+function displayDetailedServerStatus(
+  name: string,
+  rawConfig: MCPServerParams,
+  effectiveConfig: MCPServerParams,
+  globalConfig: GlobalTransportConfig,
+  verbose: boolean,
+): void {
+  const statusIcon = effectiveConfig.disabled ? '🔴' : '🟢';
+  const statusText = effectiveConfig.disabled ? 'Disabled' : 'Enabled';
 
   // Infer type if missing
-  const inferredConfig = config.type ? config : inferTransportType(config, name);
+  const inferredConfig = effectiveConfig.type ? effectiveConfig : inferTransportType(effectiveConfig, name);
   const displayType = inferredConfig.type || 'unknown';
 
   printer.subtitle('Configuration:');
@@ -224,7 +258,11 @@ function displayDetailedServerStatus(name: string, config: MCPServerParams, verb
   }
 
   // Common configuration
-  printer.keyValue({ Timeout: inferredConfig.timeout ? `${inferredConfig.timeout}ms` : '(default)' });
+  printer.keyValue({
+    Timeout: inferredConfig.timeout ? `${inferredConfig.timeout}ms` : '(default)',
+    'Connection Timeout': inferredConfig.connectionTimeout ? `${inferredConfig.connectionTimeout}ms` : '(default)',
+    'Request Timeout': inferredConfig.requestTimeout ? `${inferredConfig.requestTimeout}ms` : '(default)',
+  });
   printer.keyValue({
     Tags: inferredConfig.tags && inferredConfig.tags.length > 0 ? inferredConfig.tags.join(', ') : '(none)',
   });
@@ -246,12 +284,17 @@ function displayDetailedServerStatus(name: string, config: MCPServerParams, verb
     printer.keyValue({ 'Environment Variables': '(none)' });
   }
 
+  const inherited = getInheritedKeys(rawConfig, effectiveConfig, globalConfig);
+  if (inherited.length > 0) {
+    printer.keyValue({ Inherited: inherited.join(', ') });
+  }
+
   // Runtime status (this would require integration with ServerManager to get actual runtime status)
   printer.blank();
   printer.subtitle('Runtime Information:');
-  printer.keyValue({ 'Configuration File': JSON.stringify(config) });
+  printer.keyValue({ 'Effective Configuration': JSON.stringify(effectiveConfig) });
 
-  if (config.disabled) {
+  if (effectiveConfig.disabled) {
     printer.keyValue({ 'Runtime Status': '⏹️  Not running (disabled)' });
     printer.info(`Use 'mcp enable ${name}' to enable this server.`);
   } else {
@@ -263,7 +306,7 @@ function displayDetailedServerStatus(name: string, config: MCPServerParams, verb
   printer.blank();
   printer.subtitle('Validation:');
   try {
-    validateServerConfiguration(config);
+    validateServerConfiguration(effectiveConfig);
     printer.info('Configuration: Valid ✓');
   } catch (error) {
     printer.error('Configuration: Invalid ❌');
@@ -273,13 +316,63 @@ function displayDetailedServerStatus(name: string, config: MCPServerParams, verb
   // Quick actions
   printer.blank();
   printer.subtitle('Quick Actions:');
-  if (config.disabled) {
+  if (effectiveConfig.disabled) {
     printer.info(`   • Enable: mcp enable ${name}`);
   } else {
     printer.info(`   • Disable: mcp disable ${name}`);
   }
   printer.info(`   • Update: mcp update ${name} [options]`);
   printer.info(`   • Remove: server remove ${name}`);
+}
+
+function getInheritedKeys(
+  rawConfig: MCPServerParams,
+  effectiveConfig: MCPServerParams,
+  globalConfig: GlobalTransportConfig,
+): string[] {
+  const inherited: string[] = [];
+  const fallbackKeys: Array<keyof MCPServerParams> = [
+    'timeout',
+    'connectionTimeout',
+    'requestTimeout',
+    'oauth',
+    'headers',
+    'inheritParentEnv',
+  ];
+
+  for (const key of fallbackKeys) {
+    if (
+      rawConfig[key] === undefined &&
+      effectiveConfig[key] !== undefined &&
+      globalConfig[key as keyof GlobalTransportConfig] !== undefined
+    ) {
+      inherited.push(String(key));
+    }
+  }
+
+  if (rawConfig.env === undefined && effectiveConfig.env !== undefined && globalConfig.env !== undefined) {
+    inherited.push('env');
+  }
+
+  if (
+    rawConfig.env &&
+    effectiveConfig.env &&
+    typeof rawConfig.env === 'object' &&
+    typeof effectiveConfig.env === 'object' &&
+    !Array.isArray(rawConfig.env) &&
+    !Array.isArray(effectiveConfig.env) &&
+    typeof globalConfig.env === 'object' &&
+    globalConfig.env !== null &&
+    !Array.isArray(globalConfig.env)
+  ) {
+    const rawEnv = rawConfig.env as Record<string, string>;
+    const effectiveEnv = effectiveConfig.env as Record<string, string>;
+    if (Object.keys(effectiveEnv).some((key) => !(key in rawEnv))) {
+      inherited.push('env(merged)');
+    }
+  }
+
+  return inherited;
 }
 
 /**

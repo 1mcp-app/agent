@@ -6,6 +6,7 @@ import type { Argv } from 'yargs';
 
 import {
   backupConfig,
+  getGlobalConfig,
   initializeConfigContext,
   parseEnvVars,
   parseHeaders,
@@ -83,7 +84,7 @@ export function buildAddCommand(yargs: Argv) {
       alias: 'g',
     })
     .option('timeout', {
-      describe: 'Connection timeout in milliseconds',
+      describe: 'Connection timeout in milliseconds (inherits from global default when omitted)',
       type: 'number',
     })
     .option('disabled', {
@@ -301,6 +302,19 @@ export async function addCommand(argv: AddCommandArgs): Promise<void> {
 
     if (backupPath) {
       printer.keyValue({ 'Backup created': backupPath });
+    }
+
+    const globalConfig = getGlobalConfig();
+    const inheritedKeys: string[] = [];
+    if (argv.timeout === undefined && globalConfig.timeout !== undefined) inheritedKeys.push('timeout');
+    if (globalConfig.connectionTimeout !== undefined) inheritedKeys.push('connectionTimeout');
+    if (globalConfig.requestTimeout !== undefined) inheritedKeys.push('requestTimeout');
+    if (argv.env === undefined && globalConfig.env !== undefined) inheritedKeys.push('env');
+    if (type === 'stdio' && globalConfig.inheritParentEnv !== undefined) inheritedKeys.push('inheritParentEnv');
+    if (type !== 'stdio' && globalConfig.headers !== undefined) inheritedKeys.push('headers');
+    if (globalConfig.oauth !== undefined) inheritedKeys.push('oauth');
+    if (inheritedKeys.length > 0) {
+      printer.keyValue({ Inherits: inheritedKeys.join(', ') });
     }
 
     printer.blank();

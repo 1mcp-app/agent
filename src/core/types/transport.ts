@@ -69,6 +69,58 @@ export interface BaseTransportConfig {
 }
 
 /**
+ * Shareable transport settings that can be defined globally and inherited by servers
+ */
+export interface GlobalTransportConfig {
+  readonly env?: Record<string, string> | string[];
+  /** @deprecated Use connectionTimeout and requestTimeout instead */
+  readonly timeout?: number;
+  readonly connectionTimeout?: number;
+  readonly requestTimeout?: number;
+  readonly oauth?: OAuthConfig;
+  readonly headers?: Record<string, string>;
+  readonly inheritParentEnv?: boolean;
+}
+
+/**
+ * Application-level configuration that can be set in mcp.json under the "app" key.
+ * CLI args and ONE_MCP_* env vars always take precedence over these values.
+ */
+export interface ApplicationConfig {
+  readonly transport?: 'http' | 'sse' | 'stdio';
+  readonly port?: number;
+  readonly host?: string;
+  readonly logLevel?: 'debug' | 'info' | 'warn' | 'error';
+  readonly logFile?: string;
+  readonly auth?: {
+    readonly enabled?: boolean;
+    readonly sessionTtl?: number;
+    readonly rateLimitWindow?: number;
+    readonly rateLimitMax?: number;
+    readonly trustProxy?: string;
+    readonly enableScopeValidation?: boolean;
+    readonly enableEnhancedSecurity?: boolean;
+  };
+  readonly asyncLoading?: {
+    readonly enabled?: boolean;
+    readonly minServers?: number;
+    readonly timeout?: number;
+    readonly batchNotifications?: boolean;
+    readonly batchDelay?: number;
+  };
+  readonly lazyLoading?: {
+    readonly enabled?: boolean;
+    readonly mode?: 'full' | 'metatool' | 'hybrid';
+    readonly cacheMaxEntries?: number;
+    readonly inlineCatalog?: boolean;
+  };
+  readonly configReload?: {
+    readonly enabled?: boolean;
+    readonly debounce?: number;
+  };
+}
+
+/**
  * Common configuration for HTTP-based transports (HTTP and SSE)
  */
 export interface HTTPBasedTransportConfig extends BaseTransportConfig {
@@ -180,6 +232,78 @@ export const transportConfigSchema = z.object({
 });
 
 /**
+ * Zod schema for application-level configuration
+ */
+export const applicationConfigSchema = z.object({
+  transport: z.enum(['http', 'sse', 'stdio']).optional().describe('Transport type for the 1MCP server'),
+  port: z.number().int().min(1).max(65535).optional().describe('HTTP port to listen on'),
+  host: z.string().optional().describe('HTTP host to listen on'),
+  logLevel: z.enum(['debug', 'info', 'warn', 'error']).optional().describe('Log level'),
+  logFile: z.string().optional().describe('Path to log file'),
+  auth: z
+    .object({
+      enabled: z.boolean().optional().describe('Enable OAuth 2.1 authentication'),
+      sessionTtl: z.number().int().min(1).optional().describe('Session TTL in minutes'),
+      rateLimitWindow: z.number().int().min(1).optional().describe('Rate limit window in minutes'),
+      rateLimitMax: z.number().int().min(1).optional().describe('Maximum requests per rate limit window'),
+      trustProxy: z.string().optional().describe('Trust proxy configuration for Express.js'),
+      enableScopeValidation: z.boolean().optional().describe('Enable tag-based scope validation'),
+      enableEnhancedSecurity: z.boolean().optional().describe('Enable enhanced security middleware'),
+    })
+    .optional(),
+  asyncLoading: z
+    .object({
+      enabled: z.boolean().optional().describe('Enable asynchronous MCP server loading'),
+      minServers: z.number().int().min(0).optional().describe('Minimum servers to wait for before accepting requests'),
+      timeout: z.number().int().min(0).optional().describe('Initial load timeout in milliseconds'),
+      batchNotifications: z.boolean().optional().describe('Batch capability change notifications'),
+      batchDelay: z.number().int().min(0).optional().describe('Batch delay in milliseconds'),
+    })
+    .optional(),
+  lazyLoading: z
+    .object({
+      enabled: z.boolean().optional().describe('Enable lazy loading for tools'),
+      mode: z.enum(['full', 'metatool', 'hybrid']).optional().describe('Lazy loading mode'),
+      cacheMaxEntries: z.number().int().min(0).optional().describe('Maximum tool schemas to cache'),
+      inlineCatalog: z.boolean().optional().describe('Include full tool catalog in initialize template'),
+    })
+    .optional(),
+  configReload: z
+    .object({
+      enabled: z.boolean().optional().describe('Enable automatic configuration hot-reload'),
+      debounce: z.number().int().min(0).optional().describe('Debounce delay in milliseconds'),
+    })
+    .optional(),
+});
+
+/**
+ * Keys allowed in the global MCP configuration section
+ */
+export const GLOBAL_TRANSPORT_CONFIG_KEYS = [
+  'env',
+  'timeout',
+  'connectionTimeout',
+  'requestTimeout',
+  'oauth',
+  'headers',
+  'inheritParentEnv',
+] as const;
+
+/**
+ * Zod schema for global MCP configuration
+ * Only includes shareable settings that can be inherited by servers.
+ */
+export const globalTransportConfigSchema = transportConfigSchema.pick({
+  env: true,
+  timeout: true,
+  connectionTimeout: true,
+  requestTimeout: true,
+  oauth: true,
+  headers: true,
+  inheritParentEnv: true,
+});
+
+/**
  * Union type for all transport configurations
  */
 export type TransportConfig = HTTPBasedTransportConfig | StdioTransportConfig;
@@ -228,6 +352,8 @@ export interface TemplateServerConfig {
 export interface MCPServerConfiguration {
   /** Version of the configuration format for migration purposes */
   version?: string;
+  /** Shareable defaults inherited by all MCP servers (transport settings only) */
+  serverDefaults?: GlobalTransportConfig;
   /** Static server configurations (no template processing) */
   mcpServers: Record<string, MCPServerParams>;
   /** Template-based server configurations (processed with context) */
@@ -253,6 +379,9 @@ export const templateSettingsSchema = z.object({
  */
 export const mcpServerConfigSchema = z.object({
   version: z.string().optional().describe('Version of the configuration format for migration purposes'),
+  serverDefaults: globalTransportConfigSchema
+    .optional()
+    .describe('Shareable defaults inherited by all MCP servers (transport settings only)'),
   mcpServers: z
     .record(z.string(), transportConfigSchema)
     .describe('Static server configurations (no template processing)'),
