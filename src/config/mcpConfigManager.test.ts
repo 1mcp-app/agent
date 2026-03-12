@@ -43,7 +43,7 @@ vi.mock('fs', async () => {
 // Mock constants
 vi.mock('@src/constants.js', () => ({
   __esModule: true,
-  DEFAULT_CONFIG: { mcpServers: {} },
+  DEFAULT_CONFIG: { global: {}, mcpServers: {} },
   HOST: '127.0.0.1',
   PORT: 3050,
   AUTH_CONFIG: {
@@ -166,6 +166,65 @@ describe('McpConfigManager', () => {
 
       expect(config).toEqual(testConfig.mcpServers);
       expect(config).not.toBe(instance['transportConfig']); // Should be a copy
+    });
+  });
+
+  describe('global config support', () => {
+    it('should expose serverDefaults config and effective merged server config', () => {
+      (fs.readFileSync as unknown as MockInstance).mockReturnValueOnce(
+        JSON.stringify({
+          serverDefaults: {
+            timeout: 5000,
+            env: { SHARED: 'global' },
+          },
+          mcpServers: {
+            server1: {
+              type: 'stdio',
+              command: 'node',
+              env: { SHARED: 'server' },
+            },
+          },
+        }),
+      );
+
+      const instance = McpConfigManager.getInstance(testConfigPath);
+      expect(instance.getGlobalConfig()).toEqual({
+        timeout: 5000,
+        env: { SHARED: 'global' },
+      });
+
+      expect(instance.getEffectiveServerConfig('server1')).toEqual({
+        type: 'stdio',
+        command: 'node',
+        timeout: 5000,
+        env: { SHARED: 'server' },
+      });
+    });
+  });
+
+  describe('app config from config.toml', () => {
+    it('should return empty app config when config.toml does not exist', () => {
+      (fs.existsSync as unknown as MockInstance).mockImplementation((p: string) => {
+        if (String(p).endsWith('config.toml')) return false;
+        return true;
+      });
+
+      const instance = McpConfigManager.getInstance(testConfigPath);
+      expect(instance.getAppConfig()).toEqual({});
+    });
+
+    it('should warn when app key is present in mcp.json', () => {
+      (fs.readFileSync as unknown as MockInstance).mockReturnValueOnce(
+        JSON.stringify({ app: { port: 3050 }, mcpServers: {} }),
+      );
+      (fs.existsSync as unknown as MockInstance).mockImplementation((p: string) => {
+        if (String(p).endsWith('config.toml')) return false;
+        return true;
+      });
+
+      // Should not throw
+      const instance = McpConfigManager.getInstance(testConfigPath);
+      expect(instance.getAppConfig()).toEqual({});
     });
   });
 });

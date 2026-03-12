@@ -6,6 +6,17 @@
     "failureMode": "graceful",
     "cacheContext": true
   },
+  "serverDefaults": {
+    "connectionTimeout": 10000,
+    "requestTimeout": 30000,
+    "env": {
+      "HTTP_PROXY": "${HTTP_PROXY}"
+    },
+    "headers": {
+      "User-Agent": "1mcp"
+    },
+    "inheritParentEnv": true
+  },
   "mcpServers": {
     "filesystem": {
       "command": "npx",

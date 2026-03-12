@@ -3,7 +3,12 @@ import path from 'path';
 
 import ConfigContext from '@src/config/configContext.js';
 import { McpConfigManager } from '@src/config/mcpConfigManager.js';
-import { MCPServerParams } from '@src/core/types/index.js';
+import {
+  getUnknownGlobalConfigKeys,
+  mergeGlobalAndServerConfig,
+  mergeGlobalWithServers,
+} from '@src/config/mcpConfigMerge.js';
+import { GlobalTransportConfig, globalTransportConfigSchema, MCPServerParams } from '@src/core/types/index.js';
 import logger from '@src/logger/logger.js';
 
 /**
@@ -55,6 +60,7 @@ function getExplicitCliOptionValue(flags: string[]): string | undefined {
 }
 
 export interface ServerConfig {
+  serverDefaults?: GlobalTransportConfig;
   mcpServers: Record<string, MCPServerParams>;
 }
 
@@ -79,6 +85,14 @@ export function loadConfig(configPath?: string): ServerConfig {
     }
 
     const configObj = configData as Record<string, unknown>;
+
+    if (configObj.serverDefaults !== undefined) {
+      const unknownGlobalKeys = getUnknownGlobalConfigKeys(configObj.serverDefaults);
+      if (unknownGlobalKeys.length > 0) {
+        logger.warn(`Unknown properties in global MCP configuration were ignored: ${unknownGlobalKeys.join(', ')}`);
+      }
+      configObj.serverDefaults = globalTransportConfigSchema.parse(configObj.serverDefaults);
+    }
 
     // Ensure mcpServers exists and is properly typed
     if (!configObj.mcpServers || typeof configObj.mcpServers !== 'object') {
@@ -161,6 +175,34 @@ export function getServer(serverName: string): MCPServerParams | null {
 }
 
 /**
+ * Get global MCP configuration from file.
+ */
+export function getGlobalConfig(): GlobalTransportConfig {
+  try {
+    const config = loadConfig();
+    return config.serverDefaults || {};
+  } catch (_error) {
+    return {};
+  }
+}
+
+/**
+ * Get effective merged configuration for a specific server.
+ */
+export function getEffectiveServerConfig(serverName: string): MCPServerParams | null {
+  try {
+    const config = loadConfig();
+    const server = config.mcpServers[serverName];
+    if (!server) {
+      return null;
+    }
+    return mergeGlobalAndServerConfig(config.serverDefaults, server);
+  } catch (_error) {
+    return null;
+  }
+}
+
+/**
  * Add or update a server in the configuration
  */
 export function setServer(serverName: string, serverConfig: MCPServerParams): void {
@@ -209,6 +251,18 @@ export function getAllServers(): Record<string, MCPServerParams> {
   try {
     const config = loadConfig();
     return config.mcpServers;
+  } catch (_error) {
+    return {};
+  }
+}
+
+/**
+ * Get all effective server configurations after applying global inheritance.
+ */
+export function getAllEffectiveServers(): Record<string, MCPServerParams> {
+  try {
+    const config = loadConfig();
+    return mergeGlobalWithServers(config.serverDefaults, config.mcpServers);
   } catch (_error) {
     return {};
   }

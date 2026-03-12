@@ -260,19 +260,25 @@ export async function serveCommand(parsedArgv: ServeOptions): Promise<void> {
     const configFilePath = configContext.getResolvedConfigPath();
     const mcpConfigManager = ConfigManager.getInstance(configFilePath);
 
+    // Load app-level config from config.toml (CLI args take precedence)
+    const appConfig = mcpConfigManager.getAppConfig();
+
     // Get server count for logo display
     const transportConfig = mcpConfigManager.getTransportConfig();
     const serverCount = Object.keys(transportConfig).length;
 
     // Handle backward compatibility for auth flag
-    const authEnabled = parsedArgv['enable-auth'] ?? parsedArgv['auth'] ?? false;
+    const authEnabled = parsedArgv['enable-auth'] ?? parsedArgv['auth'] ?? appConfig.auth?.enabled ?? false;
 
     // Display logo with runtime information (skip for stdio or when logging to file)
-    if (parsedArgv.transport !== 'stdio' && !parsedArgv['log-file']) {
+    const effectiveTransport = parsedArgv.transport ?? appConfig.transport ?? 'http';
+    const effectivePort = parsedArgv.port ?? appConfig.port ?? parsedArgv.port;
+    const effectiveHost = parsedArgv.host ?? appConfig.host ?? parsedArgv.host;
+    if (effectiveTransport !== 'stdio' && !parsedArgv['log-file']) {
       displayLogo({
-        transport: parsedArgv.transport,
-        port: parsedArgv.port,
-        host: parsedArgv.host,
+        transport: effectiveTransport,
+        port: effectivePort,
+        host: effectiveHost,
         serverCount,
         authEnabled,
         logLevel: parsedArgv['log-level'],
@@ -280,10 +286,12 @@ export async function serveCommand(parsedArgv: ServeOptions): Promise<void> {
       });
     }
 
-    // Configure server settings from CLI arguments
+    // Configure server settings from CLI arguments (CLI args take precedence over appConfig)
     const serverConfigManager = AgentConfigManager.getInstance();
-    const scopeValidationEnabled = parsedArgv['enable-scope-validation'] ?? authEnabled;
-    const enhancedSecurityEnabled = parsedArgv['enable-enhanced-security'] ?? false;
+    const scopeValidationEnabled =
+      parsedArgv['enable-scope-validation'] ?? appConfig.auth?.enableScopeValidation ?? authEnabled;
+    const enhancedSecurityEnabled =
+      parsedArgv['enable-enhanced-security'] ?? appConfig.auth?.enableEnhancedSecurity ?? false;
 
     // Handle trust proxy configuration (convert 'true'/'false' strings to boolean)
     const trustProxyValue = parsedArgv['trust-proxy'];
@@ -298,26 +306,26 @@ export async function serveCommand(parsedArgv: ServeOptions): Promise<void> {
     }
 
     serverConfigManager.updateConfig({
-      host: parsedArgv.host,
-      port: parsedArgv.port,
+      host: effectiveHost,
+      port: effectivePort,
       externalUrl: parsedArgv['external-url'],
       trustProxy,
       auth: {
         enabled: authEnabled,
-        sessionTtlMinutes: parsedArgv['session-ttl'],
+        sessionTtlMinutes: parsedArgv['session-ttl'] ?? appConfig.auth?.sessionTtl,
         sessionStoragePath,
         oauthCodeTtlMs: 60 * 1000, // 1 minute
-        oauthTokenTtlMs: parsedArgv['session-ttl'] * 60 * 1000, // Convert minutes to milliseconds
+        oauthTokenTtlMs: (parsedArgv['session-ttl'] ?? appConfig.auth?.sessionTtl ?? 1440) * 60 * 1000,
       },
       rateLimit: {
-        windowMs: parsedArgv['rate-limit-window'] * 60 * 1000, // Convert minutes to milliseconds
-        max: parsedArgv['rate-limit-max'],
+        windowMs: (parsedArgv['rate-limit-window'] ?? appConfig.auth?.rateLimitWindow ?? 15) * 60 * 1000,
+        max: parsedArgv['rate-limit-max'] ?? appConfig.auth?.rateLimitMax ?? 100,
       },
       features: {
         auth: authEnabled,
         scopeValidation: scopeValidationEnabled,
         enhancedSecurity: enhancedSecurityEnabled,
-        configReload: parsedArgv['enable-config-reload'],
+        configReload: parsedArgv['enable-config-reload'] ?? appConfig.configReload?.enabled ?? true,
         envSubstitution: parsedArgv['enable-env-substitution'],
         sessionPersistence: parsedArgv['enable-session-persistence'],
         clientNotifications: parsedArgv['enable-client-notifications'],
@@ -342,22 +350,22 @@ export async function serveCommand(parsedArgv: ServeOptions): Promise<void> {
         detailLevel: parsedArgv['health-info-level'] as 'full' | 'basic' | 'minimal',
       },
       asyncLoading: {
-        enabled: parsedArgv['enable-async-loading'],
+        enabled: parsedArgv['enable-async-loading'] ?? appConfig.asyncLoading?.enabled ?? false,
         notifyOnServerReady: parsedArgv['async-notify-on-ready'],
-        waitForMinimumServers: parsedArgv['async-min-servers'],
-        initialLoadTimeoutMs: parsedArgv['async-timeout'],
-        batchNotifications: parsedArgv['async-batch-notifications'],
-        batchDelayMs: parsedArgv['async-batch-delay'],
+        waitForMinimumServers: parsedArgv['async-min-servers'] ?? appConfig.asyncLoading?.minServers,
+        initialLoadTimeoutMs: parsedArgv['async-timeout'] ?? appConfig.asyncLoading?.timeout,
+        batchNotifications: parsedArgv['async-batch-notifications'] ?? appConfig.asyncLoading?.batchNotifications,
+        batchDelayMs: parsedArgv['async-batch-delay'] ?? appConfig.asyncLoading?.batchDelay,
       },
       lazyLoading: {
-        enabled: parsedArgv['enable-lazy-loading'],
-        inlineCatalog: parsedArgv['lazy-inline-catalog'],
+        enabled: parsedArgv['enable-lazy-loading'] ?? appConfig.lazyLoading?.enabled ?? false,
+        inlineCatalog: parsedArgv['lazy-inline-catalog'] ?? appConfig.lazyLoading?.inlineCatalog ?? false,
         catalogFormat: (parsedArgv['lazy-catalog-format'] || 'grouped') as 'flat' | 'grouped' | 'categorized',
         directExpose: parsedArgv['lazy-direct-expose']
           ? parsedArgv['lazy-direct-expose'].split(',').map((s) => s.trim())
           : [],
         cache: {
-          maxEntries: parsedArgv['lazy-cache-max-entries'],
+          maxEntries: parsedArgv['lazy-cache-max-entries'] ?? appConfig.lazyLoading?.cacheMaxEntries ?? 1000,
           strategy: 'lru' as const,
           ttlMs: parsedArgv['lazy-cache-ttl'],
         },
@@ -373,7 +381,7 @@ export async function serveCommand(parsedArgv: ServeOptions): Promise<void> {
         },
       },
       configReload: {
-        debounceMs: parsedArgv['config-reload-debounce'],
+        debounceMs: parsedArgv['config-reload-debounce'] ?? appConfig.configReload?.debounce ?? 500,
       },
       sessionPersistence: {
         persistRequests: parsedArgv['session-persist-requests'],
@@ -396,7 +404,7 @@ export async function serveCommand(parsedArgv: ServeOptions): Promise<void> {
 
     let expressServer: ExpressServer | undefined;
 
-    switch (parsedArgv.transport) {
+    switch (effectiveTransport) {
       case 'stdio': {
         // DEPRECATION WARNING
         logger.warn('⚠️  DEPRECATION WARNING: `serve --transport stdio` is deprecated');

@@ -1,12 +1,22 @@
 import fs from 'fs';
+import path from 'path';
 
 import { substituteEnvVarsInConfig } from '@src/config/envProcessor.js';
+import { getUnknownGlobalConfigKeys, mergeGlobalAndServerConfig } from '@src/config/mcpConfigMerge.js';
 import { DEFAULT_CONFIG, getGlobalConfigDir, getGlobalConfigPath } from '@src/constants.js';
 import { MCP_CONFIG_SCHEMA_URL } from '@src/constants/schema.js';
 import { AgentConfigManager } from '@src/core/server/agentConfig.js';
-import { MCPServerParams, transportConfigSchema } from '@src/core/types/transport.js';
+import {
+  ApplicationConfig,
+  applicationConfigSchema,
+  GlobalTransportConfig,
+  globalTransportConfigSchema,
+  MCPServerParams,
+  transportConfigSchema,
+} from '@src/core/types/transport.js';
 import logger, { debugIf } from '@src/logger/logger.js';
 
+import { parse as parseToml } from 'smol-toml';
 import { ZodError } from 'zod';
 
 interface ErrnoException extends Error {
@@ -113,6 +123,68 @@ export class ConfigLoader {
     }
   }
 
+  public validateGlobalConfig(config: unknown): GlobalTransportConfig {
+    try {
+      return globalTransportConfigSchema.parse(config);
+    } catch (error) {
+      if (error instanceof ZodError) {
+        const fieldErrors = error.issues.map((e) => `${e.path.join('.')}: ${e.message}`).join(', ');
+        throw new Error(`Invalid global configuration: ${fieldErrors}`);
+      }
+      throw new Error(`Invalid global configuration: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+
+  public validateAppConfig(config: unknown): ApplicationConfig {
+    try {
+      return applicationConfigSchema.parse(config);
+    } catch (error) {
+      if (error instanceof ZodError) {
+        const fieldErrors = error.issues.map((e) => `${e.path.join('.')}: ${e.message}`).join(', ');
+        throw new Error(`Invalid app configuration: ${fieldErrors}`);
+      }
+      throw new Error(`Invalid app configuration: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+
+  public loadAppConfig(): ApplicationConfig {
+    // Check for legacy app key in mcp.json and warn
+    try {
+      const rawConfig = this.loadRawConfig();
+      if (rawConfig && typeof rawConfig === 'object') {
+        const configObj = rawConfig as Record<string, unknown>;
+        if (configObj.app !== undefined) {
+          const tomlPath = path.join(path.dirname(this.configFilePath), 'config.toml');
+          logger.warn(
+            `The "app" key in mcp.json is deprecated. Please move your app settings to ${tomlPath}. ` +
+              `The "app" key in mcp.json will be ignored.`,
+          );
+        }
+      }
+    } catch {
+      // Ignore errors from legacy check
+    }
+
+    return this.loadAppConfigFromToml();
+  }
+
+  public loadAppConfigFromToml(): ApplicationConfig {
+    const tomlPath = path.join(path.dirname(this.configFilePath), 'config.toml');
+    try {
+      if (!fs.existsSync(tomlPath)) {
+        return {};
+      }
+      const raw = fs.readFileSync(tomlPath, 'utf8');
+      const parsed = parseToml(raw);
+      return this.validateAppConfig(parsed);
+    } catch (error) {
+      logger.warn(
+        `Failed to load app configuration from ${tomlPath}: ${error instanceof Error ? error.message : String(error)}`,
+      );
+      return {};
+    }
+  }
+
   public loadConfigWithEnvSubstitution(): Record<string, MCPServerParams> {
     let rawConfig: unknown;
     try {
@@ -135,6 +207,18 @@ export class ConfigLoader {
     }
 
     const configObj = processedConfig as Record<string, unknown>;
+    let globalConfig: GlobalTransportConfig | undefined;
+    const rawGlobal = configObj.serverDefaults;
+    const unknownGlobalKeys = getUnknownGlobalConfigKeys(rawGlobal);
+    if (unknownGlobalKeys.length > 0) {
+      logger.warn(
+        `Unknown properties in global MCP configuration were ignored: ${unknownGlobalKeys.sort().join(', ')}`,
+      );
+    }
+    if (rawGlobal !== undefined) {
+      globalConfig = this.validateGlobalConfig(rawGlobal);
+    }
+
     const mcpServersConfig = (configObj.mcpServers as Record<string, unknown>) || {};
     const mcpTemplatesConfig = (configObj.mcpTemplates as Record<string, unknown>) || {};
     const templateServerNames = new Set(Object.keys(mcpTemplatesConfig));
@@ -142,7 +226,9 @@ export class ConfigLoader {
     const validatedConfig: Record<string, MCPServerParams> = {};
     for (const [serverName, serverConfig] of Object.entries(mcpServersConfig)) {
       try {
-        validatedConfig[serverName] = this.validateServerConfig(serverName, serverConfig);
+        const validatedServerConfig = this.validateServerConfig(serverName, serverConfig);
+        const mergedConfig = mergeGlobalAndServerConfig(globalConfig, validatedServerConfig);
+        validatedConfig[serverName] = this.validateServerConfig(serverName, mergedConfig);
         debugIf(() => ({
           message: `Validated configuration for server: ${serverName}`,
           meta: { serverName },

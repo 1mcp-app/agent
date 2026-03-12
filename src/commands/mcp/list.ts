@@ -1,4 +1,4 @@
-import { MCPServerParams } from '@src/core/types/index.js';
+import { GlobalTransportConfig, MCPServerParams } from '@src/core/types/index.js';
 import { createServerInstallationService } from '@src/domains/server-management/serverInstallationService.js';
 import { GlobalOptions } from '@src/globalOptions.js';
 import { inferTransportType } from '@src/transport/transportFactory.js';
@@ -12,7 +12,14 @@ import {
 
 import type { Argv } from 'yargs';
 
-import { getAllServers, initializeConfigContext, parseTags, validateConfigPath } from './utils/mcpServerConfig.js';
+import {
+  getAllEffectiveServers,
+  getAllServers,
+  getGlobalConfig,
+  initializeConfigContext,
+  parseTags,
+  validateConfigPath,
+} from './utils/mcpServerConfig.js';
 import { calculateServerStatus } from './utils/serverUtils.js';
 import { validateTags } from './utils/validation.js';
 
@@ -45,7 +52,7 @@ export function buildListCommand(yargs: Argv) {
       alias: 'g',
     })
     .option('verbose', {
-      describe: 'Show detailed server configuration',
+      describe: 'Show detailed effective server configuration, including inherited global defaults',
       type: 'boolean',
       default: false,
       alias: 'v',
@@ -93,6 +100,8 @@ export async function listCommand(argv: ListCommandArgs): Promise<void> {
 
     // Get all servers
     const allServers = getAllServers();
+    const allEffectiveServers = getAllEffectiveServers();
+    const globalConfig = getGlobalConfig();
 
     if (Object.keys(allServers).length === 0) {
       printer.info('No MCP servers are configured.');
@@ -102,7 +111,7 @@ export async function listCommand(argv: ListCommandArgs): Promise<void> {
     }
 
     // Filter servers (apply outdated filter if requested)
-    let filteredServers = filterServers(allServers, showDisabled, tagsFilter);
+    let filteredServers = filterServers(allEffectiveServers, showDisabled, tagsFilter);
 
     if (outdated) {
       filteredServers = await getOutdatedServers(filteredServers);
@@ -128,12 +137,23 @@ export async function listCommand(argv: ListCommandArgs): Promise<void> {
       .title(`MCP Servers (${serverCount} server${serverCount === 1 ? '' : 's'})`)
       .blank();
 
+    if (Object.keys(globalConfig).length > 0) {
+      printer.subtitle('Global Defaults:');
+      printGlobalSummary(globalConfig);
+      printer.blank();
+    }
+
     // Sort servers by name for consistent output
     const sortedServerNames = Object.keys(filteredServers).sort();
 
     for (const serverName of sortedServerNames) {
-      const config = filteredServers[serverName];
-      displayServer(serverName, config, verbose, showSecrets);
+      const effectiveConfig = filteredServers[serverName];
+      const rawConfig = allServers[serverName];
+      if (!rawConfig) {
+        continue;
+      }
+
+      displayServer(serverName, rawConfig, effectiveConfig, globalConfig, verbose, showSecrets);
       printer.blank();
     }
 
@@ -242,8 +262,15 @@ function filterServers(
 /**
  * Display a single server's information
  */
-function displayServer(name: string, config: MCPServerParams, verbose: boolean, showSecrets: boolean = false): void {
-  const enabled = !config.disabled;
+function displayServer(
+  name: string,
+  rawConfig: MCPServerParams,
+  effectiveConfig: MCPServerParams,
+  globalConfig: GlobalTransportConfig,
+  verbose: boolean,
+  showSecrets: boolean = false,
+): void {
+  const enabled = !effectiveConfig.disabled;
 
   // Get installation metadata
   const version = 'unknown';
@@ -252,7 +279,7 @@ function displayServer(name: string, config: MCPServerParams, verbose: boolean, 
   const serverStatus = calculateServerStatus(version);
 
   // Infer type if missing
-  const inferredConfig = config.type ? config : inferTransportType(config, name);
+  const inferredConfig = effectiveConfig.type ? effectiveConfig : inferTransportType(effectiveConfig, name);
   const displayType = inferredConfig.type || 'unknown';
 
   // Display with installation metadata
@@ -329,4 +356,88 @@ function displayServer(name: string, config: MCPServerParams, verbose: boolean, 
       }
     }
   }
+
+  if (verbose) {
+    const inherited = getInheritedKeys(rawConfig, effectiveConfig, globalConfig);
+    if (inherited.length > 0) {
+      printer.keyValue({ Inherited: inherited.join(', ') });
+    }
+  }
+}
+
+function printGlobalSummary(globalConfig: GlobalTransportConfig): void {
+  if (globalConfig.timeout !== undefined) {
+    printer.keyValue({ timeout: String(globalConfig.timeout) });
+  }
+  if (globalConfig.connectionTimeout !== undefined) {
+    printer.keyValue({ connectionTimeout: String(globalConfig.connectionTimeout) });
+  }
+  if (globalConfig.requestTimeout !== undefined) {
+    printer.keyValue({ requestTimeout: String(globalConfig.requestTimeout) });
+  }
+  if (globalConfig.inheritParentEnv !== undefined) {
+    printer.keyValue({ inheritParentEnv: String(globalConfig.inheritParentEnv) });
+  }
+  if (globalConfig.oauth && typeof globalConfig.oauth === 'object') {
+    printer.keyValue({ oauth: '(configured)' });
+  }
+  if (globalConfig.headers && typeof globalConfig.headers === 'object') {
+    printer.keyValue({ headers: `${Object.keys(globalConfig.headers as Record<string, string>).length} key(s)` });
+  }
+  if (globalConfig.env && typeof globalConfig.env === 'object') {
+    const envCount = Array.isArray(globalConfig.env)
+      ? (globalConfig.env as string[]).length
+      : Object.keys(globalConfig.env as Record<string, string>).length;
+    printer.keyValue({ env: `${envCount} key(s)` });
+  }
+}
+
+function getInheritedKeys(
+  rawConfig: MCPServerParams,
+  effectiveConfig: MCPServerParams,
+  globalConfig: GlobalTransportConfig,
+): string[] {
+  const inherited: string[] = [];
+  const fallbackKeys: Array<keyof MCPServerParams> = [
+    'timeout',
+    'connectionTimeout',
+    'requestTimeout',
+    'oauth',
+    'headers',
+    'inheritParentEnv',
+  ];
+
+  for (const key of fallbackKeys) {
+    if (
+      rawConfig[key] === undefined &&
+      effectiveConfig[key] !== undefined &&
+      globalConfig[key as keyof GlobalTransportConfig] !== undefined
+    ) {
+      inherited.push(String(key));
+    }
+  }
+
+  if (rawConfig.env === undefined && effectiveConfig.env !== undefined && globalConfig.env !== undefined) {
+    inherited.push('env');
+  }
+
+  if (
+    rawConfig.env &&
+    effectiveConfig.env &&
+    typeof rawConfig.env === 'object' &&
+    typeof effectiveConfig.env === 'object' &&
+    !Array.isArray(rawConfig.env) &&
+    !Array.isArray(effectiveConfig.env) &&
+    typeof globalConfig.env === 'object' &&
+    globalConfig.env !== null &&
+    !Array.isArray(globalConfig.env)
+  ) {
+    const rawEnv = rawConfig.env as Record<string, string>;
+    const effectiveEnv = effectiveConfig.env as Record<string, string>;
+    if (Object.keys(effectiveEnv).some((key) => !(key in rawEnv))) {
+      inherited.push('env(merged)');
+    }
+  }
+
+  return inherited;
 }

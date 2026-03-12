@@ -12,6 +12,7 @@ vi.mock('@src/config/configManager.js', () => ({
   ConfigManager: {
     getInstance: vi.fn().mockReturnValue({
       getTransportConfig: vi.fn().mockReturnValue({}),
+      getAppConfig: vi.fn().mockReturnValue({}),
       initialize: vi.fn().mockResolvedValue(undefined),
       stop: vi.fn().mockResolvedValue(undefined),
     }),
