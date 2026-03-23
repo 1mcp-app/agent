@@ -1,4 +1,8 @@
-import { InitializedNotificationSchema, LoggingMessageNotificationSchema } from '@modelcontextprotocol/sdk/types.js';
+import {
+  CancelledNotificationSchema,
+  InitializedNotificationSchema,
+  LoggingMessageNotificationSchema,
+} from '@modelcontextprotocol/sdk/types.js';
 
 import {
   ClientStatus,
@@ -168,19 +172,19 @@ describe('Notification Handlers', () => {
       // Verify that setNotificationHandler was called on the server
       expect(mockServer.setNotificationHandler).toHaveBeenCalled();
 
-      // Get the notification handler that was registered (using InitializedNotificationSchema which is in server-to-client)
+      // Use CancelledNotificationSchema which is still forwarded server→client
       const setNotificationHandlerCalls = mockServer.setNotificationHandler.mock.calls;
-      const initializedHandlerCall = setNotificationHandlerCalls.find(
-        (call: any) => call[0] === InitializedNotificationSchema,
+      const cancelledHandlerCall = setNotificationHandlerCalls.find(
+        (call: any) => call[0] === CancelledNotificationSchema,
       );
 
-      expect(initializedHandlerCall).toBeDefined();
-      const notificationHandler = initializedHandlerCall[1];
+      expect(cancelledHandlerCall).toBeDefined();
+      const notificationHandler = cancelledHandlerCall[1];
 
       // Simulate a notification being received from server
       const testNotification = {
-        method: 'notifications/initialized',
-        params: {},
+        method: 'notifications/cancelled',
+        params: { requestId: '1', reason: 'test' },
       };
 
       // This should not throw an error, it should handle the "Not connected" error gracefully
@@ -188,8 +192,10 @@ describe('Notification Handlers', () => {
 
       // Verify that the client notification was attempted
       expect(mockClient.notification).toHaveBeenCalledWith({
-        method: 'notifications/initialized',
+        method: 'notifications/cancelled',
         params: {
+          requestId: '1',
+          reason: 'test',
           client: 'test-client',
         },
       });
@@ -203,19 +209,19 @@ describe('Notification Handlers', () => {
       // Setup the notification handlers
       setupServerToClientNotifications(mockOutboundConns, mockInboundConn);
 
-      // Get the notification handler that was registered
+      // Get the notification handler that was registered (CancelledNotificationSchema is still forwarded)
       const setNotificationHandlerCalls = mockServer.setNotificationHandler.mock.calls;
-      const initializedHandlerCall = setNotificationHandlerCalls.find(
-        (call: any) => call[0] === InitializedNotificationSchema,
+      const cancelledHandlerCall = setNotificationHandlerCalls.find(
+        (call: any) => call[0] === CancelledNotificationSchema,
       );
 
-      expect(initializedHandlerCall).toBeDefined();
-      const notificationHandler = initializedHandlerCall[1];
+      expect(cancelledHandlerCall).toBeDefined();
+      const notificationHandler = cancelledHandlerCall[1];
 
       // Simulate a notification being received from server
       const testNotification = {
-        method: 'notifications/initialized',
-        params: {},
+        method: 'notifications/cancelled',
+        params: { requestId: '1', reason: 'test' },
       };
 
       // Execute the handler
@@ -223,6 +229,20 @@ describe('Notification Handlers', () => {
 
       // Verify that the client notification was NOT called since client is disconnected
       expect(mockClient.notification).not.toHaveBeenCalled();
+    });
+
+    it('should NOT forward notifications/initialized to downstream servers (issue #255)', () => {
+      // notifications/initialized is a session-lifecycle notification sent by the
+      // inbound client to 1MCP. Forwarding it to already-connected downstream servers
+      // causes them to re-enter initialization state, breaking tools/list and prompts/list.
+      setupServerToClientNotifications(mockOutboundConns, mockInboundConn);
+
+      const setNotificationHandlerCalls = mockServer.setNotificationHandler.mock.calls;
+      const initializedHandlerCall = setNotificationHandlerCalls.find(
+        (call: any) => call[0] === InitializedNotificationSchema,
+      );
+
+      expect(initializedHandlerCall).toBeUndefined();
     });
   });
 });

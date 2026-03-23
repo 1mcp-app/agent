@@ -1,6 +1,5 @@
 import {
   CancelledNotificationSchema,
-  InitializedNotificationSchema,
   LoggingMessageNotificationSchema,
   ProgressNotificationSchema,
   PromptListChangedNotificationSchema,
@@ -79,10 +78,15 @@ export function setupServerToClientNotifications(
   outboundConns: OutboundConnections,
   inboundConn: InboundConnection,
 ): void {
+  // NOTE: InitializedNotificationSchema is intentionally excluded here.
+  // The inbound client sends notifications/initialized to 1MCP as part of its
+  // own session handshake. Forwarding it to already-connected downstream servers
+  // causes them to re-enter initialization state, rejecting subsequent
+  // tools/list and prompts/list with "method is invalid during session
+  // initialization". See: https://github.com/1mcp-app/agent/issues/255
   const serverNotificationSchemas = [
     CancelledNotificationSchema,
     ProgressNotificationSchema,
-    InitializedNotificationSchema,
     RootsListChangedNotificationSchema,
   ];
 
