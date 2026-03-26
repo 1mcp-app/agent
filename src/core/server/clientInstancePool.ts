@@ -6,6 +6,7 @@ import logger, { debugIf, infoIf } from '@src/logger/logger.js';
 import { HandlebarsTemplateRenderer } from '@src/template/handlebarsTemplateRenderer.js';
 import { createTransportsWithContext } from '@src/transport/transportFactory.js';
 import type { ContextData } from '@src/types/context.js';
+import { getConnectionTimeout } from '@src/utils/core/timeoutUtils.js';
 import { createHash } from '@src/utils/crypto.js';
 
 /**
@@ -428,8 +429,9 @@ export class ClientInstancePool {
     const clientManager = ClientManager.getOrCreateInstance();
     const client = clientManager.createPooledClientInstance();
 
-    // Connect client to the upstream server
-    await client.connect(transport);
+    // Connect client to the upstream server, respecting connectionTimeout from transport config
+    const connectionTimeout = getConnectionTimeout(transport);
+    await client.connect(transport, connectionTimeout ? { timeout: connectionTimeout } : undefined);
 
     return {
       id: this.generateInstanceId(),
