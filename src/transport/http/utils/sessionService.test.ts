@@ -96,9 +96,8 @@ describe('SessionService', () => {
   describe('restoreSession', () => {
     beforeEach(async () => {
       // Mock RestorableStreamableHTTPServerTransport methods to succeed by default
-      const { RestorableStreamableHTTPServerTransport } = await import(
-        '@src/transport/http/restorableStreamableTransport.js'
-      );
+      const { RestorableStreamableHTTPServerTransport } =
+        await import('@src/transport/http/restorableStreamableTransport.js');
       vi.spyOn(RestorableStreamableHTTPServerTransport.prototype, 'handleRequest').mockResolvedValue(undefined);
       vi.spyOn(RestorableStreamableHTTPServerTransport.prototype, 'markAsRestored').mockImplementation(() => {});
     });
@@ -170,9 +169,8 @@ describe('SessionService', () => {
     });
 
     it('should call markAsRestored after successful virtual initialize', async () => {
-      const { RestorableStreamableHTTPServerTransport } = await import(
-        '@src/transport/http/restorableStreamableTransport.js'
-      );
+      const { RestorableStreamableHTTPServerTransport } =
+        await import('@src/transport/http/restorableStreamableTransport.js');
       const markAsRestoredSpy = vi.spyOn(RestorableStreamableHTTPServerTransport.prototype, 'markAsRestored');
 
       const mockSessionData = {
@@ -441,9 +439,8 @@ describe('SessionService', () => {
   describe('SessionRestoreResult type', () => {
     beforeEach(async () => {
       // Mock RestorableStreamableHTTPServerTransport methods for these tests
-      const { RestorableStreamableHTTPServerTransport } = await import(
-        '@src/transport/http/restorableStreamableTransport.js'
-      );
+      const { RestorableStreamableHTTPServerTransport } =
+        await import('@src/transport/http/restorableStreamableTransport.js');
       vi.spyOn(RestorableStreamableHTTPServerTransport.prototype, 'handleRequest').mockResolvedValue(undefined);
       vi.spyOn(RestorableStreamableHTTPServerTransport.prototype, 'markAsRestored').mockImplementation(() => {});
     });
@@ -546,9 +543,8 @@ describe('SessionService', () => {
   describe('integration scenarios', () => {
     beforeEach(async () => {
       // Mock RestorableStreamableHTTPServerTransport methods
-      const { RestorableStreamableHTTPServerTransport } = await import(
-        '@src/transport/http/restorableStreamableTransport.js'
-      );
+      const { RestorableStreamableHTTPServerTransport } =
+        await import('@src/transport/http/restorableStreamableTransport.js');
       vi.spyOn(RestorableStreamableHTTPServerTransport.prototype, 'handleRequest').mockResolvedValue(undefined);
       vi.spyOn(RestorableStreamableHTTPServerTransport.prototype, 'markAsRestored').mockImplementation(() => {});
     });

@@ -158,9 +158,8 @@ describe('SSE Routes', () => {
 
     it('should handle SSE connection successfully', async () => {
       const { SSEServerTransport } = await import('@modelcontextprotocol/sdk/server/sse.js');
-      const { getValidatedTags, getTagExpression, getTagFilterMode, getPresetName } = await import(
-        '../middlewares/scopeAuthMiddleware.js'
-      );
+      const { getValidatedTags, getTagExpression, getTagFilterMode, getPresetName } =
+        await import('../middlewares/scopeAuthMiddleware.js');
 
       // Clear mocks specifically for this test
       vi.mocked(mockServerManager.connectTransport).mockClear();
@@ -197,9 +196,8 @@ describe('SSE Routes', () => {
 
     it('should handle SSE connection with pagination disabled', async () => {
       const { SSEServerTransport } = await import('@modelcontextprotocol/sdk/server/sse.js');
-      const { getValidatedTags, getTagExpression, getTagFilterMode, getPresetName } = await import(
-        '../middlewares/scopeAuthMiddleware.js'
-      );
+      const { getValidatedTags, getTagExpression, getTagFilterMode, getPresetName } =
+        await import('../middlewares/scopeAuthMiddleware.js');
 
       // Clear mocks specifically for this test
       vi.mocked(mockServerManager.connectTransport).mockClear();
@@ -260,9 +258,8 @@ describe('SSE Routes', () => {
 
     it('should setup onclose handler for transport', async () => {
       const { SSEServerTransport } = await import('@modelcontextprotocol/sdk/server/sse.js');
-      const { getValidatedTags, getTagExpression, getTagFilterMode, getPresetName } = await import(
-        '../middlewares/scopeAuthMiddleware.js'
-      );
+      const { getValidatedTags, getTagExpression, getTagFilterMode, getPresetName } =
+        await import('../middlewares/scopeAuthMiddleware.js');
 
       // Clear mocks specifically for this test
       vi.mocked(mockServerManager.connectTransport).mockClear();
@@ -293,9 +290,8 @@ describe('SSE Routes', () => {
 
     it('should handle empty validated tags', async () => {
       const { SSEServerTransport } = await import('@modelcontextprotocol/sdk/server/sse.js');
-      const { getValidatedTags, getTagExpression, getTagFilterMode, getPresetName } = await import(
-        '../middlewares/scopeAuthMiddleware.js'
-      );
+      const { getValidatedTags, getTagExpression, getTagFilterMode, getPresetName } =
+        await import('../middlewares/scopeAuthMiddleware.js');
 
       // Clear mocks specifically for this test
       vi.mocked(mockServerManager.connectTransport).mockClear();

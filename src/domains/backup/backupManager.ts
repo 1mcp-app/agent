@@ -31,16 +31,16 @@ function isValidBackupInfo(obj: unknown): obj is BackupInfo {
 
   return Boolean(
     typeof backup.originalPath === 'string' &&
-      typeof backup.backupPath === 'string' &&
-      typeof backup.timestamp === 'number' &&
-      typeof backup.checksum === 'string' &&
-      backup.metadata &&
-      typeof backup.metadata === 'object' &&
-      typeof (backup.metadata as Record<string, unknown>).app === 'string' &&
-      typeof (backup.metadata as Record<string, unknown>).operation === 'string' &&
-      typeof (backup.metadata as Record<string, unknown>).version === 'string' &&
-      typeof (backup.metadata as Record<string, unknown>).serverCount === 'number' &&
-      typeof (backup.metadata as Record<string, unknown>).fileSize === 'number',
+    typeof backup.backupPath === 'string' &&
+    typeof backup.timestamp === 'number' &&
+    typeof backup.checksum === 'string' &&
+    backup.metadata &&
+    typeof backup.metadata === 'object' &&
+    typeof (backup.metadata as Record<string, unknown>).app === 'string' &&
+    typeof (backup.metadata as Record<string, unknown>).operation === 'string' &&
+    typeof (backup.metadata as Record<string, unknown>).version === 'string' &&
+    typeof (backup.metadata as Record<string, unknown>).serverCount === 'number' &&
+    typeof (backup.metadata as Record<string, unknown>).fileSize === 'number',
   );
 }
 

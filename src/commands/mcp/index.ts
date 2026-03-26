@@ -37,9 +37,8 @@ export function setupMcpCommands(yargs: Argv): Argv {
           builder: buildAddCommand,
           handler: async (argv) => {
             const { addCommand } = await import('./add.js');
-            const { parseDoubleHyphenArgs, hasDoubleHyphen, mergeDoubleHyphenArgs } = await import(
-              './utils/doubleHyphenParser.js'
-            );
+            const { parseDoubleHyphenArgs, hasDoubleHyphen, mergeDoubleHyphenArgs } =
+              await import('./utils/doubleHyphenParser.js');
 
             // Check if " -- " pattern is used
             if (hasDoubleHyphen(process.argv)) {
@@ -84,9 +83,8 @@ export function setupMcpCommands(yargs: Argv): Argv {
           builder: buildUpdateCommand,
           handler: async (argv) => {
             const { updateCommand } = await import('./update.js');
-            const { parseDoubleHyphenArgs, hasDoubleHyphen, mergeDoubleHyphenArgs } = await import(
-              './utils/doubleHyphenParser.js'
-            );
+            const { parseDoubleHyphenArgs, hasDoubleHyphen, mergeDoubleHyphenArgs } =
+              await import('./utils/doubleHyphenParser.js');
 
             // Check if " -- " pattern is used
             if (hasDoubleHyphen(process.argv)) {

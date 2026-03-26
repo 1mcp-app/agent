@@ -64,9 +64,8 @@ describe('Installation Adapter', () => {
         config: { type: 'stdio', command: 'node', args: ['server.js'] },
       };
 
-      const { createServerInstallationService } = await import(
-        '@src/domains/server-management/serverInstallationService.js'
-      );
+      const { createServerInstallationService } =
+        await import('@src/domains/server-management/serverInstallationService.js');
       const mockService = (createServerInstallationService as any)();
       mockService.installServer.mockResolvedValue(mockResult);
 
@@ -102,9 +101,8 @@ describe('Installation Adapter', () => {
     });
 
     it('should handle installation errors', async () => {
-      const { createServerInstallationService } = await import(
-        '@src/domains/server-management/serverInstallationService.js'
-      );
+      const { createServerInstallationService } =
+        await import('@src/domains/server-management/serverInstallationService.js');
       const mockService = (createServerInstallationService as any)();
       mockService.installServer.mockRejectedValue(new Error('Installation failed'));
 
@@ -126,9 +124,8 @@ describe('Installation Adapter', () => {
         operationId: 'test-op-id',
       };
 
-      const { createServerInstallationService } = await import(
-        '@src/domains/server-management/serverInstallationService.js'
-      );
+      const { createServerInstallationService } =
+        await import('@src/domains/server-management/serverInstallationService.js');
       const mockService = (createServerInstallationService as any)();
       mockService.uninstallServer.mockResolvedValue(mockResult);
 
@@ -153,9 +150,8 @@ describe('Installation Adapter', () => {
     });
 
     it('should handle uninstallation errors', async () => {
-      const { createServerInstallationService } = await import(
-        '@src/domains/server-management/serverInstallationService.js'
-      );
+      const { createServerInstallationService } =
+        await import('@src/domains/server-management/serverInstallationService.js');
       const mockService = (createServerInstallationService as any)();
       mockService.uninstallServer.mockRejectedValue(new Error('Uninstall failed'));
 
@@ -178,9 +174,8 @@ describe('Installation Adapter', () => {
         operationId: 'test-op-id',
       };
 
-      const { createServerInstallationService } = await import(
-        '@src/domains/server-management/serverInstallationService.js'
-      );
+      const { createServerInstallationService } =
+        await import('@src/domains/server-management/serverInstallationService.js');
       const mockService = (createServerInstallationService as any)();
       mockService.updateServer.mockResolvedValue(mockResult);
 
@@ -214,9 +209,8 @@ describe('Installation Adapter', () => {
     });
 
     it('should handle update errors', async () => {
-      const { createServerInstallationService } = await import(
-        '@src/domains/server-management/serverInstallationService.js'
-      );
+      const { createServerInstallationService } =
+        await import('@src/domains/server-management/serverInstallationService.js');
       const mockService = (createServerInstallationService as any)();
       mockService.updateServer.mockRejectedValue(new Error('Update failed'));
 
