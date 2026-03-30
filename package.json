@@ -126,7 +126,7 @@
     "@types/body-parser": "^1.19.5",
     "@types/cors": "^2.8.19",
     "@types/express": "^5.0.0",
-    "@types/node": "^24.0.0",
+    "@types/node": "^25.5.0",
     "@types/prompts": "^2.4.9",
     "@types/semver": "^7.7.1",
     "@types/supertest": "^6.0.3",
