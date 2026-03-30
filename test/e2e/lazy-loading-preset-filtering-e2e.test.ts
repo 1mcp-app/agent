@@ -259,7 +259,7 @@ describe('Lazy Loading E2E Tests', () => {
         });
 
         // In pure lazy loading mode, these should be the ONLY tools (except internal tools)
-        const nonInternalTools = toolsResponse.tools.filter((t: any) => !t.name.startsWith('1mcp_'));
+        const nonInternalTools = toolsResponse.tools.filter((t: any) => !t.name.startsWith('_1mcp_'));
         expect(nonInternalTools.length).toBe(3);
       } finally {
         await client.disconnect();
@@ -326,15 +326,15 @@ describe('Lazy Loading E2E Tests', () => {
         expect(toolsResponse).toBeDefined();
         expect(Array.isArray(toolsResponse.tools)).toBe(true);
 
-        // Internal tools should be present, prefixed with '1mcp_'
-        const internalTools = toolsResponse.tools.filter((t: any) => t.name.startsWith('1mcp_'));
+        // Internal tools should be present, prefixed with '_1mcp_'
+        const internalTools = toolsResponse.tools.filter((t: any) => t.name.startsWith('_1mcp_'));
 
         // Verify internal tools exist when enabled
         expect(internalTools.length).toBeGreaterThan(0);
 
         // Verify all internal tools have the 1mcp_ prefix
         internalTools.forEach((tool: any) => {
-          expect(tool.name).toMatch(/^1mcp_/);
+          expect(tool.name).toMatch(/^_1mcp_/);
         });
       } finally {
         await client.disconnect();
@@ -852,7 +852,7 @@ describe('Lazy Loading E2E Tests', () => {
 
         // In lazy loading mode, should only have meta-tools (3 tools)
         const lazyTools = (await client.listTools()) as any;
-        const lazyToolCount = lazyTools.tools.filter((t: any) => !t.name.startsWith('1mcp_')).length;
+        const lazyToolCount = lazyTools.tools.filter((t: any) => !t.name.startsWith('_1mcp_')).length;
 
         // Lazy mode should have exactly 3 meta-tools
         expect(lazyToolCount).toBe(3);

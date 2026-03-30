@@ -36,7 +36,7 @@ import { ClientStatus, InboundConnection, OutboundConnection, OutboundConnection
 import { setLogLevel } from '@src/logger/logger.js';
 import logger from '@src/logger/logger.js';
 import { withErrorHandling } from '@src/utils/core/errorHandling.js';
-import { buildUri, parseUri } from '@src/utils/core/parsing.js';
+import { buildUri, desanitizeToolName, parseUri, sanitizeToolName } from '@src/utils/core/parsing.js';
 import { getRequestTimeout } from '@src/utils/core/timeoutUtils.js';
 import { handlePagination } from '@src/utils/ui/pagination.js';
 
@@ -421,7 +421,7 @@ function registerToolHandlers(
         // Add internal tools to the result (with 1mcp prefix)
         const internalToolsWithPrefix = nonLazyTools.map((tool) => ({
           ...tool,
-          name: buildUri('1mcp', tool.name, MCP_URI_SEPARATOR),
+          name: sanitizeToolName(buildUri('1mcp', tool.name, MCP_URI_SEPARATOR)),
         }));
 
         // Combine lazy-loaded tools with internal tools
@@ -447,7 +447,7 @@ function registerToolHandlers(
         (outboundConn, result) =>
           result.tools?.map((tool) => ({
             ...tool,
-            name: buildUri(outboundConn.name, tool.name, MCP_URI_SEPARATOR),
+            name: sanitizeToolName(buildUri(outboundConn.name, tool.name, MCP_URI_SEPARATOR)),
           })) ?? [],
         inboundConn.enablePagination ?? false,
       );
@@ -460,7 +460,7 @@ function registerToolHandlers(
       // Add internal tools to the result (with 1mcp prefix)
       const internalToolsWithPrefix = internalTools.map((tool) => ({
         ...tool,
-        name: buildUri('1mcp', tool.name, MCP_URI_SEPARATOR),
+        name: sanitizeToolName(buildUri('1mcp', tool.name, MCP_URI_SEPARATOR)),
       }));
 
       // Combine external and internal tools
@@ -534,7 +534,7 @@ function registerToolHandlers(
         };
       }
 
-      const { clientName, resourceName: extractedToolName } = parseUri(toolName, MCP_URI_SEPARATOR);
+      const { clientName, resourceName: extractedToolName } = parseUri(desanitizeToolName(toolName), MCP_URI_SEPARATOR);
 
       // Handle 1mcp tools (includes both internal tools and lazy tools)
       if (clientName === '1mcp') {

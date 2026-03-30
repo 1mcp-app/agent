@@ -3,7 +3,7 @@ import { MCP_URI_SEPARATOR } from '@src/constants.js';
 import { describe, expect, it } from 'vitest';
 
 import { InvalidRequestError } from './errorTypes.js';
-import { buildUri, parseUri } from './parsing.js';
+import { buildUri, desanitizeToolName, parseUri, sanitizeToolName } from './parsing.js';
 
 describe('parseUri', () => {
   const separator = MCP_URI_SEPARATOR;
@@ -283,5 +283,41 @@ describe('buildUri', () => {
       expect(parsed.clientName).toBe(clientName);
       expect(parsed.resourceName).toBe(resourceName);
     });
+  });
+});
+
+describe('sanitizeToolName', () => {
+  it('should prepend underscore when name starts with a digit', () => {
+    expect(sanitizeToolName('1mcp_1mcp_mcp_search')).toBe('_1mcp_1mcp_mcp_search');
+    expect(sanitizeToolName('1tool')).toBe('_1tool');
+    expect(sanitizeToolName('9abc')).toBe('_9abc');
+  });
+
+  it('should leave names starting with a letter unchanged', () => {
+    expect(sanitizeToolName('appium-mcp_1mcp_tool')).toBe('appium-mcp_1mcp_tool');
+    expect(sanitizeToolName('filesystem_1mcp_read_file')).toBe('filesystem_1mcp_read_file');
+  });
+
+  it('should leave names starting with an underscore unchanged', () => {
+    expect(sanitizeToolName('_tool')).toBe('_tool');
+  });
+});
+
+describe('desanitizeToolName', () => {
+  it('should strip leading underscore added before a digit', () => {
+    expect(desanitizeToolName('_1mcp_1mcp_mcp_search')).toBe('1mcp_1mcp_mcp_search');
+    expect(desanitizeToolName('_1tool')).toBe('1tool');
+  });
+
+  it('should leave names that did not have a digit-prefix unchanged', () => {
+    expect(desanitizeToolName('appium-mcp_1mcp_tool')).toBe('appium-mcp_1mcp_tool');
+    expect(desanitizeToolName('_tool')).toBe('_tool');
+  });
+
+  it('should round-trip with sanitizeToolName', () => {
+    const names = ['1mcp_1mcp_mcp_search', 'filesystem_1mcp_read', '9abc_1mcp_x'];
+    for (const name of names) {
+      expect(desanitizeToolName(sanitizeToolName(name))).toBe(name);
+    }
   });
 });

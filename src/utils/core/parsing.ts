@@ -47,6 +47,33 @@ export function parseUri(uri: string, separator: string): UriParts {
 }
 
 /**
+ * Sanitizes a tool name to comply with AI provider naming rules (e.g. Gemini).
+ * Names must start with a letter or underscore; if the name starts with a digit,
+ * a leading underscore is prepended.
+ * @param name The tool name to sanitize
+ * @returns A valid tool name
+ */
+export function sanitizeToolName(name: string): string {
+  if (/^\d/.test(name)) {
+    return `_${name}`;
+  }
+  return name;
+}
+
+/**
+ * Reverses sanitizeToolName: strips the leading underscore added to names that
+ * originally started with a digit.
+ * @param name The (possibly sanitized) tool name
+ * @returns The original tool name
+ */
+export function desanitizeToolName(name: string): string {
+  if (/^_\d/.test(name)) {
+    return name.slice(1);
+  }
+  return name;
+}
+
+/**
  * Builds a URI by combining client name and resource name with a separator
  * @param clientName The client name
  * @param resourceName The resource name

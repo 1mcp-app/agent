@@ -168,7 +168,7 @@ describe('Internal MCP Tools Protocol E2E Tests', () => {
       // Find internal discovery tools
       const discoveryTools = toolsResponse.tools.filter(
         (tool: any) =>
-          tool.name.startsWith('1mcp_1mcp_') &&
+          tool.name.startsWith('_1mcp_1mcp_') &&
           ['mcp_search', 'mcp_registry_status', 'mcp_registry_info', 'mcp_registry_list', 'mcp_info'].some((name) =>
             tool.name.includes(name),
           ),
@@ -178,7 +178,7 @@ describe('Internal MCP Tools Protocol E2E Tests', () => {
 
       // Verify each discovery tool has proper schema
       for (const tool of discoveryTools) {
-        expect(tool.name).toMatch(/^1mcp_1mcp_/);
+        expect(tool.name).toMatch(/^_1mcp_1mcp_/);
         expect(tool.description).toBeDefined();
         expect(typeof tool.description).toBe('string');
         expect(tool.inputSchema).toBeDefined();
@@ -188,7 +188,7 @@ describe('Internal MCP Tools Protocol E2E Tests', () => {
 
     it('should validate mcp_search tool schema', async () => {
       const toolsResponse = await mcpClient.listTools();
-      const searchTool = toolsResponse.tools.find((tool: any) => tool.name === '1mcp_1mcp_mcp_search');
+      const searchTool = toolsResponse.tools.find((tool: any) => tool.name === '_1mcp_1mcp_mcp_search');
 
       expect(searchTool).toBeDefined();
       expect(searchTool?.inputSchema).toBeDefined();
@@ -209,7 +209,7 @@ describe('Internal MCP Tools Protocol E2E Tests', () => {
 
   describe('MCP Tool Execution - Structured Output Validation', () => {
     it('should execute mcp_search and return structured data', async () => {
-      const result = await mcpClient.callTool('1mcp_1mcp_mcp_search', {
+      const result = await mcpClient.callTool('_1mcp_1mcp_mcp_search', {
         query: 'filesystem',
         limit: 5,
       });
@@ -242,7 +242,7 @@ describe('Internal MCP Tools Protocol E2E Tests', () => {
     });
 
     it('should execute mcp_registry_status and return structured data', async () => {
-      const result = await mcpClient.callTool('1mcp_1mcp_mcp_registry_status', {
+      const result = await mcpClient.callTool('_1mcp_1mcp_mcp_registry_status', {
         registry: 'official',
         includeStats: false, // Set to false to avoid timeout
       });
@@ -268,7 +268,7 @@ describe('Internal MCP Tools Protocol E2E Tests', () => {
     });
 
     it('should execute mcp_registry_info and return structured data', async () => {
-      const result = await mcpClient.callTool('1mcp_1mcp_mcp_registry_info', {
+      const result = await mcpClient.callTool('_1mcp_1mcp_mcp_registry_info', {
         registry: 'official',
       });
 
@@ -295,7 +295,7 @@ describe('Internal MCP Tools Protocol E2E Tests', () => {
     });
 
     it('should execute mcp_registry_list and return structured data', async () => {
-      const result = await mcpClient.callTool('1mcp_1mcp_mcp_registry_list', {
+      const result = await mcpClient.callTool('_1mcp_1mcp_mcp_registry_list', {
         includeStats: false,
       });
 
@@ -331,7 +331,7 @@ describe('Internal MCP Tools Protocol E2E Tests', () => {
     it('should handle mcp_info for non-existent server', async () => {
       // This test may fail if the server info tool has issues, so let's handle it gracefully
       try {
-        const result = await mcpClient.callTool('1mcp_1mcp_mcp_info', {
+        const result = await mcpClient.callTool('_1mcp_1mcp_mcp_info', {
           name: 'non-existent-server-12345',
         });
 
@@ -365,7 +365,7 @@ describe('Internal MCP Tools Protocol E2E Tests', () => {
     it('should handle invalid arguments gracefully', async () => {
       // Test with invalid arguments that should trigger validation errors
       try {
-        const result = await mcpClient.callTool('1mcp_1mcp_mcp_search', {
+        const result = await mcpClient.callTool('_1mcp_1mcp_mcp_search', {
           query: 'test',
           limit: -1, // Invalid negative limit
         });
@@ -382,7 +382,7 @@ describe('Internal MCP Tools Protocol E2E Tests', () => {
     it('should handle network errors in registry operations gracefully', async () => {
       // Mock a network failure by using an invalid registry
       try {
-        const result = await mcpClient.callTool('1mcp_1mcp_mcp_registry_status', {
+        const result = await mcpClient.callTool('_1mcp_1mcp_mcp_registry_status', {
           registry: 'http://invalid-registry-url-that-does-not-exist.com',
         });
 
@@ -405,9 +405,9 @@ describe('Internal MCP Tools Protocol E2E Tests', () => {
 
     it('should maintain connection health across multiple calls', async () => {
       // Make multiple calls
-      await mcpClient.callTool('1mcp_1mcp_mcp_registry_status', {});
-      await mcpClient.callTool('1mcp_1mcp_mcp_registry_list', {});
-      await mcpClient.callTool('1mcp_1mcp_mcp_registry_info', {});
+      await mcpClient.callTool('_1mcp_1mcp_mcp_registry_status', {});
+      await mcpClient.callTool('_1mcp_1mcp_mcp_registry_list', {});
+      await mcpClient.callTool('_1mcp_1mcp_mcp_registry_info', {});
 
       // Connection should still be alive by listing tools
       const result = await mcpClient.listTools();
@@ -418,9 +418,9 @@ describe('Internal MCP Tools Protocol E2E Tests', () => {
     it('should handle concurrent requests', async () => {
       // Make multiple concurrent calls
       const promises = [
-        mcpClient.callTool('1mcp_1mcp_mcp_search', { query: 'test1' }),
-        mcpClient.callTool('1mcp_1mcp_mcp_search', { query: 'test2' }),
-        mcpClient.callTool('1mcp_1mcp_mcp_registry_status', {}),
+        mcpClient.callTool('_1mcp_1mcp_mcp_search', { query: 'test1' }),
+        mcpClient.callTool('_1mcp_1mcp_mcp_search', { query: 'test2' }),
+        mcpClient.callTool('_1mcp_1mcp_mcp_registry_status', {}),
       ];
 
       const results = await Promise.allSettled(promises);
@@ -435,7 +435,7 @@ describe('Internal MCP Tools Protocol E2E Tests', () => {
 
   describe('Schema Validation Edge Cases', () => {
     it('should validate empty search results structure', async () => {
-      const result = await mcpClient.callTool('1mcp_1mcp_mcp_search', {
+      const result = await mcpClient.callTool('_1mcp_1mcp_mcp_search', {
         query: 'non-existent-server-name-xyz-123',
         limit: 1,
       });
@@ -463,7 +463,7 @@ describe('Internal MCP Tools Protocol E2E Tests', () => {
     it('should validate maximum limits are enforced', async () => {
       // Test with reasonable high limit (avoiding the error that occurs with very high limits)
       try {
-        const result = await mcpClient.callTool('1mcp_1mcp_mcp_search', {
+        const result = await mcpClient.callTool('_1mcp_1mcp_mcp_search', {
           query: 'test',
           limit: 100, // High but reasonable limit
         });
