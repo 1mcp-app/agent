@@ -2,6 +2,8 @@
 
 A unified Model Context Protocol server implementation that aggregates multiple MCP servers into one.
 
+A hosted deployment is available on [Fronteir AI](https://fronteir.ai/mcp/1mcp-agent).
+
 [![NPM Version](https://img.shields.io/npm/v/@1mcp/agent)](https://www.npmjs.com/package/@1mcp/agent)
 [![NPM Downloads](https://img.shields.io/npm/dm/%401mcp%252Fagent)](https://www.npmjs.com/package/@1mcp/agent)
 [![CodeQl](https://github.com/1mcp-app/agent/actions/workflows/github-code-scanning/codeql/badge.svg)](https://github.com/1mcp-app/agent/actions/workflows/github-code-scanning/codeql)
