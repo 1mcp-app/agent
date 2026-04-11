@@ -6,7 +6,7 @@ import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import ConfigContext from '@src/config/configContext.js';
 import { ConfigManager } from '@src/config/configManager.js';
 import { getDefaultInstructionsTemplatePath } from '@src/constants.js';
-import { getConfigDir } from '@src/constants.js';
+import { getConfigDir, HOST, PORT } from '@src/constants.js';
 import { FlagManager } from '@src/core/flags/flagManager.js';
 import { InstructionAggregator } from '@src/core/instructions/instructionAggregator.js';
 import { formatValidationError, validateTemplateContent } from '@src/core/instructions/templateValidator.js';
@@ -27,9 +27,9 @@ export interface ServeOptions {
   'config-dir'?: string;
   'log-level'?: string;
   'log-file'?: string;
-  transport: string;
-  port: number;
-  host: string;
+  transport?: string;
+  port?: number;
+  host?: string;
   'external-url'?: string;
   filter?: string;
   pagination: boolean;
@@ -272,8 +272,8 @@ export async function serveCommand(parsedArgv: ServeOptions): Promise<void> {
 
     // Display logo with runtime information (skip for stdio or when logging to file)
     const effectiveTransport = parsedArgv.transport ?? appConfig.transport ?? 'http';
-    const effectivePort = parsedArgv.port ?? appConfig.port ?? parsedArgv.port;
-    const effectiveHost = parsedArgv.host ?? appConfig.host ?? parsedArgv.host;
+    const effectivePort = parsedArgv.port ?? appConfig.port ?? PORT;
+    const effectiveHost = parsedArgv.host ?? appConfig.host ?? HOST;
     if (effectiveTransport !== 'stdio' && !parsedArgv['log-file']) {
       displayLogo({
         transport: effectiveTransport,
@@ -543,8 +543,8 @@ export async function serveCommand(parsedArgv: ServeOptions): Promise<void> {
         writePidFile(configDir, {
           pid: process.pid,
           url: `${serverUrl}/mcp`,
-          port: parsedArgv.port,
-          host: parsedArgv.host,
+          port: effectivePort,
+          host: effectiveHost,
           transport: 'http',
           startedAt: new Date().toISOString(),
           configDir,

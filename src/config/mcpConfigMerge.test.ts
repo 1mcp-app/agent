@@ -109,4 +109,54 @@ describe('mcpConfigMerge', () => {
 
     expect(unknown.sort()).toEqual(['command', 'disabled']);
   });
+
+  it('server primitive overrides global primitive', () => {
+    const globalConfig: GlobalTransportConfig = { timeout: 9999 };
+    const serverConfig: MCPServerParams = { type: 'stdio', command: 'node', timeout: 500 };
+
+    const merged = mergeGlobalAndServerConfig(globalConfig, serverConfig);
+
+    expect(merged.timeout).toBe(500);
+  });
+
+  it('handles undefined globalConfig gracefully', () => {
+    const serverConfig: MCPServerParams = { type: 'stdio', command: 'node', timeout: 1000 };
+
+    const merged = mergeGlobalAndServerConfig(undefined, serverConfig);
+
+    expect(merged).toEqual(serverConfig);
+  });
+
+  it('ignores global inheritParentEnv for sse transports', () => {
+    const globalConfig: GlobalTransportConfig = { inheritParentEnv: true };
+    const serverConfig: MCPServerParams = { type: 'sse', url: 'https://example.com/mcp' };
+
+    const merged = mergeGlobalAndServerConfig(globalConfig, serverConfig);
+
+    expect(merged.inheritParentEnv).toBeUndefined();
+  });
+
+  it('ignores global inheritParentEnv for streamableHttp transports', () => {
+    const globalConfig: GlobalTransportConfig = { inheritParentEnv: true };
+    const serverConfig: MCPServerParams = { type: 'streamableHttp', url: 'https://example.com/mcp' };
+
+    const merged = mergeGlobalAndServerConfig(globalConfig, serverConfig);
+
+    expect(merged.inheritParentEnv).toBeUndefined();
+  });
+
+  it('keeps server env object when global env is an array', () => {
+    const globalConfig: GlobalTransportConfig = {
+      env: ['GLOBAL_VAR=value'] as unknown as Record<string, string>,
+    };
+    const serverConfig: MCPServerParams = {
+      type: 'stdio',
+      command: 'node',
+      env: { SERVER_VAR: 'server-value' },
+    };
+
+    const merged = mergeGlobalAndServerConfig(globalConfig, serverConfig);
+
+    expect(merged.env).toEqual({ SERVER_VAR: 'server-value' });
+  });
 });

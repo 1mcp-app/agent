@@ -1,4 +1,3 @@
-import { HOST, PORT } from '@src/constants.js';
 import { globalOptions } from '@src/globalOptions.js';
 
 import type { Argv } from 'yargs';
@@ -16,19 +15,16 @@ export const serverOptions = {
     describe: 'Transport type to use (stdio or http, sse is deprecated)',
     type: 'string' as const,
     choices: ['stdio', 'http', 'sse'] as const,
-    default: 'http',
   },
   port: {
     alias: 'P',
     describe: 'HTTP port to listen on, applicable when transport is http',
     type: 'number' as const,
-    default: PORT,
   },
   host: {
     alias: 'H',
     describe: 'HTTP host to listen on, applicable when transport is http',
     type: 'string' as const,
-    default: HOST,
   },
   'external-url': {
     alias: 'u',

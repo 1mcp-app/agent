@@ -161,8 +161,8 @@ export class ConfigLoader {
           );
         }
       }
-    } catch {
-      // Ignore errors from legacy check
+    } catch (error) {
+      logger.debug(`Could not check for legacy "app" key: ${error instanceof Error ? error.message : String(error)}`);
     }
 
     return this.loadAppConfigFromToml();
@@ -178,7 +178,7 @@ export class ConfigLoader {
       const parsed = parseToml(raw);
       return this.validateAppConfig(parsed);
     } catch (error) {
-      logger.warn(
+      logger.error(
         `Failed to load app configuration from ${tomlPath}: ${error instanceof Error ? error.message : String(error)}`,
       );
       return {};

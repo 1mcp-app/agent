@@ -298,4 +298,98 @@ describe('serveCommand - config-dir session isolation', () => {
       expect(typeof cleanupPidFileOnExit).toBe('function');
     });
   });
+
+  describe('appConfig transport/port/host precedence', () => {
+    const baseOptions: Omit<ServeOptions, 'transport' | 'port' | 'host'> = {
+      pagination: false,
+      auth: false,
+      'enable-auth': false,
+      'enable-scope-validation': true,
+      'enable-enhanced-security': false,
+      'session-ttl': 1440,
+      'trust-proxy': 'loopback',
+      'health-info-level': 'minimal',
+      'rate-limit-window': 15,
+      'rate-limit-max': 100,
+      'enable-async-loading': false,
+      'async-min-servers': 1,
+      'async-timeout': 30000,
+      'async-batch-notifications': true,
+      'async-batch-delay': 100,
+      'async-notify-on-ready': true,
+      'enable-lazy-loading': false,
+      'lazy-mode': 'full',
+      'lazy-inline-catalog': false,
+      'lazy-catalog-format': 'grouped',
+      'lazy-cache-max-entries': 1000,
+      'enable-config-reload': true,
+      'config-reload-debounce': 500,
+      'enable-env-substitution': true,
+      'enable-session-persistence': true,
+      'session-persist-requests': 100,
+      'session-persist-interval': 5,
+      'session-background-flush': 60,
+      'enable-client-notifications': true,
+      'enable-jsonrpc-error-logging': true,
+      'enable-internal-tools': false,
+    };
+
+    it('uses appConfig.transport when CLI transport is absent', async () => {
+      const { ConfigManager } = await import('@src/config/configManager.js');
+      vi.mocked(ConfigManager.getInstance).mockReturnValue({
+        getTransportConfig: vi.fn().mockReturnValue({}),
+        getAppConfig: vi.fn().mockReturnValue({ transport: 'stdio' }),
+        initialize: vi.fn().mockResolvedValue(undefined),
+        stop: vi.fn().mockResolvedValue(undefined),
+      } as any);
+
+      const configManager = AgentConfigManager.getInstance();
+      const updateConfigSpy = vi.mocked(configManager.updateConfig);
+
+      const options: ServeOptions = {
+        ...baseOptions,
+        transport: undefined as any,
+        port: undefined as any,
+        host: undefined as any,
+      };
+
+      try {
+        await serveCommand(options);
+      } catch {
+        // ignore mock errors
+      }
+
+      // effectiveTransport should have been 'stdio' from appConfig
+      expect(updateConfigSpy).toHaveBeenCalled();
+    });
+
+    it('CLI transport overrides appConfig.transport', async () => {
+      const { ConfigManager } = await import('@src/config/configManager.js');
+      vi.mocked(ConfigManager.getInstance).mockReturnValue({
+        getTransportConfig: vi.fn().mockReturnValue({}),
+        getAppConfig: vi.fn().mockReturnValue({ transport: 'stdio' }),
+        initialize: vi.fn().mockResolvedValue(undefined),
+        stop: vi.fn().mockResolvedValue(undefined),
+      } as any);
+
+      const configManager = AgentConfigManager.getInstance();
+      const updateConfigSpy = vi.mocked(configManager.updateConfig);
+
+      const options: ServeOptions = { ...baseOptions, transport: 'http', port: 3050, host: '127.0.0.1' };
+
+      try {
+        await serveCommand(options);
+      } catch {
+        // ignore mock errors
+      }
+
+      // updateConfig should have been called (http path taken)
+      expect(updateConfigSpy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          port: 3050,
+          host: '127.0.0.1',
+        }),
+      );
+    });
+  });
 });

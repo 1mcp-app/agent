@@ -163,6 +163,7 @@ export class McpConfigManager extends EventEmitter {
       this.globalConfig = {};
       this.appConfig = {};
       this.transportConfig = {};
+      this.emit(ConfigChangeEvent.TRANSPORT_CONFIG_CHANGED, this.transportConfig);
     }
   }
 
@@ -340,9 +341,9 @@ export class McpConfigManager extends EventEmitter {
     } catch (error) {
       if (error instanceof ZodError) {
         const fieldErrors = error.issues.map((issue) => `${issue.path.join('.')}: ${issue.message}`).join(', ');
-        logger.warn(`Invalid app configuration in config.toml (ignored): ${fieldErrors}`);
+        logger.error(`Invalid app configuration in config.toml (ignored): ${fieldErrors}`);
       } else {
-        logger.warn(
+        logger.error(
           `Failed to load app configuration from ${tomlPath}: ${error instanceof Error ? error.message : String(error)}`,
         );
       }

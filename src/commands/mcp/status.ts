@@ -10,6 +10,7 @@ import {
   getAllServers,
   getEffectiveServerConfig,
   getGlobalConfig,
+  getInheritedKeys,
   getServer,
   initializeConfigContext,
   validateConfigPath,
@@ -325,56 +326,6 @@ function displayDetailedServerStatus(
   printer.info(`   • Remove: server remove ${name}`);
 }
 
-function getInheritedKeys(
-  rawConfig: MCPServerParams,
-  effectiveConfig: MCPServerParams,
-  globalConfig: GlobalTransportConfig,
-): string[] {
-  const inherited: string[] = [];
-  const fallbackKeys: Array<keyof MCPServerParams> = [
-    'timeout',
-    'connectionTimeout',
-    'requestTimeout',
-    'oauth',
-    'headers',
-    'inheritParentEnv',
-  ];
-
-  for (const key of fallbackKeys) {
-    if (
-      rawConfig[key] === undefined &&
-      effectiveConfig[key] !== undefined &&
-      globalConfig[key as keyof GlobalTransportConfig] !== undefined
-    ) {
-      inherited.push(String(key));
-    }
-  }
-
-  if (rawConfig.env === undefined && effectiveConfig.env !== undefined && globalConfig.env !== undefined) {
-    inherited.push('env');
-  }
-
-  if (
-    rawConfig.env &&
-    effectiveConfig.env &&
-    typeof rawConfig.env === 'object' &&
-    typeof effectiveConfig.env === 'object' &&
-    !Array.isArray(rawConfig.env) &&
-    !Array.isArray(effectiveConfig.env) &&
-    typeof globalConfig.env === 'object' &&
-    globalConfig.env !== null &&
-    !Array.isArray(globalConfig.env)
-  ) {
-    const rawEnv = rawConfig.env as Record<string, string>;
-    const effectiveEnv = effectiveConfig.env as Record<string, string>;
-    if (Object.keys(effectiveEnv).some((key) => !(key in rawEnv))) {
-      inherited.push('env(merged)');
-    }
-  }
-
-  return inherited;
-}
-
 /**
  * Validate server configuration
  */
@@ -391,6 +342,7 @@ function validateServerConfiguration(config: MCPServerParams): void {
       break;
     case 'http':
     case 'sse':
+    case 'streamableHttp':
       if (!config.url) {
         throw new Error(`URL is required for ${config.type} servers`);
       }
