@@ -556,7 +556,7 @@ export async function serveCommand(parsedArgv: ServeOptions): Promise<void> {
         break;
       }
       default:
-        logger.error(`Invalid transport: ${parsedArgv.transport}`);
+        logger.error(`Invalid transport: ${effectiveTransport}`);
         process.exit(1);
     }
 

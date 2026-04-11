@@ -90,6 +90,8 @@ npx -y @1mcp/agent --config-dir ./project-config
 - `env` 对象会与各服务器的 `env` 合并，若键冲突则以服务器自身的值为准。
 - `oauth` 和 `headers` 会被服务器上的值整体替换，不会做深度合并。
 - 基本类型值（`timeout`、`connectionTimeout`、`requestTimeout`、`inheritParentEnv`）仅在服务器未显式设置时继承。
+- 还存在与传输类型相关的排除规则：全局 `headers` 会对 `stdio` 传输忽略，而全局 `inheritParentEnv` 会对 `http`、`sse` 和 `streamableHttp` 传输忽略。
+- 当 `serverDefaults.env` 与 `mcpServers.<name>.env` 都使用数组格式时，不会逐项合并，而是以服务器自己的数组为准。
 
 ### 迁移指南（从每服务器配置迁移到共享默认值）
 

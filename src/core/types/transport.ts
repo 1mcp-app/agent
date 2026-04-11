@@ -154,6 +154,7 @@ export const oAuthConfigSchema = z.object({
   clientSecret: z.string().optional().describe('OAuth client secret for authentication'),
   scopes: z.array(z.string()).optional().describe('OAuth scopes to request'),
   autoRegister: z.boolean().optional().describe('Automatically register OAuth client if not already registered'),
+  redirectUrl: z.string().optional().describe('OAuth redirect URL used after auth'),
 });
 
 /**

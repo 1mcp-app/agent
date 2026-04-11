@@ -1,5 +1,6 @@
 import { GlobalTransportConfig, MCPServerParams } from '@src/core/types/index.js';
 import { GlobalOptions } from '@src/globalOptions.js';
+import { sanitizeForLogging } from '@src/logger/secureLogger.js';
 import { inferTransportType } from '@src/transport/transportFactory.js';
 import printer from '@src/utils/ui/printer.js';
 
@@ -144,6 +145,9 @@ async function showAllServersStatus(verbose: boolean = false): Promise<void> {
   const stdioCount = sortedServerNames.filter((name) => allEffectiveServers[name].type === 'stdio').length;
   const httpCount = sortedServerNames.filter((name) => allEffectiveServers[name].type === 'http').length;
   const sseCount = sortedServerNames.filter((name) => allEffectiveServers[name].type === 'sse').length;
+  const streamableHttpCount = sortedServerNames.filter(
+    (name) => allEffectiveServers[name].type === 'streamableHttp',
+  ).length;
 
   printer.subtitle('Overall Summary:');
   printer.keyValue({
@@ -155,6 +159,7 @@ async function showAllServersStatus(verbose: boolean = false): Promise<void> {
     stdio: stdioCount,
     http: httpCount,
     sse: sseCount,
+    streamableHttp: streamableHttpCount,
   });
 
   // Get unique tags
@@ -194,7 +199,10 @@ function displayServerStatusSummary(name: string, config: MCPServerParams): void
 
   if (inferredConfig.type === 'stdio' && inferredConfig.command) {
     printer.keyValue({ Command: inferredConfig.command });
-  } else if ((inferredConfig.type === 'http' || inferredConfig.type === 'sse') && inferredConfig.url) {
+  } else if (
+    (inferredConfig.type === 'http' || inferredConfig.type === 'sse' || inferredConfig.type === 'streamableHttp') &&
+    inferredConfig.url
+  ) {
     printer.keyValue({ URL: inferredConfig.url });
   }
 
@@ -243,7 +251,11 @@ function displayDetailedServerStatus(
     }
 
     printer.keyValue({ 'Working Directory': inferredConfig.cwd || '(current directory)' });
-  } else if (inferredConfig.type === 'http' || inferredConfig.type === 'sse') {
+  } else if (
+    inferredConfig.type === 'http' ||
+    inferredConfig.type === 'sse' ||
+    inferredConfig.type === 'streamableHttp'
+  ) {
     if (inferredConfig.url) {
       printer.keyValue({ URL: inferredConfig.url });
     }
@@ -260,9 +272,10 @@ function displayDetailedServerStatus(
 
   // Common configuration
   printer.keyValue({
-    Timeout: inferredConfig.timeout ? `${inferredConfig.timeout}ms` : '(default)',
-    'Connection Timeout': inferredConfig.connectionTimeout ? `${inferredConfig.connectionTimeout}ms` : '(default)',
-    'Request Timeout': inferredConfig.requestTimeout ? `${inferredConfig.requestTimeout}ms` : '(default)',
+    Timeout: inferredConfig.timeout !== undefined ? `${inferredConfig.timeout}ms` : '(default)',
+    'Connection Timeout':
+      inferredConfig.connectionTimeout !== undefined ? `${inferredConfig.connectionTimeout}ms` : '(default)',
+    'Request Timeout': inferredConfig.requestTimeout !== undefined ? `${inferredConfig.requestTimeout}ms` : '(default)',
   });
   printer.keyValue({
     Tags: inferredConfig.tags && inferredConfig.tags.length > 0 ? inferredConfig.tags.join(', ') : '(none)',
@@ -293,7 +306,7 @@ function displayDetailedServerStatus(
   // Runtime status (this would require integration with ServerManager to get actual runtime status)
   printer.blank();
   printer.subtitle('Runtime Information:');
-  printer.keyValue({ 'Effective Configuration': JSON.stringify(effectiveConfig) });
+  printer.keyValue({ 'Effective Configuration': JSON.stringify(sanitizeForLogging(effectiveConfig)) });
 
   if (effectiveConfig.disabled) {
     printer.keyValue({ 'Runtime Status': '⏹️  Not running (disabled)' });

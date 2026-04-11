@@ -1,6 +1,7 @@
 import path from 'path';
 
 import { AgentConfigManager } from '@src/core/server/agentConfig.js';
+import { displayLogo } from '@src/utils/ui/logo.js';
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -359,8 +360,13 @@ describe('serveCommand - config-dir session isolation', () => {
         // ignore mock errors
       }
 
-      // effectiveTransport should have been 'stdio' from appConfig
-      expect(updateConfigSpy).toHaveBeenCalled();
+      expect(updateConfigSpy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          port: 3050,
+          host: '127.0.0.1',
+        }),
+      );
+      expect(displayLogo).not.toHaveBeenCalled();
     });
 
     it('CLI transport overrides appConfig.transport', async () => {
@@ -386,6 +392,13 @@ describe('serveCommand - config-dir session isolation', () => {
       // updateConfig should have been called (http path taken)
       expect(updateConfigSpy).toHaveBeenCalledWith(
         expect.objectContaining({
+          port: 3050,
+          host: '127.0.0.1',
+        }),
+      );
+      expect(displayLogo).toHaveBeenCalledWith(
+        expect.objectContaining({
+          transport: 'http',
           port: 3050,
           host: '127.0.0.1',
         }),

@@ -382,13 +382,11 @@ function printGlobalSummary(globalConfig: GlobalTransportConfig): void {
   if (globalConfig.oauth && typeof globalConfig.oauth === 'object') {
     printer.keyValue({ oauth: '(configured)' });
   }
-  if (globalConfig.headers && typeof globalConfig.headers === 'object') {
-    printer.keyValue({ headers: `${Object.keys(globalConfig.headers as Record<string, string>).length} key(s)` });
+  if (globalConfig.headers && typeof globalConfig.headers === 'object' && !Array.isArray(globalConfig.headers)) {
+    printer.keyValue({ headers: `${Object.keys(globalConfig.headers).length} key(s)` });
   }
   if (globalConfig.env && typeof globalConfig.env === 'object') {
-    const envCount = Array.isArray(globalConfig.env)
-      ? (globalConfig.env as string[]).length
-      : Object.keys(globalConfig.env as Record<string, string>).length;
+    const envCount = Array.isArray(globalConfig.env) ? globalConfig.env.length : Object.keys(globalConfig.env).length;
     printer.keyValue({ env: `${envCount} key(s)` });
   }
 }

@@ -125,6 +125,13 @@ export function loadConfig(configPath?: string): ServerConfig {
   }
 }
 
+function isMissingConfigError(error: unknown): boolean {
+  return (
+    (error instanceof Error && error.message.includes('Configuration file not found')) ||
+    (typeof error === 'object' && error !== null && 'code' in error && (error as { code?: string }).code === 'ENOENT')
+  );
+}
+
 /**
  * Save the MCP configuration to a file
  * Uses ConfigContext to resolve the appropriate config file path
@@ -171,7 +178,10 @@ export function getServer(serverName: string): MCPServerParams | null {
     return config.mcpServers[serverName] || null;
   } catch (error) {
     logger.warn(`Failed to get server '${serverName}': ${error instanceof Error ? error.message : String(error)}`);
-    return null;
+    if (isMissingConfigError(error)) {
+      return null;
+    }
+    throw error;
   }
 }
 
@@ -183,8 +193,11 @@ export function getGlobalConfig(): GlobalTransportConfig {
     const config = loadConfig();
     return config.serverDefaults || {};
   } catch (error) {
-    logger.error(`Failed to get global config: ${error instanceof Error ? error.message : String(error)}`);
-    return {};
+    logger.warn(`Failed to get global config: ${error instanceof Error ? error.message : String(error)}`);
+    if (isMissingConfigError(error)) {
+      return {};
+    }
+    throw error;
   }
 }
 
@@ -200,10 +213,13 @@ export function getEffectiveServerConfig(serverName: string): MCPServerParams | 
     }
     return mergeGlobalAndServerConfig(config.serverDefaults, server);
   } catch (error) {
-    logger.error(
+    logger.warn(
       `Failed to get effective server config for '${serverName}': ${error instanceof Error ? error.message : String(error)}`,
     );
-    return null;
+    if (isMissingConfigError(error)) {
+      return null;
+    }
+    throw error;
   }
 }
 
@@ -257,8 +273,11 @@ export function getAllServers(): Record<string, MCPServerParams> {
     const config = loadConfig();
     return config.mcpServers;
   } catch (error) {
-    logger.error(`Failed to get all servers: ${error instanceof Error ? error.message : String(error)}`);
-    return {};
+    logger.warn(`Failed to get all servers: ${error instanceof Error ? error.message : String(error)}`);
+    if (isMissingConfigError(error)) {
+      return {};
+    }
+    throw error;
   }
 }
 
@@ -270,8 +289,11 @@ export function getAllEffectiveServers(): Record<string, MCPServerParams> {
     const config = loadConfig();
     return mergeGlobalWithServers(config.serverDefaults, config.mcpServers);
   } catch (error) {
-    logger.error(`Failed to get all effective servers: ${error instanceof Error ? error.message : String(error)}`);
-    return {};
+    logger.warn(`Failed to get all effective servers: ${error instanceof Error ? error.message : String(error)}`);
+    if (isMissingConfigError(error)) {
+      return {};
+    }
+    throw error;
   }
 }
 
