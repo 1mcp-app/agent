@@ -202,11 +202,13 @@ describe('MCP List Command E2E', () => {
       const malformedConfigPath = environment.getConfigPath();
       await fs.writeFile(malformedConfigPath, '{ invalid json');
 
-      const result = await runner.runMcpCommand('list');
+      const result = await runner.runMcpCommand('list', {
+        expectError: true,
+      });
 
-      // CLI handles malformed config gracefully, showing empty list
-      runner.assertSuccess(result);
-      runner.assertOutputContains(result, 'No MCP servers are configured');
+      runner.assertFailure(result, 1);
+      runner.assertOutputContains(result, 'Failed to list servers', true);
+      runner.assertOutputContains(result, 'Invalid JSON in configuration file', true);
     });
 
     it('should show help when --help is used', async () => {

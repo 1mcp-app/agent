@@ -37,11 +37,13 @@ describe('Error Scenarios E2E', () => {
       const malformedConfig = '{ "servers": [ { "name": "test", "command": incomplete json';
       await writeFile(environment.getConfigPath(), malformedConfig);
 
-      const result = await runner.runMcpCommand('list');
+      const result = await runner.runMcpCommand('list', {
+        expectError: true,
+      });
 
-      // CLI gracefully handles malformed config by showing "No MCP servers are configured"
-      runner.assertSuccess(result);
-      runner.assertOutputContains(result, 'No MCP servers are configured');
+      runner.assertFailure(result, 1);
+      runner.assertOutputContains(result, 'Failed to list servers', true);
+      runner.assertOutputContains(result, 'Invalid JSON in configuration file', true);
     });
 
     it('should handle config file with invalid structure', async () => {
@@ -83,11 +85,13 @@ describe('Error Scenarios E2E', () => {
     it('should handle empty config file', async () => {
       await writeFile(environment.getConfigPath(), '');
 
-      const result = await runner.runMcpCommand('list');
+      const result = await runner.runMcpCommand('list', {
+        expectError: true,
+      });
 
-      // CLI gracefully handles empty config by showing "No MCP servers are configured"
-      runner.assertSuccess(result);
-      runner.assertOutputContains(result, 'No MCP servers are configured');
+      runner.assertFailure(result, 1);
+      runner.assertOutputContains(result, 'Failed to list servers', true);
+      runner.assertOutputContains(result, 'Invalid JSON in configuration file', true);
     });
 
     it('should handle config file with circular references', async () => {
