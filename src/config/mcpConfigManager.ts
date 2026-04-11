@@ -2,13 +2,13 @@ import { EventEmitter } from 'events';
 import fs from 'fs';
 import path from 'path';
 
+import { loadAppConfigFromTomlPath } from '@src/config/configLoader.js';
 import { substituteEnvVarsInConfig } from '@src/config/envProcessor.js';
 import { getUnknownGlobalConfigKeys, mergeGlobalAndServerConfig } from '@src/config/mcpConfigMerge.js';
 import { DEFAULT_CONFIG, getGlobalConfigDir, getGlobalConfigPath } from '@src/constants.js';
 import { AgentConfigManager } from '@src/core/server/agentConfig.js';
 import {
   ApplicationConfig,
-  applicationConfigSchema,
   GlobalTransportConfig,
   globalTransportConfigSchema,
   MCPServerParams,
@@ -16,7 +16,6 @@ import {
 } from '@src/core/types/index.js';
 import logger, { debugIf } from '@src/logger/logger.js';
 
-import { parse as parseToml } from 'smol-toml';
 import { ZodError } from 'zod';
 
 /**
@@ -331,24 +330,7 @@ export class McpConfigManager extends EventEmitter {
    */
   private loadAppConfigFromToml(): ApplicationConfig {
     const tomlPath = path.join(path.dirname(this.configFilePath), 'config.toml');
-    try {
-      if (!fs.existsSync(tomlPath)) {
-        return {};
-      }
-      const raw = fs.readFileSync(tomlPath, 'utf8');
-      const parsed = parseToml(raw);
-      return applicationConfigSchema.parse(parsed);
-    } catch (error) {
-      if (error instanceof ZodError) {
-        const fieldErrors = error.issues.map((issue) => `${issue.path.join('.')}: ${issue.message}`).join(', ');
-        logger.error(`Invalid app configuration in config.toml (ignored): ${fieldErrors}`);
-      } else {
-        logger.error(
-          `Failed to load app configuration from ${tomlPath}: ${error instanceof Error ? error.message : String(error)}`,
-        );
-      }
-      return {};
-    }
+    return loadAppConfigFromTomlPath(tomlPath);
   }
 
   /**

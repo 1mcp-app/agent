@@ -160,13 +160,19 @@ export class ConfigManager extends EventEmitter {
           // Process templates with validation
           const result = await this.processTemplates(config.mcpTemplates, context, config.templateSettings);
           templateServers = {};
+          errors = [...result.errors];
           for (const [serverName, templateConfig] of Object.entries(result.servers)) {
-            templateServers[serverName] = this.validateServerConfig(
-              serverName,
-              mergeGlobalAndServerConfig(serverDefaults, templateConfig),
-            );
+            try {
+              templateServers[serverName] = this.validateServerConfig(
+                serverName,
+                mergeGlobalAndServerConfig(serverDefaults, templateConfig),
+              );
+            } catch (error) {
+              const message = error instanceof Error ? error.message : String(error);
+              logger.error(`Template server validation failed for ${serverName}: ${message}`);
+              errors.push(`${serverName}: ${message}`);
+            }
           }
-          errors = result.errors;
 
           // Cache results if caching is enabled
           if (config.templateSettings?.cacheContext) {

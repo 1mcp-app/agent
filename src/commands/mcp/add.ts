@@ -311,7 +311,8 @@ export async function addCommand(argv: AddCommandArgs): Promise<void> {
     if (globalConfig.requestTimeout !== undefined) inheritedKeys.push('requestTimeout');
     if (argv.env === undefined && globalConfig.env !== undefined) inheritedKeys.push('env');
     if (type === 'stdio' && globalConfig.inheritParentEnv !== undefined) inheritedKeys.push('inheritParentEnv');
-    if (type !== 'stdio' && globalConfig.headers !== undefined) inheritedKeys.push('headers');
+    if (type !== 'stdio' && argv.headers === undefined && globalConfig.headers !== undefined)
+      inheritedKeys.push('headers');
     if (globalConfig.oauth !== undefined) inheritedKeys.push('oauth');
     if (inheritedKeys.length > 0) {
       printer.keyValue({ Inherits: inheritedKeys.join(', ') });

@@ -2,6 +2,7 @@ import fs from 'fs';
 import path from 'path';
 
 import { DEFAULT_CONFIG } from '@src/constants.js';
+import logger from '@src/logger/logger.js';
 
 import { beforeEach, describe, expect, it, MockInstance, vi } from 'vitest';
 
@@ -217,6 +218,7 @@ describe('McpConfigManager', () => {
     });
 
     it('should warn when app key is present in mcp.json', () => {
+      const warnSpy = vi.spyOn(logger, 'warn').mockImplementation(() => logger);
       (fs.readFileSync as unknown as MockInstance).mockReturnValueOnce(
         JSON.stringify({ app: { port: 3050 }, mcpServers: {} }),
       );
@@ -228,6 +230,7 @@ describe('McpConfigManager', () => {
       // Should not throw
       const instance = McpConfigManager.getInstance(testConfigPath);
       expect(instance.getAppConfig()).toEqual({});
+      expect(warnSpy).toHaveBeenCalled();
     });
   });
 });

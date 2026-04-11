@@ -23,6 +23,27 @@ interface ErrnoException extends Error {
   code?: string;
 }
 
+export function loadAppConfigFromTomlPath(tomlPath: string): ApplicationConfig {
+  try {
+    if (!fs.existsSync(tomlPath)) {
+      return {};
+    }
+    const raw = fs.readFileSync(tomlPath, 'utf8');
+    const parsed = parseToml(raw);
+    return applicationConfigSchema.parse(parsed);
+  } catch (error) {
+    if (error instanceof ZodError) {
+      const fieldErrors = error.issues.map((e) => `${e.path.join('.')}: ${e.message}`).join(', ');
+      logger.error(`Invalid app configuration in config.toml (ignored): ${fieldErrors}`);
+    } else {
+      logger.error(
+        `Failed to load app configuration from ${tomlPath}: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+    return {};
+  }
+}
+
 export class ConfigLoader {
   private configFilePath: string;
   private lastModified = 0;
@@ -170,19 +191,7 @@ export class ConfigLoader {
 
   public loadAppConfigFromToml(): ApplicationConfig {
     const tomlPath = path.join(path.dirname(this.configFilePath), 'config.toml');
-    try {
-      if (!fs.existsSync(tomlPath)) {
-        return {};
-      }
-      const raw = fs.readFileSync(tomlPath, 'utf8');
-      const parsed = parseToml(raw);
-      return this.validateAppConfig(parsed);
-    } catch (error) {
-      logger.error(
-        `Failed to load app configuration from ${tomlPath}: ${error instanceof Error ? error.message : String(error)}`,
-      );
-      return {};
-    }
+    return loadAppConfigFromTomlPath(tomlPath);
   }
 
   public loadConfigWithEnvSubstitution(): Record<string, MCPServerParams> {
@@ -226,6 +235,8 @@ export class ConfigLoader {
     const validatedConfig: Record<string, MCPServerParams> = {};
     for (const [serverName, serverConfig] of Object.entries(mcpServersConfig)) {
       try {
+        // Validate the raw server first, then re-validate after applying serverDefaults
+        // so merged config errors are surfaced instead of silently accepted.
         const validatedServerConfig = this.validateServerConfig(serverName, serverConfig);
         const mergedConfig = mergeGlobalAndServerConfig(globalConfig, validatedServerConfig);
         validatedConfig[serverName] = this.validateServerConfig(serverName, mergedConfig);

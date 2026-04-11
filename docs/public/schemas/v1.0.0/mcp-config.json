@@ -72,6 +72,10 @@
             "autoRegister": {
               "description": "Automatically register OAuth client if not already registered",
               "type": "boolean"
+            },
+            "redirectUrl": {
+              "description": "OAuth redirect URL used after auth",
+              "type": "string"
             }
           }
         },
@@ -156,6 +160,10 @@
               "autoRegister": {
                 "description": "Automatically register OAuth client if not already registered",
                 "type": "boolean"
+              },
+              "redirectUrl": {
+                "description": "OAuth redirect URL used after auth",
+                "type": "string"
               }
             }
           },
@@ -353,6 +361,10 @@
               "autoRegister": {
                 "description": "Automatically register OAuth client if not already registered",
                 "type": "boolean"
+              },
+              "redirectUrl": {
+                "description": "OAuth redirect URL used after auth",
+                "type": "string"
               }
             }
           },

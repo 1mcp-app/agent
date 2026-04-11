@@ -159,4 +159,19 @@ describe('mcpConfigMerge', () => {
 
     expect(merged.env).toEqual({ SERVER_VAR: 'server-value' });
   });
+
+  it('keeps the server env array when both global and server env use array format', () => {
+    const globalConfig: GlobalTransportConfig = {
+      env: ['GLOBAL_VAR=value'] as unknown as Record<string, string>,
+    };
+    const serverConfig: MCPServerParams = {
+      type: 'stdio',
+      command: 'node',
+      env: ['SERVER_VAR=server-value'] as unknown as Record<string, string>,
+    };
+
+    const merged = mergeGlobalAndServerConfig(globalConfig, serverConfig);
+
+    expect(merged.env).toEqual(['SERVER_VAR=server-value']);
+  });
 });
