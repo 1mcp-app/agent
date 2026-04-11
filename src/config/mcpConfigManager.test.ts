@@ -175,7 +175,7 @@ describe('McpConfigManager', () => {
         JSON.stringify({
           serverDefaults: {
             timeout: 5000,
-            env: { SHARED: 'global' },
+            env: { SHARED: 'global', KEEP: 'global-only' },
           },
           mcpServers: {
             server1: {
@@ -190,15 +190,18 @@ describe('McpConfigManager', () => {
       const instance = McpConfigManager.getInstance(testConfigPath);
       expect(instance.getGlobalConfig()).toEqual({
         timeout: 5000,
-        env: { SHARED: 'global' },
+        env: { SHARED: 'global', KEEP: 'global-only' },
       });
 
-      expect(instance.getEffectiveServerConfig('server1')).toEqual({
+      const effective = instance.getEffectiveServerConfig('server1');
+      expect(effective).toEqual({
         type: 'stdio',
         command: 'node',
         timeout: 5000,
-        env: { SHARED: 'server' },
+        env: { SHARED: 'server', KEEP: 'global-only' },
       });
+      // Verify global-only key is present in effective config (merge, not override)
+      expect((effective?.env as Record<string, string>)?.KEEP).toBe('global-only');
     });
   });
 

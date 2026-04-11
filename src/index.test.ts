@@ -92,7 +92,6 @@ describe('Index Module', () => {
           describe: 'Transport type to use (stdio or http, sse is deprecated)',
           type: 'string',
           choices: ['stdio', 'http', 'sse'],
-          default: 'http',
         },
         port: {
           alias: 'P',
@@ -146,7 +145,7 @@ describe('Index Module', () => {
       expect(expectedOptions.transport.choices).toContain('stdio');
       expect(expectedOptions.transport.choices).toContain('http');
       expect(expectedOptions.transport.choices).toContain('sse');
-      expect(expectedOptions.transport.default).toBe('http');
+      expect('default' in expectedOptions.transport).toBe(false);
 
       expect(expectedOptions.pagination.default).toBe(false);
       expect(expectedOptions.auth.default).toBe(false);
