@@ -3,7 +3,12 @@ import path from 'path';
 
 import ConfigContext from '@src/config/configContext.js';
 import { McpConfigManager } from '@src/config/mcpConfigManager.js';
-import { MCPServerParams } from '@src/core/types/index.js';
+import {
+  getUnknownGlobalConfigKeys,
+  mergeGlobalAndServerConfig,
+  mergeGlobalWithServers,
+} from '@src/config/mcpConfigMerge.js';
+import { GlobalTransportConfig, globalTransportConfigSchema, MCPServerParams } from '@src/core/types/index.js';
 import logger from '@src/logger/logger.js';
 
 /**
@@ -27,6 +32,7 @@ export function initializeConfigContext(configPath?: string, configDir?: string)
 }
 
 export interface ServerConfig {
+  serverDefaults?: GlobalTransportConfig;
   mcpServers: Record<string, MCPServerParams>;
 }
 
@@ -51,6 +57,14 @@ export function loadConfig(configPath?: string): ServerConfig {
     }
 
     const configObj = configData as Record<string, unknown>;
+
+    if (configObj.serverDefaults !== undefined) {
+      const unknownGlobalKeys = getUnknownGlobalConfigKeys(configObj.serverDefaults);
+      if (unknownGlobalKeys.length > 0) {
+        logger.warn(`Unknown properties in global MCP configuration were ignored: ${unknownGlobalKeys.join(', ')}`);
+      }
+      configObj.serverDefaults = globalTransportConfigSchema.parse(configObj.serverDefaults);
+    }
 
     // Ensure mcpServers exists and is properly typed
     if (!configObj.mcpServers || typeof configObj.mcpServers !== 'object') {
@@ -81,6 +95,13 @@ export function loadConfig(configPath?: string): ServerConfig {
     }
     throw error;
   }
+}
+
+function isMissingConfigError(error: unknown): boolean {
+  return (
+    (error instanceof Error && error.message.includes('Configuration file not found')) ||
+    (typeof error === 'object' && error !== null && 'code' in error && (error as { code?: string }).code === 'ENOENT')
+  );
 }
 
 /**
@@ -127,8 +148,50 @@ export function getServer(serverName: string): MCPServerParams | null {
   try {
     const config = loadConfig();
     return config.mcpServers[serverName] || null;
-  } catch (_error) {
-    return null;
+  } catch (error) {
+    logger.warn(`Failed to get server '${serverName}': ${error instanceof Error ? error.message : String(error)}`);
+    if (isMissingConfigError(error)) {
+      return null;
+    }
+    throw error;
+  }
+}
+
+/**
+ * Get global MCP configuration from file.
+ */
+export function getGlobalConfig(): GlobalTransportConfig {
+  try {
+    const config = loadConfig();
+    return config.serverDefaults || {};
+  } catch (error) {
+    logger.warn(`Failed to get global config: ${error instanceof Error ? error.message : String(error)}`);
+    if (isMissingConfigError(error)) {
+      return {};
+    }
+    throw error;
+  }
+}
+
+/**
+ * Get effective merged configuration for a specific server.
+ */
+export function getEffectiveServerConfig(serverName: string): MCPServerParams | null {
+  try {
+    const config = loadConfig();
+    const server = config.mcpServers[serverName];
+    if (!server) {
+      return null;
+    }
+    return mergeGlobalAndServerConfig(config.serverDefaults, server);
+  } catch (error) {
+    logger.warn(
+      `Failed to get effective server config for '${serverName}': ${error instanceof Error ? error.message : String(error)}`,
+    );
+    if (isMissingConfigError(error)) {
+      return null;
+    }
+    throw error;
   }
 }
 
@@ -181,8 +244,28 @@ export function getAllServers(): Record<string, MCPServerParams> {
   try {
     const config = loadConfig();
     return config.mcpServers;
-  } catch (_error) {
-    return {};
+  } catch (error) {
+    logger.warn(`Failed to get all servers: ${error instanceof Error ? error.message : String(error)}`);
+    if (isMissingConfigError(error)) {
+      return {};
+    }
+    throw error;
+  }
+}
+
+/**
+ * Get all effective server configurations after applying global inheritance.
+ */
+export function getAllEffectiveServers(): Record<string, MCPServerParams> {
+  try {
+    const config = loadConfig();
+    return mergeGlobalWithServers(config.serverDefaults, config.mcpServers);
+  } catch (error) {
+    logger.warn(`Failed to get all effective servers: ${error instanceof Error ? error.message : String(error)}`);
+    if (isMissingConfigError(error)) {
+      return {};
+    }
+    throw error;
   }
 }
 
@@ -324,6 +407,7 @@ export function validateServerConfig(serverConfig: MCPServerParams): void {
 
     case 'http':
     case 'sse':
+    case 'streamableHttp':
       if (!serverConfig.url) {
         throw new Error(`URL is required for ${serverConfig.type} servers`);
       }
@@ -373,6 +457,56 @@ export function reloadMcpConfig(): void {
     configManager.reloadConfig();
     logger.info('MCP configuration reloaded');
   } catch (error) {
-    logger.warn(`Failed to reload MCP configuration: ${error}`);
+    logger.warn(`Failed to reload MCP configuration: ${error instanceof Error ? error.message : String(error)}`);
   }
+}
+
+export function getInheritedKeys(
+  rawConfig: MCPServerParams,
+  effectiveConfig: MCPServerParams,
+  globalConfig: GlobalTransportConfig,
+): string[] {
+  const inherited: string[] = [];
+  const fallbackKeys: Array<keyof MCPServerParams> = [
+    'timeout',
+    'connectionTimeout',
+    'requestTimeout',
+    'oauth',
+    'headers',
+    'inheritParentEnv',
+  ];
+
+  for (const key of fallbackKeys) {
+    if (
+      rawConfig[key] === undefined &&
+      effectiveConfig[key] !== undefined &&
+      globalConfig[key as keyof GlobalTransportConfig] !== undefined
+    ) {
+      inherited.push(String(key));
+    }
+  }
+
+  if (rawConfig.env === undefined && effectiveConfig.env !== undefined && globalConfig.env !== undefined) {
+    inherited.push('env');
+  }
+
+  if (
+    rawConfig.env &&
+    effectiveConfig.env &&
+    typeof rawConfig.env === 'object' &&
+    typeof effectiveConfig.env === 'object' &&
+    !Array.isArray(rawConfig.env) &&
+    !Array.isArray(effectiveConfig.env) &&
+    typeof globalConfig.env === 'object' &&
+    globalConfig.env !== null &&
+    !Array.isArray(globalConfig.env)
+  ) {
+    const rawEnv = rawConfig.env as Record<string, string>;
+    const effectiveEnv = effectiveConfig.env as Record<string, string>;
+    if (Object.keys(effectiveEnv).some((key) => !(key in rawEnv))) {
+      inherited.push('env(merged)');
+    }
+  }
+
+  return inherited;
 }

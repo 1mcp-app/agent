@@ -1,11 +1,21 @@
-import { MCPServerParams } from '@src/core/types/index.js';
+import { GlobalTransportConfig, MCPServerParams } from '@src/core/types/index.js';
 import { GlobalOptions } from '@src/globalOptions.js';
+import { sanitizeForLogging } from '@src/logger/secureLogger.js';
 import { inferTransportType } from '@src/transport/transportFactory.js';
 import printer from '@src/utils/ui/printer.js';
 
 import type { Argv } from 'yargs';
 
-import { getAllServers, getServer, initializeConfigContext, validateConfigPath } from './utils/mcpServerConfig.js';
+import {
+  getAllEffectiveServers,
+  getAllServers,
+  getEffectiveServerConfig,
+  getGlobalConfig,
+  getInheritedKeys,
+  getServer,
+  initializeConfigContext,
+  validateConfigPath,
+} from './utils/mcpServerConfig.js';
 import { validateServerName } from './utils/validation.js';
 
 export interface StatusCommandArgs extends GlobalOptions {
@@ -23,7 +33,7 @@ export function buildStatusCommand(yargs: Argv) {
       type: 'string',
     })
     .option('verbose', {
-      describe: 'Show detailed status information',
+      describe: 'Show detailed status information with effective merged configuration',
       type: 'boolean',
       default: false,
       alias: 'v',
@@ -69,8 +79,9 @@ async function showServerStatus(serverName: string, verbose: boolean = false): P
   validateServerName(serverName);
 
   // Get server configuration
-  const serverConfig = getServer(serverName);
-  if (!serverConfig) {
+  const rawServerConfig = getServer(serverName);
+  const effectiveServerConfig = getEffectiveServerConfig(serverName);
+  if (!rawServerConfig || !effectiveServerConfig) {
     throw new Error(`Server '${serverName}' does not exist.`);
   }
 
@@ -78,7 +89,7 @@ async function showServerStatus(serverName: string, verbose: boolean = false): P
   printer.title(`Server Status: ${serverName}`);
   printer.blank();
 
-  displayDetailedServerStatus(serverName, serverConfig, verbose);
+  displayDetailedServerStatus(serverName, rawServerConfig, effectiveServerConfig, getGlobalConfig(), verbose);
 }
 
 /**
@@ -86,8 +97,10 @@ async function showServerStatus(serverName: string, verbose: boolean = false): P
  */
 async function showAllServersStatus(verbose: boolean = false): Promise<void> {
   const allServers = getAllServers();
+  const allEffectiveServers = getAllEffectiveServers();
+  const globalConfig = getGlobalConfig();
 
-  if (Object.keys(allServers).length === 0) {
+  if (Object.keys(allEffectiveServers).length === 0) {
     printer.info('No MCP servers are configured.');
     printer.info('Use "mcp add <name>" to add your first server.');
     return;
@@ -96,25 +109,45 @@ async function showAllServersStatus(verbose: boolean = false): Promise<void> {
   printer
     .blank()
     .title(
-      `MCP Servers Status (${Object.keys(allServers).length} server${Object.keys(allServers).length === 1 ? '' : 's'})`,
+      `MCP Servers Status (${Object.keys(allEffectiveServers).length} server${Object.keys(allEffectiveServers).length === 1 ? '' : 's'})`,
     )
     .blank();
 
+  if (Object.keys(globalConfig).length > 0) {
+    printer.subtitle('Global Defaults:');
+    printer.keyValue({
+      timeout: globalConfig.timeout !== undefined ? `${globalConfig.timeout}ms` : '(none)',
+      connectionTimeout:
+        globalConfig.connectionTimeout !== undefined ? `${globalConfig.connectionTimeout}ms` : '(none)',
+      requestTimeout: globalConfig.requestTimeout !== undefined ? `${globalConfig.requestTimeout}ms` : '(none)',
+    });
+    printer.blank();
+  }
+
   // Sort servers by name for consistent output
-  const sortedServerNames = Object.keys(allServers).sort();
+  const sortedServerNames = Object.keys(allEffectiveServers).sort();
 
   for (const serverName of sortedServerNames) {
-    const config = allServers[serverName];
-    displayServerStatusSummary(serverName, config);
+    const effectiveConfig = allEffectiveServers[serverName];
+    displayServerStatusSummary(serverName, effectiveConfig);
+    if (verbose && allServers[serverName]) {
+      const inherited = getInheritedKeys(allServers[serverName], effectiveConfig, globalConfig);
+      if (inherited.length > 0) {
+        printer.keyValue({ Inherited: inherited.join(', ') });
+      }
+    }
     printer.blank(); // Empty line between servers
   }
 
   // Overall summary
-  const enabledCount = sortedServerNames.filter((name) => !allServers[name].disabled).length;
+  const enabledCount = sortedServerNames.filter((name) => !allEffectiveServers[name].disabled).length;
   const disabledCount = sortedServerNames.length - enabledCount;
-  const stdioCount = sortedServerNames.filter((name) => allServers[name].type === 'stdio').length;
-  const httpCount = sortedServerNames.filter((name) => allServers[name].type === 'http').length;
-  const sseCount = sortedServerNames.filter((name) => allServers[name].type === 'sse').length;
+  const stdioCount = sortedServerNames.filter((name) => allEffectiveServers[name].type === 'stdio').length;
+  const httpCount = sortedServerNames.filter((name) => allEffectiveServers[name].type === 'http').length;
+  const sseCount = sortedServerNames.filter((name) => allEffectiveServers[name].type === 'sse').length;
+  const streamableHttpCount = sortedServerNames.filter(
+    (name) => allEffectiveServers[name].type === 'streamableHttp',
+  ).length;
 
   printer.subtitle('Overall Summary:');
   printer.keyValue({
@@ -126,11 +159,12 @@ async function showAllServersStatus(verbose: boolean = false): Promise<void> {
     stdio: stdioCount,
     http: httpCount,
     sse: sseCount,
+    streamableHttp: streamableHttpCount,
   });
 
   // Get unique tags
   const allTags = new Set<string>();
-  for (const config of Object.values(allServers)) {
+  for (const config of Object.values(allEffectiveServers)) {
     if (config.tags) {
       config.tags.forEach((tag) => allTags.add(tag));
     }
@@ -165,7 +199,10 @@ function displayServerStatusSummary(name: string, config: MCPServerParams): void
 
   if (inferredConfig.type === 'stdio' && inferredConfig.command) {
     printer.keyValue({ Command: inferredConfig.command });
-  } else if ((inferredConfig.type === 'http' || inferredConfig.type === 'sse') && inferredConfig.url) {
+  } else if (
+    (inferredConfig.type === 'http' || inferredConfig.type === 'sse' || inferredConfig.type === 'streamableHttp') &&
+    inferredConfig.url
+  ) {
     printer.keyValue({ URL: inferredConfig.url });
   }
 
@@ -177,12 +214,18 @@ function displayServerStatusSummary(name: string, config: MCPServerParams): void
 /**
  * Display detailed status for a server (used in single server view)
  */
-function displayDetailedServerStatus(name: string, config: MCPServerParams, verbose: boolean): void {
-  const statusIcon = config.disabled ? '🔴' : '🟢';
-  const statusText = config.disabled ? 'Disabled' : 'Enabled';
+function displayDetailedServerStatus(
+  name: string,
+  rawConfig: MCPServerParams,
+  effectiveConfig: MCPServerParams,
+  globalConfig: GlobalTransportConfig,
+  verbose: boolean,
+): void {
+  const statusIcon = effectiveConfig.disabled ? '🔴' : '🟢';
+  const statusText = effectiveConfig.disabled ? 'Disabled' : 'Enabled';
 
   // Infer type if missing
-  const inferredConfig = config.type ? config : inferTransportType(config, name);
+  const inferredConfig = effectiveConfig.type ? effectiveConfig : inferTransportType(effectiveConfig, name);
   const displayType = inferredConfig.type || 'unknown';
 
   printer.subtitle('Configuration:');
@@ -208,7 +251,11 @@ function displayDetailedServerStatus(name: string, config: MCPServerParams, verb
     }
 
     printer.keyValue({ 'Working Directory': inferredConfig.cwd || '(current directory)' });
-  } else if (inferredConfig.type === 'http' || inferredConfig.type === 'sse') {
+  } else if (
+    inferredConfig.type === 'http' ||
+    inferredConfig.type === 'sse' ||
+    inferredConfig.type === 'streamableHttp'
+  ) {
     if (inferredConfig.url) {
       printer.keyValue({ URL: inferredConfig.url });
     }
@@ -224,7 +271,12 @@ function displayDetailedServerStatus(name: string, config: MCPServerParams, verb
   }
 
   // Common configuration
-  printer.keyValue({ Timeout: inferredConfig.timeout ? `${inferredConfig.timeout}ms` : '(default)' });
+  printer.keyValue({
+    Timeout: inferredConfig.timeout !== undefined ? `${inferredConfig.timeout}ms` : '(default)',
+    'Connection Timeout':
+      inferredConfig.connectionTimeout !== undefined ? `${inferredConfig.connectionTimeout}ms` : '(default)',
+    'Request Timeout': inferredConfig.requestTimeout !== undefined ? `${inferredConfig.requestTimeout}ms` : '(default)',
+  });
   printer.keyValue({
     Tags: inferredConfig.tags && inferredConfig.tags.length > 0 ? inferredConfig.tags.join(', ') : '(none)',
   });
@@ -246,12 +298,17 @@ function displayDetailedServerStatus(name: string, config: MCPServerParams, verb
     printer.keyValue({ 'Environment Variables': '(none)' });
   }
 
+  const inherited = getInheritedKeys(rawConfig, effectiveConfig, globalConfig);
+  if (inherited.length > 0) {
+    printer.keyValue({ Inherited: inherited.join(', ') });
+  }
+
   // Runtime status (this would require integration with ServerManager to get actual runtime status)
   printer.blank();
   printer.subtitle('Runtime Information:');
-  printer.keyValue({ 'Configuration File': JSON.stringify(config) });
+  printer.keyValue({ 'Effective Configuration': JSON.stringify(sanitizeForLogging(effectiveConfig)) });
 
-  if (config.disabled) {
+  if (effectiveConfig.disabled) {
     printer.keyValue({ 'Runtime Status': '⏹️  Not running (disabled)' });
     printer.info(`Use 'mcp enable ${name}' to enable this server.`);
   } else {
@@ -263,7 +320,7 @@ function displayDetailedServerStatus(name: string, config: MCPServerParams, verb
   printer.blank();
   printer.subtitle('Validation:');
   try {
-    validateServerConfiguration(config);
+    validateServerConfiguration(effectiveConfig);
     printer.info('Configuration: Valid ✓');
   } catch (error) {
     printer.error('Configuration: Invalid ❌');
@@ -273,7 +330,7 @@ function displayDetailedServerStatus(name: string, config: MCPServerParams, verb
   // Quick actions
   printer.blank();
   printer.subtitle('Quick Actions:');
-  if (config.disabled) {
+  if (effectiveConfig.disabled) {
     printer.info(`   • Enable: mcp enable ${name}`);
   } else {
     printer.info(`   • Disable: mcp disable ${name}`);
@@ -298,6 +355,7 @@ function validateServerConfiguration(config: MCPServerParams): void {
       break;
     case 'http':
     case 'sse':
+    case 'streamableHttp':
       if (!config.url) {
         throw new Error(`URL is required for ${config.type} servers`);
       }

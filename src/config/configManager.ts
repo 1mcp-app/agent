@@ -1,6 +1,7 @@
 import { createHash } from 'crypto';
 import { EventEmitter } from 'events';
 
+import { mergeGlobalAndServerConfig } from '@src/config/mcpConfigMerge.js';
 import { AgentConfigManager } from '@src/core/server/agentConfig.js';
 import {
   mcpServerConfigSchema,
@@ -123,11 +124,13 @@ export class ConfigManager extends EventEmitter {
       };
     }
 
-    // Process static servers (existing logic)
+    // Process static servers
     const staticServers: Record<string, MCPServerParams> = {};
+    const serverDefaults = config.serverDefaults;
     for (const [serverName, serverConfig] of Object.entries(config.mcpServers)) {
       try {
-        staticServers[serverName] = this.validateServerConfig(serverName, serverConfig);
+        const mergedConfig = mergeGlobalAndServerConfig(serverDefaults, serverConfig);
+        staticServers[serverName] = this.validateServerConfig(serverName, mergedConfig);
       } catch (error) {
         logger.error(
           `Static server validation failed for ${serverName}: ${error instanceof Error ? error.message : String(error)}`,
@@ -156,8 +159,20 @@ export class ConfigManager extends EventEmitter {
         } else {
           // Process templates with validation
           const result = await this.processTemplates(config.mcpTemplates, context, config.templateSettings);
-          templateServers = result.servers;
-          errors = result.errors;
+          templateServers = {};
+          errors = [...result.errors];
+          for (const [serverName, templateConfig] of Object.entries(result.servers)) {
+            try {
+              templateServers[serverName] = this.validateServerConfig(
+                serverName,
+                mergeGlobalAndServerConfig(serverDefaults, templateConfig),
+              );
+            } catch (error) {
+              const message = error instanceof Error ? error.message : String(error);
+              logger.error(`Template server validation failed for ${serverName}: ${message}`);
+              errors.push(`${serverName}: ${message}`);
+            }
+          }
 
           // Cache results if caching is enabled
           if (config.templateSettings?.cacheContext) {
@@ -354,6 +369,10 @@ export class ConfigManager extends EventEmitter {
 
   public getAvailableTags(): string[] {
     return this.loader.getAvailableTags(this.transportConfig);
+  }
+
+  public getAppConfig() {
+    return this.loader.loadAppConfig();
   }
 }
 
