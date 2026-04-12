@@ -63,13 +63,14 @@ interface JsonRpcErrorEnvelope {
 export class RunCommandInputError extends Error {}
 
 export function parseToolReference(toolRef: string): ParsedToolReference {
-  const separatorIndex = toolRef.indexOf('/');
-  if (separatorIndex <= 0 || separatorIndex === toolRef.length - 1) {
+  const parts = toolRef.split('/');
+  if (parts.length !== 2) {
     throw new RunCommandInputError('Tool reference must be in the format <server>/<tool>.');
   }
 
-  const serverName = toolRef.slice(0, separatorIndex).trim();
-  const toolName = toolRef.slice(separatorIndex + 1).trim();
+  const [serverPart, toolPart] = parts;
+  const serverName = serverPart.trim();
+  const toolName = toolPart.trim();
 
   if (!serverName || !toolName) {
     throw new RunCommandInputError('Tool reference must be in the format <server>/<tool>.');
@@ -162,6 +163,10 @@ export function formatToolCallOutput(
 export function truncateText(text: string, maxChars: number): string {
   if (maxChars < 0) {
     throw new RunCommandInputError('--max-chars must be zero or greater.');
+  }
+
+  if (maxChars === 0) {
+    return text;
   }
 
   if (text.length <= maxChars) {

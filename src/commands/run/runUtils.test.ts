@@ -24,6 +24,7 @@ describe('parseToolReference', () => {
   it('rejects invalid tool references', () => {
     expect(() => parseToolReference('filesystem')).toThrow(RunCommandInputError);
     expect(() => parseToolReference('/read_file')).toThrow(RunCommandInputError);
+    expect(() => parseToolReference('a/b/c')).toThrow(RunCommandInputError);
   });
 });
 
@@ -136,6 +137,22 @@ describe('formatToolCallOutput', () => {
     );
 
     expect(output).toBe('... [trunc');
+  });
+
+  it('treats maxChars=0 as unlimited for compact output', () => {
+    const output = formatToolCallOutput(
+      {
+        jsonrpc: '2.0',
+        id: 1,
+        result: {
+          content: [{ type: 'text', text: 'abcdefghijklmnopqrstuvwxyz' }],
+        },
+      },
+      'compact',
+      0,
+    );
+
+    expect(output).toBe('abcdefghijklmnopqrstuvwxyz');
   });
 
   it('returns json envelopes for raw output', () => {

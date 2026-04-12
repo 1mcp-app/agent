@@ -51,6 +51,7 @@ interface InitializeResult {
 interface RunSessionCache {
   sessionId: string;
   serverUrl: string;
+  savedAt: number;
   hasRestEndpoint?: boolean;
 }
 
@@ -72,6 +73,8 @@ export interface RunCommandOptions extends GlobalOptions {
   args?: string;
   tool: string;
 }
+
+export const SESSION_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 
 class StreamableRunClient {
   private readonly transport: StreamableHTTPClientTransport;
@@ -200,7 +203,7 @@ class StreamableRunClient {
 
 export async function runCommand(options: RunCommandOptions): Promise<void> {
   const toolReference = parseToolReference(options.tool);
-  const format = options.raw ? 'json' : options.format || 'compact';
+  const format = options.raw ? 'json' : options.format || (process.stdout.isTTY ? 'text' : 'json');
   const maxChars = options['max-chars'] ?? 2000;
 
   const { url: discoveredUrl } = await discoverServerWithPidFile(options['config-dir'], options.url);
@@ -241,6 +244,7 @@ export async function runCommand(options: RunCommandOptions): Promise<void> {
     await writeCliSessionCache(cachePath, {
       sessionId: response.sessionId,
       serverUrl: serverUrl.toString(),
+      savedAt: Date.now(),
       hasRestEndpoint: false,
     });
   }
@@ -263,7 +267,7 @@ export async function runCommand(options: RunCommandOptions): Promise<void> {
   }
 }
 
-async function invokeTool(options: {
+export async function invokeTool(options: {
   serverUrl: URL;
   sessionId?: string;
   displayToolName: string;
@@ -342,7 +346,7 @@ async function invokeTool(options: {
   }
 }
 
-function buildServerUrl(
+export function buildServerUrl(
   baseUrl: string,
   options: Pick<RunCommandOptions, 'preset' | 'filter' | 'tags' | 'tag-filter'>,
 ): URL {
@@ -374,11 +378,11 @@ async function readStdin(): Promise<string | undefined> {
   return Buffer.concat(chunks).toString('utf8');
 }
 
-function getCliSessionCachePath(configDir?: string): string {
+export function getCliSessionCachePath(configDir?: string): string {
   return path.join(getConfigDir(configDir), '.cli-session');
 }
 
-async function readCliSessionCache(cachePath: string, serverUrl: string): Promise<RunSessionCache | null> {
+export async function readCliSessionCache(cachePath: string, serverUrl: string): Promise<RunSessionCache | null> {
   try {
     const raw = await readFile(cachePath, 'utf8');
     const parsed = JSON.parse(raw) as unknown;
@@ -386,20 +390,28 @@ async function readCliSessionCache(cachePath: string, serverUrl: string): Promis
       return null;
     }
 
-    return parsed.serverUrl === serverUrl ? parsed : null;
+    if (parsed.serverUrl !== serverUrl) {
+      return null;
+    }
+
+    if (Date.now() - parsed.savedAt > SESSION_CACHE_TTL_MS) {
+      return null;
+    }
+
+    return parsed;
   } catch {
     return null;
   }
 }
 
-async function writeCliSessionCache(cachePath: string, cache: RunSessionCache): Promise<void> {
+export async function writeCliSessionCache(cachePath: string, cache: RunSessionCache): Promise<void> {
   await mkdir(path.dirname(cachePath), { recursive: true });
-  const tempPath = `${cachePath}.tmp`;
+  const tempPath = `${cachePath}.tmp.${process.pid}`;
   await writeFile(tempPath, JSON.stringify(cache), 'utf8');
   await rename(tempPath, cachePath);
 }
 
-async function deleteCliSessionCache(cachePath: string): Promise<void> {
+export async function deleteCliSessionCache(cachePath: string): Promise<void> {
   await rm(cachePath, { force: true });
 }
 
@@ -410,6 +422,9 @@ function isRunSessionCache(value: unknown): value is RunSessionCache {
     'sessionId' in value &&
     typeof value.sessionId === 'string' &&
     'serverUrl' in value &&
-    typeof value.serverUrl === 'string'
+    typeof value.serverUrl === 'string' &&
+    'savedAt' in value &&
+    typeof value.savedAt === 'number' &&
+    Number.isFinite(value.savedAt)
   );
 }

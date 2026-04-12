@@ -41,7 +41,6 @@ export function setupRunCommand(yargs: Argv): Argv {
           describe: 'Output format',
           type: 'string',
           choices: ['json', 'text', 'compact'],
-          default: 'compact',
         })
         .option('raw', {
           describe: 'Alias for --format json',
