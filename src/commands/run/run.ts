@@ -9,6 +9,8 @@ import {
   RunCommandInputError,
   type RunOutputFormat,
 } from '@src/commands/run/runUtils.js';
+import { ApiClient } from '@src/commands/shared/apiClient.js';
+import { loadAuthProfile, normalizeServerUrl } from '@src/commands/shared/authProfileStore.js';
 import {
   buildServerUrl,
   deleteCliSessionCache,
@@ -60,6 +62,78 @@ export async function runCommand(options: RunCommandOptions): Promise<void> {
   const stdinText = await readStdin();
   const cachePath = getCliSessionCachePath(options['config-dir']);
   const cachedSession = await readCliSessionCache(cachePath, serverUrl.toString());
+
+  // REST-first path: skip MCP handshake when we know the server supports it,
+  // or probe once on first run. Fall back to MCP on 404/405/network errors.
+  const canTryRest = cachedSession?.hasRestEndpoint !== false;
+  const needsSchemaForStdin = options.args === undefined && stdinText !== undefined;
+
+  if (canTryRest && !needsSchemaForStdin) {
+    const baseUrl = discoveredUrl.replace(/\/mcp$/, '');
+    const authProfile = await loadAuthProfile(options['config-dir'], normalizeServerUrl(baseUrl));
+    const apiClient = new ApiClient({ baseUrl, bearerToken: authProfile?.token });
+
+    const restArgs =
+      options.args !== undefined
+        ? (JSON.parse(options.args) as Record<string, unknown>)
+        : stdinText !== undefined
+          ? tryParseJsonObject(stdinText)
+          : {};
+
+    if (restArgs !== null) {
+      const apiResponse = await apiClient.post<{
+        result: CallToolResult;
+        server: string;
+        tool: string;
+        error?: { type: string; message: string };
+      }>('/api/tool-invocations', { tool: options.tool, args: restArgs ?? {} });
+
+      const isFallbackStatus =
+        apiResponse.status === 404 ||
+        apiResponse.status === 405 ||
+        apiResponse.status === 503 ||
+        apiResponse.status === 0;
+
+      if (!isFallbackStatus) {
+        // REST endpoint exists — cache the result
+        if (cachedSession) {
+          await writeCliSessionCache(cachePath, { ...cachedSession, hasRestEndpoint: true });
+        }
+
+        let rawResponse: JsonRpcResponse<CallToolResult>;
+        if (apiResponse.ok && apiResponse.data) {
+          rawResponse = { jsonrpc: '2.0', id: 0, result: apiResponse.data.result };
+        } else {
+          rawResponse = {
+            jsonrpc: '2.0',
+            id: 0,
+            error: { code: -32000, message: apiResponse.error ?? `HTTP ${apiResponse.status}` },
+          };
+        }
+
+        const output = formatToolCallOutput(rawResponse, format, maxChars);
+        if ('error' in rawResponse) {
+          process.stderr.write(`${output}\n`);
+          process.exitCode = 1;
+          return;
+        }
+        if (rawResponse.result.isError) {
+          process.stderr.write(`${output}\n`);
+          process.exitCode = 2;
+          return;
+        }
+        if (output.length > 0) {
+          process.stdout.write(`${output}\n`);
+        }
+        return;
+      }
+
+      // 404/405/0 → server doesn't have REST endpoint, cache that and fall through to MCP
+      if (cachedSession) {
+        await writeCliSessionCache(cachePath, { ...cachedSession, hasRestEndpoint: false });
+      }
+    }
+  }
 
   let response = await invokeTool({
     serverUrl,
@@ -200,4 +274,16 @@ async function readStdin(): Promise<string | undefined> {
   }
 
   return Buffer.concat(chunks).toString('utf8');
+}
+
+function tryParseJsonObject(text: string): Record<string, unknown> | null {
+  try {
+    const parsed = JSON.parse(text) as unknown;
+    if (typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed)) {
+      return parsed as Record<string, unknown>;
+    }
+    return null;
+  } catch {
+    return null;
+  }
 }

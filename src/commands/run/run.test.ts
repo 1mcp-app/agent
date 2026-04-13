@@ -5,6 +5,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { buildServerUrl, invokeTool, readCliSessionCache, SESSION_CACHE_TTL_MS, writeCliSessionCache } from './run.js';
 
+vi.mock('@src/commands/shared/authProfileStore.js', () => ({
+  loadAuthProfile: vi.fn(async () => null),
+  normalizeServerUrl: vi.fn((url: string) => url),
+}));
+
 const transportState = vi.hoisted(() => ({
   callResult: {
     content: [{ type: 'text', text: 'ok' }],
@@ -262,5 +267,131 @@ describe('run command internals', () => {
       expect(response.sessionId).toBeUndefined();
       expect('error' in response.rawResponse && response.rawResponse.error.message).toBe('Cached session expired.');
     });
+  });
+});
+
+describe('runCommand REST-first path', () => {
+  let cacheDir: string;
+  let cachePath: string;
+  const mockFetch = vi.fn();
+
+  beforeEach(async () => {
+    vi.stubGlobal('fetch', mockFetch);
+    mockFetch.mockReset();
+    transportState.instances = [];
+    transportState.callResult = { content: [{ type: 'text', text: 'ok' }] };
+    transportState.sessionIdOnInitialize = 'fresh-session';
+    transportState.throw404OnMethod = undefined;
+
+    const baseDir = join(process.cwd(), '.tmp-test', 'run-rest-unit');
+    await mkdir(baseDir, { recursive: true });
+    cacheDir = await mkdtemp(join(baseDir, 'cache-'));
+    cachePath = join(cacheDir, '.cli-session');
+  });
+
+  afterEach(async () => {
+    vi.unstubAllGlobals();
+    await rm(cacheDir, { recursive: true, force: true });
+  });
+
+  function makeRestResponse(status: number, body: unknown) {
+    return {
+      ok: status >= 200 && status < 300,
+      status,
+      headers: { get: (name: string) => (name === 'content-type' ? 'application/json' : null) },
+      json: async () => body,
+    };
+  }
+
+  it('uses REST when hasRestEndpoint is true in cache and skips MCP', async () => {
+    await writeCliSessionCache(cachePath, {
+      sessionId: 'cached-session',
+      serverUrl: 'http://127.0.0.1:3050/mcp',
+      savedAt: Date.now(),
+      hasRestEndpoint: true,
+    });
+
+    const restResult = {
+      result: { content: [{ type: 'text', text: 'rest-result' }], isError: false },
+      server: 'runner',
+      tool: 'echo_args',
+    };
+    mockFetch.mockResolvedValueOnce(makeRestResponse(200, restResult));
+
+    const origStdout = process.stdout.write.bind(process.stdout);
+    const output: string[] = [];
+    vi.spyOn(process.stdout, 'write').mockImplementation((chunk) => {
+      output.push(String(chunk));
+      return true;
+    });
+
+    const { runCommand } = await import('./run.js');
+    await runCommand({
+      tool: 'runner/echo_args',
+      args: '{"message":"hi"}',
+      'config-dir': cacheDir,
+    } as never);
+
+    vi.restoreAllMocks();
+    process.stdout.write = origStdout;
+
+    // MCP transport should NOT have been used
+    expect(transportState.instances).toHaveLength(0);
+    expect(output.join('')).toContain('rest-result');
+  });
+
+  it('falls back to MCP when REST returns 404', async () => {
+    await writeCliSessionCache(cachePath, {
+      sessionId: 'cached-session',
+      serverUrl: 'http://127.0.0.1:3050/mcp',
+      savedAt: Date.now(),
+      hasRestEndpoint: true,
+    });
+
+    mockFetch.mockResolvedValueOnce(makeRestResponse(404, { error: 'not found' }));
+
+    const origStdout = process.stdout.write.bind(process.stdout);
+    vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
+
+    const { runCommand } = await import('./run.js');
+    await runCommand({
+      tool: 'runner/echo_args',
+      args: '{"message":"hi"}',
+      'config-dir': cacheDir,
+    } as never);
+
+    vi.restoreAllMocks();
+    process.stdout.write = origStdout;
+
+    // MCP transport should have been used as fallback
+    expect(transportState.instances.length).toBeGreaterThan(0);
+  });
+
+  it('skips REST entirely when hasRestEndpoint is false', async () => {
+    await writeCliSessionCache(cachePath, {
+      sessionId: 'cached-session',
+      serverUrl: 'http://127.0.0.1:3050/mcp',
+      savedAt: Date.now(),
+      hasRestEndpoint: false,
+    });
+
+    vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
+
+    const { runCommand } = await import('./run.js');
+    await runCommand({
+      tool: 'runner/echo_args',
+      args: '{"message":"hi"}',
+      'config-dir': cacheDir,
+    } as never);
+
+    vi.restoreAllMocks();
+
+    // fetch should not have been called for /api/tool-invocations
+    const toolInvocationCalls = mockFetch.mock.calls.filter(
+      ([url]: [string]) => typeof url === 'string' && url.includes('tool-invocations'),
+    );
+    expect(toolInvocationCalls).toHaveLength(0);
+    // MCP was used
+    expect(transportState.instances.length).toBeGreaterThan(0);
   });
 });

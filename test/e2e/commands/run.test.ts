@@ -154,6 +154,36 @@ describeRunE2E('run command E2E', () => {
     expect(result.stderr).toContain('Cannot connect');
   });
 
+  it('writes a session cache with hasRestEndpoint field after first run', async () => {
+    await startServeProcess();
+
+    const result = await runner.runRunCommand('runner/echo_args', {
+      args: ['--args', '{"message":"cache-check"}', '--format', 'text'],
+    });
+    runner.assertSuccess(result);
+
+    const cachePath = join(environment.getConfigDir(), '.cli-session');
+    const cache = JSON.parse(await readFile(cachePath, 'utf8')) as { hasRestEndpoint?: boolean };
+    // hasRestEndpoint is always written (true when REST works, false when MCP fallback)
+    expect(typeof cache.hasRestEndpoint).toBe('boolean');
+  });
+
+  it('produces consistent output across successive invocations', async () => {
+    await startServeProcess();
+
+    const first = await runner.runRunCommand('runner/echo_args', {
+      args: ['--args', '{"message":"consistent"}', '--format', 'text'],
+    });
+    runner.assertSuccess(first);
+
+    const second = await runner.runRunCommand('runner/echo_args', {
+      args: ['--args', '{"message":"consistent"}', '--format', 'text'],
+    });
+    runner.assertSuccess(second);
+
+    expect(first.stdout).toBe(second.stdout);
+  });
+
   async function startServeProcess(): Promise<void> {
     if (serveProcess) {
       return;
