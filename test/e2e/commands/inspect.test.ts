@@ -47,11 +47,14 @@ describeInspectE2E('inspect command E2E', () => {
 
     runner.assertSuccess(result);
     expect(result.stderr).toBe('');
-    expect(result.stdout).toContain('runner_1mcp_echo_args');
-    expect(result.stdout).toContain('Required args:');
-    expect(result.stdout).toContain('- message: string - Message to echo back.');
-    expect(result.stdout).toContain('Optional args:');
-    expect(result.stdout).toContain('mode: string, enum(plain | json), default="plain"');
+    expect(result.stdout).toContain('Inspect: Tool');
+    expect(result.stdout).toContain('qualified_name: runner_1mcp_echo_args');
+    expect(result.stdout).toContain('required_args:');
+    expect(result.stdout).toContain('- name: message');
+    expect(result.stdout).toContain('description: Message to echo back.');
+    expect(result.stdout).toContain('optional_args:');
+    expect(result.stdout).toContain('enum=plain | json');
+    expect(result.stdout).toContain('default="plain"');
   });
 
   it('lists a server tool inventory for bare server targets', async () => {
@@ -60,10 +63,14 @@ describeInspectE2E('inspect command E2E', () => {
     const result = await runner.runInspectCommand('runner');
 
     runner.assertSuccess(result);
-    expect(result.stdout).toContain('Server: runner');
-    expect(result.stdout).toContain('Tools (4):');
-    expect(result.stdout).toContain('echo_args (1 required, 3 optional)');
-    expect(result.stdout).toContain('summarize (1 required, 0 optional)');
+    expect(result.stdout).toContain('Inspect: Server');
+    expect(result.stdout).toContain('server: runner');
+    expect(result.stdout).toContain('tools_total: 4');
+    expect(result.stdout).toContain('- tool: echo_args');
+    expect(result.stdout).toContain('required_args: 1');
+    expect(result.stdout).toContain('optional_args: 3');
+    expect(result.stdout).toContain('- tool: summarize');
+    expect(result.stdout).toContain('optional_args: 0');
   });
 
   it('prints normalized json with --format json', async () => {
@@ -149,6 +156,76 @@ describeInspectE2E('inspect command E2E', () => {
 
     const second = await runner.runInspectCommand('runner/echo_args', { args: ['--format', 'json'] });
     runner.assertSuccess(second);
+  });
+
+  it('discovers template servers on the first inspect and shows instructions for server targets', async () => {
+    await environment.updateConfig({
+      servers: [
+        {
+          name: 'runner',
+          command: 'node',
+          args: [join(process.cwd(), 'test/e2e/fixtures/run-tool-server.js')],
+          tags: ['test', 'run'],
+          type: 'stdio',
+        },
+      ],
+    });
+
+    const templateConfig = {
+      templateSettings: {
+        cacheContext: true,
+      },
+      mcpServers: {
+        runner: {
+          transport: 'stdio',
+          command: 'node',
+          args: [join(process.cwd(), 'test/e2e/fixtures/run-tool-server.js')],
+          tags: ['test', 'run'],
+        },
+      },
+      mcpTemplates: {
+        serena: {
+          transport: 'stdio',
+          command: 'node',
+          args: [join(process.cwd(), 'test/e2e/fixtures/inspect-template-server.js'), '{{project.path}}'],
+          tags: ['serena'],
+          template: {
+            shareable: true,
+          },
+        },
+      },
+    };
+    await writeFile(environment.getConfigPath(), JSON.stringify(templateConfig, null, 2), 'utf8');
+
+    await startServeProcess();
+
+    const listResult = await runner.runCommand('inspect', '', {
+      cwd: environment.getTempDir(),
+      args: ['--config-dir', environment.getConfigDir()],
+    });
+
+    runner.assertSuccess(listResult);
+    expect(listResult.stdout).toContain('Inspect: Servers');
+    expect(listResult.stdout).toContain('- server: serena');
+    expect(listResult.stdout).toContain('type: template');
+    expect(listResult.stdout).toContain('status: connected');
+    expect(listResult.stdout).toContain('tools: 1');
+    expect(listResult.stdout).toContain('instructions: yes');
+
+    const serverResult = await runner.runInspectCommand('serena', {
+      cwd: environment.getTempDir(),
+    });
+
+    runner.assertSuccess(serverResult);
+    expect(serverResult.stdout).toContain('Inspect: Server');
+    expect(serverResult.stdout).toContain('server: serena');
+    expect(serverResult.stdout).toContain('instructions:');
+    expect(serverResult.stdout).toContain('# Serena Instructions');
+    expect(serverResult.stdout).not.toContain('# 1MCP - Model Context Protocol Proxy');
+    expect(serverResult.stdout).toContain('tools (1):');
+    expect(serverResult.stdout).toContain('- tool: find_symbol');
+    expect(serverResult.stdout).toContain('required_args: 1');
+    expect(serverResult.stdout).toContain('optional_args: 1');
   });
 
   async function startServeProcess(): Promise<void> {

@@ -163,6 +163,25 @@ function summarizeDirectServerTool(serverName: string, tool: Tool) {
   });
 }
 
+function resolveConnectionByServerName(
+  connections: ReturnType<typeof FilteringService.getFilteredConnections>,
+  serverName: string,
+) {
+  const direct = connections.get(serverName);
+  if (direct) {
+    return direct;
+  }
+
+  for (const [key, connection] of connections) {
+    const cleanKey = key.includes(':') ? key.split(':')[0] : key;
+    if (cleanKey === serverName || connection.name === serverName) {
+      return connection;
+    }
+  }
+
+  return undefined;
+}
+
 function matchesFilterConfig(tags: string[] | undefined, filterConfig: InboundConnectionConfig): boolean {
   const serverTags = tags ?? [];
 
@@ -314,7 +333,8 @@ export function createInspectHandler(serverManager: ServerManager): RequestHandl
         }
 
         if (!found) {
-          const connection = filteredConnections.get(serverName) ?? serverManager.getClient(serverName);
+          const connection =
+            resolveConnectionByServerName(filteredConnections, serverName) ?? serverManager.getClient(serverName);
           if (connection?.client) {
             try {
               const result = await connection.client.listTools();
@@ -347,7 +367,7 @@ export function createInspectHandler(serverManager: ServerManager): RequestHandl
       const { serverName } = target;
 
       const adapter = serverRegistry.get(serverName);
-      const connection = filteredConnections.get(serverName);
+      const connection = resolveConnectionByServerName(filteredConnections, serverName);
 
       if (!adapter && !connection) {
         res.status(404).json({ error: `Server not found: ${serverName}` });

@@ -43,6 +43,16 @@ export interface InspectCommandOptions extends GlobalOptions {
   cursor?: string;
 }
 
+interface ApiInspectToolResult {
+  kind: 'tool';
+  server: string;
+  tool: string;
+  qualifiedName: string;
+  description?: string;
+  inputSchema: Record<string, unknown>;
+  outputSchema?: Record<string, unknown>;
+}
+
 /** Strip /mcp suffix to get the base URL for /api/* calls */
 function toBaseUrl(mcpUrl: string): string {
   return mcpUrl.replace(/\/mcp$/, '');
@@ -121,6 +131,12 @@ function buildInspectContext(projectConfig?: Awaited<ReturnType<typeof loadProje
   }
 
   return context;
+}
+
+function isApiInspectToolResult(value: unknown): value is ApiInspectToolResult {
+  return (
+    typeof value === 'object' && value !== null && 'kind' in value && value.kind === 'tool' && 'inputSchema' in value
+  );
 }
 
 function mergeContextDiscoveredServers(
@@ -209,6 +225,18 @@ export async function inspectCommand(options: InspectCommandOptions): Promise<vo
   if (apiResponse.ok && apiResponse.data !== undefined) {
     let result = apiResponse.data as Parameters<typeof formatInspectOutput>[0];
 
+    if (target.kind === 'tool' && isApiInspectToolResult(result)) {
+      result = extractInspectToolInfo(
+        {
+          name: result.qualifiedName,
+          description: result.description,
+          inputSchema: result.inputSchema,
+          outputSchema: result.outputSchema,
+        } as Tool,
+        target.reference,
+      );
+    }
+
     if (target.kind === 'all' && result.kind === 'servers') {
       let contextResponse = await inspectTools({
         serverUrl,
@@ -241,6 +269,22 @@ export async function inspectCommand(options: InspectCommandOptions): Promise<vo
             hasRestEndpoint: true,
           });
         }
+      }
+    }
+
+    if (target.kind === 'tool' && !cachedSession?.sessionId) {
+      const sessionResponse = await inspectTools({
+        serverUrl,
+        context: inspectContext,
+      });
+
+      if (sessionResponse.sessionId) {
+        await writeCliSessionCache(cachePath, {
+          sessionId: sessionResponse.sessionId,
+          serverUrl: serverUrl.toString(),
+          savedAt: Date.now(),
+          hasRestEndpoint: true,
+        });
       }
     }
 
@@ -301,19 +345,30 @@ export async function inspectCommand(options: InspectCommandOptions): Promise<vo
     });
   }
 
-  const result =
-    target.kind === 'tool'
-      ? extractInspectToolInfo(
-          findTool(response.tools, target.reference.qualifiedName, mergedOptions.target!),
-          target.reference,
-          Boolean(cachedSession?.sessionId),
-        )
-      : extractInspectServerInfo(
-          target.serverName,
-          response.tools,
-          Boolean(cachedSession?.sessionId),
-          response.instructions,
-        );
+  let result: Parameters<typeof formatInspectOutput>[0];
+
+  if (target.kind === 'tool') {
+    result = extractInspectToolInfo(
+      findTool(response.tools, target.reference.qualifiedName, mergedOptions.target!),
+      target.reference,
+      Boolean(cachedSession?.sessionId),
+    );
+  } else {
+    const serverApiResponse = await apiClient.get<Parameters<typeof formatInspectOutput>[0]>('/api/inspect', {
+      ...buildInspectQuery(mergedOptions, mergedOptions.target),
+    });
+
+    if (serverApiResponse.ok && serverApiResponse.data?.kind === 'server') {
+      result = serverApiResponse.data;
+    } else {
+      result = extractInspectServerInfo(
+        target.serverName,
+        response.tools,
+        Boolean(cachedSession?.sessionId),
+        undefined,
+      );
+    }
+  }
 
   const output = formatInspectOutput(result, format);
   if (output.length > 0) {

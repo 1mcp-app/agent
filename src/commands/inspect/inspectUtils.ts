@@ -4,6 +4,8 @@ import type { ParsedToolReference } from '@src/commands/run/runUtils.js';
 import { MCP_URI_SEPARATOR } from '@src/constants.js';
 import { buildUri, parseUri } from '@src/utils/core/parsing.js';
 
+import chalk from 'chalk';
+
 export type InspectOutputFormat = 'text' | 'json';
 
 interface JsonSchemaObject {
@@ -194,70 +196,123 @@ function formatServersOutput(info: InspectServersInfo): string {
     return 'No servers available.';
   }
 
-  const lines = [`Servers (${info.servers.length}):`];
+  const lines = [chalk.bold.cyan('Inspect: Servers'), `count: ${info.servers.length}`, '', chalk.bold('servers:')];
   for (const s of info.servers) {
-    const parts: string[] = [s.server];
-    if (s.type) parts.push(s.type);
-    if (s.status) parts.push(s.status);
-    parts.push(`${s.toolCount} tool${s.toolCount !== 1 ? 's' : ''}`);
-    if (s.hasInstructions) parts.push('has instructions');
-    lines.push(`  - ${parts.join(', ')}`);
+    lines.push(`- server: ${chalk.bold(s.server)}`);
+    if (s.type) {
+      lines.push(`  type: ${chalk.dim(s.type)}`);
+    }
+    if (s.status) {
+      const status =
+        s.status === 'connected'
+          ? chalk.green(s.status)
+          : s.status === 'disconnected'
+            ? chalk.red(s.status)
+            : chalk.yellow(s.status);
+      lines.push(`  status: ${status}`);
+    }
+    if (s.available !== undefined) {
+      lines.push(`  available: ${s.available ? 'yes' : 'no'}`);
+    }
+    lines.push(`  tools: ${s.toolCount}`);
+    lines.push(`  instructions: ${s.hasInstructions ? 'yes' : 'no'}`);
   }
   return lines.join('\n');
 }
 
 function formatToolOutput(toolInfo: InspectToolInfo): string {
-  const sections: string[] = [toolInfo.qualifiedName];
+  const sections: string[] = [
+    chalk.bold.cyan('Inspect: Tool'),
+    [`server: ${toolInfo.server}`, `tool: ${toolInfo.tool}`, `qualified_name: ${toolInfo.qualifiedName}`].join('\n'),
+  ];
 
   if (toolInfo.description) {
-    sections.push(toolInfo.description);
+    sections.push(`${chalk.bold('description:')}\n${indentBlock(toolInfo.description, 2)}`);
   }
 
   sections.push(formatArgumentSection('Required args', toolInfo.requiredArgs));
   sections.push(formatArgumentSection('Optional args', toolInfo.optionalArgs));
 
   if (toolInfo.outputSchema) {
-    sections.push('Output schema: available');
+    sections.push('output_schema: available');
   }
 
   if (toolInfo.fromCache !== undefined) {
-    sections.push(`Schema cache: ${toolInfo.fromCache ? 'hit' : 'miss'}`);
+    const cacheValue = toolInfo.fromCache ? chalk.green('hit') : chalk.yellow('miss');
+    sections.push(`schema_cache: ${cacheValue}`);
   }
 
   if (toolInfo.examples.length > 0) {
-    sections.push(`Examples:\n${toolInfo.examples.map((example) => `- ${JSON.stringify(example)}`).join('\n')}`);
+    sections.push(
+      `${chalk.bold('examples:')}\n${toolInfo.examples.map((example) => `- ${JSON.stringify(example)}`).join('\n')}`,
+    );
   }
 
   return sections.join('\n\n');
 }
 
 function formatServerOutput(serverInfo: InspectServerInfo): string {
-  const sections: string[] = [`Server: ${serverInfo.server}`];
+  const totalTools = serverInfo.totalTools ?? serverInfo.tools.length;
+  const summaryLines = [`server: ${serverInfo.server}`, `tools_total: ${totalTools}`];
 
-  if (serverInfo.instructions !== undefined) {
-    sections.push(serverInfo.instructions ? `Instructions:\n${serverInfo.instructions}` : 'Instructions:\n(none)');
+  if (serverInfo.type) {
+    summaryLines.push(`type: ${serverInfo.type}`);
   }
 
-  const totalTools = serverInfo.totalTools ?? serverInfo.tools.length;
-  sections.push(`Tools (${totalTools}):`);
+  if (serverInfo.status) {
+    const status =
+      serverInfo.status === 'connected'
+        ? chalk.green(serverInfo.status)
+        : serverInfo.status === 'disconnected'
+          ? chalk.red(serverInfo.status)
+          : chalk.yellow(serverInfo.status);
+    summaryLines.push(`status: ${status}`);
+  }
+
+  if (serverInfo.available !== undefined) {
+    summaryLines.push(`available: ${serverInfo.available ? 'yes' : 'no'}`);
+  }
+
+  const sections: string[] = [chalk.bold.cyan('Inspect: Server'), summaryLines.join('\n')];
+
+  if (serverInfo.instructions !== undefined) {
+    sections.push(
+      serverInfo.instructions
+        ? `${chalk.bold('instructions:')}\n\`\`\`\n${serverInfo.instructions}\n\`\`\``
+        : `${chalk.bold('instructions:')}\n${chalk.dim('(none)')}`,
+    );
+  }
+
+  sections.push(chalk.bold(`tools (${totalTools}):`));
   sections.push(
     serverInfo.tools
       .map((tool) => {
-        const summary = `${tool.tool} (${tool.requiredArgs} required, ${tool.optionalArgs} optional)`;
-        return tool.description ? `- ${summary} - ${tool.description}` : `- ${summary}`;
+        const lines = [
+          `- tool: ${chalk.yellow(tool.tool)}`,
+          `  qualified_name: ${tool.qualifiedName}`,
+          `  required_args: ${tool.requiredArgs}`,
+          `  optional_args: ${tool.optionalArgs}`,
+        ];
+
+        if (tool.description) {
+          lines.push(`  description: ${tool.description}`);
+        }
+
+        return lines.join('\n');
       })
       .join('\n'),
   );
 
   if (serverInfo.hasMore) {
     const hint = serverInfo.nextCursor
-      ? `  Use --cursor ${serverInfo.nextCursor} to see more, or --all to fetch everything.`
+      ? `Use --cursor ${serverInfo.nextCursor} to see more, or --all to fetch everything.`
       : '  Use --all to fetch all tools.';
-    sections.push(`Showing ${serverInfo.tools.length} of ${totalTools} tools.${hint}`);
+    sections.push(chalk.dim(`pagination: showing ${serverInfo.tools.length} of ${totalTools} tools. ${hint.trim()}`));
   }
 
   if (serverInfo.fromCache !== undefined) {
-    sections.push(`Schema cache: ${serverInfo.fromCache ? 'hit' : 'miss'}`);
+    const cacheValue = serverInfo.fromCache ? chalk.green('hit') : chalk.yellow('miss');
+    sections.push(`schema_cache: ${cacheValue}`);
   }
 
   return sections.join('\n\n');
@@ -265,23 +320,38 @@ function formatServerOutput(serverInfo: InspectServerInfo): string {
 
 function formatArgumentSection(title: string, args: InspectArgumentInfo[]): string {
   if (args.length === 0) {
-    return `${title}:\n(none)`;
+    return `${chalk.bold(`${toSectionKey(title)}:`)}\n${chalk.dim('(none)')}`;
   }
 
-  return `${title}:\n${args.map(formatArgumentLine).join('\n')}`;
+  return `${chalk.bold(`${toSectionKey(title)}:`)}\n${args.map(formatArgumentLine).join('\n')}`;
 }
 
 function formatArgumentLine(arg: InspectArgumentInfo): string {
-  const details = [arg.type];
+  const details = [`type=${chalk.dim(arg.type)}`];
   if (arg.enumValues && arg.enumValues.length > 0) {
-    details.push(`enum(${arg.enumValues.map((value) => String(value)).join(' | ')})`);
+    details.push(`enum=${chalk.dim(arg.enumValues.map((value) => String(value)).join(' | '))}`);
   }
   if (arg.defaultValue !== undefined) {
-    details.push(`default=${JSON.stringify(arg.defaultValue)}`);
+    details.push(`default=${chalk.dim(JSON.stringify(arg.defaultValue))}`);
   }
 
-  const suffix = arg.description ? ` - ${arg.description}` : '';
-  return `- ${arg.name}: ${details.join(', ')}${suffix}`;
+  const lines = [`- name: ${chalk.yellow(arg.name)}`, `  ${details.join(chalk.dim('  '))}`];
+  if (arg.description) {
+    lines.push(`  description: ${arg.description}`);
+  }
+  return lines.join('\n');
+}
+
+function toSectionKey(title: string): string {
+  return title.toLowerCase().replace(/\s+/g, '_');
+}
+
+function indentBlock(value: string, spaces: number): string {
+  const prefix = ' '.repeat(spaces);
+  return value
+    .split('\n')
+    .map((line) => `${prefix}${line}`)
+    .join('\n');
 }
 
 function collectInspectArguments(inputSchema: Record<string, unknown>): InspectArgumentInfo[] {

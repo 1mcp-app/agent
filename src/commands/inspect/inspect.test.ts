@@ -405,7 +405,7 @@ describe('inspect command internals', () => {
       'config-dir': cacheDir,
     } as never);
 
-    expect(mockedStdoutWrite).toHaveBeenCalledWith(expect.stringContaining('Server: serena'));
+    expect(mockedStdoutWrite).toHaveBeenCalledWith(expect.stringContaining('Inspect: Server'));
     expect(transportState.instances.map((instance) => instance.sentMessages.map((message) => message.method))).toEqual([
       ['tools/list'],
       ['initialize', 'notifications/initialized', 'tools/list'],
@@ -413,7 +413,26 @@ describe('inspect command internals', () => {
   });
 
   it('retries with a fresh session when a server target needs instructions', async () => {
-    mockedApiClientGet.mockResolvedValue({ ok: false, status: 503, error: 'disconnected' });
+    mockedApiClientGet.mockResolvedValueOnce({ ok: false, status: 503, error: 'disconnected' }).mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      data: {
+        kind: 'server',
+        server: 'serena',
+        instructions: '# Serena Instructions\nUse Serena tools first.',
+        tools: [
+          {
+            tool: 'find_symbol',
+            qualifiedName: 'serena_1mcp_find_symbol',
+            description: 'Find symbol',
+            requiredArgs: 1,
+            optionalArgs: 0,
+          },
+        ],
+        totalTools: 1,
+        hasMore: false,
+      },
+    });
     transportState.schemaPayload = {
       tools: [
         {
@@ -443,7 +462,10 @@ describe('inspect command internals', () => {
       'config-dir': cacheDir,
     } as never);
 
-    expect(mockedStdoutWrite).toHaveBeenCalledWith(expect.stringContaining('Instructions:'));
+    expect(mockedStdoutWrite).toHaveBeenCalledWith(expect.stringContaining('# Serena Instructions'));
+    expect(mockedStdoutWrite).not.toHaveBeenCalledWith(
+      expect.stringContaining('# 1MCP - Model Context Protocol Proxy'),
+    );
     expect(transportState.instances.map((instance) => instance.sentMessages.map((message) => message.method))).toEqual([
       ['tools/list'],
       ['initialize', 'notifications/initialized', 'tools/list'],

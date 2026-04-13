@@ -105,14 +105,17 @@ describe('inspectUtils', () => {
 
     const output = formatInspectOutput(info, 'text');
 
-    expect(output).toContain('runner_1mcp_echo_args');
-    expect(output).toContain('Required args:');
-    expect(output).toContain('- message: string - Message to echo back.');
-    expect(output).toContain('Optional args:');
-    expect(output).toContain('enum(plain | json)');
-    expect(output).toContain('Output schema: available');
-    expect(output).toContain('Schema cache: hit');
-    expect(output).toContain('Examples:');
+    expect(output).toContain('Inspect: Tool');
+    expect(output).toContain('qualified_name: runner_1mcp_echo_args');
+    expect(output).toContain('required_args:');
+    expect(output).toContain('- name: message');
+    expect(output).toContain('type=string');
+    expect(output).toContain('Message to echo back.');
+    expect(output).toContain('optional_args:');
+    expect(output).toContain('enum=plain | json');
+    expect(output).toContain('output_schema: available');
+    expect(output).toContain('schema_cache:');
+    expect(output).toContain('examples:');
   });
 
   it('formats normalized json output', () => {
@@ -154,11 +157,15 @@ describe('inspectUtils', () => {
     );
 
     const output = formatInspectOutput(result, 'text');
-    expect(output).toContain('Server: runner');
-    expect(output).toContain('Tools (2):');
-    expect(output).toContain('echo_args (1 required, 2 optional)');
-    expect(output).toContain('summarize (1 required, 0 optional)');
-    expect(output).toContain('Schema cache: hit');
+    expect(output).toContain('Inspect: Server');
+    expect(output).toContain('server: runner');
+    expect(output).toContain('tools_total: 2');
+    expect(output).toContain('- tool: echo_args');
+    expect(output).toContain('required_args: 1');
+    expect(output).toContain('optional_args: 2');
+    expect(output).toContain('- tool: summarize');
+    expect(output).toContain('optional_args: 0');
+    expect(output).toContain('schema_cache:');
   });
 
   it('supports tools without optional metadata', () => {

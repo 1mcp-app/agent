@@ -186,4 +186,79 @@ describe('apiRoutes inspect', () => {
       ],
     });
   });
+
+  it('resolves template-backed server targets by clean server name', async () => {
+    outboundConnections = new Map([
+      [
+        'serena:template-hash',
+        {
+          name: 'serena',
+          transport: { tags: ['serena'] } as never,
+          client: {
+            listTools: vi.fn().mockResolvedValue({
+              tools: [
+                {
+                  name: 'find_symbol',
+                  description: 'Find symbol',
+                  inputSchema: {
+                    type: 'object',
+                    properties: {
+                      name_path_pattern: { type: 'string' },
+                      relative_path: { type: 'string' },
+                    },
+                    required: ['name_path_pattern'],
+                  },
+                },
+              ],
+            }),
+          } as never,
+          status: ClientStatus.Connected,
+        },
+      ],
+    ]) as unknown as OutboundConnections;
+
+    const adapters = new Map<string, ServerAdapter>([['serena', makeAdapter('serena', ['serena'])]]);
+
+    const serverRegistry = {
+      getServerNames: vi.fn(() => Array.from(adapters.keys())),
+      get: vi.fn((name: string) => adapters.get(name)),
+    };
+
+    const serverManager = {
+      getClients: vi.fn(() => outboundConnections),
+      getInstructionAggregator: vi.fn(() => ({
+        hasInstructions: (name: string) => name === 'serena',
+        getServerInstructions: (name: string) => (name === 'serena' ? '# Serena Instructions' : undefined),
+      })),
+      getLazyLoadingOrchestrator: vi.fn(() => undefined),
+      getServerRegistry: vi.fn(() => serverRegistry),
+      getClient: vi.fn((name: string) => outboundConnections.get(name)),
+    };
+
+    inspectHandler = createInspectHandler(serverManager as never);
+
+    const req = { query: { target: 'serena' } };
+    const res = createMockResponse();
+
+    await invokeInspectRoute(scopeAuthMiddleware, req, res);
+    await invokeInspectRoute(inspectHandler, req, res);
+
+    expect(res.statusCode, JSON.stringify(res.body)).toBe(200);
+    expect(res.body).toMatchObject({
+      kind: 'server',
+      server: 'serena',
+      instructions: '# Serena Instructions',
+      totalTools: 1,
+      hasMore: false,
+      tools: [
+        {
+          tool: 'find_symbol',
+          qualifiedName: 'serena_1mcp_find_symbol',
+          description: 'Find symbol',
+          requiredArgs: 1,
+          optionalArgs: 1,
+        },
+      ],
+    });
+  });
 });
