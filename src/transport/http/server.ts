@@ -19,6 +19,7 @@ import { httpRequestLogger } from './middlewares/httpRequestLogger.js';
 import { createMcpAvailabilityMiddleware } from './middlewares/mcpAvailabilityMiddleware.js';
 import { createScopeAuthMiddleware } from './middlewares/scopeAuthMiddleware.js';
 import { setupSecurityMiddleware } from './middlewares/securityMiddleware.js';
+import { createApiRoutes, createCliTokenRoute } from './routes/apiRoutes.js';
 import createHealthRoutes from './routes/healthRoutes.js';
 import createOAuthRoutes from './routes/oauthRoutes.js';
 import { setupSseRoutes } from './routes/sseRoutes.js';
@@ -182,10 +183,16 @@ export class ExpressServer {
     // Setup health check routes (no auth required for monitoring)
     this.app.use('/health', createHealthRoutes(this.loadingManager));
 
+    // CLI token endpoint (localhost-only, no auth middleware)
+    this.app.post('/api/auth/cli-token', createCliTokenRoute(this.oauthProvider));
+
+    // Setup API routes (CLI-oriented fast endpoints, auth via scopeAuthMiddleware)
+    const scopeAuthMiddleware = createScopeAuthMiddleware(this.oauthProvider);
+    this.app.use('/api', createApiRoutes(this.serverManager, scopeAuthMiddleware));
+
     // Setup MCP transport routes (auth is handled per-route via scopeAuthMiddleware)
     const router = express.Router();
 
-    const scopeAuthMiddleware = createScopeAuthMiddleware(this.oauthProvider);
     const availabilityMiddleware = createMcpAvailabilityMiddleware(this.loadingManager, {
       allowPartialAvailability: true,
       includeOAuthServers: false,

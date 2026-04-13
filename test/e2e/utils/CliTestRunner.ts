@@ -140,6 +140,23 @@ export class CliTestRunner {
   }
 
   /**
+   * Execute the inspect command for MCP tool schema discovery
+   */
+  async runInspectCommand(tool: string, options: CommandExecutionOptions = {}): Promise<CommandResult> {
+    const args = ['inspect', tool];
+
+    if (options.args) {
+      args.push(...options.args);
+    }
+
+    if (!args.includes('--config-dir') && !args.includes('-d')) {
+      args.push('--config-dir', this.environment.getConfigDir());
+    }
+
+    return this.executeCommand(args, options);
+  }
+
+  /**
    * Execute the serve command for testing server startup
    */
   async runServeCommand(options: CommandExecutionOptions = {}): Promise<CommandResult> {

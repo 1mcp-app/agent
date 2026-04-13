@@ -25,15 +25,39 @@ class RunToolServer {
       tools: [
         {
           name: 'echo_args',
-          description: 'Return all arguments as formatted JSON',
+          description: 'Echo message payloads for testing.',
           inputSchema: {
             type: 'object',
             properties: {
-              message: { type: 'string' },
+              message: {
+                type: 'string',
+                description: 'Message to echo back.',
+              },
+              count: {
+                type: 'number',
+                description: 'Optional number attached to the response.',
+              },
+              mode: {
+                type: 'string',
+                description: 'How to format the echo result.',
+                enum: ['plain', 'json'],
+                default: 'plain',
+              },
+              payload: {
+                type: 'object',
+                description: 'Optional metadata attached to the message.',
+              },
+            },
+            required: ['message'],
+          },
+          outputSchema: {
+            type: 'object',
+            properties: {
+              echoed: { type: 'string' },
               count: { type: 'number' },
-              payload: { type: 'object' },
             },
           },
+          examples: [{ message: 'hello' }, { message: 'hello', count: 2, mode: 'json' }],
         },
         {
           name: 'emit_text',

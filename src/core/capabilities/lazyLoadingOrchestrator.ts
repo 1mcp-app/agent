@@ -552,6 +552,13 @@ export class LazyLoadingOrchestrator extends EventEmitter {
   }
 
   /**
+   * Get the capability aggregator
+   */
+  public getCapabilityAggregator(): CapabilityAggregator {
+    return this.capabilityAggregator;
+  }
+
+  /**
    * Get the schema cache
    */
   public getSchemaCache(): SchemaCache {

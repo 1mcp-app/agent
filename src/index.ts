@@ -8,6 +8,8 @@ import yargs from 'yargs';
 import { hideBin } from 'yargs/helpers';
 
 import { setupAppCommands } from './commands/app/index.js';
+import { setupAuthCommands } from './commands/auth/index.js';
+import { setupInspectCommand } from './commands/inspect/index.js';
 import { setupMcpCommands } from './commands/mcp/index.js';
 import { setupPresetCommands } from './commands/preset/index.js';
 import { setupProxyCommand } from './commands/proxy/index.js';
@@ -48,10 +50,12 @@ yargsInstance = yargsInstance
 
 // Register command groups with global options
 yargsInstance = setupAppCommands(yargsInstance);
+yargsInstance = setupAuthCommands(yargsInstance);
 yargsInstance = setupMcpCommands(yargsInstance);
 yargsInstance = setupPresetCommands(yargsInstance);
 yargsInstance = setupServeCommand(yargsInstance);
 yargsInstance = setupProxyCommand(yargsInstance);
+yargsInstance = setupInspectCommand(yargsInstance);
 yargsInstance = setupRunCommand(yargsInstance);
 yargsInstance = setupRegistryCommands(yargsInstance);
 
@@ -66,7 +70,15 @@ function checkGlobalOptionConflicts(argv: string[]): void {
   const allGlobalOptions = [...globalOptionNames, ...globalOptionAliases];
 
   const commandIndex = argv.findIndex(
-    (arg) => arg === 'app' || arg === 'mcp' || arg === 'preset' || arg === 'serve' || arg === 'proxy' || arg === 'run',
+    (arg) =>
+      arg === 'app' ||
+      arg === 'auth' ||
+      arg === 'mcp' ||
+      arg === 'preset' ||
+      arg === 'serve' ||
+      arg === 'proxy' ||
+      arg === 'inspect' ||
+      arg === 'run',
   );
 
   if (commandIndex === -1) return;
