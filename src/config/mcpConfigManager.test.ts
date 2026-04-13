@@ -66,12 +66,24 @@ vi.mock('@src/constants.js', () => ({
   getGlobalConfigDir: vi.fn().mockReturnValue('/test'),
 }));
 
+const getResolvedConfigPathMock = vi.fn(() => '/test/mcp.json');
+
+vi.mock('@src/config/configContext.js', () => ({
+  __esModule: true,
+  default: {
+    getInstance: vi.fn(() => ({
+      getResolvedConfigPath: getResolvedConfigPathMock,
+    })),
+  },
+}));
+
 describe('McpConfigManager', () => {
   const testConfigPath = '/test/config.json';
 
   beforeEach(() => {
     // Reset singleton instance
     (McpConfigManager as any).instance = undefined;
+    getResolvedConfigPathMock.mockReturnValue('/test/mcp.json');
     // Default mock implementations
     (fs.existsSync as unknown as MockInstance).mockReturnValue(true);
     (fs.readFileSync as unknown as MockInstance).mockReturnValue(JSON.stringify({ mcpServers: {} }));
@@ -88,6 +100,24 @@ describe('McpConfigManager', () => {
     it('should use provided config path', () => {
       const instance = McpConfigManager.getInstance(testConfigPath);
       expect((instance as any).configFilePath).toBe(testConfigPath);
+    });
+
+    it('should use ConfigContext resolved path when no config path is provided', () => {
+      getResolvedConfigPathMock.mockReturnValue('/tmp/runtime/mcp.json');
+
+      const instance = McpConfigManager.getInstance();
+
+      expect((instance as any).configFilePath).toBe('/tmp/runtime/mcp.json');
+    });
+
+    it('should recreate singleton when config path changes', () => {
+      const defaultConfigPath = '/test/default-mcp.json';
+
+      const instance1 = McpConfigManager.getInstance(defaultConfigPath);
+      const instance2 = McpConfigManager.getInstance(testConfigPath);
+
+      expect(instance2).not.toBe(instance1);
+      expect((instance2 as any).configFilePath).toBe(testConfigPath);
     });
   });
 
@@ -177,6 +207,7 @@ describe('McpConfigManager', () => {
           serverDefaults: {
             timeout: 5000,
             env: { SHARED: 'global', KEEP: 'global-only' },
+            envFilter: ['PATH', 'NODE_*'],
           },
           mcpServers: {
             server1: {
@@ -192,6 +223,7 @@ describe('McpConfigManager', () => {
       expect(instance.getGlobalConfig()).toEqual({
         timeout: 5000,
         env: { SHARED: 'global', KEEP: 'global-only' },
+        envFilter: ['PATH', 'NODE_*'],
       });
 
       const effective = instance.getEffectiveServerConfig('server1');
@@ -200,6 +232,7 @@ describe('McpConfigManager', () => {
         command: 'node',
         timeout: 5000,
         env: { SHARED: 'server', KEEP: 'global-only' },
+        envFilter: ['PATH', 'NODE_*'],
       });
       // Verify global-only key is present in effective config (merge, not override)
       expect((effective?.env as Record<string, string>)?.KEEP).toBe('global-only');

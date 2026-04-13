@@ -20,8 +20,16 @@ import { setupRunCommand } from './commands/run/index.js';
 import { serverOptions, setupServeCommand } from './commands/serve/index.js';
 import { configureGlobalLogger } from './logger/configureGlobalLogger.js';
 
+export function normalizeCliArgv(argv: string[]): string[] {
+  if (argv[0] === '--') {
+    return argv.slice(1);
+  }
+
+  return argv;
+}
+
 // Parse command line arguments and set up commands
-let yargsInstance = yargs(hideBin(process.argv));
+let yargsInstance = yargs(normalizeCliArgv(hideBin(process.argv)));
 
 // Set up base yargs with global options
 yargsInstance = yargsInstance
@@ -134,7 +142,7 @@ function checkGlobalOptionConflicts(argv: string[]): void {
  */
 async function main() {
   // Check for global option conflicts before parsing
-  checkGlobalOptionConflicts(process.argv);
+  checkGlobalOptionConflicts(['node', 'cli', ...normalizeCliArgv(hideBin(process.argv))]);
 
   // Let yargs handle all command processing
   await yargsInstance.parse();

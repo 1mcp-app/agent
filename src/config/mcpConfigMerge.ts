@@ -52,6 +52,9 @@ export function mergeGlobalAndServerConfig(
   if (merged.inheritParentEnv === undefined && globalConfig.inheritParentEnv !== undefined) {
     merged.inheritParentEnv = globalConfig.inheritParentEnv;
   }
+  if (merged.envFilter === undefined && globalConfig.envFilter !== undefined) {
+    merged.envFilter = globalConfig.envFilter;
+  }
 
   // Replace semantics
   if (merged.oauth === undefined && globalConfig.oauth !== undefined) {
@@ -80,6 +83,13 @@ export function mergeGlobalAndServerConfig(
     serverConfig.inheritParentEnv === undefined
   ) {
     delete merged.inheritParentEnv;
+  }
+  if (
+    (merged.type === 'http' || merged.type === 'sse' || merged.type === 'streamableHttp') &&
+    globalConfig.envFilter !== undefined &&
+    serverConfig.envFilter === undefined
+  ) {
+    delete merged.envFilter;
   }
 
   return merged;

@@ -80,6 +80,7 @@ export interface GlobalTransportConfig {
   readonly oauth?: OAuthConfig;
   readonly headers?: Record<string, string>;
   readonly inheritParentEnv?: boolean;
+  readonly envFilter?: string[];
 }
 
 /**
@@ -288,6 +289,7 @@ export const GLOBAL_TRANSPORT_CONFIG_KEYS = [
   'oauth',
   'headers',
   'inheritParentEnv',
+  'envFilter',
 ] as const;
 
 /**
@@ -302,6 +304,7 @@ export const globalTransportConfigSchema = transportConfigSchema.pick({
   oauth: true,
   headers: true,
   inheritParentEnv: true,
+  envFilter: true,
 });
 
 /**

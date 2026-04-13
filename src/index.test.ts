@@ -99,6 +99,17 @@ describe('Index Module', () => {
       expect(serverOptions['enable-scope-validation'].default).toBe(true);
       expect(serverOptions['enable-enhanced-security'].default).toBe(false);
     });
+
+    it('should normalize argv forwarded through a script runner', async () => {
+      const { normalizeCliArgv } = await import('./index.js');
+
+      expect(normalizeCliArgv(['--', '--config', '.tmp/mcp.json', '--port', '3052'])).toEqual([
+        '--config',
+        '.tmp/mcp.json',
+        '--port',
+        '3052',
+      ]);
+    });
   });
 
   describe('Environment Variables', () => {

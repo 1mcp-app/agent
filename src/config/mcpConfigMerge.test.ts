@@ -29,6 +29,7 @@ describe('mcpConfigMerge', () => {
       connectionTimeout: 2000,
       requestTimeout: 3000,
       inheritParentEnv: true,
+      envFilter: ['PATH', 'NODE_*'],
     };
     const serverConfig: MCPServerParams = {
       type: 'stdio',
@@ -41,6 +42,7 @@ describe('mcpConfigMerge', () => {
     expect(merged.connectionTimeout).toBe(2000);
     expect(merged.requestTimeout).toBe(3000);
     expect(merged.inheritParentEnv).toBe(true);
+    expect(merged.envFilter).toEqual(['PATH', 'NODE_*']);
   });
 
   it('replaces oauth and headers with server-specific values', () => {
@@ -78,6 +80,7 @@ describe('mcpConfigMerge', () => {
   it('ignores global inheritParentEnv for http transports', () => {
     const globalConfig: GlobalTransportConfig = {
       inheritParentEnv: true,
+      envFilter: ['PATH'],
     };
     const serverConfig: MCPServerParams = {
       type: 'http',
@@ -87,6 +90,7 @@ describe('mcpConfigMerge', () => {
     const merged = mergeGlobalAndServerConfig(globalConfig, serverConfig);
 
     expect(merged.inheritParentEnv).toBeUndefined();
+    expect(merged.envFilter).toBeUndefined();
   });
 
   it('merges global config into all servers', () => {

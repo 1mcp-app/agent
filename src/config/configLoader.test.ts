@@ -226,6 +226,7 @@ describe('ConfigLoader', () => {
             KEEP: 'global-only',
           },
           inheritParentEnv: true,
+          envFilter: ['PATH', 'NODE_*'],
         },
         mcpServers: {
           'test-server': {
@@ -244,10 +245,29 @@ describe('ConfigLoader', () => {
       expect(config['test-server'].connectionTimeout).toBe(5000);
       expect(config['test-server'].requestTimeout).toBe(10000);
       expect(config['test-server'].inheritParentEnv).toBe(true);
+      expect(config['test-server'].envFilter).toEqual(['PATH', 'NODE_*']);
       expect(config['test-server'].env).toEqual({
         SHARED: 'server',
         KEEP: 'global-only',
       });
+    });
+
+    it('should allow envFilter in serverDefaults but ignore it for http servers', async () => {
+      const configWithGlobal = {
+        serverDefaults: {
+          envFilter: ['PATH'],
+        },
+        mcpServers: {
+          'test-server': {
+            type: 'http',
+            url: 'https://example.com/mcp',
+          },
+        },
+      };
+      await fsPromises.writeFile(configFilePath, JSON.stringify(configWithGlobal, null, 2));
+
+      const config = loader.loadConfigWithEnvSubstitution();
+      expect(config['test-server'].envFilter).toBeUndefined();
     });
 
     it('should reject invalid serverDefaults configuration', async () => {

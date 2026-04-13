@@ -2,10 +2,11 @@ import { EventEmitter } from 'events';
 import fs from 'fs';
 import path from 'path';
 
+import ConfigContext from '@src/config/configContext.js';
 import { loadAppConfigFromTomlPath } from '@src/config/configLoader.js';
 import { substituteEnvVarsInConfig } from '@src/config/envProcessor.js';
 import { getUnknownGlobalConfigKeys, mergeGlobalAndServerConfig } from '@src/config/mcpConfigMerge.js';
-import { DEFAULT_CONFIG, getGlobalConfigDir, getGlobalConfigPath } from '@src/constants.js';
+import { DEFAULT_CONFIG } from '@src/constants.js';
 import { AgentConfigManager } from '@src/core/server/agentConfig.js';
 import {
   ApplicationConfig,
@@ -38,13 +39,21 @@ export class McpConfigManager extends EventEmitter {
   private debounceTimer: ReturnType<typeof setTimeout> | null = null;
   private lastModified: number = 0;
 
+  private static resolveConfigFilePath(configFilePath?: string): string {
+    if (configFilePath) {
+      return configFilePath;
+    }
+
+    return ConfigContext.getInstance().getResolvedConfigPath();
+  }
+
   /**
    * Private constructor to enforce singleton pattern
    * @param configFilePath - Optional path to the config file. If not provided, uses global config path
    */
   private constructor(configFilePath?: string) {
     super();
-    this.configFilePath = configFilePath || getGlobalConfigPath();
+    this.configFilePath = McpConfigManager.resolveConfigFilePath(configFilePath);
     this.ensureConfigExists();
     this.loadConfig();
   }
@@ -54,9 +63,18 @@ export class McpConfigManager extends EventEmitter {
    * @param configFilePath - Optional path to the config file
    */
   public static getInstance(configFilePath?: string): McpConfigManager {
+    const resolvedConfigFilePath = McpConfigManager.resolveConfigFilePath(configFilePath);
+
     if (!McpConfigManager.instance) {
-      McpConfigManager.instance = new McpConfigManager(configFilePath);
+      McpConfigManager.instance = new McpConfigManager(resolvedConfigFilePath);
+      return McpConfigManager.instance;
     }
+
+    if (McpConfigManager.instance.configFilePath !== resolvedConfigFilePath) {
+      McpConfigManager.instance.stopWatching();
+      McpConfigManager.instance = new McpConfigManager(resolvedConfigFilePath);
+    }
+
     return McpConfigManager.instance;
   }
 
@@ -65,7 +83,7 @@ export class McpConfigManager extends EventEmitter {
    */
   private ensureConfigExists(): void {
     try {
-      const configDir = getGlobalConfigDir();
+      const configDir = path.dirname(this.configFilePath);
       if (!fs.existsSync(configDir)) {
         fs.mkdirSync(configDir, { recursive: true });
         logger.info(`Created config directory: ${configDir}`);
