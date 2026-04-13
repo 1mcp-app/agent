@@ -234,7 +234,7 @@ function formatToolOutput(toolInfo: InspectToolInfo): string {
   sections.push(formatArgumentSection('Optional args', toolInfo.optionalArgs));
 
   if (toolInfo.outputSchema) {
-    sections.push('output_schema: available');
+    sections.push(formatOutputSchemaSection(toolInfo.outputSchema));
   }
 
   if (toolInfo.fromCache !== undefined) {
@@ -324,6 +324,25 @@ function formatArgumentSection(title: string, args: InspectArgumentInfo[]): stri
   }
 
   return `${chalk.bold(`${toSectionKey(title)}:`)}\n${args.map(formatArgumentLine).join('\n')}`;
+}
+
+function formatOutputSchemaSection(outputSchema: Record<string, unknown>): string {
+  const schemaObject = getSchemaObject(outputSchema);
+  const fields = collectInspectArguments(schemaObject);
+
+  if (fields.length > 0) {
+    const lines = [chalk.bold('output_schema:')];
+    const requiredFields = fields.filter((field) => field.required);
+    const optionalFields = fields.filter((field) => !field.required);
+
+    lines.push(indentBlock(formatArgumentSection('Required fields', requiredFields), 2));
+    lines.push('');
+    lines.push(indentBlock(formatArgumentSection('Optional fields', optionalFields), 2));
+    return lines.join('\n');
+  }
+
+  const schemaType = summarizeSchemaType(schemaObject);
+  return `${chalk.bold('output_schema:')}\n  type=${chalk.dim(schemaType)}`;
 }
 
 function formatArgumentLine(arg: InspectArgumentInfo): string {

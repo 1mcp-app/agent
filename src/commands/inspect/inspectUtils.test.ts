@@ -113,7 +113,10 @@ describe('inspectUtils', () => {
     expect(output).toContain('Message to echo back.');
     expect(output).toContain('optional_args:');
     expect(output).toContain('enum=plain | json');
-    expect(output).toContain('output_schema: available');
+    expect(output).toContain('output_schema:');
+    expect(output).toContain('required_fields:');
+    expect(output).toContain('- name: echoed');
+    expect(output).toContain('optional_fields:');
     expect(output).toContain('schema_cache:');
     expect(output).toContain('examples:');
   });

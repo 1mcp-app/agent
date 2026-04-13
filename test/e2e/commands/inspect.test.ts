@@ -53,6 +53,9 @@ describeInspectE2E('inspect command E2E', () => {
     expect(result.stdout).toContain('- name: message');
     expect(result.stdout).toContain('description: Message to echo back.');
     expect(result.stdout).toContain('optional_args:');
+    expect(result.stdout).toContain('output_schema:');
+    expect(result.stdout).toContain('required_fields:');
+    expect(result.stdout).toContain('- name: echoed');
     expect(result.stdout).toContain('enum=plain | json');
     expect(result.stdout).toContain('default="plain"');
   });
