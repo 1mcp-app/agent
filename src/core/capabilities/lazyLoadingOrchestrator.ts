@@ -519,17 +519,24 @@ export class LazyLoadingOrchestrator extends EventEmitter {
    * @param name - Meta-tool name
    * @param args - Meta-tool arguments
    * @param sessionId - Optional session ID to retrieve filter for
+   * @param allowedServers - Optional explicit allowed servers set (takes precedence over session filter)
    */
-  public async callMetaTool(name: string, args: unknown, sessionId?: string): Promise<unknown> {
+  public async callMetaTool(
+    name: string,
+    args: unknown,
+    sessionId?: string,
+    allowedServers?: Set<string>,
+  ): Promise<unknown> {
     if (!this.metaToolProvider) {
       throw new Error('Meta-tool provider not initialized');
     }
 
-    // Get the session-specific filter and apply it to the meta-tool provider
-    const allowedServers = this.sessionAllowedServers.get(sessionId);
+    // Use explicitly provided allowedServers, or fall back to session-specific filter
+    const effectiveAllowedServers =
+      allowedServers !== undefined ? allowedServers : this.sessionAllowedServers.get(sessionId);
 
-    if (allowedServers) {
-      this.metaToolProvider.setAllowedServers(allowedServers);
+    if (effectiveAllowedServers) {
+      this.metaToolProvider.setAllowedServers(effectiveAllowedServers);
     } else {
       this.metaToolProvider.setAllowedServers(undefined);
     }

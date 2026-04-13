@@ -62,6 +62,8 @@ export async function runCommand(options: RunCommandOptions): Promise<void> {
   const stdinText = await readStdin();
   const cachePath = getCliSessionCachePath(options['config-dir']);
   const cachedSession = await readCliSessionCache(cachePath, serverUrl.toString());
+  const baseUrl = discoveredUrl.replace(/\/mcp$/, '');
+  const authProfile = await loadAuthProfile(options['config-dir'], normalizeServerUrl(baseUrl));
 
   // REST-first path: skip MCP handshake when we know the server supports it,
   // or probe once on first run. Fall back to MCP on 404/405/network errors.
@@ -69,8 +71,6 @@ export async function runCommand(options: RunCommandOptions): Promise<void> {
   const needsSchemaForStdin = options.args === undefined && stdinText !== undefined;
 
   if (canTryRest && !needsSchemaForStdin) {
-    const baseUrl = discoveredUrl.replace(/\/mcp$/, '');
-    const authProfile = await loadAuthProfile(options['config-dir'], normalizeServerUrl(baseUrl));
     const apiClient = new ApiClient({ baseUrl, bearerToken: authProfile?.token });
 
     const restArgs =
@@ -138,6 +138,7 @@ export async function runCommand(options: RunCommandOptions): Promise<void> {
   let response = await invokeTool({
     serverUrl,
     sessionId: cachedSession?.sessionId,
+    bearerToken: authProfile?.token,
     displayToolName: options.tool,
     qualifiedToolName: toolReference.qualifiedName,
     explicitArgs: options.args,
@@ -149,6 +150,7 @@ export async function runCommand(options: RunCommandOptions): Promise<void> {
     await deleteCliSessionCache(cachePath);
     response = await invokeTool({
       serverUrl,
+      bearerToken: authProfile?.token,
       displayToolName: options.tool,
       qualifiedToolName: toolReference.qualifiedName,
       explicitArgs: options.args,
@@ -187,6 +189,7 @@ export async function runCommand(options: RunCommandOptions): Promise<void> {
 export async function invokeTool(options: {
   serverUrl: URL;
   sessionId?: string;
+  bearerToken?: string;
   displayToolName: string;
   qualifiedToolName: string;
   explicitArgs?: string;
@@ -197,7 +200,7 @@ export async function invokeTool(options: {
   sessionId?: string;
   retryWithFreshSession: boolean;
 }> {
-  const client = new StreamableServeClient(options.serverUrl, options.sessionId);
+  const client = new StreamableServeClient(options.serverUrl, options.sessionId, options.bearerToken);
   await client.start();
 
   try {

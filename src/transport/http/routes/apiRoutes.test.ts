@@ -418,12 +418,17 @@ describe('apiRoutes /api/tools', () => {
     await invokeInspectRoute(scopeAuthMiddleware, req, res);
     await invokeInspectRoute(handler, req, res);
     expect(res.statusCode).toBe(200);
-    expect(callMetaTool).toHaveBeenCalledWith('tool_list', {
-      server: 'alpha',
-      pattern: 'foo',
-      limit: 5,
-      cursor: 'abc',
-    });
+    expect(callMetaTool).toHaveBeenCalledWith(
+      'tool_list',
+      {
+        server: 'alpha',
+        pattern: 'foo',
+        limit: 5,
+        cursor: 'abc',
+      },
+      undefined,
+      undefined,
+    );
     expect(res.body).toEqual(mockResult);
   });
 
@@ -507,7 +512,12 @@ describe('apiRoutes /api/tool-invocations', () => {
     await invokeInspectRoute(scopeAuthMiddleware, { body: { tool: 'alpha/mytool', args: { x: 1 } } }, res);
     await invokeInspectRoute(handler, { body: { tool: 'alpha/mytool', args: { x: 1 } } }, res);
     expect(res.statusCode).toBe(200);
-    expect(callMetaTool).toHaveBeenCalledWith('tool_invoke', { server: 'alpha', toolName: 'mytool', args: { x: 1 } });
+    expect(callMetaTool).toHaveBeenCalledWith(
+      'tool_invoke',
+      { server: 'alpha', toolName: 'mytool', args: { x: 1 } },
+      undefined,
+      undefined,
+    );
     expect(res.body).toEqual(mockResult);
   });
 

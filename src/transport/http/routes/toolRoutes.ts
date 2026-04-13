@@ -1,10 +1,21 @@
 import { ToolInvokeOutput, ToolListOutput } from '@src/core/capabilities/schemas/metaToolSchemas.js';
+import { FilteringService } from '@src/core/filtering/filteringService.js';
 import { ServerManager } from '@src/core/server/serverManager.js';
 import logger from '@src/logger/logger.js';
 
 import { Request, RequestHandler, Response } from 'express';
 
-import { parseTarget } from './inspectRoutes.js';
+import { buildFilterConfig, parseTarget } from './inspectRoutes.js';
+
+function getAllowedServersFromRequest(serverManager: ServerManager, res: Response): Set<string> | undefined {
+  const filterConfig = buildFilterConfig(res);
+  if (filterConfig.tagFilterMode === 'none' && (!filterConfig.tags || filterConfig.tags.length === 0)) {
+    return undefined;
+  }
+  const allConnections = serverManager.getClients();
+  const filteredConnections = FilteringService.getFilteredConnections(allConnections, filterConfig);
+  return new Set(filteredConnections.keys());
+}
 
 export function createToolsHandler(serverManager: ServerManager): RequestHandler {
   return async (req: Request, res: Response): Promise<void> => {
@@ -21,12 +32,19 @@ export function createToolsHandler(serverManager: ServerManager): RequestHandler
       const limit = limitParam !== undefined && Number.isFinite(limitParam) && limitParam > 0 ? limitParam : undefined;
       const cursor = typeof req.query.cursor === 'string' ? req.query.cursor : undefined;
 
-      const result = (await lazyOrchestrator.callMetaTool('tool_list', {
-        server,
-        pattern,
-        limit,
-        cursor,
-      })) as ToolListOutput;
+      const allowedServers = getAllowedServersFromRequest(serverManager, res);
+
+      const result = (await lazyOrchestrator.callMetaTool(
+        'tool_list',
+        {
+          server,
+          pattern,
+          limit,
+          cursor,
+        },
+        undefined,
+        allowedServers,
+      )) as ToolListOutput;
 
       if (result.error) {
         const status = result.error.type === 'validation' ? 400 : result.error.type === 'not_found' ? 404 : 500;
@@ -73,11 +91,18 @@ export function createToolInvocationsHandler(serverManager: ServerManager): Requ
         return;
       }
 
-      const result = (await lazyOrchestrator.callMetaTool('tool_invoke', {
-        server: target.serverName,
-        toolName: target.toolName,
-        args: toolArgs,
-      })) as ToolInvokeOutput;
+      const allowedServers = getAllowedServersFromRequest(serverManager, res);
+
+      const result = (await lazyOrchestrator.callMetaTool(
+        'tool_invoke',
+        {
+          server: target.serverName,
+          toolName: target.toolName,
+          args: toolArgs,
+        },
+        undefined,
+        allowedServers,
+      )) as ToolInvokeOutput;
 
       if (result.error) {
         let status: number;

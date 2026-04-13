@@ -67,11 +67,26 @@ export type ToolSummary = InspectServerPayload['tools'][number];
 // ---- Helpers ----
 
 export function buildFilterConfig(res: Response): InboundConnectionConfig {
+  const tagFilterMode = getTagFilterMode(res);
+  const validatedTags = getValidatedTags(res);
+
+  // When no explicit tag filter was requested but auth granted specific tags,
+  // enforce those tags so scoped tokens cannot enumerate out-of-scope servers.
+  if (tagFilterMode === 'none' && validatedTags.length > 0) {
+    return {
+      tags: validatedTags,
+      tagExpression: undefined,
+      tagQuery: undefined,
+      tagFilterMode: 'simple-or',
+      presetName: getPresetName(res),
+    };
+  }
+
   return {
-    tags: getValidatedTags(res),
+    tags: validatedTags,
     tagExpression: getTagExpression(res),
     tagQuery: getTagQuery(res),
-    tagFilterMode: getTagFilterMode(res),
+    tagFilterMode,
     presetName: getPresetName(res),
   };
 }

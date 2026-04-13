@@ -241,6 +241,7 @@ export async function inspectCommand(options: InspectCommandOptions): Promise<vo
       let contextResponse = await inspectTools({
         serverUrl,
         sessionId: cachedSession?.sessionId,
+        bearerToken: authProfile?.token,
         context: inspectContext,
       });
 
@@ -251,6 +252,7 @@ export async function inspectCommand(options: InspectCommandOptions): Promise<vo
         const secondPass = await inspectTools({
           serverUrl,
           sessionId: contextResponse.sessionId,
+          bearerToken: authProfile?.token,
           context: inspectContext,
         });
         if (!secondPass.retryWithFreshSession) {
@@ -275,6 +277,7 @@ export async function inspectCommand(options: InspectCommandOptions): Promise<vo
     if (target.kind === 'tool' && !cachedSession?.sessionId) {
       const sessionResponse = await inspectTools({
         serverUrl,
+        bearerToken: authProfile?.token,
         context: inspectContext,
       });
 
@@ -321,6 +324,7 @@ export async function inspectCommand(options: InspectCommandOptions): Promise<vo
   let response = await inspectTools({
     serverUrl,
     sessionId: cachedSession?.sessionId,
+    bearerToken: authProfile?.token,
     context: inspectContext,
   });
 
@@ -333,7 +337,7 @@ export async function inspectCommand(options: InspectCommandOptions): Promise<vo
 
   if (shouldRetryWithFreshSession) {
     await deleteCliSessionCache(cachePath);
-    response = await inspectTools({ serverUrl, context: inspectContext });
+    response = await inspectTools({ serverUrl, bearerToken: authProfile?.token, context: inspectContext });
   }
 
   if (response.sessionId) {
@@ -376,14 +380,19 @@ export async function inspectCommand(options: InspectCommandOptions): Promise<vo
   }
 }
 
-export async function inspectTools(options: { serverUrl: URL; sessionId?: string; context?: ContextData }): Promise<{
+export async function inspectTools(options: {
+  serverUrl: URL;
+  sessionId?: string;
+  bearerToken?: string;
+  context?: ContextData;
+}): Promise<{
   rawResponse: JsonRpcResponse<unknown>;
   tools: Tool[];
   sessionId?: string;
   instructions?: string | null;
   retryWithFreshSession: boolean;
 }> {
-  const client = new StreamableServeClient(options.serverUrl, options.sessionId);
+  const client = new StreamableServeClient(options.serverUrl, options.sessionId, options.bearerToken);
   await client.start();
 
   try {
