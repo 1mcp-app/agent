@@ -198,6 +198,7 @@ function formatServersOutput(info: InspectServersInfo): string {
 
   const lines = [chalk.bold.cyan('Inspect: Servers'), `count: ${info.servers.length}`, '', chalk.bold('servers:')];
   for (const s of info.servers) {
+    lines.push(``);
     lines.push(`- server: ${chalk.bold(s.server)}`);
     if (s.type) {
       lines.push(`  type: ${chalk.dim(s.type)}`);
@@ -288,8 +289,8 @@ function formatServerOutput(serverInfo: InspectServerInfo): string {
     serverInfo.tools
       .map((tool) => {
         const lines = [
+          ``,
           `- tool: ${chalk.yellow(tool.tool)}`,
-          `  qualified_name: ${tool.qualifiedName}`,
           `  required_args: ${tool.requiredArgs}`,
           `  optional_args: ${tool.optionalArgs}`,
         ];
@@ -354,7 +355,7 @@ function formatArgumentLine(arg: InspectArgumentInfo): string {
     details.push(`default=${chalk.dim(JSON.stringify(arg.defaultValue))}`);
   }
 
-  const lines = [`- name: ${chalk.yellow(arg.name)}`, `  ${details.join(chalk.dim('  '))}`];
+  const lines = [``, `- name: ${chalk.yellow(arg.name)}`, `  ${details.join(chalk.dim('  '))}`];
   if (arg.description) {
     lines.push(`  description: ${arg.description}`);
   }
