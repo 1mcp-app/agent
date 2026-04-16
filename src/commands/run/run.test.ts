@@ -17,7 +17,7 @@ const transportState = vi.hoisted(() => ({
   sessionIdOnInitialize: 'fresh-session',
   throw404OnMethod: undefined as string | undefined,
   toolName: 'runner_1mcp_echo_args',
-  instances: [] as Array<{ sentMessages: Array<{ method?: string }> }>,
+  instances: [] as Array<{ sentMessages: Array<{ method?: string; params?: Record<string, unknown> }> }>,
 }));
 
 const mockedTransport = vi.hoisted(() => {
@@ -35,7 +35,7 @@ const mockedTransport = vi.hoisted(() => {
     onerror?: (error: Error) => void;
     onclose?: () => void;
     sessionId?: string;
-    sentMessages: Array<{ method?: string }> = [];
+    sentMessages: Array<{ method?: string; params?: Record<string, unknown> }> = [];
 
     constructor(_url: URL, options?: { sessionId?: string }) {
       this.sessionId = options?.sessionId;
@@ -48,8 +48,8 @@ const mockedTransport = vi.hoisted(() => {
 
     setProtocolVersion(_version: string): void {}
 
-    async send(message: { id?: number; method?: string }): Promise<void> {
-      this.sentMessages.push({ method: message.method });
+    async send(message: { id?: number; method?: string; params?: Record<string, unknown> }): Promise<void> {
+      this.sentMessages.push({ method: message.method, params: message.params });
 
       if (message.method && transportState.throw404OnMethod === message.method && this.sessionId) {
         throw new MockStreamableHTTPError(404, 'Session not found');
@@ -218,12 +218,19 @@ describe('run command internals', () => {
 
   describe('invokeTool', () => {
     it('initializes a fresh session before calling the tool', async () => {
+      const initializeContext = {
+        project: { name: 'agent', path: '/tmp/agent' },
+        user: { username: 'tester' },
+        environment: { variables: { FOO: 'bar' } },
+        transport: { type: 'run' },
+      };
       const response = await invokeTool({
         serverUrl: new URL('http://127.0.0.1:3050/mcp'),
         displayToolName: 'runner/echo_args',
         qualifiedToolName: 'runner_1mcp_echo_args',
         explicitArgs: '{"message":"hello"}',
         resolveTool: false,
+        initializeContext,
       });
 
       expect(response.retryWithFreshSession).toBe(false);
@@ -234,9 +241,12 @@ describe('run command internals', () => {
         'notifications/initialized',
         'tools/call',
       ]);
+      expect(transportState.instances[0].sentMessages[0].params?._meta).toEqual({
+        context: initializeContext,
+      });
     });
 
-    it('skips initialize when a cached session id is provided', async () => {
+    it('validates the requested tool before using a cached session', async () => {
       const response = await invokeTool({
         serverUrl: new URL('http://127.0.0.1:3050/mcp'),
         sessionId: 'cached-session',
@@ -248,7 +258,29 @@ describe('run command internals', () => {
 
       expect(response.retryWithFreshSession).toBe(false);
       expect(response.sessionId).toBe('cached-session');
-      expect(transportState.instances[0].sentMessages.map((message) => message.method)).toEqual(['tools/call']);
+      expect(transportState.instances[0].sentMessages.map((message) => message.method)).toEqual([
+        'tools/list',
+        'tools/call',
+      ]);
+    });
+
+    it('retries with a fresh session when a cached session does not expose the requested tool', async () => {
+      transportState.toolName = 'runner_1mcp_different_tool';
+
+      const response = await invokeTool({
+        serverUrl: new URL('http://127.0.0.1:3050/mcp'),
+        sessionId: 'cached-session',
+        displayToolName: 'serena/list_memories',
+        qualifiedToolName: 'serena_1mcp_list_memories',
+        explicitArgs: '{}',
+        resolveTool: false,
+      });
+
+      expect(response.retryWithFreshSession).toBe(true);
+      expect(response.sessionId).toBeUndefined();
+      expect('error' in response.rawResponse && response.rawResponse.error.message).toBe(
+        'Cached session missing requested tool.',
+      );
     });
 
     it('requests a retry with a fresh session when a cached session 404s', async () => {
@@ -364,6 +396,30 @@ describe('runCommand REST-first path', () => {
     process.stdout.write = origStdout;
 
     // MCP transport should have been used as fallback
+    expect(transportState.instances.length).toBeGreaterThan(0);
+  });
+
+  it('falls back to MCP when REST returns 502', async () => {
+    await writeCliSessionCache(cachePath, {
+      sessionId: 'cached-session',
+      serverUrl: 'http://127.0.0.1:3050/mcp',
+      savedAt: Date.now(),
+      hasRestEndpoint: true,
+    });
+
+    mockFetch.mockResolvedValueOnce(makeRestResponse(502, { error: 'upstream failed' }));
+
+    vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
+
+    const { runCommand } = await import('./run.js');
+    await runCommand({
+      tool: 'runner/echo_args',
+      args: '{"message":"hi"}',
+      'config-dir': cacheDir,
+    } as never);
+
+    vi.restoreAllMocks();
+
     expect(transportState.instances.length).toBeGreaterThan(0);
   });
 

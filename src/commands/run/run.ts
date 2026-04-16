@@ -21,7 +21,9 @@ import {
   StreamableServeClient,
   writeCliSessionCache,
 } from '@src/commands/shared/serveClient.js';
+import { loadProjectConfig } from '@src/config/projectConfigLoader.js';
 import type { GlobalOptions } from '@src/globalOptions.js';
+import type { ContextData } from '@src/types/context.js';
 import { discoverServerWithPidFile, validateServer1mcpUrl } from '@src/utils/validation/urlDetection.js';
 
 export interface RunCommandOptions extends GlobalOptions {
@@ -66,7 +68,7 @@ export async function runCommand(options: RunCommandOptions): Promise<void> {
   const authProfile = await loadAuthProfile(options['config-dir'], normalizeServerUrl(baseUrl));
 
   // REST-first path: skip MCP handshake when we know the server supports it,
-  // or probe once on first run. Fall back to MCP on 404/405/network errors.
+  // or probe once on first run. Fall back to MCP on missing/unsupported/upstream errors.
   const canTryRest = cachedSession?.hasRestEndpoint !== false;
   const needsSchemaForStdin = options.args === undefined && stdinText !== undefined;
 
@@ -91,6 +93,7 @@ export async function runCommand(options: RunCommandOptions): Promise<void> {
       const isFallbackStatus =
         apiResponse.status === 404 ||
         apiResponse.status === 405 ||
+        apiResponse.status === 502 ||
         apiResponse.status === 503 ||
         apiResponse.status === 0;
 
@@ -128,12 +131,15 @@ export async function runCommand(options: RunCommandOptions): Promise<void> {
         return;
       }
 
-      // 404/405/0 → server doesn't have REST endpoint, cache that and fall through to MCP
+      // Missing/unsupported/upstream REST responses → cache that and fall through to MCP
       if (cachedSession) {
         await writeCliSessionCache(cachePath, { ...cachedSession, hasRestEndpoint: false });
       }
     }
   }
+
+  const projectConfig = await loadProjectConfig();
+  const runContext = buildRunContext(projectConfig);
 
   let response = await invokeTool({
     serverUrl,
@@ -144,6 +150,7 @@ export async function runCommand(options: RunCommandOptions): Promise<void> {
     explicitArgs: options.args,
     stdinText,
     resolveTool: options.args === undefined,
+    initializeContext: runContext,
   });
 
   if (response.retryWithFreshSession) {
@@ -156,6 +163,7 @@ export async function runCommand(options: RunCommandOptions): Promise<void> {
       explicitArgs: options.args,
       stdinText,
       resolveTool: options.args === undefined,
+      initializeContext: runContext,
     });
   }
 
@@ -195,6 +203,7 @@ export async function invokeTool(options: {
   explicitArgs?: string;
   stdinText?: string;
   resolveTool: boolean;
+  initializeContext?: ContextData;
 }): Promise<{
   rawResponse: JsonRpcResponse<CallToolResult>;
   sessionId?: string;
@@ -207,12 +216,38 @@ export async function invokeTool(options: {
     let tool: Tool | undefined;
 
     if (!options.sessionId) {
-      const initializeResponse = await client.initialize();
+      const initializeResponse = await client.initialize(options.initializeContext);
       if ('error' in initializeResponse) {
         return {
           rawResponse: initializeResponse,
           sessionId: client.sessionId,
           retryWithFreshSession: false,
+        };
+      }
+    }
+
+    if (options.sessionId && !options.resolveTool) {
+      const toolsResponse = await client.listTools();
+      if ('error' in toolsResponse) {
+        return {
+          rawResponse: toolsResponse as JsonRpcErrorEnvelope,
+          sessionId: client.sessionId,
+          retryWithFreshSession: false,
+        };
+      }
+
+      tool = findToolByQualifiedName(toolsResponse.result.tools, options.qualifiedToolName);
+      if (!tool) {
+        return {
+          rawResponse: {
+            jsonrpc: '2.0',
+            id: 0,
+            error: {
+              code: -32004,
+              message: 'Cached session missing requested tool.',
+            },
+          },
+          retryWithFreshSession: true,
         };
       }
     }
@@ -229,6 +264,19 @@ export async function invokeTool(options: {
 
       tool = findToolByQualifiedName(toolsResponse.result.tools, options.qualifiedToolName);
       if (!tool) {
+        if (options.sessionId) {
+          return {
+            rawResponse: {
+              jsonrpc: '2.0',
+              id: 0,
+              error: {
+                code: -32004,
+                message: 'Cached session missing requested tool.',
+              },
+            },
+            retryWithFreshSession: true,
+          };
+        }
         throw new RunCommandInputError(`Unknown tool: ${options.displayToolName}`);
       }
     }
@@ -289,4 +337,62 @@ function tryParseJsonObject(text: string): Record<string, unknown> | null {
   } catch {
     return null;
   }
+}
+
+function buildRunContext(projectConfig?: Awaited<ReturnType<typeof loadProjectConfig>>): ContextData {
+  const cwd = process.cwd();
+  const projectName = cwd.split('/').pop() || 'unknown';
+
+  const context: ContextData = {
+    project: {
+      path: cwd,
+      name: projectName,
+      environment: process.env.NODE_ENV || 'development',
+      ...(projectConfig?.context
+        ? {
+            custom: {
+              projectId: projectConfig.context.projectId,
+              team: projectConfig.context.team,
+              ...projectConfig.context.custom,
+            },
+          }
+        : {}),
+    },
+    user: {
+      username: process.env.USER || process.env.USERNAME || 'unknown',
+      home: process.env.HOME || process.env.USERPROFILE || '',
+    },
+    environment: {
+      variables: {
+        NODE_VERSION: process.version,
+        PLATFORM: process.platform,
+        ARCH: process.arch,
+        PWD: cwd,
+      },
+    },
+    timestamp: new Date().toISOString(),
+    version: 'run',
+    transport: {
+      type: 'run',
+    },
+  };
+
+  if (projectConfig?.context?.environment) {
+    context.project.environment = projectConfig.context.environment;
+  }
+
+  if (projectConfig?.context?.envPrefixes?.length) {
+    for (const prefix of projectConfig.context.envPrefixes) {
+      for (const [key, value] of Object.entries(process.env)) {
+        if (key.startsWith(prefix) && value) {
+          context.environment.variables = {
+            ...context.environment.variables,
+            [key]: value,
+          };
+        }
+      }
+    }
+  }
+
+  return context;
 }
