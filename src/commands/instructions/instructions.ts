@@ -4,6 +4,7 @@ import type { InspectServerInfo } from '@src/commands/inspect/inspectUtils.js';
 import type { GlobalOptions } from '@src/globalOptions.js';
 
 import { formatInstructionsOutput, type InstructionsServerDetail } from './instructionsUtils.js';
+import { formatStartupDocsOutput, resolveStartupDocTargets, writeStartupDocs } from './startupDocs.js';
 
 export interface InstructionsCommandOptions extends GlobalOptions {
   url?: string;
@@ -11,6 +12,9 @@ export interface InstructionsCommandOptions extends GlobalOptions {
   filter?: string;
   tags?: string[];
   'tag-filter'?: string;
+  'write-startup-docs'?: boolean;
+  'repo-root'?: string;
+  targets?: string;
 }
 
 function toInspectOptions(options: InstructionsCommandOptions, target?: string): InspectCommandOptions {
@@ -18,6 +22,16 @@ function toInspectOptions(options: InstructionsCommandOptions, target?: string):
 }
 
 export async function instructionsCommand(options: InstructionsCommandOptions): Promise<void> {
+  if (options['write-startup-docs']) {
+    const targets = resolveStartupDocTargets(options.targets);
+    const results = await writeStartupDocs({
+      repoRoot: options['repo-root'] ?? process.cwd(),
+      targets,
+    });
+    process.stdout.write(`${formatStartupDocsOutput(results)}\n`);
+    return;
+  }
+
   const allServers = await getInspectResult(toInspectOptions(options), { includeServerInstructions: true });
   if (allServers.kind !== 'servers') {
     throw new Error('Unexpected inspect result for server listing.');

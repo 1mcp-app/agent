@@ -81,4 +81,17 @@ describe('instructions command', () => {
     );
     expect(mockedGetInspectResult).toHaveBeenCalledTimes(2);
   });
+
+  it('writes startup docs without querying live server instructions', async () => {
+    await instructionsCommand({
+      'config-dir': '.tmp-test/instructions-command',
+      'write-startup-docs': true,
+      'repo-root': '.tmp-test/instructions-command/repo',
+      targets: 'agents',
+    } as never);
+
+    expect(mockedGetInspectResult).not.toHaveBeenCalled();
+    expect(mockedStdoutWrite).toHaveBeenCalledWith(expect.stringContaining('Updated 1MCP startup docs:'));
+    expect(mockedStdoutWrite).toHaveBeenCalledWith(expect.stringContaining('AGENTS.md'));
+  });
 });

@@ -29,10 +29,29 @@ export function setupInstructionsCommand(yargs: Argv): Argv {
           type: 'array',
           string: true,
         })
+        .option('write-startup-docs', {
+          describe: 'Write 1MCP bootstrap instructions to repo startup docs such as AGENTS.md and CLAUDE.md',
+          type: 'boolean',
+          default: false,
+        })
+        .option('repo-root', {
+          describe: 'Repository root used when writing startup docs',
+          type: 'string',
+        })
+        .option('targets', {
+          describe: 'Comma-separated startup doc targets to write: agents,claude',
+          type: 'string',
+        })
         .example('$0 instructions', 'Show the CLI-mode agent playbook and current servers')
         .example('$0 instructions --tags backend', 'Show CLI instructions for a filtered backend server set')
         .example('$0 instructions --preset development', 'Show CLI instructions using a preset')
-        .epilogue('This command requires a running `1mcp serve` instance. Errors are written to stderr only.'),
+        .example(
+          '$0 instructions --write-startup-docs --repo-root .',
+          'Write the 1MCP bootstrap playbook into AGENTS.md and CLAUDE.md',
+        )
+        .epilogue(
+          'This command requires a running `1mcp serve` instance unless `--write-startup-docs` is used. Errors are written to stderr only.',
+        ),
     async (argv) => {
       const { configureGlobalLogger } = await import('@src/logger/configureGlobalLogger.js');
       const { instructionsCommand } = await import('./instructions.js');
