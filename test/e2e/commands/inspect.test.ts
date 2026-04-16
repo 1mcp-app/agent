@@ -161,7 +161,7 @@ describeInspectE2E('inspect command E2E', () => {
     runner.assertSuccess(second);
   });
 
-  it('discovers template servers on the first inspect and shows instructions for server targets', async () => {
+  it('shows CLI instructions and keeps bare inspect as the server list entrypoint', async () => {
     await environment.updateConfig({
       servers: [
         {
@@ -202,6 +202,24 @@ describeInspectE2E('inspect command E2E', () => {
 
     await startServeProcess();
 
+    const instructionsResult = await runner.runCommand('instructions', '', {
+      cwd: environment.getTempDir(),
+      args: ['--config-dir', environment.getConfigDir()],
+    });
+
+    runner.assertSuccess(instructionsResult);
+    expect(instructionsResult.stdout).toContain('1MCP CLI Instructions');
+    expect(instructionsResult.stdout).toContain('Run `1mcp inspect <server>`');
+    expect(instructionsResult.stdout).toContain('Available Servers');
+    expect(instructionsResult.stdout).toContain('- server: serena');
+    expect(instructionsResult.stdout).toContain('type: template');
+    expect(instructionsResult.stdout).toContain('status: connected');
+    expect(instructionsResult.stdout).toContain('tools: 1');
+    expect(instructionsResult.stdout).toContain('instructions: yes');
+    expect(instructionsResult.stdout).toContain('Server Instructions');
+    expect(instructionsResult.stdout).toContain('## serena');
+    expect(instructionsResult.stdout).toContain('# Serena Instructions');
+
     const listResult = await runner.runCommand('inspect', '', {
       cwd: environment.getTempDir(),
       args: ['--config-dir', environment.getConfigDir()],
@@ -214,6 +232,7 @@ describeInspectE2E('inspect command E2E', () => {
     expect(listResult.stdout).toContain('status: connected');
     expect(listResult.stdout).toContain('tools: 1');
     expect(listResult.stdout).toContain('instructions: yes');
+    expect(listResult.stdout).not.toContain('# 1MCP - Model Context Protocol Proxy');
 
     const serverResult = await runner.runInspectCommand('serena', {
       cwd: environment.getTempDir(),
@@ -222,8 +241,8 @@ describeInspectE2E('inspect command E2E', () => {
     runner.assertSuccess(serverResult);
     expect(serverResult.stdout).toContain('Inspect: Server');
     expect(serverResult.stdout).toContain('server: serena');
-    expect(serverResult.stdout).toContain('instructions:');
-    expect(serverResult.stdout).toContain('# Serena Instructions');
+    expect(serverResult.stdout).not.toContain('instructions:');
+    expect(serverResult.stdout).not.toContain('# Serena Instructions');
     expect(serverResult.stdout).not.toContain('# 1MCP - Model Context Protocol Proxy');
     expect(serverResult.stdout).toContain('tools (1):');
     expect(serverResult.stdout).toContain('- tool: find_symbol');

@@ -74,6 +74,7 @@ export interface InspectServerSummary {
 
 export interface InspectServersInfo {
   kind: 'servers';
+  instructions?: string | null;
   servers: InspectServerSummary[];
 }
 
@@ -148,12 +149,7 @@ export function extractInspectToolInfo(
   };
 }
 
-export function extractInspectServerInfo(
-  serverName: string,
-  tools: Tool[],
-  fromCache?: boolean,
-  instructions?: string | null,
-): InspectServerInfo {
+export function extractInspectServerInfo(serverName: string, tools: Tool[], fromCache?: boolean): InspectServerInfo {
   const summaries = tools
     .filter((tool) => getServerName(tool) === serverName)
     .map((tool) => {
@@ -177,7 +173,6 @@ export function extractInspectServerInfo(
     server: serverName,
     tools: summaries,
     fromCache,
-    instructions,
   };
 }
 
@@ -196,12 +191,22 @@ function formatServersOutput(info: InspectServersInfo): string {
     return 'No servers available.';
   }
 
-  const lines = [chalk.bold.cyan('Inspect: Servers'), `count: ${info.servers.length}`, '', chalk.bold('servers:')];
+  const serverLines = [chalk.bold('servers:')];
+  const sections = [chalk.bold.cyan('Inspect: Servers'), `count: ${info.servers.length}`];
+
+  if (info.instructions !== undefined) {
+    sections.push(
+      info.instructions
+        ? `${chalk.bold('instructions:')}\n\`\`\`\n${info.instructions}\n\`\`\``
+        : `${chalk.bold('instructions:')}\n${chalk.dim('(none)')}`,
+    );
+  }
+
   for (const s of info.servers) {
-    lines.push(``);
-    lines.push(`- server: ${chalk.bold(s.server)}`);
+    serverLines.push(``);
+    serverLines.push(`- server: ${chalk.bold(s.server)}`);
     if (s.type) {
-      lines.push(`  type: ${chalk.dim(s.type)}`);
+      serverLines.push(`  type: ${chalk.dim(s.type)}`);
     }
     if (s.status) {
       const status =
@@ -210,15 +215,17 @@ function formatServersOutput(info: InspectServersInfo): string {
           : s.status === 'disconnected'
             ? chalk.red(s.status)
             : chalk.yellow(s.status);
-      lines.push(`  status: ${status}`);
+      serverLines.push(`  status: ${status}`);
     }
     if (s.available !== undefined) {
-      lines.push(`  available: ${s.available ? 'yes' : 'no'}`);
+      serverLines.push(`  available: ${s.available ? 'yes' : 'no'}`);
     }
-    lines.push(`  tools: ${s.toolCount}`);
-    lines.push(`  instructions: ${s.hasInstructions ? 'yes' : 'no'}`);
+    serverLines.push(`  tools: ${s.toolCount}`);
+    serverLines.push(`  instructions: ${s.hasInstructions ? 'yes' : 'no'}`);
   }
-  return lines.join('\n');
+
+  sections.push(serverLines.join('\n'));
+  return sections.join('\n\n');
 }
 
 function formatToolOutput(toolInfo: InspectToolInfo): string {
@@ -275,14 +282,6 @@ function formatServerOutput(serverInfo: InspectServerInfo): string {
   }
 
   const sections: string[] = [chalk.bold.cyan('Inspect: Server'), summaryLines.join('\n')];
-
-  if (serverInfo.instructions !== undefined) {
-    sections.push(
-      serverInfo.instructions
-        ? `${chalk.bold('instructions:')}\n\`\`\`\n${serverInfo.instructions}\n\`\`\``
-        : `${chalk.bold('instructions:')}\n${chalk.dim('(none)')}`,
-    );
-  }
 
   sections.push(chalk.bold(`tools (${totalTools}):`));
   sections.push(

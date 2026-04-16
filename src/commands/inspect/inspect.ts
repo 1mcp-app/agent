@@ -25,6 +25,8 @@ import {
   formatInspectOutput,
   InspectCommandError,
   type InspectOutputFormat,
+  type InspectResult,
+  type InspectServerInfo,
   type InspectServersInfo,
   type InspectServerSummary,
   parseInspectTarget,
@@ -41,6 +43,10 @@ export interface InspectCommandOptions extends GlobalOptions {
   all?: boolean;
   limit?: number;
   cursor?: string;
+}
+
+interface GetInspectResultOptions {
+  includeServerInstructions?: boolean;
 }
 
 interface ApiInspectToolResult {
@@ -143,6 +149,7 @@ function mergeContextDiscoveredServers(
   result: InspectServersInfo,
   tools: Tool[],
   fromCache: boolean,
+  instructions?: string | null,
 ): InspectServersInfo {
   const mergedServers = new Map<string, InspectServerSummary>(result.servers.map((server) => [server.server, server]));
   const toolCounts = new Map<string, number>();
@@ -178,8 +185,31 @@ function mergeContextDiscoveredServers(
 
   return {
     kind: 'servers',
+    instructions,
     servers: Array.from(mergedServers.values()).sort((left, right) => left.server.localeCompare(right.server)),
   };
+}
+
+function stripServerInstructions(result: InspectServerInfo): InspectServerInfo {
+  const { instructions: _instructions, ...serverResult } = result;
+  return serverResult;
+}
+
+function maybeStripServerInstructions(result: InspectResult): InspectResult {
+  if (result.kind !== 'server') {
+    return result;
+  }
+
+  return stripServerInstructions(result);
+}
+
+function stripListInstructions(result: InspectResult): InspectResult {
+  if (result.kind !== 'servers') {
+    return result;
+  }
+
+  const { instructions: _instructions, ...serversResult } = result;
+  return serversResult;
 }
 
 function hasServerTools(tools: Tool[], serverName: string): boolean {
@@ -189,7 +219,12 @@ function hasServerTools(tools: Tool[], serverName: string): boolean {
   });
 }
 
-export async function inspectCommand(options: InspectCommandOptions): Promise<void> {
+export async function getInspectResult(
+  options: InspectCommandOptions,
+  resultOptions: GetInspectResultOptions = {},
+): Promise<InspectResult> {
+  const includeServerInstructions = resultOptions.includeServerInstructions ?? true;
+
   // Load .1mcprc with CLI > .1mcprc > defaults precedence
   const projectConfig = await loadProjectConfig();
   const mergedOptions: InspectCommandOptions = {
@@ -200,7 +235,6 @@ export async function inspectCommand(options: InspectCommandOptions): Promise<vo
   };
 
   const target = parseInspectTarget(mergedOptions.target);
-  const format = mergedOptions.format || 'text';
 
   const { url: discoveredUrl } = await discoverServerWithPidFile(mergedOptions['config-dir'], mergedOptions.url);
   const serverUrl = buildServerUrl(discoveredUrl, mergedOptions);
@@ -240,15 +274,15 @@ export async function inspectCommand(options: InspectCommandOptions): Promise<vo
     if (target.kind === 'all' && result.kind === 'servers') {
       let contextResponse = await inspectTools({
         serverUrl,
-        sessionId: cachedSession?.sessionId,
         bearerToken: authProfile?.token,
         context: inspectContext,
       });
+      const instructions = contextResponse.instructions;
 
       // Template-backed servers can appear only after the initial contextful session
-      // is fully established. If this is the first discovery pass, retry once using
-      // the freshly issued session id before merging discovered servers.
-      if (!cachedSession?.sessionId && contextResponse.sessionId) {
+      // is fully established. Retry once using the freshly issued session id
+      // before merging discovered servers into the REST payload.
+      if (contextResponse.sessionId) {
         const secondPass = await inspectTools({
           serverUrl,
           sessionId: contextResponse.sessionId,
@@ -256,12 +290,12 @@ export async function inspectCommand(options: InspectCommandOptions): Promise<vo
           context: inspectContext,
         });
         if (!secondPass.retryWithFreshSession) {
-          contextResponse = secondPass;
+          contextResponse = { ...secondPass, instructions };
         }
       }
 
       if (!contextResponse.retryWithFreshSession) {
-        result = mergeContextDiscoveredServers(result, contextResponse.tools, Boolean(cachedSession?.sessionId));
+        result = mergeContextDiscoveredServers(result, contextResponse.tools, false, contextResponse.instructions);
 
         if (contextResponse.sessionId) {
           await writeCliSessionCache(cachePath, {
@@ -272,6 +306,11 @@ export async function inspectCommand(options: InspectCommandOptions): Promise<vo
           });
         }
       }
+    }
+
+    if (!includeServerInstructions) {
+      result = maybeStripServerInstructions(result);
+      result = stripListInstructions(result);
     }
 
     if (target.kind === 'tool' && !cachedSession?.sessionId) {
@@ -291,15 +330,11 @@ export async function inspectCommand(options: InspectCommandOptions): Promise<vo
       }
     }
 
-    const output = formatInspectOutput(result, format);
-    if (output.length > 0) {
-      process.stdout.write(`${output}\n`);
-    }
     // Mark that this server has the REST endpoint
     if (cachedSession) {
       await writeCliSessionCache(cachePath, { ...cachedSession, hasRestEndpoint: true });
     }
-    return;
+    return result;
   }
 
   // Fall back to MCP protocol for servers without /api/inspect (404) or for tool targets
@@ -332,8 +367,7 @@ export async function inspectCommand(options: InspectCommandOptions): Promise<vo
     response.retryWithFreshSession ||
     (!!cachedSession?.sessionId &&
       ((target.kind === 'server' && !hasServerTools(response.tools, target.serverName)) ||
-        (target.kind === 'tool' && !findToolByQualifiedName(response.tools, target.reference.qualifiedName)))) ||
-    (target.kind === 'server' && response.instructions === undefined);
+        (target.kind === 'tool' && !findToolByQualifiedName(response.tools, target.reference.qualifiedName))));
 
   if (shouldRetryWithFreshSession) {
     await deleteCliSessionCache(cachePath);
@@ -363,17 +397,18 @@ export async function inspectCommand(options: InspectCommandOptions): Promise<vo
     });
 
     if (serverApiResponse.ok && serverApiResponse.data?.kind === 'server') {
-      result = serverApiResponse.data;
+      result = includeServerInstructions ? serverApiResponse.data : stripServerInstructions(serverApiResponse.data);
     } else {
-      result = extractInspectServerInfo(
-        target.serverName,
-        response.tools,
-        Boolean(cachedSession?.sessionId),
-        undefined,
-      );
+      result = extractInspectServerInfo(target.serverName, response.tools, Boolean(cachedSession?.sessionId));
     }
   }
 
+  return result;
+}
+
+export async function inspectCommand(options: InspectCommandOptions): Promise<void> {
+  const format = options.format || 'text';
+  const result = await getInspectResult(options, { includeServerInstructions: false });
   const output = formatInspectOutput(result, format);
   if (output.length > 0) {
     process.stdout.write(`${output}\n`);

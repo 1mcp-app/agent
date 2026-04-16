@@ -16,6 +16,7 @@ import { inspectCommand, inspectTools } from './inspect.js';
 const transportState = vi.hoisted(() => ({
   sessionIdOnInitialize: 'inspect-session',
   throw404OnMethod: undefined as string | undefined,
+  initializeResult: {} as Record<string, unknown>,
   schemaPayload: {
     tools: [
       {
@@ -120,6 +121,7 @@ const mockedTransport = vi.hoisted(() => {
             id: message.id,
             result: {
               protocolVersion: '2025-06-18',
+              ...transportState.initializeResult,
             },
           });
           break;
@@ -158,6 +160,7 @@ describe('inspect command internals', () => {
   beforeEach(() => {
     transportState.sessionIdOnInitialize = 'inspect-session';
     transportState.throw404OnMethod = undefined;
+    transportState.initializeResult = {};
     transportState.schemaPayload = {
       tools: [
         {
@@ -361,7 +364,10 @@ describe('inspect command internals', () => {
           this.onmessage?.({
             jsonrpc: '2.0',
             id: message.id,
-            result: { protocolVersion: '2025-06-18' },
+            result: {
+              protocolVersion: '2025-06-18',
+              ...transportState.initializeResult,
+            },
           });
           break;
         case 'tools/list':
@@ -412,7 +418,45 @@ describe('inspect command internals', () => {
     ]);
   });
 
-  it('retries with a fresh session when a server target needs instructions', async () => {
+  it('lists servers for bare inspect without printing instruction blocks', async () => {
+    mockedApiClientGet.mockResolvedValue({
+      ok: true,
+      status: 200,
+      data: {
+        kind: 'servers',
+        servers: [
+          {
+            server: 'runner',
+            toolCount: 1,
+            hasInstructions: false,
+          },
+        ],
+      },
+    });
+    transportState.initializeResult = {
+      instructions: '# 1MCP - Model Context Protocol Proxy\nUse inspect to review available servers.',
+    };
+
+    const cacheDir = join(process.cwd(), '.tmp-test', 'inspect-command-unit', 'inspect-servers');
+    await mkdir(cacheDir, { recursive: true });
+
+    await inspectCommand({
+      format: 'text',
+      'config-dir': cacheDir,
+    } as never);
+
+    expect(mockedStdoutWrite).toHaveBeenCalledWith(expect.stringContaining('Inspect: Servers'));
+    expect(mockedStdoutWrite).toHaveBeenCalledWith(expect.stringContaining('- server: runner'));
+    expect(mockedStdoutWrite).not.toHaveBeenCalledWith(
+      expect.stringContaining('# 1MCP - Model Context Protocol Proxy'),
+    );
+    expect(transportState.instances.map((instance) => instance.sentMessages.map((message) => message.method))).toEqual([
+      ['initialize', 'notifications/initialized', 'tools/list'],
+      ['tools/list'],
+    ]);
+  });
+
+  it('omits server instructions for server targets', async () => {
     mockedApiClientGet.mockResolvedValueOnce({ ok: false, status: 503, error: 'disconnected' }).mockResolvedValueOnce({
       ok: true,
       status: 200,
@@ -462,13 +506,14 @@ describe('inspect command internals', () => {
       'config-dir': cacheDir,
     } as never);
 
-    expect(mockedStdoutWrite).toHaveBeenCalledWith(expect.stringContaining('# Serena Instructions'));
+    expect(mockedStdoutWrite).toHaveBeenCalledWith(expect.stringContaining('Inspect: Server'));
+    expect(mockedStdoutWrite).not.toHaveBeenCalledWith(expect.stringContaining('instructions:'));
+    expect(mockedStdoutWrite).not.toHaveBeenCalledWith(expect.stringContaining('# Serena Instructions'));
     expect(mockedStdoutWrite).not.toHaveBeenCalledWith(
       expect.stringContaining('# 1MCP - Model Context Protocol Proxy'),
     );
     expect(transportState.instances.map((instance) => instance.sentMessages.map((message) => message.method))).toEqual([
       ['tools/list'],
-      ['initialize', 'notifications/initialized', 'tools/list'],
     ]);
   });
 });
