@@ -3,6 +3,7 @@
     "target": "ES2022",
     "module": "Node16",
     "moduleResolution": "Node16",
+    "noEmit": true,
     "baseUrl": ".",
     "paths": {
       "@src/*": ["./src/*"],
