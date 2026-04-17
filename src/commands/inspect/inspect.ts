@@ -15,6 +15,7 @@ import {
   writeCliSessionCache,
 } from '@src/commands/shared/serveClient.js';
 import { loadProjectConfig, normalizeTags } from '@src/config/projectConfigLoader.js';
+import { API_INSPECT_ENDPOINT } from '@src/constants/api.js';
 import type { GlobalOptions } from '@src/globalOptions.js';
 import type { ContextData } from '@src/types/context.js';
 import { discoverServerWithPidFile, validateServer1mcpUrl } from '@src/utils/validation/urlDetection.js';
@@ -214,7 +215,7 @@ export async function getInspectResult(
   // Try /api/inspect first (fast path)
   const apiClient = new ApiClient({ baseUrl, bearerToken: authProfile?.token });
   const query = buildInspectQuery(mergedOptions, mergedOptions.target);
-  const apiResponse = await apiClient.get<unknown>('/api/inspect', query);
+  const apiResponse = await apiClient.get<unknown>(API_INSPECT_ENDPOINT, query);
 
   if (apiResponse.ok && apiResponse.data !== undefined) {
     let result = apiResponse.data as Parameters<typeof formatInspectOutput>[0];
@@ -307,7 +308,7 @@ export async function getInspectResult(
       Boolean(cachedSession?.sessionId),
     );
   } else {
-    const serverApiResponse = await apiClient.get<Parameters<typeof formatInspectOutput>[0]>('/api/inspect', {
+    const serverApiResponse = await apiClient.get<Parameters<typeof formatInspectOutput>[0]>(API_INSPECT_ENDPOINT, {
       ...buildInspectQuery(mergedOptions, mergedOptions.target),
     });
 

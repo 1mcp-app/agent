@@ -24,6 +24,7 @@ import {
   writeCliSessionCache,
 } from '@src/commands/shared/serveClient.js';
 import { loadProjectConfig } from '@src/config/projectConfigLoader.js';
+import { API_INSPECT_ENDPOINT, API_TOOL_INVOCATIONS_ENDPOINT } from '@src/constants/api.js';
 import type { GlobalOptions } from '@src/globalOptions.js';
 import type { ContextData } from '@src/types/context.js';
 import { discoverServerWithPidFile, validateServer1mcpUrl } from '@src/utils/validation/urlDetection.js';
@@ -130,7 +131,7 @@ export async function runCommand(options: RunCommandOptions): Promise<void> {
         server: string;
         tool: string;
         error?: { type: string; message: string };
-      }>('/api/tool-invocations', { tool: options.tool, args: resolvedArguments });
+      }>(API_TOOL_INVOCATIONS_ENDPOINT, { tool: options.tool, args: resolvedArguments });
 
       const isFallbackStatus =
         apiResponse.status === 405 ||
@@ -245,7 +246,7 @@ async function fetchToolInfoFromApi(
   toolReference: ReturnType<typeof parseToolReference>,
   displayToolName: string,
 ): Promise<InspectToolInfo | null> {
-  const apiResponse = await apiClient.get<ApiInspectToolResult>('/api/inspect', {
+  const apiResponse = await apiClient.get<ApiInspectToolResult>(API_INSPECT_ENDPOINT, {
     target: displayToolName,
   });
 

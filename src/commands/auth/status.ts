@@ -1,5 +1,6 @@
 import { ApiClient } from '@src/commands/shared/apiClient.js';
 import { listAuthProfiles, loadAuthProfile, normalizeServerUrl } from '@src/commands/shared/authProfileStore.js';
+import { API_INSPECT_ENDPOINT } from '@src/constants/api.js';
 import type { GlobalOptions } from '@src/globalOptions.js';
 import { discoverServerWithPidFile } from '@src/utils/validation/urlDetection.js';
 
@@ -49,7 +50,7 @@ async function showProfileStatus(configDir: string | undefined, baseUrl: string)
   process.stdout.write(`  Saved: ${savedAt}\n`);
 
   const client = new ApiClient({ baseUrl, bearerToken: profile.token });
-  const response = await client.get('/api/inspect');
+  const response = await client.get(API_INSPECT_ENDPOINT);
   if (response.ok) {
     process.stdout.write(`  Status: connected\n`);
   } else if (response.status === 401 || response.status === 403) {

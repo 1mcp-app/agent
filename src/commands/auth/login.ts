@@ -1,5 +1,6 @@
 import { ApiClient } from '@src/commands/shared/apiClient.js';
 import { normalizeServerUrl, saveAuthProfile } from '@src/commands/shared/authProfileStore.js';
+import { API_INSPECT_ENDPOINT } from '@src/constants/api.js';
 import type { GlobalOptions } from '@src/globalOptions.js';
 import { discoverServerWithPidFile } from '@src/utils/validation/urlDetection.js';
 
@@ -18,7 +19,7 @@ export async function authLoginCommand(options: AuthLoginOptions): Promise<void>
 
   // Probe without auth — if it succeeds, auth is disabled
   const probeClient = new ApiClient({ baseUrl });
-  const probeResponse = await probeClient.get('/api/inspect');
+  const probeResponse = await probeClient.get(API_INSPECT_ENDPOINT);
   if (probeResponse.ok) {
     process.stdout.write(`Auth is not required on ${baseUrl} (auth is disabled). No login needed.\n`);
     return;
@@ -40,7 +41,7 @@ export async function authLoginCommand(options: AuthLoginOptions): Promise<void>
 
   // Validate token
   const client = new ApiClient({ baseUrl, bearerToken: token });
-  const response = await client.get('/api/inspect');
+  const response = await client.get(API_INSPECT_ENDPOINT);
 
   if (response.status === 401 || response.status === 403) {
     throw new Error(`Authentication failed: token was rejected by ${baseUrl}`);

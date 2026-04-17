@@ -188,7 +188,8 @@ export class ExpressServer {
 
     // Setup API routes (CLI-oriented fast endpoints, auth via scopeAuthMiddleware)
     const scopeAuthMiddleware = createScopeAuthMiddleware(this.oauthProvider);
-    this.app.use('/api', createApiRoutes(this.serverManager, scopeAuthMiddleware));
+    const apiRouter = createApiRoutes(this.serverManager, scopeAuthMiddleware);
+    this.app.use('/api/v1', apiRouter);
 
     // Setup MCP transport routes (auth is handled per-route via scopeAuthMiddleware)
     const router = express.Router();

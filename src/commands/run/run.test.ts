@@ -423,7 +423,7 @@ describe('runCommand REST-first path', () => {
     });
 
     mockFetch.mockResolvedValueOnce(makeTextResponse(404, 'Not Found')); // schema GET
-    mockFetch.mockResolvedValueOnce(makeTextResponse(404, 'Cannot POST /api/tool-invocations'));
+    mockFetch.mockResolvedValueOnce(makeTextResponse(404, 'Cannot POST /api/v1/tool-invocations'));
 
     const origStdout = process.stdout.write.bind(process.stdout);
     vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
