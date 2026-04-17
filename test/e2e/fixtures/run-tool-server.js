@@ -99,15 +99,21 @@ class RunToolServer {
       const { name, arguments: args } = request.params;
 
       switch (name) {
-        case 'echo_args':
+        case 'echo_args': {
+          const structuredContent = {
+            echoed: JSON.stringify(args ?? {}, null, 2),
+            ...(typeof args?.count === 'number' ? { count: args.count } : {}),
+          };
           return {
             content: [
               {
                 type: 'text',
-                text: JSON.stringify(args ?? {}, null, 2),
+                text: structuredContent.echoed,
               },
             ],
+            structuredContent,
           };
+        }
         case 'emit_text':
           return {
             content: [

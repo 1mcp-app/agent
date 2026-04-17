@@ -1,4 +1,6 @@
+import { createHash } from 'node:crypto';
 import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
+import os from 'node:os';
 import path from 'node:path';
 
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
@@ -9,7 +11,7 @@ import {
   type Tool,
 } from '@modelcontextprotocol/sdk/types.js';
 
-import { getConfigDir, MCP_SERVER_NAME, MCP_SERVER_VERSION } from '@src/constants.js';
+import { MCP_SERVER_NAME, MCP_SERVER_VERSION } from '@src/constants.js';
 import type { ContextData } from '@src/types/context.js';
 
 export interface JsonRpcSuccessEnvelope<Result> {
@@ -58,6 +60,12 @@ export interface ServeUrlOptions {
   filter?: string;
   tags?: string[];
   'tag-filter'?: string;
+}
+
+export interface CliSessionCachePathOptions {
+  cachePathTemplate?: string;
+  serverPid?: number;
+  serverUrl?: string;
 }
 
 export const SESSION_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
@@ -216,8 +224,23 @@ export function buildServerUrl(baseUrl: string, options: ServeUrlOptions): URL {
   return serverUrl;
 }
 
-export function getCliSessionCachePath(configDir?: string): string {
-  return path.join(getConfigDir(configDir), '.cli-session');
+export function getDefaultCliSessionCachePathTemplate(): string {
+  return path.join(os.tmpdir(), '1mcp', '.cli-session.{pid}');
+}
+
+export function resolveCliSessionCachePathTemplate(cachePathTemplate?: string): string {
+  return cachePathTemplate || getDefaultCliSessionCachePathTemplate();
+}
+
+export function getCliSessionCachePath(options: CliSessionCachePathOptions = {}): string {
+  const resolvedTemplate = resolveCliSessionCachePathTemplate(options.cachePathTemplate);
+  const pidToken =
+    options.serverPid !== undefined
+      ? String(options.serverPid)
+      : options.serverUrl
+        ? `server-${createHash('sha256').update(options.serverUrl).digest('hex').slice(0, 12)}`
+        : 'unknown';
+  return resolvedTemplate.replaceAll('{pid}', pidToken);
 }
 
 export async function readCliSessionCache(cachePath: string, serverUrl: string): Promise<CliSessionCache | null> {

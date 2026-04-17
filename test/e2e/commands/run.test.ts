@@ -44,7 +44,7 @@ describeRunE2E('run command E2E', () => {
     await startServeProcess();
 
     const result = await runner.runRunCommand('runner/echo_args', {
-      args: ['--args', '{"message":"hello","count":2}', '--format', 'json'],
+      args: [...getCliSessionCacheArgs(), '--args', '{"message":"hello","count":2}', '--format', 'json'],
     });
 
     runner.assertSuccess(result);
@@ -65,7 +65,7 @@ describeRunE2E('run command E2E', () => {
 
     const result = await runner.runRunCommand('runner/echo_args', {
       input: '{"message":"stdin","payload":{"ok":true}}',
-      args: ['--format', 'text'],
+      args: [...getCliSessionCacheArgs(), '--format', 'text'],
     });
 
     runner.assertSuccess(result);
@@ -78,7 +78,7 @@ describeRunE2E('run command E2E', () => {
 
     const result = await runner.runRunCommand('runner/summarize', {
       input: 'hello world',
-      args: ['--format', 'text'],
+      args: [...getCliSessionCacheArgs(), '--format', 'text'],
     });
 
     runner.assertSuccess(result);
@@ -90,13 +90,13 @@ describeRunE2E('run command E2E', () => {
 
     const first = await runner.runRunCommand('runner/emit_text', {
       input: 'hello chained world',
-      args: ['--format', 'text'],
+      args: [...getCliSessionCacheArgs(), '--format', 'text'],
     });
     runner.assertSuccess(first);
 
     const second = await runner.runRunCommand('runner/summarize', {
       input: first.stdout,
-      args: ['--format', 'text'],
+      args: [...getCliSessionCacheArgs(), '--format', 'text'],
     });
 
     runner.assertSuccess(second);
@@ -107,11 +107,11 @@ describeRunE2E('run command E2E', () => {
     await startServeProcess();
 
     const first = await runner.runRunCommand('runner/echo_args', {
-      args: ['--args', '{"message":"cache me"}', '--format', 'text'],
+      args: [...getCliSessionCacheArgs(), '--args', '{"message":"cache me"}', '--format', 'text'],
     });
     runner.assertSuccess(first);
 
-    const cachePath = join(environment.getConfigDir(), '.cli-session');
+    const cachePath = getExpectedCachePath();
     await access(cachePath);
 
     const cache = JSON.parse(await readFile(cachePath, 'utf8')) as {
@@ -125,7 +125,7 @@ describeRunE2E('run command E2E', () => {
     expect(cache.savedAt).toBeGreaterThan(0);
 
     const second = await runner.runRunCommand('runner/echo_args', {
-      args: ['--args', '{"message":"cache me again"}', '--format', 'text'],
+      args: [...getCliSessionCacheArgs(), '--args', '{"message":"cache me again"}', '--format', 'text'],
     });
     runner.assertSuccess(second);
   });
@@ -134,7 +134,7 @@ describeRunE2E('run command E2E', () => {
     await startServeProcess();
 
     const result = await runner.runRunCommand('runner/fail_tool', {
-      args: ['--args', '{"message":"boom"}', '--format', 'text'],
+      args: [...getCliSessionCacheArgs(), '--args', '{"message":"boom"}', '--format', 'text'],
     });
 
     runner.assertFailure(result, 2);
@@ -146,7 +146,15 @@ describeRunE2E('run command E2E', () => {
     const unusedPort = await getAvailablePort();
 
     const result = await runner.runRunCommand('runner/echo_args', {
-      args: ['--url', `http://127.0.0.1:${unusedPort}/mcp`, '--args', '{"message":"hello"}', '--format', 'text'],
+      args: [
+        ...getCliSessionCacheArgs(),
+        '--url',
+        `http://127.0.0.1:${unusedPort}/mcp`,
+        '--args',
+        '{"message":"hello"}',
+        '--format',
+        'text',
+      ],
     });
 
     runner.assertFailure(result, 1);
@@ -158,11 +166,11 @@ describeRunE2E('run command E2E', () => {
     await startServeProcess();
 
     const result = await runner.runRunCommand('runner/echo_args', {
-      args: ['--args', '{"message":"cache-check"}', '--format', 'text'],
+      args: [...getCliSessionCacheArgs(), '--args', '{"message":"cache-check"}', '--format', 'text'],
     });
     runner.assertSuccess(result);
 
-    const cachePath = join(environment.getConfigDir(), '.cli-session');
+    const cachePath = getExpectedCachePath();
     const cache = JSON.parse(await readFile(cachePath, 'utf8')) as { hasRestEndpoint?: boolean };
     // hasRestEndpoint is always written (true when REST works, false when MCP fallback)
     expect(typeof cache.hasRestEndpoint).toBe('boolean');
@@ -172,12 +180,12 @@ describeRunE2E('run command E2E', () => {
     await startServeProcess();
 
     const first = await runner.runRunCommand('runner/echo_args', {
-      args: ['--args', '{"message":"consistent"}', '--format', 'text'],
+      args: [...getCliSessionCacheArgs(), '--args', '{"message":"consistent"}', '--format', 'text'],
     });
     runner.assertSuccess(first);
 
     const second = await runner.runRunCommand('runner/echo_args', {
-      args: ['--args', '{"message":"consistent"}', '--format', 'text'],
+      args: [...getCliSessionCacheArgs(), '--args', '{"message":"consistent"}', '--format', 'text'],
     });
     runner.assertSuccess(second);
 
@@ -229,6 +237,14 @@ describeRunE2E('run command E2E', () => {
     });
 
     await waitForServeReady(stderr);
+  }
+
+  function getExpectedCachePath(): string {
+    return join(environment.getTempDir(), 'cli-session-cache');
+  }
+
+  function getCliSessionCacheArgs(): string[] {
+    return ['--cli-session-cache-path', getExpectedCachePath()];
   }
 
   async function waitForServeReady(initialStderr: string): Promise<void> {

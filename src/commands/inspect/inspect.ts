@@ -236,7 +236,10 @@ export async function getInspectResult(
 
   const target = parseInspectTarget(mergedOptions.target);
 
-  const { url: discoveredUrl } = await discoverServerWithPidFile(mergedOptions['config-dir'], mergedOptions.url);
+  const { url: discoveredUrl, pid: serverPid } = await discoverServerWithPidFile(
+    mergedOptions['config-dir'],
+    mergedOptions.url,
+  );
   const serverUrl = buildServerUrl(discoveredUrl, mergedOptions);
   const baseUrl = toBaseUrl(discoveredUrl);
 
@@ -247,7 +250,11 @@ export async function getInspectResult(
 
   // Load auth profile for this server (if any)
   const authProfile = await loadAuthProfile(mergedOptions['config-dir'], normalizeServerUrl(baseUrl));
-  const cachePath = getCliSessionCachePath(mergedOptions['config-dir']);
+  const cachePath = getCliSessionCachePath({
+    cachePathTemplate: mergedOptions['cli-session-cache-path'],
+    serverPid,
+    serverUrl: serverUrl.toString(),
+  });
   const cachedSession = await readCliSessionCache(cachePath, serverUrl.toString());
   const inspectContext = buildInspectContext(projectConfig);
 

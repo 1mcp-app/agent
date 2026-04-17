@@ -184,7 +184,7 @@ describe('inspect command internals', () => {
     mockedLoadAuthProfile.mockReset();
     mockedStdoutWrite.mockReset();
 
-    mockedDiscoverServerWithPidFile.mockResolvedValue({ url: 'http://127.0.0.1:3050/mcp' });
+    mockedDiscoverServerWithPidFile.mockResolvedValue({ url: 'http://127.0.0.1:3050/mcp', pid: 4242 });
     mockedValidateServer1mcpUrl.mockResolvedValue({ valid: true });
     mockedLoadProjectConfig.mockResolvedValue(null);
     mockedLoadAuthProfile.mockResolvedValue(null);
@@ -289,7 +289,10 @@ describe('inspect command internals', () => {
     });
 
     it('writes and reads a matching cache entry', async () => {
-      const cachePath = getCliSessionCachePath(cacheDir);
+      const cachePath = getCliSessionCachePath({
+        cachePathTemplate: join(cacheDir, '.cli-session.{pid}'),
+        serverPid: 4242,
+      });
 
       await writeCliSessionCache(cachePath, {
         sessionId: 'session-1',
@@ -297,13 +300,16 @@ describe('inspect command internals', () => {
         savedAt: Date.now(),
       });
 
-      expect(await readdir(cacheDir)).toEqual(['.cli-session']);
+      expect(await readdir(cacheDir)).toEqual(['.cli-session.4242']);
       const cache = await readCliSessionCache(cachePath, 'http://127.0.0.1:3050/mcp?preset=dev');
       expect(cache?.sessionId).toBe('session-1');
     });
 
     it('treats expired cache entries as misses', async () => {
-      const cachePath = getCliSessionCachePath(cacheDir);
+      const cachePath = getCliSessionCachePath({
+        cachePathTemplate: join(cacheDir, '.cli-session.{pid}'),
+        serverPid: 4242,
+      });
 
       await writeCliSessionCache(cachePath, {
         sessionId: 'session-1',
@@ -337,7 +343,10 @@ describe('inspect command internals', () => {
 
     const cacheDir = join(process.cwd(), '.tmp-test', 'inspect-command-unit', 'retry-missing-server');
     await mkdir(cacheDir, { recursive: true });
-    const cachePath = getCliSessionCachePath(cacheDir);
+    const cachePath = getCliSessionCachePath({
+      cachePathTemplate: join(cacheDir, '.cli-session.{pid}'),
+      serverPid: 4242,
+    });
     await writeCliSessionCache(cachePath, {
       sessionId: 'cached-session',
       serverUrl: 'http://127.0.0.1:3050/mcp',
@@ -409,6 +418,7 @@ describe('inspect command internals', () => {
       target: 'serena',
       format: 'text',
       'config-dir': cacheDir,
+      'cli-session-cache-path': join(cacheDir, '.cli-session.{pid}'),
     } as never);
 
     expect(mockedStdoutWrite).toHaveBeenCalledWith(expect.stringContaining('Inspect: Server'));
@@ -443,6 +453,7 @@ describe('inspect command internals', () => {
     await inspectCommand({
       format: 'text',
       'config-dir': cacheDir,
+      'cli-session-cache-path': join(cacheDir, '.cli-session.{pid}'),
     } as never);
 
     expect(mockedStdoutWrite).toHaveBeenCalledWith(expect.stringContaining('Inspect: Servers'));
@@ -493,7 +504,10 @@ describe('inspect command internals', () => {
 
     const cacheDir = join(process.cwd(), '.tmp-test', 'inspect-command-unit', 'retry-missing-instructions');
     await mkdir(cacheDir, { recursive: true });
-    const cachePath = getCliSessionCachePath(cacheDir);
+    const cachePath = getCliSessionCachePath({
+      cachePathTemplate: join(cacheDir, '.cli-session.{pid}'),
+      serverPid: 4242,
+    });
     await writeCliSessionCache(cachePath, {
       sessionId: 'cached-session',
       serverUrl: 'http://127.0.0.1:3050/mcp',
@@ -504,6 +518,7 @@ describe('inspect command internals', () => {
       target: 'serena',
       format: 'text',
       'config-dir': cacheDir,
+      'cli-session-cache-path': join(cacheDir, '.cli-session.{pid}'),
     } as never);
 
     expect(mockedStdoutWrite).toHaveBeenCalledWith(expect.stringContaining('Inspect: Server'));

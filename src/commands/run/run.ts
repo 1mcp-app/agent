@@ -53,7 +53,7 @@ export async function runCommand(options: RunCommandOptions): Promise<void> {
   const format = options.raw ? 'json' : options.format || (process.stdout.isTTY ? 'text' : 'json');
   const maxChars = options['max-chars'] ?? 2000;
 
-  const { url: discoveredUrl } = await discoverServerWithPidFile(options['config-dir'], options.url);
+  const { url: discoveredUrl, pid: serverPid } = await discoverServerWithPidFile(options['config-dir'], options.url);
   const serverUrl = buildServerUrl(discoveredUrl, options);
 
   const validation = await validateServer1mcpUrl(serverUrl.toString());
@@ -62,7 +62,11 @@ export async function runCommand(options: RunCommandOptions): Promise<void> {
   }
 
   const stdinText = await readStdin();
-  const cachePath = getCliSessionCachePath(options['config-dir']);
+  const cachePath = getCliSessionCachePath({
+    cachePathTemplate: options['cli-session-cache-path'],
+    serverPid,
+    serverUrl: serverUrl.toString(),
+  });
   const cachedSession = await readCliSessionCache(cachePath, serverUrl.toString());
   const baseUrl = discoveredUrl.replace(/\/mcp$/, '');
   const authProfile = await loadAuthProfile(options['config-dir'], normalizeServerUrl(baseUrl));

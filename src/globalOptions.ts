@@ -22,6 +22,12 @@ export const globalOptions = {
     type: 'string' as const,
     default: undefined,
   },
+  'cli-session-cache-path': {
+    describe:
+      'Path template for the run/inspect CLI session cache file, supports {pid} (env: ONE_MCP_CLI_SESSION_CACHE_PATH)',
+    type: 'string' as const,
+    default: undefined,
+  },
   'log-level': {
     describe: 'Set the log level (debug, info, warn, error) (env: ONE_MCP_LOG_LEVEL)',
     type: 'string' as const,
@@ -41,6 +47,7 @@ export const globalOptions = {
 export interface GlobalOptions {
   config?: string;
   'config-dir'?: string;
+  'cli-session-cache-path'?: string;
   'log-level'?: 'debug' | 'info' | 'warn' | 'error';
   'log-file'?: string;
 }

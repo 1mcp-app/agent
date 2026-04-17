@@ -1,9 +1,17 @@
 import { mkdir, mkdtemp, readdir, rm } from 'node:fs/promises';
+import os from 'node:os';
 import { join } from 'node:path';
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { buildServerUrl, invokeTool, readCliSessionCache, SESSION_CACHE_TTL_MS, writeCliSessionCache } from './run.js';
+import {
+  buildServerUrl,
+  getCliSessionCachePath,
+  invokeTool,
+  readCliSessionCache,
+  SESSION_CACHE_TTL_MS,
+  writeCliSessionCache,
+} from './run.js';
 
 vi.mock('@src/commands/shared/authProfileStore.js', () => ({
   loadAuthProfile: vi.fn(async () => null),
@@ -122,7 +130,7 @@ vi.mock('@modelcontextprotocol/sdk/client/streamableHttp.js', () => ({
 }));
 
 vi.mock('@src/utils/validation/urlDetection.js', () => ({
-  discoverServerWithPidFile: vi.fn(async () => ({ url: 'http://127.0.0.1:3050/mcp', source: 'pidfile' })),
+  discoverServerWithPidFile: vi.fn(async () => ({ url: 'http://127.0.0.1:3050/mcp', source: 'pidfile', pid: 4242 })),
   validateServer1mcpUrl: vi.fn(async () => ({ valid: true })),
 }));
 
@@ -169,7 +177,7 @@ describe('run command internals', () => {
       const baseDir = join(process.cwd(), '.tmp-test', 'run-command-unit');
       await mkdir(baseDir, { recursive: true });
       cacheDir = await mkdtemp(join(baseDir, 'cache-'));
-      cachePath = join(cacheDir, '.cli-session');
+      cachePath = join(cacheDir, '.cli-session.4242');
     });
 
     afterEach(async () => {
@@ -185,7 +193,7 @@ describe('run command internals', () => {
       });
 
       const entries = await readdir(cacheDir);
-      expect(entries).toEqual(['.cli-session']);
+      expect(entries).toEqual(['.cli-session.4242']);
 
       const cache = await readCliSessionCache(cachePath, 'http://127.0.0.1:3050/mcp?preset=dev');
       expect(cache?.sessionId).toBe('session-1');
@@ -300,6 +308,28 @@ describe('run command internals', () => {
       expect('error' in response.rawResponse && response.rawResponse.error.message).toBe('Cached session expired.');
     });
   });
+
+  describe('cache path resolution', () => {
+    it('uses the temp-based default with server pid', () => {
+      expect(getCliSessionCachePath({ serverPid: 4242 })).toBe(join(os.tmpdir(), '1mcp', '.cli-session.4242'));
+    });
+
+    it('falls back to unknown when no pid is available', () => {
+      expect(getCliSessionCachePath()).toBe(join(os.tmpdir(), '1mcp', '.cli-session.unknown'));
+    });
+
+    it('uses a stable server-url token when no pid is available in the default path', () => {
+      const cachePath = getCliSessionCachePath({ serverUrl: 'http://127.0.0.1:3050/mcp' });
+      expect(cachePath.startsWith(join(os.tmpdir(), '1mcp', '.cli-session.server-'))).toBe(true);
+      expect(cachePath).toBe(getCliSessionCachePath({ serverUrl: 'http://127.0.0.1:3050/mcp' }));
+    });
+
+    it('expands {pid} in explicit cache templates', () => {
+      expect(getCliSessionCachePath({ cachePathTemplate: '/tmp/custom/.cli-session.{pid}', serverPid: 99 })).toBe(
+        '/tmp/custom/.cli-session.99',
+      );
+    });
+  });
 });
 
 describe('runCommand REST-first path', () => {
@@ -318,7 +348,7 @@ describe('runCommand REST-first path', () => {
     const baseDir = join(process.cwd(), '.tmp-test', 'run-rest-unit');
     await mkdir(baseDir, { recursive: true });
     cacheDir = await mkdtemp(join(baseDir, 'cache-'));
-    cachePath = join(cacheDir, '.cli-session');
+    cachePath = join(cacheDir, '.cli-session.4242');
   });
 
   afterEach(async () => {
@@ -362,6 +392,7 @@ describe('runCommand REST-first path', () => {
       tool: 'runner/echo_args',
       args: '{"message":"hi"}',
       'config-dir': cacheDir,
+      'cli-session-cache-path': join(cacheDir, '.cli-session.{pid}'),
     } as never);
 
     vi.restoreAllMocks();
@@ -390,6 +421,7 @@ describe('runCommand REST-first path', () => {
       tool: 'runner/echo_args',
       args: '{"message":"hi"}',
       'config-dir': cacheDir,
+      'cli-session-cache-path': join(cacheDir, '.cli-session.{pid}'),
     } as never);
 
     vi.restoreAllMocks();
@@ -416,6 +448,7 @@ describe('runCommand REST-first path', () => {
       tool: 'runner/echo_args',
       args: '{"message":"hi"}',
       'config-dir': cacheDir,
+      'cli-session-cache-path': join(cacheDir, '.cli-session.{pid}'),
     } as never);
 
     vi.restoreAllMocks();
@@ -438,6 +471,7 @@ describe('runCommand REST-first path', () => {
       tool: 'runner/echo_args',
       args: '{"message":"hi"}',
       'config-dir': cacheDir,
+      'cli-session-cache-path': join(cacheDir, '.cli-session.{pid}'),
     } as never);
 
     vi.restoreAllMocks();

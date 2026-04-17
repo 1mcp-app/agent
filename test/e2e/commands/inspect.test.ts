@@ -43,7 +43,7 @@ describeInspectE2E('inspect command E2E', () => {
   it('prints a readable schema summary by default', async () => {
     await startServeProcess();
 
-    const result = await runner.runInspectCommand('runner/echo_args');
+    const result = await runner.runInspectCommand('runner/echo_args', { args: getCliSessionCacheArgs() });
 
     runner.assertSuccess(result);
     expect(result.stderr).toBe('');
@@ -63,7 +63,7 @@ describeInspectE2E('inspect command E2E', () => {
   it('lists a server tool inventory for bare server targets', async () => {
     await startServeProcess();
 
-    const result = await runner.runInspectCommand('runner');
+    const result = await runner.runInspectCommand('runner', { args: getCliSessionCacheArgs() });
 
     runner.assertSuccess(result);
     expect(result.stdout).toContain('Inspect: Server');
@@ -80,7 +80,7 @@ describeInspectE2E('inspect command E2E', () => {
     await startServeProcess();
 
     const result = await runner.runInspectCommand('runner/echo_args', {
-      args: ['--format', 'json'],
+      args: [...getCliSessionCacheArgs(), '--format', 'json'],
     });
 
     runner.assertSuccess(result);
@@ -101,7 +101,7 @@ describeInspectE2E('inspect command E2E', () => {
     await startServeProcess();
 
     const result = await runner.runInspectCommand('runner', {
-      args: ['--format', 'json'],
+      args: [...getCliSessionCacheArgs(), '--format', 'json'],
     });
 
     runner.assertSuccess(result);
@@ -120,7 +120,7 @@ describeInspectE2E('inspect command E2E', () => {
   it('reports unknown tools cleanly', async () => {
     await startServeProcess();
 
-    const result = await runner.runInspectCommand('runner/missing_tool');
+    const result = await runner.runInspectCommand('runner/missing_tool', { args: getCliSessionCacheArgs() });
 
     runner.assertFailure(result, 1);
     expect(result.stdout).toBe('');
@@ -131,7 +131,7 @@ describeInspectE2E('inspect command E2E', () => {
     await startServeProcess();
 
     const result = await runner.runInspectCommand('runner/echo_args', {
-      args: ['--tags', 'test'],
+      args: [...getCliSessionCacheArgs(), '--tags', 'test'],
     });
 
     runner.assertSuccess(result);
@@ -143,11 +143,11 @@ describeInspectE2E('inspect command E2E', () => {
     await startServeProcess();
 
     const first = await runner.runInspectCommand('runner/echo_args', {
-      args: ['--format', 'json'],
+      args: [...getCliSessionCacheArgs(), '--format', 'json'],
     });
     runner.assertSuccess(first);
 
-    const cachePath = join(environment.getConfigDir(), '.cli-session');
+    const cachePath = getExpectedCachePath();
     const cache = JSON.parse(await readFile(cachePath, 'utf8')) as {
       sessionId: string;
       serverUrl: string;
@@ -157,7 +157,9 @@ describeInspectE2E('inspect command E2E', () => {
     cache.sessionId = 'stale-session';
     await writeFile(cachePath, JSON.stringify(cache), 'utf8');
 
-    const second = await runner.runInspectCommand('runner/echo_args', { args: ['--format', 'json'] });
+    const second = await runner.runInspectCommand('runner/echo_args', {
+      args: [...getCliSessionCacheArgs(), '--format', 'json'],
+    });
     runner.assertSuccess(second);
   });
 
@@ -210,14 +212,13 @@ describeInspectE2E('inspect command E2E', () => {
     runner.assertSuccess(instructionsResult);
     expect(instructionsResult.stdout).toContain('1MCP CLI Instructions');
     expect(instructionsResult.stdout).toContain('Run `1mcp inspect <server>`');
-    expect(instructionsResult.stdout).toContain('Available Servers');
-    expect(instructionsResult.stdout).toContain('- server: serena');
+    expect(instructionsResult.stdout).toContain('=== SERVER SUMMARY ===');
+    expect(instructionsResult.stdout).toContain('<server_summary name="serena">');
     expect(instructionsResult.stdout).toContain('type: template');
     expect(instructionsResult.stdout).toContain('status: connected');
     expect(instructionsResult.stdout).toContain('tools: 1');
     expect(instructionsResult.stdout).toContain('instructions: yes');
-    expect(instructionsResult.stdout).toContain('Server Instructions');
-    expect(instructionsResult.stdout).toContain('## serena');
+    expect(instructionsResult.stdout).toContain('<server_instructions name="serena">');
     expect(instructionsResult.stdout).toContain('# Serena Instructions');
 
     const listResult = await runner.runCommand('inspect', '', {
@@ -236,6 +237,7 @@ describeInspectE2E('inspect command E2E', () => {
 
     const serverResult = await runner.runInspectCommand('serena', {
       cwd: environment.getTempDir(),
+      args: getCliSessionCacheArgs(),
     });
 
     runner.assertSuccess(serverResult);
@@ -294,6 +296,14 @@ describeInspectE2E('inspect command E2E', () => {
     });
 
     await waitForServeReady(stderr);
+  }
+
+  function getExpectedCachePath(): string {
+    return join(environment.getTempDir(), 'cli-session-cache');
+  }
+
+  function getCliSessionCacheArgs(): string[] {
+    return ['--cli-session-cache-path', getExpectedCachePath()];
   }
 
   async function waitForServeReady(initialStderr: string): Promise<void> {
