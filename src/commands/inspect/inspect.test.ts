@@ -322,8 +322,8 @@ describe('inspect command internals', () => {
     });
   });
 
-  it('retries with a fresh session when a cached session has no tools for the requested server', async () => {
-    mockedApiClientGet.mockResolvedValue({ ok: false, status: 503, error: 'disconnected' });
+  it('falls back to MCP when the inspect endpoint is unavailable for a server target', async () => {
+    mockedApiClientGet.mockResolvedValue({ ok: false, status: 404, error: 'HTTP 404' });
     transportState.schemaPayload = {
       tools: [
         {
@@ -428,6 +428,43 @@ describe('inspect command internals', () => {
     ]);
   });
 
+  it('falls back to MCP when a server target is declared but currently disconnected over REST', async () => {
+    mockedApiClientGet.mockResolvedValue({
+      ok: false,
+      status: 503,
+      error: "Server 'serena' is not currently connected",
+    });
+    transportState.schemaPayload = {
+      tools: [
+        {
+          name: 'serena_1mcp_find_symbol',
+          description: 'Find symbol',
+          inputSchema: {
+            type: 'object',
+            properties: { name_path_pattern: { type: 'string' } },
+            required: ['name_path_pattern'],
+          },
+        },
+      ],
+    } as any;
+
+    const cacheDir = join(process.cwd(), '.tmp-test', 'inspect-command-unit', 'rest-disconnected-server');
+    await mkdir(cacheDir, { recursive: true });
+
+    await inspectCommand({
+      target: 'serena',
+      format: 'text',
+      'config-dir': cacheDir,
+      'cli-session-cache-path': join(cacheDir, '.cli-session.{pid}'),
+    } as never);
+
+    expect(mockedStdoutWrite).toHaveBeenCalledWith(expect.stringContaining('Inspect: Server'));
+    expect(mockedStdoutWrite).toHaveBeenCalledWith(expect.stringContaining('server: serena'));
+    expect(transportState.instances.map((instance) => instance.sentMessages.map((message) => message.method))).toEqual([
+      ['initialize', 'notifications/initialized', 'tools/list'],
+    ]);
+  });
+
   it('lists servers for bare inspect without printing instruction blocks', async () => {
     mockedApiClientGet.mockResolvedValue({
       ok: true,
@@ -443,10 +480,6 @@ describe('inspect command internals', () => {
         ],
       },
     });
-    transportState.initializeResult = {
-      instructions: '# 1MCP - Model Context Protocol Proxy\nUse inspect to review available servers.',
-    };
-
     const cacheDir = join(process.cwd(), '.tmp-test', 'inspect-command-unit', 'inspect-servers');
     await mkdir(cacheDir, { recursive: true });
 
@@ -461,14 +494,11 @@ describe('inspect command internals', () => {
     expect(mockedStdoutWrite).not.toHaveBeenCalledWith(
       expect.stringContaining('# 1MCP - Model Context Protocol Proxy'),
     );
-    expect(transportState.instances.map((instance) => instance.sentMessages.map((message) => message.method))).toEqual([
-      ['initialize', 'notifications/initialized', 'tools/list'],
-      ['tools/list'],
-    ]);
+    expect(transportState.instances).toHaveLength(0);
   });
 
   it('omits server instructions for server targets', async () => {
-    mockedApiClientGet.mockResolvedValueOnce({ ok: false, status: 503, error: 'disconnected' }).mockResolvedValueOnce({
+    mockedApiClientGet.mockResolvedValue({
       ok: true,
       status: 200,
       data: {
@@ -488,20 +518,6 @@ describe('inspect command internals', () => {
         hasMore: false,
       },
     });
-    transportState.schemaPayload = {
-      tools: [
-        {
-          name: 'serena_1mcp_find_symbol',
-          description: 'Find symbol',
-          inputSchema: {
-            type: 'object',
-            properties: { name_path_pattern: { type: 'string' } },
-            required: ['name_path_pattern'],
-          },
-        },
-      ],
-    } as any;
-
     const cacheDir = join(process.cwd(), '.tmp-test', 'inspect-command-unit', 'retry-missing-instructions');
     await mkdir(cacheDir, { recursive: true });
     const cachePath = getCliSessionCachePath({
@@ -527,8 +543,6 @@ describe('inspect command internals', () => {
     expect(mockedStdoutWrite).not.toHaveBeenCalledWith(
       expect.stringContaining('# 1MCP - Model Context Protocol Proxy'),
     );
-    expect(transportState.instances.map((instance) => instance.sentMessages.map((message) => message.method))).toEqual([
-      ['tools/list'],
-    ]);
+    expect(transportState.instances).toHaveLength(0);
   });
 });

@@ -27,8 +27,6 @@ import {
   type InspectOutputFormat,
   type InspectResult,
   type InspectServerInfo,
-  type InspectServersInfo,
-  type InspectServerSummary,
   parseInspectTarget,
 } from './inspectUtils.js';
 
@@ -145,51 +143,6 @@ function isApiInspectToolResult(value: unknown): value is ApiInspectToolResult {
   );
 }
 
-function mergeContextDiscoveredServers(
-  result: InspectServersInfo,
-  tools: Tool[],
-  fromCache: boolean,
-  instructions?: string | null,
-): InspectServersInfo {
-  const mergedServers = new Map<string, InspectServerSummary>(result.servers.map((server) => [server.server, server]));
-  const toolCounts = new Map<string, number>();
-
-  for (const tool of tools) {
-    const [serverName] = tool.name.split('_1mcp_');
-    if (!serverName || serverName === '1mcp') {
-      continue;
-    }
-    toolCounts.set(serverName, (toolCounts.get(serverName) ?? 0) + 1);
-  }
-
-  for (const [serverName, toolCount] of toolCounts) {
-    const existing = mergedServers.get(serverName);
-    if (existing) {
-      existing.toolCount = Math.max(existing.toolCount, toolCount);
-      if (!existing.available) {
-        existing.available = true;
-        existing.status = 'connected';
-      }
-      continue;
-    }
-
-    mergedServers.set(serverName, {
-      server: serverName,
-      type: 'template',
-      status: 'connected',
-      available: true,
-      toolCount,
-      hasInstructions: !fromCache,
-    });
-  }
-
-  return {
-    kind: 'servers',
-    instructions,
-    servers: Array.from(mergedServers.values()).sort((left, right) => left.server.localeCompare(right.server)),
-  };
-}
-
 function stripServerInstructions(result: InspectServerInfo): InspectServerInfo {
   const { instructions: _instructions, ...serverResult } = result;
   return serverResult;
@@ -278,69 +231,18 @@ export async function getInspectResult(
       );
     }
 
-    if (target.kind === 'all' && result.kind === 'servers') {
-      let contextResponse = await inspectTools({
-        serverUrl,
-        bearerToken: authProfile?.token,
-        context: inspectContext,
-      });
-      const instructions = contextResponse.instructions;
-
-      // Template-backed servers can appear only after the initial contextful session
-      // is fully established. Retry once using the freshly issued session id
-      // before merging discovered servers into the REST payload.
-      if (contextResponse.sessionId) {
-        const secondPass = await inspectTools({
-          serverUrl,
-          sessionId: contextResponse.sessionId,
-          bearerToken: authProfile?.token,
-          context: inspectContext,
-        });
-        if (!secondPass.retryWithFreshSession) {
-          contextResponse = { ...secondPass, instructions };
-        }
-      }
-
-      if (!contextResponse.retryWithFreshSession) {
-        result = mergeContextDiscoveredServers(result, contextResponse.tools, false, contextResponse.instructions);
-
-        if (contextResponse.sessionId) {
-          await writeCliSessionCache(cachePath, {
-            sessionId: contextResponse.sessionId,
-            serverUrl: serverUrl.toString(),
-            savedAt: Date.now(),
-            hasRestEndpoint: true,
-          });
-        }
-      }
-    }
-
     if (!includeServerInstructions) {
       result = maybeStripServerInstructions(result);
       result = stripListInstructions(result);
     }
 
-    if (target.kind === 'tool' && !cachedSession?.sessionId) {
-      const sessionResponse = await inspectTools({
-        serverUrl,
-        bearerToken: authProfile?.token,
-        context: inspectContext,
-      });
-
-      if (sessionResponse.sessionId) {
-        await writeCliSessionCache(cachePath, {
-          sessionId: sessionResponse.sessionId,
-          serverUrl: serverUrl.toString(),
-          savedAt: Date.now(),
-          hasRestEndpoint: true,
-        });
-      }
-    }
-
     // Mark that this server has the REST endpoint
-    if (cachedSession) {
-      await writeCliSessionCache(cachePath, { ...cachedSession, hasRestEndpoint: true });
-    }
+    await writeCliSessionCache(cachePath, {
+      sessionId: cachedSession?.sessionId ?? 'rest',
+      serverUrl: serverUrl.toString(),
+      savedAt: Date.now(),
+      hasRestEndpoint: true,
+    });
     return result;
   }
 
@@ -351,7 +253,13 @@ export async function getInspectResult(
     );
   }
 
-  if (apiResponse.status !== 404 && apiResponse.status !== 503 && apiResponse.status !== 0) {
+  const canFallbackToMcp =
+    apiResponse.status === 404 ||
+    apiResponse.status === 405 ||
+    apiResponse.status === 0 ||
+    ((target.kind === 'server' || target.kind === 'tool') && apiResponse.status === 503);
+
+  if (!canFallbackToMcp) {
     // Non-fallback error from the API — surface it
     throw new InspectCommandError(apiResponse.error || `Server returned HTTP ${apiResponse.status}`);
   }

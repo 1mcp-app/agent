@@ -193,6 +193,69 @@ export class ConfigManager extends EventEmitter {
   }
 
   /**
+   * Load declared server definitions without rendering templates.
+   * This is useful for metadata/discovery flows that need configured server names
+   * even when no session context exists yet.
+   */
+  public loadDeclaredServerConfigs(): {
+    staticServers: Record<string, MCPServerParams>;
+    templateServers: Record<string, MCPServerParams>;
+    errors: string[];
+  } {
+    let rawConfig: unknown;
+    let config: MCPServerConfiguration;
+
+    try {
+      rawConfig = this.loadRawConfig();
+      config = mcpServerConfigSchema.parse(rawConfig);
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      logger.error(`Failed to parse configuration: ${errorMessage}`);
+      return {
+        staticServers: {},
+        templateServers: {},
+        errors: [`Configuration parsing failed: ${errorMessage}`],
+      };
+    }
+
+    const staticServers: Record<string, MCPServerParams> = {};
+    for (const [serverName, serverConfig] of Object.entries(config.mcpServers)) {
+      try {
+        staticServers[serverName] = this.validateServerConfig(serverName, serverConfig);
+      } catch (error) {
+        logger.error(
+          `Static server validation failed for ${serverName}: ${error instanceof Error ? error.message : String(error)}`,
+        );
+      }
+    }
+
+    const templateServers: Record<string, MCPServerParams> = {};
+    if (config.mcpTemplates) {
+      for (const [serverName, serverConfig] of Object.entries(config.mcpTemplates)) {
+        try {
+          templateServers[serverName] = this.validateServerConfig(serverName, serverConfig);
+        } catch (error) {
+          logger.error(
+            `Template server validation failed for ${serverName}: ${error instanceof Error ? error.message : String(error)}`,
+          );
+        }
+      }
+    }
+
+    for (const staticServerName of Object.keys(staticServers)) {
+      if (staticServerName in templateServers) {
+        delete staticServers[staticServerName];
+      }
+    }
+
+    return {
+      staticServers,
+      templateServers,
+      errors: [],
+    };
+  }
+
+  /**
    * Process template configurations with context data
    * @param templates - Template configurations to process
    * @param context - Context data for template substitution

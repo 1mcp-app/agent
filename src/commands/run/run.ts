@@ -1,6 +1,7 @@
 import { StreamableHTTPError } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import { type CallToolResult, type Tool } from '@modelcontextprotocol/sdk/types.js';
 
+import { extractInspectToolInfo, type InspectToolInfo } from '@src/commands/inspect/inspectUtils.js';
 import {
   findToolByQualifiedName,
   formatToolCallOutput,
@@ -39,6 +40,16 @@ export interface RunCommandOptions extends GlobalOptions {
   tool: string;
 }
 
+interface ApiInspectToolResult {
+  kind: 'tool';
+  server: string;
+  tool: string;
+  qualifiedName: string;
+  description?: string;
+  inputSchema: Record<string, unknown>;
+  outputSchema?: Record<string, unknown>;
+}
+
 export {
   buildServerUrl,
   deleteCliSessionCache,
@@ -70,15 +81,14 @@ export async function runCommand(options: RunCommandOptions): Promise<void> {
   const cachedSession = await readCliSessionCache(cachePath, serverUrl.toString());
   const baseUrl = discoveredUrl.replace(/\/mcp$/, '');
   const authProfile = await loadAuthProfile(options['config-dir'], normalizeServerUrl(baseUrl));
+  const apiClient = new ApiClient({ baseUrl, bearerToken: authProfile?.token });
 
   // REST-first path: skip MCP handshake when we know the server supports it,
   // or probe once on first run. Fall back to MCP on missing/unsupported/upstream errors.
   const canTryRest = cachedSession?.hasRestEndpoint !== false;
   const needsSchemaForStdin = options.args === undefined && stdinText !== undefined;
 
-  if (canTryRest && !needsSchemaForStdin) {
-    const apiClient = new ApiClient({ baseUrl, bearerToken: authProfile?.token });
-
+  if (canTryRest) {
     const restArgs =
       options.args !== undefined
         ? (JSON.parse(options.args) as Record<string, unknown>)
@@ -86,26 +96,39 @@ export async function runCommand(options: RunCommandOptions): Promise<void> {
           ? tryParseJsonObject(stdinText)
           : {};
 
-    if (restArgs !== null) {
+    const toolInfo =
+      needsSchemaForStdin && restArgs === null
+        ? await fetchToolInfoFromApi(apiClient, toolReference, options.tool)
+        : null;
+
+    if (restArgs !== null || toolInfo) {
+      const resolvedArguments =
+        restArgs !== null
+          ? restArgs
+          : resolveToolArguments({
+              stdinText,
+              tool: toTool(toolInfo!),
+            }).arguments;
       const apiResponse = await apiClient.post<{
         result: CallToolResult;
         server: string;
         tool: string;
         error?: { type: string; message: string };
-      }>('/api/tool-invocations', { tool: options.tool, args: restArgs ?? {} });
+      }>('/api/tool-invocations', { tool: options.tool, args: resolvedArguments });
 
       const isFallbackStatus =
-        apiResponse.status === 404 ||
         apiResponse.status === 405 ||
-        apiResponse.status === 502 ||
         apiResponse.status === 503 ||
-        apiResponse.status === 0;
+        apiResponse.status === 0 ||
+        (apiResponse.status === 404 && apiResponse.error === 'HTTP 404');
 
       if (!isFallbackStatus) {
-        // REST endpoint exists — cache the result
-        if (cachedSession) {
-          await writeCliSessionCache(cachePath, { ...cachedSession, hasRestEndpoint: true });
-        }
+        await writeCliSessionCache(cachePath, {
+          sessionId: cachedSession?.sessionId ?? 'rest',
+          serverUrl: serverUrl.toString(),
+          savedAt: Date.now(),
+          hasRestEndpoint: true,
+        });
 
         let rawResponse: JsonRpcResponse<CallToolResult>;
         if (apiResponse.ok && apiResponse.data) {
@@ -136,9 +159,12 @@ export async function runCommand(options: RunCommandOptions): Promise<void> {
       }
 
       // Missing/unsupported/upstream REST responses → cache that and fall through to MCP
-      if (cachedSession) {
-        await writeCliSessionCache(cachePath, { ...cachedSession, hasRestEndpoint: false });
-      }
+      await writeCliSessionCache(cachePath, {
+        sessionId: cachedSession?.sessionId ?? 'mcp',
+        serverUrl: serverUrl.toString(),
+        savedAt: Date.now(),
+        hasRestEndpoint: false,
+      });
     }
   }
 
@@ -196,6 +222,43 @@ export async function runCommand(options: RunCommandOptions): Promise<void> {
   if (output.length > 0) {
     process.stdout.write(`${output}\n`);
   }
+}
+
+async function fetchToolInfoFromApi(
+  apiClient: ApiClient,
+  toolReference: ReturnType<typeof parseToolReference>,
+  displayToolName: string,
+): Promise<InspectToolInfo | null> {
+  const apiResponse = await apiClient.get<ApiInspectToolResult>('/api/inspect', {
+    target: displayToolName,
+  });
+
+  if (!apiResponse.ok || !apiResponse.data || apiResponse.data.kind !== 'tool') {
+    if (apiResponse.status === 404 || apiResponse.status === 405 || apiResponse.status === 0) {
+      return null;
+    }
+
+    throw new RunCommandInputError(apiResponse.error || `Unable to load schema for ${displayToolName}`);
+  }
+
+  return extractInspectToolInfo(
+    {
+      name: apiResponse.data.qualifiedName,
+      description: apiResponse.data.description,
+      inputSchema: apiResponse.data.inputSchema,
+      outputSchema: apiResponse.data.outputSchema,
+    } as Tool,
+    toolReference,
+  );
+}
+
+function toTool(toolInfo: InspectToolInfo): Tool {
+  return {
+    name: toolInfo.qualifiedName,
+    description: toolInfo.description,
+    inputSchema: toolInfo.inputSchema as Tool['inputSchema'],
+    outputSchema: toolInfo.outputSchema as Tool['outputSchema'],
+  };
 }
 
 export async function invokeTool(options: {

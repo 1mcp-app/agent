@@ -1,4 +1,7 @@
+import type { Tool } from '@modelcontextprotocol/sdk/types.js';
+
 import { ToolInvokeOutput, ToolListOutput } from '@src/core/capabilities/schemas/metaToolSchemas.js';
+import { ToolRegistry } from '@src/core/capabilities/toolRegistry.js';
 import { FilteringService } from '@src/core/filtering/filteringService.js';
 import { ServerManager } from '@src/core/server/serverManager.js';
 import logger from '@src/logger/logger.js';
@@ -20,19 +23,46 @@ function getAllowedServersFromRequest(serverManager: ServerManager, res: Respons
 export function createToolsHandler(serverManager: ServerManager): RequestHandler {
   return async (req: Request, res: Response): Promise<void> => {
     try {
-      const lazyOrchestrator = serverManager.getLazyLoadingOrchestrator();
-      if (!lazyOrchestrator) {
-        res.status(503).json({ error: 'Tool listing not available' });
-        return;
-      }
-
       const server = typeof req.query.server === 'string' ? req.query.server : undefined;
       const pattern = typeof req.query.pattern === 'string' ? req.query.pattern : undefined;
       const limitParam = typeof req.query.limit === 'string' ? parseInt(req.query.limit, 10) : undefined;
       const limit = limitParam !== undefined && Number.isFinite(limitParam) && limitParam > 0 ? limitParam : undefined;
-      const cursor = typeof req.query.cursor === 'string' ? req.query.cursor : undefined;
 
       const allowedServers = getAllowedServersFromRequest(serverManager, res);
+      const lazyOrchestrator = serverManager.getLazyLoadingOrchestrator();
+
+      if (!lazyOrchestrator) {
+        const clients = serverManager.getClients();
+        const toolsByServer = new Map<string, Tool[]>();
+        for (const [serverName, conn] of clients) {
+          if (allowedServers && !allowedServers.has(serverName)) continue;
+          if (server && serverName !== server) continue;
+          if (conn.status !== 'connected') continue;
+          try {
+            const result = await conn.client.listTools();
+            toolsByServer.set(serverName, result.tools ?? []);
+          } catch (err) {
+            logger.error(`Failed to list tools for ${serverName}:`, err);
+          }
+        }
+
+        const cursor = typeof req.query.cursor === 'string' ? req.query.cursor : undefined;
+        const result = ToolRegistry.fromToolsMap(toolsByServer).listTools({
+          server,
+          pattern,
+          limit,
+          cursor,
+        });
+        const servers = Array.from(new Set(result.tools.map((tool) => tool.server))).sort();
+
+        res.json({
+          ...result,
+          servers,
+        });
+        return;
+      }
+
+      const cursor = typeof req.query.cursor === 'string' ? req.query.cursor : undefined;
 
       const result = (await lazyOrchestrator.callMetaTool(
         'tool_list',
@@ -85,13 +115,31 @@ export function createToolInvocationsHandler(serverManager: ServerManager): Requ
         return;
       }
 
+      const allowedServers = getAllowedServersFromRequest(serverManager, res);
+
       const lazyOrchestrator = serverManager.getLazyLoadingOrchestrator();
       if (!lazyOrchestrator) {
-        res.status(503).json({ error: 'Tool invocation not available' });
+        if (allowedServers && !allowedServers.has(target.serverName)) {
+          res.status(404).json({ error: `Server not found: ${target.serverName}` });
+          return;
+        }
+        const connection = serverManager.getClient(target.serverName);
+        if (!connection || !connection.client) {
+          res.status(503).json({ error: `Server not connected: ${target.serverName}` });
+          return;
+        }
+        try {
+          const upstreamResult = await connection.client.callTool({
+            name: target.toolName,
+            arguments: toolArgs,
+          });
+          res.json({ result: upstreamResult, server: target.serverName, tool: target.toolName });
+        } catch (error) {
+          logger.error('Direct tool invocation error:', error);
+          res.status(502).json({ error: `Upstream error: ${error}` });
+        }
         return;
       }
-
-      const allowedServers = getAllowedServersFromRequest(serverManager, res);
 
       const result = (await lazyOrchestrator.callMetaTool(
         'tool_invoke',

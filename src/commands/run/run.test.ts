@@ -365,6 +365,16 @@ describe('runCommand REST-first path', () => {
     };
   }
 
+  function makeTextResponse(status: number, text: string) {
+    return {
+      ok: status >= 200 && status < 300,
+      status,
+      headers: { get: (name: string) => (name === 'content-type' ? 'text/plain' : null) },
+      text: async () => text,
+      body: { cancel: async () => undefined },
+    };
+  }
+
   it('uses REST when hasRestEndpoint is true in cache and skips MCP', async () => {
     await writeCliSessionCache(cachePath, {
       sessionId: 'cached-session',
@@ -403,7 +413,7 @@ describe('runCommand REST-first path', () => {
     expect(output.join('')).toContain('rest-result');
   });
 
-  it('falls back to MCP when REST returns 404', async () => {
+  it('falls back to MCP when REST endpoint is missing', async () => {
     await writeCliSessionCache(cachePath, {
       sessionId: 'cached-session',
       serverUrl: 'http://127.0.0.1:3050/mcp',
@@ -411,7 +421,7 @@ describe('runCommand REST-first path', () => {
       hasRestEndpoint: true,
     });
 
-    mockFetch.mockResolvedValueOnce(makeRestResponse(404, { error: 'not found' }));
+    mockFetch.mockResolvedValueOnce(makeTextResponse(404, 'Cannot POST /api/tool-invocations'));
 
     const origStdout = process.stdout.write.bind(process.stdout);
     vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
@@ -431,7 +441,7 @@ describe('runCommand REST-first path', () => {
     expect(transportState.instances.length).toBeGreaterThan(0);
   });
 
-  it('falls back to MCP when REST returns 502', async () => {
+  it('surfaces upstream REST errors without MCP fallback', async () => {
     await writeCliSessionCache(cachePath, {
       sessionId: 'cached-session',
       serverUrl: 'http://127.0.0.1:3050/mcp',
@@ -441,7 +451,11 @@ describe('runCommand REST-first path', () => {
 
     mockFetch.mockResolvedValueOnce(makeRestResponse(502, { error: 'upstream failed' }));
 
-    vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
+    const stderr: string[] = [];
+    vi.spyOn(process.stderr, 'write').mockImplementation((chunk) => {
+      stderr.push(String(chunk));
+      return true;
+    });
 
     const { runCommand } = await import('./run.js');
     await runCommand({
@@ -453,7 +467,71 @@ describe('runCommand REST-first path', () => {
 
     vi.restoreAllMocks();
 
-    expect(transportState.instances.length).toBeGreaterThan(0);
+    expect(transportState.instances).toHaveLength(0);
+    expect(stderr.join('')).toContain('upstream failed');
+  });
+
+  it('uses HTTP inspect schema for raw stdin mapping and skips MCP', async () => {
+    mockFetch
+      .mockResolvedValueOnce(
+        makeRestResponse(200, {
+          kind: 'tool',
+          server: 'runner',
+          tool: 'echo_args',
+          qualifiedName: 'runner_1mcp_echo_args',
+          description: 'Echo message payloads for testing.',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              message: { type: 'string' },
+            },
+            required: ['message'],
+          },
+        }),
+      )
+      .mockImplementationOnce(async (_url: string, init?: RequestInit) => {
+        const body = JSON.parse(String(init?.body));
+        if (body.args?.message !== 'hello from stdin') {
+          return makeRestResponse(400, { error: 'stdin mapping failed' });
+        }
+
+        return makeRestResponse(200, {
+          result: { content: [{ type: 'text', text: 'rest-stdin-result' }], isError: false },
+          server: 'runner',
+          tool: 'echo_args',
+        });
+      });
+
+    const output: string[] = [];
+    vi.spyOn(process.stdout, 'write').mockImplementation((chunk) => {
+      output.push(String(chunk));
+      return true;
+    });
+
+    const originalProcess = process;
+    vi.stubGlobal('process', {
+      ...process,
+      stdin: {
+        ...process.stdin,
+        isTTY: false,
+        async *[Symbol.asyncIterator]() {
+          yield Buffer.from('hello from stdin');
+        },
+      },
+    });
+
+    const { runCommand } = await import('./run.js');
+    await runCommand({
+      tool: 'runner/echo_args',
+      'config-dir': cacheDir,
+      'cli-session-cache-path': join(cacheDir, '.cli-session.{pid}'),
+    } as never);
+
+    vi.restoreAllMocks();
+    vi.stubGlobal('process', originalProcess);
+
+    expect(transportState.instances).toHaveLength(0);
+    expect(output.join('')).toContain('rest-stdin-result');
   });
 
   it('skips REST entirely when hasRestEndpoint is false', async () => {

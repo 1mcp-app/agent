@@ -2,6 +2,7 @@ import type { Tool } from '@modelcontextprotocol/sdk/types.js';
 
 import { MCP_URI_SEPARATOR } from '@src/constants.js';
 import { FilteringService } from '@src/core/filtering/filteringService.js';
+import { ClientStatus, type OutboundConnection } from '@src/core/types/client.js';
 import { InboundConnectionConfig } from '@src/core/types/index.js';
 import { TagQueryEvaluator } from '@src/domains/preset/parsers/tagQueryEvaluator.js';
 import { TagQueryParser } from '@src/domains/preset/parsers/tagQueryParser.js';
@@ -177,6 +178,32 @@ export function resolveConnectionByServerName(
   }
 
   return undefined;
+}
+
+export function deriveServerState(
+  adapterStatus: string | undefined,
+  adapterAvailable: boolean | undefined,
+  connection?: OutboundConnection,
+): { status: string; available: boolean } {
+  if (connection) {
+    switch (connection.status) {
+      case ClientStatus.Connected:
+        return { status: 'connected', available: true };
+      case ClientStatus.Disconnected:
+        return { status: 'disconnected', available: false };
+      case ClientStatus.Error:
+        return { status: 'error', available: false };
+      case ClientStatus.AwaitingOAuth:
+        return { status: 'awaiting_oauth', available: false };
+      default:
+        break;
+    }
+  }
+
+  return {
+    status: adapterStatus ?? 'unknown',
+    available: adapterAvailable ?? false,
+  };
 }
 
 export function matchesFilterConfig(tags: string[] | undefined, filterConfig: InboundConnectionConfig): boolean {

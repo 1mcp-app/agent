@@ -1,3 +1,4 @@
+import { ConfigManager } from '@src/config/configManager.js';
 import { CapabilityAggregator } from '@src/core/capabilities/capabilityAggregator.js';
 import { ToolRegistry } from '@src/core/capabilities/toolRegistry.js';
 import { FilteringService } from '@src/core/filtering/filteringService.js';
@@ -9,6 +10,7 @@ import { Request, RequestHandler, Response } from 'express';
 
 import {
   buildFilterConfig,
+  deriveServerState,
   getServerName,
   getToolName,
   type InspectServerPayload,
@@ -39,6 +41,7 @@ export function createServersHandler(serverManager: ServerManager): RequestHandl
       const toolRegistry: ToolRegistry | undefined = lazyOrchestrator?.getToolRegistry();
       const capabilityAggregator: CapabilityAggregator | undefined = lazyOrchestrator?.getCapabilityAggregator();
       const serverRegistry = serverManager.getServerRegistry();
+      const declaredServers = ConfigManager.getInstance().loadDeclaredServerConfigs();
 
       let toolCountByServer: Record<string, number> = {};
 
@@ -86,18 +89,30 @@ export function createServersHandler(serverManager: ServerManager): RequestHandl
         }
       }
 
+      for (const [name, config] of Object.entries({
+        ...declaredServers.staticServers,
+        ...declaredServers.templateServers,
+      })) {
+        if (!serverMap.has(name) && matchesFilterConfig(config.tags, filterConfig)) {
+          serverMap.set(name, {
+            toolCount: 0,
+            hasInstructions: instructionAggregator?.hasInstructions(name) ?? false,
+          });
+        }
+      }
+
       const servers: ServerSummary[] = [];
       for (const [cleanName, info] of serverMap) {
         const adapter = serverRegistry.get(cleanName);
-        const status = adapter?.getStatus() ?? 'connected';
-        const available = adapter?.isAvailable() ?? true;
-        const type = adapter?.type ?? 'external';
+        const connection = resolveConnectionByServerName(filteredConnections, cleanName);
+        const state = deriveServerState(adapter?.getStatus(), adapter?.isAvailable(), connection);
+        const type = adapter?.type ?? (declaredServers.templateServers[cleanName] ? 'template' : 'external');
 
         servers.push({
           server: cleanName,
           type: String(type),
-          status: String(status),
-          available,
+          status: state.status,
+          available: state.available,
           toolCount: info.toolCount,
           hasInstructions: info.hasInstructions,
         });
@@ -133,6 +148,7 @@ export function createInspectHandler(serverManager: ServerManager): RequestHandl
       const toolRegistry: ToolRegistry | undefined = lazyOrchestrator?.getToolRegistry();
       const capabilityAggregator: CapabilityAggregator | undefined = lazyOrchestrator?.getCapabilityAggregator();
       const serverRegistry: ServerRegistry = serverManager.getServerRegistry();
+      const declaredServers = ConfigManager.getInstance().loadDeclaredServerConfigs();
 
       // No target: list all filtered servers
       if (!targetRaw) {
@@ -182,18 +198,30 @@ export function createInspectHandler(serverManager: ServerManager): RequestHandl
           }
         }
 
+        for (const [name, config] of Object.entries({
+          ...declaredServers.staticServers,
+          ...declaredServers.templateServers,
+        })) {
+          if (!serverMap.has(name) && matchesFilterConfig(config.tags, filterConfig)) {
+            serverMap.set(name, {
+              toolCount: 0,
+              hasInstructions: instructionAggregator?.hasInstructions(name) ?? false,
+            });
+          }
+        }
+
         const servers: ServerSummary[] = [];
         for (const [cleanName, info] of serverMap) {
           const adapter = serverRegistry.get(cleanName);
-          const status = adapter?.getStatus() ?? 'connected';
-          const available = adapter?.isAvailable() ?? true;
-          const type = adapter?.type ?? 'external';
+          const connection = resolveConnectionByServerName(filteredConnections, cleanName);
+          const state = deriveServerState(adapter?.getStatus(), adapter?.isAvailable(), connection);
+          const type = adapter?.type ?? (declaredServers.templateServers[cleanName] ? 'template' : 'external');
 
           servers.push({
             server: cleanName,
             type: String(type),
-            status: String(status),
-            available,
+            status: state.status,
+            available: state.available,
             toolCount: info.toolCount,
             hasInstructions: info.hasInstructions,
           });
@@ -258,8 +286,10 @@ export function createInspectHandler(serverManager: ServerManager): RequestHandl
 
       const adapter = serverRegistry.get(serverName);
       const connection = resolveConnectionByServerName(filteredConnections, serverName);
+      const declaredTemplateConfig = declaredServers.templateServers[serverName];
+      const declaredStaticConfig = declaredServers.staticServers[serverName];
 
-      if (!adapter && !connection) {
+      if (!adapter && !connection && !declaredTemplateConfig && !declaredStaticConfig) {
         res.status(404).json({ error: `Server not found: ${serverName}` });
         return;
       }
@@ -269,9 +299,8 @@ export function createInspectHandler(serverManager: ServerManager): RequestHandl
         return;
       }
 
-      const status = adapter?.getStatus() ?? 'unknown';
-      const available = adapter?.isAvailable() ?? false;
-      const type = adapter?.type ?? 'external';
+      const state = deriveServerState(adapter?.getStatus(), adapter?.isAvailable(), connection);
+      const type = adapter?.type ?? (declaredTemplateConfig ? 'template' : 'external');
       const instructions = instructionAggregator?.getServerInstructions(serverName) ?? null;
 
       let toolsResult: { tools: ToolSummary[]; totalTools: number; hasMore: boolean; nextCursor?: string };
@@ -344,8 +373,8 @@ export function createInspectHandler(serverManager: ServerManager): RequestHandl
         kind: 'server',
         server: serverName,
         type: String(type),
-        status: String(status),
-        available,
+        status: state.status,
+        available: state.available,
         instructions,
         tools: toolsResult.tools,
         totalTools: toolsResult.totalTools,
