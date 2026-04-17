@@ -9,6 +9,7 @@ import {
   resolveToolArguments,
   RunCommandInputError,
   type RunOutputFormat,
+  validateToolArgs,
 } from '@src/commands/run/runUtils.js';
 import { ApiClient } from '@src/commands/shared/apiClient.js';
 import { loadAuthProfile, normalizeServerUrl } from '@src/commands/shared/authProfileStore.js';
@@ -61,7 +62,7 @@ export {
 
 export async function runCommand(options: RunCommandOptions): Promise<void> {
   const toolReference = parseToolReference(options.tool);
-  const format = options.raw ? 'json' : options.format || (process.stdout.isTTY ? 'text' : 'json');
+  const format = options.raw ? 'json' : options.format || 'text';
   const maxChars = options['max-chars'] ?? 2000;
 
   const { url: discoveredUrl, pid: serverPid } = await discoverServerWithPidFile(options['config-dir'], options.url);
@@ -87,6 +88,7 @@ export async function runCommand(options: RunCommandOptions): Promise<void> {
   // or probe once on first run. Fall back to MCP on missing/unsupported/upstream errors.
   const canTryRest = cachedSession?.hasRestEndpoint !== false;
   const needsSchemaForStdin = options.args === undefined && stdinText !== undefined;
+  const needsSchemaForValidation = options.args !== undefined;
 
   if (canTryRest) {
     const restArgs =
@@ -97,7 +99,7 @@ export async function runCommand(options: RunCommandOptions): Promise<void> {
           : {};
 
     const toolInfo =
-      needsSchemaForStdin && restArgs === null
+      (needsSchemaForStdin && restArgs === null) || needsSchemaForValidation
         ? await fetchToolInfoFromApi(apiClient, toolReference, options.tool)
         : null;
 
@@ -109,6 +111,20 @@ export async function runCommand(options: RunCommandOptions): Promise<void> {
               stdinText,
               tool: toTool(toolInfo!),
             }).arguments;
+
+      if (toolInfo) {
+        const validation = validateToolArgs(
+          resolvedArguments,
+          toolInfo.inputSchema as Record<string, unknown>,
+          options.tool,
+        );
+        if (!validation.valid) {
+          process.stderr.write(`${validation.errorMessage}\n`);
+          process.exitCode = 1;
+          return;
+        }
+      }
+
       const apiResponse = await apiClient.post<{
         result: CallToolResult;
         server: string;
@@ -234,11 +250,7 @@ async function fetchToolInfoFromApi(
   });
 
   if (!apiResponse.ok || !apiResponse.data || apiResponse.data.kind !== 'tool') {
-    if (apiResponse.status === 404 || apiResponse.status === 405 || apiResponse.status === 0) {
-      return null;
-    }
-
-    throw new RunCommandInputError(apiResponse.error || `Unable to load schema for ${displayToolName}`);
+    return null;
   }
 
   return extractInspectToolInfo(
@@ -353,6 +365,25 @@ export async function invokeTool(options: {
       stdinText: options.stdinText,
       tool,
     });
+
+    if (tool) {
+      const validation = validateToolArgs(
+        resolvedArguments.arguments,
+        tool.inputSchema as Record<string, unknown>,
+        options.displayToolName,
+      );
+      if (!validation.valid) {
+        return {
+          rawResponse: {
+            jsonrpc: '2.0',
+            id: 0,
+            error: { code: -32602, message: validation.errorMessage },
+          },
+          sessionId: client.sessionId,
+          retryWithFreshSession: false,
+        };
+      }
+    }
 
     const response = await client.callTool(options.qualifiedToolName, resolvedArguments.arguments);
     return {

@@ -388,6 +388,7 @@ describe('runCommand REST-first path', () => {
       server: 'runner',
       tool: 'echo_args',
     };
+    mockFetch.mockResolvedValueOnce(makeTextResponse(404, 'Not Found')); // schema GET
     mockFetch.mockResolvedValueOnce(makeRestResponse(200, restResult));
 
     const origStdout = process.stdout.write.bind(process.stdout);
@@ -421,6 +422,7 @@ describe('runCommand REST-first path', () => {
       hasRestEndpoint: true,
     });
 
+    mockFetch.mockResolvedValueOnce(makeTextResponse(404, 'Not Found')); // schema GET
     mockFetch.mockResolvedValueOnce(makeTextResponse(404, 'Cannot POST /api/tool-invocations'));
 
     const origStdout = process.stdout.write.bind(process.stdout);
@@ -449,6 +451,7 @@ describe('runCommand REST-first path', () => {
       hasRestEndpoint: true,
     });
 
+    mockFetch.mockResolvedValueOnce(makeTextResponse(404, 'Not Found')); // schema GET
     mockFetch.mockResolvedValueOnce(makeRestResponse(502, { error: 'upstream failed' }));
 
     const stderr: string[] = [];

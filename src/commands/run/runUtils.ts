@@ -1,6 +1,7 @@
 import type { CallToolResult, Tool } from '@modelcontextprotocol/sdk/types.js';
 
 import { MCP_URI_SEPARATOR } from '@src/constants.js';
+import { CustomJsonSchemaValidator } from '@src/core/validation/CustomJsonSchemaValidator.js';
 import { buildUri } from '@src/utils/core/parsing.js';
 
 export type RunOutputFormat = 'json' | 'text' | 'compact';
@@ -61,6 +62,30 @@ interface JsonRpcErrorEnvelope {
 }
 
 export class RunCommandInputError extends Error {}
+
+export interface ValidateToolArgsFailure {
+  valid: false;
+  errorMessage: string;
+  schema: Record<string, unknown>;
+}
+
+export function validateToolArgs(
+  args: Record<string, unknown>,
+  inputSchema: Record<string, unknown>,
+  toolDisplayName: string,
+): { valid: true } | ValidateToolArgsFailure {
+  const validator = new CustomJsonSchemaValidator();
+  const validate = validator.getValidator<Record<string, unknown>>(inputSchema);
+  const result = validate(args);
+  if (result.valid) {
+    return { valid: true };
+  }
+  return {
+    valid: false,
+    errorMessage: `Validation failed for ${toolDisplayName}:\n  ${result.errorMessage ?? 'Invalid arguments'}\n\nExpected schema:\n${JSON.stringify(inputSchema, null, 2)}`,
+    schema: inputSchema,
+  };
+}
 
 export function parseToolReference(toolRef: string): ParsedToolReference {
   const parts = toolRef.split('/');

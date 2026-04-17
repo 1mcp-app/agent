@@ -37,7 +37,6 @@ export function setupInspectCommand(yargs: Argv): Argv {
           describe: 'Output format',
           type: 'string',
           choices: ['text', 'json'],
-          default: 'text',
         })
         .option('all', {
           describe: 'Fetch all tools without pagination (server target only)',
