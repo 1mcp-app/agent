@@ -50,14 +50,11 @@ describeRunE2E('run command E2E', () => {
     runner.assertSuccess(result);
     expect(result.stderr).toBe('');
 
-    const output = runner.parseJsonOutput<{
-      result: {
-        content: Array<{ text: string }>;
-      };
-    }>(result);
+    const output = runner.parseJsonOutput<{ echoed: string; count: number }>(result);
 
-    expect(output.result.content[0].text).toContain('"message": "hello"');
-    expect(output.result.content[0].text).toContain('"count": 2');
+    expect(output.echoed).toContain('"message": "hello"');
+    expect(output.echoed).toContain('"count": 2');
+    expect(output.count).toBe(2);
   });
 
   it('maps JSON stdin directly to tool arguments', async () => {
@@ -197,46 +194,24 @@ describeRunE2E('run command E2E', () => {
       return;
     }
 
-    serveProcess = spawn(
-      'node',
-      [
-        'build/index.js',
-        'serve',
-        '--transport',
-        'http',
-        '--port',
-        String(servePort),
-        '--config',
-        environment.getConfigPath(),
-        '--config-dir',
-        environment.getConfigDir(),
-        '--no-enable-config-reload',
-        '--log-level',
-        'error',
-      ],
-      {
-        cwd: process.cwd(),
-        env: {
-          ...process.env,
-          ...environment.getEnvironmentVariables(),
-        },
-        stdio: ['ignore', 'pipe', 'pipe'],
-      },
-    );
+    let lastError = 'unknown startup failure';
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      servePort = await getAvailablePort();
+      const stderr = await spawnServeProcess();
 
-    let stderr = '';
-    serveProcess.stderr?.on('data', (chunk) => {
-      stderr += chunk.toString();
-    });
-
-    serveProcess.on('exit', (code) => {
-      if (code !== null && code !== 0) {
-        // Surface unexpected startup failures in the readiness polling below.
-        stderr += `\nserve exited with code ${code}`;
+      try {
+        await waitForServeReady(stderr);
+        return;
+      } catch (error) {
+        lastError = error instanceof Error ? error.message : String(error);
+        if (!lastError.includes('EADDRINUSE') || attempt === 2) {
+          throw error;
+        }
+        await stopServeProcess();
       }
-    });
+    }
 
-    await waitForServeReady(stderr);
+    throw new Error(lastError);
   }
 
   function getExpectedCachePath(): string {
@@ -282,6 +257,11 @@ describeRunE2E('run command E2E', () => {
     serveProcess = undefined;
 
     await new Promise<void>((resolve) => {
+      if (currentProcess.exitCode !== null || currentProcess.signalCode !== null) {
+        resolve();
+        return;
+      }
+
       currentProcess.once('exit', () => resolve());
       currentProcess.kill('SIGTERM');
 
@@ -291,6 +271,52 @@ describeRunE2E('run command E2E', () => {
     });
 
     await rm(join(environment.getConfigDir(), 'server.pid'), { force: true });
+  }
+
+  async function spawnServeProcess(): Promise<string> {
+    serveProcess = spawn(
+      'node',
+      [
+        'build/index.js',
+        'serve',
+        '--transport',
+        'http',
+        '--port',
+        String(servePort),
+        '--config',
+        environment.getConfigPath(),
+        '--config-dir',
+        environment.getConfigDir(),
+        '--no-enable-config-reload',
+        '--log-level',
+        'error',
+      ],
+      {
+        cwd: process.cwd(),
+        env: {
+          ...process.env,
+          ...environment.getEnvironmentVariables(),
+        },
+        stdio: ['ignore', 'pipe', 'pipe'],
+      },
+    );
+
+    let stderr = '';
+    serveProcess.stderr?.on('data', (chunk) => {
+      stderr += chunk.toString();
+    });
+
+    serveProcess.on('exit', (code) => {
+      if (serveProcess?.pid === undefined || serveProcess.pid === currentPid) {
+        serveProcess = undefined;
+      }
+      if (code !== null && code !== 0) {
+        stderr += `\nserve exited with code ${code}`;
+      }
+    });
+
+    const currentPid = serveProcess.pid;
+    return stderr;
   }
 
   async function getAvailablePort(): Promise<number> {

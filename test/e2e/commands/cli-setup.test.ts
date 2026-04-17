@@ -27,7 +27,7 @@ describe('cli-setup command E2E', () => {
     const result = await runner.runCommand('cli-setup', '', {
       cwd: environment.getTempDir(),
       args: ['--config-dir', environment.getConfigDir(), '--codex'],
-      envOverrides: { HOME: homeDir },
+      envOverrides: { HOME: homeDir, USERPROFILE: homeDir },
     });
 
     runner.assertSuccess(result);

@@ -652,7 +652,8 @@ describe('mcp tokens command', () => {
 
       expect(result.exitCode).toBe(0);
       expect(result.stdout).toContain('--preset');
-      expect(result.stdout).toContain('Use preset filter instead of manual tag expression');
+      expect(result.stdout).toContain('Use preset filter instead of manual tag');
+      expect(result.stdout).toContain('expression');
       expect(result.stdout).toContain('--preset development');
       expect(result.stdout).toContain('Use development preset for token');
     });

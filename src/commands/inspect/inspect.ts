@@ -1,3 +1,5 @@
+import path from 'node:path';
+
 import { StreamableHTTPError } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import type { Tool } from '@modelcontextprotocol/sdk/types.js';
 
@@ -15,6 +17,7 @@ import {
   writeCliSessionCache,
 } from '@src/commands/shared/serveClient.js';
 import { loadProjectConfig, normalizeTags } from '@src/config/projectConfigLoader.js';
+import { MCP_URI_SEPARATOR } from '@src/constants.js';
 import { API_INSPECT_ENDPOINT } from '@src/constants/api.js';
 import type { GlobalOptions } from '@src/globalOptions.js';
 import type { ContextData } from '@src/types/context.js';
@@ -82,7 +85,7 @@ function buildInspectQuery(
 
 function buildInspectContext(projectConfig?: Awaited<ReturnType<typeof loadProjectConfig>>): ContextData {
   const cwd = process.cwd();
-  const projectName = cwd.split('/').pop() || 'unknown';
+  const projectName = path.basename(cwd) || 'unknown';
 
   const context: ContextData = {
     project: {
@@ -168,7 +171,7 @@ function stripListInstructions(result: InspectResult): InspectResult {
 
 function hasServerTools(tools: Tool[], serverName: string): boolean {
   return tools.some((tool) => {
-    const [toolServerName] = tool.name.split('_1mcp_');
+    const [toolServerName] = tool.name.split(MCP_URI_SEPARATOR);
     return toolServerName === serverName;
   });
 }
@@ -308,14 +311,9 @@ export async function getInspectResult(
       Boolean(cachedSession?.sessionId),
     );
   } else {
-    const serverApiResponse = await apiClient.get<Parameters<typeof formatInspectOutput>[0]>(API_INSPECT_ENDPOINT, {
-      ...buildInspectQuery(mergedOptions, mergedOptions.target),
-    });
-
-    if (serverApiResponse.ok && serverApiResponse.data?.kind === 'server') {
-      result = includeServerInstructions ? serverApiResponse.data : stripServerInstructions(serverApiResponse.data);
-    } else {
-      result = extractInspectServerInfo(target.serverName, response.tools, Boolean(cachedSession?.sessionId));
+    result = extractInspectServerInfo(target.serverName, response.tools, Boolean(cachedSession?.sessionId));
+    if (!includeServerInstructions) {
+      result = stripServerInstructions(result);
     }
   }
 

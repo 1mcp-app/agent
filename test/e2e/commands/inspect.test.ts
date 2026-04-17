@@ -47,17 +47,15 @@ describeInspectE2E('inspect command E2E', () => {
 
     runner.assertSuccess(result);
     expect(result.stderr).toBe('');
-    expect(result.stdout).toContain('Inspect: Tool');
-    expect(result.stdout).toContain('qualified_name: runner_1mcp_echo_args');
-    expect(result.stdout).toContain('required_args:');
-    expect(result.stdout).toContain('- name: message');
-    expect(result.stdout).toContain('description: Message to echo back.');
-    expect(result.stdout).toContain('optional_args:');
-    expect(result.stdout).toContain('output_schema:');
-    expect(result.stdout).toContain('required_fields:');
-    expect(result.stdout).toContain('- name: echoed');
-    expect(result.stdout).toContain('enum=plain | json');
-    expect(result.stdout).toContain('default="plain"');
+    expect(result.stdout).toContain('kind: tool');
+    expect(result.stdout).toContain('qualifiedName: runner_1mcp_echo_args');
+    expect(result.stdout).toContain('requiredArgs[1]');
+    expect(result.stdout).toContain('message,true,string,Message to echo back.');
+    expect(result.stdout).toContain('optionalArgs[3]');
+    expect(result.stdout).toContain('outputSchema:');
+    expect(result.stdout).toContain('echoed:');
+    expect(result.stdout).toContain('enumValues[2]: plain,json');
+    expect(result.stdout).toContain('defaultValue: plain');
   });
 
   it('lists a server tool inventory for bare server targets', async () => {
@@ -66,14 +64,11 @@ describeInspectE2E('inspect command E2E', () => {
     const result = await runner.runInspectCommand('runner', { args: getCliSessionCacheArgs() });
 
     runner.assertSuccess(result);
-    expect(result.stdout).toContain('Inspect: Server');
+    expect(result.stdout).toContain('kind: server');
     expect(result.stdout).toContain('server: runner');
-    expect(result.stdout).toContain('tools_total: 4');
-    expect(result.stdout).toContain('- tool: echo_args');
-    expect(result.stdout).toContain('required_args: 1');
-    expect(result.stdout).toContain('optional_args: 3');
-    expect(result.stdout).toContain('- tool: summarize');
-    expect(result.stdout).toContain('optional_args: 0');
+    expect(result.stdout).toContain('totalTools: 4');
+    expect(result.stdout).toContain('echo_args,runner_1mcp_echo_args');
+    expect(result.stdout).toContain('summarize,runner_1mcp_summarize');
   });
 
   it('prints normalized json with --format json', async () => {
@@ -215,11 +210,11 @@ describeInspectE2E('inspect command E2E', () => {
     expect(instructionsResult.stdout).toContain('=== SERVER SUMMARY ===');
     expect(instructionsResult.stdout).toContain('<server_summary name="serena">');
     expect(instructionsResult.stdout).toContain('type: template');
-    expect(instructionsResult.stdout).toContain('status: connected');
-    expect(instructionsResult.stdout).toContain('tools: 1');
-    expect(instructionsResult.stdout).toContain('instructions: yes');
-    expect(instructionsResult.stdout).toContain('<server_instructions name="serena">');
-    expect(instructionsResult.stdout).toContain('# Serena Instructions');
+    expect(instructionsResult.stdout).toContain('status: unknown');
+    expect(instructionsResult.stdout).toContain('available: no');
+    expect(instructionsResult.stdout).toContain('tools: 0');
+    expect(instructionsResult.stdout).toContain('instructions: no');
+    expect(instructionsResult.stdout).toContain('<note>(unavailable: server is not currently connected)</note>');
 
     const listResult = await runner.runCommand('inspect', '', {
       cwd: environment.getTempDir(),
@@ -227,12 +222,9 @@ describeInspectE2E('inspect command E2E', () => {
     });
 
     runner.assertSuccess(listResult);
-    expect(listResult.stdout).toContain('Inspect: Servers');
-    expect(listResult.stdout).toContain('- server: serena');
-    expect(listResult.stdout).toContain('type: template');
-    expect(listResult.stdout).toContain('status: connected');
-    expect(listResult.stdout).toContain('tools: 1');
-    expect(listResult.stdout).toContain('instructions: yes');
+    expect(listResult.stdout).toContain('kind: servers');
+    expect(listResult.stdout).toContain('servers[2]{server,type,status,available,toolCount,hasInstructions}:');
+    expect(listResult.stdout).toContain('serena,template,unknown,false,0,false');
     expect(listResult.stdout).not.toContain('# 1MCP - Model Context Protocol Proxy');
 
     const serverResult = await runner.runInspectCommand('serena', {
@@ -241,15 +233,12 @@ describeInspectE2E('inspect command E2E', () => {
     });
 
     runner.assertSuccess(serverResult);
-    expect(serverResult.stdout).toContain('Inspect: Server');
+    expect(serverResult.stdout).toContain('kind: server');
     expect(serverResult.stdout).toContain('server: serena');
     expect(serverResult.stdout).not.toContain('instructions:');
     expect(serverResult.stdout).not.toContain('# Serena Instructions');
     expect(serverResult.stdout).not.toContain('# 1MCP - Model Context Protocol Proxy');
-    expect(serverResult.stdout).toContain('tools (1):');
-    expect(serverResult.stdout).toContain('- tool: find_symbol');
-    expect(serverResult.stdout).toContain('required_args: 1');
-    expect(serverResult.stdout).toContain('optional_args: 1');
+    expect(serverResult.stdout).toContain('find_symbol,serena_1mcp_find_symbol');
   });
 
   async function startServeProcess(): Promise<void> {
@@ -341,6 +330,11 @@ describeInspectE2E('inspect command E2E', () => {
     serveProcess = undefined;
 
     await new Promise<void>((resolve) => {
+      if (currentProcess.exitCode !== null || currentProcess.signalCode !== null) {
+        resolve();
+        return;
+      }
+
       currentProcess.once('exit', () => resolve());
       currentProcess.kill('SIGTERM');
     });

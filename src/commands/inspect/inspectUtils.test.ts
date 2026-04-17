@@ -171,6 +171,14 @@ describe('inspectUtils', () => {
     expect(output).toContain('schema_cache:');
   });
 
+  it('returns an empty server tool listing when a server has no exposed tools', () => {
+    const result = extractInspectServerInfo('runner', [], true);
+
+    expect(result.server).toBe('runner');
+    expect(result.tools).toEqual([]);
+    expect(result.fromCache).toBe(true);
+  });
+
   it('supports tools without optional metadata', () => {
     const info = extractInspectToolInfo(
       {

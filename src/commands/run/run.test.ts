@@ -443,6 +443,33 @@ describe('runCommand REST-first path', () => {
     expect(transportState.instances.length).toBeGreaterThan(0);
   });
 
+  it('falls back to MCP for endpoint 404 variants and persists hasRestEndpoint=false', async () => {
+    await writeCliSessionCache(cachePath, {
+      sessionId: 'cached-session',
+      serverUrl: 'http://127.0.0.1:3050/mcp',
+      savedAt: Date.now(),
+      hasRestEndpoint: true,
+    });
+
+    mockFetch.mockResolvedValueOnce(makeTextResponse(404, 'Not Found'));
+    mockFetch.mockResolvedValueOnce(makeTextResponse(404, 'Cannot POST /api/v1/tool-invocations'));
+
+    vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
+
+    const { runCommand } = await import('./run.js');
+    await runCommand({
+      tool: 'runner/echo_args',
+      args: '{"message":"hi"}',
+      'config-dir': cacheDir,
+      'cli-session-cache-path': join(cacheDir, '.cli-session.{pid}'),
+    } as never);
+
+    vi.restoreAllMocks();
+
+    const cache = await readCliSessionCache(cachePath, 'http://127.0.0.1:3050/mcp');
+    expect(cache?.hasRestEndpoint).toBe(false);
+  });
+
   it('surfaces upstream REST errors without MCP fallback', async () => {
     await writeCliSessionCache(cachePath, {
       sessionId: 'cached-session',
@@ -472,6 +499,54 @@ describe('runCommand REST-first path', () => {
 
     expect(transportState.instances).toHaveLength(0);
     expect(stderr.join('')).toContain('upstream failed');
+  });
+
+  it('does not persist hasRestEndpoint=false for transient 503 REST failures', async () => {
+    await writeCliSessionCache(cachePath, {
+      sessionId: 'cached-session',
+      serverUrl: 'http://127.0.0.1:3050/mcp',
+      savedAt: Date.now(),
+      hasRestEndpoint: true,
+    });
+
+    mockFetch.mockResolvedValueOnce(makeTextResponse(404, 'Not Found'));
+    mockFetch.mockResolvedValueOnce(makeRestResponse(503, { error: 'temporarily unavailable' }));
+
+    vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
+
+    const { runCommand } = await import('./run.js');
+    await runCommand({
+      tool: 'runner/echo_args',
+      args: '{"message":"hi"}',
+      'config-dir': cacheDir,
+      'cli-session-cache-path': join(cacheDir, '.cli-session.{pid}'),
+    } as never);
+
+    vi.restoreAllMocks();
+
+    const cache = await readCliSessionCache(cachePath, 'http://127.0.0.1:3050/mcp');
+    expect(cache?.hasRestEndpoint).toBe(true);
+  });
+
+  it('reports invalid --args JSON as a RunCommandInputError message', async () => {
+    const stderr: string[] = [];
+    vi.spyOn(process.stderr, 'write').mockImplementation((chunk) => {
+      stderr.push(String(chunk));
+      return true;
+    });
+
+    const { runCommand } = await import('./run.js');
+    await expect(
+      runCommand({
+        tool: 'runner/echo_args',
+        args: '{bad json}',
+        'config-dir': cacheDir,
+        'cli-session-cache-path': join(cacheDir, '.cli-session.{pid}'),
+      } as never),
+    ).rejects.toThrow('Invalid JSON passed to --args');
+
+    vi.restoreAllMocks();
+    expect(stderr).toEqual([]);
   });
 
   it('uses HTTP inspect schema for raw stdin mapping and skips MCP', async () => {

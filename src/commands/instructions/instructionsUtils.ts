@@ -100,7 +100,7 @@ export function formatInstructionsOutput(output: InstructionsOutput): string {
 
     if (detail.instructions?.trim()) {
       lines.push(`\t<server_instructions name="${escapeXml(detail.server)}">`);
-      lines.push(detail.instructions);
+      lines.push(escapeXml(detail.instructions));
       lines.push('\t</server_instructions>');
     } else if (detail.note) {
       lines.push(`\t<note>${chalk.dim(detail.note)}</note>`);

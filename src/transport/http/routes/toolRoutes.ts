@@ -136,7 +136,8 @@ export function createToolInvocationsHandler(serverManager: ServerManager): Requ
           res.json({ result: upstreamResult, server: target.serverName, tool: target.toolName });
         } catch (error) {
           logger.error('Direct tool invocation error:', error);
-          res.status(502).json({ error: `Upstream error: ${error}` });
+          const message = error instanceof Error ? error.message : typeof error === 'string' ? error : 'Upstream error';
+          res.status(502).json({ error: `Upstream error: ${message}` });
         }
         return;
       }

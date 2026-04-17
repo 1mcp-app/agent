@@ -783,6 +783,26 @@ describe('apiRoutes /api/tool-invocations', () => {
     expect(res.statusCode).toBe(503);
   });
 
+  it('returns a safe upstream error message for direct invocation failures', async () => {
+    const serverManager = {
+      getLazyLoadingOrchestrator: vi.fn(() => undefined),
+      getClients: vi.fn(() => new Map()),
+      getClient: vi.fn(() => ({
+        client: {
+          callTool: vi.fn().mockRejectedValue({ detail: 'boom' }),
+        },
+      })),
+    };
+    const handler = createToolInvocationsHandler(serverManager as never);
+    const res = createMockResponse();
+
+    await invokeInspectRoute(scopeAuthMiddleware, { body: { tool: 'server/tool' } }, res);
+    await invokeInspectRoute(handler, { body: { tool: 'server/tool' } }, res);
+
+    expect(res.statusCode).toBe(502);
+    expect(res.body).toEqual({ error: 'Upstream error: Upstream error' });
+  });
+
   it('returns 200 with result on success', async () => {
     const mockResult = {
       result: { content: [{ type: 'text', text: 'done' }], isError: false },

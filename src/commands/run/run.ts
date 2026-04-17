@@ -84,6 +84,7 @@ export async function runCommand(options: RunCommandOptions): Promise<void> {
   const baseUrl = discoveredUrl.replace(/\/mcp$/, '');
   const authProfile = await loadAuthProfile(options['config-dir'], normalizeServerUrl(baseUrl));
   const apiClient = new ApiClient({ baseUrl, bearerToken: authProfile?.token });
+  let cachedRestEndpointSupport = cachedSession?.hasRestEndpoint;
 
   // REST-first path: skip MCP handshake when we know the server supports it,
   // or probe once on first run. Fall back to MCP on missing/unsupported/upstream errors.
@@ -94,7 +95,7 @@ export async function runCommand(options: RunCommandOptions): Promise<void> {
   if (canTryRest) {
     const restArgs =
       options.args !== undefined
-        ? (JSON.parse(options.args) as Record<string, unknown>)
+        ? parseRestArgs(options.args)
         : stdinText !== undefined
           ? tryParseJsonObject(stdinText)
           : {};
@@ -133,19 +134,17 @@ export async function runCommand(options: RunCommandOptions): Promise<void> {
         error?: { type: string; message: string };
       }>(API_TOOL_INVOCATIONS_ENDPOINT, { tool: options.tool, args: resolvedArguments });
 
-      const isFallbackStatus =
-        apiResponse.status === 405 ||
-        apiResponse.status === 503 ||
-        apiResponse.status === 0 ||
-        (apiResponse.status === 404 && apiResponse.error === 'HTTP 404');
+      const shouldFallbackToMcp = shouldFallbackToMcpForRest(apiResponse.status, apiResponse.error);
+      const shouldPersistRestDisabled = shouldPersistRestSupportDisabled(apiResponse.status, apiResponse.error);
 
-      if (!isFallbackStatus) {
+      if (!shouldFallbackToMcp) {
         await writeCliSessionCache(cachePath, {
           sessionId: cachedSession?.sessionId ?? 'rest',
           serverUrl: serverUrl.toString(),
           savedAt: Date.now(),
           hasRestEndpoint: true,
         });
+        cachedRestEndpointSupport = true;
 
         let rawResponse: JsonRpcResponse<CallToolResult>;
         if (apiResponse.ok && apiResponse.data) {
@@ -175,13 +174,15 @@ export async function runCommand(options: RunCommandOptions): Promise<void> {
         return;
       }
 
-      // Missing/unsupported/upstream REST responses → cache that and fall through to MCP
-      await writeCliSessionCache(cachePath, {
-        sessionId: cachedSession?.sessionId ?? 'mcp',
-        serverUrl: serverUrl.toString(),
-        savedAt: Date.now(),
-        hasRestEndpoint: false,
-      });
+      if (shouldPersistRestDisabled) {
+        await writeCliSessionCache(cachePath, {
+          sessionId: cachedSession?.sessionId ?? 'mcp',
+          serverUrl: serverUrl.toString(),
+          savedAt: Date.now(),
+          hasRestEndpoint: false,
+        });
+        cachedRestEndpointSupport = false;
+      }
     }
   }
 
@@ -219,7 +220,7 @@ export async function runCommand(options: RunCommandOptions): Promise<void> {
       sessionId: response.sessionId,
       serverUrl: serverUrl.toString(),
       savedAt: Date.now(),
-      hasRestEndpoint: false,
+      hasRestEndpoint: cachedRestEndpointSupport,
     });
   }
 
@@ -239,6 +240,35 @@ export async function runCommand(options: RunCommandOptions): Promise<void> {
   if (output.length > 0) {
     process.stdout.write(`${output}\n`);
   }
+}
+
+function parseRestArgs(value: string): Record<string, unknown> {
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+      throw new RunCommandInputError('--args must be a JSON object.');
+    }
+    return parsed as Record<string, unknown>;
+  } catch (error) {
+    if (error instanceof RunCommandInputError) {
+      throw error;
+    }
+    throw new RunCommandInputError(
+      `Invalid JSON passed to --args: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
+}
+
+function isEndpointNotFoundResponse(status: number, error?: string): boolean {
+  return status === 404 && /^HTTP 404\b/u.test(error ?? '');
+}
+
+function shouldFallbackToMcpForRest(status: number, error?: string): boolean {
+  return status === 405 || status === 503 || status === 0 || isEndpointNotFoundResponse(status, error);
+}
+
+function shouldPersistRestSupportDisabled(status: number, error?: string): boolean {
+  return status === 405 || isEndpointNotFoundResponse(status, error);
 }
 
 async function fetchToolInfoFromApi(

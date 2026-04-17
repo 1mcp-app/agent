@@ -166,10 +166,6 @@ export function extractInspectServerInfo(serverName: string, tools: Tool[], from
     })
     .sort((left, right) => left.tool.localeCompare(right.tool));
 
-  if (summaries.length === 0) {
-    throw new InspectCommandError(`Server not found or has no exposed tools: ${serverName}`);
-  }
-
   return {
     kind: 'server',
     server: serverName,

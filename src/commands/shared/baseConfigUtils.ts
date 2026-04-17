@@ -16,14 +16,42 @@ import logger from '@src/logger/logger.js';
  */
 export function initializeConfigContext(configPath?: string, configDir?: string): void {
   const configContext = ConfigContext.getInstance();
+  const explicitConfigPath = getExplicitCliOptionValue(['--config', '-c']);
+  const explicitConfigDir = getExplicitCliOptionValue(['--config-dir', '-d']);
 
-  if (configPath) {
-    configContext.setConfigPath(configPath);
+  if (explicitConfigPath) {
+    configContext.setConfigPath(explicitConfigPath);
+  } else if (explicitConfigDir) {
+    configContext.setConfigDir(explicitConfigDir);
   } else if (configDir) {
     configContext.setConfigDir(configDir);
+  } else if (configPath) {
+    configContext.setConfigPath(configPath);
   } else {
     configContext.reset(); // Use defaults
   }
+}
+
+function getExplicitCliOptionValue(flags: string[]): string | undefined {
+  for (let index = 0; index < process.argv.length; index += 1) {
+    const arg = process.argv[index];
+    if (!flags.includes(arg)) {
+      const matchingFlag = flags.find((flag) => arg.startsWith(`${flag}=`));
+      if (!matchingFlag) {
+        continue;
+      }
+
+      const [, value] = arg.split(/=(.*)/su);
+      return value || undefined;
+    }
+
+    const value = process.argv[index + 1];
+    if (value && !value.startsWith('-')) {
+      return value;
+    }
+  }
+
+  return undefined;
 }
 
 export interface ServerConfig {
