@@ -93,6 +93,7 @@
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.25.1",
+    "@toon-format/toon": "^2.1.0",
     "ajv": "^8.17.1",
     "ajv-formats": "^3.0.1",
     "axios": "^1.12.2",

@@ -1,10 +1,12 @@
+import { encode } from '@toon-format/toon';
+
 import type { CallToolResult, Tool } from '@modelcontextprotocol/sdk/types.js';
 
 import { MCP_URI_SEPARATOR } from '@src/constants.js';
 import { CustomJsonSchemaValidator } from '@src/core/validation/CustomJsonSchemaValidator.js';
 import { buildUri } from '@src/utils/core/parsing.js';
 
-export type RunOutputFormat = 'json' | 'text' | 'compact';
+export type RunOutputFormat = 'json' | 'text' | 'toon' | 'compact';
 
 export interface ParsedToolReference {
   serverName: string;
@@ -170,11 +172,20 @@ export function formatToolCallOutput(
   maxChars: number,
 ): string {
   if (format === 'json') {
-    return JSON.stringify(response, null, 2);
+    if ('error' in response) {
+      return JSON.stringify(response, null, 2);
+    }
+    const data = response.result.structuredContent ?? response.result.content;
+    return JSON.stringify(data, null, 2);
   }
 
   if ('error' in response) {
     return response.error.message;
+  }
+
+  if (format === 'toon') {
+    const data = response.result.structuredContent ?? response.result.content;
+    return encode(data);
   }
 
   const textOutput = extractTextOutput(response.result);

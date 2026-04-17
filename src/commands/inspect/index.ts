@@ -36,7 +36,7 @@ export function setupInspectCommand(yargs: Argv): Argv {
         .option('format', {
           describe: 'Output format',
           type: 'string',
-          choices: ['text', 'json'],
+          choices: ['toon', 'text', 'json'],
         })
         .option('all', {
           describe: 'Fetch all tools without pagination (server target only)',
@@ -56,6 +56,7 @@ export function setupInspectCommand(yargs: Argv): Argv {
         .example('$0 inspect filesystem', 'List the exposed tools for a server')
         .example('$0 inspect filesystem/read_file', 'Show a readable summary of a tool schema')
         .example('$0 inspect filesystem --format json', 'Output normalized server tool list JSON for scripting')
+        .example('$0 inspect filesystem --format text', 'Human-readable chalk output')
         .example('$0 inspect filesystem --all', 'List all tools without pagination')
         .epilogue('This command requires a running `1mcp serve` instance. Errors are written to stderr only.'),
     async (argv) => {

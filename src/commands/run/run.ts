@@ -62,7 +62,7 @@ export {
 
 export async function runCommand(options: RunCommandOptions): Promise<void> {
   const toolReference = parseToolReference(options.tool);
-  const format = options.raw ? 'json' : options.format || 'text';
+  const format = options.raw ? 'json' : options.format || 'toon';
   const maxChars = options['max-chars'] ?? 2000;
 
   const { url: discoveredUrl, pid: serverPid } = await discoverServerWithPidFile(options['config-dir'], options.url);

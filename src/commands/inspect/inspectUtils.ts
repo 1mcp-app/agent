@@ -1,3 +1,5 @@
+import { encode } from '@toon-format/toon';
+
 import type { Tool } from '@modelcontextprotocol/sdk/types.js';
 
 import type { ParsedToolReference } from '@src/commands/run/runUtils.js';
@@ -6,7 +8,7 @@ import { buildUri, parseUri } from '@src/utils/core/parsing.js';
 
 import chalk from 'chalk';
 
-export type InspectOutputFormat = 'text' | 'json';
+export type InspectOutputFormat = 'text' | 'json' | 'toon';
 
 interface JsonSchemaObject {
   type?: unknown;
@@ -179,6 +181,10 @@ export function extractInspectServerInfo(serverName: string, tools: Tool[], from
 export function formatInspectOutput(result: InspectResult, format: InspectOutputFormat): string {
   if (format === 'json') {
     return JSON.stringify(result, null, 2);
+  }
+
+  if (format === 'toon') {
+    return encode(result);
   }
 
   if (result.kind === 'servers') return formatServersOutput(result);

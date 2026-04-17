@@ -168,7 +168,7 @@ describe('formatToolCallOutput', () => {
       2000,
     );
 
-    expect(output).toContain('"jsonrpc": "2.0"');
+    expect(output).not.toContain('"jsonrpc": "2.0"');
     expect(output).toContain('"hello"');
   });
 });

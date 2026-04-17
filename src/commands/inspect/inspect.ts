@@ -322,7 +322,7 @@ export async function getInspectResult(
 }
 
 export async function inspectCommand(options: InspectCommandOptions): Promise<void> {
-  const format = options.format || 'text';
+  const format = options.format || 'toon';
   const result = await getInspectResult(options, { includeServerInstructions: false });
   const output = formatInspectOutput(result, format);
   if (output.length > 0) {
