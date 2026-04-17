@@ -9,6 +9,7 @@ import { hideBin } from 'yargs/helpers';
 
 import { setupAppCommands } from './commands/app/index.js';
 import { setupAuthCommands } from './commands/auth/index.js';
+import { setupCliSetupCommand } from './commands/cliSetup/index.js';
 import { setupInspectCommand } from './commands/inspect/index.js';
 import { setupInstructionsCommand } from './commands/instructions/index.js';
 import { setupMcpCommands } from './commands/mcp/index.js';
@@ -52,6 +53,7 @@ yargsInstance = yargsInstance
 // Register command groups with global options
 yargsInstance = setupAppCommands(yargsInstance);
 yargsInstance = setupAuthCommands(yargsInstance);
+yargsInstance = setupCliSetupCommand(yargsInstance);
 yargsInstance = setupInstructionsCommand(yargsInstance);
 yargsInstance = setupMcpCommands(yargsInstance);
 yargsInstance = setupPresetCommands(yargsInstance);
@@ -75,6 +77,7 @@ function checkGlobalOptionConflicts(argv: string[]): void {
     (arg) =>
       arg === 'app' ||
       arg === 'auth' ||
+      arg === 'cli-setup' ||
       arg === 'instructions' ||
       arg === 'mcp' ||
       arg === 'preset' ||
