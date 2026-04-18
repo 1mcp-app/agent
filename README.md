@@ -9,6 +9,7 @@ A unified Model Context Protocol server implementation that aggregates multiple 
 [![1MCP Docs](https://img.shields.io/badge/1MCP-Official%20Docs-blue)](https://docs.1mcp.app)
 [![DeepWiki](https://img.shields.io/badge/DeepWiki-AI%20Docs-purple.svg?logo=gitbook&logoColor=white)](https://deepwiki.com/1mcp-app/agent)
 [![NPM License](https://img.shields.io/npm/l/@1mcp/agent)](https://www.npmjs.com/package/@1mcp/agent)
+[![SafeSkill 70/100](https://img.shields.io/badge/SafeSkill-70%2F100_Passes%20with%20Notes-yellow)](https://safeskill.dev/scan/1mcp-app-agent)
 
 ## Overview
 
