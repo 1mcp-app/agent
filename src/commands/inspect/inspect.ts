@@ -243,7 +243,7 @@ export async function getInspectResult(
 
     // Mark that this server has the REST endpoint
     await writeCliSessionCache(cachePath, {
-      sessionId: cachedSession?.sessionId ?? 'rest',
+      sessionId: cachedSession?.sessionId ?? '',
       serverUrl: serverUrl.toString(),
       savedAt: Date.now(),
       hasRestEndpoint: true,

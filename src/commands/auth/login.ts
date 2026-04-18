@@ -63,7 +63,7 @@ export async function authLoginCommand(options: AuthLoginOptions): Promise<void>
 function isLocalhostUrl(url: string): boolean {
   try {
     const hostname = new URL(url).hostname;
-    return hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '::1';
+    return hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '::1' || hostname === '[::1]';
   } catch {
     return false;
   }
