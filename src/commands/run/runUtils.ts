@@ -110,10 +110,6 @@ export function parseToolReference(toolRef: string): ParsedToolReference {
   };
 }
 
-export function findToolByReference(tools: Tool[], reference: ParsedToolReference): Tool | undefined {
-  return tools.find((tool) => tool.name === reference.qualifiedName);
-}
-
 export function findToolByQualifiedName(tools: Tool[], qualifiedName: string): Tool | undefined {
   return tools.find((tool) => tool.name === qualifiedName);
 }

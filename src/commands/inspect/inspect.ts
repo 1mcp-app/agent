@@ -127,6 +127,7 @@ function buildInspectContext(projectConfig?: Awaited<ReturnType<typeof loadProje
 
   if (projectConfig?.context?.envPrefixes?.length) {
     for (const prefix of projectConfig.context.envPrefixes) {
+      if (!prefix) continue;
       for (const [key, value] of Object.entries(process.env)) {
         if (key.startsWith(prefix) && value) {
           context.environment.variables = {
@@ -413,8 +414,6 @@ export async function inspectTools(options: {
     }
 
     throw error;
-  } finally {
-    await client.close();
   }
 }
 

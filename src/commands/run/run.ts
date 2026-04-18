@@ -1,3 +1,5 @@
+import path from 'node:path';
+
 import { StreamableHTTPError } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import { type CallToolResult, type Tool } from '@modelcontextprotocol/sdk/types.js';
 
@@ -127,12 +129,18 @@ export async function runCommand(options: RunCommandOptions): Promise<void> {
         }
       }
 
+      // Forward filter params (preset/tags/filter) as query params so server-side
+      // filtering applies on the REST path, same as the MCP path.
+      const restEndpoint = serverUrl.search
+        ? `${API_TOOL_INVOCATIONS_ENDPOINT}${serverUrl.search}`
+        : API_TOOL_INVOCATIONS_ENDPOINT;
+
       const apiResponse = await apiClient.post<{
         result: CallToolResult;
         server: string;
         tool: string;
         error?: { type: string; message: string };
-      }>(API_TOOL_INVOCATIONS_ENDPOINT, { tool: options.tool, args: resolvedArguments });
+      }>(restEndpoint, { tool: options.tool, args: resolvedArguments });
 
       const shouldFallbackToMcp = shouldFallbackToMcpForRest(apiResponse.status, apiResponse.error);
       const shouldPersistRestDisabled = shouldPersistRestSupportDisabled(apiResponse.status, apiResponse.error);
@@ -438,8 +446,6 @@ export async function invokeTool(options: {
     }
 
     throw error;
-  } finally {
-    await client.close();
   }
 }
 
@@ -470,7 +476,7 @@ function tryParseJsonObject(text: string): Record<string, unknown> | null {
 
 function buildRunContext(projectConfig?: Awaited<ReturnType<typeof loadProjectConfig>>): ContextData {
   const cwd = process.cwd();
-  const projectName = cwd.split('/').pop() || 'unknown';
+  const projectName = path.basename(cwd) || 'unknown';
 
   const context: ContextData = {
     project: {
@@ -512,6 +518,7 @@ function buildRunContext(projectConfig?: Awaited<ReturnType<typeof loadProjectCo
 
   if (projectConfig?.context?.envPrefixes?.length) {
     for (const prefix of projectConfig.context.envPrefixes) {
+      if (!prefix) continue;
       for (const [key, value] of Object.entries(process.env)) {
         if (key.startsWith(prefix) && value) {
           context.environment.variables = {

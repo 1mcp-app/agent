@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
+import { mkdir, readdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 
 import { getConfigDir } from '@src/constants.js';
@@ -88,7 +88,6 @@ export async function deleteAuthProfile(configDir: string | undefined, serverUrl
 }
 
 export async function listAuthProfiles(configDir?: string): Promise<AuthProfile[]> {
-  const { readdir } = await import('node:fs/promises');
   const dir = profilesDir(configDir);
   try {
     const files = await readdir(dir);

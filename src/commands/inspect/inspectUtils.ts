@@ -377,7 +377,7 @@ function indentBlock(value: string, spaces: number): string {
 
 function collectInspectArguments(inputSchema: Record<string, unknown>): InspectArgumentInfo[] {
   const schemaObject = getSchemaObject(inputSchema);
-  const properties = isRecord(schemaObject.properties) ? schemaObject.properties : {};
+  const properties = isPlainObject(schemaObject.properties) ? schemaObject.properties : {};
   const requiredSet = new Set(
     Array.isArray(schemaObject.required)
       ? schemaObject.required.filter((value): value is string => typeof value === 'string' && value.length > 0)
@@ -455,9 +455,5 @@ function getToolName(tool: Tool): string {
 }
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }

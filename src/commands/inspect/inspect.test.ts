@@ -449,6 +449,7 @@ describe('inspect command internals', () => {
     } as any;
 
     const cacheDir = join(process.cwd(), '.tmp-test', 'inspect-command-unit', 'rest-disconnected-server');
+    await rm(cacheDir, { recursive: true, force: true });
     await mkdir(cacheDir, { recursive: true });
 
     await inspectCommand({
