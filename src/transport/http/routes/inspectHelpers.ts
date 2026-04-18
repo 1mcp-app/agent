@@ -32,6 +32,7 @@ export interface ServerSummary {
 export interface InspectServersPayload {
   kind: 'servers';
   servers: ServerSummary[];
+  serverInstructions?: Record<string, string>;
 }
 
 export interface InspectServerPayload {

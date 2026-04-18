@@ -1,6 +1,8 @@
 import { mkdir, mkdtemp, readdir, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 
+import type { Tool } from '@modelcontextprotocol/sdk/types.js';
+
 import {
   buildServerUrl,
   getCliSessionCachePath,
@@ -11,7 +13,11 @@ import {
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { inspectCommand, inspectTools } from './inspect.js';
+import { getInspectResult, inspectCommand, inspectTools } from './inspect.js';
+
+interface MockSchemaPayload {
+  tools: Tool[];
+}
 
 const transportState = vi.hoisted(() => ({
   sessionIdOnInitialize: 'inspect-session',
@@ -31,7 +37,7 @@ const transportState = vi.hoisted(() => ({
         },
       },
     ],
-  },
+  } as MockSchemaPayload,
   instances: [] as Array<{ sentMessages: Array<{ method?: string; params?: Record<string, unknown> }> }>,
 }));
 
@@ -545,5 +551,109 @@ describe('inspect command internals', () => {
       expect.stringContaining('# 1MCP - Model Context Protocol Proxy'),
     );
     expect(transportState.instances).toHaveLength(0);
+  });
+
+  it('does not reuse proxy initialize instructions as server instructions during MCP fallback', async () => {
+    mockedApiClientGet
+      .mockResolvedValueOnce({
+        ok: false,
+        status: 503,
+        error: "Server 'serena' is not currently connected",
+      })
+      .mockResolvedValueOnce({
+        ok: false,
+        status: 503,
+        error: "Server 'serena' is not currently connected",
+      });
+
+    transportState.initializeResult = {
+      instructions: '# 1MCP - Model Context Protocol Proxy\nProxy-only instructions.',
+    };
+    transportState.schemaPayload = {
+      tools: [
+        {
+          name: 'serena_1mcp_find_symbol',
+          description: 'Find symbol',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              name_path_pattern: { type: 'string' },
+            },
+            required: ['name_path_pattern'],
+          },
+        },
+      ],
+    };
+
+    const cacheDir = join(process.cwd(), '.tmp-test', 'inspect-command-unit', 'ignore-proxy-instructions');
+    await mkdir(cacheDir, { recursive: true });
+
+    await inspectCommand({
+      target: 'serena',
+      format: 'text',
+      'config-dir': cacheDir,
+      'cli-session-cache-path': join(cacheDir, '.cli-session.{pid}'),
+    } as never);
+
+    expect(mockedStdoutWrite).toHaveBeenCalledWith(expect.stringContaining('server: serena'));
+    expect(mockedStdoutWrite).not.toHaveBeenCalledWith(
+      expect.stringContaining('# 1MCP - Model Context Protocol Proxy'),
+    );
+  });
+
+  it('extracts server instructions from aggregated proxy instructions during MCP fallback', async () => {
+    mockedApiClientGet
+      .mockResolvedValueOnce({
+        ok: false,
+        status: 503,
+        error: "Server 'serena' is not currently connected",
+      })
+      .mockResolvedValueOnce({
+        ok: false,
+        status: 503,
+        error: "Server 'serena' is not currently connected",
+      });
+
+    transportState.initializeResult = {
+      instructions: `# 1MCP - Model Context Protocol Proxy
+
+<serena>
+# Serena Instructions
+Use Serena for semantic code navigation and editing.
+</serena>
+
+<runner>
+Runner instructions.
+</runner>`,
+    };
+    transportState.schemaPayload = {
+      tools: [
+        {
+          name: 'serena_1mcp_find_symbol',
+          description: 'Find symbol',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              name_path_pattern: { type: 'string' },
+            },
+            required: ['name_path_pattern'],
+          },
+        },
+      ],
+    };
+
+    const cacheDir = join(process.cwd(), '.tmp-test', 'inspect-command-unit', 'extract-server-instructions');
+    await mkdir(cacheDir, { recursive: true });
+
+    const result = await getInspectResult({
+      target: 'serena',
+      'config-dir': cacheDir,
+      'cli-session-cache-path': join(cacheDir, '.cli-session.{pid}'),
+    } as never);
+
+    expect(result.kind).toBe('server');
+    if (result.kind === 'server') {
+      expect(result.instructions).toBe('# Serena Instructions\nUse Serena for semantic code navigation and editing.');
+    }
   });
 });

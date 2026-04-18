@@ -239,6 +239,22 @@ describe('apiRoutes inspect', () => {
     });
   });
 
+  it('includes per-server instructions in inspect listings when the aggregator has them', async () => {
+    const req = { query: {} };
+    const res = createMockResponse();
+
+    await invokeInspectRoute(scopeAuthMiddleware, req, res);
+    await invokeInspectRoute(inspectHandler, req, res);
+
+    expect(res.statusCode, JSON.stringify(res.body)).toBe(200);
+    expect(res.body).toMatchObject({
+      kind: 'servers',
+      serverInstructions: {
+        context7: '# Context7 Instructions',
+      },
+    });
+  });
+
   it('returns instructions and summarized tools for server targets in non-lazy mode', async () => {
     const req = { query: { target: 'context7' } };
     const res = createMockResponse();

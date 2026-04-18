@@ -157,11 +157,13 @@ describe('inspectUtils', () => {
         },
       ],
       true,
+      '# Runner Instructions\nInspect tools first.',
     );
 
     const output = formatInspectOutput(result, 'text');
     expect(output).toContain('Inspect: Server');
     expect(output).toContain('server: runner');
+    expect(result.instructions).toBe('# Runner Instructions\nInspect tools first.');
     expect(output).toContain('tools_total: 2');
     expect(output).toContain('- tool: echo_args');
     expect(output).toContain('required_args: 1');
@@ -175,6 +177,7 @@ describe('inspectUtils', () => {
     const result = extractInspectServerInfo('runner', [], true);
 
     expect(result.server).toBe('runner');
+    expect(result.instructions).toBeUndefined();
     expect(result.tools).toEqual([]);
     expect(result.fromCache).toBe(true);
   });

@@ -148,6 +148,46 @@ function isApiInspectToolResult(value: unknown): value is ApiInspectToolResult {
   );
 }
 
+function extractServerInstructionsFromAggregatedInstructions(
+  instructions: string | null | undefined,
+  serverName: string,
+): string | undefined {
+  if (!instructions?.trim()) {
+    return undefined;
+  }
+
+  const escapedServerName = serverName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const match = instructions.match(
+    new RegExp(`<${escapedServerName}>\\s*([\\s\\S]*?)\\s*</${escapedServerName}>`, 'i'),
+  );
+  return match?.[1]?.trim() || undefined;
+}
+
+function normalizeApiInspectResult(
+  result: Parameters<typeof formatInspectOutput>[0],
+  target: ReturnType<typeof parseInspectTarget>,
+  includeServerInstructions: boolean,
+): Parameters<typeof formatInspectOutput>[0] {
+  if (target.kind === 'tool' && isApiInspectToolResult(result)) {
+    result = extractInspectToolInfo(
+      {
+        name: result.qualifiedName,
+        description: result.description,
+        inputSchema: result.inputSchema,
+        outputSchema: result.outputSchema,
+      } as Tool,
+      target.reference,
+    );
+  }
+
+  if (!includeServerInstructions) {
+    result = maybeStripServerInstructions(result);
+    result = stripListInstructions(result);
+  }
+
+  return result;
+}
+
 function stripServerInstructions(result: InspectServerInfo): InspectServerInfo {
   const { instructions: _instructions, ...serverResult } = result;
   return serverResult;
@@ -166,7 +206,7 @@ function stripListInstructions(result: InspectResult): InspectResult {
     return result;
   }
 
-  const { instructions: _instructions, ...serversResult } = result;
+  const { instructions: _instructions, serverInstructions: _serverInstructions, ...serversResult } = result;
   return serversResult;
 }
 
@@ -222,24 +262,11 @@ export async function getInspectResult(
   const apiResponse = await apiClient.get<unknown>(API_INSPECT_ENDPOINT, query);
 
   if (apiResponse.ok && apiResponse.data !== undefined) {
-    let result = apiResponse.data as Parameters<typeof formatInspectOutput>[0];
-
-    if (target.kind === 'tool' && isApiInspectToolResult(result)) {
-      result = extractInspectToolInfo(
-        {
-          name: result.qualifiedName,
-          description: result.description,
-          inputSchema: result.inputSchema,
-          outputSchema: result.outputSchema,
-        } as Tool,
-        target.reference,
-      );
-    }
-
-    if (!includeServerInstructions) {
-      result = maybeStripServerInstructions(result);
-      result = stripListInstructions(result);
-    }
+    const result = normalizeApiInspectResult(
+      apiResponse.data as Parameters<typeof formatInspectOutput>[0],
+      target,
+      includeServerInstructions,
+    );
 
     // Mark that this server has the REST endpoint
     await writeCliSessionCache(cachePath, {
@@ -303,6 +330,17 @@ export async function getInspectResult(
     });
   }
 
+  if (target.kind === 'server') {
+    const refreshedApiResponse = await apiClient.get<unknown>(API_INSPECT_ENDPOINT, query);
+    if (refreshedApiResponse.ok && refreshedApiResponse.data !== undefined) {
+      return normalizeApiInspectResult(
+        refreshedApiResponse.data as Parameters<typeof formatInspectOutput>[0],
+        target,
+        includeServerInstructions,
+      );
+    }
+  }
+
   let result: Parameters<typeof formatInspectOutput>[0];
 
   if (target.kind === 'tool') {
@@ -312,7 +350,12 @@ export async function getInspectResult(
       Boolean(cachedSession?.sessionId),
     );
   } else {
-    result = extractInspectServerInfo(target.serverName, response.tools, Boolean(cachedSession?.sessionId));
+    result = extractInspectServerInfo(
+      target.serverName,
+      response.tools,
+      Boolean(cachedSession?.sessionId),
+      extractServerInstructionsFromAggregatedInstructions(response.instructions, target.serverName),
+    );
     if (!includeServerInstructions) {
       result = stripServerInstructions(result);
     }
@@ -414,6 +457,12 @@ export async function inspectTools(options: {
     }
 
     throw error;
+  } finally {
+    try {
+      await client.close();
+    } catch {
+      // Best-effort cleanup for CLI inspect sessions.
+    }
   }
 }
 

@@ -78,6 +78,7 @@ export interface InspectServersInfo {
   kind: 'servers';
   instructions?: string | null;
   servers: InspectServerSummary[];
+  serverInstructions?: Record<string, string>;
 }
 
 export type InspectResult = InspectToolInfo | InspectServerInfo | InspectServersInfo;
@@ -151,7 +152,12 @@ export function extractInspectToolInfo(
   };
 }
 
-export function extractInspectServerInfo(serverName: string, tools: Tool[], fromCache?: boolean): InspectServerInfo {
+export function extractInspectServerInfo(
+  serverName: string,
+  tools: Tool[],
+  fromCache?: boolean,
+  instructions?: string | null,
+): InspectServerInfo {
   const summaries = tools
     .filter((tool) => getServerName(tool) === serverName)
     .map((tool) => {
@@ -169,6 +175,7 @@ export function extractInspectServerInfo(serverName: string, tools: Tool[], from
   return {
     kind: 'server',
     server: serverName,
+    instructions,
     tools: summaries,
     fromCache,
   };

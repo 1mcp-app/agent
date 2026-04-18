@@ -229,7 +229,18 @@ export function createInspectHandler(serverManager: ServerManager): RequestHandl
 
         servers.sort((a, b) => a.server.localeCompare(b.server));
 
-        const payload: InspectServersPayload = { kind: 'servers', servers };
+        const serverInstructions = Object.fromEntries(
+          servers.flatMap((server) => {
+            const instructions = instructionAggregator?.getServerInstructions(server.server);
+            return instructions ? [[server.server, instructions]] : [];
+          }),
+        );
+
+        const payload: InspectServersPayload = {
+          kind: 'servers',
+          servers,
+          ...(Object.keys(serverInstructions).length > 0 ? { serverInstructions } : {}),
+        };
         res.json(payload);
         return;
       }

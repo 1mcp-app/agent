@@ -210,11 +210,9 @@ describeInspectE2E('inspect command E2E', () => {
     expect(instructionsResult.stdout).toContain('=== SERVER SUMMARY ===');
     expect(instructionsResult.stdout).toContain('<server_summary name="serena">');
     expect(instructionsResult.stdout).toContain('type: template');
-    expect(instructionsResult.stdout).toContain('status: unknown');
-    expect(instructionsResult.stdout).toContain('available: no');
-    expect(instructionsResult.stdout).toContain('tools: 0');
-    expect(instructionsResult.stdout).toContain('instructions: no');
-    expect(instructionsResult.stdout).toContain('<note>(unavailable: server is not currently connected)</note>');
+    expect(instructionsResult.stdout).toContain('<server_instructions name="serena">');
+    expect(instructionsResult.stdout).toContain('# Serena Instructions');
+    expect(instructionsResult.stdout).toContain('Use Serena for semantic code navigation and editing.');
 
     const listResult = await runner.runCommand('inspect', '', {
       cwd: environment.getTempDir(),
@@ -224,7 +222,7 @@ describeInspectE2E('inspect command E2E', () => {
     runner.assertSuccess(listResult);
     expect(listResult.stdout).toContain('kind: servers');
     expect(listResult.stdout).toContain('servers[2]{server,type,status,available,toolCount,hasInstructions}:');
-    expect(listResult.stdout).toContain('serena,template,unknown,false,0,false');
+    expect(listResult.stdout).toContain('serena,template,disconnected,false,0,true');
     expect(listResult.stdout).not.toContain('# 1MCP - Model Context Protocol Proxy');
 
     const serverResult = await runner.runInspectCommand('serena', {
