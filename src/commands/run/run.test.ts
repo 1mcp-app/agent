@@ -370,11 +370,21 @@ describe('runCommand REST-first path', () => {
     await rm(cacheDir, { recursive: true, force: true });
   });
 
-  function makeRestResponse(status: number, body: unknown) {
+  function makeRestResponse(status: number, body: unknown, options?: { sessionId?: string }) {
     return {
       ok: status >= 200 && status < 300,
       status,
-      headers: { get: (name: string) => (name === 'content-type' ? 'application/json' : null) },
+      headers: {
+        get: (name: string) => {
+          if (name === 'content-type') {
+            return 'application/json';
+          }
+          if (name === 'mcp-session-id') {
+            return options?.sessionId ?? null;
+          }
+          return null;
+        },
+      },
       json: async () => body,
     };
   }
@@ -426,6 +436,58 @@ describe('runCommand REST-first path', () => {
     // MCP transport should NOT have been used
     expect(transportState.instances).toHaveLength(0);
     expect(output.join('')).toContain('rest-result');
+  });
+
+  it('persists the REST session header in cache after a first successful call', async () => {
+    const restResult = {
+      result: { content: [{ type: 'text', text: 'rest-result' }], isError: false },
+      server: 'runner',
+      tool: 'echo_args',
+    };
+    mockFetch.mockResolvedValueOnce(makeTextResponse(404, 'Not Found'));
+    mockFetch.mockResolvedValueOnce(makeRestResponse(200, restResult, { sessionId: 'rest-session-123' }));
+
+    vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
+
+    const { runCommand } = await import('./run.js');
+    await runCommand({
+      tool: 'runner/echo_args',
+      args: '{"message":"hi"}',
+      'config-dir': cacheDir,
+      'cli-session-cache-path': join(cacheDir, '.cli-session.{pid}'),
+    } as never);
+
+    vi.restoreAllMocks();
+
+    const cache = await readCliSessionCache(cachePath, 'http://127.0.0.1:3050/mcp');
+    expect(cache?.sessionId).toBe('rest-session-123');
+    expect(cache?.hasRestEndpoint).toBe(true);
+  });
+
+  it('persists a non-empty REST cache session when no session header is returned', async () => {
+    const restResult = {
+      result: { content: [{ type: 'text', text: 'rest-result' }], isError: false },
+      server: 'runner',
+      tool: 'echo_args',
+    };
+    mockFetch.mockResolvedValueOnce(makeTextResponse(404, 'Not Found'));
+    mockFetch.mockResolvedValueOnce(makeRestResponse(200, restResult));
+
+    vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
+
+    const { runCommand } = await import('./run.js');
+    await runCommand({
+      tool: 'runner/echo_args',
+      args: '{"message":"hi"}',
+      'config-dir': cacheDir,
+      'cli-session-cache-path': join(cacheDir, '.cli-session.{pid}'),
+    } as never);
+
+    vi.restoreAllMocks();
+
+    const cache = await readCliSessionCache(cachePath, 'http://127.0.0.1:3050/mcp');
+    expect(cache?.sessionId).toBe('rest');
+    expect(cache?.hasRestEndpoint).toBe(true);
   });
 
   it('falls back to MCP when REST endpoint is missing', async () => {

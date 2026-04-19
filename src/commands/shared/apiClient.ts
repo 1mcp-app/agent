@@ -11,6 +11,7 @@ export interface ApiResponse<T> {
   status: number;
   data?: T;
   error?: string;
+  sessionId?: string;
 }
 
 export class ApiClient {
@@ -67,6 +68,7 @@ export class ApiClient {
       });
 
       clearTimeout(timer);
+      const sessionId = response.headers.get('mcp-session-id') ?? undefined;
 
       let data: T | undefined;
       let error: string | undefined;
@@ -93,7 +95,7 @@ export class ApiClient {
         error = `HTTP ${response.status}`;
       }
 
-      return { ok: response.ok, status: response.status, data, error };
+      return { ok: response.ok, status: response.status, data, error, sessionId };
     } catch (err) {
       clearTimeout(timer);
       if (err instanceof Error && err.name === 'AbortError') {

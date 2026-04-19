@@ -137,7 +137,7 @@ export async function runCommand(options: RunCommandOptions): Promise<void> {
 
       if (!shouldFallbackToMcp) {
         await writeCliSessionCache(cachePath, {
-          sessionId: cachedSession?.sessionId ?? '',
+          sessionId: apiResponse.sessionId ?? cachedSession?.sessionId ?? 'rest',
           serverUrl: serverUrl.toString(),
           savedAt: Date.now(),
           hasRestEndpoint: true,
