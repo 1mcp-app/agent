@@ -17,6 +17,7 @@
 - [Inspect Command](/en/commands/inspect.md): Discover exposed servers, tools, and tool schemas from a running 1MCP instance
 - [Run Command](/en/commands/run.md): Call a tool through a running 1MCP instance with JSON args or stdin mapping
 - [CLI Setup Command](/en/commands/cli-setup.md): Install Codex or Claude bootstrap docs and hooks
+- [Auth Command](/en/commands/auth.md): Save, check, and remove bearer tokens for secured 1MCP servers
 - [MCP Commands](/en/commands/mcp/): Server management commands (add, remove, list, install, uninstall)
 - [App Commands](/en/commands/app/): Backup, restore, and application management
 - [Preset Commands](/en/commands/preset/): Configuration preset management

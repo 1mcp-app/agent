@@ -23,6 +23,7 @@ head:
 - **`inspect`** - 列出已暴露的服务器或查看工具 schema
 - **`run`** - 通过运行中的 1MCP 服务器调用工具
 - **`cli-setup`** - 安装 Codex 或 Claude 的引导 hooks 和启动文档
+- **`auth`** - 管理受保护服务器的认证配置
 - **`app`** - 管理桌面应用程序 MCP 配置
 - **`mcp`** - 管理 MCP 服务器配置
 - **`preset`** - 管理用于动态过滤的服务器预设
@@ -71,6 +72,7 @@ npx -y @1mcp/agent run context7/get-library-docs --args '{"context7CompatibleLib
 - **[inspect](./inspect.md)** - 发现工具并查看 schema
 - **[run](./run.md)** - 执行工具调用
 - **[cli-setup](./cli-setup.md)** - 安装 Codex 或 Claude 的引导文件
+- **[auth](./auth.md)** - 管理受保护服务器的认证配置
 
 ### 为什么会有这些命令
 

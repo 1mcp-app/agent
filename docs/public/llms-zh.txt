@@ -17,6 +17,7 @@
 - [Inspect 命令](/zh/commands/inspect.md): 从运行中的 1MCP 实例发现服务器、工具和工具 schema
 - [Run 命令](/zh/commands/run.md): 通过运行中的 1MCP 实例使用 JSON 参数或 stdin 映射调用工具
 - [CLI Setup 命令](/zh/commands/cli-setup.md): 安装 Codex 或 Claude 的引导文档和 hooks
+- [Auth 命令](/zh/commands/auth.md): 为受保护的 1MCP 服务器保存、查看和删除 Bearer Token
 - [MCP 命令](/zh/commands/mcp/): 服务器管理命令（添加、移除、列表、安装、卸载）
 - [应用命令](/zh/commands/app/): 备份、恢复和应用管理
 - [预设命令](/zh/commands/preset/): 配置预设管理

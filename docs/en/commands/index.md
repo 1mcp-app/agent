@@ -29,6 +29,7 @@ For AI agents, the preferred path is CLI mode: keep MCP behind `1mcp serve`, the
 - **`inspect`** - List exposed servers or inspect a tool schema
 - **`run`** - Call a tool through a running 1MCP server
 - **`cli-setup`** - Install Codex or Claude bootstrap hooks and startup docs
+- **`auth`** - Manage authentication profiles for secured servers
 - **`app`** - Manage desktop application MCP configurations
 - **`mcp`** - Manage MCP server configurations
 - **`preset`** - Manage server presets for dynamic filtering
@@ -77,6 +78,7 @@ npx -y @1mcp/agent run context7/get-library-docs --args '{"context7CompatibleLib
 - **[inspect](./inspect.md)** - Discover tools and inspect schemas
 - **[run](./run.md)** - Execute a tool call
 - **[cli-setup](./cli-setup.md)** - Install Codex or Claude bootstrap files
+- **[auth](./auth.md)** - Manage authentication profiles for secured servers
 
 ### Why These Commands Exist
 

@@ -192,6 +192,7 @@ function sidebar(): DefaultTheme.Sidebar {
           { text: 'inspect', link: '/commands/inspect' },
           { text: 'run', link: '/commands/run' },
           { text: 'cli-setup', link: '/commands/cli-setup' },
+          { text: 'auth', link: '/commands/auth' },
         ],
       },
       {

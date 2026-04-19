@@ -202,6 +202,7 @@ function sidebar(): DefaultTheme.Sidebar {
           { text: 'inspect', link: '/zh/commands/inspect' },
           { text: 'run', link: '/zh/commands/run' },
           { text: 'cli-setup', link: '/zh/commands/cli-setup' },
+          { text: 'auth', link: '/zh/commands/auth' },
         ],
       },
       {
