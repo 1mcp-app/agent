@@ -819,6 +819,45 @@ describe('apiRoutes /api/tool-invocations', () => {
     expect(res.body).toEqual({ error: 'Upstream error: Upstream error' });
   });
 
+  it('resolves dynamic template connection keys for direct invocation', async () => {
+    const callTool = vi.fn().mockResolvedValue({
+      content: [{ type: 'text', text: 'done' }],
+      isError: false,
+    });
+    const filteredConnections = new Map([
+      [
+        'serena:abc123',
+        {
+          name: 'serena',
+          transport: { tags: ['serena'] } as never,
+          client: { callTool } as never,
+          status: ClientStatus.Connected,
+        },
+      ],
+    ]);
+    const serverManager = {
+      getLazyLoadingOrchestrator: vi.fn(() => undefined),
+      getClients: vi.fn(() => filteredConnections),
+      getClient: vi.fn(() => undefined),
+    };
+    const handler = createToolInvocationsHandler(serverManager as never);
+    const res = createMockResponse();
+
+    await invokeInspectRoute(scopeAuthMiddleware, { body: { tool: 'serena/list_memories', args: { limit: 1 } } }, res);
+    await invokeInspectRoute(handler, { body: { tool: 'serena/list_memories', args: { limit: 1 } } }, res);
+
+    expect(res.statusCode).toBe(200);
+    expect(callTool).toHaveBeenCalledWith({
+      name: 'list_memories',
+      arguments: { limit: 1 },
+    });
+    expect(res.body).toEqual({
+      result: { content: [{ type: 'text', text: 'done' }], isError: false },
+      server: 'serena',
+      tool: 'list_memories',
+    });
+  });
+
   it('returns 200 with result on success', async () => {
     const mockResult = {
       result: { content: [{ type: 'text', text: 'done' }], isError: false },

@@ -8,7 +8,7 @@ import logger from '@src/logger/logger.js';
 
 import { Request, RequestHandler, Response } from 'express';
 
-import { buildFilterConfig, parseTarget } from './inspectRoutes.js';
+import { buildFilterConfig, parseTarget, resolveConnectionByServerName } from './inspectRoutes.js';
 
 function getAllowedServersFromRequest(serverManager: ServerManager, res: Response): Set<string> | undefined {
   const filterConfig = buildFilterConfig(res);
@@ -17,7 +17,14 @@ function getAllowedServersFromRequest(serverManager: ServerManager, res: Respons
   }
   const allConnections = serverManager.getClients();
   const filteredConnections = FilteringService.getFilteredConnections(allConnections, filterConfig);
-  return new Set(filteredConnections.keys());
+  return new Set(
+    Array.from(filteredConnections.entries()).flatMap(([key, connection]) => {
+      const logicalName = key.includes(':') ? key.split(':')[0] : key;
+      return connection.name && connection.name !== logicalName
+        ? [key, logicalName, connection.name]
+        : [key, logicalName];
+    }),
+  );
 }
 
 export function createToolsHandler(serverManager: ServerManager): RequestHandler {
@@ -123,7 +130,14 @@ export function createToolInvocationsHandler(serverManager: ServerManager): Requ
           res.status(404).json({ error: `Server not found: ${target.serverName}` });
           return;
         }
-        const connection = serverManager.getClient(target.serverName);
+        const allConnections = serverManager.getClients();
+        const filteredConnections =
+          allowedServers === undefined
+            ? allConnections
+            : FilteringService.getFilteredConnections(allConnections, buildFilterConfig(res));
+        const connection =
+          resolveConnectionByServerName(filteredConnections, target.serverName) ??
+          serverManager.getClient(target.serverName);
         if (!connection || !connection.client) {
           res.status(503).json({ error: `Server not connected: ${target.serverName}` });
           return;

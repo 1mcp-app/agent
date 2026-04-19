@@ -1,7 +1,7 @@
 import { CliTestRunner, CommandTestEnvironment } from '@test/e2e/utils/index.js';
 
 import { type ChildProcess, spawn } from 'node:child_process';
-import { access, readFile, rm } from 'node:fs/promises';
+import { access, readFile, rm, writeFile } from 'node:fs/promises';
 import { createServer } from 'node:net';
 import { join } from 'node:path';
 
@@ -187,6 +187,52 @@ describeRunE2E('run command E2E', () => {
     runner.assertSuccess(second);
 
     expect(first.stdout).toBe(second.stdout);
+  });
+
+  it('runs tools for shareable template servers resolved by logical server name', async () => {
+    const templateConfig = {
+      templateSettings: {
+        cacheContext: true,
+      },
+      mcpServers: {
+        runner: {
+          transport: 'stdio',
+          command: 'node',
+          args: [join(process.cwd(), 'test/e2e/fixtures/run-tool-server.js')],
+          tags: ['test', 'run'],
+        },
+      },
+      mcpTemplates: {
+        serena: {
+          transport: 'stdio',
+          command: 'node',
+          args: [join(process.cwd(), 'test/e2e/fixtures/inspect-template-server.js'), '{{project.path}}'],
+          tags: ['serena'],
+          template: {
+            shareable: true,
+          },
+        },
+      },
+    };
+    await writeFile(environment.getConfigPath(), JSON.stringify(templateConfig, null, 2), 'utf8');
+
+    await startServeProcess();
+
+    const inspectResult = await runner.runInspectCommand('serena', {
+      cwd: environment.getTempDir(),
+      args: getCliSessionCacheArgs(),
+    });
+    runner.assertSuccess(inspectResult);
+    expect(inspectResult.stdout).toContain('server: serena');
+    expect(inspectResult.stdout).toContain('find_symbol,serena_1mcp_find_symbol');
+
+    const runResult = await runner.runRunCommand('serena/find_symbol', {
+      cwd: environment.getTempDir(),
+      args: [...getCliSessionCacheArgs(), '--args', '{"name_path_pattern":"TestSymbol"}', '--format', 'text'],
+    });
+
+    runner.assertSuccess(runResult);
+    expect(runResult.stdout).toContain('TestSymbol');
   });
 
   async function startServeProcess(): Promise<void> {
