@@ -104,8 +104,35 @@ That's it! All your MCP servers are now available through one unified endpoint. 
 - **`1mcp mcp add <name>`** - Add a new MCP server to configuration
 - **`1mcp mcp list`** - List all configured MCP servers
 - **`1mcp mcp status [name]`** - Show server status and details
+- **`1mcp instructions`** - Show the CLI playbook and current server inventory for agent workflows
+- **`1mcp inspect [target]`** - Inspect available servers, tools, and tool schemas from a running 1MCP instance
+- **`1mcp run <server>/<tool>`** - Call a tool against a running 1MCP instance
+- **`1mcp cli-setup --codex|--claude`** - Install bootstrap hooks and startup references for Codex or Claude
 
 For detailed command usage, run: `1mcp <command> --help`
+
+### CLI Workflow
+
+Use the CLI workflow when you want an agent or terminal session to discover and call tools through a running `1mcp serve` instance:
+
+```bash
+# Shell 1: start the aggregated MCP server
+1mcp serve
+
+# Shell 2: discover and run tools through the running server
+1mcp instructions
+1mcp inspect context7
+1mcp inspect context7/get-library-docs
+1mcp run context7/get-library-docs --args '{"context7CompatibleLibraryID":"/mongodb/docs","topic":"aggregation pipeline"}'
+```
+
+If you are setting up Codex or Claude CLI bootstrap files, install them once with `cli-setup`:
+
+```bash
+1mcp cli-setup --codex
+# or
+1mcp cli-setup --claude --scope repo --repo-root .
+```
 
 ## Documentation
 

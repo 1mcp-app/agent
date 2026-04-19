@@ -12,11 +12,22 @@
 
 ## 命令行参考
 
+- [Instructions 命令](/zh/commands/instructions.md): 为 agent 会话打印 CLI playbook 和当前服务器清单
+- [Inspect 命令](/zh/commands/inspect.md): 从运行中的 1MCP 实例发现服务器、工具和工具 schema
+- [Run 命令](/zh/commands/run.md): 通过运行中的 1MCP 实例使用 JSON 参数或 stdin 映射调用工具
+- [CLI Setup 命令](/zh/commands/cli-setup.md): 安装 Codex 或 Claude 的引导文档和 hooks
 - [MCP 命令](/zh/commands/mcp/): 服务器管理命令（添加、移除、列表、安装、卸载）
 - [应用命令](/zh/commands/app/): 备份、恢复和应用管理
 - [预设命令](/zh/commands/preset/): 配置预设管理
 - [注册表命令](/zh/commands/registry/): MCP 服务器注册表集成
 - [代理和服务命令](/zh/commands/serve.md, /zh/commands/proxy.md): HTTP 代理配置和服务
+
+## Agent 工作流
+
+- 先运行 `1mcp instructions` 获取当前 CLI playbook 和服务器清单
+- 在调用工具前，先执行 `1mcp inspect <server>` 与 `1mcp inspect <server>/<tool>`
+- 使用 `1mcp run <server>/<tool> --args '<json>'` 执行选中的工具
+- 使用 `1mcp cli-setup --codex` 或 `1mcp cli-setup --claude` 为支持的 CLI 安装引导文档和 hooks
 
 ## 高级配置
 

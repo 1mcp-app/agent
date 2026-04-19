@@ -106,6 +106,41 @@ npx -y @1mcp/agent --config staging.json --port 3052
 
 ---
 
+## 🤖 CLI Workflow for Agent Sessions
+
+**What it does**: Provides a consistent CLI workflow for AI-agent and terminal-driven tool usage against a running `1mcp serve` instance
+**Why you need it**: Lets agents discover current servers and tool schemas before calling tools, instead of guessing
+**How it helps**: `instructions` gives the playbook, `inspect` reveals the schema, and `run` executes the tool call
+
+**Recommended Flow**:
+
+```bash
+# Shell 1
+1mcp serve
+
+# Shell 2
+1mcp instructions
+1mcp inspect context7
+1mcp inspect context7/get-library-docs
+1mcp run context7/get-library-docs --args '{"context7CompatibleLibraryID":"/mongodb/docs","topic":"aggregation pipeline"}'
+```
+
+**Bootstrap Options**:
+
+```bash
+# Install Codex bootstrap docs and hooks
+1mcp cli-setup --codex
+
+# Install repo-local Claude bootstrap docs and hooks
+1mcp cli-setup --claude --scope repo --repo-root .
+```
+
+**⏱️ Setup Time**: Immediate if `serve` is already running
+**🎯 Perfect For**: Agent sessions, tool discovery, scripted MCP tool execution
+**✅ You Get**: Repeatable tool discovery, schema-first execution, script-friendly CLI output
+
+---
+
 ## Development Workflows
 
 ### Integration Testing
@@ -169,6 +204,7 @@ npx -y @1mcp/agent --config staging.json --port 3052
 - **Authentication Setup** → [Authentication Guide](/guide/advanced/authentication)
 - **Configuration Reference** → [Configuration Guide](/guide/essentials/configuration)
 - **API Documentation** → [API Reference](/reference/health-check)
+- **CLI Workflow Commands** → [instructions](/commands/instructions.md), [inspect](/commands/inspect.md), [run](/commands/run.md), [cli-setup](/commands/cli-setup.md)
 
 ---
 

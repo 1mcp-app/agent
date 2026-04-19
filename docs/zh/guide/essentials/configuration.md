@@ -32,6 +32,7 @@ head:
 | `--transport`, `-t`             | `ONE_MCP_TRANSPORT`                   | 选择传输类型（"stdio"、"http" 或 "sse"）                                 |   "http"   |
 | `--config`, `-c`                | `ONE_MCP_CONFIG`                      | 使用特定的配置文件                                                       |            |
 | `--config-dir`, `-d`            | `ONE_MCP_CONFIG_DIR`                  | 配置目录路径（覆盖默认配置位置）                                         |            |
+| `--cli-session-cache-path`      | `ONE_MCP_CLI_SESSION_CACHE_PATH`      | `run` / `inspect` CLI 会话缓存路径模板，支持 `{pid}`                     |            |
 | `--port`, `-P`                  | `ONE_MCP_PORT`                        | 更改 HTTP 端口                                                           |    3050    |
 | `--host`, `-H`                  | `ONE_MCP_HOST`                        | 更改 HTTP 主机                                                           | localhost  |
 | `--external-url`, `-u`          | `ONE_MCP_EXTERNAL_URL`                | OAuth 回调和公共 URL 的外部 URL（例如 https://example.com）              |            |
@@ -77,6 +78,20 @@ head:
 - **环境变量**：`ONE_MCP_TRANSPORT`
 
 **示例：**
+
+### CLI 会话缓存路径
+
+`run` 和 `inspect` 默认会在配置目录之外维护一个轻量级会话缓存文件。
+
+- **默认值**：`${os.tmpdir()}/1mcp/.cli-session.{pid}`
+- **环境变量**：`ONE_MCP_CLI_SESSION_CACHE_PATH`
+- **占位符**：`{pid}` 在可用时会解析为发现到的 `1mcp serve` 进程 PID；对于内置默认路径，如果无法得到 PID，1MCP 会退回到由服务器 URL 派生的稳定标识
+
+示例：
+
+```bash
+ONE_MCP_CLI_SESSION_CACHE_PATH=/tmp/1mcp/.cli-session.{pid} npx -y @1mcp/agent run filesystem/read_file --args '{"path":"./README.md"}'
+```
 
 ```bash
 # HTTP 传输（默认）

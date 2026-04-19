@@ -185,6 +185,15 @@ function sidebar(): DefaultTheme.Sidebar {
         ],
       },
       {
+        text: 'CLI Workflow',
+        items: [
+          { text: 'instructions', link: '/commands/instructions' },
+          { text: 'inspect', link: '/commands/inspect' },
+          { text: 'run', link: '/commands/run' },
+          { text: 'cli-setup', link: '/commands/cli-setup' },
+        ],
+      },
+      {
         text: 'App Integration',
         items: [
           {

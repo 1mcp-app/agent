@@ -195,6 +195,15 @@ function sidebar(): DefaultTheme.Sidebar {
         ],
       },
       {
+        text: 'CLI 工作流',
+        items: [
+          { text: 'instructions', link: '/zh/commands/instructions' },
+          { text: 'inspect', link: '/zh/commands/inspect' },
+          { text: 'run', link: '/zh/commands/run' },
+          { text: 'cli-setup', link: '/zh/commands/cli-setup' },
+        ],
+      },
+      {
         text: '应用集成',
         items: [
           {

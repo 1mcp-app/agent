@@ -159,6 +159,16 @@ Create the directory if it doesn't exist:
 mkdir -p ~/.codex  # Linux/macOS
 ```
 
+### Recommended Bootstrap with `cli-setup`
+
+If you want Codex sessions to start with the 1MCP bootstrap docs and hooks already wired in, run:
+
+```bash
+1mcp cli-setup --codex
+```
+
+This writes the managed `1MCP.md` bootstrap doc, updates Codex hook configuration, and prints the `config.toml` snippet required to enable Codex hooks and the correct sandbox settings.
+
 ### Known Issues
 
 > **⚠️ Important**: Codex 0.44.0's HTTP transport support is experimental. If you experience problems with direct HTTP connections, use the 1MCP proxy method instead. See [Troubleshooting](#troubleshooting) for details.
@@ -191,6 +201,23 @@ You'll need a workspace directory where you want to use the integration. This is
 ```
 
 > **Note**: If you haven't installed globally, use `npx -y @1mcp/agent` instead of `1mcp`
+
+### 1.5 Bootstrap Codex for the CLI Workflow
+
+Run this once on the machine where Codex will use 1MCP:
+
+```bash
+1mcp cli-setup --codex
+```
+
+The installed bootstrap files tell Codex sessions to start with:
+
+```bash
+1mcp instructions
+1mcp inspect <server>
+1mcp inspect <server>/<tool>
+1mcp run <server>/<tool> --args '<json>'
+```
 
 ### 2. Create Project Configuration
 
@@ -240,6 +267,17 @@ codex
 ```bash
 # Test in Codex
 /mcp
+```
+
+### 7. Use the 1MCP CLI Workflow Inside Codex Sessions
+
+Once Codex is connected, the recommended 1MCP workflow is:
+
+```bash
+1mcp instructions
+1mcp inspect filesystem
+1mcp inspect filesystem/read_file
+1mcp run filesystem/read_file --args '{"path":"./README.md"}'
 ```
 
 ## Architecture
@@ -552,6 +590,10 @@ Use `--tags` parameter before `--` separator:
 - [Claude Desktop Integration](./claude-desktop.md)
 - [Configuration Guide](../essentials/configuration.md)
 - [Security Best Practices](../../reference/security.md)
+- [CLI Setup Command](../../commands/cli-setup.md)
+- [Instructions Command](../../commands/instructions.md)
+- [Inspect Command](../../commands/inspect.md)
+- [Run Command](../../commands/run.md)
 
 ## See Also
 
@@ -560,3 +602,7 @@ Use `--tags` parameter before `--` separator:
 - **[Configuration Guide](../essentials/configuration.md)** - Advanced configuration options
 - **[Preset Commands](../../commands/preset/)** - Preset management commands
 - **[MCP Commands](../../commands/mcp/)** - MCP server management
+- **[CLI Setup Command](../../commands/cli-setup.md)** - Install Codex bootstrap docs and hooks
+- **[Instructions Command](../../commands/instructions.md)** - Start the CLI workflow with current server guidance
+- **[Inspect Command](../../commands/inspect.md)** - Discover tools and inspect schemas before invoking them
+- **[Run Command](../../commands/run.md)** - Call tools through the running 1MCP instance

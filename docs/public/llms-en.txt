@@ -12,11 +12,22 @@
 
 ## CLI Reference
 
+- [Instructions Command](/en/commands/instructions.md): Print the CLI playbook and current server inventory for agent sessions
+- [Inspect Command](/en/commands/inspect.md): Discover exposed servers, tools, and tool schemas from a running 1MCP instance
+- [Run Command](/en/commands/run.md): Call a tool through a running 1MCP instance with JSON args or stdin mapping
+- [CLI Setup Command](/en/commands/cli-setup.md): Install Codex or Claude bootstrap docs and hooks
 - [MCP Commands](/en/commands/mcp/): Server management commands (add, remove, list, install, uninstall)
 - [App Commands](/en/commands/app/): Backup, restore, and application management
 - [Preset Commands](/en/commands/preset/): Configuration preset management
 - [Registry Commands](/en/commands/registry/): MCP server registry integration
 - [Proxy & Serve Commands](/en/commands/serve.md, /en/commands/proxy.md): HTTP proxy configuration and serving
+
+## Agent Workflow
+
+- Start with `1mcp instructions` to fetch the current CLI playbook and server inventory
+- Use `1mcp inspect <server>` and `1mcp inspect <server>/<tool>` before calling a tool
+- Use `1mcp run <server>/<tool> --args '<json>'` to execute the selected tool
+- Use `1mcp cli-setup --codex` or `1mcp cli-setup --claude` to install bootstrap docs and hooks for supported CLIs
 
 ## Advanced Configuration
 
