@@ -59,11 +59,13 @@ npx -y @1mcp/agent --help
 1mcp
 ```
 
-### 4. Choose Your Interface
+### 4. Choose One Interface
 
-Use the MCP endpoint for MCP-native clients, or use CLI mode for agent sessions that benefit from progressive tool disclosure.
+Do not configure the same agent to use both direct MCP access and CLI mode at the same time.
 
-**For MCP-native clients**, connect to the unified endpoint:
+If you switch an agent to CLI mode, remove that agent's existing MCP server configuration first. We recommend CLI mode for Codex, Claude, and similar agent-style sessions.
+
+**If you intentionally want direct MCP mode instead**, connect that client to the unified endpoint:
 
 **For Cursor**, add to `~/.cursor/mcp.json`:
 
@@ -99,7 +101,7 @@ Use the MCP endpoint for MCP-native clients, or use CLI mode for agent sessions 
 claude mcp add -t http 1mcp "http://127.0.0.1:3050/mcp?app=claude-code"
 ```
 
-**For Codex, Claude, and other agent-style CLI sessions**, use 1MCP CLI mode:
+**Recommended: for Codex, Claude, and other agent-style CLI sessions, use 1MCP CLI mode instead of direct MCP attachment:**
 
 ```bash
 1mcp cli-setup --codex
@@ -107,7 +109,7 @@ claude mcp add -t http 1mcp "http://127.0.0.1:3050/mcp?app=claude-code"
 1mcp cli-setup --claude --scope repo --repo-root .
 ```
 
-That's it! Your MCP servers stay behind one unified 1MCP runtime, and your agents can either connect through MCP directly or use the CLI workflow. 🎉
+That's it! Your MCP servers stay behind one unified 1MCP runtime, and each agent should use one mode only. For agent sessions, the recommended choice is CLI mode. 🎉
 
 ## Commands
 
@@ -149,6 +151,11 @@ CLI mode is the preferred path for agent sessions because it replaces broad dire
 - `run` executes only the chosen tool
 
 This keeps MCP as the backend protocol while giving the agent a thinner frontend workflow with less tool and schema noise in context.
+
+For a given agent, choose only one mode:
+
+- Direct MCP mode: keep that agent's MCP server config
+- CLI mode: remove that agent's MCP server config and use `cli-setup` plus the CLI workflow
 
 If you are setting up Codex or Claude CLI bootstrap files, install them once with `cli-setup`:
 

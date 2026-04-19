@@ -25,6 +25,8 @@ CLI mode is the preferred 1MCP workflow for AI agents such as Codex and Claude.
 
 It does **not** replace MCP as a protocol. 1MCP still runs your MCP servers behind `1mcp serve`. What changes is the interface the agent sees during its own loop: instead of carrying a broad MCP tool surface directly in context, the agent discovers only what it needs, when it needs it.
 
+For a given agent, CLI mode should not live alongside direct MCP configuration. Choose one mode only. When you switch an agent to CLI mode, remove that agent's existing MCP server configuration first.
+
 ## Why CLI Mode Exists
 
 Direct MCP attachment is great for interoperability, but agent sessions pay for that convenience with context:
@@ -84,11 +86,21 @@ If you already use MCP directly in an agent, the migration should feel natural:
 
 1. Keep your existing MCP servers.
 2. Move them behind 1MCP with your current config or `1mcp mcp add ...`.
-3. Start `1mcp serve`.
-4. Run `1mcp cli-setup --codex` or `1mcp cli-setup --claude`.
-5. Let the agent use `instructions`, `inspect`, and `run` instead of carrying the full MCP surface directly.
+3. Remove that agent's existing direct MCP server configuration.
+4. Start `1mcp serve`.
+5. Run `1mcp cli-setup --codex` or `1mcp cli-setup --claude`.
+6. Let the agent use `instructions`, `inspect`, and `run` instead of carrying the full MCP surface directly.
 
 That is the key point: you are not rewriting your server ecosystem. You are changing how the agent approaches it.
+
+## Choose Only One Mode
+
+For each agent, pick exactly one of these:
+
+- Direct MCP mode: the agent connects to MCP servers directly
+- CLI mode: the agent does not keep direct MCP server config and uses the 1MCP CLI workflow instead
+
+We recommend CLI mode for AI agents because it gives the agent a thinner, more selective working surface.
 
 ## Recommended Bootstrap
 
@@ -110,7 +122,7 @@ Prefer CLI mode when:
 - You want less schema and tool noise in long sessions
 - You want a repeatable, scriptable workflow across machines and teams
 
-Direct MCP exposure still makes sense for MCP-native clients that are intentionally designed to speak MCP end-to-end. But for agent sessions, CLI mode is the default better path.
+Direct MCP exposure still makes sense for MCP-native clients that are intentionally designed to speak MCP end-to-end. But for agent sessions, CLI mode is the default better path, and it should replace direct MCP config for that agent rather than sit beside it.
 
 ## References
 

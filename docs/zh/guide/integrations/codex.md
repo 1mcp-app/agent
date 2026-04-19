@@ -7,12 +7,20 @@
 对于 Codex 会话，推荐的 1MCP 工作流是 CLI 模式：
 
 - 把你的 MCP 服务器放在 `1mcp serve` 背后
+- 为这套工作流移除 Codex 现有的直接 MCP server 配置
 - 用 `1mcp cli-setup --codex` 为 Codex 做引导
 - 让 Codex 按 `instructions`、`inspect`、`run` 的顺序渐进式工作
 
 这是面向 agent 的推荐路径，因为它能减少 agent loop 中不必要的工具和 schema 上下文，同时不改变 1MCP 聚合的 MCP 后端。
 
 概念背景请参阅 [CLI 模式](/zh/guide/integrations/cli-mode)。
+
+对于 Codex，只能选择一种模式：
+
+- 直接 MCP 模式
+- CLI 模式
+
+不要在同一套 Codex 配置里同时保留两者。如果选择 CLI 模式，先移除直接 MCP server 条目。
 
 ## 概述
 

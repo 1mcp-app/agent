@@ -19,6 +19,8 @@ CLI 模式是 1MCP 面向 Codex、Claude 这类 AI agent 的推荐工作流。
 
 它**并不是**替代 MCP 协议本身。1MCP 仍然通过 `1mcp serve` 承载并聚合你的 MCP 服务器。变化的是 agent 在自己的工作循环里看到的接口：不再把大而全的 MCP 工具面直接塞进上下文，而是按需发现、按需检查、按需调用。
 
+对于同一个 agent，CLI 模式不应该和直接 MCP 配置并存。只能二选一。切换到 CLI 模式时，先移除该 agent 现有的 MCP server 配置。
+
 ## 为什么会有 CLI 模式
 
 直接把 MCP 挂到 agent 上，兼容性很好，但 agent 会为此承担额外上下文成本：
@@ -78,11 +80,21 @@ CLI 模式把 agent 的工作方式从：
 
 1. 保留你现有的 MCP 服务器。
 2. 用当前配置文件或 `1mcp mcp add ...` 把它们放到 1MCP 后面。
-3. 启动 `1mcp serve`。
-4. 运行 `1mcp cli-setup --codex` 或 `1mcp cli-setup --claude`。
-5. 让 agent 使用 `instructions`、`inspect`、`run`，而不是在上下文中直接携带完整 MCP 工具面。
+3. 移除该 agent 现有的直接 MCP server 配置。
+4. 启动 `1mcp serve`。
+5. 运行 `1mcp cli-setup --codex` 或 `1mcp cli-setup --claude`。
+6. 让 agent 使用 `instructions`、`inspect`、`run`，而不是在上下文中直接携带完整 MCP 工具面。
 
 关键点在这里：你不是重建整套 MCP 生态，而是在改变 agent 接近它的方式。
+
+## 只能选择一种模式
+
+对于每个 agent，只能选择以下两种模式之一：
+
+- 直接 MCP 模式：agent 直接连接 MCP server
+- CLI 模式：agent 不再保留直接 MCP server 配置，而是改用 1MCP CLI 工作流
+
+对于 AI agent，我们推荐 CLI 模式，因为它给 agent 的工作面更薄、更可控。
 
 ## 推荐引导方式
 
@@ -104,7 +116,7 @@ CLI 模式把 agent 的工作方式从：
 - 你希望长会话里减少 schema 和工具噪音
 - 你希望跨机器、跨团队使用一致、可脚本化的工作流
 
-对于原生面向 MCP 的客户端，直接 MCP 暴露依然有意义。但对于 agent 会话，CLI 模式应该是默认更优路径。
+对于原生面向 MCP 的客户端，直接 MCP 暴露依然有意义。但对于 agent 会话，CLI 模式应该是默认更优路径，而且应当替代该 agent 的直接 MCP 配置，而不是与之并存。
 
 ## 参考资料
 
