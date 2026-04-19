@@ -39,7 +39,7 @@ head:
 2.  **启动服务器**
 
     ```bash
-    npx -y @1mcp/agent --config mcp.json --port 3000
+    1mcp --config mcp.json --port 3000
     ```
 
 3.  **测试连接**
@@ -50,7 +50,13 @@ head:
 
 ## 面向 Agent 的 CLI 模式
 
-如果你的客户端是 coding agent 或终端 agent，推荐使用渐进式 CLI 工作流，而不是从一个宽泛的直接 MCP 工具面开始：
+如果你的客户端是 coding agent 或终端 agent，用户侧主要需要执行的是 `cli-setup`：
+
+```bash
+1mcp cli-setup --codex
+```
+
+之后通常由 AI agent 执行渐进式 CLI 工作流，而不是从一个宽泛的直接 MCP 工具面开始：
 
 ```bash
 1mcp instructions
@@ -60,6 +66,8 @@ head:
 ```
 
 这样 MCP 仍然保留在 `serve` 背后，而 agent 看到的是一个更薄、更有选择性的接口。
+
+你也可以手动运行这些工作流命令来验证配置，但它们主要是为 agent 设计的。
 
 ## 项目配置
 
@@ -73,7 +81,7 @@ head:
 - 仅支持 STDIO 传输
 - 需要连接到运行中的 1MCP 服务器
 
-**先决条件**：您必须运行一个 1MCP 服务器（`npx -y @1mcp/agent serve`）以供代理连接。
+**先决条件**：您必须运行一个 1MCP 服务器（`1mcp serve`）以供代理连接。
 
 对于定期使用代理命令的项目，创建 `.1mcprc` 文件来设置默认连接设置：
 
@@ -82,7 +90,7 @@ head:
 echo '{"preset": "my-setup"}' > .1mcprc
 
 # 现在只需运行：
-npx -y @1mcp/agent proxy
+1mcp proxy
 ```
 
 我们建议使用预设以获得更好的配置管理。详情请参阅[代理命令](/zh/commands/proxy)文档。

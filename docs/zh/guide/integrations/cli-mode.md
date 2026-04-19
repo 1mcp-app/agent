@@ -64,6 +64,8 @@ CLI 模式把 agent 的工作方式从：
 - `inspect <server>/<tool>` 只展示一个工具的 schema
 - `run` 只执行这个已确认的工具调用
 
+从用户视角看，主要需要执行的命令是 `1mcp cli-setup`。`instructions`、`inspect`、`run` 主要是给 AI agent 在引导完成后执行的，当然用户也可以手动运行它们来验证流程。
+
 ## MCP 在后端，CLI 在前端
 
 最清晰的心智模型是：
@@ -98,7 +100,7 @@ CLI 模式把 agent 的工作方式从：
 
 ## 推荐引导方式
 
-每台机器或每个仓库执行一次 `cli-setup`：
+用户应当在每台机器或每个仓库执行一次 `cli-setup`：
 
 ```bash
 1mcp cli-setup --codex
@@ -106,6 +108,17 @@ CLI 模式把 agent 的工作方式从：
 ```
 
 它会安装引导文档和 hooks，让 agent 从 `instructions` 开始。它是对实时 `instructions` 命令的补充，而不是替代。
+
+引导完成后，通常由 AI agent 执行以下命令：
+
+```bash
+1mcp instructions
+1mcp inspect filesystem
+1mcp inspect filesystem/read_file
+1mcp run filesystem/read_file --args '{"path":"./mcp.json"}'
+```
+
+你也可以手动运行这些命令来验证配置，但预期模式是：用户执行 `cli-setup`，agent 执行后续工作流命令。
 
 ## 什么时候优先使用 CLI 模式
 

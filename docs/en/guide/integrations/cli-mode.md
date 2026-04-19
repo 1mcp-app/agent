@@ -70,6 +70,8 @@ Each step narrows the context:
 - `inspect <server>/<tool>` shows only one tool's schema
 - `run` executes only the selected tool call
 
+From the user's perspective, the main command to run is `1mcp cli-setup`. The `instructions`, `inspect`, and `run` commands are primarily designed to be run by the AI agent after bootstrap, although the user can run them manually to test the flow.
+
 ## MCP Backend, CLI Frontend
 
 The clean mental model is:
@@ -104,7 +106,7 @@ We recommend CLI mode for AI agents because it gives the agent a thinner, more s
 
 ## Recommended Bootstrap
 
-Use `cli-setup` once per machine or repository:
+What the user should run once per machine or repository:
 
 ```bash
 1mcp cli-setup --codex
@@ -112,6 +114,17 @@ Use `cli-setup` once per machine or repository:
 ```
 
 This installs the bootstrap docs and hooks that teach the agent to start with `instructions`. It complements the live `instructions` command; it does not replace it.
+
+After bootstrap, these are the commands the AI agent will normally run:
+
+```bash
+1mcp instructions
+1mcp inspect filesystem
+1mcp inspect filesystem/read_file
+1mcp run filesystem/read_file --args '{"path":"./mcp.json"}'
+```
+
+You can run them yourself to verify the setup, but the intended pattern is: user runs `cli-setup`, agent runs the workflow commands.
 
 ## When to Use CLI Mode
 

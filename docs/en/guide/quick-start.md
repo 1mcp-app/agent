@@ -57,7 +57,7 @@ If your client is an autonomous agent such as Codex or Claude, prefer [CLI Mode]
 2.  **Start the Server**
 
     ```bash
-    npx -y @1mcp/agent --config mcp.json --port 3000
+    1mcp --config mcp.json --port 3000
     ```
 
 3.  **Test Connection**
@@ -68,7 +68,13 @@ That's it! Your 1MCP proxy is now running and aggregating MCP servers.
 
 ## CLI Mode for Agents
 
-If your client is a coding agent or terminal agent, use the progressive CLI workflow instead of starting from a broad direct-MCP surface:
+If your client is a coding agent or terminal agent, the user-facing step is `cli-setup`:
+
+```bash
+1mcp cli-setup --codex
+```
+
+After that, the AI agent will normally use the progressive CLI workflow instead of starting from a broad direct-MCP surface:
 
 ```bash
 1mcp instructions
@@ -78,6 +84,8 @@ If your client is a coding agent or terminal agent, use the progressive CLI work
 ```
 
 This keeps MCP behind `serve` while giving the agent a thinner, more selective interface.
+
+You can run those workflow commands yourself to test the setup, but they are primarily designed for the agent.
 
 ## Project Configuration
 
@@ -91,7 +99,7 @@ Use `.1mcprc` when your MCP client:
 - Only supports STDIO transport
 - Needs to connect to a running 1MCP server
 
-**Prerequisites**: You must have a 1MCP server running (`npx -y @1mcp/agent serve`) for the proxy to connect to.
+**Prerequisites**: You must have a 1MCP server running (`1mcp serve`) for the proxy to connect to.
 
 For projects that regularly use the proxy command, create a `.1mcprc` file to set default connection settings:
 
@@ -105,7 +113,7 @@ cat > .1mcprc << 'EOF'
 EOF
 
 # Now simply run:
-npx -y @1mcp/agent proxy
+1mcp proxy
 ```
 
 ::: tip Project Config Schema

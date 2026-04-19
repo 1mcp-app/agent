@@ -30,6 +30,8 @@
 - MCP 仍然是 `1mcp serve` 背后的后端互操作层
 - CLI 模式把 agent 侧流程从直接暴露整个 MCP 工具面改成渐进式披露
 - 对于同一个 agent，只能选择一种模式；切换到 CLI 模式时，要移除该 agent 的直接 MCP server 配置
+- 用户侧主要执行的初始化命令是 `1mcp cli-setup`
+- `instructions`、`inspect`、`run` 主要是给 AI agent 在引导完成后执行的，用户也可以手动运行它们来测试
 - 先运行 `1mcp instructions` 获取当前 CLI playbook 和服务器清单
 - 在调用工具前，先执行 `1mcp inspect <server>` 与 `1mcp inspect <server>/<tool>`
 - 使用 `1mcp run <server>/<tool> --args '<json>'` 执行选中的工具

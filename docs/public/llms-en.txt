@@ -30,6 +30,8 @@
 - MCP remains the backend interoperability layer behind `1mcp serve`
 - CLI mode changes the agent-facing flow from broad direct MCP exposure to progressive disclosure
 - For a given agent, choose one mode only; if switching to CLI mode, remove that agent's direct MCP server config
+- The user-facing setup command is `1mcp cli-setup`
+- The `instructions`, `inspect`, and `run` commands are primarily intended to be run by the AI agent after bootstrap, though users may run them manually for testing
 - Start with `1mcp instructions` to fetch the current CLI playbook and server inventory
 - Use `1mcp inspect <server>` and `1mcp inspect <server>/<tool>` before calling a tool
 - Use `1mcp run <server>/<tool> --args '<json>'` to execute the selected tool

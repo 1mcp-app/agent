@@ -189,7 +189,13 @@ curl http://localhost:3050/health
 
 ### **可选：把 Agent 会话切换到 CLI 模式**
 
-如果你的客户端是自主或半自主 agent，在完成第 1 级后推荐改用 CLI 工作流：
+如果你的客户端是自主或半自主 agent，在完成第 1 级后，用户侧推荐先执行：
+
+```bash
+1mcp cli-setup --codex
+```
+
+之后通常由 AI agent 执行 CLI 工作流：
 
 ```bash
 1mcp instructions
@@ -198,7 +204,7 @@ curl http://localhost:3050/health
 1mcp run filesystem/read_file --args '{"path":"/tmp/example.txt"}'
 ```
 
-这是把 agent 从“直接挂载 MCP”迁移到 1MCP 渐进式工作流的推荐方式。
+这是把 agent 从“直接挂载 MCP”迁移到 1MCP 渐进式工作流的推荐方式。你也可以手动运行这些工作流命令做测试，但它们主要是为 agent 设计的。
 
 ---
 

@@ -207,7 +207,13 @@ curl http://localhost:3050/health
 
 ### **Optional: Switch Agent Sessions to CLI Mode**
 
-If your client is an autonomous or semi-autonomous agent, use the CLI workflow after Level 1:
+If your client is an autonomous or semi-autonomous agent, the user-facing setup step after Level 1 is:
+
+```bash
+1mcp cli-setup --codex
+```
+
+After that, the AI agent will normally use the CLI workflow:
 
 ```bash
 1mcp instructions
@@ -216,7 +222,7 @@ If your client is an autonomous or semi-autonomous agent, use the CLI workflow a
 1mcp run filesystem/read_file --args '{"path":"/tmp/example.txt"}'
 ```
 
-This is the recommended way to migrate from direct MCP attachment inside an agent loop to 1MCP's progressive-disclosure flow.
+This is the recommended way to migrate from direct MCP attachment inside an agent loop to 1MCP's progressive-disclosure flow. You can run those workflow commands manually for testing, but they are primarily designed for the agent.
 
 ---
 

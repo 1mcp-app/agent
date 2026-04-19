@@ -101,7 +101,7 @@ If you switch an agent to CLI mode, remove that agent's existing MCP server conf
 claude mcp add -t http 1mcp "http://127.0.0.1:3050/mcp?app=claude-code"
 ```
 
-**Recommended: for Codex, Claude, and other agent-style CLI sessions, use 1MCP CLI mode instead of direct MCP attachment:**
+**Recommended: for Codex, Claude, and other agent-style CLI sessions, the user should run `1mcp cli-setup` instead of configuring direct MCP attachment:**
 
 ```bash
 1mcp cli-setup --codex
@@ -128,13 +128,15 @@ For detailed command usage, run: `1mcp <command> --help`
 
 ### CLI Workflow
 
-Use the CLI workflow when you want an agent or terminal session to discover and call tools through a running `1mcp serve` instance:
+The user-facing setup step is `1mcp cli-setup`. After that, the following CLI workflow is what the AI agent will normally run against a running `1mcp serve` instance.
+
+You can still run these commands manually to test the setup:
 
 ```bash
 # Shell 1: start the aggregated MCP server
 1mcp serve
 
-# Shell 2: discover and run tools through the running server
+# Shell 2: commands the AI agent will normally run
 1mcp instructions
 1mcp inspect context7
 1mcp inspect context7/get-library-docs
@@ -155,15 +157,26 @@ This keeps MCP as the backend protocol while giving the agent a thinner frontend
 For a given agent, choose only one mode:
 
 - Direct MCP mode: keep that agent's MCP server config
-- CLI mode: remove that agent's MCP server config and use `cli-setup` plus the CLI workflow
+- CLI mode: remove that agent's MCP server config, run `cli-setup`, and let the AI agent use the CLI workflow
 
-If you are setting up Codex or Claude CLI bootstrap files, install them once with `cli-setup`:
+What the user normally runs:
 
 ```bash
 1mcp cli-setup --codex
 # or
 1mcp cli-setup --claude --scope repo --repo-root .
 ```
+
+What the AI agent normally runs after that:
+
+```bash
+1mcp instructions
+1mcp inspect filesystem
+1mcp inspect filesystem/read_file
+1mcp run filesystem/read_file --args '{"path":"./mcp.json"}'
+```
+
+You may run those commands manually to verify the setup, but they are primarily designed for the agent workflow.
 
 ## Documentation
 
