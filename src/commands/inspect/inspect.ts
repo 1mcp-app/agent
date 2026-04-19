@@ -1,13 +1,11 @@
-import path from 'node:path';
-
 import { StreamableHTTPError } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import type { Tool } from '@modelcontextprotocol/sdk/types.js';
 
 import { findToolByQualifiedName } from '@src/commands/run/runUtils.js';
 import { ApiClient } from '@src/commands/shared/apiClient.js';
 import { loadAuthProfile, normalizeServerUrl } from '@src/commands/shared/authProfileStore.js';
+import { buildCliContext } from '@src/commands/shared/cliContext.js';
 import {
-  buildServerUrl,
   deleteCliSessionCache,
   getCliSessionCachePath,
   type JsonRpcErrorEnvelope,
@@ -16,12 +14,11 @@ import {
   StreamableServeClient,
   writeCliSessionCache,
 } from '@src/commands/shared/serveClient.js';
-import { loadProjectConfig, normalizeTags } from '@src/config/projectConfigLoader.js';
+import { resolveServeTarget } from '@src/commands/shared/serveTargetResolver.js';
 import { MCP_URI_SEPARATOR } from '@src/constants.js';
 import { API_INSPECT_ENDPOINT } from '@src/constants/api.js';
 import type { GlobalOptions } from '@src/globalOptions.js';
 import type { ContextData } from '@src/types/context.js';
-import { discoverServerWithPidFile, validateServer1mcpUrl } from '@src/utils/validation/urlDetection.js';
 
 import {
   extractInspectServerInfo,
@@ -81,65 +78,6 @@ function buildInspectQuery(
   else if (options.limit && options.limit !== 20) query.limit = String(options.limit);
   if (options.cursor) query.cursor = options.cursor;
   return query;
-}
-
-function buildInspectContext(projectConfig?: Awaited<ReturnType<typeof loadProjectConfig>>): ContextData {
-  const cwd = process.cwd();
-  const projectName = path.basename(cwd) || 'unknown';
-
-  const context: ContextData = {
-    project: {
-      path: cwd,
-      name: projectName,
-      environment: process.env.NODE_ENV || 'development',
-      ...(projectConfig?.context
-        ? {
-            custom: {
-              projectId: projectConfig.context.projectId,
-              team: projectConfig.context.team,
-              ...projectConfig.context.custom,
-            },
-          }
-        : {}),
-    },
-    user: {
-      username: process.env.USER || process.env.USERNAME || 'unknown',
-      home: process.env.HOME || process.env.USERPROFILE || '',
-    },
-    environment: {
-      variables: {
-        NODE_VERSION: process.version,
-        PLATFORM: process.platform,
-        ARCH: process.arch,
-        PWD: cwd,
-      },
-    },
-    timestamp: new Date().toISOString(),
-    version: 'inspect',
-    transport: {
-      type: 'inspect',
-    },
-  };
-
-  if (projectConfig?.context?.environment) {
-    context.project.environment = projectConfig.context.environment;
-  }
-
-  if (projectConfig?.context?.envPrefixes?.length) {
-    for (const prefix of projectConfig.context.envPrefixes) {
-      if (!prefix) continue;
-      for (const [key, value] of Object.entries(process.env)) {
-        if (key.startsWith(prefix) && value) {
-          context.environment.variables = {
-            ...context.environment.variables,
-            [key]: value,
-          };
-        }
-      }
-    }
-  }
-
-  return context;
 }
 
 function isApiInspectToolResult(value: unknown): value is ApiInspectToolResult {
@@ -222,29 +160,10 @@ export async function getInspectResult(
   resultOptions: GetInspectResultOptions = {},
 ): Promise<InspectResult> {
   const includeServerInstructions = resultOptions.includeServerInstructions ?? true;
-
-  // Load .1mcprc with CLI > .1mcprc > defaults precedence
-  const projectConfig = await loadProjectConfig();
-  const mergedOptions: InspectCommandOptions = {
-    ...options,
-    preset: options.preset || projectConfig?.preset,
-    filter: options.filter || projectConfig?.filter,
-    tags: options.tags || normalizeTags(projectConfig?.tags),
-  };
+  const { projectConfig, mergedOptions, discoveredUrl, serverPid, serverUrl } = await resolveServeTarget(options);
 
   const target = parseInspectTarget(mergedOptions.target);
-
-  const { url: discoveredUrl, pid: serverPid } = await discoverServerWithPidFile(
-    mergedOptions['config-dir'],
-    mergedOptions.url,
-  );
-  const serverUrl = buildServerUrl(discoveredUrl, mergedOptions);
   const baseUrl = toBaseUrl(discoveredUrl);
-
-  const validation = await validateServer1mcpUrl(discoveredUrl);
-  if (!validation.valid) {
-    throw new InspectCommandError(validation.error || 'Cannot connect to the running 1MCP server.');
-  }
 
   // Load auth profile for this server (if any)
   const authProfile = await loadAuthProfile(mergedOptions['config-dir'], normalizeServerUrl(baseUrl));
@@ -254,7 +173,11 @@ export async function getInspectResult(
     serverUrl: serverUrl.toString(),
   });
   const cachedSession = await readCliSessionCache(cachePath, serverUrl.toString());
-  const inspectContext = buildInspectContext(projectConfig);
+  const inspectContext = buildCliContext({
+    projectConfig,
+    transportType: 'inspect',
+    version: 'inspect',
+  });
 
   // Try /api/inspect first (fast path)
   const apiClient = new ApiClient({ baseUrl, bearerToken: authProfile?.token });

@@ -1,5 +1,3 @@
-import path from 'node:path';
-
 import { StreamableHTTPError } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import { type CallToolResult, type Tool } from '@modelcontextprotocol/sdk/types.js';
 
@@ -15,8 +13,8 @@ import {
 } from '@src/commands/run/runUtils.js';
 import { ApiClient } from '@src/commands/shared/apiClient.js';
 import { loadAuthProfile, normalizeServerUrl } from '@src/commands/shared/authProfileStore.js';
+import { buildCliContext } from '@src/commands/shared/cliContext.js';
 import {
-  buildServerUrl,
   deleteCliSessionCache,
   getCliSessionCachePath,
   type JsonRpcErrorEnvelope,
@@ -25,11 +23,10 @@ import {
   StreamableServeClient,
   writeCliSessionCache,
 } from '@src/commands/shared/serveClient.js';
-import { loadProjectConfig } from '@src/config/projectConfigLoader.js';
+import { resolveServeTarget } from '@src/commands/shared/serveTargetResolver.js';
 import { API_INSPECT_ENDPOINT, API_TOOL_INVOCATIONS_ENDPOINT } from '@src/constants/api.js';
 import type { GlobalOptions } from '@src/globalOptions.js';
 import type { ContextData } from '@src/types/context.js';
-import { discoverServerWithPidFile, validateServer1mcpUrl } from '@src/utils/validation/urlDetection.js';
 
 export interface RunCommandOptions extends GlobalOptions {
   url?: string;
@@ -67,14 +64,7 @@ export async function runCommand(options: RunCommandOptions): Promise<void> {
   const toolReference = parseToolReference(options.tool);
   const format = options.raw ? 'json' : options.format || 'toon';
   const maxChars = options['max-chars'] ?? 2000;
-
-  const { url: discoveredUrl, pid: serverPid } = await discoverServerWithPidFile(options['config-dir'], options.url);
-  const serverUrl = buildServerUrl(discoveredUrl, options);
-
-  const validation = await validateServer1mcpUrl(serverUrl.toString());
-  if (!validation.valid) {
-    throw new RunCommandInputError(validation.error || 'Cannot connect to the running 1MCP server.');
-  }
+  const { projectConfig, discoveredUrl, serverPid, serverUrl } = await resolveServeTarget(options);
 
   const stdinText = await readStdin();
   const cachePath = getCliSessionCachePath({
@@ -194,8 +184,11 @@ export async function runCommand(options: RunCommandOptions): Promise<void> {
     }
   }
 
-  const projectConfig = await loadProjectConfig();
-  const runContext = buildRunContext(projectConfig);
+  const runContext = buildCliContext({
+    projectConfig,
+    transportType: 'run',
+    version: 'run',
+  });
 
   let response = await invokeTool({
     serverUrl,
@@ -472,63 +465,4 @@ function tryParseJsonObject(text: string): Record<string, unknown> | null {
   } catch {
     return null;
   }
-}
-
-function buildRunContext(projectConfig?: Awaited<ReturnType<typeof loadProjectConfig>>): ContextData {
-  const cwd = process.cwd();
-  const projectName = path.basename(cwd) || 'unknown';
-
-  const context: ContextData = {
-    project: {
-      path: cwd,
-      name: projectName,
-      environment: process.env.NODE_ENV || 'development',
-      ...(projectConfig?.context
-        ? {
-            custom: {
-              projectId: projectConfig.context.projectId,
-              team: projectConfig.context.team,
-              ...projectConfig.context.custom,
-            },
-          }
-        : {}),
-    },
-    user: {
-      username: process.env.USER || process.env.USERNAME || 'unknown',
-      home: process.env.HOME || process.env.USERPROFILE || '',
-    },
-    environment: {
-      variables: {
-        NODE_VERSION: process.version,
-        PLATFORM: process.platform,
-        ARCH: process.arch,
-        PWD: cwd,
-      },
-    },
-    timestamp: new Date().toISOString(),
-    version: 'run',
-    transport: {
-      type: 'run',
-    },
-  };
-
-  if (projectConfig?.context?.environment) {
-    context.project.environment = projectConfig.context.environment;
-  }
-
-  if (projectConfig?.context?.envPrefixes?.length) {
-    for (const prefix of projectConfig.context.envPrefixes) {
-      if (!prefix) continue;
-      for (const [key, value] of Object.entries(process.env)) {
-        if (key.startsWith(prefix) && value) {
-          context.environment.variables = {
-            ...context.environment.variables,
-            [key]: value,
-          };
-        }
-      }
-    }
-  }
-
-  return context;
 }

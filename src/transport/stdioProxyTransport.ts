@@ -2,8 +2,7 @@ import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { JSONRPCMessage } from '@modelcontextprotocol/sdk/types.js';
 
-import type { ProjectConfig } from '@src/config/projectConfigTypes.js';
-import { AUTH_CONFIG } from '@src/constants/auth.js';
+import { buildCliContext, generateStreamableSessionId } from '@src/commands/shared/cliContext.js';
 import { MCP_SERVER_VERSION } from '@src/constants/mcp.js';
 import logger from '@src/logger/logger.js';
 import type { ClientInfo, ContextData } from '@src/types/context.js';
@@ -18,95 +17,14 @@ export interface StdioProxyTransportOptions {
   filter?: string;
   tags?: string[];
   timeout?: number;
-  projectConfig?: ProjectConfig; // For context enrichment
-}
-
-/**
- * Enrich context with project configuration
- */
-function enrichContextWithProjectConfig(context: ContextData, projectConfig?: ProjectConfig): ContextData {
-  if (!projectConfig?.context) {
-    return context;
-  }
-
-  const enrichedContext = { ...context };
-
-  // Enrich project context
-  if (projectConfig.context) {
-    enrichedContext.project = {
-      ...context.project,
-      environment: projectConfig.context.environment || context.project.environment,
-      custom: {
-        ...context.project.custom,
-        projectId: projectConfig.context.projectId,
-        team: projectConfig.context.team,
-        ...projectConfig.context.custom,
-      },
-    };
-
-    // Handle environment variable prefixes
-    if (projectConfig.context.envPrefixes && projectConfig.context.envPrefixes.length > 0) {
-      const envVars: Record<string, string> = {};
-
-      for (const prefix of projectConfig.context.envPrefixes) {
-        for (const [key, value] of Object.entries(process.env)) {
-          if (key.startsWith(prefix) && value) {
-            envVars[key] = value;
-          }
-        }
-      }
-
-      enrichedContext.environment = {
-        ...context.environment,
-        variables: {
-          ...context.environment.variables,
-          ...envVars,
-        },
-      };
-    }
-  }
-
-  return enrichedContext;
+  context?: ContextData;
 }
 
 /**
  * Generate a secure mcp-session-id for the proxy with the correct prefix
  */
 function generateMcpSessionId(): string {
-  return `${AUTH_CONFIG.SERVER.STREAMABLE_SESSION.ID_PREFIX}${crypto.randomUUID()}`;
-}
-
-/**
- * Auto-detects context from the proxy's environment
- */
-function detectProxyContext(projectConfig?: ProjectConfig): ContextData {
-  const cwd = process.cwd();
-  const projectName = cwd.split('/').pop() || 'unknown';
-
-  const baseContext: ContextData = {
-    project: {
-      path: cwd,
-      name: projectName,
-      environment: process.env.NODE_ENV || 'development',
-    },
-    user: {
-      username: process.env.USER || process.env.USERNAME || 'unknown',
-      home: process.env.HOME || process.env.USERPROFILE || '',
-    },
-    environment: {
-      variables: {
-        NODE_VERSION: process.version,
-        PLATFORM: process.platform,
-        ARCH: process.arch,
-        PWD: cwd,
-      },
-    },
-    timestamp: new Date().toISOString(),
-    version: MCP_SERVER_VERSION,
-    sessionId: generateMcpSessionId(),
-  };
-
-  return enrichContextWithProjectConfig(baseContext, projectConfig);
+  return generateStreamableSessionId();
 }
 
 /**
@@ -131,8 +49,13 @@ export class StdioProxyTransport {
     // Reset any previous state
     ClientInfoExtractor.reset();
 
-    // Auto-detect context from proxy's environment and enrich with project config
-    this.context = detectProxyContext(this.options.projectConfig);
+    this.context =
+      this.options.context ||
+      buildCliContext({
+        transportType: 'stdio-proxy',
+        version: MCP_SERVER_VERSION,
+        sessionId: generateMcpSessionId(),
+      });
 
     logger.info('🔍 Detected proxy context', {
       projectPath: this.context.project.path,

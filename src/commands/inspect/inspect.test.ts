@@ -642,8 +642,9 @@ Runner instructions.
       ],
     };
 
-    const cacheDir = join(process.cwd(), '.tmp-test', 'inspect-command-unit', 'extract-server-instructions');
-    await mkdir(cacheDir, { recursive: true });
+    const cacheRoot = join(process.cwd(), '.tmp-test', 'inspect-command-unit');
+    await mkdir(cacheRoot, { recursive: true });
+    const cacheDir = await mkdtemp(join(cacheRoot, 'extract-server-instructions-'));
 
     const result = await getInspectResult({
       target: 'serena',
@@ -655,5 +656,7 @@ Runner instructions.
     if (result.kind === 'server') {
       expect(result.instructions).toBe('# Serena Instructions\nUse Serena for semantic code navigation and editing.');
     }
+
+    await rm(cacheDir, { recursive: true, force: true });
   });
 });

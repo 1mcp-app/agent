@@ -13,6 +13,18 @@ import {
   writeCliSessionCache,
 } from './run.js';
 
+const mockedLoadProjectConfig = vi.hoisted(() => vi.fn());
+
+vi.mock('@src/config/projectConfigLoader.js', async () => {
+  const actual = await vi.importActual<typeof import('@src/config/projectConfigLoader.js')>(
+    '@src/config/projectConfigLoader.js',
+  );
+  return {
+    ...actual,
+    loadProjectConfig: mockedLoadProjectConfig,
+  };
+});
+
 vi.mock('@src/commands/shared/authProfileStore.js', () => ({
   loadAuthProfile: vi.fn(async () => null),
   normalizeServerUrl: vi.fn((url: string) => url),
@@ -143,6 +155,8 @@ describe('run command internals', () => {
     transportState.throw404OnMethod = undefined;
     transportState.toolName = 'runner_1mcp_echo_args';
     transportState.instances = [];
+    mockedLoadProjectConfig.mockReset();
+    mockedLoadProjectConfig.mockResolvedValue(null);
   });
 
   describe('buildServerUrl', () => {
