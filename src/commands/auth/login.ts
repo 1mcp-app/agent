@@ -2,6 +2,7 @@ import { ApiClient } from '@src/commands/shared/apiClient.js';
 import { normalizeServerUrl, saveAuthProfile } from '@src/commands/shared/authProfileStore.js';
 import { API_INSPECT_ENDPOINT } from '@src/constants/api.js';
 import type { GlobalOptions } from '@src/globalOptions.js';
+import { stripMcpSuffix } from '@src/utils/urlUtils.js';
 import { discoverServerWithPidFile } from '@src/utils/validation/urlDetection.js';
 
 export interface AuthLoginOptions extends GlobalOptions {
@@ -11,7 +12,7 @@ export interface AuthLoginOptions extends GlobalOptions {
 
 export async function authLoginCommand(options: AuthLoginOptions): Promise<void> {
   const { url: discoveredUrl, source } = await discoverServerWithPidFile(options['config-dir'], options.url);
-  const baseUrl = normalizeServerUrl(discoveredUrl.replace(/\/mcp$/, ''));
+  const baseUrl = normalizeServerUrl(stripMcpSuffix(discoveredUrl));
 
   if (source !== 'user') {
     process.stderr.write(`Auto-detected server at ${baseUrl} (via ${source})\n`);

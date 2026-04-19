@@ -1,3 +1,4 @@
+import { runCliCommand } from '@src/commands/shared/commandRunner.js';
 import { globalOptions } from '@src/globalOptions.js';
 
 import type { Argv } from 'yargs';
@@ -60,17 +61,8 @@ export function setupInspectCommand(yargs: Argv): Argv {
         .example('$0 inspect filesystem --all', 'List all tools without pagination')
         .epilogue('This command requires a running `1mcp serve` instance. Errors are written to stderr only.'),
     async (argv) => {
-      const { configureGlobalLogger } = await import('@src/logger/configureGlobalLogger.js');
       const { inspectCommand } = await import('./inspect.js');
-
-      configureGlobalLogger(argv, 'stdio');
-      try {
-        await inspectCommand(argv as Parameters<typeof inspectCommand>[0]);
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        process.stderr.write(`${message}\n`);
-        process.exit(1);
-      }
+      await runCliCommand(argv as Parameters<typeof inspectCommand>[0], inspectCommand);
     },
   );
 }

@@ -91,20 +91,20 @@ export async function listAuthProfiles(configDir?: string): Promise<AuthProfile[
   const dir = profilesDir(configDir);
   try {
     const files = await readdir(dir);
-    const profiles: AuthProfile[] = [];
-    for (const file of files) {
-      if (!file.endsWith('.json')) continue;
-      try {
-        const raw = await readFile(path.join(dir, file), 'utf8');
-        const parsed = JSON.parse(raw) as unknown;
-        if (isAuthProfile(parsed)) {
-          profiles.push(parsed);
-        }
-      } catch {
-        // skip corrupt files
-      }
-    }
-    return profiles;
+    const results = await Promise.all(
+      files
+        .filter((file) => file.endsWith('.json'))
+        .map(async (file) => {
+          try {
+            const raw = await readFile(path.join(dir, file), 'utf8');
+            const parsed = JSON.parse(raw) as unknown;
+            return isAuthProfile(parsed) ? parsed : null;
+          } catch {
+            return null;
+          }
+        }),
+    );
+    return results.filter((p): p is AuthProfile => p !== null);
   } catch {
     return [];
   }

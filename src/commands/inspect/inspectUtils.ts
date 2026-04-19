@@ -5,6 +5,7 @@ import type { Tool } from '@modelcontextprotocol/sdk/types.js';
 import type { ParsedToolReference } from '@src/commands/run/runUtils.js';
 import { MCP_URI_SEPARATOR } from '@src/constants.js';
 import { buildUri, parseUri } from '@src/utils/core/parsing.js';
+import { isPlainObject } from '@src/utils/typeGuards.js';
 
 import chalk from 'chalk';
 
@@ -459,8 +460,4 @@ function getToolName(tool: Tool): string {
   } catch {
     return tool.name;
   }
-}
-
-function isPlainObject(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }

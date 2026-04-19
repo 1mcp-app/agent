@@ -2,6 +2,7 @@ import { ApiClient } from '@src/commands/shared/apiClient.js';
 import { listAuthProfiles, loadAuthProfile, normalizeServerUrl } from '@src/commands/shared/authProfileStore.js';
 import { API_INSPECT_ENDPOINT } from '@src/constants/api.js';
 import type { GlobalOptions } from '@src/globalOptions.js';
+import { stripMcpSuffix } from '@src/utils/urlUtils.js';
 import { discoverServerWithPidFile } from '@src/utils/validation/urlDetection.js';
 
 export interface AuthStatusOptions extends GlobalOptions {
@@ -17,7 +18,7 @@ export async function authStatusCommand(options: AuthStatusOptions): Promise<voi
   // Try auto-discovery first
   try {
     const { url: discoveredUrl, source } = await discoverServerWithPidFile(options['config-dir']);
-    const baseUrl = normalizeServerUrl(discoveredUrl.replace(/\/mcp$/, ''));
+    const baseUrl = normalizeServerUrl(stripMcpSuffix(discoveredUrl));
     process.stderr.write(`Auto-detected server at ${baseUrl} (via ${source})\n`);
     await showProfileStatus(options['config-dir'], baseUrl);
     return;

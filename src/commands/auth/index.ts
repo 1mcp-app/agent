@@ -1,3 +1,4 @@
+import { runCliCommand } from '@src/commands/shared/commandRunner.js';
 import { globalOptions } from '@src/globalOptions.js';
 
 import type { Argv } from 'yargs';
@@ -25,15 +26,8 @@ export function setupAuthCommands(yargs: Argv): Argv {
                 type: 'string',
               }),
           async (argv) => {
-            const { configureGlobalLogger } = await import('@src/logger/configureGlobalLogger.js');
             const { authLoginCommand } = await import('./login.js');
-            configureGlobalLogger(argv, 'stdio');
-            try {
-              await authLoginCommand(argv as Parameters<typeof authLoginCommand>[0]);
-            } catch (error) {
-              process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);
-              process.exit(1);
-            }
+            await runCliCommand(argv as Parameters<typeof authLoginCommand>[0], authLoginCommand);
           },
         )
         .command(
@@ -46,15 +40,8 @@ export function setupAuthCommands(yargs: Argv): Argv {
               type: 'string',
             }),
           async (argv) => {
-            const { configureGlobalLogger } = await import('@src/logger/configureGlobalLogger.js');
             const { authStatusCommand } = await import('./status.js');
-            configureGlobalLogger(argv, 'stdio');
-            try {
-              await authStatusCommand(argv as Parameters<typeof authStatusCommand>[0]);
-            } catch (error) {
-              process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);
-              process.exit(1);
-            }
+            await runCliCommand(argv as Parameters<typeof authStatusCommand>[0], authStatusCommand);
           },
         )
         .command(
@@ -74,15 +61,8 @@ export function setupAuthCommands(yargs: Argv): Argv {
                 default: false,
               }),
           async (argv) => {
-            const { configureGlobalLogger } = await import('@src/logger/configureGlobalLogger.js');
             const { authLogoutCommand } = await import('./logout.js');
-            configureGlobalLogger(argv, 'stdio');
-            try {
-              await authLogoutCommand(argv as Parameters<typeof authLogoutCommand>[0]);
-            } catch (error) {
-              process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);
-              process.exit(1);
-            }
+            await runCliCommand(argv as Parameters<typeof authLogoutCommand>[0], authLogoutCommand);
           },
         )
         .demandCommand(1, 'Specify a subcommand: login, status, or logout');

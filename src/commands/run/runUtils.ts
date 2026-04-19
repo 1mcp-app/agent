@@ -5,6 +5,7 @@ import type { CallToolResult, Tool } from '@modelcontextprotocol/sdk/types.js';
 import { MCP_URI_SEPARATOR } from '@src/constants.js';
 import { CustomJsonSchemaValidator } from '@src/core/validation/CustomJsonSchemaValidator.js';
 import { buildUri } from '@src/utils/core/parsing.js';
+import { isPlainObject } from '@src/utils/typeGuards.js';
 
 export type RunOutputFormat = 'json' | 'text' | 'toon' | 'compact';
 
@@ -213,7 +214,7 @@ export function truncateText(text: string, maxChars: number): string {
   return `${text.slice(0, maxChars - suffix.length)}${suffix}`;
 }
 
-function parseExplicitArgs(value: string): Record<string, unknown> {
+export function parseExplicitArgs(value: string): Record<string, unknown> {
   try {
     const parsed = JSON.parse(value) as unknown;
     if (!isPlainObject(parsed)) {
@@ -230,7 +231,7 @@ function parseExplicitArgs(value: string): Record<string, unknown> {
   }
 }
 
-function parseJsonObject(text: string): Record<string, unknown> | null {
+export function parseJsonObject(text: string): Record<string, unknown> | null {
   try {
     const parsed = JSON.parse(text) as unknown;
     return isPlainObject(parsed) ? parsed : null;
@@ -269,10 +270,6 @@ function getToolSchema(tool: Tool): JsonSchemaObject {
   }
 
   return schema as JsonSchemaObject;
-}
-
-function isPlainObject(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
 function isSchemaString(value: unknown): value is { type: 'string' } {

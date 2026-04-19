@@ -29,96 +29,114 @@ import {
 export type { InspectServerPayload, InspectServersPayload, InspectToolPayload, ServerSummary, ToolSummary };
 export { buildFilterConfig, matchesFilterConfig, parseTarget, resolveConnectionByServerName };
 
+type FilteredConnections = ReturnType<typeof FilteringService.getFilteredConnections>;
+
+async function buildServerSummaries(
+  filteredConnections: FilteredConnections,
+  toolRegistry: ToolRegistry | undefined,
+  capabilityAggregator: CapabilityAggregator | undefined,
+  serverRegistry: ServerRegistry,
+  instructionAggregator: ReturnType<ServerManager['getInstructionAggregator']>,
+  declaredServers: ReturnType<ConfigManager['loadDeclaredServerConfigs']>,
+  filterConfig: ReturnType<typeof buildFilterConfig>,
+): Promise<ServerSummary[]> {
+  let toolCountByServer: Record<string, number> = {};
+
+  if (toolRegistry) {
+    toolCountByServer = toolRegistry.getToolCountByServer();
+  } else if (capabilityAggregator) {
+    for (const tool of capabilityAggregator.getCurrentCapabilities().tools) {
+      const sn = getServerName(tool.name);
+      if (sn) toolCountByServer[sn] = (toolCountByServer[sn] ?? 0) + 1;
+    }
+  } else {
+    await Promise.all(
+      Array.from(filteredConnections.entries()).map(async ([name, connection]) => {
+        if (!connection.client) return;
+        try {
+          const result = await connection.client.listTools();
+          toolCountByServer[name] = (result.tools ?? []).length;
+        } catch {
+          toolCountByServer[name] = 0;
+        }
+      }),
+    );
+  }
+
+  const serverMap = new Map<string, { toolCount: number; hasInstructions: boolean }>();
+  for (const [name] of filteredConnections) {
+    const cleanName = name.includes(':') ? name.split(':')[0] : name;
+    const toolCount = toolCountByServer[name] ?? 0;
+    const hasInstructions = instructionAggregator?.hasInstructions(cleanName) ?? false;
+    const existing = serverMap.get(cleanName);
+    if (existing) {
+      existing.toolCount = Math.max(existing.toolCount, toolCount);
+      existing.hasInstructions = existing.hasInstructions || hasInstructions;
+    } else {
+      serverMap.set(cleanName, { toolCount, hasInstructions });
+    }
+  }
+
+  for (const registeredName of serverRegistry.getServerNames()) {
+    const adapter = serverRegistry.get(registeredName);
+    if (!serverMap.has(registeredName) && matchesFilterConfig(adapter?.config.tags, filterConfig)) {
+      serverMap.set(registeredName, {
+        toolCount: 0,
+        hasInstructions: instructionAggregator?.hasInstructions(registeredName) ?? false,
+      });
+    }
+  }
+
+  for (const [name, config] of Object.entries({
+    ...declaredServers.staticServers,
+    ...declaredServers.templateServers,
+  })) {
+    if (!serverMap.has(name) && matchesFilterConfig(config.tags, filterConfig)) {
+      serverMap.set(name, {
+        toolCount: 0,
+        hasInstructions: instructionAggregator?.hasInstructions(name) ?? false,
+      });
+    }
+  }
+
+  const servers: ServerSummary[] = [];
+  for (const [cleanName, info] of serverMap) {
+    const adapter = serverRegistry.get(cleanName);
+    const connection = resolveConnectionByServerName(filteredConnections, cleanName);
+    const state = deriveServerState(adapter?.getStatus(), adapter?.isAvailable(), connection);
+    const type = adapter?.type ?? (declaredServers.templateServers[cleanName] ? 'template' : 'external');
+
+    servers.push({
+      server: cleanName,
+      type: String(type),
+      status: state.status,
+      available: state.available,
+      toolCount: info.toolCount,
+      hasInstructions: info.hasInstructions,
+    });
+  }
+
+  servers.sort((a, b) => a.server.localeCompare(b.server));
+  return servers;
+}
+
 export function createServersHandler(serverManager: ServerManager): RequestHandler {
   return async (_req: Request, res: Response): Promise<void> => {
     try {
       const filterConfig = buildFilterConfig(res);
-      const allConnections = serverManager.getClients();
-      const filteredConnections = FilteringService.getFilteredConnections(allConnections, filterConfig);
-
-      const instructionAggregator = serverManager.getInstructionAggregator();
+      const filteredConnections = FilteringService.getFilteredConnections(serverManager.getClients(), filterConfig);
       const lazyOrchestrator = serverManager.getLazyLoadingOrchestrator();
-      const toolRegistry: ToolRegistry | undefined = lazyOrchestrator?.getToolRegistry();
-      const capabilityAggregator: CapabilityAggregator | undefined = lazyOrchestrator?.getCapabilityAggregator();
-      const serverRegistry = serverManager.getServerRegistry();
       const declaredServers = ConfigManager.getInstance().loadDeclaredServerConfigs();
 
-      let toolCountByServer: Record<string, number> = {};
-
-      if (toolRegistry) {
-        toolCountByServer = toolRegistry.getToolCountByServer();
-      } else if (capabilityAggregator) {
-        for (const tool of capabilityAggregator.getCurrentCapabilities().tools) {
-          const sn = getServerName(tool.name);
-          if (sn) toolCountByServer[sn] = (toolCountByServer[sn] ?? 0) + 1;
-        }
-      } else {
-        for (const [name, connection] of filteredConnections) {
-          if (connection.client) {
-            try {
-              const result = await connection.client.listTools();
-              toolCountByServer[name] = (result.tools ?? []).length;
-            } catch {
-              toolCountByServer[name] = 0;
-            }
-          }
-        }
-      }
-
-      const serverMap = new Map<string, { toolCount: number; hasInstructions: boolean }>();
-      for (const [name] of filteredConnections) {
-        const cleanName = name.includes(':') ? name.split(':')[0] : name;
-        const toolCount = toolCountByServer[name] ?? 0;
-        const hasInstructions = instructionAggregator?.hasInstructions(cleanName) ?? false;
-        const existing = serverMap.get(cleanName);
-        if (existing) {
-          existing.toolCount = Math.max(existing.toolCount, toolCount);
-          existing.hasInstructions = existing.hasInstructions || hasInstructions;
-        } else {
-          serverMap.set(cleanName, { toolCount, hasInstructions });
-        }
-      }
-
-      for (const registeredName of serverRegistry.getServerNames()) {
-        const adapter = serverRegistry.get(registeredName);
-        if (!serverMap.has(registeredName) && matchesFilterConfig(adapter?.config.tags, filterConfig)) {
-          serverMap.set(registeredName, {
-            toolCount: 0,
-            hasInstructions: instructionAggregator?.hasInstructions(registeredName) ?? false,
-          });
-        }
-      }
-
-      for (const [name, config] of Object.entries({
-        ...declaredServers.staticServers,
-        ...declaredServers.templateServers,
-      })) {
-        if (!serverMap.has(name) && matchesFilterConfig(config.tags, filterConfig)) {
-          serverMap.set(name, {
-            toolCount: 0,
-            hasInstructions: instructionAggregator?.hasInstructions(name) ?? false,
-          });
-        }
-      }
-
-      const servers: ServerSummary[] = [];
-      for (const [cleanName, info] of serverMap) {
-        const adapter = serverRegistry.get(cleanName);
-        const connection = resolveConnectionByServerName(filteredConnections, cleanName);
-        const state = deriveServerState(adapter?.getStatus(), adapter?.isAvailable(), connection);
-        const type = adapter?.type ?? (declaredServers.templateServers[cleanName] ? 'template' : 'external');
-
-        servers.push({
-          server: cleanName,
-          type: String(type),
-          status: state.status,
-          available: state.available,
-          toolCount: info.toolCount,
-          hasInstructions: info.hasInstructions,
-        });
-      }
-
-      servers.sort((a, b) => a.server.localeCompare(b.server));
+      const servers = await buildServerSummaries(
+        filteredConnections,
+        lazyOrchestrator?.getToolRegistry(),
+        lazyOrchestrator?.getCapabilityAggregator(),
+        serverManager.getServerRegistry(),
+        serverManager.getInstructionAggregator(),
+        declaredServers,
+        filterConfig,
+      );
 
       const payload: InspectServersPayload = { kind: 'servers', servers };
       res.json(payload);
@@ -140,9 +158,7 @@ export function createInspectHandler(serverManager: ServerManager): RequestHandl
       const limit = allParam ? 5000 : Number.isFinite(limitParam) && limitParam > 0 ? limitParam : 20;
 
       const filterConfig = buildFilterConfig(res);
-      const allConnections = serverManager.getClients();
-      const filteredConnections = FilteringService.getFilteredConnections(allConnections, filterConfig);
-
+      const filteredConnections = FilteringService.getFilteredConnections(serverManager.getClients(), filterConfig);
       const instructionAggregator = serverManager.getInstructionAggregator();
       const lazyOrchestrator = serverManager.getLazyLoadingOrchestrator();
       const toolRegistry: ToolRegistry | undefined = lazyOrchestrator?.getToolRegistry();
@@ -152,82 +168,15 @@ export function createInspectHandler(serverManager: ServerManager): RequestHandl
 
       // No target: list all filtered servers
       if (!targetRaw) {
-        let toolCountByServer: Record<string, number> = {};
-
-        if (toolRegistry) {
-          toolCountByServer = toolRegistry.getToolCountByServer();
-        } else if (capabilityAggregator) {
-          for (const tool of capabilityAggregator.getCurrentCapabilities().tools) {
-            const sn = getServerName(tool.name);
-            if (sn) toolCountByServer[sn] = (toolCountByServer[sn] ?? 0) + 1;
-          }
-        } else {
-          for (const [name, connection] of filteredConnections) {
-            if (connection.client) {
-              try {
-                const result = await connection.client.listTools();
-                toolCountByServer[name] = (result.tools ?? []).length;
-              } catch {
-                toolCountByServer[name] = 0;
-              }
-            }
-          }
-        }
-
-        const serverMap = new Map<string, { toolCount: number; hasInstructions: boolean }>();
-        for (const [name] of filteredConnections) {
-          const cleanName = name.includes(':') ? name.split(':')[0] : name;
-          const toolCount = toolCountByServer[name] ?? 0;
-          const hasInstructions = instructionAggregator?.hasInstructions(cleanName) ?? false;
-          const existing = serverMap.get(cleanName);
-          if (existing) {
-            existing.toolCount = Math.max(existing.toolCount, toolCount);
-            existing.hasInstructions = existing.hasInstructions || hasInstructions;
-          } else {
-            serverMap.set(cleanName, { toolCount, hasInstructions });
-          }
-        }
-
-        for (const registeredName of serverRegistry.getServerNames()) {
-          const adapter = serverRegistry.get(registeredName);
-          if (!serverMap.has(registeredName) && matchesFilterConfig(adapter?.config.tags, filterConfig)) {
-            serverMap.set(registeredName, {
-              toolCount: 0,
-              hasInstructions: instructionAggregator?.hasInstructions(registeredName) ?? false,
-            });
-          }
-        }
-
-        for (const [name, config] of Object.entries({
-          ...declaredServers.staticServers,
-          ...declaredServers.templateServers,
-        })) {
-          if (!serverMap.has(name) && matchesFilterConfig(config.tags, filterConfig)) {
-            serverMap.set(name, {
-              toolCount: 0,
-              hasInstructions: instructionAggregator?.hasInstructions(name) ?? false,
-            });
-          }
-        }
-
-        const servers: ServerSummary[] = [];
-        for (const [cleanName, info] of serverMap) {
-          const adapter = serverRegistry.get(cleanName);
-          const connection = resolveConnectionByServerName(filteredConnections, cleanName);
-          const state = deriveServerState(adapter?.getStatus(), adapter?.isAvailable(), connection);
-          const type = adapter?.type ?? (declaredServers.templateServers[cleanName] ? 'template' : 'external');
-
-          servers.push({
-            server: cleanName,
-            type: String(type),
-            status: state.status,
-            available: state.available,
-            toolCount: info.toolCount,
-            hasInstructions: info.hasInstructions,
-          });
-        }
-
-        servers.sort((a, b) => a.server.localeCompare(b.server));
+        const servers = await buildServerSummaries(
+          filteredConnections,
+          toolRegistry,
+          capabilityAggregator,
+          serverRegistry,
+          instructionAggregator,
+          declaredServers,
+          filterConfig,
+        );
 
         const serverInstructions = Object.fromEntries(
           servers.flatMap((server) => {

@@ -19,6 +19,7 @@ import { MCP_URI_SEPARATOR } from '@src/constants.js';
 import { API_INSPECT_ENDPOINT } from '@src/constants/api.js';
 import type { GlobalOptions } from '@src/globalOptions.js';
 import type { ContextData } from '@src/types/context.js';
+import { stripMcpSuffix } from '@src/utils/urlUtils.js';
 
 import {
   extractInspectServerInfo,
@@ -58,12 +59,6 @@ interface ApiInspectToolResult {
   outputSchema?: Record<string, unknown>;
 }
 
-/** Strip /mcp suffix to get the base URL for /api/* calls */
-function toBaseUrl(mcpUrl: string): string {
-  return mcpUrl.replace(/\/mcp$/, '');
-}
-
-/** Build query params for /api/inspect */
 function buildInspectQuery(
   options: Pick<InspectCommandOptions, 'preset' | 'filter' | 'tags' | 'tag-filter' | 'all' | 'limit' | 'cursor'>,
   target?: string,
@@ -163,16 +158,17 @@ export async function getInspectResult(
   const { projectConfig, mergedOptions, discoveredUrl, serverPid, serverUrl } = await resolveServeTarget(options);
 
   const target = parseInspectTarget(mergedOptions.target);
-  const baseUrl = toBaseUrl(discoveredUrl);
-
-  // Load auth profile for this server (if any)
-  const authProfile = await loadAuthProfile(mergedOptions['config-dir'], normalizeServerUrl(baseUrl));
+  const baseUrl = stripMcpSuffix(discoveredUrl);
   const cachePath = getCliSessionCachePath({
     cachePathTemplate: mergedOptions['cli-session-cache-path'],
     serverPid,
     serverUrl: serverUrl.toString(),
   });
-  const cachedSession = await readCliSessionCache(cachePath, serverUrl.toString());
+
+  const [authProfile, cachedSession] = await Promise.all([
+    loadAuthProfile(mergedOptions['config-dir'], normalizeServerUrl(baseUrl)),
+    readCliSessionCache(cachePath, serverUrl.toString()),
+  ]);
   const inspectContext = buildCliContext({
     projectConfig,
     transportType: 'inspect',

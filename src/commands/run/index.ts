@@ -1,3 +1,4 @@
+import { runCliCommand } from '@src/commands/shared/commandRunner.js';
 import { globalOptions } from '@src/globalOptions.js';
 
 import type { Argv } from 'yargs';
@@ -64,17 +65,8 @@ export function setupRunCommand(yargs: Argv): Argv {
           'This command requires a running `1mcp serve` instance. For pipe-friendly usage, stdout is reserved for tool output and errors are sent to stderr.',
         ),
     async (argv) => {
-      const { configureGlobalLogger } = await import('@src/logger/configureGlobalLogger.js');
       const { runCommand } = await import('./run.js');
-
-      configureGlobalLogger(argv, 'stdio');
-      try {
-        await runCommand(argv as Parameters<typeof runCommand>[0]);
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        process.stderr.write(`${message}\n`);
-        process.exit(1);
-      }
+      await runCliCommand(argv as Parameters<typeof runCommand>[0], runCommand);
     },
   );
 }

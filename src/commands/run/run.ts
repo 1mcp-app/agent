@@ -5,6 +5,8 @@ import { extractInspectToolInfo, type InspectToolInfo } from '@src/commands/insp
 import {
   findToolByQualifiedName,
   formatToolCallOutput,
+  parseExplicitArgs,
+  parseJsonObject,
   parseToolReference,
   resolveToolArguments,
   RunCommandInputError,
@@ -27,6 +29,7 @@ import { resolveServeTarget } from '@src/commands/shared/serveTargetResolver.js'
 import { API_INSPECT_ENDPOINT, API_TOOL_INVOCATIONS_ENDPOINT } from '@src/constants/api.js';
 import type { GlobalOptions } from '@src/globalOptions.js';
 import type { ContextData } from '@src/types/context.js';
+import { stripMcpSuffix } from '@src/utils/urlUtils.js';
 
 export interface RunCommandOptions extends GlobalOptions {
   url?: string;
@@ -64,16 +67,17 @@ export async function runCommand(options: RunCommandOptions): Promise<void> {
   const toolReference = parseToolReference(options.tool);
   const format = options.raw ? 'json' : options.format || 'toon';
   const maxChars = options['max-chars'] ?? 2000;
-  const { projectConfig, discoveredUrl, serverPid, serverUrl } = await resolveServeTarget(options);
-
-  const stdinText = await readStdin();
+  const [{ projectConfig, discoveredUrl, serverPid, serverUrl }, stdinText] = await Promise.all([
+    resolveServeTarget(options),
+    readStdin(),
+  ]);
   const cachePath = getCliSessionCachePath({
     cachePathTemplate: options['cli-session-cache-path'],
     serverPid,
     serverUrl: serverUrl.toString(),
   });
   const cachedSession = await readCliSessionCache(cachePath, serverUrl.toString());
-  const baseUrl = discoveredUrl.replace(/\/mcp$/, '');
+  const baseUrl = stripMcpSuffix(discoveredUrl);
   const authProfile = await loadAuthProfile(options['config-dir'], normalizeServerUrl(baseUrl));
   const apiClient = new ApiClient({ baseUrl, bearerToken: authProfile?.token });
   let cachedRestEndpointSupport = cachedSession?.hasRestEndpoint;
@@ -87,9 +91,9 @@ export async function runCommand(options: RunCommandOptions): Promise<void> {
   if (canTryRest) {
     const restArgs =
       options.args !== undefined
-        ? parseRestArgs(options.args)
+        ? parseExplicitArgs(options.args)
         : stdinText !== undefined
-          ? tryParseJsonObject(stdinText)
+          ? parseJsonObject(stdinText)
           : {};
 
     const toolInfo =
@@ -240,23 +244,6 @@ export async function runCommand(options: RunCommandOptions): Promise<void> {
 
   if (output.length > 0) {
     process.stdout.write(`${output}\n`);
-  }
-}
-
-function parseRestArgs(value: string): Record<string, unknown> {
-  try {
-    const parsed = JSON.parse(value) as unknown;
-    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
-      throw new RunCommandInputError('--args must be a JSON object.');
-    }
-    return parsed as Record<string, unknown>;
-  } catch (error) {
-    if (error instanceof RunCommandInputError) {
-      throw error;
-    }
-    throw new RunCommandInputError(
-      `Invalid JSON passed to --args: ${error instanceof Error ? error.message : String(error)}`,
-    );
   }
 }
 
@@ -453,16 +440,4 @@ async function readStdin(): Promise<string | undefined> {
   }
 
   return Buffer.concat(chunks).toString('utf8');
-}
-
-function tryParseJsonObject(text: string): Record<string, unknown> | null {
-  try {
-    const parsed = JSON.parse(text) as unknown;
-    if (typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed)) {
-      return parsed as Record<string, unknown>;
-    }
-    return null;
-  } catch {
-    return null;
-  }
 }

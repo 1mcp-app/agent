@@ -1,5 +1,6 @@
 import { deleteAuthProfile, listAuthProfiles, normalizeServerUrl } from '@src/commands/shared/authProfileStore.js';
 import type { GlobalOptions } from '@src/globalOptions.js';
+import { stripMcpSuffix } from '@src/utils/urlUtils.js';
 import { discoverServerWithPidFile } from '@src/utils/validation/urlDetection.js';
 
 export interface AuthLogoutOptions extends GlobalOptions {
@@ -24,7 +25,7 @@ export async function authLogoutCommand(options: AuthLogoutOptions): Promise<voi
   if (!options.url) {
     try {
       const { url: discoveredUrl, source } = await discoverServerWithPidFile(options['config-dir']);
-      const baseUrl = normalizeServerUrl(discoveredUrl.replace(/\/mcp$/, ''));
+      const baseUrl = normalizeServerUrl(stripMcpSuffix(discoveredUrl));
       process.stderr.write(`Auto-detected server at ${baseUrl} (via ${source})\n`);
       const removed = await deleteAuthProfile(options['config-dir'], baseUrl);
       if (removed) {
