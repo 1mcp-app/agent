@@ -33,6 +33,8 @@ The `run` command is the execution step in the CLI workflow:
 
 `run` talks to a running `1mcp serve` instance, forwards preset and tag filters, and prints tool output to stdout. Errors are written to stderr only so the command stays pipe-friendly.
 
+`run` is intentionally the last step. The recommended flow is to discover broadly with `instructions`, narrow with `inspect`, confirm the exact tool schema with `inspect <server>/<tool>`, and only then invoke the tool.
+
 ## Options
 
 ### Target and Discovery
@@ -103,8 +105,11 @@ ONE_MCP_CLI_SESSION_CACHE_PATH=/tmp/1mcp/.cli-session.{pid} \
 - Tool-level errors set a non-zero exit code
 - `compact` output respects `--max-chars`
 
+The combination of stdout-only success output and compact formatting makes `run` practical for agent loops, shell automation, and post-processing with other CLI tools.
+
 ## See Also
 
+- **[CLI Mode Guide](../guide/integrations/cli-mode.md)** - Why execution comes last in the CLI workflow
 - **[Instructions Command](./instructions.md)** - Start the CLI workflow with the current server inventory
 - **[Inspect Command](./inspect.md)** - Inspect servers, tools, and schemas before calling a tool
 - **[Serve Command](./serve.md)** - Start the 1MCP server that `run` talks to

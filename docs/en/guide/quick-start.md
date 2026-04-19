@@ -17,6 +17,8 @@ head:
 
 Get 1MCP running in 5 minutes with a basic configuration.
 
+If your client is an autonomous agent such as Codex or Claude, prefer [CLI Mode](/guide/integrations/cli-mode) after starting `1mcp serve`.
+
 ## Prerequisites
 
 - Node.js 18+
@@ -63,6 +65,19 @@ Get 1MCP running in 5 minutes with a basic configuration.
     The server is now running on port 3000. You can now connect your MCP client to this port.
 
 That's it! Your 1MCP proxy is now running and aggregating MCP servers.
+
+## CLI Mode for Agents
+
+If your client is a coding agent or terminal agent, use the progressive CLI workflow instead of starting from a broad direct-MCP surface:
+
+```bash
+1mcp instructions
+1mcp inspect filesystem
+1mcp inspect filesystem/read_file
+1mcp run filesystem/read_file --args '{"path":"./mcp.json"}'
+```
+
+This keeps MCP behind `serve` while giving the agent a thinner, more selective interface.
 
 ## Project Configuration
 

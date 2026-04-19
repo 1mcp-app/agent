@@ -17,6 +17,18 @@ head:
 
 This guide covers integrating 1MCP with Codex to enable advanced MCP server management, per-project configurations, and streamable HTTP transport capabilities.
 
+## CLI Mode First
+
+For Codex sessions, the recommended 1MCP workflow is CLI mode:
+
+- keep your MCP servers behind `1mcp serve`
+- bootstrap Codex with `1mcp cli-setup --codex`
+- let Codex use `instructions`, `inspect`, and `run` progressively
+
+This is the preferred agent-facing path because it reduces unnecessary tool and schema context inside the agent loop without changing the MCP backend that 1MCP is aggregating.
+
+For the conceptual background, see [CLI Mode](/guide/integrations/cli-mode).
+
 ## Overview
 
 ### Codex Version Compatibility

@@ -11,6 +11,8 @@ head:
 
 在 5 分钟内使用基本配置让 1MCP 运行起来。
 
+如果你的客户端是 Codex、Claude 这类自主 agent，在启动 `1mcp serve` 之后优先使用 [CLI 模式](/zh/guide/integrations/cli-mode)。
+
 ## 先决条件
 
 - Node.js 18+
@@ -45,6 +47,19 @@ head:
     服务器现在正在端口 3000 上运行。您现在可以将您的 MCP 客户端连接到此端口。
 
 就是这样！您的 1MCP 代理现在正在运行并聚合 MCP 服务器。
+
+## 面向 Agent 的 CLI 模式
+
+如果你的客户端是 coding agent 或终端 agent，推荐使用渐进式 CLI 工作流，而不是从一个宽泛的直接 MCP 工具面开始：
+
+```bash
+1mcp instructions
+1mcp inspect filesystem
+1mcp inspect filesystem/read_file
+1mcp run filesystem/read_file --args '{"path":"./mcp.json"}'
+```
+
+这样 MCP 仍然保留在 `serve` 背后，而 agent 看到的是一个更薄、更有选择性的接口。
 
 ## 项目配置
 

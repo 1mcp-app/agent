@@ -11,6 +11,8 @@ head:
 
 1MCP Agent 提供了一个全面的命令行界面，用于管理 MCP 服务器、agent 工作流和桌面应用程序集成。
 
+对于 AI agent，推荐路径是 CLI 模式：把 MCP 保留在 `1mcp serve` 背后，然后通过 `instructions`、`inspect`、`run` 做渐进式披露，而不是在 agent loop 里直接暴露整个工具面。
+
 ## 快速参考
 
 ### 主要命令
@@ -69,6 +71,14 @@ npx -y @1mcp/agent run context7/get-library-docs --args '{"context7CompatibleLib
 - **[inspect](./inspect.md)** - 发现工具并查看 schema
 - **[run](./run.md)** - 执行工具调用
 - **[cli-setup](./cli-setup.md)** - 安装 Codex 或 Claude 的引导文件
+
+### 为什么会有这些命令
+
+- 直接 MCP 仍然是后端互操作层
+- CLI 模式是面向 agent 的推荐前端工作流
+- `instructions` 提供紧凑清单，而不是一开始就给出庞大的工具面
+- `inspect` 把发现范围缩小到单个 server 和单个 tool
+- `run` 只在确认 schema 后执行
 
 ### [应用命令](./app/)
 

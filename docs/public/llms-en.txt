@@ -7,6 +7,7 @@
 - [Installation & Setup](/en/guide/installation.md): Complete setup guide for binary and npm installations
 - [Quick Start Guide](/en/guide/quick-start.md): 5-minute setup walkthrough with examples
 - [Getting Started](/en/guide/getting-started.md): Complete setup and configuration guide
+- [CLI Mode](/en/guide/integrations/cli-mode.md): Preferred agent workflow using progressive server and tool disclosure
 - [Server Management](/en/guide/essentials/server-management.md): Add, configure, and manage MCP servers
 - [Basic Configuration](/en/guide/essentials/configuration.md): Core configuration options and setup
 
@@ -24,6 +25,9 @@
 
 ## Agent Workflow
 
+- CLI mode is the preferred workflow for Codex, Claude, and similar agent sessions
+- MCP remains the backend interoperability layer behind `1mcp serve`
+- CLI mode changes the agent-facing flow from broad direct MCP exposure to progressive disclosure
 - Start with `1mcp instructions` to fetch the current CLI playbook and server inventory
 - Use `1mcp inspect <server>` and `1mcp inspect <server>/<tool>` before calling a tool
 - Use `1mcp run <server>/<tool> --args '<json>'` to execute the selected tool

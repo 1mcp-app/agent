@@ -20,6 +20,8 @@ npx -y @1mcp/agent inspect [target] [选项]
 
 支持时，`inspect` 会优先使用快速的 `/api/inspect` 端点，否则回退到 MCP 协议。
 
+它的核心作用，是把 `instructions` 提供的全局清单进一步收窄成一个 server，或者一个具体 tool 的 schema。先检查 server，再检查 tool，最后才进入执行。
+
 ## Target 形式
 
 - **省略 target** - 列出运行中的 1MCP 实例暴露的所有服务器
@@ -93,9 +95,11 @@ npx -y @1mcp/agent inspect filesystem --limit 20 --cursor next-page-token
 - 找到工具的准确限定名
 - 调用前查看工具的输入和输出 schema
 - 通过 JSON 输出构建自动化脚本
+- 让 agent 一次只关注工具面的一个局部
 
 ## 另请参阅
 
+- **[CLI 模式指南](../guide/integrations/cli-mode.md)** - 为什么推荐先缩小范围再执行
 - **[Instructions 命令](./instructions.md)** - 先读取当前工作流和服务器清单
 - **[Run 命令](./run.md)** - 在确认 schema 后调用工具
 - **[Serve 命令](./serve.md)** - 启动 `inspect` 所查询的 1MCP 服务器

@@ -19,6 +19,8 @@ npx -y @1mcp/agent instructions [选项]
 
 当 agent 或终端会话需要从运行中的 1MCP 实例获取当前指导信息时，应先执行这个命令。
 
+在实际工作流里，`instructions` 的作用就是用一个更紧凑的入口替代“把完整 MCP 工具面直接挂进 agent”。它先给 agent 一个 playbook 和当前清单，再让 agent 通过 `inspect` 逐步缩小范围。
+
 ## 输出结构
 
 输出面向 agent 读取，包含：
@@ -81,6 +83,7 @@ npx -y @1mcp/agent run <server>/<tool> --args '<json>'
 
 ## 另请参阅
 
+- **[CLI 模式指南](../guide/integrations/cli-mode.md)** - 为什么推荐这种渐进式工作流
 - **[Inspect 命令](./inspect.md)** - 发现工具并查看 schema
 - **[Run 命令](./run.md)** - 调用选中的工具
 - **[CLI Setup 命令](./cli-setup.md)** - 为 Codex 或 Claude 安装启动钩子和引导文档

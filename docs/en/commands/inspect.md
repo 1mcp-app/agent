@@ -35,6 +35,8 @@ Depending on the target, `inspect` can:
 
 When supported, `inspect` uses the fast `/api/inspect` endpoint first and falls back to the MCP protocol when needed.
 
+This is the command that turns the broad inventory from `instructions` into a scoped view. First inspect one server, then inspect one tool, and only then move to execution.
+
 ## Targets
 
 - **Omit target** - List all servers exposed by the running 1MCP instance
@@ -108,9 +110,11 @@ Use `inspect` when you need to:
 - Discover the exact qualified name of a tool
 - Review a tool's input and output schema before calling it
 - Build scriptable automation using JSON output
+- Keep the agent focused on one part of the tool surface at a time
 
 ## See Also
 
+- **[CLI Mode Guide](../guide/integrations/cli-mode.md)** - Why progressive server and tool inspection is recommended
 - **[Instructions Command](./instructions.md)** - Start with the current CLI playbook and server inventory
 - **[Run Command](./run.md)** - Call a tool after you have inspected its schema
 - **[Serve Command](./serve.md)** - Start the 1MCP server that `inspect` queries

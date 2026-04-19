@@ -34,6 +34,8 @@ The `instructions` command is the entrypoint for CLI-mode agent workflows. It pr
 
 Use this command first when an agent or terminal session needs current guidance from the running 1MCP instance.
 
+In practice, `instructions` is what replaces a large direct-MCP starting surface in the agent loop. Instead of expecting the agent to carry every available tool and schema up front, 1MCP gives it a compact playbook plus the current inventory, then tells it to narrow further with `inspect`.
+
 ## Output Structure
 
 The output is designed to be agent-readable and includes:
@@ -96,6 +98,7 @@ If authentication is required, the playbook directs the user or agent to retry w
 
 ## See Also
 
+- **[CLI Mode Guide](../guide/integrations/cli-mode.md)** - Why this progressive-disclosure workflow exists
 - **[Inspect Command](./inspect.md)** - Discover tools and inspect schemas
 - **[Run Command](./run.md)** - Call a selected tool
 - **[CLI Setup Command](./cli-setup.md)** - Install startup hooks and bootstrap docs for Codex or Claude

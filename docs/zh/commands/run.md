@@ -18,6 +18,8 @@ npx -y @1mcp/agent run <server>/<tool> [选项]
 
 `run` 会连接到运行中的 `1mcp serve` 实例，透传 preset 和标签过滤，并把工具输出写入 stdout。错误只写入 stderr，因此适合脚本和管道。
 
+`run` 被刻意设计成最后一步。推荐顺序是先用 `instructions` 做总览，再用 `inspect` 缩小到单个 server 和单个 tool，确认 schema 之后才真正执行。
+
 ## 选项
 
 ### 目标与发现
@@ -88,8 +90,11 @@ ONE_MCP_CLI_SESSION_CACHE_PATH=/tmp/1mcp/.cli-session.{pid} \
 - 工具级错误会返回非零退出码
 - `compact` 输出会受 `--max-chars` 限制
 
+stdout 只承载成功输出，再加上 `compact` 等格式，使 `run` 很适合 agent 循环、脚本和后续命令行处理。
+
 ## 另请参阅
 
+- **[CLI 模式指南](../guide/integrations/cli-mode.md)** - CLI 模式中为什么执行要放在最后
 - **[Instructions 命令](./instructions.md)** - 先获取当前 CLI 工作流和服务器清单
 - **[Inspect 命令](./inspect.md)** - 调用前先查看工具和 schema
 - **[Serve 命令](./serve.md)** - 启动 `run` 连接的 1MCP 服务器

@@ -33,6 +33,8 @@ The `cli-setup` command installs lightweight bootstrap files that point Codex or
 
 `cli-setup` does not replace [`instructions`](./instructions.md). It makes sure the session is prepared to use `instructions`, `inspect`, and `run` in the right order.
 
+Think of `cli-setup` as the bridge from an existing agent workflow to 1MCP CLI mode. It teaches the client how to start, but the live discovery and execution flow still happens through `instructions`, `inspect`, and `run`.
+
 ## Required Client Selection
 
 Choose exactly one target:
@@ -108,6 +110,7 @@ The managed startup docs tell the client to:
 
 ## See Also
 
+- **[CLI Mode Guide](../guide/integrations/cli-mode.md)** - Conceptual overview of the agent-facing CLI workflow
 - **[Instructions Command](./instructions.md)** - The bootstrap command that `cli-setup` points sessions toward
 - **[Inspect Command](./inspect.md)** - Discover tools and schemas
 - **[Run Command](./run.md)** - Invoke a selected tool

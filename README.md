@@ -17,6 +17,7 @@ A unified Model Context Protocol server implementation that aggregates multiple 
 ## Features
 
 - **🔄 Unified Interface**: Aggregates multiple MCP servers into one
+- **🧭 CLI Mode for Agents**: Preferred workflow for Codex, Claude, and other AI agents using progressive disclosure
 - **🔒 OAuth 2.1 Authentication**: Production-ready security with scope-based authorization
 - **⚡ High Performance**: Efficient request forwarding with proper error handling
 - **🛡️ Security First**: Stdio transport isolation, input sanitization, and comprehensive audit logging
@@ -58,7 +59,11 @@ npx -y @1mcp/agent --help
 1mcp
 ```
 
-### 4. Connect Your AI Assistant
+### 4. Choose Your Interface
+
+Use the MCP endpoint for MCP-native clients, or use CLI mode for agent sessions that benefit from progressive tool disclosure.
+
+**For MCP-native clients**, connect to the unified endpoint:
 
 **For Cursor**, add to `~/.cursor/mcp.json`:
 
@@ -94,7 +99,15 @@ npx -y @1mcp/agent --help
 claude mcp add -t http 1mcp "http://127.0.0.1:3050/mcp?app=claude-code"
 ```
 
-That's it! All your MCP servers are now available through one unified endpoint. 🎉
+**For Codex, Claude, and other agent-style CLI sessions**, use 1MCP CLI mode:
+
+```bash
+1mcp cli-setup --codex
+# or
+1mcp cli-setup --claude --scope repo --repo-root .
+```
+
+That's it! Your MCP servers stay behind one unified 1MCP runtime, and your agents can either connect through MCP directly or use the CLI workflow. 🎉
 
 ## Commands
 
@@ -126,6 +139,17 @@ Use the CLI workflow when you want an agent or terminal session to discover and 
 1mcp run context7/get-library-docs --args '{"context7CompatibleLibraryID":"/mongodb/docs","topic":"aggregation pipeline"}'
 ```
 
+### Why CLI Mode?
+
+CLI mode is the preferred path for agent sessions because it replaces broad direct-MCP exposure inside the agent loop with progressive disclosure:
+
+- `instructions` gives the playbook and current inventory
+- `inspect <server>` narrows discovery to one server
+- `inspect <server>/<tool>` narrows again to one tool schema
+- `run` executes only the chosen tool
+
+This keeps MCP as the backend protocol while giving the agent a thinner frontend workflow with less tool and schema noise in context.
+
 If you are setting up Codex or Claude CLI bootstrap files, install them once with `cli-setup`:
 
 ```bash
@@ -150,6 +174,8 @@ If you are setting up Codex or Claude CLI bootstrap files, install them once wit
 ## How It Works
 
 1MCP acts as a proxy, managing and aggregating multiple MCP servers. It starts and stops these servers as subprocesses and forwards requests from AI assistants to the appropriate server. This architecture allows for a single point of entry for all MCP traffic, simplifying management and reducing overhead.
+
+For agent sessions, 1MCP also provides a CLI mode on top of that runtime. MCP remains the interoperability layer behind `1mcp serve`; CLI mode changes how the agent discovers and calls tools so the workflow stays selective and scriptable.
 
 ## Contributing
 

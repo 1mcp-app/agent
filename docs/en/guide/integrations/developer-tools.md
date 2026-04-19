@@ -17,6 +17,19 @@ head:
 
 > **🔧 Developer-Friendly**: Clean APIs, standards compliance, and tools for seamless integration and development
 
+## CLI Mode for Agents
+
+1MCP supports two valid faces at the same time:
+
+- MCP over HTTP for MCP-native clients
+- CLI mode for agent sessions that should discover and execute tools progressively
+
+For Codex, Claude, and similar agent loops, CLI mode is the recommended path because it starts with a compact inventory and only reveals one server or one tool schema at a time.
+
+Read the conceptual overview here:
+
+- [CLI Mode](/guide/integrations/cli-mode)
+
 ## 🔌 RESTful API & Standards Compliance
 
 **What it does**: Clean REST API with full MCP protocol compatibility

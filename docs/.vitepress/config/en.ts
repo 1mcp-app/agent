@@ -103,6 +103,7 @@ function sidebar(): DefaultTheme.Sidebar {
         text: 'Integrations',
         items: [
           { text: 'Claude Desktop Integration', link: '/guide/integrations/claude-desktop' },
+          { text: 'CLI Mode', link: '/guide/integrations/cli-mode' },
           { text: 'Codex Integration', link: '/guide/integrations/codex' },
           { text: 'App Consolidation', link: '/guide/integrations/app-consolidation' },
           { text: 'Developer Tools', link: '/guide/integrations/developer-tools' },

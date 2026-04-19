@@ -18,6 +18,8 @@ npx -y @1mcp/agent cli-setup (--codex | --claude) [选项]
 
 `cli-setup` 不会替代 [`instructions`](./instructions.md)。它的作用是确保会话准备好按正确顺序使用 `instructions`、`inspect` 和 `run`。
 
+可以把 `cli-setup` 理解为把现有 agent 工作流迁移到 1MCP CLI 模式的桥。它负责教客户端怎么开始，但真正的实时发现和执行仍然通过 `instructions`、`inspect`、`run` 完成。
+
 ## 必选客户端
 
 必须且只能选择一个目标：
@@ -93,6 +95,7 @@ npx -y @1mcp/agent cli-setup --codex --scope all
 
 ## 另请参阅
 
+- **[CLI 模式指南](../guide/integrations/cli-mode.md)** - 面向 agent 的 CLI 工作流概念说明
 - **[Instructions 命令](./instructions.md)** - `cli-setup` 最终引导会话进入的命令
 - **[Inspect 命令](./inspect.md)** - 发现工具和查看 schema
 - **[Run 命令](./run.md)** - 调用选中的工具

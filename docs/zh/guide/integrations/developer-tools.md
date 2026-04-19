@@ -11,6 +11,19 @@ head:
 
 > **🔧 开发者友好**：干净的 API、标准合规性和工具，实现无缝集成和开发
 
+## 面向 Agent 的 CLI 模式
+
+1MCP 同时支持两种对外形态：
+
+- 面向 MCP 原生客户端的 HTTP MCP 接口
+- 面向 agent 会话的 CLI 模式
+
+对于 Codex、Claude 这类 agent loop，推荐优先使用 CLI 模式，因为它从一个紧凑的清单开始，并且一次只暴露一个 server 或一个 tool 的 schema。
+
+完整概念说明请参阅：
+
+- [CLI 模式](/zh/guide/integrations/cli-mode)
+
 ## 🔌 RESTful API 与标准合规
 
 **功能描述**：干净的 REST API，完全兼容 MCP 协议

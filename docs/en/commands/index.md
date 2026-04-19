@@ -17,6 +17,8 @@ head:
 
 1MCP Agent provides a comprehensive command-line interface for managing MCP servers, agent workflows, and desktop application configurations.
 
+For AI agents, the preferred path is CLI mode: keep MCP behind `1mcp serve`, then use `instructions`, `inspect`, and `run` as a progressive-disclosure workflow instead of exposing a broad tool surface directly in the agent loop.
+
 ## Quick Reference
 
 ### Main Commands
@@ -75,6 +77,14 @@ npx -y @1mcp/agent run context7/get-library-docs --args '{"context7CompatibleLib
 - **[inspect](./inspect.md)** - Discover tools and inspect schemas
 - **[run](./run.md)** - Execute a tool call
 - **[cli-setup](./cli-setup.md)** - Install Codex or Claude bootstrap files
+
+### Why These Commands Exist
+
+- Direct MCP is still the backend interoperability layer
+- CLI mode is the preferred frontend workflow for agents
+- `instructions` gives a compact inventory instead of a broad direct starting surface
+- `inspect` narrows discovery to one server and one tool
+- `run` executes only after schema confirmation
 
 ### [App Commands](./app/)
 
