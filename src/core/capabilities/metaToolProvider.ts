@@ -318,8 +318,10 @@ export class MetaToolProvider {
         };
       }
 
+      const connectionKey = this.resolveConnectionKey(args.server, sessionId);
+
       // Try to get from cache first
-      const cached = this.schemaCache.getIfCached(args.server, args.toolName);
+      const cached = this.schemaCache.getIfCached(connectionKey, args.toolName);
       if (cached) {
         debugIf(() => ({ message: `Cache hit for tool schema: ${args.server}:${args.toolName}` }));
         return {
@@ -333,13 +335,11 @@ export class MetaToolProvider {
         try {
           debugIf(() => ({ message: `Loading schema from server: ${args.server}:${args.toolName}` }));
 
-          // Resolve the clean server name to the actual connection key
-          const connectionKey = this.resolveConnectionKey(args.server, sessionId);
           const tool = await this.loadSchema(connectionKey, args.toolName);
 
           // Cache the loaded schema
-          await this.schemaCache.preload([{ server: args.server, toolName: args.toolName }], async (s, t) => {
-            if (s === args.server && t === args.toolName) {
+          await this.schemaCache.preload([{ server: connectionKey, toolName: args.toolName }], async (s, t) => {
+            if (s === connectionKey && t === args.toolName) {
               return tool;
             }
             throw new Error('Unexpected preload request');

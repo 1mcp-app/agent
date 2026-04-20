@@ -92,7 +92,7 @@ describe('authProfileStore', () => {
 
   it('returns false when deleting non-existent profile', async () => {
     const removed = await deleteAuthProfile(tmpDir, 'http://localhost:9999');
-    expect(removed).toBe(true); // rm --force always succeeds
+    expect(removed).toBe(false);
   });
 
   it('lists all profiles', async () => {

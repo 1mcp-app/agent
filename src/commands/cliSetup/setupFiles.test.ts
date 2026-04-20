@@ -13,11 +13,20 @@ import {
   writeCliSetupFiles,
 } from './setupFiles.js';
 
+const loggerState = vi.hoisted(() => ({
+  warn: vi.fn(),
+}));
+
+vi.mock('@src/logger/logger.js', () => ({
+  default: loggerState,
+}));
+
 describe('cli setup file writers', () => {
   const tempRoots: string[] = [];
 
   afterEach(async () => {
     vi.restoreAllMocks();
+    loggerState.warn.mockReset();
     await Promise.all(tempRoots.map((tempRoot) => rm(tempRoot, { recursive: true, force: true })));
     tempRoots.length = 0;
   });
@@ -197,6 +206,31 @@ describe('cli setup file writers', () => {
 
     const agents = await readFile(path.join(homeDir, '.codex', 'AGENTS.md'), 'utf8');
     expect(agents).toBe('@1MCP.md\n');
+  });
+
+  it('skips rewriting commented JSON5 config files and warns', async () => {
+    const repoRoot = path.join(process.cwd(), '.tmp-test', `cli-setup-comments-${Date.now()}`);
+    tempRoots.push(repoRoot);
+    await mkdir(path.join(repoRoot, '.claude'), { recursive: true });
+    const settingsPath = path.join(repoRoot, '.claude', 'settings.json');
+    const original = `{
+  // keep this note
+  "hooks": {
+    "SessionStart": []
+  }
+}
+`;
+    await writeFile(settingsPath, original, 'utf8');
+
+    const results = await writeCliSetupFiles({
+      repoRoot,
+      scope: 'repo',
+      targets: ['claude'],
+    });
+
+    expect(results.find((result) => result.path === settingsPath)?.changed).toBe(false);
+    expect(await readFile(settingsPath, 'utf8')).toBe(original);
+    expect(loggerState.warn).toHaveBeenCalledWith(expect.stringContaining('Skipping managed update'));
   });
 
   it('formats a concise summary', () => {

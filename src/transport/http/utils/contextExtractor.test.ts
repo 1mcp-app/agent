@@ -193,6 +193,22 @@ describe('contextExtractor', () => {
       expect(context).toBeNull();
     });
 
+    it('should reject null nested context objects', () => {
+      mockRequest.body = {
+        params: {
+          _meta: {
+            context: {
+              project: null,
+              user: { username: 'testuser' },
+              environment: { variables: {} },
+            },
+          },
+        },
+      };
+
+      expect(extractContextFromMeta(mockRequest as Request)).toBeNull();
+    });
+
     it('should preserve existing _meta fields when extracting context', () => {
       mockRequest.body = {
         jsonrpc: '2.0',

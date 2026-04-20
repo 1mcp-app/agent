@@ -21,15 +21,23 @@ function isContextData(value: unknown): value is {
   version?: string;
   sessionId?: string;
 } {
+  if (typeof value !== 'object' || value === null) {
+    return false;
+  }
+
+  const candidate = value as {
+    project?: unknown;
+    user?: unknown;
+    environment?: unknown;
+  };
+
   return (
-    typeof value === 'object' &&
-    value !== null &&
-    'project' in value &&
-    'user' in value &&
-    'environment' in value &&
-    typeof (value as { project: unknown }).project === 'object' &&
-    typeof (value as { user: unknown }).user === 'object' &&
-    typeof (value as { environment: unknown }).environment === 'object'
+    typeof candidate.project === 'object' &&
+    candidate.project !== null &&
+    typeof candidate.user === 'object' &&
+    candidate.user !== null &&
+    typeof candidate.environment === 'object' &&
+    candidate.environment !== null
   );
 }
 

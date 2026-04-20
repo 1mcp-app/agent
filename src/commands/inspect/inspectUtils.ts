@@ -97,7 +97,13 @@ export type InspectTarget =
       kind: 'all';
     };
 
-export class InspectCommandError extends Error {}
+export class InspectCommandError extends Error {
+  constructor(message?: string) {
+    super(message);
+    this.name = 'InspectCommandError';
+    Object.setPrototypeOf(this, InspectCommandError.prototype);
+  }
+}
 
 export function parseInspectTarget(value: string | undefined): InspectTarget {
   if (value === undefined || value.trim() === '') {
@@ -316,7 +322,7 @@ function formatServerOutput(serverInfo: InspectServerInfo): string {
   if (serverInfo.hasMore) {
     const hint = serverInfo.nextCursor
       ? `Use --cursor ${serverInfo.nextCursor} to see more, or --all to fetch everything.`
-      : '  Use --all to fetch all tools.';
+      : 'Use --all to fetch all tools.';
     sections.push(chalk.dim(`pagination: showing ${serverInfo.tools.length} of ${totalTools} tools. ${hint.trim()}`));
   }
 

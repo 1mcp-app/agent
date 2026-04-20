@@ -1,5 +1,4 @@
-import { existsSync } from 'fs';
-import { readFile } from 'fs/promises';
+import { access, readFile } from 'fs/promises';
 import { basename, dirname, join, resolve } from 'path';
 
 import logger from '@src/logger/logger.js';
@@ -23,11 +22,11 @@ export interface ResolvedProjectContext {
   source: 'project-config' | 'repo-root' | 'cwd';
 }
 
-function findNearestAncestorContaining(startDir: string, targetName: string): string | null {
+async function findNearestAncestorContaining(startDir: string, targetName: string): Promise<string | null> {
   let currentDir = resolve(startDir);
 
   while (true) {
-    if (existsSync(join(currentDir, targetName))) {
+    if (await pathExists(join(currentDir, targetName))) {
       return currentDir;
     }
 
@@ -36,6 +35,15 @@ function findNearestAncestorContaining(startDir: string, targetName: string): st
       return null;
     }
     currentDir = parentDir;
+  }
+}
+
+async function pathExists(targetPath: string): Promise<boolean> {
+  try {
+    await access(targetPath);
+    return true;
+  } catch {
+    return false;
   }
 }
 
@@ -68,7 +76,7 @@ async function readProjectConfig(configPath: string): Promise<ProjectConfig | nu
 
 export async function resolveProjectContext(cwd: string = process.cwd()): Promise<ResolvedProjectContext> {
   const resolvedCwd = resolve(cwd);
-  const configDir = findNearestAncestorContaining(resolvedCwd, PROJECT_CONFIG_FILE);
+  const configDir = await findNearestAncestorContaining(resolvedCwd, PROJECT_CONFIG_FILE);
 
   if (configDir) {
     const projectConfigPath = join(configDir, PROJECT_CONFIG_FILE);
@@ -82,7 +90,7 @@ export async function resolveProjectContext(cwd: string = process.cwd()): Promis
     };
   }
 
-  const repoRoot = findNearestAncestorContaining(resolvedCwd, GIT_DIRECTORY_NAME);
+  const repoRoot = await findNearestAncestorContaining(resolvedCwd, GIT_DIRECTORY_NAME);
   if (repoRoot) {
     logger.debug(`No ${PROJECT_CONFIG_FILE} found for ${resolvedCwd}, using repository root ${repoRoot}`);
     return {

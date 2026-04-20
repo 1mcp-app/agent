@@ -2,6 +2,8 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
+import logger from '@src/logger/logger.js';
+
 import JSON5 from 'json5';
 
 export const CLI_SETUP_TARGETS = ['codex', 'claude'] as const;
@@ -74,26 +76,22 @@ export function resolveCliSetupScope(rawScope?: string): CliSetupScope {
 }
 
 export async function writeCliSetupFiles(options: WriteCliSetupOptions): Promise<CliSetupWriteResult[]> {
-  const results: CliSetupWriteResult[] = [];
   const managedDocContent = renderManagedDocContent();
-
-  for (const scopePaths of getScopePaths(options.repoRoot, options.scope)) {
-    for (const target of options.targets) {
+  const writes = getScopePaths(options.repoRoot, options.scope).flatMap((scopePaths) =>
+    options.targets.map(async (target) => {
       const isCodex = target === 'codex';
       const managedDocPath = isCodex ? scopePaths.codexManagedDocPath : scopePaths.claudeManagedDocPath;
       const hookPath = isCodex ? scopePaths.codexHookPath : scopePaths.claudeHookPath;
       const startupPath = isCodex ? scopePaths.codexStartupPath : scopePaths.claudeStartupPath;
 
-      results.push(
-        ...(await writeTargetSetupFiles(managedDocPath, hookPath, startupPath, managedDocContent, {
-          target,
-          scope: scopePaths.scope,
-        })),
-      );
-    }
-  }
+      return writeTargetSetupFiles(managedDocPath, hookPath, startupPath, managedDocContent, {
+        target,
+        scope: scopePaths.scope,
+      });
+    }),
+  );
 
-  return results;
+  return (await Promise.all(writes)).flat();
 }
 
 async function writeTargetSetupFiles(
@@ -209,6 +207,15 @@ async function writeManagedJson(
 ): Promise<CliSetupWriteResult> {
   const existingContent = await readExistingFile(filePath);
   const parsed = parseJsonConfig(existingContent);
+  if (hasJsonComments(existingContent)) {
+    logger.warn(`Skipping managed update for ${filePath} because the file contains JSON comments.`);
+    return {
+      ...resultInfo,
+      path: filePath,
+      changed: false,
+    };
+  }
+
   const updated = updater(parsed);
   const nextContent = `${JSON.stringify(updated, null, 2)}\n`;
   const changed = nextContent !== normalizeText(existingContent);
@@ -299,7 +306,15 @@ function isManagedHook(hook: HookCommand | undefined): boolean {
 }
 
 function cloneHookConfig(existing: Record<string, unknown>): HookConfig {
-  return { ...(existing || {}) } as HookConfig;
+  if (typeof structuredClone === 'function') {
+    return structuredClone(existing || {}) as HookConfig;
+  }
+
+  return JSON.parse(JSON.stringify(existing || {})) as HookConfig;
+}
+
+function hasJsonComments(content: string): boolean {
+  return /(^|\n)\s*\/\/|\/\*/m.test(content);
 }
 
 function parseJsonConfig(content: string): Record<string, unknown> {

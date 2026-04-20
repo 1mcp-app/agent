@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readdir, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readdir, rm, stat, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import { join } from 'node:path';
 
@@ -231,6 +231,11 @@ describe('run command internals', () => {
 
       const entries = await readdir(cacheDir);
       expect(entries).toEqual(['.cli-session.4242']);
+
+      const cacheDirStats = await stat(cacheDir);
+      const cacheFileStats = await stat(cachePath);
+      expect(cacheDirStats.mode & 0o777).toBe(0o700);
+      expect(cacheFileStats.mode & 0o777).toBe(0o600);
 
       const cache = await readCliSessionCache(cachePath, 'http://127.0.0.1:3050/mcp?preset=dev', runContextHash);
       expect(cache?.sessionId).toBe('session-1');

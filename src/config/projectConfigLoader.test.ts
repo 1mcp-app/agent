@@ -11,6 +11,7 @@ describe('resolveProjectContext', () => {
 
   afterEach(async () => {
     await Promise.all(tempDirs.map((dir) => rm(dir, { recursive: true, force: true })));
+    tempDirs.length = 0;
   });
 
   async function makeTempProject(): Promise<string> {
@@ -79,6 +80,7 @@ describe('loadProjectConfig', () => {
 
   afterEach(async () => {
     await Promise.all(tempDirs.map((dir) => rm(dir, { recursive: true, force: true })));
+    tempDirs.length = 0;
   });
 
   it('loads the nearest ancestor .1mcprc for nested working directories', async () => {

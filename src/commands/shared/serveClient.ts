@@ -280,9 +280,9 @@ export async function readCliSessionCache(
 }
 
 export async function writeCliSessionCache(cachePath: string, cache: CliSessionCache): Promise<void> {
-  await mkdir(path.dirname(cachePath), { recursive: true });
+  await mkdir(path.dirname(cachePath), { recursive: true, mode: 0o700 });
   const tempPath = `${cachePath}.tmp.${process.pid}`;
-  await writeFile(tempPath, JSON.stringify(cache), 'utf8');
+  await writeFile(tempPath, JSON.stringify(cache), { encoding: 'utf8', mode: 0o600 });
   await rename(tempPath, cachePath);
 }
 
