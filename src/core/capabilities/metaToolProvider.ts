@@ -127,10 +127,11 @@ export class MetaToolProvider {
   /**
    * Get the current tool registry, optionally filtered by allowed servers
    */
-  private toolRegistry(): ToolRegistry {
+  private toolRegistry(allowedServers?: Set<string>): ToolRegistry {
     const registry = this.getToolRegistry();
-    if (this.allowedServers !== undefined) {
-      return registry.filterByServers(this.allowedServers);
+    const effectiveAllowedServers = allowedServers ?? this.allowedServers;
+    if (effectiveAllowedServers !== undefined) {
+      return registry.filterByServers(effectiveAllowedServers);
     }
     return registry;
   }
@@ -149,6 +150,7 @@ export class MetaToolProvider {
     name: string,
     args: unknown,
     sessionId?: string,
+    allowedServers?: Set<string>,
   ): Promise<ListToolsResult | DescribeToolResult | CallToolResult> {
     switch (name) {
       case 'tool_list': {
@@ -165,7 +167,7 @@ export class MetaToolProvider {
             },
           } as ListToolsResult;
         }
-        return this.listAvailableTools(parsed.data);
+        return this.listAvailableTools(parsed.data, allowedServers);
       }
       case 'tool_schema': {
         const parsed = ToolSchemaInputSchema.safeParse(args);
@@ -178,7 +180,7 @@ export class MetaToolProvider {
             },
           } as DescribeToolResult;
         }
-        return this.describeTool(parsed.data, sessionId);
+        return this.describeTool(parsed.data, sessionId, allowedServers);
       }
       case 'tool_invoke': {
         const parsed = ToolInvokeInputSchema.safeParse(args);
@@ -193,7 +195,7 @@ export class MetaToolProvider {
             },
           } as CallToolResult;
         }
-        return this.callTool(parsed.data, sessionId);
+        return this.callTool(parsed.data, sessionId, allowedServers);
       }
       default:
         return {
@@ -224,9 +226,12 @@ export class MetaToolProvider {
   /**
    * Implement tool_list
    */
-  private async listAvailableTools(args: ListAvailableToolsArgs): Promise<ListToolsResult> {
+  private async listAvailableTools(
+    args: ListAvailableToolsArgs,
+    allowedServers?: Set<string>,
+  ): Promise<ListToolsResult> {
     try {
-      const registry = this.toolRegistry();
+      const registry = this.toolRegistry(allowedServers);
       const result = registry.listTools(args);
 
       // Format tools for response
@@ -285,7 +290,11 @@ export class MetaToolProvider {
   /**
    * Implement tool_schema
    */
-  private async describeTool(args: DescribeToolArgs, sessionId?: string): Promise<DescribeToolResult> {
+  private async describeTool(
+    args: DescribeToolArgs,
+    sessionId?: string,
+    allowedServers?: Set<string>,
+  ): Promise<DescribeToolResult> {
     try {
       // Validate arguments
       if (!args.server || !args.toolName) {
@@ -299,7 +308,7 @@ export class MetaToolProvider {
       }
 
       // Check if tool exists in registry
-      if (!this.toolRegistry().hasTool(args.server, args.toolName)) {
+      if (!this.toolRegistry(allowedServers).hasTool(args.server, args.toolName)) {
         return {
           schema: {},
           error: {
@@ -392,7 +401,11 @@ export class MetaToolProvider {
   /**
    * Implement tool_invoke
    */
-  private async callTool(args: CallToolArgs, sessionId?: string): Promise<CallToolResult> {
+  private async callTool(
+    args: CallToolArgs,
+    sessionId?: string,
+    allowedServers?: Set<string>,
+  ): Promise<CallToolResult> {
     try {
       // Validate arguments
       if (!args.server || !args.toolName) {
@@ -408,7 +421,7 @@ export class MetaToolProvider {
       }
 
       // Check if tool exists
-      if (!this.toolRegistry().hasTool(args.server, args.toolName)) {
+      if (!this.toolRegistry(allowedServers).hasTool(args.server, args.toolName)) {
         return {
           result: {},
           server: args.server,

@@ -73,13 +73,16 @@ describe('notifications/initialized must not be forwarded to downstream servers 
       },
     });
 
-    await client1.initialize();
-    client1.notify('notifications/initialized');
-    await new Promise((resolve) => setTimeout(resolve, 100));
+    try {
+      await client1.initialize();
+      client1.notify('notifications/initialized');
+      await new Promise((resolve) => setTimeout(resolve, 100));
 
-    const tools1 = await client1.listTools();
-    expect(tools1.tools.length).toBeGreaterThan(0);
-    await client1.disconnect();
+      const tools1 = await client1.listTools();
+      expect(tools1.tools.length).toBeGreaterThan(0);
+    } finally {
+      await client1.disconnect();
+    }
 
     // Second client session — downstream server must still be functional
     const client2 = new SimpleMcpClient({

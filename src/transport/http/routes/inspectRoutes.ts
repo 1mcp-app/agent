@@ -1,3 +1,5 @@
+import type { Tool } from '@modelcontextprotocol/sdk/types.js';
+
 import { ConfigManager } from '@src/config/configManager.js';
 import { CapabilityAggregator } from '@src/core/capabilities/capabilityAggregator.js';
 import { ToolRegistry } from '@src/core/capabilities/toolRegistry.js';
@@ -36,6 +38,27 @@ export type { InspectServerPayload, InspectServersPayload, InspectToolPayload, S
 export { buildFilterConfig, matchesFilterConfig, parseTarget, resolveConnectionByServerName };
 
 type FilteredConnections = ReturnType<typeof FilteringService.getFilteredConnections>;
+
+interface DirectListToolsResult {
+  tools?: Tool[];
+  totalCount?: number;
+  hasMore?: boolean;
+  nextCursor?: string;
+}
+
+async function listDirectServerTools(
+  connection: NonNullable<FilteredConnections extends Map<unknown, infer TValue> ? TValue : never>,
+  options: { limit: number; cursor?: string },
+): Promise<DirectListToolsResult> {
+  const client = connection.client as {
+    listTools(args?: { limit?: number; cursor?: string }): Promise<DirectListToolsResult>;
+  };
+
+  return client.listTools({
+    limit: options.limit,
+    cursor: options.cursor,
+  });
+}
 
 async function ensureRequestContextInitialized(
   serverManager: ServerManager,
@@ -133,9 +156,11 @@ async function buildServerSummaries(
         if (!connection.client) return;
         try {
           const result = await connection.client.listTools();
-          toolCountByServer[name] = (result.tools ?? []).length;
+          const cleanName = name.includes(':') ? name.split(':')[0] : name;
+          toolCountByServer[cleanName] = Math.max(toolCountByServer[cleanName] ?? 0, (result.tools ?? []).length);
         } catch {
-          toolCountByServer[name] = 0;
+          const cleanName = name.includes(':') ? name.split(':')[0] : name;
+          toolCountByServer[cleanName] = Math.max(toolCountByServer[cleanName] ?? 0, 0);
         }
       }),
     );
@@ -144,7 +169,7 @@ async function buildServerSummaries(
   const serverMap = new Map<string, { toolCount: number; hasInstructions: boolean }>();
   for (const [name] of summaryConnections) {
     const cleanName = name.includes(':') ? name.split(':')[0] : name;
-    const toolCount = toolCountByServer[name] ?? 0;
+    const toolCount = toolCountByServer[cleanName] ?? toolCountByServer[name] ?? 0;
     const hasInstructions = instructionAggregator?.hasInstructions(cleanName) ?? false;
     const existing = serverMap.get(cleanName);
     if (existing) {
@@ -287,21 +312,33 @@ export function createInspectHandler(serverManager: ServerManager): RequestHandl
       // Tool target
       if (target.kind === 'tool') {
         const { serverName, toolName, qualifiedName } = target;
+        const filteredConnection = resolveConnectionByServerName(filteredConnections, serverName);
+        const sessionConnection = requestSessionId
+          ? serverRegistry.resolveConnection(serverName, { sessionId: requestSessionId })
+          : undefined;
+        const adapter = serverRegistry.get(serverName);
+        const declaredConfig = declaredServers.templateServers[serverName] ?? declaredServers.staticServers[serverName];
+        const targetAllowed =
+          !!filteredConnection ||
+          !!sessionConnection ||
+          matchesFilterConfig(adapter?.config.tags, filterConfig) ||
+          matchesFilterConfig(declaredConfig?.tags, filterConfig);
+
+        if (!targetAllowed) {
+          res.status(404).json({ error: `Tool not found: ${targetRaw}` });
+          return;
+        }
 
         let found: import('@modelcontextprotocol/sdk/types.js').Tool | undefined;
 
         if (capabilityAggregator) {
-          found = capabilityAggregator.getCurrentCapabilities().tools.find((t) => t.name === qualifiedName);
+          found = capabilityAggregator
+            .getCurrentCapabilities()
+            .tools.find((t) => t.name === qualifiedName && getServerName(t.name) === serverName);
         }
 
         if (!found) {
-          const sessionConnection = requestSessionId
-            ? serverRegistry.resolveConnection(serverName, { sessionId: requestSessionId })
-            : undefined;
-          const connection =
-            sessionConnection ??
-            resolveConnectionByServerName(filteredConnections, serverName) ??
-            serverManager.getClient(serverName);
+          const connection = sessionConnection ?? filteredConnection;
           if (connection?.client) {
             try {
               const result = await connection.client.listTools();
@@ -364,12 +401,13 @@ export function createInspectHandler(serverManager: ServerManager): RequestHandl
       if (toolRegistry) {
         if (connection?.client) {
           try {
-            const directResult = await connection.client.listTools();
+            const directResult = await listDirectServerTools(connection, { limit, cursor: cursorParam });
             const directTools = directResult.tools ?? [];
             toolsResult = {
               tools: directTools.map((tool) => summarizeDirectServerTool(serverName, tool)),
-              totalTools: directTools.length,
-              hasMore: false,
+              totalTools: directResult.totalCount ?? directTools.length,
+              hasMore: directResult.hasMore ?? Boolean(directResult.nextCursor),
+              nextCursor: directResult.nextCursor,
             };
           } catch {
             const result = toolRegistry.listTools({ server: serverName, limit, cursor: cursorParam });
@@ -412,12 +450,13 @@ export function createInspectHandler(serverManager: ServerManager): RequestHandl
         };
       } else {
         try {
-          const directResult = await connection.client.listTools();
+          const directResult = await listDirectServerTools(connection, { limit, cursor: cursorParam });
           const directTools = directResult.tools ?? [];
           toolsResult = {
             tools: directTools.map((tool) => summarizeDirectServerTool(serverName, tool)),
-            totalTools: directTools.length,
-            hasMore: false,
+            totalTools: directResult.totalCount ?? directTools.length,
+            hasMore: directResult.hasMore ?? Boolean(directResult.nextCursor),
+            nextCursor: directResult.nextCursor,
           };
         } catch {
           res.status(503).json({ error: 'Tool inventory not available for this server' });

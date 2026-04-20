@@ -258,6 +258,99 @@ describe('apiRoutes inspect', () => {
     });
   });
 
+  it('does not expose tools from filtered-out servers via inspect fallback paths', async () => {
+    const hiddenConnection = outboundConnections.get('hidden');
+    if (!hiddenConnection?.client) {
+      throw new Error('Hidden connection not found');
+    }
+
+    hiddenConnection.client.listTools = vi.fn().mockResolvedValue({
+      tools: [
+        {
+          name: 'hidden_1mcp_secret',
+          description: 'Secret tool',
+          inputSchema: { type: 'object' },
+        },
+      ],
+    });
+
+    const req = { query: { preset: 'dev-backend', target: 'hidden/secret' } };
+    const res = createMockResponse();
+
+    await invokeInspectRoute(scopeAuthMiddleware, req, res);
+    await invokeInspectRoute(inspectHandler, req, res);
+
+    expect(res.statusCode).toBe(404);
+    expect(res.body).toMatchObject({ error: 'Tool not found: hidden/secret' });
+  });
+
+  it('preserves pagination metadata when inspecting a server through direct listTools', async () => {
+    const pagedConnections = new Map(outboundConnections) as OutboundConnections;
+    pagedConnections.set('context7', {
+      ...pagedConnections.get('context7')!,
+      client: {
+        listTools: vi.fn().mockResolvedValue({
+          tools: [
+            {
+              name: 'query-docs',
+              description: 'Query docs',
+              inputSchema: { type: 'object', properties: {} },
+            },
+          ],
+          totalCount: 3,
+          hasMore: true,
+          nextCursor: 'cursor-2',
+        }),
+      } as never,
+    });
+
+    const serverRegistry = {
+      getServerNames: vi.fn(() => ['context7', 'filesystem', 'hidden']),
+      get: vi.fn(
+        (name: string) =>
+          ({
+            context7: makeAdapter('context7', ['context7']),
+            filesystem: makeAdapter('filesystem', ['filesystem']),
+            hidden: makeAdapter('hidden', ['hidden']),
+          })[name],
+      ),
+    };
+
+    const serverManager = {
+      getClients: vi.fn(() => pagedConnections),
+      getInstructionAggregator: vi.fn(() => ({
+        hasInstructions: () => false,
+        getServerInstructions: () => undefined,
+      })),
+      getLazyLoadingOrchestrator: vi.fn(() => ({
+        getToolRegistry: vi.fn(() => ({ listTools: vi.fn() })),
+        getCapabilityAggregator: vi.fn(() => undefined),
+      })),
+      getServerRegistry: vi.fn(() => serverRegistry),
+      getClient: vi.fn((name: string) => pagedConnections.get(name)),
+    };
+
+    const pagedInspectHandler = createInspectHandler(serverManager as never);
+    const req = { query: { preset: 'dev-backend', target: 'context7', limit: '1', cursor: 'cursor-1' } };
+    const res = createMockResponse();
+
+    await invokeInspectRoute(scopeAuthMiddleware, req, res);
+    await invokeInspectRoute(pagedInspectHandler, req, res);
+
+    expect(res.statusCode, JSON.stringify(res.body)).toBe(200);
+    expect(res.body).toMatchObject({
+      kind: 'server',
+      server: 'context7',
+      totalTools: 3,
+      hasMore: true,
+      nextCursor: 'cursor-2',
+    });
+    expect(pagedConnections.get('context7')?.client?.listTools as ReturnType<typeof vi.fn>).toHaveBeenCalledWith({
+      limit: 1,
+      cursor: 'cursor-1',
+    });
+  });
+
   it('includes per-server instructions in inspect listings when the aggregator has them', async () => {
     const req = { query: {} };
     const res = createMockResponse();

@@ -246,7 +246,7 @@ export function getCliSessionCachePath(options: CliSessionCachePathOptions = {})
 }
 
 export function getCliSessionContextHash(context: ContextData): string {
-  return createContextHash(context);
+  return createContextHash(context, { omitWorkingDirectory: true });
 }
 
 export async function readCliSessionCache(

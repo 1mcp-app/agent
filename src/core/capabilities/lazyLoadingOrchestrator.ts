@@ -98,7 +98,7 @@ export class LazyLoadingOrchestrator extends EventEmitter {
         this.schemaCache,
         outboundConnections,
         this.loadSchemaFromServer.bind(this),
-        undefined, // allowedServers - set later per session
+        undefined,
         templateHashProvider,
       );
     }
@@ -535,13 +535,7 @@ export class LazyLoadingOrchestrator extends EventEmitter {
     const effectiveAllowedServers =
       allowedServers !== undefined ? allowedServers : this.sessionAllowedServers.get(sessionId);
 
-    if (effectiveAllowedServers) {
-      this.metaToolProvider.setAllowedServers(effectiveAllowedServers);
-    } else {
-      this.metaToolProvider.setAllowedServers(undefined);
-    }
-
-    return this.metaToolProvider.callMetaTool(name, args, sessionId);
+    return this.metaToolProvider.callMetaTool(name, args, sessionId, effectiveAllowedServers);
   }
 
   /**

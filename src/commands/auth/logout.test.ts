@@ -86,4 +86,14 @@ describe('authLogoutCommand', () => {
 
     await expect(authLogoutCommand(baseOptions)).rejects.toThrow('Specify --url');
   });
+
+  it('preserves non-discovery errors during auto-detected logout', async () => {
+    mockDiscoverServerWithPidFile.mockResolvedValue({
+      url: 'http://localhost:3050/mcp',
+      source: 'pidfile',
+    });
+    mockDeleteAuthProfile.mockRejectedValue(new Error('disk write failed'));
+
+    await expect(authLogoutCommand(baseOptions)).rejects.toThrow('disk write failed');
+  });
 });

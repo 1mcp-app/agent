@@ -23,20 +23,24 @@ export async function authLogoutCommand(options: AuthLogoutOptions): Promise<voi
   }
 
   if (!options.url) {
+    let discoveredUrl: string;
+    let source: string;
+
     try {
-      const { url: discoveredUrl, source } = await discoverServerWithPidFile(options['config-dir']);
-      const baseUrl = normalizeServerUrl(stripMcpSuffix(discoveredUrl));
-      process.stderr.write(`Auto-detected server at ${baseUrl} (via ${source})\n`);
-      const removed = await deleteAuthProfile(options['config-dir'], baseUrl);
-      if (removed) {
-        process.stdout.write(`Removed profile for ${baseUrl}\n`);
-      } else {
-        process.stdout.write(`No saved profile for ${baseUrl}\n`);
-      }
-      return;
+      ({ url: discoveredUrl, source } = await discoverServerWithPidFile(options['config-dir']));
     } catch {
       throw new Error('Specify --url <server-url> or --all. No running server detected for auto-discovery.');
     }
+
+    const baseUrl = normalizeServerUrl(stripMcpSuffix(discoveredUrl));
+    process.stderr.write(`Auto-detected server at ${baseUrl} (via ${source})\n`);
+    const removed = await deleteAuthProfile(options['config-dir'], baseUrl);
+    if (removed) {
+      process.stdout.write(`Removed profile for ${baseUrl}\n`);
+    } else {
+      process.stdout.write(`No saved profile for ${baseUrl}\n`);
+    }
+    return;
   }
 
   const baseUrl = normalizeServerUrl(options.url);

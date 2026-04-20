@@ -1044,6 +1044,23 @@ describe('MetaToolProvider', () => {
         expect(result.totalCount).toBe(5); // All tools again
       }
     });
+
+    it('should prefer per-call allowedServers over shared provider state', async () => {
+      multiServerProvider.setAllowedServers(new Set(['database']));
+
+      const result = await multiServerProvider.callMetaTool('tool_list', {}, undefined, new Set(['filesystem']));
+
+      if ('error' in result && result.error) {
+        throw new Error(result.error.message);
+      }
+
+      if ('tools' in result && 'totalCount' in result) {
+        expect(result.totalCount).toBe(2);
+        expect(result.servers).toEqual(['filesystem']);
+      } else {
+        throw new Error('Expected ListToolsResult');
+      }
+    });
   });
 
   describe('internal error type handling', () => {

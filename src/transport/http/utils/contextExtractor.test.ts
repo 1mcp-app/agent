@@ -1,7 +1,7 @@
 import { Request } from 'express';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { extractContextFromMeta, extractRequestContext } from './contextExtractor.js';
+import { deriveContextSessionId, extractContextFromMeta, extractRequestContext } from './contextExtractor.js';
 
 // Mock logger to avoid console output during tests
 vi.mock('@src/logger/logger.js', () => ({
@@ -294,6 +294,39 @@ describe('contextExtractor', () => {
           type: 'inspect',
         },
       });
+    });
+  });
+
+  describe('deriveContextSessionId', () => {
+    it('is stable across object key ordering and volatile transport fields', () => {
+      const first = deriveContextSessionId({
+        project: { name: 'demo', path: '/tmp/demo' },
+        user: { username: 'alice' },
+        environment: { variables: { B: '2', A: '1' } },
+        transport: {
+          type: 'http',
+          url: 'http://localhost:3050/mcp',
+          connectionTimestamp: '2026-04-20T10:00:00Z',
+          connectionId: 'conn-1',
+          client: { version: '1.0.0', name: 'codex', title: 'Codex' },
+        },
+      });
+
+      const second = deriveContextSessionId({
+        project: { path: '/tmp/demo', name: 'demo' },
+        user: { username: 'alice' },
+        environment: { variables: { A: '1', B: '2' } },
+        transport: {
+          type: 'http',
+          url: 'http://localhost:3050/mcp',
+          connectionTimestamp: '2026-04-20T11:00:00Z',
+          connectionId: 'conn-2',
+          client: { title: 'Codex', name: 'codex', version: '1.0.0' },
+        },
+      });
+
+      expect(first).toBe(second);
+      expect(first).toMatch(/^rest-/);
     });
   });
 });

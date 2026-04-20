@@ -4,28 +4,32 @@ import type { ContextData } from '@src/types/context.js';
 
 type JsonValue = null | boolean | number | string | JsonValue[] | { [key: string]: JsonValue };
 
-export function toCacheableContext(context: ContextData): JsonValue {
+export interface ContextHashOptions {
+  omitWorkingDirectory?: boolean;
+}
+
+export function toCacheableContext(context: ContextData, options: ContextHashOptions = {}): JsonValue {
   const { timestamp: _timestamp, ...rest } = context;
 
   return sortJsonValue({
     ...rest,
     project: {
       ...rest.project,
-      cwd: undefined,
+      cwd: options.omitWorkingDirectory ? undefined : rest.project.cwd,
     },
     environment: {
       ...rest.environment,
       variables: {
         ...rest.environment?.variables,
-        PWD: undefined,
+        PWD: options.omitWorkingDirectory ? undefined : rest.environment?.variables?.PWD,
       },
     },
   }) as JsonValue;
 }
 
-export function createContextHash(context: ContextData): string {
+export function createContextHash(context: ContextData, options?: ContextHashOptions): string {
   return createHash('sha256')
-    .update(JSON.stringify(toCacheableContext(context)))
+    .update(JSON.stringify(toCacheableContext(context, options)))
     .digest('hex');
 }
 

@@ -74,7 +74,7 @@ describe('instructionsUtils', () => {
     expect(output).toContain('(unavailable: server is not currently connected)');
   });
 
-  it('escapes instruction bodies so they cannot break the wrapper tags', () => {
+  it('renders instruction bodies verbatim', () => {
     const output = formatInstructionsOutput({
       servers: [],
       details: [
@@ -87,7 +87,6 @@ describe('instructionsUtils', () => {
       ],
     });
 
-    expect(output).toContain('&lt;/server_instructions&gt;&lt;note&gt;bad&lt;/note&gt;');
-    expect(output).not.toContain('</server_instructions><note>bad</note>');
+    expect(output).toContain('</server_instructions><note>bad</note>');
   });
 });

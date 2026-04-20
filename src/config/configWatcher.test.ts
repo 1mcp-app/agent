@@ -8,6 +8,17 @@ import { ConfigWatcher } from '@src/config/configWatcher.js';
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+const mockWatchClose = vi.hoisted(() => vi.fn());
+
+vi.mock('fs', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('fs')>();
+  return {
+    ...actual,
+    existsSync: vi.fn(() => true),
+    watch: vi.fn(() => ({ close: mockWatchClose })),
+  };
+});
+
 // Mock AgentConfigManager before any tests run
 const mockAgentConfig = {
   get: vi.fn().mockImplementation((key: string) => {

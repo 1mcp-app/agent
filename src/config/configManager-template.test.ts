@@ -45,6 +45,12 @@ describe('ConfigManager Template Integration', () => {
     (ConfigManager as any).instance = null;
   });
 
+  async function initializeConfigManager(): Promise<void> {
+    configManager = ConfigManager.getInstance(configFilePath);
+    await configManager.initialize();
+    await configManager.stop();
+  }
+
   afterEach(async () => {
     // Clean up
     try {
@@ -103,8 +109,7 @@ describe('ConfigManager Template Integration', () => {
       };
 
       await fsPromises.writeFile(configFilePath, JSON.stringify(config, null, 2));
-      configManager = ConfigManager.getInstance(configFilePath);
-      await configManager.initialize();
+      await initializeConfigManager();
 
       const result = await configManager.loadConfigWithTemplates(mockContext);
 
@@ -155,8 +160,7 @@ describe('ConfigManager Template Integration', () => {
       };
 
       await fsPromises.writeFile(configFilePath, JSON.stringify(config, null, 2));
-      configManager = ConfigManager.getInstance(configFilePath);
-      await configManager.initialize();
+      await initializeConfigManager();
 
       const result = await configManager.loadConfigWithTemplates(mockContext);
 
@@ -213,8 +217,7 @@ describe('ConfigManager Template Integration', () => {
       };
 
       await fsPromises.writeFile(configFilePath, JSON.stringify(config, null, 2));
-      configManager = ConfigManager.getInstance(configFilePath);
-      await configManager.initialize();
+      await initializeConfigManager();
 
       // Mock context with client information
       const mockContextWithClient = {
@@ -276,8 +279,7 @@ describe('ConfigManager Template Integration', () => {
       };
 
       await fsPromises.writeFile(configFilePath, JSON.stringify(config, null, 2));
-      configManager = ConfigManager.getInstance(configFilePath);
-      await configManager.initialize();
+      await initializeConfigManager();
 
       // Mock context without client information
       const result = await configManager.loadConfigWithTemplates(mockContext);
@@ -315,8 +317,7 @@ describe('ConfigManager Template Integration', () => {
       };
 
       await fsPromises.writeFile(configFilePath, JSON.stringify(config, null, 2));
-      configManager = ConfigManager.getInstance(configFilePath);
-      await configManager.initialize();
+      await initializeConfigManager();
 
       const result = await configManager.loadConfigWithTemplates();
 
@@ -339,8 +340,7 @@ describe('ConfigManager Template Integration', () => {
       };
 
       await fsPromises.writeFile(configFilePath, JSON.stringify(config, null, 2));
-      configManager = ConfigManager.getInstance(configFilePath);
-      await configManager.initialize();
+      await initializeConfigManager();
 
       const result = await configManager.loadConfigWithTemplates(mockContext);
 
@@ -367,8 +367,7 @@ describe('ConfigManager Template Integration', () => {
       };
 
       await fsPromises.writeFile(configFilePath, JSON.stringify(config, null, 2));
-      configManager = ConfigManager.getInstance(configFilePath);
-      await configManager.initialize();
+      await initializeConfigManager();
 
       // First call should process templates
       const result1 = await configManager.loadConfigWithTemplates(mockContext);
@@ -397,8 +396,7 @@ describe('ConfigManager Template Integration', () => {
       };
 
       await fsPromises.writeFile(configFilePath, JSON.stringify(config, null, 2));
-      configManager = ConfigManager.getInstance(configFilePath);
-      await configManager.initialize();
+      await initializeConfigManager();
 
       const context1: ContextData = {
         ...mockContext,
@@ -442,8 +440,7 @@ describe('ConfigManager Template Integration', () => {
       };
 
       await fsPromises.writeFile(configFilePath, JSON.stringify(config, null, 2));
-      configManager = ConfigManager.getInstance(configFilePath);
-      await configManager.initialize();
+      await initializeConfigManager();
 
       // Handlebars doesn't validate templates strictly - missing variables are replaced with empty strings
       const result = await configManager.loadConfigWithTemplates(mockContext);
@@ -466,8 +463,7 @@ describe('ConfigManager Template Integration', () => {
       };
 
       await fsPromises.writeFile(configFilePath, JSON.stringify(config, null, 2));
-      configManager = ConfigManager.getInstance(configFilePath);
-      await configManager.initialize();
+      await initializeConfigManager();
 
       const result = await configManager.loadConfigWithTemplates(mockContext);
 
@@ -497,6 +493,7 @@ describe('ConfigManager Template Integration', () => {
       const nonExistentPath = join(tempConfigDir, 'nonexistent.json');
       configManager = ConfigManager.getInstance(nonExistentPath);
       await configManager.initialize();
+      await configManager.stop();
 
       const result = await configManager.loadConfigWithTemplates();
 
@@ -520,8 +517,7 @@ describe('ConfigManager Template Integration', () => {
       };
 
       await fsPromises.writeFile(configFilePath, JSON.stringify(invalidConfig));
-      configManager = ConfigManager.getInstance(configFilePath);
-      await configManager.initialize();
+      await initializeConfigManager();
 
       const result = await configManager.loadConfigWithTemplates();
       expect(result.staticServers).toHaveProperty('test-server');
