@@ -34,15 +34,6 @@ function formatStatus(status?: string): string | undefined {
       : chalk.yellow(status);
 }
 
-function escapeXml(value: string): string {
-  return value
-    .replaceAll('&', '&amp;')
-    .replaceAll('<', '&lt;')
-    .replaceAll('>', '&gt;')
-    .replaceAll('"', '&quot;')
-    .replaceAll("'", '&apos;');
-}
-
 function formatMetadataLines(item: InstructionsServerSummary | InstructionsServerDetail): string[] {
   const lines = [`server: ${chalk.bold(item.server)}`];
 
@@ -83,7 +74,7 @@ export function formatInstructionsOutput(output: InstructionsOutput): string {
   const serverLines = [chalk.bold('=== SERVER SUMMARY ===')];
   for (const server of output.servers) {
     serverLines.push('');
-    serverLines.push(`<server_summary name="${escapeXml(server.server)}">`);
+    serverLines.push(`<server_summary name="${server.server}">`);
     for (const line of formatMetadataLines(server)) {
       serverLines.push(`\t${line}`);
     }
@@ -93,14 +84,14 @@ export function formatInstructionsOutput(output: InstructionsOutput): string {
 
   const detailSections = [chalk.bold('=== SERVER DETAILS ===')];
   for (const detail of output.details) {
-    const lines = [`<server_detail name="${escapeXml(detail.server)}">`];
+    const lines = [`<server_detail name="${detail.server}">`];
     for (const line of formatMetadataLines(detail)) {
       lines.push(`\t${line}`);
     }
 
     if (detail.instructions?.trim()) {
-      lines.push(`\t<server_instructions name="${escapeXml(detail.server)}">`);
-      lines.push(escapeXml(detail.instructions));
+      lines.push(`\t<server_instructions name="${detail.server}">`);
+      lines.push(detail.instructions);
       lines.push('\t</server_instructions>');
     } else if (detail.note) {
       lines.push(`\t<note>${chalk.dim(detail.note)}</note>`);
