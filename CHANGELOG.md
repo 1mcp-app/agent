@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [unreleased]
+
+### 🚀 Features
+- Add CLI mode with inspect, run, auth, and setup commands by @xizhibei in [#282](https://github.com/1mcp-app/agent/pull/282)
+
+### ⚙️ Miscellaneous Tasks
+- Update noEmit option in tsconfig files for build configuration by @xizhibei
+
+
 ## [0.30.3] - 2026-04-11
 
 ### 🚜 Refactor
@@ -945,6 +954,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 * @xizhibei made their first contribution in [#1](https://github.com/1mcp-app/agent/pull/1)
 * @dependabot[bot] made their first contribution
 
+[unreleased]: https://github.com/1mcp-app/agent/compare/v0.30.3..HEAD
 [0.30.3]: https://github.com/1mcp-app/agent/compare/v0.30.2..v0.30.3
 [0.30.2]: https://github.com/1mcp-app/agent/compare/v0.30.1..v0.30.2
 [0.30.0]: https://github.com/1mcp-app/agent/compare/v0.29.2..v0.30.0
