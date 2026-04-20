@@ -1,5 +1,5 @@
 import { buildServerUrl, type ServeUrlOptions } from '@src/commands/shared/serveClient.js';
-import { loadProjectConfig, normalizeTags } from '@src/config/projectConfigLoader.js';
+import { normalizeTags, resolveProjectContext } from '@src/config/projectConfigLoader.js';
 import type { ProjectConfig } from '@src/config/projectConfigTypes.js';
 import type { GlobalOptions } from '@src/globalOptions.js';
 import { discoverServerWithPidFile, validateServer1mcpUrl } from '@src/utils/validation/urlDetection.js';
@@ -9,12 +9,16 @@ export interface ResolvableServeTargetOptions extends GlobalOptions, ServeUrlOpt
 }
 
 export interface ResolvedServeTarget<TOptions extends ResolvableServeTargetOptions> {
+  cwd: string;
+  projectRoot: string;
+  projectName: string;
   projectConfig: ProjectConfig | null;
   mergedOptions: TOptions;
   discoveredUrl: string;
   serverUrl: URL;
   serverPid?: number;
   source: 'user' | 'pidfile' | 'portscan';
+  projectContextSource: 'project-config' | 'repo-root' | 'cwd';
 }
 
 export function mergeServeTargetOptions<TOptions extends ResolvableServeTargetOptions>(
@@ -32,8 +36,8 @@ export function mergeServeTargetOptions<TOptions extends ResolvableServeTargetOp
 export async function resolveServeTarget<TOptions extends ResolvableServeTargetOptions>(
   options: TOptions,
 ): Promise<ResolvedServeTarget<TOptions>> {
-  const projectConfig = await loadProjectConfig();
-  const mergedOptions = mergeServeTargetOptions(options, projectConfig);
+  const resolvedProjectContext = await resolveProjectContext();
+  const mergedOptions = mergeServeTargetOptions(options, resolvedProjectContext.projectConfig);
   const {
     url: discoveredUrl,
     pid: serverPid,
@@ -46,11 +50,15 @@ export async function resolveServeTarget<TOptions extends ResolvableServeTargetO
   }
 
   return {
-    projectConfig,
+    cwd: resolvedProjectContext.cwd,
+    projectRoot: resolvedProjectContext.projectRoot,
+    projectName: resolvedProjectContext.projectName,
+    projectConfig: resolvedProjectContext.projectConfig,
     mergedOptions,
     discoveredUrl,
     serverUrl: buildServerUrl(discoveredUrl, mergedOptions),
     serverPid,
     source,
+    projectContextSource: resolvedProjectContext.source,
   };
 }

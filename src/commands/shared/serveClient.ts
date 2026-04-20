@@ -13,6 +13,7 @@ import {
 
 import { MCP_SERVER_NAME, MCP_SERVER_VERSION } from '@src/constants.js';
 import type { ContextData } from '@src/types/context.js';
+import { createContextHash } from '@src/utils/context/contextHash.js';
 
 export interface JsonRpcSuccessEnvelope<Result> {
   jsonrpc: '2.0';
@@ -68,8 +69,6 @@ export interface CliSessionCachePathOptions {
   serverPid?: number;
   serverUrl?: string;
 }
-
-type CacheableContextData = Omit<ContextData, 'timestamp'>;
 
 export const SESSION_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 
@@ -247,16 +246,7 @@ export function getCliSessionCachePath(options: CliSessionCachePathOptions = {})
 }
 
 export function getCliSessionContextHash(context: ContextData): string {
-  const cacheableContext: CacheableContextData = {
-    project: context.project,
-    user: context.user,
-    environment: context.environment,
-    ...(context.sessionId ? { sessionId: context.sessionId } : {}),
-    ...(context.version ? { version: context.version } : {}),
-    ...(context.transport ? { transport: context.transport } : {}),
-  };
-
-  return createHash('sha256').update(stableStringify(cacheableContext)).digest('hex');
+  return createContextHash(context);
 }
 
 export async function readCliSessionCache(
@@ -314,25 +304,4 @@ function isCliSessionCache(value: unknown): value is CliSessionCache {
     typeof value.savedAt === 'number' &&
     Number.isFinite(value.savedAt)
   );
-}
-
-function stableStringify(value: unknown): string {
-  return JSON.stringify(sortJsonValue(value));
-}
-
-function sortJsonValue(value: unknown): unknown {
-  if (Array.isArray(value)) {
-    return value.map((item) => sortJsonValue(item));
-  }
-
-  if (value && typeof value === 'object') {
-    const sortedEntries = Object.entries(value as Record<string, unknown>)
-      .filter(([, entryValue]) => entryValue !== undefined)
-      .sort(([leftKey], [rightKey]) => leftKey.localeCompare(rightKey))
-      .map(([key, entryValue]) => [key, sortJsonValue(entryValue)] as const);
-
-    return Object.fromEntries(sortedEntries);
-  }
-
-  return value;
 }

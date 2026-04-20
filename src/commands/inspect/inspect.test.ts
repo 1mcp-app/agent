@@ -47,24 +47,19 @@ const mockedApiClientGet = vi.hoisted(() => vi.fn());
 
 const mockedDiscoverServerWithPidFile = vi.hoisted(() => vi.fn());
 const mockedValidateServer1mcpUrl = vi.hoisted(() => vi.fn());
-const mockedLoadProjectConfig = vi.hoisted(() => vi.fn());
+const mockedResolveProjectContext = vi.hoisted(() => vi.fn());
 const mockedLoadAuthProfile = vi.hoisted(() => vi.fn());
 const mockedStdoutWrite = vi.hoisted(() => vi.fn());
 
 function makeInspectContextHash(projectPath: string): string {
-  const originalCwd = process.cwd;
-  process.cwd = () => projectPath;
-
-  try {
-    return getCliSessionContextHash(
-      buildCliContext({
-        transportType: 'inspect',
-        version: 'inspect',
-      }),
-    );
-  } finally {
-    process.cwd = originalCwd;
-  }
+  return getCliSessionContextHash(
+    buildCliContext({
+      cwd: projectPath,
+      projectRoot: projectPath,
+      transportType: 'inspect',
+      version: 'inspect',
+    }),
+  );
 }
 
 vi.mock('@src/commands/shared/apiClient.js', () => ({
@@ -84,7 +79,7 @@ vi.mock('@src/config/projectConfigLoader.js', async () => {
   );
   return {
     ...actual,
-    loadProjectConfig: mockedLoadProjectConfig,
+    resolveProjectContext: mockedResolveProjectContext,
   };
 });
 
@@ -204,13 +199,19 @@ describe('inspect command internals', () => {
     mockedApiClientGet.mockReset();
     mockedDiscoverServerWithPidFile.mockReset();
     mockedValidateServer1mcpUrl.mockReset();
-    mockedLoadProjectConfig.mockReset();
+    mockedResolveProjectContext.mockReset();
     mockedLoadAuthProfile.mockReset();
     mockedStdoutWrite.mockReset();
 
     mockedDiscoverServerWithPidFile.mockResolvedValue({ url: 'http://127.0.0.1:3050/mcp', pid: 4242 });
     mockedValidateServer1mcpUrl.mockResolvedValue({ valid: true });
-    mockedLoadProjectConfig.mockResolvedValue(null);
+    mockedResolveProjectContext.mockResolvedValue({
+      cwd: '/tmp/project',
+      projectRoot: '/tmp/project',
+      projectName: 'project',
+      projectConfig: null,
+      source: 'cwd',
+    });
     mockedLoadAuthProfile.mockResolvedValue(null);
 
     vi.stubGlobal('process', {
@@ -384,7 +385,7 @@ describe('inspect command internals', () => {
     await writeCliSessionCache(cachePath, {
       sessionId: 'cached-session',
       serverUrl: 'http://127.0.0.1:3050/mcp',
-      contextHash: makeInspectContextHash(process.cwd()),
+      contextHash: makeInspectContextHash('/tmp/project'),
       savedAt: Date.now(),
     });
 
@@ -563,7 +564,7 @@ describe('inspect command internals', () => {
     await writeCliSessionCache(cachePath, {
       sessionId: 'cached-session',
       serverUrl: 'http://127.0.0.1:3050/mcp',
-      contextHash: makeInspectContextHash(process.cwd()),
+      contextHash: makeInspectContextHash('/tmp/project'),
       savedAt: Date.now(),
     });
 

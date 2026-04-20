@@ -156,7 +156,8 @@ export async function getInspectResult(
   resultOptions: GetInspectResultOptions = {},
 ): Promise<InspectResult> {
   const includeServerInstructions = resultOptions.includeServerInstructions ?? true;
-  const { projectConfig, mergedOptions, discoveredUrl, serverPid, serverUrl } = await resolveServeTarget(options);
+  const { cwd, projectConfig, projectRoot, mergedOptions, discoveredUrl, serverPid, serverUrl } =
+    await resolveServeTarget(options);
 
   const target = parseInspectTarget(mergedOptions.target);
   const baseUrl = stripMcpSuffix(discoveredUrl);
@@ -166,7 +167,9 @@ export async function getInspectResult(
     serverUrl: serverUrl.toString(),
   });
   const inspectContext = buildCliContext({
+    cwd,
     projectConfig,
+    projectRoot,
     transportType: 'inspect',
     version: 'inspect',
   });

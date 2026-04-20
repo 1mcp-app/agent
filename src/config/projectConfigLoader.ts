@@ -1,6 +1,6 @@
 import { existsSync } from 'fs';
 import { readFile } from 'fs/promises';
-import { resolve } from 'path';
+import { basename, dirname, join, resolve } from 'path';
 
 import logger from '@src/logger/logger.js';
 
@@ -12,33 +12,39 @@ import { ProjectConfig, validateProjectConfig } from './projectConfigTypes.js';
  * Project configuration file name
  */
 export const PROJECT_CONFIG_FILE = '.1mcprc';
+const GIT_DIRECTORY_NAME = '.git';
 
-/**
- * Load project configuration from .1mcprc file
- *
- * Searches for .1mcprc in the current working directory.
- * Returns null if file doesn't exist or is invalid.
- *
- * @param cwd - Current working directory (defaults to process.cwd())
- * @returns ProjectConfig or null if not found/invalid
- */
-export async function loadProjectConfig(cwd: string = process.cwd()): Promise<ProjectConfig | null> {
-  const configPath = resolve(cwd, PROJECT_CONFIG_FILE);
+export interface ResolvedProjectContext {
+  cwd: string;
+  projectRoot: string;
+  projectName: string;
+  projectConfigPath?: string;
+  projectConfig: ProjectConfig | null;
+  source: 'project-config' | 'repo-root' | 'cwd';
+}
 
-  // Check if file exists
-  if (!existsSync(configPath)) {
-    logger.debug(`No ${PROJECT_CONFIG_FILE} found in ${cwd}`);
-    return null;
+function findNearestAncestorContaining(startDir: string, targetName: string): string | null {
+  let currentDir = resolve(startDir);
+
+  while (true) {
+    if (existsSync(join(currentDir, targetName))) {
+      return currentDir;
+    }
+
+    const parentDir = dirname(currentDir);
+    if (parentDir === currentDir) {
+      return null;
+    }
+    currentDir = parentDir;
   }
+}
 
+async function readProjectConfig(configPath: string): Promise<ProjectConfig | null> {
   try {
     logger.debug(`Loading project config from ${configPath}`);
 
-    // Read and parse JSON
     const content = await readFile(configPath, 'utf-8');
     const data = JSON5.parse(content) as unknown;
-
-    // Validate with Zod schema
     const config = validateProjectConfig(data);
 
     logger.info(`📄 Loaded configuration from ${PROJECT_CONFIG_FILE}`, {
@@ -58,6 +64,58 @@ export async function loadProjectConfig(cwd: string = process.cwd()): Promise<Pr
     }
     return null;
   }
+}
+
+export async function resolveProjectContext(cwd: string = process.cwd()): Promise<ResolvedProjectContext> {
+  const resolvedCwd = resolve(cwd);
+  const configDir = findNearestAncestorContaining(resolvedCwd, PROJECT_CONFIG_FILE);
+
+  if (configDir) {
+    const projectConfigPath = join(configDir, PROJECT_CONFIG_FILE);
+    return {
+      cwd: resolvedCwd,
+      projectRoot: configDir,
+      projectName: basename(configDir) || 'unknown',
+      projectConfigPath,
+      projectConfig: await readProjectConfig(projectConfigPath),
+      source: 'project-config',
+    };
+  }
+
+  const repoRoot = findNearestAncestorContaining(resolvedCwd, GIT_DIRECTORY_NAME);
+  if (repoRoot) {
+    logger.debug(`No ${PROJECT_CONFIG_FILE} found for ${resolvedCwd}, using repository root ${repoRoot}`);
+    return {
+      cwd: resolvedCwd,
+      projectRoot: repoRoot,
+      projectName: basename(repoRoot) || 'unknown',
+      projectConfig: null,
+      source: 'repo-root',
+    };
+  }
+
+  logger.debug(`No ${PROJECT_CONFIG_FILE} or repository root found for ${resolvedCwd}, using cwd`);
+  return {
+    cwd: resolvedCwd,
+    projectRoot: resolvedCwd,
+    projectName: basename(resolvedCwd) || 'unknown',
+    projectConfig: null,
+    source: 'cwd',
+  };
+}
+
+/**
+ * Load project configuration from .1mcprc file
+ *
+ * Searches for .1mcprc in the current working directory.
+ * Returns null if file doesn't exist or is invalid.
+ *
+ * @param cwd - Current working directory (defaults to process.cwd())
+ * @returns ProjectConfig or null if not found/invalid
+ */
+export async function loadProjectConfig(cwd: string = process.cwd()): Promise<ProjectConfig | null> {
+  const resolvedProjectContext = await resolveProjectContext(cwd);
+  return resolvedProjectContext.projectConfig;
 }
 
 /**

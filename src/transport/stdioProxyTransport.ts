@@ -52,6 +52,8 @@ export class StdioProxyTransport {
     this.context =
       this.options.context ||
       buildCliContext({
+        cwd: process.cwd(),
+        projectRoot: process.cwd(),
         transportType: 'stdio-proxy',
         version: MCP_SERVER_VERSION,
         sessionId: generateMcpSessionId(),

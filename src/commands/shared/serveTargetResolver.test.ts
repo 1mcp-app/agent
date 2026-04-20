@@ -1,10 +1,11 @@
+import type { ResolvedProjectContext } from '@src/config/projectConfigLoader.js';
 import type { ProjectConfig } from '@src/config/projectConfigTypes.js';
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { mergeServeTargetOptions, resolveServeTarget } from './serveTargetResolver.js';
 
-const mockedLoadProjectConfig = vi.hoisted(() => vi.fn());
+const mockedResolveProjectContext = vi.hoisted(() => vi.fn());
 const mockedDiscoverServerWithPidFile = vi.hoisted(() => vi.fn());
 const mockedValidateServer1mcpUrl = vi.hoisted(() => vi.fn());
 
@@ -14,7 +15,7 @@ vi.mock('@src/config/projectConfigLoader.js', async () => {
   );
   return {
     ...actual,
-    loadProjectConfig: mockedLoadProjectConfig,
+    resolveProjectContext: mockedResolveProjectContext,
   };
 });
 
@@ -64,14 +65,20 @@ describe('mergeServeTargetOptions', () => {
 
 describe('resolveServeTarget', () => {
   beforeEach(() => {
-    mockedLoadProjectConfig.mockReset();
+    mockedResolveProjectContext.mockReset();
     mockedDiscoverServerWithPidFile.mockReset();
     mockedValidateServer1mcpUrl.mockReset();
 
-    mockedLoadProjectConfig.mockResolvedValue({
-      preset: 'development',
-      tags: ['backend'],
-    } satisfies ProjectConfig);
+    mockedResolveProjectContext.mockResolvedValue({
+      cwd: '/tmp/project/packages/api',
+      projectRoot: '/tmp/project',
+      projectName: 'project',
+      projectConfig: {
+        preset: 'development',
+        tags: ['backend'],
+      } satisfies ProjectConfig,
+      source: 'project-config',
+    } satisfies ResolvedProjectContext);
     mockedDiscoverServerWithPidFile.mockResolvedValue({
       url: 'http://127.0.0.1:3050/mcp',
       pid: 4242,
@@ -93,6 +100,10 @@ describe('resolveServeTarget', () => {
     expect(mockedDiscoverServerWithPidFile).toHaveBeenCalledWith('.tmp-test', undefined);
     expect(mockedValidateServer1mcpUrl).toHaveBeenCalledWith('http://127.0.0.1:3050/mcp');
     expect(result.serverUrl.toString()).toBe('http://127.0.0.1:3050/mcp?preset=development');
+    expect(result.cwd).toBe('/tmp/project/packages/api');
+    expect(result.projectRoot).toBe('/tmp/project');
+    expect(result.projectName).toBe('project');
+    expect(result.projectContextSource).toBe('project-config');
     expect(result.mergedOptions.filter).toBe('tooling');
     expect(result.source).toBe('pidfile');
     expect(result.serverPid).toBe(4242);

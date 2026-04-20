@@ -11,7 +11,7 @@ import { ProxyOptions } from './index.js';
  */
 export async function proxyCommand(options: ProxyOptions): Promise<void> {
   try {
-    const { projectConfig, mergedOptions, discoveredUrl, source } = await resolveServeTarget(options);
+    const { cwd, projectConfig, projectRoot, mergedOptions, discoveredUrl, source } = await resolveServeTarget(options);
 
     // Auto-discover server URL
     logger.info('🔍 Discovering running 1MCP server...');
@@ -54,7 +54,9 @@ export async function proxyCommand(options: ProxyOptions): Promise<void> {
       filter: finalFilter,
       tags: finalTags,
       context: buildCliContext({
+        cwd,
         projectConfig,
+        projectRoot,
         transportType: 'stdio-proxy',
         version: MCP_SERVER_VERSION,
         sessionId: generateStreamableSessionId(),

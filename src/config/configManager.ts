@@ -1,4 +1,3 @@
-import { createHash } from 'crypto';
 import { EventEmitter } from 'events';
 
 import { AgentConfigManager } from '@src/core/server/agentConfig.js';
@@ -12,6 +11,7 @@ import {
 import logger, { debugIf } from '@src/logger/logger.js';
 import { HandlebarsTemplateRenderer } from '@src/template/handlebarsTemplateRenderer.js';
 import type { ContextData } from '@src/types/context.js';
+import { createContextHash } from '@src/utils/context/contextHash.js';
 
 import { z } from 'zod';
 
@@ -306,7 +306,7 @@ export class ConfigManager extends EventEmitter {
    * @returns SHA-256 hash string
    */
   private hashContext(context: ContextData): string {
-    return createHash('sha256').update(JSON.stringify(context)).digest('hex');
+    return createContextHash(context);
   }
 
   /**

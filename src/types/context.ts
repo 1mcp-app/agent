@@ -16,6 +16,7 @@ export interface GitInfo {
  */
 export interface ContextNamespace {
   path?: string;
+  cwd?: string;
   name?: string;
   git?: GitInfo;
   environment?: string;

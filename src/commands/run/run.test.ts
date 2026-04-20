@@ -16,7 +16,7 @@ import {
   writeCliSessionCache,
 } from './run.js';
 
-const mockedLoadProjectConfig = vi.hoisted(() => vi.fn());
+const mockedResolveProjectContext = vi.hoisted(() => vi.fn());
 
 vi.mock('@src/config/projectConfigLoader.js', async () => {
   const actual = await vi.importActual<typeof import('@src/config/projectConfigLoader.js')>(
@@ -24,7 +24,7 @@ vi.mock('@src/config/projectConfigLoader.js', async () => {
   );
   return {
     ...actual,
-    loadProjectConfig: mockedLoadProjectConfig,
+    resolveProjectContext: mockedResolveProjectContext,
   };
 });
 
@@ -44,19 +44,14 @@ const transportState = vi.hoisted(() => ({
 }));
 
 function makeContextHash(projectPath: string, transportType: 'run' | 'inspect', version: 'run' | 'inspect'): string {
-  const originalCwd = process.cwd;
-  process.cwd = () => projectPath;
-
-  try {
-    return getCliSessionContextHash(
-      buildCliContext({
-        transportType,
-        version,
-      }),
-    );
-  } finally {
-    process.cwd = originalCwd;
-  }
+  return getCliSessionContextHash(
+    buildCliContext({
+      cwd: projectPath,
+      projectRoot: projectPath,
+      transportType,
+      version,
+    }),
+  );
 }
 
 const mockedTransport = vi.hoisted(() => {
@@ -174,8 +169,14 @@ describe('run command internals', () => {
     transportState.throw404OnMethod = undefined;
     transportState.toolName = 'runner_1mcp_echo_args';
     transportState.instances = [];
-    mockedLoadProjectConfig.mockReset();
-    mockedLoadProjectConfig.mockResolvedValue(null);
+    mockedResolveProjectContext.mockReset();
+    mockedResolveProjectContext.mockResolvedValue({
+      cwd: '/tmp/project',
+      projectRoot: '/tmp/project',
+      projectName: 'project',
+      projectConfig: null,
+      source: 'cwd',
+    });
   });
 
   describe('buildServerUrl', () => {
@@ -356,6 +357,27 @@ describe('run command internals', () => {
       expect(second).not.toBe(first);
     });
 
+    it('ignores cwd changes when project root is the same', () => {
+      const first = getCliSessionContextHash(
+        buildCliContext({
+          cwd: '/tmp/project-a/packages/api',
+          projectRoot: '/tmp/project-a',
+          transportType: 'run',
+          version: 'run',
+        }),
+      );
+      const second = getCliSessionContextHash(
+        buildCliContext({
+          cwd: '/tmp/project-a/packages/worker',
+          projectRoot: '/tmp/project-a',
+          transportType: 'run',
+          version: 'run',
+        }),
+      );
+
+      expect(second).toBe(first);
+    });
+
     it('changes when transport context changes', () => {
       const runHash = makeContextHash('/tmp/project-a', 'run', 'run');
       const inspectHash = makeContextHash('/tmp/project-a', 'inspect', 'inspect');
@@ -529,7 +551,7 @@ describe('runCommand REST-first path', () => {
     await writeCliSessionCache(cachePath, {
       sessionId: 'cached-session',
       serverUrl: 'http://127.0.0.1:3050/mcp',
-      contextHash: makeContextHash(process.cwd(), 'run', 'run'),
+      contextHash: makeContextHash('/tmp/project', 'run', 'run'),
       savedAt: Date.now(),
       hasRestEndpoint: true,
     });
@@ -569,7 +591,7 @@ describe('runCommand REST-first path', () => {
       },
     });
 
-    vi.restoreAllMocks();
+    vi.clearAllMocks();
     process.stdout.write = origStdout;
 
     // MCP transport should NOT have been used
@@ -596,12 +618,12 @@ describe('runCommand REST-first path', () => {
       'cli-session-cache-path': join(cacheDir, '.cli-session.{pid}'),
     } as never);
 
-    vi.restoreAllMocks();
+    vi.clearAllMocks();
 
     const cache = await readCliSessionCache(
       cachePath,
       'http://127.0.0.1:3050/mcp',
-      makeContextHash(process.cwd(), 'run', 'run'),
+      makeContextHash('/tmp/project', 'run', 'run'),
     );
     expect(cache?.sessionId).toBe('rest-session-123');
     expect(cache?.hasRestEndpoint).toBe(true);
@@ -626,12 +648,12 @@ describe('runCommand REST-first path', () => {
       'cli-session-cache-path': join(cacheDir, '.cli-session.{pid}'),
     } as never);
 
-    vi.restoreAllMocks();
+    vi.clearAllMocks();
 
     const cache = await readCliSessionCache(
       cachePath,
       'http://127.0.0.1:3050/mcp',
-      makeContextHash(process.cwd(), 'run', 'run'),
+      makeContextHash('/tmp/project', 'run', 'run'),
     );
     expect(cache?.sessionId).toBe('rest');
     expect(cache?.hasRestEndpoint).toBe(true);
@@ -641,7 +663,7 @@ describe('runCommand REST-first path', () => {
     await writeCliSessionCache(cachePath, {
       sessionId: 'cached-session',
       serverUrl: 'http://127.0.0.1:3050/mcp',
-      contextHash: makeContextHash(process.cwd(), 'run', 'run'),
+      contextHash: makeContextHash('/tmp/project', 'run', 'run'),
       savedAt: Date.now(),
       hasRestEndpoint: true,
     });
@@ -660,7 +682,7 @@ describe('runCommand REST-first path', () => {
       'cli-session-cache-path': join(cacheDir, '.cli-session.{pid}'),
     } as never);
 
-    vi.restoreAllMocks();
+    vi.clearAllMocks();
     process.stdout.write = origStdout;
 
     // MCP transport should have been used as fallback
@@ -671,7 +693,7 @@ describe('runCommand REST-first path', () => {
     await writeCliSessionCache(cachePath, {
       sessionId: 'cached-session',
       serverUrl: 'http://127.0.0.1:3050/mcp',
-      contextHash: makeContextHash(process.cwd(), 'run', 'run'),
+      contextHash: makeContextHash('/tmp/project', 'run', 'run'),
       savedAt: Date.now(),
       hasRestEndpoint: true,
     });
@@ -689,12 +711,12 @@ describe('runCommand REST-first path', () => {
       'cli-session-cache-path': join(cacheDir, '.cli-session.{pid}'),
     } as never);
 
-    vi.restoreAllMocks();
+    vi.clearAllMocks();
 
     const cache = await readCliSessionCache(
       cachePath,
       'http://127.0.0.1:3050/mcp',
-      makeContextHash(process.cwd(), 'run', 'run'),
+      makeContextHash('/tmp/project', 'run', 'run'),
     );
     expect(cache?.hasRestEndpoint).toBe(false);
   });
@@ -703,7 +725,7 @@ describe('runCommand REST-first path', () => {
     await writeCliSessionCache(cachePath, {
       sessionId: 'cached-session',
       serverUrl: 'http://127.0.0.1:3050/mcp',
-      contextHash: makeContextHash(process.cwd(), 'run', 'run'),
+      contextHash: makeContextHash('/tmp/project', 'run', 'run'),
       savedAt: Date.now(),
       hasRestEndpoint: true,
     });
@@ -725,7 +747,7 @@ describe('runCommand REST-first path', () => {
       'cli-session-cache-path': join(cacheDir, '.cli-session.{pid}'),
     } as never);
 
-    vi.restoreAllMocks();
+    vi.clearAllMocks();
 
     expect(transportState.instances).toHaveLength(0);
     expect(stderr.join('')).toContain('upstream failed');
@@ -735,7 +757,7 @@ describe('runCommand REST-first path', () => {
     await writeCliSessionCache(cachePath, {
       sessionId: 'cached-session',
       serverUrl: 'http://127.0.0.1:3050/mcp',
-      contextHash: makeContextHash(process.cwd(), 'run', 'run'),
+      contextHash: makeContextHash('/tmp/project', 'run', 'run'),
       savedAt: Date.now(),
       hasRestEndpoint: true,
     });
@@ -753,12 +775,12 @@ describe('runCommand REST-first path', () => {
       'cli-session-cache-path': join(cacheDir, '.cli-session.{pid}'),
     } as never);
 
-    vi.restoreAllMocks();
+    vi.clearAllMocks();
 
     const cache = await readCliSessionCache(
       cachePath,
       'http://127.0.0.1:3050/mcp',
-      makeContextHash(process.cwd(), 'run', 'run'),
+      makeContextHash('/tmp/project', 'run', 'run'),
     );
     expect(cache?.hasRestEndpoint).toBe(true);
   });
@@ -780,7 +802,7 @@ describe('runCommand REST-first path', () => {
       } as never),
     ).rejects.toThrow('Invalid JSON passed to --args');
 
-    vi.restoreAllMocks();
+    vi.clearAllMocks();
     expect(stderr).toEqual([]);
   });
 
@@ -840,7 +862,7 @@ describe('runCommand REST-first path', () => {
       'cli-session-cache-path': join(cacheDir, '.cli-session.{pid}'),
     } as never);
 
-    vi.restoreAllMocks();
+    vi.clearAllMocks();
     vi.stubGlobal('process', originalProcess);
 
     expect(transportState.instances).toHaveLength(0);
@@ -851,7 +873,7 @@ describe('runCommand REST-first path', () => {
     await writeCliSessionCache(cachePath, {
       sessionId: 'cached-session',
       serverUrl: 'http://127.0.0.1:3050/mcp',
-      contextHash: makeContextHash(process.cwd(), 'run', 'run'),
+      contextHash: makeContextHash('/tmp/project', 'run', 'run'),
       savedAt: Date.now(),
       hasRestEndpoint: false,
     });
@@ -866,7 +888,7 @@ describe('runCommand REST-first path', () => {
       'cli-session-cache-path': join(cacheDir, '.cli-session.{pid}'),
     } as never);
 
-    vi.restoreAllMocks();
+    vi.clearAllMocks();
 
     // fetch should not have been called for /api/tool-invocations
     const toolInvocationCalls = mockFetch.mock.calls.filter(

@@ -6,6 +6,8 @@ import type { ContextData } from '@src/types/context.js';
 
 export interface BuildCliContextOptions {
   projectConfig?: ProjectConfig | null;
+  cwd?: string;
+  projectRoot?: string;
   transportType?: string;
   version?: string;
   sessionId?: string;
@@ -34,14 +36,16 @@ function getPrefixedEnvironmentVariables(prefixes?: string[]): Record<string, st
 }
 
 export function buildCliContext(options: BuildCliContextOptions = {}): ContextData {
-  const { projectConfig, transportType, version, sessionId } = options;
-  const cwd = process.cwd();
-  const projectName = path.basename(cwd) || 'unknown';
+  const { projectConfig, projectRoot, transportType, version, sessionId } = options;
+  const cwd = options.cwd ?? process.cwd();
+  const canonicalProjectRoot = projectRoot ?? cwd;
+  const projectName = path.basename(canonicalProjectRoot) || 'unknown';
   const prefixedEnvironmentVariables = getPrefixedEnvironmentVariables(projectConfig?.context?.envPrefixes);
 
   const context: ContextData = {
     project: {
-      path: cwd,
+      path: canonicalProjectRoot,
+      cwd,
       name: projectName,
       environment: projectConfig?.context?.environment || process.env.NODE_ENV || 'development',
       ...(projectConfig?.context

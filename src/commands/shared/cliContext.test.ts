@@ -23,6 +23,8 @@ describe('buildCliContext', () => {
     });
 
     const context = buildCliContext({
+      cwd: '/tmp/project-a/packages/api',
+      projectRoot: '/tmp/project-a',
       transportType: 'inspect',
       version: 'inspect',
     });
@@ -30,6 +32,7 @@ describe('buildCliContext', () => {
     expect(context).toMatchObject({
       project: {
         path: '/tmp/project-a',
+        cwd: '/tmp/project-a/packages/api',
         name: 'project-a',
         environment: 'test',
       },
@@ -39,7 +42,7 @@ describe('buildCliContext', () => {
       },
       environment: {
         variables: expect.objectContaining({
-          PWD: '/tmp/project-a',
+          PWD: '/tmp/project-a/packages/api',
           PLATFORM: process.platform,
         }),
       },
@@ -65,6 +68,8 @@ describe('buildCliContext', () => {
     });
 
     const context = buildCliContext({
+      cwd: '/tmp/project-b/packages/worker',
+      projectRoot: '/tmp/project-b',
       transportType: 'run',
       version: 'run',
       sessionId: 'session-1',
@@ -83,6 +88,8 @@ describe('buildCliContext', () => {
 
     expect(context).toMatchObject({
       project: {
+        path: '/tmp/project-b',
+        cwd: '/tmp/project-b/packages/worker',
         environment: 'staging',
         custom: {
           projectId: 'proj_123',
