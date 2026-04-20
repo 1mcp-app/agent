@@ -14,7 +14,6 @@ const LEGACY_MANAGED_BLOCK_PATTERN =
   /<!-- BEGIN 1MCP MANAGED STARTUP DOCS -->[\s\S]*?<!-- END 1MCP MANAGED STARTUP DOCS -->\n?/gm;
 
 const MANAGED_COMMAND = '1mcp instructions';
-const CODEX_MATCHER = 'startup|resume';
 
 interface ScopePaths {
   scope: Exclude<CliSetupScope, 'all'>;
@@ -86,7 +85,7 @@ export async function writeCliSetupFiles(options: WriteCliSetupOptions): Promise
       const startupPath = isCodex ? scopePaths.codexStartupPath : scopePaths.claudeStartupPath;
 
       results.push(
-        ...(await writeTargetSetupFiles(managedDocPath, hookPath, startupPath, isCodex, managedDocContent, {
+        ...(await writeTargetSetupFiles(managedDocPath, hookPath, startupPath, managedDocContent, {
           target,
           scope: scopePaths.scope,
         })),
@@ -101,7 +100,6 @@ async function writeTargetSetupFiles(
   managedDocPath: string,
   hookPath: string,
   startupPath: string,
-  includeMatcher: boolean,
   managedDocContent: string,
   resultInfo: Pick<CliSetupWriteResult, 'target' | 'scope'>,
 ): Promise<CliSetupWriteResult[]> {
@@ -113,7 +111,7 @@ async function writeTargetSetupFiles(
 
   return Promise.all([
     writeManagedFile(managedDocPath, managedDocContent, { ...resultInfo, kind: 'managed-doc' }),
-    writeManagedJson(hookPath, (existing) => upsertHooks(existing, includeMatcher), { ...resultInfo, kind: 'hook' }),
+    writeManagedJson(hookPath, (existing) => upsertHooks(existing), { ...resultInfo, kind: 'hook' }),
     writeManagedFile(startupPath, startupContent, { ...resultInfo, kind: 'startup-doc' }, existingStartup),
   ]);
 }
@@ -249,14 +247,14 @@ async function writeManagedFile(
   };
 }
 
-function upsertHooks(existing: Record<string, unknown>, includeMatcher: boolean): Record<string, unknown> {
+function upsertHooks(existing: Record<string, unknown>): Record<string, unknown> {
   const config = cloneHookConfig(existing);
   config.hooks ??= {};
-  config.hooks.SessionStart = dedupeSessionStartHooks(config.hooks.SessionStart ?? [], includeMatcher);
+  config.hooks.SessionStart = dedupeSessionStartHooks(config.hooks.SessionStart ?? []);
   return config;
 }
 
-function dedupeSessionStartHooks(entries: HookEntry[], includeMatcher: boolean): HookEntry[] {
+function dedupeSessionStartHooks(entries: HookEntry[]): HookEntry[] {
   const dedupedEntries: HookEntry[] = [];
   let seenManagedHook = false;
 
@@ -284,15 +282,14 @@ function dedupeSessionStartHooks(entries: HookEntry[], includeMatcher: boolean):
   }
 
   if (!seenManagedHook) {
-    dedupedEntries.push(createHookEntry(includeMatcher));
+    dedupedEntries.push(createHookEntry());
   }
 
   return dedupedEntries;
 }
 
-function createHookEntry(includeMatcher: boolean): HookEntry {
+function createHookEntry(): HookEntry {
   return {
-    ...(includeMatcher ? { matcher: CODEX_MATCHER } : {}),
     hooks: [{ type: 'command', command: MANAGED_COMMAND }],
   };
 }
