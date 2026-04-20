@@ -113,6 +113,7 @@ function sidebar(): DefaultTheme.Sidebar {
         text: '集成',
         items: [
           { text: 'Claude Desktop 集成', link: '/zh/guide/integrations/claude-desktop' },
+          { text: 'CLI 模式', link: '/zh/guide/integrations/cli-mode' },
           { text: 'Codex 集成', link: '/zh/guide/integrations/codex' },
           { text: '应用程序整合', link: '/zh/guide/integrations/app-consolidation' },
           { text: '开发者工具', link: '/zh/guide/integrations/developer-tools' },
@@ -192,6 +193,16 @@ function sidebar(): DefaultTheme.Sidebar {
               { text: 'delete', link: '/zh/commands/preset/delete' },
             ],
           },
+        ],
+      },
+      {
+        text: 'CLI 工作流',
+        items: [
+          { text: 'instructions', link: '/zh/commands/instructions' },
+          { text: 'inspect', link: '/zh/commands/inspect' },
+          { text: 'run', link: '/zh/commands/run' },
+          { text: 'cli-setup', link: '/zh/commands/cli-setup' },
+          { text: 'auth', link: '/zh/commands/auth' },
         ],
       },
       {

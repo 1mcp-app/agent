@@ -590,6 +590,76 @@ describe('MetaToolProvider', () => {
       expect(cached).toEqual(mockSchema);
     });
 
+    it('keys schema cache by resolved session connection', async () => {
+      const sessionScopedConnections = new Map<string, any>([
+        [
+          'filesystem:session-a',
+          {
+            name: 'filesystem',
+            client: { callTool: vi.fn() },
+            status: ClientStatus.Connected,
+            transport: {
+              tags: ['fs'],
+              start: vi.fn(),
+              send: vi.fn(),
+              close: vi.fn(),
+            } as any,
+            lastConnected: new Date(),
+          },
+        ],
+        [
+          'filesystem:session-b',
+          {
+            name: 'filesystem',
+            client: { callTool: vi.fn() },
+            status: ClientStatus.Connected,
+            transport: {
+              tags: ['fs'],
+              start: vi.fn(),
+              send: vi.fn(),
+              close: vi.fn(),
+            } as any,
+            lastConnected: new Date(),
+          },
+        ],
+      ]) as OutboundConnections;
+
+      const sessionSchemaCache = new SchemaCache({ maxEntries: 100 });
+      const sessionProvider = new MetaToolProvider(
+        () => toolRegistry,
+        sessionSchemaCache,
+        sessionScopedConnections,
+        mockSchemaLoader,
+      );
+
+      mockSchemaLoader
+        .mockResolvedValueOnce({ name: 'read_file', description: 'session-a', inputSchema: { type: 'object' } })
+        .mockResolvedValueOnce({ name: 'read_file', description: 'session-b', inputSchema: { type: 'object' } });
+
+      await sessionProvider.callMetaTool(
+        'tool_schema',
+        {
+          server: 'filesystem',
+          toolName: 'read_file',
+        },
+        'session-a',
+      );
+      await sessionProvider.callMetaTool(
+        'tool_schema',
+        {
+          server: 'filesystem',
+          toolName: 'read_file',
+        },
+        'session-b',
+      );
+
+      expect(mockSchemaLoader).toHaveBeenNthCalledWith(1, 'filesystem:session-a', 'read_file');
+      expect(mockSchemaLoader).toHaveBeenNthCalledWith(2, 'filesystem:session-b', 'read_file');
+      expect(sessionSchemaCache.getIfCached('filesystem:session-a', 'read_file')?.description).toBe('session-a');
+      expect(sessionSchemaCache.getIfCached('filesystem:session-b', 'read_file')?.description).toBe('session-b');
+      expect(sessionSchemaCache.getIfCached('filesystem', 'read_file')).toBeNull();
+    });
+
     it('should return fromCache: false for freshly loaded schemas', async () => {
       const mockSchema: Tool = {
         name: 'search',
@@ -1042,6 +1112,23 @@ describe('MetaToolProvider', () => {
       result = await multiServerProvider.callMetaTool('tool_list', {});
       if ('tools' in result && 'totalCount' in result) {
         expect(result.totalCount).toBe(5); // All tools again
+      }
+    });
+
+    it('should prefer per-call allowedServers over shared provider state', async () => {
+      multiServerProvider.setAllowedServers(new Set(['database']));
+
+      const result = await multiServerProvider.callMetaTool('tool_list', {}, undefined, new Set(['filesystem']));
+
+      if ('error' in result && result.error) {
+        throw new Error(result.error.message);
+      }
+
+      if ('tools' in result && 'totalCount' in result) {
+        expect(result.totalCount).toBe(2);
+        expect(result.servers).toEqual(['filesystem']);
+      } else {
+        throw new Error('Expected ListToolsResult');
       }
     });
   });

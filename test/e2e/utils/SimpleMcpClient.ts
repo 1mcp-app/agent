@@ -160,6 +160,15 @@ export class SimpleMcpClient extends EventEmitter {
     return await this.request(method, params);
   }
 
+  notify(method: string, params?: Record<string, unknown>): void {
+    const notification = {
+      jsonrpc: '2.0',
+      method,
+      params: params || {},
+    };
+    this.process.stdin?.write(JSON.stringify(notification) + '\n');
+  }
+
   async disconnect(): Promise<void> {
     if (this.process) {
       this.process.kill();

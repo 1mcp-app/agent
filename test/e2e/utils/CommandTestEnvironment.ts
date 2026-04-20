@@ -46,10 +46,10 @@ export class CommandTestEnvironment {
    * Initialize the test environment with temporary directories and mock data
    */
   async setup(): Promise<void> {
-    // Create temporary directory under ./build/
-    const buildDir = join(process.cwd(), 'build');
-    await mkdir(buildDir, { recursive: true });
-    this.tempDir = await mkdtemp(join(buildDir, `.tmp-test-${this.config.name}-`));
+    // Create temporary directory under ./.tmp to avoid touching user-global state.
+    const sandboxRoot = join(process.cwd(), '.tmp', 'e2e');
+    await mkdir(sandboxRoot, { recursive: true });
+    this.tempDir = await mkdtemp(join(sandboxRoot, `${this.config.name}-`));
 
     // Create subdirectories
     await mkdir(join(this.tempDir, 'config'), { recursive: true });
@@ -80,7 +80,7 @@ export class CommandTestEnvironment {
    * Get environment variables that should be set for command execution
    */
   getEnvironmentVariables(): Record<string, string> {
-    const baseEnv = {
+    const baseEnv: Record<string, string> = {
       NODE_ENV: 'test',
       LOG_LEVEL: 'error', // Minimize logging during tests
       ONE_MCP_LOG_LEVEL: 'error', // Force error-level logging for 1MCP
@@ -93,6 +93,10 @@ export class CommandTestEnvironment {
       TEST_DISABLE_AUTO_DISCOVERY: 'true',
       ...this.config.envOverrides,
     };
+
+    if (this.configPath) {
+      baseEnv.ONE_MCP_CONFIG = this.configPath;
+    }
 
     return baseEnv;
   }

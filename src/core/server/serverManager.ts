@@ -146,6 +146,13 @@ export class ServerManager {
   }
 
   /**
+   * Get the instruction aggregator instance
+   */
+  public getInstructionAggregator(): InstructionAggregator | undefined {
+    return this.instructionAggregator;
+  }
+
+  /**
    * Set up context change listener for dynamic template processing
    */
   private setupContextChangeListener(): void {

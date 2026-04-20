@@ -19,6 +19,8 @@ head:
 
 > **💡 刚接触 1MCP？** 从我们的[快速入门指南](/zh/guide/quick-start)开始，5分钟即可完成设置，或继续阅读此处的详细说明。
 
+> **🤖 正在使用 Codex 或 Claude？** 优先使用 [CLI 模式](/zh/guide/integrations/cli-mode)：把 MCP 保留在 `serve` 背后，然后让 agent 逐步执行 `instructions`、`inspect`、`run`。
+
 ## 🗺️ 您的旅程概览
 
 ```mermaid
@@ -184,6 +186,25 @@ curl http://localhost:3050/health
 - **找不到配置？** → 使用绝对路径：`--config $(pwd)/.config/1mcp/mcp.json`
 
 **➡️ 下一级**：[添加身份验证和访问控制](#-第-2-级安全访问-15-分钟)
+
+### **可选：把 Agent 会话切换到 CLI 模式**
+
+如果你的客户端是自主或半自主 agent，在完成第 1 级后，用户侧推荐先执行：
+
+```bash
+1mcp cli-setup --codex
+```
+
+之后通常由 AI agent 执行 CLI 工作流：
+
+```bash
+1mcp instructions
+1mcp inspect filesystem
+1mcp inspect filesystem/read_file
+1mcp run filesystem/read_file --args '{"path":"/tmp/example.txt"}'
+```
+
+这是把 agent 从“直接挂载 MCP”迁移到 1MCP 渐进式工作流的推荐方式。你也可以手动运行这些工作流命令做测试，但它们主要是为 agent 设计的。
 
 ---
 

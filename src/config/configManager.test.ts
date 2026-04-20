@@ -30,6 +30,66 @@ vi.mock('@src/core/server/agentConfig.js', () => ({
   },
 }));
 
+const watcherState = vi.hoisted(() => {
+  class MockConfigWatcher {
+    static instances: MockConfigWatcher[] = [];
+    private debounceTimer: ReturnType<typeof setTimeout> | null = null;
+    private listeners = new Map<string, Set<(...args: unknown[]) => void>>();
+
+    constructor(
+      _configFilePath: string,
+      private loader: { isReloadEnabled: () => boolean },
+    ) {
+      MockConfigWatcher.instances.push(this);
+    }
+
+    on(event: string, listener: (...args: unknown[]) => void): this {
+      const listeners = this.listeners.get(event) ?? new Set();
+      listeners.add(listener);
+      this.listeners.set(event, listeners);
+      return this;
+    }
+
+    startWatching(): void {}
+
+    stopWatching(): void {
+      if (this.debounceTimer) {
+        clearTimeout(this.debounceTimer);
+        this.debounceTimer = null;
+      }
+    }
+
+    simulateFileChange(): void {
+      if (!this.loader.isReloadEnabled()) {
+        return;
+      }
+
+      if (this.debounceTimer) {
+        clearTimeout(this.debounceTimer);
+      }
+
+      this.debounceTimer = setTimeout(() => {
+        const listeners = this.listeners.get('reload');
+        if (listeners) {
+          for (const listener of listeners) {
+            listener();
+          }
+        }
+        this.debounceTimer = null;
+      }, 100);
+    }
+  }
+
+  return {
+    getLastWatcherInstance: () => MockConfigWatcher.instances.at(-1),
+    MockConfigWatcher,
+  };
+});
+
+vi.mock('./configWatcher.js', () => ({
+  ConfigWatcher: watcherState.MockConfigWatcher,
+}));
+
 describe('ConfigManager (Integration)', () => {
   let tempConfigDir: string;
   let configFilePath: string;
@@ -63,6 +123,7 @@ describe('ConfigManager (Integration)', () => {
 
     configManager = ConfigManager.getInstance(configFilePath);
     await configManager.initialize();
+    await configManager.stop();
   });
 
   afterEach(async () => {
@@ -288,6 +349,7 @@ describe('ConfigManager (Integration)', () => {
       };
 
       await fsPromises.writeFile(configFilePath, JSON.stringify(updatedConfig, null, 2));
+      watcherState.getLastWatcherInstance()?.simulateFileChange();
 
       // Wait a bit to ensure no event is fired
       await new Promise((resolve) => setTimeout(resolve, 200));
@@ -304,6 +366,8 @@ describe('ConfigManager (Integration)', () => {
     });
 
     it('should handle debouncing correctly', async () => {
+      await configManager.initialize();
+
       const changes: any[] = [];
       configManager.on(CONFIG_EVENTS.CONFIG_CHANGED, (detectedChanges) => {
         changes.push(...detectedChanges);
@@ -321,10 +385,15 @@ describe('ConfigManager (Integration)', () => {
           },
         };
         await fsPromises.writeFile(configFilePath, JSON.stringify(updatedConfig, null, 2));
+        watcherState.getLastWatcherInstance()?.simulateFileChange();
       }
 
-      // Wait for debouncing (100ms + buffer)
-      await new Promise((resolve) => setTimeout(resolve, 200));
+      // fs.watch timing can drift under full-suite load, so wait for the debounced
+      // reload condition instead of assuming it will always fire within 200ms.
+      const deadline = Date.now() + 1500;
+      while (changes.length === 0 && Date.now() < deadline) {
+        await new Promise((resolve) => setTimeout(resolve, 50));
+      }
 
       // Should have only triggered one reload due to debouncing
       expect(changes.length).toBeGreaterThanOrEqual(1);

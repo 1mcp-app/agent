@@ -38,6 +38,7 @@ All available command-line options and their corresponding environment variables
 | `--transport`, `-t`             | `ONE_MCP_TRANSPORT`                   | Choose transport type ("stdio", "http", or "sse")                                               |   "http"   |
 | `--config`, `-c`                | `ONE_MCP_CONFIG`                      | Use a specific config file                                                                      |            |
 | `--config-dir`, `-d`            | `ONE_MCP_CONFIG_DIR`                  | Path to the config directory (overrides default config location)                                |            |
+| `--cli-session-cache-path`      | `ONE_MCP_CLI_SESSION_CACHE_PATH`      | Path template for the `run`/`inspect` CLI session cache file, supports `{pid}`                  |            |
 | `--port`, `-P`                  | `ONE_MCP_PORT`                        | Change HTTP port                                                                                |    3050    |
 | `--host`, `-H`                  | `ONE_MCP_HOST`                        | Change HTTP host                                                                                | localhost  |
 | `--external-url`, `-u`          | `ONE_MCP_EXTERNAL_URL`                | External URL for OAuth callbacks and public URLs (e.g., https://example.com)                    |            |
@@ -83,6 +84,20 @@ Control how the agent communicates with clients and backend servers.
 - **Environment**: `ONE_MCP_TRANSPORT`
 
 **Examples:**
+
+### CLI Session Cache Path
+
+The `run` and `inspect` commands keep a lightweight session cache file outside the config directory by default.
+
+- **Default**: `${os.tmpdir()}/1mcp/.cli-session.{pid}`
+- **Environment**: `ONE_MCP_CLI_SESSION_CACHE_PATH`
+- **Placeholder**: `{pid}` resolves to the discovered `1mcp serve` process PID when available; for the built-in default path, 1MCP falls back to a stable server-specific token derived from the server URL when no PID is available
+
+Example:
+
+```bash
+ONE_MCP_CLI_SESSION_CACHE_PATH=/tmp/1mcp/.cli-session.{pid} npx -y @1mcp/agent run filesystem/read_file --args '{"path":"./README.md"}'
+```
 
 ```bash
 # HTTP transport (default)

@@ -66,6 +66,26 @@ describe('StdioProxyTransport', () => {
 
       expect(proxy).toBeDefined();
     });
+
+    it('should use provided context when passed in', () => {
+      proxy = new StdioProxyTransport({
+        serverUrl: 'http://localhost:3050/mcp',
+        context: {
+          project: { path: '/tmp/custom', name: 'custom' },
+          user: { username: 'tester' },
+          environment: { variables: { PWD: '/tmp/custom' } },
+          sessionId: 'stream-custom',
+          version: 'custom-version',
+          transport: { type: 'stdio-proxy' },
+        },
+      });
+
+      expect(proxy['context']).toMatchObject({
+        project: { path: '/tmp/custom', name: 'custom' },
+        sessionId: 'stream-custom',
+        version: 'custom-version',
+      });
+    });
   });
 
   describe('start', () => {

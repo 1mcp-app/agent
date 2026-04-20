@@ -118,6 +118,7 @@ describe('ExpressServer', () => {
     mockApp = {
       use: vi.fn(),
       set: vi.fn(),
+      post: vi.fn(),
       listen: vi.fn((port, host, callback) => {
         if (callback) callback();
       }),

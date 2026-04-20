@@ -115,7 +115,7 @@ export async function detectServer1mcpUrl(): Promise<string> {
 export async function discoverServerWithPidFile(
   configDir?: string,
   userUrl?: string,
-): Promise<{ url: string; source: 'user' | 'pidfile' | 'portscan' }> {
+): Promise<{ url: string; source: 'user' | 'pidfile' | 'portscan'; pid?: number }> {
   // 1. User override (highest priority)
   if (userUrl) {
     const normalizedUrl = userUrl.endsWith('/mcp') ? userUrl : `${userUrl}/mcp`;
@@ -123,9 +123,15 @@ export async function discoverServerWithPidFile(
   }
 
   // 2. Try PID file
-  const pidFileUrl = await detectUrlFromPidFile(configDir);
-  if (pidFileUrl) {
-    return { url: pidFileUrl, source: 'pidfile' };
+  const dir = getConfigDir(configDir);
+  const serverInfo = readPidFile(dir);
+
+  if (serverInfo) {
+    const validation = await validateServer1mcpUrl(serverInfo.url);
+    if (validation.valid) {
+      return { url: serverInfo.url, source: 'pidfile', pid: serverInfo.pid };
+    }
+    cleanupPidFile(dir);
   }
 
   // 3. Fallback to port scanning

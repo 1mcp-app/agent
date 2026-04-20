@@ -19,6 +19,7 @@ import { httpRequestLogger } from './middlewares/httpRequestLogger.js';
 import { createMcpAvailabilityMiddleware } from './middlewares/mcpAvailabilityMiddleware.js';
 import { createScopeAuthMiddleware } from './middlewares/scopeAuthMiddleware.js';
 import { setupSecurityMiddleware } from './middlewares/securityMiddleware.js';
+import { createApiRoutes, createCliTokenRoute } from './routes/apiRoutes.js';
 import createHealthRoutes from './routes/healthRoutes.js';
 import createOAuthRoutes from './routes/oauthRoutes.js';
 import { setupSseRoutes } from './routes/sseRoutes.js';
@@ -182,10 +183,30 @@ export class ExpressServer {
     // Setup health check routes (no auth required for monitoring)
     this.app.use('/health', createHealthRoutes(this.loadingManager));
 
+    // CLI token endpoint (localhost-only, no auth middleware).
+    // Reject requests with an Origin header — browsers always send it for cross-origin
+    // requests, so this prevents any web page from silently obtaining a full-scope token
+    // even though the global cors() middleware is permissive.
+    this.app.post(
+      '/api/auth/cli-token',
+      (req, res, next) => {
+        if (req.headers.origin) {
+          res.status(403).json({ error: 'Cross-origin requests are not allowed for this endpoint' });
+          return;
+        }
+        next();
+      },
+      createCliTokenRoute(this.oauthProvider),
+    );
+
+    // Setup API routes (CLI-oriented fast endpoints, auth via scopeAuthMiddleware)
+    const scopeAuthMiddleware = createScopeAuthMiddleware(this.oauthProvider);
+    const apiRouter = createApiRoutes(this.serverManager, scopeAuthMiddleware);
+    this.app.use('/api/v1', apiRouter);
+
     // Setup MCP transport routes (auth is handled per-route via scopeAuthMiddleware)
     const router = express.Router();
 
-    const scopeAuthMiddleware = createScopeAuthMiddleware(this.oauthProvider);
     const availabilityMiddleware = createMcpAvailabilityMiddleware(this.loadingManager, {
       allowPartialAvailability: true,
       includeOAuthServers: false,

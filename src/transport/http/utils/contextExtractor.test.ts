@@ -1,7 +1,7 @@
 import { Request } from 'express';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { extractContextFromMeta } from './contextExtractor.js';
+import { deriveContextSessionId, extractContextFromMeta, extractRequestContext } from './contextExtractor.js';
 
 // Mock logger to avoid console output during tests
 vi.mock('@src/logger/logger.js', () => ({
@@ -113,6 +113,46 @@ describe('contextExtractor', () => {
       expect(context).toBeNull();
     });
 
+    it('should extract context from REST body _meta field', () => {
+      mockRequest.body = {
+        tool: 'serena/find_symbol',
+        args: {},
+        _meta: {
+          context: {
+            project: {
+              path: '/Users/x/workplace/project',
+              name: 'test-project',
+              environment: 'development',
+            },
+            user: {
+              username: 'testuser',
+              home: '/Users/testuser',
+            },
+            environment: {
+              variables: {
+                PWD: '/Users/x/workplace/project',
+              },
+            },
+            version: 'run',
+            transport: {
+              type: 'run',
+            },
+          },
+        },
+      };
+
+      const context = extractContextFromMeta(mockRequest as Request);
+      expect(context).toMatchObject({
+        project: {
+          path: '/Users/x/workplace/project',
+          name: 'test-project',
+        },
+        transport: {
+          type: 'run',
+        },
+      });
+    });
+
     it('should return null when _meta.context field is missing', () => {
       mockRequest.body = {
         jsonrpc: '2.0',
@@ -151,6 +191,22 @@ describe('contextExtractor', () => {
 
       const context = extractContextFromMeta(mockRequest as Request);
       expect(context).toBeNull();
+    });
+
+    it('should reject null nested context objects', () => {
+      mockRequest.body = {
+        params: {
+          _meta: {
+            context: {
+              project: null,
+              user: { username: 'testuser' },
+              environment: { variables: {} },
+            },
+          },
+        },
+      };
+
+      expect(extractContextFromMeta(mockRequest as Request)).toBeNull();
     });
 
     it('should preserve existing _meta fields when extracting context', () => {
@@ -217,6 +273,76 @@ describe('contextExtractor', () => {
 
       const context = extractContextFromMeta(mockRequest as Request);
       expect(context).toBeNull();
+    });
+
+    it('should extract context from query string when body has none', () => {
+      mockRequest.query = {
+        context: Buffer.from(
+          JSON.stringify({
+            project: {
+              path: '/Users/x/workplace/project',
+              name: 'test-project',
+            },
+            user: {
+              username: 'testuser',
+            },
+            environment: {
+              variables: {
+                PWD: '/Users/x/workplace/project',
+              },
+            },
+            version: 'inspect',
+            transport: {
+              type: 'inspect',
+            },
+          }),
+          'utf8',
+        ).toString('base64url'),
+      };
+
+      const context = extractRequestContext(mockRequest as Request);
+      expect(context).toMatchObject({
+        project: {
+          path: '/Users/x/workplace/project',
+          name: 'test-project',
+        },
+        transport: {
+          type: 'inspect',
+        },
+      });
+    });
+  });
+
+  describe('deriveContextSessionId', () => {
+    it('is stable across object key ordering and volatile transport fields', () => {
+      const first = deriveContextSessionId({
+        project: { name: 'demo', path: '/tmp/demo' },
+        user: { username: 'alice' },
+        environment: { variables: { B: '2', A: '1' } },
+        transport: {
+          type: 'http',
+          url: 'http://localhost:3050/mcp',
+          connectionTimestamp: '2026-04-20T10:00:00Z',
+          connectionId: 'conn-1',
+          client: { version: '1.0.0', name: 'codex', title: 'Codex' },
+        },
+      });
+
+      const second = deriveContextSessionId({
+        project: { path: '/tmp/demo', name: 'demo' },
+        user: { username: 'alice' },
+        environment: { variables: { A: '1', B: '2' } },
+        transport: {
+          type: 'http',
+          url: 'http://localhost:3050/mcp',
+          connectionTimestamp: '2026-04-20T11:00:00Z',
+          connectionId: 'conn-2',
+          client: { title: 'Codex', name: 'codex', version: '1.0.0' },
+        },
+      });
+
+      expect(first).toBe(second);
+      expect(first).toMatch(/^rest-/);
     });
   });
 });

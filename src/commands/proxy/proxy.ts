@@ -1,7 +1,8 @@
-import { loadProjectConfig, normalizeTags } from '@src/config/projectConfigLoader.js';
+import { buildCliContext, generateStreamableSessionId } from '@src/commands/shared/cliContext.js';
+import { resolveServeTarget } from '@src/commands/shared/serveTargetResolver.js';
+import { MCP_SERVER_VERSION } from '@src/constants/mcp.js';
 import logger from '@src/logger/logger.js';
 import { StdioProxyTransport } from '@src/transport/stdioProxyTransport.js';
-import { discoverServerWithPidFile, validateServer1mcpUrl } from '@src/utils/validation/urlDetection.js';
 
 import { ProxyOptions } from './index.js';
 
@@ -10,37 +11,22 @@ import { ProxyOptions } from './index.js';
  */
 export async function proxyCommand(options: ProxyOptions): Promise<void> {
   try {
-    // Load project configuration from .1mcprc (if exists)
-    const projectConfig = await loadProjectConfig();
-
-    // Merge configuration with priority: CLI options > .1mcprc > defaults
-    const preset = options.preset || projectConfig?.preset;
-    const filter = options.filter || projectConfig?.filter;
-    const tags = options.tags || normalizeTags(projectConfig?.tags);
+    const { cwd, projectConfig, projectRoot, mergedOptions, discoveredUrl, source } = await resolveServeTarget(options);
 
     // Auto-discover server URL
     logger.info('🔍 Discovering running 1MCP server...');
 
-    const { url: serverUrl, source } = await discoverServerWithPidFile(options['config-dir'], options.url);
-
     // Log discovery source
     switch (source) {
       case 'user':
-        logger.info(`📍 Using user-provided URL: ${serverUrl}`);
+        logger.info(`📍 Using user-provided URL: ${discoveredUrl}`);
         break;
       case 'pidfile':
-        logger.info(`✅ Found server via PID file: ${serverUrl}`);
+        logger.info(`✅ Found server via PID file: ${discoveredUrl}`);
         break;
       case 'portscan':
-        logger.info(`✅ Found server via port scan: ${serverUrl}`);
+        logger.info(`✅ Found server via port scan: ${discoveredUrl}`);
         break;
-    }
-
-    // Validate server connectivity
-    const validation = await validateServer1mcpUrl(serverUrl);
-    if (!validation.valid) {
-      logger.error(`❌ Cannot connect to 1MCP server: ${validation.error}`);
-      process.exit(1);
     }
 
     // Apply priority logic: preset > filter > tags (only one will be used)
@@ -48,31 +34,38 @@ export async function proxyCommand(options: ProxyOptions): Promise<void> {
     let finalFilter: string | undefined;
     let finalTags: string[] | undefined;
 
-    if (preset) {
-      finalPreset = preset;
-      logger.info(`📦 Using preset: ${preset}`);
-    } else if (filter) {
-      finalFilter = filter;
-      logger.info(`🔍 Using filter: ${filter}`);
-    } else if (tags && tags.length > 0) {
-      finalTags = tags;
-      logger.info(`🏷️  Using tags: ${tags.join(', ')}`);
+    if (mergedOptions.preset) {
+      finalPreset = mergedOptions.preset;
+      logger.info(`📦 Using preset: ${mergedOptions.preset}`);
+    } else if (mergedOptions.filter) {
+      finalFilter = mergedOptions.filter;
+      logger.info(`🔍 Using filter: ${mergedOptions.filter}`);
+    } else if (mergedOptions.tags && mergedOptions.tags.length > 0) {
+      finalTags = mergedOptions.tags;
+      logger.info(`🏷️  Using tags: ${mergedOptions.tags.join(', ')}`);
     }
 
     // Create and start proxy transport
     logger.info('📡 Starting STDIO proxy...');
 
     const proxyTransport = new StdioProxyTransport({
-      serverUrl,
+      serverUrl: discoveredUrl,
       preset: finalPreset,
       filter: finalFilter,
       tags: finalTags,
-      projectConfig: projectConfig || undefined, // Pass project config for context enrichment
+      context: buildCliContext({
+        cwd,
+        projectConfig,
+        projectRoot,
+        transportType: 'stdio-proxy',
+        version: MCP_SERVER_VERSION,
+        sessionId: generateStreamableSessionId(),
+      }),
     });
 
     await proxyTransport.start();
 
-    logger.info(`📡 STDIO proxy running, forwarding to ${serverUrl}`);
+    logger.info(`📡 STDIO proxy running, forwarding to ${discoveredUrl}`);
 
     // Set up graceful shutdown
     const shutdown = async () => {

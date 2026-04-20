@@ -9,6 +9,7 @@ export interface CommandExecutionOptions {
   input?: string;
   args?: string[];
   cwd?: string;
+  envOverrides?: Record<string, string>;
 }
 
 export interface CommandResult {
@@ -122,6 +123,40 @@ export class CliTestRunner {
   }
 
   /**
+   * Execute the run command for MCP tool invocation
+   */
+  async runRunCommand(tool: string, options: CommandExecutionOptions = {}): Promise<CommandResult> {
+    const args = ['run', tool];
+
+    if (options.args) {
+      args.push(...options.args);
+    }
+
+    if (!args.includes('--config-dir') && !args.includes('-d')) {
+      args.push('--config-dir', this.environment.getConfigDir());
+    }
+
+    return this.executeCommand(args, options);
+  }
+
+  /**
+   * Execute the inspect command for MCP tool schema discovery
+   */
+  async runInspectCommand(tool: string, options: CommandExecutionOptions = {}): Promise<CommandResult> {
+    const args = ['inspect', tool];
+
+    if (options.args) {
+      args.push(...options.args);
+    }
+
+    if (!args.includes('--config-dir') && !args.includes('-d')) {
+      args.push('--config-dir', this.environment.getConfigDir());
+    }
+
+    return this.executeCommand(args, options);
+  }
+
+  /**
    * Execute the serve command for testing server startup
    */
   async runServeCommand(options: CommandExecutionOptions = {}): Promise<CommandResult> {
@@ -164,6 +199,7 @@ export class CliTestRunner {
       const env = {
         ...process.env,
         ...this.environment.getEnvironmentVariables(),
+        ...options.envOverrides,
       };
 
       const child = spawn('node', [this.cliPath, ...args], {

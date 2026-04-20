@@ -11,6 +11,19 @@ head:
 
 > **🔧 开发者友好**：干净的 API、标准合规性和工具，实现无缝集成和开发
 
+## 面向 Agent 的 CLI 模式
+
+1MCP 同时支持两种对外形态：
+
+- 面向 MCP 原生客户端的 HTTP MCP 接口
+- 面向 agent 会话的 CLI 模式
+
+对于 Codex、Claude 这类 agent loop，推荐优先使用 CLI 模式，因为它从一个紧凑的清单开始，并且一次只暴露一个 server 或一个 tool 的 schema。
+
+完整概念说明请参阅：
+
+- [CLI 模式](/zh/guide/integrations/cli-mode)
+
 ## 🔌 RESTful API 与标准合规
 
 **功能描述**：干净的 REST API，完全兼容 MCP 协议
@@ -100,6 +113,41 @@ npx -y @1mcp/agent --config staging.json --port 3052
 
 ---
 
+## 🤖 面向 Agent 会话的 CLI 工作流
+
+**功能描述**：为 AI agent 和终端驱动的工具调用提供统一 CLI 工作流，并通过运行中的 `1mcp serve` 实例执行
+**适用场景**：让 agent 在调用工具前先发现当前服务器和工具 schema，而不是靠猜测
+**优势特点**：`instructions` 提供 playbook，`inspect` 暴露 schema，`run` 执行工具调用
+
+**推荐流程**：
+
+```bash
+# 终端 1
+1mcp serve
+
+# 终端 2
+1mcp instructions
+1mcp inspect context7
+1mcp inspect context7/get-library-docs
+1mcp run context7/get-library-docs --args '{"context7CompatibleLibraryID":"/mongodb/docs","topic":"aggregation pipeline"}'
+```
+
+**引导安装方式**：
+
+```bash
+# 安装 Codex 引导文档和 hooks
+1mcp cli-setup --codex
+
+# 安装 repo-local Claude 引导文档和 hooks
+1mcp cli-setup --claude --scope repo --repo-root .
+```
+
+**⏱️ 设置时间**：如果 `serve` 已在运行，可立即使用
+**🎯 适用场景**：agent 会话、工具发现、脚本化 MCP 工具调用
+**✅ 获得收益**：可重复的工具发现、schema 优先的执行方式、适合脚本的 CLI 输出
+
+---
+
 ## 开发工作流
 
 ### 集成测试
@@ -163,6 +211,7 @@ npx -y @1mcp/agent --config staging.json --port 3052
 - **身份验证设置** → [身份验证指南](/guide/advanced/authentication)
 - **配置参考** → [配置指南](/guide/essentials/configuration)
 - **API 文档** → [API 参考](/reference/health-check)
+- **CLI 工作流命令** → [instructions](/zh/commands/instructions.md)、[inspect](/zh/commands/inspect.md)、[run](/zh/commands/run.md)、[cli-setup](/zh/commands/cli-setup.md)
 
 ---
 

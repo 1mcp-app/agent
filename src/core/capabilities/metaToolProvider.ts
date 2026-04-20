@@ -109,8 +109,10 @@ export class MetaToolProvider {
    * @param cleanServerName - The clean server name (without hash suffix)
    * @returns The actual connection key, or the original name if not found
    */
-  private resolveConnectionKey(cleanServerName: string): string {
-    const result = this.connectionResolver.findByServerName(cleanServerName);
+  private resolveConnectionKey(cleanServerName: string, sessionId?: string): string {
+    const result =
+      this.connectionResolver.resolveWithKey(cleanServerName, sessionId) ??
+      this.connectionResolver.findByServerName(cleanServerName);
     return result?.key ?? cleanServerName;
   }
 
@@ -125,10 +127,11 @@ export class MetaToolProvider {
   /**
    * Get the current tool registry, optionally filtered by allowed servers
    */
-  private toolRegistry(): ToolRegistry {
+  private toolRegistry(allowedServers?: Set<string>): ToolRegistry {
     const registry = this.getToolRegistry();
-    if (this.allowedServers !== undefined) {
-      return registry.filterByServers(this.allowedServers);
+    const effectiveAllowedServers = allowedServers ?? this.allowedServers;
+    if (effectiveAllowedServers !== undefined) {
+      return registry.filterByServers(effectiveAllowedServers);
     }
     return registry;
   }
@@ -146,6 +149,8 @@ export class MetaToolProvider {
   public async callMetaTool(
     name: string,
     args: unknown,
+    sessionId?: string,
+    allowedServers?: Set<string>,
   ): Promise<ListToolsResult | DescribeToolResult | CallToolResult> {
     switch (name) {
       case 'tool_list': {
@@ -162,7 +167,7 @@ export class MetaToolProvider {
             },
           } as ListToolsResult;
         }
-        return this.listAvailableTools(parsed.data);
+        return this.listAvailableTools(parsed.data, allowedServers);
       }
       case 'tool_schema': {
         const parsed = ToolSchemaInputSchema.safeParse(args);
@@ -175,7 +180,7 @@ export class MetaToolProvider {
             },
           } as DescribeToolResult;
         }
-        return this.describeTool(parsed.data);
+        return this.describeTool(parsed.data, sessionId, allowedServers);
       }
       case 'tool_invoke': {
         const parsed = ToolInvokeInputSchema.safeParse(args);
@@ -190,7 +195,7 @@ export class MetaToolProvider {
             },
           } as CallToolResult;
         }
-        return this.callTool(parsed.data);
+        return this.callTool(parsed.data, sessionId, allowedServers);
       }
       default:
         return {
@@ -221,9 +226,12 @@ export class MetaToolProvider {
   /**
    * Implement tool_list
    */
-  private async listAvailableTools(args: ListAvailableToolsArgs): Promise<ListToolsResult> {
+  private async listAvailableTools(
+    args: ListAvailableToolsArgs,
+    allowedServers?: Set<string>,
+  ): Promise<ListToolsResult> {
     try {
-      const registry = this.toolRegistry();
+      const registry = this.toolRegistry(allowedServers);
       const result = registry.listTools(args);
 
       // Format tools for response
@@ -282,7 +290,11 @@ export class MetaToolProvider {
   /**
    * Implement tool_schema
    */
-  private async describeTool(args: DescribeToolArgs): Promise<DescribeToolResult> {
+  private async describeTool(
+    args: DescribeToolArgs,
+    sessionId?: string,
+    allowedServers?: Set<string>,
+  ): Promise<DescribeToolResult> {
     try {
       // Validate arguments
       if (!args.server || !args.toolName) {
@@ -296,7 +308,7 @@ export class MetaToolProvider {
       }
 
       // Check if tool exists in registry
-      if (!this.toolRegistry().hasTool(args.server, args.toolName)) {
+      if (!this.toolRegistry(allowedServers).hasTool(args.server, args.toolName)) {
         return {
           schema: {},
           error: {
@@ -306,8 +318,10 @@ export class MetaToolProvider {
         };
       }
 
+      const connectionKey = this.resolveConnectionKey(args.server, sessionId);
+
       // Try to get from cache first
-      const cached = this.schemaCache.getIfCached(args.server, args.toolName);
+      const cached = this.schemaCache.getIfCached(connectionKey, args.toolName);
       if (cached) {
         debugIf(() => ({ message: `Cache hit for tool schema: ${args.server}:${args.toolName}` }));
         return {
@@ -321,13 +335,11 @@ export class MetaToolProvider {
         try {
           debugIf(() => ({ message: `Loading schema from server: ${args.server}:${args.toolName}` }));
 
-          // Resolve the clean server name to the actual connection key
-          const connectionKey = this.resolveConnectionKey(args.server);
           const tool = await this.loadSchema(connectionKey, args.toolName);
 
           // Cache the loaded schema
-          await this.schemaCache.preload([{ server: args.server, toolName: args.toolName }], async (s, t) => {
-            if (s === args.server && t === args.toolName) {
+          await this.schemaCache.preload([{ server: connectionKey, toolName: args.toolName }], async (s, t) => {
+            if (s === connectionKey && t === args.toolName) {
               return tool;
             }
             throw new Error('Unexpected preload request');
@@ -389,7 +401,11 @@ export class MetaToolProvider {
   /**
    * Implement tool_invoke
    */
-  private async callTool(args: CallToolArgs): Promise<CallToolResult> {
+  private async callTool(
+    args: CallToolArgs,
+    sessionId?: string,
+    allowedServers?: Set<string>,
+  ): Promise<CallToolResult> {
     try {
       // Validate arguments
       if (!args.server || !args.toolName) {
@@ -405,7 +421,7 @@ export class MetaToolProvider {
       }
 
       // Check if tool exists
-      if (!this.toolRegistry().hasTool(args.server, args.toolName)) {
+      if (!this.toolRegistry(allowedServers).hasTool(args.server, args.toolName)) {
         return {
           result: {},
           server: args.server,
@@ -418,7 +434,7 @@ export class MetaToolProvider {
       }
 
       // Get connection - resolve clean server name to actual connection key
-      const connectionKey = this.resolveConnectionKey(args.server);
+      const connectionKey = this.resolveConnectionKey(args.server, sessionId);
       const connection = this.outboundConnections.get(connectionKey);
       if (!connection || !connection.client) {
         return {

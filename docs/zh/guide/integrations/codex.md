@@ -2,6 +2,26 @@
 
 本指南介绍如何将 1MCP 与 Codex 集成，实现高级 MCP 服务器管理、项目特定配置和可流式传输的 HTTP 传输能力。
 
+## CLI 模式优先
+
+对于 Codex 会话，推荐的 1MCP 工作流是 CLI 模式：
+
+- 把你的 MCP 服务器放在 `1mcp serve` 背后
+- 为这套工作流移除 Codex 现有的直接 MCP server 配置
+- 用 `1mcp cli-setup --codex` 为 Codex 做引导
+- 让 Codex 按 `instructions`、`inspect`、`run` 的顺序渐进式工作
+
+这是面向 agent 的推荐路径，因为它能减少 agent loop 中不必要的工具和 schema 上下文，同时不改变 1MCP 聚合的 MCP 后端。
+
+概念背景请参阅 [CLI 模式](/zh/guide/integrations/cli-mode)。
+
+对于 Codex，只能选择一种模式：
+
+- 直接 MCP 模式
+- CLI 模式
+
+不要在同一套 Codex 配置里同时保留两者。如果选择 CLI 模式，先移除直接 MCP server 条目。
+
 ## 概述
 
 ### Codex 版本兼容性
@@ -144,6 +164,16 @@ Codex 将其配置存储在：
 mkdir -p ~/.codex  # Linux/macOS
 ```
 
+### 推荐使用 `cli-setup` 做引导
+
+如果你希望 Codex 会话在启动时就带上 1MCP 引导文档和 hooks，执行：
+
+```bash
+1mcp cli-setup --codex
+```
+
+该命令会写入受管理的 `1MCP.md` 引导文档，更新 Codex hook 配置，并输出启用 Codex hooks 和正确沙箱设置所需的 `config.toml` 片段。
+
 ### 已知问题
 
 > **⚠️ 重要**：Codex 0.44.0 的 HTTP 传输支持是实验性的。如果直接 HTTP 连接遇到问题，请改用 1MCP 代理方法。详情请参见[故障排除](#故障排除)。
@@ -176,6 +206,23 @@ mkdir -p ~/.codex  # Linux/macOS
 ```
 
 > **注意**：如果你没有全局安装，请使用 `npx -y @1mcp/agent` 代替 `1mcp`
+
+### 1.5 为 CLI 工作流引导 Codex
+
+在 Codex 使用 1MCP 的机器上先执行一次：
+
+```bash
+1mcp cli-setup --codex
+```
+
+安装后的引导文件会告诉 Codex 会话按如下顺序工作：
+
+```bash
+1mcp instructions
+1mcp inspect <server>
+1mcp inspect <server>/<tool>
+1mcp run <server>/<tool> --args '<json>'
+```
 
 ### 2. 创建项目配置
 
@@ -225,6 +272,17 @@ codex
 ```bash
 # 在 Codex 中测试
 /mcp
+```
+
+### 7. 在 Codex 会话中使用 1MCP CLI 工作流
+
+Codex 连接成功后，推荐按以下顺序使用 1MCP：
+
+```bash
+1mcp instructions
+1mcp inspect filesystem
+1mcp inspect filesystem/read_file
+1mcp run filesystem/read_file --args '{"path":"./README.md"}'
 ```
 
 ## 架构
@@ -536,6 +594,10 @@ echo '{"preset": "data-science"}' > .1mcprc
 - [Claude Desktop 集成](./claude-desktop.md)
 - [配置指南](../essentials/configuration.md)
 - [安全最佳实践](../../reference/security.md)
+- [CLI Setup 命令](../../commands/cli-setup.md)
+- [Instructions 命令](../../commands/instructions.md)
+- [Inspect 命令](../../commands/inspect.md)
+- [Run 命令](../../commands/run.md)
 
 ## 另请参见
 
@@ -544,3 +606,7 @@ echo '{"preset": "data-science"}' > .1mcprc
 - **[配置指南](../essentials/configuration.md)** - 高级配置选项
 - **[预设命令](../../commands/preset/)** - 预设管理命令
 - **[MCP 命令](../../commands/mcp/)** - MCP 服务器管理
+- **[CLI Setup 命令](../../commands/cli-setup.md)** - 安装 Codex 引导文档和 hooks
+- **[Instructions 命令](../../commands/instructions.md)** - 以当前服务器指导信息启动 CLI 工作流
+- **[Inspect 命令](../../commands/inspect.md)** - 调用前发现工具并查看 schema
+- **[Run 命令](../../commands/run.md)** - 通过运行中的 1MCP 实例调用工具

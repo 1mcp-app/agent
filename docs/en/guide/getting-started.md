@@ -25,6 +25,8 @@ head:
 
 > **💡 New to 1MCP?** Start with our [quick start guide](/guide/quick-start) for a 5-minute setup, or continue here for comprehensive instructions.
 
+> **🤖 Using Codex or Claude?** Prefer [CLI Mode](/guide/integrations/cli-mode): keep MCP behind `serve`, then let the agent use `instructions`, `inspect`, and `run` progressively.
+
 ## 🗺️ Your Journey Overview
 
 ```mermaid
@@ -202,6 +204,25 @@ curl http://localhost:3050/health
 - **Config not found?** → Use absolute path: `--config $(pwd)/.config/1mcp/mcp.json`
 
 **➡️ Next Level**: [Add authentication and access control](#-level-2-secure-access-15-minutes)
+
+### **Optional: Switch Agent Sessions to CLI Mode**
+
+If your client is an autonomous or semi-autonomous agent, the user-facing setup step after Level 1 is:
+
+```bash
+1mcp cli-setup --codex
+```
+
+After that, the AI agent will normally use the CLI workflow:
+
+```bash
+1mcp instructions
+1mcp inspect filesystem
+1mcp inspect filesystem/read_file
+1mcp run filesystem/read_file --args '{"path":"/tmp/example.txt"}'
+```
+
+This is the recommended way to migrate from direct MCP attachment inside an agent loop to 1MCP's progressive-disclosure flow. You can run those workflow commands manually for testing, but they are primarily designed for the agent.
 
 ---
 
