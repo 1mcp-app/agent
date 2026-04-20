@@ -541,7 +541,7 @@ export class LazyLoadingOrchestrator extends EventEmitter {
       this.metaToolProvider.setAllowedServers(undefined);
     }
 
-    return this.metaToolProvider.callMetaTool(name, args);
+    return this.metaToolProvider.callMetaTool(name, args, sessionId);
   }
 
   /**

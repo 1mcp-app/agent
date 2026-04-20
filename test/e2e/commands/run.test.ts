@@ -220,6 +220,7 @@ describeRunE2E('run command E2E', () => {
 
     const inspectResult = await runner.runInspectCommand('serena', {
       cwd: environment.getTempDir(),
+      timeout: 20000,
       args: getCliSessionCacheArgs(),
     });
     runner.assertSuccess(inspectResult);
@@ -228,6 +229,7 @@ describeRunE2E('run command E2E', () => {
 
     const runResult = await runner.runRunCommand('serena/find_symbol', {
       cwd: environment.getTempDir(),
+      timeout: 20000,
       args: [...getCliSessionCacheArgs(), '--args', '{"name_path_pattern":"TestSymbol"}', '--format', 'text'],
     });
 

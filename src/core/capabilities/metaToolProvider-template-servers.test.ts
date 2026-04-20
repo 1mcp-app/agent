@@ -241,6 +241,88 @@ describe('MetaToolProvider - Template Server Support', () => {
       expect((result as any).server).toBe('static-server');
       expect((result as any).tool).toBe('static_tool');
     });
+
+    it('should prefer the session-specific template connection when multiple instances exist', async () => {
+      const sessionScopedClient = {
+        callTool: vi.fn().mockResolvedValue({
+          content: [{ type: 'text', text: 'session-specific result' }],
+        }),
+        listTools: vi.fn().mockResolvedValue({
+          tools: [
+            {
+              name: 'template_tool',
+              description: 'A tool from the session server',
+              inputSchema: { type: 'object', properties: {} },
+            },
+          ],
+        }),
+      } as unknown as Client;
+
+      const globalClient = {
+        callTool: vi.fn().mockResolvedValue({
+          content: [{ type: 'text', text: 'wrong global result' }],
+        }),
+        listTools: vi.fn().mockResolvedValue({
+          tools: [
+            {
+              name: 'template_tool',
+              description: 'A tool from the global server',
+              inputSchema: { type: 'object', properties: {} },
+            },
+          ],
+        }),
+      } as unknown as Client;
+
+      const multiConnections: OutboundConnections = new Map([
+        [
+          'template-server:session-123',
+          {
+            name: 'template-server',
+            client: sessionScopedClient,
+            status: ClientStatus.Connected,
+            capabilities: { tools: {} },
+            transport: 'stdio' as any,
+          },
+        ],
+        [
+          'template-server:abc123',
+          {
+            name: 'template-server',
+            client: globalClient,
+            status: ClientStatus.Connected,
+            capabilities: { tools: {} },
+            transport: 'stdio' as any,
+          },
+        ],
+      ]);
+
+      const sessionAwareProvider = new MetaToolProvider(
+        () => toolRegistry,
+        schemaCache,
+        multiConnections,
+        undefined,
+        undefined,
+        {
+          getRenderedHashForSession: vi.fn(() => 'abc123'),
+          getAllRenderedHashesForSession: vi.fn(() => new Map([['template-server', 'abc123']])),
+        },
+      );
+
+      const result = await sessionAwareProvider.callMetaTool(
+        'tool_invoke',
+        {
+          server: 'template-server',
+          toolName: 'template_tool',
+          args: { message: 'test' },
+        },
+        'session-123',
+      );
+
+      expect((result as any).error).toBeUndefined();
+      expect(sessionScopedClient.callTool).toHaveBeenCalledOnce();
+      expect(globalClient.callTool).not.toHaveBeenCalled();
+      expect((result as any).result.content[0].text).toBe('session-specific result');
+    });
   });
 
   describe('Connection key resolution strategy', () => {

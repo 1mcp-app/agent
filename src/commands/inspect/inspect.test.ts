@@ -3,9 +3,11 @@ import { join } from 'node:path';
 
 import type { Tool } from '@modelcontextprotocol/sdk/types.js';
 
+import { buildCliContext } from '@src/commands/shared/cliContext.js';
 import {
   buildServerUrl,
   getCliSessionCachePath,
+  getCliSessionContextHash,
   readCliSessionCache,
   SESSION_CACHE_TTL_MS,
   writeCliSessionCache,
@@ -48,6 +50,22 @@ const mockedValidateServer1mcpUrl = vi.hoisted(() => vi.fn());
 const mockedLoadProjectConfig = vi.hoisted(() => vi.fn());
 const mockedLoadAuthProfile = vi.hoisted(() => vi.fn());
 const mockedStdoutWrite = vi.hoisted(() => vi.fn());
+
+function makeInspectContextHash(projectPath: string): string {
+  const originalCwd = process.cwd;
+  process.cwd = () => projectPath;
+
+  try {
+    return getCliSessionContextHash(
+      buildCliContext({
+        transportType: 'inspect',
+        version: 'inspect',
+      }),
+    );
+  } finally {
+    process.cwd = originalCwd;
+  }
+}
 
 vi.mock('@src/commands/shared/apiClient.js', () => ({
   ApiClient: vi.fn().mockImplementation(() => ({
@@ -303,11 +321,16 @@ describe('inspect command internals', () => {
       await writeCliSessionCache(cachePath, {
         sessionId: 'session-1',
         serverUrl: 'http://127.0.0.1:3050/mcp?preset=dev',
+        contextHash: makeInspectContextHash('/tmp/agent'),
         savedAt: Date.now(),
       });
 
       expect(await readdir(cacheDir)).toEqual(['.cli-session.4242']);
-      const cache = await readCliSessionCache(cachePath, 'http://127.0.0.1:3050/mcp?preset=dev');
+      const cache = await readCliSessionCache(
+        cachePath,
+        'http://127.0.0.1:3050/mcp?preset=dev',
+        makeInspectContextHash('/tmp/agent'),
+      );
       expect(cache?.sessionId).toBe('session-1');
     });
 
@@ -320,10 +343,15 @@ describe('inspect command internals', () => {
       await writeCliSessionCache(cachePath, {
         sessionId: 'session-1',
         serverUrl: 'http://127.0.0.1:3050/mcp',
+        contextHash: makeInspectContextHash('/tmp/agent'),
         savedAt: Date.now() - SESSION_CACHE_TTL_MS - 1,
       });
 
-      const cache = await readCliSessionCache(cachePath, 'http://127.0.0.1:3050/mcp');
+      const cache = await readCliSessionCache(
+        cachePath,
+        'http://127.0.0.1:3050/mcp',
+        makeInspectContextHash('/tmp/agent'),
+      );
       expect(cache).toBeNull();
     });
   });
@@ -356,6 +384,7 @@ describe('inspect command internals', () => {
     await writeCliSessionCache(cachePath, {
       sessionId: 'cached-session',
       serverUrl: 'http://127.0.0.1:3050/mcp',
+      contextHash: makeInspectContextHash(process.cwd()),
       savedAt: Date.now(),
     });
 
@@ -534,6 +563,7 @@ describe('inspect command internals', () => {
     await writeCliSessionCache(cachePath, {
       sessionId: 'cached-session',
       serverUrl: 'http://127.0.0.1:3050/mcp',
+      contextHash: makeInspectContextHash(process.cwd()),
       savedAt: Date.now(),
     });
 

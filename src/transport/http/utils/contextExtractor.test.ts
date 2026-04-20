@@ -1,7 +1,7 @@
 import { Request } from 'express';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { extractContextFromMeta } from './contextExtractor.js';
+import { extractContextFromMeta, extractRequestContext } from './contextExtractor.js';
 
 // Mock logger to avoid console output during tests
 vi.mock('@src/logger/logger.js', () => ({
@@ -113,6 +113,46 @@ describe('contextExtractor', () => {
       expect(context).toBeNull();
     });
 
+    it('should extract context from REST body _meta field', () => {
+      mockRequest.body = {
+        tool: 'serena/find_symbol',
+        args: {},
+        _meta: {
+          context: {
+            project: {
+              path: '/Users/x/workplace/project',
+              name: 'test-project',
+              environment: 'development',
+            },
+            user: {
+              username: 'testuser',
+              home: '/Users/testuser',
+            },
+            environment: {
+              variables: {
+                PWD: '/Users/x/workplace/project',
+              },
+            },
+            version: 'run',
+            transport: {
+              type: 'run',
+            },
+          },
+        },
+      };
+
+      const context = extractContextFromMeta(mockRequest as Request);
+      expect(context).toMatchObject({
+        project: {
+          path: '/Users/x/workplace/project',
+          name: 'test-project',
+        },
+        transport: {
+          type: 'run',
+        },
+      });
+    });
+
     it('should return null when _meta.context field is missing', () => {
       mockRequest.body = {
         jsonrpc: '2.0',
@@ -217,6 +257,43 @@ describe('contextExtractor', () => {
 
       const context = extractContextFromMeta(mockRequest as Request);
       expect(context).toBeNull();
+    });
+
+    it('should extract context from query string when body has none', () => {
+      mockRequest.query = {
+        context: Buffer.from(
+          JSON.stringify({
+            project: {
+              path: '/Users/x/workplace/project',
+              name: 'test-project',
+            },
+            user: {
+              username: 'testuser',
+            },
+            environment: {
+              variables: {
+                PWD: '/Users/x/workplace/project',
+              },
+            },
+            version: 'inspect',
+            transport: {
+              type: 'inspect',
+            },
+          }),
+          'utf8',
+        ).toString('base64url'),
+      };
+
+      const context = extractRequestContext(mockRequest as Request);
+      expect(context).toMatchObject({
+        project: {
+          path: '/Users/x/workplace/project',
+          name: 'test-project',
+        },
+        transport: {
+          type: 'inspect',
+        },
+      });
     });
   });
 });

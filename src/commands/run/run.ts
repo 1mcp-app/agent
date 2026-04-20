@@ -19,6 +19,7 @@ import { buildCliContext } from '@src/commands/shared/cliContext.js';
 import {
   deleteCliSessionCache,
   getCliSessionCachePath,
+  getCliSessionContextHash,
   type JsonRpcErrorEnvelope,
   type JsonRpcResponse,
   readCliSessionCache,
@@ -58,6 +59,7 @@ export {
   buildServerUrl,
   deleteCliSessionCache,
   getCliSessionCachePath,
+  getCliSessionContextHash,
   readCliSessionCache,
   SESSION_CACHE_TTL_MS,
   writeCliSessionCache,
@@ -71,15 +73,26 @@ export async function runCommand(options: RunCommandOptions): Promise<void> {
     resolveServeTarget(options),
     readStdin(),
   ]);
+  const runContext = buildCliContext({
+    projectConfig,
+    transportType: 'run',
+    version: 'run',
+  });
+  const contextHash = getCliSessionContextHash(runContext);
   const cachePath = getCliSessionCachePath({
     cachePathTemplate: options['cli-session-cache-path'],
     serverPid,
     serverUrl: serverUrl.toString(),
   });
-  const cachedSession = await readCliSessionCache(cachePath, serverUrl.toString());
+  const cachedSession = await readCliSessionCache(cachePath, serverUrl.toString(), contextHash);
   const baseUrl = stripMcpSuffix(discoveredUrl);
   const authProfile = await loadAuthProfile(options['config-dir'], normalizeServerUrl(baseUrl));
-  const apiClient = new ApiClient({ baseUrl, bearerToken: authProfile?.token });
+  const apiClient = new ApiClient({
+    baseUrl,
+    bearerToken: authProfile?.token,
+    sessionId: cachedSession?.sessionId,
+    context: runContext,
+  });
   let cachedRestEndpointSupport = cachedSession?.hasRestEndpoint;
 
   // REST-first path: skip MCP handshake when we know the server supports it,
@@ -134,7 +147,13 @@ export async function runCommand(options: RunCommandOptions): Promise<void> {
         server: string;
         tool: string;
         error?: { type: string; message: string };
-      }>(restEndpoint, { tool: options.tool, args: resolvedArguments });
+      }>(restEndpoint, {
+        tool: options.tool,
+        args: resolvedArguments,
+        _meta: {
+          context: runContext,
+        },
+      });
 
       const shouldFallbackToMcp = shouldFallbackToMcpForRest(apiResponse.status, apiResponse.error);
       const shouldPersistRestDisabled = shouldPersistRestSupportDisabled(apiResponse.status, apiResponse.error);
@@ -143,6 +162,7 @@ export async function runCommand(options: RunCommandOptions): Promise<void> {
         await writeCliSessionCache(cachePath, {
           sessionId: apiResponse.sessionId ?? cachedSession?.sessionId ?? 'rest',
           serverUrl: serverUrl.toString(),
+          contextHash,
           savedAt: Date.now(),
           hasRestEndpoint: true,
         });
@@ -180,6 +200,7 @@ export async function runCommand(options: RunCommandOptions): Promise<void> {
         await writeCliSessionCache(cachePath, {
           sessionId: cachedSession?.sessionId ?? 'mcp',
           serverUrl: serverUrl.toString(),
+          contextHash,
           savedAt: Date.now(),
           hasRestEndpoint: false,
         });
@@ -187,12 +208,6 @@ export async function runCommand(options: RunCommandOptions): Promise<void> {
       }
     }
   }
-
-  const runContext = buildCliContext({
-    projectConfig,
-    transportType: 'run',
-    version: 'run',
-  });
 
   let response = await invokeTool({
     serverUrl,
@@ -224,6 +239,7 @@ export async function runCommand(options: RunCommandOptions): Promise<void> {
     await writeCliSessionCache(cachePath, {
       sessionId: response.sessionId,
       serverUrl: serverUrl.toString(),
+      contextHash,
       savedAt: Date.now(),
       hasRestEndpoint: cachedRestEndpointSupport,
     });
@@ -426,6 +442,12 @@ export async function invokeTool(options: {
     }
 
     throw error;
+  } finally {
+    try {
+      await client.close();
+    } catch {
+      // Best-effort cleanup for CLI run sessions.
+    }
   }
 }
 

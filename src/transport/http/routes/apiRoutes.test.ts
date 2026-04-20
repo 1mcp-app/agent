@@ -880,6 +880,43 @@ describe('apiRoutes /api/tool-invocations', () => {
     expect(res.body).toEqual(mockResult);
   });
 
+  it('passes request session id to lazy meta-tool invocation routing', async () => {
+    const mockResult = {
+      result: { content: [{ type: 'text', text: 'done' }], isError: false },
+      server: 'alpha',
+      tool: 'mytool',
+    };
+    const callMetaTool = vi.fn().mockResolvedValue(mockResult);
+    const serverManager = { getLazyLoadingOrchestrator: vi.fn(() => ({ callMetaTool })) };
+    const handler = createToolInvocationsHandler(serverManager as never);
+    const res = createMockResponse();
+
+    await invokeInspectRoute(
+      scopeAuthMiddleware,
+      {
+        headers: { 'mcp-session-id': 'rest-session-123' },
+        body: { tool: 'alpha/mytool', args: { x: 1 } },
+      },
+      res,
+    );
+    await invokeInspectRoute(
+      handler,
+      {
+        headers: { 'mcp-session-id': 'rest-session-123' },
+        body: { tool: 'alpha/mytool', args: { x: 1 } },
+      },
+      res,
+    );
+
+    expect(res.statusCode).toBe(200);
+    expect(callMetaTool).toHaveBeenCalledWith(
+      'tool_invoke',
+      { server: 'alpha', toolName: 'mytool', args: { x: 1 } },
+      'rest-session-123',
+      undefined,
+    );
+  });
+
   it('returns 200 even when result.isError is true', async () => {
     const mockResult = {
       result: { content: [{ type: 'text', text: 'err' }], isError: true },

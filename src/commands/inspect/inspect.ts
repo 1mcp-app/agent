@@ -8,6 +8,7 @@ import { buildCliContext } from '@src/commands/shared/cliContext.js';
 import {
   deleteCliSessionCache,
   getCliSessionCachePath,
+  getCliSessionContextHash,
   type JsonRpcErrorEnvelope,
   type JsonRpcResponse,
   readCliSessionCache,
@@ -164,19 +165,25 @@ export async function getInspectResult(
     serverPid,
     serverUrl: serverUrl.toString(),
   });
-
-  const [authProfile, cachedSession] = await Promise.all([
-    loadAuthProfile(mergedOptions['config-dir'], normalizeServerUrl(baseUrl)),
-    readCliSessionCache(cachePath, serverUrl.toString()),
-  ]);
   const inspectContext = buildCliContext({
     projectConfig,
     transportType: 'inspect',
     version: 'inspect',
   });
+  const contextHash = getCliSessionContextHash(inspectContext);
+
+  const [authProfile, cachedSession] = await Promise.all([
+    loadAuthProfile(mergedOptions['config-dir'], normalizeServerUrl(baseUrl)),
+    readCliSessionCache(cachePath, serverUrl.toString(), contextHash),
+  ]);
 
   // Try /api/inspect first (fast path)
-  const apiClient = new ApiClient({ baseUrl, bearerToken: authProfile?.token });
+  const apiClient = new ApiClient({
+    baseUrl,
+    bearerToken: authProfile?.token,
+    sessionId: cachedSession?.sessionId,
+    context: inspectContext,
+  });
   const query = buildInspectQuery(mergedOptions, mergedOptions.target);
   const apiResponse = await apiClient.get<unknown>(API_INSPECT_ENDPOINT, query);
 
@@ -191,6 +198,7 @@ export async function getInspectResult(
     await writeCliSessionCache(cachePath, {
       sessionId: cachedSession?.sessionId ?? '',
       serverUrl: serverUrl.toString(),
+      contextHash,
       savedAt: Date.now(),
       hasRestEndpoint: true,
     });
@@ -244,6 +252,7 @@ export async function getInspectResult(
     await writeCliSessionCache(cachePath, {
       sessionId: response.sessionId,
       serverUrl: serverUrl.toString(),
+      contextHash,
       savedAt: Date.now(),
       hasRestEndpoint: false,
     });

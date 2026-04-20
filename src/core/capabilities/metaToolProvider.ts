@@ -109,8 +109,10 @@ export class MetaToolProvider {
    * @param cleanServerName - The clean server name (without hash suffix)
    * @returns The actual connection key, or the original name if not found
    */
-  private resolveConnectionKey(cleanServerName: string): string {
-    const result = this.connectionResolver.findByServerName(cleanServerName);
+  private resolveConnectionKey(cleanServerName: string, sessionId?: string): string {
+    const result =
+      this.connectionResolver.resolveWithKey(cleanServerName, sessionId) ??
+      this.connectionResolver.findByServerName(cleanServerName);
     return result?.key ?? cleanServerName;
   }
 
@@ -146,6 +148,7 @@ export class MetaToolProvider {
   public async callMetaTool(
     name: string,
     args: unknown,
+    sessionId?: string,
   ): Promise<ListToolsResult | DescribeToolResult | CallToolResult> {
     switch (name) {
       case 'tool_list': {
@@ -175,7 +178,7 @@ export class MetaToolProvider {
             },
           } as DescribeToolResult;
         }
-        return this.describeTool(parsed.data);
+        return this.describeTool(parsed.data, sessionId);
       }
       case 'tool_invoke': {
         const parsed = ToolInvokeInputSchema.safeParse(args);
@@ -190,7 +193,7 @@ export class MetaToolProvider {
             },
           } as CallToolResult;
         }
-        return this.callTool(parsed.data);
+        return this.callTool(parsed.data, sessionId);
       }
       default:
         return {
@@ -282,7 +285,7 @@ export class MetaToolProvider {
   /**
    * Implement tool_schema
    */
-  private async describeTool(args: DescribeToolArgs): Promise<DescribeToolResult> {
+  private async describeTool(args: DescribeToolArgs, sessionId?: string): Promise<DescribeToolResult> {
     try {
       // Validate arguments
       if (!args.server || !args.toolName) {
@@ -322,7 +325,7 @@ export class MetaToolProvider {
           debugIf(() => ({ message: `Loading schema from server: ${args.server}:${args.toolName}` }));
 
           // Resolve the clean server name to the actual connection key
-          const connectionKey = this.resolveConnectionKey(args.server);
+          const connectionKey = this.resolveConnectionKey(args.server, sessionId);
           const tool = await this.loadSchema(connectionKey, args.toolName);
 
           // Cache the loaded schema
@@ -389,7 +392,7 @@ export class MetaToolProvider {
   /**
    * Implement tool_invoke
    */
-  private async callTool(args: CallToolArgs): Promise<CallToolResult> {
+  private async callTool(args: CallToolArgs, sessionId?: string): Promise<CallToolResult> {
     try {
       // Validate arguments
       if (!args.server || !args.toolName) {
@@ -418,7 +421,7 @@ export class MetaToolProvider {
       }
 
       // Get connection - resolve clean server name to actual connection key
-      const connectionKey = this.resolveConnectionKey(args.server);
+      const connectionKey = this.resolveConnectionKey(args.server, sessionId);
       const connection = this.outboundConnections.get(connectionKey);
       if (!connection || !connection.client) {
         return {

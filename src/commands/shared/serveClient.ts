@@ -45,6 +45,7 @@ export interface InitializeResult {
 export interface CliSessionCache {
   sessionId: string;
   serverUrl: string;
+  contextHash: string;
   savedAt: number;
   hasRestEndpoint?: boolean;
 }
@@ -67,6 +68,8 @@ export interface CliSessionCachePathOptions {
   serverPid?: number;
   serverUrl?: string;
 }
+
+type CacheableContextData = Omit<ContextData, 'timestamp'>;
 
 export const SESSION_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 
@@ -243,7 +246,24 @@ export function getCliSessionCachePath(options: CliSessionCachePathOptions = {})
   return resolvedTemplate.replaceAll('{pid}', pidToken);
 }
 
-export async function readCliSessionCache(cachePath: string, serverUrl: string): Promise<CliSessionCache | null> {
+export function getCliSessionContextHash(context: ContextData): string {
+  const cacheableContext: CacheableContextData = {
+    project: context.project,
+    user: context.user,
+    environment: context.environment,
+    ...(context.sessionId ? { sessionId: context.sessionId } : {}),
+    ...(context.version ? { version: context.version } : {}),
+    ...(context.transport ? { transport: context.transport } : {}),
+  };
+
+  return createHash('sha256').update(stableStringify(cacheableContext)).digest('hex');
+}
+
+export async function readCliSessionCache(
+  cachePath: string,
+  serverUrl: string,
+  contextHash: string,
+): Promise<CliSessionCache | null> {
   try {
     const raw = await readFile(cachePath, 'utf8');
     const parsed = JSON.parse(raw) as unknown;
@@ -252,6 +272,10 @@ export async function readCliSessionCache(cachePath: string, serverUrl: string):
     }
 
     if (parsed.serverUrl !== serverUrl) {
+      return null;
+    }
+
+    if (parsed.contextHash !== contextHash) {
       return null;
     }
 
@@ -284,8 +308,31 @@ function isCliSessionCache(value: unknown): value is CliSessionCache {
     typeof value.sessionId === 'string' &&
     'serverUrl' in value &&
     typeof value.serverUrl === 'string' &&
+    'contextHash' in value &&
+    typeof value.contextHash === 'string' &&
     'savedAt' in value &&
     typeof value.savedAt === 'number' &&
     Number.isFinite(value.savedAt)
   );
+}
+
+function stableStringify(value: unknown): string {
+  return JSON.stringify(sortJsonValue(value));
+}
+
+function sortJsonValue(value: unknown): unknown {
+  if (Array.isArray(value)) {
+    return value.map((item) => sortJsonValue(item));
+  }
+
+  if (value && typeof value === 'object') {
+    const sortedEntries = Object.entries(value as Record<string, unknown>)
+      .filter(([, entryValue]) => entryValue !== undefined)
+      .sort(([leftKey], [rightKey]) => leftKey.localeCompare(rightKey))
+      .map(([key, entryValue]) => [key, sortJsonValue(entryValue)] as const);
+
+    return Object.fromEntries(sortedEntries);
+  }
+
+  return value;
 }

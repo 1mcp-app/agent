@@ -37,20 +37,13 @@ export class ConnectionResolver {
     private readonly templateHashProvider?: TemplateHashProvider,
   ) {}
 
-  /**
-   * Resolve outbound connection by client name and session ID.
-   *
-   * @param clientName The client/server name
-   * @param sessionId The session ID (optional)
-   * @returns The resolved outbound connection or undefined
-   */
-  resolve(clientName: string, sessionId?: string): OutboundConnection | undefined {
+  resolveWithKey(clientName: string, sessionId?: string): { key: string; connection: OutboundConnection } | undefined {
     // Tier 1: Try session-scoped key first (for per-client template servers: name:sessionId)
     if (sessionId) {
       const sessionKey = `${clientName}:${sessionId}`;
       const conn = this.outboundConns.get(sessionKey);
       if (conn) {
-        return conn;
+        return { key: sessionKey, connection: conn };
       }
     }
 
@@ -61,13 +54,29 @@ export class ConnectionResolver {
         const hashKey = `${clientName}:${renderedHash}`;
         const conn = this.outboundConns.get(hashKey);
         if (conn) {
-          return conn;
+          return { key: hashKey, connection: conn };
         }
       }
     }
 
     // Tier 3: Fall back to direct name lookup (for static servers)
-    return this.outboundConns.get(clientName);
+    const conn = this.outboundConns.get(clientName);
+    if (conn) {
+      return { key: clientName, connection: conn };
+    }
+
+    return undefined;
+  }
+
+  /**
+   * Resolve outbound connection by client name and session ID.
+   *
+   * @param clientName The client/server name
+   * @param sessionId The session ID (optional)
+   * @returns The resolved outbound connection or undefined
+   */
+  resolve(clientName: string, sessionId?: string): OutboundConnection | undefined {
+    return this.resolveWithKey(clientName, sessionId)?.connection;
   }
 
   /**

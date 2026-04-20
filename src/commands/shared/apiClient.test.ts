@@ -1,3 +1,5 @@
+import type { ContextData } from '@src/types/context.js';
+
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { ApiClient } from './apiClient.js';
@@ -14,6 +16,27 @@ function makeResponse(status: number, body: unknown, contentType = 'application/
     json: async () => body,
   };
 }
+
+const mockContext: ContextData = {
+  project: {
+    path: '/Users/x/workplace/project',
+    name: 'project',
+    environment: 'development',
+  },
+  user: {
+    username: 'x',
+    home: '/Users/x',
+  },
+  environment: {
+    variables: {
+      PWD: '/Users/x/workplace/project',
+    },
+  },
+  version: 'inspect',
+  transport: {
+    type: 'inspect',
+  },
+};
 
 describe('ApiClient', () => {
   beforeEach(() => {
@@ -114,5 +137,18 @@ describe('ApiClient', () => {
 
     const [url] = mockFetch.mock.calls[0] as [string, RequestInit];
     expect(url).toBe('http://localhost:3050/api/inspect');
+  });
+
+  it('encodes context into GET query params instead of headers', async () => {
+    mockFetch.mockResolvedValueOnce(makeResponse(200, {}));
+
+    const client = new ApiClient({ baseUrl: 'http://localhost:3050', context: mockContext });
+    await client.get('/api/inspect', { target: 'runner' });
+
+    const [url, init] = mockFetch.mock.calls[0] as [string, RequestInit];
+    const parsed = new URL(url);
+    expect(parsed.searchParams.get('target')).toBe('runner');
+    expect(parsed.searchParams.get('context')).toBeTruthy();
+    expect((init.headers as Record<string, string>)['x-1mcp-context']).toBeUndefined();
   });
 });

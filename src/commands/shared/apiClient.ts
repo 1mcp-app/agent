@@ -1,9 +1,13 @@
 import { MCP_SERVER_VERSION } from '@src/constants.js';
+import { CONTEXT_HEADERS, encodeContextValue } from '@src/transport/http/utils/contextExtractor.js';
+import type { ContextData } from '@src/types/context.js';
 
 export interface ApiClientOptions {
   baseUrl: string;
   bearerToken?: string;
   timeout?: number;
+  sessionId?: string;
+  context?: ContextData;
 }
 
 export interface ApiResponse<T> {
@@ -18,11 +22,15 @@ export class ApiClient {
   private readonly baseUrl: string;
   private readonly bearerToken?: string;
   private readonly timeout: number;
+  private readonly sessionId?: string;
+  private readonly context?: ContextData;
 
   constructor(options: ApiClientOptions) {
     this.baseUrl = options.baseUrl.replace(/\/$/, '');
     this.bearerToken = options.bearerToken;
     this.timeout = options.timeout ?? 10_000;
+    this.sessionId = options.sessionId;
+    this.context = options.context;
   }
 
   async get<T>(path: string, query?: Record<string, string>): Promise<ApiResponse<T>> {
@@ -33,6 +41,9 @@ export class ApiClient {
           url.searchParams.set(key, value);
         }
       }
+    }
+    if (this.context) {
+      url.searchParams.set('context', encodeContextValue(this.context));
     }
     return this.request<T>(url.toString(), 'GET');
   }
@@ -53,6 +64,10 @@ export class ApiClient {
 
     if (this.bearerToken) {
       headers.Authorization = `Bearer ${this.bearerToken}`;
+    }
+
+    if (this.sessionId) {
+      headers[CONTEXT_HEADERS.SESSION_ID] = this.sessionId;
     }
 
     if (body !== undefined) {

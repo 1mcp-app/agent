@@ -5,6 +5,12 @@ import { FilteringService } from '@src/core/filtering/filteringService.js';
 import { ServerRegistry } from '@src/core/server/adapters/ServerRegistry.js';
 import { ServerManager } from '@src/core/server/serverManager.js';
 import logger from '@src/logger/logger.js';
+import {
+  CONTEXT_HEADERS,
+  deriveContextSessionId,
+  extractRequestContext,
+} from '@src/transport/http/utils/contextExtractor.js';
+import type { ContextData } from '@src/types/context.js';
 
 import { Request, RequestHandler, Response } from 'express';
 
@@ -30,6 +36,71 @@ export type { InspectServerPayload, InspectServersPayload, InspectToolPayload, S
 export { buildFilterConfig, matchesFilterConfig, parseTarget, resolveConnectionByServerName };
 
 type FilteredConnections = ReturnType<typeof FilteringService.getFilteredConnections>;
+
+async function ensureRequestContextInitialized(
+  serverManager: ServerManager,
+  req: Request,
+  res: Response,
+  filterConfig: ReturnType<typeof buildFilterConfig>,
+): Promise<string | undefined> {
+  const context = extractRequestContext(req);
+  if (!context) {
+    return undefined;
+  }
+
+  const headerSessionId = req.headers?.[CONTEXT_HEADERS.SESSION_ID];
+  const sessionId =
+    (Array.isArray(headerSessionId) ? headerSessionId[0] : headerSessionId) ||
+    context.sessionId ||
+    deriveContextSessionId(context);
+
+  res.setHeader?.(CONTEXT_HEADERS.SESSION_ID, sessionId);
+
+  await initializeTemplateServersForContext(serverManager, sessionId, context, filterConfig);
+  return sessionId;
+}
+
+async function initializeTemplateServersForContext(
+  serverManager: ServerManager,
+  sessionId: string,
+  context: ContextData,
+  filterConfig: ReturnType<typeof buildFilterConfig>,
+): Promise<void> {
+  const configManager = ConfigManager.getInstance();
+  const { templateServers } = await configManager.loadConfigWithTemplates(context);
+
+  const templateEntries = Object.entries(templateServers);
+  if (templateEntries.length === 0) {
+    return;
+  }
+
+  const templateManager = serverManager.getTemplateServerManager();
+  const pendingTemplates = Object.fromEntries(
+    templateEntries.filter(([templateName]) => !templateManager.getRenderedHashForSession(sessionId, templateName)),
+  );
+
+  const serverRegistry = serverManager.getServerRegistry();
+  for (const [templateName, config] of templateEntries) {
+    if (!serverRegistry.has(templateName)) {
+      serverRegistry.registerTemplate(templateName, config);
+    }
+  }
+
+  if (Object.keys(pendingTemplates).length === 0) {
+    return;
+  }
+
+  await templateManager.createTemplateBasedServers(
+    sessionId,
+    context,
+    filterConfig,
+    { mcpTemplates: pendingTemplates },
+    serverManager.getClients(),
+    serverManager.getClientTransports(),
+  );
+
+  await serverManager.getLazyLoadingOrchestrator()?.refreshCapabilities();
+}
 
 async function buildServerSummaries(
   filteredConnections: FilteredConnections,
@@ -124,6 +195,7 @@ export function createServersHandler(serverManager: ServerManager): RequestHandl
   return async (_req: Request, res: Response): Promise<void> => {
     try {
       const filterConfig = buildFilterConfig(res);
+      await ensureRequestContextInitialized(serverManager, _req, res, filterConfig);
       const filteredConnections = FilteringService.getFilteredConnections(serverManager.getClients(), filterConfig);
       const lazyOrchestrator = serverManager.getLazyLoadingOrchestrator();
       const declaredServers = ConfigManager.getInstance().loadDeclaredServerConfigs();
@@ -158,6 +230,7 @@ export function createInspectHandler(serverManager: ServerManager): RequestHandl
       const limit = allParam ? 5000 : Number.isFinite(limitParam) && limitParam > 0 ? limitParam : 20;
 
       const filterConfig = buildFilterConfig(res);
+      const requestSessionId = await ensureRequestContextInitialized(serverManager, req, res, filterConfig);
       const filteredConnections = FilteringService.getFilteredConnections(serverManager.getClients(), filterConfig);
       const instructionAggregator = serverManager.getInstructionAggregator();
       const lazyOrchestrator = serverManager.getLazyLoadingOrchestrator();
@@ -211,8 +284,13 @@ export function createInspectHandler(serverManager: ServerManager): RequestHandl
         }
 
         if (!found) {
+          const sessionConnection = requestSessionId
+            ? serverRegistry.resolveConnection(serverName, { sessionId: requestSessionId })
+            : undefined;
           const connection =
-            resolveConnectionByServerName(filteredConnections, serverName) ?? serverManager.getClient(serverName);
+            sessionConnection ??
+            resolveConnectionByServerName(filteredConnections, serverName) ??
+            serverManager.getClient(serverName);
           if (connection?.client) {
             try {
               const result = await connection.client.listTools();
@@ -245,7 +323,10 @@ export function createInspectHandler(serverManager: ServerManager): RequestHandl
       const { serverName } = target;
 
       const adapter = serverRegistry.get(serverName);
-      const connection = resolveConnectionByServerName(filteredConnections, serverName);
+      const sessionConnection = requestSessionId
+        ? serverRegistry.resolveConnection(serverName, { sessionId: requestSessionId })
+        : undefined;
+      const connection = sessionConnection ?? resolveConnectionByServerName(filteredConnections, serverName);
       const declaredTemplateConfig = declaredServers.templateServers[serverName];
       const declaredStaticConfig = declaredServers.staticServers[serverName];
 
@@ -259,7 +340,11 @@ export function createInspectHandler(serverManager: ServerManager): RequestHandl
         return;
       }
 
-      const state = deriveServerState(adapter?.getStatus(), adapter?.isAvailable(), connection);
+      const state = deriveServerState(
+        adapter?.getStatus(requestSessionId ? { sessionId: requestSessionId } : undefined),
+        adapter?.isAvailable(requestSessionId ? { sessionId: requestSessionId } : undefined),
+        connection,
+      );
       const type = adapter?.type ?? (declaredTemplateConfig ? 'template' : 'external');
       const instructions = instructionAggregator?.getServerInstructions(serverName) ?? null;
 

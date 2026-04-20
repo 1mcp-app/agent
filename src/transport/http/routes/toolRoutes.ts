@@ -5,6 +5,11 @@ import { ToolRegistry } from '@src/core/capabilities/toolRegistry.js';
 import { FilteringService } from '@src/core/filtering/filteringService.js';
 import { ServerManager } from '@src/core/server/serverManager.js';
 import logger from '@src/logger/logger.js';
+import {
+  CONTEXT_HEADERS,
+  deriveContextSessionId,
+  extractRequestContext,
+} from '@src/transport/http/utils/contextExtractor.js';
 
 import { Request, RequestHandler, Response } from 'express';
 
@@ -35,6 +40,7 @@ export function createToolsHandler(serverManager: ServerManager): RequestHandler
       const limitParam = typeof req.query.limit === 'string' ? parseInt(req.query.limit, 10) : undefined;
       const limit = limitParam !== undefined && Number.isFinite(limitParam) && limitParam > 0 ? limitParam : undefined;
 
+      const requestSessionId = await initializeRequestContextForApi(serverManager, req, res);
       const allowedServers = getAllowedServersFromRequest(serverManager, res);
       const lazyOrchestrator = serverManager.getLazyLoadingOrchestrator();
 
@@ -79,7 +85,7 @@ export function createToolsHandler(serverManager: ServerManager): RequestHandler
           limit,
           cursor,
         },
-        undefined,
+        requestSessionId,
         allowedServers,
       )) as ToolListOutput;
 
@@ -100,6 +106,7 @@ export function createToolsHandler(serverManager: ServerManager): RequestHandler
 export function createToolInvocationsHandler(serverManager: ServerManager): RequestHandler {
   return async (req: Request, res: Response): Promise<void> => {
     try {
+      const requestSessionId = await initializeRequestContextForApi(serverManager, req, res);
       const body = req.body as unknown;
       if (
         !body ||
@@ -135,9 +142,22 @@ export function createToolInvocationsHandler(serverManager: ServerManager): Requ
           allowedServers === undefined
             ? allConnections
             : FilteringService.getFilteredConnections(allConnections, buildFilterConfig(res));
-        const connection =
+        const sessionConnection = requestSessionId
+          ? (
+              serverManager as {
+                getServerRegistry?: () => {
+                  resolveConnection: (name: string, context?: { sessionId?: string }) => unknown;
+                };
+              }
+            )
+              .getServerRegistry?.()
+              ?.resolveConnection(target.serverName, { sessionId: requestSessionId })
+          : undefined;
+        const connection = (sessionConnection ??
           resolveConnectionByServerName(filteredConnections, target.serverName) ??
-          serverManager.getClient(target.serverName);
+          serverManager.getClient(target.serverName)) as
+          | { client?: { callTool: (input: { name: string; arguments: Record<string, unknown> }) => Promise<unknown> } }
+          | undefined;
         if (!connection || !connection.client) {
           res.status(503).json({ error: `Server not connected: ${target.serverName}` });
           return;
@@ -163,7 +183,7 @@ export function createToolInvocationsHandler(serverManager: ServerManager): Requ
           toolName: target.toolName,
           args: toolArgs,
         },
-        undefined,
+        requestSessionId,
         allowedServers,
       )) as ToolInvokeOutput;
 
@@ -190,4 +210,60 @@ export function createToolInvocationsHandler(serverManager: ServerManager): Requ
       res.status(500).json({ error: 'Internal server error' });
     }
   };
+}
+
+async function initializeRequestContextForApi(
+  serverManager: ServerManager,
+  req: Request,
+  res: Response,
+): Promise<string | undefined> {
+  const context = extractRequestContext(req);
+  if (!context) {
+    const headerSessionId = req.headers?.[CONTEXT_HEADERS.SESSION_ID];
+    return Array.isArray(headerSessionId) ? headerSessionId[0] : headerSessionId;
+  }
+
+  const headerSessionId = req.headers?.[CONTEXT_HEADERS.SESSION_ID];
+  const sessionId =
+    (Array.isArray(headerSessionId) ? headerSessionId[0] : headerSessionId) ||
+    context.sessionId ||
+    deriveContextSessionId(context);
+  res.setHeader?.(CONTEXT_HEADERS.SESSION_ID, sessionId);
+
+  const filterConfig = buildFilterConfig(res);
+  const { templateServers } = await (
+    await import('@src/config/configManager.js')
+  ).ConfigManager.getInstance().loadConfigWithTemplates(context);
+  const templateEntries = Object.entries(templateServers);
+  if (templateEntries.length === 0) {
+    return sessionId;
+  }
+
+  const templateManager = serverManager.getTemplateServerManager();
+  const pendingTemplates = Object.fromEntries(
+    templateEntries.filter(([templateName]) => !templateManager.getRenderedHashForSession(sessionId, templateName)),
+  );
+
+  const serverRegistry = serverManager.getServerRegistry();
+  for (const [templateName, config] of templateEntries) {
+    if (!serverRegistry.has(templateName)) {
+      serverRegistry.registerTemplate(templateName, config);
+    }
+  }
+
+  if (Object.keys(pendingTemplates).length === 0) {
+    return sessionId;
+  }
+
+  await templateManager.createTemplateBasedServers(
+    sessionId,
+    context,
+    filterConfig,
+    { mcpTemplates: pendingTemplates },
+    serverManager.getClients(),
+    serverManager.getClientTransports(),
+  );
+
+  await serverManager.getLazyLoadingOrchestrator()?.refreshCapabilities();
+  return sessionId;
 }
