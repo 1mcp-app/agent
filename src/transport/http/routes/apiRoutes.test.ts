@@ -12,13 +12,24 @@ import {
 } from './apiRoutes.js';
 
 const mockedLoadDeclaredServerConfigs = vi.hoisted(() => vi.fn());
+const mockedLoadConfigWithTemplates = vi.hoisted(() => vi.fn());
+const mockedExtractRequestContext = vi.hoisted(() => vi.fn());
 
 vi.mock('@src/config/configManager.js', () => ({
   ConfigManager: {
     getInstance: vi.fn(() => ({
       loadDeclaredServerConfigs: mockedLoadDeclaredServerConfigs,
+      loadConfigWithTemplates: mockedLoadConfigWithTemplates,
     })),
   },
+}));
+
+vi.mock('@src/transport/http/utils/contextExtractor.js', () => ({
+  CONTEXT_HEADERS: {
+    SESSION_ID: 'mcp-session-id',
+  },
+  deriveContextSessionId: vi.fn(() => 'derived-session-id'),
+  extractRequestContext: mockedExtractRequestContext,
 }));
 
 vi.mock('@src/logger/logger.js', () => ({
@@ -87,11 +98,19 @@ describe('apiRoutes inspect', () => {
 
   beforeEach(() => {
     mockedLoadDeclaredServerConfigs.mockReset();
+    mockedLoadConfigWithTemplates.mockReset();
+    mockedExtractRequestContext.mockReset();
     mockedLoadDeclaredServerConfigs.mockReturnValue({
       staticServers: {},
       templateServers: {},
       errors: [],
     });
+    mockedLoadConfigWithTemplates.mockResolvedValue({
+      staticServers: {},
+      templateServers: {},
+      errors: [],
+    });
+    mockedExtractRequestContext.mockReturnValue(undefined);
 
     outboundConnections = new Map([
       [
@@ -253,6 +272,128 @@ describe('apiRoutes inspect', () => {
         context7: '# Context7 Instructions',
       },
     });
+  });
+
+  it('does not initialize template servers for bare inspect listings even when request context is present', async () => {
+    mockedLoadDeclaredServerConfigs.mockReturnValue({
+      staticServers: {},
+      templateServers: {
+        serena: {
+          type: 'stdio',
+          command: 'uvx',
+          args: ['serena'],
+          tags: ['serena'],
+        },
+      },
+      errors: [],
+    });
+    mockedLoadConfigWithTemplates.mockResolvedValue({
+      staticServers: {},
+      templateServers: {
+        serena: {
+          type: 'stdio',
+          command: 'uvx',
+          args: ['serena', '{{project.path}}'],
+          tags: ['serena'],
+        },
+      },
+      errors: [],
+    });
+    mockedExtractRequestContext.mockReturnValue({
+      sessionId: 'context-session',
+      project: {
+        path: '/tmp/project',
+      },
+    });
+
+    outboundConnections = new Map([
+      ...outboundConnections.entries(),
+      [
+        'serena:template-hash',
+        {
+          name: 'serena',
+          transport: { tags: ['serena'] } as never,
+          client: {
+            listTools: vi.fn().mockResolvedValue({
+              tools: [
+                {
+                  name: 'find_symbol',
+                  description: 'Find symbol',
+                  inputSchema: {
+                    type: 'object',
+                    properties: {
+                      name_path_pattern: { type: 'string' },
+                    },
+                    required: ['name_path_pattern'],
+                  },
+                },
+              ],
+            }),
+          } as never,
+          status: ClientStatus.Connected,
+        },
+      ],
+    ]) as unknown as OutboundConnections;
+
+    const createTemplateBasedServers = vi.fn();
+    const getRenderedHashForSession = vi.fn(() => undefined);
+    const registerTemplate = vi.fn();
+    const templateAdapter = {
+      name: 'serena',
+      type: ServerType.Template,
+      config: { type: 'stdio', command: 'uvx', args: ['serena'], tags: ['serena'] },
+      resolveConnection: vi.fn(),
+      getStatus: vi.fn(() => ServerStatus.Disconnected),
+      isAvailable: vi.fn(() => false),
+      getConnectionKey: vi.fn(),
+    };
+
+    const serverManager = {
+      getClients: vi.fn(() => outboundConnections),
+      getInstructionAggregator: vi.fn(() => ({
+        hasInstructions: (name: string) => name === 'context7' || name === 'serena',
+        getServerInstructions: (name: string) => (name === 'context7' ? '# Context7 Instructions' : undefined),
+      })),
+      getLazyLoadingOrchestrator: vi.fn(() => undefined),
+      getServerRegistry: vi.fn(() => ({
+        getServerNames: vi.fn(() => ['context7', 'filesystem', 'serena']),
+        get: vi.fn((name: string) =>
+          name === 'context7'
+            ? makeAdapter('context7', ['context7'])
+            : name === 'filesystem'
+              ? makeAdapter('filesystem', ['filesystem'])
+              : name === 'serena'
+                ? templateAdapter
+                : undefined,
+        ),
+        has: vi.fn(() => false),
+        registerTemplate,
+      })),
+      getClient: vi.fn((name: string) => outboundConnections.get(name)),
+      getTemplateServerManager: vi.fn(() => ({
+        getRenderedHashForSession,
+        createTemplateBasedServers,
+      })),
+      getClientTransports: vi.fn(() => new Map()),
+    };
+
+    inspectHandler = createInspectHandler(serverManager as never);
+
+    const req = { query: {} };
+    const res = createMockResponse();
+
+    await invokeInspectRoute(scopeAuthMiddleware, req, res);
+    await invokeInspectRoute(inspectHandler, req, res);
+
+    expect(res.statusCode, JSON.stringify(res.body)).toBe(200);
+    expect((res.body as { kind: string }).kind).toBe('servers');
+    const serenaEntry = (res.body as { servers: Array<{ server: string }> }).servers.find((server) => {
+      return server.server === 'serena';
+    });
+    expect(serenaEntry).toMatchObject({ server: 'serena', type: 'template', available: false, toolCount: 0 });
+    expect(createTemplateBasedServers).not.toHaveBeenCalled();
+    expect(registerTemplate).not.toHaveBeenCalled();
+    expect(getRenderedHashForSession).not.toHaveBeenCalled();
   });
 
   it('returns instructions and summarized tools for server targets in non-lazy mode', async () => {

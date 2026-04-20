@@ -31,6 +31,7 @@ describeInspectE2E('inspect command E2E', () => {
       ],
     });
     await environment.setup();
+    await writeFile(join(environment.getTempDir(), '.1mcprc'), '{}', 'utf8');
     runner = new CliTestRunner(environment);
     servePort = await getAvailablePort();
   });
@@ -43,7 +44,10 @@ describeInspectE2E('inspect command E2E', () => {
   it('prints a readable schema summary by default', async () => {
     await startServeProcess();
 
-    const result = await runner.runInspectCommand('runner/echo_args', { args: getCliSessionCacheArgs() });
+    const result = await runner.runInspectCommand('runner/echo_args', {
+      cwd: environment.getTempDir(),
+      args: getCliSessionCacheArgs(),
+    });
 
     runner.assertSuccess(result);
     expect(result.stderr).toBe('');
@@ -61,7 +65,10 @@ describeInspectE2E('inspect command E2E', () => {
   it('lists a server tool inventory for bare server targets', async () => {
     await startServeProcess();
 
-    const result = await runner.runInspectCommand('runner', { args: getCliSessionCacheArgs() });
+    const result = await runner.runInspectCommand('runner', {
+      cwd: environment.getTempDir(),
+      args: getCliSessionCacheArgs(),
+    });
 
     runner.assertSuccess(result);
     expect(result.stdout).toContain('kind: server');
@@ -75,6 +82,7 @@ describeInspectE2E('inspect command E2E', () => {
     await startServeProcess();
 
     const result = await runner.runInspectCommand('runner/echo_args', {
+      cwd: environment.getTempDir(),
       args: [...getCliSessionCacheArgs(), '--format', 'json'],
     });
 
@@ -96,6 +104,7 @@ describeInspectE2E('inspect command E2E', () => {
     await startServeProcess();
 
     const result = await runner.runInspectCommand('runner', {
+      cwd: environment.getTempDir(),
       args: [...getCliSessionCacheArgs(), '--format', 'json'],
     });
 
@@ -115,7 +124,10 @@ describeInspectE2E('inspect command E2E', () => {
   it('reports unknown tools cleanly', async () => {
     await startServeProcess();
 
-    const result = await runner.runInspectCommand('runner/missing_tool', { args: getCliSessionCacheArgs() });
+    const result = await runner.runInspectCommand('runner/missing_tool', {
+      cwd: environment.getTempDir(),
+      args: getCliSessionCacheArgs(),
+    });
 
     runner.assertFailure(result, 1);
     expect(result.stdout).toBe('');
@@ -126,6 +138,7 @@ describeInspectE2E('inspect command E2E', () => {
     await startServeProcess();
 
     const result = await runner.runInspectCommand('runner/echo_args', {
+      cwd: environment.getTempDir(),
       args: [...getCliSessionCacheArgs(), '--tags', 'test'],
     });
 
@@ -138,6 +151,7 @@ describeInspectE2E('inspect command E2E', () => {
     await startServeProcess();
 
     const first = await runner.runInspectCommand('runner/echo_args', {
+      cwd: environment.getTempDir(),
       args: [...getCliSessionCacheArgs(), '--format', 'json'],
     });
     runner.assertSuccess(first);
@@ -153,6 +167,7 @@ describeInspectE2E('inspect command E2E', () => {
     await writeFile(cachePath, JSON.stringify(cache), 'utf8');
 
     const second = await runner.runInspectCommand('runner/echo_args', {
+      cwd: environment.getTempDir(),
       args: [...getCliSessionCacheArgs(), '--format', 'json'],
     });
     runner.assertSuccess(second);

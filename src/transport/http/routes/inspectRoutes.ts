@@ -110,7 +110,14 @@ async function buildServerSummaries(
   instructionAggregator: ReturnType<ServerManager['getInstructionAggregator']>,
   declaredServers: ReturnType<ConfigManager['loadDeclaredServerConfigs']>,
   filterConfig: ReturnType<typeof buildFilterConfig>,
+  options: {
+    includeTemplateInstances?: boolean;
+  } = {},
 ): Promise<ServerSummary[]> {
+  const includeTemplateInstances = options.includeTemplateInstances ?? true;
+  const summaryConnections = new Map(
+    Array.from(filteredConnections.entries()).filter(([name]) => includeTemplateInstances || !name.includes(':')),
+  );
   let toolCountByServer: Record<string, number> = {};
 
   if (toolRegistry) {
@@ -122,7 +129,7 @@ async function buildServerSummaries(
     }
   } else {
     await Promise.all(
-      Array.from(filteredConnections.entries()).map(async ([name, connection]) => {
+      Array.from(summaryConnections.entries()).map(async ([name, connection]) => {
         if (!connection.client) return;
         try {
           const result = await connection.client.listTools();
@@ -135,7 +142,7 @@ async function buildServerSummaries(
   }
 
   const serverMap = new Map<string, { toolCount: number; hasInstructions: boolean }>();
-  for (const [name] of filteredConnections) {
+  for (const [name] of summaryConnections) {
     const cleanName = name.includes(':') ? name.split(':')[0] : name;
     const toolCount = toolCountByServer[name] ?? 0;
     const hasInstructions = instructionAggregator?.hasInstructions(cleanName) ?? false;
@@ -173,7 +180,7 @@ async function buildServerSummaries(
   const servers: ServerSummary[] = [];
   for (const [cleanName, info] of serverMap) {
     const adapter = serverRegistry.get(cleanName);
-    const connection = resolveConnectionByServerName(filteredConnections, cleanName);
+    const connection = resolveConnectionByServerName(summaryConnections, cleanName);
     const state = deriveServerState(adapter?.getStatus(), adapter?.isAvailable(), connection);
     const type = adapter?.type ?? (declaredServers.templateServers[cleanName] ? 'template' : 'external');
 
@@ -230,25 +237,23 @@ export function createInspectHandler(serverManager: ServerManager): RequestHandl
       const limit = allParam ? 5000 : Number.isFinite(limitParam) && limitParam > 0 ? limitParam : 20;
 
       const filterConfig = buildFilterConfig(res);
-      const requestSessionId = await ensureRequestContextInitialized(serverManager, req, res, filterConfig);
-      const filteredConnections = FilteringService.getFilteredConnections(serverManager.getClients(), filterConfig);
       const instructionAggregator = serverManager.getInstructionAggregator();
-      const lazyOrchestrator = serverManager.getLazyLoadingOrchestrator();
-      const toolRegistry: ToolRegistry | undefined = lazyOrchestrator?.getToolRegistry();
-      const capabilityAggregator: CapabilityAggregator | undefined = lazyOrchestrator?.getCapabilityAggregator();
-      const serverRegistry: ServerRegistry = serverManager.getServerRegistry();
       const declaredServers = ConfigManager.getInstance().loadDeclaredServerConfigs();
 
       // No target: list all filtered servers
       if (!targetRaw) {
+        const filteredConnections = FilteringService.getFilteredConnections(serverManager.getClients(), filterConfig);
+        const lazyOrchestrator = serverManager.getLazyLoadingOrchestrator();
+
         const servers = await buildServerSummaries(
           filteredConnections,
-          toolRegistry,
-          capabilityAggregator,
-          serverRegistry,
+          lazyOrchestrator?.getToolRegistry(),
+          lazyOrchestrator?.getCapabilityAggregator(),
+          serverManager.getServerRegistry(),
           instructionAggregator,
           declaredServers,
           filterConfig,
+          { includeTemplateInstances: false },
         );
 
         const serverInstructions = Object.fromEntries(
@@ -267,6 +272,12 @@ export function createInspectHandler(serverManager: ServerManager): RequestHandl
         return;
       }
 
+      const requestSessionId = await ensureRequestContextInitialized(serverManager, req, res, filterConfig);
+      const filteredConnections = FilteringService.getFilteredConnections(serverManager.getClients(), filterConfig);
+      const lazyOrchestrator = serverManager.getLazyLoadingOrchestrator();
+      const toolRegistry: ToolRegistry | undefined = lazyOrchestrator?.getToolRegistry();
+      const capabilityAggregator: CapabilityAggregator | undefined = lazyOrchestrator?.getCapabilityAggregator();
+      const serverRegistry: ServerRegistry = serverManager.getServerRegistry();
       const target = parseTarget(targetRaw);
       if (!target) {
         res.status(400).json({ error: 'Invalid target format. Use <server> or <server>/<tool>.' });
