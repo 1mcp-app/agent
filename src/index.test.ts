@@ -94,10 +94,15 @@ describe('Index Module', () => {
       expect('default' in serverOptions.transport).toBe(false);
 
       expect(serverOptions.pagination.default).toBe(false);
-      expect(serverOptions.auth.default).toBe(false);
-      expect(serverOptions['enable-auth'].default).toBe(false);
-      expect(serverOptions['enable-scope-validation'].default).toBe(true);
-      expect(serverOptions['enable-enhanced-security'].default).toBe(false);
+      expect('default' in serverOptions.auth).toBe(false);
+      expect('default' in serverOptions['enable-auth']).toBe(false);
+      expect('default' in serverOptions['enable-scope-validation']).toBe(false);
+      expect('default' in serverOptions['enable-enhanced-security']).toBe(false);
+      expect('default' in serverOptions['session-ttl']).toBe(false);
+      expect('default' in serverOptions['rate-limit-window']).toBe(false);
+      expect('default' in serverOptions['enable-async-loading']).toBe(false);
+      expect('default' in serverOptions['enable-lazy-loading']).toBe(false);
+      expect('default' in serverOptions['enable-config-reload']).toBe(false);
     });
 
     it('should normalize argv forwarded through a script runner', async () => {

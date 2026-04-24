@@ -17,6 +17,7 @@ import { cleanupPidFileOnExit, registerPidFileCleanup, writePidFile } from '@src
 import { ServerManager } from '@src/core/server/serverManager.js';
 import { TagExpression, TagQueryParser } from '@src/domains/preset/parsers/tagQueryParser.js';
 import type { TagQuery } from '@src/domains/preset/types/presetTypes.js';
+import { configureGlobalLogger } from '@src/logger/configureGlobalLogger.js';
 import logger, { debugIf } from '@src/logger/logger.js';
 import { setupServer } from '@src/server.js';
 import { ExpressServer } from '@src/transport/http/server.js';
@@ -25,7 +26,7 @@ import { displayLogo } from '@src/utils/ui/logo.js';
 export interface ServeOptions {
   config?: string;
   'config-dir'?: string;
-  'log-level'?: string;
+  'log-level'?: 'debug' | 'info' | 'warn' | 'error';
   'log-file'?: string;
   transport?: string;
   port?: number;
@@ -33,35 +34,35 @@ export interface ServeOptions {
   'external-url'?: string;
   filter?: string;
   pagination: boolean;
-  auth: boolean;
-  'enable-auth': boolean;
-  'enable-scope-validation': boolean;
-  'enable-enhanced-security': boolean;
-  'session-ttl': number;
+  auth?: boolean;
+  'enable-auth'?: boolean;
+  'enable-scope-validation'?: boolean;
+  'enable-enhanced-security'?: boolean;
+  'session-ttl'?: number;
   'session-storage-path'?: string;
-  'rate-limit-window': number;
-  'rate-limit-max': number;
-  'trust-proxy': string;
+  'rate-limit-window'?: number;
+  'rate-limit-max'?: number;
+  'trust-proxy'?: string;
   'health-info-level': string;
-  'enable-async-loading': boolean;
-  'async-min-servers': number;
-  'async-timeout': number;
-  'async-batch-notifications': boolean;
-  'async-batch-delay': number;
+  'enable-async-loading'?: boolean;
+  'async-min-servers'?: number;
+  'async-timeout'?: number;
+  'async-batch-notifications'?: boolean;
+  'async-batch-delay'?: number;
   'async-notify-on-ready': boolean;
-  'enable-lazy-loading': boolean;
-  'lazy-mode': string;
-  'lazy-inline-catalog': boolean;
+  'enable-lazy-loading'?: boolean;
+  'lazy-mode'?: string;
+  'lazy-inline-catalog'?: boolean;
   'lazy-catalog-format': string;
   'lazy-direct-expose'?: string;
-  'lazy-cache-max-entries': number;
+  'lazy-cache-max-entries'?: number;
   'lazy-cache-ttl'?: number;
   'lazy-preload'?: string;
   'lazy-preload-keywords'?: string;
   'lazy-fallback-on-error'?: string;
   'lazy-fallback-timeout'?: number;
-  'enable-config-reload': boolean;
-  'config-reload-debounce': number;
+  'enable-config-reload'?: boolean;
+  'config-reload-debounce'?: number;
   'enable-env-substitution': boolean;
   'enable-session-persistence': boolean;
   'session-persist-requests': number;
@@ -274,14 +275,23 @@ export async function serveCommand(parsedArgv: ServeOptions): Promise<void> {
     const effectiveTransport = parsedArgv.transport ?? appConfig.transport ?? 'http';
     const effectivePort = parsedArgv.port ?? appConfig.port ?? PORT;
     const effectiveHost = parsedArgv.host ?? appConfig.host ?? HOST;
-    if (effectiveTransport !== 'stdio' && !parsedArgv['log-file']) {
+    configureGlobalLogger(
+      {
+        ...parsedArgv,
+        'log-level': parsedArgv['log-level'] ?? appConfig.logLevel,
+        'log-file': parsedArgv['log-file'] ?? appConfig.logFile,
+      },
+      effectiveTransport,
+    );
+    const effectiveLogFile = parsedArgv['log-file'] ?? appConfig.logFile;
+    if (effectiveTransport !== 'stdio' && !effectiveLogFile) {
       displayLogo({
         transport: effectiveTransport,
         port: effectivePort,
         host: effectiveHost,
         serverCount,
         authEnabled,
-        logLevel: parsedArgv['log-level'],
+        logLevel: parsedArgv['log-level'] ?? appConfig.logLevel,
         configDir: getConfigDir(parsedArgv['config-dir']),
       });
     }
@@ -289,12 +299,12 @@ export async function serveCommand(parsedArgv: ServeOptions): Promise<void> {
     // Configure server settings from CLI arguments (CLI args take precedence over appConfig)
     const serverConfigManager = AgentConfigManager.getInstance();
     const scopeValidationEnabled =
-      parsedArgv['enable-scope-validation'] ?? appConfig.auth?.enableScopeValidation ?? authEnabled;
+      parsedArgv['enable-scope-validation'] ?? appConfig.auth?.enableScopeValidation ?? true;
     const enhancedSecurityEnabled =
       parsedArgv['enable-enhanced-security'] ?? appConfig.auth?.enableEnhancedSecurity ?? false;
 
     // Handle trust proxy configuration (convert 'true'/'false' strings to boolean)
-    const trustProxyValue = parsedArgv['trust-proxy'];
+    const trustProxyValue = parsedArgv['trust-proxy'] ?? appConfig.auth?.trustProxy ?? 'loopback';
     const trustProxy = trustProxyValue === 'true' ? true : trustProxyValue === 'false' ? false : trustProxyValue;
 
     // Derive session storage path: explicit option > config-dir/sessions > global default
@@ -312,7 +322,7 @@ export async function serveCommand(parsedArgv: ServeOptions): Promise<void> {
       trustProxy,
       auth: {
         enabled: authEnabled,
-        sessionTtlMinutes: parsedArgv['session-ttl'] ?? appConfig.auth?.sessionTtl,
+        sessionTtlMinutes: parsedArgv['session-ttl'] ?? appConfig.auth?.sessionTtl ?? 1440,
         sessionStoragePath,
         oauthCodeTtlMs: 60 * 1000, // 1 minute
         oauthTokenTtlMs: (parsedArgv['session-ttl'] ?? appConfig.auth?.sessionTtl ?? 1440) * 60 * 1000,
@@ -352,10 +362,11 @@ export async function serveCommand(parsedArgv: ServeOptions): Promise<void> {
       asyncLoading: {
         enabled: parsedArgv['enable-async-loading'] ?? appConfig.asyncLoading?.enabled ?? false,
         notifyOnServerReady: parsedArgv['async-notify-on-ready'],
-        waitForMinimumServers: parsedArgv['async-min-servers'] ?? appConfig.asyncLoading?.minServers,
-        initialLoadTimeoutMs: parsedArgv['async-timeout'] ?? appConfig.asyncLoading?.timeout,
-        batchNotifications: parsedArgv['async-batch-notifications'] ?? appConfig.asyncLoading?.batchNotifications,
-        batchDelayMs: parsedArgv['async-batch-delay'] ?? appConfig.asyncLoading?.batchDelay,
+        waitForMinimumServers: parsedArgv['async-min-servers'] ?? appConfig.asyncLoading?.minServers ?? 1,
+        initialLoadTimeoutMs: parsedArgv['async-timeout'] ?? appConfig.asyncLoading?.timeout ?? 30000,
+        batchNotifications:
+          parsedArgv['async-batch-notifications'] ?? appConfig.asyncLoading?.batchNotifications ?? true,
+        batchDelayMs: parsedArgv['async-batch-delay'] ?? appConfig.asyncLoading?.batchDelay ?? 100,
       },
       lazyLoading: {
         enabled: parsedArgv['enable-lazy-loading'] ?? appConfig.lazyLoading?.enabled ?? false,
