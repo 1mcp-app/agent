@@ -2,13 +2,10 @@ import fs from 'fs';
 import path from 'path';
 
 import ConfigContext from '@src/config/configContext.js';
+import { ConfigLoader } from '@src/config/configLoader.js';
 import { McpConfigManager } from '@src/config/mcpConfigManager.js';
-import {
-  getUnknownGlobalConfigKeys,
-  mergeGlobalAndServerConfig,
-  mergeGlobalWithServers,
-} from '@src/config/mcpConfigMerge.js';
-import { GlobalTransportConfig, globalTransportConfigSchema, MCPServerParams } from '@src/core/types/index.js';
+import { mergeGlobalAndServerConfig, mergeGlobalWithServers } from '@src/config/mcpConfigMerge.js';
+import { GlobalTransportConfig, MCPServerParams } from '@src/core/types/index.js';
 import logger from '@src/logger/logger.js';
 
 /**
@@ -64,65 +61,57 @@ export interface ServerConfig {
   mcpServers: Record<string, MCPServerParams>;
 }
 
+function createCommandConfigLoader(configPath: string): ConfigLoader {
+  return new ConfigLoader(configPath, { ensureConfigExists: false });
+}
+
+function loadSharedConfigState(configPath?: string): {
+  config: ServerConfig & Record<string, unknown>;
+  effectiveServers: Record<string, MCPServerParams>;
+} {
+  const configContext = ConfigContext.getInstance();
+  const filePath = configPath || configContext.getResolvedConfigPath();
+
+  if (!fs.existsSync(filePath)) {
+    throw new Error(`Configuration file not found: ${filePath}`);
+  }
+
+  try {
+    const loader = createCommandConfigLoader(filePath);
+    const loadedConfig = loader.loadParsedConfig({ substituteEnv: false, includeAppConfig: false });
+    const config = {
+      ...loadedConfig.processedConfig,
+      serverDefaults: loadedConfig.globalConfig,
+      mcpServers: loadedConfig.rawServers,
+    } as ServerConfig & Record<string, unknown>;
+
+    if (loadedConfig.schemaInjected) {
+      delete config.$schema;
+    }
+
+    return {
+      config,
+      effectiveServers: mergeGlobalWithServers(loadedConfig.globalConfig, loadedConfig.rawServers),
+    };
+  } catch (error) {
+    if (
+      error instanceof Error &&
+      (error.cause instanceof SyntaxError ||
+        error.message.includes('Unexpected token') ||
+        error.message.includes('JSON'))
+    ) {
+      throw new Error(`Invalid JSON in configuration file: ${filePath}`);
+    }
+    throw error;
+  }
+}
+
 /**
  * Load the MCP configuration from a file
  * Uses ConfigContext to resolve the appropriate config file path
  */
 export function loadConfig(configPath?: string): ServerConfig {
-  const configContext = ConfigContext.getInstance();
-  const filePath = configPath || configContext.getResolvedConfigPath();
-
-  try {
-    if (!fs.existsSync(filePath)) {
-      throw new Error(`Configuration file not found: ${filePath}`);
-    }
-
-    const configData = JSON.parse(fs.readFileSync(filePath, 'utf8')) as unknown;
-
-    // Type guard to ensure configData has proper structure
-    if (!configData || typeof configData !== 'object') {
-      throw new Error(`Invalid configuration format: ${filePath}`);
-    }
-
-    const configObj = configData as Record<string, unknown>;
-
-    if (configObj.serverDefaults !== undefined) {
-      const unknownGlobalKeys = getUnknownGlobalConfigKeys(configObj.serverDefaults);
-      if (unknownGlobalKeys.length > 0) {
-        logger.warn(`Unknown properties in global MCP configuration were ignored: ${unknownGlobalKeys.join(', ')}`);
-      }
-      configObj.serverDefaults = globalTransportConfigSchema.parse(configObj.serverDefaults);
-    }
-
-    // Ensure mcpServers exists and is properly typed
-    if (!configObj.mcpServers || typeof configObj.mcpServers !== 'object') {
-      configObj.mcpServers = {} as Record<string, MCPServerParams>;
-    }
-
-    // Validate that mcpServers is properly structured
-    if (typeof configObj.mcpServers === 'object' && configObj.mcpServers !== null) {
-      // Ensure mcpServers is a Record<string, MCPServerParams>
-      const mcpServers = configObj.mcpServers as Record<string, unknown>;
-      const validatedMcpServers: Record<string, MCPServerParams> = {};
-
-      for (const [key, value] of Object.entries(mcpServers)) {
-        if (value && typeof value === 'object') {
-          // Basic validation - ensure it has at least a type property
-          const serverConfig = value as MCPServerParams;
-          validatedMcpServers[key] = serverConfig;
-        }
-      }
-
-      configObj.mcpServers = validatedMcpServers;
-    }
-
-    return configObj as unknown as ServerConfig;
-  } catch (error) {
-    if (error instanceof SyntaxError) {
-      throw new Error(`Invalid JSON in configuration file: ${filePath}`);
-    }
-    throw error;
-  }
+  return loadSharedConfigState(configPath).config;
 }
 
 function isMissingConfigError(error: unknown): boolean {
@@ -206,12 +195,13 @@ export function getGlobalConfig(): GlobalTransportConfig {
  */
 export function getEffectiveServerConfig(serverName: string): MCPServerParams | null {
   try {
-    const config = loadConfig();
-    const server = config.mcpServers[serverName];
-    if (!server) {
+    const { config, effectiveServers } = loadSharedConfigState();
+    if (!config.mcpServers[serverName]) {
       return null;
     }
-    return mergeGlobalAndServerConfig(config.serverDefaults, server);
+    return (
+      effectiveServers[serverName] || mergeGlobalAndServerConfig(config.serverDefaults, config.mcpServers[serverName])
+    );
   } catch (error) {
     logger.warn(
       `Failed to get effective server config for '${serverName}': ${error instanceof Error ? error.message : String(error)}`,
@@ -286,8 +276,7 @@ export function getAllServers(): Record<string, MCPServerParams> {
  */
 export function getAllEffectiveServers(): Record<string, MCPServerParams> {
   try {
-    const config = loadConfig();
-    return mergeGlobalWithServers(config.serverDefaults, config.mcpServers);
+    return loadSharedConfigState().effectiveServers;
   } catch (error) {
     logger.warn(`Failed to get all effective servers: ${error instanceof Error ? error.message : String(error)}`);
     if (isMissingConfigError(error)) {

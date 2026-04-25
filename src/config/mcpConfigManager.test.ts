@@ -263,7 +263,28 @@ describe('McpConfigManager', () => {
       // Should not throw
       const instance = McpConfigManager.getInstance(testConfigPath);
       expect(instance.getAppConfig()).toEqual({});
-      expect(warnSpy).toHaveBeenCalled();
+      expect(warnSpy).toHaveBeenCalledWith(
+        `The "app" key in mcp.json is deprecated. Please move your app settings to ${path.join(path.dirname(testConfigPath), 'config.toml')}. The "app" key in mcp.json will be ignored.`,
+      );
+    });
+
+    it('should keep invalid global config warning text unchanged', () => {
+      const errorSpy = vi.spyOn(logger, 'error').mockImplementation(() => logger);
+      (fs.readFileSync as unknown as MockInstance).mockReturnValueOnce(
+        JSON.stringify({
+          serverDefaults: { timeout: 'invalid-timeout' },
+          mcpServers: {},
+        }),
+      );
+
+      const instance = McpConfigManager.getInstance(testConfigPath);
+
+      expect(instance.getGlobalConfig()).toEqual({});
+      expect(errorSpy).toHaveBeenCalledWith(
+        expect.stringContaining(
+          'Failed to load configuration: Invalid global configuration: timeout: Invalid input: expected number, received string',
+        ),
+      );
     });
   });
 });

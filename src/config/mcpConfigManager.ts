@@ -3,21 +3,10 @@ import fs from 'fs';
 import path from 'path';
 
 import ConfigContext from '@src/config/configContext.js';
-import { loadAppConfigFromTomlPath } from '@src/config/configLoader.js';
-import { substituteEnvVarsInConfig } from '@src/config/envProcessor.js';
-import { getUnknownGlobalConfigKeys, mergeGlobalAndServerConfig } from '@src/config/mcpConfigMerge.js';
-import { DEFAULT_CONFIG } from '@src/constants.js';
+import { ConfigLoader } from '@src/config/configLoader.js';
 import { AgentConfigManager } from '@src/core/server/agentConfig.js';
-import {
-  ApplicationConfig,
-  GlobalTransportConfig,
-  globalTransportConfigSchema,
-  MCPServerParams,
-  transportConfigSchema,
-} from '@src/core/types/index.js';
+import { ApplicationConfig, GlobalTransportConfig, MCPServerParams } from '@src/core/types/index.js';
 import logger, { debugIf } from '@src/logger/logger.js';
-
-import { ZodError } from 'zod';
 
 /**
  * Configuration change event types
@@ -54,7 +43,7 @@ export class McpConfigManager extends EventEmitter {
   private constructor(configFilePath?: string) {
     super();
     this.configFilePath = McpConfigManager.resolveConfigFilePath(configFilePath);
-    this.ensureConfigExists();
+    new ConfigLoader(this.configFilePath);
     this.loadConfig();
   }
 
@@ -79,100 +68,18 @@ export class McpConfigManager extends EventEmitter {
   }
 
   /**
-   * Ensure the config directory and file exist
-   */
-  private ensureConfigExists(): void {
-    try {
-      const configDir = path.dirname(this.configFilePath);
-      if (!fs.existsSync(configDir)) {
-        fs.mkdirSync(configDir, { recursive: true });
-        logger.info(`Created config directory: ${configDir}`);
-      }
-
-      if (!fs.existsSync(this.configFilePath)) {
-        fs.writeFileSync(this.configFilePath, JSON.stringify(DEFAULT_CONFIG, null, 2));
-        logger.info(`Created default config file: ${this.configFilePath}`);
-      }
-    } catch (error) {
-      logger.error(`Failed to ensure config exists: ${error instanceof Error ? error.message : String(error)}`);
-      throw error;
-    }
-  }
-
-  /**
    * Load the configuration from the config file
    */
   private loadConfig(): void {
     try {
-      const stats = fs.statSync(this.configFilePath);
-      this.lastModified = stats.mtime.getTime();
+      const loader = new ConfigLoader(this.configFilePath);
+      const loadedConfig = loader.loadParsedConfigWithEnvSubstitution();
+      const features = AgentConfigManager.getInstance().get('features');
 
-      const rawConfigData = fs.readFileSync(this.configFilePath, 'utf8');
-
-      // Parse JSON and apply environment variable substitution
-      const configData = JSON.parse(rawConfigData) as unknown;
-
-      // Apply environment variable substitution if enabled
-      const agentConfig = AgentConfigManager.getInstance();
-      const features = agentConfig.get('features');
-      const processedConfig = features.envSubstitution ? substituteEnvVarsInConfig(configData) : configData;
-
-      // Type guard to ensure processedConfig has proper structure
-      if (!processedConfig || typeof processedConfig !== 'object') {
-        logger.error('Invalid configuration format');
-        this.transportConfig = {};
-        return;
-      }
-
-      const configObj = processedConfig as Record<string, unknown>;
-      const rawGlobal = configObj.serverDefaults;
-      const unknownGlobalKeys = getUnknownGlobalConfigKeys(rawGlobal);
-      if (unknownGlobalKeys.length > 0) {
-        logger.warn(`Unknown properties in global MCP configuration were ignored: ${unknownGlobalKeys.join(', ')}`);
-      }
-
-      let validatedGlobalConfig: GlobalTransportConfig = {};
-      if (rawGlobal !== undefined) {
-        try {
-          validatedGlobalConfig = globalTransportConfigSchema.parse(rawGlobal);
-        } catch (error) {
-          if (error instanceof ZodError) {
-            const fieldErrors = error.issues.map((issue) => `${issue.path.join('.')}: ${issue.message}`).join(', ');
-            throw new Error(`Invalid global configuration: ${fieldErrors}`);
-          }
-          throw error;
-        }
-      }
-
-      // Warn if legacy app key is present in mcp.json
-      if (configObj.app !== undefined) {
-        const tomlPath = path.join(path.dirname(this.configFilePath), 'config.toml');
-        logger.warn(
-          `The "app" key in mcp.json is deprecated. Please move your app settings to ${tomlPath}. ` +
-            `The "app" key in mcp.json will be ignored.`,
-        );
-      }
-
-      const validatedAppConfig: ApplicationConfig = this.loadAppConfigFromToml();
-
-      const servers = (configObj.mcpServers as Record<string, unknown>) || {};
-      const validatedServers: Record<string, MCPServerParams> = {};
-      for (const [serverName, serverConfig] of Object.entries(servers)) {
-        try {
-          const parsedServerConfig = transportConfigSchema.parse(serverConfig);
-          validatedServers[serverName] = transportConfigSchema.parse(
-            mergeGlobalAndServerConfig(validatedGlobalConfig, parsedServerConfig),
-          );
-        } catch (error) {
-          logger.error(
-            `Invalid configuration for server '${serverName}': ${error instanceof Error ? error.message : String(error)}`,
-          );
-        }
-      }
-
-      this.globalConfig = validatedGlobalConfig;
-      this.appConfig = validatedAppConfig;
-      this.transportConfig = validatedServers;
+      this.lastModified = loadedConfig.lastModified;
+      this.globalConfig = loadedConfig.globalConfig;
+      this.appConfig = loadedConfig.appConfig;
+      this.transportConfig = loadedConfig.validatedServers;
       const substitutionStatus = features.envSubstitution ? 'with' : 'without';
       logger.info(`Configuration loaded successfully ${substitutionStatus} environment variable substitution`);
     } catch (error) {
@@ -341,14 +248,6 @@ export class McpConfigManager extends EventEmitter {
    */
   public getGlobalConfig(): GlobalTransportConfig {
     return { ...this.globalConfig };
-  }
-
-  /**
-   * Load app configuration from config.toml in the same directory as mcp.json.
-   */
-  private loadAppConfigFromToml(): ApplicationConfig {
-    const tomlPath = path.join(path.dirname(this.configFilePath), 'config.toml');
-    return loadAppConfigFromTomlPath(tomlPath);
   }
 
   /**

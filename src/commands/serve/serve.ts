@@ -76,6 +76,23 @@ export interface ServeOptions {
   'instructions-template'?: string;
 }
 
+function parseCommaSeparatedList(value?: string): string[] {
+  return value ? value.split(',').map((entry) => entry.trim()) : [];
+}
+
+function parseInternalToolsList(value?: string): string[] {
+  if (!value) {
+    return [];
+  }
+
+  try {
+    return FlagManager.getInstance().parseToolsList(value);
+  } catch (error) {
+    logger.error(`Failed to parse internal-tools list: ${error instanceof Error ? error.message : String(error)}`);
+    process.exit(1);
+  }
+}
+
 /**
  * Load custom instructions template from file with validation
  * @param templatePath Path to template file (CLI option or default)
@@ -315,6 +332,11 @@ export async function serveCommand(parsedArgv: ServeOptions): Promise<void> {
       sessionStoragePath = path.join(parsedArgv['config-dir'], 'sessions');
     }
 
+    const internalToolsList = parseInternalToolsList(parsedArgv['internal-tools']);
+    const directExpose = parseCommaSeparatedList(parsedArgv['lazy-direct-expose']);
+    const preloadPatterns = parseCommaSeparatedList(parsedArgv['lazy-preload']);
+    const preloadKeywords = parseCommaSeparatedList(parsedArgv['lazy-preload-keywords']);
+
     serverConfigManager.updateConfig({
       host: effectiveHost,
       port: effectivePort,
@@ -342,19 +364,7 @@ export async function serveCommand(parsedArgv: ServeOptions): Promise<void> {
         jsonRpcErrorLogging: parsedArgv['enable-jsonrpc-error-logging'],
         // Internal tool configuration from CLI flags
         internalTools: parsedArgv['enable-internal-tools'],
-        internalToolsList: parsedArgv['internal-tools']
-          ? (() => {
-              try {
-                const flagManager = FlagManager.getInstance();
-                return flagManager.parseToolsList(parsedArgv['internal-tools']);
-              } catch (error) {
-                logger.error(
-                  `Failed to parse internal-tools list: ${error instanceof Error ? error.message : String(error)}`,
-                );
-                process.exit(1);
-              }
-            })()
-          : [],
+        internalToolsList,
       },
       health: {
         detailLevel: parsedArgv['health-info-level'] as 'full' | 'basic' | 'minimal',
@@ -372,19 +382,15 @@ export async function serveCommand(parsedArgv: ServeOptions): Promise<void> {
         enabled: parsedArgv['enable-lazy-loading'] ?? appConfig.lazyLoading?.enabled ?? false,
         inlineCatalog: parsedArgv['lazy-inline-catalog'] ?? appConfig.lazyLoading?.inlineCatalog ?? false,
         catalogFormat: (parsedArgv['lazy-catalog-format'] || 'grouped') as 'flat' | 'grouped' | 'categorized',
-        directExpose: parsedArgv['lazy-direct-expose']
-          ? parsedArgv['lazy-direct-expose'].split(',').map((s) => s.trim())
-          : [],
+        directExpose,
         cache: {
           maxEntries: parsedArgv['lazy-cache-max-entries'] ?? appConfig.lazyLoading?.cacheMaxEntries ?? 1000,
           strategy: 'lru' as const,
           ttlMs: parsedArgv['lazy-cache-ttl'],
         },
         preload: {
-          patterns: parsedArgv['lazy-preload'] ? parsedArgv['lazy-preload'].split(',').map((s) => s.trim()) : [],
-          keywords: parsedArgv['lazy-preload-keywords']
-            ? parsedArgv['lazy-preload-keywords'].split(',').map((s) => s.trim())
-            : [],
+          patterns: preloadPatterns,
+          keywords: preloadKeywords,
         },
         fallback: {
           onError: (parsedArgv['lazy-fallback-on-error'] || 'skip') as 'skip' | 'full',
