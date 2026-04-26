@@ -1,30 +1,142 @@
 import fs from 'fs';
+import path from 'path';
 
 import { substituteEnvVarsInConfig } from '@src/config/envProcessor.js';
-import { DEFAULT_CONFIG, getGlobalConfigDir, getGlobalConfigPath } from '@src/constants.js';
+import { getUnknownGlobalConfigKeys, mergeGlobalAndServerConfig } from '@src/config/mcpConfigMerge.js';
+import { DEFAULT_CONFIG, getGlobalConfigPath } from '@src/constants.js';
 import { MCP_CONFIG_SCHEMA_URL } from '@src/constants/schema.js';
 import { AgentConfigManager } from '@src/core/server/agentConfig.js';
-import { MCPServerParams, transportConfigSchema } from '@src/core/types/transport.js';
+import {
+  ApplicationConfig,
+  applicationConfigSchema,
+  GlobalTransportConfig,
+  globalTransportConfigSchema,
+  MCPServerParams,
+  transportConfigSchema,
+} from '@src/core/types/transport.js';
 import logger, { debugIf } from '@src/logger/logger.js';
 
+import { parse as parseToml } from 'smol-toml';
 import { ZodError } from 'zod';
 
 interface ErrnoException extends Error {
   code?: string;
 }
 
+interface RawConfigLoadResult {
+  config: unknown;
+  lastModified: number;
+  schemaInjected: boolean;
+}
+
+export interface LoadedMcpConfig {
+  rawConfig: Record<string, unknown>;
+  processedConfig: Record<string, unknown>;
+  globalConfig: GlobalTransportConfig;
+  appConfig: ApplicationConfig;
+  rawServers: Record<string, MCPServerParams>;
+  validatedServers: Record<string, MCPServerParams>;
+  lastModified: number;
+  schemaInjected: boolean;
+}
+
+interface ConfigLoaderOptions {
+  ensureConfigExists?: boolean;
+}
+
+interface LoadParsedConfigOptions {
+  substituteEnv?: boolean;
+  includeAppConfig?: boolean;
+}
+
+function formatZodIssues(error: ZodError): string {
+  return error.issues.map((issue) => `${issue.path.join('.')}: ${issue.message}`).join(', ');
+}
+
+function getValidationErrorMessage(context: string, error: unknown): string {
+  if (error instanceof ZodError) {
+    return `${context}: ${formatZodIssues(error)}`;
+  }
+
+  return `${context}: ${error instanceof Error ? error.message : String(error)}`;
+}
+
+function warnIfLegacyAppConfig(rawConfig: unknown, configFilePath: string): void {
+  if (!rawConfig || typeof rawConfig !== 'object') {
+    return;
+  }
+
+  const configObj = rawConfig as Record<string, unknown>;
+  if (configObj.app === undefined) {
+    return;
+  }
+
+  const tomlPath = path.join(path.dirname(configFilePath), 'config.toml');
+  logger.warn(
+    `The "app" key in mcp.json is deprecated. Please move your app settings to ${tomlPath}. ` +
+      `The "app" key in mcp.json will be ignored.`,
+  );
+}
+
+function warnForUnknownGlobalConfigKeys(rawGlobal: unknown): void {
+  const unknownGlobalKeys = getUnknownGlobalConfigKeys(rawGlobal);
+  if (unknownGlobalKeys.length === 0) {
+    return;
+  }
+
+  logger.warn(`Unknown properties in global MCP configuration were ignored: ${unknownGlobalKeys.join(', ')}`);
+}
+
+function normalizeRawServerConfigs(rawServers: unknown): Record<string, MCPServerParams> {
+  if (!rawServers || typeof rawServers !== 'object') {
+    return {};
+  }
+
+  const normalizedServers: Record<string, MCPServerParams> = {};
+
+  for (const [serverName, serverConfig] of Object.entries(rawServers)) {
+    if (serverConfig && typeof serverConfig === 'object') {
+      normalizedServers[serverName] = serverConfig as MCPServerParams;
+    }
+  }
+
+  return normalizedServers;
+}
+
+export function loadAppConfigFromTomlPath(tomlPath: string): ApplicationConfig {
+  try {
+    if (!fs.existsSync(tomlPath)) {
+      return {};
+    }
+    const raw = fs.readFileSync(tomlPath, 'utf8');
+    const parsed = parseToml(raw);
+    return applicationConfigSchema.parse(parsed);
+  } catch (error) {
+    if (error instanceof ZodError) {
+      logger.error(`Invalid app configuration in config.toml (ignored): ${formatZodIssues(error)}`);
+    } else {
+      logger.error(
+        `Failed to load app configuration from ${tomlPath}: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+    return {};
+  }
+}
+
 export class ConfigLoader {
   private configFilePath: string;
   private lastModified = 0;
 
-  constructor(configFilePath?: string) {
+  constructor(configFilePath?: string, options?: ConfigLoaderOptions) {
     this.configFilePath = configFilePath || getGlobalConfigPath();
-    this.ensureConfigExists();
+    if (options?.ensureConfigExists !== false) {
+      this.ensureConfigExists();
+    }
   }
 
   private ensureConfigExists(): void {
     try {
-      const configDir = getGlobalConfigDir();
+      const configDir = path.dirname(this.configFilePath);
       if (!fs.existsSync(configDir)) {
         fs.mkdirSync(configDir, { recursive: true });
         logger.info(`Created config directory: ${configDir}`);
@@ -67,16 +179,19 @@ export class ConfigLoader {
     }
   }
 
-  public loadRawConfig(): unknown {
+  private loadRawConfigResult(): RawConfigLoadResult {
     try {
       const stats = fs.statSync(this.configFilePath);
-      this.lastModified = stats.mtime.getTime();
+      const lastModified = stats.mtime.getTime();
+      this.lastModified = lastModified;
       const rawConfigData = fs.readFileSync(this.configFilePath, 'utf8');
       const config = JSON.parse(rawConfigData) as Record<string, unknown>;
+      let schemaInjected = false;
 
       // Ensure $schema field is present for IDE autocompletion
       if (config && typeof config === 'object' && !('$schema' in config)) {
         config.$schema = MCP_CONFIG_SCHEMA_URL;
+        schemaInjected = true;
 
         // Log the enhancement for debugging and transparency
         debugIf(() => ({
@@ -88,7 +203,7 @@ export class ConfigLoader {
         }));
       }
 
-      return config;
+      return { config, lastModified, schemaInjected };
     } catch (error) {
       const message = `Failed to load configuration from '${this.configFilePath}': ${error instanceof Error ? error.message : String(error)}`;
       logger.error(message, {
@@ -99,34 +214,64 @@ export class ConfigLoader {
     }
   }
 
+  public loadRawConfig(): unknown {
+    return this.loadRawConfigResult().config;
+  }
+
   public validateServerConfig(serverName: string, config: unknown): MCPServerParams {
     try {
       return transportConfigSchema.parse(config);
     } catch (error) {
-      if (error instanceof ZodError) {
-        const fieldErrors = error.issues.map((e) => `${e.path.join('.')}: ${e.message}`).join(', ');
-        throw new Error(`Invalid configuration for server '${serverName}': ${fieldErrors}`);
-      }
-      throw new Error(
-        `Invalid configuration for server '${serverName}': ${error instanceof Error ? error.message : String(error)}`,
-      );
+      throw new Error(getValidationErrorMessage(`Invalid configuration for server '${serverName}'`, error));
     }
   }
 
-  public loadConfigWithEnvSubstitution(): Record<string, MCPServerParams> {
-    let rawConfig: unknown;
+  public validateGlobalConfig(config: unknown): GlobalTransportConfig {
     try {
-      rawConfig = this.loadRawConfig();
+      return globalTransportConfigSchema.parse(config);
+    } catch (error) {
+      throw new Error(getValidationErrorMessage('Invalid global configuration', error));
+    }
+  }
+
+  public validateAppConfig(config: unknown): ApplicationConfig {
+    try {
+      return applicationConfigSchema.parse(config);
+    } catch (error) {
+      throw new Error(getValidationErrorMessage('Invalid app configuration', error));
+    }
+  }
+
+  public loadAppConfig(): ApplicationConfig {
+    // Check for legacy app key in mcp.json and warn
+    try {
+      warnIfLegacyAppConfig(this.loadRawConfig(), this.configFilePath);
+    } catch (error) {
+      logger.debug(`Could not check for legacy "app" key: ${error instanceof Error ? error.message : String(error)}`);
+    }
+
+    return this.loadAppConfigFromToml();
+  }
+
+  public loadAppConfigFromToml(): ApplicationConfig {
+    const tomlPath = path.join(path.dirname(this.configFilePath), 'config.toml');
+    return loadAppConfigFromTomlPath(tomlPath);
+  }
+
+  public loadParsedConfig(options?: LoadParsedConfigOptions): LoadedMcpConfig {
+    let rawResult: RawConfigLoadResult;
+    try {
+      rawResult = this.loadRawConfigResult();
     } catch (error) {
       const errorMsg = `Failed to load raw configuration: ${error instanceof Error ? error.message : String(error)}`;
       logger.error(errorMsg);
-      throw new Error(errorMsg);
+      throw new Error(errorMsg, { cause: error });
     }
 
     const agentConfig = AgentConfigManager.getInstance();
     const features = agentConfig.get('features');
-
-    const processedConfig = features.envSubstitution ? substituteEnvVarsInConfig(rawConfig) : rawConfig;
+    const substituteEnv = options?.substituteEnv ?? features.envSubstitution;
+    const processedConfig = substituteEnv ? substituteEnvVarsInConfig(rawResult.config) : rawResult.config;
 
     if (!processedConfig || typeof processedConfig !== 'object') {
       const errorMsg = 'Invalid configuration format';
@@ -135,29 +280,47 @@ export class ConfigLoader {
     }
 
     const configObj = processedConfig as Record<string, unknown>;
-    const mcpServersConfig = (configObj.mcpServers as Record<string, unknown>) || {};
-    const mcpTemplatesConfig = (configObj.mcpTemplates as Record<string, unknown>) || {};
-    const templateServerNames = new Set(Object.keys(mcpTemplatesConfig));
-
-    const validatedConfig: Record<string, MCPServerParams> = {};
-    for (const [serverName, serverConfig] of Object.entries(mcpServersConfig)) {
+    const rawGlobal = configObj.serverDefaults;
+    warnForUnknownGlobalConfigKeys(rawGlobal);
+    let globalConfig: GlobalTransportConfig = {};
+    if (rawGlobal !== undefined) {
       try {
-        validatedConfig[serverName] = this.validateServerConfig(serverName, serverConfig);
+        globalConfig = this.validateGlobalConfig(rawGlobal);
+      } catch (error) {
+        logger.warn(
+          `Ignoring invalid serverDefaults configuration: ${error instanceof Error ? error.message : String(error)}`,
+        );
+      }
+    }
+
+    warnIfLegacyAppConfig(configObj, this.configFilePath);
+    const appConfig = options?.includeAppConfig === false ? {} : this.loadAppConfigFromToml();
+
+    const rawServers = normalizeRawServerConfigs(configObj.mcpServers);
+    const templateServerNames = new Set(Object.keys(normalizeRawServerConfigs(configObj.mcpTemplates)));
+    const validatedServers: Record<string, MCPServerParams> = {};
+
+    for (const [serverName, serverConfig] of Object.entries(rawServers)) {
+      try {
+        // Validate the raw server first, then re-validate after applying serverDefaults
+        // so merged config errors are surfaced instead of silently accepted.
+        const validatedServerConfig = this.validateServerConfig(serverName, serverConfig);
+        const mergedConfig = mergeGlobalAndServerConfig(globalConfig, validatedServerConfig);
+        validatedServers[serverName] = this.validateServerConfig(serverName, mergedConfig);
         debugIf(() => ({
           message: `Validated configuration for server: ${serverName}`,
           meta: { serverName },
         }));
       } catch (error) {
         logger.error(`Configuration validation failed: ${error instanceof Error ? error.message : String(error)}`);
-        continue;
       }
     }
 
     const conflictingServers: string[] = [];
-    for (const serverName of Object.keys(validatedConfig)) {
+    for (const serverName of Object.keys(validatedServers)) {
       if (templateServerNames.has(serverName)) {
         conflictingServers.push(serverName);
-        delete validatedConfig[serverName];
+        delete validatedServers[serverName];
       }
     }
 
@@ -167,7 +330,24 @@ export class ConfigLoader {
       );
     }
 
-    return validatedConfig;
+    return {
+      rawConfig: rawResult.config as Record<string, unknown>,
+      processedConfig: configObj,
+      globalConfig,
+      appConfig,
+      rawServers,
+      validatedServers,
+      lastModified: rawResult.lastModified,
+      schemaInjected: rawResult.schemaInjected,
+    };
+  }
+
+  public loadParsedConfigWithEnvSubstitution(): LoadedMcpConfig {
+    return this.loadParsedConfig();
+  }
+
+  public loadConfigWithEnvSubstitution(): Record<string, MCPServerParams> {
+    return this.loadParsedConfigWithEnvSubstitution().validatedServers;
   }
 
   public getTransportConfig(transportConfig: Record<string, MCPServerParams>): Record<string, MCPServerParams> {

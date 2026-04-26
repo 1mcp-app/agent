@@ -2,9 +2,12 @@ import fs from 'fs';
 import path from 'path';
 
 import ConfigContext from '@src/config/configContext.js';
+import { ConfigLoader } from '@src/config/configLoader.js';
 import { McpConfigManager } from '@src/config/mcpConfigManager.js';
-import { MCPServerParams } from '@src/core/types/index.js';
+import { mergeGlobalAndServerConfig, mergeGlobalWithServers } from '@src/config/mcpConfigMerge.js';
+import { GlobalTransportConfig, MCPServerParams } from '@src/core/types/index.js';
 import logger from '@src/logger/logger.js';
+import { normalizedArgv } from '@src/utils/cli/normalizedArgv.js';
 
 /**
  * Configuration file utilities for server management commands
@@ -33,8 +36,8 @@ export function initializeConfigContext(configPath?: string, configDir?: string)
 }
 
 function getExplicitCliOptionValue(flags: string[]): string | undefined {
-  for (let index = 0; index < process.argv.length; index += 1) {
-    const arg = process.argv[index];
+  for (let index = 0; index < normalizedArgv.length; index += 1) {
+    const arg = normalizedArgv[index];
     if (!flags.includes(arg)) {
       const matchingFlag = flags.find((flag) => arg.startsWith(`${flag}=`));
       if (!matchingFlag) {
@@ -45,7 +48,7 @@ function getExplicitCliOptionValue(flags: string[]): string | undefined {
       return value || undefined;
     }
 
-    const value = process.argv[index + 1];
+    const value = normalizedArgv[index + 1];
     if (value && !value.startsWith('-')) {
       return value;
     }
@@ -55,7 +58,48 @@ function getExplicitCliOptionValue(flags: string[]): string | undefined {
 }
 
 export interface ServerConfig {
+  serverDefaults?: GlobalTransportConfig;
   mcpServers: Record<string, MCPServerParams>;
+}
+
+function createCommandConfigLoader(configPath: string): ConfigLoader {
+  return new ConfigLoader(configPath, { ensureConfigExists: false });
+}
+
+function loadSharedConfigState(configPath?: string): {
+  config: ServerConfig & Record<string, unknown>;
+  effectiveServers: Record<string, MCPServerParams>;
+} {
+  const configContext = ConfigContext.getInstance();
+  const filePath = configPath || configContext.getResolvedConfigPath();
+
+  if (!fs.existsSync(filePath)) {
+    throw new Error(`Configuration file not found: ${filePath}`);
+  }
+
+  try {
+    const loader = createCommandConfigLoader(filePath);
+    const loadedConfig = loader.loadParsedConfig({ substituteEnv: false, includeAppConfig: false });
+    const config = {
+      ...loadedConfig.processedConfig,
+      serverDefaults: loadedConfig.globalConfig,
+      mcpServers: loadedConfig.rawServers,
+    } as ServerConfig & Record<string, unknown>;
+
+    if (loadedConfig.schemaInjected) {
+      delete config.$schema;
+    }
+
+    return {
+      config,
+      effectiveServers: mergeGlobalWithServers(loadedConfig.globalConfig, loadedConfig.rawServers),
+    };
+  } catch (error) {
+    if (error instanceof Error && error.cause instanceof SyntaxError) {
+      throw new Error(`Invalid JSON in configuration file: ${filePath}`);
+    }
+    throw error;
+  }
 }
 
 /**
@@ -63,52 +107,14 @@ export interface ServerConfig {
  * Uses ConfigContext to resolve the appropriate config file path
  */
 export function loadConfig(configPath?: string): ServerConfig {
-  const configContext = ConfigContext.getInstance();
-  const filePath = configPath || configContext.getResolvedConfigPath();
+  return loadSharedConfigState(configPath).config;
+}
 
-  try {
-    if (!fs.existsSync(filePath)) {
-      throw new Error(`Configuration file not found: ${filePath}`);
-    }
-
-    const configData = JSON.parse(fs.readFileSync(filePath, 'utf8')) as unknown;
-
-    // Type guard to ensure configData has proper structure
-    if (!configData || typeof configData !== 'object') {
-      throw new Error(`Invalid configuration format: ${filePath}`);
-    }
-
-    const configObj = configData as Record<string, unknown>;
-
-    // Ensure mcpServers exists and is properly typed
-    if (!configObj.mcpServers || typeof configObj.mcpServers !== 'object') {
-      configObj.mcpServers = {} as Record<string, MCPServerParams>;
-    }
-
-    // Validate that mcpServers is properly structured
-    if (typeof configObj.mcpServers === 'object' && configObj.mcpServers !== null) {
-      // Ensure mcpServers is a Record<string, MCPServerParams>
-      const mcpServers = configObj.mcpServers as Record<string, unknown>;
-      const validatedMcpServers: Record<string, MCPServerParams> = {};
-
-      for (const [key, value] of Object.entries(mcpServers)) {
-        if (value && typeof value === 'object') {
-          // Basic validation - ensure it has at least a type property
-          const serverConfig = value as MCPServerParams;
-          validatedMcpServers[key] = serverConfig;
-        }
-      }
-
-      configObj.mcpServers = validatedMcpServers;
-    }
-
-    return configObj as unknown as ServerConfig;
-  } catch (error) {
-    if (error instanceof SyntaxError) {
-      throw new Error(`Invalid JSON in configuration file: ${filePath}`);
-    }
-    throw error;
-  }
+function isMissingConfigError(error: unknown): boolean {
+  return (
+    (error instanceof Error && error.message.includes('Configuration file not found')) ||
+    (typeof error === 'object' && error !== null && 'code' in error && (error as { code?: string }).code === 'ENOENT')
+  );
 }
 
 /**
@@ -155,8 +161,51 @@ export function getServer(serverName: string): MCPServerParams | null {
   try {
     const config = loadConfig();
     return config.mcpServers[serverName] || null;
-  } catch (_error) {
-    return null;
+  } catch (error) {
+    logger.warn(`Failed to get server '${serverName}': ${error instanceof Error ? error.message : String(error)}`);
+    if (isMissingConfigError(error)) {
+      return null;
+    }
+    throw error;
+  }
+}
+
+/**
+ * Get global MCP configuration from file.
+ */
+export function getGlobalConfig(): GlobalTransportConfig {
+  try {
+    const config = loadConfig();
+    return config.serverDefaults || {};
+  } catch (error) {
+    logger.warn(`Failed to get global config: ${error instanceof Error ? error.message : String(error)}`);
+    if (isMissingConfigError(error)) {
+      return {};
+    }
+    throw error;
+  }
+}
+
+/**
+ * Get effective merged configuration for a specific server.
+ */
+export function getEffectiveServerConfig(serverName: string): MCPServerParams | null {
+  try {
+    const { config, effectiveServers } = loadSharedConfigState();
+    if (!config.mcpServers[serverName]) {
+      return null;
+    }
+    return (
+      effectiveServers[serverName] || mergeGlobalAndServerConfig(config.serverDefaults, config.mcpServers[serverName])
+    );
+  } catch (error) {
+    logger.warn(
+      `Failed to get effective server config for '${serverName}': ${error instanceof Error ? error.message : String(error)}`,
+    );
+    if (isMissingConfigError(error)) {
+      return null;
+    }
+    throw error;
   }
 }
 
@@ -209,8 +258,27 @@ export function getAllServers(): Record<string, MCPServerParams> {
   try {
     const config = loadConfig();
     return config.mcpServers;
-  } catch (_error) {
-    return {};
+  } catch (error) {
+    logger.warn(`Failed to get all servers: ${error instanceof Error ? error.message : String(error)}`);
+    if (isMissingConfigError(error)) {
+      return {};
+    }
+    throw error;
+  }
+}
+
+/**
+ * Get all effective server configurations after applying global inheritance.
+ */
+export function getAllEffectiveServers(): Record<string, MCPServerParams> {
+  try {
+    return loadSharedConfigState().effectiveServers;
+  } catch (error) {
+    logger.warn(`Failed to get all effective servers: ${error instanceof Error ? error.message : String(error)}`);
+    if (isMissingConfigError(error)) {
+      return {};
+    }
+    throw error;
   }
 }
 
@@ -352,6 +420,7 @@ export function validateServerConfig(serverConfig: MCPServerParams): void {
 
     case 'http':
     case 'sse':
+    case 'streamableHttp':
       if (!serverConfig.url) {
         throw new Error(`URL is required for ${serverConfig.type} servers`);
       }
@@ -401,6 +470,66 @@ export function reloadMcpConfig(): void {
     configManager.reloadConfig();
     logger.info('MCP configuration reloaded');
   } catch (error) {
-    logger.warn(`Failed to reload MCP configuration: ${error}`);
+    logger.warn(`Failed to reload MCP configuration: ${error instanceof Error ? error.message : String(error)}`);
   }
+}
+
+export function getInheritedKeys(
+  rawConfig: MCPServerParams,
+  effectiveConfig: MCPServerParams,
+  globalConfig: GlobalTransportConfig,
+): string[] {
+  const inherited: string[] = [];
+  const fallbackKeys: Array<keyof MCPServerParams> = [
+    'timeout',
+    'connectionTimeout',
+    'requestTimeout',
+    'oauth',
+    'headers',
+    'inheritParentEnv',
+  ];
+
+  for (const key of fallbackKeys) {
+    if (
+      rawConfig[key] === undefined &&
+      effectiveConfig[key] !== undefined &&
+      globalConfig[key as keyof GlobalTransportConfig] !== undefined
+    ) {
+      inherited.push(String(key));
+    }
+  }
+
+  if (rawConfig.env === undefined && effectiveConfig.env !== undefined && globalConfig.env !== undefined) {
+    inherited.push('env');
+  }
+
+  if (
+    rawConfig.envFilter === undefined &&
+    Array.isArray(effectiveConfig.envFilter) &&
+    effectiveConfig.envFilter.length > 0 &&
+    Array.isArray(globalConfig.envFilter) &&
+    globalConfig.envFilter.length > 0
+  ) {
+    inherited.push('envFilter');
+  }
+
+  if (
+    rawConfig.env &&
+    effectiveConfig.env &&
+    typeof rawConfig.env === 'object' &&
+    typeof effectiveConfig.env === 'object' &&
+    !Array.isArray(rawConfig.env) &&
+    !Array.isArray(effectiveConfig.env) &&
+    typeof globalConfig.env === 'object' &&
+    globalConfig.env !== null &&
+    !Array.isArray(globalConfig.env)
+  ) {
+    const rawEnv = rawConfig.env as Record<string, string>;
+    const effectiveEnv = effectiveConfig.env as Record<string, string>;
+    if (Object.keys(effectiveEnv).some((key) => !(key in rawEnv))) {
+      inherited.push('env(merged)');
+    }
+  }
+
+  return inherited;
 }

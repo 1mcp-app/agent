@@ -1,0 +1,77 @@
+# 1MCP Application Configuration
+# Copy this file to ~/.config/1mcp/config.toml and adjust as needed.
+# CLI arguments and ONE_MCP_* environment variables always take precedence over these values.
+# Changes to this file require a process restart to take effect.
+
+# Transport type: "http" | "sse" | "stdio"
+transport = "http"
+
+# HTTP port to listen on
+port = 3050
+
+# HTTP host to listen on
+host = "127.0.0.1"
+
+# Log level: "debug" | "info" | "warn" | "error"
+logLevel = "info"
+
+# Path to log file (optional)
+# logFile = "/var/log/1mcp.log"
+
+[auth]
+# Enable OAuth 2.1 authentication
+enabled = false
+
+# Session TTL in minutes
+sessionTtl = 1440
+
+# Rate limit window in minutes
+rateLimitWindow = 15
+
+# Maximum requests per rate limit window
+rateLimitMax = 100
+
+# Trust proxy configuration for Express.js
+trustProxy = "loopback"
+
+# Enable tag-based scope validation
+# enableScopeValidation = false
+
+# Enable enhanced security middleware
+# enableEnhancedSecurity = false
+
+[asyncLoading]
+# Enable asynchronous MCP server loading
+enabled = false
+
+# Minimum servers to wait for before accepting requests
+minServers = 1
+
+# Initial load timeout in milliseconds
+timeout = 30000
+
+# Batch capability change notifications
+# batchNotifications = false
+
+# Batch delay in milliseconds
+# batchDelay = 100
+
+[lazyLoading]
+# Enable lazy loading for tools
+enabled = false
+
+# Lazy loading mode: "full" | "metatool" | "hybrid"
+mode = "full"
+
+# Maximum tool schemas to cache
+# cacheMaxEntries = 1000
+
+# Include full tool catalog in initialize template
+# inlineCatalog = false
+
+[configReload]
+# Enable automatic mcp.json hot-reload
+enabled = true
+
+# Debounce delay in milliseconds
+debounce = 500

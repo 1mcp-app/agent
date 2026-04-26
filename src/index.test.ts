@@ -84,75 +84,36 @@ describe('Index Module', () => {
   });
 
   describe('CLI Argument Structure', () => {
-    it('should define expected CLI options structure', () => {
-      // Test the structure of CLI options that would be used by yargs
-      const expectedOptions = {
-        transport: {
-          alias: 't',
-          describe: 'Transport type to use (stdio or http, sse is deprecated)',
-          type: 'string',
-          choices: ['stdio', 'http', 'sse'],
-          default: 'http',
-        },
-        port: {
-          alias: 'P',
-          describe: 'HTTP port to listen on, applicable when transport is http',
-          type: 'number',
-        },
-        host: {
-          alias: 'H',
-          describe: 'HTTP host to listen on, applicable when transport is http',
-          type: 'string',
-        },
-        config: {
-          alias: 'c',
-          describe: 'Path to the config file',
-          type: 'string',
-        },
-        tags: {
-          alias: 'g',
-          describe: 'Tags to filter clients (comma-separated)',
-          type: 'string',
-        },
-        pagination: {
-          alias: 'p',
-          describe: 'Enable pagination',
-          type: 'boolean',
-          default: false,
-        },
-        auth: {
-          describe: 'Enable authentication (OAuth 2.1) - deprecated, use --enable-auth',
-          type: 'boolean',
-          default: false,
-        },
-        'enable-auth': {
-          describe: 'Enable authentication (OAuth 2.1)',
-          type: 'boolean',
-          default: false,
-        },
-        'enable-scope-validation': {
-          describe: 'Enable tag-based scope validation',
-          type: 'boolean',
-          default: true,
-        },
-        'enable-enhanced-security': {
-          describe: 'Enable enhanced security middleware',
-          type: 'boolean',
-          default: false,
-        },
-      };
+    it('should define expected CLI options structure', async () => {
+      const { serverOptions } = await import('./commands/serve/index.js');
 
       // Verify the option structure is well-formed
-      expect(expectedOptions.transport.choices).toContain('stdio');
-      expect(expectedOptions.transport.choices).toContain('http');
-      expect(expectedOptions.transport.choices).toContain('sse');
-      expect(expectedOptions.transport.default).toBe('http');
+      expect(serverOptions.transport.choices).toContain('stdio');
+      expect(serverOptions.transport.choices).toContain('http');
+      expect(serverOptions.transport.choices).toContain('sse');
+      expect('default' in serverOptions.transport).toBe(false);
 
-      expect(expectedOptions.pagination.default).toBe(false);
-      expect(expectedOptions.auth.default).toBe(false);
-      expect(expectedOptions['enable-auth'].default).toBe(false);
-      expect(expectedOptions['enable-scope-validation'].default).toBe(true);
-      expect(expectedOptions['enable-enhanced-security'].default).toBe(false);
+      expect(serverOptions.pagination.default).toBe(false);
+      expect('default' in serverOptions.auth).toBe(false);
+      expect('default' in serverOptions['enable-auth']).toBe(false);
+      expect('default' in serverOptions['enable-scope-validation']).toBe(false);
+      expect('default' in serverOptions['enable-enhanced-security']).toBe(false);
+      expect('default' in serverOptions['session-ttl']).toBe(false);
+      expect('default' in serverOptions['rate-limit-window']).toBe(false);
+      expect('default' in serverOptions['enable-async-loading']).toBe(false);
+      expect('default' in serverOptions['enable-lazy-loading']).toBe(false);
+      expect('default' in serverOptions['enable-config-reload']).toBe(false);
+    });
+
+    it('should normalize argv forwarded through a script runner', async () => {
+      const { normalizeCliArgv } = await import('./index.js');
+
+      expect(normalizeCliArgv(['--', '--config', '.tmp/mcp.json', '--port', '3052'])).toEqual([
+        '--config',
+        '.tmp/mcp.json',
+        '--port',
+        '3052',
+      ]);
     });
   });
 

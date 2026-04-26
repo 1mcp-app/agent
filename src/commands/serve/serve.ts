@@ -5,8 +5,7 @@ import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 
 import ConfigContext from '@src/config/configContext.js';
 import { ConfigManager } from '@src/config/configManager.js';
-import { getDefaultInstructionsTemplatePath } from '@src/constants.js';
-import { getConfigDir } from '@src/constants.js';
+import { getConfigDir, getDefaultInstructionsTemplatePath, HOST, PORT } from '@src/constants.js';
 import { FlagManager } from '@src/core/flags/flagManager.js';
 import { InstructionAggregator } from '@src/core/instructions/instructionAggregator.js';
 import { formatValidationError, validateTemplateContent } from '@src/core/instructions/templateValidator.js';
@@ -17,6 +16,7 @@ import { cleanupPidFileOnExit, registerPidFileCleanup, writePidFile } from '@src
 import { ServerManager } from '@src/core/server/serverManager.js';
 import { TagExpression, TagQueryParser } from '@src/domains/preset/parsers/tagQueryParser.js';
 import type { TagQuery } from '@src/domains/preset/types/presetTypes.js';
+import { configureGlobalLogger } from '@src/logger/configureGlobalLogger.js';
 import logger, { debugIf } from '@src/logger/logger.js';
 import { setupServer } from '@src/server.js';
 import { ExpressServer } from '@src/transport/http/server.js';
@@ -25,43 +25,43 @@ import { displayLogo } from '@src/utils/ui/logo.js';
 export interface ServeOptions {
   config?: string;
   'config-dir'?: string;
-  'log-level'?: string;
+  'log-level'?: 'debug' | 'info' | 'warn' | 'error';
   'log-file'?: string;
-  transport: string;
-  port: number;
-  host: string;
+  transport?: string;
+  port?: number;
+  host?: string;
   'external-url'?: string;
   filter?: string;
   pagination: boolean;
-  auth: boolean;
-  'enable-auth': boolean;
-  'enable-scope-validation': boolean;
-  'enable-enhanced-security': boolean;
-  'session-ttl': number;
+  auth?: boolean;
+  'enable-auth'?: boolean;
+  'enable-scope-validation'?: boolean;
+  'enable-enhanced-security'?: boolean;
+  'session-ttl'?: number;
   'session-storage-path'?: string;
-  'rate-limit-window': number;
-  'rate-limit-max': number;
-  'trust-proxy': string;
+  'rate-limit-window'?: number;
+  'rate-limit-max'?: number;
+  'trust-proxy'?: string;
   'health-info-level': string;
-  'enable-async-loading': boolean;
-  'async-min-servers': number;
-  'async-timeout': number;
-  'async-batch-notifications': boolean;
-  'async-batch-delay': number;
+  'enable-async-loading'?: boolean;
+  'async-min-servers'?: number;
+  'async-timeout'?: number;
+  'async-batch-notifications'?: boolean;
+  'async-batch-delay'?: number;
   'async-notify-on-ready': boolean;
-  'enable-lazy-loading': boolean;
-  'lazy-mode': string;
-  'lazy-inline-catalog': boolean;
+  'enable-lazy-loading'?: boolean;
+  'lazy-mode'?: string;
+  'lazy-inline-catalog'?: boolean;
   'lazy-catalog-format': string;
   'lazy-direct-expose'?: string;
-  'lazy-cache-max-entries': number;
+  'lazy-cache-max-entries'?: number;
   'lazy-cache-ttl'?: number;
   'lazy-preload'?: string;
   'lazy-preload-keywords'?: string;
   'lazy-fallback-on-error'?: string;
   'lazy-fallback-timeout'?: number;
-  'enable-config-reload': boolean;
-  'config-reload-debounce': number;
+  'enable-config-reload'?: boolean;
+  'config-reload-debounce'?: number;
   'enable-env-substitution': boolean;
   'enable-session-persistence': boolean;
   'session-persist-requests': number;
@@ -73,6 +73,23 @@ export interface ServeOptions {
   'enable-internal-tools': boolean;
   'internal-tools'?: string;
   'instructions-template'?: string;
+}
+
+function parseCommaSeparatedList(value?: string): string[] {
+  return value ? value.split(',').map((entry) => entry.trim()) : [];
+}
+
+function parseInternalToolsList(value?: string): string[] {
+  if (!value) {
+    return [];
+  }
+
+  try {
+    return FlagManager.getInstance().parseToolsList(value);
+  } catch (error) {
+    logger.error(`Failed to parse internal-tools list: ${error instanceof Error ? error.message : String(error)}`);
+    process.exit(1);
+  }
 }
 
 /**
@@ -260,33 +277,50 @@ export async function serveCommand(parsedArgv: ServeOptions): Promise<void> {
     const configFilePath = configContext.getResolvedConfigPath();
     const mcpConfigManager = ConfigManager.getInstance(configFilePath);
 
+    // Load app-level config from config.toml (CLI args take precedence)
+    const appConfig = mcpConfigManager.getAppConfig();
+
     // Get server count for logo display
     const transportConfig = mcpConfigManager.getTransportConfig();
     const serverCount = Object.keys(transportConfig).length;
 
     // Handle backward compatibility for auth flag
-    const authEnabled = parsedArgv['enable-auth'] ?? parsedArgv['auth'] ?? false;
+    const authEnabled = parsedArgv['enable-auth'] ?? parsedArgv['auth'] ?? appConfig.auth?.enabled ?? false;
 
     // Display logo with runtime information (skip for stdio or when logging to file)
-    if (parsedArgv.transport !== 'stdio' && !parsedArgv['log-file']) {
+    const effectiveTransport = parsedArgv.transport ?? appConfig.transport ?? 'http';
+    const effectivePort = parsedArgv.port ?? appConfig.port ?? PORT;
+    const effectiveHost = parsedArgv.host ?? appConfig.host ?? HOST;
+    configureGlobalLogger(
+      {
+        ...parsedArgv,
+        'log-level': parsedArgv['log-level'] ?? appConfig.logLevel,
+        'log-file': parsedArgv['log-file'] ?? appConfig.logFile,
+      },
+      effectiveTransport,
+    );
+    const effectiveLogFile = parsedArgv['log-file'] ?? appConfig.logFile;
+    if (effectiveTransport !== 'stdio' && !effectiveLogFile) {
       displayLogo({
-        transport: parsedArgv.transport,
-        port: parsedArgv.port,
-        host: parsedArgv.host,
+        transport: effectiveTransport,
+        port: effectivePort,
+        host: effectiveHost,
         serverCount,
         authEnabled,
-        logLevel: parsedArgv['log-level'],
+        logLevel: parsedArgv['log-level'] ?? appConfig.logLevel,
         configDir: getConfigDir(parsedArgv['config-dir']),
       });
     }
 
-    // Configure server settings from CLI arguments
+    // Configure server settings from CLI arguments (CLI args take precedence over appConfig)
     const serverConfigManager = AgentConfigManager.getInstance();
-    const scopeValidationEnabled = parsedArgv['enable-scope-validation'] ?? authEnabled;
-    const enhancedSecurityEnabled = parsedArgv['enable-enhanced-security'] ?? false;
+    const scopeValidationEnabled =
+      parsedArgv['enable-scope-validation'] ?? appConfig.auth?.enableScopeValidation ?? true;
+    const enhancedSecurityEnabled =
+      parsedArgv['enable-enhanced-security'] ?? appConfig.auth?.enableEnhancedSecurity ?? false;
 
     // Handle trust proxy configuration (convert 'true'/'false' strings to boolean)
-    const trustProxyValue = parsedArgv['trust-proxy'];
+    const trustProxyValue = parsedArgv['trust-proxy'] ?? appConfig.auth?.trustProxy ?? 'loopback';
     const trustProxy = trustProxyValue === 'true' ? true : trustProxyValue === 'false' ? false : trustProxyValue;
 
     // Derive session storage path: explicit option > config-dir/sessions > global default
@@ -297,75 +331,66 @@ export async function serveCommand(parsedArgv: ServeOptions): Promise<void> {
       sessionStoragePath = path.join(parsedArgv['config-dir'], 'sessions');
     }
 
+    const internalToolsList = parseInternalToolsList(parsedArgv['internal-tools']);
+    const directExpose = parseCommaSeparatedList(parsedArgv['lazy-direct-expose']);
+    const preloadPatterns = parseCommaSeparatedList(parsedArgv['lazy-preload']);
+    const preloadKeywords = parseCommaSeparatedList(parsedArgv['lazy-preload-keywords']);
+    const sessionTtlMinutes = parsedArgv['session-ttl'] ?? appConfig.auth?.sessionTtl ?? 1440;
+
     serverConfigManager.updateConfig({
-      host: parsedArgv.host,
-      port: parsedArgv.port,
+      host: effectiveHost,
+      port: effectivePort,
       externalUrl: parsedArgv['external-url'],
       trustProxy,
       auth: {
         enabled: authEnabled,
-        sessionTtlMinutes: parsedArgv['session-ttl'],
+        sessionTtlMinutes,
         sessionStoragePath,
         oauthCodeTtlMs: 60 * 1000, // 1 minute
-        oauthTokenTtlMs: parsedArgv['session-ttl'] * 60 * 1000, // Convert minutes to milliseconds
+        oauthTokenTtlMs: sessionTtlMinutes * 60 * 1000,
       },
       rateLimit: {
-        windowMs: parsedArgv['rate-limit-window'] * 60 * 1000, // Convert minutes to milliseconds
-        max: parsedArgv['rate-limit-max'],
+        windowMs: (parsedArgv['rate-limit-window'] ?? appConfig.auth?.rateLimitWindow ?? 15) * 60 * 1000,
+        max: parsedArgv['rate-limit-max'] ?? appConfig.auth?.rateLimitMax ?? 100,
       },
       features: {
         auth: authEnabled,
         scopeValidation: scopeValidationEnabled,
         enhancedSecurity: enhancedSecurityEnabled,
-        configReload: parsedArgv['enable-config-reload'],
+        configReload: parsedArgv['enable-config-reload'] ?? appConfig.configReload?.enabled ?? true,
         envSubstitution: parsedArgv['enable-env-substitution'],
         sessionPersistence: parsedArgv['enable-session-persistence'],
         clientNotifications: parsedArgv['enable-client-notifications'],
         jsonRpcErrorLogging: parsedArgv['enable-jsonrpc-error-logging'],
         // Internal tool configuration from CLI flags
         internalTools: parsedArgv['enable-internal-tools'],
-        internalToolsList: parsedArgv['internal-tools']
-          ? (() => {
-              try {
-                const flagManager = FlagManager.getInstance();
-                return flagManager.parseToolsList(parsedArgv['internal-tools']);
-              } catch (error) {
-                logger.error(
-                  `Failed to parse internal-tools list: ${error instanceof Error ? error.message : String(error)}`,
-                );
-                process.exit(1);
-              }
-            })()
-          : [],
+        internalToolsList,
       },
       health: {
         detailLevel: parsedArgv['health-info-level'] as 'full' | 'basic' | 'minimal',
       },
       asyncLoading: {
-        enabled: parsedArgv['enable-async-loading'],
+        enabled: parsedArgv['enable-async-loading'] ?? appConfig.asyncLoading?.enabled ?? false,
         notifyOnServerReady: parsedArgv['async-notify-on-ready'],
-        waitForMinimumServers: parsedArgv['async-min-servers'],
-        initialLoadTimeoutMs: parsedArgv['async-timeout'],
-        batchNotifications: parsedArgv['async-batch-notifications'],
-        batchDelayMs: parsedArgv['async-batch-delay'],
+        waitForMinimumServers: parsedArgv['async-min-servers'] ?? appConfig.asyncLoading?.minServers ?? 1,
+        initialLoadTimeoutMs: parsedArgv['async-timeout'] ?? appConfig.asyncLoading?.timeout ?? 30000,
+        batchNotifications:
+          parsedArgv['async-batch-notifications'] ?? appConfig.asyncLoading?.batchNotifications ?? true,
+        batchDelayMs: parsedArgv['async-batch-delay'] ?? appConfig.asyncLoading?.batchDelay ?? 100,
       },
       lazyLoading: {
-        enabled: parsedArgv['enable-lazy-loading'],
-        inlineCatalog: parsedArgv['lazy-inline-catalog'],
+        enabled: parsedArgv['enable-lazy-loading'] ?? appConfig.lazyLoading?.enabled ?? false,
+        inlineCatalog: parsedArgv['lazy-inline-catalog'] ?? appConfig.lazyLoading?.inlineCatalog ?? false,
         catalogFormat: (parsedArgv['lazy-catalog-format'] || 'grouped') as 'flat' | 'grouped' | 'categorized',
-        directExpose: parsedArgv['lazy-direct-expose']
-          ? parsedArgv['lazy-direct-expose'].split(',').map((s) => s.trim())
-          : [],
+        directExpose,
         cache: {
-          maxEntries: parsedArgv['lazy-cache-max-entries'],
+          maxEntries: parsedArgv['lazy-cache-max-entries'] ?? appConfig.lazyLoading?.cacheMaxEntries ?? 1000,
           strategy: 'lru' as const,
           ttlMs: parsedArgv['lazy-cache-ttl'],
         },
         preload: {
-          patterns: parsedArgv['lazy-preload'] ? parsedArgv['lazy-preload'].split(',').map((s) => s.trim()) : [],
-          keywords: parsedArgv['lazy-preload-keywords']
-            ? parsedArgv['lazy-preload-keywords'].split(',').map((s) => s.trim())
-            : [],
+          patterns: preloadPatterns,
+          keywords: preloadKeywords,
         },
         fallback: {
           onError: (parsedArgv['lazy-fallback-on-error'] || 'skip') as 'skip' | 'full',
@@ -373,7 +398,7 @@ export async function serveCommand(parsedArgv: ServeOptions): Promise<void> {
         },
       },
       configReload: {
-        debounceMs: parsedArgv['config-reload-debounce'],
+        debounceMs: parsedArgv['config-reload-debounce'] ?? appConfig.configReload?.debounce ?? 500,
       },
       sessionPersistence: {
         persistRequests: parsedArgv['session-persist-requests'],
@@ -396,7 +421,7 @@ export async function serveCommand(parsedArgv: ServeOptions): Promise<void> {
 
     let expressServer: ExpressServer | undefined;
 
-    switch (parsedArgv.transport) {
+    switch (effectiveTransport) {
       case 'stdio': {
         // DEPRECATION WARNING
         logger.warn('⚠️  DEPRECATION WARNING: `serve --transport stdio` is deprecated');
@@ -535,8 +560,8 @@ export async function serveCommand(parsedArgv: ServeOptions): Promise<void> {
         writePidFile(configDir, {
           pid: process.pid,
           url: `${serverUrl}/mcp`,
-          port: parsedArgv.port,
-          host: parsedArgv.host,
+          port: effectivePort,
+          host: effectiveHost,
           transport: 'http',
           startedAt: new Date().toISOString(),
           configDir,
@@ -548,7 +573,7 @@ export async function serveCommand(parsedArgv: ServeOptions): Promise<void> {
         break;
       }
       default:
-        logger.error(`Invalid transport: ${parsedArgv.transport}`);
+        logger.error(`Invalid transport: ${effectiveTransport}`);
         process.exit(1);
     }
 

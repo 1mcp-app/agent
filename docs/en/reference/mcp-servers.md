@@ -25,7 +25,7 @@ This document provides comprehensive reference documentation for configuring MCP
 
 ## Overview
 
-The 1MCP Agent manages multiple backend MCP servers through a JSON configuration file. Each server is defined in the `mcpServers` section with specific properties that control its behavior, transport method, and environment.
+The 1MCP Agent manages multiple backend MCP servers through a JSON configuration file. Shared defaults can be defined in `serverDefaults`, and each server is defined in `mcpServers` with specific properties that control its behavior, transport method, and environment.
 
 ---
 
@@ -37,6 +37,9 @@ The agent uses a JSON file (e.g., `mcp.json`) to define backend servers and thei
 
 ```json
 {
+  "serverDefaults": {
+    // Optional shared defaults for all servers
+  },
   "mcpServers": {
     // Server definitions
   }
@@ -91,6 +94,45 @@ This creates a self-contained configuration setup for projects that need isolate
 
 ## MCP Servers Configuration
 
+### `serverDefaults` Section
+
+Optional shared defaults inherited by all servers. Allowed keys:
+
+- `env`
+- `timeout`
+- `connectionTimeout`
+- `requestTimeout`
+- `oauth`
+- `headers`
+- `inheritParentEnv`
+- `envFilter`
+
+Merge behavior:
+
+- `env` object values merge with per-server env values (server keys override serverDefaults keys).
+- `oauth` and `headers` are replaced by per-server values (not merged).
+- Primitive values (`timeout`, `connectionTimeout`, `requestTimeout`, `inheritParentEnv`) are inherited only when missing on the server.
+- Transport-specific exclusions apply: global `headers` are ignored for `stdio` transports, and global `inheritParentEnv` and `envFilter` are ignored for `http`, `sse`, and `streamableHttp` transports.
+- When both `serverDefaults.env` and `mcpServers.<name>.env` use array format, the server-specific array wins instead of merging element-by-element.
+
+### Migration Guide (Per-Server to Shared Defaults)
+
+You can move repeated settings from each server into `serverDefaults` without changing server behavior:
+
+1. Identify repeated keys across servers (`env`, `connectionTimeout`, `requestTimeout`, `oauth`, `headers`, `inheritParentEnv`).
+2. Move shared values to `serverDefaults`.
+3. Keep server-specific overrides inside each server definition.
+4. Run `1mcp mcp status --verbose` to confirm each server’s effective merged configuration.
+
+### serverDefaults Environment Variables Reference
+
+`serverDefaults.env` supports two formats:
+
+- Object format: `{ "KEY": "value" }`
+- Array format: `["KEY=value"]`
+
+When both `serverDefaults.env` and `mcpServers.<name>.env` are objects, values are merged and server values override serverDefaults values on key conflicts.
+
 ### `mcpServers` Section
 
 This is a dictionary of all the backend MCP servers the agent will manage.
@@ -131,6 +173,14 @@ This is a dictionary of all the backend MCP servers the agent will manage.
 
 ```json
 {
+  "serverDefaults": {
+    "connectionTimeout": 10000,
+    "requestTimeout": 30000,
+    "env": {
+      "HTTP_PROXY": "${HTTP_PROXY}",
+      "API_KEY": "${GLOBAL_API_KEY}"
+    }
+  },
   "mcpServers": {
     "filesystem": {
       "command": "mcp-server-filesystem",
@@ -140,8 +190,10 @@ This is a dictionary of all the backend MCP servers the agent will manage.
     "remote-api": {
       "transport": "http",
       "url": "https://api.example.com/mcp",
+      "headers": {
+        "Authorization": "Bearer local-token"
+      },
       "tags": ["api", "prod"],
-      "connectionTimeout": 5000,
       "requestTimeout": 15000
     }
   }

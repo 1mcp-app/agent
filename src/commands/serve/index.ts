@@ -1,4 +1,3 @@
-import { HOST, PORT } from '@src/constants.js';
 import { globalOptions } from '@src/globalOptions.js';
 
 import type { Argv } from 'yargs';
@@ -16,19 +15,16 @@ export const serverOptions = {
     describe: 'Transport type to use (stdio or http, sse is deprecated)',
     type: 'string' as const,
     choices: ['stdio', 'http', 'sse'] as const,
-    default: 'http',
   },
   port: {
     alias: 'P',
     describe: 'HTTP port to listen on, applicable when transport is http',
     type: 'number' as const,
-    default: PORT,
   },
   host: {
     alias: 'H',
     describe: 'HTTP host to listen on, applicable when transport is http',
     type: 'string' as const,
-    default: HOST,
   },
   'external-url': {
     alias: 'u',
@@ -51,27 +47,22 @@ export const serverOptions = {
   auth: {
     describe: 'Enable authentication (OAuth 2.1) - deprecated, use --enable-auth',
     type: 'boolean' as const,
-    default: false,
   },
   'enable-auth': {
     describe: 'Enable authentication (OAuth 2.1)',
     type: 'boolean' as const,
-    default: false,
   },
   'enable-scope-validation': {
     describe: 'Enable tag-based scope validation',
     type: 'boolean' as const,
-    default: true,
   },
   'enable-enhanced-security': {
     describe: 'Enable enhanced security middleware',
     type: 'boolean' as const,
-    default: false,
   },
   'session-ttl': {
     describe: 'Session expiry time in minutes',
     type: 'number' as const,
-    default: 24 * 60, // 24 hours
   },
   'session-storage-path': {
     describe: 'Custom session storage directory path',
@@ -81,18 +72,15 @@ export const serverOptions = {
   'rate-limit-window': {
     describe: 'OAuth rate limit window in minutes',
     type: 'number' as const,
-    default: 15,
   },
   'rate-limit-max': {
     describe: 'Maximum requests per OAuth rate limit window',
     type: 'number' as const,
-    default: 100,
   },
   'trust-proxy': {
     describe:
       'Trust proxy configuration for Express.js (boolean, IP address, subnet, or preset: loopback, linklocal, uniquelocal)',
     type: 'string' as const,
-    default: 'loopback',
   },
   'health-info-level': {
     describe: 'Health endpoint information detail level (full, basic, minimal)',
@@ -103,27 +91,22 @@ export const serverOptions = {
   'enable-async-loading': {
     describe: 'Enable asynchronous MCP server loading with listChanged notifications',
     type: 'boolean' as const,
-    default: false,
   },
   'async-min-servers': {
     describe: 'Minimum number of servers to wait for before accepting requests (when async loading enabled)',
     type: 'number' as const,
-    default: 1,
   },
   'async-timeout': {
     describe: 'Initial load timeout in milliseconds (when async loading enabled)',
     type: 'number' as const,
-    default: 30000,
   },
   'async-batch-notifications': {
     describe: 'Batch capability change notifications (when async loading enabled)',
     type: 'boolean' as const,
-    default: true,
   },
   'async-batch-delay': {
     describe: 'Batch delay in milliseconds for notifications (when async loading enabled)',
     type: 'number' as const,
-    default: 100,
   },
   'async-notify-on-ready': {
     describe: 'Notify clients when servers become ready (when async loading enabled)',
@@ -133,18 +116,15 @@ export const serverOptions = {
   'enable-lazy-loading': {
     describe: 'Enable lazy loading for tools (tools loaded on-demand, reduces token usage by ~95%)',
     type: 'boolean' as const,
-    default: false,
   },
   'lazy-mode': {
     describe: 'Lazy loading mode (metatool: 3 meta-tools only, hybrid: direct + meta-tools, full: disabled)',
     type: 'string' as const,
     choices: ['metatool', 'hybrid', 'full'] as const,
-    default: 'full',
   },
   'lazy-cache-max-entries': {
     describe: 'Maximum number of tool schemas to cache in LRU cache (when lazy loading enabled)',
     type: 'number' as const,
-    default: 1000,
   },
   'lazy-preload': {
     describe: 'Comma-separated list of tool patterns to preload at startup (when lazy loading enabled)',
@@ -159,7 +139,6 @@ export const serverOptions = {
   'lazy-inline-catalog': {
     describe: 'Include full tool catalog in initialize template (when lazy loading enabled)',
     type: 'boolean' as const,
-    default: false,
   },
   'lazy-catalog-format': {
     describe: 'Format for inline tool catalog (flat, grouped, categorized)',
@@ -191,12 +170,10 @@ export const serverOptions = {
   'enable-config-reload': {
     describe: 'Enable automatic configuration hot-reload on file changes',
     type: 'boolean' as const,
-    default: true,
   },
   'config-reload-debounce': {
     describe: 'Debounce delay in milliseconds for config reload',
     type: 'number' as const,
-    default: 500,
   },
   'enable-env-substitution': {
     describe: 'Enable environment variable substitution in config (${VAR_NAME} pattern)',

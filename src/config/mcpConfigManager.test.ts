@@ -2,6 +2,7 @@ import fs from 'fs';
 import path from 'path';
 
 import { DEFAULT_CONFIG } from '@src/constants.js';
+import logger from '@src/logger/logger.js';
 
 import { beforeEach, describe, expect, it, MockInstance, vi } from 'vitest';
 
@@ -43,7 +44,7 @@ vi.mock('fs', async () => {
 // Mock constants
 vi.mock('@src/constants.js', () => ({
   __esModule: true,
-  DEFAULT_CONFIG: { mcpServers: {} },
+  DEFAULT_CONFIG: { serverDefaults: {}, mcpServers: {} },
   HOST: '127.0.0.1',
   PORT: 3050,
   AUTH_CONFIG: {
@@ -65,12 +66,24 @@ vi.mock('@src/constants.js', () => ({
   getGlobalConfigDir: vi.fn().mockReturnValue('/test'),
 }));
 
+const getResolvedConfigPathMock = vi.fn(() => '/test/mcp.json');
+
+vi.mock('@src/config/configContext.js', () => ({
+  __esModule: true,
+  default: {
+    getInstance: vi.fn(() => ({
+      getResolvedConfigPath: getResolvedConfigPathMock,
+    })),
+  },
+}));
+
 describe('McpConfigManager', () => {
   const testConfigPath = '/test/config.json';
 
   beforeEach(() => {
     // Reset singleton instance
     (McpConfigManager as any).instance = undefined;
+    getResolvedConfigPathMock.mockReturnValue('/test/mcp.json');
     // Default mock implementations
     (fs.existsSync as unknown as MockInstance).mockReturnValue(true);
     (fs.readFileSync as unknown as MockInstance).mockReturnValue(JSON.stringify({ mcpServers: {} }));
@@ -87,6 +100,24 @@ describe('McpConfigManager', () => {
     it('should use provided config path', () => {
       const instance = McpConfigManager.getInstance(testConfigPath);
       expect((instance as any).configFilePath).toBe(testConfigPath);
+    });
+
+    it('should use ConfigContext resolved path when no config path is provided', () => {
+      getResolvedConfigPathMock.mockReturnValue('/tmp/runtime/mcp.json');
+
+      const instance = McpConfigManager.getInstance();
+
+      expect((instance as any).configFilePath).toBe('/tmp/runtime/mcp.json');
+    });
+
+    it('should recreate singleton when config path changes', () => {
+      const defaultConfigPath = '/test/default-mcp.json';
+
+      const instance1 = McpConfigManager.getInstance(defaultConfigPath);
+      const instance2 = McpConfigManager.getInstance(testConfigPath);
+
+      expect(instance2).not.toBe(instance1);
+      expect((instance2 as any).configFilePath).toBe(testConfigPath);
     });
   });
 
@@ -166,6 +197,132 @@ describe('McpConfigManager', () => {
 
       expect(config).toEqual(testConfig.mcpServers);
       expect(config).not.toBe(instance['transportConfig']); // Should be a copy
+    });
+  });
+
+  describe('global config support', () => {
+    it('should expose serverDefaults config and effective merged server config', () => {
+      (fs.readFileSync as unknown as MockInstance).mockReturnValueOnce(
+        JSON.stringify({
+          serverDefaults: {
+            timeout: 5000,
+            env: { SHARED: 'global', KEEP: 'global-only' },
+            envFilter: ['PATH', 'NODE_*'],
+          },
+          mcpServers: {
+            server1: {
+              type: 'stdio',
+              command: 'node',
+              env: { SHARED: 'server' },
+            },
+          },
+        }),
+      );
+
+      const instance = McpConfigManager.getInstance(testConfigPath);
+      expect(instance.getGlobalConfig()).toEqual({
+        timeout: 5000,
+        env: { SHARED: 'global', KEEP: 'global-only' },
+        envFilter: ['PATH', 'NODE_*'],
+      });
+
+      const effective = instance.getEffectiveServerConfig('server1');
+      expect(effective).toEqual({
+        type: 'stdio',
+        command: 'node',
+        timeout: 5000,
+        env: { SHARED: 'server', KEEP: 'global-only' },
+        envFilter: ['PATH', 'NODE_*'],
+      });
+      // Verify global-only key is present in effective config (merge, not override)
+      expect((effective?.env as Record<string, string>)?.KEEP).toBe('global-only');
+    });
+  });
+
+  describe('app config from config.toml', () => {
+    it('should return empty app config when config.toml does not exist', () => {
+      (fs.existsSync as unknown as MockInstance).mockImplementation((p: string) => {
+        if (String(p).endsWith('config.toml')) return false;
+        return true;
+      });
+
+      const instance = McpConfigManager.getInstance(testConfigPath);
+      expect(instance.getAppConfig()).toEqual({});
+    });
+
+    it('should warn when app key is present in mcp.json', () => {
+      const warnSpy = vi.spyOn(logger, 'warn').mockImplementation(() => logger);
+      (fs.readFileSync as unknown as MockInstance).mockReturnValueOnce(
+        JSON.stringify({ app: { port: 3050 }, mcpServers: {} }),
+      );
+      (fs.existsSync as unknown as MockInstance).mockImplementation((p: string) => {
+        if (String(p).endsWith('config.toml')) return false;
+        return true;
+      });
+
+      // Should not throw
+      const instance = McpConfigManager.getInstance(testConfigPath);
+      expect(instance.getAppConfig()).toEqual({});
+      expect(warnSpy).toHaveBeenCalledWith(
+        `The "app" key in mcp.json is deprecated. Please move your app settings to ${path.join(path.dirname(testConfigPath), 'config.toml')}. The "app" key in mcp.json will be ignored.`,
+      );
+    });
+
+    it('should ignore invalid global config and keep loading valid servers', () => {
+      const warnSpy = vi.spyOn(logger, 'warn').mockImplementation(() => logger);
+      (fs.readFileSync as unknown as MockInstance).mockReturnValueOnce(
+        JSON.stringify({
+          serverDefaults: { timeout: 'invalid-timeout' },
+          mcpServers: {
+            server1: {
+              type: 'stdio',
+              command: 'node',
+            },
+          },
+        }),
+      );
+
+      const instance = McpConfigManager.getInstance(testConfigPath);
+
+      expect(instance.getGlobalConfig()).toEqual({});
+      expect(instance.getTransportConfig()).toEqual({
+        server1: {
+          type: 'stdio',
+          command: 'node',
+        },
+      });
+      expect(warnSpy).toHaveBeenCalledWith(
+        expect.stringContaining(
+          'Ignoring invalid serverDefaults configuration: Invalid global configuration: timeout: Invalid input: expected number, received string',
+        ),
+      );
+    });
+
+    it('should not emit a transport config change when reload fails to parse', () => {
+      (fs.existsSync as unknown as MockInstance).mockImplementation((p: string) => {
+        if (String(p).endsWith('config.toml')) return false;
+        return true;
+      });
+      (fs.readFileSync as unknown as MockInstance)
+        .mockReturnValueOnce(
+          JSON.stringify({
+            mcpServers: {
+              server1: {
+                type: 'stdio',
+                command: 'node',
+              },
+            },
+          }),
+        )
+        .mockReturnValueOnce('{ invalid json');
+
+      const instance = McpConfigManager.getInstance(testConfigPath);
+      const emitSpy = createEventEmitterSpy(instance);
+
+      instance.reloadConfig();
+
+      expect(emitSpy).not.toHaveBeenCalled();
+      expect(instance.getTransportConfig()).toEqual({});
     });
   });
 });

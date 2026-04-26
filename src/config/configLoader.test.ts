@@ -5,6 +5,7 @@ import { join } from 'path';
 
 import { ConfigLoader } from '@src/config/configLoader.js';
 import { MCP_CONFIG_SCHEMA_URL } from '@src/constants/schema.js';
+import logger from '@src/logger/logger.js';
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -197,6 +198,106 @@ describe('ConfigLoader', () => {
       await fsPromises.writeFile(configFilePath, 'invalid json content');
 
       expect(() => loader.loadConfigWithEnvSubstitution()).toThrow();
+    });
+
+    it('maintains backward compatibility when global section is absent', async () => {
+      const legacyConfig = {
+        mcpServers: {
+          'legacy-server': {
+            type: 'stdio',
+            command: 'node',
+            timeout: 1234,
+          },
+        },
+      };
+      await fsPromises.writeFile(configFilePath, JSON.stringify(legacyConfig, null, 2));
+
+      const config = loader.loadConfigWithEnvSubstitution();
+      expect(config['legacy-server']).toEqual(legacyConfig.mcpServers['legacy-server']);
+    });
+
+    it('should apply serverDefaults and merge env for servers', async () => {
+      const configWithGlobal = {
+        serverDefaults: {
+          timeout: 3000,
+          connectionTimeout: 5000,
+          requestTimeout: 10000,
+          env: {
+            SHARED: 'global',
+            KEEP: 'global-only',
+          },
+          inheritParentEnv: true,
+          envFilter: ['PATH', 'NODE_*'],
+        },
+        mcpServers: {
+          'test-server': {
+            type: 'stdio',
+            command: 'node',
+            env: {
+              SHARED: 'server',
+            },
+          },
+        },
+      };
+      await fsPromises.writeFile(configFilePath, JSON.stringify(configWithGlobal, null, 2));
+
+      const config = loader.loadConfigWithEnvSubstitution();
+      expect(config['test-server'].timeout).toBe(3000);
+      expect(config['test-server'].connectionTimeout).toBe(5000);
+      expect(config['test-server'].requestTimeout).toBe(10000);
+      expect(config['test-server'].inheritParentEnv).toBe(true);
+      expect(config['test-server'].envFilter).toEqual(['PATH', 'NODE_*']);
+      expect(config['test-server'].env).toEqual({
+        SHARED: 'server',
+        KEEP: 'global-only',
+      });
+    });
+
+    it('should allow envFilter in serverDefaults but ignore it for http servers', async () => {
+      const configWithGlobal = {
+        serverDefaults: {
+          envFilter: ['PATH'],
+        },
+        mcpServers: {
+          'test-server': {
+            type: 'http',
+            url: 'https://example.com/mcp',
+          },
+        },
+      };
+      await fsPromises.writeFile(configFilePath, JSON.stringify(configWithGlobal, null, 2));
+
+      const config = loader.loadConfigWithEnvSubstitution();
+      expect(config['test-server'].envFilter).toBeUndefined();
+    });
+
+    it('should ignore invalid serverDefaults configuration and keep valid servers', async () => {
+      const invalidGlobalConfig = {
+        serverDefaults: {
+          timeout: 'invalid-timeout',
+        },
+        mcpServers: {
+          'test-server': {
+            type: 'stdio',
+            command: 'node',
+          },
+        },
+      };
+      await fsPromises.writeFile(configFilePath, JSON.stringify(invalidGlobalConfig, null, 2));
+
+      const warnSpy = vi.spyOn(logger, 'warn').mockImplementation(() => logger);
+
+      const config = loader.loadConfigWithEnvSubstitution();
+
+      expect(config['test-server']).toEqual({
+        type: 'stdio',
+        command: 'node',
+      });
+      expect(warnSpy).toHaveBeenCalledWith(
+        expect.stringContaining(
+          'Ignoring invalid serverDefaults configuration: Invalid global configuration: timeout: Invalid input: expected number, received string',
+        ),
+      );
     });
   });
 
@@ -464,6 +565,86 @@ describe('ConfigLoader', () => {
   describe('getConfigFilePath', () => {
     it('should return the config file path', () => {
       expect(loader.getConfigFilePath()).toBe(configFilePath);
+    });
+  });
+
+  describe('loadAppConfigFromToml', () => {
+    it('should return empty object when config.toml does not exist', () => {
+      const result = loader.loadAppConfigFromToml();
+      expect(result).toEqual({});
+    });
+
+    it('should load valid app config from config.toml', async () => {
+      const tomlContent = `
+transport = "http"
+port = 3051
+host = "0.0.0.0"
+logLevel = "debug"
+`;
+      await fsPromises.writeFile(join(tempConfigDir, 'config.toml'), tomlContent);
+
+      const result = loader.loadAppConfigFromToml();
+      expect(result.transport).toBe('http');
+      expect(result.port).toBe(3051);
+      expect(result.host).toBe('0.0.0.0');
+      expect(result.logLevel).toBe('debug');
+    });
+
+    it('should load nested app config sections from config.toml', async () => {
+      const tomlContent = `
+[auth]
+enabled = true
+sessionTtl = 720
+
+[asyncLoading]
+enabled = true
+minServers = 2
+`;
+      await fsPromises.writeFile(join(tempConfigDir, 'config.toml'), tomlContent);
+
+      const result = loader.loadAppConfigFromToml();
+      expect(result.auth?.enabled).toBe(true);
+      expect(result.auth?.sessionTtl).toBe(720);
+      expect(result.asyncLoading?.enabled).toBe(true);
+      expect(result.asyncLoading?.minServers).toBe(2);
+    });
+
+    it('should return empty object and warn on invalid TOML', async () => {
+      await fsPromises.writeFile(join(tempConfigDir, 'config.toml'), 'invalid = [toml');
+
+      const result = loader.loadAppConfigFromToml();
+      expect(result).toEqual({});
+    });
+
+    it('should return empty object and warn on schema validation failure', async () => {
+      const tomlContent = `port = "not-a-number"`;
+      await fsPromises.writeFile(join(tempConfigDir, 'config.toml'), tomlContent);
+
+      const result = loader.loadAppConfigFromToml();
+      expect(result).toEqual({});
+    });
+  });
+
+  describe('loadAppConfig', () => {
+    it('should warn when app key is present in mcp.json', async () => {
+      const config = {
+        app: { port: 3050 },
+        mcpServers: {},
+      };
+      await fsPromises.writeFile(configFilePath, JSON.stringify(config, null, 2));
+
+      // Should not throw, just warn
+      const result = loader.loadAppConfig();
+      expect(result).toEqual({});
+    });
+
+    it('should load from config.toml when present', async () => {
+      const tomlContent = `port = 9999\ntransport = "stdio"\n`;
+      await fsPromises.writeFile(join(tempConfigDir, 'config.toml'), tomlContent);
+
+      const result = loader.loadAppConfig();
+      expect(result.port).toBe(9999);
+      expect(result.transport).toBe('stdio');
     });
   });
 });

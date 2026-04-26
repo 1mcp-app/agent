@@ -14,6 +14,94 @@
       "description": "Version of the configuration format for migration purposes",
       "type": "string"
     },
+    "serverDefaults": {
+      "description": "Shareable defaults inherited by all MCP servers (transport settings only)",
+      "type": "object",
+      "properties": {
+        "env": {
+          "description": "Environment variables as object or array of KEY=VALUE strings",
+          "anyOf": [
+            {
+              "type": "object",
+              "propertyNames": {
+                "type": "string"
+              },
+              "additionalProperties": {
+                "type": "string"
+              }
+            },
+            {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          ]
+        },
+        "timeout": {
+          "description": "Deprecated: Use connectionTimeout and requestTimeout instead. Fallback timeout in milliseconds",
+          "type": "number"
+        },
+        "connectionTimeout": {
+          "description": "Timeout for establishing initial connection in milliseconds (takes precedence over timeout)",
+          "type": "number"
+        },
+        "requestTimeout": {
+          "description": "Timeout for individual request operations in milliseconds (takes precedence over timeout)",
+          "type": "number"
+        },
+        "oauth": {
+          "description": "OAuth configuration for authentication",
+          "type": "object",
+          "properties": {
+            "clientId": {
+              "description": "OAuth client ID for authentication",
+              "type": "string"
+            },
+            "clientSecret": {
+              "description": "OAuth client secret for authentication",
+              "type": "string"
+            },
+            "scopes": {
+              "description": "OAuth scopes to request",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "autoRegister": {
+              "description": "Automatically register OAuth client if not already registered",
+              "type": "boolean"
+            },
+            "redirectUrl": {
+              "description": "OAuth redirect URL used after auth",
+              "type": "string"
+            }
+          }
+        },
+        "headers": {
+          "description": "Custom HTTP headers to send with requests",
+          "type": "object",
+          "propertyNames": {
+            "type": "string"
+          },
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
+        "inheritParentEnv": {
+          "description": "Whether to inherit environment variables from parent process",
+          "type": "boolean"
+        },
+        "envFilter": {
+          "description": "List of environment variable names to include when inheritParentEnv is true",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
     "mcpServers": {
       "type": "object",
       "propertyNames": {
@@ -79,6 +167,10 @@
               "autoRegister": {
                 "description": "Automatically register OAuth client if not already registered",
                 "type": "boolean"
+              },
+              "redirectUrl": {
+                "description": "OAuth redirect URL used after auth",
+                "type": "string"
               }
             }
           },
@@ -276,6 +368,10 @@
               "autoRegister": {
                 "description": "Automatically register OAuth client if not already registered",
                 "type": "boolean"
+              },
+              "redirectUrl": {
+                "description": "OAuth redirect URL used after auth",
+                "type": "string"
               }
             }
           },

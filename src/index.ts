@@ -2,10 +2,10 @@
 import { MCP_SERVER_VERSION } from '@src/constants.js';
 import { GlobalOptions, globalOptions } from '@src/globalOptions.js';
 import logger from '@src/logger/logger.js';
+import { normalizeCliArgv, normalizedArgv } from '@src/utils/cli/normalizedArgv.js';
 
 import 'source-map-support/register.js';
 import yargs from 'yargs';
-import { hideBin } from 'yargs/helpers';
 
 import { setupAppCommands } from './commands/app/index.js';
 import { setupAuthCommands } from './commands/auth/index.js';
@@ -20,8 +20,10 @@ import { setupRunCommand } from './commands/run/index.js';
 import { serverOptions, setupServeCommand } from './commands/serve/index.js';
 import { configureGlobalLogger } from './logger/configureGlobalLogger.js';
 
+export { normalizeCliArgv, normalizedArgv };
+
 // Parse command line arguments and set up commands
-let yargsInstance = yargs(hideBin(process.argv));
+let yargsInstance = yargs(normalizedArgv);
 
 // Set up base yargs with global options
 yargsInstance = yargsInstance
@@ -134,7 +136,7 @@ function checkGlobalOptionConflicts(argv: string[]): void {
  */
 async function main() {
   // Check for global option conflicts before parsing
-  checkGlobalOptionConflicts(process.argv);
+  checkGlobalOptionConflicts(['node', 'cli', ...normalizedArgv]);
 
   // Let yargs handle all command processing
   await yargsInstance.parse();

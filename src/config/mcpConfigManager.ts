@@ -2,10 +2,10 @@ import { EventEmitter } from 'events';
 import fs from 'fs';
 import path from 'path';
 
-import { substituteEnvVarsInConfig } from '@src/config/envProcessor.js';
-import { DEFAULT_CONFIG, getGlobalConfigDir, getGlobalConfigPath } from '@src/constants.js';
+import ConfigContext from '@src/config/configContext.js';
+import { ConfigLoader } from '@src/config/configLoader.js';
 import { AgentConfigManager } from '@src/core/server/agentConfig.js';
-import { MCPServerParams } from '@src/core/types/index.js';
+import { ApplicationConfig, GlobalTransportConfig, MCPServerParams } from '@src/core/types/index.js';
 import logger, { debugIf } from '@src/logger/logger.js';
 
 /**
@@ -22,9 +22,20 @@ export class McpConfigManager extends EventEmitter {
   private static instance: McpConfigManager;
   private configWatcher: fs.FSWatcher | null = null;
   private transportConfig: Record<string, MCPServerParams> = {};
+  private globalConfig: GlobalTransportConfig = {};
+  private appConfig: ApplicationConfig = {};
   private configFilePath: string;
+  private loader: ConfigLoader;
   private debounceTimer: ReturnType<typeof setTimeout> | null = null;
   private lastModified: number = 0;
+
+  private static resolveConfigFilePath(configFilePath?: string): string {
+    if (configFilePath) {
+      return configFilePath;
+    }
+
+    return ConfigContext.getInstance().getResolvedConfigPath();
+  }
 
   /**
    * Private constructor to enforce singleton pattern
@@ -32,8 +43,8 @@ export class McpConfigManager extends EventEmitter {
    */
   private constructor(configFilePath?: string) {
     super();
-    this.configFilePath = configFilePath || getGlobalConfigPath();
-    this.ensureConfigExists();
+    this.configFilePath = McpConfigManager.resolveConfigFilePath(configFilePath);
+    this.loader = new ConfigLoader(this.configFilePath);
     this.loadConfig();
   }
 
@@ -42,65 +53,42 @@ export class McpConfigManager extends EventEmitter {
    * @param configFilePath - Optional path to the config file
    */
   public static getInstance(configFilePath?: string): McpConfigManager {
+    const resolvedConfigFilePath = McpConfigManager.resolveConfigFilePath(configFilePath);
+
     if (!McpConfigManager.instance) {
-      McpConfigManager.instance = new McpConfigManager(configFilePath);
+      McpConfigManager.instance = new McpConfigManager(resolvedConfigFilePath);
+      return McpConfigManager.instance;
     }
+
+    if (McpConfigManager.instance.configFilePath !== resolvedConfigFilePath) {
+      McpConfigManager.instance.stopWatching();
+      McpConfigManager.instance = new McpConfigManager(resolvedConfigFilePath);
+    }
+
     return McpConfigManager.instance;
-  }
-
-  /**
-   * Ensure the config directory and file exist
-   */
-  private ensureConfigExists(): void {
-    try {
-      const configDir = getGlobalConfigDir();
-      if (!fs.existsSync(configDir)) {
-        fs.mkdirSync(configDir, { recursive: true });
-        logger.info(`Created config directory: ${configDir}`);
-      }
-
-      if (!fs.existsSync(this.configFilePath)) {
-        fs.writeFileSync(this.configFilePath, JSON.stringify(DEFAULT_CONFIG, null, 2));
-        logger.info(`Created default config file: ${this.configFilePath}`);
-      }
-    } catch (error) {
-      logger.error(`Failed to ensure config exists: ${error instanceof Error ? error.message : String(error)}`);
-      throw error;
-    }
   }
 
   /**
    * Load the configuration from the config file
    */
-  private loadConfig(): void {
+  private loadConfig(): boolean {
     try {
-      const stats = fs.statSync(this.configFilePath);
-      this.lastModified = stats.mtime.getTime();
+      const loadedConfig = this.loader.loadParsedConfigWithEnvSubstitution();
+      const features = AgentConfigManager.getInstance().get('features');
 
-      const rawConfigData = fs.readFileSync(this.configFilePath, 'utf8');
-
-      // Parse JSON and apply environment variable substitution
-      const configData = JSON.parse(rawConfigData) as unknown;
-
-      // Apply environment variable substitution if enabled
-      const agentConfig = AgentConfigManager.getInstance();
-      const features = agentConfig.get('features');
-      const processedConfig = features.envSubstitution ? substituteEnvVarsInConfig(configData) : configData;
-
-      // Type guard to ensure processedConfig has proper structure
-      if (!processedConfig || typeof processedConfig !== 'object') {
-        logger.error('Invalid configuration format');
-        this.transportConfig = {};
-        return;
-      }
-
-      const configObj = processedConfig as Record<string, unknown>;
-      this.transportConfig = (configObj.mcpServers as Record<string, MCPServerParams>) || {};
+      this.lastModified = loadedConfig.lastModified;
+      this.globalConfig = loadedConfig.globalConfig;
+      this.appConfig = loadedConfig.appConfig;
+      this.transportConfig = loadedConfig.validatedServers;
       const substitutionStatus = features.envSubstitution ? 'with' : 'without';
       logger.info(`Configuration loaded successfully ${substitutionStatus} environment variable substitution`);
+      return true;
     } catch (error) {
       logger.error(`Failed to load configuration: ${error instanceof Error ? error.message : String(error)}`);
+      this.globalConfig = {};
+      this.appConfig = {};
       this.transportConfig = {};
+      return false;
     }
   }
 
@@ -236,10 +224,10 @@ export class McpConfigManager extends EventEmitter {
     const oldConfig = { ...this.transportConfig };
 
     try {
-      this.loadConfig();
+      const loadedSuccessfully = this.loadConfig();
 
       // Emit event for transport configuration changes
-      if (JSON.stringify(oldConfig) !== JSON.stringify(this.transportConfig)) {
+      if (loadedSuccessfully && JSON.stringify(oldConfig) !== JSON.stringify(this.transportConfig)) {
         logger.info('Transport configuration changed, emitting event');
         this.emit(ConfigChangeEvent.TRANSPORT_CONFIG_CHANGED, this.transportConfig);
       }
@@ -254,6 +242,28 @@ export class McpConfigManager extends EventEmitter {
    */
   public getTransportConfig(): Record<string, MCPServerParams> {
     return { ...this.transportConfig };
+  }
+
+  /**
+   * Get the current global MCP configuration.
+   */
+  public getGlobalConfig(): GlobalTransportConfig {
+    return { ...this.globalConfig };
+  }
+
+  /**
+   * Get the application-level configuration from config.toml.
+   * CLI args always take precedence over these values.
+   */
+  public getAppConfig(): ApplicationConfig {
+    return { ...this.appConfig };
+  }
+
+  /**
+   * Get the effective merged configuration for a specific server.
+   */
+  public getEffectiveServerConfig(serverName: string): MCPServerParams | undefined {
+    return this.transportConfig[serverName] ? { ...this.transportConfig[serverName] } : undefined;
   }
 
   /**

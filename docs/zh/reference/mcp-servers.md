@@ -4,7 +4,7 @@
 
 ## 概述
 
-1MCP 代理通过 JSON 配置文件管理多个后端 MCP 服务器。每个服务器都在 `mcpServers` 部分中定义，具有控制其行为、传输方法和环境的特定属性。
+1MCP 代理通过 JSON 配置文件管理多个后端 MCP 服务器。您可以在 `serverDefaults` 中定义共享默认值，并在 `mcpServers` 部分中为每个服务器定义控制其行为、传输方法和环境的特定属性。
 
 ---
 
@@ -16,6 +16,9 @@
 
 ```json
 {
+  "serverDefaults": {
+    // 所有服务器可选的共享默认值
+  },
   "mcpServers": {
     // 服务器定义
   }
@@ -70,6 +73,45 @@ npx -y @1mcp/agent --config-dir ./project-config
 
 ## MCP 服务器配置
 
+### `serverDefaults` 部分
+
+可选的共享默认值，所有服务器都会继承。允许的键：
+
+- `env`
+- `timeout`
+- `connectionTimeout`
+- `requestTimeout`
+- `oauth`
+- `headers`
+- `inheritParentEnv`
+- `envFilter`
+
+合并行为：
+
+- `env` 对象会与各服务器的 `env` 合并，若键冲突则以服务器自身的值为准。
+- `oauth` 和 `headers` 会被服务器上的值整体替换，不会做深度合并。
+- 基本类型值（`timeout`、`connectionTimeout`、`requestTimeout`、`inheritParentEnv`）仅在服务器未显式设置时继承。
+- 还存在与传输类型相关的排除规则：全局 `headers` 会对 `stdio` 传输忽略，而全局 `inheritParentEnv` 和 `envFilter` 会对 `http`、`sse` 和 `streamableHttp` 传输忽略。
+- 当 `serverDefaults.env` 与 `mcpServers.<name>.env` 都使用数组格式时，不会逐项合并，而是以服务器自己的数组为准。
+
+### 迁移指南（从每服务器配置迁移到共享默认值）
+
+您可以把各服务器中重复出现的设置提取到 `serverDefaults`，而不改变实际行为：
+
+1. 找出多个服务器重复使用的键（`env`、`connectionTimeout`、`requestTimeout`、`oauth`、`headers`、`inheritParentEnv`）。
+2. 将共享值移动到 `serverDefaults`。
+3. 将服务器特有的覆盖项保留在各自的服务器定义中。
+4. 运行 `1mcp mcp status --verbose`，确认每个服务器的最终合并配置符合预期。
+
+### `serverDefaults` 环境变量参考
+
+`serverDefaults.env` 支持两种格式：
+
+- 对象格式：`{ "KEY": "value" }`
+- 数组格式：`["KEY=value"]`
+
+当 `serverDefaults.env` 与 `mcpServers.<name>.env` 都使用对象格式时，两者会进行合并；发生键冲突时，以服务器自身的值覆盖共享默认值。
+
 ### `mcpServers` 部分
 
 这是代理将管理的所有后端 MCP 服务器的字典。
@@ -110,6 +152,14 @@ npx -y @1mcp/agent --config-dir ./project-config
 
 ```json
 {
+  "serverDefaults": {
+    "connectionTimeout": 10000,
+    "requestTimeout": 30000,
+    "env": {
+      "HTTP_PROXY": "${HTTP_PROXY}",
+      "API_KEY": "${GLOBAL_API_KEY}"
+    }
+  },
   "mcpServers": {
     "filesystem": {
       "command": "mcp-server-filesystem",
@@ -119,8 +169,10 @@ npx -y @1mcp/agent --config-dir ./project-config
     "remote-api": {
       "transport": "http",
       "url": "https://api.example.com/mcp",
+      "headers": {
+        "Authorization": "Bearer local-token"
+      },
       "tags": ["api", "prod"],
-      "connectionTimeout": 5000,
       "requestTimeout": 15000
     }
   }
