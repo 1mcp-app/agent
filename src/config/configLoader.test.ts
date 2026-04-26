@@ -5,6 +5,7 @@ import { join } from 'path';
 
 import { ConfigLoader } from '@src/config/configLoader.js';
 import { MCP_CONFIG_SCHEMA_URL } from '@src/constants/schema.js';
+import logger from '@src/logger/logger.js';
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -270,7 +271,7 @@ describe('ConfigLoader', () => {
       expect(config['test-server'].envFilter).toBeUndefined();
     });
 
-    it('should reject invalid serverDefaults configuration', async () => {
+    it('should ignore invalid serverDefaults configuration and keep valid servers', async () => {
       const invalidGlobalConfig = {
         serverDefaults: {
           timeout: 'invalid-timeout',
@@ -284,7 +285,19 @@ describe('ConfigLoader', () => {
       };
       await fsPromises.writeFile(configFilePath, JSON.stringify(invalidGlobalConfig, null, 2));
 
-      expect(() => loader.loadConfigWithEnvSubstitution()).toThrow(/Invalid global configuration/);
+      const warnSpy = vi.spyOn(logger, 'warn').mockImplementation(() => logger);
+
+      const config = loader.loadConfigWithEnvSubstitution();
+
+      expect(config['test-server']).toEqual({
+        type: 'stdio',
+        command: 'node',
+      });
+      expect(warnSpy).toHaveBeenCalledWith(
+        expect.stringContaining(
+          'Ignoring invalid serverDefaults configuration: Invalid global configuration: timeout: Invalid input: expected number, received string',
+        ),
+      );
     });
   });
 

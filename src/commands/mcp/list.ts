@@ -379,6 +379,9 @@ function printGlobalSummary(globalConfig: GlobalTransportConfig): void {
   if (globalConfig.inheritParentEnv !== undefined) {
     printer.keyValue({ inheritParentEnv: String(globalConfig.inheritParentEnv) });
   }
+  if (Array.isArray(globalConfig.envFilter) && globalConfig.envFilter.length > 0) {
+    printer.keyValue({ envFilter: `${globalConfig.envFilter.length} item(s)` });
+  }
   if (globalConfig.oauth && typeof globalConfig.oauth === 'object') {
     printer.keyValue({ oauth: '(configured)' });
   }

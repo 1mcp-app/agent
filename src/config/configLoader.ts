@@ -282,7 +282,16 @@ export class ConfigLoader {
     const configObj = processedConfig as Record<string, unknown>;
     const rawGlobal = configObj.serverDefaults;
     warnForUnknownGlobalConfigKeys(rawGlobal);
-    const globalConfig = rawGlobal !== undefined ? this.validateGlobalConfig(rawGlobal) : {};
+    let globalConfig: GlobalTransportConfig = {};
+    if (rawGlobal !== undefined) {
+      try {
+        globalConfig = this.validateGlobalConfig(rawGlobal);
+      } catch (error) {
+        logger.warn(
+          `Ignoring invalid serverDefaults configuration: ${error instanceof Error ? error.message : String(error)}`,
+        );
+      }
+    }
 
     warnIfLegacyAppConfig(configObj, this.configFilePath);
     const appConfig = options?.includeAppConfig === false ? {} : this.loadAppConfigFromToml();

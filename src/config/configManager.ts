@@ -3,6 +3,7 @@ import { EventEmitter } from 'events';
 import { mergeGlobalAndServerConfig } from '@src/config/mcpConfigMerge.js';
 import { AgentConfigManager } from '@src/core/server/agentConfig.js';
 import {
+  ApplicationConfig,
   mcpServerConfigSchema,
   MCPServerConfiguration,
   MCPServerParams,
@@ -434,7 +435,7 @@ export class ConfigManager extends EventEmitter {
     return this.loader.getAvailableTags(this.transportConfig);
   }
 
-  public getAppConfig() {
+  public getAppConfig(): ApplicationConfig {
     return this.loader.loadAppConfig();
   }
 }

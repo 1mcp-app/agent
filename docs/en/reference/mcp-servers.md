@@ -105,13 +105,14 @@ Optional shared defaults inherited by all servers. Allowed keys:
 - `oauth`
 - `headers`
 - `inheritParentEnv`
+- `envFilter`
 
 Merge behavior:
 
 - `env` object values merge with per-server env values (server keys override serverDefaults keys).
 - `oauth` and `headers` are replaced by per-server values (not merged).
 - Primitive values (`timeout`, `connectionTimeout`, `requestTimeout`, `inheritParentEnv`) are inherited only when missing on the server.
-- Transport-specific exclusions apply: global `headers` are ignored for `stdio` transports, and global `inheritParentEnv` is ignored for `http`, `sse`, and `streamableHttp` transports.
+- Transport-specific exclusions apply: global `headers` are ignored for `stdio` transports, and global `inheritParentEnv` and `envFilter` are ignored for `http`, `sse`, and `streamableHttp` transports.
 - When both `serverDefaults.env` and `mcpServers.<name>.env` use array format, the server-specific array wins instead of merging element-by-element.
 
 ### Migration Guide (Per-Server to Shared Defaults)

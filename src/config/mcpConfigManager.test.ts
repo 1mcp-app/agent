@@ -44,7 +44,7 @@ vi.mock('fs', async () => {
 // Mock constants
 vi.mock('@src/constants.js', () => ({
   __esModule: true,
-  DEFAULT_CONFIG: { global: {}, mcpServers: {} },
+  DEFAULT_CONFIG: { serverDefaults: {}, mcpServers: {} },
   HOST: '127.0.0.1',
   PORT: 3050,
   AUTH_CONFIG: {
@@ -268,23 +268,61 @@ describe('McpConfigManager', () => {
       );
     });
 
-    it('should keep invalid global config warning text unchanged', () => {
-      const errorSpy = vi.spyOn(logger, 'error').mockImplementation(() => logger);
+    it('should ignore invalid global config and keep loading valid servers', () => {
+      const warnSpy = vi.spyOn(logger, 'warn').mockImplementation(() => logger);
       (fs.readFileSync as unknown as MockInstance).mockReturnValueOnce(
         JSON.stringify({
           serverDefaults: { timeout: 'invalid-timeout' },
-          mcpServers: {},
+          mcpServers: {
+            server1: {
+              type: 'stdio',
+              command: 'node',
+            },
+          },
         }),
       );
 
       const instance = McpConfigManager.getInstance(testConfigPath);
 
       expect(instance.getGlobalConfig()).toEqual({});
-      expect(errorSpy).toHaveBeenCalledWith(
+      expect(instance.getTransportConfig()).toEqual({
+        server1: {
+          type: 'stdio',
+          command: 'node',
+        },
+      });
+      expect(warnSpy).toHaveBeenCalledWith(
         expect.stringContaining(
-          'Failed to load configuration: Invalid global configuration: timeout: Invalid input: expected number, received string',
+          'Ignoring invalid serverDefaults configuration: Invalid global configuration: timeout: Invalid input: expected number, received string',
         ),
       );
+    });
+
+    it('should not emit a transport config change when reload fails to parse', () => {
+      (fs.existsSync as unknown as MockInstance).mockImplementation((p: string) => {
+        if (String(p).endsWith('config.toml')) return false;
+        return true;
+      });
+      (fs.readFileSync as unknown as MockInstance)
+        .mockReturnValueOnce(
+          JSON.stringify({
+            mcpServers: {
+              server1: {
+                type: 'stdio',
+                command: 'node',
+              },
+            },
+          }),
+        )
+        .mockReturnValueOnce('{ invalid json');
+
+      const instance = McpConfigManager.getInstance(testConfigPath);
+      const emitSpy = createEventEmitterSpy(instance);
+
+      instance.reloadConfig();
+
+      expect(emitSpy).not.toHaveBeenCalled();
+      expect(instance.getTransportConfig()).toEqual({});
     });
   });
 });

@@ -1,6 +1,7 @@
 import { getConfigDir } from '@src/constants.js';
 import { cleanupPidFile, readPidFile } from '@src/core/server/pidFileManager.js';
 import { createSafeErrorMessage } from '@src/logger/secureLogger.js';
+import { normalizedArgv } from '@src/utils/cli/normalizedArgv.js';
 
 /**
  * Multi-method URL detection system for app commands.
@@ -14,7 +15,7 @@ import { createSafeErrorMessage } from '@src/logger/secureLogger.js';
  * Method 1: Detect URL from CLI arguments (highest priority)
  */
 export function detectUrlFromCliArgs(): string {
-  const args = process.argv;
+  const args = normalizedArgv;
 
   // Parse external-url flag
   const externalUrlIndex = args.findIndex((arg) => arg === '--external-url' || arg === '-u');

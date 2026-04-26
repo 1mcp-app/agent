@@ -1,5 +1,6 @@
 // Import builder functions from command implementations
 import { globalOptions } from '@src/globalOptions.js';
+import { normalizedArgv } from '@src/utils/cli/normalizedArgv.js';
 import printer from '@src/utils/ui/printer.js';
 
 import type { Argv } from 'yargs';
@@ -41,8 +42,8 @@ export function setupMcpCommands(yargs: Argv): Argv {
               await import('./utils/doubleHyphenParser.js');
 
             // Check if " -- " pattern is used
-            if (hasDoubleHyphen(process.argv)) {
-              const doubleHyphenResult = parseDoubleHyphenArgs(process.argv);
+            if (hasDoubleHyphen(normalizedArgv)) {
+              const doubleHyphenResult = parseDoubleHyphenArgs(normalizedArgv);
               const mergedArgv = mergeDoubleHyphenArgs(argv, doubleHyphenResult);
               await addCommand(mergedArgv);
             } else {
@@ -87,8 +88,8 @@ export function setupMcpCommands(yargs: Argv): Argv {
               await import('./utils/doubleHyphenParser.js');
 
             // Check if " -- " pattern is used
-            if (hasDoubleHyphen(process.argv)) {
-              const doubleHyphenResult = parseDoubleHyphenArgs(process.argv);
+            if (hasDoubleHyphen(normalizedArgv)) {
+              const doubleHyphenResult = parseDoubleHyphenArgs(normalizedArgv);
               const mergedArgv = mergeDoubleHyphenArgs(argv, doubleHyphenResult);
               await updateCommand(mergedArgv);
             } else {

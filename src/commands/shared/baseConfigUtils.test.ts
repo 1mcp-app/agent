@@ -3,7 +3,12 @@ import { promises as fsPromises } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
 
-import { getAllEffectiveServers, getEffectiveServerConfig, loadConfig } from '@src/commands/shared/baseConfigUtils.js';
+import {
+  getAllEffectiveServers,
+  getEffectiveServerConfig,
+  getInheritedKeys,
+  loadConfig,
+} from '@src/commands/shared/baseConfigUtils.js';
 import ConfigContext from '@src/config/configContext.js';
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -201,5 +206,24 @@ describe('baseConfigUtils', () => {
         },
       },
     });
+  });
+
+  it('reports inherited envFilter for stdio servers', () => {
+    expect(
+      getInheritedKeys(
+        {
+          type: 'stdio',
+          command: 'node',
+        },
+        {
+          type: 'stdio',
+          command: 'node',
+          envFilter: ['PATH'],
+        },
+        {
+          envFilter: ['PATH'],
+        },
+      ),
+    ).toContain('envFilter');
   });
 });

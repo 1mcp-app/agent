@@ -92,6 +92,13 @@
         "inheritParentEnv": {
           "description": "Whether to inherit environment variables from parent process",
           "type": "boolean"
+        },
+        "envFilter": {
+          "description": "List of environment variable names to include when inheritParentEnv is true",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
         }
       }
     },

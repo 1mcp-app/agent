@@ -7,6 +7,7 @@ import { McpConfigManager } from '@src/config/mcpConfigManager.js';
 import { mergeGlobalAndServerConfig, mergeGlobalWithServers } from '@src/config/mcpConfigMerge.js';
 import { GlobalTransportConfig, MCPServerParams } from '@src/core/types/index.js';
 import logger from '@src/logger/logger.js';
+import { normalizedArgv } from '@src/utils/cli/normalizedArgv.js';
 
 /**
  * Configuration file utilities for server management commands
@@ -35,8 +36,8 @@ export function initializeConfigContext(configPath?: string, configDir?: string)
 }
 
 function getExplicitCliOptionValue(flags: string[]): string | undefined {
-  for (let index = 0; index < process.argv.length; index += 1) {
-    const arg = process.argv[index];
+  for (let index = 0; index < normalizedArgv.length; index += 1) {
+    const arg = normalizedArgv[index];
     if (!flags.includes(arg)) {
       const matchingFlag = flags.find((flag) => arg.startsWith(`${flag}=`));
       if (!matchingFlag) {
@@ -47,7 +48,7 @@ function getExplicitCliOptionValue(flags: string[]): string | undefined {
       return value || undefined;
     }
 
-    const value = process.argv[index + 1];
+    const value = normalizedArgv[index + 1];
     if (value && !value.startsWith('-')) {
       return value;
     }
@@ -94,12 +95,7 @@ function loadSharedConfigState(configPath?: string): {
       effectiveServers: mergeGlobalWithServers(loadedConfig.globalConfig, loadedConfig.rawServers),
     };
   } catch (error) {
-    if (
-      error instanceof Error &&
-      (error.cause instanceof SyntaxError ||
-        error.message.includes('Unexpected token') ||
-        error.message.includes('JSON'))
-    ) {
+    if (error instanceof Error && error.cause instanceof SyntaxError) {
       throw new Error(`Invalid JSON in configuration file: ${filePath}`);
     }
     throw error;
@@ -505,6 +501,16 @@ export function getInheritedKeys(
 
   if (rawConfig.env === undefined && effectiveConfig.env !== undefined && globalConfig.env !== undefined) {
     inherited.push('env');
+  }
+
+  if (
+    rawConfig.envFilter === undefined &&
+    Array.isArray(effectiveConfig.envFilter) &&
+    effectiveConfig.envFilter.length > 0 &&
+    Array.isArray(globalConfig.envFilter) &&
+    globalConfig.envFilter.length > 0
+  ) {
+    inherited.push('envFilter');
   }
 
   if (

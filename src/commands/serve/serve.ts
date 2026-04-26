@@ -5,8 +5,7 @@ import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 
 import ConfigContext from '@src/config/configContext.js';
 import { ConfigManager } from '@src/config/configManager.js';
-import { getDefaultInstructionsTemplatePath } from '@src/constants.js';
-import { getConfigDir, HOST, PORT } from '@src/constants.js';
+import { getConfigDir, getDefaultInstructionsTemplatePath, HOST, PORT } from '@src/constants.js';
 import { FlagManager } from '@src/core/flags/flagManager.js';
 import { InstructionAggregator } from '@src/core/instructions/instructionAggregator.js';
 import { formatValidationError, validateTemplateContent } from '@src/core/instructions/templateValidator.js';
@@ -336,6 +335,7 @@ export async function serveCommand(parsedArgv: ServeOptions): Promise<void> {
     const directExpose = parseCommaSeparatedList(parsedArgv['lazy-direct-expose']);
     const preloadPatterns = parseCommaSeparatedList(parsedArgv['lazy-preload']);
     const preloadKeywords = parseCommaSeparatedList(parsedArgv['lazy-preload-keywords']);
+    const sessionTtlMinutes = parsedArgv['session-ttl'] ?? appConfig.auth?.sessionTtl ?? 1440;
 
     serverConfigManager.updateConfig({
       host: effectiveHost,
@@ -344,10 +344,10 @@ export async function serveCommand(parsedArgv: ServeOptions): Promise<void> {
       trustProxy,
       auth: {
         enabled: authEnabled,
-        sessionTtlMinutes: parsedArgv['session-ttl'] ?? appConfig.auth?.sessionTtl ?? 1440,
+        sessionTtlMinutes,
         sessionStoragePath,
         oauthCodeTtlMs: 60 * 1000, // 1 minute
-        oauthTokenTtlMs: (parsedArgv['session-ttl'] ?? appConfig.auth?.sessionTtl ?? 1440) * 60 * 1000,
+        oauthTokenTtlMs: sessionTtlMinutes * 60 * 1000,
       },
       rateLimit: {
         windowMs: (parsedArgv['rate-limit-window'] ?? appConfig.auth?.rateLimitWindow ?? 15) * 60 * 1000,

@@ -25,6 +25,7 @@ export class McpConfigManager extends EventEmitter {
   private globalConfig: GlobalTransportConfig = {};
   private appConfig: ApplicationConfig = {};
   private configFilePath: string;
+  private loader: ConfigLoader;
   private debounceTimer: ReturnType<typeof setTimeout> | null = null;
   private lastModified: number = 0;
 
@@ -43,7 +44,7 @@ export class McpConfigManager extends EventEmitter {
   private constructor(configFilePath?: string) {
     super();
     this.configFilePath = McpConfigManager.resolveConfigFilePath(configFilePath);
-    new ConfigLoader(this.configFilePath);
+    this.loader = new ConfigLoader(this.configFilePath);
     this.loadConfig();
   }
 
@@ -70,10 +71,9 @@ export class McpConfigManager extends EventEmitter {
   /**
    * Load the configuration from the config file
    */
-  private loadConfig(): void {
+  private loadConfig(): boolean {
     try {
-      const loader = new ConfigLoader(this.configFilePath);
-      const loadedConfig = loader.loadParsedConfigWithEnvSubstitution();
+      const loadedConfig = this.loader.loadParsedConfigWithEnvSubstitution();
       const features = AgentConfigManager.getInstance().get('features');
 
       this.lastModified = loadedConfig.lastModified;
@@ -82,12 +82,13 @@ export class McpConfigManager extends EventEmitter {
       this.transportConfig = loadedConfig.validatedServers;
       const substitutionStatus = features.envSubstitution ? 'with' : 'without';
       logger.info(`Configuration loaded successfully ${substitutionStatus} environment variable substitution`);
+      return true;
     } catch (error) {
       logger.error(`Failed to load configuration: ${error instanceof Error ? error.message : String(error)}`);
       this.globalConfig = {};
       this.appConfig = {};
       this.transportConfig = {};
-      this.emit(ConfigChangeEvent.TRANSPORT_CONFIG_CHANGED, this.transportConfig);
+      return false;
     }
   }
 
@@ -223,10 +224,10 @@ export class McpConfigManager extends EventEmitter {
     const oldConfig = { ...this.transportConfig };
 
     try {
-      this.loadConfig();
+      const loadedSuccessfully = this.loadConfig();
 
       // Emit event for transport configuration changes
-      if (JSON.stringify(oldConfig) !== JSON.stringify(this.transportConfig)) {
+      if (loadedSuccessfully && JSON.stringify(oldConfig) !== JSON.stringify(this.transportConfig)) {
         logger.info('Transport configuration changed, emitting event');
         this.emit(ConfigChangeEvent.TRANSPORT_CONFIG_CHANGED, this.transportConfig);
       }
