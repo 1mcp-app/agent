@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [unreleased]
 
 ### 🚀 Features
+- Add global MCP server defaults by @xizhibei in [#275](https://github.com/1mcp-app/agent/pull/275)
 - Add CLI mode with inspect, run, auth, and setup commands by @xizhibei in [#282](https://github.com/1mcp-app/agent/pull/282)
 
 ### ⚙️ Miscellaneous Tasks
