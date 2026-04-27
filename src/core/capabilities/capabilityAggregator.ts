@@ -9,7 +9,9 @@ import {
   Tool,
 } from '@modelcontextprotocol/sdk/types.js';
 
+import { McpConfigManager } from '@src/config/mcpConfigManager.js';
 import { InternalCapabilitiesProvider } from '@src/core/capabilities/internalCapabilitiesProvider.js';
+import { filterDisabledTools } from '@src/core/server/disabledTools.js';
 import { ClientStatus, OutboundConnections } from '@src/core/types/index.js';
 import logger, { debugIf } from '@src/logger/logger.js';
 
@@ -139,6 +141,7 @@ export class CapabilityAggregator extends EventEmitter {
     const allTools: Tool[] = [];
     const allResources: Resource[] = [];
     const allPrompts: Prompt[] = [];
+    const serverConfigs = McpConfigManager.getInstance().getTransportConfig();
 
     // Add 1mcp tools first
     try {
@@ -188,7 +191,8 @@ export class CapabilityAggregator extends EventEmitter {
         if (results[0]?.status === 'fulfilled') {
           const toolsResult = results[0].value as ListToolsResult;
           if (toolsResult.tools) {
-            allTools.push(...toolsResult.tools);
+            const logicalServerName = connection.name || serverName;
+            allTools.push(...filterDisabledTools(toolsResult.tools, serverConfigs, logicalServerName));
           }
         }
 
