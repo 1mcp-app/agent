@@ -36,8 +36,8 @@ hero:
     alt: 1MCP Agent Logo
   actions:
     - theme: brand
-      text: Get Started
-      link: /guide/getting-started
+      text: 5-Minute Setup
+      link: /guide/quick-start
     - theme: alt
       text: CLI Mode
       link: /guide/integrations/cli-mode
@@ -79,7 +79,11 @@ The current product model is:
 - CLI mode is the preferred agent-facing workflow on top of that runtime.
 - Direct MCP attachment remains supported for MCP-native clients.
 
-## Quick Start
+## Start Here if You Use an AI Agent
+
+This page is for Codex, Claude, Cursor, and similar agent workflows. The default path is: add one real upstream server, start `1mcp serve`, run `cli-setup`, then verify `instructions -> inspect -> run`.
+
+## 5-Minute Setup
 
 ```bash
 npm install -g @1mcp/agent
@@ -87,7 +91,7 @@ npm install -g @1mcp/agent
 1mcp serve
 ```
 
-Prefer CLI mode for agents:
+Connect your agent to CLI mode:
 
 ```bash
 1mcp cli-setup --codex
@@ -95,7 +99,7 @@ Prefer CLI mode for agents:
 1mcp cli-setup --claude --scope repo --repo-root .
 ```
 
-Then the agent workflow becomes:
+Verify the workflow:
 
 ```bash
 1mcp instructions
@@ -104,15 +108,22 @@ Then the agent workflow becomes:
 1mcp run context7/get-library-docs --args '{"context7CompatibleLibraryID":"/mongodb/docs","topic":"aggregation pipeline"}'
 ```
 
-## Benefits
+If you want the step-by-step version with success checks and off-ramps, continue to the [Quick Start guide](/guide/quick-start).
+
+## Why This Path
 
 - **Smaller working surface for agents**: progressive discovery avoids dumping the whole tool catalog into context.
 - **One runtime for many clients**: agents, direct HTTP MCP clients, and stdio-only compatibility flows can share the same backend inventory.
 - **Current runtime behavior, not a static proxy model**: async loading, lazy loading, templates, instructions, and presets are part of the main system design.
 
-## Pick Your Path
+## Choose Another Path
 
 <div class="vp-feature-grid">
+  <a href="/guide/quick-start" class="vp-feature-box">
+    <h3>Agent Quick Start</h3>
+    <p>Best for first-time agent users who want a working setup before reading architecture or operator details.</p>
+  </a>
+
   <a href="/guide/integrations/cli-mode" class="vp-feature-box">
     <h3>CLI Mode for Agents</h3>
     <p>Best for Codex, Claude, and similar agent loops that benefit from progressive discovery.</p>

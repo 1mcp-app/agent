@@ -33,8 +33,8 @@ hero:
     alt: 1MCP Agent Logo
   actions:
     - theme: brand
-      text: 开始使用
-      link: /zh/guide/getting-started
+      text: 5 分钟上手
+      link: /zh/guide/quick-start
     - theme: alt
       text: CLI 模式
       link: /zh/guide/integrations/cli-mode
@@ -76,7 +76,11 @@ features:
 - CLI 模式是这个运行时之上的、推荐给 agent 的工作流。
 - 直接 MCP 接入仍然为原生 MCP 客户端保留。
 
-## 快速开始
+## 如果你在用 AI Agent，请从这里开始
+
+这个首页优先面向 Codex、Claude、Cursor 等 agent 工作流。默认路径是：添加一个真实上游 MCP server，启动 `1mcp serve`，运行 `cli-setup`，然后验证 `instructions -> inspect -> run`。
+
+## 5 分钟上手
 
 ```bash
 npm install -g @1mcp/agent
@@ -84,7 +88,7 @@ npm install -g @1mcp/agent
 1mcp serve
 ```
 
-对 agent，优先选择 CLI 模式：
+用 CLI 模式连接你的 agent：
 
 ```bash
 1mcp cli-setup --codex
@@ -92,7 +96,7 @@ npm install -g @1mcp/agent
 1mcp cli-setup --claude --scope repo --repo-root .
 ```
 
-随后 agent 的工作流变成：
+验证工作流：
 
 ```bash
 1mcp instructions
@@ -101,15 +105,22 @@ npm install -g @1mcp/agent
 1mcp run context7/get-library-docs --args '{"context7CompatibleLibraryID":"/mongodb/docs","topic":"aggregation pipeline"}'
 ```
 
-## 主要收益
+如果你想看带成功标准和分流说明的完整版本，继续阅读[快速入门](/zh/guide/quick-start)。
+
+## 为什么推荐这条路径
 
 - **更薄的 agent 工作面**：渐进式发现避免把整个工具目录直接灌进上下文。
 - **一个运行时服务多个客户端**：agent、直接 HTTP MCP 客户端、stdio 兼容桥都可以共用同一份后端能力。
 - **符合当前产品现实，而不是旧式代理叙事**：异步加载、懒加载、模板、指令和预设都已经是主系统设计的一部分。
 
-## 选择你的路径
+## 选择其他路径
 
 <div class="vp-feature-grid">
+  <a href="/zh/guide/quick-start" class="vp-feature-box">
+    <h3>Agent 快速入门</h3>
+    <p>适合第一次上手的 agent 用户，先拿到一个可运行的结果，再去看架构和运维细节。</p>
+  </a>
+
   <a href="/zh/guide/integrations/cli-mode" class="vp-feature-box">
     <h3>Agent 的 CLI 模式</h3>
     <p>适合 Codex、Claude 以及其他希望渐进式发现工具的 agent loop。</p>

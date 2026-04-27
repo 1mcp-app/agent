@@ -7,7 +7,7 @@
 [![Docs](https://img.shields.io/badge/docs-docs.1mcp.app-blue)](https://docs.1mcp.app)
 [![License](https://img.shields.io/npm/l/@1mcp/agent)](https://www.npmjs.com/package/@1mcp/agent)
 
-1MCP is the unified MCP runtime. `1mcp serve` aggregates your MCP servers, and CLI mode adds a thinner agent-facing workflow for Codex, Claude, and similar tool-using agents.
+1MCP is the unified MCP runtime. `1mcp serve` aggregates your MCP servers, and CLI mode adds a thinner agent-facing workflow for Codex, Claude, Cursor, and similar tool-using agents.
 
 ## Why 1MCP
 
@@ -29,9 +29,11 @@ Most MCP setups eventually hit two kinds of sprawl:
 | Direct MCP attachment | MCP-native HTTP clients     | Broader tool surface is exposed directly to the client    |
 | Custom proxying       | One-off compatibility shims | You own discovery, filtering, auth, and runtime lifecycle |
 
-## Quick Start
+## Quick Start for Agent Users
 
-Install 1MCP, add a server, and start the runtime:
+This page is optimized for AI agent users. The 5-minute outcome is simple: start a real `1mcp serve` runtime, connect your agent with `cli-setup`, then verify the `instructions -> inspect -> run` workflow.
+
+Install 1MCP, add one upstream server, and start the runtime:
 
 ```bash
 npm install -g @1mcp/agent
@@ -39,13 +41,7 @@ npm install -g @1mcp/agent
 1mcp serve
 ```
 
-At that point you can choose one of the two supported client paths below.
-
-## Recommended: CLI Mode for Agents
-
-CLI mode is the primary workflow for agent-style sessions. It keeps MCP as the backend protocol but narrows what the agent sees at each step.
-
-User setup:
+In a second shell, connect your agent to CLI mode:
 
 ```bash
 1mcp cli-setup --codex
@@ -53,7 +49,7 @@ User setup:
 1mcp cli-setup --claude --scope repo --repo-root .
 ```
 
-Typical agent workflow:
+Then verify the agent workflow:
 
 ```bash
 # shell 1
@@ -66,9 +62,23 @@ Typical agent workflow:
 1mcp run context7/get-library-docs --args '{"context7CompatibleLibraryID":"/mongodb/docs","topic":"aggregation pipeline"}'
 ```
 
+If you want the full walkthrough with success criteria and off-ramps, use the [Quick Start guide](https://docs.1mcp.app/guide/quick-start).
+
 For a given agent, choose one mode only. If you switch that agent to CLI mode, remove its old direct MCP configuration first.
 
-## Alternative: Direct MCP Attachment
+## Why CLI Mode Exists
+
+CLI mode is the primary workflow for agent-style sessions. It keeps MCP as the backend protocol but narrows what the agent sees at each step:
+
+- `instructions` explains the current runtime and recommended flow
+- `inspect` lets the agent discover only the server or tool it needs
+- `run` executes one selected tool after schema inspection
+
+That gives agent loops a smaller working surface without giving up the unified runtime behind `1mcp serve`.
+
+## Choose Another Path
+
+### Direct MCP Attachment
 
 Direct MCP attachment is still supported for clients that want to talk to the aggregated runtime over HTTP.
 
@@ -88,7 +98,24 @@ Examples:
 claude mcp add -t http 1mcp "http://127.0.0.1:3050/mcp?app=claude-code"
 ```
 
-Use this path for MCP-native clients. For Codex, Claude, and similar agent loops, prefer CLI mode.
+Use this path if your client already speaks MCP natively and you do not want CLI mode. For Codex, Claude, Cursor, and similar agent loops, prefer CLI mode.
+
+### stdio Compatibility
+
+Use [`1mcp proxy`](https://docs.1mcp.app/commands/proxy) only if your client cannot connect to the HTTP runtime directly.
+
+### Runtime Operators
+
+Use the deeper docs if you are configuring or deploying the runtime itself:
+
+- [Configuration](https://docs.1mcp.app/guide/essentials/configuration)
+- [Authentication](https://docs.1mcp.app/guide/advanced/authentication)
+- [Architecture](https://docs.1mcp.app/reference/architecture)
+
+### Contributors
+
+- [Development guide](https://docs.1mcp.app/guide/development)
+- [CONTRIBUTING.md](CONTRIBUTING.md)
 
 ## How It Works
 
@@ -122,13 +149,6 @@ flowchart LR
 - Share the same MCP inventory across Cursor, Claude Code, Codex, and internal tooling.
 - Expose context-specific template servers per repo, branch, or session.
 - Centralize auth, filtering, presets, and runtime lifecycle instead of rebuilding them in ad hoc scripts.
-
-## Docs by Persona
-
-- Agent users: [CLI mode guide](https://docs.1mcp.app/guide/integrations/cli-mode), [cli-setup](https://docs.1mcp.app/commands/cli-setup), [instructions](https://docs.1mcp.app/commands/instructions)
-- MCP client integrators: [serve](https://docs.1mcp.app/commands/serve), [proxy](https://docs.1mcp.app/commands/proxy), [architecture](https://docs.1mcp.app/reference/architecture)
-- Runtime operators: [configuration](https://docs.1mcp.app/guide/essentials/configuration), [presets](https://docs.1mcp.app/commands/preset), [authentication](https://docs.1mcp.app/guide/advanced/authentication)
-- Contributors: [development guide](https://docs.1mcp.app/guide/development), [CONTRIBUTING.md](CONTRIBUTING.md)
 
 ## Contributing / License
 
