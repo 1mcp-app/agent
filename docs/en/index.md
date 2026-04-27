@@ -104,8 +104,8 @@ Verify the workflow:
 ```bash
 1mcp instructions
 1mcp inspect context7
-1mcp inspect context7/get-library-docs
-1mcp run context7/get-library-docs --args '{"context7CompatibleLibraryID":"/mongodb/docs","topic":"aggregation pipeline"}'
+1mcp inspect context7/query-docs
+1mcp run context7/query-docs --args '{"libraryId":"/mongodb/docs","query":"aggregation pipeline"}'
 ```
 
 If you want the step-by-step version with success checks and off-ramps, continue to the [Quick Start guide](/guide/quick-start).

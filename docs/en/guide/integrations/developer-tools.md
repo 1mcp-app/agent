@@ -134,8 +134,8 @@ npx -y @1mcp/agent --config staging.json --port 3052
 # Shell 2
 1mcp instructions
 1mcp inspect context7
-1mcp inspect context7/get-library-docs
-1mcp run context7/get-library-docs --args '{"context7CompatibleLibraryID":"/mongodb/docs","topic":"aggregation pipeline"}'
+1mcp inspect context7/query-docs
+1mcp run context7/query-docs --args '{"libraryId":"/mongodb/docs","query":"aggregation pipeline"}'
 ```
 
 **Bootstrap Options**:

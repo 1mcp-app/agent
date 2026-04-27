@@ -76,15 +76,15 @@ Run the same commands your agent will use:
 ```bash
 1mcp instructions
 1mcp inspect context7
-1mcp inspect context7/get-library-docs
-1mcp run context7/get-library-docs --args '{"context7CompatibleLibraryID":"/mongodb/docs","topic":"aggregation pipeline"}'
+1mcp inspect context7/query-docs
+1mcp run context7/query-docs --args '{"libraryId":"/mongodb/docs","query":"aggregation pipeline"}'
 ```
 
 ### Success looks like this
 
 - `instructions` explains the CLI workflow and shows the available runtime context
 - `inspect context7` lists tools from the upstream server
-- `inspect context7/get-library-docs` shows the tool schema before invocation
+- `inspect context7/query-docs` shows the tool schema before invocation
 - `run ...` returns a real result from the upstream server
 
 At that point your agent can use 1MCP through CLI mode without reading another setup page.
@@ -145,5 +145,5 @@ Use these once the basic flow works and you want to manage the runtime itself:
 
 **`run` fails against the upstream server**
 
-- Re-run `1mcp inspect context7/get-library-docs` and check the required arguments
+- Re-run `1mcp inspect context7/query-docs` and check the required arguments
 - Check the `serve` output for upstream startup errors

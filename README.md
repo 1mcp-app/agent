@@ -58,8 +58,8 @@ Then verify the agent workflow:
 # shell 2
 1mcp instructions
 1mcp inspect context7
-1mcp inspect context7/get-library-docs
-1mcp run context7/get-library-docs --args '{"context7CompatibleLibraryID":"/mongodb/docs","topic":"aggregation pipeline"}'
+1mcp inspect context7/query-docs
+1mcp run context7/query-docs --args '{"libraryId":"/mongodb/docs","query":"aggregation pipeline"}'
 ```
 
 If you want the full walkthrough with success criteria and off-ramps, use the [Quick Start guide](https://docs.1mcp.app/guide/quick-start).

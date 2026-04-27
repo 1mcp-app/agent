@@ -76,15 +76,15 @@ npm install -g @1mcp/agent
 ```bash
 1mcp instructions
 1mcp inspect context7
-1mcp inspect context7/get-library-docs
-1mcp run context7/get-library-docs --args '{"context7CompatibleLibraryID":"/mongodb/docs","topic":"aggregation pipeline"}'
+1mcp inspect context7/query-docs
+1mcp run context7/query-docs --args '{"libraryId":"/mongodb/docs","query":"aggregation pipeline"}'
 ```
 
 ### 成功的样子
 
 - `instructions` 会解释 CLI 工作流，并展示当前运行时上下文
 - `inspect context7` 能列出上游 server 的工具
-- `inspect context7/get-library-docs` 会在调用前展示 schema
+- `inspect context7/query-docs` 会在调用前展示 schema
 - `run ...` 会返回来自上游 server 的真实结果
 
 到这里，你的 agent 已经可以在不额外阅读其他设置页面的前提下，通过 CLI 模式使用 1MCP。
@@ -145,5 +145,5 @@ npm install -g @1mcp/agent
 
 **`run` 调用上游 server 失败**
 
-- 重新执行 `1mcp inspect context7/get-library-docs`，检查必填参数
+- 重新执行 `1mcp inspect context7/query-docs`，检查必填参数
 - 查看 `serve` 的输出，确认上游启动时没有报错

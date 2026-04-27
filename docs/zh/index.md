@@ -101,8 +101,8 @@ npm install -g @1mcp/agent
 ```bash
 1mcp instructions
 1mcp inspect context7
-1mcp inspect context7/get-library-docs
-1mcp run context7/get-library-docs --args '{"context7CompatibleLibraryID":"/mongodb/docs","topic":"aggregation pipeline"}'
+1mcp inspect context7/query-docs
+1mcp run context7/query-docs --args '{"libraryId":"/mongodb/docs","query":"aggregation pipeline"}'
 ```
 
 如果你想看带成功标准和分流说明的完整版本，继续阅读[快速入门](/zh/guide/quick-start)。

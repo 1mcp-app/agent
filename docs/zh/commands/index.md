@@ -64,8 +64,8 @@ npx -y @1mcp/agent inspect --help
 ```bash
 npx -y @1mcp/agent instructions
 npx -y @1mcp/agent inspect context7
-npx -y @1mcp/agent inspect context7/get-library-docs
-npx -y @1mcp/agent run context7/get-library-docs --args '{"context7CompatibleLibraryID":"/mongodb/docs","topic":"aggregation pipeline"}'
+npx -y @1mcp/agent inspect context7/query-docs
+npx -y @1mcp/agent run context7/query-docs --args '{"libraryId":"/mongodb/docs","query":"aggregation pipeline"}'
 ```
 
 - **[instructions](./instructions.md)** - 打印 CLI playbook 和当前服务器清单
