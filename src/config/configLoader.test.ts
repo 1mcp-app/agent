@@ -396,6 +396,18 @@ describe('ConfigLoader', () => {
       expect(result.oauth?.scopes).toEqual(['read', 'write']);
       expect(result.oauth?.autoRegister).toBe(true);
     });
+
+    it('should validate disabledTools configuration', () => {
+      const configWithDisabledTools = {
+        command: 'echo',
+        args: ['hello'],
+        disabledTools: ['write_file', 'delete_file'],
+      };
+
+      const result = loader.validateServerConfig('tool-managed-server', configWithDisabledTools);
+
+      expect(result.disabledTools).toEqual(['write_file', 'delete_file']);
+    });
   });
 
   describe('getTransportConfig', () => {
