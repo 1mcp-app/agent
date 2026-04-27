@@ -1,172 +1,128 @@
 ---
 layout: home
-title: '1MCP Agent - 统一 MCP 服务器'
-description: '统一的模型上下文协议服务器，聚合多个 MCP 服务器，为 Claude Desktop、Cursor 等 AI 助手提供一体化服务。5 分钟快速开始，配备 OAuth 2.1 安全认证。'
+title: '1MCP Agent - 统一 MCP 运行时与面向 Agent 的 CLI 模式'
+description: '用 1MCP 运行一个聚合式 MCP 运行时，并为 Codex、Claude 等 agent 提供更薄的 CLI 工作流。'
 head:
   - [
       'meta',
-      {
-        name: 'keywords',
-        content: 'MCP 服务器,模型上下文协议,AI 代理,AI 聚合器,Claude Desktop,Cursor,MCP 集成,AI 助手工具,OAuth 2.1,代理服务器,多路复用器,LLM 集成,自动化,教程,设置指南',
-      },
+      { name: 'keywords', content: '1MCP,MCP 运行时,CLI 模式,agent 工作流,Codex,Claude,模板服务器,异步加载,懒加载' },
     ]
-  - ['meta', { property: 'og:title', content: '1MCP Agent - 统一 MCP 服务器' }]
+  - ['meta', { property: 'og:title', content: '1MCP Agent - 统一 MCP 运行时' }]
   - [
       'meta',
-      { property: 'og:description', content: '统一的模型上下文协议服务器，聚合多个 MCP 服务器。5 分钟快速开始。' },
+      {
+        property: 'og:description',
+        content: '在 1mcp serve 后面聚合多个 MCP 服务器，并为 agent 会话提供渐进式 CLI 工作流。',
+      },
     ]
-  - ['meta', { name: 'twitter:title', content: '1MCP Agent - 统一 MCP 服务器' }]
+  - ['meta', { name: 'twitter:title', content: '1MCP Agent - 统一 MCP 运行时' }]
   - [
       'meta',
       {
         name: 'twitter:description',
-        content: '为 AI 助手提供统一的 MCP 服务器。5 分钟快速开始，配备 OAuth 2.1 安全认证。',
+        content: '统一 MCP 运行时，加上面向 Codex、Claude 与直接 MCP 客户端的 CLI 模式。',
       },
     ]
 
 hero:
   name: '1MCP Agent'
-  text: '聚合所有 MCP 服务器的统一服务器'
-  tagline: 一个统一的模型上下文协议服务器实现，作为多个 MCP 服务器的代理/多路复用器
+  text: '一个 MCP 运行时，一条更薄的 agent 工作流'
+  tagline: '在 `1mcp serve` 后运行你的 MCP 服务器，再让 agent 用 CLI 模式按需发现工具，而不是把完整工具面一次性塞进上下文。'
   image:
     src: /images/logo.png
-    alt: 1MCP Agent Logo - AI 助手的统一 MCP 服务器
+    alt: 1MCP Agent Logo
   actions:
     - theme: brand
       text: 开始使用
       link: /zh/guide/getting-started
     - theme: alt
-      text: 快速入门
-      link: /zh/guide/quick-start
+      text: CLI 模式
+      link: /zh/guide/integrations/cli-mode
     - theme: alt
-      text: 在 GitHub 上查看
-      link: https://github.com/1mcp-app/agent
+      text: 架构
+      link: /zh/reference/architecture
 
 features:
-  - icon: 🔄
-    title: 统一接口
-    details: 聚合多个 MCP 服务器的单一端点，简化 AI 助手集成
-  - icon: 🔒
-    title: OAuth 2.1 身份验证
-    details: 生产就绪的安全性，具有基于范围的授权和安全令牌管理
+  - icon: 🧭
+    title: 渐进式 CLI 发现
+    details: 'agent 从 `instructions` 开始，用 `inspect` 收窄范围，只在真正需要时才执行具体工具。'
+  - icon: 🧩
+    title: 统一运行时
+    details: '`1mcp serve` 在一个运行时后面聚合静态与模板化 MCP 服务器。'
+  - icon: 🪄
+    title: 上下文感知模板
+    details: 模板服务器可以按客户端或会话创建，而不是在启动时固定死。
   - icon: ⚡
-    title: 高性能
-    details: 高效的请求转发，具备适当的错误处理和监控功能
-  - icon: 🛡️
-    title: 安全优先
-    details: Stdio 传输隔离、输入净化和全面的审计日志
-
-  - icon: 🔧
-    title: 易于配置
-    details: 单一 JSON 配置文件，支持热重载和验证
+    title: 异步加载与懒加载
+    details: 更快启动、后台加载，并在真正需要前保持更窄的暴露面。
+  - icon: 📦
+    title: 预设与过滤
+    details: 在项目、客户端和兼容桥之间复用同一套服务集合，而无需复制配置。
+  - icon: 🔐
+    title: 直接 HTTP 与兼容路径
+    details: '同时支持直接 HTTP MCP 接入，以及为 stdio-only 客户端准备的 `proxy`。'
 ---
 
 ## 为什么选择 1MCP？
 
-**问题**：AI 助手需要连接到多个 MCP 服务器，但管理数十个独立连接是复杂、不可靠且安全性密集的。
+1MCP 同时解决两类问题：
 
-**解决方案**：1MCP 作为统一的代理/多路复用器，将多个 MCP 服务器聚合在单一、可靠的接口后面。了解更多关于我们的[核心功能](/zh/guide/essentials/core-features)和[安全架构](/zh/reference/security)。
+- **配置蔓延**：不同客户端各自维护一套 MCP 配置。
+- **Agent 上下文蔓延**：太多工具与 schema 在长会话里被一次性注入上下文。
 
-```mermaid
-graph TB
-    subgraph "AI 客户端"
-        C1[Claude Desktop]
-        C2[Cursor]
-        C3[Cherry Studio]
-    end
+当前产品心智模型是：
 
-    subgraph "1MCP 代理"
-        P[统一接口<br/>HTTP/SSE + OAuth]
-    end
+- `1mcp serve` 是统一运行时。
+- CLI 模式是这个运行时之上的、推荐给 agent 的工作流。
+- 直接 MCP 接入仍然为原生 MCP 客户端保留。
 
-    subgraph "MCP 服务器"
-        S1[文件系统]
-        S2[网络搜索]
-        S3[数据库]
-        S4[内存]
-    end
-
-    C1 --> P
-    C2 --> P
-    C3 --> P
-    P --> S1
-    P --> S2
-    P --> S3
-    P --> S4
-```
-
-## 快速示例
-
-从简单配置开始。有关完整的设置说明，请参阅我们的[入门指南](/zh/guide/getting-started)和[安装说明](/zh/guide/installation)。
-
-```json
-{
-  "mcpServers": {
-    "context7": {
-      "command": "npx",
-      "args": ["-y", "@upstash/context7-mcp@latest"],
-      "tags": ["context7", "docs", "development", "code"],
-      "disabled": false
-    },
-    "git": {
-      "command": "uvx",
-      "args": ["mcp-server-git", "--repository", "/path/to/your/awesome-project"],
-      "tags": ["git", "awesome-project"],
-      "disabled": false
-    },
-    "filesystem": {
-      "command": "npx",
-      "args": ["-y", "@modelcontextprotocol/server-filesystem", "/tmp"],
-      "tags": ["files", "tmpdir"],
-      "disabled": false
-    },
-    "server-sequential-thinking": {
-      "command": "npx",
-      "args": ["-y", "@modelcontextprotocol/server-sequential-thinking"],
-      "tags": ["thinking"],
-      "disabled": false
-    },
-    "playwright": {
-      "command": "npx",
-      "args": ["-y", "@playwright/mcp@latest"],
-      "tags": ["playwright", "frontend", "web", "ui", "browser"],
-      "disabled": false
-    }
-  }
-}
-```
+## 快速开始
 
 ```bash
-# 启动代理
-npx -y @1mcp/agent --config mcp.json --port 3000
+npm install -g @1mcp/agent
+1mcp mcp add context7 -- npx -y @upstash/context7-mcp
+1mcp serve
 ```
 
-现在您的代理正在运行。将您的 MCP 客户端连接到 `http://localhost:3000` 开始使用您聚合的工具。查看我们的[服务器管理指南](/zh/guide/essentials/server-management)了解高级配置选项。
+对 agent，优先选择 CLI 模式：
 
-## 主要优势
+```bash
+1mcp cli-setup --codex
+# 或
+1mcp cli-setup --claude --scope repo --repo-root .
+```
 
-- **🎯 简化集成**：一个连接代替多个连接
-- **🔐 生产安全性**：OAuth 2.1 与基于范围的权限
-- **📈 更好的可靠性**：集中化错误处理和监控
-- **⚙️ 易于管理**：单一配置，热重载支持
-- **🚀 性能**：高效多路复用，最小开销
+随后 agent 的工作流变成：
 
-## 下一步？
+```bash
+1mcp instructions
+1mcp inspect context7
+1mcp inspect context7/get-library-docs
+1mcp run context7/get-library-docs --args '{"context7CompatibleLibraryID":"/mongodb/docs","topic":"aggregation pipeline"}'
+```
+
+## 主要收益
+
+- **更薄的 agent 工作面**：渐进式发现避免把整个工具目录直接灌进上下文。
+- **一个运行时服务多个客户端**：agent、直接 HTTP MCP 客户端、stdio 兼容桥都可以共用同一份后端能力。
+- **符合当前产品现实，而不是旧式代理叙事**：异步加载、懒加载、模板、指令和预设都已经是主系统设计的一部分。
+
+## 选择你的路径
 
 <div class="vp-feature-grid">
-  <a href="/zh/guide/getting-started" class="vp-feature-box">
-    <h3>📚 学习基础知识</h3>
-    <p>了解 1MCP 架构和核心概念</p>
+  <a href="/zh/guide/integrations/cli-mode" class="vp-feature-box">
+    <h3>Agent 的 CLI 模式</h3>
+    <p>适合 Codex、Claude 以及其他希望渐进式发现工具的 agent loop。</p>
   </a>
 
-  <a href="/zh/guide/quick-start" class="vp-feature-box">
-    <h3>⚡ 快速入门</h3>
-    <p>5 分钟内通过基本配置快速运行</p>
+  <a href="/zh/commands/serve" class="vp-feature-box">
+    <h3>直接使用运行时</h3>
+    <p>适合能直接连接聚合运行时的原生 HTTP MCP 客户端。</p>
   </a>
 
-  <a href="/zh/reference/architecture" class="vp-feature-box">
-    <h3>🏗️ 深入了解</h3>
-    <p>全面的系统架构和设计决策</p>
+  <a href="/zh/commands/proxy" class="vp-feature-box">
+    <h3>stdio 兼容桥</h3>
+    <p>只有在客户端无法直接连接 HTTP 运行时时，才使用 `proxy`。</p>
   </a>
 </div>
 
