@@ -1,12 +1,12 @@
 ---
 title: Getting Started with 1MCP
-description: Learn how to set up 1MCP step-by-step. From basic proxy to production deployment with OAuth 2.1 authentication. Complete guide for all skill levels.
+description: Learn how to set up 1MCP step-by-step. From a basic runtime to production deployment with OAuth 2.1 authentication. Complete guide for all skill levels.
 head:
   - [
       'meta',
       {
         name: 'keywords',
-        content: 'MCP server setup,Model Context Protocol,AI proxy setup,1MCP tutorial,getting started,OAuth 2.1,authentication,server management,configuration',
+        content: 'MCP server setup,Model Context Protocol,AI runtime setup,1MCP tutorial,getting started,OAuth 2.1,authentication,server management,configuration',
       },
     ]
   - ['meta', { property: 'og:title', content: 'Getting Started with 1MCP | Complete Setup Guide' }]
@@ -14,14 +14,14 @@ head:
       'meta',
       {
         property: 'og:description',
-        content: 'Complete step-by-step guide to setting up 1MCP. From basic proxy to production deployment.',
+        content: 'Complete step-by-step guide to setting up 1MCP. From a basic runtime to production deployment.',
       },
     ]
 ---
 
 # Getting Started with 1MCP
 
-> **🎯 Goal**: Get you from individual MCP server connections to a unified proxy in simple, practical steps.
+> **🎯 Goal**: Get you from individual MCP server connections to a unified runtime in simple, practical steps.
 
 > **💡 New to 1MCP?** Start with our [quick start guide](/guide/quick-start) for a 5-minute setup, or continue here for comprehensive instructions.
 
@@ -78,9 +78,9 @@ ls ~/.config/*/mcp.json 2>/dev/null || echo "ℹ️ No existing MCP config found
 
 ---
 
-## 🌟 Level 1: Basic Proxy (5 minutes)
+## 🌟 Level 1: Basic Runtime (5 minutes)
 
-**🎯 Goal**: Replace individual MCP connections with single proxy
+**🎯 Goal**: Replace individual MCP connections with a single runtime endpoint
 **👤 Perfect for**: First-time users, simple setups, proof of concept
 
 ### **What You'll Achieve**
@@ -177,7 +177,7 @@ npx -y @1mcp/agent --config ~/.config/1mcp/mcp.json --port 3050
 npx @modelcontextprotocol/inspector
 
 # This opens a powerful UI at http://localhost:5173 that lets you:
-# - Connect to your 1MCP proxy at http://localhost:3050
+# - Connect to your 1MCP runtime at http://localhost:3050
 # - Test all available tools and resources
 # - Debug authentication flows
 # - Monitor real-time MCP protocol messages
@@ -503,7 +503,7 @@ chmod +x ~/1mcp-backup.sh
 
 ### **Tag Filtering**
 
-- Filter servers by tags: `--tags "network,filesystem"`
+- Filter exposed servers at runtime: `--filter "network,filesystem"`
 - Configure tag-based OAuth scopes
 
 ### **Reverse Proxy Setup**
@@ -661,4 +661,4 @@ journalctl -u 1mcp -f --lines=100
 
 ---
 
-> **🎉 Congratulations!** You've successfully set up 1MCP from basic proxy to enterprise-grade infrastructure. Your AI assistants now have reliable, secure, and scalable access to all their MCP capabilities through a single, unified interface.
+> **🎉 Congratulations!** You've successfully set up 1MCP from a basic runtime to enterprise-grade infrastructure. Your AI assistants now have reliable, secure, and scalable access to all their MCP capabilities through a single, unified interface.

@@ -51,8 +51,7 @@ CLI 模式依赖一个正在运行的 `serve` 实例。
 
 ### 过滤与预设
 
-- **`--tag-filter, -f <expression>`**：应用高级标签过滤表达式。
-- **`--tags <tags>`**：简单标签输入。更推荐 `--tag-filter`。
+- **`--filter, -f <expression>`**：使用简单的逗号分隔标签或高级布尔表达式筛选暴露的服务器。
 
 ### 安全
 
@@ -99,6 +98,13 @@ CLI 模式依赖一个正在运行的 `serve` 实例。
 
 ```bash
 1mcp serve --enable-async-loading --enable-lazy-loading
+```
+
+### 启动时筛选服务器暴露面
+
+```bash
+1mcp serve --filter "web,api"
+1mcp serve --filter "(web OR api) AND production"
 ```
 
 ### 为直接 HTTP MCP 客户端启动运行时

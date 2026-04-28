@@ -66,8 +66,7 @@ For runtime-wide configuration details, see the **[Configuration Guide](../guide
 
 ### Filtering and presets
 
-- **`--tag-filter, -f <expression>`**: Apply an advanced tag filter expression.
-- **`--tags <tags>`**: Simple tags input. Prefer `--tag-filter`.
+- **`--filter, -f <expression>`**: Filter exposed servers with simple comma-separated tags or advanced boolean expressions.
 
 ### Security
 
@@ -114,6 +113,13 @@ For runtime-wide configuration details, see the **[Configuration Guide](../guide
 
 ```bash
 1mcp serve --enable-async-loading --enable-lazy-loading
+```
+
+### Start with filtered server exposure
+
+```bash
+1mcp serve --filter "web,api"
+1mcp serve --filter "(web OR api) AND production"
 ```
 
 ### Start a runtime for direct HTTP MCP clients

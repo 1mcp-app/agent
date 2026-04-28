@@ -44,7 +44,7 @@ Essential features that work out of the box for every user:
 - **🔄 Hot Configuration Reload** - Add/remove servers instantly with zero downtime
 - **📊 Basic Status Monitoring** - Track connections and troubleshoot issues
 
-Perfect for: Getting started, basic proxy needs, development environments
+Perfect for: Getting started, basic runtime setups, development environments
 
 ---
 

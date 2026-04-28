@@ -1,8 +1,8 @@
 ---
 title: Core Features - Essential 1MCP Capabilities
-description: Discover 1MCP core features including universal MCP aggregation, hot configuration reload, tag-based filtering, health monitoring, and more.
+description: Discover 1MCP core features including universal MCP aggregation, hot configuration reload, runtime health monitoring, and more.
 head:
-  - ['meta', { name: 'keywords', content: '1MCP features,MCP aggregation,hot reload,tag filtering,health monitoring' }]
+  - ['meta', { name: 'keywords', content: '1MCP features,MCP aggregation,hot reload,health monitoring,runtime' }]
   - ['meta', { property: 'og:title', content: '1MCP Core Features - Essential Capabilities' }]
   - [
       'meta',
@@ -25,7 +25,7 @@ head:
 
 ```mermaid
 graph LR
-    A[Your AI Assistant] --> B[1MCP Proxy]
+    A[Your AI Assistant] --> B[1mcp serve runtime]
     B --> C[Server 1]
     B --> D[Server 2]
     B --> E[Server 3]
@@ -41,7 +41,7 @@ graph LR
 
 **⏱️ Setup Time**: 5 minutes
 **🎯 Perfect For**: Anyone using 2+ MCP servers
-**✅ You Get**: Unified interface, automatic health monitoring, connection pooling
+**✅ You Get**: Unified interface, runtime health endpoints, centralized connection management
 
 ---
 
@@ -97,7 +97,7 @@ vim ~/.config/1mcp/mcp.json
 
 ### Quick Setup Path
 
-1. **[5 minutes]** Basic MCP aggregation → [Getting Started](/guide/getting-started#🌟-level-1-basic-proxy-5-minutes)
+1. **[5 minutes]** Basic MCP aggregation → [Getting Started](/guide/getting-started)
 2. **Configuration** → [Configuration Guide](/guide/essentials/configuration)
 3. **Troubleshooting** → Check logs and status information
 

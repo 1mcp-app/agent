@@ -15,7 +15,7 @@ head:
 
 # Configuration Deep Dive
 
-The 1MCP Agent provides extensive configuration options for runtime behavior, transport settings, authentication, and more. This guide covers command-line flags and environment variables that control how the agent operates.
+The 1MCP Agent provides extensive configuration options for runtime behavior, transport settings, authentication, and more. This guide covers command-line flags and environment variables that control how the runtime and agent-facing commands operate.
 
 For MCP server configuration (backend servers, environment management, process control), see the **[MCP Servers Reference](../../reference/mcp-servers.md)**.
 
@@ -43,8 +43,7 @@ All available command-line options and their corresponding environment variables
 | `--host`, `-H`                  | `ONE_MCP_HOST`                        | Change HTTP host                                                                                | localhost  |
 | `--external-url`, `-u`          | `ONE_MCP_EXTERNAL_URL`                | External URL for OAuth callbacks and public URLs (e.g., https://example.com)                    |            |
 | `--trust-proxy`                 | `ONE_MCP_TRUST_PROXY`                 | Trust proxy configuration for client IP detection (boolean, IP, CIDR, preset)                   | "loopback" |
-| `--tags`, `-g`                  | `ONE_MCP_TAGS`                        | Filter servers by tags (comma-separated, OR logic) ⚠️ **Deprecated - use --tag-filter**         |            |
-| `--tag-filter`, `-f`            | `ONE_MCP_TAG_FILTER`                  | Advanced tag filter expression (and/or/not logic)                                               |            |
+| `--filter`, `-f`                | `ONE_MCP_FILTER`                      | Filter servers exposed by the runtime (simple comma-separated tags or advanced boolean logic)   |            |
 | `--pagination`, `-p`            | `ONE_MCP_PAGINATION`                  | Enable pagination for client/server lists (boolean)                                             |   false    |
 | `--enable-auth`                 | `ONE_MCP_ENABLE_AUTH`                 | Enable authentication (OAuth 2.1)                                                               |   false    |
 | `--enable-scope-validation`     | `ONE_MCP_ENABLE_SCOPE_VALIDATION`     | Enable tag-based scope validation (boolean)                                                     |    true    |
@@ -249,19 +248,14 @@ For detailed trust proxy configuration, see the **[Trust Proxy Reference](../../
 
 ### Server Filtering
 
-Control which backend MCP servers are loaded and available.
+Control which backend MCP servers the runtime exposes.
 
-**`--tags, -g <tags>`** ⚠️ **Deprecated**
+**`--filter, -f <expression>`**
 
-- **Purpose**: Filter servers by tags (comma-separated, OR logic)
-- **Environment**: `ONE_MCP_TAGS`
+- **Purpose**: Filter runtime server exposure with simple OR syntax or advanced boolean logic
+- **Environment**: `ONE_MCP_FILTER`
 
-**`--tag-filter, -f <expression>`** ✅ **Recommended**
-
-- **Purpose**: Advanced tag filter expression with boolean logic
-- **Environment**: `ONE_MCP_TAG_FILTER`
-
-**Tag Filter Syntax:**
+**Filter Syntax:**
 
 - `tag1,tag2`: OR logic (either tag)
 - `tag1+tag2`: AND logic (both tags)
@@ -271,17 +265,19 @@ Control which backend MCP servers are loaded and available.
 **Examples:**
 
 ```bash
-# Simple OR filtering (deprecated)
-npx -y @1mcp/agent --tags "network,filesystem"
+# Simple OR filtering
+npx -y @1mcp/agent --filter "network,filesystem"
 
-# Advanced filtering (recommended)
-npx -y @1mcp/agent --tag-filter "network+api"
-npx -y @1mcp/agent --tag-filter "(web,api)+production-test"
-npx -y @1mcp/agent --tag-filter "web and api and not test"
+# Advanced filtering
+npx -y @1mcp/agent --filter "network+api"
+npx -y @1mcp/agent --filter "(web,api)+production-test"
+npx -y @1mcp/agent --filter "web and api and not test"
 
 # Environment variables
-ONE_MCP_TAG_FILTER="network+api" npx -y @1mcp/agent
+ONE_MCP_FILTER="network+api" npx -y @1mcp/agent
 ```
+
+For client-side narrowing after the runtime is already running, use `--preset`, `--tags`, or `--tag-filter` with `instructions`, `inspect`, and `run`, or use `proxy --preset/--filter/--tags` for stdio-only clients.
 
 ### Internal Tools Options
 
@@ -599,8 +595,7 @@ All environment variables are prefixed with `ONE_MCP_` and override both configu
 - `ONE_MCP_HOST`
 - `ONE_MCP_EXTERNAL_URL`
 - `ONE_MCP_TRUST_PROXY`
-- `ONE_MCP_TAGS` (deprecated)
-- `ONE_MCP_TAG_FILTER`
+- `ONE_MCP_FILTER`
 - `ONE_MCP_PAGINATION`
 - `ONE_MCP_ENABLE_AUTH`
 - `ONE_MCP_ENABLE_SCOPE_VALIDATION`
@@ -677,13 +672,13 @@ docker run -p 3051:3051 \
 
 ```bash
 # Only network-capable servers
-npx -y @1mcp/agent --transport stdio --tag-filter "network"
+npx -y @1mcp/agent --filter "network"
 
 # Complex filtering: (web OR api) AND production, NOT test
-npx -y @1mcp/agent --transport stdio --tag-filter "(web,api)+production-test"
+npx -y @1mcp/agent --filter "(web,api)+production-test"
 
 # Natural language filtering
-npx -y @1mcp/agent --transport stdio --tag-filter "api and database and not test"
+npx -y @1mcp/agent --filter "api and database and not test"
 ```
 
 ### Advanced Feature Configuration

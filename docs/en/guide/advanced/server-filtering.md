@@ -1,6 +1,6 @@
 ---
-title: Server Filtering - Tag-Based Access Control
-description: Use advanced tag-based server filtering in 1MCP. Control which backend servers are accessible with boolean expressions and tag filters.
+title: Server Filtering - Runtime and Client Selection
+description: Use 1MCP filtering to control which backend servers are exposed by the runtime or selected by client-facing commands.
 head:
   - ['meta', { name: 'keywords', content: 'server filtering,tag filtering,access control,boolean expressions' }]
   - ['meta', { property: 'og:title', content: '1MCP Server Filtering Guide' }]
@@ -13,13 +13,16 @@ head:
     ]
 ---
 
-# Server Filtering by Tags
+# Server Filtering
 
-The 1MCP Agent provides advanced tag-based server filtering, allowing you to direct requests to specific backend MCP servers using both simple OR logic and complex boolean expressions. This feature helps organize and control access to different MCP servers by their capabilities.
+1MCP supports filtering at two different layers:
+
+- **Runtime filtering** with `1mcp serve --filter ...` or `1mcp --filter ...`
+- **Client-side narrowing** with `instructions`, `inspect`, `run`, or `proxy`
 
 ## How It Works
 
-When connecting to the 1MCP Agent, you can specify tags to filter which backend servers are available. The agent will only connect to and route requests to servers that have the specified tags.
+At runtime level, `serve` uses `--filter` to decide which backend servers are exposed at all. After the runtime is running, client-facing commands can further narrow selection without changing the runtime process.
 
 For example, if you have two servers—one with the `filesystem` tag and another with the `search` tag—you can control which servers are available by including the appropriate tags in your connection.
 
@@ -49,68 +52,20 @@ In this example:
 
 ## Usage
 
-The 1MCP Agent supports two types of tag filtering: simple OR logic and advanced boolean expressions.
+### Runtime Filtering with `serve`
 
-### Simple Tag Filtering (Deprecated)
-
-⚠️ **The `--tags` parameter is deprecated and will be removed in a future version. Use `--tag-filter` instead.**
-
-The `--tags` parameter provides simple OR logic filtering:
+Use `--filter` on `serve` or the default command when you want the runtime itself to expose only a subset of servers:
 
 ```bash
-# Only connect to servers with "filesystem" tag
-npx -y @1mcp/agent --transport stdio --tags "filesystem"
+# Only expose servers with the "filesystem" tag
+npx -y @1mcp/agent --filter "filesystem"
 
-# Connect to servers with either "filesystem" or "web" tags (OR logic)
-npx -y @1mcp/agent --transport stdio --tags "filesystem,web"
-```
+# Expose servers with either "filesystem" or "web" tags (OR logic)
+npx -y @1mcp/agent --filter "filesystem,web"
 
-### Advanced Tag Filtering
-
-The new `--tag-filter` parameter supports complex boolean expressions:
-
-#### Basic Operations
-
-```bash
-# Single tag
-npx -y @1mcp/agent --transport stdio --tag-filter "filesystem"
-
-# AND operation (both tags required)
-npx -y @1mcp/agent --transport stdio --tag-filter "filesystem+web"
-
-# OR operation (either tag)
-npx -y @1mcp/agent --transport stdio --tag-filter "filesystem,web"
-
-# NOT operation (exclude servers with this tag)
-npx -y @1mcp/agent --transport stdio --tag-filter "!test"
-```
-
-#### Complex Expressions
-
-```bash
-# Servers with (filesystem OR web) AND prod, but NOT test
-npx -y @1mcp/agent --transport stdio --tag-filter "(filesystem,web)+prod-test"
-
-# Servers with api AND (db OR cache), but NOT development
-npx -y @1mcp/agent --transport stdio --tag-filter "api+(db,cache)-development"
-```
-
-#### Natural Language Syntax
-
-The tag filter also supports natural language boolean operators:
-
-```bash
-# Using natural language AND
-npx -y @1mcp/agent --transport stdio --tag-filter "web and api"
-
-# Using natural language OR
-npx -y @1mcp/agent --transport stdio --tag-filter "filesystem or database"
-
-# Using natural language NOT
-npx -y @1mcp/agent --transport stdio --tag-filter "api and not test"
-
-# Complex natural language expression
-npx -y @1mcp/agent --transport stdio --tag-filter "(web or api) and production and not development"
+# Expose servers that match a complex expression
+npx -y @1mcp/agent --filter "(filesystem,web)+prod-test"
+npx -y @1mcp/agent --filter "api and not test"
 ```
 
 #### Symbol Reference
@@ -121,6 +76,21 @@ npx -y @1mcp/agent --transport stdio --tag-filter "(web or api) and production a
 | OR       | `,`      | `or`             | `web,api` or `web or api`       |
 | NOT      | `-`, `!` | `not`            | `-test`, `!test`, or `not test` |
 | Group    | `()`     | `()`             | `(web,api)+prod`                |
+
+### Client-Side Narrowing
+
+After the runtime is already running, use the client-facing selectors that match the command surface:
+
+```bash
+# Narrow CLI mode output without restarting the runtime
+1mcp instructions --tags backend
+1mcp inspect --tag-filter "web+api"
+1mcp run myserver/mytool --tag-filter "web+api" --args '{"q":"test"}'
+
+# Narrow a stdio-only compatibility client
+1mcp proxy --filter "web AND api"
+1mcp proxy --tags "web,api"
+```
 
 ### HTTP/SSE Filtering
 
@@ -135,21 +105,7 @@ curl "http://localhost:3050/sse?tag-filter=web%2Bapi"  # web+api
 curl "http://localhost:3050/sse?tag-filter=%28web%2Capi%29%2Bprod"  # (web,api)+prod
 ```
 
-### Migration from --tags to --tag-filter
-
-For simple OR logic filtering, you can easily migrate from `--tags` to `--tag-filter`:
-
-```bash
-# Old (deprecated)
---tags "web,api,database"
-
-# New (recommended)
---tag-filter "web,api,database"
-```
-
-### Mutual Exclusivity
-
-The `--tags` and `--tag-filter` parameters are mutually exclusive - you cannot use both at the same time. The agent will return an error if both are specified.
+`tags` and `tag-filter` remain mutually exclusive on the command surfaces that support both query styles.
 
 ## Tag Character Handling
 

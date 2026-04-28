@@ -146,13 +146,14 @@ This is the most important limitation on this page:
 
 - stdio transport does not give a client an OAuth browser flow
 - `proxy` does not magically make a stdio-only client auth-capable
-- if your runtime requires auth, a stdio-only client may still be unable to use it
+- if your runtime requires auth, a stdio-only client cannot use it through `proxy`
 
 In practice:
 
 - use CLI mode for agent loops whenever possible
 - use direct HTTP for clients that can authenticate
-- use `proxy` for compatibility when auth requirements and client limitations actually allow it
+- use `proxy` only with runtimes that do not require auth
+- run a separate unauthenticated `serve` instance if a stdio-only client still needs compatibility access
 
 ## See Also
 

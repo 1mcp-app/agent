@@ -172,8 +172,8 @@ npx -y @1mcp/agent serve --transport http --port 3001 --external-url https://you
 # 启用身份验证（生产环境推荐）
 npx -y @1mcp/agent serve --transport http --port 3001 --enable-auth --external-url https://your-domain.com
 
-# 通过标签筛选暴露的服务器
-npx -y @1mcp/agent serve --transport http --port 3001 --tags "context7,sequential" --external-url https://your-domain.com
+# 筛选运行时暴露的服务器
+npx -y @1mcp/agent serve --transport http --port 3001 --filter "context7,sequential" --external-url https://your-domain.com
 
 # 绑定到所有网卡（置于反向代理后）
 npx -y @1mcp/agent serve --transport http --port 3001 --host 0.0.0.0 --external-url https://your-domain.com
@@ -424,7 +424,7 @@ npx -y @1mcp/agent serve --transport http --port 3001 --host 0.0.0.0 --external-
 
 ```bash
 # 仅暴露特定能力
-npx -y @1mcp/agent serve --transport http --port 3001 --tags "context7,sequential"
+npx -y @1mcp/agent serve --transport http --port 3001 --filter "context7,sequential"
 ```
 
 ## 最佳实践

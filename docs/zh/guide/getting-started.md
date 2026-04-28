@@ -1,21 +1,21 @@
 ---
 title: 1MCP 入门指南
-description: 学习如何设置 1MCP。从基本代理到生产部署，包含 OAuth 2.1 身份验证。适合所有技能水平的完整指南。
+description: 学习如何设置 1MCP。从基础运行时到生产部署，包含 OAuth 2.1 身份验证。适合所有技能水平的完整指南。
 head:
   - [
       'meta',
       {
         name: 'keywords',
-        content: 'MCP 服务器设置,模型上下文协议,AI 代理设置,1MCP 教程,入门指南,OAuth 2.1,身份验证,服务器管理,配置',
+        content: 'MCP 服务器设置,模型上下文协议,AI 运行时设置,1MCP 教程,入门指南,OAuth 2.1,身份验证,服务器管理,配置',
       },
     ]
   - ['meta', { property: 'og:title', content: '1MCP 入门指南 | 完整设置指南' }]
-  - ['meta', { property: 'og:description', content: '完整的 1MCP 设置步骤指南。从基本代理到生产部署。' }]
+  - ['meta', { property: 'og:description', content: '完整的 1MCP 设置步骤指南。从基础运行时到生产部署。' }]
 ---
 
 # 1MCP 入门指南
 
-> **🎯 目标**：通过简单实用的步骤，将您从单独的 MCP 服务器连接转变为统一的代理。
+> **🎯 目标**：通过简单实用的步骤，将您从单独的 MCP 服务器连接转变为统一的运行时。
 
 > **💡 刚接触 1MCP？** 从我们的[快速入门指南](/zh/guide/quick-start)开始，5分钟即可完成设置，或继续阅读此处的详细说明。
 
@@ -72,9 +72,9 @@ ls ~/.config/*/mcp.json 2>/dev/null || echo "ℹ️ 未找到现有 MCP 配置"
 
 ---
 
-## 🌟 第 1 级：基本代理 (5 分钟)
+## 🌟 第 1 级：基础运行时 (5 分钟)
 
-**🎯 目标**：用单个代理替换单独的 MCP 连接
+**🎯 目标**：用单个运行时端点替换单独的 MCP 连接
 **👤 适用于**：初次使用的用户、简单设置、概念验证
 
 ### **您将实现**
@@ -159,7 +159,7 @@ npx -y @1mcp/agent --config ~/.config/1mcp/mcp.json --port 3050
 npx @modelcontextprotocol/inspector
 
 # 这将在 http://localhost:5173 打开一个强大的用户界面，让您：
-# - 连接到您的 1MCP 代理 http://localhost:3050
+# - 连接到您的 1MCP 运行时 http://localhost:3050
 # - 测试所有可用的工具和资源
 # - 调试身份验证流程
 # - 监控实时的 MCP 协议消息
@@ -483,7 +483,7 @@ chmod +x ~/1mcp-backup.sh
 
 ### **标签过滤**
 
-- 按标签过滤服务器：`--tags "network,filesystem"`
+- 在运行时按条件筛选暴露的服务器：`--filter "network,filesystem"`
 - 配置基于标签的 OAuth 范围
 
 ### **反向代理设置**
@@ -641,4 +641,4 @@ journalctl -u 1mcp -f --lines=100
 
 ---
 
-> **🎉 恭喜！** 您已成功将 1MCP 从基本代理设置到企业级基础设施。您的 AI 助手现在可以通过单一、统一的界面可靠、安全、可扩展地访问其所有 MCP 功能。
+> **🎉 恭喜！** 您已成功将 1MCP 从基础运行时设置到企业级基础设施。您的 AI 助手现在可以通过单一、统一的界面可靠、安全、可扩展地访问其所有 MCP 功能。
