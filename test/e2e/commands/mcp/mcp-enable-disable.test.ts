@@ -212,6 +212,13 @@ describe('MCP Enable/Disable Commands E2E', () => {
   });
 
   describe('Tool-level disable commands', () => {
+    it('should fail fast for bare interactive tools command in non-TTY environments', async () => {
+      const result = await runMcpToolsCommand([], true);
+
+      runner.assertFailure(result, 1);
+      runner.assertOutputContains(result, 'Interactive mode requires a TTY', true);
+    });
+
     it('should disable a tool in config and list it', async () => {
       const disableResult = await runMcpToolsCommand(['disable', 'echo-server', 'write_file']);
 
