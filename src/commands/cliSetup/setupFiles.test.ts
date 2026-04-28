@@ -55,6 +55,19 @@ describe('cli setup file writers', () => {
     expect(updated).toBe('# Existing\n@1MCP.md\n');
   });
 
+  it('renders an absolute startup reference for global codex', () => {
+    const block = renderStartupDocManagedBlock('/tmp/.codex/AGENTS.md', '/tmp/.codex/1MCP.md');
+
+    expect(block).toBe('@/tmp/.codex/1MCP.md\n');
+  });
+
+  it('replaces legacy relative codex startup reference with absolute path', () => {
+    const block = renderStartupDocManagedBlock('/tmp/.codex/AGENTS.md', '/tmp/.codex/1MCP.md');
+    const updated = upsertStartupDocManagedBlock('# Existing\n@1MCP.md\n', block);
+
+    expect(updated).toBe('# Existing\n@/tmp/.codex/1MCP.md\n');
+  });
+
   it('writes repo-scoped hooks, startup docs, and managed doc idempotently', async () => {
     const repoRoot = path.join(process.cwd(), '.tmp-test', `cli-setup-unit-${Date.now()}`);
     tempRoots.push(repoRoot);
@@ -205,7 +218,7 @@ describe('cli setup file writers', () => {
     expect(results.some((result) => result.path === path.join(homeDir, '.codex', 'hooks.json'))).toBe(true);
 
     const agents = await readFile(path.join(homeDir, '.codex', 'AGENTS.md'), 'utf8');
-    expect(agents).toBe('@1MCP.md\n');
+    expect(agents).toBe(`@${path.join(homeDir, '.codex', '1MCP.md').replace(/\\/g, '/')}\n`);
   });
 
   it('skips rewriting commented JSON5 config files and warns', async () => {

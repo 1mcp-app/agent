@@ -144,6 +144,10 @@ export function renderManagedDocContent(): string {
 }
 
 export function renderStartupDocManagedBlock(startupDocPath: string, managedDocPath: string): string {
+  if (path.basename(startupDocPath) === 'AGENTS.md' && path.dirname(startupDocPath) === path.dirname(managedDocPath)) {
+    return `@${managedDocPath.replace(/\\/g, '/')}\n`;
+  }
+
   const relativePath = path.relative(path.dirname(startupDocPath), managedDocPath).replace(/\\/g, '/');
   return `@${relativePath}\n`;
 }
@@ -151,10 +155,16 @@ export function renderStartupDocManagedBlock(startupDocPath: string, managedDocP
 export function upsertStartupDocManagedBlock(existingContent: string, managedBlock: string): string {
   const normalizedExisting = existingContent.replace(/\r\n/g, '\n');
   const referenceLine = managedBlock.trim();
+  const managedReferenceAliases = new Set([referenceLine]);
+
+  if (referenceLine.startsWith('@/') && referenceLine.endsWith('/1MCP.md')) {
+    managedReferenceAliases.add('@1MCP.md');
+  }
+
   const withoutLegacyBlocks = normalizedExisting.replace(LEGACY_MANAGED_BLOCK_PATTERN, '');
   const remainingLines = withoutLegacyBlocks
     .split('\n')
-    .filter((line) => line.trim() !== referenceLine)
+    .filter((line) => !managedReferenceAliases.has(line.trim()))
     .join('\n')
     .trimEnd();
 

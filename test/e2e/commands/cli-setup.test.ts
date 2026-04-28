@@ -41,7 +41,7 @@ describe('cli-setup command E2E', () => {
       'If this session already received the current 1MCP instructions content from hooks',
     );
     expect(codexHooks).toContain('"command": "1mcp instructions"');
-    expect(agents).toBe('@1MCP.md\n');
+    expect(agents).toBe(`@${path.join(homeDir, '.codex', '1MCP.md').replace(/\\/g, '/')}\n`);
   });
 
   it('writes repo-scoped setup and preserves surrounding content', async () => {
