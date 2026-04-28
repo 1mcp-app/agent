@@ -21,11 +21,16 @@ head:
 
 # Getting Started with 1MCP
 
-> **🎯 Goal**: Get you from individual MCP server connections to a unified runtime in simple, practical steps.
+This page helps you choose the right 1MCP adoption path. It is broader than [Quick Start](/guide/quick-start), but it should still route you to the correct guide instead of duplicating the entire docs site.
 
-> **💡 New to 1MCP?** Start with our [quick start guide](/guide/quick-start) for a 5-minute setup, or continue here for comprehensive instructions.
+Use this page when you want to understand which path fits your situation:
 
-> **🤖 Using Codex or Claude?** Prefer [CLI Mode](/guide/integrations/cli-mode): keep MCP behind `serve`, then let the agent use `instructions`, `inspect`, and `run` progressively.
+- a first agent-oriented setup
+- a direct MCP runtime setup
+- a secured or production-oriented deployment
+- a deeper configuration and architecture path
+
+If you only want the fastest working setup, use [Quick Start](/guide/quick-start).
 
 ## 🗺️ Your Journey Overview
 
@@ -39,31 +44,33 @@ graph LR
     C1[Stable production<br/>configuration] -.-> C
 ```
 
-**Choose Your Starting Point**:
+## Choose Your Starting Point
 
-- 👋 **New to MCP?** → Start with Level 1
-- 🔒 **Need authentication?** → Jump to Level 2
-- 🏢 **Production deployment?** → Go to Level 3
+- New to 1MCP and using an agent workflow: start with [Quick Start](/guide/quick-start)
+- Need the CLI-mode mental model: read [CLI Mode](/guide/integrations/cli-mode)
+- Need direct runtime details: read [Configuration](/guide/essentials/configuration) and [serve](/commands/serve)
+- Need authentication or shared deployment guidance: read [Authentication](/guide/advanced/authentication)
+- Need system behavior and loading details: read [Architecture](/reference/architecture)
 
 ---
 
-## 📋 Prerequisites
+## Prerequisites
 
-### **System Requirements**
+### System Requirements
 
 - **OS**: Linux, macOS, or Windows
 - **Memory**: 512MB RAM minimum, 2GB recommended
 - **Node.js**: Version 18+ (for MCP servers)
 - **Network**: HTTP/HTTPS outbound access
 
-### **What You'll Need**
+### What You'll Need
 
 - [ ] Existing MCP servers or intention to install them
 - [ ] Text editor for configuration files
 - [ ] Terminal/command line access
 - [ ] Basic understanding of JSON configuration
 
-### **5-Minute Environment Check**
+### Quick Environment Check
 
 ```bash
 # Check Node.js version
@@ -78,19 +85,20 @@ ls ~/.config/*/mcp.json 2>/dev/null || echo "ℹ️ No existing MCP config found
 
 ---
 
-## 🌟 Level 1: Basic Runtime (5 minutes)
+## Level 1: Basic Runtime
 
-**🎯 Goal**: Replace individual MCP connections with a single runtime endpoint
-**👤 Perfect for**: First-time users, simple setups, proof of concept
+Goal: replace individual MCP connections with one runtime endpoint.
 
-### **What You'll Achieve**
+Best for: first-time users, simple setups, and proof-of-concept work.
+
+### What You'll Achieve
 
 - ✅ Single configuration file instead of multiple connections
 - ✅ Unified health monitoring for all MCP servers
 - ✅ Automatic connection management and retry logic
 - ✅ One endpoint for your AI assistant to connect to
 
-### **Step 1: Get 1MCP** (1 minute)
+### Step 1: Get 1MCP
 
 **Option A: Binary Download (Fastest - No Node.js Required)**
 
@@ -118,7 +126,7 @@ Invoke-WebRequest -Uri "https://github.com/1mcp-app/agent/releases/latest/downlo
 npx -y @1mcp/agent --help
 ```
 
-### **Step 2: Create Basic Configuration** (2 minutes)
+### Step 2: Create Basic Configuration
 
 ```bash
 # Create config directory
@@ -155,7 +163,7 @@ The `$schema` field enables IDE autocompletion and validation. Most modern edito
 For local development, use: `"$schema": "./schemas/v1.0.0/mcp-config.json"`
 :::
 
-### **Step 3: Start 1MCP** (1 minute)
+### Step 3: Start 1MCP
 
 ```bash
 # Binary option:
@@ -170,7 +178,7 @@ npx -y @1mcp/agent --config ~/.config/1mcp/mcp.json --port 3050
 # 📋 OAuth Management Dashboard: http://localhost:3050/oauth
 ```
 
-### **Step 4: Test Your Setup** (< 1 minute)
+### Step 4: Test Your Setup
 
 ```bash
 # Use MCP Inspector for testing and debugging (recommended)
@@ -187,25 +195,25 @@ curl http://localhost:3050/health
 # Or visit http://localhost:3050/health in your browser
 ```
 
-### **✅ Level 1 Complete!**
+### Level 1 Complete
 
-**🎉 Success Indicators**:
+Success indicators:
 
 - [ ] 1MCP server running on port 3050
 - [ ] MCP Inspector connects successfully at http://localhost:5173
 - [ ] Health endpoint shows servers connected at http://localhost:3050/health
 - [ ] Can test filesystem and memory tools via Inspector UI
 
-**🔧 Common Issues**:
+Common issues:
 
 - **Port 3050 in use?** → Use `--port 3051`
 - **MCP servers fail to start?** → Check Node.js version is 21+
 - **Permission errors?** → Ensure ~/.config/1mcp directory is writable
 - **Config not found?** → Use absolute path: `--config $(pwd)/.config/1mcp/mcp.json`
 
-**➡️ Next Level**: [Add authentication and access control](#-level-2-secure-access-15-minutes)
+Next path: [Add authentication and access control](#-level-2-secure-access-15-minutes)
 
-### **Optional: Switch Agent Sessions to CLI Mode**
+### Optional: Switch Agent Sessions to CLI Mode
 
 If your client is an autonomous or semi-autonomous agent, the user-facing setup step after Level 1 is:
 

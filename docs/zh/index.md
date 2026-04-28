@@ -76,11 +76,20 @@ features:
 - CLI 模式是这个运行时之上的、推荐给 agent 的工作流。
 - 直接 MCP 接入仍然为原生 MCP 客户端保留。
 
+把这个首页当成分流页。如果你已经确定要先跑通一个可工作的流程，直接去看[快速入门](/zh/guide/quick-start)。
+
 ## 如果你在用 AI Agent，请从这里开始
 
 这个首页优先面向 Codex、Claude、Cursor 等 agent 工作流。默认路径是：添加一个真实上游 MCP server，启动 `1mcp serve`，运行 `cli-setup`，然后验证 `instructions -> inspect -> run`。
 
-## 5 分钟上手
+## 先选对路径
+
+- 想最快跑通一个 agent 工作流？看[快速入门](/zh/guide/quick-start)。
+- 想理解 `instructions`、`inspect`、`run` 的工作方式？看 [CLI 模式](/zh/guide/integrations/cli-mode)。
+- 想让原生 MCP 客户端直接连运行时？看 [serve](/zh/commands/serve)。
+- 想了解运行时、模板与加载行为？看[架构](/zh/reference/architecture)。
+
+## 5 分钟上手预览
 
 ```bash
 npm install -g @1mcp/agent
@@ -105,7 +114,7 @@ npm install -g @1mcp/agent
 1mcp run context7/query-docs --args '{"libraryId":"/mongodb/docs","query":"aggregation pipeline"}'
 ```
 
-如果你想看带成功标准和分流说明的完整版本，继续阅读[快速入门](/zh/guide/quick-start)。
+这里仅提供预览路径。若要查看前置条件、成功标准和常见问题，请继续阅读[快速入门](/zh/guide/quick-start)。
 
 ## 为什么推荐这条路径
 

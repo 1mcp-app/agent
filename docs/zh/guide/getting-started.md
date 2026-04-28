@@ -15,11 +15,16 @@ head:
 
 # 1MCP 入门指南
 
-> **🎯 目标**：通过简单实用的步骤，将您从单独的 MCP 服务器连接转变为统一的运行时。
+这个页面用来帮你选择合适的 1MCP 接入路径。它比[快速入门](/zh/guide/quick-start)更宽一些，但不应该重复整站文档的全部内容。
 
-> **💡 刚接触 1MCP？** 从我们的[快速入门指南](/zh/guide/quick-start)开始，5分钟即可完成设置，或继续阅读此处的详细说明。
+适合在以下情况阅读：
 
-> **🤖 正在使用 Codex 或 Claude？** 优先使用 [CLI 模式](/zh/guide/integrations/cli-mode)：把 MCP 保留在 `serve` 背后，然后让 agent 逐步执行 `instructions`、`inspect`、`run`。
+- 你想判断自己应该走哪条上手路径
+- 你要在 agent 工作流和直接 MCP 运行时之间做选择
+- 你需要安全、共享或生产部署相关入口
+- 你要继续深入配置或架构说明
+
+如果你只想最快跑通一个可用流程，请直接看[快速入门](/zh/guide/quick-start)。
 
 ## 🗺️ 您的旅程概览
 
@@ -33,31 +38,33 @@ graph LR
     C1[稳定的生产<br/>配置] -.-> C
 ```
 
-**选择您的起点**：
+## 选择你的起点
 
-- 👋 **刚接触 MCP？** → 从第 1 级开始
-- 🔒 **需要身份验证？** → 跳转到第 2 级
-- 🏢 **生产部署？** → 前往第 3 级
+- 第一次使用 1MCP，且以 agent 工作流为主：看[快速入门](/zh/guide/quick-start)
+- 想先建立 CLI 模式心智模型：看 [CLI 模式](/zh/guide/integrations/cli-mode)
+- 需要直接运行时配置细节：看[配置](/zh/guide/essentials/configuration)和 [serve](/zh/commands/serve)
+- 需要鉴权或共享部署说明：看[身份验证](/zh/guide/advanced/authentication)
+- 需要了解系统行为、加载方式和模板：看[架构](/zh/reference/architecture)
 
 ---
 
-## 📋 先决条件
+## 先决条件
 
-### **系统要求**
+### 系统要求
 
 - **操作系统**：Linux、macOS 或 Windows
 - **内存**：最低 512MB RAM，推荐 2GB
 - **Node.js**：版本 18+ (用于 MCP 服务器)
 - **网络**：HTTP/HTTPS 出站访问
 
-### **您需要什么**
+### 你需要准备
 
 - [ ] 已有的 MCP 服务器或计划安装它们
 - [ ] 用于配置文件的文本编辑器
 - [ ] 终端/命令行访问权限
 - [ ] 对 JSON 配置的基本了解
 
-### **5 分钟环境检查**
+### 快速环境检查
 
 ```bash
 # 检查 Node.js 版本
@@ -72,19 +79,20 @@ ls ~/.config/*/mcp.json 2>/dev/null || echo "ℹ️ 未找到现有 MCP 配置"
 
 ---
 
-## 🌟 第 1 级：基础运行时 (5 分钟)
+## 第 1 级：基础运行时
 
-**🎯 目标**：用单个运行时端点替换单独的 MCP 连接
-**👤 适用于**：初次使用的用户、简单设置、概念验证
+目标：用单个运行时端点替换分散的 MCP 连接。
 
-### **您将实现**
+适用于：第一次上手、简单场景、概念验证。
+
+### 你将获得
 
 - ✅ 单个配置文件取代多个连接
 - ✅ 所有 MCP 服务器的统一健康监控
 - ✅ 自动连接管理和重试逻辑
 - ✅ 您的 AI 助手连接的单一端点
 
-### **步骤 1：获取 1MCP** (1 分钟)
+### 步骤 1：获取 1MCP
 
 **选项 A：二进制下载 (最快 - 无需 Node.js)**
 
@@ -112,7 +120,7 @@ Invoke-WebRequest -Uri "https://github.com/1mcp-app/agent/releases/latest/downlo
 npx -y @1mcp/agent --help
 ```
 
-### **步骤 2：创建基本配置** (2 分钟)
+### 步骤 2：创建基本配置
 
 ```bash
 # 创建配置目录
@@ -137,7 +145,7 @@ cat > ~/.config/1mcp/mcp.json << 'EOF'
 EOF
 ```
 
-### **步骤 3：启动 1MCP** (1 分钟)
+### 步骤 3：启动 1MCP
 
 ```bash
 # 二进制选项：
@@ -152,7 +160,7 @@ npx -y @1mcp/agent --config ~/.config/1mcp/mcp.json --port 3050
 # 📋 OAuth 管理仪表板：http://localhost:3050/oauth
 ```
 
-### **步骤 4：测试您的设置** (< 1 分钟)
+### 步骤 4：测试你的设置
 
 ```bash
 # 使用 MCP Inspector 进行测试和调试 (推荐)
@@ -169,25 +177,25 @@ curl http://localhost:3050/health
 # 或在浏览器中访问 http://localhost:3050/health
 ```
 
-### **✅ 第 1 级完成！**
+### 第 1 级完成
 
-**🎉 成功指标**：
+成功指标：
 
 - [ ] 1MCP 服务器在端口 3050 上运行
 - [ ] MCP Inspector 在 http://localhost:5173 成功连接
 - [ ] 健康端点在 http://localhost:3050/health 显示服务器已连接
 - [ ] 可以通过 Inspector UI 测试 filesystem 和 memory 工具
 
-**🔧 常见问题**：
+常见问题：
 
 - **端口 3050 被占用？** → 使用 `--port 3051`
 - **MCP 服务器启动失败？** → 检查 Node.js 版本是否为 21+
 - **权限错误？** → 确保 ~/.config/1mcp 目录可写
 - **找不到配置？** → 使用绝对路径：`--config $(pwd)/.config/1mcp/mcp.json`
 
-**➡️ 下一级**：[添加身份验证和访问控制](#-第-2-级安全访问-15-分钟)
+下一条路径：[添加身份验证和访问控制](#-第-2-级安全访问-15-分钟)
 
-### **可选：把 Agent 会话切换到 CLI 模式**
+### 可选：把 Agent 会话切换到 CLI 模式
 
 如果你的客户端是自主或半自主 agent，在完成第 1 级后，用户侧推荐先执行：
 

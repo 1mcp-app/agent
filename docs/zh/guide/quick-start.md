@@ -15,7 +15,7 @@ head:
 
 # 快速入门
 
-这个页面优先面向 AI agent 用户。
+这个页面优先面向 AI agent 用户。它的职责很单一：让你拿到一个可运行的 `1mcp serve` 运行时，并验证一次 CLI 模式工作流。
 
 完成本指南后，你会得到：
 
@@ -24,7 +24,7 @@ head:
 - 已通过 `cli-setup` 接入的 Codex 或 Claude
 - 一个已验证的 `instructions -> inspect -> run` 工作流
 
-如果你要找的是直接 MCP 接入、stdio 兼容、或运维文档，请跳到[选择其他路径](#选择其他路径)。
+如果你要看直接 MCP 接入、stdio 兼容桥，或更深入的运行时运维说明，请跳到[选择其他路径](#选择其他路径)。
 
 ## 先决条件
 
@@ -67,7 +67,7 @@ npm install -g @1mcp/agent
 1mcp cli-setup --claude --scope repo --repo-root .
 ```
 
-这个命令会安装启动文件，让 agent 按顺序使用 `instructions`、`inspect` 和 `run`。作用域细节见 [`cli-setup`](/zh/commands/cli-setup)。
+这个命令会安装引导文件，让 agent 按顺序使用 `instructions`、`inspect` 和 `run`。目标类型和作用域细节见 [`cli-setup`](/zh/commands/cli-setup)。
 
 ### 5. 验证工作流
 
@@ -88,6 +88,15 @@ npm install -g @1mcp/agent
 - `run ...` 会返回来自上游 server 的真实结果
 
 到这里，你的 agent 已经可以在不额外阅读其他设置页面的前提下，通过 CLI 模式使用 1MCP。
+
+## 这个页面不覆盖什么
+
+- 完整运行时配置
+- 鉴权与团队部署
+- 直接 HTTP MCP 接入细节
+- `proxy` 与仅支持 stdio 的兼容流程
+
+当第一条工作流跑通后，再去看下面链接到的深入页面。
 
 ## 为什么推荐这条路径
 

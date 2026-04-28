@@ -1,237 +1,119 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with the documentation site in this repository.
+This file tells coding agents how to edit the `docs/` site in this repository.
 
-## Documentation Site Information
+## Mission
 
-- **Documentation Framework**: VitePress (latest)
-- **Site URL**: https://docs.1mcp.app/
-- **GitHub Pages**: https://1mcp-app.github.io/agent/
-- **Auto-deployment**: GitHub Actions on pushes to `main` affecting `docs/` directory
-- **Multilingual Support**: English (default) and Chinese (Simplified)
+Improve the docs without breaking the existing public path structure.
 
-## Development Commands
+Use the current site model:
+
+- `index.md` pages are entrypoints.
+- `guide/` teaches or helps complete tasks.
+- `commands/` documents CLI behavior precisely.
+- `reference/` is for exact lookup and architecture.
+
+Do not turn one page into multiple content types at once.
+
+## Non-Negotiables
+
+- Keep the current `docs/en/**` and `docs/zh/**` file layout unless explicitly asked to restructure it.
+- Preserve SEO-sensitive URLs.
+- Update both locales for any user-facing page you materially change.
+- Use absolute internal links.
+- Run `pnpm docs:build` after docs edits.
+
+## Docs-Specific Commands
 
 ```bash
-# Start development server
 pnpm docs:dev
-
-# Build for production
 pnpm docs:build
-
-# Preview production build
 pnpm docs:preview
 ```
 
-## Site Architecture
+## Content-Type Rules
 
-### VitePress Configuration
+### Home and landing pages
 
-- **Config files**:
-  - `.vitepress/config/index.ts` - Main VitePress configuration with multilingual setup
-  - `.vitepress/config/en.ts` - English locale configuration
-  - `.vitepress/config/zh.ts` - Chinese locale configuration
-- **Theme**: Default VitePress theme with custom styling
-- **Search**: Local search provider built-in
-- **Mermaid**: Diagrams enabled via `vitepress-plugin-mermaid` with custom theme
-- **Schema Generation**: Automatic JSON schema generation via SchemaGenPlugin
-- **Analytics**: Google Analytics (G-46LFKQ768B)
-- **SEO**: Comprehensive meta tags, Open Graph, Twitter Cards, JSON-LD structured data
-- **Sitemap**: Automatic sitemap generation for https://docs.1mcp.app/
+- Keep them short and directional.
+- Explain what 1MCP is.
+- Route readers to the correct next page.
+- Do not paste a full tutorial into the homepage.
 
-### Content Structure
+### Quick start
 
-```
-docs/
-├── .vitepress/
-│   └── config/
-│       ├── index.ts       # Main configuration with multilingual setup
-│       ├── en.ts         # English locale configuration
-│       └── zh.ts         # Chinese locale configuration
-├── CLAUDE.md             # Documentation guidance file
-├── README.md             # Documentation overview
-├── en/                   # English documentation (root locale)
-│   ├── index.md          # Homepage (hero layout)
-│   ├── guide/            # Getting started and feature guides
-│   ├── commands/         # CLI command reference
-│   └── reference/        # Technical reference documentation
-├── zh/                   # Chinese documentation
-│   ├── index.md          # Chinese homepage
-│   ├── guide/            # Chinese guides
-│   ├── commands/         # Chinese command reference
-│   └── reference/        # Chinese technical reference
-└── public/               # Static assets (logos, screenshots)
-    └── images/
-```
+- Optimize for the fastest successful outcome.
+- Include prerequisites, exact steps, expected output, and next steps.
+- Keep conceptual depth light and push deep explanation elsewhere.
 
-### Navigation Architecture
+### Getting started and other guides
 
-- **Multilingual Setup**: English (root) and Chinese locales
-- **Three-tier navigation**: Guide → Commands → Reference
-- **Nested sidebars**: Configured per locale in respective config files
-- **Cross-linking**: Uses absolute paths (`/guide/getting-started`)
-- **URL Rewriting**: English content served from root paths (no `/en/` prefix)
+- Use them for path selection, task guidance, and concept framing.
+- Split “what path should I take?” from “what exact flags does this command support?”
+- Link to command and reference pages rather than duplicating them.
 
-## Content Guidelines
+### Command docs
 
-### Markdown Features
+- Document syntax, option semantics, examples, and related commands.
+- Prefer exactness over narrative.
+- Keep examples realistic and copy-pasteable.
 
-- **Frontmatter**: Required for page metadata and layout
-- **Code highlighting**: JavaScript/TypeScript/Bash syntax highlighting
-- **Line numbers**: Enabled by default for code blocks
-- **Mermaid diagrams**: Supported for architecture diagrams
-- **Search**: Content automatically indexed for local search
-- **Template syntax escaping**: Use `v-pre` to prevent Vue interpolation of template syntax
+### Reference docs
 
-### Template Syntax Escaping with `v-pre`
+- Use these for architecture, behavior, interfaces, and constraints.
+- Avoid tutorial-style repetition.
 
-VitePress uses Vue for rendering, which means `{{ }}` syntax gets interpreted as Vue templates. To display Handlebars or other template syntax literally:
+## Bilingual Editing Rules
 
-**Inline template syntax** - Use `<span v-pre>` tags:
+- English and Chinese pages should match in intent and structure.
+- Translation can be idiomatic, but the workflow and conclusions should stay aligned.
+- If you tighten or reroute a top-level page in English, make the parallel change in Chinese in the same patch.
 
-```markdown
-- Use <span v-pre>`{{variable}}`</span> for template variables
-- The <span v-pre>`{{#if condition}}`</span> helper enables conditionals
-```
+## Writing Standards
 
-**Code blocks with template syntax** - Use `::: v-pre` container:
+- One page, one primary reader question.
+- Keep headings clear and shallow.
+- Prefer direct prose over decorative formatting.
+- Keep commands runnable.
+- Add success criteria for setup flows.
+- Add “when to use this page” framing when a page could otherwise overlap with another section.
 
-````markdown
-::: v-pre
+## VitePress and Markdown Notes
 
-```text
-{{#each servers}}
-  {{name}}: {{instructions}}
-{{/each}}
-```
-````
+- Frontmatter is required for public pages.
+- English content is served from root paths; Chinese content is served from `/zh/`.
+- Locale navigation lives in `.vitepress/config/en.ts` and `.vitepress/config/zh.ts`.
+- Assets belong in `docs/public/images/`.
+- Use Mermaid when a diagram is the clearest explanation.
 
-:::
+## Literal Template Syntax
 
-```
+VitePress renders through Vue. If docs need literal <span v-pre>`{{ }}`</span> syntax:
 
-**Important**:
-- Always wrap Handlebars syntax (`{{}}`) with `v-pre` to prevent Vue from trying to interpolate it
-- For single inline variables, use `<span v-pre>`
-- For entire code blocks containing multiple template expressions, use the `::: v-pre` fence
-- Without `v-pre`, Vue will throw errors or display content incorrectly
+- Use `<span v-pre>` for short inline examples.
+- Use `::: v-pre` for code blocks that contain template expressions.
+- If inline dot-notation such as <span v-pre>`{{project.path}}`</span> still causes SSR issues, isolate that section with `<ClientOnly>`.
 
-**SSR crash with dot-notation variables**:
-- `<span v-pre>` prevents Vue from **rendering** `{{ }}` at runtime, but the SSR compiler still **parses and compiles** the surrounding template
-- Simple variables like `{{serverCount}}` resolve to `undefined` during SSR, which is safe (renders as empty string)
-- Dot-notation variables like `{{project.path}}` cause a **TypeError** during SSR build because Vue tries to access `.path` on `undefined`
-- **Fix**: Wrap sections containing inline dot-notation template variables in `<ClientOnly>` tags, which skips SSR entirely for that content
-- Code blocks inside `::: v-pre` fences are unaffected — `v-pre` at the block level prevents compilation entirely
-- Example: `<ClientOnly>` is needed in `serena.md` (uses `{{project.path}}`) but not in `custom-instructions-template.md` (uses only simple variables like `{{serverCount}}`)
+## Editing Checklist
 
-### Writing Standards
-- **Clear headings**: Use semantic hierarchy (H1 → H2 → H3)
-- **Code examples**: Include working examples for all commands
-- **Internal links**: Use absolute paths starting with `/`
-- **External links**: Full URLs for GitHub, npm, etc.
+Before finishing a docs change:
 
-### Page Types
-1. **Hero pages**: Use `layout: home` with hero configuration
-2. **Guide pages**: Step-by-step tutorials and explanations
-3. **Reference pages**: Technical specifications and API docs
-4. **Command pages**: CLI command documentation with examples
+1. Confirm the page type.
+2. Keep the current path unless explicitly asked to migrate it.
+3. Update both locales for touched public pages.
+4. Check internal links and cross-links.
+5. Verify examples still match the current product story.
+6. Run `pnpm docs:build`.
 
-## Key Configuration Areas
+## Useful Files
 
-### Site Navigation (TypeScript Config)
-- **Locales**: English (root) and Chinese (`/zh/`) with language switcher
-- **Top nav**: Guide, Commands, Reference, Version dropdown
-- **Sidebar**: Three separate sidebar configs for each section per locale
-- **Social links**: GitHub repository link
-- **Edit links**: Direct to GitHub edit interface
+- `.vitepress/config/index.ts`
+- `.vitepress/config/en.ts`
+- `.vitepress/config/zh.ts`
+- `docs/README.md`
+- `docs/en/index.md`
+- `docs/en/guide/quick-start.md`
+- `docs/en/guide/getting-started.md`
+- `docs/en/commands/index.md`
 
-### Content Organization
-- **Guide section**: Getting started, features, integration guides, Claude Desktop integration, fast startup
-- **Commands section**: Complete CLI reference including MCP commands (formerly server commands)
-- **Reference section**: Architecture, security, API documentation, health checks, trust proxy
-
-### Asset Management
-- **Images**: Store in `public/images/` directory
-- **Screenshots**: Include for UI-heavy features (OAuth, Claude Desktop)
-- **Logos**: Site logo and favicon configured in head section
-
-## Development Patterns
-
-### Adding New Content
-1. **Create markdown file** in appropriate directory
-2. **Add frontmatter** with title and description
-3. **Update navigation** in `.vitepress/config.js` sidebar
-4. **Test internal links** before committing
-5. **Verify build** with `pnpm docs:build`
-
-### Content Cross-References
-- **Main project**: Link to `../README.md`, `../CHANGELOG.md`
-- **Command docs**: Reference actual CLI help output
-- **Architecture**: Link between guide and reference sections
-- **Examples**: Include working configuration files
-
-### Asset Optimization
-- **Images**: Optimize for web (PNG/JPG)
-- **Screenshots**: Include for complex UI flows
-- **Diagrams**: Use Mermaid for system architecture
-- **File sizes**: Keep assets reasonable for fast loading
-
-## Deployment Process
-
-### Automatic Deployment
-- **Trigger**: Pushes to `main` branch with `docs/` changes
-- **Workflow**: `.github/workflows/deploy-docs.yml`
-- **Build process**: VitePress static site generation
-- **Hosting**: GitHub Pages with custom domain
-
-### Manual Verification
-- **Local build**: `pnpm docs:build` before pushing
-- **Link validation**: Check all internal/external links
-- **Mobile testing**: Verify responsive layout
-- **Search functionality**: Confirm search works post-deploy
-
-## Site Features
-
-### Built-in Capabilities
-- **Dark/light mode**: Automatic theme switching
-- **Mobile responsive**: Works on all device sizes
-- **Fast loading**: Optimized static site generation
-- **SEO friendly**: Meta tags, sitemap, structured data
-- **Offline capable**: Service worker for offline access
-
-### Custom Enhancements
-- **Mermaid diagrams**: Architecture and flow diagrams
-- **Code copy buttons**: One-click code copying
-- **Last updated timestamps**: Automatic update tracking
-- **Edit suggestions**: Direct GitHub edit links
-- **Version information**: Linked to changelog and releases
-
-## Important Files
-
-### Configuration Files
-- `.vitepress/config/index.ts`: Main site configuration with multilingual setup
-- `.vitepress/config/en.ts`: English locale configuration
-- `.vitepress/config/zh.ts`: Chinese locale configuration
-- `package.json`: Documentation build scripts (docs:*)
-
-### Content Templates
-- `en/index.md`: Homepage hero layout example
-- `en/guide/getting-started.md`: Standard guide page structure
-- `en/commands/mcp/add.md`: MCP command reference format
-- `en/reference/architecture.md`: Technical reference format
-- Corresponding Chinese versions in `zh/` directory
-
-## Quality Standards
-
-### Content Requirements
-- **Accuracy**: All commands and examples must work
-- **Completeness**: Cover all features and use cases
-- **Clarity**: Write for both beginners and experts
-- **Currency**: Keep synchronized with actual implementation
-
-### Technical Standards
-- **Valid markdown**: Proper syntax and formatting
-- **Working links**: All internal and external links functional
-- **Mobile friendly**: Content readable on all devices
-- **Fast loading**: Optimized images and minimal dependencies
-```
+Use the matching `zh/` pages whenever you change user-facing content.

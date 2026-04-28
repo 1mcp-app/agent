@@ -15,7 +15,7 @@ head:
 
 # Quick Start
 
-This page is for AI agent users first.
+This page is for AI agent users first. Its job is narrow: get you to one working `1mcp serve` runtime plus one verified CLI-mode workflow.
 
 By the end of this guide, you will have:
 
@@ -24,7 +24,7 @@ By the end of this guide, you will have:
 - Codex or Claude configured with `cli-setup`
 - A verified `instructions -> inspect -> run` workflow
 
-If you want direct MCP attachment, stdio compatibility, or operator docs instead, jump to [Choose another path](#choose-another-path).
+If you want direct MCP attachment, stdio compatibility, or deeper runtime operator docs instead, jump to [Choose another path](#choose-another-path).
 
 ## Prerequisites
 
@@ -41,7 +41,7 @@ npm install -g @1mcp/agent
 
 ### 2. Add one real upstream MCP server
 
-Use a recognizable example so the agent can prove the workflow on something useful immediately:
+Use one recognizable upstream server so you can prove the workflow on something real immediately:
 
 ```bash
 1mcp mcp add context7 -- npx -y @upstash/context7-mcp
@@ -67,7 +67,7 @@ Pick one client:
 1mcp cli-setup --claude --scope repo --repo-root .
 ```
 
-The command installs the startup files that tell the agent to use `instructions`, `inspect`, and `run` in order. See [`cli-setup`](/commands/cli-setup) for scope details.
+The command installs the startup files that tell the agent to use `instructions`, `inspect`, and `run` in order. See [`cli-setup`](/commands/cli-setup) for target and scope details.
 
 ### 5. Verify the workflow
 
@@ -88,6 +88,15 @@ Run the same commands your agent will use:
 - `run ...` returns a real result from the upstream server
 
 At that point your agent can use 1MCP through CLI mode without reading another setup page.
+
+## What this page does not cover
+
+- Full runtime configuration
+- Authentication and team deployment
+- Direct HTTP MCP attachment details
+- `proxy` and stdio-only compatibility flows
+
+Use the linked pages below once the first workflow works.
 
 ## Why this is the recommended path
 

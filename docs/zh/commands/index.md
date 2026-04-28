@@ -9,9 +9,11 @@ head:
 
 # 命令参考
 
-1MCP Agent 提供了一个全面的命令行界面，用于管理 MCP 服务器、agent 工作流和桌面应用程序集成。
+这个章节是 CLI 精确查询入口。适合你已经知道要找哪个命令族，只需要看语法、选项或示例的时候使用。
 
 对于 AI agent，推荐路径是 CLI 模式：把 MCP 保留在 `1mcp serve` 背后，然后通过 `instructions`、`inspect`、`run` 做渐进式披露，而不是在 agent loop 里直接暴露整个工具面。
+
+如果你还没有跑通第一次安装或上手流程，先看[快速入门](../guide/quick-start)。
 
 ## 快速参考
 
@@ -73,6 +75,8 @@ npx -y @1mcp/agent run context7/query-docs --args '{"libraryId":"/mongodb/docs",
 - **[run](./run.md)** - 执行工具调用
 - **[cli-setup](./cli-setup.md)** - 安装 Codex 或 Claude 的引导文件
 - **[auth](./auth.md)** - 管理受保护服务器的认证配置
+
+当 agent 或操作者已经面对一个运行中的 `1mcp serve` 实例时，这一组命令最合适。
 
 ### 为什么会有这些命令
 
@@ -142,9 +146,9 @@ npx -y @1mcp/agent cli-setup --codex
 npx -y @1mcp/agent cli-setup --claude --scope repo --repo-root .
 ```
 
-## 入门
+## 什么时候离开这个章节
 
-如果您是 1MCP Agent 的新手，请从以下内容开始：
+如果你现在需要的是学习路径或安装引导，而不是精确命令行为，请转到：
 
 1. **[安装指南](../guide/installation)** - 安装 1MCP Agent
 2. **[快速入门](../guide/quick-start)** - 基本设置和第一个服务器

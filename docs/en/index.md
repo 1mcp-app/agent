@@ -79,11 +79,20 @@ The current product model is:
 - CLI mode is the preferred agent-facing workflow on top of that runtime.
 - Direct MCP attachment remains supported for MCP-native clients.
 
+Use this page to choose a path. If you already know you want a working setup, go straight to [Quick Start](/guide/quick-start).
+
 ## Start Here if You Use an AI Agent
 
 This page is for Codex, Claude, Cursor, and similar agent workflows. The default path is: add one real upstream server, start `1mcp serve`, run `cli-setup`, then verify `instructions -> inspect -> run`.
 
-## 5-Minute Setup
+## Start With the Right Path
+
+- Want the fastest first success for an agent workflow? Go to [Quick Start](/guide/quick-start).
+- Want the mental model for `instructions`, `inspect`, and `run`? Go to [CLI Mode](/guide/integrations/cli-mode).
+- Want to connect an MCP-native client directly to the runtime? Go to [serve](/commands/serve).
+- Want runtime details, loading behavior, or templates? Go to [Architecture](/reference/architecture).
+
+## 5-Minute Setup Preview
 
 ```bash
 npm install -g @1mcp/agent
@@ -108,7 +117,7 @@ Verify the workflow:
 1mcp run context7/query-docs --args '{"libraryId":"/mongodb/docs","query":"aggregation pipeline"}'
 ```
 
-If you want the step-by-step version with success checks and off-ramps, continue to the [Quick Start guide](/guide/quick-start).
+This is only the preview path. For prerequisites, success checks, and troubleshooting, continue to the [Quick Start guide](/guide/quick-start).
 
 ## Why This Path
 

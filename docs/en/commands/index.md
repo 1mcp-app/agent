@@ -15,9 +15,11 @@ head:
 
 # Command Reference
 
-1MCP Agent provides a comprehensive command-line interface for managing MCP servers, agent workflows, and desktop application configurations.
+This section is the CLI lookup entrypoint. Use it when you already know which command family you need and want exact syntax, options, or examples.
 
 For AI agents, the preferred path is CLI mode: keep MCP behind `1mcp serve`, then use `instructions`, `inspect`, and `run` as a progressive-disclosure workflow instead of exposing a broad tool surface directly in the agent loop.
+
+If you are still trying to get a first setup working, use [Quick Start](../guide/quick-start) before drilling into command details.
 
 ## Quick Reference
 
@@ -79,6 +81,8 @@ npx -y @1mcp/agent run context7/query-docs --args '{"libraryId":"/mongodb/docs",
 - **[run](./run.md)** - Execute a tool call
 - **[cli-setup](./cli-setup.md)** - Install Codex or Claude bootstrap files
 - **[auth](./auth.md)** - Manage authentication profiles for secured servers
+
+Use this group when an agent or operator is already working against a running `1mcp serve` instance.
 
 ### Why These Commands Exist
 
@@ -148,9 +152,9 @@ npx -y @1mcp/agent cli-setup --codex
 npx -y @1mcp/agent cli-setup --claude --scope repo --repo-root .
 ```
 
-## Getting Started
+## When to Leave This Section
 
-If you're new to 1MCP Agent, start with:
+If you need learning or setup guidance instead of exact command behavior, go to:
 
 1. **[Installation Guide](../guide/installation)** - Install 1MCP Agent
 2. **[Quick Start](../guide/quick-start)** - Basic setup and first server
