@@ -167,15 +167,14 @@ For local development, use: `"$schema": "./schemas/v1.0.0/mcp-config.json"`
 
 ```bash
 # Binary option:
-1mcp --config ~/.config/1mcp/mcp.json --port 3050
+1mcp serve --config ~/.config/1mcp/mcp.json --port 3050
 
 # NPM option:
-npx -y @1mcp/agent --config ~/.config/1mcp/mcp.json --port 3050
+npx -y @1mcp/agent serve --config ~/.config/1mcp/mcp.json --port 3050
 
 # You should see:
 # ✅ Server is running on port 3050 with HTTP/SSE transport
 # ✅ Connected to filesystem, memory servers
-# 📋 OAuth Management Dashboard: http://localhost:3050/oauth
 ```
 
 ### Step 4: Test Your Setup
@@ -207,9 +206,9 @@ Success indicators:
 Common issues:
 
 - **Port 3050 in use?** → Use `--port 3051`
-- **MCP servers fail to start?** → Check Node.js version is 21+
+- **MCP servers fail to start?** → Check Node.js version is 18+
 - **Permission errors?** → Ensure ~/.config/1mcp directory is writable
-- **Config not found?** → Use absolute path: `--config $(pwd)/.config/1mcp/mcp.json`
+- **Config not found?** → Use absolute path: `--config $HOME/.config/1mcp/mcp.json`
 
 Next path: [Add authentication and access control](#-level-2-secure-access-15-minutes)
 

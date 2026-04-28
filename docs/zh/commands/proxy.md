@@ -142,6 +142,6 @@ http://127.0.0.1:3050/mcp?app=cursor
 
 ## 另请参阅
 
-- **[CLI 模式指南](../guide/integrations/cli-mode.md)**
-- **[Serve 命令](./serve.md)**
-- **[架构](../reference/architecture.md)**
+- **[CLI 模式指南](/zh/guide/integrations/cli-mode)**
+- **[Serve 命令](/zh/commands/serve)**
+- **[架构](/zh/reference/architecture)**

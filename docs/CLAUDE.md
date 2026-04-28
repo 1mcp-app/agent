@@ -1,3 +1,8 @@
+---
+title: CLAUDE
+description: Documentation maintenance rules for the 1MCP VitePress site.
+---
+
 # CLAUDE.md
 
 This file tells coding agents how to edit the `docs/` site in this repository.

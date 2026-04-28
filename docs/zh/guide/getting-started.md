@@ -149,15 +149,14 @@ EOF
 
 ```bash
 # 二进制选项：
-1mcp --config ~/.config/1mcp/mcp.json --port 3050
+1mcp serve --config ~/.config/1mcp/mcp.json --port 3050
 
 # NPM 选项：
-npx -y @1mcp/agent --config ~/.config/1mcp/mcp.json --port 3050
+npx -y @1mcp/agent serve --config ~/.config/1mcp/mcp.json --port 3050
 
 # 您应该会看到：
 # ✅ 服务器正在端口 3050 上运行，使用 HTTP/SSE 传输
 # ✅ 已连接到 filesystem、memory 服务器
-# 📋 OAuth 管理仪表板：http://localhost:3050/oauth
 ```
 
 ### 步骤 4：测试你的设置
@@ -189,9 +188,9 @@ curl http://localhost:3050/health
 常见问题：
 
 - **端口 3050 被占用？** → 使用 `--port 3051`
-- **MCP 服务器启动失败？** → 检查 Node.js 版本是否为 21+
+- **MCP 服务器启动失败？** → 检查 Node.js 版本是否为 18+
 - **权限错误？** → 确保 ~/.config/1mcp 目录可写
-- **找不到配置？** → 使用绝对路径：`--config $(pwd)/.config/1mcp/mcp.json`
+- **找不到配置？** → 使用绝对路径：`--config $HOME/.config/1mcp/mcp.json`
 
 下一条路径：[添加身份验证和访问控制](#-第-2-级安全访问-15-分钟)
 

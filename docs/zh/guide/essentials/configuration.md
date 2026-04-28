@@ -11,7 +11,7 @@ head:
 
 1MCP Agent 为运行时行为、传输设置、身份验证等提供了广泛的配置选项。本指南涵盖了控制运行时与面向 agent 的命令如何工作的命令行标志和环境变量。
 
-有关 MCP 服务器配置（后端服务器、环境管理、进程控制），请参阅 **[MCP 服务器参考](../../reference/mcp-servers.md)**。
+有关 MCP 服务器配置（后端服务器、环境管理、进程控制），请参阅 **[MCP 服务器参考](/zh/reference/mcp-servers)**。
 
 ## 配置方法
 
@@ -238,7 +238,7 @@ npx -y @1mcp/agent --trust-proxy 192.168.1.100
 npx -y @1mcp/agent --trust-proxy 10.0.0.0/8
 ```
 
-有关详细的信任代理配置，请参阅 **[信任代理参考](../../reference/trust-proxy.md)**。
+有关详细的信任代理配置，请参阅 **[信任代理参考](/zh/reference/trust-proxy)**。
 
 ### 服务器过滤
 
@@ -271,7 +271,7 @@ npx -y @1mcp/agent --filter "web and api and not test"
 ONE_MCP_FILTER="network+api" npx -y @1mcp/agent
 ```
 
-如果运行时已经启动，而你只想对客户端侧做进一步收窄，请在 `instructions`、`inspect`、`run` 上使用 `--preset`、`--tags`、`--tag-filter`，或对 stdio-only 客户端使用 `proxy --preset/--filter/--tags`。
+如果运行时已经启动，而你只想对客户端侧做进一步收窄，请优先在 `instructions`、`inspect`、`run` 上使用 `--preset` 与 `--filter`，或对 stdio-only 客户端使用 `proxy --preset/--filter`。`--tags` 与 `--tag-filter` 仍可作为兼容旧用法的别名使用，但应优先采用统一的 `--filter` 与 `ONE_MCP_FILTER`。
 
 ### 内部工具选项
 
@@ -315,7 +315,7 @@ ONE_MCP_ENABLE_INTERNAL_TOOLS=true npx -y @1mcp/agent
 ONE_MCP_INTERNAL_TOOLS="discovery,management" npx -y @1mcp/agent
 ```
 
-**重要提示**：内部工具与 CLI 命令不同。CLI 命令是为人类用户设计的，而内部工具是 MCP 协议工具，AI 助手可以用来自动化服务器管理任务。有关可用内部工具的详细信息，请参阅**[内部工具参考](../../reference/internal-tools.md)**。
+**重要提示**：内部工具与 CLI 命令不同。CLI 命令是为人类用户设计的，而内部工具是 MCP 协议工具，AI 助手可以用来自动化服务器管理任务。有关可用内部工具的详细信息，请参阅**[内部工具参考](/zh/reference/internal-tools)**。
 
 ### 性能选项
 
@@ -528,7 +528,7 @@ npx -y @1mcp/agent --health-info-level basic
 ONE_MCP_HEALTH_INFO_LEVEL=full npx -y @1mcp/agent
 ```
 
-有关详细的健康检查信息，请参阅 **[健康检查参考](../../reference/health-check.md)**。
+有关详细的健康检查信息，请参阅 **[健康检查参考](/zh/reference/health-check)**。
 
 ### 日志配置
 
@@ -712,8 +712,8 @@ npx -y @1mcp/agent \
 
 ## 另请参阅
 
-- **[MCP 服务器参考](../../reference/mcp-servers.md)** - 后端服务器配置
-- **[Serve 命令参考](../../commands/serve.md)** - 命令行使用示例
-- **[信任代理指南](../../reference/trust-proxy.md)** - 反向代理配置
-- **[健康检查参考](../../reference/health-check.md)** - 监控和健康端点
-- **[安全指南](../../reference/security.md)** - 安全最佳实践
+- **[MCP 服务器参考](/zh/reference/mcp-servers)** - 后端服务器配置
+- **[Serve 命令参考](/zh/commands/serve)** - 命令行使用示例
+- **[信任代理指南](/zh/reference/trust-proxy)** - 反向代理配置
+- **[健康检查参考](/zh/reference/health-check)** - 监控和健康端点
+- **[安全指南](/zh/reference/security)** - 安全最佳实践

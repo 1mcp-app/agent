@@ -157,6 +157,6 @@ In practice:
 
 ## See Also
 
-- **[CLI Mode Guide](../guide/integrations/cli-mode.md)**
-- **[Serve Command](./serve.md)**
-- **[Architecture](../reference/architecture.md)**
+- **[CLI Mode Guide](/guide/integrations/cli-mode)**
+- **[Serve Command](/commands/serve)**
+- **[Architecture](/reference/architecture)**

@@ -49,7 +49,7 @@ CLI mode depends on a running `serve` instance.
 - Lazy loading can keep server exposure narrower until needed.
 - Instruction aggregation and preset notifications are initialized inside this runtime.
 
-For runtime-wide configuration details, see the **[Configuration Guide](../guide/essentials/configuration.md)**.
+For runtime-wide configuration details, see the **[Configuration Guide](/guide/essentials/configuration)**.
 
 ## Common Options
 
@@ -154,7 +154,7 @@ Use this when the client can authenticate against the HTTP runtime. Do not assum
 
 ## See Also
 
-- **[CLI Mode Guide](../guide/integrations/cli-mode.md)**
-- **[Proxy Command](./proxy.md)**
-- **[Architecture](../reference/architecture.md)**
-- **[Configuration Guide](../guide/essentials/configuration.md)**
+- **[CLI Mode Guide](/guide/integrations/cli-mode)**
+- **[Proxy Command](/commands/proxy)**
+- **[Architecture](/reference/architecture)**
+- **[Configuration Guide](/guide/essentials/configuration)**

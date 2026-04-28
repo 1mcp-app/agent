@@ -86,6 +86,8 @@ npx -y @1mcp/agent --filter "api and not test"
 1mcp proxy --tags "web,api"
 ```
 
+`--filter` 是客户端侧收窄的首选统一语法。`--tags` 和 `--tag-filter` 仍然作为兼容旧用法的别名保留，适用于特定的 CLI 和 HTTP 查询样式，但它们彼此互斥，也不能与 `--filter` 同时使用。
+
 ### HTTP/SSE 筛选
 
 对于 HTTP 连接，在查询参数中指定标签筛选器：
@@ -99,7 +101,7 @@ curl "http://localhost:3050/sse?tag-filter=web%2Bapi"  # web+api
 curl "http://localhost:3050/sse?tag-filter=%28web%2Capi%29%2Bprod"  # (web,api)+prod
 ```
 
-在同时支持 `tags` 与 `tag-filter` 的命令面上，这两种查询方式仍然互斥，不能一起使用。
+在同时支持这两个 HTTP/SSE 查询参数的入口上，也就是通过查询参数传递 `tags` 与 `tag-filter` 时，这两种查询方式仍然互斥，不能一起使用。高级表达式建议使用 `tag-filter`；在 CLI 命令面上如支持 `--filter`，则优先使用 `--filter`。
 
 ## 标签字符处理
 

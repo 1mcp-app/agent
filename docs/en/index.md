@@ -76,7 +76,7 @@ features:
 The current product model is:
 
 - `1mcp serve` is the unified runtime.
-- CLI mode is the preferred agent-facing workflow on top of that runtime.
+- CLI mode is the preferred agent-facing workflow on the unified runtime.
 - Direct MCP attachment remains supported for MCP-native clients.
 
 Use this page to choose a path. If you already know you want a working setup, go straight to [Quick Start](/guide/quick-start).

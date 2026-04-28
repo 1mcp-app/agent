@@ -24,7 +24,7 @@ head:
 1MCP has two layers that should be understood together:
 
 - `1mcp serve` is the aggregated runtime.
-- CLI mode is an agent-facing progressive-disclosure workflow on top of that runtime.
+- CLI mode is an agent-facing progressive-disclosure workflow on the runtime.
 
 CLI mode does not replace MCP. It changes how an agent discovers and executes tools while the runtime still speaks MCP to clients and backend servers.
 

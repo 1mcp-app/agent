@@ -92,6 +92,8 @@ After the runtime is already running, use the client-facing selectors that match
 1mcp proxy --tags "web,api"
 ```
 
+`--filter` is the preferred unified syntax for client-side narrowing. `--tags` and `--tag-filter` remain available as legacy compatibility aliases for CLI and HTTP query styles, but they are mutually exclusive with each other and with `--filter`.
+
 ### HTTP/SSE Filtering
 
 For HTTP connections, specify tag filters in query parameters:
@@ -105,7 +107,7 @@ curl "http://localhost:3050/sse?tag-filter=web%2Bapi"  # web+api
 curl "http://localhost:3050/sse?tag-filter=%28web%2Capi%29%2Bprod"  # (web,api)+prod
 ```
 
-`tags` and `tag-filter` remain mutually exclusive on the command surfaces that support both query styles.
+For HTTP/SSE entrypoints that accept both query parameters, `tags` and `tag-filter` remain mutually exclusive. Use `tag-filter` for advanced expressions, or prefer `--filter` on CLI-facing commands when available.
 
 ## Tag Character Handling
 

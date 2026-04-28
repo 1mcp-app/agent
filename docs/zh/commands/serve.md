@@ -1,3 +1,8 @@
+---
+title: Serve 命令
+description: 启动 1MCP 主运行时，并将其用于 CLI 模式、原生 HTTP MCP 客户端以及模板感知的运行时行为。
+---
+
 # Serve 命令
 
 `1mcp serve` 用于启动 1MCP 的主运行时。
@@ -34,7 +39,7 @@ CLI 模式依赖一个正在运行的 `serve` 实例。
 - 懒加载允许在真正需要前保持更窄的暴露面。
 - 指令聚合与预设通知都在这个运行时内部初始化。
 
-关于完整的运行时配置，请参阅 **[配置指南](../guide/essentials/configuration.md)**。
+关于完整的运行时配置，请参阅 **[配置指南](/zh/guide/essentials/configuration)**。
 
 ## 常用选项
 
@@ -139,7 +144,7 @@ http://127.0.0.1:3051/mcp?app=cursor
 
 ## 另请参阅
 
-- **[CLI 模式指南](../guide/integrations/cli-mode.md)**
-- **[Proxy 命令](./proxy.md)**
-- **[架构](../reference/architecture.md)**
-- **[配置指南](../guide/essentials/configuration.md)**
+- **[CLI 模式指南](/zh/guide/integrations/cli-mode)**
+- **[Proxy 命令](/zh/commands/proxy)**
+- **[架构](/zh/reference/architecture)**
+- **[配置指南](/zh/guide/essentials/configuration)**

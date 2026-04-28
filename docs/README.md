@@ -116,7 +116,7 @@ Every user-facing docs change should aim for:
 - English content is served from root paths; Chinese content is served from `/zh/`.
 - Locale navigation lives in `.vitepress/config/en.ts` and `.vitepress/config/zh.ts`.
 - Static assets belong in `docs/public/images/`.
-- VitePress uses Vue rendering. If you need literal <span v-pre>`{{ }}`</span> template syntax, follow the escaping rules in [CLAUDE.md](./CLAUDE.md).
+- VitePress uses Vue rendering. If you need literal <span v-pre>`{{ }}`</span> template syntax, follow the escaping rules in [CLAUDE.md](/CLAUDE).
 
 ## Deployment
 

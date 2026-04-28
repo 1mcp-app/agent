@@ -17,7 +17,7 @@ head:
 
 The 1MCP Agent provides extensive configuration options for runtime behavior, transport settings, authentication, and more. This guide covers command-line flags and environment variables that control how the runtime and agent-facing commands operate.
 
-For MCP server configuration (backend servers, environment management, process control), see the **[MCP Servers Reference](../../reference/mcp-servers.md)**.
+For MCP server configuration (backend servers, environment management, process control), see the **[MCP Servers Reference](/reference/mcp-servers)**.
 
 ## Configuration Methods
 
@@ -244,7 +244,7 @@ npx -y @1mcp/agent --trust-proxy 192.168.1.100
 npx -y @1mcp/agent --trust-proxy 10.0.0.0/8
 ```
 
-For detailed trust proxy configuration, see the **[Trust Proxy Reference](../../reference/trust-proxy.md)**.
+For detailed trust proxy configuration, see the **[Trust Proxy Reference](/reference/trust-proxy)**.
 
 ### Server Filtering
 
@@ -321,7 +321,7 @@ ONE_MCP_ENABLE_INTERNAL_TOOLS=true npx -y @1mcp/agent
 ONE_MCP_INTERNAL_TOOLS="discovery,management" npx -y @1mcp/agent
 ```
 
-**Important**: Internal tools are different from CLI commands. CLI commands are for human users, while internal tools are MCP protocol tools that AI assistants can use to automate server management tasks. For detailed information about available internal tools, see the **[Internal Tools Reference](../../reference/internal-tools.md)**.
+**Important**: Internal tools are different from CLI commands. CLI commands are for human users, while internal tools are MCP protocol tools that AI assistants can use to automate server management tasks. For detailed information about available internal tools, see the **[Internal Tools Reference](/reference/internal-tools)**.
 
 ### Performance Options
 
@@ -534,7 +534,7 @@ npx -y @1mcp/agent --health-info-level basic
 ONE_MCP_HEALTH_INFO_LEVEL=full npx -y @1mcp/agent
 ```
 
-For detailed health check information, see the **[Health Check Reference](../../reference/health-check.md)**.
+For detailed health check information, see the **[Health Check Reference](/reference/health-check)**.
 
 ### Logging Configuration
 
@@ -718,8 +718,8 @@ npx -y @1mcp/agent \
 
 ## See Also
 
-- **[MCP Servers Reference](../../reference/mcp-servers.md)** - Backend server configuration
-- **[Serve Command Reference](../../commands/serve.md)** - Command-line usage examples
-- **[Trust Proxy Guide](../../reference/trust-proxy.md)** - Reverse proxy configuration
-- **[Health Check Reference](../../reference/health-check.md)** - Monitoring and health endpoints
-- **[Security Guide](../../reference/security.md)** - Security best practices
+- **[MCP Servers Reference](/reference/mcp-servers)** - Backend server configuration
+- **[Serve Command Reference](/commands/serve)** - Command-line usage examples
+- **[Trust Proxy Guide](/reference/trust-proxy)** - Reverse proxy configuration
+- **[Health Check Reference](/reference/health-check)** - Monitoring and health endpoints
+- **[Security Guide](/reference/security)** - Security best practices

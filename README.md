@@ -62,7 +62,7 @@ Then verify the agent workflow:
 1mcp run context7/query-docs --args '{"libraryId":"/mongodb/docs","query":"aggregation pipeline"}'
 ```
 
-If you want the full walkthrough with success criteria and off-ramps, use the [Quick Start guide](https://docs.1mcp.app/guide/quick-start).
+If you want the full walkthrough (with success criteria and off-ramps), use the [Quick Start guide](https://docs.1mcp.app/guide/quick-start).
 
 For a given agent, choose one mode only. If you switch that agent to CLI mode, remove its old direct MCP configuration first.
 
