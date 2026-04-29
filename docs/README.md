@@ -1,119 +1,127 @@
-# 1MCP Agent Documentation
+# 1MCP Docs Maintenance Guide
 
-This directory contains the VitePress-powered documentation site for 1MCP Agent, a unified Model Context Protocol server implementation that aggregates multiple MCP servers.
+This directory contains the VitePress documentation site for 1MCP. Keep the current file structure and public paths stable. Improve content quality through clearer page roles, better routing between pages, and tighter bilingual parity rather than by moving pages around.
+
+## What Lives Here
+
+```text
+docs/
+├── .vitepress/          # VitePress config and locale navigation
+├── en/                  # English content, served from the root path
+├── zh/                  # Chinese content, served from /zh/
+├── public/              # Static assets
+├── CLAUDE.md            # Agent-facing docs editing rules
+└── README.md            # This maintainer guide
+```
+
+The docs site is already split into a useful SEO-friendly shape:
+
+- `index.md` pages position the product and route readers.
+- `guide/` pages teach or help readers complete tasks.
+- `commands/` pages document CLI behavior precisely.
+- `reference/` pages explain exact system behavior, constraints, and architecture.
+
+Keep that shape. Do not rename, move, or merge pages unless the change is explicitly requested.
 
 ## Local Development
 
 ```bash
-# Install dependencies
 pnpm install
-
-# Start development server
 pnpm docs:dev
-
-# Build for production
 pnpm docs:build
-
-# Preview production build
 pnpm docs:preview
 ```
 
-## Directory Structure
+Before finishing any docs change, run `pnpm docs:build`.
 
-```
-docs/
-├── .vitepress/
-│   └── config/
-│       ├── index.ts       # Main VitePress configuration
-│       ├── en.ts         # English locale configuration
-│       └── zh.ts         # Chinese locale configuration
-├── public/                # Static assets
-│   └── images/           # Site images and screenshots
-│       ├── logo.png      # Site logo
-│       └── *.png         # Feature screenshots
-├── en/                   # English documentation (root locale)
-│   ├── guide/            # Getting started guides
-│   ├── commands/         # CLI command reference
-│   ├── reference/        # Technical reference
-│   └── index.md          # Homepage
-├── zh/                   # Chinese documentation
-│   ├── guide/            # 入门指南
-│   ├── commands/         # 命令行参考
-│   ├── reference/        # 技术参考
-│   └── index.md          # 首页
-├── CLAUDE.md             # Claude Code guidance file
-└── README.md             # This file
-```
+## Core Writing Model
 
-## Adding Content
+The site should follow a simple rule: one page should answer one primary reader question.
 
-1. **New pages**: Add `.md` files in appropriate language directories (`en/` or `zh/`)
-2. **Navigation**: Update sidebar configuration in respective locale config files:
-   - English: `.vitepress/config/en.ts`
-   - Chinese: `.vitepress/config/zh.ts`
-3. **Links**: Use absolute paths (`/guide/getting-started`) for internal links
-4. **Assets**: Place images and files in `docs/public/images/`
-5. **Multilingual**: Create content in both English and Chinese for complete coverage
+Use these content types consistently:
+
+- Home or entry pages: explain what 1MCP is and route readers to the right next page.
+- Quick start pages: get the reader to a successful first result as fast as possible.
+- Guide pages: explain concepts or help readers complete a task.
+- Command pages: document syntax, options, examples, and related commands.
+- Reference pages: provide exact lookup material, architecture detail, or behavioral constraints.
+
+Avoid writing “mega pages” that try to be tutorial, operator guide, troubleshooting index, and reference all at once.
+
+## Author Workflow
+
+When editing or adding docs:
+
+1. Decide the page type before writing.
+2. Keep the existing file path and locale structure unless there is an explicit migration request.
+3. Add or update frontmatter with a clear title and description.
+4. Use absolute internal links such as `/guide/quick-start` and `/zh/guide/quick-start`.
+5. Update both English and Chinese versions for any user-facing page you touch.
+6. Update `.vitepress/config/en.ts` or `.vitepress/config/zh.ts` only if navigation truly needs to change.
+7. Run `pnpm docs:build` before closing the work.
+
+## Page-Level Standards
+
+### Home and entry pages
+
+- Keep them thin.
+- Explain the product briefly.
+- Route readers by intent such as quick start, CLI mode, direct MCP, or reference.
+- Do not duplicate full setup or full architecture content here.
+
+### Quick start pages
+
+- Optimize for the shortest successful path.
+- Include prerequisites, exact steps, expected outcomes, and next steps.
+- Provide the smallest useful troubleshooting section.
+- Move deep explanation to existing guide or reference pages.
+
+### Guide pages
+
+- Focus on one learning path, workflow, or conceptual topic.
+- Explain when to use the path and when not to use it.
+- Link out to command and reference pages instead of duplicating exact option tables.
+
+### Command pages
+
+- Prioritize exact syntax, option semantics, examples, and related commands.
+- Keep tutorial framing light.
+- Use examples that can be copied and run with minimal edits.
+
+### Reference pages
+
+- Keep the tone precise and stable.
+- Prefer definitions, behavior, constraints, diagrams, and interface details.
+- Do not turn reference into onboarding content.
+
+## Bilingual Rules
+
+- English and Chinese public pages should stay aligned in structure, scope, and intent.
+- Translation does not need to be literal, but both locales should guide the reader through the same workflow.
+- If a page is materially rewritten in one locale, update the paired locale in the same change.
+
+## Quality Bar
+
+Every user-facing docs change should aim for:
+
+- Copy-pasteable commands
+- Version-aware examples where version matters
+- Clear success criteria for setup flows
+- Clear routing to deeper pages instead of duplicate explanations
+- Consistent terminology across `en` and `zh`
+- Working internal links
+
+## Technical Notes
+
+- English content is served from root paths; Chinese content is served from `/zh/`.
+- Locale navigation lives in `.vitepress/config/en.ts` and `.vitepress/config/zh.ts`.
+- Static assets belong in `docs/public/images/`.
+- VitePress uses Vue rendering. If you need literal <span v-pre>`{{ }}`</span> template syntax, follow the escaping rules in [CLAUDE.md](/CLAUDE).
 
 ## Deployment
 
-The site automatically deploys to GitHub Pages on pushes to `main` branch that affect the `docs/` directory.
+- Primary site: `https://docs.1mcp.app/`
+- GitHub Pages mirror: `https://1mcp-app.github.io/agent/`
+- Workflow: `.github/workflows/deploy-documentation.yml`
 
-- **Primary site**: `https://docs.1mcp.app/`
-- **GitHub Pages**: `https://1mcp-app.github.io/agent/`
-- **Workflow**: `.github/workflows/deploy-docs.yml`
-- **Build**: VitePress static site generation with multilingual support
-
-## Writing Guidelines
-
-- Use clear, concise headings with proper hierarchy
-- Include working code examples for all technical content
-- Add frontmatter with title and description for all pages
-- Keep navigation shallow (max 3 levels deep)
-- Test all internal links before committing
-- Maintain consistency between English and Chinese versions
-- Use absolute paths for cross-references
-- Include screenshots for UI-heavy features
-
-## Site Features
-
-### Core Features
-
-- **Multilingual**: English and Chinese language support with switcher
-- **Search**: Built-in local search across all content
-- **Dark mode**: Automatic theme switching based on user preference
-- **Mobile responsive**: Optimized for all device sizes
-- **Fast loading**: Static site generation with optimized assets
-
-### Technical Features
-
-- **Mermaid diagrams**: Architecture and flow diagram support
-- **Code highlighting**: JavaScript, TypeScript, Bash syntax highlighting
-- **Analytics**: Google Analytics integration (G-46LFKQ768B)
-- **SEO friendly**: Meta tags, sitemap, structured data
-- **Version tracking**: Dynamic version display from package.json
-
-### Documentation Structure
-
-- **Guide section**: Getting started, features, Claude Desktop integration, fast startup
-- **Commands section**: Complete CLI reference including MCP commands
-- **Reference section**: Architecture, security, health checks, trust proxy configuration
-
-## Recent Updates
-
-### v0.17.0 Major Changes
-
-- **Command restructure**: Renamed `server` commands to `mcp` commands
-- **Claude Desktop integration**: New guide for Claude Desktop setup
-- **Fast startup**: Performance optimization guide
-- **Multilingual documentation**: Added Chinese language support
-- **Enhanced CLI**: Improved command structure and help system
-- **Async loading**: Real-time server loading notifications
-
-### Documentation Improvements
-
-- Restructured VitePress configuration to TypeScript
-- Added multilingual support with English and Chinese
-- Enhanced command reference with new MCP command structure
-- Added new integration guides for Claude Desktop
-- Improved navigation and cross-linking
+The site is built from the existing docs tree. Preserve path stability unless there is a deliberate migration plan.

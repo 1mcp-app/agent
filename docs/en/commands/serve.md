@@ -1,203 +1,160 @@
 ---
-title: Serve Command - Start the 1MCP Server
-description: Start the 1MCP server with serve command. Learn transport options, configuration flags, and how to run the server.
+title: Serve Command
+description: Start the main 1MCP runtime with 1mcp serve and use it for CLI mode, direct HTTP MCP clients, and template-aware runtime behavior.
 head:
-  - ['meta', { name: 'keywords', content: '1MCP serve command,start server,transport options,configuration' }]
+  - ['meta', { name: 'keywords', content: '1MCP serve,runtime,CLI mode,direct MCP,async loading,lazy loading' }]
   - ['meta', { property: 'og:title', content: '1MCP Serve Command Reference' }]
   - [
       'meta',
       {
         property: 'og:description',
-        content: 'Start the 1MCP server with serve command. Transport and configuration options.',
+        content: 'Run the main 1MCP runtime with 1mcp serve and connect to it through CLI mode or direct HTTP MCP clients.',
       },
     ]
 ---
 
 # Serve Command
 
-Start the 1MCP server with various transport and configuration options.
+`1mcp serve` starts the main 1MCP runtime.
+
+It is the process that aggregates your configured MCP servers, exposes the HTTP MCP surface, initializes presets and instruction aggregation, and resolves template servers when client or session context becomes available.
 
 ## Synopsis
 
 ```bash
-npx -y @1mcp/agent [serve] [options]
-npx -y @1mcp/agent [options]  # serve is the default command
+1mcp serve [options]
+1mcp [options]
 ```
 
-## Description
+`serve` is the default command.
 
-The `serve` command starts the 1MCP server, which acts as a unified proxy/multiplexer for multiple MCP servers. It can operate in different transport modes and provides a unified interface for MCP clients.
+## When to Use `serve`
 
-For a complete list of command-line flags, environment variables, and JSON configuration options, please see the **[Configuration Deep Dive](../guide/essentials/configuration.md)**. For MCP server configuration (backend servers, environment management), see the **[MCP Servers Reference](../reference/mcp-servers.md)**.
+Use `serve` whenever you want to:
 
-## Options
+- run the aggregated 1MCP runtime
+- power CLI mode for agents
+- expose a direct HTTP MCP endpoint to MCP-native clients
+- provide a runtime for `1mcp proxy` to bridge stdio-only clients
 
-The serve command supports all configuration options. Here are the most commonly used:
+CLI mode depends on a running `serve` instance.
 
-### Configuration Options
+## Current Mental Model
 
-- **`--config, -c <path>`** - Specify configuration file path
-- **`--config-dir, -d <path>`** - Path to the config directory
+`serve` is not just a transport switch. It is the main runtime process.
 
-### Transport Options
+- Static servers are created from startup configuration.
+- Template servers are created later per client or session.
+- Async loading can start HTTP availability before all servers finish loading.
+- Lazy loading can keep server exposure narrower until needed.
+- Instruction aggregation and preset notifications are initialized inside this runtime.
 
-- **`--transport, -t <type>`** - Choose transport type (`stdio`, `http`)
-- **`--port, -P <port>`** - Change HTTP port (default: 3050)
-- **`--host, -H <host>`** - Change HTTP host (default: localhost)
+For runtime-wide configuration details, see the **[Configuration Guide](/guide/essentials/configuration)**.
 
-### Security Options
+## Common Options
 
-- **`--enable-auth`** - Enable OAuth 2.1 authentication
-- **`--enable-enhanced-security`** - Enable enhanced security middleware
-- **`--trust-proxy <config>`** - Trust proxy configuration
+### Configuration
 
-### Filtering Options
+- **`--config, -c <path>`**: Specify a configuration file.
+- **`--config-dir, -d <path>`**: Specify the config directory.
 
-- **`--tag-filter, -f <expression>`** - Advanced tag filter expression
-- **`--tags, -g <tags>`** - ⚠️ Deprecated - use `--tag-filter`
+### HTTP runtime
 
-### Advanced Configuration Options
+- **`--port, -P <port>`**: Change the HTTP port. Default: `3050`.
+- **`--host, -H <host>`**: Change the bind host. Default: `localhost`.
+- **`--external-url <url>`**: Set the external base URL, usually for auth-related flows.
 
-- **`--enable-config-reload`** - Enable configuration file hot-reload
-- **`--enable-env-substitution`** - Enable environment variable substitution
-- **`--enable-session-persistence`** - Enable HTTP session persistence
-- **`--enable-client-notifications`** - Enable real-time client notifications
+### Filtering and presets
 
-### Logging Options
+- **`--filter, -f <expression>`**: Filter exposed servers with simple comma-separated tags or advanced boolean expressions.
 
-- **`--log-level <level>`** - Set log level (`debug`, `info`, `warn`, `error`)
-- **`--log-file <path>`** - Write logs to file
+### Security
 
-For all options, see the **[Configuration Deep Dive](../guide/essentials/configuration.md)**.
+- **`--enable-auth`**: Enable OAuth-backed auth on the runtime.
+- **`--enable-enhanced-security`**: Enable additional security middleware.
+- **`--trust-proxy <config>`**: Configure trusted reverse-proxy behavior.
+
+### Runtime behavior
+
+- **`--enable-async-loading`**: Start HTTP availability before all static servers finish loading.
+- **`--enable-lazy-loading`**: Enable lazy loading behavior for exposed server capabilities.
+- **`--enable-config-reload`**: Enable config reload handling.
+- **`--enable-session-persistence`**: Enable HTTP session persistence.
 
 ## Examples
 
-### Basic Usage
+### Start the runtime
 
 ```bash
-# Start with default settings (HTTP on localhost:3050)
-npx -y @1mcp/agent serve
-
-# Start on custom port
-npx -y @1mcp/agent serve --port=3052
-
-# Start with stdio transport
-npx -y @1mcp/agent serve --transport=stdio
+1mcp serve
 ```
 
-### Custom Configuration
+### Agent workflow against a running runtime
 
 ```bash
-# Use custom configuration file
-npx -y @1mcp/agent serve --config=/path/to/config.json
+# shell 1
+1mcp serve
 
-# Start with debug logging
-npx -y @1mcp/agent serve --log-level=debug
+# shell 2
+1mcp instructions
+1mcp inspect context7
+1mcp inspect context7/query-docs
+1mcp run context7/query-docs --args '{"libraryId":"/mongodb/docs","query":"aggregation pipeline"}'
 ```
 
-### Production Deployment
+### Start with a specific config
 
 ```bash
-# Production HTTP server with authentication
-npx -y @1mcp/agent serve \
-  --host=0.0.0.0 \
-  --port=3051 \
-  --enable-auth \
-  --enable-enhanced-security \
-  --trust-proxy=true
-
-# With external URL for OAuth redirects
-npx -y @1mcp/agent serve \
-  --external-url=https://mcp.yourdomain.com \
-  --enable-auth
+1mcp serve --config ./mcp.json
+1mcp serve --config-dir ./config
 ```
 
-### Development
+### Start with async and lazy loading
 
 ```bash
-# Development with debug logging and full health info
-npx -y @1mcp/agent serve \
-  --log-level=debug \
-  --health-info-level=full \
-  --enable-async-loading
-
-# Development with custom config directory
-npx -y @1mcp/agent serve \
-  --config-dir=./dev-config \
-  --log-level=debug \
-  --enable-config-reload
+1mcp serve --enable-async-loading --enable-lazy-loading
 ```
 
-### Advanced Configuration
+### Start with filtered server exposure
 
 ```bash
-# Development with all advanced features enabled
-npx -y @1mcp/agent serve \
-  --log-level=debug \
-  --enable-config-reload \
-  --config-reload-debounce=1000 \
-  --enable-env-substitution \
-  --enable-session-persistence \
-  --session-persist-requests=50 \
-  --enable-client-notifications
-
-# Production with optimized session persistence
-npx -y @1mcp/agent serve \
-  --host=0.0.0.0 \
-  --port=3051 \
-  --enable-auth \
-  --enable-session-persistence \
-  --session-persist-requests=200 \
-  --session-persist-interval=10 \
-  --session-background-flush=30 \
-  --enable-client-notifications
-
-# High-performance setup (minimal features)
-npx -y @1mcp/agent serve \
-  --transport=stdio \
-  --enable-config-reload=false \
-  --enable-env-substitution=true \
-  --enable-session-persistence=false \
-  --enable-client-notifications=false \
-  --log-level=warn
+1mcp serve --filter "web,api"
+1mcp serve --filter "(web OR api) AND production"
 ```
 
-### Environment Variable Substitution
+### Start a runtime for direct HTTP MCP clients
 
 ```bash
-# Using environment variables in configuration files
-API_KEY="${API_KEY}" \
-DATABASE_URL="${DATABASE_URL}" \
-SESSION_DIR="${SESSION_STORAGE_DIR}" \
-npx -y @1mcp/agent serve \
-  --enable-env-substitution \
-  --config-dir=./config
-
-# Combined with configuration reload for dynamic updates
-API_BASE_URL="${API_BASE_URL}" \
-npx -y @1mcp/agent serve \
-  --enable-env-substitution \
-  --enable-config-reload \
-  --config-reload-debounce=2000
+1mcp serve --host 0.0.0.0 --port 3051
 ```
 
-### Tag Filtering
+Then point an MCP-native client at:
+
+```text
+http://127.0.0.1:3051/mcp?app=cursor
+```
+
+### Start with auth
 
 ```bash
-# Simple tag filtering (OR logic) - ⚠️ Deprecated
-npx -y @1mcp/agent serve --transport=stdio --tags="network,filesystem"
-
-# Advanced tag filtering (boolean expressions) - Recommended
-npx -y @1mcp/agent serve --transport=stdio --tag-filter="network+api"
-npx -y @1mcp/agent serve --transport=stdio --tag-filter="(web,api)+prod-test"
-npx -y @1mcp/agent serve --transport=stdio --tag-filter="web and api and not test"
+1mcp serve --enable-auth --external-url https://mcp.example.com
 ```
 
-> **Note:** The `--tags` parameter is deprecated. Use `--tag-filter` for both simple and advanced filtering.
+Use this when the client can authenticate against the HTTP runtime. Do not assume stdio-only clients will work through `proxy` in this configuration.
+
+## Related Commands
+
+- **`1mcp cli-setup --codex`**
+- **`1mcp cli-setup --claude --scope repo --repo-root .`**
+- **`1mcp instructions`**
+- **`1mcp inspect <server>`**
+- **`1mcp inspect <server>/<tool>`**
+- **`1mcp run <server>/<tool> --args '<json>'`**
+- **`1mcp proxy`**
 
 ## See Also
 
-- **[Configuration Deep Dive](../guide/essentials/configuration.md)** - CLI flags and environment variables
-- **[MCP Servers Reference](../reference/mcp-servers.md)** - Backend server configuration
-- **[Security Guide](../reference/security.md)** - Security best practices
-- **[Health Check API Reference](../reference/health-check.md)** - Monitoring endpoints
+- **[CLI Mode Guide](/guide/integrations/cli-mode)**
+- **[Proxy Command](/commands/proxy)**
+- **[Architecture](/reference/architecture)**
+- **[Configuration Guide](/guide/essentials/configuration)**

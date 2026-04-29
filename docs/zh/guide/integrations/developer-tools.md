@@ -128,8 +128,8 @@ npx -y @1mcp/agent --config staging.json --port 3052
 # 终端 2
 1mcp instructions
 1mcp inspect context7
-1mcp inspect context7/get-library-docs
-1mcp run context7/get-library-docs --args '{"context7CompatibleLibraryID":"/mongodb/docs","topic":"aggregation pipeline"}'
+1mcp inspect context7/query-docs
+1mcp run context7/query-docs --args '{"libraryId":"/mongodb/docs","query":"aggregation pipeline"}'
 ```
 
 **引导安装方式**：
@@ -202,16 +202,16 @@ npx -y @1mcp/agent --config staging.json --port 3052
 
 ### 下一步
 
-- **核心设置** → [核心功能](/guide/essentials/core-features)
-- **安全集成** → [安全功能](/guide/advanced/security)
-- **生产部署** → [企业功能](/guide/advanced/enterprise)
+- **核心设置** → [核心功能](/zh/guide/essentials/core-features)
+- **安全集成** → [安全功能](/zh/guide/advanced/security)
+- **生产部署** → [企业功能](/zh/guide/advanced/enterprise)
 
 ### 集成指南
 
-- **身份验证设置** → [身份验证指南](/guide/advanced/authentication)
-- **配置参考** → [配置指南](/guide/essentials/configuration)
-- **API 文档** → [API 参考](/reference/health-check)
-- **CLI 工作流命令** → [instructions](/zh/commands/instructions.md)、[inspect](/zh/commands/inspect.md)、[run](/zh/commands/run.md)、[cli-setup](/zh/commands/cli-setup.md)
+- **身份验证设置** → [身份验证指南](/zh/guide/advanced/authentication)
+- **配置参考** → [配置指南](/zh/guide/essentials/configuration)
+- **API 文档** → [API 参考](/zh/reference/health-check)
+- **CLI 工作流命令** → [instructions](/zh/commands/instructions)、[inspect](/zh/commands/inspect)、[run](/zh/commands/run)、[cli-setup](/zh/commands/cli-setup)
 
 ---
 

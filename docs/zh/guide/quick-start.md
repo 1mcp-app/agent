@@ -1,114 +1,158 @@
 ---
-title: 快速入门指南 - 5 分钟启动 1MCP
-description: 使用我们的快速入门指南在 5 分钟内开始使用 1MCP。基本设置、配置和测试说明。
+title: 快速入门指南 - 面向 Agent 的 1MCP 5 分钟上手
+description: 面向 Codex、Claude、Cursor 等 agent，在 5 分钟内完成 1MCP 上手：启动 serve，执行 cli-setup，并验证 instructions、inspect 和 run。
 head:
-  - ['meta', { name: 'keywords', content: '1MCP 快速入门,MCP 服务器设置,AI 代理设置,教程' }]
-  - ['meta', { property: 'og:title', content: '1MCP 快速入门指南 - 5 分钟设置' }]
-  - ['meta', { property: 'og:description', content: '在 5 分钟内运行 1MCP。立即 AI 集成的快速设置指南。' }]
+  - ['meta', { name: 'keywords', content: '1MCP 快速入门,CLI 模式,Codex,Claude,Cursor,agent 设置,教程' }]
+  - ['meta', { property: 'og:title', content: '1MCP 快速入门指南 - 面向 Agent 的 5 分钟设置' }]
+  - [
+      'meta',
+      {
+        property: 'og:description',
+        content: '用适合 agent 的方式在 5 分钟内跑通 1MCP：serve、cli-setup、instructions、inspect、run。',
+      },
+    ]
 ---
 
 # 快速入门
 
-在 5 分钟内使用基本配置让 1MCP 运行起来。
+这个页面优先面向 AI agent 用户。它的职责很单一：让你拿到一个可运行的 `1mcp serve` 运行时，并验证一次 CLI 模式工作流。
 
-如果你的客户端是 Codex、Claude 这类自主 agent，在启动 `1mcp serve` 之后优先使用 [CLI 模式](/zh/guide/integrations/cli-mode)。
+完成本指南后，你会得到：
+
+- 一个已经添加到 1MCP 的真实上游 MCP server
+- 一个正在运行的 `1mcp serve` 实例
+- 已通过 `cli-setup` 接入的 Codex 或 Claude
+- 一个已验证的 `instructions -> inspect -> run` 工作流
+
+如果你要看直接 MCP 接入、stdio 兼容桥，或更深入的运行时运维说明，请跳到[选择其他路径](#选择其他路径)。
 
 ## 先决条件
 
 - Node.js 18+
+- 一个 AI agent 客户端，例如 Codex 或 Claude
 
-## 基本设置
+## 5 分钟 Agent 设置
 
-1.  **创建配置**
+### 1. 安装 1MCP
 
-    ```bash
-    # 创建一个基本的配置文件
-    cat > mcp.json << 'EOF'
-    {
-      "mcpServers": {
-        "filesystem": {
-          "command": "npx",
-          "args": ["-y", "@modelcontextprotocol/server-filesystem", "/tmp"],
-          "tags": ["local", "files"]
-        }
-      }
-    }
-    EOF
-    ```
+```bash
+npm install -g @1mcp/agent
+```
 
-2.  **启动服务器**
+### 2. 添加一个真实的上游 MCP server
 
-    ```bash
-    1mcp --config mcp.json --port 3000
-    ```
+先用一个可识别、便于验证的例子：
 
-3.  **测试连接**
+```bash
+1mcp mcp add context7 -- npx -y @upstash/context7-mcp
+```
 
-    服务器现在正在端口 3000 上运行。您现在可以将您的 MCP 客户端连接到此端口。
+### 3. 启动运行时
 
-就是这样！您的 1MCP 代理现在正在运行并聚合 MCP 服务器。
+```bash
+1mcp serve
+```
 
-## 面向 Agent 的 CLI 模式
+保持这个 shell 运行，然后打开第二个 shell 继续。
 
-如果你的客户端是 coding agent 或终端 agent，用户侧主要需要执行的是 `cli-setup`：
+### 4. 用 `cli-setup` 连接你的 agent
+
+二选一：
 
 ```bash
 1mcp cli-setup --codex
 ```
 
-之后通常由 AI agent 执行渐进式 CLI 工作流，而不是从一个宽泛的直接 MCP 工具面开始：
+```bash
+1mcp cli-setup --claude --scope repo --repo-root .
+```
+
+这个命令会安装引导文件，让 agent 按顺序使用 `instructions`、`inspect` 和 `run`。目标类型和作用域细节见 [`cli-setup`](/zh/commands/cli-setup)。
+
+### 5. 验证工作流
+
+运行与你的 agent 将使用的同一组命令：
 
 ```bash
 1mcp instructions
-1mcp inspect filesystem
-1mcp inspect filesystem/read_file
-1mcp run filesystem/read_file --args '{"path":"./mcp.json"}'
+1mcp inspect context7
+1mcp inspect context7/query-docs
+1mcp run context7/query-docs --args '{"libraryId":"/mongodb/docs","query":"aggregation pipeline"}'
 ```
 
-这样 MCP 仍然保留在 `serve` 背后，而 agent 看到的是一个更薄、更有选择性的接口。
+### 成功的样子
 
-你也可以手动运行这些工作流命令来验证配置，但它们主要是为 agent 设计的。
+- `instructions` 会解释 CLI 工作流，并展示当前运行时上下文
+- `inspect context7` 能列出上游 server 的工具
+- `inspect context7/query-docs` 会在调用前展示 schema
+- `run ...` 会返回来自上游 server 的真实结果
 
-## 项目配置
+到这里，你的 agent 已经可以在不额外阅读其他设置页面的前提下，通过 CLI 模式使用 1MCP。
 
-**对于仅支持 STDIO 传输的 MCP 客户端**（如 Claude Desktop），您可以使用项目配置来简化代理连接。
+## 这个页面不覆盖什么
 
-### 何时使用项目配置
+- 完整运行时配置
+- 鉴权与团队部署
+- 直接 HTTP MCP 接入细节
+- `proxy` 与仅支持 stdio 的兼容流程
 
-当您的 MCP 客户端满足以下条件时使用 `.1mcprc`：
+当第一条工作流跑通后，再去看下面链接到的深入页面。
 
-- 无法直接连接到 HTTP/SSE 端点
-- 仅支持 STDIO 传输
-- 需要连接到运行中的 1MCP 服务器
+## 为什么推荐这条路径
 
-**先决条件**：您必须运行一个 1MCP 服务器（`1mcp serve`）以供代理连接。
+对 agent 会话来说，CLI 模式是拿到工作结果的最窄路径：
 
-对于定期使用代理命令的项目，创建 `.1mcprc` 文件来设置默认连接设置：
+- `1mcp serve` 在后台提供一个统一运行时
+- `cli-setup` 为 agent 安装引导文件
+- `instructions -> inspect -> run` 让工具暴露保持渐进，而不是一开始就全部展开
 
-```bash
-# 创建包含预设的项目配置
-echo '{"preset": "my-setup"}' > .1mcprc
+## 选择其他路径
 
-# 现在只需运行：
-1mcp proxy
-```
+### 直接 MCP 接入
 
-我们建议使用预设以获得更好的配置管理。详情请参阅[代理命令](/zh/commands/proxy)文档。
+如果你的客户端已经原生支持 MCP，而且你不想使用 CLI 模式，请走这条路径。
+
+- [Serve 命令](/zh/commands/serve)
+- [架构说明](/zh/reference/architecture)
+
+### stdio 兼容
+
+如果你的客户端无法直接连接 HTTP 运行时，请走这条路径。
+
+- [Proxy 命令](/zh/commands/proxy)
+
+### 运行时运维
+
+当基础流程跑通后，再来看这些运行时管理文档：
+
+- [配置](/zh/guide/essentials/configuration)
+- [认证](/zh/guide/advanced/authentication)
+- [预设](/zh/commands/preset/)
 
 ## 下一步
 
-- [启用认证](/zh/guide/advanced/authentication) 用于生产环境
-- [添加更多服务器](/zh/guide/essentials/configuration) 以扩展功能
-- [配置项目设置](/zh/commands/proxy#项目配置-1mcprc) 用于团队协作
+- [CLI 模式指南](/zh/guide/integrations/cli-mode) 了解完整心智模型
+- [添加更多服务器](/zh/guide/essentials/configuration) 扩展运行时能力
+- [启用认证](/zh/guide/advanced/authentication) 用于共享或生产环境
 
 ## 常见问题
 
-**服务器启动失败？**
+**`1mcp serve` 启动失败**
 
 - 检查是否安装了 Node.js 18+：`node --version`
-- 验证配置文件是否为有效的 JSON：`cat mcp.json | jq`
+- 重新运行 `1mcp mcp list`，确认上游 server 已成功添加
 
-**无法连接到 MCP 服务器？**
+**`cli-setup` 没有影响到我的 agent**
 
-- 确保服务器命令是可执行的
-- 检查服务器日志以获取特定的错误消息
+- 确认你选择了正确的目标：`--codex` 或 `--claude`
+- 如果使用 repo 作用域，确认命令是在目标仓库根目录运行的
+
+**`inspect` 看不到工具**
+
+- 确认第一个 shell 里的 `1mcp serve` 还在运行
+- 再次执行 `1mcp instructions`，确认当前运行时状态
+
+**`run` 调用上游 server 失败**
+
+- 重新执行 `1mcp inspect context7/query-docs`，检查必填参数
+- 查看 `serve` 的输出，确认上游启动时没有报错

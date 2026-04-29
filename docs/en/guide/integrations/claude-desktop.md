@@ -181,8 +181,8 @@ npx -y @1mcp/agent serve --transport http --port 3001 --external-url https://you
 # Enable auth (recommended for production)
 npx -y @1mcp/agent serve --transport http --port 3001 --enable-auth --external-url https://your-domain.com
 
-# Filter exposed servers by tags
-npx -y @1mcp/agent serve --transport http --port 3001 --tags "context7,sequential" --external-url https://your-domain.com
+# Filter exposed servers
+npx -y @1mcp/agent serve --transport http --port 3001 --filter "context7,sequential" --external-url https://your-domain.com
 
 # Bind to all interfaces (behind reverse proxy)
 npx -y @1mcp/agent serve --transport http --port 3001 --host 0.0.0.0 --external-url https://your-domain.com
@@ -434,7 +434,7 @@ Control which tools are available by filtering servers:
 
 ```bash
 # Only expose specific capabilities
-npx -y @1mcp/agent serve --transport http --port 3001 --tags "context7,sequential"
+npx -y @1mcp/agent serve --transport http --port 3001 --filter "context7,sequential"
 ```
 
 ## Best Practices

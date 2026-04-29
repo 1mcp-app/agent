@@ -1,576 +1,183 @@
 ---
-title: 1MCP System Architecture - Design and Implementation
-description: Deep dive into 1MCP system architecture. Learn about proxy design, transport layers, OAuth integration, and system components.
+title: 1MCP Architecture
+description: 'Current 1MCP runtime architecture: aggregated serve runtime, CLI mode, template servers, async loading, lazy loading, presets, and client interfaces.'
 head:
-  - ['meta', { name: 'keywords', content: '1MCP architecture,system design,proxy,transport,OAuth,components' }]
-  - ['meta', { property: 'og:title', content: '1MCP System Architecture Guide' }]
+  - [
+      'meta',
+      {
+        name: 'keywords',
+        content: '1MCP architecture,serve runtime,CLI mode,template servers,async loading,lazy loading,presets',
+      },
+    ]
+  - ['meta', { property: 'og:title', content: '1MCP Architecture' }]
   - [
       'meta',
       {
         property: 'og:description',
-        content: 'Complete system architecture for 1MCP. Design patterns, components, and implementation details.',
+        content: 'How 1MCP currently works: aggregated runtime, agent-facing CLI workflow, template resolution, loading orchestration, and client surfaces.',
       },
     ]
 ---
 
-# 1MCP System Architecture
+# 1MCP Architecture
 
-> **Vision**: A unified, reliable proxy that makes multiple MCP servers appear as one, simplifying AI assistant integration while maintaining security and performance.
+1MCP has two layers that should be understood together:
 
-## 🎯 Purpose & Context
+- `1mcp serve` is the aggregated runtime.
+- CLI mode is an agent-facing progressive-disclosure workflow on the runtime.
 
-**Problem**: AI assistants need to connect to multiple MCP servers, but managing dozens of individual connections is complex, unreliable, and security-intensive.
+CLI mode does not replace MCP. It changes how an agent discovers and executes tools while the runtime still speaks MCP to clients and backend servers.
 
-**Solution**: 1MCP acts as a unified proxy/multiplexer that aggregates multiple MCP servers behind a single, reliable interface.
-
-**Success Metrics**:
-
-- **Reliability**: Stable operation with proper error handling
-- **Performance**: Efficient request forwarding to backend servers
-- **Security**: OAuth 2.1 authentication and secure defaults
-- **Simplicity**: Single configuration file, easy deployment
+## System Overview
 
 ```mermaid
-graph TB
-    subgraph "AI Clients"
-        C1[Claude Desktop]
-        C2[Cursor]
-        C3[Cherry Studio]
+flowchart TB
+    subgraph Clients
+        A1[Agent in CLI mode]
+        A2[Direct HTTP MCP client]
+        A3[stdio-only client]
     end
 
-    subgraph "1MCP Proxy"
-        P[Unified Interface<br/>HTTP/SSE + OAuth]
+    subgraph Runtime["1mcp serve aggregated runtime"]
+        B1[HTTP MCP routes]
+        B2[Instruction aggregation]
+        B3[Preset and filter management]
+        B4[Async and lazy loading orchestration]
+        B5[Template server resolution]
     end
 
-    subgraph "MCP Servers"
-        S1[Filesystem]
-        S2[Web Search]
-        S3[Database]
-        S4[Memory]
+    subgraph Backends
+        C1[Static servers]
+        C2[Template servers]
     end
 
-    C1 --> P
-    C2 --> P
-    C3 --> P
-    P --> S1
-    P --> S2
-    P --> S3
-    P --> S4
+    A1 -->|instructions / inspect / run| B1
+    A2 -->|direct MCP over HTTP| B1
+    A3 -->|stdio via 1mcp proxy| B1
+    B1 --> B2
+    B1 --> B3
+    B1 --> B4
+    B1 --> B5
+    B5 --> C2
+    B4 --> C1
+    B4 --> C2
 ```
 
-## 📏 System Constraints
+The runtime centralizes server lifecycle, transport routing, filtering, instruction collection, and session-aware template handling. The important shift in the current architecture is that 1MCP is no longer best described as only a proxy surface. It is a runtime that can expose different client interfaces over the same aggregated server inventory.
 
-### **Hard Constraints**
+## Main Runtime Flows
 
-- **Single Binary**: Must deploy as one executable, no external dependencies
-- **MCP Protocol**: Must be 100% compatible with MCP [Latest specification](https://modelcontextprotocol.io/specification/latest)
-- **Stdio Transport**: Backend servers communicate via stdio or streamable http (security boundary)
-- **Configuration**: All config via single JSON file, hot-reloadable
+### Startup flow
 
-### **Soft Constraints**
+1. `serve` loads configuration and initializes config-change handling.
+2. Preset management is initialized, including preset change notifications.
+3. Static server transports are created from startup configuration.
+4. Template servers are not fully materialized at startup. They are created later from client or session context.
+5. The runtime starts in either synchronous or async loading mode.
 
-- **Concurrent Connections**: Handle multiple simultaneous client connections
-- **Backend Servers**: Support multiple MCP servers per instance
-- **Network**: Works behind corporate firewalls (HTTP/SSE only)
-- **Startup Time**: Fast startup for development iterations
-- **Dependencies**: Minimal external dependencies for security
+### Agent CLI flow
 
-### **Why These Constraints**
+1. A user bootstraps Codex or Claude with `1mcp cli-setup --codex` or `1mcp cli-setup --claude --scope repo --repo-root .`.
+2. The agent talks to a running `serve` instance through `instructions`, `inspect`, and `run`.
+3. Each step narrows context from inventory to server to tool schema to tool call.
 
-- **Single Binary**: Enterprise deployment requirement - no complex setup
-- **Multi-Transport**: Backend servers support stdio, HTTP, and streamable HTTP transports
-- **Hot Reload**: Zero-downtime configuration updates required
+### Direct MCP flow
 
-## 🏗️ Architectural Principles
+1. An MCP-native client connects to the HTTP endpoint exposed by `serve`.
+2. The runtime resolves filters, presets, auth, and available connections.
+3. Tool listing and tool calls are served from the aggregated inventory.
 
-### **Principle 1: Reliability Over Performance**
+### stdio compatibility flow
 
-- System must stay operational even if individual backends fail
-- Graceful degradation preferred over fast failure
-- Connection management with retry logic and timeouts
+1. A stdio-only client starts `1mcp proxy`.
+2. `proxy` discovers a running `serve` instance and forwards stdio traffic to the HTTP runtime.
+3. Presets or filters can still be applied, but `proxy` remains a bridge rather than the primary product surface.
 
-### **Principle 2: Security by Default**
+## Key Components
 
-- All endpoints require authentication unless explicitly disabled
-- Backend servers run in isolated processes with secure transport protocols
-- Input sanitization on all external data
-- No sensitive data in logs
+### Aggregated runtime
 
-### **Principle 3: Simplicity Over Flexibility**
+`1mcp serve` is the long-lived process that owns config loading, client routing, transport exposure, and backend server management.
 
-- Single deployment model, not configurable
-- Convention over configuration where possible
-- Explicit rather than implicit behavior
+### Server manager
 
-### **Principle 4: Transparency to Clients**
+The runtime keeps a server manager that tracks outbound server connections and inbound client sessions, including instruction updates and template-backed lifecycle cleanup.
 
-- MCP protocol compliance - clients don't know it's a proxy
-- Error messages preserve backend server context
-- No protocol modifications or extensions
+### Instruction aggregation
 
-## 🔄 Decision Framework
+Instruction aggregation is a first-class system concern. Static and template-backed servers can contribute instructions, and the runtime combines them for clients and CLI mode.
 
-When evaluating new features or changes, ask:
+### Template server manager
 
-### **Reliability Questions**
+Template servers are created from contextual configuration rather than treated as static startup inventory. They can be shareable or session-scoped, and the runtime tracks rendered hashes and session mappings for correct routing and cleanup.
 
-- Does this reduce system availability?
-- What happens if this component fails?
-- Can the system continue operating without it?
+### Preset manager and notifications
 
-### **Security Questions**
+Presets are initialized as part of server startup. Changes to presets can trigger notifications so connected clients can react to inventory changes without treating presets as out-of-band config.
 
-- Does this expand the attack surface?
-- Could this leak sensitive information?
-- Are we maintaining defense in depth?
+## Loading Model
 
-### **Simplicity Questions**
+The runtime supports both startup-time loading and progressive loading behavior.
 
-- Does this add configuration complexity?
-- Will this make deployment harder?
-- Can we solve this with existing patterns?
+### Static versus template loading
 
-### **Compatibility Questions**
+- Static servers are created from startup configuration.
+- Template servers are created per client or session after context is known.
 
-- Does this break MCP protocol compliance?
-- Will existing clients continue to work?
-- Are we preserving backend server interfaces?
+### Async loading
 
-## 📊 Quality Attribute Scenarios
+When async loading is enabled, the HTTP runtime can start immediately while static MCP servers load in the background. This reduces startup blocking and lets the runtime expose partial availability sooner.
 
-### **Reliability Scenario**
+### Lazy loading
 
-- **Situation**: Backend MCP server crashes during request processing
-- **Response**: System detects failure, marks server unavailable, retries request on other servers if applicable
-- **Measure**: <5 second recovery, client receives appropriate error, system remains available
-- **Current**: Connection pooling with health checks, exponential backoff retry
+When lazy loading is enabled, server exposure can stay narrower until tools are actually needed. Lazy loading integrates with the runtime rather than existing as a separate proxy trick.
 
-### **Security Scenario**
+### Instruction behavior during loading
 
-- **Situation**: Client attempts to access MCP server without proper authorization
-- **Response**: OAuth token validation, scope checking, request denied with 403
-- **Measure**: Zero unauthorized access, all attempts logged with client context
-- **Current**: OAuth 2.1 with scope-based authorization, session management
+Instruction aggregation is initialized before the full backend inventory is necessarily ready. As more servers become available, the runtime can update the instruction view and client-visible inventory.
 
-### **Performance Scenario**
+## Configuration / Presets / Templates
 
-- **Situation**: Multiple concurrent clients making requests to backend servers
-- **Response**: Efficient request forwarding, proper error handling, async processing
-- **Measure**: Reliable request processing, system remains responsive
-- **Current**: Express.js with proper error handling, async request forwarding
+Configuration is no longer best summarized as “one JSON file.” The current system combines several configuration concerns:
 
-### **Maintainability Scenario**
+- startup configuration for static servers
+- template definitions that render from context
+- preset definitions and selection
+- CLI and project-level options such as filters or `.1mcprc`
+- runtime feature flags such as async loading, lazy loading, and session persistence
 
-- **Situation**: New MCP server added to configuration file
-- **Response**: Hot reload detects change, spawns new server process, updates routing
-- **Measure**: <30 seconds to become available, zero downtime
-- **Current**: File system watching with debounced reload, graceful process management
+Template server resolution is session-aware where needed. Inspect and tool routes can initialize template servers using request context and session IDs so a client sees the right contextual inventory.
 
-## 🚫 System Boundaries & Anti-Patterns
+## Client Interfaces
 
-### **What We Are**
+1MCP exposes three distinct client-facing surfaces:
 
-- **MCP Protocol Proxy**: Faithful implementation of MCP specification
-- **Authentication Gateway**: OAuth 2.1 security layer
-- **Connection Multiplexer**: Many clients to many servers
-- **Process Manager**: Lifecycle management for backend servers
+### CLI mode
 
-### **What We Are NOT**
+This is the recommended workflow for agent loops:
 
-- **Business Logic Engine**: No data transformation or business rules
-- **Caching Layer**: Every request goes to backend (for now)
-- **Service Mesh**: Not a general-purpose service communication layer
-- **Database**: No persistent storage of application data
-
-### **Integration Boundaries**
-
-```mermaid
-graph TB
-    subgraph "North Bound (Clients)"
-        NB[HTTP/SSE + OAuth<br/>MCP Protocol Only]
-    end
-
-    subgraph "1MCP Core"
-        C[Proxy Logic]
-    end
-
-    subgraph "South Bound (Backends)"
-        SB[Backend MCP Servers<br/>stdio/HTTP transports]
-    end
-
-    subgraph "East/West (Peers)"
-        EW[No service-to-service<br/>communication]
-    end
-
-    NB --> C
-    C --> SB
-    C -.- EW
+```bash
+1mcp instructions
+1mcp inspect <server>
+1mcp inspect <server>/<tool>
+1mcp run <server>/<tool> --args '<json>'
 ```
 
-### **Anti-Patterns We Avoid**
+CLI mode is a progressive agent interface, not a replacement wire protocol.
 
-- **Shared Database**: No shared state between instances
-- **Network Dependencies**: No calls to external services at runtime
-- **Protocol Extensions**: No MCP protocol modifications
-- **Synchronous Chains**: No blocking calls in request path
-- **Global State**: All state is request-scoped or configuration
+### Direct HTTP MCP attachment
 
-## 🗺️ Evolution Strategy
+This is the right fit for MCP-native clients that want to connect directly to the aggregated runtime over HTTP.
 
-### **Phase 1: Single Instance Proxy** (Current)
+### `proxy`
 
-- **Scope**: One 1MCP instance per deployment
-- **Features**: HTTP/SSE transport, OAuth, basic connection pooling
-- **Constraints**: No horizontal scaling, local configuration only
+`1mcp proxy` exists for stdio-only compatibility. It bridges local stdio clients to a running HTTP runtime and should be treated as a compatibility surface, not the default architecture story.
 
-### **Phase 2: Enhanced Features** (Future)
+## Security and Operational Boundaries
 
-- **Scope**: Additional operational features based on user feedback
-- **Features**: Enhanced monitoring, advanced configuration options
-- **Migration**: Backward compatible, optional enhancements
+- `serve` is the runtime boundary where auth, rate limits, request handling, and health endpoints live.
+- Template resolution happens inside the runtime and is constrained by provided client or session context.
+- `proxy` does not add OAuth capability to stdio-only clients; if a client cannot authenticate, that limitation remains.
+- Presets and filters can narrow exposure, but they do not replace transport-level auth or server-side operational controls.
 
-### **Phase 3: Advanced Capabilities** (Future)
-
-- **Scope**: Advanced features for enterprise use cases
-- **Features**: Enhanced security, operational improvements
-- **Migration**: Configuration extensions, no protocol changes
-
-### **Evolution Principles**
-
-- **Backward Compatibility**: Existing deployments continue working
-- **Progressive Enhancement**: New features are opt-in
-- **Zero Downtime**: All migrations support hot upgrades
-- **Configuration Driven**: Features enabled through configuration
-
-## ⚡ Architecture Validation
-
-### **Automated Architecture Testing**
-
-```typescript
-// Example: Architecture tests enforce our boundaries
-describe('Architecture Constraints', () => {
-  test('No business logic in transport layer', () => {
-    // Static analysis ensures transport only handles HTTP/auth
-  });
-
-  test('All external calls use circuit breakers', () => {
-    // Validate resilience patterns are used
-  });
-
-  test('No direct database access outside repositories', () => {
-    // Enforce data access patterns
-  });
-});
-```
-
-### **Architecture Metrics**
-
-- **Dependency Violations**: 0 (enforced by tests)
-- **Cyclomatic Complexity**: <10 per function (linting)
-- **Security Scan**: 0 high/critical vulnerabilities
-- **API Compatibility**: 100% MCP protocol compliance
-- **Test Coverage**: >90% for critical paths
-
-### **Continuous Validation**
-
-- Architecture tests run in CI/CD pipeline
-- Dependency analysis in pull requests
-- Security scanning on every build
-- Performance regression testing
-
-## 🔍 Observability & Monitoring
-
-### **Health Indicators**
-
-- **System Health**: All core components operational
-- **Backend Health**: Individual MCP server status
-- **Connection Health**: Client connection pool status
-- **Configuration Health**: Config file validity and reload status
-
-### **Key Metrics**
-
-- **Availability**: System uptime percentage
-- **Latency**: Request response time distribution
-- **Throughput**: Requests per second capacity
-- **Error Rate**: Failed requests percentage
-- **Resource Usage**: Memory, CPU, connection counts
-
-### **Monitoring Indicators**
-
-- **Critical**: System unavailable, authentication failures, configuration errors
-- **Warning**: Backend server disconnections, repeated request failures
-- **Info**: Configuration reloaded, new client connections, successful operations
-
-## 🚨 Failure Modes & Recovery
-
-### **Failure Categories**
-
-#### **Backend Server Failures**
-
-- **Symptoms**: Process crash, unresponsive, invalid responses
-- **Detection**: Health checks, request timeouts, error patterns
-- **Recovery**: Process restart, connection retry, graceful degradation
-- **Escalation**: Remove from rotation, alert operators
-
-#### **Configuration Failures**
-
-- **Symptoms**: Invalid JSON, missing servers, permission errors
-- **Detection**: File parsing errors, validation failures
-- **Recovery**: Retain previous valid configuration, log errors
-- **Escalation**: Disable hot-reload, require manual intervention
-
-#### **Resource Exhaustion**
-
-- **Symptoms**: High memory usage, connection limits hit, slow responses
-- **Detection**: Resource monitoring, performance degradation
-- **Recovery**: Connection throttling, graceful degradation, load shedding
-- **Escalation**: Service restart, horizontal scaling
-
-#### **Security Breaches**
-
-- **Symptoms**: Authentication bypass, unauthorized access, token leakage
-- **Detection**: Security monitoring, anomaly detection, audit logs
-- **Recovery**: Immediate service isolation, token revocation, forensic analysis
-- **Escalation**: Complete service shutdown, incident response procedures
-
-### **Recovery Expectations**
-
-- **Backend Reconnection**: Automatic with retry logic
-- **Configuration Reload**: Immediate detection and application
-- **Security Incident**: Immediate authentication failure response
-- **System Recovery**: Restart and reload as needed
-
-## 🏗️ Code Structure & Organization
-
-### **Project Layout**
-
-The codebase follows a layered architecture with clear separation of concerns:
-
-```
-src/
-├── application/             # Application-level services
-│   └── services/            # Cross-cutting orchestration services
-│       ├── configReloadService.ts
-│       ├── healthService.ts
-│       └── tokenEstimationService.ts
-├── auth/                    # Authentication & authorization
-│   ├── storage/             # Repository pattern for auth data
-│   ├── sdkOAuthClientProvider.ts
-│   ├── sdkOAuthServerProvider.ts
-│   └── sessionTypes.ts
-├── commands/                # CLI command implementations
-│   ├── app/                 # App management commands
-│   ├── mcp/                 # MCP server management commands
-│   ├── preset/              # Preset management commands
-│   ├── proxy/               # Proxy commands
-│   ├── serve/               # Server commands
-│   └── shared/              # Shared command utilities
-├── config/                  # Configuration management
-│   ├── configContext.ts
-│   ├── mcpConfigManager.ts
-│   ├── envProcessor.ts
-│   ├── projectConfigLoader.ts
-│   └── projectConfigTypes.ts
-├── constants/               # Domain-organized constants
-│   ├── api.ts               # API endpoints, ports, hosts
-│   ├── auth.ts              # Authentication constants
-│   ├── mcp.ts               # MCP protocol constants
-│   ├── paths.ts             # File paths, directories
-│   └── index.ts             # Barrel export
-├── core/                    # Core business logic
-│   ├── capabilities/        # MCP capability management
-│   ├── client/              # Client management
-│   ├── filtering/           # Request filtering logic
-│   ├── instructions/        # Template engine
-│   ├── loading/             # Async loading orchestration
-│   ├── notifications/       # Notification system
-│   ├── protocol/            # Protocol message handlers
-│   ├── server/              # Server lifecycle management
-│   └── types/               # Shared type definitions
-├── domains/                 # Domain modules
-│   ├── backup/              # Backup management domain
-│   ├── discovery/           # App discovery domain
-│   ├── preset/              # Preset management domain
-│   │   ├── manager/         # PresetManager
-│   │   ├── parsers/         # Tag query parsing
-│   │   ├── services/        # Preset services
-│   │   └── types/           # Preset types
-│   └── registry/            # MCP Registry domain
-│       ├── formatters/      # Registry-specific formatters
-│       ├── cacheManager.ts  # Registry caching
-│       ├── mcpRegistryClient.ts  # Registry client
-│       ├── mcpToolSchemas.ts     # Registry schemas
-│       ├── searchFiltering.ts    # Registry search
-│       └── types.ts         # Registry types
-├── logger/                  # Logging infrastructure
-│   ├── configureGlobalLogger.ts
-│   └── [6 other logger files]
-├── transport/               # Transport layer implementations
-│   ├── http/                # HTTP/SSE transport
-│   │   ├── middlewares/     # Express middlewares
-│   │   └── routes/          # API route handlers
-│   └── [5 transport files]
-└── utils/                   # Generic utilities
-    ├── core/                # Core utilities
-    ├── ui/                  # CLI utilities
-    └── validation/          # Input validation
-```
-
-### **Architectural Layers**
-
-#### **1. Application Layer (`application/`)**
-
-- **Purpose**: Cross-cutting orchestration services
-- **Responsibilities**: Configuration reloading, health monitoring, token estimation
-- **Dependencies**: Can depend on core and domains
-- **Examples**: `configReloadService`, `healthService`
-
-#### **2. Core Layer (`core/`)**
-
-- **Purpose**: Core business logic and domain entities
-- **Responsibilities**: MCP protocol handling, capability management, server lifecycle
-- **Dependencies**: Should not depend on application layer
-- **Examples**: `ServerManager`, `ClientManager`, `CapabilityManager`
-
-#### **3. Domain Layer (`domains/`)**
-
-- **Purpose**: Self-contained business domains
-- **Responsibilities**: Specific business logic (presets, discovery, backup, registry)
-- **Dependencies**: Can depend on core, should be independent
-- **Examples**: `PresetManager`, `BackupManager`, `AppDiscovery`, `McpRegistryClient`
-
-#### **4. Transport Layer (`transport/`)**
-
-- **Purpose**: Protocol implementations and communication
-- **Responsibilities**: HTTP/SSE, STDIO, message routing
-- **Dependencies**: Can depend on core and application
-- **Examples**: `ExpressServer`, `StdioTransport`
-
-#### **5. Infrastructure Layer (`auth/`, `config/`, `logger/`)**
-
-- **Purpose**: Cross-cutting infrastructure concerns
-- **Responsibilities**: Authentication, configuration, logging
-- **Dependencies**: Minimal dependencies, used by all layers
-- **Examples**: `McpConfigManager`, `OAuthClientProvider`
-
-### **Design Principles**
-
-#### **Domain-Driven Design**
-
-- **Domains**: Self-contained modules with clear boundaries
-- **Services**: Application-level orchestration
-- **Core**: Shared business logic and entities
-
-#### **Dependency Direction**
-
-```
-Application → Core → Domains
-     ↓         ↓
-Transport → Infrastructure
-```
-
-#### **File Organization**
-
-- **Co-location**: Related files grouped together
-- **Barrel Exports**: Clean import paths with `index.ts`
-- **Domain Boundaries**: Clear ownership and responsibilities
-
-#### **Naming Conventions**
-
-- **Managers**: `*Manager.ts` for stateful services
-- **Services**: `*Service.ts` for stateless operations
-- **Types**: `*Types.ts` for type definitions
-- **Utils**: Generic utilities only
-
-### **Migration Benefits**
-
-The restructured codebase provides:
-
-- **57% reduction** in utils files (47 → 20)
-- **Clear domain boundaries** with dedicated modules
-- **Better maintainability** through organized structure
-- **Improved scalability** with independent domains
-- **Enhanced developer experience** with clear file locations
-
-## How It Works
-
-1MCP acts as a proxy, managing and aggregating multiple MCP servers. It starts and stops these servers as subprocesses and forwards requests from AI assistants to the appropriate server. This architecture allows for a single point of entry for all MCP traffic, simplifying management and reducing overhead.
-
-### System Architecture
-
-```mermaid
-graph TB
-    subgraph "AI Assistants"
-        A1[Claude Desktop]
-        A2[Cursor]
-        A3[Cherry Studio]
-        A4[Roo Code]
-    end
-
-    subgraph "1MCP Proxy"
-        P[1MCP Proxy<br/>STDIO Bridge]
-    end
-
-    subgraph "1MCP Server"
-        MCP[1MCP Agent<br/>HTTP/SSE]
-    end
-
-    subgraph "MCP Servers"
-        S1[Server 1]
-        S2[Server 2]
-        S3[Server 3]
-    end
-
-    A1 -->|stdio| P
-    A2 -->|http| MCP
-    A3 -->|http| MCP
-    A4 -->|http| MCP
-
-    P -->|http| MCP
-
-    MCP --> |http| S1
-    MCP --> |stdio| S2
-    MCP --> |stdio| S3
-```
-
-### Request Flow
-
-```mermaid
-sequenceDiagram
-    participant Client as AI Assistant
-    participant Proxy as 1MCP Proxy
-    participant Server as 1MCP Server
-    participant MCP as MCP Servers
-
-    Note over Client, MCP: HTTP/SSE Clients (Cursor, Cherry Studio, etc.)
-    Client->>Server: Send MCP Request
-    activate Server
-    Server->>Server: Validate Request
-    Server->>Server: Load Config
-    Server->>MCP: Forward Request
-    activate MCP
-    MCP-->>Server: Response
-    deactivate MCP
-    Server-->>Client: Forward Response
-    deactivate Server
-
-    Note over Client, MCP: STDIO Clients (Claude Desktop) via Proxy
-    Client->>Proxy: Send MCP Request (STDIO)
-    activate Proxy
-    Proxy->>Server: Forward Request (HTTP)
-    activate Server
-    Server->>Server: Validate Request
-    Server->>Server: Load Config
-    Server->>MCP: Forward Request
-    activate MCP
-    MCP-->>Server: Response
-    deactivate MCP
-    Server-->>Proxy: Forward Response (HTTP)
-    deactivate Server
-    Proxy-->>Client: Forward Response (STDIO)
-    deactivate Proxy
-```
-
----
-
-> **This architecture serves as our decision-making framework. When in doubt, refer back to our principles and constraints. All changes should strengthen these foundations, not weaken them.**
+In short: the current architecture is a unified runtime with multiple client surfaces, not just an HTTP framing layer in front of subprocesses.

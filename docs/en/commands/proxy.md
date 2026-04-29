@@ -1,374 +1,162 @@
 ---
-title: Proxy Command - STDIO to HTTP Bridge
-description: Use the proxy command to bridge STDIO transport MCP clients to HTTP servers. Connect Claude Desktop to running 1MCP servers with tag filtering.
+title: Proxy Command
+description: Use 1mcp proxy as the stdio compatibility bridge to a running 1MCP HTTP runtime.
 head:
-  - ['meta', { name: 'keywords', content: 'proxy command,STDIO bridge,HTTP transport,Claude Desktop proxy' }]
+  - ['meta', { name: 'keywords', content: '1MCP proxy,stdio bridge,compatibility bridge,direct MCP,CLI mode' }]
   - ['meta', { property: 'og:title', content: '1MCP Proxy Command Reference' }]
   - [
       'meta',
       {
         property: 'og:description',
-        content: 'Bridge STDIO to HTTP with 1MCP proxy command. Connect clients to centralized servers.',
+        content: 'Bridge stdio-only MCP clients to a running 1MCP HTTP runtime with 1mcp proxy.',
       },
     ]
 ---
 
 # Proxy Command
 
-Start STDIO proxy to connect MCP clients that only support STDIO transport to a running 1MCP HTTP server.
+`1mcp proxy` is the compatibility bridge for stdio-only clients.
+
+It connects a local stdio transport to a running `1mcp serve` HTTP runtime. It is useful when a client cannot talk to the HTTP MCP endpoint directly.
+
+## Choose the Right Path
+
+1MCP supports three different paths:
+
+1. **CLI mode for agent loops**: recommended for Codex, Claude, and similar agent sessions.
+2. **Direct HTTP MCP attachment**: recommended for MCP-native clients that can connect to the runtime directly.
+3. **`proxy`**: use only when the client is limited to stdio.
+
+`proxy` is not the main product experience. It exists so older or stdio-only clients can still use the same runtime.
 
 ## Synopsis
 
 ```bash
-npx -y @1mcp/agent proxy [options]
+1mcp proxy [options]
 ```
 
-## Description
+## What `proxy` Does
 
-The `proxy` command creates a STDIO transport proxy that forwards all MCP protocol communications to a running 1MCP HTTP server. This enables MCP clients that only support STDIO transport (like Claude Desktop) to connect to centralized 1MCP HTTP servers with advanced features like authentication, filtering, and multi-client support.
+- discovers a running `1mcp serve` instance
+- forwards stdio MCP traffic to that runtime over HTTP
+- can apply preset, filter, or tags selection before exposing the bridged inventory
 
-The proxy automatically discovers running 1MCP servers using multiple methods and provides a seamless bridge between STDIO and HTTP transports while supporting tag filtering and preset configurations.
+The runtime still lives in `serve`. `proxy` does not replace it.
 
 ## Auto-Discovery
 
-The proxy automatically discovers running 1MCP servers in this order:
+`proxy` can discover a running runtime in these ways:
 
-1. **PID File** - Reads server URL from `~/.config/1mcp/server.pid`
-2. **Port Scanning** - Scans common ports (3050, 3051, 3052) on localhost
-3. **Environment Variables** - Uses `ONE_MCP_HOST` and `ONE_MCP_PORT`
-4. **User Override** - Uses URL specified with `--url` option
+1. user-supplied `--url`
+2. PID-file-based discovery
+3. localhost port scan fallback
 
-## Project Configuration (.1mcprc)
+If project config is present, `proxy` can also merge settings from `.1mcprc`.
 
-You can create a project-level configuration file named `.1mcprc` in your project directory to set default connection settings for the proxy command. This allows you to avoid repeating command-line options and share configuration across team members.
+## Project Configuration with `.1mcprc`
 
-### Prerequisites
+`.1mcprc` is useful when you repeatedly bridge a stdio-only client to the same preset or filtered runtime view.
 
-**Project configuration is specifically designed for MCP clients that:**
-
-- **Do not support** HTTP or SSE (Server-Sent Events) transport
-- **Only support** STDIO transport (like Claude Desktop)
-- **Need to connect** to a running 1MCP HTTP server via proxy
-
-**Required setup:**
-
-1. **Running 1MCP server**: Must have `npx -y @1mcp/agent serve` running on a port
-2. **MCP client limitations**: Client cannot directly connect to HTTP/SSE endpoints
-3. **Bridge requirement**: Need proxy to translate STDIO ↔ HTTP communications
-
-This configuration is **not needed** for MCP clients that can directly connect to HTTP/SSE endpoints.
-
-### Configuration Priority
-
-Settings are loaded in this order (higher priority overrides lower):
-
-1. **Command-line options** (highest priority)
-2. **Project configuration file** (`.1mcprc`)
-3. **Default values** (lowest priority)
-
-### Configuration Structure
-
-Create a `.1mcprc` file in your project directory:
+Example:
 
 ```json
 {
-  // Project-level configuration for 1MCP proxy command
-  // Use preset for team collaboration and configuration management
-
-  "preset": "my-preset"
+  "preset": "development"
 }
 ```
 
-### Recommended Approach
+Priority order is:
 
-We recommend using presets for better configuration management and team collaboration:
+1. command-line options
+2. `.1mcprc`
+3. defaults
 
-1. **Create presets** for different environments (development, production, testing)
-2. **Share presets** with team members for consistent configurations
-3. **Switch environments** easily by changing the preset name
+## Common Options
 
-### Example Configurations
+### Connection
 
-#### Development Environment
+- **`--url, -u <url>`**: Override runtime auto-discovery.
+- **`--config-dir, -d <path>`**: Use a specific config directory during discovery.
 
-```json
-{
-  "preset": "dev-environment"
-}
-```
+### Exposure control
 
-#### Production Setup
+- **`--preset, -P <name>`**: Select a preset from the running runtime.
+- **`--filter, -f <expression>`**: Apply a filter expression.
+- **`--tags <tags>`**: Apply simple comma-separated tags.
 
-```json
-{
-  "preset": "production"
-}
-```
+### Logging
 
-#### Testing Environment
-
-```json
-{
-  "preset": "testing"
-}
-```
-
-Copy `.1mcprc.example` from the project root as a starting template.
-
-## Options
-
-### Connection Options
-
-- **`--url, -u <url>`** - Override auto-detected 1MCP server URL
-- **`--timeout, -t <ms>`** - Connection timeout in milliseconds (default: 10000)
-
-### Filtering Options
-
-- **`--filter, -f <expression>`** - Filter expression for server selection
-- **`--preset, -P <name>`** - Load preset configuration (URL, filters, etc.)
-
-### Global Options
-
-- **`--config-dir, -d <path>`** - Path to the config directory for discovery
-- **`--log-level <level>`** - Set log level (`debug`, `info`, `warn`, `error`)
-- **`--log-file <path>`** - Write logs to file
-
-## Tag Filtering
-
-Use the `--filter` option to limit which MCP servers are exposed through the proxy:
-
-### Simple Filtering (OR logic)
-
-```bash
---filter "web,api,database"  # Exposes servers with ANY of these tags
-```
-
-### Advanced Filtering (Boolean expressions)
-
-```bash
---filter "web AND database"           # Servers with BOTH tags
---filter "(web OR api) AND database"  # Complex logic
---filter "web AND NOT test"           # Exclusion logic
-```
-
-### Priority Order
-
-1. `--filter` option (highest priority)
-2. Preset tag query (if `--preset` specified)
-3. `.1mcprc` configuration file (preset only)
-4. No filtering (expose all servers)
+- **`--log-level <level>`**: Set logging verbosity.
+- **`--log-file <path>`**: Write logs to a file.
 
 ## Examples
 
-### Basic Usage
+### Appropriate use: stdio-only compatibility
 
 ```bash
-# Auto-discover and connect to running 1MCP server
-npx -y @1mcp/agent proxy
+# shell 1
+1mcp serve
 
-# Connect with debug logging
-npx -y @1mcp/agent proxy --log-level=debug
-
-# Use custom config directory for discovery
-npx -y @1mcp/agent proxy --config-dir=./test-config
-
-# Use project configuration file (.1mcprc)
-npx -y @1mcp/agent proxy
+# shell 2
+1mcp proxy
 ```
 
-### Specific Server Connection
+### Appropriate use: bridge to a preset
 
 ```bash
-# Connect to specific server URL
-npx -y @1mcp/agent proxy --url http://localhost:3051/mcp
-
-# Connect with custom timeout
-npx -y @1mcp/agent proxy --url http://192.168.1.100:3051/mcp --timeout=5000
+1mcp proxy --preset development
 ```
 
-### Tag Filtering
+### Appropriate use: bridge to a discovered runtime with filtering
 
 ```bash
-# Only expose servers with web and api tags
-npx -y @1mcp/agent proxy --filter "web AND api"
-
-# Expose development servers
-npx -y @1mcp/agent proxy --filter "dev OR test"
-
-# Complex filtering logic
-npx -y @1mcp/agent proxy --filter "(web OR mobile) AND NOT production"
+1mcp proxy --filter "web AND api"
 ```
 
-### Preset Integration
+### Prefer CLI mode instead of `proxy`
+
+If the client is an agent session, prefer:
 
 ```bash
-# Load URL and filters from saved preset
-npx -y @1mcp/agent proxy --preset my-dev-setup
-
-# Use preset with custom config directory
-npx -y @1mcp/agent proxy --preset production --config-dir ./prod-config
+1mcp cli-setup --codex
+# or
+1mcp cli-setup --claude --scope repo --repo-root .
 ```
 
-### Development and Testing
+Then let the agent use:
 
 ```bash
-# Development with full logging
-npx -y @1mcp/agent proxy \
-  --log-level=debug \
-  --log-file=proxy-debug.log \
-  --config-dir=./dev-config
-
-# Test specific server with filtering
-npx -y @1mcp/agent proxy \
-  --url http://localhost:3051/mcp \
-  --filter "filesystem,editing" \
-  --timeout=15000
-
-# Use project configuration in development
-# Create .1mcprc file with your dev preset
-echo '{"preset": "dev-setup"}' > .1mcprc
-npx -y @1mcp/agent proxy
+1mcp instructions
+1mcp inspect <server>
+1mcp inspect <server>/<tool>
+1mcp run <server>/<tool> --args '<json>'
 ```
 
-## Authentication Considerations
+### Prefer direct HTTP instead of `proxy`
 
-### STDIO Transport Limitations
+If the client can talk to HTTP MCP directly, point it at the runtime endpoint rather than adding a local stdio bridge:
 
-- STDIO transport does **not** support OAuth 2.1 authentication
-- STDIO clients cannot authenticate with servers that have auth enabled
-
-### Recommended Setup
-
-#### For STDIO Clients (Claude Desktop, etc.)
-
-```bash
-# Start server WITHOUT authentication for STDIO clients
-npx -y @1mcp/agent serve --port=3051
-
-# Start proxy (will work out of the box)
-npx -y @1mcp/agent proxy
+```text
+http://127.0.0.1:3050/mcp?app=cursor
 ```
 
-#### For HTTP/SSE Clients
+## Authentication Caveat
 
-```bash
-# Start server WITH authentication for web clients
-npx -y @1mcp/agent serve --port=3052 --enable-auth
+This is the most important limitation on this page:
 
-# HTTP/SSE clients can authenticate via OAuth
-curl "http://localhost:3052/mcp?app=cursor"
-```
+- stdio transport does not give a client an OAuth browser flow
+- `proxy` does not magically make a stdio-only client auth-capable
+- if your runtime requires auth, a stdio-only client cannot use it through `proxy`
 
-### Mixed Environment Strategy
+In practice:
 
-Run separate server instances for different client types:
-
-- **Port 3051**: No auth for STDIO clients (via proxy)
-- **Port 3052**: With auth for HTTP/SSE clients
-
-## Workflow Integration
-
-### Typical Development Workflow
-
-1. **Start 1MCP Server**
-
-   ```bash
-   npx -y @1mcp/agent serve --port=3051
-   ```
-
-2. **Add MCP Servers**
-
-   ```bash
-   npx -y @1mcp/agent mcp add filesystem -- npx mcp-server-filesystem
-   npx -y @1mcp/agent mcp add github -- npx mcp-server-github
-   ```
-
-3. **Create Preset (Optional)**
-
-   ```bash
-   npx -y @1mcp/agent preset create dev --filter "filesystem,github"
-   ```
-
-4. **Start Proxy**
-
-   ```bash
-   npx -y @1mcp/agent proxy --preset dev
-   ```
-
-5. **Configure Client**
-   - Point Claude Desktop to the proxy command
-   - Client communicates via STDIO to proxy
-   - Proxy forwards to HTTP server with filtering
-
-### Production Deployment
-
-```bash
-# Production server with filtering
-npx -y @1mcp/agent serve \
-  --port=3051 \
-  --enable-enhanced-security
-
-# Production proxy with preset
-npx -y @1mcp/agent proxy \
-  --preset production \
-  --log-level=info \
-  --config-dir /etc/1mcp
-```
-
-## Troubleshooting
-
-### Common Issues
-
-#### Server Not Found
-
-```bash
-# Check if server is running
-npx -y @1mcp/agent mcp status
-
-# Verify server URL manually
-curl http://localhost:3051/mcp
-```
-
-#### Connection Timeout
-
-```bash
-# Increase timeout for slow servers
-npx -y @1mcp/agent proxy --timeout=30000
-
-# Check network connectivity
-netstat -an | grep 3051
-```
-
-#### Filter Not Working
-
-```bash
-# Use debug logging to see filtering details
-npx -y @1mcp/agent proxy --filter "web" --log-level=debug
-
-# Verify server tags
-npx -y @1mcp/agent mcp list --tags=web
-```
-
-### Debug Information
-
-Enable debug logging to troubleshoot issues:
-
-```bash
-npx -y @1mcp/agent proxy --log-level=debug
-```
-
-Debug output shows:
-
-- Server discovery attempts
-- Connection establishment details
-- Tag parsing and filtering logic
-- MCP protocol forwarding
+- use CLI mode for agent loops whenever possible
+- use direct HTTP for clients that can authenticate
+- use `proxy` only with runtimes that do not require auth
+- run a separate unauthenticated `serve` instance if a stdio-only client still needs compatibility access
 
 ## See Also
 
-- **[Serve Command](./serve.md)** - Starting 1MCP servers
-- **[MCP Commands](./mcp/)** - Managing MCP server configurations
-- **[Preset Commands](./preset/)** - Creating and managing presets
-- **[Configuration Guide](../guide/essentials/configuration.md)** - Configuration options
-- **[Claude Desktop Integration](../guide/integrations/claude-desktop.md)** - Desktop client setup
-- **[Architecture Reference](../reference/architecture.md)** - Transport layer details
+- **[CLI Mode Guide](/guide/integrations/cli-mode)**
+- **[Serve Command](/commands/serve)**
+- **[Architecture](/reference/architecture)**

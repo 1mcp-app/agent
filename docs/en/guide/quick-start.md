@@ -1,141 +1,158 @@
 ---
-title: Quick Start Guide - Get 1MCP Running in 5 Minutes
-description: Start using 1MCP in 5 minutes with our quick start guide. Basic setup, configuration, and testing instructions for immediate use.
+title: Quick Start Guide - Agent-First 1MCP Setup in 5 Minutes
+description: Start 1MCP in 5 minutes for Codex, Claude, Cursor, and similar agents. Run serve, connect cli-setup, and verify instructions, inspect, and run.
 head:
-  - ['meta', { name: 'keywords', content: '1MCP quick start,MCP server setup,AI proxy setup,tutorial' }]
-  - ['meta', { property: 'og:title', content: '1MCP Quick Start Guide - 5 Minute Setup' }]
+  - ['meta', { name: 'keywords', content: '1MCP quick start,CLI mode,Codex,Claude,Cursor,agent setup,tutorial' }]
+  - ['meta', { property: 'og:title', content: '1MCP Quick Start Guide - Agent-First 5 Minute Setup' }]
   - [
       'meta',
       {
         property: 'og:description',
-        content: 'Get 1MCP running in 5 minutes. Quick setup guide for immediate AI integration.',
+        content: 'Get 1MCP running in 5 minutes for an agent workflow: serve, cli-setup, instructions, inspect, and run.',
       },
     ]
 ---
 
 # Quick Start
 
-Get 1MCP running in 5 minutes with a basic configuration.
+This page is for AI agent users first. Its job is narrow: get you to one working `1mcp serve` runtime plus one verified CLI-mode workflow.
 
-If your client is an autonomous agent such as Codex or Claude, prefer [CLI Mode](/guide/integrations/cli-mode) after starting `1mcp serve`.
+By the end of this guide, you will have:
+
+- One real upstream MCP server added to 1MCP
+- A running `1mcp serve` instance
+- Codex or Claude configured with `cli-setup`
+- A verified `instructions -> inspect -> run` workflow
+
+If you want direct MCP attachment, stdio compatibility, or deeper runtime operator docs instead, jump to [Choose another path](#choose-another-path).
 
 ## Prerequisites
 
 - Node.js 18+
+- An AI agent client such as Codex or Claude
 
-## Basic Setup
+## 5-Minute Agent Setup
 
-1.  **Create Configuration**
+### 1. Install 1MCP
 
-    ```bash
-    # Create a basic config file
-    cat > mcp.json << 'EOF'
-    {
-      "$schema": "https://docs.1mcp.app/schemas/v1.0.0/mcp-config.json",
-      "mcpServers": {
-        "filesystem": {
-          "command": "npx",
-          "args": ["-y", "@modelcontextprotocol/server-filesystem", "/tmp"],
-          "tags": ["local", "files"]
-        }
-      }
-    }
-    EOF
-    ```
+```bash
+npm install -g @1mcp/agent
+```
 
-    ::: tip JSON Schema Support
-    The `$schema` field enables IDE autocompletion, validation, and inline documentation for your configuration files. Most modern editors (VS Code, WebStorm, etc.) will automatically provide these features when the `$schema` field is present.
+### 2. Add one real upstream MCP server
 
-    For local development, you can use a relative path instead:
+Use one recognizable upstream server so you can prove the workflow on something real immediately:
 
-    ```json
-    "$schema": "./schemas/v1.0.0/mcp-config.json"
-    ```
+```bash
+1mcp mcp add context7 -- npx -y @upstash/context7-mcp
+```
 
-    :::
+### 3. Start the runtime
 
-2.  **Start the Server**
+```
+1mcp serve
+```
 
-    ```bash
-    1mcp --config mcp.json --port 3000
-    ```
+Keep that shell running. Open a second shell for the next steps.
 
-3.  **Test Connection**
+### 4. Connect your agent with `cli-setup`
 
-    The server is now running on port 3000. You can now connect your MCP client to this port.
-
-That's it! Your 1MCP proxy is now running and aggregating MCP servers.
-
-## CLI Mode for Agents
-
-If your client is a coding agent or terminal agent, the user-facing step is `cli-setup`:
+Pick one client:
 
 ```bash
 1mcp cli-setup --codex
 ```
 
-After that, the AI agent will normally use the progressive CLI workflow instead of starting from a broad direct-MCP surface:
+```bash
+1mcp cli-setup --claude --scope repo --repo-root .
+```
+
+The command installs the startup files that tell the agent to use `instructions`, `inspect`, and `run` in order. See [`cli-setup`](/commands/cli-setup) for target and scope details.
+
+### 5. Verify the workflow
+
+Run the same commands your agent will use:
 
 ```bash
 1mcp instructions
-1mcp inspect filesystem
-1mcp inspect filesystem/read_file
-1mcp run filesystem/read_file --args '{"path":"./mcp.json"}'
+1mcp inspect context7
+1mcp inspect context7/query-docs
+1mcp run context7/query-docs --args '{"libraryId":"/mongodb/docs","query":"aggregation pipeline"}'
 ```
 
-This keeps MCP behind `serve` while giving the agent a thinner, more selective interface.
+### Success looks like this
 
-You can run those workflow commands yourself to test the setup, but they are primarily designed for the agent.
+- `instructions` explains the CLI workflow and shows the available runtime context
+- `inspect context7` lists tools from the upstream server
+- `inspect context7/query-docs` shows the tool schema before invocation
+- `run ...` returns a real result from the upstream server
 
-## Project Configuration
+At that point your agent can use 1MCP through CLI mode without reading another setup page.
 
-**For MCP clients that only support STDIO transport** (like Claude Desktop), you can use project configuration to streamline proxy connections.
+## What this page does not cover
 
-### When to Use Project Configuration
+- Full runtime configuration
+- Authentication and team deployment
+- Direct HTTP MCP attachment details
+- `proxy` and stdio-only compatibility flows
 
-Use `.1mcprc` when your MCP client:
+Use the linked pages below once the first workflow works.
 
-- Cannot connect to HTTP/SSE endpoints directly
-- Only supports STDIO transport
-- Needs to connect to a running 1MCP server
+## Why this is the recommended path
 
-**Prerequisites**: You must have a 1MCP server running (`1mcp serve`) for the proxy to connect to.
+For agent sessions, CLI mode is the narrowest path to a working setup:
 
-For projects that regularly use the proxy command, create a `.1mcprc` file to set default connection settings:
+- `1mcp serve` gives you one aggregated runtime behind the scenes
+- `cli-setup` installs the bootstrap files for the agent
+- `instructions -> inspect -> run` keeps the tool surface progressive instead of broad
 
-```bash
-# Create project configuration with preset
-cat > .1mcprc << 'EOF'
-{
-  "$schema": "https://docs.1mcp.app/schemas/v1.0.0/project-config.json",
-  "preset": "my-setup"
-}
-EOF
+## Choose another path
 
-# Now simply run:
-1mcp proxy
-```
+### Direct MCP attachment
 
-::: tip Project Config Schema
-The `.1mcprc` file also supports JSON Schema for IDE autocompletion. Use the production URL (`https://docs.1mcp.app/schemas/v1.0.0/project-config.json`) for deployed projects or a relative path (`./schemas/v1.0.0/project-config.json`) for local development.
-:::
+Use this if your client already speaks MCP natively and you do not want CLI mode.
 
-We recommend using presets for better configuration management. See the [Proxy Command](/commands/proxy) documentation for details.
+- [Serve command](/commands/serve)
+- [Architecture](/reference/architecture)
+
+### stdio compatibility
+
+Use this if your client cannot connect to the HTTP runtime directly.
+
+- [Proxy command](/commands/proxy)
+
+### Runtime operators
+
+Use these once the basic flow works and you want to manage the runtime itself:
+
+- [Configuration](/guide/essentials/configuration)
+- [Authentication](/guide/advanced/authentication)
+- [Presets](/commands/preset/)
 
 ## Next Steps
 
-- [Enable Authentication](/guide/advanced/authentication) for production use
-- [Add More Servers](/guide/essentials/configuration) to expand capabilities
-- [Configure Project Settings](/commands/proxy#project-configuration-1mcprc) for team collaboration
+- [CLI Mode guide](/guide/integrations/cli-mode) for the conceptual model
+- [Add more servers](/guide/essentials/configuration) to expand the runtime
+- [Enable authentication](/guide/advanced/authentication) for shared or production setups
 
 ## Common Issues
 
-**Server fails to start?**
+**`1mcp serve` fails to start**
 
 - Check that Node.js 18+ is installed: `node --version`
-- Verify the config file is valid JSON: `cat mcp.json | jq`
+- Re-run `1mcp mcp list` to confirm the upstream server was added
 
-**Can't connect to MCP servers?**
+**`cli-setup` does not affect my agent**
 
-- Ensure server commands are executable
-- Check server logs for specific error messages
+- Make sure you picked the correct target: `--codex` or `--claude`
+- For repo-scoped setup, verify you ran the command from the intended repository root
+
+**`inspect` shows no tools**
+
+- Confirm `1mcp serve` is still running in the first shell
+- Run `1mcp instructions` again to confirm the current runtime state
+
+**`run` fails against the upstream server**
+
+- Re-run `1mcp inspect context7/query-docs` and check the required arguments
+- Check the `serve` output for upstream startup errors

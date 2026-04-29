@@ -1,188 +1,150 @@
+---
+title: Serve 命令
+description: 启动 1MCP 主运行时，并将其用于 CLI 模式、原生 HTTP MCP 客户端以及模板感知的运行时行为。
+---
+
 # Serve 命令
 
-使用各种传输和配置选项启动 1MCP 服务器。
+`1mcp serve` 用于启动 1MCP 的主运行时。
 
-## 摘要
+它负责聚合你配置好的 MCP 服务器、暴露 HTTP MCP 入口、初始化预设与指令聚合，并在获得客户端或会话上下文后解析模板服务器。
+
+## 概要
 
 ```bash
-npx -y @1mcp/agent [serve] [options]
-npx -y @1mcp/agent [options]  # serve 是默认命令
+1mcp serve [选项]
+1mcp [选项]
 ```
 
-## 描述
+`serve` 是默认命令。
 
-`serve` 命令启动 1MCP 服务器，该服务器充当多个 MCP 服务器的统一代理/多路复用器。它可以在不同的传输模式下运行，并为 MCP 客户端提供统一的接口。
+## 什么时候使用 `serve`
 
-有关命令行标志、环境变量和 JSON 配置选项的完整列表，请参阅 **[配置深入指南](../guide/essentials/configuration.md)**。有关 MCP 服务器配置（后端服务器、环境管理），请参阅 **[MCP 服务器参考](../reference/mcp-servers.md)**。
+当你需要以下能力时，都应该启动 `serve`：
 
-## 选项
+- 运行聚合式 1MCP 运行时
+- 为 agent 提供 CLI 模式所依赖的后端
+- 为原生 HTTP MCP 客户端暴露直接接入点
+- 为 `1mcp proxy` 提供 stdio 兼容桥接目标
 
-serve 命令支持所有配置选项。以下是最常用的选项：
+CLI 模式依赖一个正在运行的 `serve` 实例。
 
-### 配置选项
+## 当前心智模型
 
-- **`--config, -c <path>`** - 指定配置文件路径
-- **`--config-dir, -d <path>`** - 配置目录路径
+`serve` 不只是切换传输类型的命令，它就是主运行时。
 
-### 传输选项
+- 静态服务器从启动配置创建。
+- 模板服务器会在后续按客户端或会话上下文创建。
+- 异步加载允许 HTTP 入口先启动，再让静态服务器在后台继续加载。
+- 懒加载允许在真正需要前保持更窄的暴露面。
+- 指令聚合与预设通知都在这个运行时内部初始化。
 
-- **`--transport, -t <type>`** - 选择传输类型（`stdio`、`http`）
-- **`--port, -P <port>`** - 更改 HTTP 端口（默认：3050）
-- **`--host, -H <host>`** - 更改 HTTP 主机（默认：localhost）
+关于完整的运行时配置，请参阅 **[配置指南](/zh/guide/essentials/configuration)**。
 
-### 安全选项
+## 常用选项
 
-- **`--enable-auth`** - 启用 OAuth 2.1 身份验证
-- **`--enable-enhanced-security`** - 启用增强安全中间件
-- **`--trust-proxy <config>`** - 信任代理配置
+### 配置
 
-### 过滤选项
+- **`--config, -c <path>`**：指定配置文件。
+- **`--config-dir, -d <path>`**：指定配置目录。
 
-- **`--tag-filter, -f <expression>`** - 高级标签过滤表达式
-- **`--tags, -g <tags>`** - ⚠️ 已弃用 - 请使用 `--tag-filter`
+### HTTP 运行时
 
-### 高级配置选项
+- **`--port, -P <port>`**：修改 HTTP 端口，默认 `3050`。
+- **`--host, -H <host>`**：修改绑定地址，默认 `localhost`。
+- **`--external-url <url>`**：设置外部基础 URL，常用于认证相关流程。
 
-- **`--enable-config-reload`** - 启用配置文件热重载
-- **`--enable-env-substitution`** - 启用环境变量替换
-- **`--enable-session-persistence`** - 启用 HTTP 会话持久化
-- **`--enable-client-notifications`** - 启用实时客户端通知
+### 过滤与预设
 
-### 日志选项
+- **`--filter, -f <expression>`**：使用简单的逗号分隔标签或高级布尔表达式筛选暴露的服务器。
 
-- **`--log-level <level>`** - 设置日志级别（`debug`、`info`、`warn`、`error`）
-- **`--log-file <path>`** - 将日志写入文件
+### 安全
 
-所有选项请参见 **[配置深入指南](../guide/essentials/configuration.md)**。
+- **`--enable-auth`**：为运行时启用基于 OAuth 的认证。
+- **`--enable-enhanced-security`**：启用额外的安全中间件。
+- **`--trust-proxy <config>`**：配置受信任反向代理行为。
+
+### 运行时行为
+
+- **`--enable-async-loading`**：让 HTTP 可用性先启动，再等待静态服务器完成加载。
+- **`--enable-lazy-loading`**：为服务能力启用懒加载行为。
+- **`--enable-config-reload`**：启用配置重载处理。
+- **`--enable-session-persistence`**：启用 HTTP 会话持久化。
 
 ## 示例
 
-### 基本用法
+### 启动运行时
 
 ```bash
-# 使用默认设置启动（HTTP 在 localhost:3050）
-npx -y @1mcp/agent serve
-
-# 在自定义端口上启动
-npx -y @1mcp/agent serve --port=3052
-
-# 使用 stdio 传输启动
-npx -y @1mcp/agent serve --transport=stdio
+1mcp serve
 ```
 
-### 自定义配置
+### 在运行时之上执行 agent 工作流
 
 ```bash
-# 使用自定义配置文件
-npx -y @1mcp/agent serve --config=/path/to/config.json
+# shell 1
+1mcp serve
 
-# 使用调试日志记录启动
-npx -y @1mcp/agent serve --log-level=debug
+# shell 2
+1mcp instructions
+1mcp inspect context7
+1mcp inspect context7/query-docs
+1mcp run context7/query-docs --args '{"libraryId":"/mongodb/docs","query":"aggregation pipeline"}'
 ```
 
-### 生产部署
+### 使用特定配置启动
 
 ```bash
-# 带有身份验证的生产 HTTP 服务器
-npx -y @1mcp/agent serve \
-  --host=0.0.0.0 \
-  --port=3051 \
-  --enable-auth \
-  --enable-enhanced-security \
-  --trust-proxy=true
-
-# 使用外部 URL 进行 OAuth 重定向
-npx -y @1mcp/agent serve \
-  --external-url=https://mcp.yourdomain.com \
-  --enable-auth
+1mcp serve --config ./mcp.json
+1mcp serve --config-dir ./config
 ```
 
-### 开发
+### 启用异步加载与懒加载
 
 ```bash
-# 使用调试日志和完整健康信息进行开发
-npx -y @1mcp/agent serve \
-  --log-level=debug \
-  --health-info-level=full \
-  --enable-async-loading
-
-# 使用自定义配置目录进行开发
-npx -y @1mcp/agent serve \
-  --config-dir=./dev-config \
-  --log-level=debug \
-  --enable-config-reload
+1mcp serve --enable-async-loading --enable-lazy-loading
 ```
 
-### 高级配置
+### 启动时筛选服务器暴露面
 
 ```bash
-# 启用所有高级功能的开发
-npx -y @1mcp/agent serve \
-  --log-level=debug \
-  --enable-config-reload \
-  --config-reload-debounce=1000 \
-  --enable-env-substitution \
-  --enable-session-persistence \
-  --session-persist-requests=50 \
-  --enable-client-notifications
-
-# 优化会话持久化的生产环境
-npx -y @1mcp/agent serve \
-  --host=0.0.0.0 \
-  --port=3051 \
-  --enable-auth \
-  --enable-session-persistence \
-  --session-persist-requests=200 \
-  --session-persist-interval=10 \
-  --session-background-flush=30 \
-  --enable-client-notifications
-
-# 高性能设置（最小功能）
-npx -y @1mcp/agent serve \
-  --transport=stdio \
-  --enable-config-reload=false \
-  --enable-env-substitution=true \
-  --enable-session-persistence=false \
-  --enable-client-notifications=false \
-  --log-level=warn
+1mcp serve --filter "web,api"
+1mcp serve --filter "(web OR api) AND production"
 ```
 
-### 环境变量替换
+### 为直接 HTTP MCP 客户端启动运行时
 
 ```bash
-# 在配置文件中使用环境变量
-API_KEY="${API_KEY}" \
-DATABASE_URL="${DATABASE_URL}" \
-SESSION_DIR="${SESSION_STORAGE_DIR}" \
-npx -y @1mcp/agent serve \
-  --enable-env-substitution \
-  --config-dir=./config
-
-# 结合配置重载实现动态更新
-API_BASE_URL="${API_BASE_URL}" \
-npx -y @1mcp/agent serve \
-  --enable-env-substitution \
-  --enable-config-reload \
-  --config-reload-debounce=2000
+1mcp serve --host 0.0.0.0 --port 3051
 ```
 
-### 标签过滤
+然后让原生 MCP 客户端连接：
+
+```text
+http://127.0.0.1:3051/mcp?app=cursor
+```
+
+### 启用认证启动
 
 ```bash
-# 简单标签过滤（OR 逻辑）- ⚠️ 已弃用
-npx -y @1mcp/agent serve --transport=stdio --tags="network,filesystem"
-
-# 高级标签过滤（布尔表达式）- 推荐
-npx -y @1mcp/agent serve --transport=stdio --tag-filter="network+api"
-npx -y @1mcp/agent serve --transport=stdio --tag-filter="(web,api)+prod-test"
-npx -y @1mcp/agent serve --transport=stdio --tag-filter="web and api and not test"
+1mcp serve --enable-auth --external-url https://mcp.example.com
 ```
 
-> **注意：** `--tags` 参数已弃用。请使用 `--tag-filter` 进行简单和高级过滤。
+当客户端能够对 HTTP 运行时完成认证时，再使用这种方式。不要假设 stdio-only 客户端在这种配置下仍能通过 `proxy` 正常工作。
+
+## 相关命令
+
+- **`1mcp cli-setup --codex`**
+- **`1mcp cli-setup --claude --scope repo --repo-root .`**
+- **`1mcp instructions`**
+- **`1mcp inspect <server>`**
+- **`1mcp inspect <server>/<tool>`**
+- **`1mcp run <server>/<tool> --args '<json>'`**
+- **`1mcp proxy`**
 
 ## 另请参阅
 
-- **[配置深入指南](../guide/essentials/configuration.md)** - CLI 标志和环境变量
-- **[MCP 服务器参考](../reference/mcp-servers.md)** - 后端服务器配置
-- **[安全指南](../reference/security.md)** - 安全最佳实践
-- **[健康检查 API 参考](../reference/health-check.md)** - 监控端点
+- **[CLI 模式指南](/zh/guide/integrations/cli-mode)**
+- **[Proxy 命令](/zh/commands/proxy)**
+- **[架构](/zh/reference/architecture)**
+- **[配置指南](/zh/guide/essentials/configuration)**

@@ -1,175 +1,151 @@
 ---
 layout: home
-title: '1MCP Agent - One Unified MCP Server for All'
-description: 'The unified Model Context Protocol server that aggregates multiple MCP servers for Claude Desktop, Cursor, and AI assistants. Get started in minutes with OAuth 2.1 security.'
+title: '1MCP Agent - Unified MCP Runtime and CLI Mode for Agents'
+description: 'Run one aggregated MCP runtime with 1MCP and give Codex, Claude, and other agents a thinner CLI workflow on top.'
 head:
   - [
       'meta',
       {
         name: 'keywords',
-        content: 'MCP server,Model Context Protocol,AI proxy,AI aggregator,Claude Desktop,Cursor,MCP integration,AI assistant tools,OAuth 2.1,proxy server,multiplexer,LLM integration,automation,tutorial,setup guide',
+        content: '1MCP,MCP runtime,CLI mode,agent workflow,Codex,Claude,template servers,async loading,lazy loading',
       },
     ]
-  - ['meta', { property: 'og:title', content: '1MCP Agent - Unified MCP Server' }]
+  - ['meta', { property: 'og:title', content: '1MCP Agent - Unified MCP Runtime' }]
   - [
       'meta',
       {
         property: 'og:description',
-        content: 'Unified Model Context Protocol server that aggregates multiple MCP servers. Start in 5 minutes.',
+        content: 'Aggregate many MCP servers behind 1mcp serve and use CLI mode for progressive discovery in agent sessions.',
       },
     ]
-  - ['meta', { name: 'twitter:title', content: '1MCP Agent - Unified MCP Server' }]
+  - ['meta', { name: 'twitter:title', content: '1MCP Agent - Unified MCP Runtime' }]
   - [
       'meta',
       {
         name: 'twitter:description',
-        content: 'Unified MCP server for AI assistants. Start in 5 minutes with OAuth 2.1 security.',
+        content: 'Unified MCP runtime plus agent-friendly CLI mode for Codex, Claude, and direct MCP clients.',
       },
     ]
 
 hero:
   name: '1MCP Agent'
-  text: 'One MCP server to aggregate them all'
-  tagline: A unified Model Context Protocol server implementation that acts as a proxy/multiplexer for multiple MCP servers
+  text: 'One runtime for MCP, one thinner workflow for agents'
+  tagline: 'Run your MCP servers behind `1mcp serve`, then let agents use CLI mode for progressive discovery instead of carrying the full tool surface in context.'
   image:
     src: /images/logo.png
-    alt: 1MCP Agent Logo - Unified MCP Server for AI Assistants
+    alt: 1MCP Agent Logo
   actions:
     - theme: brand
-      text: Get Started
-      link: /guide/getting-started
-    - theme: alt
-      text: Quick Start
+      text: 5-Minute Setup
       link: /guide/quick-start
     - theme: alt
-      text: View on GitHub
-      link: https://github.com/1mcp-app/agent
+      text: CLI Mode
+      link: /guide/integrations/cli-mode
+    - theme: alt
+      text: Architecture
+      link: /reference/architecture
 
 features:
-  - icon: 🔄
-    title: Unified Interface
-    details: Single endpoint that aggregates multiple MCP servers, simplifying AI assistant integration
-  - icon: 🔒
-    title: OAuth 2.1 Authentication
-    details: Production-ready security with scope-based authorization and secure token management
+  - icon: 🧭
+    title: Progressive CLI Discovery
+    details: 'Agents start with `instructions`, narrow with `inspect`, and only run the tool they actually need.'
+  - icon: 🧩
+    title: Unified Runtime
+    details: '`1mcp serve` aggregates static and template-backed MCP servers behind one runtime.'
+  - icon: 🪄
+    title: Context-Aware Templates
+    details: Template servers can be created per client or session instead of being fixed at startup.
   - icon: ⚡
-    title: High Performance
-    details: Efficient request forwarding with proper error handling and monitoring capabilities
-  - icon: 🛡️
-    title: Security First
-    details: Stdio transport isolation, input sanitization, and comprehensive audit logging
-
-  - icon: 🔧
-    title: Easy Configuration
-    details: Single JSON configuration file with hot-reload support and validation
+    title: Async and Lazy Loading
+    details: Start faster, load in the background, and expose less until a client or agent actually needs it.
+  - icon: 📦
+    title: Presets and Filters
+    details: Reuse server sets across projects, clients, and compatibility bridges without duplicating config.
+  - icon: 🔐
+    title: Direct HTTP and Compatibility Paths
+    details: 'Support direct HTTP MCP attachment and `proxy` for stdio-only clients without making either the only story.'
 ---
 
 ## Why 1MCP?
 
-**The Problem**: AI assistants need to connect to multiple MCP servers, but managing dozens of individual connections is complex, unreliable, and security-intensive.
+1MCP solves two related problems at once:
 
-**The Solution**: 1MCP acts as a unified proxy/multiplexer that aggregates multiple MCP servers behind a single, reliable interface. Learn more about our [core features](/guide/essentials/core-features) and [security architecture](/reference/security).
+- **Configuration sprawl**: too many clients each need their own MCP setup.
+- **Agent context sprawl**: too many tools and schemas get injected into long-running agent loops.
 
-```mermaid
-graph TB
-    subgraph "AI Clients"
-        C1[Claude Desktop]
-        C2[Cursor]
-        C3[Cherry Studio]
-    end
+The current product model is:
 
-    subgraph "1MCP Proxy"
-        P[Unified Interface<br/>HTTP/SSE + OAuth]
-    end
+- `1mcp serve` is the unified runtime.
+- CLI mode is the preferred agent-facing workflow on the unified runtime.
+- Direct MCP attachment remains supported for MCP-native clients.
 
-    subgraph "MCP Servers"
-        S1[Filesystem]
-        S2[Web Search]
-        S3[Database]
-        S4[Memory]
-    end
+Use this page to choose a path. If you already know you want a working setup, go straight to [Quick Start](/guide/quick-start).
 
-    C1 --> P
-    C2 --> P
-    C3 --> P
-    P --> S1
-    P --> S2
-    P --> S3
-    P --> S4
-```
+## Start Here if You Use an AI Agent
 
-## Quick Example
+This page is for Codex, Claude, Cursor, and similar agent workflows. The default path is: add one real upstream server, start `1mcp serve`, run `cli-setup`, then verify `instructions -> inspect -> run`.
 
-Start with a simple configuration. For complete setup instructions, see our [getting started guide](/guide/getting-started) and [installation instructions](/guide/installation).
+## Start With the Right Path
 
-```json
-{
-  "mcpServers": {
-    "context7": {
-      "command": "npx",
-      "args": ["-y", "@upstash/context7-mcp@latest"],
-      "tags": ["context7", "docs", "development", "code"],
-      "disabled": false
-    },
-    "git": {
-      "command": "uvx",
-      "args": ["mcp-server-git", "--repository", "/path/to/your/awesome-project"],
-      "tags": ["git", "awesome-project"],
-      "disabled": false
-    },
-    "filesystem": {
-      "command": "npx",
-      "args": ["-y", "@modelcontextprotocol/server-filesystem", "/tmp"],
-      "tags": ["files", "tmpdir"],
-      "disabled": false
-    },
-    "server-sequential-thinking": {
-      "command": "npx",
-      "args": ["-y", "@modelcontextprotocol/server-sequential-thinking"],
-      "tags": ["thinking"],
-      "disabled": false
-    },
-    "playwright": {
-      "command": "npx",
-      "args": ["-y", "@playwright/mcp@latest"],
-      "tags": ["playwright", "frontend", "web", "ui", "browser"],
-      "disabled": false
-    }
-  }
-}
-```
+- Want the fastest first success for an agent workflow? Go to [Quick Start](/guide/quick-start).
+- Want the mental model for `instructions`, `inspect`, and `run`? Go to [CLI Mode](/guide/integrations/cli-mode).
+- Want to connect an MCP-native client directly to the runtime? Go to [serve](/commands/serve).
+- Want runtime details, loading behavior, or templates? Go to [Architecture](/reference/architecture).
+
+## 5-Minute Setup Preview
 
 ```bash
-# Start the proxy
-npx -y @1mcp/agent --config mcp.json --port 3000
+npm install -g @1mcp/agent
+1mcp mcp add context7 -- npx -y @upstash/context7-mcp
+1mcp serve
 ```
 
-Now your agent is running. Connect your MCP client to `http://localhost:3000` to start using your aggregated tools. Check our [server management guide](/guide/essentials/server-management) for advanced configuration options.
+Connect your agent to CLI mode:
 
-## Key Benefits
+```bash
+1mcp cli-setup --codex
+# or
+1mcp cli-setup --claude --scope repo --repo-root .
+```
 
-- **🎯 Simplified Integration**: One connection instead of many
-- **🔐 Production Security**: OAuth 2.1 with scope-based permissions
-- **📈 Better Reliability**: Centralized error handling and monitoring
-- **⚙️ Easy Management**: Single configuration, hot-reload support
-- **🚀 Performance**: Efficient multiplexing with minimal overhead
+Verify the workflow:
 
-## What's Next?
+```bash
+1mcp instructions
+1mcp inspect context7
+1mcp inspect context7/query-docs
+1mcp run context7/query-docs --args '{"libraryId":"/mongodb/docs","query":"aggregation pipeline"}'
+```
+
+This is only the preview path. For prerequisites, success checks, and troubleshooting, continue to the [Quick Start guide](/guide/quick-start).
+
+## Why This Path
+
+- **Smaller working surface for agents**: progressive discovery avoids dumping the whole tool catalog into context.
+- **One runtime for many clients**: agents, direct HTTP MCP clients, and stdio-only compatibility flows can share the same backend inventory.
+- **Current runtime behavior, not a static proxy model**: async loading, lazy loading, templates, instructions, and presets are part of the main system design.
+
+## Choose Another Path
 
 <div class="vp-feature-grid">
-  <a href="/guide/getting-started" class="vp-feature-box">
-    <h3>📚 Learn the Basics</h3>
-    <p>Understand 1MCP architecture and core concepts</p>
-  </a>
-
   <a href="/guide/quick-start" class="vp-feature-box">
-    <h3>⚡ Quick Start</h3>
-    <p>Get running in 5 minutes with basic configuration</p>
+    <h3>Agent Quick Start</h3>
+    <p>Best for first-time agent users who want a working setup before reading architecture or operator details.</p>
   </a>
 
-  <a href="/reference/architecture" class="vp-feature-box">
-    <h3>🏗️ Deep Dive</h3>
-    <p>Comprehensive system architecture and design decisions</p>
+  <a href="/guide/integrations/cli-mode" class="vp-feature-box">
+    <h3>CLI Mode for Agents</h3>
+    <p>Best for Codex, Claude, and similar agent loops that benefit from progressive discovery.</p>
+  </a>
+
+  <a href="/commands/serve" class="vp-feature-box">
+    <h3>Direct Runtime Usage</h3>
+    <p>Best for MCP-native HTTP clients that want to connect straight to the aggregated runtime.</p>
+  </a>
+
+  <a href="/commands/proxy" class="vp-feature-box">
+    <h3>stdio Compatibility</h3>
+    <p>Use `proxy` only when a client cannot talk to the HTTP runtime directly.</p>
   </a>
 </div>
 

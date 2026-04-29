@@ -1,19 +1,22 @@
 ---
-title: 服务器筛选 - 基于标签的访问控制
-description: 使用高级基于标签的服务器筛选功能控制 1MCP 中的后端服务器访问。使用布尔表达式和标签过滤器实现精确访问控制。
+title: 服务器筛选 - 运行时与客户端选择
+description: 使用 1MCP 过滤能力控制运行时暴露哪些后端服务器，或在客户端命令上进一步收窄选择范围。
 head:
   - ['meta', { name: 'keywords', content: '服务器筛选,标签筛选,访问控制,布尔表达式,标签过滤器' }]
   - ['meta', { property: 'og:title', content: '1MCP 服务器筛选指南 - 基于标签的访问控制' }]
   - ['meta', { property: 'og:description', content: '学习如何使用标签筛选和布尔表达式控制服务器访问。' }]
 ---
 
-# 按标签筛选服务器
+# 服务器筛选
 
-1MCP 代理提供高级基于标签的服务器筛选功能，允许您使用简单的 OR 逻辑和复杂的布尔表达式将请求定向到特定的后端 MCP 服务器。此功能有助于按其功能组织和控制对不同 MCP 服务器的访问。
+1MCP 支持两层筛选：
+
+- 使用 `1mcp serve --filter ...` 或 `1mcp --filter ...` 做**运行时筛选**
+- 使用 `instructions`、`inspect`、`run` 或 `proxy` 做**客户端侧收窄**
 
 ## 工作原理
 
-连接到 1MCP 代理时，您可以指定标签以筛选可用的后端服务器。代理将仅连接到并路由请求到具有指定标签的服务器。
+在运行时层，`serve` 通过 `--filter` 决定哪些后端服务器会被暴露。运行时启动后，客户端命令还可以在不重启运行时的前提下继续收窄选择范围。
 
 例如，如果您有两台服务器——一台带有 `filesystem` 标签，另一台带有 `search` 标签——您可以通过在连接中包含适当的标签来控制哪些服务器可用。
 
@@ -43,68 +46,20 @@ head:
 
 ## 用法
 
-1MCP 代理支持两种类型的标签筛选：简单 OR 逻辑和高级布尔表达式。
+### 使用 `serve` 做运行时筛选
 
-### 简单标签筛选（已弃用）
-
-⚠️ **`--tags` 参数已弃用，将在未来版本中删除。请改用 `--tag-filter`。**
-
-`--tags` 参数提供简单的 OR 逻辑筛选：
+当你希望运行时本身只暴露一部分服务器时，使用 `--filter`：
 
 ```bash
-# 仅连接到带有"filesystem"标签的服务器
-npx -y @1mcp/agent --transport stdio --tags "filesystem"
+# 仅暴露带有 "filesystem" 标签的服务器
+npx -y @1mcp/agent --filter "filesystem"
 
-# 连接到带有"filesystem"或"web"标签的服务器（OR 逻辑）
-npx -y @1mcp/agent --transport stdio --tags "filesystem,web"
-```
+# 暴露带有 "filesystem" 或 "web" 标签的服务器（OR 逻辑）
+npx -y @1mcp/agent --filter "filesystem,web"
 
-### 高级标签筛选
-
-新的 `--tag-filter` 参数支持复杂的布尔表达式：
-
-#### 基本操作
-
-```bash
-# 单个标签
-npx -y @1mcp/agent --transport stdio --tag-filter "filesystem"
-
-# AND 操作（需要两个标签）
-npx -y @1mcp/agent --transport stdio --tag-filter "filesystem+web"
-
-# OR 操作（任一标签）
-npx -y @1mcp/agent --transport stdio --tag-filter "filesystem,web"
-
-# NOT 操作（排除具有此标签的服务器）
-npx -y @1mcp/agent --transport stdio --tag-filter "!test"
-```
-
-#### 复杂表达式
-
-```bash
-# 带有 (filesystem OR web) AND prod，但不是 test 的服务器
-npx -y @1mcp/agent --transport stdio --tag-filter "(filesystem,web)+prod-test"
-
-# 带有 api AND (db OR cache)，但不是 development 的服务器
-npx -y @1mcp/agent --transport stdio --tag-filter "api+(db,cache)-development"
-```
-
-#### 自然语言语法
-
-标签筛选器还支持自然语言布尔操作符：
-
-```bash
-# 使用自然语言 AND
-npx -y @1mcp/agent --transport stdio --tag-filter "web and api"
-
-# 使用自然语言 OR
-npx -y @1mcp/agent --transport stdio --tag-filter "filesystem or database"
-
-# 使用自然语言 NOT
-npx -y @1mcp/agent --transport stdio --tag-filter "api and not test"
-
-# 复杂的自然语言表达式
-npx -y @1mcp/agent --transport stdio --tag-filter "(web or api) and production and not development"
+# 暴露符合复杂表达式的服务器
+npx -y @1mcp/agent --filter "(filesystem,web)+prod-test"
+npx -y @1mcp/agent --filter "api and not test"
 ```
 
 #### 符号参考
@@ -115,6 +70,23 @@ npx -y @1mcp/agent --transport stdio --tag-filter "(web or api) and production a
 | OR     | `,`      | `or`     | `web,api` 或 `web or api`      |
 | NOT    | `-`, `!` | `not`    | `-test`, `!test` 或 `not test` |
 | 分组   | `()`     | `()`     | `(web,api)+prod`               |
+
+### 客户端侧收窄
+
+当运行时已经启动后，使用适合对应命令面的客户端选择器：
+
+```bash
+# 不重启运行时，收窄 CLI 模式输出
+1mcp instructions --tags backend
+1mcp inspect --tag-filter "web+api"
+1mcp run myserver/mytool --tag-filter "web+api" --args '{"q":"test"}'
+
+# 收窄 stdio-only 兼容客户端
+1mcp proxy --filter "web AND api"
+1mcp proxy --tags "web,api"
+```
+
+`--filter` 是客户端侧收窄的首选统一语法。`--tags` 和 `--tag-filter` 仍然作为兼容旧用法的别名保留，适用于特定的 CLI 和 HTTP 查询样式，但它们彼此互斥，也不能与 `--filter` 同时使用。
 
 ### HTTP/SSE 筛选
 
@@ -129,21 +101,7 @@ curl "http://localhost:3050/sse?tag-filter=web%2Bapi"  # web+api
 curl "http://localhost:3050/sse?tag-filter=%28web%2Capi%29%2Bprod"  # (web,api)+prod
 ```
 
-### 从 --tags 迁移到 --tag-filter
-
-对于简单的 OR 逻辑筛选，您可以轻松从 `--tags` 迁移到 `--tag-filter`：
-
-```bash
-# 旧版（已弃用）
---tags "web,api,database"
-
-# 新版（推荐）
---tag-filter "web,api,database"
-```
-
-### 互斥性
-
-`--tags` 和 `--tag-filter` 参数是互斥的 - 您不能同时使用两者。如果两者都指定，代理将返回错误。
+在同时支持这两个 HTTP/SSE 查询参数的入口上，也就是通过查询参数传递 `tags` 与 `tag-filter` 时，这两种查询方式仍然互斥，不能一起使用。高级表达式建议使用 `tag-filter`；在 CLI 命令面上如支持 `--filter`，则优先使用 `--filter`。
 
 ## 标签字符处理
 

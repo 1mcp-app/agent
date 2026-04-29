@@ -15,9 +15,11 @@ head:
 
 # Command Reference
 
-1MCP Agent provides a comprehensive command-line interface for managing MCP servers, agent workflows, and desktop application configurations.
+This section is the CLI lookup entrypoint. Use it when you already know which command family you need and want exact syntax, options, or examples.
 
 For AI agents, the preferred path is CLI mode: keep MCP behind `1mcp serve`, then use `instructions`, `inspect`, and `run` as a progressive-disclosure workflow instead of exposing a broad tool surface directly in the agent loop.
+
+If you are still trying to get a first setup working, use [Quick Start](/guide/quick-start) before drilling into command details.
 
 ## Quick Reference
 
@@ -70,15 +72,17 @@ Use these commands together when you want an agent or terminal session to discov
 ```bash
 npx -y @1mcp/agent instructions
 npx -y @1mcp/agent inspect context7
-npx -y @1mcp/agent inspect context7/get-library-docs
-npx -y @1mcp/agent run context7/get-library-docs --args '{"context7CompatibleLibraryID":"/mongodb/docs","topic":"aggregation pipeline"}'
+npx -y @1mcp/agent inspect context7/query-docs
+npx -y @1mcp/agent run context7/query-docs --args '{"libraryId":"/mongodb/docs","query":"aggregation pipeline"}'
 ```
 
-- **[instructions](./instructions.md)** - Print the CLI playbook and current servers
-- **[inspect](./inspect.md)** - Discover tools and inspect schemas
-- **[run](./run.md)** - Execute a tool call
-- **[cli-setup](./cli-setup.md)** - Install Codex or Claude bootstrap files
-- **[auth](./auth.md)** - Manage authentication profiles for secured servers
+- **[instructions](/commands/instructions)** - Print the CLI playbook and current servers
+- **[inspect](/commands/inspect)** - Discover tools and inspect schemas
+- **[run](/commands/run)** - Execute a tool call
+- **[cli-setup](/commands/cli-setup)** - Install Codex or Claude bootstrap files
+- **[auth](/commands/auth)** - Manage authentication profiles for secured servers
+
+Use this group when an agent or operator is already working against a running `1mcp serve` instance.
 
 ### Why These Commands Exist
 
@@ -88,7 +92,7 @@ npx -y @1mcp/agent run context7/get-library-docs --args '{"context7CompatibleLib
 - `inspect` narrows discovery to one server and one tool
 - `run` executes only after schema confirmation
 
-### [App Commands](./app/)
+### [App Commands](/commands/app/)
 
 Manage desktop application MCP configurations. Consolidate MCP servers from various desktop applications into 1MCP.
 
@@ -98,7 +102,7 @@ npx -y @1mcp/agent app restore claude-desktop        # Restore original configur
 npx -y @1mcp/agent app list                          # List supported applications
 ```
 
-### [MCP Commands](./mcp/)
+### [MCP Commands](/commands/mcp/)
 
 Manage MCP server configurations within your 1MCP instance.
 
@@ -108,7 +112,7 @@ npx -y @1mcp/agent mcp list                       # List configured servers
 npx -y @1mcp/agent mcp status                     # Check server status
 ```
 
-### [Preset Commands](./preset/)
+### [Preset Commands](/commands/preset/)
 
 Manage server presets for dynamic filtering and context switching.
 
@@ -119,7 +123,7 @@ npx -y @1mcp/agent preset show development        # Show preset details
 npx -y @1mcp/agent preset edit staging           # Edit preset configuration
 ```
 
-### [Serve Command](./serve)
+### [Serve Command](/commands/serve)
 
 Start the 1MCP server with various configuration options.
 
@@ -129,7 +133,7 @@ npx -y @1mcp/agent serve --port=3052                # Start on custom port
 npx -y @1mcp/agent serve --transport=stdio          # Use stdio transport
 ```
 
-### [Proxy Command](./proxy)
+### [Proxy Command](/commands/proxy)
 
 Start STDIO proxy to connect MCP clients that only support STDIO transport to a running 1MCP HTTP server.
 
@@ -148,15 +152,15 @@ npx -y @1mcp/agent cli-setup --codex
 npx -y @1mcp/agent cli-setup --claude --scope repo --repo-root .
 ```
 
-## Getting Started
+## When to Leave This Section
 
-If you're new to 1MCP Agent, start with:
+If you need learning or setup guidance instead of exact command behavior, go to:
 
-1. **[Installation Guide](../guide/installation)** - Install 1MCP Agent
-2. **[Quick Start](../guide/quick-start)** - Basic setup and first server
-3. **[Instructions Command](./instructions.md)** - Start the CLI workflow with the current server inventory
-4. **[Inspect Command](./inspect.md)** - Discover tools and inspect schemas
-5. **[Run Command](./run.md)** - Execute a tool call through the running server
+1. **[Installation Guide](/guide/installation)** - Install 1MCP Agent
+2. **[Quick Start](/guide/quick-start)** - Basic setup and first server
+3. **[Instructions Command](/commands/instructions)** - Start the CLI workflow with the current server inventory
+4. **[Inspect Command](/commands/inspect)** - Discover tools and inspect schemas
+5. **[Run Command](/commands/run)** - Execute a tool call through the running server
 
 ## Examples
 
@@ -204,9 +208,9 @@ All command-line options can also be set via environment variables with the `ONE
 ```bash
 export ONE_MCP_PORT=3052
 export ONE_MCP_HOST=0.0.0.0
-export ONE_MCP_CONFIG_PATH=/custom/config.json
+export ONE_MCP_CONFIG=/custom/config.json
 ```
 
 ## Configuration Files
 
-1MCP Agent uses JSON configuration files to store server definitions and settings. See the [Configuration Guide](../guide/essentials/configuration) for detailed information about configuration file formats and options.
+1MCP Agent uses JSON configuration files to store server definitions and settings. See the [Configuration Guide](/guide/essentials/configuration) for detailed information about configuration file formats and options.
