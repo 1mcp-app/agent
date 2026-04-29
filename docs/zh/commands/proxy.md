@@ -1,18 +1,18 @@
 # Proxy 命令
 
-`1mcp proxy` 是为 stdio-only 客户端准备的兼容桥。
+`1mcp proxy` 是建立在运行中 1MCP 运行时之上的“最大兼容性”桥接路径。
 
-它把本地 stdio 传输连接到一个正在运行的 `1mcp serve` HTTP 运行时。当客户端不能直接连接 HTTP MCP 端点时，这个命令才有意义。
+它把本地 stdio 传输连接到一个正在运行的 `1mcp serve` HTTP 运行时。实际使用中，它通常是 CLI 模式之后最推荐的回退路径，因为大多数 AI 客户端都支持 stdio，而支持 streamable HTTP、SSE 或 CLI 模式的客户端要少得多。
 
 ## 先选对路径
 
 1MCP 目前有三条不同路径：
 
 1. **Agent loop 的 CLI 模式**：推荐给 Codex、Claude 以及类似的 agent 会话。
-2. **直接 HTTP MCP 接入**：推荐给能直接连接运行时的原生 MCP 客户端。
-3. **`proxy`**：只在客户端受限于 stdio 时使用。
+2. **`proxy`**：当你希望在保留项目上下文的同时获得最广兼容性时，推荐使用。
+3. **直接 streamable HTTP MCP 接入**：当客户端可以直接连接，且你不需要项目上下文时使用。
 
-`proxy` 不是主产品体验，它存在的意义是兼容旧客户端或 stdio-only 客户端。
+`proxy` 不是主产品体验。对于 agent loop，CLI 模式仍然是一优先路径。`proxy` 的定位是最好的非 CLI 路径，兼顾 stdio 兼容性、`.1mcprc` 与模板服务器支持。
 
 ## 概要
 
@@ -40,7 +40,7 @@
 
 ## 使用 `.1mcprc` 做项目级配置
 
-如果你经常把同一个 stdio-only 客户端桥接到相同的 preset 或过滤视图，可以使用 `.1mcprc`。
+如果你经常把同一个项目或客户端桥接到相同的 preset 或过滤视图，可以使用 `.1mcprc`。
 
 示例：
 
@@ -76,7 +76,7 @@
 
 ## 示例
 
-### 适合的用法：stdio 兼容桥
+### 适合的用法：最大兼容性的 stdio 路径
 
 ```bash
 # shell 1
@@ -117,9 +117,9 @@
 1mcp run <server>/<tool> --args '<json>'
 ```
 
-### 对原生 HTTP 客户端，应优先直接连接而不是 `proxy`
+### 只有在不需要项目上下文时，才优先直接 HTTP
 
-如果客户端本身支持 HTTP MCP，直接连接运行时端点即可：
+如果客户端本身支持 streamable HTTP MCP，而且你不需要项目上下文，直接连接运行时端点即可：
 
 ```text
 http://127.0.0.1:3050/mcp?app=cursor
@@ -130,15 +130,15 @@ http://127.0.0.1:3050/mcp?app=cursor
 这是本页最重要的限制：
 
 - stdio 传输不会给客户端带来 OAuth 浏览器认证流程
-- `proxy` 不会神奇地让 stdio-only 客户端变得“支持认证”
-- 如果运行时要求认证，stdio-only 客户端无法通过 `proxy` 使用它
+- `proxy` 不会神奇地让 stdio 客户端变得“支持认证”
+- 如果运行时要求认证，无法完成 HTTP 认证的客户端无法通过 `proxy` 使用它
 
 实际建议是：
 
 - 对 agent loop，尽量使用 CLI 模式
-- 对可认证的客户端，优先使用直接 HTTP
+- 对既能认证、又不需要项目上下文的客户端，优先使用直接 HTTP
 - 只在运行时不要求认证时使用 `proxy`
-- 如果 stdio-only 客户端仍然需要兼容接入，请单独运行一个不启用认证的 `serve` 实例
+- 如果 stdio 客户端仍然需要兼容接入，请单独运行一个不启用认证的 `serve` 实例
 
 ## 另请参阅
 

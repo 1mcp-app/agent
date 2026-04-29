@@ -59,8 +59,8 @@ features:
     title: 预设与过滤
     details: 在项目、客户端和兼容桥之间复用同一套服务集合，而无需复制配置。
   - icon: 🔐
-    title: 直接 HTTP 与兼容路径
-    details: '同时支持直接 HTTP MCP 接入，以及为 stdio-only 客户端准备的 `proxy`。'
+    title: 兼容路径与直连路径
+    details: '可用 `proxy` 获得带项目上下文的最大兼容性，也可在原生 HTTP 传输足够时直接使用 streamable HTTP。'
 ---
 
 ## 为什么选择 1MCP？
@@ -74,7 +74,8 @@ features:
 
 - `1mcp serve` 是统一运行时。
 - CLI 模式是这个运行时之上的、推荐给 agent 的工作流。
-- 直接 MCP 接入仍然为原生 MCP 客户端保留。
+- `proxy` 是推荐的非 CLI 路径，因为它既保留项目上下文，又兼容最广泛的 AI 客户端。
+- 直接 streamable HTTP 仍然为不需要项目上下文的原生 MCP 客户端保留。
 
 把这个首页当成分流页。如果你已经确定要先跑通一个可工作的流程，直接去看[快速入门](/zh/guide/quick-start)。
 
@@ -86,7 +87,8 @@ features:
 
 - 想最快跑通一个 agent 工作流？看[快速入门](/zh/guide/quick-start)。
 - 想理解 `instructions`、`inspect`、`run` 的工作方式？看 [CLI 模式](/zh/guide/integrations/cli-mode)。
-- 想让原生 MCP 客户端直接连运行时？看 [serve](/zh/commands/serve)。
+- 想在非 CLI 情况下获得最广泛兼容性并保留项目上下文？看 [proxy](/zh/commands/proxy)。
+- 想让原生 MCP 客户端通过 streamable HTTP 直接连运行时？看 [serve](/zh/commands/serve)。
 - 想了解运行时、模板与加载行为？看[架构](/zh/reference/architecture)。
 
 ## 5 分钟上手预览
@@ -119,7 +121,7 @@ npm install -g @1mcp/agent
 ## 为什么推荐这条路径
 
 - **更薄的 agent 工作面**：渐进式发现避免把整个工具目录直接灌进上下文。
-- **一个运行时服务多个客户端**：agent、直接 HTTP MCP 客户端、stdio 兼容桥都可以共用同一份后端能力。
+- **一个运行时服务多个客户端**：agent、通过 `proxy` 接入的 stdio 客户端、以及直接 HTTP MCP 客户端都可以共用同一份后端能力。
 - **符合当前产品现实，而不是旧式代理叙事**：异步加载、懒加载、模板、指令和预设都已经是主系统设计的一部分。
 
 ## 选择其他路径
@@ -135,14 +137,14 @@ npm install -g @1mcp/agent
     <p>适合 Codex、Claude 以及其他希望渐进式发现工具的 agent loop。</p>
   </a>
 
-  <a href="/zh/commands/serve" class="vp-feature-box">
-    <h3>直接使用运行时</h3>
-    <p>适合能直接连接聚合运行时的原生 HTTP MCP 客户端。</p>
+  <a href="/zh/commands/proxy" class="vp-feature-box">
+    <h3>Proxy 兼容路径</h3>
+    <p>适合想保留项目上下文、使用 `.1mcprc`、支持模板服务器，并获得最广客户端兼容性的非 CLI 场景。</p>
   </a>
 
-  <a href="/zh/commands/proxy" class="vp-feature-box">
-    <h3>stdio 兼容桥</h3>
-    <p>只有在客户端无法直接连接 HTTP 运行时时，才使用 `proxy`。</p>
+  <a href="/zh/commands/serve" class="vp-feature-box">
+    <h3>直接使用运行时</h3>
+    <p>适合原生支持 HTTP 的 MCP 客户端，且可以接受没有项目上下文时直接通过 streamable HTTP 连接。</p>
   </a>
 </div>
 

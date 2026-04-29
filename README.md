@@ -5,6 +5,7 @@
 [![CodeQl](https://github.com/1mcp-app/agent/actions/workflows/github-code-scanning/codeql/badge.svg)](https://github.com/1mcp-app/agent/actions/workflows/github-code-scanning/codeql)
 [![GitHub Repo stars](https://img.shields.io/github/stars/1mcp-app/agent)](https://github.com/1mcp-app/agent/stargazers)
 [![Docs](https://img.shields.io/badge/docs-docs.1mcp.app-blue)](https://docs.1mcp.app)
+[![DeepWiki](https://img.shields.io/badge/DeepWiki-AI%20Docs-purple.svg?logo=gitbook&logoColor=white)](https://deepwiki.com/1mcp-app/agent)
 [![License](https://img.shields.io/npm/l/@1mcp/agent)](https://www.npmjs.com/package/@1mcp/agent)
 
 1MCP is the unified MCP runtime. `1mcp serve` aggregates your MCP servers, and CLI mode adds a thinner agent-facing workflow for Codex, Claude, Cursor, and similar tool-using agents.
@@ -23,11 +24,12 @@ Most MCP setups eventually hit two kinds of sprawl:
 - Static servers can load at startup, while template servers are created from per-client or per-session context.
 - Presets, filters, and instruction aggregation keep the same runtime adaptable across clients and projects.
 
-| Approach              | Best for                    | Tradeoff                                                  |
-| --------------------- | --------------------------- | --------------------------------------------------------- |
-| 1MCP CLI mode         | Codex, Claude, agent loops  | Requires a running `1mcp serve` instance                  |
-| Direct MCP attachment | MCP-native HTTP clients     | Broader tool surface is exposed directly to the client    |
-| Custom proxying       | One-off compatibility shims | You own discovery, filtering, auth, and runtime lifecycle |
+| Approach               | Best for                             | Tradeoff                                                                         |
+| ---------------------- | ------------------------------------ | -------------------------------------------------------------------------------- |
+| 1MCP CLI mode          | Codex, Claude, agent loops           | Requires a running `1mcp serve` instance                                         |
+| 1MCP stdio proxy       | Maximum compatibility across clients | Still depends on `serve`, and auth-capable HTTP clients have a more direct path  |
+| Direct streamable HTTP | MCP-native HTTP clients              | No project context, no `.1mcprc`, and a broader tool surface is exposed directly |
+| Custom proxying        | One-off compatibility shims          | You own discovery, filtering, auth, and runtime lifecycle                        |
 
 ## Quick Start for Agent Users
 
@@ -78,9 +80,22 @@ That gives agent loops a smaller working surface without giving up the unified r
 
 ## Choose Another Path
 
+### Stdio Proxy
+
+Use [`1mcp proxy`](https://docs.1mcp.app/commands/proxy) when you want the broadest client compatibility without giving up project context.
+
+It is the recommended fallback after CLI mode because it:
+
+- works with the stdio transport that most AI clients already support
+- keeps project context through `.1mcprc`
+- supports template MCP servers resolved from project or session context
+- is easier to roll out with one-time global setup plus per-project config
+
+Direct stdio mode is not the recommended path. It is mainly useful for debugging because 1MCP startup is slower than a thin standalone stdio setup.
+
 ### Direct MCP Attachment
 
-Direct MCP attachment is still supported for clients that want to talk to the aggregated runtime over HTTP.
+Direct MCP attachment is still supported for clients that want to talk to the aggregated runtime over streamable HTTP.
 
 Examples:
 
@@ -98,11 +113,7 @@ Examples:
 claude mcp add -t http 1mcp "http://127.0.0.1:3050/mcp?app=claude-code"
 ```
 
-Use this path if your client already speaks MCP natively and you do not want CLI mode. For Codex, Claude, Cursor, and similar agent loops, prefer CLI mode.
-
-### stdio Compatibility
-
-Use [`1mcp proxy`](https://docs.1mcp.app/commands/proxy) only if your client cannot connect to the HTTP runtime directly.
+Use this path if your client already speaks MCP natively, can work without project context, and you do not want CLI mode. For Codex, Claude, Cursor, and similar agent loops, prefer CLI mode first and `proxy` second.
 
 ### Runtime Operators
 
@@ -126,8 +137,8 @@ flowchart LR
     B --> D[Template servers resolved from client or session context]
     A --> E[CLI mode: instructions -> inspect -> run]
     E --> B
-    F[Direct HTTP MCP client] --> B
-    G[stdio-only client] --> H[1mcp proxy]
+    F[Direct streamable HTTP client] --> B
+    G[stdio-compatible client] --> H[1mcp proxy]
     H --> B
 ```
 
@@ -141,7 +152,8 @@ flowchart LR
 - Async loading and lazy loading for faster startup and narrower exposure
 - Instruction aggregation across static and template-backed servers
 - Presets, filters, and preset change notifications
-- Direct HTTP MCP access plus `proxy` for stdio-only compatibility
+- `proxy` for maximum compatibility with project context and template-server support
+- Direct streamable HTTP MCP access for native HTTP clients that do not need project context
 
 ## Common Use Cases
 

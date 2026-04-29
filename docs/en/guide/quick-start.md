@@ -24,7 +24,7 @@ By the end of this guide, you will have:
 - Codex or Claude configured with `cli-setup`
 - A verified `instructions -> inspect -> run` workflow
 
-If you want direct MCP attachment, stdio compatibility, or deeper runtime operator docs instead, jump to [Choose another path](#choose-another-path).
+If you want `proxy`, direct streamable HTTP, or deeper runtime operator docs instead, jump to [Choose another path](#choose-another-path).
 
 ## Prerequisites
 
@@ -93,8 +93,8 @@ At that point your agent can use 1MCP through CLI mode without reading another s
 
 - Full runtime configuration
 - Authentication and team deployment
-- Direct HTTP MCP attachment details
-- `proxy` and stdio-only compatibility flows
+- `proxy` and maximum-compatibility stdio flows
+- Direct streamable HTTP MCP attachment details
 
 Use the linked pages below once the first workflow works.
 
@@ -108,18 +108,20 @@ For agent sessions, CLI mode is the narrowest path to a working setup:
 
 ## Choose another path
 
+### stdio proxy
+
+Use this if you want the broadest client compatibility after CLI mode.
+
+`proxy` is usually the better fallback than direct streamable HTTP because it keeps project context through `.1mcprc`, supports template MCP servers, and is easier to standardize with one-time global setup.
+
+- [Proxy command](/commands/proxy)
+
 ### Direct MCP attachment
 
-Use this if your client already speaks MCP natively and you do not want CLI mode.
+Use this if your client already speaks MCP natively over streamable HTTP and you do not need project context.
 
 - [Serve command](/commands/serve)
 - [Architecture](/reference/architecture)
-
-### stdio compatibility
-
-Use this if your client cannot connect to the HTTP runtime directly.
-
-- [Proxy command](/commands/proxy)
 
 ### Runtime operators
 

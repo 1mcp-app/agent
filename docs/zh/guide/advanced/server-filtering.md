@@ -81,7 +81,7 @@ npx -y @1mcp/agent --filter "api and not test"
 1mcp inspect --tag-filter "web+api"
 1mcp run myserver/mytool --tag-filter "web+api" --args '{"q":"test"}'
 
-# 收窄 stdio-only 兼容客户端
+# 收窄最大兼容性的 stdio 路径
 1mcp proxy --filter "web AND api"
 1mcp proxy --tags "web,api"
 ```

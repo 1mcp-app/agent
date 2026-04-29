@@ -24,7 +24,7 @@ head:
 - 已通过 `cli-setup` 接入的 Codex 或 Claude
 - 一个已验证的 `instructions -> inspect -> run` 工作流
 
-如果你要看直接 MCP 接入、stdio 兼容桥，或更深入的运行时运维说明，请跳到[选择其他路径](#选择其他路径)。
+如果你要看 `proxy`、直接 streamable HTTP 接入，或更深入的运行时运维说明，请跳到[选择其他路径](#选择其他路径)。
 
 ## 先决条件
 
@@ -93,8 +93,8 @@ npm install -g @1mcp/agent
 
 - 完整运行时配置
 - 鉴权与团队部署
-- 直接 HTTP MCP 接入细节
-- `proxy` 与仅支持 stdio 的兼容流程
+- `proxy` 与最大兼容性的 stdio 路径
+- 直接 streamable HTTP MCP 接入细节
 
 当第一条工作流跑通后，再去看下面链接到的深入页面。
 
@@ -108,18 +108,20 @@ npm install -g @1mcp/agent
 
 ## 选择其他路径
 
+### stdio proxy
+
+如果你在 CLI 之外还想获得最广泛的客户端兼容性，请走这条路径。
+
+`proxy` 往往比直接 streamable HTTP 更适合作为回退方案，因为它通过 `.1mcprc` 保留项目上下文，支持模板 MCP 服务器，也更容易通过一次全局配置加项目级配置来统一落地。
+
+- [Proxy 命令](/zh/commands/proxy)
+
 ### 直接 MCP 接入
 
-如果你的客户端已经原生支持 MCP，而且你不想使用 CLI 模式，请走这条路径。
+如果你的客户端已经原生支持 streamable HTTP 的 MCP，而且你不需要项目上下文，请走这条路径。
 
 - [Serve 命令](/zh/commands/serve)
 - [架构说明](/zh/reference/architecture)
-
-### stdio 兼容
-
-如果你的客户端无法直接连接 HTTP 运行时，请走这条路径。
-
-- [Proxy 命令](/zh/commands/proxy)
 
 ### 运行时运维
 

@@ -25,7 +25,7 @@ description: 启动 1MCP 主运行时，并将其用于 CLI 模式、原生 HTTP
 - 运行聚合式 1MCP 运行时
 - 为 agent 提供 CLI 模式所依赖的后端
 - 为原生 HTTP MCP 客户端暴露直接接入点
-- 为 `1mcp proxy` 提供 stdio 兼容桥接目标
+- 为 `1mcp proxy` 提供带项目上下文的 stdio 兼容桥接目标
 
 CLI 模式依赖一个正在运行的 `serve` 实例。
 
@@ -130,7 +130,7 @@ http://127.0.0.1:3051/mcp?app=cursor
 1mcp serve --enable-auth --external-url https://mcp.example.com
 ```
 
-当客户端能够对 HTTP 运行时完成认证时，再使用这种方式。不要假设 stdio-only 客户端在这种配置下仍能通过 `proxy` 正常工作。
+当客户端能够对 HTTP 运行时完成认证时，再使用这种方式。不要假设无法完成 HTTP 认证的 stdio 客户端在这种配置下仍能通过 `proxy` 正常工作。
 
 ## 相关命令
 

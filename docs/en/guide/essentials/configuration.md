@@ -277,7 +277,7 @@ npx -y @1mcp/agent --filter "web and api and not test"
 ONE_MCP_FILTER="network+api" npx -y @1mcp/agent
 ```
 
-For client-side narrowing after the runtime is already running, use `--preset`, `--tags`, or `--tag-filter` with `instructions`, `inspect`, and `run`, or use `proxy --preset/--filter/--tags` for stdio-only clients.
+For client-side narrowing after the runtime is already running, use `--preset`, `--tags`, or `--tag-filter` with `instructions`, `inspect`, and `run`, or use `proxy --preset/--filter/--tags` for the maximum-compatibility stdio path.
 
 ### Internal Tools Options
 

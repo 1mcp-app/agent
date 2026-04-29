@@ -34,8 +34,8 @@ CLI mode does not replace MCP. It changes how an agent discovers and executes to
 flowchart TB
     subgraph Clients
         A1[Agent in CLI mode]
-        A2[Direct HTTP MCP client]
-        A3[stdio-only client]
+        A2[Direct streamable HTTP MCP client]
+        A3[stdio-compatible client]
     end
 
     subgraph Runtime["1mcp serve aggregated runtime"]
@@ -87,11 +87,11 @@ The runtime centralizes server lifecycle, transport routing, filtering, instruct
 2. The runtime resolves filters, presets, auth, and available connections.
 3. Tool listing and tool calls are served from the aggregated inventory.
 
-### stdio compatibility flow
+### stdio proxy flow
 
-1. A stdio-only client starts `1mcp proxy`.
+1. A stdio-compatible client starts `1mcp proxy`.
 2. `proxy` discovers a running `serve` instance and forwards stdio traffic to the HTTP runtime.
-3. Presets or filters can still be applied, but `proxy` remains a bridge rather than the primary product surface.
+3. Presets, `.1mcprc`, and template-aware context can still be applied, which makes `proxy` the recommended fallback after CLI mode.
 
 ## Key Components
 
@@ -167,17 +167,17 @@ CLI mode is a progressive agent interface, not a replacement wire protocol.
 
 ### Direct HTTP MCP attachment
 
-This is the right fit for MCP-native clients that want to connect directly to the aggregated runtime over HTTP.
+This is the right fit for MCP-native clients that want to connect directly to the aggregated runtime over streamable HTTP and do not need project context.
 
 ### `proxy`
 
-`1mcp proxy` exists for stdio-only compatibility. It bridges local stdio clients to a running HTTP runtime and should be treated as a compatibility surface, not the default architecture story.
+`1mcp proxy` is the maximum-compatibility client surface after CLI mode. It bridges local stdio clients to a running HTTP runtime while preserving project context through `.1mcprc` and supporting template-aware runtime behavior.
 
 ## Security and Operational Boundaries
 
 - `serve` is the runtime boundary where auth, rate limits, request handling, and health endpoints live.
 - Template resolution happens inside the runtime and is constrained by provided client or session context.
-- `proxy` does not add OAuth capability to stdio-only clients; if a client cannot authenticate, that limitation remains.
+- `proxy` does not add OAuth capability to stdio clients; if a client cannot authenticate, that limitation remains.
 - Presets and filters can narrow exposure, but they do not replace transport-level auth or server-side operational controls.
 
 In short: the current architecture is a unified runtime with multiple client surfaces, not just an HTTP framing layer in front of subprocesses.

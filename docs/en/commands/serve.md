@@ -35,7 +35,7 @@ Use `serve` whenever you want to:
 - run the aggregated 1MCP runtime
 - power CLI mode for agents
 - expose a direct HTTP MCP endpoint to MCP-native clients
-- provide a runtime for `1mcp proxy` to bridge stdio-only clients
+- provide a runtime for `1mcp proxy` to bridge stdio-compatible clients with project context
 
 CLI mode depends on a running `serve` instance.
 
@@ -140,7 +140,7 @@ http://127.0.0.1:3051/mcp?app=cursor
 1mcp serve --enable-auth --external-url https://mcp.example.com
 ```
 
-Use this when the client can authenticate against the HTTP runtime. Do not assume stdio-only clients will work through `proxy` in this configuration.
+Use this when the client can authenticate against the HTTP runtime. Do not assume stdio clients that cannot complete HTTP auth will work through `proxy` in this configuration.
 
 ## Related Commands
 

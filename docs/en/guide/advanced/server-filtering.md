@@ -87,7 +87,7 @@ After the runtime is already running, use the client-facing selectors that match
 1mcp inspect --tag-filter "web+api"
 1mcp run myserver/mytool --tag-filter "web+api" --args '{"q":"test"}'
 
-# Narrow a stdio-only compatibility client
+# Narrow the maximum-compatibility stdio path
 1mcp proxy --filter "web AND api"
 1mcp proxy --tags "web,api"
 ```

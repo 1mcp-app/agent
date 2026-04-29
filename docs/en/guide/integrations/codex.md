@@ -1,6 +1,6 @@
 ---
 title: Codex Integration - Setup and Configuration Guide
-description: Learn how to integrate 1MCP with Codex. Configure HTTP transport, per-project settings, and advanced MCP server management for Codex.
+description: Learn how to integrate 1MCP with Codex. Use CLI mode first, then proxy for maximum compatibility, with per-project settings and advanced MCP server management.
 head:
   - ['meta', { name: 'keywords', content: 'Codex integration,MCP setup,HTTP transport,per-project configuration' }]
   - ['meta', { property: 'og:title', content: '1MCP Codex Integration Guide' }]
@@ -15,7 +15,7 @@ head:
 
 # Codex Integration
 
-This guide covers integrating 1MCP with Codex to enable advanced MCP server management, per-project configurations, and streamable HTTP transport capabilities.
+This guide covers integrating 1MCP with Codex across the three supported paths: CLI mode first, `proxy` second for maximum compatibility, and direct streamable HTTP third when project context is unnecessary.
 
 ## CLI Mode First
 
@@ -90,6 +90,12 @@ npx -y @1mcp/agent preset create backend --filter "backend OR api"
 - **Single Source**: Manage all MCP servers in one place
 - **Hot Reloading**: Update configurations without restarting Codex
 - **Team Sharing**: Share presets across team members
+
+#### 4. **Maximum Client Compatibility**
+
+- **stdio is widely supported**: Most AI clients already support stdio transport
+- **HTTP support is narrower**: Streamable HTTP and SSE support still varies across clients and versions
+- **One operational pattern**: Teams can standardize on `serve` + `proxy` + `.1mcprc` even when clients differ
 
 ### 1MCP Bridge Solution
 

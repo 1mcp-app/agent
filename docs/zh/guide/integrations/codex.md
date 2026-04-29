@@ -1,6 +1,6 @@
 # Codex 集成
 
-本指南介绍如何将 1MCP 与 Codex 集成，实现高级 MCP 服务器管理、项目特定配置和可流式传输的 HTTP 传输能力。
+本指南介绍如何将 1MCP 与 Codex 集成，并覆盖三条支持路径：CLI 模式优先，`proxy` 作为最大兼容性的第二选择，以及在不需要项目上下文时作为第三选择的直接 streamable HTTP。
 
 ## CLI 模式优先
 
@@ -75,6 +75,12 @@ npx -y @1mcp/agent preset create backend --filter "backend OR api"
 - **单一源**：在一个地方管理所有 MCP 服务器
 - **热重载**：无需重启 Codex 即可更新配置
 - **团队共享**：在团队成员之间共享预设
+
+#### 4. **最大兼容性**
+
+- **stdio 支持最广**：大多数 AI 客户端已经支持 stdio 传输
+- **HTTP 支持更不均匀**：不同客户端和版本对 streamable HTTP、SSE 的支持差异仍然很大
+- **可统一的运维模式**：即使团队使用的客户端不同，也可以统一采用 `serve` + `proxy` + `.1mcprc`
 
 ### 1MCP 桥接解决方案
 

@@ -62,8 +62,8 @@ features:
     title: Presets and Filters
     details: Reuse server sets across projects, clients, and compatibility bridges without duplicating config.
   - icon: 🔐
-    title: Direct HTTP and Compatibility Paths
-    details: 'Support direct HTTP MCP attachment and `proxy` for stdio-only clients without making either the only story.'
+    title: Compatibility and Direct Paths
+    details: 'Use `proxy` for maximum client compatibility with project context, or direct streamable HTTP when native HTTP transport is enough.'
 ---
 
 ## Why 1MCP?
@@ -77,7 +77,8 @@ The current product model is:
 
 - `1mcp serve` is the unified runtime.
 - CLI mode is the preferred agent-facing workflow on the unified runtime.
-- Direct MCP attachment remains supported for MCP-native clients.
+- `proxy` is the preferred non-CLI path because it keeps project context and works with the widest set of AI clients.
+- Direct streamable HTTP remains supported for MCP-native clients that do not need project context.
 
 Use this page to choose a path. If you already know you want a working setup, go straight to [Quick Start](/guide/quick-start).
 
@@ -89,7 +90,8 @@ This page is for Codex, Claude, Cursor, and similar agent workflows. The default
 
 - Want the fastest first success for an agent workflow? Go to [Quick Start](/guide/quick-start).
 - Want the mental model for `instructions`, `inspect`, and `run`? Go to [CLI Mode](/guide/integrations/cli-mode).
-- Want to connect an MCP-native client directly to the runtime? Go to [serve](/commands/serve).
+- Want the broadest non-CLI client compatibility with project context? Go to [proxy](/commands/proxy).
+- Want to connect an MCP-native client directly to the runtime over streamable HTTP? Go to [serve](/commands/serve).
 - Want runtime details, loading behavior, or templates? Go to [Architecture](/reference/architecture).
 
 ## 5-Minute Setup Preview
@@ -122,7 +124,7 @@ This is only the preview path. For prerequisites, success checks, and troublesho
 ## Why This Path
 
 - **Smaller working surface for agents**: progressive discovery avoids dumping the whole tool catalog into context.
-- **One runtime for many clients**: agents, direct HTTP MCP clients, and stdio-only compatibility flows can share the same backend inventory.
+- **One runtime for many clients**: agents, stdio-compatible clients through `proxy`, and direct HTTP MCP clients can share the same backend inventory.
 - **Current runtime behavior, not a static proxy model**: async loading, lazy loading, templates, instructions, and presets are part of the main system design.
 
 ## Choose Another Path
@@ -139,13 +141,13 @@ This is only the preview path. For prerequisites, success checks, and troublesho
   </a>
 
   <a href="/commands/serve" class="vp-feature-box">
-    <h3>Direct Runtime Usage</h3>
-    <p>Best for MCP-native HTTP clients that want to connect straight to the aggregated runtime.</p>
+    <h3>Proxy Compatibility Path</h3>
+    <p>Best non-CLI path when you want project context, `.1mcprc`, template servers, and the widest client compatibility.</p>
   </a>
 
-  <a href="/commands/proxy" class="vp-feature-box">
-    <h3>stdio Compatibility</h3>
-    <p>Use `proxy` only when a client cannot talk to the HTTP runtime directly.</p>
+  <a href="/commands/serve" class="vp-feature-box">
+    <h3>Direct Runtime Usage</h3>
+    <p>Best for MCP-native HTTP clients that can use streamable HTTP directly and do not need project context.</p>
   </a>
 </div>
 

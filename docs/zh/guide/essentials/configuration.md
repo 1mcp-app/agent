@@ -271,7 +271,7 @@ npx -y @1mcp/agent --filter "web and api and not test"
 ONE_MCP_FILTER="network+api" npx -y @1mcp/agent
 ```
 
-如果运行时已经启动，而你只想对客户端侧做进一步收窄，请优先在 `instructions`、`inspect`、`run` 上使用 `--preset` 与 `--filter`，或对 stdio-only 客户端使用 `proxy --preset/--filter`。`--tags` 与 `--tag-filter` 仍可作为兼容旧用法的别名使用，但应优先采用统一的 `--filter` 与 `ONE_MCP_FILTER`。
+如果运行时已经启动，而你只想对客户端侧做进一步收窄，请优先在 `instructions`、`inspect`、`run` 上使用 `--preset` 与 `--filter`，或在最大兼容性的 stdio 路径上使用 `proxy --preset/--filter`。`--tags` 与 `--tag-filter` 仍可作为兼容旧用法的别名使用，但应优先采用统一的 `--filter` 与 `ONE_MCP_FILTER`。
 
 ### 内部工具选项
 

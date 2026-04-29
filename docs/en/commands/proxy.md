@@ -1,33 +1,33 @@
 ---
 title: Proxy Command
-description: Use 1mcp proxy as the stdio compatibility bridge to a running 1MCP HTTP runtime.
+description: Use 1mcp proxy as the maximum-compatibility bridge to a running 1MCP HTTP runtime.
 head:
-  - ['meta', { name: 'keywords', content: '1MCP proxy,stdio bridge,compatibility bridge,direct MCP,CLI mode' }]
+  - ['meta', { name: 'keywords', content: '1MCP proxy,stdio bridge,maximum compatibility,direct MCP,CLI mode' }]
   - ['meta', { property: 'og:title', content: '1MCP Proxy Command Reference' }]
   - [
       'meta',
       {
         property: 'og:description',
-        content: 'Bridge stdio-only MCP clients to a running 1MCP HTTP runtime with 1mcp proxy.',
+        content: 'Bridge stdio-compatible MCP clients to a running 1MCP HTTP runtime with 1mcp proxy.',
       },
     ]
 ---
 
 # Proxy Command
 
-`1mcp proxy` is the compatibility bridge for stdio-only clients.
+`1mcp proxy` is the maximum-compatibility bridge on top of a running 1MCP runtime.
 
-It connects a local stdio transport to a running `1mcp serve` HTTP runtime. It is useful when a client cannot talk to the HTTP MCP endpoint directly.
+It connects a local stdio transport to a running `1mcp serve` HTTP runtime. In practice, this is the preferred fallback after CLI mode because most AI clients already support stdio, while fewer support streamable HTTP, SSE, or CLI mode.
 
 ## Choose the Right Path
 
 1MCP supports three different paths:
 
 1. **CLI mode for agent loops**: recommended for Codex, Claude, and similar agent sessions.
-2. **Direct HTTP MCP attachment**: recommended for MCP-native clients that can connect to the runtime directly.
-3. **`proxy`**: use only when the client is limited to stdio.
+2. **`proxy`**: recommended when you want the broadest client compatibility while keeping project context.
+3. **Direct streamable HTTP MCP attachment**: use when the client can connect directly and you do not need project context.
 
-`proxy` is not the main product experience. It exists so older or stdio-only clients can still use the same runtime.
+`proxy` is not the main product experience. CLI mode remains the first choice for agent loops. `proxy` exists as the best non-CLI path when you want stdio compatibility plus `.1mcprc` and template-server support.
 
 ## Synopsis
 
@@ -55,7 +55,7 @@ If project config is present, `proxy` can also merge settings from `.1mcprc`.
 
 ## Project Configuration with `.1mcprc`
 
-`.1mcprc` is useful when you repeatedly bridge a stdio-only client to the same preset or filtered runtime view.
+`.1mcprc` is useful when you repeatedly bridge the same project or client to the same preset or filtered runtime view.
 
 Example:
 
@@ -91,7 +91,7 @@ Priority order is:
 
 ## Examples
 
-### Appropriate use: stdio-only compatibility
+### Appropriate use: maximum-compatibility stdio path
 
 ```bash
 # shell 1
@@ -132,9 +132,9 @@ Then let the agent use:
 1mcp run <server>/<tool> --args '<json>'
 ```
 
-### Prefer direct HTTP instead of `proxy`
+### Use direct HTTP only when project context is unnecessary
 
-If the client can talk to HTTP MCP directly, point it at the runtime endpoint rather than adding a local stdio bridge:
+If the client can talk to streamable HTTP MCP directly and you do not need project context, point it at the runtime endpoint:
 
 ```text
 http://127.0.0.1:3050/mcp?app=cursor
@@ -145,15 +145,15 @@ http://127.0.0.1:3050/mcp?app=cursor
 This is the most important limitation on this page:
 
 - stdio transport does not give a client an OAuth browser flow
-- `proxy` does not magically make a stdio-only client auth-capable
-- if your runtime requires auth, a stdio-only client cannot use it through `proxy`
+- `proxy` does not magically make a stdio client auth-capable
+- if your runtime requires auth, a client that cannot complete HTTP auth cannot use it through `proxy`
 
 In practice:
 
 - use CLI mode for agent loops whenever possible
-- use direct HTTP for clients that can authenticate
+- use direct HTTP for clients that can authenticate and do not need project context
 - use `proxy` only with runtimes that do not require auth
-- run a separate unauthenticated `serve` instance if a stdio-only client still needs compatibility access
+- run a separate unauthenticated `serve` instance if a stdio client still needs compatibility access
 
 ## See Also
 
