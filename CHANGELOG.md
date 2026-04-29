@@ -5,11 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [unreleased]
+## [0.31.0] - 2026-04-29
 
 ### 🚀 Features
 - Add global MCP server defaults by @xizhibei in [#275](https://github.com/1mcp-app/agent/pull/275)
 - Add CLI mode with inspect, run, auth, and setup commands by @xizhibei in [#282](https://github.com/1mcp-app/agent/pull/282)
+
+### 📚 Documentation
+- Enhance documentation for 1MCP, focusing on maximum compatibility and streamable HTTP by @xizhibei
+- Refresh 1MCP documentation for CLI mode and server filtering by @xizhibei in [#296](https://github.com/1mcp-app/agent/pull/296)
 
 ### 🧪 Testing
 - Enhance cli setup tests for absolute path handling and legacy reference replacement by @xizhibei
@@ -958,7 +962,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 * @xizhibei made their first contribution in [#1](https://github.com/1mcp-app/agent/pull/1)
 * @dependabot[bot] made their first contribution
 
-[unreleased]: https://github.com/1mcp-app/agent/compare/v0.30.3..HEAD
+[0.31.0]: https://github.com/1mcp-app/agent/compare/v0.30.3..v0.31.0
 [0.30.3]: https://github.com/1mcp-app/agent/compare/v0.30.2..v0.30.3
 [0.30.2]: https://github.com/1mcp-app/agent/compare/v0.30.1..v0.30.2
 [0.30.0]: https://github.com/1mcp-app/agent/compare/v0.29.2..v0.30.0
