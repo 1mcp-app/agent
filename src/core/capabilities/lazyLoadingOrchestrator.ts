@@ -2,9 +2,11 @@ import { EventEmitter } from 'events';
 
 import { Tool } from '@modelcontextprotocol/sdk/types.js';
 
+import { McpConfigManager } from '@src/config/mcpConfigManager.js';
 import { MCP_URI_SEPARATOR } from '@src/constants.js';
 import { AgentConfigManager } from '@src/core/server/agentConfig.js';
 import { ConnectionResolver, TemplateHashProvider } from '@src/core/server/connectionResolver.js';
+import { filterDisabledTools } from '@src/core/server/disabledTools.js';
 import { ClientStatus, OutboundConnections } from '@src/core/types/index.js';
 import logger, { debugIf, errorIf } from '@src/logger/logger.js';
 
@@ -161,6 +163,7 @@ export class LazyLoadingOrchestrator extends EventEmitter {
     const toolsMap = new Map<string, Tool[]>();
     const serverTags = new Map<string, string[]>();
     const failedServers: Array<{ server: string; error: string }> = [];
+    const serverConfigs = McpConfigManager.getInstance().getTransportConfig();
 
     for (const [serverName, connection] of this.outboundConnections.entries()) {
       if (!connection.client || connection.status !== ClientStatus.Connected) {
@@ -170,14 +173,14 @@ export class LazyLoadingOrchestrator extends EventEmitter {
       try {
         // Get tools directly from this server's client
         const toolsResult = await connection.client.listTools();
-        const serverTools = toolsResult.tools || [];
+        const effectiveServerName = connection.name || serverName;
+        const serverTools = filterDisabledTools(toolsResult.tools || [], serverConfigs, effectiveServerName);
 
         if (serverTools.length > 0) {
           // CRITICAL: Use connection.name instead of map key for server identification
           // Map keys for template servers include hash suffix (e.g., "template-server:abc123")
           // but connection.name is the clean name (e.g., "template-server")
           // This ensures tool registry uses consistent server names
-          const effectiveServerName = connection.name || serverName;
           toolsMap.set(effectiveServerName, serverTools);
 
           // Get tags from transport

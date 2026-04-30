@@ -18,6 +18,16 @@ vi.mock('@src/core/capabilities/internalCapabilitiesProvider.js', () => ({
   },
 }));
 
+const mockGetTransportConfig = vi.fn().mockReturnValue({});
+
+vi.mock('@src/config/mcpConfigManager.js', () => ({
+  McpConfigManager: {
+    getInstance: vi.fn(() => ({
+      getTransportConfig: mockGetTransportConfig,
+    })),
+  },
+}));
+
 describe('CapabilityAggregator', () => {
   let aggregator: CapabilityAggregator;
   let mockConnections: OutboundConnections;
@@ -35,9 +45,10 @@ describe('CapabilityAggregator', () => {
   const mockPrompt: Prompt = { name: 'test-prompt', description: 'A test prompt' };
 
   beforeEach(() => {
+    vi.clearAllMocks();
     mockConnections = new Map();
     aggregator = new CapabilityAggregator(mockConnections);
-    vi.resetAllMocks();
+    mockGetTransportConfig.mockReturnValue({});
   });
 
   afterEach(() => {
@@ -208,6 +219,47 @@ describe('CapabilityAggregator', () => {
       // Should only have one tool despite two servers providing tools with same name
       expect(changes.current.tools).toHaveLength(1);
       expect(changes.current.tools[0].name).toBe('test-tool');
+    });
+
+    it('should filter disabled tools by logical server name', async () => {
+      mockGetTransportConfig.mockReturnValue({
+        'template-server': {
+          type: 'stdio',
+          command: 'node',
+          disabledTools: ['test-tool'],
+        },
+      });
+
+      const mockClient = {
+        listTools: vi.fn().mockResolvedValue({ tools: [mockTool] }),
+        listResources: vi.fn().mockResolvedValue({ resources: [] }),
+        listPrompts: vi.fn().mockResolvedValue({ prompts: [] }),
+        getServerCapabilities: vi.fn().mockReturnValue({ resources: true, prompts: true }),
+        transport: {
+          start: vi.fn(),
+          send: vi.fn(),
+          close: vi.fn(),
+        },
+      } as any;
+
+      mockConnections.set('template-server:rendered-hash', {
+        name: 'template-server',
+        client: mockClient,
+        status: ClientStatus.Connected,
+        transport: {
+          start: vi.fn(),
+          send: vi.fn(),
+          close: vi.fn(),
+          onerror: vi.fn(),
+          onclose: vi.fn(),
+        },
+        lastConnected: new Date(),
+      });
+
+      const changes = await aggregator.updateCapabilities();
+
+      expect(changes.current.tools).toHaveLength(0);
+      expect(changes.current.readyServers).toContain('template-server:rendered-hash');
     });
   });
 

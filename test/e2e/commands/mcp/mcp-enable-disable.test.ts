@@ -7,6 +7,13 @@ describe('MCP Enable/Disable Commands E2E', () => {
   let environment: CommandTestEnvironment;
   let runner: CliTestRunner;
 
+  async function runMcpToolsCommand(args: string[], expectError: boolean = false) {
+    return runner.runCommand('mcp', 'tools', {
+      args: [...args, '--config', environment.getConfigPath()],
+      expectError,
+    });
+  }
+
   beforeEach(async () => {
     environment = new CommandTestEnvironment(TestFixtures.createTestScenario('mcp-enable-disable-test', 'mixed'));
     await environment.setup();
@@ -201,6 +208,53 @@ describe('MCP Enable/Disable Commands E2E', () => {
         runner.assertOutputContains(finalList, initialTags);
       }
       runner.assertOutputContains(finalList, 'Command: echo');
+    });
+  });
+
+  describe('Tool-level disable commands', () => {
+    it('should fail fast for bare interactive tools command in non-TTY environments', async () => {
+      const result = await runMcpToolsCommand([], true);
+
+      runner.assertFailure(result, 1);
+      runner.assertOutputContains(result, 'Interactive mode requires a TTY', true);
+    });
+
+    it('should disable a tool in config and list it', async () => {
+      const disableResult = await runMcpToolsCommand(['disable', 'echo-server', 'write_file']);
+
+      runner.assertSuccess(disableResult);
+      runner.assertOutputContains(disableResult, "Successfully disabled tool 'write_file' on server 'echo-server'");
+      runner.assertOutputContains(disableResult, 'mcp tools list echo-server --disabled');
+
+      const listResult = await runMcpToolsCommand(['list', 'echo-server', '--disabled']);
+
+      runner.assertSuccess(listResult);
+      runner.assertOutputContains(listResult, 'Disabled tools');
+      runner.assertOutputContains(listResult, 'write_file');
+    });
+
+    it('should enable a previously disabled tool in config', async () => {
+      await runMcpToolsCommand(['disable', 'echo-server', 'write_file']);
+
+      const enableResult = await runMcpToolsCommand(['enable', 'echo-server', 'write_file']);
+
+      runner.assertSuccess(enableResult);
+      runner.assertOutputContains(enableResult, "Successfully enabled tool 'write_file' on server 'echo-server'");
+
+      const listResult = await runMcpToolsCommand(['list', 'echo-server', '--disabled']);
+      runner.assertSuccess(listResult);
+      expect(listResult.stdout).not.toContain('write_file');
+      runner.assertOutputContains(listResult, 'No disabled tools configured.');
+    });
+
+    it('should persist disabledTools to configuration', async () => {
+      await runMcpToolsCommand(['disable', 'echo-server', 'write_file']);
+
+      const fs = await import('fs/promises');
+      const configContent = await fs.readFile(environment.getConfigPath(), 'utf-8');
+      const config = JSON.parse(configContent);
+
+      expect(config.mcpServers['echo-server'].disabledTools).toEqual(['write_file']);
     });
   });
 

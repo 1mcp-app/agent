@@ -1,6 +1,8 @@
 import { Tool } from '@modelcontextprotocol/sdk/types.js';
 
+import { McpConfigManager } from '@src/config/mcpConfigManager.js';
 import { ConnectionResolver, TemplateHashProvider } from '@src/core/server/connectionResolver.js';
+import { isToolDisabled } from '@src/core/server/disabledTools.js';
 import { OutboundConnections } from '@src/core/types/index.js';
 import logger, { debugIf, errorIf } from '@src/logger/logger.js';
 import { zodToInputSchema, zodToOutputSchema } from '@src/utils/schemaUtils.js';
@@ -122,6 +124,10 @@ export class MetaToolProvider {
    */
   public setAllowedServers(serverNames?: Set<string>): void {
     this.allowedServers = serverNames;
+  }
+
+  private isDisabled(logicalServerName: string, toolName: string): boolean {
+    return isToolDisabled(McpConfigManager.getInstance().getTransportConfig(), logicalServerName, toolName);
   }
 
   /**
@@ -318,6 +324,16 @@ export class MetaToolProvider {
         };
       }
 
+      if (this.isDisabled(args.server, args.toolName)) {
+        return {
+          schema: {},
+          error: {
+            type: 'not_found',
+            message: `Tool is disabled: ${args.server}:${args.toolName}. Use '1mcp mcp tools enable ${args.server} ${args.toolName}' to re-enable it.`,
+          },
+        };
+      }
+
       const connectionKey = this.resolveConnectionKey(args.server, sessionId);
 
       // Try to get from cache first
@@ -429,6 +445,18 @@ export class MetaToolProvider {
           error: {
             type: 'not_found',
             message: `Tool not found: ${args.server}:${args.toolName}. Call tool_list to see available tools.`,
+          },
+        };
+      }
+
+      if (this.isDisabled(args.server, args.toolName)) {
+        return {
+          result: {},
+          server: args.server,
+          tool: args.toolName,
+          error: {
+            type: 'not_found',
+            message: `Tool is disabled: ${args.server}:${args.toolName}. Use '1mcp mcp tools enable ${args.server} ${args.toolName}' to re-enable it.`,
           },
         };
       }

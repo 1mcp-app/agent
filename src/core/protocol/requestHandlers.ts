@@ -25,12 +25,14 @@ import {
   UnsubscribeRequestSchema,
 } from '@modelcontextprotocol/sdk/types.js';
 
+import { McpConfigManager } from '@src/config/mcpConfigManager.js';
 import { MCP_URI_SEPARATOR } from '@src/constants.js';
 import { InternalCapabilitiesProvider } from '@src/core/capabilities/internalCapabilitiesProvider.js';
 import { LazyLoadingOrchestrator } from '@src/core/capabilities/lazyLoadingOrchestrator.js';
 import { byCapabilities } from '@src/core/filtering/clientFiltering.js';
 import { FilteringService } from '@src/core/filtering/filteringService.js';
 import { createConnectionResolver } from '@src/core/server/connectionResolver.js';
+import { filterDisabledTools, isToolDisabled } from '@src/core/server/disabledTools.js';
 import { ServerManager } from '@src/core/server/serverManager.js';
 import { ClientStatus, InboundConnection, OutboundConnection, OutboundConnections } from '@src/core/types/index.js';
 import { setLogLevel } from '@src/logger/logger.js';
@@ -369,6 +371,7 @@ function registerToolHandlers(
 ): void {
   const sessionId = getRequestSession(inboundConn);
   const lazyLoadingEnabled = lazyLoadingOrchestrator?.isEnabled();
+  const serverConfigs = McpConfigManager.getInstance().getTransportConfig();
 
   // List Tools handler
   inboundConn.server.setRequestHandler(
@@ -445,7 +448,7 @@ function registerToolHandlers(
         request.params || {},
         (client, params, opts) => client.listTools(params as ListToolsRequest['params'], opts),
         (outboundConn, result) =>
-          result.tools?.map((tool) => ({
+          filterDisabledTools(result.tools || [], serverConfigs, outboundConn.name).map((tool) => ({
             ...tool,
             name: buildUri(outboundConn.name, tool.name, MCP_URI_SEPARATOR),
           })) ?? [],
@@ -556,6 +559,24 @@ function registerToolHandlers(
       }
 
       // Handle external MCP server tools
+      if (isToolDisabled(serverConfigs, clientName, extractedToolName)) {
+        const errorResult = {
+          error: {
+            type: 'not_found',
+            message: `Tool is disabled: ${clientName}:${extractedToolName}. Use '1mcp mcp tools enable ${clientName} ${extractedToolName}' to re-enable it.`,
+          },
+        };
+        return {
+          content: [
+            {
+              type: 'text' as const,
+              text: JSON.stringify(errorResult, null, 2),
+            },
+          ],
+          structuredContent: errorResult,
+        };
+      }
+
       const outboundConn = resolveOutboundConnection(clientName, sessionId, outboundConns);
       if (!outboundConn) {
         throw new Error(`Unknown client: ${clientName}`);

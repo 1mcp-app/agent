@@ -8,6 +8,16 @@ import { MetaToolProvider } from './metaToolProvider.js';
 import { SchemaCache } from './schemaCache.js';
 import { ToolRegistry } from './toolRegistry.js';
 
+const mockGetTransportConfig = vi.fn().mockReturnValue({});
+
+vi.mock('@src/config/mcpConfigManager.js', () => ({
+  McpConfigManager: {
+    getInstance: vi.fn(() => ({
+      getTransportConfig: mockGetTransportConfig,
+    })),
+  },
+}));
+
 describe('MetaToolProvider', () => {
   let toolRegistry: ToolRegistry;
   let schemaCache: SchemaCache;
@@ -16,6 +26,8 @@ describe('MetaToolProvider', () => {
   let mockClient: any;
 
   beforeEach(() => {
+    mockGetTransportConfig.mockReturnValue({});
+
     // Create mock tools
     const mockTools: Tool[] = [
       { name: 'read_file', description: 'Read file', inputSchema: { type: 'object' } },
@@ -293,6 +305,44 @@ describe('MetaToolProvider', () => {
         expect(result.error.type).toBe('not_found');
         expect(result.error.message).toContain('Unknown meta-tool');
       }
+    });
+  });
+
+  describe('disabled tools enforcement', () => {
+    it('should block tool_schema for a disabled tool', async () => {
+      mockGetTransportConfig.mockReturnValue({
+        filesystem: {
+          type: 'stdio',
+          command: 'node',
+          disabledTools: ['write_file'],
+        },
+      });
+
+      const result = await provider.callMetaTool('tool_schema', {
+        server: 'filesystem',
+        toolName: 'write_file',
+      });
+
+      expect('error' in result && result.error?.message).toContain('Tool is disabled');
+    });
+
+    it('should block tool_invoke for a disabled tool', async () => {
+      mockGetTransportConfig.mockReturnValue({
+        filesystem: {
+          type: 'stdio',
+          command: 'node',
+          disabledTools: ['write_file'],
+        },
+      });
+
+      const result = await provider.callMetaTool('tool_invoke', {
+        server: 'filesystem',
+        toolName: 'write_file',
+        args: {},
+      });
+
+      expect('error' in result && result.error?.message).toContain('Tool is disabled');
+      expect(mockClient.callTool).not.toHaveBeenCalled();
     });
   });
 
