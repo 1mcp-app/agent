@@ -153,6 +153,60 @@ describe('requestHandlers disabled tools enforcement', () => {
     expect(result.tools.map((tool: { name: string }) => tool.name)).toEqual(['filesystem/read_file']);
   });
 
+  it('re-reads disabled tools config for listTools after config reload', async () => {
+    mockGetTransportConfig.mockReturnValueOnce({
+      filesystem: {
+        type: 'stdio',
+        command: 'node',
+      },
+    });
+    mockGetTransportConfig.mockReturnValueOnce({
+      filesystem: {
+        type: 'stdio',
+        command: 'node',
+        disabledTools: ['write_file'],
+      },
+    });
+
+    mockHandlePagination.mockImplementation(
+      async (
+        filteredConnections: OutboundConnections,
+        _params: unknown,
+        _listFn: unknown,
+        mapResult: (
+          connection: OutboundConnection,
+          result: { tools?: Array<{ name: string; description: string }> },
+        ) => unknown,
+      ) => {
+        const connection = Array.from(filteredConnections.values())[0];
+        return {
+          items: mapResult(connection, {
+            tools: [
+              { name: 'read_file', description: 'Read file' },
+              { name: 'write_file', description: 'Write file' },
+            ],
+          }),
+          nextCursor: undefined,
+        };
+      },
+    );
+
+    registerRequestHandlers(outboundConnections, {
+      server: mockServer,
+      enablePagination: true,
+    } as any);
+
+    const handler = getRegisteredHandler(ListToolsRequestSchema);
+    const firstResult = await handler({ params: {} });
+    const secondResult = await handler({ params: {} });
+
+    expect(firstResult.tools.map((tool: { name: string }) => tool.name)).toEqual([
+      'filesystem/read_file',
+      'filesystem/write_file',
+    ]);
+    expect(secondResult.tools.map((tool: { name: string }) => tool.name)).toEqual(['filesystem/read_file']);
+  });
+
   it('blocks direct tool invocation for disabled tools', async () => {
     mockGetTransportConfig.mockReturnValue({
       filesystem: {
@@ -182,5 +236,49 @@ describe('requestHandlers disabled tools enforcement', () => {
 
     expect(result.structuredContent.error.message).toContain('Tool is disabled');
     expect(mockClient.callTool).not.toHaveBeenCalled();
+  });
+
+  it('re-reads disabled tools config for callTool after config reload', async () => {
+    mockGetTransportConfig.mockReturnValueOnce({
+      filesystem: {
+        type: 'stdio',
+        command: 'node',
+      },
+    });
+    mockGetTransportConfig.mockReturnValueOnce({
+      filesystem: {
+        type: 'stdio',
+        command: 'node',
+        disabledTools: ['write_file'],
+      },
+    });
+
+    mockParseUri.mockReturnValue({
+      clientName: 'filesystem',
+      resourceName: 'write_file',
+    });
+
+    registerRequestHandlers(outboundConnections, {
+      server: mockServer,
+      enablePagination: true,
+    } as any);
+
+    const handler = getRegisteredHandler(CallToolRequestSchema);
+    const firstResult = await handler({
+      params: {
+        name: 'filesystem/write_file',
+        arguments: {},
+      },
+    });
+    const secondResult = await handler({
+      params: {
+        name: 'filesystem/write_file',
+        arguments: {},
+      },
+    });
+
+    expect(mockClient.callTool).toHaveBeenCalledTimes(1);
+    expect(firstResult).toEqual({ content: [{ type: 'text', text: 'ok' }] });
+    expect(secondResult.structuredContent.error.message).toContain('Tool is disabled');
   });
 });

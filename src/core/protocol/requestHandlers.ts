@@ -35,6 +35,7 @@ import { createConnectionResolver } from '@src/core/server/connectionResolver.js
 import { filterDisabledTools, isToolDisabled } from '@src/core/server/disabledTools.js';
 import { ServerManager } from '@src/core/server/serverManager.js';
 import { ClientStatus, InboundConnection, OutboundConnection, OutboundConnections } from '@src/core/types/index.js';
+import type { MCPServerParams } from '@src/core/types/transport.js';
 import { setLogLevel } from '@src/logger/logger.js';
 import logger from '@src/logger/logger.js';
 import { withErrorHandling } from '@src/utils/core/errorHandling.js';
@@ -371,7 +372,7 @@ function registerToolHandlers(
 ): void {
   const sessionId = getRequestSession(inboundConn);
   const lazyLoadingEnabled = lazyLoadingOrchestrator?.isEnabled();
-  const serverConfigs = McpConfigManager.getInstance().getTransportConfig();
+  const getServerConfigs = (): Record<string, MCPServerParams> => McpConfigManager.getInstance().getTransportConfig();
 
   // List Tools handler
   inboundConn.server.setRequestHandler(
@@ -448,7 +449,7 @@ function registerToolHandlers(
         request.params || {},
         (client, params, opts) => client.listTools(params as ListToolsRequest['params'], opts),
         (outboundConn, result) =>
-          filterDisabledTools(result.tools || [], serverConfigs, outboundConn.name).map((tool) => ({
+          filterDisabledTools(result.tools || [], getServerConfigs(), outboundConn.name).map((tool) => ({
             ...tool,
             name: buildUri(outboundConn.name, tool.name, MCP_URI_SEPARATOR),
           })) ?? [],
@@ -559,7 +560,7 @@ function registerToolHandlers(
       }
 
       // Handle external MCP server tools
-      if (isToolDisabled(serverConfigs, clientName, extractedToolName)) {
+      if (isToolDisabled(getServerConfigs(), clientName, extractedToolName)) {
         const errorResult = {
           error: {
             type: 'not_found',
