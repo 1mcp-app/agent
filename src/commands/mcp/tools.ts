@@ -211,7 +211,11 @@ async function resolveToolSelectionState(
 ): Promise<ToolSelectionState | undefined> {
   let selectedServer = initialServer;
 
-  while (selectedServer) {
+  while (true) {
+    if (!selectedServer) {
+      return undefined;
+    }
+
     const serverConfig = targetServerEntries.find(([serverName]) => serverName === selectedServer)?.[1];
     if (!serverConfig) {
       throw new Error(`Server '${selectedServer}' does not exist. Use 'mcp add' to create it first.`);
@@ -264,8 +268,6 @@ async function resolveToolSelectionState(
       }
     }
   }
-
-  return undefined;
 }
 
 function printToolSaveSummary(
