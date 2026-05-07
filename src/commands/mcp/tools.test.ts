@@ -121,6 +121,9 @@ describe('toolsCommand', () => {
     );
     expect(configState.reloadMcpConfig).toHaveBeenCalled();
     expect(mockPrinter.success).toHaveBeenCalledWith("Saved tool selection for server 'good-server'");
+    expect(mockPrinter.info).toHaveBeenCalledWith(
+      'Running 1MCP serve instances reload mcp.json changes automatically when config reload is enabled.',
+    );
     expect(mockPrinter.keyValue).toHaveBeenCalledWith(
       expect.objectContaining({
         'Changed tools': 1,
@@ -128,6 +131,36 @@ describe('toolsCommand', () => {
       }),
     );
     expect(cleanup).toHaveBeenCalled();
+  });
+
+  it('enables a disabled tool and leaves runtime reload to serve hot reload', async () => {
+    configState.serverExists.mockReturnValue(true);
+    configState.getServer.mockReturnValue({
+      command: 'echo',
+      args: ['good'],
+      disabledTools: ['write_file'],
+    });
+
+    const { enableToolCommand } = await import('./tools.js');
+
+    await enableToolCommand({
+      server: 'good-server',
+      tool: 'write_file',
+      config: '/tmp/test-config.json',
+      'config-dir': '/tmp',
+    });
+
+    expect(configState.setServer).toHaveBeenCalledWith(
+      'good-server',
+      expect.not.objectContaining({
+        disabledTools: expect.arrayContaining(['write_file']),
+      }),
+    );
+    expect(configState.reloadMcpConfig).toHaveBeenCalled();
+    expect(mockPrinter.success).toHaveBeenCalledWith("Successfully enabled tool 'write_file' on server 'good-server'");
+    expect(mockPrinter.info).toHaveBeenCalledWith(
+      'Running 1MCP serve instances reload mcp.json changes automatically when config reload is enabled.',
+    );
   });
 
   it('does not write config when selection is unchanged', async () => {

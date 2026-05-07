@@ -1,10 +1,12 @@
 import type { Tool } from '@modelcontextprotocol/sdk/types.js';
 
 import { ConfigManager } from '@src/config/configManager.js';
+import { McpConfigManager } from '@src/config/mcpConfigManager.js';
 import { CapabilityAggregator } from '@src/core/capabilities/capabilityAggregator.js';
 import { ToolRegistry } from '@src/core/capabilities/toolRegistry.js';
 import { FilteringService } from '@src/core/filtering/filteringService.js';
 import { ServerRegistry } from '@src/core/server/adapters/ServerRegistry.js';
+import { filterDisabledTools, getDisabledToolError } from '@src/core/server/disabledTools.js';
 import { ServerManager } from '@src/core/server/serverManager.js';
 import logger from '@src/logger/logger.js';
 import {
@@ -58,6 +60,10 @@ async function listDirectServerTools(
     limit: options.limit,
     cursor: options.cursor,
   });
+}
+
+function getServerConfigs() {
+  return McpConfigManager.getInstance().getTransportConfig();
 }
 
 async function ensureRequestContextInitialized(
@@ -157,7 +163,8 @@ async function buildServerSummaries(
         try {
           const result = await connection.client.listTools();
           const cleanName = name.includes(':') ? name.split(':')[0] : name;
-          toolCountByServer[cleanName] = Math.max(toolCountByServer[cleanName] ?? 0, (result.tools ?? []).length);
+          const visibleTools = filterDisabledTools(result.tools ?? [], getServerConfigs(), cleanName);
+          toolCountByServer[cleanName] = Math.max(toolCountByServer[cleanName] ?? 0, visibleTools.length);
         } catch {
           const cleanName = name.includes(':') ? name.split(':')[0] : name;
           toolCountByServer[cleanName] = Math.max(toolCountByServer[cleanName] ?? 0, 0);
@@ -312,6 +319,12 @@ export function createInspectHandler(serverManager: ServerManager): RequestHandl
       // Tool target
       if (target.kind === 'tool') {
         const { serverName, toolName, qualifiedName } = target;
+        const disabledError = getDisabledToolError(getServerConfigs(), serverName, toolName);
+        if (disabledError) {
+          res.status(404).json({ error: disabledError.message });
+          return;
+        }
+
         const filteredConnection = resolveConnectionByServerName(filteredConnections, serverName);
         const sessionConnection = requestSessionId
           ? serverRegistry.resolveConnection(serverName, { sessionId: requestSessionId })
@@ -342,7 +355,9 @@ export function createInspectHandler(serverManager: ServerManager): RequestHandl
           if (connection?.client) {
             try {
               const result = await connection.client.listTools();
-              found = (result.tools ?? []).find((t) => t.name === qualifiedName || t.name === toolName);
+              found = filterDisabledTools(result.tools ?? [], getServerConfigs(), serverName).find(
+                (t) => t.name === qualifiedName || t.name === toolName,
+              );
             } catch {
               // ignore
             }
@@ -402,7 +417,7 @@ export function createInspectHandler(serverManager: ServerManager): RequestHandl
         if (connection?.client) {
           try {
             const directResult = await listDirectServerTools(connection, { limit, cursor: cursorParam });
-            const directTools = directResult.tools ?? [];
+            const directTools = filterDisabledTools(directResult.tools ?? [], getServerConfigs(), serverName);
             toolsResult = {
               tools: directTools.map((tool) => summarizeDirectServerTool(serverName, tool)),
               totalTools: directResult.totalCount ?? directTools.length,
@@ -451,7 +466,7 @@ export function createInspectHandler(serverManager: ServerManager): RequestHandl
       } else {
         try {
           const directResult = await listDirectServerTools(connection, { limit, cursor: cursorParam });
-          const directTools = directResult.tools ?? [];
+          const directTools = filterDisabledTools(directResult.tools ?? [], getServerConfigs(), serverName);
           toolsResult = {
             tools: directTools.map((tool) => summarizeDirectServerTool(serverName, tool)),
             totalTools: directResult.totalCount ?? directTools.length,

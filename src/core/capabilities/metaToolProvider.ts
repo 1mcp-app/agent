@@ -2,7 +2,7 @@ import { Tool } from '@modelcontextprotocol/sdk/types.js';
 
 import { McpConfigManager } from '@src/config/mcpConfigManager.js';
 import { ConnectionResolver, TemplateHashProvider } from '@src/core/server/connectionResolver.js';
-import { isToolDisabled } from '@src/core/server/disabledTools.js';
+import { getDisabledToolError } from '@src/core/server/disabledTools.js';
 import { OutboundConnections } from '@src/core/types/index.js';
 import logger, { debugIf, errorIf } from '@src/logger/logger.js';
 import { zodToInputSchema, zodToOutputSchema } from '@src/utils/schemaUtils.js';
@@ -126,8 +126,8 @@ export class MetaToolProvider {
     this.allowedServers = serverNames;
   }
 
-  private isDisabled(logicalServerName: string, toolName: string): boolean {
-    return isToolDisabled(McpConfigManager.getInstance().getTransportConfig(), logicalServerName, toolName);
+  private getDisabledError(logicalServerName: string, toolName: string) {
+    return getDisabledToolError(McpConfigManager.getInstance().getTransportConfig(), logicalServerName, toolName);
   }
 
   /**
@@ -324,13 +324,11 @@ export class MetaToolProvider {
         };
       }
 
-      if (this.isDisabled(args.server, args.toolName)) {
+      const disabledError = this.getDisabledError(args.server, args.toolName);
+      if (disabledError) {
         return {
           schema: {},
-          error: {
-            type: 'not_found',
-            message: `Tool is disabled: ${args.server}:${args.toolName}. Use '1mcp mcp tools enable ${args.server} ${args.toolName}' to re-enable it.`,
-          },
+          error: disabledError,
         };
       }
 
@@ -449,15 +447,13 @@ export class MetaToolProvider {
         };
       }
 
-      if (this.isDisabled(args.server, args.toolName)) {
+      const disabledError = this.getDisabledError(args.server, args.toolName);
+      if (disabledError) {
         return {
           result: {},
           server: args.server,
           tool: args.toolName,
-          error: {
-            type: 'not_found',
-            message: `Tool is disabled: ${args.server}:${args.toolName}. Use '1mcp mcp tools enable ${args.server} ${args.toolName}' to re-enable it.`,
-          },
+          error: disabledError,
         };
       }
 

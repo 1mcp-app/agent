@@ -1,5 +1,6 @@
 import { EventEmitter } from 'events';
 
+import { McpConfigManager } from '@src/config/mcpConfigManager.js';
 import { mergeGlobalAndServerConfig } from '@src/config/mcpConfigMerge.js';
 import { AgentConfigManager } from '@src/core/server/agentConfig.js';
 import {
@@ -407,6 +408,7 @@ export class ConfigManager extends EventEmitter {
 
     const changes = this.changeDetector.detectChanges(oldConfig, newConfig);
     this.transportConfig = newConfig;
+    McpConfigManager.getInstance(this.loader.getConfigFilePath()).reloadConfig();
 
     logger.info(`Detected ${changes.length} configuration changes`);
     this.emit(CONFIG_EVENTS.CONFIG_CHANGED, changes);

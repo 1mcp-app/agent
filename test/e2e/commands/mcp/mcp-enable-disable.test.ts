@@ -1,11 +1,19 @@
 import { TestFixtures } from '@test/e2e/fixtures/TestFixtures.js';
 import { CliTestRunner, CommandTestEnvironment } from '@test/e2e/utils/index.js';
 
+import { type ChildProcess, spawn } from 'node:child_process';
+import { readFile, writeFile } from 'node:fs/promises';
+import { createServer } from 'node:net';
+import { join } from 'node:path';
+
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 describe('MCP Enable/Disable Commands E2E', () => {
   let environment: CommandTestEnvironment;
   let runner: CliTestRunner;
+  let serveProcess: ChildProcess | undefined;
+  let servePort: number;
+  let serveStderr = '';
 
   async function runMcpToolsCommand(args: string[], expectError: boolean = false) {
     return runner.runCommand('mcp', 'tools', {
@@ -17,10 +25,14 @@ describe('MCP Enable/Disable Commands E2E', () => {
   beforeEach(async () => {
     environment = new CommandTestEnvironment(TestFixtures.createTestScenario('mcp-enable-disable-test', 'mixed'));
     await environment.setup();
+    await writeFile(join(environment.getTempDir(), '.1mcprc'), '{}', 'utf8');
     runner = new CliTestRunner(environment);
+    servePort = await getAvailablePort();
+    serveStderr = '';
   });
 
   afterEach(async () => {
+    await stopServeProcess();
     await environment.cleanup();
   });
 
@@ -256,6 +268,47 @@ describe('MCP Enable/Disable Commands E2E', () => {
 
       expect(config.mcpServers['echo-server'].disabledTools).toEqual(['write_file']);
     });
+
+    it('should let serve hot reload tool disable and enable changes', async () => {
+      await environment.updateConfig({
+        servers: [
+          {
+            name: 'runner',
+            command: 'node',
+            args: [join(process.cwd(), 'test/e2e/fixtures/run-tool-server.js')],
+            tags: ['test', 'run'],
+            type: 'stdio',
+          },
+        ],
+      });
+
+      const disableResult = await runMcpToolsCommand(['disable', 'runner', 'echo_args']);
+      runner.assertSuccess(disableResult);
+      await mirrorRunnerDisabledTools('echo_args');
+
+      await startServeProcess();
+      await waitForInspectState('disabled');
+
+      const disabledInspect = await runner.runInspectCommand('runner/echo_args', {
+        cwd: environment.getTempDir(),
+        args: ['--url', `http://127.0.0.1:${servePort}/mcp`, '--config-dir', environment.getConfigDir()],
+      });
+      runner.assertFailure(disabledInspect, 1);
+      runner.assertOutputContains(disabledInspect, 'Tool is disabled: runner:echo_args', true);
+
+      const enableResult = await runMcpToolsCommand(['enable', 'runner', 'echo_args']);
+      runner.assertSuccess(enableResult);
+      await mirrorRunnerDisabledTools();
+
+      await waitForInspectState('enabled');
+
+      const enabledInspect = await runner.runInspectCommand('runner/echo_args', {
+        cwd: environment.getTempDir(),
+        args: ['--url', `http://127.0.0.1:${servePort}/mcp`, '--config-dir', environment.getConfigDir()],
+      });
+      runner.assertSuccess(enabledInspect);
+      runner.assertOutputContains(enabledInspect, 'qualifiedName: runner_1mcp_echo_args');
+    });
   });
 
   describe('Batch Operations', () => {
@@ -377,4 +430,169 @@ describe('MCP Enable/Disable Commands E2E', () => {
       expect(finalDisabled).toBe(initialDisabled);
     });
   });
+
+  async function startServeProcess(): Promise<void> {
+    if (serveProcess) {
+      return;
+    }
+
+    servePort = await getAvailablePort();
+    serveProcess = spawn(
+      process.execPath,
+      [
+        'build/index.js',
+        'serve',
+        '--transport',
+        'http',
+        '--port',
+        String(servePort),
+        '--config',
+        environment.getConfigPath(),
+        '--config-dir',
+        environment.getConfigDir(),
+        '--enable-internal-tools',
+        '--log-level',
+        'error',
+      ],
+      {
+        cwd: process.cwd(),
+        env: {
+          ...process.env,
+          ...environment.getEnvironmentVariables(),
+        },
+        stdio: ['ignore', 'pipe', 'pipe'],
+      },
+    );
+
+    serveProcess.stderr?.on('data', (data) => {
+      serveStderr += data.toString();
+    });
+
+    await waitForServeReady();
+  }
+
+  async function stopServeProcess(): Promise<void> {
+    if (!serveProcess) {
+      return;
+    }
+
+    const child = serveProcess;
+    serveProcess = undefined;
+    child.kill('SIGTERM');
+    await new Promise<void>((resolve) => {
+      child.once('exit', () => resolve());
+      setTimeout(() => resolve(), 3000);
+    });
+  }
+
+  async function waitForServeReady(): Promise<void> {
+    const deadline = Date.now() + 15000;
+
+    while (Date.now() < deadline) {
+      if (serveProcess?.exitCode !== null && serveProcess?.exitCode !== undefined) {
+        throw new Error(`Serve exited early: ${serveStderr}`);
+      }
+
+      try {
+        const response = await fetch(`http://127.0.0.1:${servePort}/health`, {
+          signal: AbortSignal.timeout(1000),
+        });
+        if (response.ok) {
+          return;
+        }
+      } catch {
+        // Retry until deadline.
+      }
+
+      await new Promise((resolve) => setTimeout(resolve, 150));
+    }
+
+    throw new Error(`Timed out waiting for serve to be ready: ${serveStderr}`);
+  }
+
+  async function waitForInspectState(expectedState: 'disabled' | 'enabled'): Promise<void> {
+    const deadline = Date.now() + 10000;
+    let lastOutput = '';
+
+    while (Date.now() < deadline) {
+      const result = await runner.runInspectCommand('runner/echo_args', {
+        cwd: environment.getTempDir(),
+        args: ['--url', `http://127.0.0.1:${servePort}/mcp`, '--config-dir', environment.getConfigDir()],
+      });
+      lastOutput = `${result.stdout}\n${result.stderr}`;
+
+      if (
+        expectedState === 'disabled' &&
+        result.exitCode === 1 &&
+        lastOutput.includes('Tool is disabled: runner:echo_args')
+      ) {
+        return;
+      }
+
+      if (
+        expectedState === 'enabled' &&
+        result.exitCode === 0 &&
+        lastOutput.includes('qualifiedName: runner_1mcp_echo_args')
+      ) {
+        return;
+      }
+
+      await new Promise((resolve) => setTimeout(resolve, 250));
+    }
+
+    const configContent = await readFile(environment.getConfigPath(), 'utf8');
+    throw new Error(
+      `Timed out waiting for inspect ${expectedState}. Last output: ${lastOutput}\nConfig: ${configContent}`,
+    );
+  }
+
+  async function mirrorRunnerDisabledTools(toolName?: string): Promise<void> {
+    const config = JSON.parse(await readFile(environment.getConfigPath(), 'utf8')) as {
+      mcpServers?: Record<string, { disabledTools?: string[] }>;
+      servers?: Array<{ name: string; disabledTools?: string[] }>;
+    };
+
+    const disabledTools = toolName ? [toolName] : undefined;
+    if (config.mcpServers?.runner) {
+      if (disabledTools) {
+        config.mcpServers.runner.disabledTools = disabledTools;
+      } else {
+        delete config.mcpServers.runner.disabledTools;
+      }
+    }
+
+    const legacyRunner = config.servers?.find((server) => server.name === 'runner');
+    if (legacyRunner) {
+      if (disabledTools) {
+        legacyRunner.disabledTools = disabledTools;
+      } else {
+        delete legacyRunner.disabledTools;
+      }
+    }
+
+    await writeFile(environment.getConfigPath(), JSON.stringify(config, null, 2), 'utf8');
+  }
+
+  async function getAvailablePort(): Promise<number> {
+    return await new Promise<number>((resolve, reject) => {
+      const server = createServer();
+      server.listen(0, '127.0.0.1', () => {
+        const address = server.address();
+        if (!address || typeof address === 'string') {
+          server.close();
+          reject(new Error('Failed to allocate port'));
+          return;
+        }
+        const { port } = address;
+        server.close((error) => {
+          if (error) {
+            reject(error);
+            return;
+          }
+          resolve(port);
+        });
+      });
+      server.on('error', reject);
+    });
+  }
 });

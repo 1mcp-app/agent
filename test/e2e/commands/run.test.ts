@@ -31,6 +31,7 @@ describeRunE2E('run command E2E', () => {
       ],
     });
     await environment.setup();
+    await writeFile(join(environment.getTempDir(), '.1mcprc'), '{}', 'utf8');
     runner = new CliTestRunner(environment);
     servePort = await getAvailablePort();
   });
@@ -55,6 +56,20 @@ describeRunE2E('run command E2E', () => {
     expect(output.echoed).toContain('"message": "hello"');
     expect(output.echoed).toContain('"count": 2');
     expect(output.count).toBe(2);
+  });
+
+  it('blocks disabled tools before invocation', async () => {
+    await disableRunnerTool('echo_args');
+
+    await startServeProcess();
+
+    const result = await runner.runRunCommand('runner/echo_args', {
+      args: [...getCliSessionCacheArgs(), '--args', '{"message":"hello"}', '--format', 'text'],
+    });
+
+    runner.assertFailure(result, 1);
+    expect(result.stdout).toBe('');
+    expect(result.stderr).toContain('Tool is disabled: runner:echo_args');
   });
 
   it('maps JSON stdin directly to tool arguments', async () => {
@@ -260,6 +275,25 @@ describeRunE2E('run command E2E', () => {
     }
 
     throw new Error(lastError);
+  }
+
+  async function disableRunnerTool(toolName: string): Promise<void> {
+    const configPath = environment.getConfigPath();
+    const config = JSON.parse(await readFile(configPath, 'utf8')) as {
+      mcpServers?: Record<string, { disabledTools?: string[] }>;
+      servers?: Array<{ name: string; disabledTools?: string[] }>;
+    };
+
+    if (config.mcpServers?.runner) {
+      config.mcpServers.runner.disabledTools = [toolName];
+    }
+
+    const legacyRunner = config.servers?.find((server) => server.name === 'runner');
+    if (legacyRunner) {
+      legacyRunner.disabledTools = [toolName];
+    }
+
+    await writeFile(configPath, JSON.stringify(config, null, 2), 'utf8');
   }
 
   function getExpectedCachePath(): string {

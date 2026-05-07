@@ -14,12 +14,21 @@ import {
 const mockedLoadDeclaredServerConfigs = vi.hoisted(() => vi.fn());
 const mockedLoadConfigWithTemplates = vi.hoisted(() => vi.fn());
 const mockedExtractRequestContext = vi.hoisted(() => vi.fn());
+const mockedGetTransportConfig = vi.hoisted(() => vi.fn());
 
 vi.mock('@src/config/configManager.js', () => ({
   ConfigManager: {
     getInstance: vi.fn(() => ({
       loadDeclaredServerConfigs: mockedLoadDeclaredServerConfigs,
       loadConfigWithTemplates: mockedLoadConfigWithTemplates,
+    })),
+  },
+}));
+
+vi.mock('@src/config/mcpConfigManager.js', () => ({
+  McpConfigManager: {
+    getInstance: vi.fn(() => ({
+      getTransportConfig: mockedGetTransportConfig,
     })),
   },
 }));
@@ -105,6 +114,8 @@ describe('apiRoutes inspect', () => {
       templateServers: {},
       errors: [],
     });
+    mockedGetTransportConfig.mockReset();
+    mockedGetTransportConfig.mockReturnValue({});
     mockedLoadConfigWithTemplates.mockResolvedValue({
       staticServers: {},
       templateServers: {},
@@ -201,6 +212,51 @@ describe('apiRoutes inspect', () => {
       servers: [{ server: 'context7' }, { server: 'filesystem' }, { server: 'serena' }],
     });
     expect((res.body as { servers: Array<{ server: string }> }).servers).toHaveLength(3);
+  });
+
+  it('hides disabled tools from direct server inspect results', async () => {
+    mockedGetTransportConfig.mockReturnValue({
+      context7: {
+        type: 'stdio',
+        command: 'node',
+        disabledTools: ['context7_1mcp_query-docs'],
+      },
+    });
+
+    const req = { query: { target: 'context7' } };
+    const res = createMockResponse();
+
+    await invokeInspectRoute(scopeAuthMiddleware, req, res);
+    await invokeInspectRoute(inspectHandler, req, res);
+
+    expect(res.statusCode).toBe(200);
+    expect(res.body).toMatchObject({
+      kind: 'server',
+      server: 'context7',
+      totalTools: 0,
+      tools: [],
+    });
+  });
+
+  it('returns 404 for disabled tool inspect targets', async () => {
+    mockedGetTransportConfig.mockReturnValue({
+      context7: {
+        type: 'stdio',
+        command: 'node',
+        disabledTools: ['context7_1mcp_query-docs'],
+      },
+    });
+
+    const req = { query: { target: 'context7/context7_1mcp_query-docs' } };
+    const res = createMockResponse();
+
+    await invokeInspectRoute(scopeAuthMiddleware, req, res);
+    await invokeInspectRoute(inspectHandler, req, res);
+
+    expect(res.statusCode).toBe(404);
+    expect(res.body).toEqual({
+      error: "Tool is disabled: context7:query-docs. Use '1mcp mcp tools enable context7 query-docs' to re-enable it.",
+    });
   });
 
   it('includes declared template servers before any session has registered an adapter', async () => {
@@ -806,6 +862,10 @@ describe('apiRoutes /api/tools', () => {
     next();
   };
 
+  beforeEach(() => {
+    mockedGetTransportConfig.mockReturnValue({});
+  });
+
   it('returns empty tool list when lazy orchestrator is unavailable', async () => {
     const serverManager = {
       getLazyLoadingOrchestrator: vi.fn(() => undefined),
@@ -938,6 +998,52 @@ describe('apiRoutes /api/tools', () => {
     });
   });
 
+  it('filters disabled tools from fallback mode results', async () => {
+    mockedGetTransportConfig.mockReturnValue({
+      alpha: {
+        type: 'stdio',
+        command: 'node',
+        disabledTools: ['alpha_two'],
+      },
+    });
+
+    const serverManager = {
+      getLazyLoadingOrchestrator: vi.fn(() => undefined),
+      getClients: vi.fn(
+        () =>
+          new Map([
+            [
+              'alpha',
+              {
+                status: 'connected',
+                client: {
+                  listTools: vi.fn().mockResolvedValue({
+                    tools: [
+                      { name: 'alpha_one', description: 'First', inputSchema: {} },
+                      { name: 'alpha_two', description: 'Second', inputSchema: {} },
+                    ],
+                  }),
+                },
+              },
+            ],
+          ]),
+      ),
+    };
+    const handler = createToolsHandler(serverManager as never);
+    const res = createMockResponse();
+
+    await invokeInspectRoute(scopeAuthMiddleware, { query: {} }, res);
+    await invokeInspectRoute(handler, { query: {} }, res);
+
+    expect(res.statusCode).toBe(200);
+    expect(res.body).toMatchObject({
+      totalCount: 1,
+      hasMore: false,
+      servers: ['alpha'],
+      tools: [{ name: 'alpha_one', server: 'alpha', description: 'First' }],
+    });
+  });
+
   it('passes query params to callMetaTool and returns result', async () => {
     const mockResult = { tools: [], totalCount: 0, servers: [], hasMore: false };
     const callMetaTool = vi.fn().mockResolvedValue(mockResult);
@@ -1002,6 +1108,10 @@ describe('apiRoutes /api/tool-invocations', () => {
     next();
   };
 
+  beforeEach(() => {
+    mockedGetTransportConfig.mockReturnValue({});
+  });
+
   it('returns 400 when tool field is missing', async () => {
     const serverManager = { getLazyLoadingOrchestrator: vi.fn(() => undefined) };
     const handler = createToolInvocationsHandler(serverManager as never);
@@ -1051,6 +1161,57 @@ describe('apiRoutes /api/tool-invocations', () => {
 
     expect(res.statusCode).toBe(502);
     expect(res.body).toEqual({ error: 'Upstream error: Upstream error' });
+  });
+
+  it('returns 404 for disabled direct invocations and does not call upstream', async () => {
+    mockedGetTransportConfig.mockReturnValue({
+      server: {
+        type: 'stdio',
+        command: 'node',
+        disabledTools: ['tool'],
+      },
+    });
+
+    const callTool = vi.fn();
+    const serverManager = {
+      getLazyLoadingOrchestrator: vi.fn(() => undefined),
+      getClients: vi.fn(() => new Map()),
+      getClient: vi.fn(() => ({
+        client: { callTool },
+      })),
+    };
+    const handler = createToolInvocationsHandler(serverManager as never);
+    const res = createMockResponse();
+
+    await invokeInspectRoute(scopeAuthMiddleware, { body: { tool: 'server/tool' } }, res);
+    await invokeInspectRoute(handler, { body: { tool: 'server/tool' } }, res);
+
+    expect(res.statusCode).toBe(404);
+    expect(callTool).not.toHaveBeenCalled();
+  });
+
+  it('returns 404 for disabled lazy invocations and does not call meta-tool', async () => {
+    mockedGetTransportConfig.mockReturnValue({
+      alpha: {
+        type: 'stdio',
+        command: 'node',
+        disabledTools: ['alpha_1mcp_mytool'],
+      },
+    });
+
+    const callMetaTool = vi.fn();
+    const serverManager = { getLazyLoadingOrchestrator: vi.fn(() => ({ callMetaTool })) };
+    const handler = createToolInvocationsHandler(serverManager as never);
+    const res = createMockResponse();
+
+    await invokeInspectRoute(scopeAuthMiddleware, { body: { tool: 'alpha/mytool', args: { x: 1 } } }, res);
+    await invokeInspectRoute(handler, { body: { tool: 'alpha/mytool', args: { x: 1 } } }, res);
+
+    expect(res.statusCode).toBe(404);
+    expect(res.body).toEqual({
+      error: "Tool is disabled: alpha:mytool. Use '1mcp mcp tools enable alpha mytool' to re-enable it.",
+    });
+    expect(callMetaTool).not.toHaveBeenCalled();
   });
 
   it('resolves dynamic template connection keys for direct invocation', async () => {

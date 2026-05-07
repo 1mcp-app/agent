@@ -1,8 +1,10 @@
 import type { Tool } from '@modelcontextprotocol/sdk/types.js';
 
+import { McpConfigManager } from '@src/config/mcpConfigManager.js';
 import { ToolInvokeOutput, ToolListOutput } from '@src/core/capabilities/schemas/metaToolSchemas.js';
 import { ToolRegistry } from '@src/core/capabilities/toolRegistry.js';
 import { FilteringService } from '@src/core/filtering/filteringService.js';
+import { filterDisabledTools, getDisabledToolError } from '@src/core/server/disabledTools.js';
 import { ServerManager } from '@src/core/server/serverManager.js';
 import logger from '@src/logger/logger.js';
 import {
@@ -14,6 +16,10 @@ import {
 import { Request, RequestHandler, Response } from 'express';
 
 import { buildFilterConfig, parseTarget, resolveConnectionByServerName } from './inspectRoutes.js';
+
+function getServerConfigs() {
+  return McpConfigManager.getInstance().getTransportConfig();
+}
 
 function getAllowedServersFromRequest(serverManager: ServerManager, res: Response): Set<string> | undefined {
   const filterConfig = buildFilterConfig(res);
@@ -52,8 +58,12 @@ export function createToolsHandler(serverManager: ServerManager): RequestHandler
           if (server && serverName !== server) continue;
           if (conn.status !== 'connected') continue;
           try {
+            const logicalServerName = conn.name || (serverName.includes(':') ? serverName.split(':')[0] : serverName);
             const result = await conn.client.listTools();
-            toolsByServer.set(serverName, result.tools ?? []);
+            toolsByServer.set(
+              logicalServerName,
+              filterDisabledTools(result.tools ?? [], getServerConfigs(), logicalServerName),
+            );
           } catch (err) {
             logger.error(`Failed to list tools for ${serverName}:`, err);
           }
@@ -130,6 +140,12 @@ export function createToolInvocationsHandler(serverManager: ServerManager): Requ
       }
 
       const allowedServers = getAllowedServersFromRequest(serverManager, res);
+
+      const disabledError = getDisabledToolError(getServerConfigs(), target.serverName, target.toolName);
+      if (disabledError) {
+        res.status(404).json({ error: disabledError.message });
+        return;
+      }
 
       const lazyOrchestrator = serverManager.getLazyLoadingOrchestrator();
       if (!lazyOrchestrator) {

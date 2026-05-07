@@ -14,6 +14,7 @@ interface ConfigLoader {
 export class ConfigWatcher extends EventEmitter {
   private configWatcher: fs.FSWatcher | null = null;
   private debounceTimer: ReturnType<typeof setTimeout> | null = null;
+  private pollTimer: ReturnType<typeof setInterval> | null = null;
   private configFilePath: string;
   private loader: ConfigLoader;
 
@@ -44,29 +45,18 @@ export class ConfigWatcher extends EventEmitter {
       }
 
       this.configWatcher = fs.watch(configDir, (eventType: fs.WatchEventType, filename: string | null) => {
-        debugIf(() => ({
-          message: 'Directory change detected',
-          meta: { eventType, filename, configDir, configFileName },
-        }));
-
-        const isConfigFileEvent =
-          filename === configFileName ||
-          (filename && filename.startsWith(configFileName)) ||
-          (eventType === 'rename' && filename && filename.includes(path.parse(configFileName).name));
-
-        if (isConfigFileEvent || this.loader.checkFileModified()) {
-          debugIf(() => ({
-            message: 'Configuration file change detected, debouncing reload',
-            meta: { eventType, filename },
-          }));
-          this.debouncedReloadConfig();
-        }
+        this.handleWatchEvent(eventType, filename, configDir, configFileName);
       });
+      this.configWatcher.on('error', (error) => {
+        logger.warn('Configuration file watcher failed; falling back to polling', { error });
+        this.startPolling({ closeWatcher: true });
+      });
+      this.startPolling();
       logger.info(`Started watching configuration directory: ${configDir} for file: ${configFileName}`);
     } catch (error) {
       const errorMsg = `Failed to start watching configuration file: ${error instanceof Error ? error.message : String(error)}`;
       logger.error(errorMsg);
-      throw new Error(errorMsg);
+      this.startPolling({ closeWatcher: true });
     }
   }
 
@@ -75,10 +65,58 @@ export class ConfigWatcher extends EventEmitter {
     this.configWatcher = null;
     logger.info('Stopped watching configuration file');
 
+    if (this.pollTimer) {
+      clearInterval(this.pollTimer);
+      this.pollTimer = null;
+    }
+
     if (this.debounceTimer) {
       clearTimeout(this.debounceTimer);
       this.debounceTimer = null;
     }
+  }
+
+  private handleWatchEvent(
+    eventType: fs.WatchEventType,
+    filename: string | null,
+    configDir: string,
+    configFileName: string,
+  ): void {
+    debugIf(() => ({
+      message: 'Directory change detected',
+      meta: { eventType, filename, configDir, configFileName },
+    }));
+
+    const isConfigFileEvent =
+      filename === configFileName ||
+      (filename && filename.startsWith(configFileName)) ||
+      (eventType === 'rename' && filename && filename.includes(path.parse(configFileName).name));
+
+    if (isConfigFileEvent || this.loader.checkFileModified()) {
+      debugIf(() => ({
+        message: 'Configuration file change detected, debouncing reload',
+        meta: { eventType, filename },
+      }));
+      this.debouncedReloadConfig();
+    }
+  }
+
+  private startPolling(options: { closeWatcher?: boolean } = {}): void {
+    if (this.pollTimer) {
+      return;
+    }
+
+    if (options.closeWatcher) {
+      this.configWatcher?.close();
+      this.configWatcher = null;
+    }
+
+    this.pollTimer = setInterval(() => {
+      if (this.loader.checkFileModified()) {
+        debugIf('Configuration file modification detected by polling, debouncing reload');
+        this.debouncedReloadConfig();
+      }
+    }, 1000);
   }
 
   private debouncedReloadConfig(): void {

@@ -215,8 +215,10 @@ export async function getInspectResult(
     );
   }
 
+  const isMissingInspectEndpoint =
+    apiResponse.status === 404 && (!apiResponse.error || apiResponse.error === 'HTTP 404');
   const canFallbackToMcp =
-    apiResponse.status === 404 ||
+    isMissingInspectEndpoint ||
     apiResponse.status === 405 ||
     apiResponse.status === 0 ||
     ((target.kind === 'server' || target.kind === 'tool') && apiResponse.status === 503);

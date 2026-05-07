@@ -32,7 +32,7 @@ import { LazyLoadingOrchestrator } from '@src/core/capabilities/lazyLoadingOrche
 import { byCapabilities } from '@src/core/filtering/clientFiltering.js';
 import { FilteringService } from '@src/core/filtering/filteringService.js';
 import { createConnectionResolver } from '@src/core/server/connectionResolver.js';
-import { filterDisabledTools, isToolDisabled } from '@src/core/server/disabledTools.js';
+import { filterDisabledTools, getDisabledToolError } from '@src/core/server/disabledTools.js';
 import { ServerManager } from '@src/core/server/serverManager.js';
 import { ClientStatus, InboundConnection, OutboundConnection, OutboundConnections } from '@src/core/types/index.js';
 import type { MCPServerParams } from '@src/core/types/transport.js';
@@ -560,11 +560,12 @@ function registerToolHandlers(
       }
 
       // Handle external MCP server tools
-      if (isToolDisabled(getServerConfigs(), clientName, extractedToolName)) {
+      const disabledError = getDisabledToolError(getServerConfigs(), clientName, extractedToolName);
+      if (disabledError) {
         const errorResult = {
           error: {
-            type: 'not_found',
-            message: `Tool is disabled: ${clientName}:${extractedToolName}. Use '1mcp mcp tools enable ${clientName} ${extractedToolName}' to re-enable it.`,
+            type: disabledError.type,
+            message: disabledError.message,
           },
         };
         return {

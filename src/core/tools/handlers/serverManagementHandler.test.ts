@@ -58,7 +58,7 @@ vi.mock('@src/config/mcpConfigManager.js', () => ({
   McpConfigManager: {
     getInstance: vi.fn().mockReturnValue({
       getTransportConfig: vi.fn().mockReturnValue({}),
-      reload: vi.fn().mockResolvedValue(undefined),
+      reloadConfig: vi.fn(),
     }),
   },
 }));
@@ -710,10 +710,27 @@ describe('serverManagementHandler', () => {
   });
 
   describe('handleReloadOperation', () => {
+    let mcpConfigManagerInstance: {
+      getTransportConfig: ReturnType<typeof vi.fn>;
+      reloadConfig: ReturnType<typeof vi.fn>;
+    };
+
     beforeEach(() => {
       // Reset singletons for reload tests to avoid conflicts
       (ConfigManager as any).instance = null;
       (McpConfigManager as any).instance = null;
+
+      mcpConfigManagerInstance = {
+        getTransportConfig: vi.fn().mockReturnValue({
+          'test-server': {
+            type: 'stdio',
+            command: 'node',
+            args: ['test-server.js'],
+            tags: ['test'],
+          },
+        }),
+        reloadConfig: vi.fn(),
+      };
 
       // Set up ConfigManager mock for reload tests
       vi.mocked(ConfigManager.getInstance).mockReturnValue({
@@ -727,6 +744,7 @@ describe('serverManagementHandler', () => {
         }),
         reloadConfig: vi.fn().mockResolvedValue(undefined),
       } as any);
+      vi.mocked(McpConfigManager.getInstance).mockReturnValue(mcpConfigManagerInstance as any);
     });
 
     afterEach(() => {
@@ -755,6 +773,7 @@ describe('serverManagementHandler', () => {
       });
 
       expect(debugIf).toHaveBeenCalled();
+      expect(mcpConfigManagerInstance.reloadConfig).toHaveBeenCalled();
     });
 
     it('should handle server reload', async () => {
@@ -796,6 +815,7 @@ describe('serverManagementHandler', () => {
           message: 'Configuration reloaded successfully',
         },
       });
+      expect(mcpConfigManagerInstance.reloadConfig).toHaveBeenCalled();
     });
 
     it('should throw error when server name is missing for server reload', async () => {

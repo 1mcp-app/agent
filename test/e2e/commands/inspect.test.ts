@@ -78,6 +78,37 @@ describeInspectE2E('inspect command E2E', () => {
     expect(result.stdout).toContain('summarize,runner_1mcp_summarize');
   });
 
+  it('hides disabled tools from server inventory', async () => {
+    await disableRunnerTool('echo_args');
+
+    await startServeProcess();
+
+    const result = await runner.runInspectCommand('runner', {
+      cwd: environment.getTempDir(),
+      args: getCliSessionCacheArgs(),
+    });
+
+    runner.assertSuccess(result);
+    expect(result.stdout).toContain('totalTools: 3');
+    expect(result.stdout).not.toContain('echo_args,runner_1mcp_echo_args');
+    expect(result.stdout).toContain('summarize,runner_1mcp_summarize');
+  });
+
+  it('returns a disabled-tool error for tool inspect', async () => {
+    await disableRunnerTool('echo_args');
+
+    await startServeProcess();
+
+    const result = await runner.runInspectCommand('runner/echo_args', {
+      cwd: environment.getTempDir(),
+      args: getCliSessionCacheArgs(),
+    });
+
+    runner.assertFailure(result, 1);
+    expect(result.stdout).toBe('');
+    expect(result.stderr).toContain('Tool is disabled: runner:echo_args');
+  });
+
   it('prints normalized json with --format json', async () => {
     await startServeProcess();
 
@@ -298,6 +329,25 @@ describeInspectE2E('inspect command E2E', () => {
     });
 
     await waitForServeReady(stderr);
+  }
+
+  async function disableRunnerTool(toolName: string): Promise<void> {
+    const configPath = environment.getConfigPath();
+    const config = JSON.parse(await readFile(configPath, 'utf8')) as {
+      mcpServers?: Record<string, { disabledTools?: string[] }>;
+      servers?: Array<{ name: string; disabledTools?: string[] }>;
+    };
+
+    if (config.mcpServers?.runner) {
+      config.mcpServers.runner.disabledTools = [toolName];
+    }
+
+    const legacyRunner = config.servers?.find((server) => server.name === 'runner');
+    if (legacyRunner) {
+      legacyRunner.disabledTools = [toolName];
+    }
+
+    await writeFile(configPath, JSON.stringify(config, null, 2), 'utf8');
   }
 
   function getExpectedCachePath(): string {

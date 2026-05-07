@@ -76,6 +76,10 @@ function printVerificationStep(serverName: string): void {
   printer.info(`Next: run '1mcp mcp tools list ${serverName} --disabled' to verify the current disabled tools.`);
 }
 
+function printRuntimeReloadNote(): void {
+  printer.info('Running 1MCP serve instances reload mcp.json changes automatically when config reload is enabled.');
+}
+
 function getSortedServerEntries(server?: string): [string, MCPServerParams][] {
   const allServers = getAllServers();
   return Object.entries(allServers)
@@ -130,6 +134,7 @@ function formatPercent(savedTokens: number, totalTokensBefore: number): string {
 
 function applyToolSelection(
   currentConfig: MCPServerParams,
+  serverName: string,
   allToolNames: string[],
   selectedToolNames: string[],
 ): MCPServerParams {
@@ -137,7 +142,7 @@ function applyToolSelection(
   let nextConfig = currentConfig;
 
   for (const toolName of allToolNames) {
-    nextConfig = withToolDisabledState(nextConfig, toolName, !selectedSet.has(toolName));
+    nextConfig = withToolDisabledState(nextConfig, toolName, !selectedSet.has(toolName), serverName);
   }
 
   return nextConfig;
@@ -385,7 +390,7 @@ export async function disableToolCommand(argv: ToolCommandBaseArgs): Promise<voi
     }
 
     const backupPath = backupConfig();
-    const nextConfig = withToolDisabledState(currentConfig, normalizedToolName, true);
+    const nextConfig = withToolDisabledState(currentConfig, normalizedToolName, true, server);
     setServer(server, nextConfig);
     reloadMcpConfig();
 
@@ -395,6 +400,7 @@ export async function disableToolCommand(argv: ToolCommandBaseArgs): Promise<voi
       'Backup created': backupPath,
       Mode: 'Config-only',
     });
+    printRuntimeReloadNote();
     printer.blank();
     printVerificationStep(server);
   } catch (error) {
@@ -430,7 +436,7 @@ export async function enableToolCommand(argv: ToolCommandBaseArgs): Promise<void
     }
 
     const backupPath = backupConfig();
-    const nextConfig = withToolDisabledState(currentConfig, normalizedToolName, false);
+    const nextConfig = withToolDisabledState(currentConfig, normalizedToolName, false, server);
     setServer(server, nextConfig);
     reloadMcpConfig();
 
@@ -440,6 +446,7 @@ export async function enableToolCommand(argv: ToolCommandBaseArgs): Promise<void
       'Backup created': backupPath,
       Mode: 'Config-only',
     });
+    printRuntimeReloadNote();
     printer.blank();
     printVerificationStep(server);
   } catch (error) {
@@ -506,6 +513,7 @@ export async function toolsCommand(
 
     const nextConfig = applyToolSelection(
       currentConfig,
+      selectionState.selectedServer,
       selectionState.allToolTokens.map((toolInfo) => toolInfo.name),
       selectionState.selectedToolNames,
     );
@@ -534,6 +542,7 @@ export async function toolsCommand(
       selectionState.selectedToolNames,
       changedToolNames,
     );
+    printRuntimeReloadNote();
   } catch (error) {
     printer.error(`Failed to manage tools interactively: ${error instanceof Error ? error.message : error}`);
     process.exit(1);
