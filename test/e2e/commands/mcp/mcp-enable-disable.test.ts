@@ -22,6 +22,98 @@ describe('MCP Enable/Disable Commands E2E', () => {
     });
   }
 
+  async function runInteractiveMcpToolsCommand(args: string[]) {
+    const startTime = Date.now();
+    const timeout = 8000;
+
+    return await new Promise<{
+      exitCode: number;
+      stdout: string;
+      stderr: string;
+      duration: number;
+      error?: Error;
+    }>((resolve) => {
+      const child = spawn(
+        process.execPath,
+        [join(process.cwd(), 'test/e2e/fixtures/tty-cli-wrapper.js'), 'build/index.js', 'mcp', 'tools', ...args],
+        {
+          cwd: process.cwd(),
+          env: {
+            ...process.env,
+            ...environment.getEnvironmentVariables(),
+          },
+          stdio: ['pipe', 'pipe', 'pipe'],
+        },
+      );
+
+      let stdout = '';
+      let stderr = '';
+      let resolved = false;
+
+      const timeoutHandle = setTimeout(() => {
+        if (resolved) {
+          return;
+        }
+
+        resolved = true;
+        child.kill('SIGTERM');
+        resolve({
+          exitCode: -1,
+          stdout,
+          stderr,
+          error: new Error(`Command timed out after ${timeout}ms`),
+          duration: Date.now() - startTime,
+        });
+      }, timeout);
+
+      child.stdout?.on('data', (data) => {
+        stdout += data.toString();
+      });
+
+      child.stderr?.on('data', (data) => {
+        stderr += data.toString();
+      });
+
+      child.on('spawn', () => {
+        setTimeout(() => {
+          child.stdin?.write(' \r');
+          child.stdin?.end();
+        }, 400);
+      });
+
+      child.on('exit', (code, signal) => {
+        if (resolved) {
+          return;
+        }
+
+        resolved = true;
+        clearTimeout(timeoutHandle);
+        resolve({
+          exitCode: code !== null ? code : signal === 'SIGTERM' ? -1 : -2,
+          stdout: stdout.trim(),
+          stderr: stderr.trim(),
+          duration: Date.now() - startTime,
+        });
+      });
+
+      child.on('error', (error) => {
+        if (resolved) {
+          return;
+        }
+
+        resolved = true;
+        clearTimeout(timeoutHandle);
+        resolve({
+          exitCode: -1,
+          stdout: stdout.trim(),
+          stderr: stderr.trim(),
+          error,
+          duration: Date.now() - startTime,
+        });
+      });
+    });
+  }
+
   beforeEach(async () => {
     environment = new CommandTestEnvironment(TestFixtures.createTestScenario('mcp-enable-disable-test', 'mixed'));
     await environment.setup();
@@ -229,6 +321,37 @@ describe('MCP Enable/Disable Commands E2E', () => {
 
       runner.assertFailure(result, 1);
       runner.assertOutputContains(result, 'Interactive mode requires a TTY', true);
+    });
+
+    it('should exit on its own after saving interactive tool selection', async () => {
+      await environment.updateConfig({
+        servers: [
+          {
+            name: 'runner',
+            command: 'node',
+            args: [join(process.cwd(), 'test/e2e/fixtures/run-tool-server.js')],
+            tags: ['test', 'run'],
+            type: 'stdio',
+          },
+        ],
+      });
+
+      const result = await runInteractiveMcpToolsCommand([
+        '--server',
+        'runner',
+        '--config',
+        environment.getConfigPath(),
+        '--config-dir',
+        environment.getConfigDir(),
+      ]);
+
+      runner.assertSuccess(result);
+      runner.assertOutputContains(result, "Saved tool selection for server 'runner'");
+
+      const config = JSON.parse(await readFile(environment.getConfigPath(), 'utf8')) as {
+        mcpServers?: Record<string, { disabledTools?: string[] }>;
+      };
+      expect(config.mcpServers?.runner?.disabledTools).toEqual(['echo_args']);
     });
 
     it('should disable a tool in config and list it', async () => {

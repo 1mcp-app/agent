@@ -21,6 +21,25 @@ export interface ServerCapabilities {
 export class McpConnectionHelper {
   private connections: Map<string, OutboundConnection> = new Map();
 
+  private async withTimeout<T>(operation: Promise<T>, timeoutMs: number, errorMessage: string): Promise<T> {
+    let timeoutId: ReturnType<typeof setTimeout> | undefined;
+
+    try {
+      return await Promise.race([
+        operation,
+        new Promise<never>((_, reject) => {
+          timeoutId = setTimeout(() => {
+            reject(new Error(errorMessage));
+          }, timeoutMs);
+        }),
+      ]);
+    } finally {
+      if (timeoutId) {
+        clearTimeout(timeoutId);
+      }
+    }
+  }
+
   /**
    * Connect to MCP servers based on configuration
    */
@@ -46,13 +65,6 @@ export class McpConnectionHelper {
       try {
         logger.debug(`Connecting to server: ${serverName}`);
 
-        // Create a timeout promise
-        const timeoutPromise = new Promise<never>((_, reject) => {
-          setTimeout(() => {
-            reject(new Error(`Connection timeout after ${timeoutMs}ms`));
-          }, timeoutMs);
-        });
-
         // Get transport for this server
         const transport = transports[serverName];
         if (!transport) {
@@ -64,10 +76,11 @@ export class McpConnectionHelper {
         const tempTransports = { [serverName]: transport };
 
         // Connect with timeout
-        const connectPromise = tempClientManager.createClients(tempTransports);
-
-        // Race between connection and timeout
-        const clients = await Promise.race([connectPromise, timeoutPromise]);
+        const clients = await this.withTimeout(
+          tempClientManager.createClients(tempTransports),
+          timeoutMs,
+          `Connection timeout after ${timeoutMs}ms`,
+        );
 
         const connection = clients.get(serverName);
         if (!connection) {
@@ -127,10 +140,7 @@ export class McpConnectionHelper {
     try {
       // Get tools with timeout
       try {
-        const toolsResult = await Promise.race([
-          connection.client.listTools({}),
-          new Promise<never>((_, reject) => setTimeout(() => reject(new Error('Tools listing timeout')), 5000)),
-        ]);
+        const toolsResult = await this.withTimeout(connection.client.listTools({}), 5000, 'Tools listing timeout');
 
         if (toolsResult && toolsResult.tools) {
           tools.push(...toolsResult.tools);
@@ -142,10 +152,11 @@ export class McpConnectionHelper {
 
       // Get resources with timeout
       try {
-        const resourcesResult = await Promise.race([
+        const resourcesResult = await this.withTimeout(
           connection.client.listResources({}),
-          new Promise<never>((_, reject) => setTimeout(() => reject(new Error('Resources listing timeout')), 5000)),
-        ]);
+          5000,
+          'Resources listing timeout',
+        );
 
         if (resourcesResult && resourcesResult.resources) {
           resources.push(...resourcesResult.resources);
@@ -157,10 +168,11 @@ export class McpConnectionHelper {
 
       // Get prompts with timeout
       try {
-        const promptsResult = await Promise.race([
+        const promptsResult = await this.withTimeout(
           connection.client.listPrompts({}),
-          new Promise<never>((_, reject) => setTimeout(() => reject(new Error('Prompts listing timeout')), 5000)),
-        ]);
+          5000,
+          'Prompts listing timeout',
+        );
 
         if (promptsResult && promptsResult.prompts) {
           prompts.push(...promptsResult.prompts);
@@ -188,16 +200,32 @@ export class McpConnectionHelper {
       const cleanupPromise = (async () => {
         try {
           if (connection.client && typeof connection.client.close === 'function') {
-            // Add timeout to close operation
-            await Promise.race([
-              connection.client.close(),
-              new Promise<never>((_, reject) => setTimeout(() => reject(new Error('Close operation timeout')), 3000)),
-            ]);
+            await this.withTimeout(Promise.resolve(connection.client.close()), 3000, 'Client close timeout');
           }
-          logger.debug(`Closed connection to ${serverName}`);
         } catch (error) {
-          logger.warn(`Error closing connection to ${serverName}: ${error instanceof Error ? error.message : error}`);
+          logger.warn(`Error closing client for ${serverName}: ${error instanceof Error ? error.message : error}`);
         }
+
+        try {
+          if (connection.transport && typeof connection.transport.close === 'function') {
+            await this.withTimeout(Promise.resolve(connection.transport.close()), 3000, 'Transport close timeout');
+          }
+        } catch (error) {
+          logger.warn(`Error closing transport for ${serverName}: ${error instanceof Error ? error.message : error}`);
+        }
+
+        try {
+          const oauthProvider = connection.transport?.oauthProvider;
+          if (oauthProvider && typeof oauthProvider.shutdown === 'function') {
+            oauthProvider.shutdown();
+          }
+        } catch (error) {
+          logger.warn(
+            `Error shutting down OAuth provider for ${serverName}: ${error instanceof Error ? error.message : error}`,
+          );
+        }
+
+        logger.debug(`Closed connection to ${serverName}`);
       })();
 
       cleanupPromises.push(cleanupPromise);

@@ -8,7 +8,6 @@ import {
   backupConfig,
   getServer,
   initializeConfigContext,
-  reloadMcpConfig,
   serverExists,
   setServer,
   validateConfigPath,
@@ -95,9 +94,6 @@ export async function enableCommand(argv: EnableDisableCommandArgs): Promise<voi
     // Save the updated configuration
     setServer(name, updatedConfig);
 
-    // Reload MCP configuration
-    reloadMcpConfig();
-
     // Success message
     printer.success(`Successfully enabled server '${name}'`);
     printer.keyValue({ Status: 'Disabled → Enabled', 'Backup created': backupPath });
@@ -155,9 +151,6 @@ export async function disableCommand(argv: EnableDisableCommandArgs): Promise<vo
 
     // Save the updated configuration
     setServer(name, updatedConfig);
-
-    // Reload MCP configuration
-    reloadMcpConfig();
 
     // Success message
     printer.success(`Successfully disabled server '${name}'`);

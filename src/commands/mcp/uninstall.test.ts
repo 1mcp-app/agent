@@ -81,12 +81,12 @@ describe('Uninstall Command', () => {
       expect((configUtils.removeServer as any).mock.calls.length).toBe(0);
     });
 
-    it('should remove config and reload when allowed', async () => {
+    it('should remove config without runtime reload when allowed', async () => {
       const args = { serverName: 'ok', force: true, backup: true, 'remove-config': true };
       await uninstallCommand(args as any);
       expect((configUtils.backupConfig as any).mock.calls.length).toBeGreaterThan(0);
       expect(configUtils.removeServer).toHaveBeenCalledWith('ok');
-      expect((configUtils.reloadMcpConfig as any).mock.calls.length).toBeGreaterThan(0);
+      expect((configUtils.reloadMcpConfig as any).mock.calls.length).toBe(0);
       expect(printer.success).toHaveBeenCalledWith(expect.stringMatching(/Successfully uninstalled/));
     });
 

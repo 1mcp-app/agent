@@ -1,6 +1,6 @@
 import type { Tool } from '@modelcontextprotocol/sdk/types.js';
 
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { toolsCommand } from './tools.js';
 
@@ -61,6 +61,10 @@ describe('toolsCommand', () => {
     configState.getServer.mockImplementation((serverName: string) => servers[serverName as keyof typeof servers]);
   });
 
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   it('persists disabled tools from interactive selection', async () => {
     const prompt = vi.fn().mockResolvedValue({
       selected: ['read_file'],
@@ -119,7 +123,7 @@ describe('toolsCommand', () => {
         disabledTools: ['write_file'],
       }),
     );
-    expect(configState.reloadMcpConfig).toHaveBeenCalled();
+    expect(configState.reloadMcpConfig).not.toHaveBeenCalled();
     expect(mockPrinter.success).toHaveBeenCalledWith("Saved tool selection for server 'good-server'");
     expect(mockPrinter.info).toHaveBeenCalledWith(
       'Running 1MCP serve instances reload mcp.json changes automatically when config reload is enabled.',
@@ -156,7 +160,7 @@ describe('toolsCommand', () => {
         disabledTools: expect.arrayContaining(['write_file']),
       }),
     );
-    expect(configState.reloadMcpConfig).toHaveBeenCalled();
+    expect(configState.reloadMcpConfig).not.toHaveBeenCalled();
     expect(mockPrinter.success).toHaveBeenCalledWith("Successfully enabled tool 'write_file' on server 'good-server'");
     expect(mockPrinter.info).toHaveBeenCalledWith(
       'Running 1MCP serve instances reload mcp.json changes automatically when config reload is enabled.',
@@ -276,5 +280,70 @@ describe('toolsCommand', () => {
       }),
     );
     expect(prompt).toHaveBeenCalledTimes(3);
+  });
+
+  it('waits for helper cleanup to settle before completing the interactive save flow', async () => {
+    vi.useFakeTimers();
+
+    const prompt = vi.fn().mockResolvedValue({
+      selected: [],
+    });
+    const cleanup = vi.fn().mockImplementation(
+      () =>
+        new Promise<void>((resolve) => {
+          setTimeout(resolve, 25);
+        }),
+    );
+
+    const commandPromise = toolsCommand(
+      {
+        server: 'good-server',
+        config: '/tmp/test-config.json',
+      },
+      {
+        connectionHelperFactory: () =>
+          ({
+            connectToServers: vi.fn().mockResolvedValue([
+              {
+                connected: true,
+                tools: [
+                  { name: 'read_file', inputSchema: { type: 'object' } },
+                  { name: 'write_file', inputSchema: { type: 'object' } },
+                ] satisfies Tool[],
+              },
+            ]),
+            cleanup,
+          }) as any,
+        tokenServiceFactory: () =>
+          ({
+            estimateServerTokens: vi.fn().mockReturnValue({
+              breakdown: {
+                tools: [
+                  { name: 'read_file', tokens: 90 },
+                  { name: 'write_file', tokens: 140 },
+                ],
+              },
+            }),
+          }) as any,
+        isInteractiveTerminal: () => true,
+        prompt: prompt as any,
+      },
+    );
+
+    await Promise.resolve();
+    expect(prompt).not.toHaveBeenCalled();
+
+    await vi.runAllTimersAsync();
+    await commandPromise;
+
+    expect(cleanup).toHaveBeenCalledTimes(1);
+    expect(prompt).toHaveBeenCalledTimes(1);
+    expect(configState.setServer).toHaveBeenCalledWith(
+      'good-server',
+      expect.objectContaining({
+        disabledTools: ['read_file', 'write_file'],
+      }),
+    );
+    expect(vi.getTimerCount()).toBe(0);
   });
 });

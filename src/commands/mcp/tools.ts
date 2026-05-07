@@ -1,5 +1,5 @@
 import { TokenEstimationService, type ToolTokenInfo } from '@src/application/services/tokenEstimationService.js';
-import { McpConnectionHelper } from '@src/commands/mcp/utils/connectionHelper.js';
+import { McpConnectionHelper } from '@src/commands/shared/connectionHelper.js';
 import { getDisabledTools, withToolDisabledState } from '@src/core/server/disabledTools.js';
 import type { MCPServerParams } from '@src/core/types/index.js';
 import { GlobalOptions, globalOptions } from '@src/globalOptions.js';
@@ -13,7 +13,6 @@ import {
   getAllServers,
   getServer,
   initializeConfigContext,
-  reloadMcpConfig,
   serverExists,
   setServer,
   validateConfigPath,
@@ -392,7 +391,6 @@ export async function disableToolCommand(argv: ToolCommandBaseArgs): Promise<voi
     const backupPath = backupConfig();
     const nextConfig = withToolDisabledState(currentConfig, normalizedToolName, true, server);
     setServer(server, nextConfig);
-    reloadMcpConfig();
 
     printer.success(`Successfully disabled tool '${tool}' on server '${server}'`);
     printer.keyValue({
@@ -438,7 +436,6 @@ export async function enableToolCommand(argv: ToolCommandBaseArgs): Promise<void
     const backupPath = backupConfig();
     const nextConfig = withToolDisabledState(currentConfig, normalizedToolName, false, server);
     setServer(server, nextConfig);
-    reloadMcpConfig();
 
     printer.success(`Successfully enabled tool '${tool}' on server '${server}'`);
     printer.keyValue({
@@ -534,7 +531,6 @@ export async function toolsCommand(
 
     backupConfig();
     setServer(selectionState.selectedServer, nextConfig);
-    reloadMcpConfig();
 
     printToolSaveSummary(
       selectionState.selectedServer,

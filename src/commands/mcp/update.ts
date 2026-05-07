@@ -11,7 +11,6 @@ import {
   parseEnvVars,
   parseHeaders,
   parseTags,
-  reloadMcpConfig,
   serverExists,
   setServer,
   validateConfigPath,
@@ -339,9 +338,6 @@ export async function updateCommand(argv: UpdateCommandArgs): Promise<void> {
 
     // Save the updated configuration
     setServer(name, updatedConfig);
-
-    // Reload MCP configuration
-    reloadMcpConfig();
 
     // Success message
     printer.success(`Successfully updated server '${name}'`);
