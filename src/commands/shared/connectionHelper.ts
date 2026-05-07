@@ -15,6 +15,18 @@ export interface ServerCapabilities {
   error?: string;
 }
 
+interface ToolListResult {
+  tools?: Tool[];
+}
+
+interface ResourceListResult {
+  resources?: Resource[];
+}
+
+interface PromptListResult {
+  prompts?: Prompt[];
+}
+
 /**
  * Connection helper for connecting to MCP servers and retrieving their capabilities
  */
@@ -138,54 +150,61 @@ export class McpConnectionHelper {
     const prompts: Prompt[] = [];
 
     try {
-      // Get tools with timeout
-      try {
-        const toolsResult = await this.withTimeout(connection.client.listTools({}), 5000, 'Tools listing timeout');
-
-        if (toolsResult && toolsResult.tools) {
-          tools.push(...toolsResult.tools);
-          logger.debug(`Got ${toolsResult.tools.length} tools from ${serverName}`);
-        }
-      } catch (error) {
-        logger.debug(`Failed to get tools from ${serverName}: ${error instanceof Error ? error.message : error}`);
-      }
-
-      // Get resources with timeout
-      try {
-        const resourcesResult = await this.withTimeout(
-          connection.client.listResources({}),
-          5000,
-          'Resources listing timeout',
-        );
-
-        if (resourcesResult && resourcesResult.resources) {
-          resources.push(...resourcesResult.resources);
-          logger.debug(`Got ${resourcesResult.resources.length} resources from ${serverName}`);
-        }
-      } catch (error) {
-        logger.debug(`Failed to get resources from ${serverName}: ${error instanceof Error ? error.message : error}`);
-      }
-
-      // Get prompts with timeout
-      try {
-        const promptsResult = await this.withTimeout(
-          connection.client.listPrompts({}),
-          5000,
-          'Prompts listing timeout',
-        );
-
-        if (promptsResult && promptsResult.prompts) {
-          prompts.push(...promptsResult.prompts);
-          logger.debug(`Got ${promptsResult.prompts.length} prompts from ${serverName}`);
-        }
-      } catch (error) {
-        logger.debug(`Failed to get prompts from ${serverName}: ${error instanceof Error ? error.message : error}`);
-      }
+      await this.collectCapabilityItems<ToolListResult, Tool>({
+        serverName,
+        items: tools,
+        capabilityName: 'tools',
+        timeoutMessage: 'Tools listing timeout',
+        list: () => connection.client.listTools({}),
+        select: (result) => result?.tools ?? [],
+      });
+      await this.collectCapabilityItems<ResourceListResult, Resource>({
+        serverName,
+        items: resources,
+        capabilityName: 'resources',
+        timeoutMessage: 'Resources listing timeout',
+        list: () => connection.client.listResources({}),
+        select: (result) => result?.resources ?? [],
+      });
+      await this.collectCapabilityItems<PromptListResult, Prompt>({
+        serverName,
+        items: prompts,
+        capabilityName: 'prompts',
+        timeoutMessage: 'Prompts listing timeout',
+        list: () => connection.client.listPrompts({}),
+        select: (result) => result?.prompts ?? [],
+      });
     } catch (error) {
       logger.warn(`Error getting capabilities from ${serverName}: ${error instanceof Error ? error.message : error}`);
     }
 
     return { tools, resources, prompts };
+  }
+
+  private async collectCapabilityItems<TResult, TItem>(options: {
+    serverName: string;
+    items: TItem[];
+    capabilityName: 'tools' | 'resources' | 'prompts';
+    timeoutMessage: string;
+    list: () => Promise<TResult>;
+    select: (result: TResult) => TItem[];
+  }): Promise<void> {
+    const { serverName, items, capabilityName, timeoutMessage, list, select } = options;
+
+    try {
+      const result = await this.withTimeout(list(), 5000, timeoutMessage);
+      const capabilityItems = select(result);
+
+      if (capabilityItems.length > 0) {
+        items.push(...capabilityItems);
+      }
+
+      logger.debug(`Got ${capabilityItems.length} ${capabilityName} from ${serverName}`);
+    } catch (error) {
+      logger.debug(
+        `Failed to get ${capabilityName} from ${serverName}: ${error instanceof Error ? error.message : error}`,
+      );
+    }
   }
 
   /**

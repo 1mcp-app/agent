@@ -66,7 +66,7 @@ function getServerConfigs() {
   return McpConfigManager.getInstance().getTransportConfig();
 }
 
-async function ensureRequestContextInitialized(
+export async function ensureRequestContextInitialized(
   serverManager: ServerManager,
   req: Request,
   res: Response,

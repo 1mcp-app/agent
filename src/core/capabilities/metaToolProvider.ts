@@ -130,6 +130,33 @@ export class MetaToolProvider {
     return getDisabledToolError(McpConfigManager.getInstance().getTransportConfig(), logicalServerName, toolName);
   }
 
+  private validateResolvedToolAccess(
+    args: DescribeToolArgs | CallToolArgs,
+    allowedServers?: Set<string>,
+  ): { error?: DescribeToolResult['error'] | CallToolResult['error'] } {
+    if (!args.server || !args.toolName) {
+      return {
+        error: {
+          type: 'validation',
+          message: 'Validation Error: "server" and "toolName" are required parameters',
+        },
+      };
+    }
+
+    if (!this.toolRegistry(allowedServers).hasTool(args.server, args.toolName)) {
+      return {
+        error: {
+          type: 'not_found',
+          message: `Tool not found: ${args.server}:${args.toolName}. Call tool_list to see available tools.`,
+        },
+      };
+    }
+
+    return {
+      error: this.getDisabledError(args.server, args.toolName),
+    };
+  }
+
   /**
    * Get the current tool registry, optionally filtered by allowed servers
    */
@@ -302,33 +329,11 @@ export class MetaToolProvider {
     allowedServers?: Set<string>,
   ): Promise<DescribeToolResult> {
     try {
-      // Validate arguments
-      if (!args.server || !args.toolName) {
+      const { error } = this.validateResolvedToolAccess(args, allowedServers);
+      if (error) {
         return {
           schema: {},
-          error: {
-            type: 'validation',
-            message: 'Validation Error: "server" and "toolName" are required parameters',
-          },
-        };
-      }
-
-      // Check if tool exists in registry
-      if (!this.toolRegistry(allowedServers).hasTool(args.server, args.toolName)) {
-        return {
-          schema: {},
-          error: {
-            type: 'not_found',
-            message: `Tool not found: ${args.server}:${args.toolName}. Call tool_list to see available tools.`,
-          },
-        };
-      }
-
-      const disabledError = this.getDisabledError(args.server, args.toolName);
-      if (disabledError) {
-        return {
-          schema: {},
-          error: disabledError,
+          error,
         };
       }
 
@@ -421,39 +426,13 @@ export class MetaToolProvider {
     allowedServers?: Set<string>,
   ): Promise<CallToolResult> {
     try {
-      // Validate arguments
-      if (!args.server || !args.toolName) {
+      const { error } = this.validateResolvedToolAccess(args, allowedServers);
+      if (error) {
         return {
           result: {},
           server: args.server,
           tool: args.toolName,
-          error: {
-            type: 'validation',
-            message: 'Validation Error: "server" and "toolName" are required parameters',
-          },
-        };
-      }
-
-      // Check if tool exists
-      if (!this.toolRegistry(allowedServers).hasTool(args.server, args.toolName)) {
-        return {
-          result: {},
-          server: args.server,
-          tool: args.toolName,
-          error: {
-            type: 'not_found',
-            message: `Tool not found: ${args.server}:${args.toolName}. Call tool_list to see available tools.`,
-          },
-        };
-      }
-
-      const disabledError = this.getDisabledError(args.server, args.toolName);
-      if (disabledError) {
-        return {
-          result: {},
-          server: args.server,
-          tool: args.toolName,
-          error: disabledError,
+          error,
         };
       }
 

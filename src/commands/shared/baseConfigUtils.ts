@@ -159,6 +159,20 @@ function resolveServerTargetFromConfig(config: ServerConfig, serverName: string)
   return null;
 }
 
+function getMergedResolvedServerTargetConfig(
+  config: Pick<ServerConfig, 'serverDefaults'>,
+  effectiveServers: Record<string, MCPServerParams>,
+  target: ResolvedServerTarget,
+): MCPServerParams {
+  if (target.source === 'mcpServers') {
+    return (
+      effectiveServers[target.serverName] || mergeGlobalAndServerConfig(config.serverDefaults, target.serverConfig)
+    );
+  }
+
+  return mergeGlobalAndServerConfig(config.serverDefaults, target.serverConfig);
+}
+
 function isMissingConfigError(error: unknown): boolean {
   return (
     (error instanceof Error && error.message.includes('Configuration file not found')) ||
@@ -270,12 +284,16 @@ export function getGlobalConfig(): GlobalTransportConfig {
 export function getEffectiveServerConfig(serverName: string): MCPServerParams | null {
   try {
     const { config, effectiveServers } = loadSharedConfigState();
-    if (!config.mcpServers[serverName]) {
+    const serverConfig = config.mcpServers[serverName];
+    if (!serverConfig) {
       return null;
     }
-    return (
-      effectiveServers[serverName] || mergeGlobalAndServerConfig(config.serverDefaults, config.mcpServers[serverName])
-    );
+
+    return getMergedResolvedServerTargetConfig(config, effectiveServers, {
+      serverName,
+      source: 'mcpServers',
+      serverConfig,
+    });
   } catch (error) {
     logger.warn(
       `Failed to get effective server config for '${serverName}': ${error instanceof Error ? error.message : String(error)}`,
@@ -300,11 +318,7 @@ export function getEffectiveServerTargetConfig(serverName: string): MCPServerPar
       return null;
     }
 
-    if (target.source === 'mcpServers') {
-      return effectiveServers[serverName] || mergeGlobalAndServerConfig(config.serverDefaults, target.serverConfig);
-    }
-
-    return mergeGlobalAndServerConfig(config.serverDefaults, target.serverConfig);
+    return getMergedResolvedServerTargetConfig(config, effectiveServers, target);
   } catch (error) {
     logger.warn(
       `Failed to get effective server target config for '${serverName}': ${error instanceof Error ? error.message : String(error)}`,

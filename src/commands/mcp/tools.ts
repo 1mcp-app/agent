@@ -103,13 +103,12 @@ function buildServerChoices(servers: [string, MCPServerParams][]): PromptChoice[
 
 function buildToolChoices(
   allToolTokens: ToolTokenInfo[],
-  logicalServerName: string,
-  disabledTools: string[],
+  isToolDisabled: (toolName: string) => boolean,
 ): PromptChoice[] {
   return allToolTokens.map((toolInfo) => ({
     title: `${toolInfo.name} (~${toolInfo.tokens} tokens)`,
     value: toolInfo.name,
-    selected: !isToolDisabledForCommand(disabledTools, toolInfo.name, logicalServerName),
+    selected: !isToolDisabled(toolInfo.name),
     description: toolInfo.description,
   }));
 }
@@ -167,7 +166,7 @@ async function selectServer(prompt: typeof prompts, servers: [string, MCPServerP
 async function selectToolsForServer(
   prompt: typeof prompts,
   selectedServer: string,
-  serverConfig: MCPServerParams,
+  storedServerConfig: MCPServerParams,
   allToolTokens: ToolTokenInfo[],
 ): Promise<string[] | undefined> {
   if (allToolTokens.length > 30) {
@@ -177,11 +176,12 @@ async function selectToolsForServer(
     printer.blank();
   }
 
+  const disabledTools = getDisabledTools(storedServerConfig);
   const result = await prompt({
     type: 'multiselect',
     name: 'selected',
     message: `Select enabled tools for '${selectedServer}' (space to toggle, enter to save):`,
-    choices: buildToolChoices(allToolTokens, selectedServer, getDisabledTools(serverConfig)),
+    choices: buildToolChoices(allToolTokens, createToolDisabledMatcher(disabledTools, selectedServer)),
     hint: '- Space to toggle. Enter to save',
     instructions: false,
   });
@@ -230,8 +230,8 @@ async function resolveToolSelectionState(
       return undefined;
     }
 
-    const serverConfig = targetServerEntries.find(([serverName]) => serverName === selectedServer)?.[1];
-    if (!serverConfig) {
+    const storedServerConfig = targetServerEntries.find(([serverName]) => serverName === selectedServer)?.[1];
+    if (!storedServerConfig) {
       throw new Error(`Server '${selectedServer}' does not exist. Use 'mcp add' to create it first.`);
     }
 
@@ -251,7 +251,7 @@ async function resolveToolSelectionState(
       const selectedToolNames = await selectToolsForServer(
         dependencies.prompt,
         selectedServer,
-        serverConfig,
+        storedServerConfig,
         allToolTokens,
       );
 
@@ -376,41 +376,7 @@ export async function listToolsCommand(argv: ToolListCommandArgs): Promise<void>
 
 export async function disableToolCommand(argv: ToolCommandBaseArgs): Promise<void> {
   try {
-    const { config: configPath, 'config-dir': configDir, server, tool } = argv;
-
-    initializeConfigContext(configPath, configDir);
-    validateConfigPath();
-    validateServerName(server);
-    validateToolName(tool);
-
-    const resolvedTarget = resolveServerTarget(server);
-    if (!resolvedTarget) {
-      throw new Error(`Server '${server}' does not exist. Use 'mcp add' to create it first.`);
-    }
-
-    const currentConfig = resolvedTarget.serverConfig;
-
-    const normalizedToolName = tool.trim();
-    const disabledTools = getDisabledTools(currentConfig);
-    if (isToolDisabledForCommand(disabledTools, normalizedToolName, server)) {
-      printer.info(`Tool '${tool}' is already disabled on server '${server}'.`);
-      printVerificationStep(server);
-      return;
-    }
-
-    const backupPath = backupConfig();
-    const nextConfig = withToolDisabledState(currentConfig, normalizedToolName, true, server);
-    setResolvedServerTarget(resolvedTarget, nextConfig);
-
-    printer.success(`Successfully disabled tool '${tool}' on server '${server}'`);
-    printer.keyValue({
-      Status: 'Enabled → Disabled',
-      'Backup created': backupPath,
-      Mode: 'Config-only',
-    });
-    printRuntimeReloadNote();
-    printer.blank();
-    printVerificationStep(server);
+    await setToolDisabledState(argv, true);
   } catch (error) {
     printer.error(`Failed to disable tool: ${error instanceof Error ? error.message : error}`);
     process.exit(1);
@@ -419,41 +385,7 @@ export async function disableToolCommand(argv: ToolCommandBaseArgs): Promise<voi
 
 export async function enableToolCommand(argv: ToolCommandBaseArgs): Promise<void> {
   try {
-    const { config: configPath, 'config-dir': configDir, server, tool } = argv;
-
-    initializeConfigContext(configPath, configDir);
-    validateConfigPath();
-    validateServerName(server);
-    validateToolName(tool);
-
-    const resolvedTarget = resolveServerTarget(server);
-    if (!resolvedTarget) {
-      throw new Error(`Server '${server}' does not exist. Use 'mcp add' to create it first.`);
-    }
-
-    const currentConfig = resolvedTarget.serverConfig;
-
-    const normalizedToolName = tool.trim();
-    const disabledTools = getDisabledTools(currentConfig);
-    if (!isToolDisabledForCommand(disabledTools, normalizedToolName, server)) {
-      printer.info(`Tool '${tool}' is already enabled on server '${server}'.`);
-      printVerificationStep(server);
-      return;
-    }
-
-    const backupPath = backupConfig();
-    const nextConfig = withToolDisabledState(currentConfig, normalizedToolName, false, server);
-    setResolvedServerTarget(resolvedTarget, nextConfig);
-
-    printer.success(`Successfully enabled tool '${tool}' on server '${server}'`);
-    printer.keyValue({
-      Status: 'Disabled → Enabled',
-      'Backup created': backupPath,
-      Mode: 'Config-only',
-    });
-    printRuntimeReloadNote();
-    printer.blank();
-    printVerificationStep(server);
+    await setToolDisabledState(argv, false);
   } catch (error) {
     printer.error(`Failed to enable tool: ${error instanceof Error ? error.message : error}`);
     process.exit(1);
@@ -526,6 +458,8 @@ export async function toolsCommand(
 
     const currentDisabledTools = getDisabledTools(currentConfig);
     const nextDisabledTools = getDisabledTools(nextConfig);
+    const wasToolDisabled = createToolDisabledMatcher(currentDisabledTools, selectionState.selectedServer);
+    const willToolBeDisabled = createToolDisabledMatcher(nextDisabledTools, selectionState.selectedServer);
 
     if (currentDisabledTools.join('\n') === nextDisabledTools.join('\n')) {
       printer.info(`No tool changes to save for server '${selectionState.selectedServer}'.`);
@@ -536,11 +470,7 @@ export async function toolsCommand(
 
     const changedToolNames = selectionState.allToolTokens
       .map((toolInfo) => toolInfo.name)
-      .filter(
-        (toolName) =>
-          isToolDisabledForCommand(currentDisabledTools, toolName, selectionState.selectedServer) !==
-          isToolDisabledForCommand(nextDisabledTools, toolName, selectionState.selectedServer),
-      );
+      .filter((toolName) => wasToolDisabled(toolName) !== willToolBeDisabled(toolName));
 
     backupConfig();
     setResolvedServerTarget(resolvedTarget, nextConfig);
@@ -558,16 +488,52 @@ export async function toolsCommand(
   }
 }
 
-function isToolDisabledForCommand(disabledTools: string[], toolName: string, logicalServerName: string): boolean {
-  return isToolDisabled(
-    {
-      [logicalServerName]: {
-        disabledTools,
-      },
-    },
-    logicalServerName,
-    toolName,
-  );
+function createToolDisabledMatcher(disabledTools: string[], logicalServerName: string): (toolName: string) => boolean {
+  const serverConfigs: Record<string, MCPServerParams> = {
+    [logicalServerName]: {
+      disabledTools,
+    } as MCPServerParams,
+  };
+
+  return (toolName: string) => isToolDisabled(serverConfigs, logicalServerName, toolName);
+}
+
+async function setToolDisabledState(argv: ToolCommandBaseArgs, disabled: boolean): Promise<void> {
+  const { config: configPath, 'config-dir': configDir, server, tool } = argv;
+
+  initializeConfigContext(configPath, configDir);
+  validateConfigPath();
+  validateServerName(server);
+  validateToolName(tool);
+
+  const resolvedTarget = resolveServerTarget(server);
+  if (!resolvedTarget) {
+    throw new Error(`Server '${server}' does not exist. Use 'mcp add' to create it first.`);
+  }
+
+  const currentConfig = resolvedTarget.serverConfig;
+  const normalizedToolName = tool.trim();
+  const isToolDisabledForServer = createToolDisabledMatcher(getDisabledTools(currentConfig), server);
+
+  if (isToolDisabledForServer(normalizedToolName) === disabled) {
+    printer.info(`Tool '${tool}' is already ${disabled ? 'disabled' : 'enabled'} on server '${server}'.`);
+    printVerificationStep(server);
+    return;
+  }
+
+  const backupPath = backupConfig();
+  const nextConfig = withToolDisabledState(currentConfig, normalizedToolName, disabled, server);
+  setResolvedServerTarget(resolvedTarget, nextConfig);
+
+  printer.success(`Successfully ${disabled ? 'disabled' : 'enabled'} tool '${tool}' on server '${server}'`);
+  printer.keyValue({
+    Status: disabled ? 'Enabled → Disabled' : 'Disabled → Enabled',
+    'Backup created': backupPath,
+    Mode: 'Config-only',
+  });
+  printRuntimeReloadNote();
+  printer.blank();
+  printVerificationStep(server);
 }
 
 export function setupMcpToolsCommands(yargs: Argv): Argv {
