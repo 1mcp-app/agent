@@ -288,6 +288,35 @@ export function getEffectiveServerConfig(serverName: string): MCPServerParams | 
 }
 
 /**
+ * Get effective merged configuration for a configured target from either mcpTemplates or mcpServers.
+ * Template entries still use template-first precedence, but only inherit global defaults here;
+ * they are not rendered with runtime context.
+ */
+export function getEffectiveServerTargetConfig(serverName: string): MCPServerParams | null {
+  try {
+    const { config, effectiveServers } = loadSharedConfigState();
+    const target = resolveServerTargetFromConfig(config, serverName);
+    if (!target) {
+      return null;
+    }
+
+    if (target.source === 'mcpServers') {
+      return effectiveServers[serverName] || mergeGlobalAndServerConfig(config.serverDefaults, target.serverConfig);
+    }
+
+    return mergeGlobalAndServerConfig(config.serverDefaults, target.serverConfig);
+  } catch (error) {
+    logger.warn(
+      `Failed to get effective server target config for '${serverName}': ${error instanceof Error ? error.message : String(error)}`,
+    );
+    if (isMissingConfigError(error)) {
+      return null;
+    }
+    throw error;
+  }
+}
+
+/**
  * Add or update a server in the configuration
  */
 export function setServer(serverName: string, serverConfig: MCPServerParams): void {

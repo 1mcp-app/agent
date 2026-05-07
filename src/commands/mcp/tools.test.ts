@@ -17,6 +17,7 @@ const mockPrinter = vi.hoisted(() => ({
 
 const configState = vi.hoisted(() => ({
   backupConfig: vi.fn(() => '/tmp/test-backup.json'),
+  getEffectiveServerTargetConfig: vi.fn(),
   getAllServers: vi.fn(),
   getAllServerTargets: vi.fn(),
   getServer: vi.fn(),
@@ -36,6 +37,7 @@ vi.mock('@src/utils/ui/printer.js', () => ({
 
 vi.mock('./utils/mcpServerConfig.js', () => ({
   backupConfig: configState.backupConfig,
+  getEffectiveServerTargetConfig: configState.getEffectiveServerTargetConfig,
   getAllServers: configState.getAllServers,
   getAllServerTargets: configState.getAllServerTargets,
   getServer: configState.getServer,
@@ -66,6 +68,9 @@ describe('toolsCommand', () => {
 
     configState.getAllServers.mockReturnValue(servers);
     configState.getAllServerTargets.mockReturnValue(servers);
+    configState.getEffectiveServerTargetConfig.mockImplementation(
+      (serverName: string) => servers[serverName as keyof typeof servers] ?? null,
+    );
     configState.serverExists.mockImplementation((serverName: string) => serverName in servers);
     configState.serverTargetExists.mockImplementation((serverName: string) => serverName in servers);
     configState.getServer.mockImplementation((serverName: string) => servers[serverName as keyof typeof servers]);
@@ -162,6 +167,79 @@ describe('toolsCommand', () => {
     expect(cleanup).toHaveBeenCalled();
   });
 
+  it('connects interactive tool selection with the effective target config', async () => {
+    configState.getAllServerTargets.mockReturnValue({
+      'inherited-server': {
+        type: 'stdio',
+        command: 'echo',
+      },
+    });
+    configState.serverTargetExists.mockReturnValue(true);
+    configState.getEffectiveServerTargetConfig.mockReturnValue({
+      type: 'stdio',
+      command: 'echo',
+      env: { SHARED: 'global' },
+      inheritParentEnv: true,
+    });
+    configState.resolveServerTarget.mockReturnValue({
+      serverName: 'inherited-server',
+      source: 'mcpServers',
+      serverConfig: {
+        type: 'stdio',
+        command: 'echo',
+      },
+    });
+
+    const prompt = vi.fn().mockResolvedValue({
+      selected: ['read_file'],
+    });
+    const connectToServers = vi.fn().mockResolvedValue([
+      {
+        connected: true,
+        tools: [
+          { name: 'read_file', inputSchema: { type: 'object' } },
+          { name: 'write_file', inputSchema: { type: 'object' } },
+        ] satisfies Tool[],
+      },
+    ]);
+
+    await toolsCommand(
+      {
+        server: 'inherited-server',
+        config: '/tmp/test-config.json',
+      },
+      {
+        connectionHelperFactory: () =>
+          ({
+            connectToServers,
+            cleanup: vi.fn().mockResolvedValue(undefined),
+          }) as any,
+        tokenServiceFactory: () =>
+          ({
+            estimateServerTokens: vi.fn().mockReturnValue({
+              breakdown: {
+                tools: [
+                  { name: 'read_file', tokens: 90 },
+                  { name: 'write_file', tokens: 140 },
+                ],
+              },
+            }),
+          }) as any,
+        isInteractiveTerminal: () => true,
+        prompt: prompt as any,
+      },
+    );
+
+    expect(connectToServers).toHaveBeenCalledWith({
+      'inherited-server': {
+        type: 'stdio',
+        command: 'echo',
+        env: { SHARED: 'global' },
+        inheritParentEnv: true,
+      },
+    });
+  });
+
   it('enables a disabled tool and leaves runtime reload to serve hot reload', async () => {
     configState.serverExists.mockReturnValue(true);
     configState.serverTargetExists.mockReturnValue(true);
@@ -198,6 +276,65 @@ describe('toolsCommand', () => {
     expect(mockPrinter.info).toHaveBeenCalledWith(
       'Running 1MCP serve instances reload mcp.json changes automatically when config reload is enabled.',
     );
+  });
+
+  it('enables a tool when disabledTools stores the qualified name', async () => {
+    configState.serverExists.mockReturnValue(true);
+    configState.serverTargetExists.mockReturnValue(true);
+    configState.resolveServerTarget.mockReturnValue({
+      serverName: 'good-server',
+      source: 'mcpServers',
+      serverConfig: {
+        command: 'echo',
+        args: ['good'],
+        disabledTools: ['good-server_1mcp_write_file'],
+      },
+    });
+
+    const { enableToolCommand } = await import('./tools.js');
+
+    await enableToolCommand({
+      server: 'good-server',
+      tool: 'write_file',
+      config: '/tmp/test-config.json',
+      'config-dir': '/tmp',
+    });
+
+    expect(configState.setResolvedServerTarget).toHaveBeenCalledWith(
+      expect.objectContaining({
+        serverName: 'good-server',
+        source: 'mcpServers',
+      }),
+      expect.not.objectContaining({
+        disabledTools: expect.arrayContaining(['good-server_1mcp_write_file', 'write_file']),
+      }),
+    );
+    expect(mockPrinter.info).not.toHaveBeenCalledWith("Tool 'write_file' is already enabled on server 'good-server'.");
+  });
+
+  it('treats a qualified disabled tool as already disabled', async () => {
+    configState.serverTargetExists.mockReturnValue(true);
+    configState.resolveServerTarget.mockReturnValue({
+      serverName: 'good-server',
+      source: 'mcpServers',
+      serverConfig: {
+        command: 'echo',
+        args: ['good'],
+        disabledTools: ['good-server_1mcp_write_file'],
+      },
+    });
+
+    const { disableToolCommand } = await import('./tools.js');
+
+    await disableToolCommand({
+      server: 'good-server',
+      tool: 'write_file',
+      config: '/tmp/test-config.json',
+      'config-dir': '/tmp',
+    });
+
+    expect(configState.setResolvedServerTarget).not.toHaveBeenCalled();
+    expect(mockPrinter.info).toHaveBeenCalledWith("Tool 'write_file' is already disabled on server 'good-server'.");
   });
 
   it('does not write config when selection is unchanged', async () => {
@@ -490,6 +627,7 @@ describe('toolsCommand', () => {
       'shared-server': templateServerConfig,
     });
     configState.serverTargetExists.mockReturnValue(true);
+    configState.getEffectiveServerTargetConfig.mockReturnValue(templateServerConfig);
     configState.resolveServerTarget.mockReturnValue({
       serverName: 'shared-server',
       source: 'mcpTemplates',
@@ -550,6 +688,77 @@ describe('toolsCommand', () => {
       expect.objectContaining({
         disabledTools: ['write_file'],
       }),
+    );
+  });
+
+  it('preselects tools as disabled when config stores qualified names', async () => {
+    configState.getAllServerTargets.mockReturnValue({
+      'good-server': {
+        command: 'echo',
+        args: ['good'],
+        disabledTools: ['good-server_1mcp_write_file'],
+      },
+    });
+    configState.getEffectiveServerTargetConfig.mockReturnValue({
+      command: 'echo',
+      args: ['good'],
+      disabledTools: ['good-server_1mcp_write_file'],
+    });
+    configState.resolveServerTarget.mockReturnValue({
+      serverName: 'good-server',
+      source: 'mcpServers',
+      serverConfig: {
+        command: 'echo',
+        args: ['good'],
+        disabledTools: ['good-server_1mcp_write_file'],
+      },
+    });
+
+    const prompt = vi.fn().mockResolvedValue({
+      selected: ['read_file'],
+    });
+
+    await toolsCommand(
+      {
+        server: 'good-server',
+        config: '/tmp/test-config.json',
+      },
+      {
+        connectionHelperFactory: () =>
+          ({
+            connectToServers: vi.fn().mockResolvedValue([
+              {
+                connected: true,
+                tools: [
+                  { name: 'read_file', inputSchema: { type: 'object' } },
+                  { name: 'write_file', inputSchema: { type: 'object' } },
+                ] satisfies Tool[],
+              },
+            ]),
+            cleanup: vi.fn().mockResolvedValue(undefined),
+          }) as any,
+        tokenServiceFactory: () =>
+          ({
+            estimateServerTokens: vi.fn().mockReturnValue({
+              breakdown: {
+                tools: [
+                  { name: 'read_file', tokens: 90 },
+                  { name: 'write_file', tokens: 140 },
+                ],
+              },
+            }),
+          }) as any,
+        isInteractiveTerminal: () => true,
+        prompt: prompt as any,
+      },
+    );
+
+    const multiselectCall = prompt.mock.calls[0]?.[0];
+    expect(multiselectCall?.choices).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ value: 'read_file', selected: true }),
+        expect.objectContaining({ value: 'write_file', selected: false }),
+      ]),
     );
   });
 

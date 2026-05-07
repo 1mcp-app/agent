@@ -1,6 +1,6 @@
 import { TokenEstimationService, type ToolTokenInfo } from '@src/application/services/tokenEstimationService.js';
 import { McpConnectionHelper } from '@src/commands/shared/connectionHelper.js';
-import { getDisabledTools, withToolDisabledState } from '@src/core/server/disabledTools.js';
+import { getDisabledTools, isToolDisabled, withToolDisabledState } from '@src/core/server/disabledTools.js';
 import type { MCPServerParams } from '@src/core/types/index.js';
 import { GlobalOptions, globalOptions } from '@src/globalOptions.js';
 import printer from '@src/utils/ui/printer.js';
@@ -11,6 +11,7 @@ import type { Argv } from 'yargs';
 import {
   backupConfig,
   getAllServerTargets,
+  getEffectiveServerTargetConfig,
   initializeConfigContext,
   resolveServerTarget,
   serverTargetExists,
@@ -100,12 +101,15 @@ function buildServerChoices(servers: [string, MCPServerParams][]): PromptChoice[
   });
 }
 
-function buildToolChoices(allToolTokens: ToolTokenInfo[], disabledTools: string[]): PromptChoice[] {
-  const disabledSet = new Set(disabledTools);
+function buildToolChoices(
+  allToolTokens: ToolTokenInfo[],
+  logicalServerName: string,
+  disabledTools: string[],
+): PromptChoice[] {
   return allToolTokens.map((toolInfo) => ({
     title: `${toolInfo.name} (~${toolInfo.tokens} tokens)`,
     value: toolInfo.name,
-    selected: !disabledSet.has(toolInfo.name),
+    selected: !isToolDisabledForCommand(disabledTools, toolInfo.name, logicalServerName),
     description: toolInfo.description,
   }));
 }
@@ -177,7 +181,7 @@ async function selectToolsForServer(
     type: 'multiselect',
     name: 'selected',
     message: `Select enabled tools for '${selectedServer}' (space to toggle, enter to save):`,
-    choices: buildToolChoices(allToolTokens, getDisabledTools(serverConfig)),
+    choices: buildToolChoices(allToolTokens, selectedServer, getDisabledTools(serverConfig)),
     hint: '- Space to toggle. Enter to save',
     instructions: false,
   });
@@ -187,10 +191,16 @@ async function selectToolsForServer(
 
 async function loadSelectableTools(
   selectedServer: string,
-  serverConfig: MCPServerParams,
+  serverConfig: MCPServerParams | null,
   tokenService: TokenEstimationService,
   connectionHelperFactory: () => McpConnectionHelper,
 ): Promise<ToolTokenInfo[]> {
+  if (!serverConfig) {
+    throw new Error(
+      `Server '${selectedServer}' could not be resolved to a runnable config. Check serverDefaults and template requirements before using interactive tools mode.`,
+    );
+  }
+
   const connectionHelper = connectionHelperFactory();
 
   try {
@@ -228,7 +238,7 @@ async function resolveToolSelectionState(
     try {
       const allToolTokens = await loadSelectableTools(
         selectedServer,
-        serverConfig,
+        getEffectiveServerTargetConfig(selectedServer),
         tokenService,
         dependencies.connectionHelperFactory,
       );
@@ -382,7 +392,7 @@ export async function disableToolCommand(argv: ToolCommandBaseArgs): Promise<voi
 
     const normalizedToolName = tool.trim();
     const disabledTools = getDisabledTools(currentConfig);
-    if (disabledTools.includes(normalizedToolName)) {
+    if (isToolDisabledForCommand(disabledTools, normalizedToolName, server)) {
       printer.info(`Tool '${tool}' is already disabled on server '${server}'.`);
       printVerificationStep(server);
       return;
@@ -425,7 +435,7 @@ export async function enableToolCommand(argv: ToolCommandBaseArgs): Promise<void
 
     const normalizedToolName = tool.trim();
     const disabledTools = getDisabledTools(currentConfig);
-    if (!disabledTools.includes(normalizedToolName)) {
+    if (!isToolDisabledForCommand(disabledTools, normalizedToolName, server)) {
       printer.info(`Tool '${tool}' is already enabled on server '${server}'.`);
       printVerificationStep(server);
       return;
@@ -526,7 +536,11 @@ export async function toolsCommand(
 
     const changedToolNames = selectionState.allToolTokens
       .map((toolInfo) => toolInfo.name)
-      .filter((toolName) => currentDisabledTools.includes(toolName) !== nextDisabledTools.includes(toolName));
+      .filter(
+        (toolName) =>
+          isToolDisabledForCommand(currentDisabledTools, toolName, selectionState.selectedServer) !==
+          isToolDisabledForCommand(nextDisabledTools, toolName, selectionState.selectedServer),
+      );
 
     backupConfig();
     setResolvedServerTarget(resolvedTarget, nextConfig);
@@ -542,6 +556,18 @@ export async function toolsCommand(
     printer.error(`Failed to manage tools interactively: ${error instanceof Error ? error.message : error}`);
     process.exit(1);
   }
+}
+
+function isToolDisabledForCommand(disabledTools: string[], toolName: string, logicalServerName: string): boolean {
+  return isToolDisabled(
+    {
+      [logicalServerName]: {
+        disabledTools,
+      },
+    },
+    logicalServerName,
+    toolName,
+  );
 }
 
 export function setupMcpToolsCommands(yargs: Argv): Argv {

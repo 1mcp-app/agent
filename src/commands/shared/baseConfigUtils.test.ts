@@ -7,6 +7,7 @@ import {
   getAllEffectiveServers,
   getAllServerTargets,
   getEffectiveServerConfig,
+  getEffectiveServerTargetConfig,
   getInheritedKeys,
   loadConfig,
   resolveServerTarget,
@@ -208,6 +209,40 @@ describe('baseConfigUtils', () => {
           SHARED: 'global',
           KEEP: 'global-only',
         },
+      },
+    });
+  });
+
+  it('returns effective config for template targets with inherited global defaults', async () => {
+    await fsPromises.writeFile(
+      configFilePath,
+      JSON.stringify(
+        {
+          serverDefaults: {
+            timeout: 3000,
+            headers: { Authorization: 'Bearer global' },
+            env: { SHARED: 'global' },
+          },
+          mcpServers: {},
+          mcpTemplates: {
+            templateOnly: {
+              type: 'http',
+              url: 'https://example.com/mcp',
+            },
+          },
+        },
+        null,
+        2,
+      ),
+    );
+
+    expect(getEffectiveServerTargetConfig('templateOnly')).toEqual({
+      type: 'http',
+      url: 'https://example.com/mcp',
+      timeout: 3000,
+      headers: { Authorization: 'Bearer global' },
+      env: {
+        SHARED: 'global',
       },
     });
   });
