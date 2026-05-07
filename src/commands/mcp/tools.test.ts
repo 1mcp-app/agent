@@ -2,7 +2,7 @@ import type { Tool } from '@modelcontextprotocol/sdk/types.js';
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { toolsCommand } from './tools.js';
+import { listToolsCommand, toolsCommand } from './tools.js';
 
 const mockPrinter = vi.hoisted(() => ({
   blank: vi.fn(),
@@ -18,10 +18,14 @@ const mockPrinter = vi.hoisted(() => ({
 const configState = vi.hoisted(() => ({
   backupConfig: vi.fn(() => '/tmp/test-backup.json'),
   getAllServers: vi.fn(),
+  getAllServerTargets: vi.fn(),
   getServer: vi.fn(),
   initializeConfigContext: vi.fn(),
   reloadMcpConfig: vi.fn(),
+  resolveServerTarget: vi.fn(),
   serverExists: vi.fn(),
+  serverTargetExists: vi.fn(),
+  setResolvedServerTarget: vi.fn(),
   setServer: vi.fn(),
   validateConfigPath: vi.fn(),
 }));
@@ -33,10 +37,14 @@ vi.mock('@src/utils/ui/printer.js', () => ({
 vi.mock('./utils/mcpServerConfig.js', () => ({
   backupConfig: configState.backupConfig,
   getAllServers: configState.getAllServers,
+  getAllServerTargets: configState.getAllServerTargets,
   getServer: configState.getServer,
   initializeConfigContext: configState.initializeConfigContext,
   reloadMcpConfig: configState.reloadMcpConfig,
+  resolveServerTarget: configState.resolveServerTarget,
   serverExists: configState.serverExists,
+  serverTargetExists: configState.serverTargetExists,
+  setResolvedServerTarget: configState.setResolvedServerTarget,
   setServer: configState.setServer,
   validateConfigPath: configState.validateConfigPath,
 }));
@@ -57,8 +65,22 @@ describe('toolsCommand', () => {
     };
 
     configState.getAllServers.mockReturnValue(servers);
+    configState.getAllServerTargets.mockReturnValue(servers);
     configState.serverExists.mockImplementation((serverName: string) => serverName in servers);
+    configState.serverTargetExists.mockImplementation((serverName: string) => serverName in servers);
     configState.getServer.mockImplementation((serverName: string) => servers[serverName as keyof typeof servers]);
+    configState.resolveServerTarget.mockImplementation((serverName: string) => {
+      const serverConfig = servers[serverName as keyof typeof servers];
+      if (!serverConfig) {
+        return null;
+      }
+
+      return {
+        serverName,
+        source: 'mcpServers',
+        serverConfig,
+      };
+    });
   });
 
   afterEach(() => {
@@ -117,8 +139,11 @@ describe('toolsCommand', () => {
       },
     });
     expect(configState.backupConfig).toHaveBeenCalled();
-    expect(configState.setServer).toHaveBeenCalledWith(
-      'good-server',
+    expect(configState.setResolvedServerTarget).toHaveBeenCalledWith(
+      expect.objectContaining({
+        serverName: 'good-server',
+        source: 'mcpServers',
+      }),
       expect.objectContaining({
         disabledTools: ['write_file'],
       }),
@@ -139,10 +164,15 @@ describe('toolsCommand', () => {
 
   it('enables a disabled tool and leaves runtime reload to serve hot reload', async () => {
     configState.serverExists.mockReturnValue(true);
-    configState.getServer.mockReturnValue({
-      command: 'echo',
-      args: ['good'],
-      disabledTools: ['write_file'],
+    configState.serverTargetExists.mockReturnValue(true);
+    configState.resolveServerTarget.mockReturnValue({
+      serverName: 'good-server',
+      source: 'mcpServers',
+      serverConfig: {
+        command: 'echo',
+        args: ['good'],
+        disabledTools: ['write_file'],
+      },
     });
 
     const { enableToolCommand } = await import('./tools.js');
@@ -154,8 +184,11 @@ describe('toolsCommand', () => {
       'config-dir': '/tmp',
     });
 
-    expect(configState.setServer).toHaveBeenCalledWith(
-      'good-server',
+    expect(configState.setResolvedServerTarget).toHaveBeenCalledWith(
+      expect.objectContaining({
+        serverName: 'good-server',
+        source: 'mcpServers',
+      }),
       expect.not.objectContaining({
         disabledTools: expect.arrayContaining(['write_file']),
       }),
@@ -210,7 +243,7 @@ describe('toolsCommand', () => {
     );
 
     expect(configState.backupConfig).not.toHaveBeenCalled();
-    expect(configState.setServer).not.toHaveBeenCalled();
+    expect(configState.setResolvedServerTarget).not.toHaveBeenCalled();
     expect(mockPrinter.info).toHaveBeenCalledWith("No tool changes to save for server 'good-server'.");
     expect(cleanup).toHaveBeenCalled();
   });
@@ -273,8 +306,11 @@ describe('toolsCommand', () => {
     );
 
     expect(mockPrinter.error).toHaveBeenCalledWith("Unable to load tools for 'bad-server': boom");
-    expect(configState.setServer).toHaveBeenCalledWith(
-      'good-server',
+    expect(configState.setResolvedServerTarget).toHaveBeenCalledWith(
+      expect.objectContaining({
+        serverName: 'good-server',
+        source: 'mcpServers',
+      }),
       expect.objectContaining({
         disabledTools: ['write_file'],
       }),
@@ -338,12 +374,201 @@ describe('toolsCommand', () => {
 
     expect(cleanup).toHaveBeenCalledTimes(1);
     expect(prompt).toHaveBeenCalledTimes(1);
-    expect(configState.setServer).toHaveBeenCalledWith(
-      'good-server',
+    expect(configState.setResolvedServerTarget).toHaveBeenCalledWith(
+      expect.objectContaining({
+        serverName: 'good-server',
+        source: 'mcpServers',
+      }),
       expect.objectContaining({
         disabledTools: ['read_file', 'write_file'],
       }),
     );
     expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it('disables a tool in a template-only server entry', async () => {
+    configState.serverTargetExists.mockReturnValue(true);
+    configState.resolveServerTarget.mockReturnValue({
+      serverName: 'template-server',
+      source: 'mcpTemplates',
+      serverConfig: {
+        command: 'echo',
+        args: ['template'],
+      },
+    });
+
+    const { disableToolCommand } = await import('./tools.js');
+
+    await disableToolCommand({
+      server: 'template-server',
+      tool: 'write_file',
+      config: '/tmp/test-config.json',
+      'config-dir': '/tmp',
+    });
+
+    expect(configState.setResolvedServerTarget).toHaveBeenCalledWith(
+      expect.objectContaining({
+        serverName: 'template-server',
+        source: 'mcpTemplates',
+      }),
+      expect.objectContaining({
+        disabledTools: ['write_file'],
+      }),
+    );
+  });
+
+  it('disables a tool in the template entry when static and template names collide', async () => {
+    configState.serverTargetExists.mockReturnValue(true);
+    configState.resolveServerTarget.mockReturnValue({
+      serverName: 'shared-server',
+      source: 'mcpTemplates',
+      serverConfig: {
+        command: 'echo',
+        args: ['template'],
+      },
+    });
+
+    const { disableToolCommand } = await import('./tools.js');
+
+    await disableToolCommand({
+      server: 'shared-server',
+      tool: 'write_file',
+      config: '/tmp/test-config.json',
+      'config-dir': '/tmp',
+    });
+
+    expect(configState.setResolvedServerTarget).toHaveBeenCalledWith(
+      expect.objectContaining({
+        serverName: 'shared-server',
+        source: 'mcpTemplates',
+      }),
+      expect.objectContaining({
+        disabledTools: ['write_file'],
+      }),
+    );
+  });
+
+  it('enables a tool from the template entry when static and template names collide', async () => {
+    configState.serverTargetExists.mockReturnValue(true);
+    configState.resolveServerTarget.mockReturnValue({
+      serverName: 'shared-server',
+      source: 'mcpTemplates',
+      serverConfig: {
+        command: 'echo',
+        args: ['template'],
+        disabledTools: ['write_file'],
+      },
+    });
+
+    const { enableToolCommand } = await import('./tools.js');
+
+    await enableToolCommand({
+      server: 'shared-server',
+      tool: 'write_file',
+      config: '/tmp/test-config.json',
+      'config-dir': '/tmp',
+    });
+
+    expect(configState.setResolvedServerTarget).toHaveBeenCalledWith(
+      expect.objectContaining({
+        serverName: 'shared-server',
+        source: 'mcpTemplates',
+      }),
+      expect.not.objectContaining({
+        disabledTools: expect.arrayContaining(['write_file']),
+      }),
+    );
+  });
+
+  it('persists interactive tool selection to the template entry when names collide', async () => {
+    const templateServerConfig = {
+      command: 'echo',
+      args: ['template'],
+    };
+
+    configState.getAllServerTargets.mockReturnValue({
+      'shared-server': templateServerConfig,
+    });
+    configState.serverTargetExists.mockReturnValue(true);
+    configState.resolveServerTarget.mockReturnValue({
+      serverName: 'shared-server',
+      source: 'mcpTemplates',
+      serverConfig: templateServerConfig,
+    });
+
+    const prompt = vi.fn().mockResolvedValue({
+      selected: ['read_file'],
+    });
+
+    const connectToServers = vi.fn().mockResolvedValue([
+      {
+        connected: true,
+        tools: [
+          { name: 'read_file', inputSchema: { type: 'object' } },
+          { name: 'write_file', inputSchema: { type: 'object' } },
+        ] satisfies Tool[],
+      },
+    ]);
+
+    const cleanup = vi.fn().mockResolvedValue(undefined);
+
+    await toolsCommand(
+      {
+        server: 'shared-server',
+        config: '/tmp/test-config.json',
+      },
+      {
+        connectionHelperFactory: () =>
+          ({
+            connectToServers,
+            cleanup,
+          }) as any,
+        tokenServiceFactory: () =>
+          ({
+            estimateServerTokens: vi.fn().mockReturnValue({
+              breakdown: {
+                tools: [
+                  { name: 'read_file', tokens: 90 },
+                  { name: 'write_file', tokens: 140 },
+                ],
+              },
+            }),
+          }) as any,
+        isInteractiveTerminal: () => true,
+        prompt: prompt as any,
+      },
+    );
+
+    expect(connectToServers).toHaveBeenCalledWith({
+      'shared-server': templateServerConfig,
+    });
+    expect(configState.setResolvedServerTarget).toHaveBeenCalledWith(
+      expect.objectContaining({
+        serverName: 'shared-server',
+        source: 'mcpTemplates',
+      }),
+      expect.objectContaining({
+        disabledTools: ['write_file'],
+      }),
+    );
+  });
+
+  it('lists disabled tools from the template entry when names collide', async () => {
+    configState.serverTargetExists.mockReturnValue(true);
+    configState.getAllServerTargets.mockReturnValue({
+      'shared-server': {
+        command: 'echo',
+        args: ['template'],
+        disabledTools: ['template_tool'],
+      },
+    });
+
+    await listToolsCommand({
+      server: 'shared-server',
+      disabled: true,
+      config: '/tmp/test-config.json',
+    });
+
+    expect(mockPrinter.list).toHaveBeenCalledWith(['template_tool']);
   });
 });

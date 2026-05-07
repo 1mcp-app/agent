@@ -10,11 +10,11 @@ import type { Argv } from 'yargs';
 
 import {
   backupConfig,
-  getAllServers,
-  getServer,
+  getAllServerTargets,
   initializeConfigContext,
-  serverExists,
-  setServer,
+  resolveServerTarget,
+  serverTargetExists,
+  setResolvedServerTarget,
   validateConfigPath,
 } from './utils/mcpServerConfig.js';
 import { validateServerName } from './utils/validation.js';
@@ -80,7 +80,7 @@ function printRuntimeReloadNote(): void {
 }
 
 function getSortedServerEntries(server?: string): [string, MCPServerParams][] {
-  const allServers = getAllServers();
+  const allServers = getAllServerTargets();
   return Object.entries(allServers)
     .filter(([serverName]) => !server || serverName === server)
     .sort(([left], [right]) => left.localeCompare(right));
@@ -305,7 +305,7 @@ export async function listToolsCommand(argv: ToolListCommandArgs): Promise<void>
 
     if (server) {
       validateServerName(server);
-      if (!serverExists(server)) {
+      if (!serverTargetExists(server)) {
         throw new Error(`Server '${server}' does not exist. Use 'mcp add' to create it first.`);
       }
     }
@@ -318,7 +318,9 @@ export async function listToolsCommand(argv: ToolListCommandArgs): Promise<void>
 
     printer.title('Disabled MCP Tools');
     printer.blank();
-    printer.info('This command is config-only. It does not connect to live MCP servers.');
+    printer.info(
+      'This command is config-only. It reads disabledTools from the matching mcp.json entry and prefers mcpTemplates over mcpServers for duplicate names.',
+    );
     printer.blank();
 
     let serversWithDisabledTools = 0;
@@ -371,14 +373,12 @@ export async function disableToolCommand(argv: ToolCommandBaseArgs): Promise<voi
     validateServerName(server);
     validateToolName(tool);
 
-    if (!serverExists(server)) {
+    const resolvedTarget = resolveServerTarget(server);
+    if (!resolvedTarget) {
       throw new Error(`Server '${server}' does not exist. Use 'mcp add' to create it first.`);
     }
 
-    const currentConfig = getServer(server);
-    if (!currentConfig) {
-      throw new Error(`Failed to retrieve server '${server}' configuration.`);
-    }
+    const currentConfig = resolvedTarget.serverConfig;
 
     const normalizedToolName = tool.trim();
     const disabledTools = getDisabledTools(currentConfig);
@@ -390,7 +390,7 @@ export async function disableToolCommand(argv: ToolCommandBaseArgs): Promise<voi
 
     const backupPath = backupConfig();
     const nextConfig = withToolDisabledState(currentConfig, normalizedToolName, true, server);
-    setServer(server, nextConfig);
+    setResolvedServerTarget(resolvedTarget, nextConfig);
 
     printer.success(`Successfully disabled tool '${tool}' on server '${server}'`);
     printer.keyValue({
@@ -416,14 +416,12 @@ export async function enableToolCommand(argv: ToolCommandBaseArgs): Promise<void
     validateServerName(server);
     validateToolName(tool);
 
-    if (!serverExists(server)) {
+    const resolvedTarget = resolveServerTarget(server);
+    if (!resolvedTarget) {
       throw new Error(`Server '${server}' does not exist. Use 'mcp add' to create it first.`);
     }
 
-    const currentConfig = getServer(server);
-    if (!currentConfig) {
-      throw new Error(`Failed to retrieve server '${server}' configuration.`);
-    }
+    const currentConfig = resolvedTarget.serverConfig;
 
     const normalizedToolName = tool.trim();
     const disabledTools = getDisabledTools(currentConfig);
@@ -435,7 +433,7 @@ export async function enableToolCommand(argv: ToolCommandBaseArgs): Promise<void
 
     const backupPath = backupConfig();
     const nextConfig = withToolDisabledState(currentConfig, normalizedToolName, false, server);
-    setServer(server, nextConfig);
+    setResolvedServerTarget(resolvedTarget, nextConfig);
 
     printer.success(`Successfully enabled tool '${tool}' on server '${server}'`);
     printer.keyValue({
@@ -470,7 +468,7 @@ export async function toolsCommand(
 
     if (server) {
       validateServerName(server);
-      if (!serverExists(server)) {
+      if (!serverTargetExists(server)) {
         throw new Error(`Server '${server}' does not exist. Use 'mcp add' to create it first.`);
       }
     }
@@ -503,10 +501,11 @@ export async function toolsCommand(
       return;
     }
 
-    const currentConfig = getServer(selectionState.selectedServer);
-    if (!currentConfig) {
+    const resolvedTarget = resolveServerTarget(selectionState.selectedServer);
+    if (!resolvedTarget) {
       throw new Error(`Failed to retrieve server '${selectionState.selectedServer}' configuration.`);
     }
+    const currentConfig = resolvedTarget.serverConfig;
 
     const nextConfig = applyToolSelection(
       currentConfig,
@@ -530,7 +529,7 @@ export async function toolsCommand(
       .filter((toolName) => currentDisabledTools.includes(toolName) !== nextDisabledTools.includes(toolName));
 
     backupConfig();
-    setServer(selectionState.selectedServer, nextConfig);
+    setResolvedServerTarget(resolvedTarget, nextConfig);
 
     printToolSaveSummary(
       selectionState.selectedServer,
@@ -629,7 +628,7 @@ export function setupMcpToolsCommands(yargs: Argv): Argv {
             'MCP Tools Commands',
             '',
             "Run '1mcp mcp tools' for the interactive browser with live token estimates.",
-            'The list/enable/disable subcommands remain config-only. They update disabledTools in mcp.json and do not connect to live servers.',
+            'The list/enable/disable subcommands remain config-only. They update disabledTools in the matching mcp.json entry and prefer mcpTemplates over mcpServers for duplicate names.',
             "Use '1mcp mcp tools list <server> --disabled' after each mutation to verify the current state.",
           ].join('\n'),
         );

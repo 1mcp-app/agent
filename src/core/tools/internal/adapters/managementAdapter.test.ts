@@ -5,6 +5,8 @@ import { createManagementAdapter, type ManagementAdapter } from './index.js';
 vi.mock('@src/commands/mcp/utils/mcpServerConfig.js', () => ({
   getAllServers: vi.fn(),
   getServer: vi.fn(),
+  resolveServerTarget: vi.fn(),
+  setResolvedServerTarget: vi.fn(),
   setServer: vi.fn(),
   removeServer: vi.fn(),
   reloadMcpConfig: vi.fn(),
@@ -334,6 +336,40 @@ describe('Management Adapter', () => {
 
       await expect(adapter.updateServerConfig('test-server', {})).rejects.toThrow(
         'Server config update failed: Update failed',
+      );
+    });
+
+    it('uses template-aware helpers when updating disabledTools', async () => {
+      const templateConfig = { name: 'test-server', command: 'node', args: ['template.js'], disabledTools: ['old'] };
+
+      const { getServer, resolveServerTarget, setResolvedServerTarget } =
+        await import('@src/commands/mcp/utils/mcpServerConfig.js');
+      (getServer as any).mockReturnValue(null);
+      (resolveServerTarget as any).mockReturnValue({
+        serverName: 'test-server',
+        source: 'mcpTemplates',
+        serverConfig: templateConfig,
+      });
+
+      const result = await adapter.updateServerConfig('test-server', { disabledTools: ['new-tool'] });
+
+      expect(result.success).toBe(true);
+      expect(result.previousConfig).toEqual(templateConfig);
+      expect(result.newConfig).toEqual({ ...templateConfig, disabledTools: ['new-tool'] });
+      expect(result.updated).toBe(true);
+      expect(result.changes).toEqual([
+        {
+          field: 'disabledTools',
+          oldValue: ['old'],
+          newValue: ['new-tool'],
+        },
+      ]);
+      expect(setResolvedServerTarget).toHaveBeenCalledWith(
+        expect.objectContaining({
+          serverName: 'test-server',
+          source: 'mcpTemplates',
+        }),
+        { ...templateConfig, disabledTools: ['new-tool'] },
       );
     });
   });

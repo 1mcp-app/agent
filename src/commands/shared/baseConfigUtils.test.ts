@@ -5,9 +5,13 @@ import { join } from 'path';
 
 import {
   getAllEffectiveServers,
+  getAllServerTargets,
   getEffectiveServerConfig,
   getInheritedKeys,
   loadConfig,
+  resolveServerTarget,
+  serverTargetExists,
+  setResolvedServerTarget,
 } from '@src/commands/shared/baseConfigUtils.js';
 import ConfigContext from '@src/config/configContext.js';
 
@@ -225,5 +229,194 @@ describe('baseConfigUtils', () => {
         },
       ),
     ).toContain('envFilter');
+  });
+
+  it('resolves static-only names to mcpServers', async () => {
+    await fsPromises.writeFile(
+      configFilePath,
+      JSON.stringify(
+        {
+          mcpServers: {
+            staticOnly: {
+              type: 'stdio',
+              command: 'node',
+            },
+          },
+        },
+        null,
+        2,
+      ),
+    );
+
+    expect(resolveServerTarget('staticOnly')).toEqual({
+      serverName: 'staticOnly',
+      source: 'mcpServers',
+      serverConfig: {
+        type: 'stdio',
+        command: 'node',
+      },
+    });
+    expect(serverTargetExists('staticOnly')).toBe(true);
+  });
+
+  it('resolves template-only names to mcpTemplates', async () => {
+    await fsPromises.writeFile(
+      configFilePath,
+      JSON.stringify(
+        {
+          mcpServers: {},
+          mcpTemplates: {
+            templateOnly: {
+              type: 'stdio',
+              command: 'node',
+              args: ['template'],
+            },
+          },
+        },
+        null,
+        2,
+      ),
+    );
+
+    expect(resolveServerTarget('templateOnly')).toEqual({
+      serverName: 'templateOnly',
+      source: 'mcpTemplates',
+      serverConfig: {
+        type: 'stdio',
+        command: 'node',
+        args: ['template'],
+      },
+    });
+    expect(serverTargetExists('templateOnly')).toBe(true);
+  });
+
+  it('resolves duplicate names to mcpTemplates with template-first precedence', async () => {
+    await fsPromises.writeFile(
+      configFilePath,
+      JSON.stringify(
+        {
+          mcpServers: {
+            shared: {
+              type: 'stdio',
+              command: 'node',
+              disabledTools: ['stale_static_tool'],
+            },
+          },
+          mcpTemplates: {
+            shared: {
+              type: 'stdio',
+              command: 'node',
+              disabledTools: ['template_tool'],
+            },
+          },
+        },
+        null,
+        2,
+      ),
+    );
+
+    expect(resolveServerTarget('shared')).toEqual({
+      serverName: 'shared',
+      source: 'mcpTemplates',
+      serverConfig: {
+        type: 'stdio',
+        command: 'node',
+        disabledTools: ['template_tool'],
+      },
+    });
+    expect(getAllServerTargets()).toEqual({
+      shared: {
+        type: 'stdio',
+        command: 'node',
+        disabledTools: ['template_tool'],
+      },
+    });
+  });
+
+  it('writes back to the resolved template section only', async () => {
+    await fsPromises.writeFile(
+      configFilePath,
+      JSON.stringify(
+        {
+          mcpServers: {
+            shared: {
+              type: 'stdio',
+              command: 'node',
+              disabledTools: ['stale_static_tool'],
+            },
+          },
+          mcpTemplates: {
+            shared: {
+              type: 'stdio',
+              command: 'node',
+              disabledTools: ['template_tool'],
+            },
+          },
+        },
+        null,
+        2,
+      ),
+    );
+
+    const target = resolveServerTarget('shared');
+    expect(target).not.toBeNull();
+
+    setResolvedServerTarget(
+      {
+        serverName: 'shared',
+        source: 'mcpTemplates',
+      },
+      {
+        type: 'stdio',
+        command: 'node',
+        disabledTools: ['new_template_tool'],
+      },
+    );
+
+    const savedConfig = JSON.parse(await fsPromises.readFile(configFilePath, 'utf8'));
+    expect(savedConfig.mcpTemplates.shared.disabledTools).toEqual(['new_template_tool']);
+    expect(savedConfig.mcpServers.shared.disabledTools).toEqual(['stale_static_tool']);
+  });
+
+  it('writes back to the static server section only for static targets', async () => {
+    await fsPromises.writeFile(
+      configFilePath,
+      JSON.stringify(
+        {
+          mcpServers: {
+            staticOnly: {
+              type: 'stdio',
+              command: 'node',
+              disabledTools: ['old_tool'],
+            },
+          },
+          mcpTemplates: {
+            templateOnly: {
+              type: 'stdio',
+              command: 'node',
+              disabledTools: ['template_tool'],
+            },
+          },
+        },
+        null,
+        2,
+      ),
+    );
+
+    setResolvedServerTarget(
+      {
+        serverName: 'staticOnly',
+        source: 'mcpServers',
+      },
+      {
+        type: 'stdio',
+        command: 'node',
+        disabledTools: ['new_static_tool'],
+      },
+    );
+
+    const savedConfig = JSON.parse(await fsPromises.readFile(configFilePath, 'utf8'));
+    expect(savedConfig.mcpServers.staticOnly.disabledTools).toEqual(['new_static_tool']);
+    expect(savedConfig.mcpTemplates.templateOnly.disabledTools).toEqual(['template_tool']);
   });
 });
