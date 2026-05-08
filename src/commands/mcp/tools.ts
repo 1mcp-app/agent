@@ -217,7 +217,7 @@ async function loadSelectableTools(
 }
 
 async function resolveToolSelectionState(
-  initialServer: string | undefined,
+  initialServer: string,
   targetServerEntries: [string, MCPServerParams][],
   dependencies: InteractiveCommandDependencies,
   tokenService: TokenEstimationService,
@@ -226,10 +226,6 @@ async function resolveToolSelectionState(
   let selectedServer = initialServer;
 
   while (true) {
-    if (!selectedServer) {
-      return undefined;
-    }
-
     const storedServerConfig = targetServerEntries.find(([serverName]) => serverName === selectedServer)?.[1];
     if (!storedServerConfig) {
       throw new Error(`Server '${selectedServer}' does not exist. Use 'mcp add' to create it first.`);
@@ -275,11 +271,12 @@ async function resolveToolSelectionState(
       printer.error(`Unable to load tools for '${selectedServer}': ${message}`);
       printer.blank();
 
-      selectedServer = await selectServer(dependencies.prompt, targetServerEntries);
-      if (!selectedServer) {
+      const nextServer = await selectServer(dependencies.prompt, targetServerEntries);
+      if (!nextServer) {
         printer.info('Operation cancelled.');
         return undefined;
       }
+      selectedServer = nextServer;
     }
   }
 }
