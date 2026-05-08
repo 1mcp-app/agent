@@ -1,4 +1,5 @@
 import { type ServerTokenEstimate, TokenEstimationService } from '@src/application/services/tokenEstimationService.js';
+import { McpConnectionHelper } from '@src/commands/shared/connectionHelper.js';
 import type { MCPServerParams } from '@src/core/types/index.js';
 import { PresetManager } from '@src/domains/preset/manager/presetManager.js';
 import { TagQueryEvaluator } from '@src/domains/preset/parsers/tagQueryEvaluator.js';
@@ -11,7 +12,6 @@ import boxen from 'boxen';
 import chalk from 'chalk';
 import type { Arguments, Argv } from 'yargs';
 
-import { McpConnectionHelper } from './utils/connectionHelper.js';
 import { initializeConfigContext, loadConfig, type ServerConfig } from './utils/mcpServerConfig.js';
 
 interface TokensCommandArgs extends GlobalOptions {

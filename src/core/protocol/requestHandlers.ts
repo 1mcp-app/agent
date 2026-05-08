@@ -25,14 +25,17 @@ import {
   UnsubscribeRequestSchema,
 } from '@modelcontextprotocol/sdk/types.js';
 
+import { McpConfigManager } from '@src/config/mcpConfigManager.js';
 import { MCP_URI_SEPARATOR } from '@src/constants.js';
 import { InternalCapabilitiesProvider } from '@src/core/capabilities/internalCapabilitiesProvider.js';
 import { LazyLoadingOrchestrator } from '@src/core/capabilities/lazyLoadingOrchestrator.js';
 import { byCapabilities } from '@src/core/filtering/clientFiltering.js';
 import { FilteringService } from '@src/core/filtering/filteringService.js';
 import { createConnectionResolver } from '@src/core/server/connectionResolver.js';
+import { filterDisabledTools, getDisabledToolError } from '@src/core/server/disabledTools.js';
 import { ServerManager } from '@src/core/server/serverManager.js';
 import { ClientStatus, InboundConnection, OutboundConnection, OutboundConnections } from '@src/core/types/index.js';
+import type { MCPServerParams } from '@src/core/types/transport.js';
 import { setLogLevel } from '@src/logger/logger.js';
 import logger from '@src/logger/logger.js';
 import { withErrorHandling } from '@src/utils/core/errorHandling.js';
@@ -369,6 +372,7 @@ function registerToolHandlers(
 ): void {
   const sessionId = getRequestSession(inboundConn);
   const lazyLoadingEnabled = lazyLoadingOrchestrator?.isEnabled();
+  const getServerConfigs = (): Record<string, MCPServerParams> => McpConfigManager.getInstance().getTransportConfig();
 
   // List Tools handler
   inboundConn.server.setRequestHandler(
@@ -445,7 +449,7 @@ function registerToolHandlers(
         request.params || {},
         (client, params, opts) => client.listTools(params as ListToolsRequest['params'], opts),
         (outboundConn, result) =>
-          result.tools?.map((tool) => ({
+          filterDisabledTools(result.tools || [], getServerConfigs(), outboundConn.name).map((tool) => ({
             ...tool,
             name: buildUri(outboundConn.name, tool.name, MCP_URI_SEPARATOR),
           })) ?? [],
@@ -556,6 +560,25 @@ function registerToolHandlers(
       }
 
       // Handle external MCP server tools
+      const disabledError = getDisabledToolError(getServerConfigs(), clientName, extractedToolName);
+      if (disabledError) {
+        const errorResult = {
+          error: {
+            type: disabledError.type,
+            message: disabledError.message,
+          },
+        };
+        return {
+          content: [
+            {
+              type: 'text' as const,
+              text: JSON.stringify(errorResult, null, 2),
+            },
+          ],
+          structuredContent: errorResult,
+        };
+      }
+
       const outboundConn = resolveOutboundConnection(clientName, sessionId, outboundConns);
       if (!outboundConn) {
         throw new Error(`Unknown client: ${clientName}`);

@@ -64,6 +64,8 @@ export interface BaseTransportConfig {
   readonly requestTimeout?: number;
   /** Disable this server. Can be a boolean or a template string that evaluates to a boolean */
   readonly disabled?: boolean | string;
+  /** Hide specific tools from this server without disabling the entire server */
+  readonly disabledTools?: string[];
   readonly tags?: string[];
   readonly oauth?: OAuthConfig;
 }
@@ -189,6 +191,10 @@ export const transportConfigSchema = z.object({
     .describe(
       'Disable this server. Can be a boolean value or a template string that evaluates to a boolean (e.g., "{?project.environment=production}")',
     ),
+  disabledTools: z
+    .array(z.string().min(1))
+    .optional()
+    .describe('Hide specific tools from this server without disabling the entire server'),
   timeout: z
     .number()
     .optional()

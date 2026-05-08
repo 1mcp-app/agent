@@ -9,13 +9,7 @@ import chalk from 'chalk';
 import type { Argv } from 'yargs';
 
 import { InstallWizard } from './utils/installWizard.js';
-import {
-  backupConfig,
-  getAllServers,
-  initializeConfigContext,
-  reloadMcpConfig,
-  serverExists,
-} from './utils/mcpServerConfig.js';
+import { backupConfig, getAllServers, initializeConfigContext, serverExists } from './utils/mcpServerConfig.js';
 import { generateOperationId, parseServerNameVersion, validateVersion } from './utils/serverUtils.js';
 
 export interface InstallCommandArgs extends GlobalOptions {
@@ -191,11 +185,8 @@ export async function installCommand(argv: InstallCommandArgs): Promise<void> {
         }
       }
 
-      // Update progress: Reloading
-      progressTracker.updateProgress(operationId, 5, 'Reloading configuration', 'Applying changes');
-
-      // Reload MCP configuration
-      reloadMcpConfig();
+      // Update progress: Complete pending file-based reload for live serve processes
+      progressTracker.updateProgress(operationId, 5, 'Applying changes', 'Saved configuration to disk');
 
       // Update progress: Complete (completeOperation logs completion)
 
@@ -495,12 +486,9 @@ async function runInteractiveInstallation(argv: InstallCommandArgs): Promise<voi
             }
           }
 
-          // Update progress: Reloading
-          printer.raw(chalk.cyan('⏳ Reloading configuration...'));
-          progressTracker.updateProgress(operationId, 5, 'Reloading configuration', 'Applying changes');
-
-          // Reload MCP configuration
-          reloadMcpConfig();
+          // Update progress: Applying changes for file-based live reload
+          printer.raw(chalk.cyan('⏳ Applying changes...'));
+          progressTracker.updateProgress(operationId, 5, 'Applying changes', 'Saved configuration to disk');
 
           // Complete the operation
           const duration = result.installedAt ? Date.now() - result.installedAt.getTime() : 0;

@@ -9,7 +9,6 @@ import {
   backupConfig,
   getServer,
   initializeConfigContext,
-  reloadMcpConfig,
   removeServer,
   serverExists,
   validateConfigPath,
@@ -118,9 +117,6 @@ export async function removeCommand(argv: RemoveCommandArgs): Promise<void> {
     if (!removed) {
       throw new Error(`Failed to remove server '${name}' from configuration.`);
     }
-
-    // Reload MCP configuration
-    reloadMcpConfig();
 
     // Success message
     printer.success(`Successfully removed server '${name}'`);

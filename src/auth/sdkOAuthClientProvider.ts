@@ -38,6 +38,7 @@ export class SDKOAuthClientProvider implements OAuthClientProvider {
   private _codeVerifier?: string;
   private _state?: string;
   private sessionRepository: ClientSessionRepository;
+  private fileStorage: FileStorageService;
   private serverName: string;
   private config: OAuthClientConfig;
   private _authorizationUrl?: string;
@@ -47,8 +48,8 @@ export class SDKOAuthClientProvider implements OAuthClientProvider {
     this.config = config;
 
     // Create FileStorageService and ClientSessionRepository with 'client' subdirectory
-    const fileStorage = new FileStorageService(sessionStoragePath, AUTH_CONFIG.CLIENT.SESSION.SUBDIR);
-    this.sessionRepository = new ClientSessionRepository(fileStorage);
+    this.fileStorage = new FileStorageService(sessionStoragePath, AUTH_CONFIG.CLIENT.SESSION.SUBDIR);
+    this.sessionRepository = new ClientSessionRepository(this.fileStorage);
 
     // Set up client metadata for registration with better defaults
     this._clientMetadata = {
@@ -251,5 +252,6 @@ export class SDKOAuthClientProvider implements OAuthClientProvider {
     this._codeVerifier = undefined;
     this._state = undefined;
     this.persistAllData();
+    this.fileStorage.shutdown();
   }
 }

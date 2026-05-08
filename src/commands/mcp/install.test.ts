@@ -133,7 +133,7 @@ describe('Install Command', () => {
       expect((configUtils.backupConfig as any).mock.calls.length).toBe(0);
     });
 
-    it('should create backup when reinstalling with --force and reload config', async () => {
+    it('should create backup when reinstalling with --force and persist config without runtime reload', async () => {
       vi.mocked(configUtils.serverExists as any).mockReturnValue(true);
       const args = {
         serverName: 'test-server@1.2.3',
@@ -156,7 +156,7 @@ describe('Install Command', () => {
         '1.2.3',
         expect.any(Object),
       );
-      expect((configUtils.reloadMcpConfig as any).mock.calls.length).toBeGreaterThan(0);
+      expect((configUtils.reloadMcpConfig as any).mock.calls.length).toBe(0);
       expect((serverManagementIndex as any).getProgressTrackingService().completeOperation).toHaveBeenCalled();
     });
   });

@@ -12,6 +12,7 @@ import {
   setServer,
 } from '@src/commands/mcp/utils/mcpServerConfig.js';
 import { ConfigManager } from '@src/config/configManager.js';
+import { McpConfigManager } from '@src/config/mcpConfigManager.js';
 import { ClientManager } from '@src/core/client/clientManager.js';
 import {
   McpDisableToolArgs,
@@ -563,6 +564,7 @@ export async function handleReloadOperation(args: McpReloadToolArgs) {
   if (reloadTarget === 'config') {
     // Force reload from disk
     await configManager.reloadConfig();
+    McpConfigManager.getInstance().reloadConfig();
 
     return {
       target: 'config',
@@ -578,6 +580,7 @@ export async function handleReloadOperation(args: McpReloadToolArgs) {
   // Default: full reload (when reloadTarget is 'all')
   // Force reload from disk
   await configManager.reloadConfig();
+  McpConfigManager.getInstance().reloadConfig();
 
   return {
     target: reloadTarget,

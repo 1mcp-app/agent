@@ -1,19 +1,26 @@
 import type { Tool } from '@modelcontextprotocol/sdk/types.js';
 
+import { McpConfigManager } from '@src/config/mcpConfigManager.js';
 import { ToolInvokeOutput, ToolListOutput } from '@src/core/capabilities/schemas/metaToolSchemas.js';
 import { ToolRegistry } from '@src/core/capabilities/toolRegistry.js';
 import { FilteringService } from '@src/core/filtering/filteringService.js';
+import { filterDisabledTools, getDisabledToolError } from '@src/core/server/disabledTools.js';
 import { ServerManager } from '@src/core/server/serverManager.js';
 import logger from '@src/logger/logger.js';
-import {
-  CONTEXT_HEADERS,
-  deriveContextSessionId,
-  extractRequestContext,
-} from '@src/transport/http/utils/contextExtractor.js';
+import { CONTEXT_HEADERS, extractRequestContext } from '@src/transport/http/utils/contextExtractor.js';
 
 import { Request, RequestHandler, Response } from 'express';
 
-import { buildFilterConfig, parseTarget, resolveConnectionByServerName } from './inspectRoutes.js';
+import {
+  buildFilterConfig,
+  ensureRequestContextInitialized,
+  parseTarget,
+  resolveConnectionByServerName,
+} from './inspectRoutes.js';
+
+function getServerConfigs() {
+  return McpConfigManager.getInstance().getTransportConfig();
+}
 
 function getAllowedServersFromRequest(serverManager: ServerManager, res: Response): Set<string> | undefined {
   const filterConfig = buildFilterConfig(res);
@@ -52,8 +59,12 @@ export function createToolsHandler(serverManager: ServerManager): RequestHandler
           if (server && serverName !== server) continue;
           if (conn.status !== 'connected') continue;
           try {
+            const logicalServerName = conn.name || (serverName.includes(':') ? serverName.split(':')[0] : serverName);
             const result = await conn.client.listTools();
-            toolsByServer.set(serverName, result.tools ?? []);
+            toolsByServer.set(
+              logicalServerName,
+              filterDisabledTools(result.tools ?? [], getServerConfigs(), logicalServerName),
+            );
           } catch (err) {
             logger.error(`Failed to list tools for ${serverName}:`, err);
           }
@@ -130,6 +141,12 @@ export function createToolInvocationsHandler(serverManager: ServerManager): Requ
       }
 
       const allowedServers = getAllowedServersFromRequest(serverManager, res);
+
+      const disabledError = getDisabledToolError(getServerConfigs(), target.serverName, target.toolName);
+      if (disabledError) {
+        res.status(404).json({ error: disabledError.message });
+        return;
+      }
 
       const lazyOrchestrator = serverManager.getLazyLoadingOrchestrator();
       if (!lazyOrchestrator) {
@@ -217,53 +234,11 @@ async function initializeRequestContextForApi(
   req: Request,
   res: Response,
 ): Promise<string | undefined> {
-  const context = extractRequestContext(req);
-  if (!context) {
+  const filterConfig = buildFilterConfig(res);
+  if (!extractRequestContext(req)) {
     const headerSessionId = req.headers?.[CONTEXT_HEADERS.SESSION_ID];
     return Array.isArray(headerSessionId) ? headerSessionId[0] : headerSessionId;
   }
 
-  const headerSessionId = req.headers?.[CONTEXT_HEADERS.SESSION_ID];
-  const sessionId =
-    (Array.isArray(headerSessionId) ? headerSessionId[0] : headerSessionId) ||
-    context.sessionId ||
-    deriveContextSessionId(context);
-  res.setHeader?.(CONTEXT_HEADERS.SESSION_ID, sessionId);
-
-  const filterConfig = buildFilterConfig(res);
-  const { templateServers } = await (
-    await import('@src/config/configManager.js')
-  ).ConfigManager.getInstance().loadConfigWithTemplates(context);
-  const templateEntries = Object.entries(templateServers);
-  if (templateEntries.length === 0) {
-    return sessionId;
-  }
-
-  const templateManager = serverManager.getTemplateServerManager();
-  const pendingTemplates = Object.fromEntries(
-    templateEntries.filter(([templateName]) => !templateManager.getRenderedHashForSession(sessionId, templateName)),
-  );
-
-  const serverRegistry = serverManager.getServerRegistry();
-  for (const [templateName, config] of templateEntries) {
-    if (!serverRegistry.has(templateName)) {
-      serverRegistry.registerTemplate(templateName, config);
-    }
-  }
-
-  if (Object.keys(pendingTemplates).length === 0) {
-    return sessionId;
-  }
-
-  await templateManager.createTemplateBasedServers(
-    sessionId,
-    context,
-    filterConfig,
-    { mcpTemplates: pendingTemplates },
-    serverManager.getClients(),
-    serverManager.getClientTransports(),
-  );
-
-  await serverManager.getLazyLoadingOrchestrator()?.refreshCapabilities();
-  return sessionId;
+  return ensureRequestContextInitialized(serverManager, req, res, filterConfig);
 }

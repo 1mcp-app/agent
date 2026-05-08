@@ -170,6 +170,10 @@ export class McpConfigManager extends EventEmitter {
           }
         }
       });
+      this.configWatcher.on('error', (error) => {
+        logger.warn('Configuration file watcher failed', { error });
+        this.stopWatching();
+      });
       logger.info(`Started watching configuration directory: ${configDir} for file: ${configFileName}`);
     } catch (error) {
       logger.error(

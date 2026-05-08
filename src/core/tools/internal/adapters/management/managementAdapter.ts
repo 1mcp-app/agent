@@ -5,7 +5,14 @@
  * This adapter wraps existing domain service calls and transforms data
  * between internal tool format and domain service format.
  */
-import { getAllServers, getServer, reloadMcpConfig, setServer } from '@src/commands/mcp/utils/mcpServerConfig.js';
+import {
+  getAllServers,
+  getServer,
+  reloadMcpConfig,
+  resolveServerTarget,
+  setResolvedServerTarget,
+  setServer,
+} from '@src/commands/mcp/utils/mcpServerConfig.js';
 import { MCPServerParams } from '@src/core/types/index.js';
 import logger, { debugIf } from '@src/logger/logger.js';
 import { getServer1mcpUrl } from '@src/utils/validation/urlDetection.js';
@@ -323,7 +330,9 @@ export class ConfigManagementAdapter implements ManagementAdapter {
     }));
 
     try {
-      const currentConfig = getServer(serverName);
+      const resolvedTarget =
+        'disabledTools' in configUpdate && configUpdate.newName === undefined ? resolveServerTarget(serverName) : null;
+      const currentConfig = resolvedTarget?.serverConfig ?? getServer(serverName);
       if (!currentConfig) {
         throw new Error(`Server '${serverName}' not found`);
       }
@@ -377,6 +386,7 @@ export class ConfigManagementAdapter implements ManagementAdapter {
         'url',
         'headers',
         'oauth',
+        'disabledTools',
       ] as const;
 
       for (const field of checkableFields) {
@@ -397,7 +407,11 @@ export class ConfigManagementAdapter implements ManagementAdapter {
 
       // Apply configuration changes
       const newConfig = { ...currentConfig, ...configChanges };
-      setServer(finalServerName, newConfig);
+      if (resolvedTarget) {
+        setResolvedServerTarget(resolvedTarget, newConfig);
+      } else {
+        setServer(finalServerName, newConfig);
+      }
 
       // Generate warnings based on changes
       const warnings: string[] = [];

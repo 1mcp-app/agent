@@ -11,7 +11,6 @@ import {
   parseEnvVars,
   parseHeaders,
   parseTags,
-  reloadMcpConfig,
   serverExists,
   setServer,
   validateConfigPath,
@@ -242,9 +241,6 @@ export async function addCommand(argv: AddCommandArgs): Promise<void> {
 
     // Save the server configuration
     setServer(name, serverConfig);
-
-    // Reload MCP configuration
-    reloadMcpConfig();
 
     // Success message
     printer.success(`Successfully added server '${name}'`);

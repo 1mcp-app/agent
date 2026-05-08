@@ -4,13 +4,7 @@ import printer from '@src/utils/ui/printer.js';
 
 import type { Argv } from 'yargs';
 
-import {
-  backupConfig,
-  initializeConfigContext,
-  reloadMcpConfig,
-  removeServer,
-  serverExists,
-} from './utils/mcpServerConfig.js';
+import { backupConfig, initializeConfigContext, removeServer, serverExists } from './utils/mcpServerConfig.js';
 import { checkServerInUse, validateServerName } from './utils/serverUtils.js';
 
 export interface UninstallCommandArgs extends GlobalOptions {
@@ -118,9 +112,6 @@ export async function uninstallCommand(argv: UninstallCommandArgs): Promise<void
       if (!removed) {
         throw new Error(`Failed to remove server '${serverName}' from configuration.`);
       }
-
-      // Reload MCP configuration
-      reloadMcpConfig();
 
       printer.success(`Successfully uninstalled server '${serverName}'`);
 

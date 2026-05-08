@@ -60,6 +60,31 @@ function getExplicitCliOptionValue(flags: string[]): string | undefined {
 export interface ServerConfig {
   serverDefaults?: GlobalTransportConfig;
   mcpServers: Record<string, MCPServerParams>;
+  mcpTemplates?: Record<string, MCPServerParams>;
+}
+
+export type ServerConfigSource = 'mcpServers' | 'mcpTemplates';
+
+export interface ResolvedServerTarget {
+  serverName: string;
+  source: ServerConfigSource;
+  serverConfig: MCPServerParams;
+}
+
+function normalizeRawServerConfigs(rawServers: unknown): Record<string, MCPServerParams> {
+  if (!rawServers || typeof rawServers !== 'object') {
+    return {};
+  }
+
+  const normalizedServers: Record<string, MCPServerParams> = {};
+
+  for (const [serverName, serverConfig] of Object.entries(rawServers)) {
+    if (serverConfig && typeof serverConfig === 'object') {
+      normalizedServers[serverName] = serverConfig as MCPServerParams;
+    }
+  }
+
+  return normalizedServers;
 }
 
 function createCommandConfigLoader(configPath: string): ConfigLoader {
@@ -80,10 +105,12 @@ function loadSharedConfigState(configPath?: string): {
   try {
     const loader = createCommandConfigLoader(filePath);
     const loadedConfig = loader.loadParsedConfig({ substituteEnv: false, includeAppConfig: false });
+    const rawTemplates = normalizeRawServerConfigs(loadedConfig.processedConfig.mcpTemplates);
     const config = {
       ...loadedConfig.processedConfig,
       serverDefaults: loadedConfig.globalConfig,
       mcpServers: loadedConfig.rawServers,
+      mcpTemplates: rawTemplates,
     } as ServerConfig & Record<string, unknown>;
 
     if (loadedConfig.schemaInjected) {
@@ -108,6 +135,42 @@ function loadSharedConfigState(configPath?: string): {
  */
 export function loadConfig(configPath?: string): ServerConfig {
   return loadSharedConfigState(configPath).config;
+}
+
+function resolveServerTargetFromConfig(config: ServerConfig, serverName: string): ResolvedServerTarget | null {
+  const templateConfig = config.mcpTemplates?.[serverName];
+  if (templateConfig) {
+    return {
+      serverName,
+      source: 'mcpTemplates',
+      serverConfig: templateConfig,
+    };
+  }
+
+  const staticConfig = config.mcpServers[serverName];
+  if (staticConfig) {
+    return {
+      serverName,
+      source: 'mcpServers',
+      serverConfig: staticConfig,
+    };
+  }
+
+  return null;
+}
+
+function getMergedResolvedServerTargetConfig(
+  config: Pick<ServerConfig, 'serverDefaults'>,
+  effectiveServers: Record<string, MCPServerParams>,
+  target: ResolvedServerTarget,
+): MCPServerParams {
+  if (target.source === 'mcpServers') {
+    return (
+      effectiveServers[target.serverName] || mergeGlobalAndServerConfig(config.serverDefaults, target.serverConfig)
+    );
+  }
+
+  return mergeGlobalAndServerConfig(config.serverDefaults, target.serverConfig);
 }
 
 function isMissingConfigError(error: unknown): boolean {
@@ -155,6 +218,18 @@ export function serverExists(serverName: string): boolean {
 }
 
 /**
+ * Check if a server exists in either mcpTemplates or mcpServers.
+ * Template entries take precedence when names collide.
+ */
+export function serverTargetExists(serverName: string): boolean {
+  try {
+    return resolveServerTargetFromConfig(loadConfig(), serverName) !== null;
+  } catch (_error) {
+    return false;
+  }
+}
+
+/**
  * Get a specific server configuration
  */
 export function getServer(serverName: string): MCPServerParams | null {
@@ -163,6 +238,23 @@ export function getServer(serverName: string): MCPServerParams | null {
     return config.mcpServers[serverName] || null;
   } catch (error) {
     logger.warn(`Failed to get server '${serverName}': ${error instanceof Error ? error.message : String(error)}`);
+    if (isMissingConfigError(error)) {
+      return null;
+    }
+    throw error;
+  }
+}
+
+/**
+ * Resolve a configured server target from mcpTemplates first, then mcpServers.
+ */
+export function resolveServerTarget(serverName: string): ResolvedServerTarget | null {
+  try {
+    return resolveServerTargetFromConfig(loadConfig(), serverName);
+  } catch (error) {
+    logger.warn(
+      `Failed to resolve server target '${serverName}': ${error instanceof Error ? error.message : String(error)}`,
+    );
     if (isMissingConfigError(error)) {
       return null;
     }
@@ -192,15 +284,44 @@ export function getGlobalConfig(): GlobalTransportConfig {
 export function getEffectiveServerConfig(serverName: string): MCPServerParams | null {
   try {
     const { config, effectiveServers } = loadSharedConfigState();
-    if (!config.mcpServers[serverName]) {
+    const serverConfig = config.mcpServers[serverName];
+    if (!serverConfig) {
       return null;
     }
-    return (
-      effectiveServers[serverName] || mergeGlobalAndServerConfig(config.serverDefaults, config.mcpServers[serverName])
-    );
+
+    return getMergedResolvedServerTargetConfig(config, effectiveServers, {
+      serverName,
+      source: 'mcpServers',
+      serverConfig,
+    });
   } catch (error) {
     logger.warn(
       `Failed to get effective server config for '${serverName}': ${error instanceof Error ? error.message : String(error)}`,
+    );
+    if (isMissingConfigError(error)) {
+      return null;
+    }
+    throw error;
+  }
+}
+
+/**
+ * Get effective merged configuration for a configured target from either mcpTemplates or mcpServers.
+ * Template entries still use template-first precedence, but only inherit global defaults here;
+ * they are not rendered with runtime context.
+ */
+export function getEffectiveServerTargetConfig(serverName: string): MCPServerParams | null {
+  try {
+    const { config, effectiveServers } = loadSharedConfigState();
+    const target = resolveServerTargetFromConfig(config, serverName);
+    if (!target) {
+      return null;
+    }
+
+    return getMergedResolvedServerTargetConfig(config, effectiveServers, target);
+  } catch (error) {
+    logger.warn(
+      `Failed to get effective server target config for '${serverName}': ${error instanceof Error ? error.message : String(error)}`,
     );
     if (isMissingConfigError(error)) {
       return null;
@@ -228,6 +349,34 @@ export function setServer(serverName: string, serverConfig: MCPServerParams): vo
   }
 
   config.mcpServers[serverName] = serverConfig;
+  saveConfig(config);
+}
+
+/**
+ * Persist an updated server config back to the same section it was resolved from.
+ */
+export function setResolvedServerTarget(
+  target: Pick<ResolvedServerTarget, 'serverName' | 'source'>,
+  serverConfig: MCPServerParams,
+): void {
+  const configContext = ConfigContext.getInstance();
+  const filePath = configContext.getResolvedConfigPath();
+
+  let config: ServerConfig;
+
+  if (!fs.existsSync(filePath)) {
+    config = { mcpServers: {} };
+  } else {
+    config = loadConfig();
+  }
+
+  if (target.source === 'mcpTemplates') {
+    config.mcpTemplates = config.mcpTemplates || {};
+    config.mcpTemplates[target.serverName] = serverConfig;
+  } else {
+    config.mcpServers[target.serverName] = serverConfig;
+  }
+
   saveConfig(config);
 }
 
@@ -260,6 +409,25 @@ export function getAllServers(): Record<string, MCPServerParams> {
     return config.mcpServers;
   } catch (error) {
     logger.warn(`Failed to get all servers: ${error instanceof Error ? error.message : String(error)}`);
+    if (isMissingConfigError(error)) {
+      return {};
+    }
+    throw error;
+  }
+}
+
+/**
+ * Get all configured servers with template-first precedence for duplicate names.
+ */
+export function getAllServerTargets(): Record<string, MCPServerParams> {
+  try {
+    const config = loadConfig();
+    return {
+      ...config.mcpServers,
+      ...(config.mcpTemplates || {}),
+    };
+  } catch (error) {
+    logger.warn(`Failed to get all server targets: ${error instanceof Error ? error.message : String(error)}`);
     if (isMissingConfigError(error)) {
       return {};
     }

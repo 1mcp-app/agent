@@ -12,6 +12,7 @@ import { buildListCommand } from './list.js';
 import { buildRemoveCommand } from './remove.js';
 import { buildStatusCommand } from './status.js';
 import { buildTokensCommand } from './tokens.js';
+import { setupMcpToolsCommands } from './tools.js';
 import { buildUninstallCommand } from './uninstall.js';
 import { buildUpdateCommand } from './update.js';
 
@@ -30,8 +31,9 @@ export function setupMcpCommands(yargs: Argv): Argv {
     'mcp',
     'Manage MCP server configurations',
     (yargs) => {
-      return yargs
-        .options(globalOptions || {})
+      const commandGroup = setupMcpToolsCommands(yargs.options(globalOptions || {}));
+
+      return commandGroup
         .command({
           command: 'add <name>',
           describe: 'Add a new MCP server to the configuration',

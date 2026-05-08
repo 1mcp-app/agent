@@ -418,6 +418,7 @@ describe('SDKOAuthClientProvider', () => {
 
       expect(sessionData.codeVerifier).toBeUndefined();
       expect(sessionData.state).toBeUndefined();
+      expect(mockFileStorageService.shutdown).toHaveBeenCalledTimes(1);
     });
 
     it('should persist other data during shutdown', () => {
