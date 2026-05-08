@@ -163,10 +163,5 @@
     "vitepress": "^1.6.3",
     "vitepress-plugin-mermaid": "^2.0.17",
     "vitest": "^1.4.0"
-  },
-  "pnpm": {
-    "ignoredBuiltDependencies": [
-      "esbuild"
-    ]
   }
 }
