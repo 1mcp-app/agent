@@ -149,7 +149,7 @@
     "globals": "^17.6.0",
     "husky": "^9.1.7",
     "jiti": "^2.4.2",
-    "lint-staged": "^16.1.2",
+    "lint-staged": "^17.0.4",
     "mermaid": "^11.9.0",
     "nodemon": "^3.1.10",
     "postject": "^1.0.0-alpha.6",
