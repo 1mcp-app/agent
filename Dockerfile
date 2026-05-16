@@ -10,7 +10,7 @@ RUN npm install -g corepack && \
   corepack enable
 
 # Copy package files first to leverage Docker cache
-COPY package.json pnpm-lock.yaml ./
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 
 # Install dependencies with frozen lockfile for consistency
 RUN pnpm install --frozen-lockfile --prefer-offline
@@ -32,7 +32,7 @@ RUN npm install -g corepack && \
   corepack enable
 
 # Copy package files
-COPY package.json pnpm-lock.yaml ./
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 
 # Install production dependencies only with frozen lockfile
 RUN pnpm install --frozen-lockfile --prefer-offline --prod
