@@ -64,6 +64,15 @@ npx -y @1mcp/agent mcp status my-server
 npx -y @1mcp/agent mcp tokens --model=gpt-3.5-turbo --format=summary
 ```
 
+### [tools](/zh/commands/mcp/tools)
+
+列出、禁用和重新启用某个已配置服务器上的单个工具，而不禁用整个服务器。
+
+```bash
+npx -y @1mcp/agent mcp tools list filesystem --disabled
+npx -y @1mcp/agent mcp tools disable filesystem write_file
+```
+
 ## 另请参阅
 
 - **[服务器管理指南](../../guide/essentials/server-management)**

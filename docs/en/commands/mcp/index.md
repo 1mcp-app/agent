@@ -111,6 +111,15 @@ Estimate MCP token usage for server capabilities by connecting to servers and an
 npx -y @1mcp/agent mcp tokens --model=gpt-3.5-turbo --format=summary
 ```
 
+### [tools](/commands/mcp/tools)
+
+List, disable, and re-enable individual tools for a configured server without disabling the entire server.
+
+```bash
+npx -y @1mcp/agent mcp tools list filesystem --disabled
+npx -y @1mcp/agent mcp tools disable filesystem write_file
+```
+
 ## See Also
 
 - **[Server Management Guide](../../guide/essentials/server-management)**

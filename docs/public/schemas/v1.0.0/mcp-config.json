@@ -126,6 +126,14 @@
               }
             ]
           },
+          "disabledTools": {
+            "description": "Hide specific tools from this server without disabling the entire server",
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
           "timeout": {
             "description": "Deprecated: Use connectionTimeout and requestTimeout instead. Fallback timeout in milliseconds",
             "type": "number"
@@ -326,6 +334,14 @@
                 "type": "string"
               }
             ]
+          },
+          "disabledTools": {
+            "description": "Hide specific tools from this server without disabling the entire server",
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
           },
           "timeout": {
             "description": "Deprecated: Use connectionTimeout and requestTimeout instead. Fallback timeout in milliseconds",

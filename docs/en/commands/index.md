@@ -110,6 +110,7 @@ Manage MCP server configurations within your 1MCP instance.
 npx -y @1mcp/agent mcp add myserver --type=stdio --command=node --args=server.js
 npx -y @1mcp/agent mcp list                       # List configured servers
 npx -y @1mcp/agent mcp status                     # Check server status
+npx -y @1mcp/agent mcp tools list filesystem --disabled
 ```
 
 ### [Preset Commands](/commands/preset/)
