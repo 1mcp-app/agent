@@ -433,6 +433,32 @@ describe('ExpressServer', () => {
       expect(mockApp.use.mock.calls.length).toBeGreaterThanOrEqual(4);
     });
 
+    it('should configure CORS with explicit origin validation', async () => {
+      const cors = await import('cors');
+
+      expressServer = new ExpressServer(mockServerManager);
+
+      const corsOptions = vi.mocked(cors.default).mock.calls[0][0] as {
+        origin: (origin: string | undefined, callback: (err: Error | null, origin?: boolean | string) => void) => void;
+      };
+      const resolveOrigin = (origin: string | undefined): boolean | string | undefined => {
+        let allowedOrigin: boolean | string | undefined;
+        corsOptions.origin(origin, (_err, resolvedOrigin) => {
+          allowedOrigin = resolvedOrigin;
+        });
+        return allowedOrigin;
+      };
+
+      expect(cors.default).toHaveBeenCalledWith(
+        expect.objectContaining({
+          origin: expect.any(Function),
+        }),
+      );
+      expect(resolveOrigin('http://evil.example.com')).toBe(false);
+      expect(resolveOrigin('http://localhost:5173')).toBe('http://localhost:5173');
+      expect(resolveOrigin('http://127.0.0.1:3050')).toBe('http://127.0.0.1:3050');
+    });
+
     it('should handle security middleware conditionally', async () => {
       const { setupSecurityMiddleware } = await import('./middlewares/securityMiddleware.js');
       vi.mocked(setupSecurityMiddleware).mockReturnValue([vi.fn()]);

@@ -1,10 +1,13 @@
 import { type ServerAdapter, ServerStatus, ServerType } from '@src/core/server/adapters/types.js';
 import { ClientStatus, type OutboundConnections } from '@src/core/types/index.js';
 
+import express from 'express';
 import type { Request, RequestHandler, Response } from 'express';
+import request from 'supertest';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
+  createApiRoutes,
   createInspectHandler,
   createServersHandler,
   createToolInvocationsHandler,
@@ -1001,6 +1004,27 @@ describe('apiRoutes /api/tool-invocations', () => {
     res.locals.tagFilterMode = 'none';
     next();
   };
+
+  it('rejects browser-origin POST requests before reaching the tool invocation handler', async () => {
+    const serverManager = {
+      getLazyLoadingOrchestrator: vi.fn(() => undefined),
+      getClient: vi.fn(() => undefined),
+      getClients: vi.fn(() => new Map()),
+    };
+    const app = express();
+    app.use(express.json());
+    app.use('/api/v1', createApiRoutes(serverManager as never, scopeAuthMiddleware));
+
+    const response = await request(app)
+      .post('/api/v1/tool-invocations')
+      .set('Origin', 'http://evil.example.com')
+      .send({ tool: 'server/tool' });
+
+    expect(response.status).toBe(403);
+    expect(response.body).toEqual({ error: 'Cross-origin requests are not allowed for this endpoint' });
+    expect(serverManager.getLazyLoadingOrchestrator).not.toHaveBeenCalled();
+    expect(serverManager.getClient).not.toHaveBeenCalled();
+  });
 
   it('returns 400 when tool field is missing', async () => {
     const serverManager = { getLazyLoadingOrchestrator: vi.fn(() => undefined) };
