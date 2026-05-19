@@ -457,6 +457,8 @@ describe('ExpressServer', () => {
       expect(resolveOrigin('http://evil.example.com')).toBe(false);
       expect(resolveOrigin('http://localhost:5173')).toBe('http://localhost:5173');
       expect(resolveOrigin('http://127.0.0.1:3050')).toBe('http://127.0.0.1:3050');
+      expect(resolveOrigin('http://[::1]:3050')).toBe('http://[::1]:3050');
+      expect(resolveOrigin('http://127.0.1.1:3050')).toBe('http://127.0.1.1:3050');
     });
 
     it('should handle security middleware conditionally', async () => {

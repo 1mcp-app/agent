@@ -235,6 +235,7 @@ export class SDKOAuthServerProvider implements OAuthServerProvider {
     availableTags: string[],
   ): string {
     const clientName = escapeHtml(client.client_name || client.client_id);
+    const escapedAuthRequestId = escapeHtml(authRequestId);
 
     return `
 <!DOCTYPE html>
@@ -274,30 +275,32 @@ export class SDKOAuthServerProvider implements OAuthServerProvider {
         </div>
 
         <form method="POST" action="/oauth/consent">
-            <input type="hidden" name="auth_request_id" value="${authRequestId}">
+            <input type="hidden" name="auth_request_id" value="${escapedAuthRequestId}">
 
             <div class="scopes-section">
                 <h3>Server Access Permissions</h3>
                 <p>Select which server groups this application can access:</p>
 
                 ${availableTags
-                  .map(
-                    (tag) => `
+                  .map((tag) => {
+                    const escapedTag = escapeHtml(tag);
+
+                    return `
                     <div class="scope-item">
                         <input type="checkbox"
-                               id="scope_${tag}"
+                               id="scope_${escapedTag}"
                                name="scopes"
-                               value="tag:${tag}"
+                               value="tag:${escapedTag}"
                                ${requestedTags.includes(tag) ? 'checked' : ''}>
-                        <label for="scope_${tag}">
-                            <strong>${tag}</strong> servers
+                        <label for="scope_${escapedTag}">
+                            <strong>${escapedTag}</strong> servers
                         </label>
                     </div>
                     <div class="tag-description">
-                        Access servers tagged with "${tag}"
+                        Access servers tagged with "${escapedTag}"
                     </div>
-                `,
-                  )
+                `;
+                  })
                   .join('')}
             </div>
 

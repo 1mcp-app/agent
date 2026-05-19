@@ -140,6 +140,29 @@ describe('SDKOAuthProvider', () => {
       expect(html).not.toContain('<strong><img src=x onerror=alert(1)></strong>');
     });
 
+    it('should escape auth request id and tag values in consent page HTML', () => {
+      const client: OAuthClientInformationFull = {
+        client_id: 'test-client',
+        client_id_issued_at: Math.floor(Date.now() / 1000),
+        redirect_uris: ['http://localhost:3000/callback'],
+        grant_types: ['authorization_code'],
+        response_types: ['code'],
+        token_endpoint_auth_method: 'none',
+        client_name: 'Test Client',
+      };
+      const maliciousAuthRequestId = 'auth-request-123" autofocus onfocus="alert(1)';
+      const maliciousTag = 'context7"><script>alert(1)</script>';
+
+      const html = provider['generateConsentPageHtml'](client, maliciousAuthRequestId, [maliciousTag], [maliciousTag]);
+
+      expect(html).toContain('auth-request-123&quot; autofocus onfocus=&quot;alert(1)');
+      expect(html).toContain('context7&quot;&gt;&lt;script&gt;alert(1)&lt;/script&gt;');
+      expect(html).not.toContain(`value="${maliciousAuthRequestId}"`);
+      expect(html).not.toContain(`id="scope_${maliciousTag}"`);
+      expect(html).not.toContain(`value="tag:${maliciousTag}"`);
+      expect(html).not.toContain(`<strong>${maliciousTag}</strong>`);
+    });
+
     it('should set restrictive CSP headers when rendering the consent page', async () => {
       const client: OAuthClientInformationFull = {
         client_id: 'test-client',

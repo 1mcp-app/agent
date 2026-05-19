@@ -43,9 +43,16 @@ function isLoopbackOrigin(origin: string | undefined): boolean {
 
   try {
     const { hostname, protocol } = new URL(origin);
+    const normalizedHost = hostname.startsWith('[') && hostname.endsWith(']') ? hostname.slice(1, -1) : hostname;
+    const hostParts = normalizedHost.split('.');
+    const isIPv4Loopback =
+      hostParts.length === 4 &&
+      hostParts[0] === '127' &&
+      hostParts.every((part) => /^\d+$/.test(part) && Number(part) <= 255);
+
     return (
       (protocol === 'http:' || protocol === 'https:') &&
-      (hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '[::1]' || hostname === '::1')
+      (normalizedHost === 'localhost' || normalizedHost === '::1' || isIPv4Loopback)
     );
   } catch {
     return false;
