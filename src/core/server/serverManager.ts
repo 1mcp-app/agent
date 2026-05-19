@@ -423,7 +423,7 @@ export class ServerManager {
     await this.connectionManager.cleanup();
 
     // Clean up template server manager
-    this.templateServerManager.cleanup();
+    await this.templateServerManager.shutdown();
 
     // Clean up configuration manager
     this.templateConfigurationManager.cleanup();

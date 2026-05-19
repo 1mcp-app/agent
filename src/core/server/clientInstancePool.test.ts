@@ -203,6 +203,47 @@ describe('ClientInstancePool', () => {
       expect(createTransportsWithContext).toHaveBeenCalledTimes(1);
     });
 
+    it('should deduplicate concurrent shareable instance creation for the same rendered config', async () => {
+      const { createTransportsWithContext } = await import('@src/transport/transportFactory.js');
+      const { ClientManager } = await import('@src/core/client/clientManager.js');
+
+      const mockTransport = {
+        close: vi.fn().mockResolvedValue(undefined),
+        start: vi.fn(),
+        send: vi.fn(),
+      } as any;
+      const mockClient = {
+        connect: vi.fn().mockResolvedValue(undefined),
+        close: vi.fn().mockResolvedValue(undefined),
+        _clientInfo: {},
+        _capabilities: {},
+        _jsonSchemaValidator: {},
+        _cachedToolOutputValidators: new Map(),
+      } as any;
+      let resolveTransportCreation: (value: Record<string, typeof mockTransport>) => void;
+      const transportCreation = new Promise<Record<string, typeof mockTransport>>((resolve) => {
+        resolveTransportCreation = resolve;
+      });
+
+      vi.mocked(createTransportsWithContext).mockReturnValue(transportCreation);
+      vi.mocked(ClientManager.getOrCreateInstance().createPooledClientInstance).mockReturnValue(mockClient);
+
+      const firstRequest = pool.getOrCreateClientInstance('testTemplate', mockTemplateConfig, mockContext, 'client-1');
+      const secondRequest = pool.getOrCreateClientInstance('testTemplate', mockTemplateConfig, mockContext, 'client-2');
+
+      expect(createTransportsWithContext).toHaveBeenCalledTimes(1);
+      resolveTransportCreation!({ testTemplate: mockTransport });
+
+      const [instance1, instance2] = await Promise.all([firstRequest, secondRequest]);
+
+      expect(instance1).toBe(instance2);
+      expect(instance1.referenceCount).toBe(2);
+      expect(instance1.clientIds.has('client-1')).toBe(true);
+      expect(instance1.clientIds.has('client-2')).toBe(true);
+      expect(createTransportsWithContext).toHaveBeenCalledTimes(1);
+      expect(pool.getStats().totalInstances).toBe(1);
+    });
+
     it('should create separate instances for non-shareable templates', async () => {
       const { createTransportsWithContext } = await import('@src/transport/transportFactory.js');
       const { ClientManager } = await import('@src/core/client/clientManager.js');

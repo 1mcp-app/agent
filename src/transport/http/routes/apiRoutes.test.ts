@@ -548,6 +548,62 @@ describe('apiRoutes inspect', () => {
     expect(getRenderedHashForSession).not.toHaveBeenCalled();
   });
 
+  it('touches an existing REST template session instead of creating another template instance', async () => {
+    mockedLoadConfigWithTemplates.mockResolvedValue({
+      staticServers: {},
+      templateServers: {
+        serena: {
+          type: 'stdio',
+          command: 'uvx',
+          args: ['serena', '{{project.path}}'],
+          tags: ['serena'],
+        },
+      },
+      errors: [],
+    });
+    mockedExtractRequestContext.mockReturnValue({
+      sessionId: 'context-session',
+      project: {
+        path: '/tmp/project',
+      },
+    });
+
+    const createTemplateBasedServers = vi.fn();
+    const touchEphemeralClient = vi.fn();
+    const registerTemplate = vi.fn();
+    const getRenderedHashForSession = vi.fn(() => 'template-hash');
+    const serverManager = {
+      getClients: vi.fn(() => outboundConnections),
+      getInstructionAggregator: vi.fn(() => ({
+        hasInstructions: () => false,
+        getServerInstructions: () => undefined,
+      })),
+      getLazyLoadingOrchestrator: vi.fn(() => undefined),
+      getServerRegistry: vi.fn(() => ({
+        getServerNames: vi.fn(() => ['serena']),
+        get: vi.fn(() => makeAdapter('serena', ['serena'], ServerStatus.Disconnected)),
+        has: vi.fn(() => true),
+        registerTemplate,
+      })),
+      getClient: vi.fn((name: string) => outboundConnections.get(name)),
+      getTemplateServerManager: vi.fn(() => ({
+        getRenderedHashForSession,
+        createTemplateBasedServers,
+        touchEphemeralClient,
+      })),
+      getClientTransports: vi.fn(() => ({})),
+    };
+    const handler = createInspectHandler(serverManager as never);
+    const res = createMockResponse();
+
+    await invokeInspectRoute(scopeAuthMiddleware, { query: { target: 'serena' } }, res);
+    await invokeInspectRoute(handler, { query: { target: 'serena' } }, res);
+
+    expect(createTemplateBasedServers).not.toHaveBeenCalled();
+    expect(touchEphemeralClient).toHaveBeenCalledWith('context-session');
+    expect(registerTemplate).not.toHaveBeenCalled();
+  });
+
   it('returns instructions and summarized tools for server targets in non-lazy mode', async () => {
     const req = { query: { target: 'context7' } };
     const res = createMockResponse();

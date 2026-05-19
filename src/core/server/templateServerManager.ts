@@ -3,8 +3,7 @@ import { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
 import { ClientTemplateTracker, TemplateFilteringService, TemplateIndex } from '@src/core/filtering/index.js';
 import { InstructionAggregator } from '@src/core/instructions/instructionAggregator.js';
 import { ClientInstancePool, type PooledClientInstance } from '@src/core/server/clientInstancePool.js';
-import type { AuthProviderTransport } from '@src/core/types/client.js';
-import type { OutboundConnections } from '@src/core/types/client.js';
+import type { AuthProviderTransport, OutboundConnection, OutboundConnections } from '@src/core/types/client.js';
 import { ClientStatus } from '@src/core/types/client.js';
 import { MCPServerParams } from '@src/core/types/index.js';
 import type { InboundConnectionConfig } from '@src/core/types/server.js';
@@ -18,6 +17,17 @@ export interface TemplateRebuildOptions {
   mcpTemplates?: Record<string, MCPServerParams>;
 }
 
+export type TemplateClientLifecycle = 'persistent' | 'ephemeral';
+
+interface EphemeralTemplateClient {
+  templateName: string;
+  instanceId: string;
+  instanceKey: string;
+  outboundKey: string;
+  lastUsedAt: Date;
+  idleTimeout: number;
+}
+
 /**
  * Manages template-based server instances and client pools
  */
@@ -27,6 +37,10 @@ export class TemplateServerManager {
   private templateSessionMap?: Map<string, string>; // Maps template name to session ID for tracking
   private cleanupTimer?: ReturnType<typeof setInterval>; // Timer for idle instance cleanup
   private instructionAggregator?: InstructionAggregator;
+  private ephemeralClients = new Map<string, Map<string, EphemeralTemplateClient>>();
+  private persistentSessions = new Set<string>();
+  private outboundConns?: OutboundConnections;
+  private transports?: Record<string, Transport>;
 
   // Maps sessionId -> (templateName -> renderedHash) for routing shareable servers
   private sessionToRenderedHash = new Map<string, Map<string, string>>();
@@ -96,7 +110,15 @@ export class TemplateServerManager {
     serverConfigData: { mcpTemplates?: Record<string, MCPServerParams> }, // MCPServerConfiguration with templates
     outboundConns: OutboundConnections,
     transports: Record<string, Transport>,
+    lifecycle: TemplateClientLifecycle = 'persistent',
   ): Promise<void> {
+    this.outboundConns = outboundConns;
+    this.transports = transports;
+
+    if (lifecycle === 'persistent') {
+      this.trackPersistentClient(sessionId);
+    }
+
     // Get template servers that match the client's tags/preset
     const templateConfigs = this.getMatchingTemplateConfigs(opts, serverConfigData);
 
@@ -171,6 +193,10 @@ export class TemplateServerManager {
           perClient: templateConfig.template?.perClient,
         });
 
+        if (lifecycle === 'ephemeral') {
+          this.trackEphemeralClient(sessionId, templateName, instance, outboundKey);
+        }
+
         debugIf(() => ({
           message: `TemplateServerManager.createTemplateBasedServers: Tracked client-template relationship`,
           meta: {
@@ -219,6 +245,10 @@ export class TemplateServerManager {
     outboundConns: OutboundConnections,
     transports: Record<string, Transport>,
   ): Promise<void> {
+    this.outboundConns = outboundConns;
+    this.transports = transports;
+    this.ephemeralClients.delete(sessionId);
+
     // Enhanced cleanup using client template tracker
     const instancesToCleanup = this.clientTemplateTracker.removeClient(sessionId);
     logger.info(`Removing client from ${instancesToCleanup.length} template instances`, {
@@ -264,7 +294,7 @@ export class TemplateServerManager {
         }
 
         // Remove the client from the instance pool
-        this.clientInstancePool.removeClientFromInstance(instanceKey, sessionId);
+        this.clientInstancePool.removeClientFromInstance(this.getPoolInstanceKey(instanceKey), sessionId);
 
         // Clean up session-to-renderedHash mapping
         if (sessionHashes) {
@@ -346,6 +376,126 @@ export class TemplateServerManager {
     });
   }
 
+  public trackPersistentClient(sessionId: string): void {
+    this.persistentSessions.add(sessionId);
+    this.ephemeralClients.delete(sessionId);
+  }
+
+  public trackEphemeralClient(
+    sessionId: string,
+    templateName: string,
+    instance: PooledClientInstance,
+    outboundKey = `${templateName}:${instance.renderedHash}`,
+  ): void {
+    if (this.persistentSessions.has(sessionId)) {
+      return;
+    }
+
+    if (!this.ephemeralClients.has(sessionId)) {
+      this.ephemeralClients.set(sessionId, new Map());
+    }
+
+    this.ephemeralClients.get(sessionId)!.set(templateName, {
+      templateName,
+      instanceId: instance.id,
+      instanceKey: instance.instanceKey ?? `${templateName}:${instance.renderedHash}`,
+      outboundKey,
+      lastUsedAt: new Date(),
+      idleTimeout: instance.idleTimeout,
+    });
+  }
+
+  public touchEphemeralClient(sessionId: string, templateName?: string): void {
+    const clients = this.ephemeralClients.get(sessionId);
+    if (!clients || this.persistentSessions.has(sessionId)) {
+      return;
+    }
+
+    const now = new Date();
+    if (templateName) {
+      const client = clients.get(templateName);
+      if (client) {
+        client.lastUsedAt = now;
+      }
+      return;
+    }
+
+    for (const client of clients.values()) {
+      client.lastUsedAt = now;
+    }
+  }
+
+  private getPoolInstanceKey(trackerInstanceKey: string): string {
+    const [, ...instanceParts] = trackerInstanceKey.split(':');
+    const instanceId = instanceParts.join(':');
+    const poolInstanceKey = this.clientInstancePool.getInstanceKeyById(instanceId);
+    return poolInstanceKey ?? trackerInstanceKey;
+  }
+
+  private async cleanupExpiredEphemeralClients(
+    outboundConns: OutboundConnections,
+    transports: Record<string, Transport>,
+  ): Promise<void> {
+    const now = new Date();
+
+    for (const [sessionId, clients] of Array.from(this.ephemeralClients.entries())) {
+      if (this.persistentSessions.has(sessionId)) {
+        continue;
+      }
+
+      for (const [templateName, trackedClient] of Array.from(clients.entries())) {
+        const idleTime = now.getTime() - trackedClient.lastUsedAt.getTime();
+        if (idleTime <= trackedClient.idleTimeout) {
+          continue;
+        }
+
+        const instance =
+          this.clientInstancePool.getInstance(trackedClient.instanceKey) ??
+          this.clientInstancePool.getInstance(`${templateName}:${trackedClient.instanceKey}`);
+        this.clientInstancePool.removeClientFromInstance(
+          trackedClient.instanceKey,
+          sessionId,
+          trackedClient.lastUsedAt,
+        );
+        const shouldCleanup = this.clientTemplateTracker.removeClientFromInstance(
+          sessionId,
+          templateName,
+          trackedClient.instanceId,
+        );
+
+        const sessionHashes = this.sessionToRenderedHash.get(sessionId);
+        sessionHashes?.delete(templateName);
+        if (sessionHashes?.size === 0) {
+          this.sessionToRenderedHash.delete(sessionId);
+        }
+
+        const remainingClients = this.clientTemplateTracker.getClientCount(templateName, trackedClient.instanceId);
+        if (shouldCleanup || remainingClients === 0) {
+          outboundConns.delete(trackedClient.outboundKey);
+          delete transports[trackedClient.instanceId];
+          this.clientTemplateTracker.cleanupInstance(templateName, trackedClient.instanceId);
+        }
+
+        clients.delete(templateName);
+        debugIf(() => ({
+          message: 'Expired ephemeral template client',
+          meta: {
+            sessionId,
+            templateName,
+            instanceId: trackedClient.instanceId,
+            instanceKey: trackedClient.instanceKey,
+            idleTime,
+            instanceFound: Boolean(instance),
+          },
+        }));
+      }
+
+      if (clients.size === 0) {
+        this.ephemeralClients.delete(sessionId);
+      }
+    }
+  }
+
   /**
    * Get template configurations that match the client's filter criteria
    */
@@ -389,7 +539,12 @@ export class TemplateServerManager {
   /**
    * Force cleanup of idle template instances
    */
-  public async cleanupIdleInstances(): Promise<number> {
+  public async cleanupIdleInstances(
+    outboundConns: OutboundConnections = this.outboundConns ?? new Map<string, OutboundConnection>(),
+    transports: Record<string, Transport> = this.transports ?? {},
+  ): Promise<number> {
+    await this.cleanupExpiredEphemeralClients(outboundConns, transports);
+
     // Get all instances from the pool
     const allInstances = this.clientInstancePool.getAllInstances();
     const instancesToCleanup: Array<{ templateName: string; instanceId: string; instance: PooledClientInstance }> = [];
@@ -409,7 +564,9 @@ export class TemplateServerManager {
     for (const { templateName, instanceId, instance } of instancesToCleanup) {
       try {
         // Remove the instance from the pool
-        await this.clientInstancePool.removeInstance(`${templateName}:${instance.renderedHash}`);
+        await this.clientInstancePool.removeInstance(
+          instance.instanceKey ?? `${templateName}:${instance.renderedHash}`,
+        );
 
         // Clean up tracking
         this.clientTemplateTracker.cleanupInstance(templateName, instanceId);
@@ -502,14 +659,23 @@ export class TemplateServerManager {
   /**
    * Clean up resources (for shutdown)
    */
-  public cleanup(): void {
+  public async shutdown(): Promise<void> {
     // Clean up cleanup timer
     if (this.cleanupTimer) {
       clearInterval(this.cleanupTimer);
       this.cleanupTimer = undefined;
     }
 
-    // Clean up the client instance pool
-    this.clientInstancePool?.cleanupIdleInstances();
+    this.ephemeralClients.clear();
+    this.persistentSessions.clear();
+    this.sessionToRenderedHash.clear();
+
+    await this.clientInstancePool.shutdown();
+  }
+
+  public cleanup(): void {
+    this.shutdown().catch((error) => {
+      logger.warn('Failed to clean up template server manager:', error);
+    });
   }
 }

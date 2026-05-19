@@ -116,6 +116,7 @@ async function initializeTemplateServersForContext(
   }
 
   if (Object.keys(pendingTemplates).length === 0) {
+    templateManager.touchEphemeralClient(sessionId);
     return;
   }
 
@@ -126,6 +127,7 @@ async function initializeTemplateServersForContext(
     { mcpTemplates: pendingTemplates },
     serverManager.getClients(),
     serverManager.getClientTransports(),
+    'ephemeral',
   );
 
   await serverManager.getLazyLoadingOrchestrator()?.refreshCapabilities();
