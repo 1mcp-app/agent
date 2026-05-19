@@ -2,6 +2,116 @@
 
 This note records the architecture review from 2026-05-08. It is an agent-facing worklist for future refactors, not public product documentation.
 
+## Milestone Plan
+
+This plan sequences the deepening work so each milestone leaves the codebase in a better state, even if later milestones are delayed. Each milestone should land with focused unit tests around the new Module Interface plus caller tests for migrated Adapters.
+
+### Milestone 1: Runtime Identity And Context Foundations
+
+**Goal**: remove duplicated runtime-key and request-preparation rules before changing broader capability or command paths.
+
+**Scope**:
+
+- Complete No.1 **Template Server Identity Module**.
+- Complete No.2 **Request Context Preparation Module** for targeted inspect and REST tool listing/invocation.
+- Add any missing `CONTEXT.md` terms discovered while implementing these Modules.
+
+**Done when**:
+
+- Template identity construction, serialization, parsing, lookup candidate order, and rendered-hash creation live behind `src/core/server/templateIdentity.ts`.
+- Targeted inspect and REST tool routes use one **Request Context Preparation** path for session precedence, template registration, pending instance creation, and lazy capability refresh.
+- Bare `/api/inspect` remains non-instantiating.
+- Tests cover static, rendered, session-bound, routing-only, and malformed identity/context cases.
+
+### Milestone 2: Capability And Filter Visibility
+
+**Goal**: make visibility and routing one query surface instead of a caller responsibility.
+
+**Scope**:
+
+- Complete No.8 **Filter Selection Module**.
+- Complete the first slice of No.5 **Capability Snapshot And Catalog Module**.
+- Migrate `MetaToolProvider`, `/api/tools`, and `/api/tool-invocations` to the **Capability Catalog**.
+
+**Done when**:
+
+- CLI and HTTP filter inputs produce the same validated filtering intent for `preset`, `tag-filter`, `filter`, and `tags`.
+- **Capability Catalog** owns **Capability Visibility**, **Capability Refresh** intent, and internal **Capability Routes** for the first migrated callers.
+- Disabled-tool checks, tag/preset filtering, and schema/invoke access checks follow the same visibility path for migrated callers.
+- Tests cover visible listing, schema lookup, invocation rejection, template routes, static routes, and filter selector precedence.
+
+### Milestone 3: Config Change And Installation
+
+**Goal**: centralize persisted configuration mutation before migrating install workflows.
+
+**Scope**:
+
+- Complete No.4 **Config Mutation And Reload Module** first.
+- Then complete No.3 **Server Installation Workflow Module** on top of the public **Config Change** Interface.
+
+**Done when**:
+
+- Destructive or forced config mutations can create **Config Backups**, validate before writing, serialize writers, preserve unknown fields, and report reload outcomes.
+- `mcp uninstall` and the internal remove/uninstall path use **Config Change** as the first vertical slice.
+- `mcp install` and `mcp_install` use **Server Installation Workflow** for registry/direct preview and apply modes.
+- Tests cover backup defaults, retention, lock timeout, reload outcomes, install conflict policy, dry-run preview, endpoint priority, and structured workflow statuses.
+
+### Milestone 4: Streamable Transport Lifecycle
+
+**Goal**: move Streamable HTTP continuity out of Express route control flow.
+
+**Scope**:
+
+- Complete No.6 **HTTP Streamable Transport Session Lifecycle Module**.
+- Preserve existing HTTP behavior while exposing structured lifecycle results internally.
+- Reconcile the long-lived Streamable HTTP/proxy path with **Request Context Preparation** decisions from Milestone 1.
+
+**Done when**:
+
+- POST, GET, and DELETE routes delegate creation, active lookup, restoration, initialize recovery, bookkeeping, disconnect cleanup, and explicit delete cleanup to `streamableSessionLifecycle`.
+- `SessionService` is removed or reduced to a temporary compatibility wrapper.
+- Tests cover active lookup, restore success/failure, initialize recovery, missing sessions, persistence warnings, abnormal disconnect, explicit delete, and **Template Server Instance** membership cleanup through `ServerManager.disconnectTransport()`.
+
+### Milestone 5: Attach-Only Client Surfaces
+
+**Goal**: make `run`, `inspect`, `instructions`, and `proxy` use one attachment model for an existing **Aggregated Runtime**.
+
+**Scope**:
+
+- Complete No.7 **Client Surface Attachment Module**.
+- Migrate `run` and `inspect` first, then `instructions`, then `proxy` where the Interface fits.
+- Keep `proxy`, `inspect`, and `run` attach-only; do not reopen the **Background Aggregated Runtime** ADR.
+
+**Done when**:
+
+- Runtime discovery, auth-profile lookup, **Request Context** building, context hash, session cache, REST support cache, and stale-session retry decisions live behind one Module Interface.
+- `run` and `inspect` command bodies mostly format input/output and map structured attachment outcomes.
+- Tests cover auth-required errors, REST endpoint support probing, MCP fallback, stale cached session retry, and filter/query propagation.
+
+### Milestone 6: OAuth And Instructions Distribution
+
+**Goal**: deepen the two remaining user-facing seams whose behavior spans runtime, HTTP routes, and agent setup.
+
+**Scope**:
+
+- Complete No.9 **OAuth Authorization Flow Module**.
+- Complete No.10 **Instructions Distribution Module**.
+
+**Done when**:
+
+- OAuth routes no longer mutate `oauthProvider.oauthStorage` directly for consent or CLI-token flows.
+- Consent, denial, token creation, backend OAuth start/restart, and dashboard facts are structured operations behind the OAuth Module Interface.
+- `instructions` and `cli-setup` use one **Instructions Distribution** policy for eager inspection, disconnected server instructions, and managed startup-doc content.
+- Tests cover invalid consent, selected scopes, localhost CLI token creation, backend OAuth restart, unavailable **Template Server** instructions, disconnected cached instructions, and managed startup-doc updates.
+
+### Cross-Milestone Rules
+
+- Do not skip the Interface tests for a deepened Module; the Interface is the test surface.
+- Do not migrate every caller in the first slice unless the milestone explicitly says so.
+- Preserve public command and HTTP behavior unless a milestone explicitly records a behavior change.
+- Update `CONTEXT.md` when a milestone needs a new domain term.
+- Add an ADR only when a milestone resolves a decision future architecture reviews should not re-litigate.
+
 ## 1. Template Server Identity Module
 
 **Files**: `src/core/server/templateServerManager.ts`, `src/core/server/connectionResolver.ts`, `src/core/server/adapters/TemplateServerAdapter.ts`, `src/core/capabilities/lazyLoadingOrchestrator.ts`
@@ -211,3 +321,43 @@ This note records the architecture review from 2026-05-08. It is an agent-facing
 3. Migrate POST, GET, and DELETE in `streamableHttpRoutes.ts` together so routes become HTTP adapters that extract inputs, map lifecycle results to existing HTTP responses, call `transport.handleRequest`, wire disconnect listeners, and call `recordHandledRequest` or delete cleanup at the right time.
 4. Delete `src/transport/http/utils/sessionService.ts` and migrate its tests to `streamableSessionLifecycle.test.ts` if the route migration remains small; otherwise keep a temporary compatibility wrapper for one slice only.
 5. Preserve existing public HTTP behavior and verify with `streamableHttpRoutes`, `streamableSessionLifecycle`, `streamableSessionRepository`, `restorableStreamableTransport`, and targeted session-restoration e2e coverage.
+
+## 7. Client Surface Attachment Module
+
+**Files**: `src/commands/run/run.ts`, `src/commands/inspect/inspect.ts`, `src/commands/proxy/proxy.ts`, `src/commands/shared/serveTargetResolver.ts`, `src/commands/shared/apiClient.ts`, `src/commands/shared/serveClient.ts`
+
+**Problem**: `run` and `inspect` each own a large part of **Client Surface** attachment behavior: runtime discovery, project-context resolution, **Request Context** construction, auth-profile loading, REST-vs-MCP selection, cached **Streamable Transport Session** reuse, stale-session recovery, and session-cache updates. `proxy` uses some of the same discovery and **Request Context** setup, but has its own filtering and session identity path. The current command Modules are Shallow because callers must know protocol fallback, cache, auth, and context-ordering details.
+
+**Solution**: deepen a **Client Surface Attachment** Module whose Interface prepares a command to communicate with an **Aggregated Runtime** and returns structured attachment facts. Commands should declare their **Client Surface**, desired protocol behavior, filtering inputs, and whether they need a fresh or reusable **Streamable Transport Session**; the module should own discovery, auth profile lookup, context hashing, cache read/write/delete, REST support facts, and stale-session retry decisions.
+
+**Benefits**: better Locality for attach-only command bugs and more Leverage across `run`, `inspect`, `instructions`, and `proxy`. Tests can cover runtime discovery, auth, **Request Context** hashing, REST support cache, MCP fallback, and stale-session recovery once instead of repeating command-heavy mocks.
+
+## 8. Filter Selection Module
+
+**Files**: `src/commands/serve/serve.ts`, `src/transport/http/middlewares/tagsExtractor.ts`, `src/transport/http/middlewares/scopeAuthMiddleware.ts`, `src/core/filtering/filteringService.ts`, `src/core/filtering/templateFilteringService.ts`, `src/domains/preset/manager/presetManager.ts`, `src/commands/mcp/tokens.ts`
+
+**Problem**: `preset`, `tag-filter`, `filter`, and `tags` are parsed, normalized, prioritized, and validated in several places. HTTP middleware writes partial facts into `res.locals`, scope validation re-extracts tags from expressions, `serve` handles preset environment variables separately, and token/listing paths evaluate filters again. The Interface leaks filtering priority, legacy compatibility rules, validated tags, preset JSON queries, and advanced-expression conversion.
+
+**Solution**: deepen one **Filter Selection** Module whose Interface is "turn command or HTTP query inputs into a validated filtering intent." The module should own selector precedence, preset resolution, tag sanitization, legacy `filter` compatibility, requested-tag extraction for scope checks, and conversion into the `InboundConnectionConfig` fields consumed by runtime filtering. HTTP middleware and CLI commands become Adapters that map inputs and errors.
+
+**Benefits**: stronger Locality for tag and preset behavior, plus more Leverage for **Capability Visibility**, **Request Context Preparation**, and **Streamable Transport Session** persistence tests. It also reduces the chance that `serve`, REST, SSE, token tooling, and template filtering disagree about the same selector.
+
+## 9. OAuth Authorization Flow Module
+
+**Files**: `src/auth/sdkOAuthServerProvider.ts`, `src/auth/storage/oauthStorageService.ts`, `src/transport/http/routes/oauthRoutes.ts`, `src/transport/http/routes/cliTokenRoute.ts`, `src/transport/http/middlewares/scopeAuthMiddleware.ts`
+
+**Problem**: `SDKOAuthServerProvider` owns SDK OAuth hooks, authorization-code exchange, token verification, token revocation, consent rendering, and storage construction, but HTTP routes still reach into `oauthProvider.oauthStorage` for consent approval/denial and CLI-token creation. The route layer also owns parts of OAuth dashboard status, server reconnect initiation, and HTML rendering. The seam is real, but under-deepened: callers still know repository keys, token creation details, and consent-processing order.
+
+**Solution**: deepen the existing OAuth Module so routes ask it for structured authorization-flow operations: submit consent, deny consent, create localhost CLI tokens, summarize backend OAuth status, start or restart backend OAuth, and render or return consent/dashboard view models. Keep Express routes as HTTP Adapters and keep SDK-specific provider methods behind the OAuth Module's public Interface.
+
+**Benefits**: better Locality for security-sensitive token and consent behavior, with more Leverage for tests around invalid consent requests, selected scopes, localhost CLI token generation, token TTL, audit events, backend OAuth restart, and route error mapping. It narrows the Interface that can mutate OAuth storage directly.
+
+## 10. Instructions Distribution Module
+
+**Files**: `src/commands/instructions/instructions.ts`, `src/commands/cliSetup/setupFiles.ts`, `src/core/instructions/instructionAggregator.ts`, `src/commands/inspect/inspect.ts`
+
+**Problem**: instruction behavior is split between runtime aggregation, `instructions` command formatting, `inspect` fallback behavior, and startup-doc/hook setup. The tricky behavior is distribution, not only template rendering: which **Client Surface** should receive which instructions, when to eager-inspect unavailable **Template Servers**, how disconnected server instructions are carried from server listings, and how managed startup references stay current.
+
+**Solution**: deepen an **Instructions Distribution** Module that owns instruction collection policy and managed startup-doc content for agent clients. Runtime inspection should provide server facts; the module should decide which server details require eager inspection, how unavailable or disconnected server instructions are represented, and what managed bootstrap content gets written for each supported client. `instructions` and `cli-setup` remain formatting/file-writing Adapters.
+
+**Benefits**: better Locality for agent bootstrap regressions and more Leverage for tests covering unavailable template instructions, disconnected server cached instructions, global vs repo-scoped startup docs, managed block updates, and **Client Surface**-specific playbooks.
