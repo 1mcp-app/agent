@@ -150,6 +150,7 @@ This is a dictionary of all the backend MCP servers the agent will manage.
 - `requestTimeout` (number, optional): Request timeout in milliseconds. Used for individual MCP operations (callTool, readResource, etc.). Takes precedence over `timeout`.
 - `timeout` (number, optional): **Deprecated** fallback timeout in milliseconds. Used when specific timeouts are not set. New configurations should use `connectionTimeout` and `requestTimeout`.
 - `enabled` (boolean, optional): Set to `false` to disable the server. Defaults to `true`.
+- `disabledTools` (array of strings, optional): Hide selected tools from this server without disabling the entire server.
 
 **HTTP Transport Properties:**
 
@@ -241,6 +242,36 @@ This is a dictionary of all the backend MCP servers the agent will manage.
   }
 }
 ```
+
+### Disabling Individual Tools
+
+Use `disabledTools` when a server should stay enabled but selected tools should be hidden:
+
+```json
+{
+  "mcpServers": {
+    "filesystem": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-filesystem", "/tmp"],
+      "disabledTools": ["write_file"]
+    }
+  }
+}
+```
+
+Disabled tools are per-server only. Use logical server-local names such as `write_file`; runtime filtering also recognizes qualified names like `filesystem_1mcp_write_file`, but logical names are easier to maintain.
+
+Manage this field with [`mcp tools`](/commands/mcp/tools):
+
+```bash
+npx -y @1mcp/agent mcp tools disable filesystem write_file
+npx -y @1mcp/agent mcp tools enable filesystem write_file
+npx -y @1mcp/agent mcp tools list filesystem --disabled
+```
+
+The `mcp tools` list, enable, and disable subcommands update `mcp.json`. A running `1mcp serve` instance picks up the change through config hot reload.
+
+If the same server name exists in both `mcpTemplates` and `mcpServers`, the template entry is authoritative. Tool enable/disable commands update `mcpTemplates.<name>.disabledTools` and leave any stale `mcpServers.<name>.disabledTools` value unchanged.
 
 ---
 

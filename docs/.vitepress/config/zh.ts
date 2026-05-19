@@ -173,6 +173,7 @@ function sidebar(): DefaultTheme.Sidebar {
               { text: 'list', link: '/zh/commands/mcp/list' },
               { text: 'status', link: '/zh/commands/mcp/status' },
               { text: 'tokens', link: '/zh/commands/mcp/tokens' },
+              { text: 'tools', link: '/zh/commands/mcp/tools' },
             ],
           },
           {

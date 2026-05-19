@@ -129,6 +129,7 @@ npx -y @1mcp/agent --config-dir ./project-config
 - `requestTimeout` (数字, 可选): 请求超时时间（毫秒）。用于单个 MCP 操作（callTool、readResource 等）。优先级高于 `timeout`。
 - `timeout` (数字, 可选): **已弃用** 的回退超时时间（毫秒）。当未设置特定超时时使用。新配置应使用 `connectionTimeout` 和 `requestTimeout`。
 - `enabled` (布尔值, 可选): 设置为 `false` 以禁用服务器。默认为 `true`。
+- `disabledTools` (字符串数组, 可选): 隐藏此服务器中的指定工具，而不禁用整个服务器。
 
 **HTTP 传输属性：**
 
@@ -220,6 +221,36 @@ npx -y @1mcp/agent --config-dir ./project-config
   }
 }
 ```
+
+### 禁用单个工具
+
+当服务器应保持启用，但其中某些工具需要隐藏时，使用 `disabledTools`：
+
+```json
+{
+  "mcpServers": {
+    "filesystem": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-filesystem", "/tmp"],
+      "disabledTools": ["write_file"]
+    }
+  }
+}
+```
+
+禁用工具只按服务器生效，不是全局设置。请使用逻辑上的服务器本地名称，例如 `write_file`；运行时过滤也能识别 `filesystem_1mcp_write_file` 这样的限定名称，但逻辑名称更容易维护。
+
+可以使用 [`mcp tools`](/zh/commands/mcp/tools) 管理此字段：
+
+```bash
+npx -y @1mcp/agent mcp tools disable filesystem write_file
+npx -y @1mcp/agent mcp tools enable filesystem write_file
+npx -y @1mcp/agent mcp tools list filesystem --disabled
+```
+
+`mcp tools` 的 list、enable 和 disable 子命令会更新 `mcp.json`。正在运行的 `1mcp serve` 实例会通过配置热重载观察到变化。
+
+如果同名服务器同时存在于 `mcpTemplates` 和 `mcpServers` 中，模板条目是权威配置。工具启用/禁用命令会更新 `mcpTemplates.<name>.disabledTools`，并保留任何旧的 `mcpServers.<name>.disabledTools` 值不变。
 
 ---
 
