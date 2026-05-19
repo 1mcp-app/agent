@@ -3,6 +3,12 @@ import { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
 import { ClientTemplateTracker, TemplateFilteringService, TemplateIndex } from '@src/core/filtering/index.js';
 import { InstructionAggregator } from '@src/core/instructions/instructionAggregator.js';
 import { ClientInstancePool, type PooledClientInstance } from '@src/core/server/clientInstancePool.js';
+import {
+  createRenderedIdentity,
+  createSessionIdentity,
+  resolveTemplateIdentityMode,
+  serializeTemplateIdentity,
+} from '@src/core/server/templateIdentity.js';
 import type { AuthProviderTransport, OutboundConnection, OutboundConnections } from '@src/core/types/client.js';
 import { ClientStatus } from '@src/core/types/client.js';
 import { MCPServerParams } from '@src/core/types/index.js';
@@ -139,12 +145,14 @@ export class TemplateServerManager {
         );
 
         // CRITICAL: Register the template server in outbound connections for capability aggregation
-        // Determine the key format based on shareable setting
-        const isShareable = templateConfig.template?.shareable !== false; // Default true
         const renderedHash = instance.renderedHash; // From the pooled instance
 
-        // Use rendered hash-based key for shareable servers, session-scoped for per-client
-        const outboundKey = isShareable ? `${templateName}:${renderedHash}` : `${templateName}:${sessionId}`;
+        const identityMode = resolveTemplateIdentityMode(templateConfig.template);
+        const outboundKey = serializeTemplateIdentity(
+          identityMode === 'session'
+            ? createSessionIdentity(templateName, sessionId)
+            : createRenderedIdentity(templateName, renderedHash),
+        );
 
         outboundConns.set(outboundKey, {
           name: templateName, // Keep clean name for tool namespacing (serena_1mcp_*)
@@ -205,7 +213,7 @@ export class TemplateServerManager {
             outboundKey,
             instanceId: instance.id,
             referenceCount: instance.referenceCount,
-            shareable: isShareable,
+            shareable: identityMode === 'rendered',
             perClient: templateConfig.template?.perClient,
             renderedHash: renderedHash.substring(0, 8),
             registeredInOutbound: true,

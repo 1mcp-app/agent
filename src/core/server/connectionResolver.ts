@@ -1,6 +1,15 @@
 import type { OutboundConnection, OutboundConnections } from '@src/core/types/client.js';
 import { errorIf } from '@src/logger/logger.js';
 
+import {
+  createRenderedIdentity,
+  createSessionIdentity,
+  createStaticIdentity,
+  parseTemplateConnectionKey,
+  serializeTemplateIdentity,
+  type TemplateIdentity,
+} from './templateIdentity.js';
+
 /**
  * Interface for accessing template server hash mappings.
  * This abstracts away the dependency on TemplateServerManager.
@@ -38,31 +47,33 @@ export class ConnectionResolver {
   ) {}
 
   resolveWithKey(clientName: string, sessionId?: string): { key: string; connection: OutboundConnection } | undefined {
-    // Tier 1: Try session-scoped key first (for per-client template servers: name:sessionId)
+    const candidates: TemplateIdentity[] = [];
     if (sessionId) {
-      const sessionKey = `${clientName}:${sessionId}`;
-      const conn = this.outboundConns.get(sessionKey);
-      if (conn) {
-        return { key: sessionKey, connection: conn };
-      }
+      candidates.push(createSessionIdentity(clientName, sessionId));
     }
 
-    // Tier 2: Try rendered hash-based key (for shareable template servers: name:renderedHash)
     if (sessionId && this.templateHashProvider) {
-      const renderedHash = this.templateHashProvider.getRenderedHashForSession(sessionId, clientName);
-      if (renderedHash) {
-        const hashKey = `${clientName}:${renderedHash}`;
-        const conn = this.outboundConns.get(hashKey);
-        if (conn) {
-          return { key: hashKey, connection: conn };
+      try {
+        const renderedHash = this.templateHashProvider.getRenderedHashForSession(sessionId, clientName);
+        if (renderedHash) {
+          candidates.push(createRenderedIdentity(clientName, renderedHash));
         }
+      } catch (error) {
+        errorIf(() => ({
+          message: 'Failed to get rendered hash for template connection lookup',
+          meta: { clientName, sessionId, error: error instanceof Error ? error.message : String(error) },
+        }));
       }
     }
 
-    // Tier 3: Fall back to direct name lookup (for static servers)
-    const conn = this.outboundConns.get(clientName);
-    if (conn) {
-      return { key: clientName, connection: conn };
+    candidates.push(createStaticIdentity(clientName));
+
+    for (const identity of candidates) {
+      const key = serializeTemplateIdentity(identity);
+      const conn = this.outboundConns.get(key);
+      if (conn) {
+        return { key, connection: conn };
+      }
     }
 
     return undefined;
@@ -97,34 +108,35 @@ export class ConnectionResolver {
     const sessionHashes = this.getSessionRenderedHashes(sessionId);
 
     for (const [key, conn] of this.outboundConns.entries()) {
+      const identity = parseTemplateConnectionKey(key);
+      if (identity.kind === 'invalid') {
+        errorIf(() => ({
+          message: 'Invalid connection key format: expected clean name or exactly one colon delimiter',
+          meta: { key },
+        }));
+        continue;
+      }
+
       // Static servers (no : in key) - always include
-      if (!key.includes(':')) {
+      if (identity.kind === 'static') {
         filtered.set(key, conn);
         continue;
       }
 
-      // Template servers (format: name:suffix)
-      const parts = key.split(':', 2);
-
-      // Validate split result - must have exactly 2 parts
-      if (parts.length !== 2) {
-        errorIf(() => ({
-          message: 'Invalid connection key format: expected exactly one colon delimiter',
-          meta: { key, parts: parts.length },
-        }));
-        continue; // Skip malformed keys
-      }
-
-      const [name, suffix] = parts;
-
       // Per-client template servers (format: name:sessionId) - only include if session matches
+      const suffix = identity.kind === 'session' ? identity.sessionId : identity.renderedHash;
+
       if (suffix === sessionId) {
         filtered.set(key, conn);
         continue;
       }
 
       // Shareable template servers (format: name:renderedHash) - include if this session uses this hash
-      if (sessionHashes && sessionHashes.has(name) && sessionHashes.get(name) === suffix) {
+      if (
+        sessionHashes &&
+        sessionHashes.has(identity.templateName) &&
+        sessionHashes.get(identity.templateName) === suffix
+      ) {
         filtered.set(key, conn);
       }
     }

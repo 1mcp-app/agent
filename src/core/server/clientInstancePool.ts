@@ -1,5 +1,6 @@
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 
+import { serializePoolIdentity, templateRenderedHash } from '@src/core/server/templateIdentity.js';
 import { AuthProviderTransport } from '@src/core/types/index.js';
 import type { MCPServerParams } from '@src/core/types/transport.js';
 import logger, { debugIf, infoIf } from '@src/logger/logger.js';
@@ -7,7 +8,6 @@ import { HandlebarsTemplateRenderer } from '@src/template/handlebarsTemplateRend
 import { createTransportsWithContext } from '@src/transport/transportFactory.js';
 import type { ContextData } from '@src/types/context.js';
 import { getConnectionTimeout } from '@src/utils/core/timeoutUtils.js';
-import { createHash } from '@src/utils/crypto.js';
 
 /**
  * Configuration options for client instance pool
@@ -109,7 +109,7 @@ export class ClientInstancePool {
     // Render template with context data
     const renderer = new HandlebarsTemplateRenderer();
     const renderedConfig = renderer.renderTemplate(templateConfig, context);
-    const renderedHash = createHash(JSON.stringify(renderedConfig));
+    const renderedHash = templateRenderedHash(renderedConfig);
 
     // Debug logging to verify template rendering
     debugIf(() => ({
@@ -524,10 +524,7 @@ export class ClientInstancePool {
    * Creates a unique instance key from template name and variable hash
    */
   private createInstanceKey(templateName: string, variableHash: string, clientId?: string): string {
-    if (clientId) {
-      return `${templateName}:${variableHash}:${clientId}`;
-    }
-    return `${templateName}:${variableHash}`;
+    return serializePoolIdentity({ templateName, renderedHash: variableHash, sessionId: clientId });
   }
 
   /**

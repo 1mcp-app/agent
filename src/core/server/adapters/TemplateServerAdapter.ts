@@ -1,8 +1,9 @@
 import type { TemplateServerManager } from '@src/core/server/templateServerManager.js';
 import type { OutboundConnection, OutboundConnections } from '@src/core/types/client.js';
 import type { MCPServerParams } from '@src/core/types/index.js';
-import { debugIf, errorIf } from '@src/logger/logger.js';
+import { debugIf } from '@src/logger/logger.js';
 
+import { ConnectionResolver } from '../connectionResolver.js';
 import { mapClientStatusToServerStatus, ServerAdapter, ServerContext, ServerStatus, ServerType } from './types.js';
 
 /**
@@ -27,29 +28,6 @@ export class TemplateServerAdapter implements ServerAdapter {
   ) {}
 
   /**
-   * Build the possible connection keys for a session.
-   * Returns keys in priority order: session-scoped first, then hash-based.
-   */
-  private buildConnectionKeys(sessionId: string): string[] {
-    const keys: string[] = [`${this.name}:${sessionId}`];
-
-    try {
-      const renderedHash = this.templateManager.getRenderedHashForSession(sessionId, this.name);
-      if (renderedHash) {
-        keys.push(`${this.name}:${renderedHash}`);
-      }
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : String(error);
-      errorIf(() => ({
-        message: `Failed to get rendered hash for template server`,
-        meta: { serverName: this.name, sessionId, error: errorMessage },
-      }));
-    }
-
-    return keys;
-  }
-
-  /**
    * Resolve the outbound connection for this template server.
    * Uses session-based resolution with hash lookup for shareable servers.
    */
@@ -63,18 +41,17 @@ export class TemplateServerAdapter implements ServerAdapter {
       return undefined;
     }
 
-    const keys = this.buildConnectionKeys(sessionId);
-
-    for (const key of keys) {
-      const conn = this.outboundConns.get(key);
-      if (conn) {
-        return conn;
-      }
+    const resolved = new ConnectionResolver(this.outboundConns, this.templateManager).resolveWithKey(
+      this.name,
+      sessionId,
+    );
+    if (resolved) {
+      return resolved.connection;
     }
 
     debugIf(() => ({
       message: 'TemplateServerAdapter: No connection found for template server',
-      meta: { serverName: this.name, sessionId, attemptedKeys: keys },
+      meta: { serverName: this.name, sessionId },
     }));
 
     return undefined;
@@ -106,6 +83,6 @@ export class TemplateServerAdapter implements ServerAdapter {
       return undefined;
     }
 
-    return this.buildConnectionKeys(sessionId).find((key) => this.outboundConns.has(key));
+    return new ConnectionResolver(this.outboundConns, this.templateManager).resolveWithKey(this.name, sessionId)?.key;
   }
 }

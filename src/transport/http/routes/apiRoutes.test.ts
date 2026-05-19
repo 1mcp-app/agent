@@ -60,19 +60,22 @@ vi.mock('@src/transport/http/middlewares/tagsExtractor.js', () => ({
   default: (_req: unknown, _res: unknown, next: () => void) => next(),
 }));
 
-function createMockResponse(): Response & { body?: unknown } {
-  const response: Response & { body?: unknown } = {
+type MockResponse = Response & { body?: unknown };
+
+function createMockResponse(): MockResponse {
+  const response = {
     locals: {},
     statusCode: 200,
+    setHeader: vi.fn(),
     status(code: number) {
-      this.statusCode = code;
-      return this;
+      response.statusCode = code;
+      return response as MockResponse;
     },
     json(body: unknown) {
-      this.body = body;
-      return this;
+      response.body = body;
+      return response as MockResponse;
     },
-  } as Response & { body?: unknown };
+  } as unknown as MockResponse;
 
   return response;
 }
@@ -604,6 +607,65 @@ describe('apiRoutes inspect', () => {
     expect(registerTemplate).not.toHaveBeenCalled();
   });
 
+  it('uses header-only targeted inspect as a routing-only request session', async () => {
+    const listTools = vi.fn().mockResolvedValue({
+      tools: [{ name: 'find_symbol', description: 'Find symbol', inputSchema: { type: 'object' } }],
+    });
+    const connection = {
+      name: 'serena',
+      transport: { tags: ['serena'] } as never,
+      client: { listTools } as never,
+      status: ClientStatus.Connected,
+    };
+    const resolveConnection = vi.fn(() => connection);
+    const createTemplateBasedServers = vi.fn();
+    const registerTemplate = vi.fn();
+    const serverManager = {
+      getClients: vi.fn(() => new Map()),
+      getInstructionAggregator: vi.fn(() => ({
+        hasInstructions: () => false,
+        getServerInstructions: () => undefined,
+      })),
+      getLazyLoadingOrchestrator: vi.fn(() => undefined),
+      getServerRegistry: vi.fn(() => ({
+        getServerNames: vi.fn(() => ['serena']),
+        get: vi.fn(() => ({
+          ...makeAdapter('serena', ['serena']),
+          type: ServerType.Template,
+          resolveConnection,
+        })),
+        has: vi.fn(() => false),
+        registerTemplate,
+        resolveConnection,
+      })),
+      getClient: vi.fn(() => undefined),
+      getTemplateServerManager: vi.fn(() => ({
+        getRenderedHashForSession: vi.fn(() => undefined),
+        createTemplateBasedServers,
+      })),
+      getClientTransports: vi.fn(() => ({})),
+    };
+    const handler = createInspectHandler(serverManager as never);
+    const res = createMockResponse();
+
+    await invokeInspectRoute(
+      scopeAuthMiddleware,
+      { query: { target: 'serena' }, headers: { 'mcp-session-id': 'header-session' } },
+      res,
+    );
+    await invokeInspectRoute(
+      handler,
+      { query: { target: 'serena' }, headers: { 'mcp-session-id': 'header-session' } },
+      res,
+    );
+
+    expect(res.statusCode, JSON.stringify(res.body)).toBe(200);
+    expect(resolveConnection).toHaveBeenCalledWith('serena', { sessionId: 'header-session' });
+    expect(createTemplateBasedServers).not.toHaveBeenCalled();
+    expect(registerTemplate).not.toHaveBeenCalled();
+    expect(mockedLoadConfigWithTemplates).not.toHaveBeenCalled();
+  });
+
   it('returns instructions and summarized tools for server targets in non-lazy mode', async () => {
     const req = { query: { target: 'context7' } };
     const res = createMockResponse();
@@ -923,6 +985,8 @@ describe('apiRoutes /api/tools', () => {
 
   beforeEach(() => {
     mockedGetTransportConfig.mockReturnValue({});
+    mockedExtractRequestContext.mockReset();
+    mockedExtractRequestContext.mockReturnValue(undefined);
   });
 
   it('returns empty tool list when lazy orchestrator is unavailable', async () => {
@@ -1127,6 +1191,65 @@ describe('apiRoutes /api/tools', () => {
     expect(res.body).toEqual(mockResult);
   });
 
+  it('prepares request context before lazy tool listing', async () => {
+    const context = {
+      sessionId: 'context-session',
+      project: { path: '/tmp/project' },
+      user: {},
+      environment: {},
+    };
+    const templateConfig = {
+      type: 'stdio',
+      command: 'uvx',
+      args: ['serena', '{{project.path}}'],
+      tags: ['serena'],
+    };
+    mockedExtractRequestContext.mockReturnValue(context);
+    mockedLoadConfigWithTemplates.mockResolvedValue({
+      staticServers: {},
+      templateServers: { serena: templateConfig },
+      errors: [],
+    });
+
+    const callMetaTool = vi.fn().mockResolvedValue({ tools: [], totalCount: 0, servers: [], hasMore: false });
+    const refreshCapabilities = vi.fn();
+    const createTemplateBasedServers = vi.fn();
+    const registerTemplate = vi.fn();
+    const serverManager = {
+      getLazyLoadingOrchestrator: vi.fn(() => ({ callMetaTool, refreshCapabilities })),
+      getClients: vi.fn(() => new Map()),
+      getClientTransports: vi.fn(() => ({})),
+      getTemplateServerManager: vi.fn(() => ({
+        getRenderedHashForSession: vi.fn(() => undefined),
+        createTemplateBasedServers,
+      })),
+      getServerRegistry: vi.fn(() => ({
+        has: vi.fn(() => false),
+        registerTemplate,
+      })),
+    };
+    const handler = createToolsHandler(serverManager as never);
+    const res = createMockResponse();
+
+    await invokeInspectRoute(scopeAuthMiddleware, { query: {} }, res);
+    await invokeInspectRoute(handler, { query: {} }, res);
+
+    expect(res.statusCode).toBe(200);
+    expect(createTemplateBasedServers).toHaveBeenCalledWith(
+      'context-session',
+      context,
+      expect.any(Object),
+      { mcpTemplates: { serena: templateConfig } },
+      expect.any(Map),
+      {},
+      'ephemeral',
+    );
+    expect(registerTemplate).toHaveBeenCalledWith('serena', templateConfig);
+    expect(refreshCapabilities).toHaveBeenCalledOnce();
+    expect(callMetaTool).toHaveBeenCalledWith('tool_list', expect.any(Object), 'context-session', undefined);
+    expect(res.setHeader).toHaveBeenCalledWith('mcp-session-id', 'context-session');
+  });
+
   it('returns 400 on validation error from meta-tool', async () => {
     const callMetaTool = vi.fn().mockResolvedValue({
       tools: [],
@@ -1169,6 +1292,8 @@ describe('apiRoutes /api/tool-invocations', () => {
 
   beforeEach(() => {
     mockedGetTransportConfig.mockReturnValue({});
+    mockedExtractRequestContext.mockReset();
+    mockedExtractRequestContext.mockReturnValue(undefined);
   });
 
   it('rejects browser-origin POST requests before reaching the tool invocation handler', async () => {
@@ -1390,6 +1515,64 @@ describe('apiRoutes /api/tool-invocations', () => {
       'rest-session-123',
       undefined,
     );
+  });
+
+  it('prepares request context before direct tool invocation', async () => {
+    const context = {
+      sessionId: 'context-session',
+      project: { path: '/tmp/project' },
+      user: {},
+      environment: {},
+    };
+    const templateConfig = {
+      type: 'stdio',
+      command: 'uvx',
+      args: ['serena', '{{project.path}}'],
+      tags: ['serena'],
+    };
+    const callTool = vi.fn().mockResolvedValue({ content: [{ type: 'text', text: 'done' }], isError: false });
+    mockedExtractRequestContext.mockReturnValue(context);
+    mockedLoadConfigWithTemplates.mockResolvedValue({
+      staticServers: {},
+      templateServers: { serena: templateConfig },
+      errors: [],
+    });
+
+    const createTemplateBasedServers = vi.fn();
+    const registerTemplate = vi.fn();
+    const serverManager = {
+      getLazyLoadingOrchestrator: vi.fn(() => undefined),
+      getClients: vi.fn(() => new Map()),
+      getClientTransports: vi.fn(() => ({})),
+      getClient: vi.fn(() => undefined),
+      getTemplateServerManager: vi.fn(() => ({
+        getRenderedHashForSession: vi.fn(() => undefined),
+        createTemplateBasedServers,
+      })),
+      getServerRegistry: vi.fn(() => ({
+        has: vi.fn(() => false),
+        registerTemplate,
+        resolveConnection: vi.fn(() => ({ client: { callTool } })),
+      })),
+    };
+    const handler = createToolInvocationsHandler(serverManager as never);
+    const res = createMockResponse();
+
+    await invokeInspectRoute(scopeAuthMiddleware, { body: { tool: 'serena/list_memories' } }, res);
+    await invokeInspectRoute(handler, { body: { tool: 'serena/list_memories' } }, res);
+
+    expect(res.statusCode).toBe(200);
+    expect(createTemplateBasedServers).toHaveBeenCalledWith(
+      'context-session',
+      context,
+      expect.any(Object),
+      { mcpTemplates: { serena: templateConfig } },
+      expect.any(Map),
+      {},
+      'ephemeral',
+    );
+    expect(registerTemplate).toHaveBeenCalledWith('serena', templateConfig);
+    expect(callTool).toHaveBeenCalledWith({ name: 'list_memories', arguments: {} });
   });
 
   it('returns 200 even when result.isError is true', async () => {

@@ -70,7 +70,7 @@ vi.mock('@src/core/client/clientManager.js', () => ({
 }));
 
 vi.mock('@src/utils/crypto.js', () => ({
-  createHash: vi.fn((data) => `hash-${data}`),
+  createHash: vi.fn((data) => `hash-${Buffer.from(data).toString('hex')}`),
 }));
 
 describe('ClientInstancePool', () => {

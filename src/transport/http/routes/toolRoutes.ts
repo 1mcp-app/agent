@@ -7,7 +7,7 @@ import { FilteringService } from '@src/core/filtering/filteringService.js';
 import { filterDisabledTools, getDisabledToolError } from '@src/core/server/disabledTools.js';
 import { ServerManager } from '@src/core/server/serverManager.js';
 import logger from '@src/logger/logger.js';
-import { CONTEXT_HEADERS, extractRequestContext } from '@src/transport/http/utils/contextExtractor.js';
+import { CONTEXT_HEADERS } from '@src/transport/http/utils/contextExtractor.js';
 
 import { Request, RequestHandler, Response } from 'express';
 
@@ -235,10 +235,11 @@ async function initializeRequestContextForApi(
   res: Response,
 ): Promise<string | undefined> {
   const filterConfig = buildFilterConfig(res);
-  if (!extractRequestContext(req)) {
-    const headerSessionId = req.headers?.[CONTEXT_HEADERS.SESSION_ID];
-    return Array.isArray(headerSessionId) ? headerSessionId[0] : headerSessionId;
+  const result = await ensureRequestContextInitialized(serverManager, req, res, filterConfig);
+  if (result) {
+    return result;
   }
 
-  return ensureRequestContextInitialized(serverManager, req, res, filterConfig);
+  const headerSessionId = req.headers?.[CONTEXT_HEADERS.SESSION_ID];
+  return Array.isArray(headerSessionId) ? headerSessionId[0] : headerSessionId;
 }
