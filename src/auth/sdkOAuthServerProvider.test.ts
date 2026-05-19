@@ -2,6 +2,7 @@ import fs from 'fs';
 import { tmpdir } from 'os';
 import path from 'path';
 
+import type { AuthorizationParams } from '@modelcontextprotocol/sdk/server/auth/provider.js';
 import type { OAuthClientInformationFull } from '@modelcontextprotocol/sdk/shared/auth.js';
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -114,6 +115,85 @@ describe('SDKOAuthProvider', () => {
         // Restore original method
         configManager.get('features').auth = originalIsAuthEnabled;
       }
+    });
+
+    it('should escape client_name in consent page HTML', () => {
+      const maliciousClient: OAuthClientInformationFull = {
+        client_id: 'malicious-client',
+        client_id_issued_at: Math.floor(Date.now() / 1000),
+        redirect_uris: ['http://localhost:3000/callback'],
+        grant_types: ['authorization_code'],
+        response_types: ['code'],
+        token_endpoint_auth_method: 'none',
+        client_name: '<img src=x onerror=alert(1)>',
+      };
+
+      const html = provider['generateConsentPageHtml'](
+        maliciousClient,
+        'auth-request-123',
+        ['context7'],
+        ['context7', 'playwright'],
+      );
+
+      expect(html).toContain('&lt;img src=x onerror=alert(1)&gt;');
+      expect(html).not.toContain('<title>Authorize <img src=x onerror=alert(1)></title>');
+      expect(html).not.toContain('<strong><img src=x onerror=alert(1)></strong>');
+    });
+
+    it('should escape auth request id and tag values in consent page HTML', () => {
+      const client: OAuthClientInformationFull = {
+        client_id: 'test-client',
+        client_id_issued_at: Math.floor(Date.now() / 1000),
+        redirect_uris: ['http://localhost:3000/callback'],
+        grant_types: ['authorization_code'],
+        response_types: ['code'],
+        token_endpoint_auth_method: 'none',
+        client_name: 'Test Client',
+      };
+      const maliciousAuthRequestId = 'auth-request-123" autofocus onfocus="alert(1)';
+      const maliciousTag = 'context7"><script>alert(1)</script>';
+
+      const html = provider['generateConsentPageHtml'](client, maliciousAuthRequestId, [maliciousTag], [maliciousTag]);
+
+      expect(html).toContain('auth-request-123&quot; autofocus onfocus=&quot;alert(1)');
+      expect(html).toContain('context7&quot;&gt;&lt;script&gt;alert(1)&lt;/script&gt;');
+      expect(html).not.toContain(`value="${maliciousAuthRequestId}"`);
+      expect(html).not.toContain(`id="scope_${maliciousTag}"`);
+      expect(html).not.toContain(`value="tag:${maliciousTag}"`);
+      expect(html).not.toContain(`<strong>${maliciousTag}</strong>`);
+    });
+
+    it('should set restrictive CSP headers when rendering the consent page', async () => {
+      const client: OAuthClientInformationFull = {
+        client_id: 'test-client',
+        client_id_issued_at: Math.floor(Date.now() / 1000),
+        redirect_uris: ['http://localhost:3000/callback'],
+        grant_types: ['authorization_code'],
+        response_types: ['code'],
+        token_endpoint_auth_method: 'none',
+        client_name: 'Test Client',
+      };
+      const params: AuthorizationParams = {
+        redirectUri: 'http://localhost:3000/callback',
+        codeChallenge: 'challenge-123',
+        state: 'state-123',
+        scopes: ['tag:context7'],
+      };
+      const response = {
+        set: vi.fn(),
+        send: vi.fn(),
+        removeHeader: vi.fn(),
+      } as any;
+
+      await provider['renderConsentPage'](client, params, ['tag:context7'], ['context7'], response);
+
+      expect(response.set).toHaveBeenCalledWith(
+        'Content-Security-Policy',
+        "default-src 'none'; form-action 'self'; style-src 'unsafe-inline'; img-src 'self' data:; base-uri 'none'; frame-ancestors 'none';",
+      );
+      expect(response.set).toHaveBeenCalledWith('Content-Type', 'text/html');
+      expect(response.send).toHaveBeenCalledTimes(1);
+      expect(response.removeHeader).not.toHaveBeenCalledWith('Content-Security-Policy');
     });
   });
 });

@@ -13,6 +13,7 @@ import { McpConfigManager } from '@src/config/mcpConfigManager.js';
 import { AUTH_CONFIG } from '@src/constants.js';
 import { AgentConfigManager } from '@src/core/server/agentConfig.js';
 import logger from '@src/logger/logger.js';
+import { escapeHtml } from '@src/utils/validation/sanitization.js';
 import {
   auditScopeOperation,
   scopesToTags,
@@ -23,6 +24,9 @@ import {
 import type { Response } from 'express';
 
 import { OAuthStorageService } from './storage/oauthStorageService.js';
+
+const OAUTH_CONSENT_PAGE_CSP =
+  "default-src 'none'; form-action 'self'; style-src 'unsafe-inline'; img-src 'self' data:; base-uri 'none'; frame-ancestors 'none';";
 
 /**
  * File-based OAuth clients store implementation using the new repository architecture
@@ -172,8 +176,7 @@ export class SDKOAuthServerProvider implements OAuthServerProvider {
     const scopeTags = scopesToTags(requestedScopes);
     const consentPageHtml = this.generateConsentPageHtml(client, authRequestId, scopeTags, availableTags);
 
-    // Remove any CSP that might interfere with form submission
-    res.removeHeader('Content-Security-Policy');
+    res.set('Content-Security-Policy', OAUTH_CONSENT_PAGE_CSP);
     res.set('Content-Type', 'text/html');
     res.send(consentPageHtml);
   }
@@ -231,7 +234,8 @@ export class SDKOAuthServerProvider implements OAuthServerProvider {
     requestedTags: string[],
     availableTags: string[],
   ): string {
-    const clientName = client.client_name || client.client_id;
+    const clientName = escapeHtml(client.client_name || client.client_id);
+    const escapedAuthRequestId = escapeHtml(authRequestId);
 
     return `
 <!DOCTYPE html>
@@ -271,30 +275,32 @@ export class SDKOAuthServerProvider implements OAuthServerProvider {
         </div>
 
         <form method="POST" action="/oauth/consent">
-            <input type="hidden" name="auth_request_id" value="${authRequestId}">
+            <input type="hidden" name="auth_request_id" value="${escapedAuthRequestId}">
 
             <div class="scopes-section">
                 <h3>Server Access Permissions</h3>
                 <p>Select which server groups this application can access:</p>
 
                 ${availableTags
-                  .map(
-                    (tag) => `
+                  .map((tag) => {
+                    const escapedTag = escapeHtml(tag);
+
+                    return `
                     <div class="scope-item">
                         <input type="checkbox"
-                               id="scope_${tag}"
+                               id="scope_${escapedTag}"
                                name="scopes"
-                               value="tag:${tag}"
+                               value="tag:${escapedTag}"
                                ${requestedTags.includes(tag) ? 'checked' : ''}>
-                        <label for="scope_${tag}">
-                            <strong>${tag}</strong> servers
+                        <label for="scope_${escapedTag}">
+                            <strong>${escapedTag}</strong> servers
                         </label>
                     </div>
                     <div class="tag-description">
-                        Access servers tagged with "${tag}"
+                        Access servers tagged with "${escapedTag}"
                     </div>
-                `,
-                  )
+                `;
+                  })
                   .join('')}
             </div>
 
