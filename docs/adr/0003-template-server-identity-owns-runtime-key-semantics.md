@@ -1,0 +1,3 @@
+# Template Server Identity Owns Runtime Key Semantics
+
+Template identity was previously encoded in multiple string formats across pooling, routing, adapter lookup, and cleanup. We decided to introduce **Template Server Identity** in `src/core/server/templateIdentity.ts` as the canonical owner for typed identity forms, rendered-hash creation from already-rendered configs, key serialization, and lookup candidate order, while keeping `ConnectionResolver` as the `OutboundConnections` lookup facade. This preserves session-first routing and avoids spreading storage-map key semantics across runtime callers.
