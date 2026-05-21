@@ -2,6 +2,7 @@ import { requireBearerAuth } from '@modelcontextprotocol/sdk/server/auth/middlew
 import type { AuthInfo as SDKAuthInfo } from '@modelcontextprotocol/sdk/server/auth/types.js';
 
 import { SDKOAuthServerProvider } from '@src/auth/sdkOAuthServerProvider.js';
+import type { FilterSelection } from '@src/core/filtering/filterSelection.js';
 import { AgentConfigManager } from '@src/core/server/agentConfig.js';
 import { TagExpression } from '@src/domains/preset/parsers/tagQueryParser.js';
 import { TagQuery } from '@src/domains/preset/types/presetTypes.js';
@@ -40,6 +41,8 @@ export interface ResponseLocals extends Record<string, unknown> {
   tagQuery?: TagQuery;
   /** Preset name if used */
   presetName?: string;
+  /** Canonical filter selection facts from tagsExtractor */
+  filterSelection?: FilterSelection;
   /** Authentication context */
   auth?: AuthInfo;
 }
@@ -73,12 +76,7 @@ export function createScopeAuthMiddleware(oauthProvider?: SDKOAuthServerProvider
   // If scope validation is disabled, return a pass-through middleware
   if (!serverConfig.get('features').scopeValidation) {
     return (_req: Request, res: Response, next: NextFunction): void => {
-      // Type-safe access to tags from res.locals
-      const localsTags = res.locals.tags as unknown;
-      const requestedTags: string[] = Array.isArray(localsTags)
-        ? (localsTags as unknown[]).filter((tag): tag is string => typeof tag === 'string')
-        : [];
-      res.locals.validatedTags = requestedTags;
+      res.locals.validatedTags = getRequestedTagsForScope(res);
       next();
     };
   }
@@ -86,12 +84,7 @@ export function createScopeAuthMiddleware(oauthProvider?: SDKOAuthServerProvider
   // If scope validation is enabled but auth is disabled, allow all tags
   if (!serverConfig.get('features').auth) {
     return (_req: Request, res: Response, next: NextFunction): void => {
-      // Type-safe access to tags from res.locals
-      const localsTags = res.locals.tags as unknown;
-      const requestedTags: string[] = Array.isArray(localsTags)
-        ? (localsTags as unknown[]).filter((tag): tag is string => typeof tag === 'string')
-        : [];
-      res.locals.validatedTags = requestedTags;
+      res.locals.validatedTags = getRequestedTagsForScope(res);
       next();
     };
   }
@@ -125,12 +118,7 @@ export function createScopeAuthMiddleware(oauthProvider?: SDKOAuthServerProvider
       const grantedScopes = authInfo.scopes ? [...authInfo.scopes] : [];
       const grantedTags = scopesToTags(grantedScopes);
 
-      // Get requested tags and tag expression from previous middleware (tagsExtractor)
-      // Type-safe access to res.locals properties
-      const localsTags = res.locals.tags as unknown;
-      const requestedTags: string[] = Array.isArray(localsTags)
-        ? (localsTags as unknown[]).filter((tag): tag is string => typeof tag === 'string')
-        : [];
+      const requestedTags = getRequestedTagsForScope(res);
 
       const localsTagExpression = res.locals.tagExpression as unknown;
       const tagExpression: TagExpression | undefined =
@@ -147,15 +135,10 @@ export function createScopeAuthMiddleware(oauthProvider?: SDKOAuthServerProvider
           ? localsTagFilterMode
           : 'none';
 
-      let allRequestedTags: string[] = [];
+      let allRequestedTags = requestedTags;
 
-      // Determine all tags that need validation based on filter mode
-      if (tagFilterMode === 'advanced' && tagExpression) {
-        // For advanced expressions, extract all referenced tags
+      if (allRequestedTags.length === 0 && tagFilterMode === 'advanced' && tagExpression) {
         allRequestedTags = extractTagsFromExpression(tagExpression);
-      } else if (tagFilterMode === 'simple-or') {
-        // For simple mode, use the parsed tags
-        allRequestedTags = requestedTags;
       }
 
       // Validate that all requested tags are covered by granted scopes
@@ -207,6 +190,21 @@ export function createScopeAuthMiddleware(oauthProvider?: SDKOAuthServerProvider
       });
     }
   };
+}
+
+function getRequestedTagsForScope(res: Response): string[] {
+  const filterSelection = res.locals?.filterSelection as unknown;
+  if (filterSelection && typeof filterSelection === 'object' && 'requestedTags' in filterSelection) {
+    const requestedTags = (filterSelection as Pick<FilterSelection, 'requestedTags'>).requestedTags;
+    if (Array.isArray(requestedTags)) {
+      return requestedTags.filter((tag): tag is string => typeof tag === 'string');
+    }
+  }
+
+  const localsTags = res.locals.tags as unknown;
+  return Array.isArray(localsTags)
+    ? (localsTags as unknown[]).filter((tag): tag is string => typeof tag === 'string')
+    : [];
 }
 
 /**

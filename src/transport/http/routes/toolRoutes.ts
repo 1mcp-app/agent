@@ -1,11 +1,13 @@
 import type { Tool } from '@modelcontextprotocol/sdk/types.js';
 
 import { McpConfigManager } from '@src/config/mcpConfigManager.js';
+import { CapabilityCatalog } from '@src/core/capabilities/capabilityCatalog.js';
 import { ToolInvokeOutput, ToolListOutput } from '@src/core/capabilities/schemas/metaToolSchemas.js';
 import { ToolRegistry } from '@src/core/capabilities/toolRegistry.js';
 import { FilteringService } from '@src/core/filtering/filteringService.js';
-import { filterDisabledTools, getDisabledToolError } from '@src/core/server/disabledTools.js';
+import type { TemplateHashProvider } from '@src/core/server/connectionResolver.js';
 import { ServerManager } from '@src/core/server/serverManager.js';
+import { ClientStatus, type OutboundConnections } from '@src/core/types/client.js';
 import logger from '@src/logger/logger.js';
 import { CONTEXT_HEADERS } from '@src/transport/http/utils/contextExtractor.js';
 
@@ -39,6 +41,63 @@ function getAllowedServersFromRequest(serverManager: ServerManager, res: Respons
   );
 }
 
+function getTemplateHashProvider(serverManager: ServerManager): TemplateHashProvider | undefined {
+  return (
+    serverManager as unknown as { getTemplateServerManager?: () => TemplateHashProvider }
+  ).getTemplateServerManager?.();
+}
+
+async function createFallbackCapabilityCatalog(serverManager: ServerManager): Promise<CapabilityCatalog> {
+  const clients = serverManager.getClients();
+  const toolsByServer = new Map<string, Tool[]>();
+  const serverTags = new Map<string, string[]>();
+
+  for (const [connectionKey, conn] of clients) {
+    if (conn.status !== ClientStatus.Connected) continue;
+    try {
+      const logicalServerName =
+        conn.name || (connectionKey.includes(':') ? connectionKey.split(':')[0] : connectionKey);
+      const result = await conn.client.listTools();
+      toolsByServer.set(logicalServerName, result.tools ?? []);
+      const tags = Array.isArray((conn.transport as { tags?: unknown }).tags)
+        ? ((conn.transport as { tags?: unknown }).tags as unknown[]).filter(
+            (tag): tag is string => typeof tag === 'string',
+          )
+        : [];
+      serverTags.set(logicalServerName, tags);
+    } catch (err) {
+      logger.error(`Failed to list tools for ${connectionKey}:`, err);
+    }
+  }
+
+  return new CapabilityCatalog({
+    getToolRegistry: () => ToolRegistry.fromToolsMap(toolsByServer, serverTags),
+    schemaCache: {
+      getIfCached: () => null,
+      getOrLoad: async (_server: string, _toolName: string) => {
+        throw new Error('Schema loading is not available without lazy loading');
+      },
+    } as never,
+    outboundConnections: clients,
+    getServerConfigs,
+    templateHashProvider: getTemplateHashProvider(serverManager),
+  });
+}
+
+function hasCatalogAccess(
+  lazyOrchestrator: unknown,
+): lazyOrchestrator is {
+  getToolRegistry: () => ToolRegistry;
+  getSchemaCache: () => never;
+  callMetaTool: (...args: never[]) => Promise<unknown>;
+} {
+  return (
+    !!lazyOrchestrator &&
+    typeof (lazyOrchestrator as { getToolRegistry?: unknown }).getToolRegistry === 'function' &&
+    typeof (lazyOrchestrator as { getSchemaCache?: unknown }).getSchemaCache === 'function'
+  );
+}
+
 export function createToolsHandler(serverManager: ServerManager): RequestHandler {
   return async (req: Request, res: Response): Promise<void> => {
     try {
@@ -52,41 +111,59 @@ export function createToolsHandler(serverManager: ServerManager): RequestHandler
       const lazyOrchestrator = serverManager.getLazyLoadingOrchestrator();
 
       if (!lazyOrchestrator) {
-        const clients = serverManager.getClients();
-        const toolsByServer = new Map<string, Tool[]>();
-        for (const [serverName, conn] of clients) {
-          if (allowedServers && !allowedServers.has(serverName)) continue;
-          if (server && serverName !== server) continue;
-          if (conn.status !== 'connected') continue;
-          try {
-            const logicalServerName = conn.name || (serverName.includes(':') ? serverName.split(':')[0] : serverName);
-            const result = await conn.client.listTools();
-            toolsByServer.set(
-              logicalServerName,
-              filterDisabledTools(result.tools ?? [], getServerConfigs(), logicalServerName),
-            );
-          } catch (err) {
-            logger.error(`Failed to list tools for ${serverName}:`, err);
-          }
-        }
-
         const cursor = typeof req.query.cursor === 'string' ? req.query.cursor : undefined;
-        const result = ToolRegistry.fromToolsMap(toolsByServer).listTools({
-          server,
-          pattern,
-          limit,
-          cursor,
-        });
-        const servers = Array.from(new Set(result.tools.map((tool) => tool.server))).sort();
+        const catalog = await createFallbackCapabilityCatalog(serverManager);
+        const result = catalog.listVisibleTools(
+          {
+            server,
+            pattern,
+            limit,
+            cursor,
+          },
+          requestSessionId,
+          allowedServers,
+        );
 
         res.json({
-          ...result,
-          servers,
+          tools: result.tools,
+          totalCount: result.totalCount,
+          hasMore: result.hasMore,
+          ...(result.nextCursor ? { nextCursor: result.nextCursor } : {}),
+          servers: result.servers,
         });
         return;
       }
 
       const cursor = typeof req.query.cursor === 'string' ? req.query.cursor : undefined;
+      if (hasCatalogAccess(lazyOrchestrator)) {
+        const catalog = new CapabilityCatalog({
+          getToolRegistry: () => lazyOrchestrator.getToolRegistry(),
+          schemaCache: lazyOrchestrator.getSchemaCache(),
+          outboundConnections: serverManager.getClients(),
+          getServerConfigs,
+          templateHashProvider: getTemplateHashProvider(serverManager),
+        });
+        const catalogResult = catalog.listVisibleTools(
+          {
+            server,
+            pattern,
+            limit,
+            cursor,
+          },
+          requestSessionId,
+          allowedServers,
+        );
+        if (catalogResult.tools.length > 0 || catalogResult.totalCount > 0) {
+          res.json({
+            tools: catalogResult.tools,
+            totalCount: catalogResult.totalCount,
+            hasMore: catalogResult.hasMore,
+            ...(catalogResult.nextCursor ? { nextCursor: catalogResult.nextCursor } : {}),
+            servers: catalogResult.servers,
+          });
+          return;
+        }
+      }
 
       const result = (await lazyOrchestrator.callMetaTool(
         'tool_list',
@@ -142,14 +219,32 @@ export function createToolInvocationsHandler(serverManager: ServerManager): Requ
 
       const allowedServers = getAllowedServersFromRequest(serverManager, res);
 
-      const disabledError = getDisabledToolError(getServerConfigs(), target.serverName, target.toolName);
-      if (disabledError) {
-        res.status(404).json({ error: disabledError.message });
-        return;
-      }
-
       const lazyOrchestrator = serverManager.getLazyLoadingOrchestrator();
       if (!lazyOrchestrator) {
+        const disabledCatalog = new CapabilityCatalog({
+          getToolRegistry: () =>
+            ToolRegistry.fromToolsMap(
+              new Map([[target.serverName, [{ name: target.toolName, inputSchema: {} } as Tool]]]),
+            ),
+          schemaCache: {
+            getIfCached: () => null,
+            getOrLoad: async () => {
+              throw new Error('Schema loading is not available without lazy loading');
+            },
+          } as never,
+          outboundConnections: serverManager.getClients(),
+          getServerConfigs,
+          templateHashProvider: getTemplateHashProvider(serverManager),
+        });
+        const visibility = await disabledCatalog.invokeVisibleTool(
+          { server: target.serverName, toolName: target.toolName, args: toolArgs },
+          requestSessionId,
+          allowedServers,
+        );
+        if (visibility.error?.message.includes('Tool is disabled')) {
+          res.status(404).json({ error: visibility.error.message });
+          return;
+        }
         if (allowedServers && !allowedServers.has(target.serverName)) {
           res.status(404).json({ error: `Server not found: ${target.serverName}` });
           return;
@@ -191,6 +286,55 @@ export function createToolInvocationsHandler(serverManager: ServerManager): Requ
           res.status(502).json({ error: `Upstream error: ${message}` });
         }
         return;
+      }
+
+      const disabledVisibilityCatalog = new CapabilityCatalog({
+        getToolRegistry: () =>
+          ToolRegistry.fromToolsMap(
+            new Map([[target.serverName, [{ name: target.toolName, inputSchema: {} } as Tool]]]),
+          ),
+        schemaCache: {
+          getIfCached: () => null,
+          getOrLoad: async () => {
+            throw new Error('Schema loading is not available for disabled-tool visibility checks');
+          },
+        } as never,
+        outboundConnections:
+          (serverManager as { getClients?: () => ReturnType<ServerManager['getClients']> }).getClients?.() ??
+          (new Map<string, never>() as OutboundConnections),
+        getServerConfigs,
+      });
+      const disabledVisibility = await disabledVisibilityCatalog.invokeVisibleTool(
+        { server: target.serverName, toolName: target.toolName, args: toolArgs },
+        requestSessionId,
+        allowedServers,
+      );
+      if (disabledVisibility.error?.message.includes('Tool is disabled')) {
+        res.status(404).json({ error: disabledVisibility.error.message });
+        return;
+      }
+
+      if (hasCatalogAccess(lazyOrchestrator)) {
+        const catalog = new CapabilityCatalog({
+          getToolRegistry: () => lazyOrchestrator.getToolRegistry(),
+          schemaCache: lazyOrchestrator.getSchemaCache(),
+          outboundConnections: serverManager.getClients(),
+          getServerConfigs,
+          templateHashProvider: getTemplateHashProvider(serverManager),
+        });
+        const catalogResult = await catalog.invokeVisibleTool(
+          { server: target.serverName, toolName: target.toolName, args: toolArgs },
+          requestSessionId,
+          allowedServers,
+        );
+        if (!catalogResult.error) {
+          res.json({ result: catalogResult.result, server: catalogResult.server, tool: catalogResult.tool });
+          return;
+        }
+        if (catalogResult.error.message.includes('Tool is disabled')) {
+          res.status(404).json({ error: catalogResult.error.message });
+          return;
+        }
       }
 
       const result = (await lazyOrchestrator.callMetaTool(

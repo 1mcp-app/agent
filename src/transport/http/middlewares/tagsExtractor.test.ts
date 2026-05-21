@@ -38,6 +38,10 @@ describe('tagsExtractor middleware', () => {
 
       expect(getLocals().tags).toEqual(['web', 'api', 'database']);
       expect(getLocals().tagFilterMode).toBe('simple-or');
+      expect(getLocals().filterSelection).toMatchObject({
+        mode: 'simple-or',
+        requestedTags: ['web', 'api', 'database'],
+      });
       expect(getLocals().tagExpression).toBeUndefined();
       expect(mockNext).toHaveBeenCalled();
     });
@@ -136,6 +140,10 @@ describe('tagsExtractor middleware', () => {
         children: [{ type: 'tag', value: 'test' }],
       });
       expect(getLocals().tagFilterMode).toBe('advanced');
+      expect(getLocals().filterSelection).toMatchObject({
+        mode: 'advanced',
+        requestedTags: ['test'],
+      });
       expect(mockNext).toHaveBeenCalled();
     });
 
@@ -192,12 +200,6 @@ describe('tagsExtractor middleware', () => {
           error: expect.objectContaining({
             code: ErrorCode.InvalidParams,
             message: expect.stringContaining('Invalid tag-filter'),
-            examples: [
-              'tag-filter=web+api',
-              'tag-filter=(web,api)+prod',
-              'tag-filter=web+api-test',
-              'tag-filter=!development',
-            ],
           }),
         }),
       );
@@ -219,7 +221,7 @@ describe('tagsExtractor middleware', () => {
         error: {
           code: ErrorCode.InvalidParams,
           message:
-            'Cannot use multiple filtering parameters simultaneously. Use "preset" for dynamic presets, "tag-filter" for advanced expressions, or "tags" for simple OR filtering.',
+            'Cannot use multiple filtering parameters simultaneously. Use "preset" for dynamic presets, "tag-filter" for advanced expressions, "filter" for legacy compatibility, or "tags" for simple OR filtering.',
         },
       });
       expect(mockNext).not.toHaveBeenCalled();
@@ -235,6 +237,10 @@ describe('tagsExtractor middleware', () => {
       expect(getLocals().tags).toBeUndefined();
       expect(getLocals().tagExpression).toBeUndefined();
       expect(getLocals().tagFilterMode).toBe('none');
+      expect(getLocals().filterSelection).toMatchObject({
+        mode: 'none',
+        requestedTags: [],
+      });
       expect(mockNext).toHaveBeenCalled();
     });
   });
@@ -417,7 +423,6 @@ describe('tagsExtractor middleware', () => {
         error: {
           code: ErrorCode.InvalidParams,
           message: "Preset 'nonexistent' not found",
-          examples: ['preset=development', 'preset=production', 'preset=staging'],
         },
       });
       expect(mockNext).not.toHaveBeenCalled();
@@ -450,7 +455,7 @@ describe('tagsExtractor middleware', () => {
       expect(mockResponse.json).toHaveBeenCalledWith({
         error: {
           code: ErrorCode.InvalidParams,
-          message: "Preset 'invalid-config' configuration invalid",
+          message: "Preset 'invalid-config' not found",
         },
       });
       expect(mockNext).not.toHaveBeenCalled();
@@ -471,13 +476,13 @@ describe('tagsExtractor middleware', () => {
       expect(mockResponse.json).toHaveBeenCalledWith({
         error: {
           code: ErrorCode.InternalError,
-          message: 'Failed to resolve preset configuration',
+          message: 'Failed to resolve filter configuration',
         },
       });
       expect(mockNext).not.toHaveBeenCalled();
     });
 
-    it('should return 500 for preset manager errors', () => {
+    it('should return 400 when preset lookup returns no preset', () => {
       mockPresetManager.resolvePresetToExpression.mockImplementation(() => {
         throw new Error('Preset manager error');
       });
@@ -486,11 +491,11 @@ describe('tagsExtractor middleware', () => {
 
       tagsExtractor(mockRequest as Request, mockResponse as Response, mockNext);
 
-      expect(mockResponse.status).toHaveBeenCalledWith(500);
+      expect(mockResponse.status).toHaveBeenCalledWith(400);
       expect(mockResponse.json).toHaveBeenCalledWith({
         error: {
-          code: ErrorCode.InternalError,
-          message: 'Failed to resolve preset configuration',
+          code: ErrorCode.InvalidParams,
+          message: "Preset 'error-test' not found",
         },
       });
       expect(mockNext).not.toHaveBeenCalled();
@@ -508,7 +513,7 @@ describe('tagsExtractor middleware', () => {
         error: {
           code: ErrorCode.InvalidParams,
           message:
-            'Cannot use multiple filtering parameters simultaneously. Use "preset" for dynamic presets, "tag-filter" for advanced expressions, or "tags" for simple OR filtering.',
+            'Cannot use multiple filtering parameters simultaneously. Use "preset" for dynamic presets, "tag-filter" for advanced expressions, "filter" for legacy compatibility, or "tags" for simple OR filtering.',
         },
       });
       expect(mockNext).not.toHaveBeenCalled();
@@ -647,8 +652,12 @@ describe('tagsExtractor middleware', () => {
       expect(getLocals().tagQuery).toEqual(complexQuery);
       expect(getLocals().tagFilterMode).toBe('preset');
       expect(getLocals().presetName).toBe('complex');
-      // For complex queries, we still extract simple tags from the first level
-      expect(getLocals().tags).toEqual(['frontend']);
+      // Recursive extraction feeds scope validation with every referenced tag.
+      expect(getLocals().tags).toEqual(['frontend', 'backend', 'api']);
+      expect(getLocals().filterSelection).toMatchObject({
+        mode: 'preset',
+        requestedTags: ['frontend', 'backend', 'api'],
+      });
       expect(mockNext).toHaveBeenCalled();
     });
 
@@ -671,7 +680,7 @@ describe('tagsExtractor middleware', () => {
       expect(mockNext).toHaveBeenCalled();
     });
 
-    it('should return 500 for preset resolution error', () => {
+    it('should return 400 for missing preset resolution result', () => {
       // Mock an error in the preset resolution
       mockPresetManager.resolvePresetToExpression.mockImplementationOnce(() => {
         throw new Error('Preset resolution failed');
@@ -681,11 +690,11 @@ describe('tagsExtractor middleware', () => {
 
       tagsExtractor(mockRequest as Request, mockResponse as Response, mockNext);
 
-      expect(mockResponse.status).toHaveBeenCalledWith(500);
+      expect(mockResponse.status).toHaveBeenCalledWith(400);
       expect(mockResponse.json).toHaveBeenCalledWith({
         error: {
-          code: ErrorCode.InternalError,
-          message: 'Failed to resolve preset configuration',
+          code: ErrorCode.InvalidParams,
+          message: "Preset 'invalid-preset' not found",
         },
       });
       expect(mockNext).not.toHaveBeenCalled();
@@ -760,8 +769,8 @@ describe('tagsExtractor middleware', () => {
 
       tagsExtractor(mockRequest as Request, mockResponse as Response, mockNext);
 
-      // Should extract simple tags from the first level
-      expect(getLocals().tags).toEqual(['frontend']);
+      // Should extract all referenced tags for scope validation.
+      expect(getLocals().tags).toEqual(['frontend', 'backend', 'api']);
     });
   });
 });
