@@ -20,6 +20,10 @@ _Avoid_: global lock, machine singleton
 A way callers interact with the **Aggregated Runtime**, such as CLI mode, direct HTTP MCP, REST inspection routes, or stdio proxy.
 _Avoid_: frontend, API layer
 
+**Client Surface Attachment**:
+The process that prepares a **Client Surface** to communicate with an **Aggregated Runtime** using the appropriate **Request Context**, authentication, filters, and transport-session behavior.
+_Avoid_: command setup, connection helper, proxy setup
+
 **Request Context**:
 Project, user, environment, and optional transport data supplied by a caller so the **Aggregated Runtime** can resolve contextual behavior.
 _Avoid_: metadata, payload extras
@@ -76,6 +80,22 @@ _Avoid_: connection key, hash key, registry entry
 The runtime rule that determines whether a capability is visible and callable for a **Client Surface**, **Request Session**, and filter context.
 _Avoid_: disabled-tool filter, allowed servers, tool allowlist
 
+**Filter Selection**:
+The process that resolves filtering inputs from a **Client Surface** into one validated filtering intent for runtime visibility and routing.
+_Avoid_: tag parsing, query parsing, selector precedence
+
+**Server Candidate Set**:
+The static servers and session-available **Template Server Instances** that can be filtered for one **Request Session**.
+_Avoid_: static server list, template server list, filtered server type
+
+**OAuth Authorization Flow**:
+The security-sensitive process that turns authorization requests, consent decisions, and localhost CLI token requests into OAuth redirects, authorization codes, and access tokens.
+_Avoid_: OAuth route logic, storage mutation, token helper
+
+**Instructions Distribution**:
+The policy that decides how server instructions and managed agent bootstrap content are collected and delivered to a **Client Surface**.
+_Avoid_: instruction formatting, template rendering, setup file writing
+
 **Config Change**:
 A persisted change to a **Runtime Scope** configuration together with the observable reload outcome for the affected **Aggregated Runtime**.
 _Avoid_: config edit, JSON write, reload hint
@@ -102,6 +122,9 @@ _Avoid_: install command, installation adapter, registry install
 - A **Config Change** may affect the **Aggregated Runtime** for that **Runtime Scope**.
 - A **Server Installation Workflow** produces or updates one **Configured Server Target** through a **Config Change**.
 - A **Client Surface** can provide a **Request Context**.
+- A **Client Surface Attachment** belongs to one **Client Surface**.
+- A **Client Surface Attachment** can reuse an existing **Streamable Transport Session** or create a fresh one depending on the **Client Surface**.
+- A **Client Surface** can provide filtering inputs resolved by **Filter Selection**.
 - The stdio proxy is a **Client Surface** that carries **Request Context** through MCP `_meta` over Streamable HTTP.
 - Direct HTTP MCP uses a **Streamable Transport Session** for transport continuity.
 - Direct HTTP MCP uses **Streamable Transport Session Lifecycle** before SDK request handling.
@@ -120,6 +143,11 @@ _Avoid_: install command, installation adapter, registry install
 - A **Capability Catalog** owns **Capability Refresh** policy.
 - A **Capability Catalog** returns internal **Capability Routes** with visible capabilities.
 - A **Capability Catalog** enforces **Capability Visibility** for listing, schema lookup, and invocation.
+- **Filter Selection** provides filtering intent consumed by **Capability Visibility**.
+- Filtering applies to a **Server Candidate Set** for one **Request Session**.
+- A **Server Candidate Set** can include static servers and session-available **Template Server Instances**.
+- An **OAuth Authorization Flow** can create authorization codes or access tokens.
+- **Instructions Distribution** delivers instruction content to a **Client Surface**.
 - A **Capability Route** can resolve to a static server or a **Template Server Identity**.
 - **Request Context Preparation** can cause the **Capability Snapshot** to change when new **Template Server Instances** become available.
 
@@ -135,6 +163,7 @@ _Avoid_: install command, installation adapter, registry install
 ## Flagged ambiguities
 
 - "session" can mean the standard MCP streamable HTTP session or the contextual identity used by REST inspection routes. Use **Streamable Transport Session** for the MCP transport lifecycle and **Request Session** when the identity is used for contextual template rendering and routing.
+- "attach-only" does not always mean "reuse an existing session"; short-lived **Client Surfaces** may reuse a cached **Streamable Transport Session**, while long-lived proxy-style surfaces may create a fresh one.
 - A header-only `mcp-session-id` is a routing-only **Request Session** when no **Request Context** is supplied; it does not by itself mean the caller supplied contextual data for rendering **Template Servers**.
 - If both transport session identity and contextual session data are supplied, they must not create competing **Request Sessions**; the transport session identity is authoritative.
 - "context initialization" and "request setup" both referred to the same behavior in route code. Use **Request Context Preparation** for the full prepare-and-register step.
@@ -150,3 +179,7 @@ _Avoid_: install command, installation adapter, registry install
 - "routing facts" means **Capability Routes** inside the runtime, not public server names or transport storage keys.
 - "disabled tool" describes one input into **Capability Visibility**, not a separate caller-specific access path.
 - "disconnect" for a **Streamable Transport Session** releases active transport membership but does not necessarily delete persisted lifecycle state.
+- "filter" can mean the legacy selector named `filter` or the resolved filtering intent. Use **Filter Selection** for the resolution process and name the selected intent explicitly.
+- Filtering should not branch on whether a server candidate came from static configuration or a **Template Server Instance**; build the session's **Server Candidate Set** first, then apply the selected filter intent.
+- OAuth route handlers should be HTTP adapters for **OAuth Authorization Flow**, not direct callers of OAuth storage repositories.
+- **Instructions Distribution** is not the same as runtime instruction aggregation or CLI output formatting.
