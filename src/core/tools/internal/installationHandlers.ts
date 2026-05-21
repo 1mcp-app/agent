@@ -97,10 +97,15 @@ export async function handleMcpInstall(args: McpInstallToolArgs): Promise<McpIns
     });
 
     // Transform to match expected output schema with enhanced information
+    const status = result.success
+      ? ('applied' as const)
+      : result.status === 'exists'
+        ? ('exists' as const)
+        : (result.status ?? ('failed' as const));
     const structuredResult = {
       name: result.serverName,
-      status: result.success ? ('success' as const) : ('failed' as const),
-      message: `MCP server '${result.serverName}' ${result.success ? 'installed' : 'installation failed'}${result.success ? ' successfully' : ''}`,
+      status,
+      message: `MCP server '${result.serverName}' ${result.success ? 'installed successfully' : `installation ${status}`}`,
       package:
         args.package ||
         (installationMethod === 'package'
@@ -113,7 +118,7 @@ export async function handleMcpInstall(args: McpInstallToolArgs): Promise<McpIns
       backupPath: result.backupPath,
       operationId: result.operationId,
       warnings: result.warnings,
-      reloadRecommended: result.success,
+      reloadRecommended: result.success && result.reloadStatus !== 'observed',
       error: result.success ? undefined : result.errors?.[0] || 'Installation failed',
 
       // Enhanced fields for LLM context

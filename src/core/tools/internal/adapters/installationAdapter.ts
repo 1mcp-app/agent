@@ -5,30 +5,18 @@
  * This adapter wraps existing domain service calls and transforms data
  * between internal tool format and domain service format.
  */
-import {
-  getAllServers,
-  getInstallationMetadata,
-  getServer,
-  reloadMcpConfig,
-  removeServer,
-  setServer,
-} from '@src/commands/mcp/utils/mcpServerConfig.js';
-import { MCPServerParams } from '@src/core/types/index.js';
+import { getAllServers, getInstallationMetadata } from '@src/commands/mcp/utils/mcpServerConfig.js';
+import { createConfigChangeService } from '@src/domains/config-change/configChange.js';
 import { parseTags, validateTags } from '@src/domains/installation/configurators/tagsConfigurator.js';
+import { createServerInstallationWorkflow } from '@src/domains/installation/serverInstallationWorkflow.js';
 import { createServerInstallationService } from '@src/domains/server-management/serverInstallationService.js';
-import type {
-  InstallOptions,
-  ListOptions,
-  UninstallOptions,
-  UpdateOptions,
-} from '@src/domains/server-management/types.js';
+import type { ListOptions, UninstallOptions, UpdateOptions } from '@src/domains/server-management/types.js';
 import logger, { debugIf } from '@src/logger/logger.js';
 import { TagsValidationResult } from '@src/types/validation.js';
 
-import { performDirectPackageInstallation } from './installation/directInstallation.js';
-import { PackageResolver } from './installation/packageResolver.js';
 import {
   InstallAdapterOptions,
+  InstallAdapterResult,
   InstallationAdapter,
   ListAdapterOptions,
   UninstallAdapterOptions,
@@ -49,11 +37,9 @@ export {
  */
 export class ServerInstallationAdapter implements InstallationAdapter {
   private installationService;
-  private packageResolver;
 
   constructor() {
     this.installationService = createServerInstallationService();
-    this.packageResolver = new PackageResolver();
   }
 
   /**
@@ -63,17 +49,7 @@ export class ServerInstallationAdapter implements InstallationAdapter {
     serverName: string,
     version?: string,
     options: InstallAdapterOptions = {},
-  ): Promise<{
-    success: boolean;
-    serverName: string;
-    version?: string;
-    installedAt: Date;
-    configPath?: string;
-    backupPath?: string;
-    warnings: string[];
-    errors: string[];
-    operationId: string;
-  }> {
+  ): Promise<InstallAdapterResult> {
     debugIf(() => ({
       message: 'Adapter: Installing server',
       meta: { serverName, version, options },
@@ -88,65 +64,55 @@ export class ServerInstallationAdapter implements InstallationAdapter {
         }
       }
 
-      // Convert adapter options to domain service options
-      const domainOptions: InstallOptions = {
-        force: options.force || false,
+      const operationId = `install_${Date.now()}`;
+      const isDirectInstall = Boolean(options.command || options.url);
+      const backupPolicy = options.backup === undefined ? undefined : options.backup ? 'required' : 'skip';
+      const result = await createServerInstallationWorkflow().run({
+        mode: 'apply',
+        force: options.force,
+        backup: backupPolicy,
+        source: isDirectInstall
+          ? {
+              type: 'direct',
+              localName: serverName,
+              transport: options.transport ?? (options.url ? 'http' : 'stdio'),
+              command: options.command,
+              url: options.url,
+              args: options.args,
+              env: options.env,
+              tags: options.tags,
+              timeout: options.timeout,
+              enabled: options.enabled,
+              cwd: options.cwd,
+              autoRestart: options.autoRestart,
+              maxRestarts: options.maxRestarts,
+              restartDelay: options.restartDelay,
+              package: options.package,
+            }
+          : {
+              type: 'registry',
+              registryId: serverName,
+              version,
+              localName: options.localServerName,
+              tags: options.tags,
+              env: options.env,
+              args: options.args,
+            },
+      });
+
+      return {
+        success: result.status === 'applied',
+        status: result.status,
+        serverName: result.targetName ?? serverName,
+        version: result.version ?? version,
+        installedAt: new Date(),
+        configPath: result.configChange?.configPath,
+        backupPath: result.configChange?.backup.path,
+        warnings: result.warnings,
+        errors: result.error ? [result.error] : [],
+        operationId,
+        reloadStatus: result.configChange?.reload.status,
       };
-
-      // Check if this is a direct package installation (package + command/args provided)
-      if (options.package && (options.command || options.args || options.url)) {
-        debugIf(() => ({
-          message: 'Adapter: Detected direct package installation, using mcp add',
-          meta: { serverName, package: options.package, command: options.command, args: options.args },
-        }));
-
-        return await performDirectPackageInstallation(serverName, version, options);
-      }
-
-      // If package is provided, try to find the server that uses this package
-      let actualServerName = serverName;
-      if (options.package) {
-        actualServerName = await this.packageResolver.resolvePackageToServerName(serverName, options);
-      }
-
-      const result = await this.installationService.installServer(actualServerName, version, domainOptions);
-
-      if (!result) {
-        throw new Error('Installation service returned undefined result');
-      }
-
-      // If installation succeeded and tags are provided, merge them with existing tags
-      if (result.success && options.tags && options.tags.length > 0) {
-        const currentConfig = getServer(serverName);
-        if (currentConfig) {
-          // Merge user tags with existing tags, deduplicating while preserving order
-          const existingTags = currentConfig.tags || [];
-          const mergedTags = Array.from(new Set([...existingTags, ...options.tags]));
-
-          const updatedConfig: MCPServerParams = {
-            ...currentConfig,
-            tags: mergedTags,
-            env: { ...currentConfig.env, ...options.env },
-            args: options.args || currentConfig.args,
-          };
-          setServer(serverName, updatedConfig);
-        }
-      }
-
-      // Persist configuration if provided
-      if (result.success && result.config) {
-        try {
-          setServer(serverName, result.config);
-          reloadMcpConfig();
-          logger.debug(`Persisted configuration for ${serverName}`);
-        } catch (configError) {
-          const errorMessage = configError instanceof Error ? configError.message : String(configError);
-          logger.warn('Failed to persist configuration', { error: errorMessage, serverName });
-          result.warnings.push(`Failed to persist configuration: ${errorMessage}`);
-        }
-      }
-
-      return result;
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
       logger.error('Server installation failed', { error: errorMessage, serverName, version });
@@ -164,6 +130,7 @@ export class ServerInstallationAdapter implements InstallationAdapter {
     success: boolean;
     serverName: string;
     removedAt: Date;
+    backupPath?: string;
     configRemoved: boolean;
     warnings: string[];
     errors: string[];
@@ -190,9 +157,19 @@ export class ServerInstallationAdapter implements InstallationAdapter {
       // If removeAll is specified, remove server from configuration
       if (result.success && options.removeAll) {
         try {
-          const removed = removeServer(serverName);
-          if (removed) {
-            reloadMcpConfig();
+          const configChange = await createConfigChangeService().removeConfiguredServerTarget({
+            targetName: serverName,
+            operation: 'uninstall',
+            backup: options.backup ? 'required' : 'skip',
+          });
+
+          result.configRemoved = configChange.changed;
+          if (configChange.backup.path) {
+            result.backupPath = configChange.backup.path;
+          }
+          result.warnings.push(...configChange.warnings);
+
+          if (configChange.changed) {
             logger.debug(`Removed server ${serverName} from configuration`);
           } else {
             logger.debug(`Server ${serverName} not found in configuration`);

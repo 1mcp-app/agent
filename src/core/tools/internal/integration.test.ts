@@ -131,6 +131,7 @@ vi.mock('./adapters/installationAdapter.js', () => ({
   createInstallationAdapter: () => ({
     installServer: vi.fn().mockResolvedValue({
       success: true,
+      status: 'applied',
       serverName: 'test-server',
       version: '1.0.0',
       installedAt: new Date(),
@@ -504,6 +505,7 @@ vi.mock('@src/domains/server-management/serverInstallationService.js', () => ({
   createServerInstallationService: () => ({
     installServer: vi.fn().mockResolvedValue({
       success: true,
+      status: 'applied',
       serverName: 'test-server',
       version: '1.0.0',
       installedAt: new Date(),
@@ -725,7 +727,7 @@ describe('Internal Tools Integration Tests', () => {
       expect(result).toHaveProperty('reloadRecommended');
 
       expect(result.name).toBe('test-server');
-      expect(result.status).toBe('success');
+      expect(result.status).toBe('applied');
       expect(result.version).toBe('1.0.0');
       expect(result.reloadRecommended).toBe(true);
       expect(result.location).toBe('/path/to/config');
@@ -951,7 +953,7 @@ describe('Internal Tools Integration Tests', () => {
         backup: false,
       });
 
-      expect(installResult.status).toBe('success');
+      expect(installResult.status).toBe('applied');
       expect(installResult.name).toBe(serverName);
     });
 
@@ -1103,7 +1105,7 @@ describe('Internal Tools Integration Tests', () => {
       expect(result).toHaveProperty('message');
 
       // Should either succeed with validation errors or fail gracefully
-      if (result.status === 'success') {
+      if (result.status === 'applied') {
         expect(result.name).toBe('test-server');
       } else {
         expect(result.status).toBe('failed');

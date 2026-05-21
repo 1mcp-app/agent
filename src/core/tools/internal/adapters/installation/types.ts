@@ -1,3 +1,4 @@
+import type { ServerInstallationWorkflowStatus } from '@src/domains/installation/serverInstallationWorkflow.js';
 import type {
   InstallOptions,
   ListOptions,
@@ -6,25 +7,25 @@ import type {
 } from '@src/domains/server-management/types.js';
 import { TagsValidationResult } from '@src/types/validation.js';
 
+export interface InstallAdapterResult {
+  success: boolean;
+  status?: ServerInstallationWorkflowStatus;
+  serverName: string;
+  version?: string;
+  installedAt: Date;
+  configPath?: string;
+  backupPath?: string;
+  warnings: string[];
+  errors: string[];
+  operationId: string;
+  reloadStatus?: string;
+}
+
 /**
  * Installation adapter interface
  */
 export interface InstallationAdapter {
-  installServer(
-    serverName: string,
-    version?: string,
-    options?: InstallAdapterOptions,
-  ): Promise<{
-    success: boolean;
-    serverName: string;
-    version?: string;
-    installedAt: Date;
-    configPath?: string;
-    backupPath?: string;
-    warnings: string[];
-    errors: string[];
-    operationId: string;
-  }>;
+  installServer(serverName: string, version?: string, options?: InstallAdapterOptions): Promise<InstallAdapterResult>;
   uninstallServer(
     serverName: string,
     options?: UninstallAdapterOptions,
@@ -32,6 +33,7 @@ export interface InstallationAdapter {
     success: boolean;
     serverName: string;
     removedAt: Date;
+    backupPath?: string;
     configRemoved: boolean;
     warnings: string[];
     errors: string[];

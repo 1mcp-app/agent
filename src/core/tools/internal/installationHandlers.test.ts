@@ -69,6 +69,7 @@ describe('installationHandlers', () => {
     it('should execute install successfully when enabled', async () => {
       const mockResult = {
         success: true,
+        status: 'applied',
         serverName: 'test-server',
         version: '1.0.0',
         installedAt: new Date(),
@@ -93,7 +94,7 @@ describe('installationHandlers', () => {
 
       const result = await handleMcpInstall(args);
 
-      expect(result.status).toBe('success');
+      expect(result.status).toBe('applied');
       expect(result.message).toBe("MCP server 'test-server' installed successfully");
       expect(result.name).toBe('test-server');
       expect(result.version).toBe('1.0.0');
@@ -159,6 +160,35 @@ describe('installationHandlers', () => {
         status: 'failed',
         message: 'Installation failed: Installation failed',
         error: 'Installation failed',
+      });
+    });
+
+    it('should expose workflow conflict statuses directly', async () => {
+      mockInstallationAdapter.installServer.mockResolvedValue({
+        success: false,
+        status: 'template_conflict',
+        serverName: 'template-server',
+        version: '1.0.0',
+        installedAt: new Date(),
+        warnings: [],
+        errors: ["Configured server target 'template-server' exists in mcpTemplates"],
+        operationId: 'test-op-id',
+      });
+
+      const result = await handleMcpInstall({
+        name: 'template-server',
+        version: '1.0.0',
+        transport: 'stdio',
+        enabled: true,
+        autoRestart: false,
+        force: true,
+        backup: false,
+      });
+
+      expect(result).toMatchObject({
+        name: 'template-server',
+        status: 'template_conflict',
+        error: "Configured server target 'template-server' exists in mcpTemplates",
       });
     });
   });

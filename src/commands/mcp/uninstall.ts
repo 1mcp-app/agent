@@ -1,10 +1,11 @@
+import { createConfigChangeService } from '@src/domains/config-change/configChange.js';
 import { GlobalOptions } from '@src/globalOptions.js';
 import logger from '@src/logger/logger.js';
 import printer from '@src/utils/ui/printer.js';
 
 import type { Argv } from 'yargs';
 
-import { backupConfig, initializeConfigContext, removeServer, serverExists } from './utils/mcpServerConfig.js';
+import { initializeConfigContext, serverTargetExists } from './utils/mcpServerConfig.js';
 import { checkServerInUse, validateServerName } from './utils/serverUtils.js';
 
 export interface UninstallCommandArgs extends GlobalOptions {
@@ -79,7 +80,7 @@ export async function uninstallCommand(argv: UninstallCommandArgs): Promise<void
     validateServerName(serverName);
 
     // Check if server exists
-    if (!serverExists(serverName)) {
+    if (!serverTargetExists(serverName)) {
       throw new Error(`Server '${serverName}' does not exist in the configuration.`);
     }
 
@@ -92,31 +93,34 @@ export async function uninstallCommand(argv: UninstallCommandArgs): Promise<void
       throw new Error('Server is in use. Use --force to override.');
     }
 
-    // Create backup if requested
-    let backupPath: string | undefined;
-    if (createBackup) {
-      if (verbose) {
-        logger.info('Creating backup before uninstall...');
-      }
-      backupPath = backupConfig();
-      logger.info(`Backup created: ${backupPath}`);
-    }
-
     // Remove server configuration if requested
     if (removeConfig) {
       if (verbose) {
         logger.info(`Removing server configuration for '${serverName}'...`);
       }
 
-      const removed = removeServer(serverName);
-      if (!removed) {
+      const result = await createConfigChangeService().removeConfiguredServerTarget({
+        targetName: serverName,
+        operation: 'uninstall',
+        backup: createBackup ? 'required' : 'skip',
+      });
+      if (!result.changed) {
         throw new Error(`Failed to remove server '${serverName}' from configuration.`);
       }
 
       printer.success(`Successfully uninstalled server '${serverName}'`);
 
-      if (backupPath) {
-        printer.keyValue({ 'Backup created': backupPath });
+      const facts: Record<string, string> = {};
+      if (result.backup.path) {
+        logger.info(`Backup created: ${result.backup.path}`);
+        facts['Backup created'] = result.backup.path;
+      }
+      facts['Reload status'] = result.reload.status;
+      if (Object.keys(facts).length > 0) {
+        printer.keyValue(facts);
+      }
+      for (const warning of result.warnings) {
+        printer.warn(warning);
       }
     } else {
       printer.blank();

@@ -35,6 +35,7 @@ vi.mock('./adapters/installationAdapter.js', () => ({
   createInstallationAdapter: () => ({
     installServer: vi.fn().mockResolvedValue({
       success: true,
+      status: 'applied',
       serverName: 'test-server',
       version: '1.0.0',
       installedAt: new Date(),
@@ -99,7 +100,7 @@ describe('Installation Handlers Integration Tests', () => {
       expect(result).toHaveProperty('reloadRecommended');
 
       expect(result.name).toBe('test-server');
-      expect(result.status).toBe('success');
+      expect(result.status).toBe('applied');
       expect(result.version).toBe('1.0.0');
       expect(result.reloadRecommended).toBe(true);
       expect(result.location).toBe('/path/to/config');

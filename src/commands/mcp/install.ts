@@ -1,5 +1,9 @@
+import {
+  createServerInstallationWorkflow,
+  type ServerInstallationWorkflowResult,
+} from '@src/domains/installation/serverInstallationWorkflow.js';
 import { MCPRegistryClient } from '@src/domains/registry/mcpRegistryClient.js';
-import { createServerInstallationService, getProgressTrackingService } from '@src/domains/server-management/index.js';
+import { getProgressTrackingService } from '@src/domains/server-management/index.js';
 import { GlobalOptions } from '@src/globalOptions.js';
 import logger from '@src/logger/logger.js';
 import printer from '@src/utils/ui/printer.js';
@@ -9,7 +13,7 @@ import chalk from 'chalk';
 import type { Argv } from 'yargs';
 
 import { InstallWizard } from './utils/installWizard.js';
-import { backupConfig, getAllServers, initializeConfigContext, serverExists } from './utils/mcpServerConfig.js';
+import { getAllServers, initializeConfigContext } from './utils/mcpServerConfig.js';
 import { generateOperationId, parseServerNameVersion, validateVersion } from './utils/serverUtils.js';
 
 export interface InstallCommandArgs extends GlobalOptions {
@@ -115,20 +119,26 @@ export async function installCommand(argv: InstallCommandArgs): Promise<void> {
       logger.info(`Derived local server name: ${serverName} from registry ID: ${registryServerId}`);
     }
 
-    // Check if server already exists
-    if (serverExists(serverName)) {
-      if (!force) {
-        throw new Error(`Server '${serverName}' already exists. Use --force to reinstall.`);
-      }
-      if (verbose) {
-        logger.info(`Server '${serverName}' exists, will reinstall due to --force flag`);
-      }
-    }
+    const workflow = createServerInstallationWorkflow();
 
     // Dry run mode
     if (dryRun) {
+      const preview = await workflow.run({
+        mode: 'preview',
+        force,
+        source: {
+          type: 'registry',
+          registryId: registryServerId,
+          version,
+          localName: serverName,
+        },
+      });
+      if (preview.status !== 'preview') {
+        throw new Error(installationWorkflowFailureMessage(preview));
+      }
+
       printer.info('Dry run mode - no changes will be made');
-      printer.keyValue({ 'Would install': `${serverName}${version ? `@${version}` : ''}` });
+      printer.keyValue({ 'Would install': `${preview.targetName ?? serverName}${version ? `@${version}` : ''}` });
       printer.info('From registry: https://registry.modelcontextprotocol.io');
       printer.info('Use without --dry-run to perform actual installation.');
       return;
@@ -142,19 +152,9 @@ export async function installCommand(argv: InstallCommandArgs): Promise<void> {
     progressTracker.startOperation(operationId, 'install', 5);
 
     try {
-      // Get installation service
-      const installationService = createServerInstallationService();
-
       // Update progress: Validating
       progressTracker.updateProgress(operationId, 1, 'Validating server', `Checking registry for ${serverName}`);
-
-      // Create backup if replacing existing server
-      let backupPath: string | undefined;
-      if (serverExists(serverName)) {
-        progressTracker.updateProgress(operationId, 2, 'Creating backup', `Backing up existing configuration`);
-        backupPath = backupConfig();
-        logger.info(`Backup created: ${backupPath}`);
-      }
+      progressTracker.updateProgress(operationId, 2, 'Resolving install', `Preparing configuration for ${serverName}`);
 
       // Update progress: Installing
       progressTracker.updateProgress(
@@ -164,25 +164,25 @@ export async function installCommand(argv: InstallCommandArgs): Promise<void> {
         `Installing ${serverName}${version ? `@${version}` : ''}`,
       );
 
-      // Perform installation - pass the registry server ID for fetching from registry
-      // but use the derived local name for configuration
-      const result = await installationService.installServer(registryServerId, version, {
+      const result = await workflow.run({
+        mode: 'apply',
         force,
-        verbose,
-        localServerName: serverName, // Pass the derived local name
-        registryServerId: registryServerId, // Pass the registry ID for tagging
+        source: {
+          type: 'registry',
+          registryId: registryServerId,
+          version,
+          localName: serverName,
+        },
       });
+      if (result.status !== 'applied') {
+        throw new Error(installationWorkflowFailureMessage(result));
+      }
 
       // Update progress: Finalizing
       progressTracker.updateProgress(operationId, 4, 'Finalizing', 'Saving configuration');
 
-      // Save the configuration returned by the installation service
-      if (result.config) {
-        const { setServer } = await import('./utils/mcpServerConfig.js');
-        setServer(serverName, result.config);
-        if (verbose) {
-          logger.info(`Configuration saved for server '${serverName}'`);
-        }
+      if (verbose) {
+        logger.info(`Configuration saved for server '${serverName}'`);
       }
 
       // Update progress: Complete pending file-based reload for live serve processes
@@ -191,18 +191,17 @@ export async function installCommand(argv: InstallCommandArgs): Promise<void> {
       // Update progress: Complete (completeOperation logs completion)
 
       // Complete the operation
-      const duration = result.installedAt ? Date.now() - result.installedAt.getTime() : 0;
       progressTracker.completeOperation(operationId, {
         success: true,
         operationId,
-        duration,
+        duration: 0,
         message: `Successfully installed ${serverName}`,
       });
 
       // Report success
       printer.success(`Successfully installed server '${serverName}'${version ? ` version ${version}` : ''}`);
-      if (backupPath) {
-        printer.keyValue({ 'Backup created': backupPath });
+      if (result.configChange?.backup.path) {
+        printer.keyValue({ 'Backup created': result.configChange.backup.path });
       }
       if (result.warnings.length > 0) {
         printer.warn('Warnings:');
@@ -368,22 +367,29 @@ async function runInteractiveInstallation(argv: InstallCommandArgs): Promise<voi
         // Use forceOverride from wizard if user selected override option
         const shouldForce = force || wizardResult.forceOverride || false;
 
-        // Check if server already exists (early check)
-        const serverAlreadyExists = serverExists(serverName);
-        if (serverAlreadyExists && !shouldForce) {
-          printer.error(`Server '${serverName}' already exists. Use --force to reinstall.`);
-          wizard.cleanup();
-          if (wizardResult.installAnother) {
-            currentServerId = undefined;
-            continue;
-          }
-          process.exit(1);
-        }
+        const workflow = createServerInstallationWorkflow();
 
         // Dry run mode
         if (dryRun) {
+          const preview = await workflow.run({
+            mode: 'preview',
+            force: shouldForce,
+            source: {
+              type: 'registry',
+              registryId: registryServerId,
+              version,
+              localName: serverName,
+              tags: wizardResult.tags,
+              env: wizardResult.env,
+              args: wizardResult.args,
+            },
+          });
+          if (preview.status !== 'preview') {
+            throw new Error(installationWorkflowFailureMessage(preview));
+          }
+
           printer.info('Dry run mode - no changes will be made');
-          printer.keyValue({ 'Would install': `${serverName}${version ? `@${version}` : ''}` });
+          printer.keyValue({ 'Would install': `${preview.targetName ?? serverName}${version ? `@${version}` : ''}` });
           printer.info('From registry: https://registry.modelcontextprotocol.io');
           if (wizardResult.installAnother) {
             currentServerId = undefined;
@@ -426,32 +432,15 @@ async function runInteractiveInstallation(argv: InstallCommandArgs): Promise<voi
         progressTracker.startOperation(operationId, 'install', 5);
 
         try {
-          // Get installation service
-          const installationService = createServerInstallationService();
-
           // Update progress: Validating
           printer.raw(chalk.cyan('⏳ Validating server...'));
           progressTracker.updateProgress(operationId, 1, 'Validating server', `Checking registry for ${serverName}`);
-
-          // Create backup if replacing existing server
-          let backupPath: string | undefined;
-          if (serverAlreadyExists) {
-            printer.raw(chalk.cyan('⏳ Creating backup...'));
-            progressTracker.updateProgress(operationId, 2, 'Creating backup', `Backing up existing configuration`);
-            backupPath = backupConfig();
-            printer.raw(chalk.gray(`   Backup created: ${backupPath}`));
-            logger.info(`Backup created: ${backupPath}`);
-
-            // Remove the existing server before reinstalling to prevent duplicates
-            const { removeServer } = await import('./utils/mcpServerConfig.js');
-            const removed = removeServer(serverName);
-            if (removed) {
-              printer.raw(chalk.gray(`   Removed existing server '${serverName}'`));
-              if (verbose) {
-                logger.info(`Removed existing server '${serverName}' before reinstalling`);
-              }
-            }
-          }
+          progressTracker.updateProgress(
+            operationId,
+            2,
+            'Resolving install',
+            `Preparing configuration for ${serverName}`,
+          );
 
           // Update progress: Installing
           printer.raw(chalk.cyan(`⏳ Installing ${serverName}${version ? `@${version}` : ''}...`));
@@ -463,27 +452,29 @@ async function runInteractiveInstallation(argv: InstallCommandArgs): Promise<voi
           );
 
           // Perform installation
-          const result = await installationService.installServer(registryServerId, version, {
+          const result = await workflow.run({
+            mode: 'apply',
             force: shouldForce,
-            verbose,
-            localServerName: serverName,
-            registryServerId: registryServerId, // Pass the registry ID for tagging
-            tags: wizardResult.tags,
-            env: wizardResult.env,
-            args: wizardResult.args,
+            source: {
+              type: 'registry',
+              registryId: registryServerId,
+              version,
+              localName: serverName,
+              tags: wizardResult.tags,
+              env: wizardResult.env,
+              args: wizardResult.args,
+            },
           });
+          if (result.status !== 'applied') {
+            throw new Error(installationWorkflowFailureMessage(result));
+          }
 
           // Update progress: Finalizing
           printer.raw(chalk.cyan('⏳ Finalizing...'));
           progressTracker.updateProgress(operationId, 4, 'Finalizing', 'Saving configuration');
 
-          // Save the configuration returned by the installation service
-          if (result.config) {
-            const { setServer } = await import('./utils/mcpServerConfig.js');
-            setServer(serverName, result.config);
-            if (verbose) {
-              logger.info(`Configuration saved for server '${serverName}'`);
-            }
+          if (verbose) {
+            logger.info(`Configuration saved for server '${serverName}'`);
           }
 
           // Update progress: Applying changes for file-based live reload
@@ -491,11 +482,10 @@ async function runInteractiveInstallation(argv: InstallCommandArgs): Promise<voi
           progressTracker.updateProgress(operationId, 5, 'Applying changes', 'Saved configuration to disk');
 
           // Complete the operation
-          const duration = result.installedAt ? Date.now() - result.installedAt.getTime() : 0;
           progressTracker.completeOperation(operationId, {
             success: true,
             operationId,
-            duration,
+            duration: 0,
             message: `Successfully installed ${serverName}`,
           });
 
@@ -507,8 +497,8 @@ async function runInteractiveInstallation(argv: InstallCommandArgs): Promise<voi
           printer.raw(
             chalk.green.bold(`✅ Successfully installed server '${serverName}'${version ? ` version ${version}` : ''}`),
           );
-          if (backupPath) {
-            printer.raw(chalk.gray(`📁 Backup created: ${backupPath}`));
+          if (result.configChange?.backup.path) {
+            printer.raw(chalk.gray(`📁 Backup created: ${result.configChange.backup.path}`));
           }
           if (result.warnings.length > 0) {
             printer.raw(chalk.yellow('\n⚠️  Warnings:'));
@@ -572,4 +562,18 @@ async function runInteractiveInstallation(argv: InstallCommandArgs): Promise<voi
   // Explicitly exit after successful completion to prevent hanging
   // This ensures stdin doesn't keep the process alive
   process.exit(0);
+}
+
+function installationWorkflowFailureMessage(result: ServerInstallationWorkflowResult): string {
+  if (result.error) {
+    return result.error;
+  }
+
+  if (result.fieldErrors) {
+    return Object.entries(result.fieldErrors)
+      .flatMap(([field, errors]) => errors.map((error) => `${field}: ${error}`))
+      .join('; ');
+  }
+
+  return `Installation workflow returned ${result.status}`;
 }

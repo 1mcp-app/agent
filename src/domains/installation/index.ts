@@ -17,3 +17,6 @@ export * from './validators/conflictDetector.js';
 export * from './configurators/envVarConfigurator.js';
 export * from './configurators/cliArgsConfigurator.js';
 export * from './configurators/tagsConfigurator.js';
+
+// Workflows
+export * from './serverInstallationWorkflow.js';
