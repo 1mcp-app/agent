@@ -227,14 +227,23 @@ describe('inspect command internals', () => {
     vi.unstubAllGlobals();
   });
 
+  it('rejects ambiguous filtered inspect server URL selectors', () => {
+    expect(() =>
+      buildServerUrl('http://127.0.0.1:3050/mcp', {
+        preset: 'dev',
+        tags: ['ignored'],
+      }),
+    ).toThrow(
+      'Cannot use multiple filtering parameters simultaneously. Use "preset" for dynamic presets, "tag-filter" for advanced expressions, "filter" for legacy compatibility, or "tags" for simple OR filtering.',
+    );
+  });
+
   it('builds a filtered inspect server URL', () => {
     const url = buildServerUrl('http://127.0.0.1:3050/mcp', {
       preset: 'dev',
-      tags: ['ignored'],
     });
 
     expect(url.searchParams.get('preset')).toBe('dev');
-    expect(url.searchParams.has('tags')).toBe(false);
   });
 
   it('initializes a fresh session before listing tools', async () => {

@@ -38,6 +38,11 @@ export const serverOptions = {
     type: 'string' as const,
     default: undefined,
   },
+  preset: {
+    describe: 'Preset name for server selection',
+    type: 'string' as const,
+    default: undefined,
+  },
   pagination: {
     alias: 'p',
     describe: 'Enable pagination',

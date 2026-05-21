@@ -180,18 +180,25 @@ describe('run command internals', () => {
   });
 
   describe('buildServerUrl', () => {
-    it('prefers preset over all other query selectors', () => {
+    it('rejects multiple query selectors instead of silently applying precedence', () => {
+      expect(() =>
+        buildServerUrl('http://127.0.0.1:3050/mcp', {
+          preset: 'dev',
+          filter: 'a && b',
+          tags: ['x', 'y'],
+          'tag-filter': 'foo',
+        }),
+      ).toThrow(
+        'Cannot use multiple filtering parameters simultaneously. Use "preset" for dynamic presets, "tag-filter" for advanced expressions, "filter" for legacy compatibility, or "tags" for simple OR filtering.',
+      );
+    });
+
+    it('applies preset when it is the only selector', () => {
       const url = buildServerUrl('http://127.0.0.1:3050/mcp', {
         preset: 'dev',
-        filter: 'a && b',
-        tags: ['x', 'y'],
-        'tag-filter': 'foo',
       });
 
       expect(url.searchParams.get('preset')).toBe('dev');
-      expect(url.searchParams.has('filter')).toBe(false);
-      expect(url.searchParams.has('tags')).toBe(false);
-      expect(url.searchParams.has('tag-filter')).toBe(false);
     });
 
     it('applies tags when no higher-priority selector is present', () => {

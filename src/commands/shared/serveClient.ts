@@ -12,6 +12,7 @@ import {
 } from '@modelcontextprotocol/sdk/types.js';
 
 import { MCP_SERVER_NAME, MCP_SERVER_VERSION } from '@src/constants.js';
+import { resolveFilterSelection } from '@src/core/filtering/filterSelection.js';
 import type { ContextData } from '@src/types/context.js';
 import { createContextHash } from '@src/utils/context/contextHash.js';
 
@@ -212,15 +213,40 @@ export class StreamableServeClient {
 
 export function buildServerUrl(baseUrl: string, options: ServeUrlOptions): URL {
   const serverUrl = new URL(baseUrl);
+  const filterResult = resolveFilterSelection(
+    {
+      preset: options.preset,
+      tagFilter: options['tag-filter'],
+      filter: options.filter,
+      tags: options.tags && options.tags.length > 0 ? options.tags.join(',') : undefined,
+    },
+    { allowUnknownPreset: true },
+  );
 
-  if (options.preset) {
-    serverUrl.searchParams.set('preset', options.preset);
-  } else if (options['tag-filter']) {
-    serverUrl.searchParams.set('tag-filter', options['tag-filter']);
-  } else if (options.filter) {
-    serverUrl.searchParams.set('filter', options.filter);
-  } else if (options.tags && options.tags.length > 0) {
-    serverUrl.searchParams.set('tags', options.tags.join(','));
+  if (!filterResult.ok) {
+    throw new Error(filterResult.error.message);
+  }
+
+  switch (filterResult.selection.mode) {
+    case 'preset':
+      serverUrl.searchParams.set('preset', filterResult.selection.presetName!);
+      break;
+    case 'advanced':
+      if (options['tag-filter']) {
+        serverUrl.searchParams.set('tag-filter', options['tag-filter']);
+      } else if (options.filter) {
+        serverUrl.searchParams.set('filter', options.filter);
+      }
+      break;
+    case 'simple-or':
+      if (options.filter) {
+        serverUrl.searchParams.set('filter', options.filter);
+      } else if (filterResult.selection.tags && filterResult.selection.tags.length > 0) {
+        serverUrl.searchParams.set('tags', filterResult.selection.tags.join(','));
+      }
+      break;
+    case 'none':
+      break;
   }
 
   return serverUrl;

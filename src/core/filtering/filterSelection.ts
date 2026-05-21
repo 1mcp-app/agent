@@ -75,6 +75,7 @@ export type FilterSelectionResult =
 
 export interface ResolveFilterSelectionOptions {
   presetLookup?: FilterSelectionPresetLookup;
+  allowUnknownPreset?: boolean;
 }
 
 const MULTIPLE_SELECTORS_MESSAGE =
@@ -104,7 +105,7 @@ export function resolveFilterSelection(
 
   switch (selector) {
     case 'preset':
-      return resolvePresetSelection(inputs.preset, options.presetLookup);
+      return resolvePresetSelection(inputs.preset, options.presetLookup, options.allowUnknownPreset);
     case 'tag-filter':
       return resolveAdvancedSelection(inputs.tagFilter, 'tag-filter');
     case 'filter':
@@ -207,6 +208,7 @@ function getPresentSelectors(inputs: FilterSelectorInputs): FilterSelectorName[]
 function resolvePresetSelection(
   rawPreset: unknown,
   presetLookup: FilterSelectionPresetLookup | undefined,
+  allowUnknownPreset = false,
 ): FilterSelectionResult {
   if (typeof rawPreset !== 'string') {
     return invalidSelector('preset', 'Invalid params: preset must be a string');
@@ -219,6 +221,17 @@ function resolvePresetSelection(
 
   const preset = presetLookup?.getPreset(presetName);
   if (!preset) {
+    if (allowUnknownPreset) {
+      return {
+        ok: true,
+        selection: createSelection({
+          mode: 'preset',
+          requestedTags: [],
+          presetName,
+        }),
+      };
+    }
+
     return {
       ok: false,
       error: {

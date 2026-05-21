@@ -1,7 +1,9 @@
 import path from 'path';
 
 import { AgentConfigManager } from '@src/core/server/agentConfig.js';
+import { PresetManager } from '@src/domains/preset/manager/presetManager.js';
 import { configureGlobalLogger } from '@src/logger/configureGlobalLogger.js';
+import { setupServer } from '@src/server.js';
 import { displayLogo } from '@src/utils/ui/logo.js';
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -51,7 +53,6 @@ vi.mock('@src/core/server/pidFileManager.js', () => ({
 vi.mock('@src/transport/http/server.js', () => ({
   ExpressServer: vi.fn(),
 }));
-vi.mock('@src/domains/preset/parsers/tagQueryParser.js');
 vi.mock('@src/utils/ui/logo.js');
 vi.mock('@src/logger/logger.js');
 
@@ -78,6 +79,51 @@ vi.mock('@src/core/server/agentConfig.js', () => ({
     }),
   },
 }));
+
+function makeStdioOptions(overrides: Partial<ServeOptions> = {}): ServeOptions {
+  return {
+    transport: 'stdio',
+    port: 3050,
+    host: '127.0.0.1',
+    pagination: false,
+    auth: false,
+    'enable-auth': false,
+    'enable-scope-validation': true,
+    'enable-enhanced-security': false,
+    'session-ttl': 1440,
+    'trust-proxy': 'loopback',
+    'health-info-level': 'minimal',
+    'rate-limit-window': 15,
+    'rate-limit-max': 100,
+    'enable-async-loading': false,
+    'async-min-servers': 1,
+    'async-timeout': 30000,
+    'async-batch-notifications': true,
+    'async-batch-delay': 100,
+    'async-notify-on-ready': true,
+    'enable-lazy-loading': false,
+    'lazy-mode': 'full',
+    'lazy-inline-catalog': false,
+    'lazy-catalog-format': 'grouped',
+    'lazy-cache-max-entries': 1000,
+    'lazy-cache-ttl': 300000,
+    'lazy-preload': undefined,
+    'lazy-preload-keywords': undefined,
+    'lazy-fallback-on-error': undefined,
+    'lazy-fallback-timeout': undefined,
+    'enable-config-reload': true,
+    'config-reload-debounce': 500,
+    'enable-env-substitution': true,
+    'enable-session-persistence': true,
+    'session-persist-requests': 100,
+    'session-persist-interval': 5,
+    'session-background-flush': 60,
+    'enable-client-notifications': true,
+    'enable-jsonrpc-error-logging': true,
+    'enable-internal-tools': false,
+    ...overrides,
+  };
+}
 
 describe('serveCommand - config-dir session isolation', () => {
   beforeEach(() => {
@@ -591,6 +637,83 @@ describe('serveCommand - config-dir session isolation', () => {
           },
         }),
       );
+    });
+  });
+
+  describe('stdio filter selection', () => {
+    const originalPresetEnv = process.env.ONE_MCP_PRESET;
+
+    let connectTransport: ReturnType<typeof vi.fn>;
+    let presetManager: {
+      loadPresetsWithoutWatcher: ReturnType<typeof vi.fn>;
+      hasPreset: ReturnType<typeof vi.fn>;
+      getPreset: ReturnType<typeof vi.fn>;
+      cleanup: ReturnType<typeof vi.fn>;
+    };
+
+    beforeEach(() => {
+      connectTransport = vi.fn().mockResolvedValue(undefined);
+      vi.mocked(setupServer).mockResolvedValue({
+        serverManager: {
+          connectTransport,
+          getServer: vi.fn().mockReturnValue(undefined),
+          getTransports: vi.fn().mockReturnValue(new Map()),
+        },
+        loadingManager: undefined,
+        asyncOrchestrator: undefined,
+        instructionAggregator: undefined,
+      } as any);
+
+      presetManager = {
+        loadPresetsWithoutWatcher: vi.fn().mockResolvedValue(undefined),
+        hasPreset: vi.fn().mockReturnValue(false),
+        getPreset: vi.fn().mockReturnValue(undefined),
+        cleanup: vi.fn().mockResolvedValue(undefined),
+      };
+      vi.mocked(PresetManager.getInstance).mockReturnValue(presetManager as any);
+    });
+
+    afterEach(() => {
+      if (originalPresetEnv === undefined) {
+        delete process.env.ONE_MCP_PRESET;
+      } else {
+        process.env.ONE_MCP_PRESET = originalPresetEnv;
+      }
+    });
+
+    it('uses parsed preset option before CLI filter fallback without reading env directly', async () => {
+      const tagQuery = { $and: [{ tag: 'web' }, { $not: { tag: 'internal' } }] };
+      process.env.ONE_MCP_PRESET = 'ignored-env';
+      presetManager.hasPreset.mockReturnValue(true);
+      presetManager.getPreset.mockImplementation((name: string) => {
+        if (name !== 'production') {
+          return undefined;
+        }
+        return {
+          strategy: 'advanced',
+          tagQuery,
+        };
+      });
+
+      await serveCommand(makeStdioOptions({ preset: 'production', filter: 'ignored-cli' }));
+
+      expect(connectTransport).toHaveBeenCalledWith(
+        expect.anything(),
+        'stdio',
+        expect.objectContaining({
+          tags: ['web', 'internal'],
+          tagQuery,
+          tagFilterMode: 'preset',
+          presetName: 'production',
+        }),
+      );
+    });
+
+    it('exits for invalid legacy --filter instead of silently ignoring it', async () => {
+      await serveCommand(makeStdioOptions({ filter: ',' }));
+
+      expect(process.exit).toHaveBeenCalledWith(1);
+      expect(connectTransport).not.toHaveBeenCalled();
     });
   });
 });

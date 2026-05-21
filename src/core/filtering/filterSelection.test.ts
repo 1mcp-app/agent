@@ -161,6 +161,23 @@ describe('resolveFilterSelection', () => {
     });
   });
 
+  it('can validate preset selector shape without local preset lookup for client command passthrough', () => {
+    const result = resolveFilterSelection({ preset: 'remote-dev' }, { allowUnknownPreset: true });
+
+    expect(result).toMatchObject({
+      ok: true,
+      selection: {
+        mode: 'preset',
+        presetName: 'remote-dev',
+        requestedTags: [],
+        compatibility: {
+          tagFilterMode: 'preset',
+          presetName: 'remote-dev',
+        },
+      },
+    });
+  });
+
   it('returns not_found when a preset does not exist', () => {
     const result = select({ preset: 'missing' });
 
