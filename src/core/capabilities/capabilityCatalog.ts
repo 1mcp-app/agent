@@ -290,8 +290,8 @@ export class CapabilityCatalog {
   }
 
   private resolveRoute(server: string, toolName: string, sessionId?: string): CapabilityRoute | undefined {
-    const result =
-      this.connectionResolver.resolveWithKey(server, sessionId) ?? this.connectionResolver.findByServerName(server);
+    const sessionResult = sessionId ? this.connectionResolver.resolveWithKey(server, sessionId) : undefined;
+    const result = sessionResult ?? (!sessionId ? this.connectionResolver.findByServerName(server) : undefined);
     if (!result) {
       return undefined;
     }

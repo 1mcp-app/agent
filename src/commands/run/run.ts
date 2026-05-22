@@ -29,6 +29,7 @@ import {
 import { resolveServeTarget } from '@src/commands/shared/serveTargetResolver.js';
 import { API_INSPECT_ENDPOINT, API_TOOL_INVOCATIONS_ENDPOINT } from '@src/constants/api.js';
 import type { GlobalOptions } from '@src/globalOptions.js';
+import { deriveContextSessionId } from '@src/transport/http/utils/contextExtractor.js';
 import type { ContextData } from '@src/types/context.js';
 import { stripMcpSuffix } from '@src/utils/urlUtils.js';
 
@@ -73,14 +74,14 @@ export async function runCommand(options: RunCommandOptions): Promise<void> {
     resolveServeTarget(options),
     readStdin(),
   ]);
-  const runContext = buildCliContext({
+  const baseRunContext = buildCliContext({
     cwd,
     projectConfig,
     projectRoot,
     transportType: 'run',
     version: 'run',
   });
-  const contextHash = getCliSessionContextHash(runContext);
+  const contextHash = getCliSessionContextHash(baseRunContext);
   const cachePath = getCliSessionCachePath({
     cachePathTemplate: options['cli-session-cache-path'],
     serverPid,
@@ -89,6 +90,11 @@ export async function runCommand(options: RunCommandOptions): Promise<void> {
   const cachedSession = await readCliSessionCache(cachePath, serverUrl.toString(), contextHash);
   const baseUrl = stripMcpSuffix(discoveredUrl);
   const authProfile = await loadAuthProfile(options['config-dir'], normalizeServerUrl(baseUrl));
+  const requestSessionId = cachedSession?.sessionId ?? deriveContextSessionId(baseRunContext);
+  const runContext: ContextData = {
+    ...baseRunContext,
+    sessionId: requestSessionId,
+  };
   const apiClient = new ApiClient({
     baseUrl,
     bearerToken: authProfile?.token,
@@ -162,7 +168,7 @@ export async function runCommand(options: RunCommandOptions): Promise<void> {
 
       if (!shouldFallbackToMcp) {
         await writeCliSessionCache(cachePath, {
-          sessionId: apiResponse.sessionId ?? cachedSession?.sessionId ?? 'rest',
+          sessionId: apiResponse.sessionId ?? requestSessionId,
           serverUrl: serverUrl.toString(),
           contextHash,
           savedAt: Date.now(),
@@ -200,7 +206,7 @@ export async function runCommand(options: RunCommandOptions): Promise<void> {
 
       if (shouldPersistRestDisabled) {
         await writeCliSessionCache(cachePath, {
-          sessionId: cachedSession?.sessionId ?? 'mcp',
+          sessionId: cachedSession?.sessionId ?? requestSessionId,
           serverUrl: serverUrl.toString(),
           contextHash,
           savedAt: Date.now(),

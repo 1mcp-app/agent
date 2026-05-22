@@ -518,6 +518,14 @@ describe('runCommand REST-first path', () => {
     transportState.callResult = { content: [{ type: 'text', text: 'ok' }] };
     transportState.sessionIdOnInitialize = 'fresh-session';
     transportState.throw404OnMethod = undefined;
+    mockedResolveProjectContext.mockReset();
+    mockedResolveProjectContext.mockResolvedValue({
+      cwd: '/tmp/project',
+      projectRoot: '/tmp/project',
+      projectName: 'project',
+      projectConfig: null,
+      source: 'cwd',
+    });
 
     const baseDir = join(process.cwd(), '.tmp-test', 'run-rest-unit');
     await mkdir(baseDir, { recursive: true });
@@ -597,6 +605,12 @@ describe('runCommand REST-first path', () => {
       args: { message: 'hi' },
       _meta: {
         context: {
+          project: {
+            path: '/tmp/project',
+            cwd: '/tmp/project',
+            name: 'project',
+          },
+          sessionId: 'cached-session',
           transport: { type: 'run' },
           version: 'run',
         },
@@ -667,7 +681,8 @@ describe('runCommand REST-first path', () => {
       'http://127.0.0.1:3050/mcp',
       makeContextHash('/tmp/project', 'run', 'run'),
     );
-    expect(cache?.sessionId).toBe('rest');
+    expect(cache?.sessionId).toMatch(/^rest-[a-f0-9]{16}$/);
+    expect(cache?.sessionId).not.toBe('rest');
     expect(cache?.hasRestEndpoint).toBe(true);
   });
 

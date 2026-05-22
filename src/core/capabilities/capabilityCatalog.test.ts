@@ -1,5 +1,6 @@
 import type { Tool } from '@modelcontextprotocol/sdk/types.js';
 
+import type { TemplateHashProvider } from '@src/core/server/connectionResolver.js';
 import { ClientStatus, type OutboundConnections } from '@src/core/types/client.js';
 
 import { CapabilityCatalog } from './capabilityCatalog.js';
@@ -56,7 +57,7 @@ describe('CapabilityCatalog', () => {
     ]);
   });
 
-  function createCatalog() {
+  function createCatalog(templateHashProvider?: TemplateHashProvider) {
     return new CapabilityCatalog({
       getToolRegistry: () => registry,
       schemaCache,
@@ -68,6 +69,7 @@ describe('CapabilityCatalog', () => {
           disabledTools: ['write_file'],
         } as any,
       }),
+      templateHashProvider,
     });
   }
 
@@ -95,7 +97,11 @@ describe('CapabilityCatalog', () => {
   });
 
   it('uses internal capability route keys while keeping invoke output public', async () => {
-    const result = await createCatalog().invokeVisibleTool(
+    const result = await createCatalog({
+      getRenderedHashForSession: (sessionId, templateName) =>
+        sessionId === 'session-1' && templateName === 'template-server' ? 'rendered123' : undefined,
+      getAllRenderedHashesForSession: () => undefined,
+    }).invokeVisibleTool(
       { server: 'template-server', toolName: 'template_tool', args: { message: 'hi' } },
       'session-1',
     );
@@ -107,6 +113,22 @@ describe('CapabilityCatalog', () => {
       name: 'template_tool',
       arguments: { message: 'hi' },
     });
+  });
+
+  it('does not fall back to another template instance when a request session has no mapping', async () => {
+    const result = await createCatalog({
+      getRenderedHashForSession: () => undefined,
+      getAllRenderedHashesForSession: () => undefined,
+    }).invokeVisibleTool(
+      { server: 'template-server', toolName: 'template_tool', args: { message: 'hi' } },
+      'missing-session',
+    );
+
+    expect(result.error).toMatchObject({
+      type: 'upstream',
+      message: 'Server not connected: template-server',
+    });
+    expect(mockClient.callTool).not.toHaveBeenCalled();
   });
 
   it('filters visibility by allowed server set', () => {
