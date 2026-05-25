@@ -689,6 +689,26 @@ describe('StdioProxyTransport', () => {
       global.fetch = originalFetch;
     });
 
+    it('should inject bearer token when proxy attachment supplies auth', async () => {
+      proxy = new StdioProxyTransport({
+        serverUrl: 'http://localhost:3050/mcp',
+        bearerToken: 'secret-token',
+      });
+
+      const customFetch = proxy['createDynamicHeaderFetch']();
+      const mockResponse = new Response(null, { status: 200 });
+      const originalFetch = global.fetch;
+      global.fetch = vi.fn().mockResolvedValue(mockResponse);
+
+      await customFetch('http://test.com', { headers: { Authorization: 'Bearer stale' } });
+
+      const fetchCall = (global.fetch as any).mock.calls[0];
+      const headers = new Headers(fetchCall[1].headers);
+      expect(headers.get('Authorization')).toBe('Bearer secret-token');
+
+      global.fetch = originalFetch;
+    });
+
     it('should handle initialize followed by tools/list without transport closed error', async () => {
       proxy = new StdioProxyTransport({
         serverUrl: 'http://localhost:3050/mcp',

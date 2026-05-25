@@ -1,5 +1,5 @@
 import { type AuthProfile, loadAuthProfile, normalizeServerUrl } from '@src/commands/shared/authProfileStore.js';
-import { buildCliContext } from '@src/commands/shared/cliContext.js';
+import { buildCliContext, generateStreamableSessionId } from '@src/commands/shared/cliContext.js';
 import {
   type CliSessionCache,
   deleteCliSessionCache,
@@ -19,6 +19,7 @@ import { resolveCanonicalSessionId, withCanonicalSessionId } from '@src/utils/co
 import { stripMcpSuffix } from '@src/utils/urlUtils.js';
 
 export type ReusableClientSurface = 'run' | 'inspect' | 'instructions';
+export type FreshClientSurface = 'stdio-proxy';
 export type RestFallbackReason = 'endpoint_missing' | 'transient_failure' | 'mcp_required';
 
 export interface ResolvedAttachmentTarget<
@@ -31,6 +32,7 @@ export interface ResolvedAttachmentTarget<
   discoveredUrl: string;
   serverUrl: URL;
   serverPid?: number;
+  source: 'user' | 'pidfile' | 'portscan';
 }
 
 export interface ClientSurfaceAttachmentPorts<TOptions extends ResolvableServeTargetOptions> {
@@ -57,6 +59,18 @@ export interface ClientSurfaceAttachmentContext<
   requestSessionId: string;
   sessionId: string;
   restSupport?: boolean;
+}
+
+export interface FreshClientSurfaceAttachmentResult<TOptions extends ResolvableServeTargetOptions> {
+  target: ResolvedAttachmentTarget<TOptions>;
+  options: TOptions;
+  baseUrl: string;
+  serverUrl: URL;
+  bearerToken?: string;
+  context: ContextData;
+  contextHash: string;
+  requestSessionId: string;
+  sessionId: string;
 }
 
 export type ClientSurfaceRestResponse<TValue> =
@@ -141,6 +155,46 @@ export interface AttachReusableClientSurfaceOptions<TOptions extends ResolvableS
   mcp: (
     context: ClientSurfaceAttachmentContext<TOptions> & { sendInitialize: boolean },
   ) => Promise<ClientSurfaceMcpResponse<TValue>>;
+}
+
+export interface AttachFreshClientSurfaceOptions<TOptions extends ResolvableServeTargetOptions> {
+  clientSurface: FreshClientSurface;
+  version: string;
+  options: TOptions;
+  ports?: Partial<ClientSurfaceAttachmentPorts<TOptions>>;
+}
+
+export async function attachFreshClientSurface<TOptions extends ResolvableServeTargetOptions>(
+  input: AttachFreshClientSurfaceOptions<TOptions>,
+): Promise<FreshClientSurfaceAttachmentResult<TOptions>> {
+  const ports = withDefaultPorts(input.ports);
+  const target = await ports.resolveTarget(input.options);
+  const options = target.mergedOptions as TOptions;
+  const baseContext = buildCliContext({
+    cwd: target.cwd,
+    projectConfig: target.projectConfig,
+    projectRoot: target.projectRoot,
+    transportType: input.clientSurface,
+    version: input.version,
+    sessionId: generateStreamableSessionId(),
+  });
+  const contextHash = getCliSessionContextHash(baseContext);
+  const baseUrl = stripMcpSuffix(target.discoveredUrl);
+  const authProfile = await ports.loadAuthProfile(options['config-dir'], normalizeServerUrl(baseUrl));
+  const requestSessionId = resolveCanonicalSessionId({ context: baseContext });
+  const context = withCanonicalSessionId(baseContext, requestSessionId);
+
+  return {
+    target,
+    options,
+    baseUrl,
+    serverUrl: target.serverUrl,
+    bearerToken: authProfile?.token,
+    context,
+    contextHash,
+    requestSessionId,
+    sessionId: requestSessionId,
+  };
 }
 
 export async function attachReusableClientSurface<TOptions extends ResolvableServeTargetOptions, TValue>(

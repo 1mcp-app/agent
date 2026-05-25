@@ -5,11 +5,18 @@ import { describe, expect, it, vi } from 'vitest';
 
 import type { AuthProfile } from './authProfileStore.js';
 import {
+  attachFreshClientSurface,
   attachReusableClientSurface,
   type ClientSurfaceRestResponse,
   type ResolvedAttachmentTarget,
 } from './clientSurfaceAttachment.js';
 import type { CliSessionCache } from './serveClient.js';
+
+interface TestFreshOptions {
+  'config-dir'?: string;
+  filter?: string;
+  url?: string;
+}
 
 function makeResolvedTarget(overrides: Partial<ResolvedAttachmentTarget> = {}): ResolvedAttachmentTarget {
   return {
@@ -23,6 +30,7 @@ function makeResolvedTarget(overrides: Partial<ResolvedAttachmentTarget> = {}): 
     discoveredUrl: 'http://127.0.0.1:3050/mcp',
     serverUrl: new URL('http://127.0.0.1:3050/mcp'),
     serverPid: 4242,
+    source: 'pidfile',
     ...overrides,
   };
 }
@@ -382,5 +390,47 @@ describe('attachReusableClientSurface', () => {
     expect(result.context.project.custom).toMatchObject({ team: 'platform' });
     expect(result.context.environment.variables?.ONE_MCP_TEST_VALUE).toBe('included');
     delete process.env.ONE_MCP_TEST_VALUE;
+  });
+});
+
+describe('attachFreshClientSurface', () => {
+  it('builds a fresh proxy attachment without reading or writing the reusable session cache', async () => {
+    const ports = makePorts({
+      target: makeResolvedTarget({
+        mergedOptions: {
+          'config-dir': '/tmp/config',
+          filter: 'web,api',
+        },
+        discoveredUrl: 'http://127.0.0.1:3050/mcp',
+        serverUrl: new URL('http://127.0.0.1:3050/mcp?filter=web%2Capi'),
+      }),
+      authProfile: {
+        serverUrl: 'http://127.0.0.1:3050',
+        token: 'secret-token',
+        savedAt: 1000,
+      },
+    });
+
+    const result = await attachFreshClientSurface({
+      clientSurface: 'stdio-proxy',
+      version: 'proxy',
+      options: { 'config-dir': '/tmp/config' } as TestFreshOptions,
+      ports,
+    });
+
+    expect(result.requestSessionId).toMatch(/^stream-/);
+    expect(result.sessionId).toBe(result.requestSessionId);
+    expect(result.context.sessionId).toBe(result.requestSessionId);
+    expect(result.context.transport?.type).toBe('stdio-proxy');
+    expect(result.context.version).toBe('proxy');
+    expect(result.baseUrl).toBe('http://127.0.0.1:3050');
+    expect(result.serverUrl.toString()).toBe('http://127.0.0.1:3050/mcp?filter=web%2Capi');
+    expect(result.options.filter).toBe('web,api');
+    expect(result.bearerToken).toBe('secret-token');
+    expect(ports.resolveTarget).toHaveBeenCalledWith({ 'config-dir': '/tmp/config' });
+    expect(ports.loadAuthProfile).toHaveBeenCalledWith('/tmp/config', 'http://127.0.0.1:3050');
+    expect(ports.readSessionCache).not.toHaveBeenCalled();
+    expect(ports.writeSessionCache).not.toHaveBeenCalled();
+    expect(ports.deleteSessionCache).not.toHaveBeenCalled();
   });
 });

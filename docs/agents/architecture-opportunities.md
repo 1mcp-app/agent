@@ -10,12 +10,12 @@ Last checked against the working tree on 2026-05-25.
 - Milestone 2 first slice is implemented: `filterSelection.ts` and `capabilityCatalog.ts` exist, `MetaToolProvider`, `/api/tools`, and `/api/tool-invocations` use the catalog/selection seams, and `serve` consumes yargs/env-parsed preset input. The catalog's refresh facts are still placeholder `never` facts, so direct MCP handler, notification, and broader refresh-policy migration remain second-slice work.
 - Milestone 3 first slice is implemented: `config-change/configChange.ts` and `installation/serverInstallationWorkflow.ts` exist, `mcp uninstall` and internal remove/uninstall use **Config Change**, and `mcp install` plus `mcp_install` use **Server Installation Workflow**.
 - Milestone 4 first slice is implemented: `streamableSessionLifecycle.ts` owns Streamable HTTP creation, lookup, restoration, initialize recovery, and cleanup. `sessionService.ts` remains only as a deprecated compatibility wrapper over the lifecycle module.
-- Milestone 5 reusable-session slice is implemented: `clientSurfaceAttachment.ts` owns shared attach-only runtime discovery, auth-profile lookup, **Request Context** construction, context hash, CLI session-cache read/write/delete, REST support cache, REST/MCP fallback classification, and stale-session retry. `run` and `inspect` now use the shared reusable-session path while keeping command-local parsing, protocol helpers, and output formatting. `proxy` still needs the fresh-session attachment slice, and `instructions` remains deferred until **Instructions Distribution** is settled.
+- Milestone 5 is implemented for `run`, `inspect`, and `proxy`: `clientSurfaceAttachment.ts` owns shared attach-only runtime discovery, auth-profile lookup, **Request Context** construction, context hash, reusable-session cache behavior for `run`/`inspect`, REST/MCP fallback classification, stale-session retry, and fresh-session attachment for `proxy`. `instructions` remains deferred until **Instructions Distribution** is settled.
 - Milestone 6 is not implemented: there is no `oauthAuthorizationFlow.ts` or `instructionsDistribution.ts` yet.
 
 ## Next Execution Target
 
-Continue with Milestone 5 by adding the fresh-session attachment path for `proxy` on top of `src/commands/shared/clientSurfaceAttachment.ts`. Preserve generated **Request Session** identity, stdio transport lifecycle, filter forwarding, and shutdown behavior. Defer `instructions` until Milestone 6 settles **Instructions Distribution**.
+Continue with Milestone 6 by adding the first **OAuth Authorization Flow** slice in `src/auth/oauthAuthorizationFlow.ts`. Keep HTTP routes as adapters, move consent submission and localhost CLI-token creation behind structured flow operations first, and defer `instructions` attachment migration until **Instructions Distribution** is settled.
 
 ## Milestone Plan
 
@@ -106,7 +106,7 @@ This plan sequences the deepening work so each milestone leaves the codebase in 
 
 - Runtime discovery, auth-profile lookup, **Request Context** building, attachment intent selection, context hash, session cache, REST support cache, and stale-session retry decisions live behind one Module Interface.
 - `run` and `inspect` command bodies mostly format input/output and map structured attachment outcomes.
-- `proxy` uses the same attachment module for fresh-session runtime discovery, **Request Context** construction, filter attachment, and generated **Request Session** when that slice lands.
+- `proxy` uses the same attachment module for fresh-session runtime discovery, **Request Context** construction, filter attachment, and generated **Request Session**.
 - Tests cover reusable-session cache matching, legacy cache rejection, auth-required errors, REST endpoint support probing, endpoint-missing fallback, transient fallback without disabling REST, stale cached-session retry, fresh-session no-cache behavior, and filter/query propagation.
 
 ### Milestone 6: OAuth And Instructions Distribution
@@ -365,7 +365,7 @@ This plan sequences the deepening work so each milestone leaves the codebase in 
 - Make `src/commands/shared/clientSurfaceAttachment.test.ts` the primary first-slice test surface for attachment state-machine behavior. Keep command tests as adapter and user-facing regression coverage instead of duplicating every cache, fallback, and stale-session branch in `run` and `inspect` tests.
 - Migrate in slices. Start with `run` and `inspect` because they share the deepest cache, REST, and fallback behavior; bring `proxy` in through the fresh-session path once the shared attachment contract is stable.
 
-**Current codebase note (2026-05-25)**: `src/commands/shared/clientSurfaceAttachment.ts` and `src/commands/shared/clientSurfaceAttachment.test.ts` exist, and `runCommand` plus `getInspectResult` now call the reusable-session attachment path with command-supplied REST/MCP adapters. The first slice keeps `invokeTool` and `inspectTools` command-local. Remaining Milestone 5 work is the fresh-session attachment path for `proxy`; `instructions` remains deferred until No.10 settles instruction-distribution policy.
+**Current codebase note (2026-05-25)**: `src/commands/shared/clientSurfaceAttachment.ts` and `src/commands/shared/clientSurfaceAttachment.test.ts` exist, and `runCommand` plus `getInspectResult` now call the reusable-session attachment path with command-supplied REST/MCP adapters. `proxyCommand` now calls the fresh-session attachment path and keeps stdio transport lifecycle/shutdown local. The first slices keep `invokeTool`, `inspectTools`, and `StdioProxyTransport` command/transport-local. `instructions` remains deferred until No.10 settles instruction-distribution policy.
 
 **Implementation plan**:
 
