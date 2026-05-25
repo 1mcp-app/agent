@@ -72,6 +72,9 @@ describe('OAuth Routes', () => {
 
     // Create mock OAuth provider
     mockOAuthProvider = {
+      oauthFlow: {
+        submitConsent: vi.fn(),
+      },
       oauthStorage: {
         getAuthorizationRequest: vi.fn(),
         clientDataRepository: {
@@ -280,16 +283,12 @@ describe('OAuth Routes', () => {
       mockRequest.body = {
         auth_request_id: 'req-123',
         action: 'approve',
-        scopes: ['read'],
+        scopes: ['tag:read'],
       };
 
-      const authRequest = { clientId: 'client-123' };
-      const client = { id: 'client-123' };
-
-      mockOAuthProvider.oauthStorage.getAuthorizationRequest.mockReturnValue(authRequest);
-      mockOAuthProvider.oauthStorage.clientDataRepository.get.mockReturnValue(client);
-      mockOAuthProvider.oauthStorage.processConsentApproval.mockResolvedValue({
-        redirectUrl: new URL('https://example.com/callback'),
+      mockOAuthProvider.oauthFlow.submitConsent.mockResolvedValue({
+        status: 'approved_redirect',
+        redirectUrl: 'https://example.com/callback',
       });
 
       const router = createOAuthRoutes(mockOAuthProvider);
@@ -301,6 +300,12 @@ describe('OAuth Routes', () => {
       await consentRoute?.route?.stack[1].handle(mockRequest, mockResponse);
 
       expect(mockResponse.redirect).toHaveBeenCalledWith('https://example.com/callback');
+      expect(mockOAuthProvider.oauthFlow.submitConsent).toHaveBeenCalledWith({
+        authRequestId: 'req-123',
+        action: 'approve',
+        scopes: ['tag:read'],
+      });
+      expect(mockOAuthProvider.oauthStorage.getAuthorizationRequest).not.toHaveBeenCalled();
     });
 
     it('should handle consent denial', async () => {
@@ -309,14 +314,10 @@ describe('OAuth Routes', () => {
         action: 'deny',
       };
 
-      const authRequest = { clientId: 'client-123' };
-      const client = { id: 'client-123' };
-
-      mockOAuthProvider.oauthStorage.getAuthorizationRequest.mockReturnValue(authRequest);
-      mockOAuthProvider.oauthStorage.clientDataRepository.get.mockReturnValue(client);
-      mockOAuthProvider.oauthStorage.processConsentDenial.mockResolvedValue(
-        new URL('https://example.com/callback?error=access_denied'),
-      );
+      mockOAuthProvider.oauthFlow.submitConsent.mockResolvedValue({
+        status: 'denied_redirect',
+        redirectUrl: 'https://example.com/callback?error=access_denied',
+      });
 
       const router = createOAuthRoutes(mockOAuthProvider);
       const consentRoute = router.stack.find(
@@ -326,10 +327,19 @@ describe('OAuth Routes', () => {
       await consentRoute?.route?.stack[1].handle(mockRequest, mockResponse);
 
       expect(mockResponse.redirect).toHaveBeenCalledWith('https://example.com/callback?error=access_denied');
+      expect(mockOAuthProvider.oauthFlow.submitConsent).toHaveBeenCalledWith({
+        authRequestId: 'req-123',
+        action: 'deny',
+        scopes: undefined,
+      });
     });
 
     it('should handle missing parameters', async () => {
       mockRequest.body = { action: 'approve' }; // Missing auth_request_id
+      mockOAuthProvider.oauthFlow.submitConsent.mockResolvedValue({
+        status: 'invalid_request',
+        errorDescription: 'Missing required parameters',
+      });
 
       const router = createOAuthRoutes(mockOAuthProvider);
       const consentRoute = router.stack.find(

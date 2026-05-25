@@ -1,5 +1,10 @@
+import {
+  getOAuthAuthorizationFlow,
+  OAuthAuthorizationFlow,
+  OAuthAuthorizationFlowProvider,
+} from '@src/auth/oauthAuthorizationFlow.js';
 import { SDKOAuthServerProvider } from '@src/auth/sdkOAuthServerProvider.js';
-import { AUTH_CONFIG, RATE_LIMIT_CONFIG } from '@src/constants.js';
+import { RATE_LIMIT_CONFIG } from '@src/constants.js';
 import { ClientManager, OAuthRequiredError } from '@src/core/client/clientManager.js';
 import { LoadingState } from '@src/core/loading/loadingStateTracker.js';
 import { McpLoadingManager } from '@src/core/loading/mcpLoadingManager.js';
@@ -14,7 +19,6 @@ import {
   sanitizeServerNameForContext,
   sanitizeUrlParam,
 } from '@src/utils/validation/sanitization.js';
-import { validateScopes } from '@src/utils/validation/scopeValidation.js';
 
 import { Request, RequestHandler, Response, Router } from 'express';
 import rateLimit from 'express-rate-limit';
@@ -36,6 +40,7 @@ interface ServiceInfo {
  */
 export function createOAuthRoutes(oauthProvider: SDKOAuthServerProvider, loadingManager?: McpLoadingManager): Router {
   const router: Router = Router();
+  const oauthFlow = getOAuthFlow(oauthProvider);
 
   // Rate limiter for OAuth endpoints
   const createOAuthLimiter = () => {
@@ -222,97 +227,22 @@ export function createOAuthRoutes(oauthProvider: SDKOAuthServerProvider, loading
    */
   const consentHandler: RequestHandler = async (req: Request, res: Response) => {
     try {
-      // Extract and validate request body parameters
       const body = req.body as Record<string, unknown>;
-      const auth_request_id = body.auth_request_id as string | undefined;
-      const action = body.action as string | undefined;
-      const scopes = body.scopes;
+      const result = await oauthFlow.submitConsent({
+        authRequestId: body.auth_request_id as string | undefined,
+        action: body.action as string | undefined,
+        scopes: body.scopes,
+      });
 
-      // Validate required fields
-      if (!auth_request_id || !action) {
-        const errorResponse: Record<string, string> = {
-          error: 'invalid_request',
-          error_description: 'Missing required parameters',
-        };
-        res.status(400).json(errorResponse);
+      if (result.status === 'approved_redirect' || result.status === 'denied_redirect') {
+        res.redirect(result.redirectUrl);
         return;
       }
 
-      // Use the OAuth provider's storage service to ensure consistent storage directory
-      const authRequest = oauthProvider.oauthStorage.getAuthorizationRequest(auth_request_id);
-
-      if (!authRequest) {
-        const errorResponse: Record<string, string> = {
-          error: 'invalid_request',
-          error_description: 'Invalid or expired authorization request',
-        };
-        res.status(400).json(errorResponse);
-        return;
-      }
-
-      // Get client data using the OAuth provider's storage service
-      const clientKey = `${AUTH_CONFIG.CLIENT.PREFIXES.CLIENT}${authRequest.clientId}`;
-      const client = oauthProvider.oauthStorage.clientDataRepository.get(clientKey);
-
-      if (!client) {
-        const errorResponse: Record<string, string> = {
-          error: 'invalid_client',
-          error_description: 'Client not found',
-        };
-        res.status(400).json(errorResponse);
-        return;
-      }
-
-      // Client validation passed - we have a valid client
-
-      if (action === 'deny') {
-        // Use the service layer for denial processing
-        const redirectUrl = await oauthProvider.oauthStorage.processConsentDenial(auth_request_id);
-        res.redirect(redirectUrl.toString());
-        return;
-      }
-
-      if (action === 'approve') {
-        // User approved the authorization
-        let selectedScopes: string[];
-        if (Array.isArray(scopes)) {
-          // Ensure all items are strings
-          selectedScopes = scopes.filter((scope): scope is string => typeof scope === 'string');
-        } else if (typeof scopes === 'string') {
-          selectedScopes = [scopes];
-        } else if (scopes) {
-          // Handle other types by converting to string
-          selectedScopes = [String(scopes)];
-        } else {
-          selectedScopes = [];
-        }
-
-        // Validate selected scopes
-        const validation = validateScopes(selectedScopes);
-        if (!validation.isValid) {
-          const errorResponse: Record<string, string> = {
-            error: 'invalid_scope',
-            error_description: `Invalid scopes: ${validation.errors.join(', ')}`,
-          };
-          res.status(400).json(errorResponse);
-          return;
-        }
-
-        // Use the service layer for approval processing
-        const { redirectUrl } = await oauthProvider.oauthStorage.processConsentApproval(
-          auth_request_id,
-          validation.validScopes,
-        );
-        res.redirect(redirectUrl.toString());
-        return;
-      }
-
-      // Invalid action
-      const errorResponse: Record<string, string> = {
-        error: 'invalid_request',
-        error_description: 'Invalid action',
-      };
-      res.status(400).json(errorResponse);
+      res.status(400).json({
+        error: result.status,
+        error_description: result.errorDescription,
+      });
     } catch (error) {
       logger.error('Error handling consent form:', error);
       const errorResponse: Record<string, string> = {
@@ -555,6 +485,18 @@ export function createOAuthRoutes(oauthProvider: SDKOAuthServerProvider, loading
   }
 
   return router;
+}
+
+function getOAuthFlow(oauthProvider: SDKOAuthServerProvider & OAuthAuthorizationFlowProvider): OAuthAuthorizationFlow {
+  const agentConfig = AgentConfigManager.getInstance();
+  return getOAuthAuthorizationFlow(oauthProvider, {
+    createTokenId: () => '',
+    getAuthConfig: () => ({
+      enabled: agentConfig.get('features').auth,
+      oauthTokenTtlMs: agentConfig.get('auth').oauthTokenTtlMs,
+    }),
+    getAvailableTags: () => [],
+  });
 }
 
 // Export the factory function as default

@@ -11,11 +11,11 @@ Last checked against the working tree on 2026-05-25.
 - Milestone 3 first slice is implemented: `config-change/configChange.ts` and `installation/serverInstallationWorkflow.ts` exist, `mcp uninstall` and internal remove/uninstall use **Config Change**, and `mcp install` plus `mcp_install` use **Server Installation Workflow**.
 - Milestone 4 first slice is implemented: `streamableSessionLifecycle.ts` owns Streamable HTTP creation, lookup, restoration, initialize recovery, and cleanup. `sessionService.ts` remains only as a deprecated compatibility wrapper over the lifecycle module.
 - Milestone 5 is implemented for `run`, `inspect`, and `proxy`: `clientSurfaceAttachment.ts` owns shared attach-only runtime discovery, auth-profile lookup, **Request Context** construction, context hash, reusable-session cache behavior for `run`/`inspect`, REST/MCP fallback classification, stale-session retry, and fresh-session attachment for `proxy`. `instructions` remains deferred until **Instructions Distribution** is settled.
-- Milestone 6 is not implemented: there is no `oauthAuthorizationFlow.ts` or `instructionsDistribution.ts` yet.
+- Milestone 6 first slice is implemented: `oauthAuthorizationFlow.ts` owns consent submission and localhost CLI-token creation. HTTP routes now delegate those storage mutations through structured flow operations. Backend OAuth dashboard/start/restart/callback handling and `instructionsDistribution.ts` remain deferred.
 
 ## Next Execution Target
 
-Continue with Milestone 6 by adding the first **OAuth Authorization Flow** slice in `src/auth/oauthAuthorizationFlow.ts`. Keep HTTP routes as adapters, move consent submission and localhost CLI-token creation behind structured flow operations first, and defer `instructions` attachment migration until **Instructions Distribution** is settled.
+Continue Milestone 6 by adding the next **OAuth Authorization Flow** slice for backend OAuth dashboard/start/restart/callback operations, or begin **Instructions Distribution** in `src/core/instructions/instructionsDistribution.ts`. Consent submission and localhost CLI-token creation already live behind `src/auth/oauthAuthorizationFlow.ts`.
 
 ## Milestone Plan
 
