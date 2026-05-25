@@ -14,24 +14,19 @@ import {
   validateToolArgs,
 } from '@src/commands/run/runUtils.js';
 import { ApiClient } from '@src/commands/shared/apiClient.js';
-import { loadAuthProfile, normalizeServerUrl } from '@src/commands/shared/authProfileStore.js';
-import { buildCliContext } from '@src/commands/shared/cliContext.js';
 import {
-  deleteCliSessionCache,
-  getCliSessionCachePath,
-  getCliSessionContextHash,
+  attachReusableClientSurface,
+  type ClientSurfaceAttachmentContext,
+  type ClientSurfaceRestResponse,
+} from '@src/commands/shared/clientSurfaceAttachment.js';
+import {
   type JsonRpcErrorEnvelope,
   type JsonRpcResponse,
-  readCliSessionCache,
   StreamableServeClient,
-  writeCliSessionCache,
 } from '@src/commands/shared/serveClient.js';
-import { resolveServeTarget } from '@src/commands/shared/serveTargetResolver.js';
 import { API_INSPECT_ENDPOINT, API_TOOL_INVOCATIONS_ENDPOINT } from '@src/constants/api.js';
 import type { GlobalOptions } from '@src/globalOptions.js';
-import { deriveContextSessionId } from '@src/transport/http/utils/contextExtractor.js';
 import type { ContextData } from '@src/types/context.js';
-import { stripMcpSuffix } from '@src/utils/urlUtils.js';
 
 export interface RunCommandOptions extends GlobalOptions {
   url?: string;
@@ -66,192 +61,46 @@ export {
   writeCliSessionCache,
 } from '@src/commands/shared/serveClient.js';
 
+interface RunAttachmentValue {
+  response: Awaited<ReturnType<typeof invokeTool>>;
+}
+
 export async function runCommand(options: RunCommandOptions): Promise<void> {
   const toolReference = parseToolReference(options.tool);
   const format = options.raw ? 'json' : options.format || 'toon';
   const maxChars = options['max-chars'] ?? 2000;
-  const [{ cwd, projectConfig, projectRoot, discoveredUrl, serverPid, serverUrl }, stdinText] = await Promise.all([
-    resolveServeTarget(options),
-    readStdin(),
-  ]);
-  const baseRunContext = buildCliContext({
-    cwd,
-    projectConfig,
-    projectRoot,
-    transportType: 'run',
+  const stdinText = options.args === undefined ? await readStdin() : undefined;
+  const attachment = await attachReusableClientSurface<RunCommandOptions, RunAttachmentValue>({
+    clientSurface: 'run',
     version: 'run',
-  });
-  const contextHash = getCliSessionContextHash(baseRunContext);
-  const cachePath = getCliSessionCachePath({
-    cachePathTemplate: options['cli-session-cache-path'],
-    serverPid,
-    serverUrl: serverUrl.toString(),
-  });
-  const cachedSession = await readCliSessionCache(cachePath, serverUrl.toString(), contextHash);
-  const baseUrl = stripMcpSuffix(discoveredUrl);
-  const authProfile = await loadAuthProfile(options['config-dir'], normalizeServerUrl(baseUrl));
-  const requestSessionId = cachedSession?.sessionId ?? deriveContextSessionId(baseRunContext);
-  const runContext: ContextData = {
-    ...baseRunContext,
-    sessionId: requestSessionId,
-  };
-  const apiClient = new ApiClient({
-    baseUrl,
-    bearerToken: authProfile?.token,
-    sessionId: cachedSession?.sessionId,
-    context: runContext,
-  });
-  let cachedRestEndpointSupport = cachedSession?.hasRestEndpoint;
-
-  // REST-first path: skip MCP handshake when we know the server supports it,
-  // or probe once on first run. Fall back to MCP on missing/unsupported/upstream errors.
-  const canTryRest = cachedSession?.hasRestEndpoint !== false;
-  const needsSchemaForStdin = options.args === undefined && stdinText !== undefined;
-  const needsSchemaForValidation = options.args !== undefined;
-
-  if (canTryRest) {
-    const restArgs =
-      options.args !== undefined
-        ? parseExplicitArgs(options.args)
-        : stdinText !== undefined
-          ? parseJsonObject(stdinText)
-          : {};
-
-    const toolInfo =
-      (needsSchemaForStdin && restArgs === null) || needsSchemaForValidation
-        ? await fetchToolInfoFromApi(apiClient, toolReference, options.tool)
-        : null;
-
-    if (restArgs !== null || toolInfo) {
-      const resolvedArguments =
-        restArgs !== null
-          ? restArgs
-          : resolveToolArguments({
-              stdinText,
-              tool: toTool(toolInfo!),
-            }).arguments;
-
-      if (toolInfo) {
-        const validation = validateToolArgs(
-          resolvedArguments,
-          toolInfo.inputSchema as Record<string, unknown>,
-          options.tool,
-        );
-        if (!validation.valid) {
-          process.stderr.write(`${validation.errorMessage}\n`);
-          process.exitCode = 1;
-          return;
-        }
-      }
-
-      // Forward filter params (preset/tags/filter) as query params so server-side
-      // filtering applies on the REST path, same as the MCP path.
-      const restEndpoint = serverUrl.search
-        ? `${API_TOOL_INVOCATIONS_ENDPOINT}${serverUrl.search}`
-        : API_TOOL_INVOCATIONS_ENDPOINT;
-
-      const apiResponse = await apiClient.post<{
-        result: CallToolResult;
-        server: string;
-        tool: string;
-        error?: { type: string; message: string };
-      }>(restEndpoint, {
-        tool: options.tool,
-        args: resolvedArguments,
-        _meta: {
-          context: runContext,
-        },
+    options,
+    rest: (context) => tryRunRest(context, options, toolReference, stdinText),
+    mcp: async (context) => {
+      const response = await invokeTool({
+        serverUrl: context.serverUrl,
+        sessionId: context.sessionId,
+        bearerToken: context.bearerToken,
+        displayToolName: options.tool,
+        qualifiedToolName: toolReference.qualifiedName,
+        explicitArgs: options.args,
+        stdinText,
+        resolveTool: options.args === undefined,
+        initializeContext: context.context,
+        sendInitialize: context.sendInitialize,
       });
-
-      const shouldFallbackToMcp = shouldFallbackToMcpForRest(apiResponse.status, apiResponse.error);
-      const shouldPersistRestDisabled = shouldPersistRestSupportDisabled(apiResponse.status, apiResponse.error);
-
-      if (!shouldFallbackToMcp) {
-        await writeCliSessionCache(cachePath, {
-          sessionId: apiResponse.sessionId ?? requestSessionId,
-          serverUrl: serverUrl.toString(),
-          contextHash,
-          savedAt: Date.now(),
-          hasRestEndpoint: true,
-        });
-        cachedRestEndpointSupport = true;
-
-        let rawResponse: JsonRpcResponse<CallToolResult>;
-        if (apiResponse.ok && apiResponse.data) {
-          rawResponse = { jsonrpc: '2.0', id: 0, result: apiResponse.data.result };
-        } else {
-          rawResponse = {
-            jsonrpc: '2.0',
-            id: 0,
-            error: { code: -32000, message: apiResponse.error ?? `HTTP ${apiResponse.status}` },
-          };
-        }
-
-        const output = formatToolCallOutput(rawResponse, format, maxChars);
-        if ('error' in rawResponse) {
-          process.stderr.write(`${output}\n`);
-          process.exitCode = 1;
-          return;
-        }
-        if (rawResponse.result.isError) {
-          process.stderr.write(`${output}\n`);
-          process.exitCode = 2;
-          return;
-        }
-        if (output.length > 0) {
-          process.stdout.write(`${output}\n`);
-        }
-        return;
-      }
-
-      if (shouldPersistRestDisabled) {
-        await writeCliSessionCache(cachePath, {
-          sessionId: cachedSession?.sessionId ?? requestSessionId,
-          serverUrl: serverUrl.toString(),
-          contextHash,
-          savedAt: Date.now(),
-          hasRestEndpoint: false,
-        });
-        cachedRestEndpointSupport = false;
-      }
-    }
-  }
-
-  let response = await invokeTool({
-    serverUrl,
-    sessionId: cachedSession?.sessionId,
-    bearerToken: authProfile?.token,
-    displayToolName: options.tool,
-    qualifiedToolName: toolReference.qualifiedName,
-    explicitArgs: options.args,
-    stdinText,
-    resolveTool: options.args === undefined,
-    initializeContext: runContext,
+      return response.retryWithFreshSession
+        ? { status: 'stale_session' as const, observed: response }
+        : { status: 'success' as const, sessionId: response.sessionId, value: { response } };
+    },
   });
 
-  if (response.retryWithFreshSession) {
-    await deleteCliSessionCache(cachePath);
-    response = await invokeTool({
-      serverUrl,
-      bearerToken: authProfile?.token,
-      displayToolName: options.tool,
-      qualifiedToolName: toolReference.qualifiedName,
-      explicitArgs: options.args,
-      stdinText,
-      resolveTool: options.args === undefined,
-      initializeContext: runContext,
-    });
+  if (attachment.status !== 'success') {
+    process.stderr.write(`${attachment.message}\n`);
+    process.exitCode = 1;
+    return;
   }
 
-  if (response.sessionId) {
-    await writeCliSessionCache(cachePath, {
-      sessionId: response.sessionId,
-      serverUrl: serverUrl.toString(),
-      contextHash,
-      savedAt: Date.now(),
-      hasRestEndpoint: cachedRestEndpointSupport,
-    });
-  }
+  const { response } = attachment.value;
 
   const output = formatToolCallOutput(response.rawResponse, format, maxChars);
   if ('error' in response.rawResponse) {
@@ -269,6 +118,122 @@ export async function runCommand(options: RunCommandOptions): Promise<void> {
   if (output.length > 0) {
     process.stdout.write(`${output}\n`);
   }
+}
+
+async function tryRunRest(
+  context: ClientSurfaceAttachmentContext<RunCommandOptions>,
+  options: RunCommandOptions,
+  toolReference: ReturnType<typeof parseToolReference>,
+  stdinText?: string,
+): Promise<ClientSurfaceRestResponse<RunAttachmentValue>> {
+  const apiClient = new ApiClient({
+    baseUrl: context.baseUrl,
+    bearerToken: context.bearerToken,
+    sessionId: context.sessionId,
+    context: context.context,
+  });
+  const needsSchemaForStdin = options.args === undefined && stdinText !== undefined;
+  const needsSchemaForValidation = options.args !== undefined;
+  const restArgs =
+    options.args !== undefined
+      ? parseExplicitArgs(options.args)
+      : stdinText !== undefined
+        ? parseJsonObject(stdinText)
+        : {};
+
+  const toolInfo =
+    (needsSchemaForStdin && restArgs === null) || needsSchemaForValidation
+      ? await fetchToolInfoFromApi(apiClient, toolReference, options.tool)
+      : null;
+
+  if (restArgs === null && !toolInfo) {
+    return { status: 'fallback', reason: 'mcp_required' };
+  }
+
+  const resolvedArguments =
+    restArgs !== null
+      ? restArgs
+      : resolveToolArguments({
+          stdinText,
+          tool: toTool(toolInfo!),
+        }).arguments;
+
+  if (toolInfo) {
+    const validation = validateToolArgs(
+      resolvedArguments,
+      toolInfo.inputSchema as Record<string, unknown>,
+      options.tool,
+    );
+    if (!validation.valid) {
+      return {
+        status: 'success',
+        value: {
+          response: {
+            rawResponse: {
+              jsonrpc: '2.0',
+              id: 0,
+              error: { code: -32602, message: validation.errorMessage },
+            },
+            retryWithFreshSession: false,
+          },
+        },
+      };
+    }
+  }
+
+  const restEndpoint = context.serverUrl.search
+    ? `${API_TOOL_INVOCATIONS_ENDPOINT}${context.serverUrl.search}`
+    : API_TOOL_INVOCATIONS_ENDPOINT;
+
+  const apiResponse = await apiClient.post<{
+    result: CallToolResult;
+    server: string;
+    tool: string;
+    error?: { type: string; message: string };
+  }>(restEndpoint, {
+    tool: options.tool,
+    args: resolvedArguments,
+    _meta: {
+      context: context.context,
+    },
+  });
+
+  if (apiResponse.status === 401 || apiResponse.status === 403) {
+    return {
+      status: 'auth_required',
+      message: `Authentication required. Run: 1mcp auth login --url ${context.baseUrl} --token <your-token>`,
+    };
+  }
+
+  if (shouldFallbackToMcpForRest(apiResponse.status, apiResponse.error)) {
+    return {
+      status: 'fallback',
+      reason: shouldPersistRestSupportDisabled(apiResponse.status, apiResponse.error)
+        ? 'endpoint_missing'
+        : 'transient_failure',
+    };
+  }
+
+  const rawResponse: JsonRpcResponse<CallToolResult> =
+    apiResponse.ok && apiResponse.data
+      ? { jsonrpc: '2.0', id: 0, result: apiResponse.data.result }
+      : {
+          jsonrpc: '2.0',
+          id: 0,
+          error: { code: -32000, message: apiResponse.error ?? `HTTP ${apiResponse.status}` },
+        };
+
+  return {
+    status: 'success',
+    sessionId: apiResponse.sessionId ?? context.requestSessionId,
+    value: {
+      response: {
+        rawResponse,
+        sessionId: apiResponse.sessionId ?? context.requestSessionId,
+        retryWithFreshSession: false,
+      },
+    },
+  };
 }
 
 function isEndpointNotFoundResponse(status: number, error?: string): boolean {
@@ -326,6 +291,7 @@ export async function invokeTool(options: {
   stdinText?: string;
   resolveTool: boolean;
   initializeContext?: ContextData;
+  sendInitialize?: boolean;
 }): Promise<{
   rawResponse: JsonRpcResponse<CallToolResult>;
   sessionId?: string;
@@ -336,8 +302,9 @@ export async function invokeTool(options: {
 
   try {
     let tool: Tool | undefined;
+    const shouldSendInitialize = options.sendInitialize ?? !options.sessionId;
 
-    if (!options.sessionId) {
+    if (shouldSendInitialize) {
       const initializeResponse = await client.initialize(options.initializeContext);
       if ('error' in initializeResponse) {
         return {
@@ -348,7 +315,7 @@ export async function invokeTool(options: {
       }
     }
 
-    if (options.sessionId && !options.resolveTool) {
+    if (options.sessionId && !shouldSendInitialize && !options.resolveTool) {
       const toolsResponse = await client.listTools();
       if ('error' in toolsResponse) {
         return {

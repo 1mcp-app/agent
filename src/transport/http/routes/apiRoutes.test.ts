@@ -1194,6 +1194,67 @@ describe('apiRoutes /api/tools', () => {
     expect(res.body).toEqual(mockResult);
   });
 
+  it('canonicalizes context to the header session before lazy tool listing', async () => {
+    const context = {
+      sessionId: 'context-session',
+      project: { path: '/tmp/project' },
+      user: {},
+      environment: {},
+    };
+    const templateConfig = {
+      type: 'stdio',
+      command: 'uvx',
+      args: ['serena', '{{sessionId}}'],
+      tags: ['serena'],
+    };
+    mockedExtractRequestContext.mockReturnValue(context);
+    mockedLoadConfigWithTemplates.mockResolvedValue({
+      staticServers: {},
+      templateServers: { serena: templateConfig },
+      errors: [],
+    });
+
+    const callMetaTool = vi.fn().mockResolvedValue({ tools: [], totalCount: 0, servers: [], hasMore: false });
+    const refreshCapabilities = vi.fn();
+    const createTemplateBasedServers = vi.fn();
+    const serverManager = {
+      getLazyLoadingOrchestrator: vi.fn(() => ({ callMetaTool, refreshCapabilities })),
+      getClients: vi.fn(() => new Map()),
+      getClientTransports: vi.fn(() => ({})),
+      getTemplateServerManager: vi.fn(() => ({
+        getRenderedHashForSession: vi.fn(() => undefined),
+        createTemplateBasedServers,
+      })),
+      getServerRegistry: vi.fn(() => ({
+        has: vi.fn(() => false),
+        registerTemplate: vi.fn(),
+      })),
+    };
+    const handler = createToolsHandler(serverManager as never);
+    const res = createMockResponse();
+    const req = { headers: { 'mcp-session-id': 'header-session' }, query: {} };
+
+    await invokeInspectRoute(scopeAuthMiddleware, req, res);
+    await invokeInspectRoute(handler, req, res);
+
+    expect(mockedLoadConfigWithTemplates).toHaveBeenCalledWith({
+      ...context,
+      sessionId: 'header-session',
+    });
+    expect(createTemplateBasedServers).toHaveBeenCalledWith(
+      'header-session',
+      { ...context, sessionId: 'header-session' },
+      expect.any(Object),
+      { mcpTemplates: { serena: templateConfig } },
+      expect.any(Map),
+      {},
+      'ephemeral',
+    );
+    expect(callMetaTool).toHaveBeenCalledWith('tool_list', expect.any(Object), 'header-session', undefined);
+    expect(res.setHeader).toHaveBeenCalledWith('mcp-session-id', 'header-session');
+    expect(context.sessionId).toBe('context-session');
+  });
+
   it('prepares request context before lazy tool listing', async () => {
     const context = {
       sessionId: 'context-session',

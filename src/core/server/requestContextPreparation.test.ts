@@ -70,15 +70,20 @@ describe('requestContextPreparation', () => {
       createdTemplateNames: ['serena'],
     });
     expect(deps.deriveSessionId).not.toHaveBeenCalled();
+    expect(deps.loadRenderedTemplates).toHaveBeenCalledWith({
+      ...context,
+      sessionId: 'header-session',
+    });
     expect(deps.createTemplateBasedServers).toHaveBeenCalledWith(
       'header-session',
-      context,
+      { ...context, sessionId: 'header-session' },
       { tags: ['dev'] },
       { mcpTemplates: { serena: templateConfig } },
       expect.any(Map),
       {},
       'ephemeral',
     );
+    expect(context.sessionId).toBe('context-session');
     expect(deps.refreshCapabilities).toHaveBeenCalledOnce();
   });
 
@@ -96,6 +101,20 @@ describe('requestContextPreparation', () => {
 
     expect(result).toMatchObject({ status: 'prepared', sessionId: 'derived-session' });
     expect(deps.deriveSessionId).toHaveBeenCalledWith(contextWithoutSession);
+    expect(deps.loadRenderedTemplates).toHaveBeenCalledWith({
+      ...contextWithoutSession,
+      sessionId: 'derived-session',
+    });
+    expect(deps.createTemplateBasedServers).toHaveBeenCalledWith(
+      'derived-session',
+      { ...contextWithoutSession, sessionId: 'derived-session' },
+      {},
+      { mcpTemplates: { serena: templateConfig } },
+      expect.any(Map),
+      {},
+      'ephemeral',
+    );
+    expect(contextWithoutSession.sessionId).toBeUndefined();
   });
 
   it('registers missing adapters even when all template instances are already prepared', async () => {

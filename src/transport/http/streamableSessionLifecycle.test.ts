@@ -159,6 +159,37 @@ describe('StreamableSessionLifecycle', () => {
     expect(sessionRepository.create).not.toHaveBeenCalled();
   });
 
+  it('canonicalizes stored and connected context to the actual transport session id', async () => {
+    const context = {
+      project: { name: 'project' },
+      user: { username: 'tester' },
+      environment: { variables: {} },
+      sessionId: 'context-session',
+      version: 'test',
+      transport: { type: 'run' },
+    };
+
+    await lifecycle.createSession({ tags: ['new'], enablePagination: false }, context, 'transport-session');
+
+    expect(serverManager.connectTransport).toHaveBeenCalledWith(
+      expect.objectContaining({ sessionId: 'transport-session' }),
+      'transport-session',
+      expect.objectContaining({
+        tags: ['new'],
+        enablePagination: false,
+        context: expect.objectContaining({ sessionId: 'transport-session' }),
+      }),
+      expect.objectContaining({ sessionId: 'transport-session' }),
+    );
+    expect(sessionRepository.create).toHaveBeenCalledWith(
+      'transport-session',
+      expect.objectContaining({
+        context: expect.objectContaining({ sessionId: 'transport-session' }),
+      }),
+    );
+    expect(context.sessionId).toBe('context-session');
+  });
+
   it('reports persistence warnings without failing the connected session', async () => {
     sessionRepository.create.mockImplementation(() => {
       throw new Error('disk full');

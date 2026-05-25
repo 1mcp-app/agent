@@ -3,24 +3,20 @@ import type { Tool } from '@modelcontextprotocol/sdk/types.js';
 
 import { findToolByQualifiedName } from '@src/commands/run/runUtils.js';
 import { ApiClient } from '@src/commands/shared/apiClient.js';
-import { loadAuthProfile, normalizeServerUrl } from '@src/commands/shared/authProfileStore.js';
-import { buildCliContext } from '@src/commands/shared/cliContext.js';
 import {
-  deleteCliSessionCache,
-  getCliSessionCachePath,
-  getCliSessionContextHash,
+  attachReusableClientSurface,
+  type ClientSurfaceAttachmentContext,
+  type ClientSurfaceRestResponse,
+} from '@src/commands/shared/clientSurfaceAttachment.js';
+import {
   type JsonRpcErrorEnvelope,
   type JsonRpcResponse,
-  readCliSessionCache,
   StreamableServeClient,
-  writeCliSessionCache,
 } from '@src/commands/shared/serveClient.js';
-import { resolveServeTarget } from '@src/commands/shared/serveTargetResolver.js';
 import { MCP_URI_SEPARATOR } from '@src/constants.js';
 import { API_INSPECT_ENDPOINT } from '@src/constants/api.js';
 import type { GlobalOptions } from '@src/globalOptions.js';
 import type { ContextData } from '@src/types/context.js';
-import { stripMcpSuffix } from '@src/utils/urlUtils.js';
 
 import {
   extractInspectServerInfo,
@@ -32,6 +28,9 @@ import {
   type InspectServerInfo,
   parseInspectTarget,
 } from './inspectUtils.js';
+
+type InspectMcpValue = Awaited<ReturnType<typeof inspectTools>>;
+type InspectAttachmentValue = InspectMcpValue | { result: InspectResult };
 
 export interface InspectCommandOptions extends GlobalOptions {
   url?: string;
@@ -156,115 +155,65 @@ export async function getInspectResult(
   resultOptions: GetInspectResultOptions = {},
 ): Promise<InspectResult> {
   const includeServerInstructions = resultOptions.includeServerInstructions ?? true;
-  const { cwd, projectConfig, projectRoot, mergedOptions, discoveredUrl, serverPid, serverUrl } =
-    await resolveServeTarget(options);
-
-  const target = parseInspectTarget(mergedOptions.target);
-  const baseUrl = stripMcpSuffix(discoveredUrl);
-  const cachePath = getCliSessionCachePath({
-    cachePathTemplate: mergedOptions['cli-session-cache-path'],
-    serverPid,
-    serverUrl: serverUrl.toString(),
-  });
-  const inspectContext = buildCliContext({
-    cwd,
-    projectConfig,
-    projectRoot,
-    transportType: 'inspect',
+  const attachment = await attachReusableClientSurface<InspectCommandOptions, InspectAttachmentValue>({
+    clientSurface: 'inspect',
     version: 'inspect',
+    options,
+    rest: (context) => tryInspectRest(context, includeServerInstructions),
+    mcp: async (context) => {
+      const response = await inspectTools({
+        serverUrl: context.serverUrl,
+        sessionId: context.sessionId,
+        bearerToken: context.bearerToken,
+        context: context.context,
+        sendInitialize: context.sendInitialize,
+      });
+      const target = parseInspectTarget(context.options.target);
+      const shouldRetryWithFreshSession =
+        response.retryWithFreshSession ||
+        (!!context.cachedSession?.sessionId &&
+          ((target.kind === 'server' && !hasServerTools(response.tools, target.serverName)) ||
+            (target.kind === 'tool' && !findToolByQualifiedName(response.tools, target.reference.qualifiedName))));
+
+      return shouldRetryWithFreshSession
+        ? { status: 'stale_session' as const, observed: response }
+        : { status: 'success' as const, sessionId: response.sessionId, value: response };
+    },
   });
-  const contextHash = getCliSessionContextHash(inspectContext);
 
-  const [authProfile, cachedSession] = await Promise.all([
-    loadAuthProfile(mergedOptions['config-dir'], normalizeServerUrl(baseUrl)),
-    readCliSessionCache(cachePath, serverUrl.toString(), contextHash),
-  ]);
-
-  // Try /api/inspect first (fast path)
-  const apiClient = new ApiClient({
-    baseUrl,
-    bearerToken: authProfile?.token,
-    sessionId: cachedSession?.sessionId,
-    context: inspectContext,
-  });
-  const query = buildInspectQuery(mergedOptions, mergedOptions.target);
-  const apiResponse = await apiClient.get<unknown>(API_INSPECT_ENDPOINT, query);
-
-  if (apiResponse.ok && apiResponse.data !== undefined) {
-    const result = normalizeApiInspectResult(
-      apiResponse.data as Parameters<typeof formatInspectOutput>[0],
-      target,
-      includeServerInstructions,
-    );
-
-    // Mark that this server has the REST endpoint
-    await writeCliSessionCache(cachePath, {
-      sessionId: cachedSession?.sessionId ?? '',
-      serverUrl: serverUrl.toString(),
-      contextHash,
-      savedAt: Date.now(),
-      hasRestEndpoint: true,
-    });
-    return result;
+  if (attachment.status !== 'success') {
+    throw new InspectCommandError(attachment.message);
   }
 
-  // Fall back to MCP protocol for servers without /api/inspect (404) or for tool targets
-  if (apiResponse.status === 401 || apiResponse.status === 403) {
-    throw new InspectCommandError(
-      `Authentication required. Run: 1mcp auth login --url ${baseUrl} --token <your-token>`,
-    );
+  if (attachment.protocol === 'rest') {
+    if (!('result' in attachment.value)) {
+      throw new InspectCommandError('Unexpected REST inspect result.');
+    }
+    return attachment.value.result;
   }
 
-  const isMissingInspectEndpoint =
-    apiResponse.status === 404 && (!apiResponse.error || apiResponse.error === 'HTTP 404');
-  const canFallbackToMcp =
-    isMissingInspectEndpoint ||
-    apiResponse.status === 405 ||
-    apiResponse.status === 0 ||
-    ((target.kind === 'server' || target.kind === 'tool') && apiResponse.status === 503);
-
-  if (!canFallbackToMcp) {
-    // Non-fallback error from the API — surface it
-    throw new InspectCommandError(apiResponse.error || `Server returned HTTP ${apiResponse.status}`);
-  }
-
-  // MCP fallback: only works for server/tool targets (not the all-servers listing)
+  const target = parseInspectTarget(attachment.target.mergedOptions.target);
   if (target.kind === 'all') {
     throw new InspectCommandError(
       'Cannot list all servers: the running 1MCP server does not support the /api/inspect endpoint.',
     );
   }
-
-  let response = await inspectTools({
-    serverUrl,
-    sessionId: cachedSession?.sessionId,
-    bearerToken: authProfile?.token,
-    context: inspectContext,
-  });
-
-  const shouldRetryWithFreshSession =
-    response.retryWithFreshSession ||
-    (!!cachedSession?.sessionId &&
-      ((target.kind === 'server' && !hasServerTools(response.tools, target.serverName)) ||
-        (target.kind === 'tool' && !findToolByQualifiedName(response.tools, target.reference.qualifiedName))));
-
-  if (shouldRetryWithFreshSession) {
-    await deleteCliSessionCache(cachePath);
-    response = await inspectTools({ serverUrl, bearerToken: authProfile?.token, context: inspectContext });
+  if ('result' in attachment.value) {
+    throw new InspectCommandError('Unexpected MCP inspect result.');
   }
-
-  if (response.sessionId) {
-    await writeCliSessionCache(cachePath, {
-      sessionId: response.sessionId,
-      serverUrl: serverUrl.toString(),
-      contextHash,
-      savedAt: Date.now(),
-      hasRestEndpoint: false,
-    });
-  }
+  const response = attachment.value;
 
   if (target.kind === 'server') {
-    const refreshedApiResponse = await apiClient.get<unknown>(API_INSPECT_ENDPOINT, query);
+    const apiClient = new ApiClient({
+      baseUrl: attachment.baseUrl,
+      bearerToken: attachment.bearerToken,
+      sessionId: attachment.sessionId ?? attachment.requestSessionId,
+      context: attachment.context,
+    });
+    const refreshedApiResponse = await apiClient.get<unknown>(
+      API_INSPECT_ENDPOINT,
+      buildInspectQuery(attachment.target.mergedOptions, attachment.target.mergedOptions.target),
+    );
     if (refreshedApiResponse.ok && refreshedApiResponse.data !== undefined) {
       return normalizeApiInspectResult(
         refreshedApiResponse.data as Parameters<typeof formatInspectOutput>[0],
@@ -278,15 +227,15 @@ export async function getInspectResult(
 
   if (target.kind === 'tool') {
     result = extractInspectToolInfo(
-      findTool(response.tools, target.reference.qualifiedName, mergedOptions.target!),
+      findTool(response.tools, target.reference.qualifiedName, attachment.target.mergedOptions.target!),
       target.reference,
-      Boolean(cachedSession?.sessionId),
+      Boolean(attachment.cachedSession?.sessionId),
     );
   } else {
     result = extractInspectServerInfo(
       target.serverName,
       response.tools,
-      Boolean(cachedSession?.sessionId),
+      Boolean(attachment.cachedSession?.sessionId),
       extractServerInstructionsFromAggregatedInstructions(response.instructions, target.serverName),
     );
     if (!includeServerInstructions) {
@@ -295,6 +244,68 @@ export async function getInspectResult(
   }
 
   return result;
+}
+
+async function tryInspectRest(
+  context: ClientSurfaceAttachmentContext<InspectCommandOptions>,
+  includeServerInstructions: boolean,
+): Promise<ClientSurfaceRestResponse<{ result: InspectResult }>> {
+  const target = parseInspectTarget(context.options.target);
+  const apiClient = new ApiClient({
+    baseUrl: context.baseUrl,
+    bearerToken: context.bearerToken,
+    sessionId: context.sessionId,
+    context: context.context,
+  });
+  const apiResponse = await apiClient.get<unknown>(
+    API_INSPECT_ENDPOINT,
+    buildInspectQuery(context.options, context.options.target),
+  );
+
+  if (apiResponse.ok && apiResponse.data !== undefined) {
+    return {
+      status: 'success',
+      sessionId: apiResponse.sessionId ?? context.sessionId,
+      value: {
+        result: normalizeApiInspectResult(
+          apiResponse.data as Parameters<typeof formatInspectOutput>[0],
+          target,
+          includeServerInstructions,
+        ),
+      },
+    };
+  }
+
+  if (apiResponse.status === 401 || apiResponse.status === 403) {
+    return {
+      status: 'auth_required',
+      message: `Authentication required. Run: 1mcp auth login --url ${context.baseUrl} --token <your-token>`,
+    };
+  }
+
+  const isMissingInspectEndpoint =
+    apiResponse.status === 404 && (!apiResponse.error || apiResponse.error === 'HTTP 404');
+  const canFallbackToMcp =
+    isMissingInspectEndpoint ||
+    apiResponse.status === 405 ||
+    apiResponse.status === 0 ||
+    ((target.kind === 'server' || target.kind === 'tool') && apiResponse.status === 503);
+
+  if (!canFallbackToMcp) {
+    return { status: 'error', message: apiResponse.error || `Server returned HTTP ${apiResponse.status}` };
+  }
+
+  if (target.kind === 'all') {
+    return {
+      status: 'error',
+      message: 'Cannot list all servers: the running 1MCP server does not support the /api/inspect endpoint.',
+    };
+  }
+
+  return {
+    status: 'fallback',
+    reason: isMissingInspectEndpoint || apiResponse.status === 405 ? 'endpoint_missing' : 'transient_failure',
+  };
 }
 
 export async function inspectCommand(options: InspectCommandOptions): Promise<void> {
@@ -311,6 +322,7 @@ export async function inspectTools(options: {
   sessionId?: string;
   bearerToken?: string;
   context?: ContextData;
+  sendInitialize?: boolean;
 }): Promise<{
   rawResponse: JsonRpcResponse<unknown>;
   tools: Tool[];
@@ -322,7 +334,8 @@ export async function inspectTools(options: {
   await client.start();
 
   try {
-    if (!options.sessionId) {
+    const shouldSendInitialize = options.sendInitialize ?? !options.sessionId;
+    if (shouldSendInitialize) {
       const initializeResponse = await client.initialize(options.context);
       if ('error' in initializeResponse) {
         return {

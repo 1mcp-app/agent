@@ -4,6 +4,7 @@ import type { OutboundConnections } from '@src/core/types/client.js';
 import type { MCPServerParams } from '@src/core/types/index.js';
 import type { InboundConnectionConfig } from '@src/core/types/server.js';
 import type { ContextData } from '@src/types/context.js';
+import { resolveCanonicalSessionId, withCanonicalSessionId } from '@src/utils/context/sessionIdentity.js';
 
 export type RequestContextPreparationResult =
   | { status: 'no_context' }
@@ -43,14 +44,6 @@ export interface PrepareRequestContextInput {
   transportSessionId?: string;
 }
 
-function resolveRequestSessionId(input: {
-  deps: RequestContextPreparationDependencies;
-  context: ContextData;
-  transportSessionId?: string;
-}): string {
-  return input.transportSessionId || input.context.sessionId || input.deps.deriveSessionId(input.context);
-}
-
 export async function prepareRequestContext(
   input: PrepareRequestContextInput,
 ): Promise<RequestContextPreparationResult> {
@@ -60,8 +53,13 @@ export async function prepareRequestContext(
     return transportSessionId ? { status: 'routing_only', sessionId: transportSessionId } : { status: 'no_context' };
   }
 
-  const sessionId = resolveRequestSessionId({ deps, context, transportSessionId });
-  const renderedTemplates = await deps.loadRenderedTemplates(context);
+  const sessionId = resolveCanonicalSessionId({
+    context,
+    transportSessionId,
+    deriveSessionId: deps.deriveSessionId,
+  });
+  const canonicalContext = withCanonicalSessionId(context, sessionId);
+  const renderedTemplates = await deps.loadRenderedTemplates(canonicalContext);
   const templateEntries = Object.entries(renderedTemplates);
   const templateNames = templateEntries.map(([templateName]) => templateName);
 
@@ -97,7 +95,7 @@ export async function prepareRequestContext(
 
   await deps.createTemplateBasedServers(
     sessionId,
-    context,
+    canonicalContext,
     filterConfig,
     { mcpTemplates: pendingTemplates },
     deps.getOutboundConnections(),

@@ -40,7 +40,10 @@ const transportState = vi.hoisted(() => ({
   sessionIdOnInitialize: 'fresh-session',
   throw404OnMethod: undefined as string | undefined,
   toolName: 'runner_1mcp_echo_args',
-  instances: [] as Array<{ sentMessages: Array<{ method?: string; params?: Record<string, unknown> }> }>,
+  instances: [] as Array<{
+    initialSessionId?: string;
+    sentMessages: Array<{ method?: string; params?: Record<string, unknown> }>;
+  }>,
 }));
 
 function makeContextHash(projectPath: string, transportType: 'run' | 'inspect', version: 'run' | 'inspect'): string {
@@ -69,10 +72,12 @@ const mockedTransport = vi.hoisted(() => {
     onerror?: (error: Error) => void;
     onclose?: () => void;
     sessionId?: string;
+    initialSessionId?: string;
     sentMessages: Array<{ method?: string; params?: Record<string, unknown> }> = [];
 
     constructor(_url: URL, options?: { sessionId?: string }) {
       this.sessionId = options?.sessionId;
+      this.initialSessionId = options?.sessionId;
       transportState.instances.push(this);
     }
 
@@ -95,7 +100,7 @@ const mockedTransport = vi.hoisted(() => {
 
       switch (message.method) {
         case 'initialize':
-          this.sessionId = transportState.sessionIdOnInitialize;
+          this.sessionId = this.sessionId ?? transportState.sessionIdOnInitialize;
           this.onmessage?.({
             jsonrpc: '2.0',
             id: message.id,
@@ -600,6 +605,7 @@ describe('runCommand REST-first path', () => {
     } as never);
 
     const [, requestInit] = mockFetch.mock.calls[1] as [string, RequestInit];
+    expect((requestInit.headers as Record<string, string>)['mcp-session-id']).toBe('cached-session');
     expect(JSON.parse(String(requestInit.body))).toMatchObject({
       tool: 'runner/echo_args',
       args: { message: 'hi' },
@@ -623,6 +629,35 @@ describe('runCommand REST-first path', () => {
     // MCP transport should NOT have been used
     expect(transportState.instances).toHaveLength(0);
     expect(output.join('')).toContain('rest-result');
+  });
+
+  it('sends the same canonical session id in header and context on a first REST call', async () => {
+    const restResult = {
+      result: { content: [{ type: 'text', text: 'rest-result' }], isError: false },
+      server: 'runner',
+      tool: 'echo_args',
+    };
+    mockFetch.mockResolvedValueOnce(makeTextResponse(404, 'Not Found'));
+    mockFetch.mockResolvedValueOnce(makeRestResponse(200, restResult));
+
+    vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
+
+    const { runCommand } = await import('./run.js');
+    await runCommand({
+      tool: 'runner/echo_args',
+      args: '{"message":"hi"}',
+      'config-dir': cacheDir,
+      'cli-session-cache-path': join(cacheDir, '.cli-session.{pid}'),
+    } as never);
+
+    const [, requestInit] = mockFetch.mock.calls[1] as [string, RequestInit];
+    const headers = requestInit.headers as Record<string, string>;
+    const body = JSON.parse(String(requestInit.body)) as { _meta: { context: { sessionId: string } } };
+
+    expect(body._meta.context.sessionId).toMatch(/^rest-[a-f0-9]{16}$/);
+    expect(headers['mcp-session-id']).toBe(body._meta.context.sessionId);
+
+    vi.clearAllMocks();
   });
 
   it('persists the REST session header in cache after a first successful call', async () => {
@@ -684,6 +719,34 @@ describe('runCommand REST-first path', () => {
     expect(cache?.sessionId).toMatch(/^rest-[a-f0-9]{16}$/);
     expect(cache?.sessionId).not.toBe('rest');
     expect(cache?.hasRestEndpoint).toBe(true);
+  });
+
+  it('uses the same canonical session id for fresh MCP fallback initialize', async () => {
+    mockFetch.mockResolvedValueOnce(makeTextResponse(404, 'Not Found'));
+    mockFetch.mockResolvedValueOnce(makeTextResponse(404, 'Cannot POST /api/v1/tool-invocations'));
+
+    vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
+
+    const { runCommand } = await import('./run.js');
+    await runCommand({
+      tool: 'runner/echo_args',
+      args: '{"message":"hi"}',
+      'config-dir': cacheDir,
+      'cli-session-cache-path': join(cacheDir, '.cli-session.{pid}'),
+    } as never);
+
+    vi.clearAllMocks();
+
+    expect(transportState.instances).toHaveLength(1);
+    const instance = transportState.instances[0];
+    const initializeContext = instance.sentMessages[0].params?._meta as { context: { sessionId: string } };
+    expect(instance.sentMessages.map((message) => message.method)).toEqual([
+      'initialize',
+      'notifications/initialized',
+      'tools/call',
+    ]);
+    expect(initializeContext.context.sessionId).toMatch(/^rest-[a-f0-9]{16}$/);
+    expect(instance.initialSessionId).toBe(initializeContext.context.sessionId);
   });
 
   it('falls back to MCP when REST endpoint is missing', async () => {

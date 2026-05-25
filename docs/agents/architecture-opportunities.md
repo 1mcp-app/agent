@@ -2,6 +2,21 @@
 
 This note records the architecture review from 2026-05-08. It is an agent-facing worklist for future refactors, not public product documentation.
 
+## Current Codebase Status
+
+Last checked against the working tree on 2026-05-25.
+
+- Milestone 1 is implemented: `templateIdentity.ts` and `requestContextPreparation.ts` exist, with targeted inspect and REST tool routes using the shared preparation path.
+- Milestone 2 first slice is implemented: `filterSelection.ts` and `capabilityCatalog.ts` exist, `MetaToolProvider`, `/api/tools`, and `/api/tool-invocations` use the catalog/selection seams, and `serve` consumes yargs/env-parsed preset input. The catalog's refresh facts are still placeholder `never` facts, so direct MCP handler, notification, and broader refresh-policy migration remain second-slice work.
+- Milestone 3 first slice is implemented: `config-change/configChange.ts` and `installation/serverInstallationWorkflow.ts` exist, `mcp uninstall` and internal remove/uninstall use **Config Change**, and `mcp install` plus `mcp_install` use **Server Installation Workflow**.
+- Milestone 4 first slice is implemented: `streamableSessionLifecycle.ts` owns Streamable HTTP creation, lookup, restoration, initialize recovery, and cleanup. `sessionService.ts` remains only as a deprecated compatibility wrapper over the lifecycle module.
+- Milestone 5 reusable-session slice is implemented: `clientSurfaceAttachment.ts` owns shared attach-only runtime discovery, auth-profile lookup, **Request Context** construction, context hash, CLI session-cache read/write/delete, REST support cache, REST/MCP fallback classification, and stale-session retry. `run` and `inspect` now use the shared reusable-session path while keeping command-local parsing, protocol helpers, and output formatting. `proxy` still needs the fresh-session attachment slice, and `instructions` remains deferred until **Instructions Distribution** is settled.
+- Milestone 6 is not implemented: there is no `oauthAuthorizationFlow.ts` or `instructionsDistribution.ts` yet.
+
+## Next Execution Target
+
+Continue with Milestone 5 by adding the fresh-session attachment path for `proxy` on top of `src/commands/shared/clientSurfaceAttachment.ts`. Preserve generated **Request Session** identity, stdio transport lifecycle, filter forwarding, and shutdown behavior. Defer `instructions` until Milestone 6 settles **Instructions Distribution**.
+
 ## Milestone Plan
 
 This plan sequences the deepening work so each milestone leaves the codebase in a better state, even if later milestones are delayed. Each milestone should land with focused unit tests around the new Module Interface plus caller tests for migrated Adapters.
@@ -326,7 +341,7 @@ This plan sequences the deepening work so each milestone leaves the codebase in 
 1. Add `src/transport/http/streamableSessionLifecycle.ts` with structured lifecycle results, narrow dependency ports, normal/restorable transport construction, active lookup, creation, restoration, initialize recovery, post-handle initialize bookkeeping, and cleanup/delete entrypoints.
 2. Add focused lifecycle unit tests for generated-session POST creation, provided-session initialize recovery, unknown non-initialize POST, active transport lookup, persisted restoration success, missing initialize-response data, connection failure, SDK-internal restore failure, GET/DELETE missing session ID, persistence warnings, record-handled initialize storage, abnormal disconnect preserving persisted state, explicit delete removing persisted state, and active cleanup calling the `ServerManager.disconnectTransport()` port.
 3. Migrate POST, GET, and DELETE in `streamableHttpRoutes.ts` together so routes become HTTP adapters that extract inputs, map lifecycle results to existing HTTP responses, call `transport.handleRequest`, wire disconnect listeners, and call `recordHandledRequest` or delete cleanup at the right time.
-4. Delete `src/transport/http/utils/sessionService.ts` and migrate its tests to `streamableSessionLifecycle.test.ts` if the route migration remains small; otherwise keep a temporary compatibility wrapper for one slice only.
+4. Delete `src/transport/http/utils/sessionService.ts` and migrate its tests to `streamableSessionLifecycle.test.ts` if the route migration remains small; otherwise keep it only as a deprecated compatibility wrapper over `StreamableSessionLifecycle`.
 5. Preserve existing public HTTP behavior and verify with `streamableHttpRoutes`, `streamableSessionLifecycle`, `streamableSessionRepository`, `restorableStreamableTransport`, and targeted session-restoration e2e coverage.
 
 ## 7. Client Surface Attachment Module
@@ -349,6 +364,8 @@ This plan sequences the deepening work so each milestone leaves the codebase in 
 - Extract the outer orchestration before extracting low-level protocol helpers. In the first slice, `runCommand` and `getInspectResult` should call **Client Surface Attachment** with command-supplied protocol adapters while existing helpers such as `invokeTool` and `inspectTools` remain command-local. Move those helpers only after the first slice proves a stable common result shape.
 - Make `src/commands/shared/clientSurfaceAttachment.test.ts` the primary first-slice test surface for attachment state-machine behavior. Keep command tests as adapter and user-facing regression coverage instead of duplicating every cache, fallback, and stale-session branch in `run` and `inspect` tests.
 - Migrate in slices. Start with `run` and `inspect` because they share the deepest cache, REST, and fallback behavior; bring `proxy` in through the fresh-session path once the shared attachment contract is stable.
+
+**Current codebase note (2026-05-25)**: `src/commands/shared/clientSurfaceAttachment.ts` and `src/commands/shared/clientSurfaceAttachment.test.ts` exist, and `runCommand` plus `getInspectResult` now call the reusable-session attachment path with command-supplied REST/MCP adapters. The first slice keeps `invokeTool` and `inspectTools` command-local. Remaining Milestone 5 work is the fresh-session attachment path for `proxy`; `instructions` remains deferred until No.10 settles instruction-distribution policy.
 
 **Implementation plan**:
 

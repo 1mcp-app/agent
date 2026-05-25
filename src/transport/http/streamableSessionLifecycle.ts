@@ -12,6 +12,7 @@ import { RestorableStreamableHTTPServerTransport } from '@src/transport/http/res
 import { StreamableSessionRepository } from '@src/transport/http/storage/streamableSessionRepository.js';
 import { logError } from '@src/transport/http/utils/unifiedLogger.js';
 import type { ContextData } from '@src/types/context.js';
+import { withCanonicalSessionId } from '@src/utils/context/sessionIdentity.js';
 
 type StreamableTransport = StreamableHTTPServerTransport | RestorableStreamableHTTPServerTransport;
 
@@ -295,18 +296,22 @@ export class StreamableSessionLifecycle {
       throw new Error(`Session creation failed: transport initialization error - ${errorMessage}`);
     }
 
-    if (context && context.project?.name && context.sessionId) {
+    const validContext =
+      context && context.project && context.user && context.environment
+        ? withCanonicalSessionId(context as ContextData, sessionId)
+        : undefined;
+    const canonicalContext = validContext ?? (context ? { ...context, sessionId } : undefined);
+
+    if (canonicalContext && canonicalContext.project?.name && canonicalContext.sessionId) {
       logger.info(
-        `New session with context: ${context.project.name} (${context.sessionId})${providedSessionId ? ` (ID: ${providedSessionId})` : ''}`,
+        `New session with context: ${canonicalContext.project.name} (${canonicalContext.sessionId})${providedSessionId ? ` (ID: ${providedSessionId})` : ''}`,
       );
     }
 
     const configWithContext: InboundConnectionConfig & { context?: Partial<ContextData> } = {
       ...config,
-      context: context || undefined,
+      context: canonicalContext,
     };
-    const validContext =
-      context && context.project && context.user && context.environment ? (context as ContextData) : undefined;
 
     try {
       await this.serverManager.connectTransport(transport, sessionId, configWithContext, validContext);
