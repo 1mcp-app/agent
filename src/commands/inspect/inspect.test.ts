@@ -51,13 +51,16 @@ const mockedResolveProjectContext = vi.hoisted(() => vi.fn());
 const mockedLoadAuthProfile = vi.hoisted(() => vi.fn());
 const mockedStdoutWrite = vi.hoisted(() => vi.fn());
 
-function makeInspectContextHash(projectPath: string): string {
+function makeClientSurfaceContextHash(
+  projectPath: string,
+  clientSurface: 'inspect' | 'instructions' = 'inspect',
+): string {
   return getCliSessionContextHash(
     buildCliContext({
       cwd: projectPath,
       projectRoot: projectPath,
-      transportType: 'inspect',
-      version: 'inspect',
+      transportType: clientSurface,
+      version: clientSurface,
     }),
   );
 }
@@ -331,7 +334,7 @@ describe('inspect command internals', () => {
       await writeCliSessionCache(cachePath, {
         sessionId: 'session-1',
         serverUrl: 'http://127.0.0.1:3050/mcp?preset=dev',
-        contextHash: makeInspectContextHash('/tmp/agent'),
+        contextHash: makeClientSurfaceContextHash('/tmp/agent'),
         savedAt: Date.now(),
       });
 
@@ -339,7 +342,7 @@ describe('inspect command internals', () => {
       const cache = await readCliSessionCache(
         cachePath,
         'http://127.0.0.1:3050/mcp?preset=dev',
-        makeInspectContextHash('/tmp/agent'),
+        makeClientSurfaceContextHash('/tmp/agent'),
       );
       expect(cache?.sessionId).toBe('session-1');
     });
@@ -353,14 +356,14 @@ describe('inspect command internals', () => {
       await writeCliSessionCache(cachePath, {
         sessionId: 'session-1',
         serverUrl: 'http://127.0.0.1:3050/mcp',
-        contextHash: makeInspectContextHash('/tmp/agent'),
+        contextHash: makeClientSurfaceContextHash('/tmp/agent'),
         savedAt: Date.now() - SESSION_CACHE_TTL_MS - 1,
       });
 
       const cache = await readCliSessionCache(
         cachePath,
         'http://127.0.0.1:3050/mcp',
-        makeInspectContextHash('/tmp/agent'),
+        makeClientSurfaceContextHash('/tmp/agent'),
       );
       expect(cache).toBeNull();
     });
@@ -394,7 +397,7 @@ describe('inspect command internals', () => {
     await writeCliSessionCache(cachePath, {
       sessionId: 'cached-session',
       serverUrl: 'http://127.0.0.1:3050/mcp',
-      contextHash: makeInspectContextHash('/tmp/project'),
+      contextHash: makeClientSurfaceContextHash('/tmp/project'),
       savedAt: Date.now(),
     });
 
@@ -511,6 +514,49 @@ describe('inspect command internals', () => {
     ]);
   });
 
+  it('uses instructions surface context when requested through getInspectResult', async () => {
+    mockedApiClientGet.mockResolvedValue({
+      ok: true,
+      status: 200,
+      data: {
+        kind: 'servers',
+        servers: [
+          {
+            server: 'runner',
+            toolCount: 1,
+            hasInstructions: false,
+          },
+        ],
+      },
+      sessionId: 'instructions-rest-session',
+    });
+    const cacheDir = join(process.cwd(), '.tmp-test', 'inspect-command-unit', 'instructions-surface');
+    await rm(cacheDir, { recursive: true, force: true });
+    await mkdir(cacheDir, { recursive: true });
+    const cachePath = getCliSessionCachePath({
+      cachePathTemplate: join(cacheDir, '.cli-session.{pid}'),
+      serverPid: 4242,
+    });
+
+    await getInspectResult(
+      {
+        'config-dir': cacheDir,
+        'cli-session-cache-path': join(cacheDir, '.cli-session.{pid}'),
+      } as never,
+      { includeServerInstructions: true, clientSurface: 'instructions' },
+    );
+
+    const cache = await readCliSessionCache(
+      cachePath,
+      'http://127.0.0.1:3050/mcp',
+      makeClientSurfaceContextHash('/tmp/project', 'instructions'),
+    );
+    expect(cache?.sessionId).toBe('instructions-rest-session');
+    expect(
+      await readCliSessionCache(cachePath, 'http://127.0.0.1:3050/mcp', makeClientSurfaceContextHash('/tmp/project')),
+    ).toBeNull();
+  });
+
   it('lists servers for bare inspect without printing instruction blocks', async () => {
     mockedApiClientGet.mockResolvedValue({
       ok: true,
@@ -573,7 +619,7 @@ describe('inspect command internals', () => {
     await writeCliSessionCache(cachePath, {
       sessionId: 'cached-session',
       serverUrl: 'http://127.0.0.1:3050/mcp',
-      contextHash: makeInspectContextHash('/tmp/project'),
+      contextHash: makeClientSurfaceContextHash('/tmp/project'),
       savedAt: Date.now(),
     });
 

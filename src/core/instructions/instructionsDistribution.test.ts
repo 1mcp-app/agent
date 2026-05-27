@@ -5,6 +5,7 @@ import {
   collectInstructionDetails,
   renderManagedDocContent,
   renderStartupDocManagedBlock,
+  renderStartupDocManagedBlockForClient,
   shouldEagerlyInspectServer,
   upsertStartupDocManagedBlock,
 } from './instructionsDistribution.js';
@@ -262,6 +263,35 @@ describe('instructionsDistribution', () => {
 
   it('renders global Codex startup references as absolute managed-doc references', () => {
     expect(renderStartupDocManagedBlock('/tmp/.codex/AGENTS.md', '/tmp/.codex/1MCP.md')).toBe('@/tmp/.codex/1MCP.md\n');
+  });
+
+  it('renders startup references from explicit client and scope policy', () => {
+    expect(
+      renderStartupDocManagedBlockForClient({
+        target: 'codex',
+        scope: 'global',
+        startupDocPath: '/tmp/.codex/AGENTS.md',
+        managedDocPath: '/tmp/.codex/1MCP.md',
+      }),
+    ).toBe('@/tmp/.codex/1MCP.md\n');
+
+    expect(
+      renderStartupDocManagedBlockForClient({
+        target: 'codex',
+        scope: 'repo',
+        startupDocPath: '/tmp/project/AGENTS.md',
+        managedDocPath: '/tmp/project/.codex/1MCP.md',
+      }),
+    ).toBe('@.codex/1MCP.md\n');
+
+    expect(
+      renderStartupDocManagedBlockForClient({
+        target: 'claude',
+        scope: 'global',
+        startupDocPath: '/tmp/.claude/CLAUDE.md',
+        managedDocPath: '/tmp/.claude/1MCP.md',
+      }),
+    ).toBe('@1MCP.md\n');
   });
 
   it('renders Claude startup references relative to the startup doc', () => {

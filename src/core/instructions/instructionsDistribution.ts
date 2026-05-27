@@ -42,6 +42,16 @@ export interface CollectInstructionDetailsInput {
   inspectServer: (server: string) => Promise<InstructionServerInspectResult | NonServerInstructionInspectResult>;
 }
 
+export type InstructionsDistributionTarget = 'codex' | 'claude';
+export type InstructionsDistributionScope = 'global' | 'repo';
+
+export interface RenderStartupDocManagedBlockInput {
+  target: InstructionsDistributionTarget;
+  scope: InstructionsDistributionScope;
+  startupDocPath: string;
+  managedDocPath: string;
+}
+
 const LEGACY_MANAGED_BLOCK_PATTERN =
   /<!-- BEGIN 1MCP MANAGED STARTUP DOCS -->[\s\S]*?<!-- END 1MCP MANAGED STARTUP DOCS -->\n?/gm;
 
@@ -159,6 +169,15 @@ export function renderStartupDocManagedBlock(startupDocPath: string, managedDocP
   }
 
   const relativePath = path.relative(path.dirname(startupDocPath), managedDocPath).replace(/\\/g, '/');
+  return `@${relativePath}\n`;
+}
+
+export function renderStartupDocManagedBlockForClient(input: RenderStartupDocManagedBlockInput): string {
+  if (input.target === 'codex' && input.scope === 'global') {
+    return `@${input.managedDocPath.replace(/\\/g, '/')}\n`;
+  }
+
+  const relativePath = path.relative(path.dirname(input.startupDocPath), input.managedDocPath).replace(/\\/g, '/');
   return `@${relativePath}\n`;
 }
 

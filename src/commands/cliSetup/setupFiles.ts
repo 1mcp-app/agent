@@ -5,6 +5,7 @@ import path from 'node:path';
 import {
   renderManagedDocContent,
   renderStartupDocManagedBlock,
+  renderStartupDocManagedBlockForClient,
   upsertStartupDocManagedBlock,
 } from '@src/core/instructions/instructionsDistribution.js';
 import logger from '@src/logger/logger.js';
@@ -106,7 +107,12 @@ async function writeTargetSetupFiles(
   const existingStartup = await readExistingFile(startupPath);
   const startupContent = upsertStartupDocManagedBlock(
     existingStartup,
-    renderStartupDocManagedBlock(startupPath, managedDocPath),
+    renderStartupDocManagedBlockForClient({
+      target: resultInfo.target,
+      scope: resultInfo.scope,
+      startupDocPath: startupPath,
+      managedDocPath,
+    }),
   );
 
   return Promise.all([
