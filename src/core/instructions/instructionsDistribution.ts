@@ -20,6 +20,10 @@ export interface InstructionServerInspectResult {
   totalTools?: number;
 }
 
+export interface NonServerInstructionInspectResult {
+  kind: Exclude<string, 'server'>;
+}
+
 export interface InstructionServerDetail extends InstructionServerSummary {
   instructions?: string | null;
   note?: string;
@@ -30,6 +34,12 @@ export interface AssembleInstructionDetailInput {
   inspected?: InstructionServerInspectResult;
   cachedInstructions?: string;
   inspectFailed?: boolean;
+}
+
+export interface CollectInstructionDetailsInput {
+  servers: InstructionServerSummary[];
+  cachedInstructions?: Record<string, string>;
+  inspectServer: (server: string) => Promise<InstructionServerInspectResult | NonServerInstructionInspectResult>;
 }
 
 const LEGACY_MANAGED_BLOCK_PATTERN =
@@ -71,6 +81,55 @@ export function assembleInstructionDetail(input: AssembleInstructionDetailInput)
       summary.type === 'template' && input.inspectFailed
         ? '(unavailable: template server could not be initialized with the current context)'
         : '(unavailable: server is not currently connected)',
+  };
+}
+
+export async function collectInstructionDetails(
+  input: CollectInstructionDetailsInput,
+): Promise<InstructionServerDetail[]> {
+  const details: InstructionServerDetail[] = [];
+  const cachedInstructions = input.cachedInstructions ?? {};
+
+  for (const server of input.servers) {
+    if (!shouldEagerlyInspectServer(server)) {
+      details.push(
+        assembleInstructionDetail({ summary: server, cachedInstructions: cachedInstructions[server.server] }),
+      );
+      continue;
+    }
+
+    try {
+      const inspected = await input.inspectServer(server.server);
+      if (!isInstructionServerInspectResult(inspected)) {
+        details.push(assembleUnavailableDetail(server));
+        continue;
+      }
+
+      details.push(assembleInstructionDetail({ summary: server, inspected }));
+    } catch {
+      details.push(assembleInstructionDetail({ summary: server, inspectFailed: true }));
+    }
+  }
+
+  return details;
+}
+
+function isInstructionServerInspectResult(
+  inspected: InstructionServerInspectResult | NonServerInstructionInspectResult,
+): inspected is InstructionServerInspectResult {
+  return inspected.kind === 'server';
+}
+
+function assembleUnavailableDetail(server: InstructionServerSummary): InstructionServerDetail {
+  return {
+    server: server.server,
+    type: server.type,
+    status: server.status,
+    available: server.available,
+    toolCount: server.toolCount,
+    hasInstructions: server.hasInstructions,
+    instructions: null,
+    note: '(unavailable)',
   };
 }
 

@@ -1,7 +1,8 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import {
   assembleInstructionDetail,
+  collectInstructionDetails,
   renderManagedDocContent,
   renderStartupDocManagedBlock,
   shouldEagerlyInspectServer,
@@ -126,6 +127,129 @@ describe('instructionsDistribution', () => {
         inspectFailed: true,
       }).note,
     ).toBe('(unavailable: template server could not be initialized with the current context)');
+  });
+
+  it('collects instruction details by inspecting only servers that need eager inspection', async () => {
+    const inspectServer = vi.fn(async (server: string) => {
+      if (server === 'serena') {
+        return {
+          kind: 'server' as const,
+          server: 'serena',
+          type: 'template',
+          status: 'connected',
+          available: true,
+          instructions: '# Serena Instructions',
+          tools: [],
+          totalTools: 0,
+        };
+      }
+
+      return {
+        kind: 'server' as const,
+        server: 'context7',
+        type: 'external',
+        status: 'connected',
+        available: true,
+        instructions: null,
+        tools: [],
+      };
+    });
+
+    const details = await collectInstructionDetails({
+      servers: [
+        {
+          server: 'serena',
+          type: 'template',
+          status: 'unknown',
+          available: false,
+          toolCount: 0,
+          hasInstructions: false,
+        },
+        {
+          server: 'context7',
+          type: 'external',
+          status: 'connected',
+          available: true,
+          toolCount: 0,
+          hasInstructions: false,
+        },
+        {
+          server: 'runner',
+          type: 'external',
+          status: 'disconnected',
+          available: false,
+          toolCount: 0,
+          hasInstructions: true,
+        },
+      ],
+      cachedInstructions: {
+        runner: '# Cached Runner Instructions',
+      },
+      inspectServer,
+    });
+
+    expect(inspectServer).toHaveBeenCalledTimes(2);
+    expect(inspectServer).toHaveBeenNthCalledWith(1, 'serena');
+    expect(inspectServer).toHaveBeenNthCalledWith(2, 'context7');
+    expect(details).toEqual([
+      {
+        server: 'serena',
+        type: 'template',
+        status: 'connected',
+        available: true,
+        toolCount: 0,
+        hasInstructions: true,
+        instructions: '# Serena Instructions',
+        note: undefined,
+      },
+      {
+        server: 'context7',
+        type: 'external',
+        status: 'connected',
+        available: true,
+        toolCount: 0,
+        hasInstructions: false,
+        instructions: null,
+        note: '(none provided)',
+      },
+      {
+        server: 'runner',
+        type: 'external',
+        status: 'disconnected',
+        available: false,
+        toolCount: 0,
+        hasInstructions: true,
+        instructions: '# Cached Runner Instructions',
+        note: '(unavailable: server is not currently connected)',
+      },
+    ]);
+  });
+
+  it('collects unavailable details when eager inspection returns a non-server result', async () => {
+    const details = await collectInstructionDetails({
+      servers: [
+        {
+          server: 'context7',
+          type: 'external',
+          status: 'connected',
+          available: true,
+          toolCount: 0,
+          hasInstructions: false,
+        },
+      ],
+      inspectServer: async () => ({ kind: 'servers' }),
+    });
+
+    expect(details[0]).toEqual({
+      server: 'context7',
+      type: 'external',
+      status: 'connected',
+      available: true,
+      toolCount: 0,
+      hasInstructions: false,
+      instructions: null,
+      note: '(unavailable)',
+    });
   });
 
   it('renders managed doc content for startup bootstrapping', () => {
