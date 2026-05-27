@@ -7,6 +7,7 @@ import {
   attachReusableClientSurface,
   type ClientSurfaceAttachmentContext,
   type ClientSurfaceRestResponse,
+  type ReusableClientSurface,
 } from '@src/commands/shared/clientSurfaceAttachment.js';
 import {
   type JsonRpcErrorEnvelope,
@@ -47,6 +48,7 @@ export interface InspectCommandOptions extends GlobalOptions {
 
 interface GetInspectResultOptions {
   includeServerInstructions?: boolean;
+  clientSurface?: ReusableClientSurface;
 }
 
 interface ApiInspectToolResult {
@@ -155,9 +157,10 @@ export async function getInspectResult(
   resultOptions: GetInspectResultOptions = {},
 ): Promise<InspectResult> {
   const includeServerInstructions = resultOptions.includeServerInstructions ?? true;
+  const clientSurface = resultOptions.clientSurface ?? 'inspect';
   const attachment = await attachReusableClientSurface<InspectCommandOptions, InspectAttachmentValue>({
-    clientSurface: 'inspect',
-    version: 'inspect',
+    clientSurface,
+    version: clientSurface,
     options,
     rest: (context) => tryInspectRest(context, includeServerInstructions),
     mcp: async (context) => {

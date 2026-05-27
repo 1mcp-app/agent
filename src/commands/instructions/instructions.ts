@@ -19,7 +19,7 @@ function toInspectOptions(options: InstructionsCommandOptions, target?: string):
 }
 
 export async function instructionsCommand(options: InstructionsCommandOptions): Promise<void> {
-  const allServers = await getInspectResult(toInspectOptions(options), { includeServerInstructions: true });
+  const allServers = await getInspectResult(toInspectOptions(options), instructionsInspectOptions);
   if (allServers.kind !== 'servers') {
     throw new Error('Unexpected inspect result for server listing.');
   }
@@ -28,9 +28,7 @@ export async function instructionsCommand(options: InstructionsCommandOptions): 
     servers: allServers.servers,
     cachedInstructions: allServers.serverInstructions,
     inspectServer: async (server) => {
-      const detailResult = await getInspectResult(toInspectOptions(options, server), {
-        includeServerInstructions: true,
-      });
+      const detailResult = await getInspectResult(toInspectOptions(options, server), instructionsInspectOptions);
 
       return detailResult.kind === 'server' ? (detailResult as InspectServerInfo) : { kind: detailResult.kind };
     },
@@ -45,3 +43,5 @@ export async function instructionsCommand(options: InstructionsCommandOptions): 
     process.stdout.write(`${output}\n`);
   }
 }
+
+const instructionsInspectOptions = { includeServerInstructions: true, clientSurface: 'instructions' as const };
