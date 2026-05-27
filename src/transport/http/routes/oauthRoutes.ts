@@ -73,30 +73,20 @@ export function createOAuthRoutes(oauthProvider: SDKOAuthServerProvider, loading
   const authorizeHandler: RequestHandler = async (req: Request, res: Response) => {
     try {
       const { serverName } = req.params;
-      const serverManager = ServerManager.current;
 
-      const clientInfo = serverManager.getClient(serverName);
-      if (!clientInfo) {
-        const errorResponse: Record<string, string> = { error: 'Service not found' };
+      const result = await oauthFlow.startBackendOAuth({ serverName });
+      if (result.status === 'redirect') {
+        res.redirect(result.redirectUrl);
+        return;
+      }
+
+      const errorResponse: Record<string, string> = { error: result.errorDescription };
+      if (result.status === 'service_not_found') {
         res.status(404).json(errorResponse);
         return;
       }
 
-      if (clientInfo.authorizationUrl) {
-        // Redirect to existing authorization URL
-        res.redirect(clientInfo.authorizationUrl);
-        return;
-      } else {
-        const result = await oauthFlow.startBackendOAuth({ serverName });
-        if (result.status === 'redirect') {
-          res.redirect(result.redirectUrl);
-          return;
-        } else {
-          const errorResponse: Record<string, string> = { error: result.errorDescription };
-          res.status(500).json(errorResponse);
-          return;
-        }
-      }
+      res.status(500).json(errorResponse);
     } catch (error) {
       logger.error(`Error starting OAuth for ${req.params.serverName}:`, error);
       const errorResponse: Record<string, string> = { error: 'Failed to start OAuth flow' };
@@ -113,23 +103,15 @@ export function createOAuthRoutes(oauthProvider: SDKOAuthServerProvider, loading
     const { serverName } = req.params;
     const { code, error } = req.query;
     try {
-      if (error) {
-        logger.error(`OAuth error for ${serverName}:`, error);
-        return res.redirect(`/oauth?error=${encodeURIComponent(String(error))}`);
-      }
-
-      if (!code) {
-        logger.error(`OAuth callback missing authorization code for ${serverName}`);
-        return res.redirect(`/oauth?error=missing_code`);
-      }
-
       const result = await oauthFlow.completeBackendOAuthCallback({
         serverName,
-        code: String(code),
+        code: code ? String(code) : undefined,
+        error: error ? String(error) : undefined,
       });
       if (result.status !== 'completed') {
         logger.error(`OAuth callback failed for ${serverName}:`, result.errorDescription);
-        return res.redirect(`/oauth?error=${result.status}`);
+        const errorCode = result.status === 'provider_error' ? result.errorDescription : result.status;
+        return res.redirect(`/oauth?error=${encodeURIComponent(errorCode)}`);
       }
 
       // Redirect back to dashboard with success
@@ -146,15 +128,6 @@ export function createOAuthRoutes(oauthProvider: SDKOAuthServerProvider, loading
   const restartHandler: RequestHandler = async (req: Request, res: Response) => {
     const { serverName } = req.params;
     try {
-      const serverManager = ServerManager.current;
-
-      const clientInfo = serverManager.getClient(serverName);
-      if (!clientInfo) {
-        const errorResponse: Record<string, string> = { error: 'Service not found' };
-        res.status(404).json(errorResponse);
-        return;
-      }
-
       const result = await oauthFlow.restartBackendOAuth({ serverName });
       if (result.status === 'restarted') {
         const successResponse: Record<string, string> = { success: 'true', message: 'OAuth flow restarted' };
@@ -163,6 +136,11 @@ export function createOAuthRoutes(oauthProvider: SDKOAuthServerProvider, loading
       }
 
       const errorResponse: Record<string, string> = { error: result.errorDescription };
+      if (result.status === 'service_not_found') {
+        res.status(404).json(errorResponse);
+        return;
+      }
+
       res.status(500).json(errorResponse);
     } catch (error) {
       logger.error(`Error restarting OAuth for ${serverName}:`, error);

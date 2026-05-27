@@ -66,6 +66,54 @@ describe('OAuth Authorization Flow', () => {
     expect(storage.processConsentApproval).toHaveBeenCalledWith('req-123', ['tag:read']);
   });
 
+  it('should reject invalid consent submissions before mutating storage', async () => {
+    const { flow, storage } = createFlow({
+      storage: {
+        getAuthorizationRequest: vi.fn().mockReturnValue({ clientId: 'client-123' }),
+        getClient: vi.fn().mockReturnValue({ client_id: 'client-123' }),
+      },
+    });
+
+    await expect(flow.submitConsent({ action: 'approve' })).resolves.toEqual({
+      status: 'invalid_request',
+      errorDescription: 'Missing required parameters',
+    });
+    await expect(
+      flow.submitConsent({
+        authRequestId: 'req-123',
+        action: 'approve',
+        scopes: ['not-a-scope'],
+      }),
+    ).resolves.toEqual({
+      status: 'invalid_scope',
+      errorDescription: 'Invalid scopes: Invalid scope format: not-a-scope',
+    });
+
+    expect(storage.processConsentApproval).not.toHaveBeenCalled();
+    expect(storage.processConsentDenial).not.toHaveBeenCalled();
+  });
+
+  it('should deny consent through the flow and return a redirect outcome', async () => {
+    const { flow, storage } = createFlow({
+      storage: {
+        getAuthorizationRequest: vi.fn().mockReturnValue({ clientId: 'client-123' }),
+        getClient: vi.fn().mockReturnValue({ client_id: 'client-123' }),
+        processConsentDenial: vi.fn().mockResolvedValue(new URL('https://client.example/callback?error=access_denied')),
+      },
+    });
+
+    const result = await flow.submitConsent({
+      authRequestId: 'req-123',
+      action: 'deny',
+    });
+
+    expect(result).toEqual({
+      status: 'denied_redirect',
+      redirectUrl: 'https://client.example/callback?error=access_denied',
+    });
+    expect(storage.processConsentDenial).toHaveBeenCalledWith('req-123');
+  });
+
   it('should create a localhost CLI token with available tag scopes when auth is enabled', () => {
     const { flow, storage } = createFlow();
 
@@ -84,6 +132,18 @@ describe('OAuth Authorization Flow', () => {
       ['tag:read', 'tag:write'],
       3_600_000,
     );
+  });
+
+  it('should not create a localhost CLI token when auth is disabled', () => {
+    const { flow, storage } = createFlow({ enabled: false });
+
+    const result = flow.createLocalhostCliToken();
+
+    expect(result).toEqual({
+      authRequired: false,
+      message: 'Auth is disabled on this server',
+    });
+    expect(storage.createSessionWithId).not.toHaveBeenCalled();
   });
 
   it('should reuse an existing backend authorization URL when starting OAuth', async () => {
@@ -200,6 +260,64 @@ describe('OAuth Authorization Flow', () => {
     expect(result).toEqual({ status: 'completed' });
     expect(completeOAuthAndReconnect).toHaveBeenCalledWith('github', 'auth-code-123');
     expect(markReady).toHaveBeenCalledWith('github');
+  });
+
+  it('should map backend OAuth callback provider and input errors without reconnecting', async () => {
+    const completeOAuthAndReconnect = vi.fn();
+    const markReady = vi.fn();
+    const { flow } = createFlow({
+      clientRuntime: {
+        completeOAuthAndReconnect,
+      },
+      loadingRuntime: {
+        markReady,
+      },
+    });
+
+    await expect(
+      flow.completeBackendOAuthCallback({
+        serverName: 'github',
+        error: 'access_denied',
+      }),
+    ).resolves.toEqual({
+      status: 'provider_error',
+      errorDescription: 'access_denied',
+    });
+    await expect(
+      flow.completeBackendOAuthCallback({
+        serverName: 'github',
+      }),
+    ).resolves.toEqual({
+      status: 'missing_code',
+      errorDescription: 'Missing authorization code',
+    });
+
+    expect(completeOAuthAndReconnect).not.toHaveBeenCalled();
+    expect(markReady).not.toHaveBeenCalled();
+  });
+
+  it('should report backend OAuth callback failures without marking loading ready', async () => {
+    const completeOAuthAndReconnect = vi.fn().mockRejectedValue(new Error('reconnect failed'));
+    const markReady = vi.fn();
+    const { flow } = createFlow({
+      clientRuntime: {
+        completeOAuthAndReconnect,
+      },
+      loadingRuntime: {
+        markReady,
+      },
+    });
+
+    const result = await flow.completeBackendOAuthCallback({
+      serverName: 'github',
+      code: 'auth-code-123',
+    });
+
+    expect(result).toEqual({
+      status: 'callback_failed',
+      errorDescription: 'Failed to complete OAuth callback',
+    });
+    expect(markReady).not.toHaveBeenCalled();
   });
 
   it('should build backend OAuth dashboard facts from runtime clients', () => {
