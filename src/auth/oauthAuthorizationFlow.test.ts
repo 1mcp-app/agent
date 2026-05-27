@@ -201,4 +201,70 @@ describe('OAuth Authorization Flow', () => {
     expect(completeOAuthAndReconnect).toHaveBeenCalledWith('github', 'auth-code-123');
     expect(markReady).toHaveBeenCalledWith('github');
   });
+
+  it('should build backend OAuth dashboard facts from runtime clients', () => {
+    const lastConnected = new Date('2026-05-27T05:00:00Z');
+    const getClients = vi.fn().mockReturnValue(
+      new Map([
+        [
+          'plain-connected',
+          {
+            status: 'connected',
+            transport: {},
+            lastConnected,
+          },
+        ],
+        [
+          'oauth-connected',
+          {
+            status: 'connected',
+            transport: {},
+            authorizationUrl: 'https://provider.example/authorize',
+            oauthStartTime: new Date('2026-05-27T04:00:00Z'),
+            lastError: new Error('token expired'),
+          },
+        ],
+        [
+          'awaiting-oauth',
+          {
+            status: 'awaiting_oauth',
+            transport: {},
+          },
+        ],
+      ]),
+    );
+    const { flow } = createFlow({
+      serverRuntime: {
+        getClients,
+      },
+    });
+
+    const result = flow.getBackendOAuthDashboard();
+
+    expect(result).toEqual({
+      status: 'ready',
+      services: [
+        {
+          name: 'plain-connected',
+          status: 'connected',
+          lastConnected,
+          requiresOAuth: false,
+        },
+        {
+          name: 'oauth-connected',
+          status: 'connected',
+          authorizationUrl: 'https://provider.example/authorize',
+          oauthStartTime: new Date('2026-05-27T04:00:00Z'),
+          lastError: 'token expired',
+          requiresOAuth: true,
+        },
+        {
+          name: 'awaiting-oauth',
+          status: 'awaiting_oauth',
+          requiresOAuth: true,
+        },
+      ],
+    });
+    expect(getClients).toHaveBeenCalledWith();
+  });
 });

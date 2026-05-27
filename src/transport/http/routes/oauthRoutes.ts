@@ -1,4 +1,5 @@
 import {
+  BackendOAuthDashboardService,
   getOAuthAuthorizationFlow,
   OAuthAuthorizationFlow,
   OAuthAuthorizationFlowProvider,
@@ -24,18 +25,6 @@ import { Request, RequestHandler, Response, Router } from 'express';
 import rateLimit from 'express-rate-limit';
 
 /**
- * Service information interface for OAuth dashboard
- */
-interface ServiceInfo {
-  name: string;
-  status: string;
-  authorizationUrl?: string;
-  oauthStartTime?: Date;
-  lastError?: string;
-  lastConnected?: Date;
-}
-
-/**
  * Creates OAuth routes with the provided OAuth provider
  */
 export function createOAuthRoutes(oauthProvider: SDKOAuthServerProvider, loadingManager?: McpLoadingManager): Router {
@@ -57,48 +46,18 @@ export function createOAuthRoutes(oauthProvider: SDKOAuthServerProvider, loading
   router.use(createOAuthLimiter());
 
   /**
-   * Check if a server requires OAuth based on runtime behavior
-   * A server requires OAuth if it has ever thrown UnauthorizedError (indicated by authorizationUrl or oauthStartTime)
-   */
-  function requiresOAuth(service: ServiceInfo): boolean {
-    // The most reliable indicator: server has ever had an authorization URL
-    // This means the server threw UnauthorizedError and we captured the OAuth URL
-    if (service.authorizationUrl) {
-      return true;
-    }
-
-    // Secondary indicator: server has ever been in AwaitingOAuth status
-    // This means the server threw UnauthorizedError at some point
-    if (service.oauthStartTime) {
-      return true;
-    }
-
-    // If currently awaiting OAuth, it definitely requires OAuth
-    if (service.status === ClientStatus.AwaitingOAuth) {
-      return true;
-    }
-
-    return false;
-  }
-
-  /**
    * OAuth Dashboard - Shows all services and their OAuth status
    */
   router.get('/', async (req: Request, res: Response) => {
     try {
-      const serverManager = ServerManager.current;
-      const clients = serverManager.getClients();
+      const dashboard = oauthFlow.getBackendOAuthDashboard();
+      if (dashboard.status !== 'ready') {
+        const errorResponse: Record<string, string> = { error: dashboard.errorDescription };
+        res.status(500).json(errorResponse);
+        return;
+      }
 
-      const services: ServiceInfo[] = Array.from(clients.entries()).map(([name, clientInfo]) => ({
-        name,
-        status: clientInfo.status,
-        authorizationUrl: clientInfo.authorizationUrl,
-        oauthStartTime: clientInfo.oauthStartTime,
-        lastError: clientInfo.lastError?.message,
-        lastConnected: clientInfo.lastConnected,
-      }));
-
-      const html = generateOAuthDashboard(services, req);
+      const html = generateOAuthDashboard(dashboard.services, req);
       res.setHeader('Content-Type', 'text/html');
       res.send(html);
     } catch (error) {
@@ -250,7 +209,7 @@ export function createOAuthRoutes(oauthProvider: SDKOAuthServerProvider, loading
   /**
    * Generate OAuth dashboard HTML
    */
-  function generateOAuthDashboard(services: ServiceInfo[], req: Request): string {
+  function generateOAuthDashboard(services: BackendOAuthDashboardService[], req: Request): string {
     const servicesHtml = services
       .map((service) => {
         const statusIcon = getStatusIcon(service.status);
@@ -387,11 +346,10 @@ export function createOAuthRoutes(oauthProvider: SDKOAuthServerProvider, loading
     }
   }
 
-  function getActionButton(service: ServiceInfo): string {
+  function getActionButton(service: BackendOAuthDashboardService): string {
     switch (service.status) {
       case ClientStatus.Connected:
-        // Check if server requires OAuth based on runtime behavior
-        if (requiresOAuth(service)) {
+        if (service.requiresOAuth) {
           return '<span class="status-connected">✓ Authorized</span>';
         } else {
           return '<span class="status-connected">✓ Connected</span>';
@@ -428,6 +386,7 @@ function getOAuthFlow(
   return getOAuthAuthorizationFlow(oauthProvider, {
     serverRuntime: {
       getClient: (serverName) => ServerManager.current.getClient(serverName),
+      getClients: () => ServerManager.current.getClients(),
     },
     clientRuntime: {
       createClientInstance: () => ClientManager.getOrCreateInstance().createClientInstance(),

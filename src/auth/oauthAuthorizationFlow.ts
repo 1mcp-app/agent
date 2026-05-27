@@ -33,10 +33,13 @@ export interface OAuthBackendClientInfoForFlow {
   transport: Pick<AuthProviderTransport, 'oauthProvider'> & Partial<AuthProviderTransport>;
   authorizationUrl?: string;
   oauthStartTime?: Date;
+  lastError?: Error;
+  lastConnected?: Date;
 }
 
 export interface OAuthBackendServerRuntime {
   getClient(serverName: string): OAuthBackendClientInfoForFlow | undefined;
+  getClients?(): Map<string, OAuthBackendClientInfoForFlow>;
 }
 
 export interface OAuthBackendClientRuntime {
@@ -134,12 +137,33 @@ export type CompleteBackendOAuthCallbackResult =
       errorDescription: string;
     };
 
+export interface BackendOAuthDashboardService {
+  name: string;
+  status: string;
+  authorizationUrl?: string;
+  oauthStartTime?: Date;
+  lastError?: string;
+  lastConnected?: Date;
+  requiresOAuth: boolean;
+}
+
+export type BackendOAuthDashboardResult =
+  | {
+      status: 'ready';
+      services: BackendOAuthDashboardService[];
+    }
+  | {
+      status: 'runtime_unavailable';
+      errorDescription: string;
+    };
+
 export interface OAuthAuthorizationFlow {
   submitConsent(input: SubmitConsentInput): Promise<SubmitConsentResult>;
   createLocalhostCliToken(): LocalhostCliTokenResult;
   startBackendOAuth(input: BackendOAuthInput): Promise<StartBackendOAuthResult>;
   restartBackendOAuth(input: BackendOAuthInput): Promise<RestartBackendOAuthResult>;
   completeBackendOAuthCallback(input: BackendOAuthCallbackInput): Promise<CompleteBackendOAuthCallbackResult>;
+  getBackendOAuthDashboard(): BackendOAuthDashboardResult;
 }
 
 export interface OAuthAuthorizationFlowProvider {
@@ -308,6 +332,30 @@ export function createOAuthAuthorizationFlow(dependencies: OAuthAuthorizationFlo
         };
       }
     },
+
+    getBackendOAuthDashboard(): BackendOAuthDashboardResult {
+      if (!dependencies.serverRuntime?.getClients) {
+        return {
+          status: 'runtime_unavailable',
+          errorDescription: 'Backend OAuth runtime is unavailable',
+        };
+      }
+
+      const services = Array.from(dependencies.serverRuntime.getClients().entries()).map(([name, clientInfo]) => ({
+        name,
+        status: clientInfo.status,
+        authorizationUrl: clientInfo.authorizationUrl,
+        oauthStartTime: clientInfo.oauthStartTime,
+        lastError: clientInfo.lastError?.message,
+        lastConnected: clientInfo.lastConnected,
+        requiresOAuth: requiresBackendOAuth(clientInfo),
+      }));
+
+      return {
+        status: 'ready',
+        services,
+      };
+    },
   };
 }
 
@@ -423,4 +471,8 @@ async function initiateBackendOAuth(
 
 function isOAuthRequiredError(error: unknown): boolean {
   return error instanceof Error && error.name === 'OAuthRequiredError';
+}
+
+function requiresBackendOAuth(clientInfo: OAuthBackendClientInfoForFlow): boolean {
+  return Boolean(clientInfo.authorizationUrl || clientInfo.oauthStartTime || clientInfo.status === 'awaiting_oauth');
 }

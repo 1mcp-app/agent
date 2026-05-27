@@ -77,6 +77,7 @@ describe('OAuth Routes', () => {
         startBackendOAuth: vi.fn(),
         restartBackendOAuth: vi.fn(),
         completeBackendOAuthCallback: vi.fn(),
+        getBackendOAuthDashboard: vi.fn(),
       },
       oauthStorage: {
         getAuthorizationRequest: vi.fn(),
@@ -187,8 +188,10 @@ describe('OAuth Routes', () => {
 
   describe('Dashboard Rendering', () => {
     it('should handle empty services list', async () => {
-      const { ServerManager } = await import('@src/core/server/serverManager.js');
-      vi.mocked(ServerManager.current.getClients).mockReturnValue(new Map());
+      mockOAuthProvider.oauthFlow.getBackendOAuthDashboard.mockReturnValue({
+        status: 'ready',
+        services: [],
+      });
 
       const router = createOAuthRoutes(mockOAuthProvider);
       const dashboardRoute = router.stack.find((layer: any) => layer.route?.path === '/' && layer.route?.methods?.get);
@@ -197,34 +200,27 @@ describe('OAuth Routes', () => {
 
       expect(mockResponse.setHeader).toHaveBeenCalledWith('Content-Type', 'text/html');
       expect(mockResponse.send).toHaveBeenCalled();
+      expect(mockOAuthProvider.oauthFlow.getBackendOAuthDashboard).toHaveBeenCalledWith();
     });
 
     it('should handle services with different statuses', async () => {
-      const { ServerManager } = await import('@src/core/server/serverManager.js');
-      const mockClients = new Map([
-        [
-          'connected-service',
+      mockOAuthProvider.oauthFlow.getBackendOAuthDashboard.mockReturnValue({
+        status: 'ready',
+        services: [
           {
             name: 'connected-service',
-            transport: {} as any,
-            client: {} as any,
             status: ClientStatus.Connected,
             lastConnected: new Date(),
+            requiresOAuth: false,
           },
-        ],
-        [
-          'awaiting-service',
           {
             name: 'awaiting-service',
-            transport: {} as any,
-            client: {} as any,
             status: ClientStatus.AwaitingOAuth,
             authorizationUrl: 'https://example.com/auth',
+            requiresOAuth: true,
           },
         ],
-      ]);
-
-      vi.mocked(ServerManager.current.getClients).mockReturnValue(mockClients);
+      });
 
       const router = createOAuthRoutes(mockOAuthProvider);
       const dashboardRoute = router.stack.find((layer: any) => layer.route?.path === '/' && layer.route?.methods?.get);
@@ -235,6 +231,21 @@ describe('OAuth Routes', () => {
       const htmlContent = mockResponse.send.mock.calls[0][0];
       expect(htmlContent).toContain('connected-service');
       expect(htmlContent).toContain('awaiting-service');
+    });
+
+    it('should map unavailable dashboard runtime to an error response', async () => {
+      mockOAuthProvider.oauthFlow.getBackendOAuthDashboard.mockReturnValue({
+        status: 'runtime_unavailable',
+        errorDescription: 'Backend OAuth runtime is unavailable',
+      });
+
+      const router = createOAuthRoutes(mockOAuthProvider);
+      const dashboardRoute = router.stack.find((layer: any) => layer.route?.path === '/' && layer.route?.methods?.get);
+
+      await dashboardRoute?.route?.stack[0].handle(mockRequest, mockResponse);
+
+      expect(mockResponse.status).toHaveBeenCalledWith(500);
+      expect(mockResponse.json).toHaveBeenCalledWith({ error: 'Backend OAuth runtime is unavailable' });
     });
   });
 
