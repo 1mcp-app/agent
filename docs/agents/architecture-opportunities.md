@@ -4,18 +4,18 @@ This note records the architecture review from 2026-05-08. It is an agent-facing
 
 ## Current Codebase Status
 
-Last checked against the working tree on 2026-05-25.
+Last checked against the working tree on 2026-05-27.
 
 - Milestone 1 is implemented: `templateIdentity.ts` and `requestContextPreparation.ts` exist, with targeted inspect and REST tool routes using the shared preparation path.
 - Milestone 2 first slice is implemented: `filterSelection.ts` and `capabilityCatalog.ts` exist, `MetaToolProvider`, `/api/tools`, and `/api/tool-invocations` use the catalog/selection seams, and `serve` consumes yargs/env-parsed preset input. The catalog's refresh facts are still placeholder `never` facts, so direct MCP handler, notification, and broader refresh-policy migration remain second-slice work.
 - Milestone 3 first slice is implemented: `config-change/configChange.ts` and `installation/serverInstallationWorkflow.ts` exist, `mcp uninstall` and internal remove/uninstall use **Config Change**, and `mcp install` plus `mcp_install` use **Server Installation Workflow**.
 - Milestone 4 first slice is implemented: `streamableSessionLifecycle.ts` owns Streamable HTTP creation, lookup, restoration, initialize recovery, and cleanup. `sessionService.ts` remains only as a deprecated compatibility wrapper over the lifecycle module.
 - Milestone 5 is implemented for `run`, `inspect`, and `proxy`: `clientSurfaceAttachment.ts` owns shared attach-only runtime discovery, auth-profile lookup, **Request Context** construction, context hash, reusable-session cache behavior for `run`/`inspect`, REST/MCP fallback classification, stale-session retry, and fresh-session attachment for `proxy`. `instructions` remains deferred until **Instructions Distribution** is settled.
-- Milestone 6 first slice is implemented: `oauthAuthorizationFlow.ts` owns consent submission and localhost CLI-token creation. HTTP routes now delegate those storage mutations through structured flow operations. Backend OAuth dashboard/start/restart/callback handling and `instructionsDistribution.ts` remain deferred.
+- Milestone 6 OAuth slices are partially implemented: `oauthAuthorizationFlow.ts` owns consent submission, localhost CLI-token creation, backend OAuth start/restart, and backend OAuth callback completion/loading-ready notification. HTTP routes now delegate those state mutations through structured flow operations while retaining dashboard HTML rendering and transport response mapping. Backend OAuth dashboard fact shaping and `instructionsDistribution.ts` remain deferred.
 
 ## Next Execution Target
 
-Continue Milestone 6 by adding the next **OAuth Authorization Flow** slice for backend OAuth dashboard/start/restart/callback operations, or begin **Instructions Distribution** in `src/core/instructions/instructionsDistribution.ts`. Consent submission and localhost CLI-token creation already live behind `src/auth/oauthAuthorizationFlow.ts`.
+Continue Milestone 6 by adding the next **OAuth Authorization Flow** slice for backend OAuth dashboard fact shaping, or begin **Instructions Distribution** in `src/core/instructions/instructionsDistribution.ts`. Consent submission, localhost CLI-token creation, backend OAuth start/restart, and callback completion already live behind `src/auth/oauthAuthorizationFlow.ts`.
 
 ## Milestone Plan
 
