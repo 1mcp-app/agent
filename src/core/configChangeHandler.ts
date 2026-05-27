@@ -318,6 +318,8 @@ export class ConfigChangeHandler {
       const { AgentConfigManager } = await import('@src/core/server/agentConfig.js');
       const { NotificationManager } = await import('@src/core/notifications/notificationManager.js');
       const { CapabilityAggregator } = await import('@src/core/capabilities/capabilityAggregator.js');
+      const { createCapabilityNotificationFacts } =
+        await import('@src/core/capabilities/capabilityNotificationFacts.js');
 
       const agentConfig = AgentConfigManager.getInstance();
       if (!agentConfig.get('features').clientNotifications) {
@@ -331,14 +333,15 @@ export class ConfigChangeHandler {
       // Calculate new capabilities
       const capabilityAggregator = new CapabilityAggregator(outboundConnections);
       const changes = await capabilityAggregator.updateCapabilities();
+      const notificationFacts = createCapabilityNotificationFacts(changes);
 
       if (changes.hasChanges) {
         debugIf(() => ({
           message: 'Sending listChanged notifications to clients',
           meta: {
-            toolsChanged: changes.current.tools.length > 0,
-            resourcesChanged: changes.current.resources.length > 0,
-            promptsChanged: changes.current.prompts.length > 0,
+            toolsChanged: notificationFacts.refresh.shouldNotifyListChanged,
+            resourcesChanged: notificationFacts.resourcesChanged,
+            promptsChanged: notificationFacts.promptsChanged,
           },
         }));
 
@@ -347,9 +350,9 @@ export class ConfigChangeHandler {
           try {
             const notificationManager = new NotificationManager(inboundConnection);
             notificationManager.handleCapabilityChanges({
-              toolsChanged: changes.current.tools.length > 0,
-              resourcesChanged: changes.current.resources.length > 0,
-              promptsChanged: changes.current.prompts.length > 0,
+              toolsChanged: notificationFacts.refresh.shouldNotifyListChanged,
+              resourcesChanged: notificationFacts.resourcesChanged,
+              promptsChanged: notificationFacts.promptsChanged,
               hasChanges: true,
               addedServers: changes.addedServers,
               removedServers: changes.removedServers,

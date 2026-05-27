@@ -142,20 +142,26 @@ export class ServerInstallationAdapter implements InstallationAdapter {
     }));
 
     try {
-      // Convert adapter options to domain service options
-      const domainOptions: UninstallOptions = {
-        force: options.force || false,
-        backup: options.backup || false,
-      };
+      if (options.removeAll) {
+        const result: {
+          success: boolean;
+          serverName: string;
+          removedAt: Date;
+          backupPath?: string;
+          configRemoved: boolean;
+          warnings: string[];
+          errors: string[];
+          operationId: string;
+        } = {
+          success: true,
+          serverName,
+          removedAt: new Date(),
+          configRemoved: false,
+          warnings: [] as string[],
+          errors: [] as string[],
+          operationId: `uninstall_${Date.now()}`,
+        };
 
-      const result = await this.installationService.uninstallServer(serverName, domainOptions);
-
-      if (!result) {
-        throw new Error('Uninstallation service returned undefined result');
-      }
-
-      // If removeAll is specified, remove server from configuration
-      if (result.success && options.removeAll) {
         try {
           const configChange = await createConfigChangeService().removeConfiguredServerTarget({
             targetName: serverName,
@@ -179,6 +185,20 @@ export class ServerInstallationAdapter implements InstallationAdapter {
           logger.warn('Failed to remove server from configuration', { error: errorMessage, serverName });
           result.warnings.push(`Failed to remove from configuration: ${errorMessage}`);
         }
+
+        return result;
+      }
+
+      // Convert adapter options to domain service options
+      const domainOptions: UninstallOptions = {
+        force: options.force || false,
+        backup: options.backup || false,
+      };
+
+      const result = await this.installationService.uninstallServer(serverName, domainOptions);
+
+      if (!result) {
+        throw new Error('Uninstallation service returned undefined result');
       }
 
       return result;

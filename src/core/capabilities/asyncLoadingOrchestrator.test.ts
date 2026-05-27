@@ -238,6 +238,45 @@ describe('AsyncLoadingOrchestrator', () => {
       expect(spy).toHaveBeenCalled();
     });
 
+    it('should return refresh facts for catalog notification decisions', async () => {
+      const mockAggregator = orchestrator.getCapabilityAggregator();
+      vi.spyOn(mockAggregator, 'updateCapabilities').mockResolvedValue({
+        hasChanges: true,
+        toolsChanged: true,
+        resourcesChanged: false,
+        promptsChanged: false,
+        addedServers: ['filesystem'],
+        removedServers: [],
+        previous: {
+          tools: [],
+          resources: [],
+          prompts: [],
+          readyServers: [],
+          timestamp: new Date(),
+        },
+        current: {
+          tools: [
+            {
+              name: 'read_file',
+              description: 'Read file',
+              inputSchema: { type: 'object', properties: {}, required: [] },
+            },
+          ],
+          resources: [],
+          prompts: [],
+          readyServers: ['filesystem'],
+          timestamp: new Date(),
+        },
+      });
+
+      const facts = await orchestrator.refreshCapabilities();
+
+      expect(facts).toEqual({
+        changed: true,
+        shouldNotifyListChanged: true,
+      });
+    });
+
     it('should not refresh when not initialized', async () => {
       const orchestrator2 = new AsyncLoadingOrchestrator(mockConnections, mockServerManager, mockLoadingManager);
 

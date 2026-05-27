@@ -27,12 +27,15 @@ import {
 
 import { McpConfigManager } from '@src/config/mcpConfigManager.js';
 import { MCP_URI_SEPARATOR } from '@src/constants.js';
+import { CapabilityCatalog } from '@src/core/capabilities/capabilityCatalog.js';
 import { InternalCapabilitiesProvider } from '@src/core/capabilities/internalCapabilitiesProvider.js';
 import { LazyLoadingOrchestrator } from '@src/core/capabilities/lazyLoadingOrchestrator.js';
+import { SchemaCache } from '@src/core/capabilities/schemaCache.js';
+import { ToolRegistry } from '@src/core/capabilities/toolRegistry.js';
 import { byCapabilities } from '@src/core/filtering/clientFiltering.js';
 import { FilteringService } from '@src/core/filtering/filteringService.js';
 import { createConnectionResolver } from '@src/core/server/connectionResolver.js';
-import { filterDisabledTools, getDisabledToolError } from '@src/core/server/disabledTools.js';
+import { getDisabledToolError } from '@src/core/server/disabledTools.js';
 import { ServerManager } from '@src/core/server/serverManager.js';
 import { ClientStatus, InboundConnection, OutboundConnection, OutboundConnections } from '@src/core/types/index.js';
 import type { MCPServerParams } from '@src/core/types/transport.js';
@@ -50,6 +53,37 @@ import { handlePagination } from '@src/utils/ui/pagination.js';
  */
 function getRequestSession(inboundConn: InboundConnection): string | undefined {
   return inboundConn.context?.sessionId;
+}
+
+async function createCapabilityCatalogFromConnections(
+  connections: OutboundConnections,
+  getServerConfigs: () => Record<string, MCPServerParams>,
+): Promise<CapabilityCatalog> {
+  const toolsByServer = new Map<string, Awaited<ReturnType<OutboundConnection['client']['listTools']>>['tools']>();
+  const tagsByServer = new Map<string, string[]>();
+
+  for (const [connectionKey, connection] of connections) {
+    if (connection.status !== ClientStatus.Connected) continue;
+    const serverName = connection.name || (connectionKey.includes(':') ? connectionKey.split(':')[0] : connectionKey);
+    const result = await connection.client.listTools();
+    toolsByServer.set(serverName, result.tools ?? []);
+    tagsByServer.set(
+      serverName,
+      Array.isArray((connection.transport as { tags?: unknown }).tags)
+        ? ((connection.transport as { tags?: unknown }).tags as unknown[]).filter(
+            (tag): tag is string => typeof tag === 'string',
+          )
+        : [],
+    );
+  }
+
+  return new CapabilityCatalog({
+    getToolRegistry: () => ToolRegistry.fromToolsMap(toolsByServer, tagsByServer),
+    schemaCache: new SchemaCache({ maxEntries: 100 }),
+    outboundConnections: connections,
+    getServerConfigs,
+    templateHashProvider: ServerManager.current.getTemplateServerManager(),
+  });
 }
 
 /**
@@ -443,18 +477,8 @@ function registerToolHandlers(
       const capabilityFilteredClients = byCapabilities({ tools: {} })(sessionFilteredConns);
       const filteredClients = FilteringService.getFilteredConnections(capabilityFilteredClients, inboundConn);
 
-      // Get tools from external MCP servers
-      const result = await handlePagination(
-        filteredClients,
-        request.params || {},
-        (client, params, opts) => client.listTools(params as ListToolsRequest['params'], opts),
-        (outboundConn, result) =>
-          filterDisabledTools(result.tools || [], getServerConfigs(), outboundConn.name).map((tool) => ({
-            ...tool,
-            name: buildUri(outboundConn.name, tool.name, MCP_URI_SEPARATOR),
-          })) ?? [],
-        inboundConn.enablePagination ?? false,
-      );
+      const catalog = await createCapabilityCatalogFromConnections(filteredClients, getServerConfigs);
+      const result = await catalog.listVisibleTools(request.params || {}, sessionId);
 
       // Get internal tools if enabled
       const internalProvider = InternalCapabilitiesProvider.getInstance();
@@ -468,7 +492,11 @@ function registerToolHandlers(
       }));
 
       // Combine external and internal tools
-      const allTools = [...result.items, ...internalToolsWithPrefix];
+      const externalTools = result.tools.map((tool) => ({
+        ...tool,
+        name: buildUri(tool.server, tool.name, MCP_URI_SEPARATOR),
+      }));
+      const allTools = [...externalTools, ...internalToolsWithPrefix];
 
       return {
         tools: allTools,

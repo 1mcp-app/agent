@@ -286,7 +286,7 @@ export class MetaToolProvider {
     allowedServers?: Set<string>,
   ): Promise<ListToolsResult> {
     try {
-      const result = this.capabilityCatalog.listVisibleTools(args, undefined, allowedServers);
+      const result = await this.capabilityCatalog.listVisibleTools(args, undefined, allowedServers);
 
       // Format tools for response
       const tools = result.tools.map((tool: ToolMetadata) => ({

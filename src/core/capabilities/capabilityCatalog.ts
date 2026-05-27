@@ -14,12 +14,27 @@ export interface CapabilityAccessError {
 }
 
 export type CapabilityRefreshIntent = 'never' | 'ifStale' | 'force';
+export type CapabilityRefreshReason = 'list' | 'describe' | 'invoke';
 
 export interface CapabilityRefreshFacts {
   intent: CapabilityRefreshIntent;
   refreshed: boolean;
   changed: boolean;
   shouldNotifyListChanged: boolean;
+}
+
+export interface CapabilityRefreshInput {
+  intent: Exclude<CapabilityRefreshIntent, 'never'>;
+  reason: CapabilityRefreshReason;
+}
+
+export interface CapabilityRefreshResult {
+  changed?: boolean;
+  shouldNotifyListChanged?: boolean;
+}
+
+export interface CapabilityCatalogQueryOptions {
+  refreshIntent?: CapabilityRefreshIntent;
 }
 
 export interface CapabilityRoute {
@@ -43,6 +58,7 @@ export interface CapabilityCatalogDependencies {
   outboundConnections: OutboundConnections;
   getServerConfigs: () => Record<string, MCPServerParams>;
   loadSchema?: (server: string, toolName: string) => Promise<Tool>;
+  refreshCapabilities?: (input: CapabilityRefreshInput) => Promise<CapabilityRefreshResult | void>;
   defaultAllowedServers?: Set<string>;
   templateHashProvider?: TemplateHashProvider;
 }
@@ -78,11 +94,13 @@ export class CapabilityCatalog {
     this.connectionResolver = new ConnectionResolver(deps.outboundConnections, deps.templateHashProvider);
   }
 
-  public listVisibleTools(
+  public async listVisibleTools(
     options: ListToolsOptions = {},
     sessionId?: string,
     allowedServers?: Set<string>,
-  ): VisibleToolListResult {
+    queryOptions: CapabilityCatalogQueryOptions = {},
+  ): Promise<VisibleToolListResult> {
+    const refresh = await this.resolveRefreshFacts(queryOptions.refreshIntent ?? 'never', 'list');
     const registry = this.visibleToolRegistry(allowedServers);
     const result = registry.listTools(options);
     const tools = result.tools;
@@ -96,7 +114,7 @@ export class CapabilityCatalog {
       tools,
       servers,
       routes,
-      refresh: NEVER_REFRESH,
+      refresh,
     };
   }
 
@@ -104,16 +122,18 @@ export class CapabilityCatalog {
     args: { server?: string; toolName?: string },
     sessionId?: string,
     allowedServers?: Set<string>,
+    queryOptions: CapabilityCatalogQueryOptions = {},
   ): Promise<DescribeVisibleToolResult> {
+    const refresh = await this.resolveRefreshFacts(queryOptions.refreshIntent ?? 'never', 'describe');
     const access = this.resolveVisibleToolAccess(args, sessionId, allowedServers);
     if (access.error) {
-      return { schema: {}, error: access.error, refresh: NEVER_REFRESH };
+      return { schema: {}, error: access.error, refresh };
     }
 
     const { route } = access;
     const cached = this.deps.schemaCache.getIfCached(route.connectionKey, route.toolName);
     if (cached) {
-      return { schema: cached, fromCache: true, route, refresh: NEVER_REFRESH };
+      return { schema: cached, fromCache: true, route, refresh };
     }
 
     if (!this.deps.loadSchema) {
@@ -124,13 +144,13 @@ export class CapabilityCatalog {
           message:
             'Tool schema not loaded and no SchemaLoader available. Please use the tool invocation flow to load schema on first use.',
         },
-        refresh: NEVER_REFRESH,
+        refresh,
       };
     }
 
     try {
       const tool = await this.deps.schemaCache.getOrLoad(route.connectionKey, route.toolName, this.deps.loadSchema);
-      return { schema: tool, fromCache: false, route, refresh: NEVER_REFRESH };
+      return { schema: tool, fromCache: false, route, refresh };
     } catch (error) {
       return {
         schema: {},
@@ -138,7 +158,7 @@ export class CapabilityCatalog {
           type: 'upstream',
           message: `Failed to load schema from server: ${error}`,
         },
-        refresh: NEVER_REFRESH,
+        refresh,
       };
     }
   }
@@ -147,7 +167,9 @@ export class CapabilityCatalog {
     args: { server?: string; toolName?: string; args: unknown },
     sessionId?: string,
     allowedServers?: Set<string>,
+    queryOptions: CapabilityCatalogQueryOptions = {},
   ): Promise<InvokeVisibleToolResult> {
+    const refresh = await this.resolveRefreshFacts(queryOptions.refreshIntent ?? 'never', 'invoke');
     const access = this.resolveVisibleToolAccess(args, sessionId, allowedServers);
     if (access.error) {
       return {
@@ -155,7 +177,7 @@ export class CapabilityCatalog {
         server: args.server ?? '',
         tool: args.toolName ?? '',
         error: access.error,
-        refresh: NEVER_REFRESH,
+        refresh,
       };
     }
 
@@ -171,7 +193,7 @@ export class CapabilityCatalog {
           type: 'upstream',
           message: `Server not connected: ${route.server}`,
         },
-        refresh: NEVER_REFRESH,
+        refresh,
       };
     }
 
@@ -180,7 +202,7 @@ export class CapabilityCatalog {
         name: route.toolName,
         arguments: args.args as Record<string, unknown>,
       });
-      return { result, server: route.server, tool: route.toolName, route, refresh: NEVER_REFRESH };
+      return { result, server: route.server, tool: route.toolName, route, refresh };
     } catch (error) {
       if (error instanceof Error && error.message.includes('not found')) {
         return {
@@ -192,7 +214,7 @@ export class CapabilityCatalog {
             type: 'not_found',
             message: `Tool not found: ${route.server}:${route.toolName}`,
           },
-          refresh: NEVER_REFRESH,
+          refresh,
         };
       }
 
@@ -205,9 +227,35 @@ export class CapabilityCatalog {
           type: 'upstream',
           message: `Server Error: ${error}. This is an upstream server issue - please report it.`,
         },
-        refresh: NEVER_REFRESH,
+        refresh,
       };
     }
+  }
+
+  private async resolveRefreshFacts(
+    intent: CapabilityRefreshIntent,
+    reason: CapabilityRefreshReason,
+  ): Promise<CapabilityRefreshFacts> {
+    if (intent === 'never') {
+      return NEVER_REFRESH;
+    }
+
+    if (!this.deps.refreshCapabilities) {
+      return {
+        intent,
+        refreshed: false,
+        changed: false,
+        shouldNotifyListChanged: false,
+      };
+    }
+
+    const result = await this.deps.refreshCapabilities({ intent, reason });
+    return {
+      intent,
+      refreshed: true,
+      changed: result?.changed ?? false,
+      shouldNotifyListChanged: result?.shouldNotifyListChanged ?? false,
+    };
   }
 
   private visibleToolRegistry(allowedServers?: Set<string>): ToolRegistry {

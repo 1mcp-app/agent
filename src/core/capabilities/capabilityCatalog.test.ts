@@ -57,7 +57,7 @@ describe('CapabilityCatalog', () => {
     ]);
   });
 
-  function createCatalog(templateHashProvider?: TemplateHashProvider) {
+  function createCatalog(templateHashProvider?: TemplateHashProvider, overrides: Record<string, unknown> = {}) {
     return new CapabilityCatalog({
       getToolRegistry: () => registry,
       schemaCache,
@@ -70,11 +70,12 @@ describe('CapabilityCatalog', () => {
         } as any,
       }),
       templateHashProvider,
-    });
+      ...overrides,
+    } as any);
   }
 
-  it('lists visible tools with disabled tools omitted and clean public server names', () => {
-    const result = createCatalog().listVisibleTools({});
+  it('lists visible tools with disabled tools omitted and clean public server names', async () => {
+    const result = await createCatalog().listVisibleTools({});
 
     expect(result.tools.map((tool) => `${tool.server}/${tool.name}`).sort()).toEqual([
       'filesystem/read_file',
@@ -131,10 +132,34 @@ describe('CapabilityCatalog', () => {
     expect(mockClient.callTool).not.toHaveBeenCalled();
   });
 
-  it('filters visibility by allowed server set', () => {
-    const result = createCatalog().listVisibleTools({}, undefined, new Set(['filesystem']));
+  it('filters visibility by allowed server set', async () => {
+    const result = await createCatalog().listVisibleTools({}, undefined, new Set(['filesystem']));
 
     expect(result.tools.map((tool) => tool.server)).toEqual(['filesystem']);
     expect(result.routes.map((route) => route.connectionKey)).toEqual(['filesystem']);
+  });
+
+  it('refreshes capabilities before listing when force refresh is requested', async () => {
+    registry = ToolRegistry.fromToolsMap(new Map(), new Map());
+    const refreshCapabilities = vi.fn(async () => {
+      registry = ToolRegistry.fromToolsMap(
+        new Map([['filesystem', [{ name: 'read_file', description: 'Read file', inputSchema: { type: 'object' } }]]]),
+        new Map([['filesystem', ['fs']]]),
+      );
+      return { changed: true, shouldNotifyListChanged: true };
+    });
+
+    const result = await createCatalog(undefined, { refreshCapabilities }).listVisibleTools({}, undefined, undefined, {
+      refreshIntent: 'force',
+    });
+
+    expect(refreshCapabilities).toHaveBeenCalledWith({ intent: 'force', reason: 'list' });
+    expect(result.tools.map((tool) => `${tool.server}/${tool.name}`)).toEqual(['filesystem/read_file']);
+    expect(result.refresh).toEqual({
+      intent: 'force',
+      refreshed: true,
+      changed: true,
+      shouldNotifyListChanged: true,
+    });
   });
 });

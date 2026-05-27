@@ -9,13 +9,43 @@ Last checked against the working tree on 2026-05-27.
 - Milestone 1 is implemented: `templateIdentity.ts` and `requestContextPreparation.ts` exist, with targeted inspect and REST tool routes using the shared preparation path.
 - Milestone 2 first slice is implemented: `filterSelection.ts` and `capabilityCatalog.ts` exist, `MetaToolProvider`, `/api/tools`, and `/api/tool-invocations` use the catalog/selection seams, and `serve` consumes yargs/env-parsed preset input. The catalog's refresh facts are still placeholder `never` facts, so direct MCP handler, notification, and broader refresh-policy migration remain second-slice work.
 - Milestone 3 first slice is implemented: `config-change/configChange.ts` and `installation/serverInstallationWorkflow.ts` exist, `mcp uninstall` and internal remove/uninstall use **Config Change**, and `mcp install` plus `mcp_install` use **Server Installation Workflow**.
-- Milestone 4 first slice is implemented: `streamableSessionLifecycle.ts` owns Streamable HTTP creation, lookup, restoration, initialize recovery, and cleanup. `sessionService.ts` remains only as a deprecated compatibility wrapper over the lifecycle module.
+- Milestone 4 is implemented: `streamableSessionLifecycle.ts` owns Streamable HTTP creation, lookup, restoration, initialize recovery, and cleanup. The deprecated `sessionService.ts` compatibility wrapper has been removed.
 - Milestone 5 is implemented for `run`, `inspect`, `instructions`, and `proxy`: `clientSurfaceAttachment.ts` owns shared attach-only runtime discovery, auth-profile lookup, **Request Context** construction, context hash, reusable-session cache behavior for `run`/`inspect`/`instructions`, REST/MCP fallback classification, stale-session retry, and fresh-session attachment for `proxy`.
 - Milestone 6 is complete: `oauthAuthorizationFlow.ts` owns consent approval/denial, localhost CLI-token creation, backend OAuth dashboard fact shaping, backend OAuth start/restart, and backend OAuth callback completion/loading-ready notification. HTTP routes delegate OAuth consent, authorization, restart, callback, and CLI-token decisions through structured flow operations while retaining consent/dashboard HTML rendering and HTTP response mapping. `instructionsDistribution.ts` owns eager-inspection policy, instruction detail collection/assembly, managed startup-doc content, startup-reference rendering, and legacy managed-reference cleanup. `instructions` uses its own reusable **Client Surface Attachment** identity while delegating distribution policy; `cli-setup` delegates managed-doc and startup-reference policy while retaining hooks, path resolution, JSON merging, and file writes.
 
 ## Next Execution Target
 
-Milestone 6 is complete. Next execution target: resume the milestone plan at the next incomplete milestone after OAuth and Instructions Distribution, or re-audit Milestones 1-6 if the roadmap needs a completion pass before starting new architecture work.
+Milestone 6 is complete. Next execution target: work through the remaining todo list below, starting with a completion audit of Milestones 1-6 before opening new architecture milestones.
+
+## Remaining Todo List
+
+These items are the known follow-ups after the Milestone 1-6 roadmap. They should be resolved before declaring the architecture deepening pass fully closed.
+
+- [x] Audit Milestones 1-6 against the current working tree and record whether each milestone is fully closed, first-slice complete, or still carrying compatibility debt.
+- [x] Complete the Milestone 2 second slice for **Capability Catalog** refresh ownership: replace placeholder `never` refresh facts with real refresh intent handling where callers still sequence refresh manually.
+- [x] Move direct MCP protocol list/call handlers onto **Capability Catalog** where practical, preserving existing wire behavior.
+- [x] Migrate async server-loaded notifications and config-change notifications to use the catalog/visibility contract instead of bespoke capability routing.
+- [x] Decide whether `src/transport/http/utils/sessionService.ts` should remain as a long-term deprecated compatibility wrapper or be removed after all Streamable HTTP callers consume `streamableSessionLifecycle.ts` directly.
+- [x] Review compatibility facades left after Milestone 3, especially install/config-change paths, and shrink them if all migrated callers now depend on **Config Change** and **Server Installation Workflow** directly.
+- [x] Re-run the focused milestone verification set, then update this status block with exact commands and results.
+
+### Completion Audit Findings
+
+- Milestone 1 is closed for the planned slice: runtime identity and request-context preparation have dedicated modules and migrated REST/inspect callers.
+- Milestone 2 is first-slice complete, but remains open for second-slice **Capability Catalog** ownership of refresh facts, direct MCP protocol handlers, and capability-change notifications.
+- Milestone 3 is first-slice complete, with compatibility facade cleanup still pending around older install/config surfaces.
+- Milestone 4 is closed: production Streamable HTTP callers use `streamableSessionLifecycle.ts` directly, and the deprecated `sessionService.ts` wrapper has been removed.
+- Milestone 5 is closed for the planned `run`, `inspect`, `instructions`, and `proxy` attachment surfaces.
+- Milestone 6 is closed for OAuth Authorization Flow and Instructions Distribution.
+
+### Progress Notes
+
+- 2026-05-27: **Capability Catalog** now accepts an explicit refresh port and per-query refresh intent. HTTP `/api/tools` catalog listing requests catalog-owned `ifStale` refresh facts instead of relying only on downstream fallback behavior. Verified with `rtk pnpm exec vitest run src/core/capabilities/capabilityCatalog.test.ts src/core/capabilities/metaToolProvider.test.ts src/transport/http/routes/apiRoutes.test.ts` and `rtk pnpm exec tsc --noEmit --pretty false`.
+- 2026-05-27: Direct MCP `ListToolsRequest` handling now builds a **Capability Catalog** from filtered outbound connections, so disabled-tool visibility, template route resolution, and public URI shaping flow through the catalog path. Direct `CallToolRequest` already preserves catalog-equivalent disabled-tool enforcement and session-aware connection resolution; no broader call-path migration was practical without changing MCP timeout/error behavior. Verified with `rtk pnpm exec vitest run src/core/protocol/requestHandlers-disabledTools.test.ts src/core/protocol/requestHandlers.test.ts` and `rtk pnpm exec tsc --noEmit --pretty false`.
+- 2026-05-27: Async refresh now returns catalog-compatible notification facts, and config-change listChanged notification decisions use `createCapabilityNotificationFacts(...)` so tool notifications flow from catalog refresh/list visibility semantics while resource and prompt notifications stay on aggregator diffs. Verified with `rtk pnpm exec vitest run src/core/capabilities/capabilityNotificationFacts.test.ts src/core/capabilities/asyncLoadingOrchestrator.test.ts src/core/configChangeHandler.test.ts src/transport/http/routes/apiRoutes.test.ts` and `rtk pnpm exec tsc --noEmit --pretty false`.
+- 2026-05-27: Removed the deprecated `src/transport/http/utils/sessionService.ts` compatibility wrapper and its wrapper-only tests after confirming production Streamable HTTP routes already depend on `streamableSessionLifecycle.ts` directly. Verified with `rtk pnpm exec vitest run src/transport/http/streamableSessionLifecycle.test.ts src/transport/http/routes/streamableHttpRoutes.test.ts`.
+- 2026-05-27: Shrank the Milestone 3 compatibility facade by moving internal `uninstallServer(..., { removeAll: true })` directly to **Config Change**. `ServerInstallationService` remains only for list/update/check and non-remove-all uninstall compatibility that was outside the Milestone 3 install/config-change slice. Verified with `rtk pnpm exec vitest run src/core/tools/internal/adapters/installationAdapter.test.ts` and `rtk pnpm exec tsc --noEmit --pretty false`.
+- 2026-05-27: Final focused verification passed: `rtk pnpm exec vitest run src/core/capabilities/capabilityCatalog.test.ts src/core/capabilities/metaToolProvider.test.ts src/transport/http/routes/apiRoutes.test.ts src/core/protocol/requestHandlers-disabledTools.test.ts src/core/protocol/requestHandlers.test.ts src/core/capabilities/capabilityNotificationFacts.test.ts src/core/capabilities/asyncLoadingOrchestrator.test.ts src/core/configChangeHandler.test.ts src/transport/http/streamableSessionLifecycle.test.ts src/transport/http/routes/streamableHttpRoutes.test.ts src/core/tools/internal/adapters/installationAdapter.test.ts` passed 11 files / 238 tests, `rtk pnpm exec tsc --noEmit --pretty false` passed, and `rtk pnpm lint` passed.
 
 ## Milestone Plan
 

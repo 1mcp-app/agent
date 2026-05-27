@@ -130,7 +130,7 @@ export function createToolsHandler(serverManager: ServerManager): RequestHandler
       if (!lazyOrchestrator) {
         const cursor = typeof req.query.cursor === 'string' ? req.query.cursor : undefined;
         const catalog = await createFallbackCapabilityCatalog(serverManager);
-        const result = catalog.listVisibleTools(
+        const result = await catalog.listVisibleTools(
           {
             server,
             pattern,
@@ -158,9 +158,15 @@ export function createToolsHandler(serverManager: ServerManager): RequestHandler
           schemaCache: lazyOrchestrator.getSchemaCache(),
           outboundConnections: serverManager.getClients(),
           getServerConfigs,
+          refreshCapabilities: async () => {
+            const beforeSize = lazyOrchestrator.getToolRegistry().size();
+            await lazyOrchestrator.refreshCapabilities();
+            const afterSize = lazyOrchestrator.getToolRegistry().size();
+            return { changed: beforeSize !== afterSize, shouldNotifyListChanged: beforeSize !== afterSize };
+          },
           templateHashProvider: getTemplateHashProvider(serverManager),
         });
-        const catalogResult = catalog.listVisibleTools(
+        const catalogResult = await catalog.listVisibleTools(
           {
             server,
             pattern,
@@ -169,6 +175,7 @@ export function createToolsHandler(serverManager: ServerManager): RequestHandler
           },
           requestSessionId,
           allowedServers,
+          { refreshIntent: 'ifStale' },
         );
         if (catalogResult.tools.length > 0 || catalogResult.totalCount > 0) {
           res.json({

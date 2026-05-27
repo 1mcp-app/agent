@@ -211,16 +211,16 @@ describe('Installation Adapter', () => {
         removeAll: true,
       });
 
-      expect(result).toEqual({
-        ...mockResult,
+      expect(result).toMatchObject({
+        success: true,
+        serverName: 'test-server',
         configRemoved: true,
         backupPath: '/tmp/mcp.json.backup.123',
         warnings: ['retention cleanup warning'],
+        errors: [],
       });
-      expect(mockService.uninstallServer).toHaveBeenCalledWith('test-server', {
-        force: true,
-        backup: true,
-      });
+      expect(result.operationId).toMatch(/^uninstall_/);
+      expect(mockService.uninstallServer).not.toHaveBeenCalled();
 
       expect(mockRemoveConfiguredServerTarget).toHaveBeenCalledWith({
         targetName: 'test-server',
@@ -251,6 +251,7 @@ describe('Installation Adapter', () => {
         removeAll: true,
       });
 
+      expect(mockService.uninstallServer).not.toHaveBeenCalled();
       expect(mockRemoveConfiguredServerTarget).toHaveBeenCalledWith({
         targetName: 'test-server',
         operation: 'uninstall',
