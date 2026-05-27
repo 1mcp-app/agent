@@ -1,6 +1,10 @@
 import type { InspectCommandOptions } from '@src/commands/inspect/inspect.js';
 import { getInspectResult } from '@src/commands/inspect/inspect.js';
-import type { InspectServerInfo } from '@src/commands/inspect/inspectUtils.js';
+import type { InspectServerInfo, InspectServerSummary } from '@src/commands/inspect/inspectUtils.js';
+import {
+  assembleInstructionDetail,
+  shouldEagerlyInspectServer,
+} from '@src/core/instructions/instructionsDistribution.js';
 import type { GlobalOptions } from '@src/globalOptions.js';
 
 import { formatInstructionsOutput, type InstructionsServerDetail } from './instructionsUtils.js';
@@ -17,14 +21,6 @@ function toInspectOptions(options: InstructionsCommandOptions, target?: string):
   return { ...options, target };
 }
 
-function shouldEagerlyInspectServer(server: { type?: string; available?: boolean; status?: string }): boolean {
-  if (server.type === 'template') {
-    return true;
-  }
-
-  return server.available !== false && server.status !== 'disconnected';
-}
-
 export async function instructionsCommand(options: InstructionsCommandOptions): Promise<void> {
   const allServers = await getInspectResult(toInspectOptions(options), { includeServerInstructions: true });
   if (allServers.kind !== 'servers') {
@@ -35,17 +31,9 @@ export async function instructionsCommand(options: InstructionsCommandOptions): 
   const details: InstructionsServerDetail[] = [];
   for (const server of allServers.servers) {
     if (!shouldEagerlyInspectServer(server)) {
-      const instructions = serverInstructions[server.server];
-      details.push({
-        server: server.server,
-        type: server.type,
-        status: server.status,
-        available: server.available,
-        toolCount: server.toolCount,
-        hasInstructions: server.hasInstructions,
-        instructions,
-        note: '(unavailable: server is not currently connected)',
-      });
+      details.push(
+        assembleInstructionDetail({ summary: server, cachedInstructions: serverInstructions[server.server] }),
+      );
       continue;
     }
 
@@ -55,44 +43,14 @@ export async function instructionsCommand(options: InstructionsCommandOptions): 
       });
 
       if (detailResult.kind !== 'server') {
-        details.push({
-          server: server.server,
-          type: server.type,
-          status: server.status,
-          available: server.available,
-          toolCount: server.toolCount,
-          hasInstructions: server.hasInstructions,
-          instructions: null,
-          note: '(unavailable)',
-        });
+        details.push(assembleUnavailableDetail(server));
         continue;
       }
 
       const serverDetail = detailResult as InspectServerInfo;
-      details.push({
-        server: serverDetail.server,
-        type: serverDetail.type,
-        status: serverDetail.status,
-        available: serverDetail.available,
-        toolCount: serverDetail.totalTools ?? serverDetail.tools.length,
-        hasInstructions: Boolean(serverDetail.instructions?.trim()),
-        instructions: serverDetail.instructions,
-        note: serverDetail.instructions ? undefined : '(none provided)',
-      });
+      details.push(assembleInstructionDetail({ summary: server, inspected: serverDetail }));
     } catch {
-      details.push({
-        server: server.server,
-        type: server.type,
-        status: server.status,
-        available: server.available,
-        toolCount: server.toolCount,
-        hasInstructions: server.hasInstructions,
-        instructions: null,
-        note:
-          server.type === 'template'
-            ? '(unavailable: template server could not be initialized with the current context)'
-            : '(unavailable: server is not currently connected)',
-      });
+      details.push(assembleInstructionDetail({ summary: server, inspectFailed: true }));
     }
   }
 
@@ -104,4 +62,17 @@ export async function instructionsCommand(options: InstructionsCommandOptions): 
   if (output.length > 0) {
     process.stdout.write(`${output}\n`);
   }
+}
+
+function assembleUnavailableDetail(server: InspectServerSummary): InstructionsServerDetail {
+  return {
+    server: server.server,
+    type: server.type,
+    status: server.status,
+    available: server.available,
+    toolCount: server.toolCount,
+    hasInstructions: server.hasInstructions,
+    instructions: null,
+    note: '(unavailable)',
+  };
 }
