@@ -1,4 +1,5 @@
 import { SSEClientTransport } from '@modelcontextprotocol/sdk/client/sse.js';
+import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 
 import { SDKOAuthClientProvider } from '@src/auth/sdkOAuthClientProvider.js';
 import { MCPServerParams } from '@src/core/types/index.js';
@@ -52,6 +53,7 @@ vi.mock('@src/core/server/agentConfig.js', () => ({
         if (key === 'host') return 'localhost';
         if (key === 'port') return 3000;
         if (key === 'auth') return { sessionStoragePath: undefined };
+        if (key === 'features') return { envSubstitution: true };
         return undefined;
       }),
       getConfig: vi.fn().mockReturnValue({
@@ -60,6 +62,7 @@ vi.mock('@src/core/server/agentConfig.js', () => ({
       }),
       getUrl: vi.fn().mockReturnValue('http://localhost:3000'),
       getSessionStoragePath: vi.fn().mockReturnValue(undefined),
+      isEnvSubstitutionEnabled: vi.fn().mockReturnValue(true),
     }),
   },
 }));
@@ -183,6 +186,133 @@ describe('TransportFactory', () => {
       expect(logger.info).toHaveBeenCalledWith('Inferred transport type for http-inferred as http/streamableHttp');
     });
 
+    it('should substitute stdio args from the filtered inherited environment', () => {
+      process.env.CONTEXT7_API_KEY = 'context7-key';
+
+      const config: Record<string, MCPServerParams> = {
+        context7: {
+          type: 'stdio',
+          command: 'bunx',
+          args: ['@upstash/context7-mcp@latest', '--api-key', '$CONTEXT7_API_KEY'],
+          inheritParentEnv: true,
+          envFilter: ['CONTEXT7_API_KEY'],
+        },
+      };
+
+      (transportConfigSchema.parse as any).mockReturnValueOnce(config.context7);
+
+      createTransports(config);
+
+      expect(StdioClientTransport).toHaveBeenCalledWith(
+        expect.objectContaining({
+          command: 'bunx',
+          args: ['@upstash/context7-mcp@latest', '--api-key', 'context7-key'],
+          env: { CONTEXT7_API_KEY: 'context7-key' },
+        }),
+      );
+    });
+
+    it('should substitute stdio args when envFilter includes merged serverDefaults entries', () => {
+      process.env.CONTEXT7_API_KEY = 'context7-key';
+
+      const config: Record<string, MCPServerParams> = {
+        context7: {
+          type: 'stdio',
+          command: 'bunx',
+          args: ['@upstash/context7-mcp@latest', '--api-key', '${CONTEXT7_API_KEY}'],
+          inheritParentEnv: true,
+          envFilter: ['UV_*', 'https_proxy', 'HTTP_PROXY', 'no_proxy', 'CONTEXT7_API_KEY'],
+        },
+      };
+
+      (transportConfigSchema.parse as any).mockReturnValueOnce(config.context7);
+
+      createTransports(config);
+
+      expect(logger.warn).not.toHaveBeenCalledWith(
+        'Environment variable CONTEXT7_API_KEY not found, keeping placeholder: ${CONTEXT7_API_KEY}',
+      );
+      expect(StdioClientTransport).toHaveBeenCalledWith(
+        expect.objectContaining({
+          args: ['@upstash/context7-mcp@latest', '--api-key', 'context7-key'],
+          env: expect.objectContaining({ CONTEXT7_API_KEY: 'context7-key' }),
+        }),
+      );
+    });
+
+    it('should substitute custom stdio env from the filtered inherited environment', () => {
+      process.env.CONTEXT7_API_KEY = 'context7-key';
+
+      const config: Record<string, MCPServerParams> = {
+        context7: {
+          type: 'stdio',
+          command: 'bunx',
+          args: ['@upstash/context7-mcp@latest'],
+          inheritParentEnv: true,
+          envFilter: ['CONTEXT7_API_KEY'],
+          env: {
+            CONTEXT7_TOKEN_COPY: '${CONTEXT7_API_KEY}',
+          },
+        },
+      };
+
+      (transportConfigSchema.parse as any).mockReturnValueOnce(config.context7);
+
+      createTransports(config);
+
+      expect(StdioClientTransport).toHaveBeenCalledWith(
+        expect.objectContaining({
+          env: {
+            CONTEXT7_API_KEY: 'context7-key',
+            CONTEXT7_TOKEN_COPY: 'context7-key',
+          },
+        }),
+      );
+    });
+
+    it('should warn for missing stdio placeholders after environment filtering', () => {
+      delete process.env.CONTEXT7_API_KEY;
+
+      const config: Record<string, MCPServerParams> = {
+        context7: {
+          type: 'stdio',
+          command: 'bunx',
+          args: ['@upstash/context7-mcp@latest', '--api-key', '${CONTEXT7_API_KEY}'],
+          inheritParentEnv: true,
+          envFilter: ['CONTEXT7_API_KEY'],
+        },
+      };
+
+      (transportConfigSchema.parse as any).mockReturnValueOnce(config.context7);
+
+      createTransports(config);
+
+      const environmentProcessingLog = vi
+        .mocked(debugIf)
+        .mock.calls.map(([messageOrFactory]) =>
+          typeof messageOrFactory === 'function' ? messageOrFactory() : messageOrFactory,
+        )
+        .find(
+          (entry) =>
+            typeof entry === 'object' &&
+            entry !== null &&
+            'meta' in entry &&
+            typeof (entry as { meta?: { totalVariables?: unknown } }).meta?.totalVariables === 'number',
+        );
+      expect(
+        (environmentProcessingLog as { meta?: { totalVariables?: number } } | undefined)?.meta?.totalVariables,
+      ).toBe(0);
+      expect(logger.warn).toHaveBeenCalledWith(
+        'Environment variable CONTEXT7_API_KEY not found, keeping placeholder: ${CONTEXT7_API_KEY}',
+      );
+      expect(StdioClientTransport).toHaveBeenCalledWith(
+        expect.objectContaining({
+          args: ['@upstash/context7-mcp@latest', '--api-key', '${CONTEXT7_API_KEY}'],
+          env: {},
+        }),
+      );
+    });
+
     it('should create OAuth providers for HTTP-based transports', () => {
       const config: Record<string, MCPServerParams> = {
         'sse-server': {
@@ -225,6 +355,37 @@ describe('TransportFactory', () => {
 
       expect(transports['sse-server'].oauthProvider).toBeDefined();
       expect(transports['http-server'].oauthProvider).toBeDefined();
+    });
+
+    it('should substitute HTTP transport URL, headers, and OAuth values from process environment', () => {
+      process.env.HTTP_MCP_URL = 'http://localhost:3010/mcp';
+      process.env.HTTP_AUTH_TOKEN = 'secret-token';
+      process.env.HTTP_CLIENT_ID = 'client-id-from-env';
+
+      const config: Record<string, MCPServerParams> = {
+        'http-env-server': {
+          type: 'http',
+          url: '$HTTP_MCP_URL',
+          headers: {
+            Authorization: 'Bearer ${HTTP_AUTH_TOKEN}',
+          },
+          oauth: {
+            clientId: '$HTTP_CLIENT_ID',
+          },
+        },
+      };
+
+      (transportConfigSchema.parse as any).mockReturnValueOnce(config['http-env-server']);
+
+      createTransports(config);
+
+      expect(SDKOAuthClientProvider).toHaveBeenCalledWith(
+        'http-env-server',
+        expect.objectContaining({
+          clientId: 'client-id-from-env',
+        }),
+        undefined,
+      );
     });
 
     it('should handle validation errors', () => {

@@ -88,17 +88,31 @@ export class ConfigChangeHandler {
     }));
 
     switch (change.type) {
-      case ConfigChangeType.ADDED:
-        await this.handleServerAdded(change.serverName, newConfig[change.serverName]);
+      case ConfigChangeType.ADDED: {
+        const config = newConfig[change.serverName];
+        if (!config) {
+          logger.warn(`Skipping added server ${change.serverName}: server configuration is missing after reload`);
+          break;
+        }
+
+        await this.handleServerAdded(change.serverName, config);
         break;
+      }
 
       case ConfigChangeType.REMOVED:
         await this.handleServerRemoved(change.serverName);
         break;
 
-      case ConfigChangeType.MODIFIED:
-        await this.handleServerModified(change.serverName, newConfig[change.serverName], change.fieldsChanged);
+      case ConfigChangeType.MODIFIED: {
+        const config = newConfig[change.serverName];
+        if (!config) {
+          logger.warn(`Skipping modified server ${change.serverName}: server configuration is missing after reload`);
+          break;
+        }
+
+        await this.handleServerModified(change.serverName, config, change.fieldsChanged);
         break;
+      }
 
       default: {
         const _exhaustive: never = change;

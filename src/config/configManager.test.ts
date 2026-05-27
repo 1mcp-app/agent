@@ -94,6 +94,7 @@ describe('ConfigManager (Integration)', () => {
   let tempConfigDir: string;
   let configFilePath: string;
   let configManager: ConfigManager;
+  const originalContext7ApiKey = process.env.CONTEXT7_API_KEY;
 
   beforeEach(async () => {
     // Create temporary config directory
@@ -127,6 +128,12 @@ describe('ConfigManager (Integration)', () => {
   });
 
   afterEach(async () => {
+    if (originalContext7ApiKey === undefined) {
+      delete process.env.CONTEXT7_API_KEY;
+    } else {
+      process.env.CONTEXT7_API_KEY = originalContext7ApiKey;
+    }
+
     if (configManager) {
       await configManager.stop();
     }
@@ -265,6 +272,47 @@ describe('ConfigManager (Integration)', () => {
       expect(changes[0].serverName).toBe('test-server-1');
       expect(changes[0].fieldsChanged).toContain('args');
       expect(changes[0].fieldsChanged).toContain('tags');
+    });
+
+    it('should keep environment variable placeholders unresolved after reload', async () => {
+      process.env.CONTEXT7_API_KEY = 'reload-test-key';
+
+      const initialConfig = {
+        mcpServers: {
+          context7: {
+            command: 'bunx',
+            args: ['@upstash/context7-mcp@latest', '--api-key', '$CONTEXT7_API_KEY'],
+            tags: ['context7'],
+          },
+        },
+      };
+      await fsPromises.writeFile(configFilePath, JSON.stringify(initialConfig, null, 2));
+
+      (ConfigManager as any).instance = null;
+      configManager = ConfigManager.getInstance(configFilePath);
+      await configManager.initialize();
+      await configManager.stop();
+
+      const updatedConfig = {
+        mcpServers: {
+          context7: {
+            command: 'bunx',
+            args: ['@upstash/context7-mcp@latest', '--api-key', '$CONTEXT7_API_KEY', '--transport', 'stdio'],
+            tags: ['context7'],
+          },
+        },
+      };
+
+      await fsPromises.writeFile(configFilePath, JSON.stringify(updatedConfig, null, 2));
+      await configManager.reloadConfig();
+
+      expect(configManager.getTransportConfig().context7.args).toEqual([
+        '@upstash/context7-mcp@latest',
+        '--api-key',
+        '$CONTEXT7_API_KEY',
+        '--transport',
+        'stdio',
+      ]);
     });
 
     it('should emit specific events for server additions and removals', async () => {

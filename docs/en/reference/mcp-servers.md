@@ -110,6 +110,7 @@ Optional shared defaults inherited by all servers. Allowed keys:
 Merge behavior:
 
 - `env` object values merge with per-server env values (server keys override serverDefaults keys).
+- `envFilter` arrays merge with per-server entries appended after `serverDefaults` entries; duplicate patterns are kept only once.
 - `oauth` and `headers` are replaced by per-server values (not merged).
 - Primitive values (`timeout`, `connectionTimeout`, `requestTimeout`, `inheritParentEnv`) are inherited only when missing on the server.
 - Transport-specific exclusions apply: global `headers` are ignored for `stdio` transports, and global `inheritParentEnv` and `envFilter` are ignored for `http`, `sse`, and `streamableHttp` transports.

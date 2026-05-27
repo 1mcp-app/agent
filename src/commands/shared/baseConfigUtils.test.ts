@@ -266,6 +266,26 @@ describe('baseConfigUtils', () => {
     ).toContain('envFilter');
   });
 
+  it('reports merged envFilter when stdio server filters include global defaults', () => {
+    expect(
+      getInheritedKeys(
+        {
+          type: 'stdio',
+          command: 'node',
+          envFilter: ['CONTEXT7_API_KEY'],
+        },
+        {
+          type: 'stdio',
+          command: 'node',
+          envFilter: ['PATH', 'CONTEXT7_API_KEY'],
+        },
+        {
+          envFilter: ['PATH'],
+        },
+      ),
+    ).toContain('envFilter(merged)');
+  });
+
   it('resolves static-only names to mcpServers', async () => {
     await fsPromises.writeFile(
       configFilePath,

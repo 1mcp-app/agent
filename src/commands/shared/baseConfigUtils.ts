@@ -104,7 +104,7 @@ function loadSharedConfigState(configPath?: string): {
 
   try {
     const loader = createCommandConfigLoader(filePath);
-    const loadedConfig = loader.loadParsedConfig({ substituteEnv: false, includeAppConfig: false });
+    const loadedConfig = loader.loadParsedConfig({ includeAppConfig: false });
     const rawTemplates = normalizeRawServerConfigs(loadedConfig.processedConfig.mcpTemplates);
     const config = {
       ...loadedConfig.processedConfig,
@@ -679,6 +679,15 @@ export function getInheritedKeys(
     globalConfig.envFilter.length > 0
   ) {
     inherited.push('envFilter');
+  }
+
+  if (
+    Array.isArray(rawConfig.envFilter) &&
+    Array.isArray(effectiveConfig.envFilter) &&
+    Array.isArray(globalConfig.envFilter) &&
+    effectiveConfig.envFilter.some((pattern) => !rawConfig.envFilter?.includes(pattern))
+  ) {
+    inherited.push('envFilter(merged)');
   }
 
   if (

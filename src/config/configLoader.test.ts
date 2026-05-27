@@ -25,6 +25,21 @@ const mockAgentConfig = {
   }),
 };
 
+function resetMockAgentConfig(): void {
+  mockAgentConfig.get.mockImplementation((key: string) => {
+    const config = {
+      features: {
+        configReload: true,
+        envSubstitution: true,
+      },
+      configReload: {
+        debounceMs: 100,
+      },
+    };
+    return key.split('.').reduce((obj: any, k: string) => obj?.[k], config);
+  });
+}
+
 vi.mock('@src/core/server/agentConfig.js', () => ({
   AgentConfigManager: {
     getInstance: () => mockAgentConfig,
@@ -50,6 +65,7 @@ describe('ConfigLoader', () => {
       // Ignore cleanup errors
     }
     vi.clearAllMocks();
+    resetMockAgentConfig();
   });
 
   describe('loadRawConfig', () => {
@@ -113,7 +129,7 @@ describe('ConfigLoader', () => {
   });
 
   describe('loadConfigWithEnvSubstitution', () => {
-    it('should substitute environment variables when enabled', async () => {
+    it('should leave environment variables unresolved until transport environment processing', async () => {
       process.env.TEST_VAR = 'substituted-value';
 
       mockAgentConfig.get.mockImplementation((key: string) => {
@@ -138,7 +154,7 @@ describe('ConfigLoader', () => {
       const newLoader = new ConfigLoader(configFilePath);
       const config = newLoader.loadConfigWithEnvSubstitution();
 
-      expect(config['test-server'].command).toBe('substituted-value');
+      expect(config['test-server'].command).toBe('${TEST_VAR}');
 
       delete process.env.TEST_VAR;
 
@@ -147,6 +163,103 @@ describe('ConfigLoader', () => {
         features: { configReload: true, envSubstitution: true },
         configReload: { debounceMs: 100 },
       });
+    });
+
+    it('should not load variables from .env files during substitution', async () => {
+      delete process.env.CONTEXT7_API_KEY;
+      await fsPromises.writeFile(join(tempConfigDir, '.env'), 'CONTEXT7_API_KEY=dotenv-context7-key\n');
+
+      const configWithEnv = {
+        mcpServers: {
+          context7: {
+            command: 'bunx',
+            args: ['@upstash/context7-mcp@latest', '--api-key', '$CONTEXT7_API_KEY'],
+            tags: ['context7'],
+          },
+        },
+      };
+      await fsPromises.writeFile(configFilePath, JSON.stringify(configWithEnv, null, 2));
+
+      const newLoader = new ConfigLoader(configFilePath);
+      const config = newLoader.loadConfigWithEnvSubstitution();
+
+      expect(config.context7.args).toEqual(['@upstash/context7-mcp@latest', '--api-key', '$CONTEXT7_API_KEY']);
+
+      delete process.env.CONTEXT7_API_KEY;
+    });
+
+    it('should not warn for missing server placeholders before transport environment processing', async () => {
+      delete process.env.CONTEXT7_API_KEY;
+      const warnSpy = vi.spyOn(logger, 'warn').mockImplementation(() => logger);
+
+      const configWithEnv = {
+        serverDefaults: {
+          inheritParentEnv: true,
+        },
+        mcpServers: {
+          context7: {
+            command: 'bunx',
+            args: ['@upstash/context7-mcp@latest', '--api-key', '${CONTEXT7_API_KEY}'],
+            envFilter: ['CONTEXT7_API_KEY'],
+            tags: ['context7'],
+          },
+        },
+      };
+      await fsPromises.writeFile(configFilePath, JSON.stringify(configWithEnv, null, 2));
+
+      const newLoader = new ConfigLoader(configFilePath);
+      const config = newLoader.loadConfigWithEnvSubstitution();
+
+      expect(config.context7.args).toEqual(['@upstash/context7-mcp@latest', '--api-key', '${CONTEXT7_API_KEY}']);
+      expect(warnSpy).not.toHaveBeenCalledWith(
+        'Environment variable CONTEXT7_API_KEY not found, keeping placeholder: ${CONTEXT7_API_KEY}',
+      );
+
+      delete process.env.CONTEXT7_API_KEY;
+      warnSpy.mockRestore();
+    });
+
+    it('should allow HTTP URL placeholders during config loading without substituting values', async () => {
+      process.env.HTTP_MCP_URL = 'https://example.com/mcp';
+      process.env.HTTP_AUTH_TOKEN = 'token-from-env';
+
+      const configWithEnv = {
+        mcpServers: {
+          'http-server': {
+            type: 'http',
+            url: '$HTTP_MCP_URL',
+            headers: {
+              Authorization: 'Bearer ${HTTP_AUTH_TOKEN}',
+            },
+          },
+        },
+      };
+      await fsPromises.writeFile(configFilePath, JSON.stringify(configWithEnv, null, 2));
+
+      const newLoader = new ConfigLoader(configFilePath);
+      const config = newLoader.loadConfigWithEnvSubstitution();
+
+      expect(config['http-server'].url).toBe('$HTTP_MCP_URL');
+      expect(config['http-server'].headers).toEqual({ Authorization: 'Bearer ${HTTP_AUTH_TOKEN}' });
+
+      delete process.env.HTTP_MCP_URL;
+      delete process.env.HTTP_AUTH_TOKEN;
+    });
+
+    it('should allow inferred HTTP URL placeholders during config loading', async () => {
+      const configWithEnv = {
+        mcpServers: {
+          'http-server': {
+            url: '$HTTP_MCP_URL',
+          },
+        },
+      };
+      await fsPromises.writeFile(configFilePath, JSON.stringify(configWithEnv, null, 2));
+
+      const newLoader = new ConfigLoader(configFilePath);
+      const config = newLoader.loadConfigWithEnvSubstitution();
+
+      expect(config['http-server'].url).toBe('$HTTP_MCP_URL');
     });
 
     it('should not substitute environment variables when disabled', async () => {
@@ -233,6 +346,7 @@ describe('ConfigLoader', () => {
           'test-server': {
             type: 'stdio',
             command: 'node',
+            envFilter: ['TEST_VAR', 'PATH'],
             env: {
               SHARED: 'server',
             },
@@ -246,11 +360,32 @@ describe('ConfigLoader', () => {
       expect(config['test-server'].connectionTimeout).toBe(5000);
       expect(config['test-server'].requestTimeout).toBe(10000);
       expect(config['test-server'].inheritParentEnv).toBe(true);
-      expect(config['test-server'].envFilter).toEqual(['PATH', 'NODE_*']);
+      expect(config['test-server'].envFilter).toEqual(['PATH', 'NODE_*', 'TEST_VAR']);
       expect(config['test-server'].env).toEqual({
         SHARED: 'server',
         KEEP: 'global-only',
       });
+    });
+
+    it('should merge serverDefaults envFilter with server envFilter for stdio servers', async () => {
+      const configWithGlobal = {
+        serverDefaults: {
+          inheritParentEnv: true,
+          envFilter: ['UV_*', 'https_proxy', 'HTTP_PROXY', 'no_proxy'],
+        },
+        mcpServers: {
+          context7: {
+            command: 'bunx',
+            args: ['@upstash/context7-mcp@latest', '--api-key', '$CONTEXT7_API_KEY'],
+            envFilter: ['CONTEXT7_API_KEY', 'UV_*'],
+          },
+        },
+      };
+      await fsPromises.writeFile(configFilePath, JSON.stringify(configWithGlobal, null, 2));
+
+      const config = loader.loadConfigWithEnvSubstitution();
+
+      expect(config.context7.envFilter).toEqual(['UV_*', 'https_proxy', 'HTTP_PROXY', 'no_proxy', 'CONTEXT7_API_KEY']);
     });
 
     it('should allow envFilter in serverDefaults but ignore it for http servers', async () => {

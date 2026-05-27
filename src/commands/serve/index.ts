@@ -181,7 +181,7 @@ export const serverOptions = {
     type: 'number' as const,
   },
   'enable-env-substitution': {
-    describe: 'Enable environment variable substitution in config (${VAR_NAME} pattern)',
+    describe: 'Enable environment variable substitution in config (${VAR_NAME} and $VAR_NAME patterns)',
     type: 'boolean' as const,
     default: true,
   },

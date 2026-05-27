@@ -8,7 +8,7 @@ import {
 } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 
 import { OAuthClientConfig, SDKOAuthClientProvider } from '@src/auth/sdkOAuthClientProvider.js';
-import { processEnvironment } from '@src/config/envProcessor.js';
+import { processEnvironment, substituteEnvVars } from '@src/config/envProcessor.js';
 import { AUTH_CONFIG, MCP_SERVER_VERSION } from '@src/constants.js';
 import { AgentConfigManager } from '@src/core/server/agentConfig.js';
 import { AuthProviderTransport, transportConfigSchema } from '@src/core/types/index.js';
@@ -20,6 +20,8 @@ import type { ContextData } from '@src/types/context.js';
 import { z, ZodError } from 'zod';
 
 import { RestartableStdioTransport } from './restartableStdioTransport.js';
+
+type ValidatedTransport = z.infer<typeof transportConfigSchema>;
 
 /**
  * Infers transport type from configuration parameters
@@ -52,10 +54,7 @@ export function inferTransportType(params: MCPServerParams, name: string): MCPSe
 /**
  * Creates OAuth provider for HTTP-based transports
  */
-function createOAuthProvider(
-  name: string,
-  validatedTransport: z.infer<typeof transportConfigSchema>,
-): SDKOAuthClientProvider {
+function createOAuthProvider(name: string, validatedTransport: ValidatedTransport): SDKOAuthClientProvider {
   const configManager = AgentConfigManager.getInstance();
 
   const oauthConfig: OAuthClientConfig = {
@@ -79,13 +78,57 @@ function createOAuthProvider(
   return new SDKOAuthClientProvider(name, oauthConfig, clientSessionPath);
 }
 
+function substituteStringRecord(
+  values: Record<string, string> | undefined,
+  env: Record<string, string | undefined> = process.env,
+): Record<string, string> | undefined {
+  if (!values) {
+    return undefined;
+  }
+
+  const substituted: Record<string, string> = {};
+  for (const [key, value] of Object.entries(values)) {
+    substituted[key] = substituteEnvVars(value, env);
+  }
+  return substituted;
+}
+
+function withTransportEnvSubstitution(validatedTransport: ValidatedTransport): ValidatedTransport {
+  if (!AgentConfigManager.getInstance().isEnvSubstitutionEnabled()) {
+    return validatedTransport;
+  }
+
+  let oauth = validatedTransport.oauth;
+  if (oauth) {
+    oauth = { ...oauth };
+    if (oauth.clientId) {
+      oauth.clientId = substituteEnvVars(oauth.clientId);
+    }
+    if (oauth.clientSecret) {
+      oauth.clientSecret = substituteEnvVars(oauth.clientSecret);
+    }
+    if (oauth.redirectUrl) {
+      oauth.redirectUrl = substituteEnvVars(oauth.redirectUrl);
+    }
+    if (oauth.scopes) {
+      oauth.scopes = oauth.scopes.map((scope) => substituteEnvVars(scope));
+    }
+  }
+
+  return {
+    ...validatedTransport,
+    url: validatedTransport.url ? substituteEnvVars(validatedTransport.url) : validatedTransport.url,
+    headers: substituteStringRecord(validatedTransport.headers),
+    oauth,
+  };
+}
+
 /**
  * Creates SSE transport with OAuth provider
  */
-function createSSETransport(
-  name: string,
-  validatedTransport: z.infer<typeof transportConfigSchema>,
-): AuthProviderTransport {
+function createSSETransport(name: string, validatedTransport: ValidatedTransport): AuthProviderTransport {
+  validatedTransport = withTransportEnvSubstitution(validatedTransport);
+
   if (!validatedTransport.url) {
     throw new Error(`URL is required for SSE transport: ${name}`);
   }
@@ -108,10 +151,9 @@ function createSSETransport(
 /**
  * Creates HTTP transport with OAuth provider
  */
-function createHTTPTransport(
-  name: string,
-  validatedTransport: z.infer<typeof transportConfigSchema>,
-): AuthProviderTransport {
+function createHTTPTransport(name: string, validatedTransport: ValidatedTransport): AuthProviderTransport {
+  validatedTransport = withTransportEnvSubstitution(validatedTransport);
+
   if (!validatedTransport.url) {
     throw new Error(`URL is required for HTTP transport: ${name}`);
   }
@@ -140,19 +182,19 @@ function createHTTPTransport(
 /**
  * Creates stdio transport with enhanced environment processing and optional restart capability
  */
-function createStdioTransport(
-  name: string,
-  validatedTransport: z.infer<typeof transportConfigSchema>,
-): AuthProviderTransport {
+function createStdioTransport(name: string, validatedTransport: ValidatedTransport): AuthProviderTransport {
   if (!validatedTransport.command) {
     throw new Error(`Command is required for stdio transport: ${name}`);
   }
+
+  const substituteEnv = AgentConfigManager.getInstance().isEnvSubstitutionEnabled();
 
   // Process environment variables with new features
   const envResult = processEnvironment({
     inheritParentEnv: validatedTransport.inheritParentEnv,
     envFilter: validatedTransport.envFilter,
     env: validatedTransport.env,
+    substituteEnv,
   });
 
   debugIf(() => ({
@@ -166,12 +208,23 @@ function createStdioTransport(
     },
   }));
 
+  const command = substituteEnv
+    ? substituteEnvVars(validatedTransport.command, envResult.processedEnv)
+    : validatedTransport.command;
+  const args = substituteEnv
+    ? validatedTransport.args?.map((arg) => substituteEnvVars(arg, envResult.processedEnv))
+    : validatedTransport.args;
+  const cwd =
+    substituteEnv && validatedTransport.cwd
+      ? substituteEnvVars(validatedTransport.cwd, envResult.processedEnv)
+      : validatedTransport.cwd;
+
   // Create SDK-compatible parameters with processed environment
   const stdioParams: StdioServerParameters = {
-    command: validatedTransport.command,
-    args: validatedTransport.args,
+    command,
+    args,
     stderr: validatedTransport.stderr as 'inherit' | 'pipe' | 'ignore', // IOType validation is complex, trust Zod validation
-    cwd: validatedTransport.cwd,
+    cwd,
     env: envResult.processedEnv,
   };
 
@@ -196,10 +249,7 @@ function createStdioTransport(
 /**
  * Creates a single transport instance
  */
-function createSingleTransport(
-  name: string,
-  validatedTransport: z.infer<typeof transportConfigSchema>,
-): AuthProviderTransport {
+function createSingleTransport(name: string, validatedTransport: ValidatedTransport): AuthProviderTransport {
   switch (validatedTransport.type) {
     case 'sse':
       return createSSETransport(name, validatedTransport);
@@ -220,7 +270,7 @@ function assignTransport(
   transports: Record<string, AuthProviderTransport>,
   name: string,
   transport: AuthProviderTransport,
-  validatedTransport: z.infer<typeof transportConfigSchema>,
+  validatedTransport: ValidatedTransport,
 ): void {
   transport.connectionTimeout = validatedTransport.connectionTimeout;
   transport.requestTimeout = validatedTransport.requestTimeout;

@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { parseEnvArray, processEnvironment, substituteEnvVars, substituteEnvVarsInConfig } from './envProcessor.js';
+import { parseEnvArray, processEnvironment, substituteEnvVars } from './envProcessor.js';
 
 // Mock getDefaultEnvironment to avoid SDK dependency in tests
 vi.mock('@modelcontextprotocol/sdk/client/stdio.js', () => ({
@@ -71,6 +71,13 @@ describe('EnvProcessor', () => {
       expect(result).toBe('secret-key');
     });
 
+    it('should substitute shell-style environment variable', () => {
+      process.env.API_KEY = 'secret-key';
+
+      const result = substituteEnvVars('$API_KEY');
+      expect(result).toBe('secret-key');
+    });
+
     it('should substitute multiple environment variables', () => {
       process.env.HOST = 'localhost';
       process.env.PORT = '3000';
@@ -79,9 +86,30 @@ describe('EnvProcessor', () => {
       expect(result).toBe('http://localhost:3000/api');
     });
 
+    it('should substitute mixed braced and shell-style environment variables', () => {
+      process.env.HOST = 'localhost';
+      process.env.PORT = '3000';
+
+      const result = substituteEnvVars('http://${HOST}:$PORT/api');
+      expect(result).toBe('http://localhost:3000/api');
+    });
+
+    it('should substitute from a provided environment map', () => {
+      delete process.env.API_KEY;
+
+      const result = substituteEnvVars('$API_KEY', { API_KEY: 'filtered-key' });
+
+      expect(result).toBe('filtered-key');
+    });
+
     it('should handle missing environment variables', () => {
       const result = substituteEnvVars('${MISSING_VAR}');
       expect(result).toBe('${MISSING_VAR}'); // Should keep placeholder
+    });
+
+    it('should handle missing shell-style environment variables', () => {
+      const result = substituteEnvVars('$MISSING_VAR');
+      expect(result).toBe('$MISSING_VAR'); // Should keep placeholder
     });
 
     it('should handle whitespace in variable names', () => {
@@ -94,57 +122,6 @@ describe('EnvProcessor', () => {
     it('should not substitute malformed patterns', () => {
       const result = substituteEnvVars('${INCOMPLETE');
       expect(result).toBe('${INCOMPLETE');
-    });
-  });
-
-  describe('substituteEnvVarsInConfig', () => {
-    it('should substitute in string values', () => {
-      process.env.DB_HOST = 'localhost';
-
-      const config = {
-        database: {
-          host: '${DB_HOST}',
-          port: 5432,
-        },
-      };
-
-      const result = substituteEnvVarsInConfig(config);
-      expect(result).toEqual({
-        database: {
-          host: 'localhost',
-          port: 5432,
-        },
-      });
-    });
-
-    it('should handle arrays with substitution', () => {
-      process.env.CMD = 'node';
-      process.env.ARG = 'server.js';
-
-      const config = {
-        command: '${CMD}',
-        args: ['${ARG}', '--port', '3000'],
-      };
-
-      const result = substituteEnvVarsInConfig(config);
-      expect(result).toEqual({
-        command: 'node',
-        args: ['server.js', '--port', '3000'],
-      });
-    });
-
-    it('should preserve non-string values', () => {
-      const config = {
-        enabled: true,
-        timeout: 5000,
-        data: null,
-        nested: {
-          flag: false,
-        },
-      };
-
-      const result = substituteEnvVarsInConfig(config);
-      expect(result).toEqual(config);
     });
   });
 
@@ -207,6 +184,41 @@ describe('EnvProcessor', () => {
       expect(result.processedEnv).toHaveProperty('API_KEY', 'test-key');
       expect(result.processedEnv).toHaveProperty('ENDPOINT', 'https://api.example.com/v1');
       expect(result.sources.custom).toEqual(['API_KEY', 'ENDPOINT']);
+    });
+
+    it('should substitute custom environment variables from filtered inherited env', () => {
+      process.env.CONTEXT7_API_KEY = 'context7-key';
+
+      const result = processEnvironment({
+        inheritParentEnv: true,
+        envFilter: ['CONTEXT7_API_KEY'],
+        env: {
+          API_KEY_COPY: '$CONTEXT7_API_KEY',
+        },
+      });
+
+      expect(result.processedEnv).toEqual({
+        CONTEXT7_API_KEY: 'context7-key',
+        API_KEY_COPY: 'context7-key',
+      });
+    });
+
+    it('should keep custom environment placeholders when substitution is disabled', () => {
+      process.env.CONTEXT7_API_KEY = 'context7-key';
+
+      const result = processEnvironment({
+        inheritParentEnv: true,
+        envFilter: ['CONTEXT7_API_KEY'],
+        env: {
+          API_KEY_COPY: '$CONTEXT7_API_KEY',
+        },
+        substituteEnv: false,
+      });
+
+      expect(result.processedEnv).toEqual({
+        CONTEXT7_API_KEY: 'context7-key',
+        API_KEY_COPY: '$CONTEXT7_API_KEY',
+      });
     });
 
     it('should handle array format environment variables', () => {

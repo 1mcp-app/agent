@@ -89,6 +89,7 @@ npx -y @1mcp/agent --config-dir ./project-config
 合并行为：
 
 - `env` 对象会与各服务器的 `env` 合并，若键冲突则以服务器自身的值为准。
+- `envFilter` 数组会合并；服务器条目追加在 `serverDefaults` 条目之后，重复模式只保留第一次出现的项。
 - `oauth` 和 `headers` 会被服务器上的值整体替换，不会做深度合并。
 - 基本类型值（`timeout`、`connectionTimeout`、`requestTimeout`、`inheritParentEnv`）仅在服务器未显式设置时继承。
 - 还存在与传输类型相关的排除规则：全局 `headers` 会对 `stdio` 传输忽略，而全局 `inheritParentEnv` 和 `envFilter` 会对 `http`、`sse` 和 `streamableHttp` 传输忽略。
