@@ -206,6 +206,37 @@ describe('Server Installation Workflow', () => {
     expect(result.config).not.toHaveProperty('_metadata');
   });
 
+  it('places registry package before runtime args', async () => {
+    const workflow = createServerInstallationWorkflow({
+      findConfiguredTarget: vi.fn(() => null),
+      getRegistryServer: vi.fn().mockResolvedValue(
+        makeRegistryServer({
+          packages: [{ identifier: '@scope/npm-server', registryType: 'npm' }],
+          remotes: [],
+        }),
+      ),
+      applyConfigChange: vi.fn(),
+    });
+
+    const result = await workflow.run({
+      mode: 'preview',
+      source: {
+        type: 'registry',
+        registryId: 'io.github.owner/server-name',
+        args: ['--api-key', 'secret'],
+      },
+    });
+
+    expect(result).toMatchObject({
+      status: 'preview',
+      config: {
+        type: 'stdio',
+        command: 'npx',
+        args: ['@scope/npm-server', '--api-key', 'secret'],
+      },
+    });
+  });
+
   it('prefers streamable-http remotes when no packages are available', async () => {
     const workflow = createServerInstallationWorkflow({
       findConfiguredTarget: vi.fn(() => null),

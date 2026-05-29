@@ -485,7 +485,7 @@ function createRegistryServerConfig(input: {
     return omitUndefined({
       type: 'stdio',
       command: 'npx',
-      args: [...(input.args ?? []), input.endpoint.identifier],
+      args: [input.endpoint.identifier, ...(input.args ?? [])],
       env: input.env,
       tags,
     });

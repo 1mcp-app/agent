@@ -222,7 +222,7 @@ export class MetaToolProvider {
             },
           } as ListToolsResult;
         }
-        return this.listAvailableTools(parsed.data, allowedServers);
+        return this.listAvailableTools(parsed.data, sessionId, allowedServers);
       }
       case 'tool_schema': {
         const parsed = ToolSchemaInputSchema.safeParse(args);
@@ -283,10 +283,11 @@ export class MetaToolProvider {
    */
   private async listAvailableTools(
     args: ListAvailableToolsArgs,
+    sessionId?: string,
     allowedServers?: Set<string>,
   ): Promise<ListToolsResult> {
     try {
-      const result = await this.capabilityCatalog.listVisibleTools(args, undefined, allowedServers);
+      const result = await this.capabilityCatalog.listVisibleTools(args, sessionId, allowedServers);
 
       // Format tools for response
       const tools = result.tools.map((tool: ToolMetadata) => ({

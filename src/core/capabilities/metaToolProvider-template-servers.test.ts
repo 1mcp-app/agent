@@ -160,6 +160,26 @@ describe('MetaToolProvider - Template Server Support', () => {
       expect((result as any).servers).toContain('template-server');
       expect((result as any).servers).not.toContain('template-server:abc123');
     });
+
+    it('should resolve list routes through the caller session for shareable templates', async () => {
+      const sessionAwareProvider = new MetaToolProvider(
+        () => toolRegistry,
+        schemaCache,
+        outboundConnections,
+        undefined,
+        undefined,
+        {
+          getRenderedHashForSession: vi.fn(() => 'abc123'),
+          getAllRenderedHashesForSession: vi.fn(() => new Map([['template-server', 'abc123']])),
+        },
+      );
+      const listVisibleTools = vi.spyOn((sessionAwareProvider as any).capabilityCatalog, 'listVisibleTools');
+
+      const result = await sessionAwareProvider.callMetaTool('tool_list', {}, 'session-123');
+
+      expect((result as any).error).toBeUndefined();
+      expect(listVisibleTools).toHaveBeenCalledWith({}, 'session-123', undefined);
+    });
   });
 
   describe('tool_schema with template servers - FIXED', () => {
