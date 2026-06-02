@@ -20,62 +20,68 @@ vi.mock('@src/logger/logger.js', () => {
 
 // Mock the filtering components
 vi.mock('@src/core/filtering/index.js', () => ({
-  ClientTemplateTracker: vi.fn().mockImplementation(() => ({
-    addClientTemplate: vi.fn(),
-    removeClient: vi.fn().mockReturnValue([]),
-    getClientCount: vi.fn().mockReturnValue(0),
-    cleanupInstance: vi.fn(),
-    getStats: vi.fn().mockReturnValue(null),
-    getDetailedInfo: vi.fn().mockReturnValue({}),
-    getIdleInstances: vi.fn().mockReturnValue([]),
-  })),
+  ClientTemplateTracker: vi.fn().mockImplementation(function () {
+    return {
+      addClientTemplate: vi.fn(),
+      removeClient: vi.fn().mockReturnValue([]),
+      getClientCount: vi.fn().mockReturnValue(0),
+      cleanupInstance: vi.fn(),
+      getStats: vi.fn().mockReturnValue(null),
+      getDetailedInfo: vi.fn().mockReturnValue({}),
+      getIdleInstances: vi.fn().mockReturnValue([]),
+    };
+  }),
   TemplateFilteringService: {
     getMatchingTemplates: vi.fn().mockReturnValue([]),
   },
-  TemplateIndex: vi.fn().mockImplementation(() => ({
-    buildIndex: vi.fn(),
-    getStats: vi.fn().mockReturnValue(null),
-  })),
+  TemplateIndex: vi.fn().mockImplementation(function () {
+    return {
+      buildIndex: vi.fn(),
+      getStats: vi.fn().mockReturnValue(null),
+    };
+  }),
 }));
 
 // Mock the ClientInstancePool
 vi.mock('@src/core/server/clientInstancePool.js', () => ({
-  ClientInstancePool: vi.fn().mockImplementation(() => ({
-    getOrCreateClientInstance: vi.fn().mockResolvedValue({
-      id: 'test-instance-id',
-      templateName: 'test-template',
-      client: {
-        connect: vi.fn().mockResolvedValue(undefined),
-        close: vi.fn().mockResolvedValue(undefined),
-      },
-      transport: {
-        close: vi.fn().mockResolvedValue(undefined),
-      },
-      renderedHash: 'abc123def456',
-      templateVariables: {},
-      processedConfig: {},
-      referenceCount: 1,
-      createdAt: new Date(),
-      lastUsedAt: new Date(),
-      status: 'active' as const,
-      clientIds: new Set(['test-client']),
-      idleTimeout: 300000,
-    }),
-    removeClientFromInstance: vi.fn(),
-    getInstance: vi.fn(),
-    getTemplateInstances: vi.fn(() => []),
-    getAllInstances: vi.fn(() => []),
-    removeInstance: vi.fn().mockResolvedValue(undefined),
-    cleanupIdleInstances: vi.fn().mockResolvedValue(undefined),
-    shutdown: vi.fn().mockResolvedValue(undefined),
-    getStats: vi.fn(() => ({
-      totalInstances: 0,
-      activeInstances: 0,
-      idleInstances: 0,
-      templateCount: 0,
-      totalClients: 0,
-    })),
-  })),
+  ClientInstancePool: vi.fn().mockImplementation(function () {
+    return {
+      getOrCreateClientInstance: vi.fn().mockResolvedValue({
+        id: 'test-instance-id',
+        templateName: 'test-template',
+        client: {
+          connect: vi.fn().mockResolvedValue(undefined),
+          close: vi.fn().mockResolvedValue(undefined),
+        },
+        transport: {
+          close: vi.fn().mockResolvedValue(undefined),
+        },
+        renderedHash: 'abc123def456',
+        templateVariables: {},
+        processedConfig: {},
+        referenceCount: 1,
+        createdAt: new Date(),
+        lastUsedAt: new Date(),
+        status: 'active' as const,
+        clientIds: new Set(['test-client']),
+        idleTimeout: 300000,
+      }),
+      removeClientFromInstance: vi.fn(),
+      getInstance: vi.fn(),
+      getTemplateInstances: vi.fn(() => []),
+      getAllInstances: vi.fn(() => []),
+      removeInstance: vi.fn().mockResolvedValue(undefined),
+      cleanupIdleInstances: vi.fn().mockResolvedValue(undefined),
+      shutdown: vi.fn().mockResolvedValue(undefined),
+      getStats: vi.fn(() => ({
+        totalInstances: 0,
+        activeInstances: 0,
+        idleInstances: 0,
+        templateCount: 0,
+        totalClients: 0,
+      })),
+    };
+  }),
 }));
 
 describe('TemplateServerManager', () => {

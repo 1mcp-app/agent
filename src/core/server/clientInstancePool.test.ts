@@ -8,15 +8,17 @@ import { ClientInstancePool } from './clientInstancePool.js';
 
 // Mock dependencies
 vi.mock('@modelcontextprotocol/sdk/client/index.js', () => ({
-  Client: vi.fn().mockImplementation(() => ({
-    connect: vi.fn().mockResolvedValue(undefined),
-    close: vi.fn().mockResolvedValue(undefined),
-    _clientInfo: {},
-    _capabilities: {},
-    _jsonSchemaValidator: {},
-    _cachedToolOutputValidators: new Map(),
-    // Add all other required properties with mock implementations
-  })),
+  Client: vi.fn().mockImplementation(function () {
+    return {
+      connect: vi.fn().mockResolvedValue(undefined),
+      close: vi.fn().mockResolvedValue(undefined),
+      _clientInfo: {},
+      _capabilities: {},
+      _jsonSchemaValidator: {},
+      _cachedToolOutputValidators: new Map(),
+      // Add all other required properties with mock implementations
+    };
+  }),
 }));
 
 vi.mock('@src/logger/logger.js', () => ({
@@ -32,11 +34,13 @@ vi.mock('@src/logger/logger.js', () => ({
 }));
 
 vi.mock('@src/template/templateProcessor.js', () => ({
-  TemplateProcessor: vi.fn().mockImplementation(() => ({
-    processServerConfig: vi.fn().mockResolvedValue({
-      processedConfig: {},
-    }),
-  })),
+  TemplateProcessor: vi.fn().mockImplementation(function () {
+    return {
+      processServerConfig: vi.fn().mockResolvedValue({
+        processedConfig: {},
+      }),
+    };
+  }),
 }));
 
 vi.mock('@src/transport/transportFactory.js', () => ({

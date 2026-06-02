@@ -63,9 +63,11 @@ function makeInspectContextHash(projectPath: string): string {
 }
 
 vi.mock('@src/commands/shared/apiClient.js', () => ({
-  ApiClient: vi.fn().mockImplementation(() => ({
-    get: mockedApiClientGet,
-  })),
+  ApiClient: vi.fn().mockImplementation(function () {
+    return {
+      get: mockedApiClientGet,
+    };
+  }),
 }));
 
 vi.mock('@src/utils/validation/urlDetection.js', () => ({

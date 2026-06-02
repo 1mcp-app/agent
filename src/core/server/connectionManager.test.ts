@@ -13,13 +13,15 @@ import { ConnectionManager } from './connectionManager.js';
 // Mock dependencies
 let _mockServerTransport: any = undefined;
 vi.mock('@modelcontextprotocol/sdk/server/index.js', () => ({
-  Server: vi.fn().mockImplementation(() => ({
-    connect: vi.fn().mockImplementation(async (transport: any) => {
-      // Store the transport so we can verify it later
-      _mockServerTransport = transport;
-    }),
-    transport: undefined,
-  })),
+  Server: vi.fn().mockImplementation(function () {
+    return {
+      connect: vi.fn().mockImplementation(async (transport: any) => {
+        // Store the transport so we can verify it later
+        _mockServerTransport = transport;
+      }),
+      transport: undefined,
+    };
+  }),
 }));
 
 vi.mock('@src/core/capabilities/capabilityManager.js', () => ({
@@ -327,13 +329,12 @@ describe('ConnectionManager', () => {
       } as unknown as Transport;
 
       // Mock Server.connect to reject
-      vi.mocked(Server).mockImplementationOnce(
-        () =>
-          ({
-            connect: vi.fn().mockRejectedValue(new Error('Connection failed')),
-            transport: undefined,
-          }) as unknown as Server,
-      );
+      vi.mocked(Server).mockImplementationOnce(function () {
+        return {
+          connect: vi.fn().mockRejectedValue(new Error('Connection failed')),
+          transport: undefined,
+        } as unknown as Server;
+      });
 
       const opts = {
         tags: ['test-tag'],

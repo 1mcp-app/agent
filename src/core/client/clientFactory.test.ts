@@ -10,9 +10,11 @@ vi.mock('@modelcontextprotocol/sdk/client/index.js', () => ({
 }));
 
 vi.mock('@src/core/validation/CustomJsonSchemaValidator.js', () => ({
-  CustomJsonSchemaValidator: vi.fn().mockImplementation(() => ({
-    validate: vi.fn().mockReturnValue({ valid: true }),
-  })),
+  CustomJsonSchemaValidator: vi.fn().mockImplementation(function () {
+    return {
+      validate: vi.fn().mockReturnValue({ valid: true }),
+    };
+  }),
 }));
 
 vi.mock('@src/constants.js', () => ({
@@ -32,11 +34,13 @@ describe('ClientFactory', () => {
     clientFactory = new ClientFactory();
 
     // Return new mock instances for each call
-    (Client as unknown as ReturnType<typeof vi.fn>).mockImplementation(() => ({
-      connect: vi.fn(),
-      getServerVersion: vi.fn(),
-      close: vi.fn(),
-    }));
+    (Client as unknown as ReturnType<typeof vi.fn>).mockImplementation(function () {
+      return {
+        connect: vi.fn(),
+        getServerVersion: vi.fn(),
+        close: vi.fn(),
+      };
+    });
   });
 
   afterEach(() => {

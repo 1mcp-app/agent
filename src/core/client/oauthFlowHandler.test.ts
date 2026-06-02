@@ -27,9 +27,11 @@ vi.mock('@src/logger/logger.js', () => ({
 }));
 
 vi.mock('@src/core/validation/CustomJsonSchemaValidator.js', () => ({
-  CustomJsonSchemaValidator: vi.fn().mockImplementation(() => ({
-    validate: vi.fn().mockReturnValue({ valid: true }),
-  })),
+  CustomJsonSchemaValidator: vi.fn().mockImplementation(function () {
+    return {
+      validate: vi.fn().mockReturnValue({ valid: true }),
+    };
+  }),
 }));
 
 vi.mock('@src/constants.js', () => ({
@@ -68,7 +70,9 @@ describe('OAuthFlowHandler', () => {
     } as unknown as StreamableHTTPClientTransport;
     Object.setPrototypeOf(mockTransport, StreamableHTTPClientTransport.prototype);
 
-    (Client as unknown as MockInstance).mockImplementation(() => mockClient);
+    (Client as unknown as MockInstance).mockImplementation(function () {
+      return mockClient;
+    });
   });
 
   afterEach(() => {

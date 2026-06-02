@@ -1,6 +1,6 @@
 import { AUTH_CONFIG } from '@src/constants.js';
 
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { StreamableSessionRepository } from './streamableSessionRepository.js';
 
@@ -249,7 +249,8 @@ describe('StreamableSessionRepository', () => {
 
   describe('updateAccessThrottled', () => {
     const sessionId = 'stream-test-session-id';
-    const now = Date.now();
+    const now = 1000;
+    let mockTime = now;
     const storedData = {
       tags: ['test'],
       expires: now + 1000,
@@ -258,8 +259,14 @@ describe('StreamableSessionRepository', () => {
     };
 
     beforeEach(() => {
+      mockTime = now;
+      vi.spyOn(Date, 'now').mockImplementation(() => mockTime);
       mockFileStorageService.readData.mockReturnValue(storedData);
       vi.clearAllMocks();
+    });
+
+    afterEach(() => {
+      vi.restoreAllMocks();
     });
 
     it('should persist after reaching request threshold', () => {
@@ -286,8 +293,6 @@ describe('StreamableSessionRepository', () => {
     it('should persist after reaching time threshold', async () => {
       // Arrange
       const policy = AUTH_CONFIG.SERVER.STREAMABLE_SESSION.SAVE_POLICY;
-      let mockTime = now;
-      vi.spyOn(Date, 'now').mockImplementation(() => mockTime);
 
       // Act - single request, then advance time past threshold
       repository.updateAccess(sessionId);
@@ -298,16 +303,11 @@ describe('StreamableSessionRepository', () => {
 
       // Assert - should have persisted due to time threshold
       expect(mockFileStorageService.writeData).toHaveBeenCalledTimes(1);
-
-      // Cleanup
-      vi.spyOn(Date, 'now').mockRestore();
     });
 
     it('should use whichever trigger fires first', () => {
       // Arrange
       const policy = AUTH_CONFIG.SERVER.STREAMABLE_SESSION.SAVE_POLICY;
-      let mockTime = now;
-      vi.spyOn(Date, 'now').mockImplementation(() => mockTime);
 
       // Act - advance time past threshold, then make requests
       mockTime = now + policy.INTERVAL_MS + 1000;
@@ -315,9 +315,6 @@ describe('StreamableSessionRepository', () => {
 
       // Assert - should have persisted due to time threshold (not waiting for request threshold)
       expect(mockFileStorageService.writeData).toHaveBeenCalledTimes(1);
-
-      // Cleanup
-      vi.spyOn(Date, 'now').mockRestore();
     });
 
     it('should reset counters after persistence', () => {

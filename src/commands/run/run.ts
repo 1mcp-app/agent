@@ -69,9 +69,10 @@ export async function runCommand(options: RunCommandOptions): Promise<void> {
   const toolReference = parseToolReference(options.tool);
   const format = options.raw ? 'json' : options.format || 'toon';
   const maxChars = options['max-chars'] ?? 2000;
+  const stdinPromise = options.args === undefined ? readStdin() : Promise.resolve(undefined);
   const [{ cwd, projectConfig, projectRoot, discoveredUrl, serverPid, serverUrl }, stdinText] = await Promise.all([
     resolveServeTarget(options),
-    readStdin(),
+    stdinPromise,
   ]);
   const runContext = buildCliContext({
     cwd,

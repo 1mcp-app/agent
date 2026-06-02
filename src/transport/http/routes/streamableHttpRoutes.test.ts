@@ -12,7 +12,7 @@ vi.mock('node:crypto', () => ({
 }));
 
 vi.mock('@modelcontextprotocol/sdk/server/streamableHttp.js', () => ({
-  StreamableHTTPServerTransport: vi.fn().mockImplementation((options) => {
+  StreamableHTTPServerTransport: vi.fn().mockImplementation(function (options) {
     const transport = {
       sessionId: options?.sessionIdGenerator?.() || 'mock-session-id',
       onclose: null,
