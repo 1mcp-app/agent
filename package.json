@@ -162,6 +162,6 @@
     "vite-tsconfig-paths": "^6.1.1",
     "vitepress": "^1.6.3",
     "vitepress-plugin-mermaid": "^2.0.17",
-    "vitest": "^1.4.0"
+    "vitest": "^4.1.0"
   }
 }
