@@ -121,7 +121,7 @@ describe('Server Installation Workflow', () => {
       warnings: [],
     });
     const workflow = createServerInstallationWorkflow({
-      findConfiguredTarget: vi.fn(() => ({ name: 'existing', source: 'mcpServers' })),
+      findConfiguredTarget: vi.fn(() => ({ name: 'existing', source: 'mcpServers' as const })),
       applyConfigChange,
     });
 

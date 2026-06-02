@@ -1,6 +1,7 @@
 import type { TagQuery } from '@src/domains/preset/types/presetTypes.js';
 
 import {
+  type FilterSelectionPreset,
   type FilterSelectionPresetLookup,
   type FilterSelectorInputs,
   resolveFilterSelection,
@@ -10,7 +11,7 @@ describe('resolveFilterSelection', () => {
   const presetQuery: TagQuery = { $and: [{ tag: 'web' }, { $not: { tag: 'internal' } }] };
 
   const presetLookup: FilterSelectionPresetLookup = {
-    getPreset: vi.fn((name: string) => {
+    getPreset: vi.fn((name: string): FilterSelectionPreset | undefined => {
       if (name !== 'production') {
         return undefined;
       }

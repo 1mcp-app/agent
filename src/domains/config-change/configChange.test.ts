@@ -30,14 +30,14 @@ vi.mock('@src/core/server/agentConfig.js', () => ({
 describe('Config Change', () => {
   let tempDir: string;
   let configPath: string;
-  let reload: ReturnType<typeof vi.fn>;
+  let reload: (configPath: string) => void;
 
   beforeEach(async () => {
     tempDir = path.join(tmpdir(), `config-change-test-${randomBytes(4).toString('hex')}`);
     await fs.mkdir(tempDir, { recursive: true });
     configPath = path.join(tempDir, 'mcp.json');
     ConfigContext.getInstance().setConfigPath(configPath);
-    reload = vi.fn();
+    reload = vi.fn<(configPath: string) => void>();
   });
 
   afterEach(async () => {
@@ -320,7 +320,7 @@ describe('Config Change', () => {
     });
 
     const service = createConfigChangeService({
-      reloadConfig: vi.fn(() => {
+      reloadConfig: vi.fn<(configPath: string) => void>(() => {
         throw new Error('reload failed');
       }),
     });
