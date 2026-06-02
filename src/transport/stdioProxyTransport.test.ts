@@ -6,25 +6,29 @@ import { StdioProxyTransport } from './stdioProxyTransport.js';
 
 // Mock the SDK transports
 vi.mock('@modelcontextprotocol/sdk/server/stdio.js', () => ({
-  StdioServerTransport: vi.fn(() => ({
-    start: vi.fn().mockResolvedValue(undefined),
-    close: vi.fn().mockResolvedValue(undefined),
-    send: vi.fn().mockResolvedValue(undefined),
-    onmessage: undefined,
-    onerror: undefined,
-    onclose: undefined,
-  })),
+  StdioServerTransport: vi.fn(function () {
+    return {
+      start: vi.fn().mockResolvedValue(undefined),
+      close: vi.fn().mockResolvedValue(undefined),
+      send: vi.fn().mockResolvedValue(undefined),
+      onmessage: undefined,
+      onerror: undefined,
+      onclose: undefined,
+    };
+  }),
 }));
 
 vi.mock('@modelcontextprotocol/sdk/client/streamableHttp.js', () => ({
-  StreamableHTTPClientTransport: vi.fn(() => ({
-    start: vi.fn().mockResolvedValue(undefined),
-    close: vi.fn().mockResolvedValue(undefined),
-    send: vi.fn().mockResolvedValue(undefined),
-    onmessage: undefined,
-    onerror: undefined,
-    onclose: undefined,
-  })),
+  StreamableHTTPClientTransport: vi.fn(function () {
+    return {
+      start: vi.fn().mockResolvedValue(undefined),
+      close: vi.fn().mockResolvedValue(undefined),
+      send: vi.fn().mockResolvedValue(undefined),
+      onmessage: undefined,
+      onerror: undefined,
+      onclose: undefined,
+    };
+  }),
 }));
 
 describe('StdioProxyTransport', () => {

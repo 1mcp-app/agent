@@ -89,9 +89,11 @@ vi.mock('./routes/healthRoutes.js', () => ({
 }));
 
 vi.mock('@src/auth/sdkOAuthServerProvider.js', () => ({
-  SDKOAuthServerProvider: vi.fn().mockImplementation(() => ({
-    shutdown: vi.fn(),
-  })),
+  SDKOAuthServerProvider: vi.fn().mockImplementation(function () {
+    return {
+      shutdown: vi.fn(),
+    };
+  }),
 }));
 
 vi.mock('@src/core/server/agentConfig.js', () => ({
@@ -169,12 +171,11 @@ describe('ExpressServer', () => {
 
     // Ensure SDKOAuthServerProvider returns an object with shutdown method
     const { SDKOAuthServerProvider } = await import('../../auth/sdkOAuthServerProvider.js');
-    vi.mocked(SDKOAuthServerProvider).mockImplementation(
-      () =>
-        ({
-          shutdown: vi.fn(),
-        }) as any,
-    );
+    vi.mocked(SDKOAuthServerProvider).mockImplementation(function () {
+      return {
+        shutdown: vi.fn(),
+      } as any;
+    });
   });
 
   afterEach(() => {

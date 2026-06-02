@@ -69,13 +69,14 @@ export async function runCommand(options: RunCommandOptions): Promise<void> {
   const toolReference = parseToolReference(options.tool);
   const format = options.raw ? 'json' : options.format || 'toon';
   const maxChars = options['max-chars'] ?? 2000;
-  const stdinText = options.args === undefined ? await readStdin() : undefined;
+  const stdinPromise = options.args === undefined ? readStdin() : Promise.resolve(undefined);
   const attachment = await attachReusableClientSurface<RunCommandOptions, RunAttachmentValue>({
     clientSurface: 'run',
     version: 'run',
     options,
-    rest: (context) => tryRunRest(context, options, toolReference, stdinText),
+    rest: async (context) => tryRunRest(context, options, toolReference, await stdinPromise),
     mcp: async (context) => {
+      const stdinText = await stdinPromise;
       const response = await invokeTool({
         serverUrl: context.serverUrl,
         sessionId: context.sessionId,

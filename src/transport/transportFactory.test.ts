@@ -14,10 +14,12 @@ import { createTransports } from './transportFactory.js';
 
 // Mock dependencies
 vi.mock('@modelcontextprotocol/sdk/client/stdio.js', () => ({
-  StdioClientTransport: vi.fn().mockImplementation(() => ({
-    type: 'stdio',
-    close: vi.fn(),
-  })),
+  StdioClientTransport: vi.fn().mockImplementation(function () {
+    return {
+      type: 'stdio',
+      close: vi.fn(),
+    };
+  }),
   getDefaultEnvironment: vi.fn().mockReturnValue({
     HOME: '/home/user',
     PATH: '/usr/bin',
@@ -25,24 +27,30 @@ vi.mock('@modelcontextprotocol/sdk/client/stdio.js', () => ({
 }));
 
 vi.mock('@modelcontextprotocol/sdk/client/sse.js', () => ({
-  SSEClientTransport: vi.fn().mockImplementation(() => ({
-    type: 'sse',
-    close: vi.fn(),
-  })),
+  SSEClientTransport: vi.fn().mockImplementation(function () {
+    return {
+      type: 'sse',
+      close: vi.fn(),
+    };
+  }),
 }));
 
 vi.mock('@modelcontextprotocol/sdk/client/streamableHttp.js', () => ({
-  StreamableHTTPClientTransport: vi.fn().mockImplementation(() => ({
-    type: 'http',
-    close: vi.fn(),
-  })),
+  StreamableHTTPClientTransport: vi.fn().mockImplementation(function () {
+    return {
+      type: 'http',
+      close: vi.fn(),
+    };
+  }),
 }));
 
 vi.mock('../auth/sdkOAuthClientProvider.js', () => ({
-  SDKOAuthClientProvider: vi.fn().mockImplementation(() => ({
-    name: 'mock-oauth-provider',
-    authenticate: vi.fn(),
-  })),
+  SDKOAuthClientProvider: vi.fn().mockImplementation(function () {
+    return {
+      name: 'mock-oauth-provider',
+      authenticate: vi.fn(),
+    };
+  }),
 }));
 
 vi.mock('@src/core/server/agentConfig.js', () => ({

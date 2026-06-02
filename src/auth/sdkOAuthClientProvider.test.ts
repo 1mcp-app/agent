@@ -80,7 +80,9 @@ describe('SDKOAuthClientProvider', () => {
       shutdown: vi.fn(),
     } as any;
 
-    (FileStorageService as any).mockImplementation(() => mockFileStorageService);
+    (FileStorageService as any).mockImplementation(function () {
+      return mockFileStorageService;
+    });
 
     // Mock ClientSessionRepository
     mockClientSessionRepository = {
@@ -90,7 +92,9 @@ describe('SDKOAuthClientProvider', () => {
       list: vi.fn(),
     } as any;
 
-    (ClientSessionRepository as any).mockImplementation(() => mockClientSessionRepository);
+    (ClientSessionRepository as any).mockImplementation(function () {
+      return mockClientSessionRepository;
+    });
 
     // Mock randomUUID
     mockRandomUUID = randomUUID as any;

@@ -23,10 +23,12 @@ vi.mock('@src/commands/shared/authProfileStore.js', () => ({
 }));
 
 vi.mock('@src/commands/shared/apiClient.js', () => ({
-  ApiClient: vi.fn().mockImplementation(() => ({
-    get: mockApiClientGet,
-    post: mockApiClientPost,
-  })),
+  ApiClient: vi.fn().mockImplementation(function () {
+    return {
+      get: mockApiClientGet,
+      post: mockApiClientPost,
+    };
+  }),
 }));
 
 const baseOptions = { 'config-dir': '/tmp/test-config' } as Parameters<typeof authLoginCommand>[0];

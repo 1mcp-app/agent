@@ -22,10 +22,6 @@ export default defineConfig({
     // E2E test configuration
     testTimeout: 30000, // 30 seconds for E2E tests
     hookTimeout: 10000, // 10 seconds for setup/teardown
-    poolOptions: {
-      forks: {
-        singleFork: process.env.CI === 'true', // Use single fork in CI to avoid resource conflicts
-      },
-    },
+    maxWorkers: process.env.CI === 'true' ? 1 : undefined, // Use one worker in CI to avoid resource conflicts
   },
 });

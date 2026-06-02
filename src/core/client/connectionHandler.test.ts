@@ -70,7 +70,9 @@ describe('ConnectionHandler', () => {
       close: vi.fn(),
     };
 
-    (Client as unknown as MockInstance).mockImplementation(() => mockClient);
+    (Client as unknown as MockInstance).mockImplementation(function () {
+      return mockClient;
+    });
   });
 
   afterEach(() => {

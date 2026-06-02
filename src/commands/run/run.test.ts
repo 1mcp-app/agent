@@ -517,6 +517,14 @@ describe('runCommand REST-first path', () => {
   const mockFetch = vi.fn();
 
   beforeEach(async () => {
+    mockedResolveProjectContext.mockReset();
+    mockedResolveProjectContext.mockResolvedValue({
+      cwd: '/tmp/project',
+      projectRoot: '/tmp/project',
+      projectName: 'project',
+      projectConfig: null,
+      source: 'cwd',
+    });
     vi.stubGlobal('fetch', mockFetch);
     mockFetch.mockReset();
     transportState.instances = [];
@@ -982,7 +990,7 @@ describe('runCommand REST-first path', () => {
 
     // fetch should not have been called for /api/tool-invocations
     const toolInvocationCalls = mockFetch.mock.calls.filter(
-      ([url]: [string]) => typeof url === 'string' && url.includes('tool-invocations'),
+      ([url]) => typeof url === 'string' && url.includes('tool-invocations'),
     );
     expect(toolInvocationCalls).toHaveLength(0);
     // MCP was used

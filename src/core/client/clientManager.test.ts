@@ -72,7 +72,9 @@ describe('ClientManager (Integration)', () => {
       'test-client': mockTransport,
     };
 
-    (Client as unknown as MockInstance).mockImplementation(() => mockClient);
+    (Client as unknown as MockInstance).mockImplementation(function () {
+      return mockClient;
+    });
   });
 
   afterEach(() => {
@@ -388,7 +390,9 @@ describe('ClientManager (Integration)', () => {
         getInstructions: vi.fn().mockReturnValue('new instructions'),
       };
 
-      (Client as unknown as MockInstance).mockImplementation(() => mockNewClient);
+      (Client as unknown as MockInstance).mockImplementation(function () {
+        return mockNewClient;
+      });
 
       const clients = clientManager.getClients();
       clients.set('oauth-server', {
