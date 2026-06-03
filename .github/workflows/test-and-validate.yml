@@ -78,6 +78,6 @@ jobs:
         run: |
           # Run E2E tests with sharding for maximum parallelism
           # Each shard runs a portion of the tests in parallel
-          pnpm test:e2e --shard=${{ matrix.shard }}/${{ env.E2E_SHARD_COUNT }} --reporter=basic
+          pnpm test:e2e --shard=${{ matrix.shard }}/${{ env.E2E_SHARD_COUNT }} --reporter=minimal
         env:
           CI: true

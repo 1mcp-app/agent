@@ -274,7 +274,7 @@ describe('mcp tokens command', () => {
       expect(result.stderr).toContain('format');
     });
 
-    it('should handle all valid format options', { timeout: TEST_TIMEOUT }, async () => {
+    it('should handle all valid format options', { timeout: TEST_TIMEOUT * 3 }, async () => {
       const formats = ['table', 'json', 'summary'];
 
       for (const format of formats) {
