@@ -114,6 +114,44 @@ describe('installationHandlers', () => {
       });
     });
 
+    it('should preserve explicit registry ID while using name as local server name', async () => {
+      mockInstallationAdapter.installServer.mockResolvedValue({
+        success: true,
+        status: 'applied',
+        serverName: 'server',
+        version: '1.0.0',
+        installedAt: new Date(),
+        warnings: [],
+        errors: [],
+        operationId: 'test-op-id',
+      });
+
+      await handleMcpInstall({
+        name: 'server',
+        registryId: 'io.github.owner/server',
+        version: '1.0.0',
+        package: '@scope/pkg',
+        transport: 'stdio',
+        enabled: true,
+        autoRestart: false,
+        force: false,
+        backup: false,
+      });
+
+      expect(mockInstallationAdapter.installServer).toHaveBeenCalledWith('io.github.owner/server', '1.0.0', {
+        force: false,
+        backup: false,
+        args: undefined,
+        command: undefined,
+        env: undefined,
+        package: undefined,
+        tags: undefined,
+        transport: 'stdio',
+        url: undefined,
+        localServerName: 'server',
+      });
+    });
+
     it('should return error when installation tools are disabled', async () => {
       flagManager.isToolEnabled.mockReturnValue(false);
 

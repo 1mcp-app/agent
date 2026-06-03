@@ -165,6 +165,60 @@ describe('Installation Adapter', () => {
       });
     });
 
+    it('should install package-only requests as direct npx servers', async () => {
+      await adapter.installServer('package-server', undefined, {
+        package: '@scope/pkg',
+        args: ['--flag'],
+        transport: 'stdio',
+      });
+
+      expect(mockRunInstallationWorkflow).toHaveBeenCalledWith({
+        mode: 'apply',
+        force: undefined,
+        backup: undefined,
+        source: {
+          type: 'direct',
+          localName: 'package-server',
+          transport: 'stdio',
+          command: 'npx',
+          url: undefined,
+          args: ['-y', '@scope/pkg', '--flag'],
+          env: undefined,
+          tags: undefined,
+          timeout: undefined,
+          enabled: undefined,
+          cwd: undefined,
+          autoRestart: undefined,
+          maxRestarts: undefined,
+          restartDelay: undefined,
+          package: '@scope/pkg',
+        },
+      });
+    });
+
+    it('should keep registry installs on registry workflow when localServerName is provided', async () => {
+      await adapter.installServer('io.github.owner/server', '1.0.0', {
+        localServerName: 'server',
+        package: '@scope/pkg',
+        args: ['--flag'],
+      });
+
+      expect(mockRunInstallationWorkflow).toHaveBeenCalledWith({
+        mode: 'apply',
+        force: undefined,
+        backup: undefined,
+        source: {
+          type: 'registry',
+          registryId: 'io.github.owner/server',
+          version: '1.0.0',
+          localName: 'server',
+          tags: undefined,
+          env: undefined,
+          args: ['--flag'],
+        },
+      });
+    });
+
     it('should validate tags before installation', async () => {
       const { validateTags } = await import('@src/domains/installation/configurators/tagsConfigurator.js');
       (validateTags as any).mockReturnValue({ valid: false, errors: ['Invalid tag format'] });

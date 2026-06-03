@@ -275,7 +275,7 @@ export function createOAuthRoutes(oauthProvider: SDKOAuthServerProvider, loading
         setTimeout(() => window.location.reload(), 30000);
 
         function restartOAuth(serverName) {
-          fetch(\`/oauth/restart/\${serverName}\`, { method: 'POST' })
+          fetch(\`/oauth/restart/\${encodeURIComponent(serverName)}\`, { method: 'POST' })
             .then(response => response.json())
             .then(data => {
               if (data.success) {
@@ -336,9 +336,9 @@ export function createOAuthRoutes(oauthProvider: SDKOAuthServerProvider, loading
         return `<a href="/oauth/authorize/${sanitizeUrlParam(service.name)}" class="btn btn-warning">🔐 Authorize</a>`;
       case ClientStatus.Error:
       case ClientStatus.Disconnected:
-        return `<button onclick="restartOAuth('${sanitizeServerNameForContext(service.name, 'html')}')" class="btn btn-primary">🔄 Restart OAuth</button>`;
+        return `<button onclick="restartOAuth(this.dataset.serverName)" data-server-name="${escapeHtml(service.name)}" class="btn btn-primary">🔄 Restart OAuth</button>`;
       default:
-        return `<button onclick="restartOAuth('${sanitizeServerNameForContext(service.name, 'html')}')" class="btn btn-primary">🔄 Start OAuth</button>`;
+        return `<button onclick="restartOAuth(this.dataset.serverName)" data-server-name="${escapeHtml(service.name)}" class="btn btn-primary">🔄 Start OAuth</button>`;
     }
   }
 

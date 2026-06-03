@@ -233,6 +233,30 @@ describe('OAuth Routes', () => {
       expect(htmlContent).toContain('awaiting-service');
     });
 
+    it('should not inline executable server names in OAuth restart buttons', async () => {
+      const maliciousName = `bad');alert(1);//`;
+      mockOAuthProvider.oauthFlow.getBackendOAuthDashboard.mockReturnValue({
+        status: 'ready',
+        services: [
+          {
+            name: maliciousName,
+            status: ClientStatus.Disconnected,
+            requiresOAuth: true,
+          },
+        ],
+      });
+
+      const router = createOAuthRoutes(mockOAuthProvider);
+      const dashboardRoute = router.stack.find((layer: any) => layer.route?.path === '/' && layer.route?.methods?.get);
+
+      await dashboardRoute?.route?.stack[0].handle(mockRequest, mockResponse);
+
+      const htmlContent = mockResponse.send.mock.calls[0][0];
+      expect(htmlContent).toContain('onclick="restartOAuth(this.dataset.serverName)"');
+      expect(htmlContent).toContain(`data-server-name="${maliciousName}"`);
+      expect(htmlContent).not.toContain(`restartOAuth('${maliciousName}')`);
+    });
+
     it('should map unavailable dashboard runtime to an error response', async () => {
       mockOAuthProvider.oauthFlow.getBackendOAuthDashboard.mockReturnValue({
         status: 'runtime_unavailable',

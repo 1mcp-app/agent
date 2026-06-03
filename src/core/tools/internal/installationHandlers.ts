@@ -90,10 +90,11 @@ export async function handleMcpInstall(args: McpInstallToolArgs): Promise<McpIns
       tags: args.tags,
       env: args.env,
       args: args.args,
-      package: args.package,
+      package: args.registryId ? undefined : args.package,
       command: args.command,
       url: args.url,
       transport: args.transport,
+      localServerName: args.registryId ? args.name : undefined,
     });
 
     // Transform to match expected output schema with enhanced information
