@@ -3,7 +3,7 @@ import { tmpdir } from 'os';
 import path from 'path';
 
 import { ExpirableData } from '@src/auth/sessionTypes.js';
-import { FILE_PREFIX_MAPPING, STORAGE_SUBDIRS } from '@src/constants.js';
+import { AUTH_CONFIG, FILE_PREFIX_MAPPING, STORAGE_SUBDIRS } from '@src/constants.js';
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -139,6 +139,19 @@ describe('FileStorageService', () => {
         expect(() => service.writeData('test_', id, data)).not.toThrow();
         expect(service.readData<TestData>('test_', id)).toEqual(data);
       }
+    });
+
+    it('should accept REST-derived session IDs for streamable session persistence', () => {
+      const id = 'rest-fa744e84eb6f935a';
+      const data: TestData = {
+        id,
+        value: 'test',
+        expires: Date.now() + 60000,
+        createdAt: Date.now(),
+      };
+
+      expect(() => service.writeData(AUTH_CONFIG.SERVER.STREAMABLE_SESSION.FILE_PREFIX, id, data)).not.toThrow();
+      expect(service.readData<TestData>(AUTH_CONFIG.SERVER.STREAMABLE_SESSION.FILE_PREFIX, id)).toEqual(data);
     });
   });
 
