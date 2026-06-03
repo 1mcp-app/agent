@@ -11,6 +11,9 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
  */
 
 describe('MCP Server Lifecycle E2E', () => {
+  const registryServerId = 'com.pulsemcp/remote-filesystem';
+  const registryLocalName = 'remote-filesystem';
+
   let environment: CommandTestEnvironment;
   let runner: CliTestRunner;
 
@@ -27,13 +30,13 @@ describe('MCP Server Lifecycle E2E', () => {
   describe('Install Workflow', () => {
     it('should install a server from registry using dry-run mode', async () => {
       const result = await runner.runMcpCommand('install', {
-        args: ['filesystem', '--dry-run'],
+        args: [registryServerId, '--dry-run'],
         timeout: 30000,
       });
 
       runner.assertSuccess(result);
       runner.assertOutputContains(result, 'Dry run mode');
-      runner.assertOutputContains(result, 'Would install: filesystem');
+      runner.assertOutputContains(result, `Would install: ${registryLocalName}`);
       runner.assertOutputContains(result, 'From registry');
     });
 
@@ -60,12 +63,12 @@ describe('MCP Server Lifecycle E2E', () => {
     it('should handle force install when server already exists', async () => {
       // First add a server manually
       await runner.runMcpCommand('add', {
-        args: ['existing-server', '--type', 'stdio', '--command', 'echo', '--args', 'test'],
+        args: [registryLocalName, '--type', 'stdio', '--command', 'echo', '--args', 'test'],
       });
 
       // Try to install with same name (should fail without --force)
       const failResult = await runner.runMcpCommand('install', {
-        args: ['existing-server', '--dry-run'],
+        args: [registryServerId, '--dry-run'],
         timeout: 30000,
         expectError: true,
       });
@@ -75,7 +78,7 @@ describe('MCP Server Lifecycle E2E', () => {
 
       // With --force, should proceed (dry-run only)
       const forceResult = await runner.runMcpCommand('install', {
-        args: ['existing-server', '--force', '--dry-run'],
+        args: [registryServerId, '--force', '--dry-run'],
         timeout: 30000,
       });
 
@@ -87,18 +90,12 @@ describe('MCP Server Lifecycle E2E', () => {
       const result = await runner.runMcpCommand('install', {
         args: ['invalid server name', '--dry-run'],
         timeout: 30000,
+        expectError: true,
       });
 
-      // The CLI normalizes server names (spaces -> underscores) and allows them
-      // This is actually valid behavior, so we test that it handles the transformation
-      expect(result.exitCode === 0).toBe(true);
-
-      const hasExpectedOutput =
-        result.stdout.includes('Would install') ||
-        result.stdout.includes('invalid_server_name') || // Normalized name
-        result.stdout.includes('Dry run mode');
-
-      expect(hasExpectedOutput).toBe(true);
+      runner.assertFailure(result);
+      runner.assertOutputContains(result, 'not found in registry', true);
+      runner.assertOutputContains(result, 'registry search invalid server name');
     });
   });
 
@@ -283,11 +280,12 @@ describe('MCP Server Lifecycle E2E', () => {
   describe('Error Handling and Edge Cases', () => {
     it('should handle invalid server names', async () => {
       const result = await runner.runMcpCommand('install', {
-        args: [''],
+        args: ['bad<server'],
         expectError: true,
       });
 
       runner.assertFailure(result);
+      runner.assertOutputContains(result, 'Registry server ID contains invalid characters', true);
     });
 
     it('should handle network errors gracefully', async () => {

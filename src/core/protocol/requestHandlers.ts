@@ -495,6 +495,7 @@ function registerToolHandlers(
       const externalTools = result.tools.map((tool) => ({
         ...tool,
         name: buildUri(tool.server, tool.name, MCP_URI_SEPARATOR),
+        inputSchema: tool.inputSchema ?? { type: 'object' },
       }));
       const allTools = [...externalTools, ...internalToolsWithPrefix];
 

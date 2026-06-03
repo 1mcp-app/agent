@@ -30,7 +30,7 @@ vi.mock('@src/commands/shared/serveTargetResolver.js', () => ({
 }));
 
 vi.mock('@src/transport/stdioProxyTransport.js', () => ({
-  StdioProxyTransport: vi.fn((options: unknown) => {
+  StdioProxyTransport: vi.fn().mockImplementation(function (options: unknown) {
     proxyMocks.transportOptions.push(options);
     return {
       close: proxyMocks.close,

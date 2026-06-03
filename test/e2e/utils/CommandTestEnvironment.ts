@@ -46,8 +46,8 @@ export class CommandTestEnvironment {
    * Initialize the test environment with temporary directories and mock data
    */
   async setup(): Promise<void> {
-    // Create temporary directory under ./.tmp to avoid touching user-global state.
-    const sandboxRoot = join(process.cwd(), '.tmp', 'e2e');
+    // Create temporary directories under build/.tmp to avoid touching user-global state or worktree symlinks.
+    const sandboxRoot = join(process.cwd(), 'build', '.tmp', 'e2e');
     await mkdir(sandboxRoot, { recursive: true });
     this.tempDir = await mkdtemp(join(sandboxRoot, `${this.config.name}-`));
 

@@ -278,7 +278,7 @@ export class CapabilityCatalog {
           tool: {
             name: tool.name,
             description: tool.description,
-            inputSchema: { type: 'object' },
+            inputSchema: tool.inputSchema ?? { type: 'object' },
           },
           server: tool.server,
           tags: tool.tags,

@@ -15,12 +15,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 // Mock the Server class for testing
 vi.mock('@modelcontextprotocol/sdk/server/index.js', () => ({
-  Server: vi.fn().mockImplementation(() => ({
-    connect: vi.fn().mockResolvedValue(undefined),
-    transport: undefined,
-    setRequestHandler: vi.fn(),
-    ping: vi.fn().mockResolvedValue({}),
-  })),
+  Server: vi.fn().mockImplementation(function () {
+    return {
+      connect: vi.fn().mockResolvedValue(undefined),
+      transport: undefined,
+      setRequestHandler: vi.fn(),
+      ping: vi.fn().mockResolvedValue({}),
+    };
+  }),
 }));
 
 // Mock dependencies
@@ -57,38 +59,40 @@ vi.mock('@src/logger/logger.js', () => {
 });
 
 vi.mock('@src/core/server/clientInstancePool.js', () => ({
-  ClientInstancePool: vi.fn().mockImplementation(() => ({
-    getOrCreateClientInstance: vi.fn().mockResolvedValue({
-      id: 'test-instance-id',
-      templateName: 'serena',
-      client: {
-        connect: vi.fn().mockResolvedValue(undefined),
-        close: vi.fn().mockResolvedValue(undefined),
-        setRequestHandler: vi.fn(),
-        listTools: vi.fn().mockResolvedValue({ tools: [] }),
-        ping: vi.fn().mockResolvedValue({}),
-      },
-      transport: {
-        close: vi.fn().mockResolvedValue(undefined),
-      },
-      renderedHash: 'test-rendered-hash',
-      referenceCount: 1,
-    }),
-    removeClientFromInstance: vi.fn(),
-    getInstance: vi.fn(),
-    getTemplateInstances: vi.fn(() => []),
-    getAllInstances: vi.fn(() => []),
-    removeInstance: vi.fn().mockResolvedValue(undefined),
-    cleanupIdleInstances: vi.fn().mockResolvedValue(undefined),
-    shutdown: vi.fn().mockResolvedValue(undefined),
-    getStats: vi.fn(() => ({
-      totalInstances: 0,
-      activeInstances: 0,
-      idleInstances: 0,
-      templateCount: 0,
-      totalClients: 0,
-    })),
-  })),
+  ClientInstancePool: vi.fn().mockImplementation(function () {
+    return {
+      getOrCreateClientInstance: vi.fn().mockResolvedValue({
+        id: 'test-instance-id',
+        templateName: 'serena',
+        client: {
+          connect: vi.fn().mockResolvedValue(undefined),
+          close: vi.fn().mockResolvedValue(undefined),
+          setRequestHandler: vi.fn(),
+          listTools: vi.fn().mockResolvedValue({ tools: [] }),
+          ping: vi.fn().mockResolvedValue({}),
+        },
+        transport: {
+          close: vi.fn().mockResolvedValue(undefined),
+        },
+        renderedHash: 'test-rendered-hash',
+        referenceCount: 1,
+      }),
+      removeClientFromInstance: vi.fn(),
+      getInstance: vi.fn(),
+      getTemplateInstances: vi.fn(() => []),
+      getAllInstances: vi.fn(() => []),
+      removeInstance: vi.fn().mockResolvedValue(undefined),
+      cleanupIdleInstances: vi.fn().mockResolvedValue(undefined),
+      shutdown: vi.fn().mockResolvedValue(undefined),
+      getStats: vi.fn(() => ({
+        totalInstances: 0,
+        activeInstances: 0,
+        idleInstances: 0,
+        templateCount: 0,
+        totalClients: 0,
+      })),
+    };
+  }),
 }));
 
 /**

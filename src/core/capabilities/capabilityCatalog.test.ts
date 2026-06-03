@@ -18,7 +18,11 @@ describe('CapabilityCatalog', () => {
       [
         'filesystem',
         [
-          { name: 'read_file', description: 'Read file', inputSchema: { type: 'object' } },
+          {
+            name: 'read_file',
+            description: 'Read file',
+            inputSchema: { type: 'object', properties: { path: { type: 'string' } } },
+          },
           { name: 'write_file', description: 'Write file', inputSchema: { type: 'object' } },
         ],
       ],
@@ -81,6 +85,10 @@ describe('CapabilityCatalog', () => {
       'filesystem/read_file',
       'template-server/template_tool',
     ]);
+    expect(result.tools.find((tool) => tool.name === 'read_file')?.inputSchema).toEqual({
+      type: 'object',
+      properties: { path: { type: 'string' } },
+    });
     expect(result.routes.map((route) => route.connectionKey).sort()).toEqual([
       'filesystem',
       'template-server:rendered123',

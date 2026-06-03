@@ -269,7 +269,16 @@ describe('ToolRegistry', () => {
   describe('Build from Tools Map', () => {
     it('should build registry from tools map', () => {
       const toolsMap = new Map<string, Tool[]>([
-        ['test-server', [{ name: 'test_tool', description: 'Test', inputSchema: { type: 'object' } }]],
+        [
+          'test-server',
+          [
+            {
+              name: 'test_tool',
+              description: 'Test',
+              inputSchema: { type: 'object', properties: { message: { type: 'string' } } },
+            },
+          ],
+        ],
       ]);
 
       const tagsMap = new Map<string, string[]>([['test-server', ['test']]]);
@@ -278,6 +287,10 @@ describe('ToolRegistry', () => {
 
       expect(builtRegistry.size()).toBe(1);
       expect(builtRegistry.hasTool('test-server', 'test_tool')).toBe(true);
+      expect(builtRegistry.getTool('test-server', 'test_tool')?.inputSchema).toEqual({
+        type: 'object',
+        properties: { message: { type: 'string' } },
+      });
     });
 
     it('should build registry from tools with server info', () => {

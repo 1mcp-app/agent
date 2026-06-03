@@ -151,6 +151,7 @@ export class CacheManager {
     this.cleanupTimer = setInterval(() => {
       this.cleanup();
     }, this.options.cleanupInterval);
+    this.cleanupTimer.unref?.();
   }
 
   /**
