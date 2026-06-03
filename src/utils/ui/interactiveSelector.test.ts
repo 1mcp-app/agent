@@ -1,4 +1,4 @@
-import { McpConfigManager } from '@src/config/mcpConfigManager.js';
+import { getAllServerTargets } from '@src/commands/shared/baseConfigUtils.js';
 
 import prompts from 'prompts';
 import { beforeEach, describe, expect, it, Mock, vi } from 'vitest';
@@ -6,10 +6,10 @@ import { beforeEach, describe, expect, it, Mock, vi } from 'vitest';
 import { InteractiveSelector } from './interactiveSelector.js';
 
 // Mock dependencies
-vi.mock('@src/config/mcpConfigManager.js');
+vi.mock('@src/commands/shared/baseConfigUtils.js');
 vi.mock('prompts');
 
-const mockMcpConfig = McpConfigManager as any;
+const mockGetAllServerTargets = vi.mocked(getAllServerTargets);
 const mockPrompts = prompts as unknown as Mock;
 
 // Mock console methods
@@ -18,20 +18,15 @@ const mockConsoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
 
 describe('InteractiveSelector', () => {
   let selector: InteractiveSelector;
-  let mockConfigManager: any;
 
   beforeEach(() => {
     vi.clearAllMocks();
 
-    // Mock MCP config manager
-    mockConfigManager = {
-      getTransportConfig: vi.fn().mockReturnValue({
-        'filesystem-server': { tags: ['filesystem', 'local'] },
-        'database-server': { tags: ['database', 'sql'] },
-        'web-scraper': { tags: ['web', 'search'] },
-      }),
-    };
-    mockMcpConfig.getInstance = vi.fn().mockReturnValue(mockConfigManager);
+    mockGetAllServerTargets.mockReturnValue({
+      'filesystem-server': { tags: ['filesystem', 'local'] },
+      'database-server': { tags: ['database', 'sql'] },
+      'web-scraper': { tags: ['web', 'search'] },
+    });
 
     selector = new InteractiveSelector();
   });
@@ -39,12 +34,6 @@ describe('InteractiveSelector', () => {
   afterEach(() => {
     mockConsoleLog.mockClear();
     mockConsoleError.mockClear();
-  });
-
-  describe('constructor', () => {
-    it('should initialize with MCP config manager', () => {
-      expect(mockMcpConfig.getInstance).toHaveBeenCalled();
-    });
   });
 
   describe('confirmSave', () => {
@@ -250,7 +239,7 @@ describe('InteractiveSelector', () => {
 
   describe('selectServers (configuration validation)', () => {
     it('should handle empty server configuration', async () => {
-      mockConfigManager.getTransportConfig.mockReturnValue({});
+      mockGetAllServerTargets.mockReturnValue({});
 
       // Mock prompts to avoid actual interaction, but we expect early return
       const result = await selector.selectServers();
@@ -267,12 +256,23 @@ describe('InteractiveSelector', () => {
       // This tests the internal logic that prepares choices for prompts
       // Since selectServers is primarily interactive, we test the preparation logic indirectly
 
-      const servers = mockConfigManager.getTransportConfig();
+      const servers = getAllServerTargets();
 
       // Verify that the mock data is structured correctly for choice preparation
       expect(servers['filesystem-server']).toEqual({ tags: ['filesystem', 'local'] });
       expect(servers['database-server']).toEqual({ tags: ['database', 'sql'] });
       expect(servers['web-scraper']).toEqual({ tags: ['web', 'search'] });
+    });
+
+    it('should prepare template server targets correctly', () => {
+      mockGetAllServerTargets.mockReturnValue({
+        'static-server': { tags: ['static'] },
+        'template-server': { tags: ['template', 'project'] },
+      });
+
+      const servers = getAllServerTargets();
+
+      expect(servers['template-server']).toEqual({ tags: ['template', 'project'] });
     });
 
     it('should handle server configuration with existing config', async () => {

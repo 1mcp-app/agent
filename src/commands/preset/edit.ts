@@ -1,4 +1,5 @@
 // Command functionality for preset edit
+import { initializeConfigContext } from '@src/commands/shared/baseConfigUtils.js';
 import { PresetManager } from '@src/domains/preset/manager/presetManager.js';
 import { GlobalOptions } from '@src/globalOptions.js';
 import logger from '@src/logger/logger.js';
@@ -38,6 +39,8 @@ export function buildEditCommand(yargs: Argv) {
  */
 export async function editCommand(argv: EditArguments): Promise<void> {
   try {
+    initializeConfigContext(argv.config, argv['config-dir']);
+
     // Initialize preset manager
     const presetManager = PresetManager.getInstance(argv['config-dir']);
     await presetManager.initialize();

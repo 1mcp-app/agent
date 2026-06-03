@@ -3,7 +3,7 @@ import { CliTestRunner, CommandTestEnvironment } from '@test/e2e/utils/index.js'
 
 import { PresetManager } from '@src/domains/preset/manager/presetManager.js';
 
-import { afterEach, beforeEach, describe, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 describe('Preset Edit Command E2E', () => {
   let environment: CommandTestEnvironment;
@@ -62,6 +62,49 @@ describe('Preset Edit Command E2E', () => {
       runner.assertOutputContains(result, 'Editing preset: desc-test');
       // Note: The actual description update would be verified in integration tests
       // as the interactive part is mocked in e2e tests
+    });
+
+    it('should list tags from template MCP servers', async () => {
+      await environment.cleanup();
+      PresetManager.resetInstance();
+
+      environment = new CommandTestEnvironment({
+        name: 'preset-edit-template-tags-test',
+        createConfigFile: true,
+        mockMcpServers: [
+          {
+            name: 'static-server',
+            command: 'echo',
+            args: ['static'],
+            tags: ['static-tag'],
+            type: 'stdio',
+          },
+        ],
+        mockMcpTemplates: [
+          {
+            name: 'template-server',
+            command: 'echo',
+            args: ['{{project.path}}'],
+            tags: ['template-tag'],
+            type: 'stdio',
+          },
+        ],
+      });
+      await environment.setup();
+      runner = new CliTestRunner(environment);
+
+      await runner.runCommand('preset', 'create', {
+        args: ['template-tags', '--filter', 'static-tag'],
+      });
+
+      const result = await runner.runCommand('preset', 'edit', {
+        args: ['template-tags'],
+        input: '\n',
+      });
+
+      runner.assertSuccess(result);
+      expect(result.stdout).toContain('static-tag');
+      expect(result.stdout).toContain('template-tag');
     });
   });
 

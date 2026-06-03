@@ -1,4 +1,4 @@
-import { McpConfigManager } from '@src/config/mcpConfigManager.js';
+import { getAllServerTargets } from '@src/commands/shared/baseConfigUtils.js';
 import { MCPServerParams } from '@src/core/types/transport.js';
 import { TagQueryEvaluator, TagSelection, TagState } from '@src/domains/preset/parsers/tagQueryEvaluator.js';
 import { PresetConfig, PresetStrategy, TagQuery } from '@src/domains/preset/types/presetTypes.js';
@@ -86,12 +86,6 @@ function isValidTagQuery(obj: unknown): obj is TagQuery {
  * Interactive CLI utility for server selection with arrow key navigation
  */
 export class InteractiveSelector {
-  private mcpConfig: McpConfigManager;
-
-  constructor() {
-    this.mcpConfig = McpConfigManager.getInstance();
-  }
-
   /**
    * Interactive tag-based selection with strategy configuration and back navigation
    */
@@ -117,7 +111,7 @@ export class InteractiveSelector {
 
     try {
       // Get available servers and collect all tags
-      const servers = this.mcpConfig.getTransportConfig();
+      const servers = getAllServerTargets();
       if (Object.keys(servers).length === 0) {
         console.log(
           boxen(chalk.red.bold('⚠️  No MCP servers found in configuration'), {
@@ -409,7 +403,7 @@ export class InteractiveSelector {
    * Display server configuration for validation
    */
   public displayServerConfig(serverName: string): void {
-    const servers = this.mcpConfig.getTransportConfig();
+    const servers = getAllServerTargets();
     const config = servers[serverName];
 
     if (!config) {

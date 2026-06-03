@@ -1,7 +1,7 @@
 import { promises as fs } from 'fs';
 import os from 'os';
 
-import { McpConfigManager } from '@src/config/mcpConfigManager.js';
+import { getAllServerTargets } from '@src/commands/shared/baseConfigUtils.js';
 import { PresetManager } from '@src/domains/preset/manager/presetManager.js';
 import { TagQueryEvaluator } from '@src/domains/preset/parsers/tagQueryEvaluator.js';
 import { TagQueryParser } from '@src/domains/preset/parsers/tagQueryParser.js';
@@ -26,20 +26,19 @@ vi.mock('os', () => ({
   homedir: vi.fn(),
 }));
 
-vi.mock('@src/config/mcpConfigManager.js');
+vi.mock('@src/commands/shared/baseConfigUtils.js');
 vi.mock('../parsing/tagQueryParser.js');
 vi.mock('../parsing/tagQueryEvaluator.js');
 vi.mock('@src/logger/logger.js');
 
 const mockFs = fs as any;
 const mockHomedir = os.homedir as Mock;
-const mockMcpConfig = McpConfigManager as any;
+const mockGetAllServerTargets = vi.mocked(getAllServerTargets);
 const mockTagQueryParser = TagQueryParser as any;
 const mockTagQueryEvaluator = TagQueryEvaluator as any;
 
 describe('PresetManager', () => {
   let presetManager: PresetManager;
-  let mockConfigManager: any;
 
   beforeEach(() => {
     // Reset all mocks
@@ -48,15 +47,11 @@ describe('PresetManager', () => {
     // Mock homedir
     mockHomedir.mockReturnValue('/mock/home');
 
-    // Mock MCP config manager
-    mockConfigManager = {
-      getTransportConfig: vi.fn().mockReturnValue({
-        server1: { tags: ['web', 'api'] },
-        server2: { tags: ['database', 'sql'] },
-        server3: { tags: ['web', 'frontend'] },
-      }),
-    };
-    mockMcpConfig.getInstance = vi.fn().mockReturnValue(mockConfigManager);
+    mockGetAllServerTargets.mockReturnValue({
+      server1: { tags: ['web', 'api'] },
+      server2: { tags: ['database', 'sql'] },
+      server3: { tags: ['web', 'frontend'] },
+    });
 
     // Mock TagQueryParser
     mockTagQueryParser.parseSimple = vi.fn().mockImplementation((tags: string) =>
@@ -451,6 +446,29 @@ describe('PresetManager', () => {
 
       expect(result.servers).toEqual(['server1', 'server3']);
       expect(result.tags).toEqual(['api', 'database', 'frontend', 'sql', 'web']);
+    });
+
+    it('should include template-only server targets', async () => {
+      mockGetAllServerTargets.mockReturnValue({
+        server1: { tags: ['web', 'api'] },
+        templateOnly: { tags: ['web', 'template'] },
+      });
+
+      const result = await presetManager.testPreset('web-preset');
+
+      expect(result.servers).toEqual(['server1', 'templateOnly']);
+      expect(result.tags).toEqual(['api', 'template', 'web']);
+    });
+
+    it('should use template-first target data for duplicate names', async () => {
+      mockGetAllServerTargets.mockReturnValue({
+        shared: { tags: ['web', 'template'] },
+      });
+
+      const result = await presetManager.testPreset('web-preset');
+
+      expect(result.servers).toEqual(['shared']);
+      expect(result.tags).toEqual(['template', 'web']);
     });
 
     it('should throw error for non-existent preset', async () => {

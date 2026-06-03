@@ -2,7 +2,7 @@ import { promises as fs } from 'fs';
 import { FSWatcher, watch } from 'fs';
 import { join } from 'path';
 
-import { McpConfigManager } from '@src/config/mcpConfigManager.js';
+import { getAllServerTargets } from '@src/commands/shared/baseConfigUtils.js';
 import { getConfigDir } from '@src/constants.js';
 import { TagQueryEvaluator } from '@src/domains/preset/parsers/tagQueryEvaluator.js';
 import { TagQueryParser } from '@src/domains/preset/parsers/tagQueryParser.js';
@@ -558,8 +558,7 @@ export class PresetManager {
       throw new Error(`Preset '${name}' not found`);
     }
 
-    const mcpConfig = McpConfigManager.getInstance();
-    const availableServers = mcpConfig.getTransportConfig();
+    const availableServers = getAllServerTargets();
 
     // Find matching servers based on tag expression
     const matchingServers: string[] = [];

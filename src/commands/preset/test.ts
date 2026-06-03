@@ -1,3 +1,4 @@
+import { initializeConfigContext } from '@src/commands/shared/baseConfigUtils.js';
 import { PresetManager } from '@src/domains/preset/manager/presetManager.js';
 import { GlobalOptions } from '@src/globalOptions.js';
 import logger from '@src/logger/logger.js';
@@ -30,6 +31,8 @@ export function buildTestCommand(yargs: Argv) {
  */
 export async function testCommand(argv: TestArguments): Promise<void> {
   try {
+    initializeConfigContext(argv.config, argv['config-dir']);
+
     const presetManager = PresetManager.getInstance(argv['config-dir']);
     await presetManager.initialize();
     const selector = new InteractiveSelector();
