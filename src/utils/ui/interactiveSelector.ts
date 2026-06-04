@@ -1,6 +1,6 @@
 import { getAllServerTargets } from '@src/commands/shared/baseConfigUtils.js';
 import { MCPServerParams } from '@src/core/types/transport.js';
-import { TagQueryEvaluator, TagSelection, TagState } from '@src/domains/preset/parsers/tagQueryEvaluator.js';
+import { TagQueryEvaluator, TagSelection } from '@src/domains/preset/parsers/tagQueryEvaluator.js';
 import { PresetConfig, PresetStrategy, TagQuery } from '@src/domains/preset/types/presetTypes.js';
 import logger from '@src/logger/logger.js';
 
@@ -8,13 +8,10 @@ import boxen from 'boxen';
 import chalk from 'chalk';
 import prompts from 'prompts';
 
-/**
- * Interactive server selection result
- *
- * Uses discriminated union to prevent invalid states:
- * - Cancelled selections don't have strategy/tagQuery data
- * - Completed selections must have strategy/tagQuery data
- */
+import { confirmPresetSave } from './interactiveSelectorPrompts.js';
+import { getInitialTagStateFromQuery, isValidTagQuery } from './interactiveSelectorQuery.js';
+import { showTagSelection, showTagServerDetails } from './interactiveSelectorTagUi.js';
+
 export type SelectionResult = { cancelled: true } | { cancelled: false; strategy: PresetStrategy; tagQuery: TagQuery };
 
 /**
@@ -23,63 +20,6 @@ export type SelectionResult = { cancelled: true } | { cancelled: false; strategy
 export interface PresetTestResult {
   servers: string[];
   tags: string[];
-}
-
-/**
- * Type guard to validate TagQuery objects
- */
-function isValidTagQuery(obj: unknown): obj is TagQuery {
-  if (!obj || typeof obj !== 'object') {
-    return false;
-  }
-
-  const query = obj as Record<string, unknown>;
-
-  // Check for valid properties
-  if (query.tag !== undefined && typeof query.tag !== 'string') {
-    return false;
-  }
-
-  if (query.$or !== undefined && !Array.isArray(query.$or)) {
-    return false;
-  }
-
-  if (query.$and !== undefined && !Array.isArray(query.$and)) {
-    return false;
-  }
-
-  if (query.$not !== undefined && !isValidTagQuery(query.$not)) {
-    return false;
-  }
-
-  if (query.$in !== undefined && !Array.isArray(query.$in)) {
-    return false;
-  }
-
-  // Recursively validate nested queries in $or and $and
-  if (query.$or && Array.isArray(query.$or)) {
-    const orArray = query.$or as unknown[];
-    if (!orArray.every((item) => isValidTagQuery(item))) {
-      return false;
-    }
-  }
-
-  if (query.$and && Array.isArray(query.$and)) {
-    const andArray = query.$and as unknown[];
-    if (!andArray.every((item) => isValidTagQuery(item))) {
-      return false;
-    }
-  }
-
-  // Validate $in array contains only strings
-  if (query.$in && Array.isArray(query.$in)) {
-    const inArray = query.$in as unknown[];
-    if (!inArray.every((item: unknown) => typeof item === 'string')) {
-      return false;
-    }
-  }
-
-  return true;
 }
 
 /**
@@ -330,73 +270,7 @@ export class InteractiveSelector {
    * Confirm save operation with preset name
    */
   public async confirmSave(presetName?: string): Promise<{ name: string; description?: string; save: boolean }> {
-    if (presetName) {
-      // Pre-specified name, just confirm
-      const confirm = await prompts({
-        type: 'confirm',
-        name: 'save',
-        message: `Save preset as '${presetName}'?`,
-      });
-
-      return {
-        name: presetName,
-        save: Boolean(confirm.save),
-      };
-    }
-
-    // Get preset name and optional description
-    const nameInput = await prompts({
-      type: 'text',
-      name: 'name',
-      message: 'Enter preset name:',
-      validate: (value: string): boolean | string => {
-        if (typeof value !== 'string') {
-          return 'Preset name must be a string';
-        }
-        const trimmedValue: string = value.trim();
-        if (!trimmedValue) {
-          return 'Preset name is required';
-        }
-        if (trimmedValue.length > 50) {
-          return 'Preset name must be 50 characters or less';
-        }
-        if (!/^[a-zA-Z0-9_-]+$/.test(trimmedValue)) {
-          return 'Preset name can only contain letters, numbers, hyphens, and underscores';
-        }
-        return true;
-      },
-    });
-
-    if (!nameInput.name || nameInput.name === null || nameInput.name === '') {
-      return { name: '', save: false };
-    }
-
-    const descriptionInput = await prompts({
-      type: 'text',
-      name: 'description',
-      message: 'Enter optional description:',
-    });
-
-    // Ensure nameInput.name is properly typed and not null/undefined
-    if (!nameInput.name || typeof nameInput.name !== 'string') {
-      return { name: '', save: false };
-    }
-    const trimmedName: string = nameInput.name.trim();
-
-    // Ensure descriptionInput.description is properly typed and safe to process
-    let trimmedDescription: string | undefined;
-    if (descriptionInput.description && typeof descriptionInput.description === 'string') {
-      const descriptionValue = descriptionInput.description;
-      if (descriptionValue.trim() !== '') {
-        trimmedDescription = descriptionValue.trim();
-      }
-    }
-
-    return {
-      name: trimmedName,
-      description: trimmedDescription,
-      save: true,
-    };
+    return confirmPresetSave(presetName);
   }
 
   /**
@@ -512,7 +386,7 @@ export class InteractiveSelector {
     // Initialize tag selections with server info and restore from existing query
     const tagSelections: TagSelection[] = availableTags.map((tag) => ({
       tag,
-      state: this.getInitialTagStateFromQuery(tag, existingQuery, strategy),
+      state: getInitialTagStateFromQuery(tag, existingQuery),
       servers: tagServerMap.get(tag) || [],
     }));
 
@@ -523,7 +397,7 @@ export class InteractiveSelector {
       console.clear();
 
       // Show main tag selection interface
-      await this.showTagSelection(tagSelections, currentIndex, servers, strategy);
+      showTagSelection(tagSelections, currentIndex, servers, strategy);
 
       // Get user input
       const action = await this.getKeyInput();
@@ -547,7 +421,9 @@ export class InteractiveSelector {
         case 'right': {
           // Show server details for current tag
           if (currentIndex < tagSelections.length) {
-            await this.showTagServerDetails(tagSelections[currentIndex], servers);
+            console.clear();
+            showTagServerDetails(tagSelections[currentIndex], servers);
+            await this.getKeyInput();
           }
           break;
         }
@@ -565,117 +441,6 @@ export class InteractiveSelector {
           return { tagQuery: {} as TagQuery, goBack: false, cancelled: true };
       }
     }
-  }
-
-  /**
-   * Show main tag selection interface with boxen styling
-   */
-  private async showTagSelection(
-    tagSelections: TagSelection[],
-    currentIndex: number,
-    servers: Record<string, MCPServerParams>,
-    strategy: PresetStrategy,
-  ): Promise<void> {
-    // Header
-    const header = boxen(
-      chalk.cyan.bold('🎯 Three-State Tag Selection\n\n') +
-        chalk.yellow(`Strategy: ${strategy === 'and' ? 'ALL' : 'ANY'} selected tags must match\n`) +
-        chalk.gray('Controls: ↑↓ Navigate  Space Cycle states  → Server details  Enter Confirm  ← Back  Esc Cancel'),
-      {
-        padding: 1,
-        borderStyle: 'double',
-        borderColor: 'cyan',
-        title: 'Tag Selection',
-        titleAlignment: 'center',
-      },
-    );
-    console.log(header);
-
-    // Tag list
-    const tagListContent = tagSelections
-      .map((selection, index) => {
-        const symbol = TagQueryEvaluator.getTagStateSymbol(selection.state);
-        const stateColor = this.getTagStateColor(selection.state);
-        const isCurrentIndex = index === currentIndex;
-
-        const cursor = isCurrentIndex ? chalk.yellow.bold('►') : ' ';
-        const tagHighlight = isCurrentIndex ? chalk.bgGray.white.bold : chalk.white;
-
-        // Count enabled and disabled servers for this tag
-        const enabledServers = selection.servers.filter((serverName) => servers[serverName]?.disabled !== true);
-        const disabledServers = selection.servers.filter((serverName) => servers[serverName]?.disabled === true);
-
-        let serverInfo = chalk.gray(`(${chalk.blue(enabledServers.length)} enabled`);
-        if (disabledServers.length > 0) {
-          serverInfo += chalk.gray(`, ${chalk.red(disabledServers.length)} disabled`);
-        }
-        serverInfo += chalk.gray(')');
-
-        return `${cursor} ${stateColor(symbol)} ${tagHighlight(selection.tag)} ${serverInfo}`;
-      })
-      .join('\n');
-
-    console.log(
-      boxen(tagListContent, {
-        padding: 1,
-        borderStyle: 'round',
-        borderColor: 'blue',
-      }),
-    );
-
-    // Live preview
-    const matchingServers = TagQueryEvaluator.getMatchingServers(tagSelections, servers, strategy);
-
-    // Check for disabled servers in the matching set
-    const disabledServers = matchingServers.filter((serverName) => servers[serverName]?.disabled === true);
-    const enabledServers = matchingServers.filter((serverName) => servers[serverName]?.disabled !== true);
-
-    const matchColor = enabledServers.length === 0 ? chalk.red : enabledServers.length < 3 ? chalk.yellow : chalk.green;
-    const matchIcon = enabledServers.length === 0 ? '❌' : enabledServers.length < 3 ? '⚠️' : '✅';
-
-    let previewContent =
-      chalk.blue.bold('Live Preview:\n') +
-      `${matchIcon} ${matchColor.bold(`${enabledServers.length} enabled servers`)} match your selection\n` +
-      (enabledServers.length > 0
-        ? chalk.green(`Servers: ${TagQueryEvaluator.formatServerList(enabledServers, 3)}`)
-        : chalk.gray('No enabled servers match'));
-
-    // Add warning for disabled servers if any
-    if (disabledServers.length > 0) {
-      previewContent +=
-        '\n' +
-        chalk.red.bold(`⚠️  ${disabledServers.length} disabled servers also match: `) +
-        chalk.red(TagQueryEvaluator.formatServerList(disabledServers, 3));
-    }
-
-    console.log(
-      boxen(previewContent, {
-        padding: 1,
-        borderStyle: 'round',
-        borderColor: disabledServers.length > 0 ? 'yellow' : 'green',
-        title: '⚡ Live Preview',
-        titleAlignment: 'center',
-      }),
-    );
-
-    // State legend
-    const legend =
-      chalk.gray('○ ') +
-      chalk.dim('Empty (ignored)') +
-      '   ' +
-      chalk.green('✓ ') +
-      chalk.green('Selected (include)') +
-      '   ' +
-      chalk.red('✗ ') +
-      chalk.red('Not selected (exclude)');
-
-    console.log(
-      boxen(legend, {
-        padding: 1,
-        borderStyle: 'single',
-        borderColor: 'gray',
-      }),
-    );
   }
 
   /**
@@ -717,169 +482,5 @@ export class InteractiveSelector {
 
       stdin.on('data', onKeypress);
     });
-  }
-
-  /**
-   * Get color for tag state
-   */
-  private getTagStateColor(state: TagState): (text: string) => string {
-    switch (state) {
-      case 'empty':
-        return chalk.gray;
-      case 'selected':
-        return chalk.green;
-      case 'not-selected':
-        return chalk.red;
-      default:
-        return chalk.reset;
-    }
-  }
-
-  /**
-   * Show detailed information about servers for a specific tag
-   */
-  private async showTagServerDetails(
-    tagSelection: TagSelection,
-    servers: Record<string, MCPServerParams>,
-  ): Promise<void> {
-    console.clear();
-
-    const enabledServers = tagSelection.servers.filter((serverName) => servers[serverName]?.disabled !== true);
-    const disabledServers = tagSelection.servers.filter((serverName) => servers[serverName]?.disabled === true);
-
-    let content = chalk.blue.bold(`📋 Tag: ${tagSelection.tag}\n\n`);
-
-    if (enabledServers.length > 0) {
-      content += chalk.green.bold(`✅ Enabled Servers (${enabledServers.length}):\n`);
-      for (const serverName of enabledServers) {
-        const serverConfig = servers[serverName];
-        const allTags = (serverConfig.tags || []).join(', ');
-        content += chalk.green(`  • ${serverName}`) + chalk.gray(` - tags: ${allTags || 'none'}\n`);
-      }
-      content += '\n';
-    }
-
-    if (disabledServers.length > 0) {
-      content += chalk.red.bold(`❌ Disabled Servers (${disabledServers.length}):\n`);
-      for (const serverName of disabledServers) {
-        const serverConfig = servers[serverName];
-        const allTags = (serverConfig.tags || []).join(', ');
-        content += chalk.red(`  • ${serverName}`) + chalk.gray(` - tags: ${allTags || 'none'}\n`);
-      }
-      content += '\n';
-    }
-
-    if (tagSelection.servers.length === 0) {
-      content += chalk.yellow('No servers have this tag.\n\n');
-    }
-
-    content += chalk.gray('Press any key to return to tag selection...');
-
-    console.log(
-      boxen(content, {
-        padding: 1,
-        borderStyle: 'round',
-        borderColor: 'blue',
-        title: `🔍 Server Details`,
-        titleAlignment: 'center',
-      }),
-    );
-
-    // Wait for any key press
-    await this.getKeyInput();
-  }
-
-  /**
-   * Determine initial tag state from existing query
-   */
-  private getInitialTagStateFromQuery(tag: string, existingQuery?: TagQuery, _strategy?: PresetStrategy): TagState {
-    if (!existingQuery || !isValidTagQuery(existingQuery)) {
-      return 'empty';
-    }
-
-    // Helper function to recursively check if a query matches a tag
-    const queryMatches = (query: unknown): boolean => {
-      if (!isValidTagQuery(query)) {
-        return false;
-      }
-
-      // Use the query directly since it's been validated
-      const validQuery = query as TagQuery;
-
-      // Direct tag match
-      if (validQuery.tag === tag) {
-        return true;
-      }
-
-      // Check nested $or
-      if (validQuery.$or && Array.isArray(validQuery.$or)) {
-        return validQuery.$or.some((subQuery: unknown) => queryMatches(subQuery));
-      }
-
-      // Check nested $and
-      if (validQuery.$and && Array.isArray(validQuery.$and)) {
-        return validQuery.$and.some((subQuery: unknown) => queryMatches(subQuery));
-      }
-
-      // Check $in operator
-      if (validQuery.$in && Array.isArray(validQuery.$in)) {
-        const inArray = validQuery.$in as unknown[];
-        return inArray.some((item): item is string => typeof item === 'string' && item === tag);
-      }
-
-      // Check $not operator recursively
-      if (validQuery.$not) {
-        return queryMatches(validQuery.$not);
-      }
-
-      return false;
-    };
-
-    // Helper function to check for NOT conditions
-    const queryMatchesNot = (query: unknown): boolean => {
-      if (!isValidTagQuery(query)) {
-        return false;
-      }
-
-      // Use the query directly since it's been validated
-      const validQuery = query as TagQuery;
-
-      // Direct NOT match
-      if (validQuery.$not) {
-        return queryMatches(validQuery.$not);
-      }
-
-      // Check for NOT in nested structures
-      if (validQuery.$and && Array.isArray(validQuery.$and)) {
-        return validQuery.$and.some((subQuery: unknown) => {
-          if (!isValidTagQuery(subQuery)) return false;
-          const subQueryTyped = subQuery as TagQuery;
-          return subQueryTyped.$not && queryMatches(subQueryTyped.$not);
-        });
-      }
-
-      // Check for NOT in $or structures as well
-      if (validQuery.$or && Array.isArray(validQuery.$or)) {
-        return validQuery.$or.some((subQuery: unknown) => {
-          if (!isValidTagQuery(subQuery)) return false;
-          const subQueryTyped = subQuery as TagQuery;
-          return subQueryTyped.$not && queryMatches(subQueryTyped.$not);
-        });
-      }
-
-      return false;
-    };
-
-    // Check for NOT conditions first (they take precedence)
-    if (queryMatchesNot(existingQuery)) {
-      return 'not-selected';
-    }
-
-    // Check for positive matches
-    if (queryMatches(existingQuery)) {
-      return 'selected';
-    }
-
-    return 'empty';
   }
 }

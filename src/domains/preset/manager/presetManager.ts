@@ -1,11 +1,9 @@
-import { promises as fs } from 'fs';
-import { FSWatcher, watch } from 'fs';
+import { promises as fs, FSWatcher, watch } from 'fs';
 import { join } from 'path';
 
 import { getAllServerTargets } from '@src/commands/shared/baseConfigUtils.js';
 import { getConfigDir } from '@src/constants.js';
 import { TagQueryEvaluator } from '@src/domains/preset/parsers/tagQueryEvaluator.js';
-import { TagQueryParser } from '@src/domains/preset/parsers/tagQueryParser.js';
 import { PresetErrorHandler } from '@src/domains/preset/services/presetErrorHandler.js';
 import { PresetServerChangeDetector } from '@src/domains/preset/services/presetServerChangeDetector.js';
 import {
@@ -15,6 +13,11 @@ import {
   PresetValidationResult,
 } from '@src/domains/preset/types/presetTypes.js';
 import logger from '@src/logger/logger.js';
+
+import { cleanupPresetManagerState } from './presetManagerCleanup.js';
+import { ensurePresetConfigDirectory, writePresetStorage } from './presetStorage.js';
+import { testPresetAgainstServers } from './presetTesting.js';
+import { validatePresetConfig } from './presetValidation.js';
 
 /**
  * PresetManager handles dynamic preset storage, validation, and hot-reloading.
@@ -101,7 +104,7 @@ export class PresetManager {
    */
   private async loadPresets(skipChangeDetectorInit: boolean = false): Promise<void> {
     try {
-      await this.ensureConfigDirectory();
+      await ensurePresetConfigDirectory(this.configDirOption);
 
       try {
         const data = await fs.readFile(this.configPath, 'utf-8');
@@ -269,14 +272,7 @@ export class PresetManager {
    */
   private async savePresets(): Promise<void> {
     try {
-      await this.ensureConfigDirectory();
-
-      const storage: PresetStorage = {
-        version: '1.0.0',
-        presets: Object.fromEntries(this.presets.entries()) as Record<string, PresetConfig>,
-      };
-
-      await fs.writeFile(this.configPath, JSON.stringify(storage, null, 2), 'utf-8');
+      await writePresetStorage(this.configPath, this.presets, this.configDirOption);
       logger.debug('Presets saved to file', {
         presetCount: this.presets.size,
         configPath: this.configPath,
@@ -287,25 +283,6 @@ export class PresetManager {
         `Failed to save presets: ${error instanceof Error ? error.message : 'Unknown error'}`,
         { context: 'preset saving', exitCode: 3 },
       );
-    }
-  }
-
-  /**
-   * Ensure config directory exists
-   */
-  private async ensureConfigDirectory(): Promise<void> {
-    const configDir = getConfigDir(this.configDirOption);
-    try {
-      await fs.mkdir(configDir, { recursive: true });
-    } catch (error: unknown) {
-      if (error instanceof Error && 'code' in error) {
-        const errorCode = (error as Error & { code?: string }).code;
-        if (errorCode !== undefined && errorCode !== 'EEXIST') {
-          throw error;
-        }
-      } else {
-        throw error;
-      }
     }
   }
 
@@ -351,51 +328,15 @@ export class PresetManager {
    * Stop watching preset file
    */
   public async cleanup(): Promise<void> {
-    logger.debug('Starting PresetManager cleanup');
-
-    try {
-      // Clear any pending debounce timeout
-      if (this.reloadTimeout) {
-        clearTimeout(this.reloadTimeout);
-        this.reloadTimeout = null;
-        logger.debug('Cleared pending reload timeout');
-      }
-
-      // Stop file watching
-      if (this.watcher) {
-        this.watcher.close();
-        this.watcher = null;
-        logger.debug('Stopped watching preset file');
-      }
-
-      // Clear all notification callbacks to prevent memory leaks
-      if (this.notificationCallbacks.size > 0) {
-        const callbackCount = this.notificationCallbacks.size;
-        this.notificationCallbacks.clear();
-        logger.debug('Cleared notification callbacks', { count: callbackCount });
-      }
-
-      // Clean up change detector
-      if (this.changeDetector) {
-        // Check if change detector has cleanup method
-        if (typeof this.changeDetector.clear === 'function') {
-          this.changeDetector.clear();
-          logger.debug('Cleared change detector');
-        }
-      }
-
-      // Clear presets from memory
-      if (this.presets.size > 0) {
-        const presetCount = this.presets.size;
-        this.presets.clear();
-        logger.debug('Cleared presets from memory', { count: presetCount });
-      }
-
-      logger.debug('PresetManager cleanup completed successfully');
-    } catch (error) {
-      logger.error('Error during PresetManager cleanup', { error });
-      // Don't throw during cleanup to prevent cascading failures
-    }
+    const state = await cleanupPresetManagerState({
+      reloadTimeout: this.reloadTimeout,
+      watcher: this.watcher,
+      notificationCallbacks: this.notificationCallbacks,
+      changeDetector: this.changeDetector,
+      presets: this.presets,
+    });
+    this.reloadTimeout = state.reloadTimeout;
+    this.watcher = state.watcher;
   }
 
   /**
@@ -474,49 +415,7 @@ export class PresetManager {
     name: string,
     config: Omit<PresetConfig, 'name' | 'created' | 'lastModified'>,
   ): Promise<PresetValidationResult> {
-    const errors: string[] = [];
-    const warnings: string[] = [];
-
-    // Validate name
-    if (!name || typeof name !== 'string') {
-      errors.push('Preset name is required and must be a string');
-    } else if (name.length > 50) {
-      errors.push('Preset name must be 50 characters or less');
-    } else if (!/^[a-zA-Z0-9_-]+$/.test(name)) {
-      errors.push('Preset name can only contain letters, numbers, hyphens, and underscores');
-    }
-
-    // Validate strategy
-    if (!config.strategy || !['or', 'and', 'advanced'].includes(config.strategy)) {
-      errors.push('Strategy must be one of: or, and, advanced');
-    }
-
-    // Validate tag query
-    if (!config.tagQuery || typeof config.tagQuery !== 'object') {
-      errors.push('Tag query is required and must be an object');
-    } else {
-      try {
-        // Validate JSON query structure
-        const validation = TagQueryEvaluator.validateQuery(config.tagQuery);
-        if (!validation.isValid) {
-          errors.push(...validation.errors.map((err) => `Tag query: ${err}`));
-        }
-
-        // Check if query has any meaningful content
-        const queryString = TagQueryEvaluator.queryToString(config.tagQuery);
-        if (!queryString.trim()) {
-          warnings.push('Tag query produces no meaningful filter');
-        }
-      } catch (error) {
-        errors.push(`Invalid tag query: ${error instanceof Error ? error.message : 'Unknown error'}`);
-      }
-    }
-
-    return {
-      isValid: errors.length === 0,
-      errors,
-      warnings,
-    };
+    return validatePresetConfig(name, config);
   }
 
   /**
@@ -558,52 +457,7 @@ export class PresetManager {
       throw new Error(`Preset '${name}' not found`);
     }
 
-    const availableServers = getAllServerTargets();
-
-    // Find matching servers based on tag expression
-    const matchingServers: string[] = [];
-    const allTags = new Set<string>();
-
-    for (const [serverName, serverConfig] of Object.entries(availableServers)) {
-      const serverTags = serverConfig.tags || [];
-
-      // Add server tags to collection
-      serverTags.forEach((tag: string) => allTags.add(tag));
-
-      // Test if server matches preset expression
-      let matches = false;
-
-      try {
-        // Use unified JSON query evaluator
-        // Convert any legacy $advanced expressions to JSON format first
-        let jsonQuery = preset.tagQuery;
-        if (preset.strategy === 'advanced' && preset.tagQuery.$advanced) {
-          // Convert legacy advanced expression to JSON format
-          jsonQuery = TagQueryParser.advancedQueryToJSON(String(preset.tagQuery.$advanced));
-        }
-
-        matches = TagQueryEvaluator.evaluate(jsonQuery, serverTags);
-      } catch (error) {
-        logger.warn('Failed to evaluate preset against server', {
-          preset: name,
-          server: serverName,
-          error: error instanceof Error ? error.message : 'Unknown error',
-          tagQuery: preset.tagQuery,
-          serverTags,
-        });
-        // Ensure failed evaluation doesn't match any servers
-        matches = false;
-      }
-
-      if (matches) {
-        matchingServers.push(serverName);
-      }
-    }
-
-    return {
-      servers: matchingServers,
-      tags: Array.from(allTags).sort(),
-    };
+    return testPresetAgainstServers(name, preset, getAllServerTargets());
   }
 
   /**

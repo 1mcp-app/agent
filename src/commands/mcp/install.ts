@@ -1,7 +1,4 @@
-import {
-  createServerInstallationWorkflow,
-  type ServerInstallationWorkflowResult,
-} from '@src/domains/installation/serverInstallationWorkflow.js';
+import { createServerInstallationWorkflow } from '@src/domains/installation/serverInstallationWorkflow.js';
 import { MCPRegistryClient } from '@src/domains/registry/mcpRegistryClient.js';
 import { getProgressTrackingService } from '@src/domains/server-management/index.js';
 import { GlobalOptions } from '@src/globalOptions.js';
@@ -12,6 +9,12 @@ import boxen from 'boxen';
 import chalk from 'chalk';
 import type { Argv } from 'yargs';
 
+import {
+  createRegistryInstallSource,
+  deriveLocalServerName,
+  installationWorkflowFailureMessage,
+  validateRegistryServerId,
+} from './installSource.js';
 import { InstallWizard } from './utils/installWizard.js';
 import { getAllServers, initializeConfigContext } from './utils/mcpServerConfig.js';
 import { generateOperationId, parseServerNameVersion, validateVersion } from './utils/serverUtils.js';
@@ -126,12 +129,7 @@ export async function installCommand(argv: InstallCommandArgs): Promise<void> {
       const preview = await workflow.run({
         mode: 'preview',
         force,
-        source: {
-          type: 'registry',
-          registryId: registryServerId,
-          version,
-          localName: serverName,
-        },
+        source: createRegistryInstallSource({ registryServerId, version, serverName }),
       });
       if (preview.status !== 'preview') {
         throw new Error(installationWorkflowFailureMessage(preview));
@@ -167,12 +165,7 @@ export async function installCommand(argv: InstallCommandArgs): Promise<void> {
       const result = await workflow.run({
         mode: 'apply',
         force,
-        source: {
-          type: 'registry',
-          registryId: registryServerId,
-          version,
-          localName: serverName,
-        },
+        source: createRegistryInstallSource({ registryServerId, version, serverName }),
       });
       if (result.status !== 'applied') {
         throw new Error(installationWorkflowFailureMessage(result));
@@ -241,76 +234,6 @@ export async function installCommand(argv: InstallCommandArgs): Promise<void> {
 }
 
 /**
- * Validate registry server ID format
- * Registry server IDs can contain dots, slashes, and hyphens (e.g., io.github.user/server-name)
- */
-function validateRegistryServerId(registryId: string): void {
-  if (!registryId || registryId.trim().length === 0) {
-    throw new Error('Registry server ID cannot be empty');
-  }
-
-  const trimmedId = registryId.trim();
-
-  // Check for invalid characters that should never be in server IDs
-  // eslint-disable-next-line no-control-regex
-  const invalidChars = /[<>"\\|?*\x00-\x1f]/;
-  if (invalidChars.test(trimmedId)) {
-    throw new Error(`Registry server ID contains invalid characters: ${registryId}`);
-  }
-
-  // Check length limits
-  if (trimmedId.length > 255) {
-    throw new Error(`Registry server ID too long (max 255 characters): ${registryId}`);
-  }
-
-  // Check for invalid patterns
-  if (trimmedId.includes('//') || trimmedId.startsWith('/') || trimmedId.endsWith('/')) {
-    throw new Error(`Registry server ID has invalid format: ${registryId}`);
-  }
-
-  logger.debug(`Registry server ID validation passed: ${trimmedId}`);
-}
-
-/**
- * Derive a valid local server name from a registry server ID
- * Example: io.github.SnowLeopard-AI/bigquery-mcp -> bigquery-mcp
- */
-function deriveLocalServerName(registryId: string): string {
-  // Extract the last part after the slash, or use the full ID if no slash
-  const lastPart = registryId.includes('/') ? registryId.split('/').pop()! : registryId;
-
-  // If it already starts with a letter and only contains valid chars, use it as-is
-  const localNameRegex = /^[a-zA-Z][a-zA-Z0-9_-]*$/;
-  if (localNameRegex.test(lastPart) && lastPart.length <= 50) {
-    return lastPart;
-  }
-
-  // Otherwise, sanitize it:
-  // 1. Replace invalid characters with underscores
-  // 2. Ensure it starts with a letter
-  // 3. Truncate if too long
-  let sanitized = lastPart.replace(/[^a-zA-Z0-9_-]/g, '_');
-
-  // Ensure it starts with a letter
-  if (!/^[a-zA-Z]/.test(sanitized)) {
-    sanitized = `server_${sanitized}`;
-  }
-
-  // Truncate to 50 characters if longer
-  if (sanitized.length > 50) {
-    sanitized = sanitized.substring(0, 50);
-  }
-
-  // Ensure it's not empty after sanitization
-  if (sanitized.length === 0) {
-    sanitized = 'server';
-  }
-
-  logger.debug(`Derived local server name '${sanitized}' from registry ID '${registryId}'`);
-  return sanitized;
-}
-
-/**
  * Run interactive installation workflow
  */
 async function runInteractiveInstallation(argv: InstallCommandArgs): Promise<void> {
@@ -374,15 +297,14 @@ async function runInteractiveInstallation(argv: InstallCommandArgs): Promise<voi
           const preview = await workflow.run({
             mode: 'preview',
             force: shouldForce,
-            source: {
-              type: 'registry',
-              registryId: registryServerId,
+            source: createRegistryInstallSource({
+              registryServerId,
               version,
-              localName: serverName,
+              serverName,
               tags: wizardResult.tags,
               env: wizardResult.env,
               args: wizardResult.args,
-            },
+            }),
           });
           if (preview.status !== 'preview') {
             throw new Error(installationWorkflowFailureMessage(preview));
@@ -455,15 +377,14 @@ async function runInteractiveInstallation(argv: InstallCommandArgs): Promise<voi
           const result = await workflow.run({
             mode: 'apply',
             force: shouldForce,
-            source: {
-              type: 'registry',
-              registryId: registryServerId,
+            source: createRegistryInstallSource({
+              registryServerId,
               version,
-              localName: serverName,
+              serverName,
               tags: wizardResult.tags,
               env: wizardResult.env,
               args: wizardResult.args,
-            },
+            }),
           });
           if (result.status !== 'applied') {
             throw new Error(installationWorkflowFailureMessage(result));
@@ -562,18 +483,4 @@ async function runInteractiveInstallation(argv: InstallCommandArgs): Promise<voi
   // Explicitly exit after successful completion to prevent hanging
   // This ensures stdin doesn't keep the process alive
   process.exit(0);
-}
-
-function installationWorkflowFailureMessage(result: ServerInstallationWorkflowResult): string {
-  if (result.error) {
-    return result.error;
-  }
-
-  if (result.fieldErrors) {
-    return Object.entries(result.fieldErrors)
-      .flatMap(([field, errors]) => errors.map((error) => `${field}: ${error}`))
-      .join('; ');
-  }
-
-  return `Installation workflow returned ${result.status}`;
 }

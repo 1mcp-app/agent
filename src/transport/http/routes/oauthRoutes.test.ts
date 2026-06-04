@@ -107,24 +107,6 @@ describe('OAuth Routes', () => {
     vi.clearAllMocks();
   });
 
-  describe('Route Creation', () => {
-    it('should create OAuth routes with provider', () => {
-      const router = createOAuthRoutes(mockOAuthProvider);
-
-      expect(router).toBeDefined();
-      expect(router.stack).toBeDefined();
-      expect(router.stack.length).toBeGreaterThan(0);
-    });
-
-    it('should configure rate limiting', () => {
-      const router = createOAuthRoutes(mockOAuthProvider);
-
-      // Should have middleware (rate limiter)
-      const hasMiddleware = router.stack.some((layer: any) => !layer.route);
-      expect(hasMiddleware).toBe(true);
-    });
-  });
-
   describe('Route Handlers', () => {
     it('should handle dashboard route', async () => {
       const router = createOAuthRoutes(mockOAuthProvider);

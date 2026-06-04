@@ -165,7 +165,7 @@ describe('Installation Adapter', () => {
       });
     });
 
-    it('should install package-only requests as direct npx servers', async () => {
+    it('should pass package-only requests as direct workflow sources', async () => {
       await adapter.installServer('package-server', undefined, {
         package: '@scope/pkg',
         args: ['--flag'],
@@ -180,9 +180,9 @@ describe('Installation Adapter', () => {
           type: 'direct',
           localName: 'package-server',
           transport: 'stdio',
-          command: 'npx',
+          command: undefined,
           url: undefined,
-          args: ['-y', '@scope/pkg', '--flag'],
+          args: ['--flag'],
           env: undefined,
           tags: undefined,
           timeout: undefined,

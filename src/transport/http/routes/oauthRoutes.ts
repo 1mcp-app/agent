@@ -336,10 +336,14 @@ export function createOAuthRoutes(oauthProvider: SDKOAuthServerProvider, loading
         return `<a href="/oauth/authorize/${sanitizeUrlParam(service.name)}" class="btn btn-warning">🔐 Authorize</a>`;
       case ClientStatus.Error:
       case ClientStatus.Disconnected:
-        return `<button onclick="restartOAuth(this.dataset.serverName)" data-server-name="${escapeHtml(service.name)}" class="btn btn-primary">🔄 Restart OAuth</button>`;
+        return getRestartOAuthButton(service.name, 'Restart OAuth');
       default:
-        return `<button onclick="restartOAuth(this.dataset.serverName)" data-server-name="${escapeHtml(service.name)}" class="btn btn-primary">🔄 Start OAuth</button>`;
+        return getRestartOAuthButton(service.name, 'Start OAuth');
     }
+  }
+
+  function getRestartOAuthButton(serverName: string, label: 'Restart OAuth' | 'Start OAuth'): string {
+    return `<button onclick="restartOAuth(this.dataset.serverName)" data-server-name="${escapeHtml(serverName)}" class="btn btn-primary">🔄 ${label}</button>`;
   }
 
   function getAlertHtml(req: Request): string {

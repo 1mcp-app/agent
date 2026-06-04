@@ -65,13 +65,7 @@ export class ServerInstallationAdapter implements InstallationAdapter {
       }
 
       const operationId = `install_${Date.now()}`;
-      const packageCommand =
-        options.package && !options.command && !options.url && !options.localServerName
-          ? createPackageCommand(options)
-          : undefined;
-      const command = packageCommand?.command ?? options.command;
-      const args = packageCommand?.args ?? options.args;
-      const isDirectInstall = Boolean(command || options.url || (options.package && !options.localServerName));
+      const isDirectInstall = Boolean(options.command || options.url || (options.package && !options.localServerName));
       const backupPolicy = options.backup === undefined ? undefined : options.backup ? 'required' : 'skip';
       const result = await createServerInstallationWorkflow().run({
         mode: 'apply',
@@ -82,9 +76,9 @@ export class ServerInstallationAdapter implements InstallationAdapter {
               type: 'direct',
               localName: serverName,
               transport: options.transport ?? (options.url ? 'http' : 'stdio'),
-              command,
+              command: options.command,
               url: options.url,
-              args,
+              args: options.args,
               env: options.env,
               tags: options.tags,
               timeout: options.timeout,
@@ -453,15 +447,4 @@ export class ServerInstallationAdapter implements InstallationAdapter {
  */
 export function createInstallationAdapter(): InstallationAdapter {
   return new ServerInstallationAdapter();
-}
-
-function createPackageCommand(options: InstallAdapterOptions): { command: string; args: string[] } | undefined {
-  if (!options.package || options.transport === 'http' || options.transport === 'sse') {
-    return undefined;
-  }
-
-  return {
-    command: 'npx',
-    args: ['-y', options.package, ...(options.args ?? [])],
-  };
 }

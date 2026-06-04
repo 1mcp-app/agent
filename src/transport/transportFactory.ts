@@ -11,8 +11,7 @@ import { OAuthClientConfig, SDKOAuthClientProvider } from '@src/auth/sdkOAuthCli
 import { processEnvironment, substituteEnvVars } from '@src/config/envProcessor.js';
 import { AUTH_CONFIG, MCP_SERVER_VERSION } from '@src/constants.js';
 import { AgentConfigManager } from '@src/core/server/agentConfig.js';
-import { AuthProviderTransport, transportConfigSchema } from '@src/core/types/index.js';
-import { MCPServerParams } from '@src/core/types/index.js';
+import { AuthProviderTransport, MCPServerParams, transportConfigSchema } from '@src/core/types/index.js';
 import logger, { debugIf } from '@src/logger/logger.js';
 import { HandlebarsTemplateRenderer } from '@src/template/handlebarsTemplateRenderer.js';
 import type { ContextData } from '@src/types/context.js';

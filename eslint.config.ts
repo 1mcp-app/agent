@@ -108,6 +108,7 @@ export default [
       'src/utils/ui/printer.ts',
       'src/utils/ui/logo.ts',
       'src/utils/ui/interactiveSelector.ts',
+      'src/utils/ui/interactiveSelectorTagUi.ts',
       'src/utils/ui/spinner.ts',
     ],
     rules: {

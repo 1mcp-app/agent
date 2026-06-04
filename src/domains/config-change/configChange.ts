@@ -9,104 +9,50 @@ import logger from '@src/logger/logger.js';
 
 import { parse as parseToml } from 'smol-toml';
 
-export type ConfiguredServerTargetSource = 'mcpServers' | 'mcpTemplates';
-export type ConfigChangeOperation = 'remove' | 'set_static';
-export type ConfigChangeReason = 'install' | 'uninstall' | 'remove' | 'config_change';
-export type ConfigChangeStatus = 'changed' | 'not_found' | 'template_conflict' | 'failed';
-export type ConfigReloadStatus = 'observed' | 'runtime_not_running' | 'reload_disabled' | 'failed' | 'skipped';
-export type ConfigBackupPolicy = 'required' | 'skip';
+import {
+  type BackupRetentionPolicy,
+  DEFAULT_BACKUP_RETENTION,
+  listConfigBackups,
+  retentionSkipped,
+} from './backupRetention.js';
+import {
+  acquireConfigLock,
+  ConfigLockTimeoutError,
+  DEFAULT_LOCK_TIMEOUT_MS,
+  type ReleaseConfigLock,
+} from './configLock.js';
+import type {
+  ConfigBackupPolicy,
+  ConfigBackupResult,
+  ConfigChangePorts,
+  ConfigChangeReason,
+  ConfigChangeResult,
+  ConfigChangeService,
+  ConfigReloadResult,
+  ConfigRetentionCleanupResult,
+  ConfiguredServerTargetRef,
+  MutableConfigDocument,
+  RemoveConfiguredServerTargetInput,
+  SetStaticConfiguredServerTargetInput,
+} from './types.js';
 
-export interface ConfiguredServerTargetRef {
-  name: string;
-  source?: ConfiguredServerTargetSource;
-}
-
-export interface ConfigBackupResult {
-  created: boolean;
-  path?: string;
-  error?: string;
-}
-
-export interface ConfigReloadResult {
-  status: ConfigReloadStatus;
-  error?: string;
-}
-
-export interface ConfigRetentionCleanupResult {
-  attempted: boolean;
-  deletedPaths: string[];
-  warnings: string[];
-}
-
-export interface ConfigChangeResult {
-  status: ConfigChangeStatus;
-  operation: ConfigChangeOperation;
-  configPath: string;
-  target: ConfiguredServerTargetRef;
-  changed: boolean;
-  backup: ConfigBackupResult;
-  retentionCleanup: ConfigRetentionCleanupResult;
-  reload: ConfigReloadResult;
-  warnings: string[];
-  error?: string;
-}
-
-export interface RemoveConfiguredServerTargetInput {
-  targetName: string;
-  operation?: ConfigChangeReason;
-  backup?: ConfigBackupPolicy;
-}
-
-export interface SetStaticConfiguredServerTargetInput {
-  targetName: string;
-  serverConfig: MCPServerParams;
-  operation?: ConfigChangeReason;
-  backup?: ConfigBackupPolicy;
-}
-
-export interface ConfigChangePorts {
-  getConfigPath?: () => string;
-  reloadConfig?: (configPath: string) => void;
-  now?: () => number;
-  lockTimeoutMs?: number;
-}
-
-export interface ConfigChangeService {
-  removeConfiguredServerTarget(input: RemoveConfiguredServerTargetInput): Promise<ConfigChangeResult>;
-  setStaticConfiguredServerTarget(input: SetStaticConfiguredServerTargetInput): Promise<ConfigChangeResult>;
-  acquireConfigLockForTest(configPath: string): Promise<() => void>;
-}
-
-interface MutableConfigDocument extends Record<string, unknown> {
-  mcpServers?: Record<string, MCPServerParams>;
-  mcpTemplates?: Record<string, MCPServerParams>;
-}
-
-interface BackupRetentionPolicy {
-  keepLatest: number;
-  maxAgeDays: number;
-}
-
-interface BackupFile {
-  path: string;
-  timestamp: number;
-}
-
-type ReleaseConfigLock = () => void;
-
-interface ConfigLockState {
-  locked: boolean;
-  waiters: Array<() => void>;
-}
-
-class ConfigLockTimeoutError extends Error {}
-
-const DEFAULT_LOCK_TIMEOUT_MS = 5000;
-const DEFAULT_BACKUP_RETENTION: BackupRetentionPolicy = {
-  keepLatest: 10,
-  maxAgeDays: 30,
-};
-const configLocks = new Map<string, ConfigLockState>();
+export type {
+  ConfigBackupPolicy,
+  ConfigBackupResult,
+  ConfigChangeOperation,
+  ConfigChangePorts,
+  ConfigChangeReason,
+  ConfigChangeResult,
+  ConfigChangeService,
+  ConfigChangeStatus,
+  ConfigReloadResult,
+  ConfigReloadStatus,
+  ConfigRetentionCleanupResult,
+  ConfiguredServerTargetRef,
+  ConfiguredServerTargetSource,
+  RemoveConfiguredServerTargetInput,
+  SetStaticConfiguredServerTargetInput,
+} from './types.js';
 
 export function createConfigChangeService(ports: ConfigChangePorts = {}): ConfigChangeService {
   return new DefaultConfigChangeService(ports);
@@ -438,79 +384,6 @@ class DefaultConfigChangeService implements ConfigChangeService {
   }
 }
 
-function retentionSkipped(): ConfigRetentionCleanupResult {
-  return {
-    attempted: false,
-    deletedPaths: [],
-    warnings: [],
-  };
-}
-
-function acquireConfigLock(configPath: string, timeoutMs: number): Promise<ReleaseConfigLock> {
-  const lockKey = path.resolve(configPath);
-  const state = getConfigLockState(lockKey);
-  if (!state.locked) {
-    state.locked = true;
-    return Promise.resolve(() => releaseConfigLock(lockKey, state));
-  }
-
-  return new Promise((resolve, reject) => {
-    let completed = false;
-    let timeout: ReturnType<typeof setTimeout> | undefined;
-
-    const waiter = () => {
-      if (completed) {
-        return;
-      }
-      completed = true;
-      if (timeout) {
-        clearTimeout(timeout);
-      }
-      state.locked = true;
-      resolve(() => releaseConfigLock(lockKey, state));
-    };
-
-    timeout = setTimeout(() => {
-      if (completed) {
-        return;
-      }
-      completed = true;
-      const index = state.waiters.indexOf(waiter);
-      if (index >= 0) {
-        state.waiters.splice(index, 1);
-      }
-      reject(new ConfigLockTimeoutError(`Timed out waiting for config lock: ${configPath}`));
-    }, timeoutMs);
-
-    state.waiters.push(waiter);
-  });
-}
-
-function getConfigLockState(lockKey: string): ConfigLockState {
-  const existing = configLocks.get(lockKey);
-  if (existing) {
-    return existing;
-  }
-
-  const state: ConfigLockState = {
-    locked: false,
-    waiters: [],
-  };
-  configLocks.set(lockKey, state);
-  return state;
-}
-
-function releaseConfigLock(lockKey: string, state: ConfigLockState): void {
-  const nextWaiter = state.waiters.shift();
-  if (nextWaiter) {
-    nextWaiter();
-    return;
-  }
-
-  state.locked = false;
-  configLocks.delete(lockKey);
-}
-
 function backupPolicyFor(operation: ConfigChangeReason): ConfigBackupPolicy {
   return operation === 'uninstall' || operation === 'remove' ? 'required' : 'skip';
 }
@@ -548,31 +421,6 @@ function removeTarget(config: MutableConfigDocument, target: Required<Configured
   }
 
   delete section[target.name];
-}
-
-function listConfigBackups(configPath: string): BackupFile[] {
-  const configDir = path.dirname(configPath);
-  const backupPrefix = `${path.basename(configPath)}.backup.`;
-  if (!fs.existsSync(configDir)) {
-    return [];
-  }
-
-  return fs
-    .readdirSync(configDir, { withFileTypes: true })
-    .filter((entry) => entry.isFile() && entry.name.startsWith(backupPrefix))
-    .map((entry) => {
-      const timestamp = Number(entry.name.slice(backupPrefix.length));
-      if (!Number.isFinite(timestamp)) {
-        return null;
-      }
-
-      return {
-        path: path.join(configDir, entry.name),
-        timestamp,
-      };
-    })
-    .filter((entry): entry is BackupFile => entry !== null)
-    .sort((left, right) => right.timestamp - left.timestamp);
 }
 
 function getNestedRecord(root: Record<string, unknown>, pathSegments: string[]): Record<string, unknown> | undefined {

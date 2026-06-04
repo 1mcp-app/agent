@@ -8,8 +8,7 @@
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { Tool } from '@modelcontextprotocol/sdk/types.js';
 
-import { OutboundConnections } from '@src/core/types/client.js';
-import { ClientStatus } from '@src/core/types/client.js';
+import { ClientStatus, OutboundConnections } from '@src/core/types/client.js';
 
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 

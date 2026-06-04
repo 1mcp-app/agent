@@ -2,15 +2,15 @@ import type { RegistryServer } from '@src/domains/registry/types.js';
 
 import { describe, expect, it, vi } from 'vitest';
 
-import { createServerInstallationWorkflow } from './serverInstallationWorkflow.js';
+import {
+  createServerInstallationWorkflow,
+  type ServerInstallationWorkflowPorts,
+} from './serverInstallationWorkflow.js';
 
 describe('Server Installation Workflow', () => {
   it('returns a direct stdio preview without invoking Config Change', async () => {
     const applyConfigChange = vi.fn();
-    const workflow = createServerInstallationWorkflow({
-      findConfiguredTarget: vi.fn(() => null),
-      applyConfigChange,
-    });
+    const workflow = createWorkflow({ applyConfigChange });
 
     const result = await workflow.run({
       mode: 'preview',
@@ -41,11 +41,33 @@ describe('Server Installation Workflow', () => {
     expect(applyConfigChange).not.toHaveBeenCalled();
   });
 
-  it('returns invalid_input with field errors for malformed direct sources', async () => {
-    const workflow = createServerInstallationWorkflow({
-      findConfiguredTarget: vi.fn(() => null),
-      applyConfigChange: vi.fn(),
+  it('builds package-only direct stdio installs as npx commands', async () => {
+    const workflow = createWorkflow();
+
+    const result = await workflow.run({
+      mode: 'preview',
+      source: {
+        type: 'direct',
+        localName: 'package-server',
+        transport: 'stdio',
+        package: '@scope/pkg',
+        args: ['--flag'],
+      },
     });
+
+    expect(result).toMatchObject({
+      status: 'preview',
+      targetName: 'package-server',
+      config: {
+        type: 'stdio',
+        command: 'npx',
+        args: ['-y', '@scope/pkg', '--flag'],
+      },
+    });
+  });
+
+  it('returns invalid_input with field errors for malformed direct sources', async () => {
+    const workflow = createWorkflow();
 
     const result = await workflow.run({
       mode: 'preview',
@@ -68,12 +90,11 @@ describe('Server Installation Workflow', () => {
   });
 
   it('returns exists for static conflicts without force and template_conflict even with force', async () => {
-    const workflow = createServerInstallationWorkflow({
+    const workflow = createWorkflow({
       findConfiguredTarget: vi
         .fn()
         .mockReturnValueOnce({ name: 'conflict', source: 'mcpServers' })
         .mockReturnValueOnce({ name: 'template-name', source: 'mcpTemplates' }),
-      applyConfigChange: vi.fn(),
     });
 
     await expect(
@@ -120,7 +141,7 @@ describe('Server Installation Workflow', () => {
       reload: { status: 'observed' },
       warnings: [],
     });
-    const workflow = createServerInstallationWorkflow({
+    const workflow = createWorkflow({
       findConfiguredTarget: vi.fn(() => ({ name: 'existing', source: 'mcpServers' as const })),
       applyConfigChange,
     });
@@ -167,10 +188,8 @@ describe('Server Installation Workflow', () => {
       ],
       remotes: [{ type: 'streamable-http', url: 'https://example.com/mcp' }],
     });
-    const workflow = createServerInstallationWorkflow({
-      findConfiguredTarget: vi.fn(() => null),
+    const workflow = createWorkflow({
       getRegistryServer: vi.fn().mockResolvedValue(registryServer),
-      applyConfigChange: vi.fn(),
     });
 
     const result = await workflow.run({
@@ -207,15 +226,13 @@ describe('Server Installation Workflow', () => {
   });
 
   it('places registry package before runtime args', async () => {
-    const workflow = createServerInstallationWorkflow({
-      findConfiguredTarget: vi.fn(() => null),
+    const workflow = createWorkflow({
       getRegistryServer: vi.fn().mockResolvedValue(
         makeRegistryServer({
           packages: [{ identifier: '@scope/npm-server', registryType: 'npm' }],
           remotes: [],
         }),
       ),
-      applyConfigChange: vi.fn(),
     });
 
     const result = await workflow.run({
@@ -238,8 +255,7 @@ describe('Server Installation Workflow', () => {
   });
 
   it('prefers streamable-http remotes when no packages are available', async () => {
-    const workflow = createServerInstallationWorkflow({
-      findConfiguredTarget: vi.fn(() => null),
+    const workflow = createWorkflow({
       getRegistryServer: vi.fn().mockResolvedValue(
         makeRegistryServer({
           packages: [],
@@ -249,7 +265,6 @@ describe('Server Installation Workflow', () => {
           ],
         }),
       ),
-      applyConfigChange: vi.fn(),
     });
 
     const result = await workflow.run({
@@ -275,10 +290,8 @@ describe('Server Installation Workflow', () => {
   });
 
   it('returns registry statuses instead of throwing for not-found and unavailable lookups', async () => {
-    const notFoundWorkflow = createServerInstallationWorkflow({
-      findConfiguredTarget: vi.fn(() => null),
+    const notFoundWorkflow = createWorkflow({
       getRegistryServer: vi.fn().mockResolvedValue(null),
-      applyConfigChange: vi.fn(),
     });
 
     await expect(
@@ -292,10 +305,8 @@ describe('Server Installation Workflow', () => {
       registryId: 'missing',
     });
 
-    const unavailableWorkflow = createServerInstallationWorkflow({
-      findConfiguredTarget: vi.fn(() => null),
+    const unavailableWorkflow = createWorkflow({
       getRegistryServer: vi.fn().mockRejectedValue(new Error('network down')),
-      applyConfigChange: vi.fn(),
     });
 
     await expect(
@@ -310,6 +321,14 @@ describe('Server Installation Workflow', () => {
       error: 'network down',
     });
   });
+
+  function createWorkflow(ports: ServerInstallationWorkflowPorts = {}) {
+    return createServerInstallationWorkflow({
+      findConfiguredTarget: vi.fn(() => null),
+      applyConfigChange: vi.fn(),
+      ...ports,
+    });
+  }
 
   function makeRegistryServer(overrides: Pick<RegistryServer, 'packages' | 'remotes'>): RegistryServer {
     return {
