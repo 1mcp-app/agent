@@ -15,7 +15,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 // Mock the Server class for testing
 vi.mock('@modelcontextprotocol/sdk/server/index.js', () => ({
-  Server: vi.fn().mockImplementation(function () {
+  Server: vi.fn(function MockServer() {
     return {
       connect: vi.fn().mockResolvedValue(undefined),
       transport: undefined,
@@ -59,7 +59,7 @@ vi.mock('@src/logger/logger.js', () => {
 });
 
 vi.mock('@src/core/server/clientInstancePool.js', () => ({
-  ClientInstancePool: vi.fn().mockImplementation(function () {
+  ClientInstancePool: vi.fn(function MockClientInstancePool() {
     return {
       getOrCreateClientInstance: vi.fn().mockResolvedValue({
         id: 'test-instance-id',
