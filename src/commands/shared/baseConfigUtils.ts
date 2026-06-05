@@ -115,7 +115,7 @@ function loadSharedConfigState(configPath?: string): {
   try {
     const loader = createCommandConfigLoader(filePath);
     const loadedConfig = loader.loadParsedConfig({ includeAppConfig: false });
-    const rawTemplates = normalizeRawServerConfigs(loadedConfig.processedConfig.mcpTemplates);
+    const rawTemplates = normalizeRawServerConfigs(loadedConfig.rawConfig.mcpTemplates);
     const config = {
       ...loadedConfig.processedConfig,
       serverDefaults: loadedConfig.globalConfig,

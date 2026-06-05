@@ -6,6 +6,7 @@ export type OAuthConsentAction = 'approve' | 'deny';
 
 export interface OAuthAuthorizationRequestForFlow {
   clientId: string;
+  scopes?: string[];
 }
 
 export interface OAuthAuthorizationFlowStorage {
@@ -237,6 +238,14 @@ export function createOAuthAuthorizationFlow(dependencies: OAuthAuthorizationFlo
           return {
             status: 'invalid_scope',
             errorDescription: `Invalid scopes: ${validation.errors.join(', ')}`,
+          };
+        }
+
+        const unauthorizedScopes = validation.validScopes.filter((scope) => !authRequest.scopes?.includes(scope));
+        if (unauthorizedScopes.length > 0) {
+          return {
+            status: 'invalid_scope',
+            errorDescription: `Requested scopes were not part of the authorization request: ${unauthorizedScopes.join(', ')}`,
           };
         }
 
@@ -474,5 +483,10 @@ function isOAuthRequiredError(error: unknown): boolean {
 }
 
 function requiresBackendOAuth(clientInfo: OAuthBackendClientInfoForFlow): boolean {
-  return Boolean(clientInfo.authorizationUrl || clientInfo.oauthStartTime || clientInfo.status === 'awaiting_oauth');
+  return Boolean(
+    clientInfo.transport.oauthProvider ||
+    clientInfo.authorizationUrl ||
+    clientInfo.oauthStartTime ||
+    clientInfo.status === 'awaiting_oauth',
+  );
 }

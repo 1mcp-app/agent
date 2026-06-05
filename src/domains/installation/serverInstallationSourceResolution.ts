@@ -229,10 +229,14 @@ function createRegistryServerConfig(input: {
   const tags = Array.from(new Set([...(input.tags ?? []), input.targetName, input.registryId]));
 
   if (input.endpoint.kind === 'package') {
+    if (input.endpoint.type !== 'npm') {
+      throw new Error(`Unsupported package registry type for installation: ${input.endpoint.type}`);
+    }
+
     return omitUndefined({
       type: 'stdio',
       command: 'npx',
-      args: [input.endpoint.identifier, ...(input.args ?? [])],
+      args: ['-y', input.endpoint.identifier, ...(input.args ?? [])],
       env: input.env,
       tags,
     });

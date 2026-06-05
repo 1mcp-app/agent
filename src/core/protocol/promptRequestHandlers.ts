@@ -50,11 +50,16 @@ export function registerPromptHandlers(outboundConns: OutboundConnections, inbou
     GetPromptRequestSchema,
     withErrorHandling(async (request) => {
       const { clientName, resourceName: promptName } = parseUri(request.params.name, MCP_URI_SEPARATOR);
-      const outboundConn = resolveOutboundConnection(clientName, sessionId, outboundConns);
+      const outboundConn = resolveOutboundConnection(clientName, sessionId, outboundConns, inboundConn);
       if (!outboundConn) {
         throw new Error(`Unknown client: ${clientName}`);
       }
-      return outboundConn.client.getPrompt({ ...request.params, name: promptName });
+      return outboundConn.client.getPrompt(
+        { ...request.params, name: promptName },
+        {
+          timeout: getRequestTimeout(outboundConn.transport),
+        },
+      );
     }, 'Error getting prompt'),
   );
 }
@@ -81,7 +86,7 @@ export function registerCompletionHandlers(outboundConns: OutboundConnections, i
         throw new Error(`Unsupported completion reference type: ${(ref as { type: string }).type}`);
       }
 
-      const outboundConn = resolveOutboundConnection(clientName, sessionId, outboundConns);
+      const outboundConn = resolveOutboundConnection(clientName, sessionId, outboundConns, inboundConn);
       if (!outboundConn) {
         throw new Error(`Unknown client: ${clientName}`);
       }

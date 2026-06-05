@@ -23,6 +23,13 @@ import {
 
 import { Request, RequestHandler, Response, Router } from 'express';
 import rateLimit from 'express-rate-limit';
+import { z } from 'zod';
+
+const consentBodySchema = z.object({
+  auth_request_id: z.string().min(1).optional(),
+  action: z.string().min(1).optional(),
+  scopes: z.union([z.string(), z.array(z.string())]).optional(),
+});
 
 /**
  * Creates OAuth routes with the provided OAuth provider
@@ -156,10 +163,10 @@ export function createOAuthRoutes(oauthProvider: SDKOAuthServerProvider, loading
    */
   const consentHandler: RequestHandler = async (req: Request, res: Response) => {
     try {
-      const body = req.body as Record<string, unknown>;
+      const body = consentBodySchema.parse(req.body);
       const result = await oauthFlow.submitConsent({
-        authRequestId: body.auth_request_id as string | undefined,
-        action: body.action as string | undefined,
+        authRequestId: body.auth_request_id,
+        action: body.action,
         scopes: body.scopes,
       });
 
@@ -173,6 +180,14 @@ export function createOAuthRoutes(oauthProvider: SDKOAuthServerProvider, loading
         error_description: result.errorDescription,
       });
     } catch (error) {
+      if (error instanceof z.ZodError) {
+        res.status(400).json({
+          error: 'invalid_request',
+          error_description: 'Invalid consent form submission',
+        });
+        return;
+      }
+
       logger.error('Error handling consent form:', error);
       const errorResponse: Record<string, string> = {
         error: 'server_error',

@@ -29,6 +29,10 @@ function createMockTransport(sessionId: string) {
 function createMockRestorableTransport(sessionId: string) {
   return {
     ...createMockTransport(sessionId),
+    _webStandardTransport: {
+      _initialized: false,
+      sessionId,
+    },
     markAsRestored: vi.fn(),
     isRestored: vi.fn(() => true),
   };
@@ -157,6 +161,54 @@ describe('StreamableSessionLifecycle', () => {
       reason: StreamableSessionMissingReason.InitializeRequired,
     });
     expect(sessionRepository.create).not.toHaveBeenCalled();
+  });
+
+  it('does not create a session for non-initialize requests without a session id', async () => {
+    const result = await lifecycle.resolvePostSession({
+      sessionId: undefined,
+      isInitializeRequest: false,
+      createSessionData: () => ({ config: { tags: [], enablePagination: false } }),
+    });
+
+    expect(result).toMatchObject({
+      status: StreamableSessionStatus.Missing,
+      sessionId: '',
+      reason: StreamableSessionMissingReason.InitializeRequired,
+    });
+    expect(sessionRepository.create).not.toHaveBeenCalled();
+  });
+
+  it('fails restore when SDK initialized state cannot be recovered', async () => {
+    sessionRepository.getSessionData.mockReturnValue({
+      initializeResponse: {
+        protocolVersion: '2024-11-05',
+        capabilities: {},
+        serverInfo: { name: 'test', version: '1.0' },
+      },
+    });
+    sessionRepository.get.mockReturnValue({ tags: [], enablePagination: false });
+
+    lifecycle = new StreamableSessionLifecycle(serverManager as any, sessionRepository as any, undefined, {
+      createTransport: createMockTransport as any,
+      createRestorableTransport: ((sessionId: string) => ({
+        ...createMockTransport(sessionId),
+        markAsRestored: vi.fn(),
+        isRestored: vi.fn(() => false),
+      })) as any,
+      isStreamableTransport: (() => true) as any,
+    });
+
+    const result = await lifecycle.resolveExistingSession('broken-sdk-session');
+
+    expect(result).toMatchObject({
+      status: StreamableSessionStatus.Missing,
+      sessionId: 'broken-sdk-session',
+      reason: StreamableSessionMissingReason.RestoreFailed,
+      restoreErrorType: StreamableSessionRestoreErrorType.TransportFailed,
+      error: 'Could not restore SDK initialized state. Please create a new session.',
+    });
+    expect(serverManager.disconnectTransport).toHaveBeenCalledWith('broken-sdk-session', true);
+    expect(sessionRepository.updateAccess).not.toHaveBeenCalled();
   });
 
   it('canonicalizes stored and connected context to the actual transport session id', async () => {

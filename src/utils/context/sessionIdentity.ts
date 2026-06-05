@@ -17,7 +17,6 @@ export function deriveContextSessionId(context: ContextData): string {
           },
         }
       : {}),
-    ...(context.sessionId ? { sessionId: context.sessionId } : {}),
   });
   const hash = createHash('sha256').update(JSON.stringify(stableContext)).digest('hex').slice(0, 16);
   return `rest-${hash}`;
@@ -28,11 +27,7 @@ export function resolveCanonicalSessionId(input: {
   transportSessionId?: string;
   deriveSessionId?: (context: ContextData) => string;
 }): string {
-  return (
-    input.transportSessionId ||
-    input.context.sessionId ||
-    (input.deriveSessionId ?? deriveContextSessionId)(input.context)
-  );
+  return input.transportSessionId || (input.deriveSessionId ?? deriveContextSessionId)(input.context);
 }
 
 export function withCanonicalSessionId(context: ContextData, sessionId: string): ContextData {

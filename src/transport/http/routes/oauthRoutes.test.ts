@@ -417,6 +417,27 @@ describe('OAuth Routes', () => {
         error_description: 'Missing required parameters',
       });
     });
+
+    it('should reject malformed consent bodies before calling the OAuth flow', async () => {
+      mockRequest.body = {
+        auth_request_id: ['req-123'],
+        action: 'approve',
+      };
+
+      const router = createOAuthRoutes(mockOAuthProvider);
+      const consentRoute = router.stack.find(
+        (layer: any) => layer.route?.path === '/consent' && layer.route?.methods?.post,
+      );
+
+      await consentRoute?.route?.stack[1].handle(mockRequest, mockResponse);
+
+      expect(mockResponse.status).toHaveBeenCalledWith(400);
+      expect(mockResponse.json).toHaveBeenCalledWith({
+        error: 'invalid_request',
+        error_description: 'Invalid consent form submission',
+      });
+      expect(mockOAuthProvider.oauthFlow.submitConsent).not.toHaveBeenCalled();
+    });
   });
 
   describe('Callback Handling', () => {

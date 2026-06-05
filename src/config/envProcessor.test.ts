@@ -203,6 +203,23 @@ describe('EnvProcessor', () => {
       });
     });
 
+    it('should not substitute custom environment variables from filtered parent env', () => {
+      process.env.CONTEXT7_API_KEY = 'context7-key';
+
+      const result = processEnvironment({
+        inheritParentEnv: true,
+        envFilter: ['PUBLIC_*'],
+        env: {
+          API_KEY_COPY: '$CONTEXT7_API_KEY',
+        },
+      });
+
+      expect(result.processedEnv).toEqual({
+        API_KEY_COPY: '$CONTEXT7_API_KEY',
+      });
+      expect(result.sources.filtered).toContain('CONTEXT7_API_KEY');
+    });
+
     it('should keep custom environment placeholders when substitution is disabled', () => {
       process.env.CONTEXT7_API_KEY = 'context7-key';
 

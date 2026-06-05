@@ -147,6 +147,19 @@ describe('CapabilityCatalog', () => {
     expect(result.routes.map((route) => route.connectionKey)).toEqual(['filesystem']);
   });
 
+  it('does not reveal disabled tool details for hidden servers', async () => {
+    const result = await createCatalog().describeVisibleTool(
+      { server: 'filesystem', toolName: 'write_file' },
+      undefined,
+      new Set(['template-server']),
+    );
+
+    expect(result.error).toMatchObject({
+      type: 'not_found',
+      message: 'Tool not found: filesystem:write_file. Call tool_list to see available tools.',
+    });
+  });
+
   it('refreshes capabilities before listing when force refresh is requested', async () => {
     registry = ToolRegistry.fromToolsMap(new Map(), new Map());
     const refreshCapabilities = vi.fn(async () => {

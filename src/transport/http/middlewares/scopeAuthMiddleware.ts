@@ -135,11 +135,9 @@ export function createScopeAuthMiddleware(oauthProvider?: SDKOAuthServerProvider
           ? localsTagFilterMode
           : 'none';
 
-      let allRequestedTags = requestedTags;
-
-      if (allRequestedTags.length === 0 && tagFilterMode === 'advanced' && tagExpression) {
-        allRequestedTags = extractTagsFromExpression(tagExpression);
-      }
+      const expressionTags =
+        tagFilterMode === 'advanced' && tagExpression ? extractTagsFromExpression(tagExpression) : [];
+      const allRequestedTags = Array.from(new Set([...requestedTags, ...expressionTags]));
 
       // Validate that all requested tags are covered by granted scopes
       if (allRequestedTags.length > 0 && !hasRequiredScopes(grantedScopes, allRequestedTags)) {

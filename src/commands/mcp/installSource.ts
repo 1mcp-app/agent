@@ -5,6 +5,10 @@ import type {
 import logger from '@src/logger/logger.js';
 
 export function validateRegistryServerId(registryId: string): void {
+  normalizeRegistryServerId(registryId);
+}
+
+function normalizeRegistryServerId(registryId: string): string {
   if (!registryId || registryId.trim().length === 0) {
     throw new Error('Registry server ID cannot be empty');
   }
@@ -25,6 +29,7 @@ export function validateRegistryServerId(registryId: string): void {
   }
 
   logger.debug(`Registry server ID validation passed: ${trimmedId}`);
+  return trimmedId;
 }
 
 export function deriveLocalServerName(registryId: string): string {
@@ -55,9 +60,12 @@ export function installationWorkflowFailureMessage(result: ServerInstallationWor
   }
 
   if (result.fieldErrors) {
-    return Object.entries(result.fieldErrors)
+    const fieldErrorMessage = Object.entries(result.fieldErrors)
       .flatMap(([field, errors]) => errors.map((error) => `${field}: ${error}`))
       .join('; ');
+    if (fieldErrorMessage) {
+      return fieldErrorMessage;
+    }
   }
 
   return `Installation workflow returned ${result.status}`;
@@ -71,9 +79,10 @@ export function createRegistryInstallSource(input: {
   env?: Record<string, string>;
   args?: string[];
 }): RegistryInstallationSource {
+  const registryId = normalizeRegistryServerId(input.registryServerId);
   return {
     type: 'registry',
-    registryId: input.registryServerId,
+    registryId,
     version: input.version,
     localName: input.serverName,
     tags: input.tags,

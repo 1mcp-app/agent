@@ -29,6 +29,7 @@ export async function cleanupTemplateServersForSession(
   context: TemplateCleanupContext,
 ): Promise<void> {
   context.ephemeralClients.delete(sessionId);
+  context.persistentSessions.delete(sessionId);
 
   const instancesToCleanup = context.clientTemplateTracker.removeClient(sessionId);
   logger.info(`Removing client from ${instancesToCleanup.length} template instances`, {

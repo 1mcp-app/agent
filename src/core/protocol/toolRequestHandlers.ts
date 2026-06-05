@@ -14,7 +14,7 @@ import { FilteringService } from '@src/core/filtering/filteringService.js';
 import { getDisabledToolError } from '@src/core/server/disabledTools.js';
 import { InboundConnection, OutboundConnections } from '@src/core/types/index.js';
 import type { MCPServerParams } from '@src/core/types/transport.js';
-import logger from '@src/logger/logger.js';
+import logger, { infoIf } from '@src/logger/logger.js';
 import { withErrorHandling } from '@src/utils/core/errorHandling.js';
 import { buildUri, parseUri } from '@src/utils/core/parsing.js';
 import { getRequestTimeout } from '@src/utils/core/timeoutUtils.js';
@@ -45,18 +45,21 @@ export function registerToolHandlers(
 
         const filteredServerNames = new Set(Array.from(filteredClients.values()).map((conn) => conn.name));
 
-        logger.info('Lazy loading: filtered servers', {
-          totalOutbound: outboundConns.size,
-          sessionFiltered: sessionFilteredConns.size,
-          capabilityFiltered: capabilityFilteredClients.size,
-          finalFiltered: filteredClients.size,
-          filteredServerNames: Array.from(filteredServerNames),
-          inboundConfig: {
-            tagFilterMode: inboundConn.tagFilterMode,
-            tags: inboundConn.tags,
-            tagExpression: inboundConn.tagExpression,
+        infoIf(() => ({
+          message: 'Lazy loading: filtered servers',
+          meta: {
+            totalOutbound: outboundConns.size,
+            sessionFiltered: sessionFilteredConns.size,
+            capabilityFiltered: capabilityFilteredClients.size,
+            finalFiltered: filteredClients.size,
+            filteredServerNames: Array.from(filteredServerNames),
+            inboundConfig: {
+              tagFilterMode: inboundConn.tagFilterMode,
+              tags: inboundConn.tags,
+              tagExpression: inboundConn.tagExpression,
+            },
           },
-        });
+        }));
 
         const capabilities = await lazyLoadingOrchestrator.getCapabilitiesForFilteredServers(
           filteredServerNames,
@@ -147,6 +150,10 @@ export function registerToolHandlers(
         return structuredToolResult(result);
       }
 
+      const outboundConn = resolveOutboundConnection(clientName, sessionId, outboundConns, inboundConn);
+      if (!outboundConn) {
+        throw new Error(`Unknown client: ${clientName}`);
+      }
       const disabledError = getDisabledToolError(getServerConfigs(), clientName, extractedToolName);
       if (disabledError) {
         return structuredToolResult({
@@ -155,11 +162,6 @@ export function registerToolHandlers(
             message: disabledError.message,
           },
         });
-      }
-
-      const outboundConn = resolveOutboundConnection(clientName, sessionId, outboundConns);
-      if (!outboundConn) {
-        throw new Error(`Unknown client: ${clientName}`);
       }
       return outboundConn.client.callTool({ ...request.params, name: extractedToolName }, CallToolResultSchema, {
         timeout: getRequestTimeout(outboundConn.transport),

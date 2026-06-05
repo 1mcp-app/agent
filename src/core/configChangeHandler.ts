@@ -63,22 +63,25 @@ export class ConfigChangeHandler {
     // Get the latest configuration for all operations
     const newConfig = this.configManager.getTransportConfig();
 
+    const appliedChanges: ConfigChange[] = [];
     for (const change of changes) {
       try {
-        await this.processChange(change, newConfig);
+        if (await this.processChange(change, newConfig)) {
+          appliedChanges.push(change);
+        }
       } catch (error) {
         logger.error(`Failed to process change for server ${change.serverName}: ${error}`);
       }
     }
 
     // Notify clients if capabilities changed
-    await this.notifyClientsIfNeeded(changes, newConfig);
+    await this.notifyClientsIfNeeded(appliedChanges, newConfig);
   }
 
   /**
    * Process a single configuration change
    */
-  private async processChange(change: ConfigChange, newConfig: Record<string, MCPServerParams>): Promise<void> {
+  private async processChange(change: ConfigChange, newConfig: Record<string, MCPServerParams>): Promise<boolean> {
     // Access fieldsChanged only for 'modified' type using type guard
     const fieldsChanged = change.type === 'modified' ? change.fieldsChanged : undefined;
 
@@ -92,32 +95,32 @@ export class ConfigChangeHandler {
         const config = newConfig[change.serverName];
         if (!config) {
           logger.warn(`Skipping added server ${change.serverName}: server configuration is missing after reload`);
-          break;
+          return false;
         }
 
         await this.handleServerAdded(change.serverName, config);
-        break;
+        return true;
       }
 
       case ConfigChangeType.REMOVED:
         await this.handleServerRemoved(change.serverName);
-        break;
+        return true;
 
       case ConfigChangeType.MODIFIED: {
         const config = newConfig[change.serverName];
         if (!config) {
           logger.warn(`Skipping modified server ${change.serverName}: server configuration is missing after reload`);
-          break;
+          return false;
         }
 
         await this.handleServerModified(change.serverName, config, change.fieldsChanged);
-        break;
+        return true;
       }
 
       default: {
         const _exhaustive: never = change;
         logger.warn(`Unknown change type: ${String(_exhaustive)}`);
-        break;
+        return false;
       }
     }
   }

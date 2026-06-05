@@ -191,6 +191,46 @@ describe('apiRoutes /api/tool-invocations', () => {
     expect(callTool).not.toHaveBeenCalled();
   });
 
+  it('does not reveal disabled tool details for filtered-out direct invocation servers', async () => {
+    mockedGetTransportConfig.mockReturnValue({
+      hidden: {
+        type: 'stdio',
+        command: 'node',
+        disabledTools: ['tool'],
+      },
+    });
+
+    const hiddenCallTool = vi.fn();
+    const visibleConnections = new Map([
+      [
+        'visible',
+        {
+          name: 'visible',
+          transport: { tags: ['public'] } as never,
+          client: { callTool: vi.fn() } as never,
+          status: ClientStatus.Connected,
+        },
+      ],
+    ]);
+    const serverManager = {
+      getLazyLoadingOrchestrator: vi.fn(() => undefined),
+      getClients: vi.fn(() => visibleConnections),
+      getClient: vi.fn(() => ({
+        client: { callTool: hiddenCallTool },
+      })),
+    };
+    const handler = createToolInvocationsHandler(serverManager as never);
+    const res = createMockResponse();
+
+    res.locals.tagFilterMode = 'simple-or';
+    res.locals.tags = ['public'];
+    await invokeInspectRoute(handler, { body: { tool: 'hidden/tool' } }, res);
+
+    expect(res.statusCode).toBe(404);
+    expect(res.body).toEqual({ error: 'Server not found: hidden' });
+    expect(hiddenCallTool).not.toHaveBeenCalled();
+  });
+
   it('does not call upstream before direct invocation while checking disabled tool visibility', async () => {
     const callTool = vi.fn().mockResolvedValue({
       content: [{ type: 'text', text: 'done' }],

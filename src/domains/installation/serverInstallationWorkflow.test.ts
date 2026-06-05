@@ -218,7 +218,7 @@ describe('Server Installation Workflow', () => {
       config: {
         type: 'stdio',
         command: 'npx',
-        args: ['@scope/npm-server'],
+        args: ['-y', '@scope/npm-server'],
         tags: ['custom', 'server-name', 'io.github.owner/server-name'],
       },
     });
@@ -249,9 +249,30 @@ describe('Server Installation Workflow', () => {
       config: {
         type: 'stdio',
         command: 'npx',
-        args: ['@scope/npm-server', '--api-key', 'secret'],
+        args: ['-y', '@scope/npm-server', '--api-key', 'secret'],
       },
     });
+  });
+
+  it('rejects non-npm package endpoints instead of generating broken npx commands', async () => {
+    const workflow = createWorkflow({
+      getRegistryServer: vi.fn().mockResolvedValue(
+        makeRegistryServer({
+          packages: [{ identifier: 'pkg:pypi', registryType: 'pypi' }],
+          remotes: [],
+        }),
+      ),
+    });
+
+    await expect(
+      workflow.run({
+        mode: 'preview',
+        source: {
+          type: 'registry',
+          registryId: 'io.github.owner/python-server',
+        },
+      }),
+    ).rejects.toThrow('Unsupported package registry type for installation: pypi');
   });
 
   it('prefers streamable-http remotes when no packages are available', async () => {

@@ -124,7 +124,10 @@ export function validateServerConfig(serverConfig: MCPServerParams): void {
       }
 
       try {
-        new URL(serverConfig.url);
+        const parsedUrl = new URL(serverConfig.url);
+        if (parsedUrl.protocol !== 'http:' && parsedUrl.protocol !== 'https:') {
+          throw new Error(`Invalid URL protocol: ${parsedUrl.protocol}`);
+        }
       } catch (_error) {
         throw new Error(`Invalid URL format: ${serverConfig.url}`);
       }

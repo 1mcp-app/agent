@@ -196,7 +196,7 @@ describe('Installation Adapter', () => {
       });
     });
 
-    it('should keep registry installs on registry workflow when localServerName is provided', async () => {
+    it('should still pass package requests with local names as direct workflow sources', async () => {
       await adapter.installServer('io.github.owner/server', '1.0.0', {
         localServerName: 'server',
         package: '@scope/pkg',
@@ -208,13 +208,21 @@ describe('Installation Adapter', () => {
         force: undefined,
         backup: undefined,
         source: {
-          type: 'registry',
-          registryId: 'io.github.owner/server',
-          version: '1.0.0',
+          type: 'direct',
           localName: 'server',
-          tags: undefined,
-          env: undefined,
+          transport: 'stdio',
+          command: undefined,
+          url: undefined,
           args: ['--flag'],
+          env: undefined,
+          tags: undefined,
+          timeout: undefined,
+          enabled: undefined,
+          cwd: undefined,
+          autoRestart: undefined,
+          maxRestarts: undefined,
+          restartDelay: undefined,
+          package: '@scope/pkg',
         },
       });
     });
@@ -310,6 +318,45 @@ describe('Installation Adapter', () => {
         targetName: 'test-server',
         operation: 'uninstall',
         backup: 'skip',
+      });
+    });
+
+    it('reports removeAll as unsuccessful when config removal changes nothing', async () => {
+      mockRemoveConfiguredServerTarget.mockResolvedValue({
+        status: 'unchanged',
+        operation: 'remove',
+        configPath: '/tmp/mcp.json',
+        target: { name: 'test-server', source: 'mcpServers' },
+        changed: false,
+        backup: { created: false },
+        reload: { status: 'skipped' },
+        warnings: [],
+      });
+
+      const result = await adapter.uninstallServer('test-server', {
+        removeAll: true,
+      });
+
+      expect(result).toMatchObject({
+        success: false,
+        configRemoved: false,
+        warnings: ['Server test-server not found in configuration'],
+        errors: [],
+      });
+    });
+
+    it('reports config removal errors in removeAll results', async () => {
+      mockRemoveConfiguredServerTarget.mockRejectedValue(new Error('write failed'));
+
+      const result = await adapter.uninstallServer('test-server', {
+        removeAll: true,
+      });
+
+      expect(result).toMatchObject({
+        success: false,
+        configRemoved: false,
+        warnings: ['Failed to remove from configuration: write failed'],
+        errors: ['write failed'],
       });
     });
 

@@ -217,7 +217,7 @@ describe('ConfigManager (Integration)', () => {
       expect(tags).toContain('server1');
       expect(tags).toContain('server2');
       expect(tags).toContain('test');
-      expect(tags.sort()).toEqual([...tags].sort()); // Should be sorted
+      expect(tags).toEqual([...tags].sort());
     });
 
     it('should skip tags from disabled servers', async () => {

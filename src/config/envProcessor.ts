@@ -175,7 +175,7 @@ export function substituteEnvVars(configValue: string, env: Record<string, strin
       const envVarName = envVar?.trim() ?? '';
       const envValue = env[envVarName];
       if (envValue === undefined) {
-        logger.warn(`Environment variable ${envVarName} not found, keeping placeholder: ${match}`);
+        logger.warn(`Environment variable ${envVarName} not found, keeping placeholder unchanged`);
         return match;
       }
       return envValue;
@@ -233,10 +233,15 @@ export function processEnvironment(config: EnvProcessingConfig): ProcessedEnviro
 
     // Apply environment variable substitution to custom env.
     if (config.substituteEnv !== false) {
+      const substitutionEnv =
+        config.envFilter && config.envFilter.length > 0
+          ? { ...combinedEnv, ...customEnv }
+          : { ...process.env, ...combinedEnv, ...customEnv };
+
       for (const key of Object.keys(customEnv)) {
         const value = customEnv[key];
         if (typeof value === 'string') {
-          customEnv[key] = substituteEnvVars(value, { ...process.env, ...combinedEnv, ...customEnv });
+          customEnv[key] = substituteEnvVars(value, substitutionEnv);
         }
       }
     }

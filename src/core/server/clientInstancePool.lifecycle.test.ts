@@ -211,7 +211,8 @@ describe('ClientInstancePool', () => {
   });
 
   describe('cleanupIdleInstances', () => {
-    beforeEach(() => {
+    beforeEach(async () => {
+      await pool.shutdown();
       // Use a shorter cleanup interval for tests
       pool = new ClientInstancePool({
         maxInstances: 3,

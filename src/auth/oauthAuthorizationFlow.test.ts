@@ -45,7 +45,7 @@ describe('OAuth Authorization Flow', () => {
   it('should approve consent with selected valid scopes and return a redirect outcome', async () => {
     const { flow, storage } = createFlow({
       storage: {
-        getAuthorizationRequest: vi.fn().mockReturnValue({ clientId: 'client-123' }),
+        getAuthorizationRequest: vi.fn().mockReturnValue({ clientId: 'client-123', scopes: ['tag:read'] }),
         getClient: vi.fn().mockReturnValue({ client_id: 'client-123' }),
         processConsentApproval: vi.fn().mockResolvedValue({
           redirectUrl: new URL('https://client.example/callback?code=code-123'),
@@ -69,7 +69,7 @@ describe('OAuth Authorization Flow', () => {
   it('should reject invalid consent submissions before mutating storage', async () => {
     const { flow, storage } = createFlow({
       storage: {
-        getAuthorizationRequest: vi.fn().mockReturnValue({ clientId: 'client-123' }),
+        getAuthorizationRequest: vi.fn().mockReturnValue({ clientId: 'client-123', scopes: ['tag:read'] }),
         getClient: vi.fn().mockReturnValue({ client_id: 'client-123' }),
       },
     });
@@ -112,6 +112,28 @@ describe('OAuth Authorization Flow', () => {
       redirectUrl: 'https://client.example/callback?error=access_denied',
     });
     expect(storage.processConsentDenial).toHaveBeenCalledWith('req-123');
+  });
+
+  it('should reject consent scopes that were not in the original authorization request', async () => {
+    const { flow, storage } = createFlow({
+      storage: {
+        getAuthorizationRequest: vi.fn().mockReturnValue({ clientId: 'client-123', scopes: ['tag:read'] }),
+        getClient: vi.fn().mockReturnValue({ client_id: 'client-123' }),
+      },
+    });
+
+    await expect(
+      flow.submitConsent({
+        authRequestId: 'req-123',
+        action: 'approve',
+        scopes: ['tag:write'],
+      }),
+    ).resolves.toEqual({
+      status: 'invalid_scope',
+      errorDescription: 'Requested scopes were not part of the authorization request: tag:write',
+    });
+
+    expect(storage.processConsentApproval).not.toHaveBeenCalled();
   });
 
   it('should create a localhost CLI token with available tag scopes when auth is enabled', () => {
@@ -336,9 +358,9 @@ describe('OAuth Authorization Flow', () => {
           'oauth-connected',
           {
             status: 'connected',
-            transport: {},
-            authorizationUrl: 'https://provider.example/authorize',
-            oauthStartTime: new Date('2026-05-27T04:00:00Z'),
+            transport: {
+              oauthProvider: {},
+            },
             lastError: new Error('token expired'),
           },
         ],
@@ -371,8 +393,6 @@ describe('OAuth Authorization Flow', () => {
         {
           name: 'oauth-connected',
           status: 'connected',
-          authorizationUrl: 'https://provider.example/authorize',
-          oauthStartTime: new Date('2026-05-27T04:00:00Z'),
           lastError: 'token expired',
           requiresOAuth: true,
         },

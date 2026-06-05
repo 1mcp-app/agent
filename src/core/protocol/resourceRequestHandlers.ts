@@ -78,7 +78,7 @@ export function registerResourceHandlers(outboundConns: OutboundConnections, inb
     SubscribeRequestSchema,
     withErrorHandling(async (request) => {
       const { clientName, resourceName } = parseUri(request.params.uri, MCP_URI_SEPARATOR);
-      const outboundConn = resolveOutboundConnection(clientName, sessionId, outboundConns);
+      const outboundConn = resolveOutboundConnection(clientName, sessionId, outboundConns, inboundConn);
       if (!outboundConn) {
         throw new Error(`Unknown client: ${clientName}`);
       }
@@ -95,7 +95,7 @@ export function registerResourceHandlers(outboundConns: OutboundConnections, inb
     UnsubscribeRequestSchema,
     withErrorHandling(async (request) => {
       const { clientName, resourceName } = parseUri(request.params.uri, MCP_URI_SEPARATOR);
-      const outboundConn = resolveOutboundConnection(clientName, sessionId, outboundConns);
+      const outboundConn = resolveOutboundConnection(clientName, sessionId, outboundConns, inboundConn);
       if (!outboundConn) {
         throw new Error(`Unknown client: ${clientName}`);
       }
@@ -112,7 +112,7 @@ export function registerResourceHandlers(outboundConns: OutboundConnections, inb
     ReadResourceRequestSchema,
     withErrorHandling(async (request) => {
       const { clientName, resourceName } = parseUri(request.params.uri, MCP_URI_SEPARATOR);
-      const outboundConn = resolveOutboundConnection(clientName, sessionId, outboundConns);
+      const outboundConn = resolveOutboundConnection(clientName, sessionId, outboundConns, inboundConn);
       if (!outboundConn) {
         throw new Error(`Unknown client: ${clientName}`);
       }

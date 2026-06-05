@@ -440,6 +440,7 @@ describe('Request Handlers', () => {
       clientName: string,
       sessionId: string | undefined,
       outboundConns: OutboundConnections,
+      inboundConn?: InboundConnection,
     ) => OutboundConnection | undefined;
     let filterForSession: (outboundConns: OutboundConnections, sessionId: string | undefined) => OutboundConnections;
 
@@ -456,11 +457,21 @@ describe('Request Handlers', () => {
         clientName: string,
         sessionId: string | undefined,
         outboundConns: OutboundConnections,
+        inboundConn?: InboundConnection,
       ): OutboundConnection | undefined => {
+        const filteredConns =
+          inboundConn?.tagFilterMode === 'simple-or' && inboundConn.tags?.length
+            ? new Map(
+                Array.from(outboundConns.entries()).filter(([, conn]) =>
+                  conn.transport.tags?.some((tag) => inboundConn.tags?.includes(tag)),
+                ),
+              )
+            : outboundConns;
+
         // Try session-scoped key first (for per-client template servers: name:sessionId)
         if (sessionId) {
           const sessionKey = `${clientName}:${sessionId}`;
-          const conn = outboundConns.get(sessionKey);
+          const conn = filteredConns.get(sessionKey);
           if (conn) {
             return conn;
           }
@@ -471,7 +482,7 @@ describe('Request Handlers', () => {
           const renderedHash = mockGetRenderedHashForSession(sessionId, clientName);
           if (renderedHash) {
             const hashKey = `${clientName}:${renderedHash}`;
-            const conn = outboundConns.get(hashKey);
+            const conn = filteredConns.get(hashKey);
             if (conn) {
               return conn;
             }
@@ -479,7 +490,7 @@ describe('Request Handlers', () => {
         }
 
         // Fall back to direct name lookup (for static servers)
-        return outboundConns.get(clientName);
+        return filteredConns.get(clientName);
       };
 
       // Create a mock filterConnectionsForSession function for testing
@@ -636,6 +647,22 @@ describe('Request Handlers', () => {
         // Should fall back to static server
         expect(result).toBeDefined();
         expect(result?.name).toBe('static-server');
+      });
+
+      it('should apply inbound tag filters to direct resolution', () => {
+        testOutboundConns.set('hidden-server', {
+          name: 'hidden-server',
+          status: ClientStatus.Connected,
+          client: { callTool: vi.fn() },
+          transport: { timeout: 5000, tags: ['hidden'] },
+        } as unknown as OutboundConnection);
+
+        const result = resolveConnection('hidden-server', undefined, testOutboundConns, {
+          tagFilterMode: 'simple-or',
+          tags: ['public'],
+        } as InboundConnection);
+
+        expect(result).toBeUndefined();
       });
     });
 

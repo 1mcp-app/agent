@@ -65,7 +65,7 @@ export class ServerInstallationAdapter implements InstallationAdapter {
       }
 
       const operationId = `install_${Date.now()}`;
-      const isDirectInstall = Boolean(options.command || options.url || (options.package && !options.localServerName));
+      const isDirectInstall = Boolean(options.command || options.url || options.package);
       const backupPolicy = options.backup === undefined ? undefined : options.backup ? 'required' : 'skip';
       const result = await createServerInstallationWorkflow().run({
         mode: 'apply',
@@ -74,7 +74,7 @@ export class ServerInstallationAdapter implements InstallationAdapter {
         source: isDirectInstall
           ? {
               type: 'direct',
-              localName: serverName,
+              localName: options.localServerName ?? serverName,
               transport: options.transport ?? (options.url ? 'http' : 'stdio'),
               command: options.command,
               url: options.url,
@@ -178,12 +178,16 @@ export class ServerInstallationAdapter implements InstallationAdapter {
           if (configChange.changed) {
             logger.debug(`Removed server ${serverName} from configuration`);
           } else {
+            result.success = false;
+            result.warnings.push(`Server ${serverName} not found in configuration`);
             logger.debug(`Server ${serverName} not found in configuration`);
           }
         } catch (configError) {
           const errorMessage = configError instanceof Error ? configError.message : String(configError);
           logger.warn('Failed to remove server from configuration', { error: errorMessage, serverName });
+          result.success = false;
           result.warnings.push(`Failed to remove from configuration: ${errorMessage}`);
+          result.errors.push(errorMessage);
         }
 
         return result;

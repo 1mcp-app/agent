@@ -244,15 +244,15 @@ export function createToolInvocationsHandler(serverManager: ServerManager): Requ
       const allowedServers = getAllowedServersFromRequest(serverManager, res);
 
       const lazyOrchestrator = serverManager.getLazyLoadingOrchestrator();
-      const disabledToolError = getDisabledToolInvocationError(target.serverName, target.toolName);
-      if (disabledToolError) {
-        res.status(404).json({ error: disabledToolError });
-        return;
-      }
 
       if (!lazyOrchestrator) {
         if (allowedServers && !allowedServers.has(target.serverName)) {
           res.status(404).json({ error: `Server not found: ${target.serverName}` });
+          return;
+        }
+        const disabledToolError = getDisabledToolInvocationError(target.serverName, target.toolName);
+        if (disabledToolError) {
+          res.status(404).json({ error: disabledToolError });
           return;
         }
         const allConnections = serverManager.getClients();
@@ -286,6 +286,14 @@ export function createToolInvocationsHandler(serverManager: ServerManager): Requ
           res.status(502).json({ error: `Upstream error: ${message}` });
         }
         return;
+      }
+
+      if (!allowedServers || allowedServers.has(target.serverName)) {
+        const disabledToolError = getDisabledToolInvocationError(target.serverName, target.toolName);
+        if (disabledToolError) {
+          res.status(404).json({ error: disabledToolError });
+          return;
+        }
       }
 
       if (hasCatalogAccess(lazyOrchestrator)) {

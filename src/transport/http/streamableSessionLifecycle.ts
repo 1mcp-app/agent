@@ -148,6 +148,13 @@ export class StreamableSessionLifecycle {
 
   async resolvePostSession(input: ResolvePostSessionInput): Promise<StreamablePostSessionResult> {
     if (!input.sessionId) {
+      if (!input.isInitializeRequest) {
+        return {
+          status: StreamableSessionStatus.Missing,
+          sessionId: '',
+          reason: StreamableSessionMissingReason.InitializeRequired,
+        };
+      }
       const { config, context } = input.createSessionData();
       return this.createSession(config, context);
     }
@@ -263,6 +270,12 @@ export class StreamableSessionLifecycle {
           phase: 'SDK initialization',
           context: { reason: 'SDK internal structure inaccessible' },
         });
+        await this.serverManager.disconnectTransport(sessionId, true);
+        return {
+          transport: null,
+          errorType: StreamableSessionRestoreErrorType.TransportFailed,
+          error: 'Could not restore SDK initialized state. Please create a new session.',
+        };
       }
 
       transport.markAsRestored();

@@ -315,7 +315,9 @@ export class CapabilityCatalog {
 
     const tool = visibleRegistry.getTool(args.server, args.toolName);
     if (!tool) {
-      const disabledError = getDisabledToolError(this.deps.getServerConfigs(), args.server, args.toolName);
+      const disabledError = this.isServerVisible(args.server, allowedServers)
+        ? getDisabledToolError(this.deps.getServerConfigs(), args.server, args.toolName)
+        : undefined;
       return {
         error: disabledError ?? {
           type: 'not_found',
@@ -335,6 +337,11 @@ export class CapabilityCatalog {
     }
 
     return { route, tool };
+  }
+
+  private isServerVisible(server: string, allowedServers?: Set<string>): boolean {
+    const effectiveAllowedServers = allowedServers ?? this.deps.defaultAllowedServers;
+    return effectiveAllowedServers === undefined || effectiveAllowedServers.has(server);
   }
 
   private resolveRoute(server: string, toolName: string, sessionId?: string): CapabilityRoute | undefined {

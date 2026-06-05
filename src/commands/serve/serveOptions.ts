@@ -6,7 +6,12 @@ import logger from '@src/logger/logger.js';
 import type { ServeOptions } from './serve.js';
 
 export function parseCommaSeparatedList(value?: string): string[] {
-  return value ? value.split(',').map((entry) => entry.trim()) : [];
+  return value
+    ? value
+        .split(',')
+        .map((entry) => entry.trim())
+        .filter((entry) => entry.length > 0)
+    : [];
 }
 
 export function parseInternalToolsList(value?: string): string[] {

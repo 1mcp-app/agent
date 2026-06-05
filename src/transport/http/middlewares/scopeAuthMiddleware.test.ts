@@ -216,5 +216,40 @@ describe('Scope Authentication Middleware Utilities', () => {
       });
       expect(next).not.toHaveBeenCalled();
     });
+
+    it('validates tags from advanced expressions in addition to pre-extracted tags', async () => {
+      const config = AgentConfigManager.getInstance();
+      config.updateConfig({
+        features: { scopeValidation: true, auth: true } as any,
+      });
+
+      const middleware = createScopeAuthMiddleware();
+      const req = { headers: { authorization: 'Bearer token-1' } } as unknown as Request;
+      const res = {
+        locals: {
+          tags: ['web'],
+          tagFilterMode: 'advanced',
+          tagExpression: {
+            type: 'and',
+            children: [
+              { type: 'tag', value: 'web' },
+              { type: 'tag', value: 'internal' },
+            ],
+          },
+        },
+        status: vi.fn().mockReturnThis(),
+        json: vi.fn().mockReturnThis(),
+      } as unknown as Response;
+      const next = vi.fn();
+
+      await middleware(req, res, next);
+
+      expect(res.status).toHaveBeenCalledWith(403);
+      expect(res.json).toHaveBeenCalledWith({
+        error: 'insufficient_scope',
+        error_description: 'Insufficient scopes. Required: web, internal, Granted: web',
+      });
+      expect(next).not.toHaveBeenCalled();
+    });
   });
 });
