@@ -83,7 +83,7 @@ describe('Stdio Transport Error Handling E2E', () => {
     // Test process timeout handling
     const processInfo = await processManager.startProcess('sleep-process', {
       command: 'sleep',
-      args: ['0.1'], // Sleep for 100ms
+      args: ['0.5'], // Sleep long enough to avoid racing startup readiness
       timeout: 1000, // Reasonable timeout
       startupTimeout: 2000, // Reasonable startup timeout
     });
@@ -92,7 +92,7 @@ describe('Stdio Transport Error Handling E2E', () => {
     expect(processManager.isProcessRunning('sleep-process')).toBe(true);
 
     // Wait for process to complete naturally
-    await new Promise((resolve) => setTimeout(resolve, 200));
+    await new Promise((resolve) => setTimeout(resolve, 700));
 
     // Process should have completed by now
     expect(processManager.isProcessRunning('sleep-process')).toBe(false);
