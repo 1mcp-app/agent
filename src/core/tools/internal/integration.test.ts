@@ -270,7 +270,7 @@ describe('Internal Tools Integration Tests', () => {
       expect(result.name).toBe('test-server');
       expect(result.status).toBe('success');
       expect(result.enabled).toBe(true);
-      expect(result.restarted).toBeUndefined();
+      expect(result.restarted).toBe(false);
       expect(result.reloadRecommended).toBe(true);
     });
 
@@ -295,7 +295,7 @@ describe('Internal Tools Integration Tests', () => {
       expect(result.name).toBe('disabled-server');
       expect(result.status).toBe('success');
       expect(result.disabled).toBe(true);
-      expect(result.gracefulShutdown).toBeUndefined();
+      expect(result.gracefulShutdown).toBe(true);
       expect(result.reloadRecommended).toBe(true);
     });
 
@@ -367,8 +367,8 @@ describe('Internal Tools Integration Tests', () => {
       expect(result).toHaveProperty('timestamp');
       expect(result).toHaveProperty('reloadedServers');
 
-      expect(result.target).toBe('all-servers');
-      expect(result.action).toBe('config-reload');
+      expect(result.target).toBe('config');
+      expect(result.action).toBe('reloaded');
       expect(result.status).toBe('success');
       expect(result.timestamp).toBeDefined();
       expect(result.reloadedServers).toEqual(['test-server', 'disabled-server']);

@@ -250,7 +250,7 @@ describe('apiRoutes inspect', () => {
     await invokeInspectRoute(handler, { query: { target: 'serena' } }, res);
 
     expect(createTemplateBasedServers).not.toHaveBeenCalled();
-    expect(touchEphemeralClient).toHaveBeenCalledWith('context-session');
+    expect(touchEphemeralClient).toHaveBeenCalledWith('derived-session-id');
     expect(registerTemplate).not.toHaveBeenCalled();
   });
 

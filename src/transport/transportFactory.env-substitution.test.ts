@@ -130,7 +130,7 @@ describe('TransportFactory environment substitution', () => {
       0,
     );
     expect(logger.warn).toHaveBeenCalledWith(
-      'Environment variable CONTEXT7_API_KEY not found, keeping placeholder: ${CONTEXT7_API_KEY}',
+      'Environment variable CONTEXT7_API_KEY not found, keeping placeholder unchanged',
     );
     expect(StdioClientTransport).toHaveBeenCalledWith(
       expect.objectContaining({

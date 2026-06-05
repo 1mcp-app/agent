@@ -131,8 +131,8 @@ describe('apiRoutes /api/tool-invocations', () => {
 
     expect(res.statusCode).toBe(200);
     expect(createTemplateBasedServers).toHaveBeenCalledWith(
-      'context-session',
-      context,
+      'derived-session-id',
+      { ...context, sessionId: 'derived-session-id' },
       expect.any(Object),
       { mcpTemplates: { serena: templateConfig } },
       expect.any(Map),

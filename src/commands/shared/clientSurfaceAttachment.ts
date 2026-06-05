@@ -170,18 +170,19 @@ export async function attachFreshClientSurface<TOptions extends ResolvableServeT
   const ports = withDefaultPorts(input.ports);
   const target = await ports.resolveTarget(input.options);
   const options = target.mergedOptions as TOptions;
+  const freshSessionId = generateStreamableSessionId();
   const baseContext = buildCliContext({
     cwd: target.cwd,
     projectConfig: target.projectConfig,
     projectRoot: target.projectRoot,
     transportType: input.clientSurface,
     version: input.version,
-    sessionId: generateStreamableSessionId(),
+    sessionId: freshSessionId,
   });
   const contextHash = getCliSessionContextHash(baseContext);
   const baseUrl = stripMcpSuffix(target.discoveredUrl);
   const authProfile = await ports.loadAuthProfile(options['config-dir'], normalizeServerUrl(baseUrl));
-  const requestSessionId = resolveCanonicalSessionId({ context: baseContext });
+  const requestSessionId = resolveCanonicalSessionId({ context: baseContext, transportSessionId: freshSessionId });
   const context = withCanonicalSessionId(baseContext, requestSessionId);
 
   return {

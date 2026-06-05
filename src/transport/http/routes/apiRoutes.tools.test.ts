@@ -394,8 +394,8 @@ describe('apiRoutes /api/tools', () => {
 
     expect(res.statusCode).toBe(200);
     expect(createTemplateBasedServers).toHaveBeenCalledWith(
-      'context-session',
-      context,
+      'derived-session-id',
+      { ...context, sessionId: 'derived-session-id' },
       expect.any(Object),
       { mcpTemplates: { serena: templateConfig } },
       expect.any(Map),
@@ -404,8 +404,8 @@ describe('apiRoutes /api/tools', () => {
     );
     expect(registerTemplate).toHaveBeenCalledWith('serena', templateConfig);
     expect(refreshCapabilities).toHaveBeenCalledOnce();
-    expect(callMetaTool).toHaveBeenCalledWith('tool_list', expect.any(Object), 'context-session', undefined);
-    expect(res.setHeader).toHaveBeenCalledWith('mcp-session-id', 'context-session');
+    expect(callMetaTool).toHaveBeenCalledWith('tool_list', expect.any(Object), 'derived-session-id', undefined);
+    expect(res.setHeader).toHaveBeenCalledWith('mcp-session-id', 'derived-session-id');
   });
 
   it('returns 400 on validation error from meta-tool', async () => {

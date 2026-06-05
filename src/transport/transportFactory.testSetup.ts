@@ -74,7 +74,7 @@ vi.mock('@src/logger/logger.js', () => ({
   debugIf: vi.fn(),
 }));
 
-vi.mock('@src/core/types/index.ts', async () => {
+vi.mock('@src/core/types/index.js', async () => {
   const actual = await vi.importActual('@src/core/types/index.js');
   return {
     ...actual,

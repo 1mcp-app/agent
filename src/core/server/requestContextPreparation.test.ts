@@ -87,11 +87,16 @@ describe('requestContextPreparation', () => {
     expect(deps.refreshCapabilities).toHaveBeenCalledOnce();
   });
 
-  it('uses context session before deriving a session id', async () => {
+  it('derives a canonical session id instead of trusting context session id', async () => {
     const result = await prepareRequestContext({ deps, context, filterConfig: {} });
 
-    expect(result).toMatchObject({ status: 'prepared', sessionId: 'context-session' });
-    expect(deps.deriveSessionId).not.toHaveBeenCalled();
+    expect(result).toMatchObject({ status: 'prepared', sessionId: 'derived-session' });
+    expect(deps.deriveSessionId).toHaveBeenCalledWith(context);
+    expect(deps.loadRenderedTemplates).toHaveBeenCalledWith({
+      ...context,
+      sessionId: 'derived-session',
+    });
+    expect(context.sessionId).toBe('context-session');
   });
 
   it('derives a session id when context has no session id', async () => {
@@ -124,13 +129,13 @@ describe('requestContextPreparation', () => {
 
     expect(result).toEqual({
       status: 'already_prepared',
-      sessionId: 'context-session',
+      sessionId: 'derived-session',
       templateNames: ['serena'],
       createdTemplateNames: [],
     });
     expect(deps.registerTemplateAdapter).toHaveBeenCalledWith('serena', templateConfig);
     expect(deps.createTemplateBasedServers).not.toHaveBeenCalled();
-    expect(deps.touchEphemeralClient).toHaveBeenCalledWith('context-session');
+    expect(deps.touchEphemeralClient).toHaveBeenCalledWith('derived-session');
     expect(deps.refreshCapabilities).not.toHaveBeenCalled();
   });
 

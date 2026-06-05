@@ -146,7 +146,7 @@ vi.mock('./adapters/installationAdapter.js', () => ({
   }),
 }));
 
-vi.mock('./adapters/managementAdapter.js', () => ({
+vi.mock('./adapters/management/index.js', () => ({
   createManagementAdapter: () => ({
     listServers: vi.fn().mockResolvedValue([
       {
