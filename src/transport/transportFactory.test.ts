@@ -1,3 +1,6 @@
+// sort-imports-ignore
+import './transportFactory.testSetup.js';
+
 import { SSEClientTransport } from '@modelcontextprotocol/sdk/client/sse.js';
 
 import { SDKOAuthClientProvider } from '@src/auth/sdkOAuthClientProvider.js';
@@ -10,7 +13,6 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { ZodError } from 'zod';
 
 import { createTransports } from './transportFactory.js';
-import './transportFactory.testSetup.js';
 
 describe('TransportFactory', () => {
   beforeEach(() => {

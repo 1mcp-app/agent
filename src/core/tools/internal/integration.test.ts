@@ -1,3 +1,6 @@
+// sort-imports-ignore
+import './integration.testSetup.js';
+
 /**
  * Integration tests for internal tools
  *
@@ -15,7 +18,6 @@ import {
   handleMcpSearch,
 } from './discoveryHandlers.js';
 import { handleMcpInstall, handleMcpUninstall, handleMcpUpdate } from './installationHandlers.js';
-import './integration.testSetup.js';
 import {
   handleMcpDisable,
   handleMcpEnable,

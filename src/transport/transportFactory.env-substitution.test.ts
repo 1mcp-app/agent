@@ -1,3 +1,6 @@
+// sort-imports-ignore
+import './transportFactory.testSetup.js';
+
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 
 import { MCPServerParams, transportConfigSchema } from '@src/core/types/index.js';
@@ -6,7 +9,6 @@ import logger, { debugIf } from '@src/logger/logger.js';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { createTransports } from './transportFactory.js';
-import './transportFactory.testSetup.js';
 
 describe('TransportFactory environment substitution', () => {
   beforeEach(() => {

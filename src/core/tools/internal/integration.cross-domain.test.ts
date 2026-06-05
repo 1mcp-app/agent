@@ -1,3 +1,6 @@
+// sort-imports-ignore
+import './integration.testSetup.js';
+
 /**
  * Integration tests for internal tools
  *
@@ -9,7 +12,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { handleMcpInfo, handleMcpSearch } from './discoveryHandlers.js';
 import { handleMcpInstall, handleMcpUninstall } from './installationHandlers.js';
-import './integration.testSetup.js';
 import { handleMcpDisable, handleMcpEnable, handleMcpList, handleMcpStatus } from './managementHandlers.js';
 
 describe('Internal Tools Integration Tests', () => {
