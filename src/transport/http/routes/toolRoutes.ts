@@ -66,10 +66,13 @@ function getDisabledToolInvocationError(serverName: string, toolName: string): s
   return getDisabledToolError(getServerConfigs(), serverName, toolName)?.message;
 }
 
-async function createFallbackCapabilityCatalog(serverManager: ServerManager): Promise<CapabilityCatalog> {
+async function createFallbackCapabilityCatalog(
+  serverManager: ServerManager,
+): Promise<{ catalog: CapabilityCatalog; degradedServers: string[] }> {
   const clients = serverManager.getClients();
   const toolsByServer = new Map<string, Tool[]>();
   const serverTags = new Map<string, string[]>();
+  const degradedServers: string[] = [];
 
   for (const [connectionKey, conn] of clients) {
     if (conn.status !== ClientStatus.Connected) continue;
@@ -86,10 +89,11 @@ async function createFallbackCapabilityCatalog(serverManager: ServerManager): Pr
       serverTags.set(logicalServerName, tags);
     } catch (err) {
       logger.error(`Failed to list tools for ${connectionKey}:`, err);
+      degradedServers.push(connectionKey);
     }
   }
 
-  return new CapabilityCatalog({
+  const catalog = new CapabilityCatalog({
     getToolRegistry: () => ToolRegistry.fromToolsMap(toolsByServer, serverTags),
     schemaCache: {
       getIfCached: () => null,
@@ -101,6 +105,7 @@ async function createFallbackCapabilityCatalog(serverManager: ServerManager): Pr
     getServerConfigs,
     templateHashProvider: getTemplateHashProvider(serverManager),
   });
+  return { catalog, degradedServers };
 }
 
 function hasCatalogAccess(lazyOrchestrator: unknown): lazyOrchestrator is {
@@ -129,7 +134,7 @@ export function createToolsHandler(serverManager: ServerManager): RequestHandler
 
       if (!lazyOrchestrator) {
         const cursor = typeof req.query.cursor === 'string' ? req.query.cursor : undefined;
-        const catalog = await createFallbackCapabilityCatalog(serverManager);
+        const { catalog, degradedServers } = await createFallbackCapabilityCatalog(serverManager);
         const result = await catalog.listVisibleTools(
           {
             server,
@@ -147,6 +152,7 @@ export function createToolsHandler(serverManager: ServerManager): RequestHandler
           hasMore: result.hasMore,
           ...(result.nextCursor ? { nextCursor: result.nextCursor } : {}),
           servers: result.servers,
+          ...(degradedServers.length > 0 ? { degradedServers } : {}),
         });
         return;
       }

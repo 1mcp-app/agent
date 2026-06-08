@@ -231,7 +231,8 @@ export class FileStorageService {
           // UUID v4 format: 8-4-4-4-12 hexadecimal digits with hyphens
           const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
           return uuidRegex.test(uuidPart);
-        } catch {
+        } catch (error) {
+          logger.debug(`extractUuidPart failed for id=${id}, prefix=${prefix}`, { error });
           return false;
         }
       }

@@ -375,7 +375,7 @@ class DefaultConfigChangeService implements ConfigChangeService {
       return { status: 'observed' };
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
-      logger.warn(`Failed to reload MCP configuration after config change: ${errorMessage}`);
+      logger.warn('Failed to reload MCP configuration after config change', { configPath, error });
       return {
         status: 'failed',
         error: errorMessage,

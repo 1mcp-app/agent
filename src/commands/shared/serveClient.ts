@@ -13,6 +13,7 @@ import {
 
 import { MCP_SERVER_NAME, MCP_SERVER_VERSION } from '@src/constants.js';
 import { resolveFilterSelection } from '@src/core/filtering/filterSelection.js';
+import logger from '@src/logger/logger.js';
 import type { ContextData } from '@src/types/context.js';
 import { createContextHash } from '@src/utils/context/contextHash.js';
 
@@ -300,7 +301,8 @@ export async function readCliSessionCache(
     }
 
     return parsed;
-  } catch {
+  } catch (error) {
+    logger.debug('Failed to read CLI session cache, starting fresh:', { error });
     return null;
   }
 }

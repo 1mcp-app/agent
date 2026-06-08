@@ -397,7 +397,7 @@ function getOAuthFlow(
               loadingManager.getStateTracker().updateServerState(serverName, LoadingState.Ready);
               logger.debug(`Updated LoadingStateTracker: ${serverName} is now Ready after OAuth completion`);
             } catch (stateError) {
-              logger.warn(`Could not update LoadingStateTracker for ${serverName}: ${stateError}`);
+              logger.warn(`Could not update LoadingStateTracker for ${serverName}`, { error: stateError });
             }
           },
         }

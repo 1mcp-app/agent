@@ -3,6 +3,7 @@ import type { Tool } from '@modelcontextprotocol/sdk/types.js';
 import { ConnectionResolver, type TemplateHashProvider } from '@src/core/server/connectionResolver.js';
 import { getDisabledToolError, isToolDisabled } from '@src/core/server/disabledTools.js';
 import type { MCPServerParams, OutboundConnections } from '@src/core/types/index.js';
+import logger from '@src/logger/logger.js';
 
 import { SchemaCache } from './schemaCache.js';
 import type { ListToolsOptions, ListToolsResult as RegistryListToolsResult, ToolMetadata } from './toolRegistry.js';
@@ -152,6 +153,7 @@ export class CapabilityCatalog {
       const tool = await this.deps.schemaCache.getOrLoad(route.connectionKey, route.toolName, this.deps.loadSchema);
       return { schema: tool, fromCache: false, route, refresh };
     } catch (error) {
+      logger.error(`Failed to load tool schema from upstream server: ${route.server}:${route.toolName}`, { error });
       return {
         schema: {},
         error: {
@@ -204,6 +206,7 @@ export class CapabilityCatalog {
       });
       return { result, server: route.server, tool: route.toolName, route, refresh };
     } catch (error) {
+      logger.error(`Tool invocation failed: ${route.server}:${route.toolName}`, { error });
       if (error instanceof Error && error.message.includes('not found')) {
         return {
           result: {},

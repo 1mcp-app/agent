@@ -123,7 +123,7 @@ export class ConnectionResolver {
         continue;
       }
 
-      // Per-client template servers (format: name:sessionId) - only include if session matches
+      // Per-client (name:sessionId) and rendered (name:renderedHash) servers - include if suffix matches session
       const suffix = identity.kind === 'session' ? identity.sessionId : identity.renderedHash;
 
       if (suffix === sessionId) {

@@ -1,5 +1,6 @@
 import { AUTH_CONFIG } from '@src/constants.js';
 import { AuthProviderTransport } from '@src/core/types/index.js';
+import logger from '@src/logger/logger.js';
 import { tagsToScopes, validateScopes } from '@src/utils/validation/scopeValidation.js';
 
 export type OAuthConsentAction = 'approve' | 'deny';
@@ -334,7 +335,8 @@ export function createOAuthAuthorizationFlow(dependencies: OAuthAuthorizationFlo
         await dependencies.clientRuntime.completeOAuthAndReconnect(input.serverName, input.code);
         dependencies.loadingRuntime?.markReady(input.serverName);
         return { status: 'completed' };
-      } catch {
+      } catch (error) {
+        logger.error(`OAuth callback completion failed for ${input.serverName}`, { error });
         return {
           status: 'callback_failed',
           errorDescription: 'Failed to complete OAuth callback',

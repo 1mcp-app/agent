@@ -34,15 +34,19 @@ export async function resolveStdioFilterConfig(parsedArgv: ServeOptions): Promis
   let selectorInput: Parameters<typeof resolveFilterSelection>[0] = {};
 
   if (parsedArgv.preset) {
+    let presetLoaded = false;
     try {
       await presetManager.loadPresetsWithoutWatcher();
+      presetLoaded = true;
     } catch (error) {
-      logger.warn(`Failed to load presets: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      logger.warn(
+        `Failed to load presets for '${parsedArgv.preset}': ${error instanceof Error ? error.message : 'Unknown error'}`,
+      );
     }
 
-    if (presetManager.hasPreset(parsedArgv.preset)) {
+    if (presetLoaded && presetManager.hasPreset(parsedArgv.preset)) {
       selectorInput = { preset: parsedArgv.preset };
-    } else {
+    } else if (presetLoaded) {
       logger.warn(`Preset '${parsedArgv.preset}' not found, ignoring preset option`);
     }
   }

@@ -26,6 +26,7 @@ import {
 } from '@src/commands/shared/serveClient.js';
 import { API_INSPECT_ENDPOINT, API_TOOL_INVOCATIONS_ENDPOINT } from '@src/constants/api.js';
 import type { GlobalOptions } from '@src/globalOptions.js';
+import logger from '@src/logger/logger.js';
 import type { ContextData } from '@src/types/context.js';
 
 export interface RunCommandOptions extends GlobalOptions {
@@ -259,6 +260,9 @@ async function fetchToolInfoFromApi(
   });
 
   if (!apiResponse.ok || !apiResponse.data || apiResponse.data.kind !== 'tool') {
+    if (!apiResponse.ok && apiResponse.status !== 404) {
+      logger.debug('fetchToolInfoFromApi: unexpected response status', { status: apiResponse.status });
+    }
     return null;
   }
 
@@ -421,8 +425,8 @@ export async function invokeTool(options: {
   } finally {
     try {
       await client.close();
-    } catch {
-      // Best-effort cleanup for CLI run sessions.
+    } catch (closeError) {
+      logger.debug('CLI session cleanup close failed (best-effort):', { error: closeError });
     }
   }
 }

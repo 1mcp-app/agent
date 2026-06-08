@@ -82,7 +82,7 @@ export async function cleanupTemplateServersForSession(
       logInstanceRetention(templateName, instanceId, outboundKey, remainingClients);
     } catch (error) {
       logger.warn(`Failed to cleanup client instance ${instanceKey}:`, {
-        error: error instanceof Error ? error.message : 'Unknown error',
+        error,
         sessionId,
         templateName,
         instanceId,
