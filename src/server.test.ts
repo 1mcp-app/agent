@@ -84,6 +84,7 @@ describe('server', () => {
       stop: vi.fn(),
       getStatus: vi.fn().mockReturnValue('running'),
       setInstructionAggregator: vi.fn(),
+      syncMcpServerLifecycleFromConnectedClients: vi.fn(),
     };
     vi.mocked(ServerManager.getOrCreateInstance).mockReturnValue(mockServerManager);
 
@@ -162,6 +163,12 @@ describe('server', () => {
         mockClients,
         mockTransports,
       );
+    });
+
+    it('should sync connected clients into ServerManager lifecycle status', async () => {
+      await setupServer();
+
+      expect(mockServerManager.syncMcpServerLifecycleFromConnectedClients).toHaveBeenCalled();
     });
 
     it('should initialize config change handler', async () => {

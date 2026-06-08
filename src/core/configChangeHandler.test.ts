@@ -10,6 +10,8 @@ vi.mock('@src/core/server/serverManager.js', () => ({
       startServer: vi.fn().mockResolvedValue(undefined),
       stopServer: vi.fn().mockResolvedValue(undefined),
       restartServer: vi.fn().mockResolvedValue(undefined),
+      loadMcpServer: vi.fn().mockResolvedValue(undefined),
+      unloadMcpServer: vi.fn().mockResolvedValue(undefined),
       updateServerMetadata: vi.fn().mockResolvedValue(undefined),
       isMcpServerRunning: vi.fn().mockReturnValue(true), // Assume server is running for metadata update tests
       getInboundConnections: vi.fn().mockReturnValue(new Map()),
@@ -96,7 +98,7 @@ describe('ConfigChangeHandler', () => {
       await changeHandler(changes);
 
       const { ServerManager } = await import('@src/core/server/serverManager.js');
-      expect(ServerManager.current.startServer).toHaveBeenCalledWith('new-server', newConfig['new-server']);
+      expect(ServerManager.current.loadMcpServer).toHaveBeenCalledWith('new-server', newConfig['new-server']);
     });
   });
 
@@ -114,7 +116,7 @@ describe('ConfigChangeHandler', () => {
       await changeHandler(changes);
 
       const { ServerManager } = await import('@src/core/server/serverManager.js');
-      expect(ServerManager.current.stopServer).toHaveBeenCalledWith('removed-server');
+      expect(ServerManager.current.unloadMcpServer).toHaveBeenCalledWith('removed-server');
     });
   });
 
@@ -142,7 +144,7 @@ describe('ConfigChangeHandler', () => {
       await changeHandler(changes);
 
       const { ServerManager } = await import('@src/core/server/serverManager.js');
-      expect(ServerManager.current.restartServer).toHaveBeenCalledWith('modified-server', newConfig['modified-server']);
+      expect(ServerManager.current.loadMcpServer).toHaveBeenCalledWith('modified-server', newConfig['modified-server']);
     });
 
     it('should NOT restart servers for tag-only changes', async () => {
@@ -169,7 +171,7 @@ describe('ConfigChangeHandler', () => {
       await changeHandler(changes);
 
       const { ServerManager } = await import('@src/core/server/serverManager.js');
-      expect(ServerManager.current.restartServer).not.toHaveBeenCalled();
+      expect(ServerManager.current.loadMcpServer).not.toHaveBeenCalled();
       expect(mockConfigManager.emit).toHaveBeenCalledWith('metadataUpdated', {
         serverName: 'tag-only-server',
         config: newConfig['tag-only-server'],
@@ -199,7 +201,7 @@ describe('ConfigChangeHandler', () => {
       await changeHandler(changes);
 
       const { ServerManager } = await import('@src/core/server/serverManager.js');
-      expect(ServerManager.current.restartServer).toHaveBeenCalledWith(
+      expect(ServerManager.current.loadMcpServer).toHaveBeenCalledWith(
         'unknown-change-server',
         newConfig['unknown-change-server'],
       );
@@ -228,7 +230,7 @@ describe('ConfigChangeHandler', () => {
       await changeHandler(changes);
 
       const { ServerManager } = await import('@src/core/server/serverManager.js');
-      expect(ServerManager.current.restartServer).toHaveBeenCalledWith(
+      expect(ServerManager.current.loadMcpServer).toHaveBeenCalledWith(
         'empty-changes-server',
         newConfig['empty-changes-server'],
       );
@@ -309,13 +311,13 @@ describe('ConfigChangeHandler', () => {
       await changeHandler(changes);
 
       const { ServerManager } = await import('@src/core/server/serverManager.js');
-      expect(ServerManager.current.startServer).toHaveBeenCalledWith('added-server', newConfig['added-server']);
-      expect(ServerManager.current.stopServer).toHaveBeenCalledWith('removed-server');
-      expect(ServerManager.current.restartServer).toHaveBeenCalledWith(
+      expect(ServerManager.current.loadMcpServer).toHaveBeenCalledWith('added-server', newConfig['added-server']);
+      expect(ServerManager.current.unloadMcpServer).toHaveBeenCalledWith('removed-server');
+      expect(ServerManager.current.loadMcpServer).toHaveBeenCalledWith(
         'restarted-server',
         newConfig['restarted-server'],
       );
-      expect(ServerManager.current.restartServer).not.toHaveBeenCalledWith('metadata-server', expect.any(Object));
+      expect(ServerManager.current.loadMcpServer).not.toHaveBeenCalledWith('metadata-server', expect.any(Object));
     });
   });
 
@@ -345,9 +347,9 @@ describe('ConfigChangeHandler', () => {
 
       mockConfigManager.getTransportConfig = vi.fn(() => newConfig);
 
-      // Make startServer fail for the first server
+      // Make the ServerManager hot-reload facade fail for the first server
       const { ServerManager } = await import('@src/core/server/serverManager.js');
-      (ServerManager.current.startServer as ReturnType<typeof vi.fn>)
+      (ServerManager.current.loadMcpServer as ReturnType<typeof vi.fn>)
         .mockRejectedValueOnce(new Error('Server start failed'))
         .mockResolvedValueOnce(undefined);
 
@@ -359,8 +361,8 @@ describe('ConfigChangeHandler', () => {
       await changeHandler(changes);
 
       // Should still attempt to start the second server
-      expect(ServerManager.current.startServer).toHaveBeenCalledTimes(2);
-      expect(ServerManager.current.startServer).toHaveBeenCalledWith('success-server', newConfig['success-server']);
+      expect(ServerManager.current.loadMcpServer).toHaveBeenCalledTimes(2);
+      expect(ServerManager.current.loadMcpServer).toHaveBeenCalledWith('success-server', newConfig['success-server']);
 
       consoleSpy.mockRestore();
     });
@@ -391,9 +393,9 @@ describe('ConfigChangeHandler', () => {
       await changeHandler(changes);
 
       const { ServerManager } = await import('@src/core/server/serverManager.js');
-      expect(ServerManager.current.stopServer).toHaveBeenCalledWith('disabled-server');
-      expect(ServerManager.current.startServer).not.toHaveBeenCalled();
-      expect(ServerManager.current.restartServer).not.toHaveBeenCalled();
+      expect(ServerManager.current.unloadMcpServer).toHaveBeenCalledWith('disabled-server');
+      expect(ServerManager.current.loadMcpServer).not.toHaveBeenCalled();
+      expect(ServerManager.current.loadMcpServer).not.toHaveBeenCalled();
     });
 
     it('should start servers when disabled field changes to false', async () => {
@@ -420,12 +422,12 @@ describe('ConfigChangeHandler', () => {
       await changeHandler(changes);
 
       const { ServerManager } = await import('@src/core/server/serverManager.js');
-      expect(ServerManager.current.startServer).toHaveBeenCalledWith(
+      expect(ServerManager.current.loadMcpServer).toHaveBeenCalledWith(
         're-enabled-server',
         newConfig['re-enabled-server'],
       );
-      expect(ServerManager.current.stopServer).not.toHaveBeenCalled();
-      expect(ServerManager.current.restartServer).not.toHaveBeenCalled();
+      // Re-enable loads the server; it must not unload it.
+      expect(ServerManager.current.unloadMcpServer).not.toHaveBeenCalled();
     });
 
     it('should stop servers when disabled is true regardless of other field changes', async () => {
@@ -452,9 +454,9 @@ describe('ConfigChangeHandler', () => {
       await changeHandler(changes);
 
       const { ServerManager } = await import('@src/core/server/serverManager.js');
-      expect(ServerManager.current.stopServer).toHaveBeenCalledWith('disabled-with-other-changes');
-      expect(ServerManager.current.startServer).not.toHaveBeenCalled();
-      expect(ServerManager.current.restartServer).not.toHaveBeenCalled();
+      expect(ServerManager.current.unloadMcpServer).toHaveBeenCalledWith('disabled-with-other-changes');
+      expect(ServerManager.current.loadMcpServer).not.toHaveBeenCalled();
+      expect(ServerManager.current.loadMcpServer).not.toHaveBeenCalled();
     });
 
     it('should restart servers for non-disabled field changes when disabled is false', async () => {
@@ -481,12 +483,13 @@ describe('ConfigChangeHandler', () => {
       await changeHandler(changes);
 
       const { ServerManager } = await import('@src/core/server/serverManager.js');
-      expect(ServerManager.current.restartServer).toHaveBeenCalledWith(
+      expect(ServerManager.current.loadMcpServer).toHaveBeenCalledWith(
         'non-disabled-changes',
         newConfig['non-disabled-changes'],
       );
-      expect(ServerManager.current.startServer).not.toHaveBeenCalled();
-      expect(ServerManager.current.stopServer).not.toHaveBeenCalled();
+      // Functional modify reloads via loadMcpServer; ConfigChangeHandler does not
+      // call unloadMcpServer directly (ServerManager handles the internal reload).
+      expect(ServerManager.current.unloadMcpServer).not.toHaveBeenCalled();
     });
 
     it('should update metadata when only tags change on a disabled server', async () => {
@@ -514,8 +517,8 @@ describe('ConfigChangeHandler', () => {
       await changeHandler(changes);
 
       const { ServerManager } = await import('@src/core/server/serverManager.js');
-      expect(ServerManager.current.stopServer).toHaveBeenCalledWith('disabled-metadata-update');
-      expect(ServerManager.current.restartServer).not.toHaveBeenCalled();
+      expect(ServerManager.current.unloadMcpServer).toHaveBeenCalledWith('disabled-metadata-update');
+      expect(ServerManager.current.loadMcpServer).not.toHaveBeenCalled();
     });
 
     it('should handle mixed disable/enable changes with other servers', async () => {
@@ -603,22 +606,22 @@ describe('ConfigChangeHandler', () => {
       const { ServerManager } = await import('@src/core/server/serverManager.js');
 
       // Verify disabled server is stopped
-      expect(ServerManager.current.stopServer).toHaveBeenCalledWith('disabled-server');
+      expect(ServerManager.current.unloadMcpServer).toHaveBeenCalledWith('disabled-server');
 
       // Verify re-enabled server is started
-      expect(ServerManager.current.startServer).toHaveBeenCalledWith(
+      expect(ServerManager.current.loadMcpServer).toHaveBeenCalledWith(
         're-enabled-server',
         newConfig['re-enabled-server'],
       );
 
       // Verify normal modified server is restarted
-      expect(ServerManager.current.restartServer).toHaveBeenCalledWith(
+      expect(ServerManager.current.loadMcpServer).toHaveBeenCalledWith(
         'normal-modified-server',
         newConfig['normal-modified-server'],
       );
 
       // Verify tag-only server does not get restarted
-      expect(ServerManager.current.restartServer).not.toHaveBeenCalledWith('tag-only-server', expect.any(Object));
+      expect(ServerManager.current.loadMcpServer).not.toHaveBeenCalledWith('tag-only-server', expect.any(Object));
     });
   });
 
@@ -648,7 +651,7 @@ describe('ConfigChangeHandler', () => {
       const { ServerManager } = await import('@src/core/server/serverManager.js');
       // Even though it's an ADD event, it should still start the server initially
       // The transport factory will handle skipping disabled servers
-      expect(ServerManager.current.startServer).toHaveBeenCalledWith(
+      expect(ServerManager.current.loadMcpServer).toHaveBeenCalledWith(
         'initially-disabled-server',
         newConfig['initially-disabled-server'],
       );
@@ -680,7 +683,7 @@ describe('ConfigChangeHandler', () => {
       await changeHandler(changes);
 
       const { ServerManager } = await import('@src/core/server/serverManager.js');
-      expect(ServerManager.current.stopServer).toHaveBeenCalledWith('rapid-change-server');
+      expect(ServerManager.current.unloadMcpServer).toHaveBeenCalledWith('rapid-change-server');
 
       // Reset mocks for next change
       vi.clearAllMocks();
@@ -698,7 +701,7 @@ describe('ConfigChangeHandler', () => {
 
       await changeHandler(changes);
 
-      expect(ServerManager.current.startServer).toHaveBeenCalledWith(
+      expect(ServerManager.current.loadMcpServer).toHaveBeenCalledWith(
         'rapid-change-server',
         newConfig['rapid-change-server'],
       );
@@ -728,7 +731,7 @@ describe('ConfigChangeHandler', () => {
       await changeHandler(changes);
 
       const { ServerManager } = await import('@src/core/server/serverManager.js');
-      expect(ServerManager.current.restartServer).toHaveBeenCalledWith(
+      expect(ServerManager.current.loadMcpServer).toHaveBeenCalledWith(
         'undefined-disabled-server',
         newConfig['undefined-disabled-server'],
       );
@@ -753,9 +756,11 @@ describe('ConfigChangeHandler', () => {
 
       mockConfigManager.getTransportConfig = vi.fn(() => newConfig);
 
-      // Make stopServer fail
+      // Make the ServerManager hot-reload facade fail while unloading
       const { ServerManager } = await import('@src/core/server/serverManager.js');
-      (ServerManager.current.stopServer as ReturnType<typeof vi.fn>).mockRejectedValueOnce(new Error('Stop failed'));
+      (ServerManager.current.unloadMcpServer as ReturnType<typeof vi.fn>).mockRejectedValueOnce(
+        new Error('Stop failed'),
+      );
 
       // Mock console.error to capture error logs
       const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
@@ -763,10 +768,10 @@ describe('ConfigChangeHandler', () => {
       // Simulate config change event
       const changeHandler = (mockConfigManager.on as any).mock.calls[0][1];
 
-      // Should not throw error even if stopServer fails
+      // Should not throw error even if unload fails
       await expect(changeHandler(changes)).resolves.toBeUndefined();
 
-      expect(ServerManager.current.stopServer).toHaveBeenCalledWith('stop-error-server');
+      expect(ServerManager.current.unloadMcpServer).toHaveBeenCalledWith('stop-error-server');
 
       consoleSpy.mockRestore();
     });
@@ -790,9 +795,11 @@ describe('ConfigChangeHandler', () => {
 
       mockConfigManager.getTransportConfig = vi.fn(() => newConfig);
 
-      // Make startServer fail
+      // Make the ServerManager hot-reload facade fail while loading
       const { ServerManager } = await import('@src/core/server/serverManager.js');
-      (ServerManager.current.startServer as ReturnType<typeof vi.fn>).mockRejectedValueOnce(new Error('Start failed'));
+      (ServerManager.current.loadMcpServer as ReturnType<typeof vi.fn>).mockRejectedValueOnce(
+        new Error('Start failed'),
+      );
 
       // Mock console.error to capture error logs
       const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
@@ -800,10 +807,10 @@ describe('ConfigChangeHandler', () => {
       // Simulate config change event
       const changeHandler = (mockConfigManager.on as any).mock.calls[0][1];
 
-      // Should not throw error even if startServer fails
+      // Should not throw error even if load fails
       await expect(changeHandler(changes)).resolves.toBeUndefined();
 
-      expect(ServerManager.current.startServer).toHaveBeenCalledWith(
+      expect(ServerManager.current.loadMcpServer).toHaveBeenCalledWith(
         'start-error-server',
         newConfig['start-error-server'],
       );
@@ -844,7 +851,7 @@ describe('ConfigChangeHandler', () => {
       await changeHandler(changes);
 
       const { ServerManager } = await import('@src/core/server/serverManager.js');
-      expect(ServerManager.current.restartServer).toHaveBeenCalled();
+      expect(ServerManager.current.loadMcpServer).toHaveBeenCalled();
     });
 
     it('should return false for tag-only field changes', async () => {
@@ -871,7 +878,7 @@ describe('ConfigChangeHandler', () => {
       await changeHandler(changes);
 
       const { ServerManager } = await import('@src/core/server/serverManager.js');
-      expect(ServerManager.current.restartServer).not.toHaveBeenCalled();
+      expect(ServerManager.current.loadMcpServer).not.toHaveBeenCalled();
     });
 
     it('should return true for mixed field changes (including tags)', async () => {
@@ -898,7 +905,7 @@ describe('ConfigChangeHandler', () => {
       await changeHandler(changes);
 
       const { ServerManager } = await import('@src/core/server/serverManager.js');
-      expect(ServerManager.current.restartServer).toHaveBeenCalled();
+      expect(ServerManager.current.loadMcpServer).toHaveBeenCalled();
     });
   });
 });

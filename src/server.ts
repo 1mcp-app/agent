@@ -196,6 +196,7 @@ async function setupServerSync(
     transports,
   );
   serverManager.setInstructionAggregator(instructionAggregator);
+  serverManager.syncMcpServerLifecycleFromConnectedClients();
 
   // Config reload is now handled by ConfigManager and ConfigChangeHandler initialized in setupServer
 
