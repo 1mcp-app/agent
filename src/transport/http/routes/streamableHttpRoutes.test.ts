@@ -1,16 +1,16 @@
 import { ErrorCode } from '@modelcontextprotocol/sdk/types.js';
 
 import { STREAMABLE_HTTP_ENDPOINT } from '@src/constants.js';
+import {
+  StreamableSessionMissingReason,
+  StreamableSessionStatus,
+} from '@src/transport/http/streamableSessionLifecycle.js';
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { setupStreamableHttpRoutes } from './streamableHttpRoutes.js';
 
 // Mock all external dependencies
-vi.mock('node:crypto', () => ({
-  randomUUID: vi.fn(() => 'mock-uuid-123'),
-}));
-
 vi.mock('@modelcontextprotocol/sdk/server/streamableHttp.js', () => ({
   StreamableHTTPServerTransport: vi.fn().mockImplementation(function (options) {
     const transport = {
@@ -69,7 +69,7 @@ describe('Streamable HTTP Routes', () => {
   let mockSessionRepository: any;
   let mockRequest: any;
   let mockResponse: any;
-  let mockSessionService: any;
+  let mockLifecycle: any;
   let postHandler: any;
   let getHandler: any;
   let deleteHandler: any;
@@ -95,12 +95,13 @@ describe('Streamable HTTP Routes', () => {
     // Mock session repository
     mockSessionRepository = {};
 
-    // Mock session service
-    mockSessionService = {
-      getSession: vi.fn(),
-      createSession: vi.fn(),
-      deleteSession: vi.fn(),
-      restoreSession: vi.fn(),
+    // Mock streamable session lifecycle
+    mockLifecycle = {
+      resolvePostSession: vi.fn(),
+      resolveExistingSession: vi.fn(),
+      storeInitializeResponse: vi.fn(),
+      handleAbnormalDisconnect: vi.fn().mockResolvedValue(undefined),
+      completeExplicitDelete: vi.fn().mockResolvedValue(undefined),
     };
 
     // Mock request/response
@@ -125,8 +126,10 @@ describe('Streamable HTTP Routes', () => {
       on: vi.fn(),
     };
 
-    // Default mock implementations for SessionService
-    mockSessionService.createSession.mockResolvedValue({
+    // Default mock implementations for StreamableSessionLifecycle
+    mockLifecycle.resolvePostSession.mockResolvedValue({
+      status: StreamableSessionStatus.Created,
+      sessionId: 'mock-session-id',
       transport: {
         sessionId: 'mock-session-id',
         handleRequest: vi.fn().mockResolvedValue(undefined),
@@ -135,7 +138,11 @@ describe('Streamable HTTP Routes', () => {
       },
       persisted: true,
     });
-    mockSessionService.getSession.mockResolvedValue(null);
+    mockLifecycle.resolveExistingSession.mockResolvedValue({
+      status: StreamableSessionStatus.Missing,
+      sessionId: 'unknown-session',
+      reason: StreamableSessionMissingReason.NotFound,
+    });
   });
 
   afterEach(() => {
@@ -153,7 +160,7 @@ describe('Streamable HTTP Routes', () => {
         undefined,
         undefined,
         undefined,
-        mockSessionService,
+        mockLifecycle,
       );
 
       expect(mockRouter.post).toHaveBeenCalledWith(
@@ -174,7 +181,7 @@ describe('Streamable HTTP Routes', () => {
         undefined,
         undefined,
         undefined,
-        mockSessionService,
+        mockLifecycle,
       );
 
       expect(mockRouter.get).toHaveBeenCalledWith(
@@ -195,7 +202,7 @@ describe('Streamable HTTP Routes', () => {
         undefined,
         undefined,
         undefined,
-        mockSessionService,
+        mockLifecycle,
       );
 
       expect(mockRouter.delete).toHaveBeenCalledWith(
@@ -218,7 +225,7 @@ describe('Streamable HTTP Routes', () => {
         undefined,
         undefined,
         undefined,
-        mockSessionService,
+        mockLifecycle,
       );
       postHandler = mockRouter.post.mock.calls[0][3];
     });
@@ -228,7 +235,9 @@ describe('Streamable HTTP Routes', () => {
         sessionId: 'new-session-id',
         handleRequest: vi.fn().mockResolvedValue(undefined),
       };
-      mockSessionService.createSession.mockResolvedValue({
+      mockLifecycle.resolvePostSession.mockResolvedValue({
+        status: StreamableSessionStatus.Created,
+        sessionId: 'new-session-id',
         transport: mockTransport,
         persisted: true,
       });
@@ -236,7 +245,7 @@ describe('Streamable HTTP Routes', () => {
       mockRequest.headers = {};
       await postHandler(mockRequest, mockResponse);
 
-      expect(mockSessionService.createSession).toHaveBeenCalled();
+      expect(mockLifecycle.resolvePostSession).toHaveBeenCalledWith(expect.objectContaining({ sessionId: undefined }));
       // Response is wrapped for logging, so we check with expect.any(Object)
       expect(mockTransport.handleRequest).toHaveBeenCalledWith(mockRequest, expect.any(Object), mockRequest.body);
     });
@@ -246,25 +255,36 @@ describe('Streamable HTTP Routes', () => {
         sessionId: 'existing-session-id',
         handleRequest: vi.fn().mockResolvedValue(undefined),
       };
-      mockSessionService.getSession.mockResolvedValue(mockTransport);
+      mockLifecycle.resolvePostSession.mockResolvedValue({
+        status: StreamableSessionStatus.Active,
+        sessionId: 'existing-session-id',
+        transport: mockTransport,
+      });
 
       mockRequest.headers = { 'mcp-session-id': 'existing-session-id' };
       await postHandler(mockRequest, mockResponse);
 
-      expect(mockSessionService.getSession).toHaveBeenCalledWith('existing-session-id');
+      expect(mockLifecycle.resolvePostSession).toHaveBeenCalledWith(
+        expect.objectContaining({ sessionId: 'existing-session-id', isInitializeRequest: false }),
+      );
       // Response is wrapped for logging, so we check with expect.any(Object)
       expect(mockTransport.handleRequest).toHaveBeenCalledWith(mockRequest, expect.any(Object), mockRequest.body);
     });
 
     it('should return 404 when session not found and request is not initialize', async () => {
-      mockSessionService.getSession.mockResolvedValue(null);
+      mockLifecycle.resolvePostSession.mockResolvedValue({
+        status: StreamableSessionStatus.Missing,
+        sessionId: 'unknown-session-id',
+        reason: StreamableSessionMissingReason.InitializeRequired,
+      });
 
       mockRequest.headers = { 'mcp-session-id': 'unknown-session-id' };
       mockRequest.body = { jsonrpc: '2.0', id: 1, method: 'tools/list' };
       await postHandler(mockRequest, mockResponse);
 
-      expect(mockSessionService.getSession).toHaveBeenCalledWith('unknown-session-id');
-      expect(mockSessionService.createSession).not.toHaveBeenCalled();
+      expect(mockLifecycle.resolvePostSession).toHaveBeenCalledWith(
+        expect.objectContaining({ sessionId: 'unknown-session-id', isInitializeRequest: false }),
+      );
       expect(mockResponse.status).toHaveBeenCalledWith(404);
       expect(mockResponse.json).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -277,12 +297,13 @@ describe('Streamable HTTP Routes', () => {
     });
 
     it('should create new session when session not found but request is initialize', async () => {
-      mockSessionService.getSession.mockResolvedValue(null);
       const mockTransport = {
         sessionId: 'new-session-from-initialize',
         handleRequest: vi.fn().mockResolvedValue(undefined),
       };
-      mockSessionService.createSession.mockResolvedValue({
+      mockLifecycle.resolvePostSession.mockResolvedValue({
+        status: StreamableSessionStatus.Created,
+        sessionId: 'new-session-id',
         transport: mockTransport,
         persisted: true,
       });
@@ -300,18 +321,15 @@ describe('Streamable HTTP Routes', () => {
       };
       await postHandler(mockRequest, mockResponse);
 
-      expect(mockSessionService.getSession).toHaveBeenCalledWith('unknown-session-id');
-      expect(mockSessionService.createSession).toHaveBeenCalledWith(
-        expect.any(Object),
-        undefined,
-        'unknown-session-id',
+      expect(mockLifecycle.resolvePostSession).toHaveBeenCalledWith(
+        expect.objectContaining({ sessionId: 'unknown-session-id', isInitializeRequest: true }),
       );
       // Response is wrapped for logging, so we check with expect.any(Object)
       expect(mockTransport.handleRequest).toHaveBeenCalledWith(mockRequest, expect.any(Object), mockRequest.body);
     });
 
     it('should handle errors gracefully', async () => {
-      mockSessionService.createSession.mockRejectedValue(new Error('Creation failed'));
+      mockLifecycle.resolvePostSession.mockRejectedValue(new Error('Creation failed'));
 
       mockRequest.headers = {};
       await postHandler(mockRequest, mockResponse);
@@ -338,7 +356,7 @@ describe('Streamable HTTP Routes', () => {
         undefined,
         undefined,
         undefined,
-        mockSessionService,
+        mockLifecycle,
       );
       getHandler = mockRouter.get.mock.calls[0][3];
     });
@@ -354,12 +372,16 @@ describe('Streamable HTTP Routes', () => {
     });
 
     it('should return 404 when session not found (or restoration failed)', async () => {
-      mockSessionService.getSession.mockResolvedValue(null);
+      mockLifecycle.resolveExistingSession.mockResolvedValue({
+        status: StreamableSessionStatus.Missing,
+        sessionId: 'unknown-session',
+        reason: StreamableSessionMissingReason.NotFound,
+      });
 
       mockRequest.headers = { 'mcp-session-id': 'unknown-session' };
       await getHandler(mockRequest, mockResponse);
 
-      expect(mockSessionService.getSession).toHaveBeenCalledWith('unknown-session');
+      expect(mockLifecycle.resolveExistingSession).toHaveBeenCalledWith('unknown-session');
       expect(mockResponse.status).toHaveBeenCalledWith(404);
     });
 
@@ -368,17 +390,21 @@ describe('Streamable HTTP Routes', () => {
         sessionId: 'valid-session',
         handleRequest: vi.fn().mockResolvedValue(undefined),
       };
-      mockSessionService.getSession.mockResolvedValue(mockTransport);
+      mockLifecycle.resolveExistingSession.mockResolvedValue({
+        status: StreamableSessionStatus.Active,
+        sessionId: 'valid-session',
+        transport: mockTransport,
+      });
 
       mockRequest.headers = { 'mcp-session-id': 'valid-session' };
       await getHandler(mockRequest, mockResponse);
 
-      expect(mockSessionService.getSession).toHaveBeenCalledWith('valid-session');
+      expect(mockLifecycle.resolveExistingSession).toHaveBeenCalledWith('valid-session');
       expect(mockTransport.handleRequest).toHaveBeenCalled();
     });
 
     it('should handle errors gracefully', async () => {
-      mockSessionService.getSession.mockRejectedValue(new Error('Get session failed'));
+      mockLifecycle.resolveExistingSession.mockRejectedValue(new Error('Get session failed'));
 
       mockRequest.headers = { 'mcp-session-id': 'error-session' };
       await getHandler(mockRequest, mockResponse);
@@ -398,7 +424,7 @@ describe('Streamable HTTP Routes', () => {
         undefined,
         undefined,
         undefined,
-        mockSessionService,
+        mockLifecycle,
       );
       deleteHandler = mockRouter.delete.mock.calls[0][3];
     });
@@ -411,7 +437,11 @@ describe('Streamable HTTP Routes', () => {
     });
 
     it('should return 404 when session not found', async () => {
-      mockSessionService.getSession.mockResolvedValue(null);
+      mockLifecycle.resolveExistingSession.mockResolvedValue({
+        status: StreamableSessionStatus.Missing,
+        sessionId: 'unknown-session',
+        reason: StreamableSessionMissingReason.NotFound,
+      });
 
       mockRequest.headers = { 'mcp-session-id': 'unknown-session' };
       await deleteHandler(mockRequest, mockResponse);
@@ -424,17 +454,21 @@ describe('Streamable HTTP Routes', () => {
         sessionId: 'delete-session',
         handleRequest: vi.fn().mockResolvedValue(undefined),
       };
-      mockSessionService.getSession.mockResolvedValue(mockTransport);
+      mockLifecycle.resolveExistingSession.mockResolvedValue({
+        status: StreamableSessionStatus.Active,
+        sessionId: 'delete-session',
+        transport: mockTransport,
+      });
 
       mockRequest.headers = { 'mcp-session-id': 'delete-session' };
       await deleteHandler(mockRequest, mockResponse);
 
       expect(mockTransport.handleRequest).toHaveBeenCalled();
-      expect(mockSessionService.deleteSession).toHaveBeenCalledWith('delete-session');
+      expect(mockLifecycle.completeExplicitDelete).toHaveBeenCalledWith('delete-session');
     });
 
     it('should handle errors gracefully', async () => {
-      mockSessionService.getSession.mockRejectedValue(new Error('Delete failed'));
+      mockLifecycle.resolveExistingSession.mockRejectedValue(new Error('Delete failed'));
 
       mockRequest.headers = { 'mcp-session-id': 'error-session' };
       await deleteHandler(mockRequest, mockResponse);

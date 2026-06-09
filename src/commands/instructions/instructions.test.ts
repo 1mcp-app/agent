@@ -80,6 +80,13 @@ describe('instructions command', () => {
       expect.stringContaining('<note>(unavailable: server is not currently connected)</note>'),
     );
     expect(mockedGetInspectResult).toHaveBeenCalledTimes(2);
+    expect(mockedGetInspectResult).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({
+        'config-dir': '.tmp-test/instructions-command',
+      }),
+      { includeServerInstructions: true, clientSurface: 'instructions' },
+    );
   });
 
   it('eagerly inspects unavailable template servers to load contextual instructions', async () => {
@@ -124,7 +131,7 @@ describe('instructions command', () => {
         'config-dir': '.tmp-test/instructions-command',
         target: 'serena',
       }),
-      { includeServerInstructions: true },
+      { includeServerInstructions: true, clientSurface: 'instructions' },
     );
     expect(mockedStdoutWrite).toHaveBeenCalledWith(expect.stringContaining('<server_instructions name="serena">'));
     expect(mockedStdoutWrite).toHaveBeenCalledWith(expect.stringContaining('# Serena Instructions'));

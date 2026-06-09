@@ -43,4 +43,13 @@ describe('setupServeCommand', () => {
     expect(configureGlobalLoggerMock).toHaveBeenCalledWith(expect.any(Object), 'stdio');
     expect(serveCommandMock).toHaveBeenCalledWith(expect.objectContaining({ transport: 'stdio' }));
   });
+
+  it('passes preset as a yargs option for ONE_MCP_PRESET env parsing', async () => {
+    await setupServeCommand(yargs([]).exitProcess(false).help(false).version(false)).parseAsync([
+      'serve',
+      '--preset=production',
+    ]);
+
+    expect(serveCommandMock).toHaveBeenCalledWith(expect.objectContaining({ preset: 'production' }));
+  });
 });

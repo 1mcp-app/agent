@@ -8,6 +8,7 @@ import { InboundConnection, OutboundConnections } from '@src/core/types/index.js
 import logger, { debugIf } from '@src/logger/logger.js';
 
 import { CapabilityAggregator, CapabilityChanges } from './capabilityAggregator.js';
+import type { CapabilityRefreshResult } from './capabilityCatalog.js';
 import { InternalCapabilitiesProvider } from './internalCapabilitiesProvider.js';
 
 /**
@@ -235,10 +236,10 @@ export class AsyncLoadingOrchestrator extends EventEmitter {
   /**
    * Force refresh capabilities and send notifications if needed
    */
-  public async refreshCapabilities(): Promise<void> {
+  public async refreshCapabilities(): Promise<CapabilityRefreshResult> {
     if (!this.isInitialized || this.isShuttingDown) {
       logger.warn('Cannot refresh capabilities - orchestrator not ready');
-      return;
+      return { changed: false, shouldNotifyListChanged: false };
     }
 
     try {
@@ -251,9 +252,11 @@ export class AsyncLoadingOrchestrator extends EventEmitter {
       } else {
         logger.info('Manual capability refresh completed - no changes detected');
       }
+      return { changed: changes.hasChanges, shouldNotifyListChanged: changes.toolsChanged };
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
       logger.error(`Failed to refresh capabilities: ${errorMessage}`);
+      return { changed: false, shouldNotifyListChanged: false };
     }
   }
 

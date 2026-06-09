@@ -129,7 +129,19 @@ export const McpUpdateToolSchema = z.object({
  */
 export const McpInstallOutputSchema = z.object({
   name: z.string().describe('Server name'),
-  status: z.enum(['success', 'failed', 'exists']).describe('Installation status'),
+  status: z
+    .enum([
+      'success',
+      'failed',
+      'exists',
+      'preview',
+      'applied',
+      'template_conflict',
+      'invalid_input',
+      'not_found',
+      'registry_unavailable',
+    ])
+    .describe('Installation status'),
   message: z.string().describe('Status message'),
   package: z.string().optional().describe('Package that was installed'),
   version: z.string().optional().describe('Installed version'),

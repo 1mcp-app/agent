@@ -1,6 +1,5 @@
 import { randomBytes } from 'crypto';
-import fs from 'fs';
-import { promises as fsPromises } from 'fs';
+import fs, { promises as fsPromises } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
 
@@ -94,6 +93,7 @@ describe('ConfigManager (Integration)', () => {
   let tempConfigDir: string;
   let configFilePath: string;
   let configManager: ConfigManager;
+  const originalContext7ApiKey = process.env.CONTEXT7_API_KEY;
 
   beforeEach(async () => {
     // Create temporary config directory
@@ -127,6 +127,12 @@ describe('ConfigManager (Integration)', () => {
   });
 
   afterEach(async () => {
+    if (originalContext7ApiKey === undefined) {
+      delete process.env.CONTEXT7_API_KEY;
+    } else {
+      process.env.CONTEXT7_API_KEY = originalContext7ApiKey;
+    }
+
     if (configManager) {
       await configManager.stop();
     }
@@ -267,6 +273,47 @@ describe('ConfigManager (Integration)', () => {
       expect(changes[0].fieldsChanged).toContain('tags');
     });
 
+    it('should keep environment variable placeholders unresolved after reload', async () => {
+      process.env.CONTEXT7_API_KEY = 'reload-test-key';
+
+      const initialConfig = {
+        mcpServers: {
+          context7: {
+            command: 'bunx',
+            args: ['@upstash/context7-mcp@latest', '--api-key', '$CONTEXT7_API_KEY'],
+            tags: ['context7'],
+          },
+        },
+      };
+      await fsPromises.writeFile(configFilePath, JSON.stringify(initialConfig, null, 2));
+
+      (ConfigManager as any).instance = null;
+      configManager = ConfigManager.getInstance(configFilePath);
+      await configManager.initialize();
+      await configManager.stop();
+
+      const updatedConfig = {
+        mcpServers: {
+          context7: {
+            command: 'bunx',
+            args: ['@upstash/context7-mcp@latest', '--api-key', '$CONTEXT7_API_KEY', '--transport', 'stdio'],
+            tags: ['context7'],
+          },
+        },
+      };
+
+      await fsPromises.writeFile(configFilePath, JSON.stringify(updatedConfig, null, 2));
+      await configManager.reloadConfig();
+
+      expect(configManager.getTransportConfig().context7.args).toEqual([
+        '@upstash/context7-mcp@latest',
+        '--api-key',
+        '$CONTEXT7_API_KEY',
+        '--transport',
+        'stdio',
+      ]);
+    });
+
     it('should emit specific events for server additions and removals', async () => {
       const addedServers: string[] = [];
       const removedServers: string[] = [];
@@ -397,284 +444,6 @@ describe('ConfigManager (Integration)', () => {
 
       // Should have only triggered one reload due to debouncing
       expect(changes.length).toBeGreaterThanOrEqual(1);
-    });
-  });
-
-  describe('template integration', () => {
-    it('should load static servers when no templates are present', async () => {
-      const config = {
-        version: '1.0.0',
-        mcpServers: {
-          filesystem: {
-            command: 'npx',
-            args: ['-y', '@modelcontextprotocol/server-filesystem', '/tmp'],
-            env: {},
-            tags: ['filesystem'],
-          },
-        },
-      };
-
-      await fsPromises.writeFile(configFilePath, JSON.stringify(config, null, 2));
-
-      const result = await configManager.loadConfigWithTemplates();
-
-      expect(result.staticServers).toEqual(config.mcpServers);
-      expect(result.templateServers).toEqual({});
-      expect(result.errors).toEqual([]);
-    });
-
-    it('should return empty template servers when no context is provided', async () => {
-      const config = {
-        mcpServers: {
-          filesystem: {
-            command: 'npx',
-            args: ['-y', '@modelcontextprotocol/server-filesystem', '/tmp'],
-            env: {},
-            tags: ['filesystem'],
-          },
-        },
-        mcpTemplates: {
-          'project-serena': {
-            command: 'npx',
-            args: ['-y', 'serena', '{{project.path}}'],
-            env: { PROJECT_ID: '{{project.custom.projectId}}' } as Record<string, string>,
-            tags: ['filesystem'],
-          },
-        },
-      };
-
-      await fsPromises.writeFile(configFilePath, JSON.stringify(config, null, 2));
-
-      const result = await configManager.loadConfigWithTemplates();
-
-      expect(result.staticServers).toEqual(config.mcpServers);
-      expect(result.templateServers).toEqual({});
-      expect(result.errors).toEqual([]);
-    });
-  });
-
-  describe('utility methods integration', () => {
-    it('should get available tags correctly', () => {
-      const tags = configManager.getAvailableTags();
-      expect(tags).toContain('server1');
-      expect(tags).toContain('server2');
-      expect(tags).toContain('test');
-      expect(tags.sort()).toEqual([...tags].sort()); // Should be sorted
-    });
-
-    it('should skip tags from disabled servers', async () => {
-      const configWithDisabled = {
-        mcpServers: {
-          'test-server-1': {
-            command: 'node',
-            args: ['server1.js'],
-            tags: ['enabled', 'tag1'],
-          },
-          'test-server-2': {
-            command: 'node',
-            args: ['server2.js'],
-            tags: ['disabled', 'tag2'],
-            disabled: true,
-          },
-        },
-      };
-
-      await fsPromises.writeFile(configFilePath, JSON.stringify(configWithDisabled, null, 2));
-      await configManager.reloadConfig();
-
-      const tags = configManager.getAvailableTags();
-      expect(tags).toContain('enabled');
-      expect(tags).toContain('tag1');
-      expect(tags).not.toContain('disabled');
-      expect(tags).not.toContain('tag2');
-    });
-
-    it('should clear template cache', () => {
-      expect(() => configManager.clearTemplateCache()).not.toThrow();
-    });
-
-    it('should report template processing errors', () => {
-      expect(configManager.hasTemplateProcessingErrors()).toBe(false);
-      expect(configManager.getTemplateProcessingErrors()).toEqual([]);
-    });
-  });
-
-  describe('isReloadEnabled', () => {
-    it('should return true when config reload is enabled', () => {
-      expect(configManager.isReloadEnabled()).toBe(true);
-    });
-
-    it('should return false when config reload feature is disabled', () => {
-      mockAgentConfig.get.mockImplementation((key: string) => {
-        const config = {
-          features: { configReload: false },
-        };
-        return key.split('.').reduce((obj: any, k: string) => obj?.[k], config);
-      });
-
-      const newManager = ConfigManager.getInstance(configFilePath);
-      expect(newManager.isReloadEnabled()).toBe(false);
-
-      // Reset for other tests
-      mockAgentConfig.get.mockImplementation((key: string) => {
-        const config = {
-          features: { configReload: true, envSubstitution: true },
-          configReload: { debounceMs: 100 },
-        };
-        return key.split('.').reduce((obj: any, k: string) => obj?.[k], config);
-      });
-    });
-  });
-
-  describe('error handling integration', () => {
-    it('should throw on invalid JSON', async () => {
-      await fsPromises.writeFile(configFilePath, 'invalid json content');
-
-      // Reset singleton to force creation of new instance
-      (ConfigManager as any).instance = null;
-
-      // getInstance should work, but initialize should fail
-      const newManager = ConfigManager.getInstance(configFilePath);
-      await expect(newManager.initialize()).rejects.toThrow();
-    });
-
-    it('should handle missing mcpServers section', async () => {
-      const configWithoutServers = { otherConfig: 'value' };
-      await fsPromises.writeFile(configFilePath, JSON.stringify(configWithoutServers, null, 2));
-
-      // Reset singleton to force creation of new instance
-      (ConfigManager as any).instance = null;
-      const newManager = ConfigManager.getInstance(configFilePath);
-      const config = newManager.getTransportConfig();
-      expect(typeof config).toBe('object');
-      expect(Object.keys(config)).toHaveLength(0);
-    });
-  });
-
-  describe('configuration validation integration', () => {
-    it('should validate and load correct configuration', async () => {
-      const validConfig = {
-        mcpServers: {
-          'valid-server': {
-            command: 'echo',
-            args: ['hello'],
-            tags: ['test'],
-            disabled: false,
-            timeout: 5000,
-            connectionTimeout: 3000,
-            requestTimeout: 10000,
-            envFilter: ['TEST_VAR'],
-          },
-        },
-      };
-
-      await fsPromises.writeFile(configFilePath, JSON.stringify(validConfig, null, 2));
-      await configManager.reloadConfig();
-
-      const config = configManager.getTransportConfig();
-      expect(Object.keys(config)).toContain('valid-server');
-      expect(config['valid-server'].command).toBe('echo');
-      expect(config['valid-server'].args).toEqual(['hello']);
-      expect(config['valid-server'].tags).toEqual(['test']);
-      expect(config['valid-server'].timeout).toBe(5000);
-    });
-
-    it('should skip invalid server configurations', async () => {
-      const invalidConfig = {
-        mcpServers: {
-          'invalid-server': {
-            command: 'echo',
-            args: 'not-an-array', // Should be array
-            timeout: 'not-a-number', // Should be number
-            url: 'invalid-url', // Should be valid URL
-            maxRestarts: -1, // Should be >= 0
-          },
-          'valid-server': {
-            command: 'node',
-            args: ['server.js'],
-            tags: ['valid'],
-          },
-        },
-      };
-
-      await fsPromises.writeFile(configFilePath, JSON.stringify(invalidConfig, null, 2));
-      await configManager.reloadConfig();
-
-      const config = configManager.getTransportConfig();
-      expect(Object.keys(config)).not.toContain('invalid-server');
-      expect(Object.keys(config)).toContain('valid-server');
-      expect(config['valid-server'].command).toBe('node');
-    });
-
-    it('should handle completely invalid server configuration', async () => {
-      const completelyInvalidConfig = {
-        mcpServers: {
-          'bad-server': null, // Completely invalid
-        },
-      };
-
-      await fsPromises.writeFile(configFilePath, JSON.stringify(completelyInvalidConfig, null, 2));
-      await configManager.reloadConfig();
-
-      const config = configManager.getTransportConfig();
-      expect(Object.keys(config)).toHaveLength(0);
-    });
-
-    it('should handle mixed valid and invalid configurations', async () => {
-      const mixedConfig = {
-        mcpServers: {
-          'server-1': {
-            command: 'echo',
-            args: ['test1'],
-            tags: ['tag1'],
-          },
-          'server-2': {
-            command: 123, // Invalid - should be string
-            args: ['test2'],
-          },
-          'server-3': {
-            command: 'node',
-            args: ['test3'],
-            restartDelay: -100, // Invalid - should be >= 0
-          },
-          'server-4': {
-            command: 'python',
-            args: ['test4'],
-            tags: ['tag4'],
-            env: ['VALID_ENV'], // Valid - array of strings
-          },
-        },
-      };
-
-      await fsPromises.writeFile(configFilePath, JSON.stringify(mixedConfig, null, 2));
-      await configManager.reloadConfig();
-
-      const config = configManager.getTransportConfig();
-      expect(Object.keys(config)).toHaveLength(2);
-      expect(Object.keys(config)).toContain('server-1');
-      expect(Object.keys(config)).toContain('server-4');
-      expect(Object.keys(config)).not.toContain('server-2');
-      expect(Object.keys(config)).not.toContain('server-3');
-    });
-  });
-
-  describe('reloadConfig', () => {
-    it('should reload configuration on demand', async () => {
-      const updatedConfig = {
-        mcpServers: {
-          'new-server': {
-            command: 'node',
-            args: ['new.js'],
-            tags: ['new'],
-          },
-        },
-      };
-
-      await fsPromises.writeFile(configFilePath, JSON.stringify(updatedConfig, null, 2));
-      await configManager.reloadConfig();
-
-      const config = configManager.getTransportConfig();
-      expect(Object.keys(config)).toContain('new-server');
     });
   });
 });

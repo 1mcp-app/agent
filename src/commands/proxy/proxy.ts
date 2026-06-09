@@ -1,6 +1,4 @@
-import { buildCliContext, generateStreamableSessionId } from '@src/commands/shared/cliContext.js';
-import { resolveServeTarget } from '@src/commands/shared/serveTargetResolver.js';
-import { MCP_SERVER_VERSION } from '@src/constants/mcp.js';
+import { attachFreshClientSurface } from '@src/commands/shared/clientSurfaceAttachment.js';
 import logger from '@src/logger/logger.js';
 import { StdioProxyTransport } from '@src/transport/stdioProxyTransport.js';
 
@@ -11,13 +9,19 @@ import { ProxyOptions } from './index.js';
  */
 export async function proxyCommand(options: ProxyOptions): Promise<void> {
   try {
-    const { cwd, projectConfig, projectRoot, mergedOptions, discoveredUrl, source } = await resolveServeTarget(options);
+    const attachment = await attachFreshClientSurface({
+      clientSurface: 'stdio-proxy',
+      version: 'proxy',
+      options,
+    });
+    const { target, options: mergedOptions } = attachment;
+    const discoveredUrl = attachment.serverUrl.toString();
 
     // Auto-discover server URL
     logger.info('🔍 Discovering running 1MCP server...');
 
     // Log discovery source
-    switch (source) {
+    switch (target.source) {
       case 'user':
         logger.info(`📍 Using user-provided URL: ${discoveredUrl}`);
         break;
@@ -30,18 +34,11 @@ export async function proxyCommand(options: ProxyOptions): Promise<void> {
     }
 
     // Apply priority logic: preset > filter > tags (only one will be used)
-    let finalPreset: string | undefined;
-    let finalFilter: string | undefined;
-    let finalTags: string[] | undefined;
-
     if (mergedOptions.preset) {
-      finalPreset = mergedOptions.preset;
       logger.info(`📦 Using preset: ${mergedOptions.preset}`);
     } else if (mergedOptions.filter) {
-      finalFilter = mergedOptions.filter;
       logger.info(`🔍 Using filter: ${mergedOptions.filter}`);
     } else if (mergedOptions.tags && mergedOptions.tags.length > 0) {
-      finalTags = mergedOptions.tags;
       logger.info(`🏷️  Using tags: ${mergedOptions.tags.join(', ')}`);
     }
 
@@ -50,17 +47,8 @@ export async function proxyCommand(options: ProxyOptions): Promise<void> {
 
     const proxyTransport = new StdioProxyTransport({
       serverUrl: discoveredUrl,
-      preset: finalPreset,
-      filter: finalFilter,
-      tags: finalTags,
-      context: buildCliContext({
-        cwd,
-        projectConfig,
-        projectRoot,
-        transportType: 'stdio-proxy',
-        version: MCP_SERVER_VERSION,
-        sessionId: generateStreamableSessionId(),
-      }),
+      bearerToken: attachment.bearerToken,
+      context: attachment.context,
     });
 
     await proxyTransport.start();

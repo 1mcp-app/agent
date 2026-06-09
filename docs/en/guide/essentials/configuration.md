@@ -397,7 +397,7 @@ Enable dynamic configuration using environment variables in config files.
 
 **Usage:**
 
-When enabled, you can use `${VAR_NAME}` syntax in your JSON configuration files:
+When enabled, you can use `${VAR_NAME}` or `$VAR_NAME` syntax in your JSON configuration files:
 
 ```json
 {
@@ -405,7 +405,7 @@ When enabled, you can use `${VAR_NAME}` syntax in your JSON configuration files:
     {
       "name": "database",
       "command": "python",
-      "args": ["${DB_SERVER_PATH}", "--port", "${DB_PORT}"]
+      "args": ["${DB_SERVER_PATH}", "--port", "$DB_PORT"]
     }
   ],
   "auth": {

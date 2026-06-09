@@ -38,6 +38,11 @@ export const serverOptions = {
     type: 'string' as const,
     default: undefined,
   },
+  preset: {
+    describe: 'Preset name for server selection',
+    type: 'string' as const,
+    default: undefined,
+  },
   pagination: {
     alias: 'p',
     describe: 'Enable pagination',
@@ -176,7 +181,7 @@ export const serverOptions = {
     type: 'number' as const,
   },
   'enable-env-substitution': {
-    describe: 'Enable environment variable substitution in config (${VAR_NAME} pattern)',
+    describe: 'Enable environment variable substitution in config (${VAR_NAME} and $VAR_NAME patterns)',
     type: 'boolean' as const,
     default: true,
   },

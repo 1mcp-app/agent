@@ -8,6 +8,7 @@ export interface TestEnvironmentConfig {
   createConfigFile?: boolean;
   mockApps?: MockApp[];
   mockMcpServers?: MockMcpServer[];
+  mockMcpTemplates?: MockMcpServer[];
   envOverrides?: Record<string, string>;
 }
 
@@ -46,8 +47,8 @@ export class CommandTestEnvironment {
    * Initialize the test environment with temporary directories and mock data
    */
   async setup(): Promise<void> {
-    // Create temporary directory under ./.tmp to avoid touching user-global state.
-    const sandboxRoot = join(process.cwd(), '.tmp', 'e2e');
+    // Create temporary directories under build/.tmp to avoid touching user-global state or worktree symlinks.
+    const sandboxRoot = join(process.cwd(), 'build', '.tmp', 'e2e');
     await mkdir(sandboxRoot, { recursive: true });
     this.tempDir = await mkdtemp(join(sandboxRoot, `${this.config.name}-`));
 
@@ -241,6 +242,25 @@ export class CommandTestEnvironment {
     }
 
     const config = configBuilder.build();
+    if (this.config.mockMcpTemplates?.length) {
+      const mcpTemplates: Record<string, Record<string, unknown>> = {};
+      this.config.mockMcpTemplates.forEach((server) => {
+        const templateConfig: Record<string, unknown> = {
+          type: server.type || 'stdio',
+          command: server.command,
+        };
+
+        if (server.args) templateConfig.args = server.args;
+        if (server.tags) templateConfig.tags = server.tags;
+        if (server.disabled) templateConfig.disabled = server.disabled;
+        if (server.env) templateConfig.env = server.env;
+        if (server.headers) templateConfig.headers = server.headers;
+        if (server.type === 'http' && server.url) templateConfig.url = server.url;
+
+        mcpTemplates[server.name] = templateConfig;
+      });
+      config.mcpTemplates = mcpTemplates;
+    }
     this.configPath = join(this.getConfigDir(), 'mcp.json');
     await writeFile(this.configPath, JSON.stringify(config, null, 2));
   }

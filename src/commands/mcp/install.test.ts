@@ -1,19 +1,17 @@
 import * as serverManagementIndex from '@src/domains/server-management/index.js';
+import { createServerInstallationWorkflow } from '@src/domains/installation/serverInstallationWorkflow.js';
 
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-import * as configUtils from './utils/mcpServerConfig.js';
 import { buildInstallCommand, installCommand } from './install.js';
 
 // Mock dependencies
 vi.mock('@src/domains/server-management/index.js', () => {
-  const installServer = vi.fn();
   const startOperation = vi.fn();
   const updateProgress = vi.fn();
   const completeOperation = vi.fn();
   const failOperation = vi.fn();
   return {
-    createServerInstallationService: vi.fn(() => ({ installServer })),
     getProgressTrackingService: vi.fn(() => ({
       startOperation,
       updateProgress,
@@ -23,13 +21,17 @@ vi.mock('@src/domains/server-management/index.js', () => {
   };
 });
 
+const mockWorkflowRun = vi.fn();
+
+vi.mock('@src/domains/installation/serverInstallationWorkflow.js', () => ({
+  createServerInstallationWorkflow: vi.fn(() => ({
+    run: mockWorkflowRun,
+  })),
+}));
+
 vi.mock('./utils/mcpServerConfig.js', () => {
   return {
     initializeConfigContext: vi.fn(),
-    serverExists: vi.fn(),
-    backupConfig: vi.fn(() => '/tmp/config.backup'),
-    reloadMcpConfig: vi.fn(),
-    setServer: vi.fn(),
     getAllServers: vi.fn(),
   };
 });
@@ -62,16 +64,21 @@ console.log = consoleLogMock;
 describe('Install Command', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    vi.mocked(configUtils.serverExists as any).mockReturnValue(false);
-    vi.mocked((serverManagementIndex as any).createServerInstallationService().installServer).mockResolvedValue({
-      success: true,
-      serverName: 'test-server',
+    mockWorkflowRun.mockResolvedValue({
+      status: 'applied',
+      targetName: 'test-server',
       version: '1.0.0',
-      installedAt: new Date(),
-      configPath: '/path/to/config',
       warnings: [],
-      errors: [],
-      operationId: 'op_test_123',
+      configChange: {
+        configPath: '/path/to/config',
+        backup: {
+          created: true,
+          path: '/tmp/config.backup',
+        },
+        reload: {
+          status: 'observed',
+        },
+      },
     });
   });
 
@@ -106,6 +113,12 @@ describe('Install Command', () => {
     });
 
     it('should perform dry-run without invoking installation', async () => {
+      mockWorkflowRun.mockResolvedValue({
+        status: 'preview',
+        targetName: 'test-server',
+        version: '1.2.3',
+        warnings: [],
+      });
       const args = {
         serverName: 'test-server@1.2.3',
         dryRun: true,
@@ -115,13 +128,27 @@ describe('Install Command', () => {
 
       await installCommand(args as any);
 
-      expect((serverManagementIndex as any).createServerInstallationService().installServer).not.toHaveBeenCalled();
+      expect(mockWorkflowRun).toHaveBeenCalledWith({
+        mode: 'preview',
+        force: false,
+        source: {
+          type: 'registry',
+          registryId: 'test-server',
+          version: '1.2.3',
+          localName: 'test-server',
+        },
+      });
       expect((serverManagementIndex as any).getProgressTrackingService().startOperation).not.toHaveBeenCalled();
       expect(consoleLogMock).toHaveBeenCalled();
     });
 
-    it('should throw if server exists and not forced', async () => {
-      vi.mocked(configUtils.serverExists as any).mockReturnValue(true);
+    it('should throw workflow conflict if server exists and not forced', async () => {
+      mockWorkflowRun.mockResolvedValue({
+        status: 'exists',
+        targetName: 'exists',
+        warnings: [],
+        error: "Server 'exists' already exists. Use force to replace it.",
+      });
       const args = {
         serverName: 'exists@1.2.3',
         dryRun: false,
@@ -130,11 +157,9 @@ describe('Install Command', () => {
       };
 
       await expect(installCommand(args as any)).rejects.toThrow(/already exists/);
-      expect((configUtils.backupConfig as any).mock.calls.length).toBe(0);
     });
 
-    it('should create backup when reinstalling with --force and persist config without runtime reload', async () => {
-      vi.mocked(configUtils.serverExists as any).mockReturnValue(true);
+    it('should apply through Server Installation Workflow when reinstalling with --force', async () => {
       const args = {
         serverName: 'test-server@1.2.3',
         dryRun: false,
@@ -150,13 +175,17 @@ describe('Install Command', () => {
         5,
       );
       expect((serverManagementIndex as any).getProgressTrackingService().updateProgress).toHaveBeenCalled();
-      expect((configUtils.backupConfig as any).mock.calls.length).toBeGreaterThan(0);
-      expect((serverManagementIndex as any).createServerInstallationService().installServer).toHaveBeenCalledWith(
-        'test-server',
-        '1.2.3',
-        expect.any(Object),
-      );
-      expect((configUtils.reloadMcpConfig as any).mock.calls.length).toBe(0);
+      expect(createServerInstallationWorkflow).toHaveBeenCalled();
+      expect(mockWorkflowRun).toHaveBeenCalledWith({
+        mode: 'apply',
+        force: true,
+        source: {
+          type: 'registry',
+          registryId: 'test-server',
+          version: '1.2.3',
+          localName: 'test-server',
+        },
+      });
       expect((serverManagementIndex as any).getProgressTrackingService().completeOperation).toHaveBeenCalled();
     });
   });

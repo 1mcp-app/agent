@@ -1,9 +1,9 @@
-import { createHash } from 'node:crypto';
-
 import logger from '@src/logger/logger.js';
 import type { ClientInfo, ContextData, ContextNamespace, EnvironmentContext, UserContext } from '@src/types/context.js';
 
 import type { Request } from 'express';
+
+export { deriveContextSessionId } from '@src/utils/context/sessionIdentity.js';
 
 // Header constants for context transmission
 export const CONTEXT_HEADERS = {
@@ -166,42 +166,4 @@ export function extractContextFromQuery(req: Request): ContextData | null {
 
 export function extractRequestContext(req: Request): ContextData | null {
   return (extractContextFromMeta(req) as ContextData | null) ?? extractContextFromQuery(req);
-}
-
-export function deriveContextSessionId(context: ContextData): string {
-  const stableContext = normalizeForSessionHash({
-    project: context.project,
-    user: context.user,
-    environment: context.environment,
-    ...(context.version ? { version: context.version } : {}),
-    ...(context.transport
-      ? {
-          transport: {
-            type: context.transport.type,
-            ...(context.transport.url ? { url: context.transport.url } : {}),
-            ...(context.transport.client ? { client: context.transport.client } : {}),
-          },
-        }
-      : {}),
-    ...(context.sessionId ? { sessionId: context.sessionId } : {}),
-  });
-  const hash = createHash('sha256').update(JSON.stringify(stableContext)).digest('hex').slice(0, 16);
-  return `rest-${hash}`;
-}
-
-function normalizeForSessionHash(value: unknown): unknown {
-  if (Array.isArray(value)) {
-    return value.map((item) => normalizeForSessionHash(item));
-  }
-
-  if (value && typeof value === 'object') {
-    return Object.fromEntries(
-      Object.entries(value as Record<string, unknown>)
-        .filter(([, entryValue]) => entryValue !== undefined)
-        .sort(([leftKey], [rightKey]) => leftKey.localeCompare(rightKey))
-        .map(([key, entryValue]) => [key, normalizeForSessionHash(entryValue)] as const),
-    );
-  }
-
-  return value;
 }

@@ -24,6 +24,7 @@ vi.mock('@src/core/filtering/index.js', () => ({
     return {
       addClientTemplate: vi.fn(),
       removeClient: vi.fn().mockReturnValue([]),
+      removeClientFromInstance: vi.fn().mockReturnValue(false),
       getClientCount: vi.fn().mockReturnValue(0),
       cleanupInstance: vi.fn(),
       getStats: vi.fn().mockReturnValue(null),
@@ -57,6 +58,7 @@ vi.mock('@src/core/server/clientInstancePool.js', () => ({
           close: vi.fn().mockResolvedValue(undefined),
         },
         renderedHash: 'abc123def456',
+        instanceKey: 'test-template:abc123def456',
         templateVariables: {},
         processedConfig: {},
         referenceCount: 1,
@@ -73,6 +75,7 @@ vi.mock('@src/core/server/clientInstancePool.js', () => ({
       removeInstance: vi.fn().mockResolvedValue(undefined),
       cleanupIdleInstances: vi.fn().mockResolvedValue(undefined),
       shutdown: vi.fn().mockResolvedValue(undefined),
+      getInstanceKeyById: vi.fn(),
       getStats: vi.fn(() => ({
         totalInstances: 0,
         activeInstances: 0,
@@ -225,6 +228,81 @@ describe('TemplateServerManager', () => {
     it('cleanupIdleInstances should return 0 when no instances', async () => {
       const cleaned = await templateServerManager.cleanupIdleInstances();
       expect(cleaned).toBe(0);
+    });
+
+    it('expires stale ephemeral REST sessions and leaves persistent sessions active', async () => {
+      vi.useFakeTimers();
+      try {
+        const manager = templateServerManager as any;
+        const ephemeralInstance = {
+          id: 'ephemeral-instance',
+          templateName: 'test-template',
+          renderedHash: 'abc123def456',
+          instanceKey: 'test-template:abc123def456',
+          status: 'active' as const,
+          referenceCount: 1,
+          idleTimeout: 1000,
+        };
+        const persistentInstance = {
+          id: 'persistent-instance',
+          templateName: 'test-template',
+          renderedHash: 'persistent-hash',
+          instanceKey: 'test-template:persistent-hash',
+          status: 'active' as const,
+          referenceCount: 1,
+          idleTimeout: 1000,
+        };
+
+        manager.clientTemplateTracker.removeClientFromInstance.mockReturnValueOnce(true);
+        manager.clientInstancePool.getInstanceKeyById.mockImplementation((instanceId: string) =>
+          instanceId === 'ephemeral-instance' ? 'test-template:abc123def456' : undefined,
+        );
+        manager.clientInstancePool.getInstance
+          .mockReturnValueOnce(ephemeralInstance)
+          .mockReturnValueOnce(persistentInstance)
+          .mockReturnValueOnce(ephemeralInstance);
+        manager.clientTemplateTracker.getClientCount.mockReturnValue(0);
+
+        templateServerManager.trackEphemeralClient('rest-session', 'test-template', ephemeralInstance as any);
+        templateServerManager.trackPersistentClient('stream-session');
+        templateServerManager.trackEphemeralClient('stream-session', 'test-template', persistentInstance as any);
+
+        vi.advanceTimersByTime(1001);
+
+        const outboundConns = new Map([
+          ['test-template:abc123def456', {}],
+          ['test-template:persistent-hash', {}],
+        ]);
+        const transports: Record<string, unknown> = {
+          'ephemeral-instance': {},
+          'persistent-instance': {},
+        };
+
+        const cleaned = await templateServerManager.cleanupIdleInstances(outboundConns as never, transports as never);
+
+        expect(cleaned).toBe(0);
+        expect(manager.clientInstancePool.removeClientFromInstance).toHaveBeenCalledWith(
+          'test-template:abc123def456',
+          'rest-session',
+          expect.any(Date),
+        );
+        expect(manager.clientTemplateTracker.removeClientFromInstance).toHaveBeenCalledWith(
+          'rest-session',
+          'test-template',
+          'ephemeral-instance',
+        );
+        expect(manager.clientTemplateTracker.removeClientFromInstance).not.toHaveBeenCalledWith(
+          'stream-session',
+          expect.any(String),
+          expect.any(String),
+        );
+        expect(outboundConns.has('test-template:abc123def456')).toBe(false);
+        expect(outboundConns.has('test-template:persistent-hash')).toBe(true);
+        expect(transports).not.toHaveProperty('ephemeral-instance');
+        expect(transports).toHaveProperty('persistent-instance');
+      } finally {
+        vi.useRealTimers();
+      }
     });
 
     it('rebuildTemplateIndex should not throw', () => {

@@ -3,6 +3,7 @@ import { promises as fs } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
 
+import ConfigContext from '@src/config/configContext.js';
 import { ConfigManager } from '@src/config/configManager.js';
 import { PresetManager } from '@src/domains/preset/manager/presetManager.js';
 import { PresetNotificationService } from '@src/domains/preset/services/presetNotificationService.js';
@@ -53,6 +54,7 @@ describe('Preset Reload Notification Integration', () => {
     tempConfigDir = join(tmpdir(), `preset-test-${randomBytes(4).toString('hex')}`);
     await fs.mkdir(tempConfigDir, { recursive: true });
     presetsFilePath = join(tempConfigDir, 'presets.json');
+    ConfigContext.getInstance().setConfigDir(tempConfigDir);
 
     // Reset singletons
     PresetManager.resetInstance();
@@ -79,6 +81,10 @@ describe('Preset Reload Notification Integration', () => {
       }),
     };
     (ConfigManager.getInstance as any).mockReturnValue(mockMcpConfig);
+    await fs.writeFile(
+      ConfigContext.getInstance().getResolvedConfigPath(),
+      JSON.stringify({ mcpServers: mockMcpConfig.getTransportConfig() }, null, 2),
+    );
 
     // Initialize services
     notificationService = PresetNotificationService.getInstance();
@@ -105,6 +111,8 @@ describe('Preset Reload Notification Integration', () => {
     } catch {
       // Ignore cleanup errors
     }
+    ConfigContext.getInstance().reset();
+    vi.clearAllMocks();
   });
 
   it('should detect server list changes and notify clients (file watcher test)', async () => {

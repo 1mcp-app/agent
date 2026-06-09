@@ -3,8 +3,18 @@ import { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
 import { ClientTemplateTracker, TemplateFilteringService, TemplateIndex } from '@src/core/filtering/index.js';
 import { InstructionAggregator } from '@src/core/instructions/instructionAggregator.js';
 import { ClientInstancePool, type PooledClientInstance } from '@src/core/server/clientInstancePool.js';
-import type { AuthProviderTransport } from '@src/core/types/client.js';
-import type { OutboundConnections } from '@src/core/types/client.js';
+import {
+  createRenderedIdentity,
+  createSessionIdentity,
+  resolveTemplateIdentityMode,
+  serializeTemplateIdentity,
+} from '@src/core/server/templateIdentity.js';
+import {
+  cleanupExpiredEphemeralClients,
+  cleanupTemplateServersForSession,
+  type EphemeralTemplateClient,
+} from '@src/core/server/templateServerCleanup.js';
+import type { AuthProviderTransport, OutboundConnection, OutboundConnections } from '@src/core/types/client.js';
 import { ClientStatus } from '@src/core/types/client.js';
 import { MCPServerParams } from '@src/core/types/index.js';
 import type { InboundConnectionConfig } from '@src/core/types/server.js';
@@ -18,15 +28,20 @@ export interface TemplateRebuildOptions {
   mcpTemplates?: Record<string, MCPServerParams>;
 }
 
+export type TemplateClientLifecycle = 'persistent' | 'ephemeral';
+
 /**
  * Manages template-based server instances and client pools
  */
-
 export class TemplateServerManager {
   private clientInstancePool: ClientInstancePool;
   private templateSessionMap?: Map<string, string>; // Maps template name to session ID for tracking
   private cleanupTimer?: ReturnType<typeof setInterval>; // Timer for idle instance cleanup
   private instructionAggregator?: InstructionAggregator;
+  private ephemeralClients = new Map<string, Map<string, EphemeralTemplateClient>>();
+  private persistentSessions = new Set<string>();
+  private outboundConns?: OutboundConnections;
+  private transports?: Record<string, Transport>;
 
   // Maps sessionId -> (templateName -> renderedHash) for routing shareable servers
   private sessionToRenderedHash = new Map<string, Map<string, string>>();
@@ -96,7 +111,15 @@ export class TemplateServerManager {
     serverConfigData: { mcpTemplates?: Record<string, MCPServerParams> }, // MCPServerConfiguration with templates
     outboundConns: OutboundConnections,
     transports: Record<string, Transport>,
+    lifecycle: TemplateClientLifecycle = 'persistent',
   ): Promise<void> {
+    this.outboundConns = outboundConns;
+    this.transports = transports;
+
+    if (lifecycle === 'persistent') {
+      this.trackPersistentClient(sessionId);
+    }
+
     // Get template servers that match the client's tags/preset
     const templateConfigs = this.getMatchingTemplateConfigs(opts, serverConfigData);
 
@@ -117,12 +140,14 @@ export class TemplateServerManager {
         );
 
         // CRITICAL: Register the template server in outbound connections for capability aggregation
-        // Determine the key format based on shareable setting
-        const isShareable = templateConfig.template?.shareable !== false; // Default true
         const renderedHash = instance.renderedHash; // From the pooled instance
 
-        // Use rendered hash-based key for shareable servers, session-scoped for per-client
-        const outboundKey = isShareable ? `${templateName}:${renderedHash}` : `${templateName}:${sessionId}`;
+        const identityMode = resolveTemplateIdentityMode(templateConfig.template);
+        const outboundKey = serializeTemplateIdentity(
+          identityMode === 'session'
+            ? createSessionIdentity(templateName, sessionId)
+            : createRenderedIdentity(templateName, renderedHash),
+        );
 
         outboundConns.set(outboundKey, {
           name: templateName, // Keep clean name for tool namespacing (serena_1mcp_*)
@@ -171,6 +196,10 @@ export class TemplateServerManager {
           perClient: templateConfig.template?.perClient,
         });
 
+        if (lifecycle === 'ephemeral') {
+          this.trackEphemeralClient(sessionId, templateName, instance, outboundKey);
+        }
+
         debugIf(() => ({
           message: `TemplateServerManager.createTemplateBasedServers: Tracked client-template relationship`,
           meta: {
@@ -179,7 +208,7 @@ export class TemplateServerManager {
             outboundKey,
             instanceId: instance.id,
             referenceCount: instance.referenceCount,
-            shareable: isShareable,
+            shareable: identityMode === 'rendered',
             perClient: templateConfig.template?.perClient,
             renderedHash: renderedHash.substring(0, 8),
             registeredInOutbound: true,
@@ -219,131 +248,65 @@ export class TemplateServerManager {
     outboundConns: OutboundConnections,
     transports: Record<string, Transport>,
   ): Promise<void> {
-    // Enhanced cleanup using client template tracker
-    const instancesToCleanup = this.clientTemplateTracker.removeClient(sessionId);
-    logger.info(`Removing client from ${instancesToCleanup.length} template instances`, {
-      sessionId,
-      instancesToCleanup,
+    this.outboundConns = outboundConns;
+    this.transports = transports;
+
+    await cleanupTemplateServersForSession(sessionId, outboundConns, transports, {
+      clientInstancePool: this.clientInstancePool,
+      clientTemplateTracker: this.clientTemplateTracker,
+      sessionToRenderedHash: this.sessionToRenderedHash,
+      ephemeralClients: this.ephemeralClients,
+      persistentSessions: this.persistentSessions,
     });
+  }
 
-    // Remove client from client instance pool
-    for (const instanceKey of instancesToCleanup) {
-      const [templateName, ...instanceParts] = instanceKey.split(':');
-      const instanceId = instanceParts.join(':');
+  public trackPersistentClient(sessionId: string): void {
+    this.persistentSessions.add(sessionId);
+    this.ephemeralClients.delete(sessionId);
+  }
 
-      try {
-        // Get the rendered hash for this session's template instance
-        const sessionHashes = this.sessionToRenderedHash.get(sessionId);
-        const renderedHash = sessionHashes?.get(templateName);
-
-        // Determine if this was a shareable or per-client instance
-        // We can tell by checking if the outbound key pattern matches rendered hash or sessionId
-        let outboundKey: string;
-        let isShareable = false;
-
-        if (renderedHash) {
-          const hashKey = `${templateName}:${renderedHash}`;
-          const sessionKey = `${templateName}:${sessionId}`;
-
-          // Check which key exists in outboundConns
-          if (outboundConns.has(hashKey)) {
-            outboundKey = hashKey;
-            isShareable = true;
-          } else if (outboundConns.has(sessionKey)) {
-            outboundKey = sessionKey;
-            isShareable = false;
-          } else {
-            // Fallback: neither key found, try session key
-            outboundKey = sessionKey;
-            isShareable = false;
-          }
-        } else {
-          // No rendered hash found, assume per-client
-          outboundKey = `${templateName}:${sessionId}`;
-          isShareable = false;
-        }
-
-        // Remove the client from the instance pool
-        this.clientInstancePool.removeClientFromInstance(instanceKey, sessionId);
-
-        // Clean up session-to-renderedHash mapping
-        if (sessionHashes) {
-          sessionHashes.delete(templateName);
-          if (sessionHashes.size === 0) {
-            this.sessionToRenderedHash.delete(sessionId);
-          }
-        }
-
-        debugIf(() => ({
-          message: `TemplateServerManager.cleanupTemplateServers: Successfully removed client from client instance`,
-          meta: {
-            sessionId,
-            templateName,
-            instanceId,
-            instanceKey,
-            outboundKey,
-            isShareable,
-            renderedHash: renderedHash?.substring(0, 8),
-          },
-        }));
-
-        // Check if this instance has no more clients
-        const remainingClients = this.clientTemplateTracker.getClientCount(templateName, instanceId);
-
-        // For shareable servers, only remove the outbound connection if no more clients
-        // For per-client servers, always remove the connection
-        if (isShareable && remainingClients === 0) {
-          // No more clients for this shareable instance, safe to remove the shared connection
-          const removed = outboundConns.delete(outboundKey);
-          if (removed) {
-            logger.debug(`Removed shareable template server from outbound connections: ${outboundKey}`);
-          }
-        } else if (!isShareable) {
-          // Per-client: always remove the session-scoped connection
-          const removed = outboundConns.delete(outboundKey);
-          if (removed) {
-            logger.debug(`Removed template server from outbound connections: ${outboundKey}`);
-          }
-        } else {
-          debugIf(() => ({
-            message: `Shareable template server still has clients, keeping connection`,
-            meta: { outboundKey, remainingClients },
-          }));
-        }
-
-        // Clean up transport entry if the instance is being removed
-        if (remainingClients === 0 && instanceId) {
-          delete transports[instanceId];
-          logger.debug(`Removed transport for instance: ${instanceId}`);
-        }
-
-        if (remainingClients === 0) {
-          // No more clients, instance becomes idle
-          // The client instance will be closed after idle timeout by the cleanup timer
-          logger.debug(`Client instance ${instanceId} has no more clients, marking as idle for cleanup after timeout`, {
-            templateName,
-            instanceId,
-            idleTimeout: 5 * 60 * 1000, // 5 minutes default
-          });
-        } else {
-          debugIf(() => ({
-            message: `Client instance ${instanceId} still has ${remainingClients} clients, keeping connection open`,
-            meta: { instanceId, remainingClients },
-          }));
-        }
-      } catch (error) {
-        logger.warn(`Failed to cleanup client instance ${instanceKey}:`, {
-          error: error instanceof Error ? error.message : 'Unknown error',
-          sessionId,
-          templateName,
-          instanceId,
-        });
-      }
+  public trackEphemeralClient(
+    sessionId: string,
+    templateName: string,
+    instance: PooledClientInstance,
+    outboundKey = `${templateName}:${instance.renderedHash}`,
+  ): void {
+    if (this.persistentSessions.has(sessionId)) {
+      return;
     }
 
-    logger.info(`Cleaned up template client instances for session ${sessionId}`, {
-      instancesCleaned: instancesToCleanup.length,
+    if (!this.ephemeralClients.has(sessionId)) {
+      this.ephemeralClients.set(sessionId, new Map());
+    }
+
+    this.ephemeralClients.get(sessionId)!.set(templateName, {
+      templateName,
+      instanceId: instance.id,
+      instanceKey: instance.instanceKey ?? `${templateName}:${instance.renderedHash}`,
+      outboundKey,
+      lastUsedAt: new Date(),
+      idleTimeout: instance.idleTimeout,
     });
+  }
+
+  public touchEphemeralClient(sessionId: string, templateName?: string): void {
+    const clients = this.ephemeralClients.get(sessionId);
+    if (!clients || this.persistentSessions.has(sessionId)) {
+      return;
+    }
+
+    const now = new Date();
+    if (templateName) {
+      const client = clients.get(templateName);
+      if (client) {
+        client.lastUsedAt = now;
+      }
+      return;
+    }
+
+    for (const client of clients.values()) {
+      client.lastUsedAt = now;
+    }
   }
 
   /**
@@ -389,7 +352,18 @@ export class TemplateServerManager {
   /**
    * Force cleanup of idle template instances
    */
-  public async cleanupIdleInstances(): Promise<number> {
+  public async cleanupIdleInstances(
+    outboundConns: OutboundConnections = this.outboundConns ?? new Map<string, OutboundConnection>(),
+    transports: Record<string, Transport> = this.transports ?? {},
+  ): Promise<number> {
+    await cleanupExpiredEphemeralClients(outboundConns, transports, {
+      clientInstancePool: this.clientInstancePool,
+      clientTemplateTracker: this.clientTemplateTracker,
+      sessionToRenderedHash: this.sessionToRenderedHash,
+      ephemeralClients: this.ephemeralClients,
+      persistentSessions: this.persistentSessions,
+    });
+
     // Get all instances from the pool
     const allInstances = this.clientInstancePool.getAllInstances();
     const instancesToCleanup: Array<{ templateName: string; instanceId: string; instance: PooledClientInstance }> = [];
@@ -409,7 +383,9 @@ export class TemplateServerManager {
     for (const { templateName, instanceId, instance } of instancesToCleanup) {
       try {
         // Remove the instance from the pool
-        await this.clientInstancePool.removeInstance(`${templateName}:${instance.renderedHash}`);
+        await this.clientInstancePool.removeInstance(
+          instance.instanceKey ?? `${templateName}:${instance.renderedHash}`,
+        );
 
         // Clean up tracking
         this.clientTemplateTracker.cleanupInstance(templateName, instanceId);
@@ -502,14 +478,23 @@ export class TemplateServerManager {
   /**
    * Clean up resources (for shutdown)
    */
-  public cleanup(): void {
+  public async shutdown(): Promise<void> {
     // Clean up cleanup timer
     if (this.cleanupTimer) {
       clearInterval(this.cleanupTimer);
       this.cleanupTimer = undefined;
     }
 
-    // Clean up the client instance pool
-    this.clientInstancePool?.cleanupIdleInstances();
+    this.ephemeralClients.clear();
+    this.persistentSessions.clear();
+    this.sessionToRenderedHash.clear();
+
+    await this.clientInstancePool.shutdown();
+  }
+
+  public cleanup(): void {
+    this.shutdown().catch((error) => {
+      logger.warn('Failed to clean up template server manager:', error);
+    });
   }
 }

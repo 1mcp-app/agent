@@ -1,7 +1,6 @@
 import fs from 'fs';
 import path from 'path';
 
-import { substituteEnvVarsInConfig } from '@src/config/envProcessor.js';
 import { getUnknownGlobalConfigKeys, mergeGlobalAndServerConfig } from '@src/config/mcpConfigMerge.js';
 import { DEFAULT_CONFIG, getGlobalConfigPath } from '@src/constants.js';
 import { MCP_CONFIG_SCHEMA_URL } from '@src/constants/schema.js';
@@ -17,7 +16,7 @@ import {
 import logger, { debugIf } from '@src/logger/logger.js';
 
 import { parse as parseToml } from 'smol-toml';
-import { ZodError } from 'zod';
+import { z, ZodError } from 'zod';
 
 interface ErrnoException extends Error {
   code?: string;
@@ -45,9 +44,18 @@ interface ConfigLoaderOptions {
 }
 
 interface LoadParsedConfigOptions {
-  substituteEnv?: boolean;
   includeAppConfig?: boolean;
 }
+
+const ENV_PLACEHOLDER_PATTERN = /\$\{[^}]+\}|\$[A-Za-z_][A-Za-z0-9_]*/;
+const serverConfigValidationSchema = transportConfigSchema.extend({
+  url: z
+    .string()
+    .refine((value) => ENV_PLACEHOLDER_PATTERN.test(value) || z.string().url().safeParse(value).success, {
+      message: 'Invalid url',
+    })
+    .optional(),
+});
 
 function formatZodIssues(error: ZodError): string {
   return error.issues.map((issue) => `${issue.path.join('.')}: ${issue.message}`).join(', ');
@@ -220,7 +228,7 @@ export class ConfigLoader {
 
   public validateServerConfig(serverName: string, config: unknown): MCPServerParams {
     try {
-      return transportConfigSchema.parse(config);
+      return serverConfigValidationSchema.parse(config);
     } catch (error) {
       throw new Error(getValidationErrorMessage(`Invalid configuration for server '${serverName}'`, error));
     }
@@ -268,10 +276,7 @@ export class ConfigLoader {
       throw new Error(errorMsg, { cause: error });
     }
 
-    const agentConfig = AgentConfigManager.getInstance();
-    const features = agentConfig.get('features');
-    const substituteEnv = options?.substituteEnv ?? features.envSubstitution;
-    const processedConfig = substituteEnv ? substituteEnvVarsInConfig(rawResult.config) : rawResult.config;
+    const processedConfig = rawResult.config;
 
     if (!processedConfig || typeof processedConfig !== 'object') {
       const errorMsg = 'Invalid configuration format';

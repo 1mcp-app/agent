@@ -391,7 +391,7 @@ npx -y @1mcp/agent
 
 **用法：**
 
-启用后，您可以在 JSON 配置文件中使用 `${VAR_NAME}` 语法：
+启用后，您可以在 JSON 配置文件中使用 `${VAR_NAME}` 或 `$VAR_NAME` 语法：
 
 ```json
 {
@@ -399,7 +399,7 @@ npx -y @1mcp/agent
     {
       "name": "database",
       "command": "python",
-      "args": ["${DB_SERVER_PATH}", "--port", "${DB_PORT}"]
+      "args": ["${DB_SERVER_PATH}", "--port", "$DB_PORT"]
     }
   ],
   "auth": {

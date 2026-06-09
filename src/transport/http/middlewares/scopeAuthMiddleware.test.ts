@@ -1,9 +1,38 @@
-import { Response } from 'express';
-import { describe, expect, it } from 'vitest';
+import { AgentConfigManager } from '@src/core/server/agentConfig.js';
 
-import { AuthInfo, getAuthInfo, getValidatedTags } from './scopeAuthMiddleware.js';
+import type { NextFunction, Request, Response } from 'express';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+
+import { AuthInfo, createScopeAuthMiddleware, getAuthInfo, getValidatedTags } from './scopeAuthMiddleware.js';
+
+vi.mock('@modelcontextprotocol/sdk/server/auth/middleware/bearerAuth.js', () => ({
+  requireBearerAuth: vi.fn(() => (req: Request, _res: Response, next: NextFunction) => {
+    req.auth = {
+      clientId: 'client-1',
+      scopes: ['tag:web'],
+      token: 'token-1',
+      expiresAt: 0,
+    };
+    next();
+  }),
+}));
+
+vi.mock('@src/utils/validation/scopeValidation.js', async () => {
+  const actual = await vi.importActual<typeof import('@src/utils/validation/scopeValidation.js')>(
+    '@src/utils/validation/scopeValidation.js',
+  );
+  return {
+    ...actual,
+    auditScopeOperation: vi.fn(),
+  };
+});
 
 describe('Scope Authentication Middleware Utilities', () => {
+  beforeEach(() => {
+    // @ts-expect-error - Accessing private singleton for isolated middleware tests
+    AgentConfigManager.instance = undefined;
+  });
+
   describe('getValidatedTags', () => {
     it('should return validated tags from res.locals', () => {
       const res = { locals: { validatedTags: ['web', 'db'] } } as unknown as Response;
@@ -153,6 +182,74 @@ describe('Scope Authentication Middleware Utilities', () => {
 
       // Should not cause memory issues
       expect(getValidatedTags(res)).toEqual(['web', 'db']);
+    });
+  });
+
+  describe('createScopeAuthMiddleware', () => {
+    it('uses filterSelection requestedTags for preset scope validation', async () => {
+      const config = AgentConfigManager.getInstance();
+      config.updateConfig({
+        features: { scopeValidation: true, auth: true } as any,
+      });
+
+      const middleware = createScopeAuthMiddleware();
+      const req = { headers: { authorization: 'Bearer token-1' } } as unknown as Request;
+      const res = {
+        locals: {
+          tags: ['web'],
+          filterSelection: {
+            mode: 'preset',
+            requestedTags: ['web', 'internal'],
+          },
+        },
+        status: vi.fn().mockReturnThis(),
+        json: vi.fn().mockReturnThis(),
+      } as unknown as Response;
+      const next = vi.fn();
+
+      await middleware(req, res, next);
+
+      expect(res.status).toHaveBeenCalledWith(403);
+      expect(res.json).toHaveBeenCalledWith({
+        error: 'insufficient_scope',
+        error_description: 'Insufficient scopes. Required: web, internal, Granted: web',
+      });
+      expect(next).not.toHaveBeenCalled();
+    });
+
+    it('validates tags from advanced expressions in addition to pre-extracted tags', async () => {
+      const config = AgentConfigManager.getInstance();
+      config.updateConfig({
+        features: { scopeValidation: true, auth: true } as any,
+      });
+
+      const middleware = createScopeAuthMiddleware();
+      const req = { headers: { authorization: 'Bearer token-1' } } as unknown as Request;
+      const res = {
+        locals: {
+          tags: ['web'],
+          tagFilterMode: 'advanced',
+          tagExpression: {
+            type: 'and',
+            children: [
+              { type: 'tag', value: 'web' },
+              { type: 'tag', value: 'internal' },
+            ],
+          },
+        },
+        status: vi.fn().mockReturnThis(),
+        json: vi.fn().mockReturnThis(),
+      } as unknown as Response;
+      const next = vi.fn();
+
+      await middleware(req, res, next);
+
+      expect(res.status).toHaveBeenCalledWith(403);
+      expect(res.json).toHaveBeenCalledWith({
+        error: 'insufficient_scope',
+        error_description: 'Insufficient scopes. Required: web, internal, Granted: web',
+      });
+      expect(next).not.toHaveBeenCalled();
     });
   });
 });

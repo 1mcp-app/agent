@@ -1,13 +1,17 @@
 import type { Tool } from '@modelcontextprotocol/sdk/types.js';
 
 import { McpConfigManager } from '@src/config/mcpConfigManager.js';
+import { CapabilityCatalog } from '@src/core/capabilities/capabilityCatalog.js';
 import { ToolInvokeOutput, ToolListOutput } from '@src/core/capabilities/schemas/metaToolSchemas.js';
 import { ToolRegistry } from '@src/core/capabilities/toolRegistry.js';
 import { FilteringService } from '@src/core/filtering/filteringService.js';
-import { filterDisabledTools, getDisabledToolError } from '@src/core/server/disabledTools.js';
+import { type ServerAdapter, ServerType } from '@src/core/server/adapters/types.js';
+import type { TemplateHashProvider } from '@src/core/server/connectionResolver.js';
+import { getDisabledToolError } from '@src/core/server/disabledTools.js';
 import { ServerManager } from '@src/core/server/serverManager.js';
+import { ClientStatus } from '@src/core/types/client.js';
 import logger from '@src/logger/logger.js';
-import { CONTEXT_HEADERS, extractRequestContext } from '@src/transport/http/utils/contextExtractor.js';
+import { CONTEXT_HEADERS } from '@src/transport/http/utils/contextExtractor.js';
 
 import { Request, RequestHandler, Response } from 'express';
 
@@ -39,6 +43,83 @@ function getAllowedServersFromRequest(serverManager: ServerManager, res: Respons
   );
 }
 
+function getTemplateHashProvider(serverManager: ServerManager): TemplateHashProvider | undefined {
+  return (
+    serverManager as unknown as { getTemplateServerManager?: () => TemplateHashProvider }
+  ).getTemplateServerManager?.();
+}
+
+interface ServerRegistryLike {
+  get?: (name: string) => ServerAdapter | undefined;
+  resolveConnection?: (name: string, context?: { sessionId?: string }) => unknown;
+}
+
+function getServerRegistry(serverManager: ServerManager): ServerRegistryLike | undefined {
+  return (serverManager as { getServerRegistry?: () => ServerRegistryLike }).getServerRegistry?.();
+}
+
+function isTemplateTarget(serverManager: ServerManager, serverName: string): boolean {
+  return getServerRegistry(serverManager)?.get?.(serverName)?.type === ServerType.Template;
+}
+
+function getDisabledToolInvocationError(serverName: string, toolName: string): string | undefined {
+  return getDisabledToolError(getServerConfigs(), serverName, toolName)?.message;
+}
+
+async function createFallbackCapabilityCatalog(
+  serverManager: ServerManager,
+): Promise<{ catalog: CapabilityCatalog; degradedServers: string[] }> {
+  const clients = serverManager.getClients();
+  const toolsByServer = new Map<string, Tool[]>();
+  const serverTags = new Map<string, string[]>();
+  const degradedServers: string[] = [];
+
+  for (const [connectionKey, conn] of clients) {
+    if (conn.status !== ClientStatus.Connected) continue;
+    try {
+      const logicalServerName =
+        conn.name || (connectionKey.includes(':') ? connectionKey.split(':')[0] : connectionKey);
+      const result = await conn.client.listTools();
+      toolsByServer.set(logicalServerName, result.tools ?? []);
+      const tags = Array.isArray((conn.transport as { tags?: unknown }).tags)
+        ? ((conn.transport as { tags?: unknown }).tags as unknown[]).filter(
+            (tag): tag is string => typeof tag === 'string',
+          )
+        : [];
+      serverTags.set(logicalServerName, tags);
+    } catch (err) {
+      logger.error(`Failed to list tools for ${connectionKey}:`, err);
+      degradedServers.push(connectionKey);
+    }
+  }
+
+  const catalog = new CapabilityCatalog({
+    getToolRegistry: () => ToolRegistry.fromToolsMap(toolsByServer, serverTags),
+    schemaCache: {
+      getIfCached: () => null,
+      getOrLoad: async (_server: string, _toolName: string) => {
+        throw new Error('Schema loading is not available without lazy loading');
+      },
+    } as never,
+    outboundConnections: clients,
+    getServerConfigs,
+    templateHashProvider: getTemplateHashProvider(serverManager),
+  });
+  return { catalog, degradedServers };
+}
+
+function hasCatalogAccess(lazyOrchestrator: unknown): lazyOrchestrator is {
+  getToolRegistry: () => ToolRegistry;
+  getSchemaCache: () => never;
+  callMetaTool: (...args: never[]) => Promise<unknown>;
+} {
+  return (
+    !!lazyOrchestrator &&
+    typeof (lazyOrchestrator as { getToolRegistry?: unknown }).getToolRegistry === 'function' &&
+    typeof (lazyOrchestrator as { getSchemaCache?: unknown }).getSchemaCache === 'function'
+  );
+}
+
 export function createToolsHandler(serverManager: ServerManager): RequestHandler {
   return async (req: Request, res: Response): Promise<void> => {
     try {
@@ -52,41 +133,67 @@ export function createToolsHandler(serverManager: ServerManager): RequestHandler
       const lazyOrchestrator = serverManager.getLazyLoadingOrchestrator();
 
       if (!lazyOrchestrator) {
-        const clients = serverManager.getClients();
-        const toolsByServer = new Map<string, Tool[]>();
-        for (const [serverName, conn] of clients) {
-          if (allowedServers && !allowedServers.has(serverName)) continue;
-          if (server && serverName !== server) continue;
-          if (conn.status !== 'connected') continue;
-          try {
-            const logicalServerName = conn.name || (serverName.includes(':') ? serverName.split(':')[0] : serverName);
-            const result = await conn.client.listTools();
-            toolsByServer.set(
-              logicalServerName,
-              filterDisabledTools(result.tools ?? [], getServerConfigs(), logicalServerName),
-            );
-          } catch (err) {
-            logger.error(`Failed to list tools for ${serverName}:`, err);
-          }
-        }
-
         const cursor = typeof req.query.cursor === 'string' ? req.query.cursor : undefined;
-        const result = ToolRegistry.fromToolsMap(toolsByServer).listTools({
-          server,
-          pattern,
-          limit,
-          cursor,
-        });
-        const servers = Array.from(new Set(result.tools.map((tool) => tool.server))).sort();
+        const { catalog, degradedServers } = await createFallbackCapabilityCatalog(serverManager);
+        const result = await catalog.listVisibleTools(
+          {
+            server,
+            pattern,
+            limit,
+            cursor,
+          },
+          requestSessionId,
+          allowedServers,
+        );
 
         res.json({
-          ...result,
-          servers,
+          tools: result.tools,
+          totalCount: result.totalCount,
+          hasMore: result.hasMore,
+          ...(result.nextCursor ? { nextCursor: result.nextCursor } : {}),
+          servers: result.servers,
+          ...(degradedServers.length > 0 ? { degradedServers } : {}),
         });
         return;
       }
 
       const cursor = typeof req.query.cursor === 'string' ? req.query.cursor : undefined;
+      if (hasCatalogAccess(lazyOrchestrator)) {
+        const catalog = new CapabilityCatalog({
+          getToolRegistry: () => lazyOrchestrator.getToolRegistry(),
+          schemaCache: lazyOrchestrator.getSchemaCache(),
+          outboundConnections: serverManager.getClients(),
+          getServerConfigs,
+          refreshCapabilities: async () => {
+            const beforeSize = lazyOrchestrator.getToolRegistry().size();
+            await lazyOrchestrator.refreshCapabilities();
+            const afterSize = lazyOrchestrator.getToolRegistry().size();
+            return { changed: beforeSize !== afterSize, shouldNotifyListChanged: beforeSize !== afterSize };
+          },
+          templateHashProvider: getTemplateHashProvider(serverManager),
+        });
+        const catalogResult = await catalog.listVisibleTools(
+          {
+            server,
+            pattern,
+            limit,
+            cursor,
+          },
+          requestSessionId,
+          allowedServers,
+          { refreshIntent: 'ifStale' },
+        );
+        if (catalogResult.tools.length > 0 || catalogResult.totalCount > 0) {
+          res.json({
+            tools: catalogResult.tools,
+            totalCount: catalogResult.totalCount,
+            hasMore: catalogResult.hasMore,
+            ...(catalogResult.nextCursor ? { nextCursor: catalogResult.nextCursor } : {}),
+            servers: catalogResult.servers,
+          });
+          return;
+        }
+      }
 
       const result = (await lazyOrchestrator.callMetaTool(
         'tool_list',
@@ -142,16 +249,16 @@ export function createToolInvocationsHandler(serverManager: ServerManager): Requ
 
       const allowedServers = getAllowedServersFromRequest(serverManager, res);
 
-      const disabledError = getDisabledToolError(getServerConfigs(), target.serverName, target.toolName);
-      if (disabledError) {
-        res.status(404).json({ error: disabledError.message });
-        return;
-      }
-
       const lazyOrchestrator = serverManager.getLazyLoadingOrchestrator();
+
       if (!lazyOrchestrator) {
         if (allowedServers && !allowedServers.has(target.serverName)) {
           res.status(404).json({ error: `Server not found: ${target.serverName}` });
+          return;
+        }
+        const disabledToolError = getDisabledToolInvocationError(target.serverName, target.toolName);
+        if (disabledToolError) {
+          res.status(404).json({ error: disabledToolError });
           return;
         }
         const allConnections = serverManager.getClients();
@@ -159,20 +266,14 @@ export function createToolInvocationsHandler(serverManager: ServerManager): Requ
           allowedServers === undefined
             ? allConnections
             : FilteringService.getFilteredConnections(allConnections, buildFilterConfig(res));
+        const serverRegistry = getServerRegistry(serverManager);
         const sessionConnection = requestSessionId
-          ? (
-              serverManager as {
-                getServerRegistry?: () => {
-                  resolveConnection: (name: string, context?: { sessionId?: string }) => unknown;
-                };
-              }
-            )
-              .getServerRegistry?.()
-              ?.resolveConnection(target.serverName, { sessionId: requestSessionId })
+          ? serverRegistry?.resolveConnection?.(target.serverName, { sessionId: requestSessionId })
           : undefined;
+        const allowGenericFallback = !requestSessionId || !isTemplateTarget(serverManager, target.serverName);
         const connection = (sessionConnection ??
-          resolveConnectionByServerName(filteredConnections, target.serverName) ??
-          serverManager.getClient(target.serverName)) as
+          (allowGenericFallback ? resolveConnectionByServerName(filteredConnections, target.serverName) : undefined) ??
+          (allowGenericFallback ? serverManager.getClient(target.serverName) : undefined)) as
           | { client?: { callTool: (input: { name: string; arguments: Record<string, unknown> }) => Promise<unknown> } }
           | undefined;
         if (!connection || !connection.client) {
@@ -191,6 +292,37 @@ export function createToolInvocationsHandler(serverManager: ServerManager): Requ
           res.status(502).json({ error: `Upstream error: ${message}` });
         }
         return;
+      }
+
+      if (!allowedServers || allowedServers.has(target.serverName)) {
+        const disabledToolError = getDisabledToolInvocationError(target.serverName, target.toolName);
+        if (disabledToolError) {
+          res.status(404).json({ error: disabledToolError });
+          return;
+        }
+      }
+
+      if (hasCatalogAccess(lazyOrchestrator)) {
+        const catalog = new CapabilityCatalog({
+          getToolRegistry: () => lazyOrchestrator.getToolRegistry(),
+          schemaCache: lazyOrchestrator.getSchemaCache(),
+          outboundConnections: serverManager.getClients(),
+          getServerConfigs,
+          templateHashProvider: getTemplateHashProvider(serverManager),
+        });
+        const catalogResult = await catalog.invokeVisibleTool(
+          { server: target.serverName, toolName: target.toolName, args: toolArgs },
+          requestSessionId,
+          allowedServers,
+        );
+        if (!catalogResult.error) {
+          res.json({ result: catalogResult.result, server: catalogResult.server, tool: catalogResult.tool });
+          return;
+        }
+        if (catalogResult.error.message.includes('Tool is disabled')) {
+          res.status(404).json({ error: catalogResult.error.message });
+          return;
+        }
       }
 
       const result = (await lazyOrchestrator.callMetaTool(
@@ -235,10 +367,11 @@ async function initializeRequestContextForApi(
   res: Response,
 ): Promise<string | undefined> {
   const filterConfig = buildFilterConfig(res);
-  if (!extractRequestContext(req)) {
-    const headerSessionId = req.headers?.[CONTEXT_HEADERS.SESSION_ID];
-    return Array.isArray(headerSessionId) ? headerSessionId[0] : headerSessionId;
+  const result = await ensureRequestContextInitialized(serverManager, req, res, filterConfig);
+  if (result) {
+    return result;
   }
 
-  return ensureRequestContextInitialized(serverManager, req, res, filterConfig);
+  const headerSessionId = req.headers?.[CONTEXT_HEADERS.SESSION_ID];
+  return Array.isArray(headerSessionId) ? headerSessionId[0] : headerSessionId;
 }

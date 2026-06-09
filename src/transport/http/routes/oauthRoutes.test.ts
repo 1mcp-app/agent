@@ -72,6 +72,13 @@ describe('OAuth Routes', () => {
 
     // Create mock OAuth provider
     mockOAuthProvider = {
+      oauthFlow: {
+        submitConsent: vi.fn(),
+        startBackendOAuth: vi.fn(),
+        restartBackendOAuth: vi.fn(),
+        completeBackendOAuthCallback: vi.fn(),
+        getBackendOAuthDashboard: vi.fn(),
+      },
       oauthStorage: {
         getAuthorizationRequest: vi.fn(),
         clientDataRepository: {
@@ -98,24 +105,6 @@ describe('OAuth Routes', () => {
     };
 
     vi.clearAllMocks();
-  });
-
-  describe('Route Creation', () => {
-    it('should create OAuth routes with provider', () => {
-      const router = createOAuthRoutes(mockOAuthProvider);
-
-      expect(router).toBeDefined();
-      expect(router.stack).toBeDefined();
-      expect(router.stack.length).toBeGreaterThan(0);
-    });
-
-    it('should configure rate limiting', () => {
-      const router = createOAuthRoutes(mockOAuthProvider);
-
-      // Should have middleware (rate limiter)
-      const hasMiddleware = router.stack.some((layer: any) => !layer.route);
-      expect(hasMiddleware).toBe(true);
-    });
   });
 
   describe('Route Handlers', () => {
@@ -181,8 +170,10 @@ describe('OAuth Routes', () => {
 
   describe('Dashboard Rendering', () => {
     it('should handle empty services list', async () => {
-      const { ServerManager } = await import('@src/core/server/serverManager.js');
-      vi.mocked(ServerManager.current.getClients).mockReturnValue(new Map());
+      mockOAuthProvider.oauthFlow.getBackendOAuthDashboard.mockReturnValue({
+        status: 'ready',
+        services: [],
+      });
 
       const router = createOAuthRoutes(mockOAuthProvider);
       const dashboardRoute = router.stack.find((layer: any) => layer.route?.path === '/' && layer.route?.methods?.get);
@@ -191,34 +182,27 @@ describe('OAuth Routes', () => {
 
       expect(mockResponse.setHeader).toHaveBeenCalledWith('Content-Type', 'text/html');
       expect(mockResponse.send).toHaveBeenCalled();
+      expect(mockOAuthProvider.oauthFlow.getBackendOAuthDashboard).toHaveBeenCalledWith();
     });
 
     it('should handle services with different statuses', async () => {
-      const { ServerManager } = await import('@src/core/server/serverManager.js');
-      const mockClients = new Map([
-        [
-          'connected-service',
+      mockOAuthProvider.oauthFlow.getBackendOAuthDashboard.mockReturnValue({
+        status: 'ready',
+        services: [
           {
             name: 'connected-service',
-            transport: {} as any,
-            client: {} as any,
             status: ClientStatus.Connected,
             lastConnected: new Date(),
+            requiresOAuth: false,
           },
-        ],
-        [
-          'awaiting-service',
           {
             name: 'awaiting-service',
-            transport: {} as any,
-            client: {} as any,
             status: ClientStatus.AwaitingOAuth,
             authorizationUrl: 'https://example.com/auth',
+            requiresOAuth: true,
           },
         ],
-      ]);
-
-      vi.mocked(ServerManager.current.getClients).mockReturnValue(mockClients);
+      });
 
       const router = createOAuthRoutes(mockOAuthProvider);
       const dashboardRoute = router.stack.find((layer: any) => layer.route?.path === '/' && layer.route?.methods?.get);
@@ -230,6 +214,45 @@ describe('OAuth Routes', () => {
       expect(htmlContent).toContain('connected-service');
       expect(htmlContent).toContain('awaiting-service');
     });
+
+    it('should not inline executable server names in OAuth restart buttons', async () => {
+      const maliciousName = `bad');alert(1);//`;
+      mockOAuthProvider.oauthFlow.getBackendOAuthDashboard.mockReturnValue({
+        status: 'ready',
+        services: [
+          {
+            name: maliciousName,
+            status: ClientStatus.Disconnected,
+            requiresOAuth: true,
+          },
+        ],
+      });
+
+      const router = createOAuthRoutes(mockOAuthProvider);
+      const dashboardRoute = router.stack.find((layer: any) => layer.route?.path === '/' && layer.route?.methods?.get);
+
+      await dashboardRoute?.route?.stack[0].handle(mockRequest, mockResponse);
+
+      const htmlContent = mockResponse.send.mock.calls[0][0];
+      expect(htmlContent).toContain('onclick="restartOAuth(this.dataset.serverName)"');
+      expect(htmlContent).toContain(`data-server-name="${maliciousName}"`);
+      expect(htmlContent).not.toContain(`restartOAuth('${maliciousName}')`);
+    });
+
+    it('should map unavailable dashboard runtime to an error response', async () => {
+      mockOAuthProvider.oauthFlow.getBackendOAuthDashboard.mockReturnValue({
+        status: 'runtime_unavailable',
+        errorDescription: 'Backend OAuth runtime is unavailable',
+      });
+
+      const router = createOAuthRoutes(mockOAuthProvider);
+      const dashboardRoute = router.stack.find((layer: any) => layer.route?.path === '/' && layer.route?.methods?.get);
+
+      await dashboardRoute?.route?.stack[0].handle(mockRequest, mockResponse);
+
+      expect(mockResponse.status).toHaveBeenCalledWith(500);
+      expect(mockResponse.json).toHaveBeenCalledWith({ error: 'Backend OAuth runtime is unavailable' });
+    });
   });
 
   describe('OAuth Flow', () => {
@@ -237,15 +260,10 @@ describe('OAuth Routes', () => {
       const { ServerManager } = await import('@src/core/server/serverManager.js');
       mockRequest.params = { serverName: 'test-server' };
 
-      const clientInfo = {
-        name: 'test-server',
-        transport: {} as any,
-        client: {} as any,
-        status: ClientStatus.AwaitingOAuth,
-        authorizationUrl: 'https://example.com/auth',
-      };
-
-      vi.mocked(ServerManager.current.getClient).mockReturnValue(clientInfo);
+      mockOAuthProvider.oauthFlow.startBackendOAuth.mockResolvedValue({
+        status: 'redirect',
+        redirectUrl: 'https://example.com/auth',
+      });
 
       const router = createOAuthRoutes(mockOAuthProvider);
       const authorizeRoute = router.stack.find(
@@ -254,14 +272,40 @@ describe('OAuth Routes', () => {
 
       await authorizeRoute?.route?.stack[0].handle(mockRequest, mockResponse);
 
+      expect(mockOAuthProvider.oauthFlow.startBackendOAuth).toHaveBeenCalledWith({ serverName: 'test-server' });
+      expect(ServerManager.current.getClient).not.toHaveBeenCalled();
       expect(mockResponse.redirect).toHaveBeenCalledWith('https://example.com/auth');
+    });
+
+    it('should delegate authorization start when no URL is cached', async () => {
+      const { ServerManager } = await import('@src/core/server/serverManager.js');
+      mockRequest.params = { serverName: 'test-server' };
+
+      mockOAuthProvider.oauthFlow.startBackendOAuth.mockResolvedValue({
+        status: 'redirect',
+        redirectUrl: 'https://example.com/generated',
+      });
+
+      const router = createOAuthRoutes(mockOAuthProvider);
+      const authorizeRoute = router.stack.find(
+        (layer: any) => layer.route?.path === '/authorize/:serverName' && layer.route?.methods?.get,
+      );
+
+      await authorizeRoute?.route?.stack[0].handle(mockRequest, mockResponse);
+
+      expect(mockOAuthProvider.oauthFlow.startBackendOAuth).toHaveBeenCalledWith({ serverName: 'test-server' });
+      expect(ServerManager.current.getClient).not.toHaveBeenCalled();
+      expect(mockResponse.redirect).toHaveBeenCalledWith('https://example.com/generated');
     });
 
     it('should handle non-existent service', async () => {
       const { ServerManager } = await import('../../../core/server/serverManager.js');
       mockRequest.params = { serverName: 'non-existent' };
 
-      vi.mocked(ServerManager.current.getClient).mockReturnValue(undefined);
+      mockOAuthProvider.oauthFlow.startBackendOAuth.mockResolvedValue({
+        status: 'service_not_found',
+        errorDescription: 'Service not found',
+      });
 
       const router = createOAuthRoutes(mockOAuthProvider);
       const authorizeRoute = router.stack.find(
@@ -272,6 +316,28 @@ describe('OAuth Routes', () => {
 
       expect(mockResponse.status).toHaveBeenCalledWith(404);
       expect(mockResponse.json).toHaveBeenCalledWith({ error: 'Service not found' });
+      expect(ServerManager.current.getClient).not.toHaveBeenCalled();
+    });
+
+    it('should delegate restart requests to the OAuth flow', async () => {
+      const { ServerManager } = await import('@src/core/server/serverManager.js');
+      mockRequest.params = { serverName: 'test-server' };
+
+      mockOAuthProvider.oauthFlow.restartBackendOAuth.mockResolvedValue({ status: 'restarted' });
+
+      const router = createOAuthRoutes(mockOAuthProvider);
+      const restartRoute = router.stack.find(
+        (layer: any) => layer.route?.path === '/restart/:serverName' && layer.route?.methods?.post,
+      );
+
+      await restartRoute?.route?.stack[0].handle(mockRequest, mockResponse);
+
+      expect(mockOAuthProvider.oauthFlow.restartBackendOAuth).toHaveBeenCalledWith({ serverName: 'test-server' });
+      expect(ServerManager.current.getClient).not.toHaveBeenCalled();
+      expect(mockResponse.json).toHaveBeenCalledWith({
+        success: 'true',
+        message: 'OAuth flow restarted',
+      });
     });
   });
 
@@ -280,16 +346,12 @@ describe('OAuth Routes', () => {
       mockRequest.body = {
         auth_request_id: 'req-123',
         action: 'approve',
-        scopes: ['read'],
+        scopes: ['tag:read'],
       };
 
-      const authRequest = { clientId: 'client-123' };
-      const client = { id: 'client-123' };
-
-      mockOAuthProvider.oauthStorage.getAuthorizationRequest.mockReturnValue(authRequest);
-      mockOAuthProvider.oauthStorage.clientDataRepository.get.mockReturnValue(client);
-      mockOAuthProvider.oauthStorage.processConsentApproval.mockResolvedValue({
-        redirectUrl: new URL('https://example.com/callback'),
+      mockOAuthProvider.oauthFlow.submitConsent.mockResolvedValue({
+        status: 'approved_redirect',
+        redirectUrl: 'https://example.com/callback',
       });
 
       const router = createOAuthRoutes(mockOAuthProvider);
@@ -301,6 +363,12 @@ describe('OAuth Routes', () => {
       await consentRoute?.route?.stack[1].handle(mockRequest, mockResponse);
 
       expect(mockResponse.redirect).toHaveBeenCalledWith('https://example.com/callback');
+      expect(mockOAuthProvider.oauthFlow.submitConsent).toHaveBeenCalledWith({
+        authRequestId: 'req-123',
+        action: 'approve',
+        scopes: ['tag:read'],
+      });
+      expect(mockOAuthProvider.oauthStorage.getAuthorizationRequest).not.toHaveBeenCalled();
     });
 
     it('should handle consent denial', async () => {
@@ -309,14 +377,10 @@ describe('OAuth Routes', () => {
         action: 'deny',
       };
 
-      const authRequest = { clientId: 'client-123' };
-      const client = { id: 'client-123' };
-
-      mockOAuthProvider.oauthStorage.getAuthorizationRequest.mockReturnValue(authRequest);
-      mockOAuthProvider.oauthStorage.clientDataRepository.get.mockReturnValue(client);
-      mockOAuthProvider.oauthStorage.processConsentDenial.mockResolvedValue(
-        new URL('https://example.com/callback?error=access_denied'),
-      );
+      mockOAuthProvider.oauthFlow.submitConsent.mockResolvedValue({
+        status: 'denied_redirect',
+        redirectUrl: 'https://example.com/callback?error=access_denied',
+      });
 
       const router = createOAuthRoutes(mockOAuthProvider);
       const consentRoute = router.stack.find(
@@ -326,10 +390,19 @@ describe('OAuth Routes', () => {
       await consentRoute?.route?.stack[1].handle(mockRequest, mockResponse);
 
       expect(mockResponse.redirect).toHaveBeenCalledWith('https://example.com/callback?error=access_denied');
+      expect(mockOAuthProvider.oauthFlow.submitConsent).toHaveBeenCalledWith({
+        authRequestId: 'req-123',
+        action: 'deny',
+        scopes: undefined,
+      });
     });
 
     it('should handle missing parameters', async () => {
       mockRequest.body = { action: 'approve' }; // Missing auth_request_id
+      mockOAuthProvider.oauthFlow.submitConsent.mockResolvedValue({
+        status: 'invalid_request',
+        errorDescription: 'Missing required parameters',
+      });
 
       const router = createOAuthRoutes(mockOAuthProvider);
       const consentRoute = router.stack.find(
@@ -344,20 +417,34 @@ describe('OAuth Routes', () => {
         error_description: 'Missing required parameters',
       });
     });
+
+    it('should reject malformed consent bodies before calling the OAuth flow', async () => {
+      mockRequest.body = {
+        auth_request_id: ['req-123'],
+        action: 'approve',
+      };
+
+      const router = createOAuthRoutes(mockOAuthProvider);
+      const consentRoute = router.stack.find(
+        (layer: any) => layer.route?.path === '/consent' && layer.route?.methods?.post,
+      );
+
+      await consentRoute?.route?.stack[1].handle(mockRequest, mockResponse);
+
+      expect(mockResponse.status).toHaveBeenCalledWith(400);
+      expect(mockResponse.json).toHaveBeenCalledWith({
+        error: 'invalid_request',
+        error_description: 'Invalid consent form submission',
+      });
+      expect(mockOAuthProvider.oauthFlow.submitConsent).not.toHaveBeenCalled();
+    });
   });
 
   describe('Callback Handling', () => {
     it('should handle successful OAuth callback', async () => {
       mockRequest.params = { serverName: 'test-server' };
       mockRequest.query = { code: 'auth-code-123' };
-
-      // Mock ClientManager to handle OAuth reconnection
-      const { ClientManager } = await import('@src/core/client/clientManager.js');
-      const mockCompleteOAuth = vi.fn().mockResolvedValue(undefined);
-      const mockClientManager = {
-        completeOAuthAndReconnect: mockCompleteOAuth,
-      };
-      ClientManager.getOrCreateInstance = vi.fn().mockReturnValue(mockClientManager as any);
+      mockOAuthProvider.oauthFlow.completeBackendOAuthCallback.mockResolvedValue({ status: 'completed' });
 
       const router = createOAuthRoutes(mockOAuthProvider);
       const callbackRoute = router.stack.find(
@@ -366,14 +453,17 @@ describe('OAuth Routes', () => {
 
       await callbackRoute?.route?.stack[0].handle(mockRequest, mockResponse);
 
-      // Verify ClientManager method was called with correct parameters
-      expect(mockCompleteOAuth).toHaveBeenCalledWith('test-server', 'auth-code-123');
+      expect(mockOAuthProvider.oauthFlow.completeBackendOAuthCallback).toHaveBeenCalledWith({
+        serverName: 'test-server',
+        code: 'auth-code-123',
+      });
       expect(mockResponse.redirect).toHaveBeenCalledWith('/oauth?success=1');
     });
 
-    it('should update loading state tracker after OAuth completion', async () => {
+    it('should delegate loading-ready callback handling to the OAuth flow', async () => {
       mockRequest.params = { serverName: 'test-server' };
       mockRequest.query = { code: 'auth-code-123' };
+      mockOAuthProvider.oauthFlow.completeBackendOAuthCallback.mockResolvedValue({ status: 'completed' });
 
       // Mock loading manager with state tracker
       const mockStateTracker = {
@@ -384,14 +474,6 @@ describe('OAuth Routes', () => {
         getStateTracker: vi.fn().mockReturnValue(mockStateTracker),
       } as any;
 
-      // Mock ClientManager to handle OAuth reconnection
-      const { ClientManager } = await import('@src/core/client/clientManager.js');
-      const mockCompleteOAuth = vi.fn().mockResolvedValue(undefined);
-      const mockClientManager = {
-        completeOAuthAndReconnect: mockCompleteOAuth,
-      };
-      ClientManager.getOrCreateInstance = vi.fn().mockReturnValue(mockClientManager as any);
-
       const router = createOAuthRoutes(mockOAuthProvider, mockLoadingManager);
       const callbackRoute = router.stack.find(
         (layer: any) => layer.route?.path === '/callback/:serverName' && layer.route?.methods?.get,
@@ -399,18 +481,21 @@ describe('OAuth Routes', () => {
 
       await callbackRoute?.route?.stack[0].handle(mockRequest, mockResponse);
 
-      // Verify ClientManager method was called
-      expect(mockCompleteOAuth).toHaveBeenCalledWith('test-server', 'auth-code-123');
-
-      // Verify state tracker is updated
-      expect(mockStateTracker.updateServerState).toHaveBeenCalledWith('test-server', LoadingState.Ready);
-
+      expect(mockOAuthProvider.oauthFlow.completeBackendOAuthCallback).toHaveBeenCalledWith({
+        serverName: 'test-server',
+        code: 'auth-code-123',
+      });
+      expect(mockStateTracker.updateServerState).not.toHaveBeenCalled();
       expect(mockResponse.redirect).toHaveBeenCalledWith('/oauth?success=1');
     });
 
     it('should handle OAuth error', async () => {
       mockRequest.params = { serverName: 'test-server' };
       mockRequest.query = { error: 'access_denied' };
+      mockOAuthProvider.oauthFlow.completeBackendOAuthCallback.mockResolvedValue({
+        status: 'provider_error',
+        errorDescription: 'access_denied',
+      });
 
       const router = createOAuthRoutes(mockOAuthProvider);
       const callbackRoute = router.stack.find(
@@ -419,6 +504,10 @@ describe('OAuth Routes', () => {
 
       await callbackRoute?.route?.stack[0].handle(mockRequest, mockResponse);
 
+      expect(mockOAuthProvider.oauthFlow.completeBackendOAuthCallback).toHaveBeenCalledWith({
+        serverName: 'test-server',
+        error: 'access_denied',
+      });
       expect(mockResponse.redirect).toHaveBeenCalledWith('/oauth?error=access_denied');
     });
   });

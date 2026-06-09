@@ -1,5 +1,6 @@
 import { ConfigChangeType, ConfigManager } from '@src/config/configManager.js';
 import { ConfigChangeHandler } from '@src/core/configChangeHandler.js';
+import logger from '@src/logger/logger.js';
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -100,6 +101,29 @@ describe('ConfigChangeHandler', () => {
       const { ServerManager } = await import('@src/core/server/serverManager.js');
       expect(ServerManager.current.loadMcpServer).toHaveBeenCalledWith('new-server', newConfig['new-server']);
     });
+
+    it('should skip added servers missing from latest config without logging a processing error', async () => {
+      const changes = [
+        {
+          serverName: 'missing-added-server',
+          type: ConfigChangeType.ADDED,
+        },
+      ];
+
+      mockConfigManager.getTransportConfig = vi.fn(() => ({}));
+      const errorSpy = vi.spyOn(logger, 'error').mockImplementation(() => logger);
+
+      const changeHandler = (mockConfigManager.on as any).mock.calls[0][1];
+      await changeHandler(changes);
+
+      const { ServerManager } = await import('@src/core/server/serverManager.js');
+      expect(ServerManager.current.loadMcpServer).not.toHaveBeenCalled();
+      expect(errorSpy).not.toHaveBeenCalledWith(
+        expect.stringContaining('Failed to process change for server missing-added-server'),
+      );
+
+      errorSpy.mockRestore();
+    });
   });
 
   describe('handling removed servers', () => {
@@ -145,6 +169,29 @@ describe('ConfigChangeHandler', () => {
 
       const { ServerManager } = await import('@src/core/server/serverManager.js');
       expect(ServerManager.current.loadMcpServer).toHaveBeenCalledWith('modified-server', newConfig['modified-server']);
+    });
+
+    it('should skip modified servers missing from latest config without logging a processing error', async () => {
+      const changes = [
+        {
+          serverName: 'logfire',
+          type: ConfigChangeType.MODIFIED,
+          fieldsChanged: ['disabled'],
+        },
+      ];
+
+      mockConfigManager.getTransportConfig = vi.fn(() => ({}));
+      const errorSpy = vi.spyOn(logger, 'error').mockImplementation(() => logger);
+
+      const changeHandler = (mockConfigManager.on as any).mock.calls[0][1];
+      await changeHandler(changes);
+
+      const { ServerManager } = await import('@src/core/server/serverManager.js');
+      expect(ServerManager.current.unloadMcpServer).not.toHaveBeenCalledWith('logfire');
+      expect(ServerManager.current.loadMcpServer).not.toHaveBeenCalledWith('logfire', expect.anything());
+      expect(errorSpy).not.toHaveBeenCalledWith(expect.stringContaining('Failed to process change for server logfire'));
+
+      errorSpy.mockRestore();
     });
 
     it('should NOT restart servers for tag-only changes', async () => {

@@ -231,7 +231,7 @@ describe('TemplateServerAdapter', () => {
     });
   });
 
-  describe('buildConnectionKeys error handling', () => {
+  describe('ConnectionResolver delegation error handling', () => {
     it('should handle templateManager.getRenderedHashForSession errors gracefully', () => {
       const errorThrowingManager = {
         getRenderedHashForSession: vi.fn(() => {
@@ -240,25 +240,23 @@ describe('TemplateServerAdapter', () => {
       } as any;
 
       const adapter = new TemplateServerAdapter('template1', serverConfig, outboundConns, errorThrowingManager);
-      const keys = adapter['buildConnectionKeys']('session1');
 
-      // Should not throw, should return session-scoped key only
-      expect(keys).toEqual(['template1:session1']);
+      const result = adapter.resolveConnection({ sessionId: 'session1' });
+
+      expect(result).toBeUndefined();
       expect(errorThrowingManager.getRenderedHashForSession).toHaveBeenCalledOnce();
     });
 
-    it('should handle non-Error exceptions gracefully', () => {
+    it('should handle missing rendered hash by falling back to session key lookup', () => {
       const errorThrowingManager = {
-        getRenderedHashForSession: vi.fn(() => {
-          throw 'string error';
-        }),
+        getRenderedHashForSession: vi.fn(() => undefined),
       } as any;
+      const conn = createMockConnection('template1');
+      outboundConns.set('template1:session1', conn);
 
       const adapter = new TemplateServerAdapter('template1', serverConfig, outboundConns, errorThrowingManager);
-      const keys = adapter['buildConnectionKeys']('session1');
 
-      // Should not throw, should return session-scoped key only
-      expect(keys).toEqual(['template1:session1']);
+      expect(adapter.resolveConnection({ sessionId: 'session1' })).toBe(conn);
       expect(errorThrowingManager.getRenderedHashForSession).toHaveBeenCalledOnce();
     });
   });

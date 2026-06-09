@@ -3,7 +3,11 @@ import type { ProjectConfig } from '@src/config/projectConfigTypes.js';
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { mergeServeTargetOptions, resolveServeTarget } from './serveTargetResolver.js';
+import {
+  mergeServeTargetOptions,
+  type ResolvableServeTargetOptions,
+  resolveServeTarget,
+} from './serveTargetResolver.js';
 
 const mockedResolveProjectContext = vi.hoisted(() => vi.fn());
 const mockedDiscoverServerWithPidFile = vi.hoisted(() => vi.fn());
@@ -25,7 +29,7 @@ vi.mock('@src/utils/validation/urlDetection.js', () => ({
 }));
 
 describe('mergeServeTargetOptions', () => {
-  it('prefers explicit CLI selectors over project config', () => {
+  it('prefers explicit CLI selector source over project config selectors', () => {
     const projectConfig: ProjectConfig = {
       preset: 'from-project',
       filter: 'project-filter',
@@ -36,19 +40,37 @@ describe('mergeServeTargetOptions', () => {
       mergeServeTargetOptions(
         {
           preset: 'from-cli',
+        },
+        projectConfig,
+      ),
+    ).toMatchObject({
+      preset: 'from-cli',
+      filter: undefined,
+      tags: undefined,
+    });
+  });
+
+  it('keeps ambiguous explicit CLI selectors for Filter Selection validation', () => {
+    const projectConfig: ProjectConfig = {
+      preset: 'from-project',
+    };
+
+    expect(
+      mergeServeTargetOptions(
+        {
           filter: 'cli-filter',
           tags: ['cli-tag'],
         },
         projectConfig,
       ),
     ).toMatchObject({
-      preset: 'from-cli',
+      preset: undefined,
       filter: 'cli-filter',
       tags: ['cli-tag'],
     });
   });
 
-  it('fills missing selectors from project config', () => {
+  it('fills one selector from project config using prior URL precedence', () => {
     const projectConfig: ProjectConfig = {
       preset: 'from-project',
       filter: 'project-filter',
@@ -57,8 +79,8 @@ describe('mergeServeTargetOptions', () => {
 
     expect(mergeServeTargetOptions({ url: 'http://localhost:3050/mcp' }, projectConfig)).toMatchObject({
       preset: 'from-project',
-      filter: 'project-filter',
-      tags: ['project-tag'],
+      filter: undefined,
+      tags: undefined,
     });
   });
 });
@@ -92,19 +114,21 @@ describe('resolveServeTarget', () => {
   });
 
   it('returns merged options and resolved URLs', async () => {
-    const result = await resolveServeTarget({
+    const options: ResolvableServeTargetOptions = {
       'config-dir': '.tmp-test',
       filter: 'tooling',
-    });
+    };
+    const result = await resolveServeTarget(options);
 
     expect(mockedDiscoverServerWithPidFile).toHaveBeenCalledWith('.tmp-test', undefined);
     expect(mockedValidateServer1mcpUrl).toHaveBeenCalledWith('http://127.0.0.1:3050/mcp');
-    expect(result.serverUrl.toString()).toBe('http://127.0.0.1:3050/mcp?preset=development');
+    expect(result.serverUrl.toString()).toBe('http://127.0.0.1:3050/mcp?filter=tooling');
     expect(result.cwd).toBe('/tmp/project/packages/api');
     expect(result.projectRoot).toBe('/tmp/project');
     expect(result.projectName).toBe('project');
     expect(result.projectContextSource).toBe('project-config');
     expect(result.mergedOptions.filter).toBe('tooling');
+    expect(result.mergedOptions.preset).toBeUndefined();
     expect(result.source).toBe('pidfile');
     expect(result.serverPid).toBe(4242);
   });

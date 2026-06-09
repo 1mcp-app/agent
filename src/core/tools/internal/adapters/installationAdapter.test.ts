@@ -12,15 +12,29 @@ const mockInstallationService = {
   listInstalledServers: vi.fn(),
 };
 
+const mockRemoveConfiguredServerTarget = vi.fn();
+const mockRunInstallationWorkflow = vi.fn();
+
 vi.mock('@src/domains/server-management/serverInstallationService.js', () => ({
   createServerInstallationService: vi.fn(() => mockInstallationService),
+}));
+
+vi.mock('@src/domains/installation/serverInstallationWorkflow.js', () => ({
+  createServerInstallationWorkflow: vi.fn(() => ({
+    run: mockRunInstallationWorkflow,
+  })),
+}));
+
+vi.mock('@src/domains/config-change/configChange.js', () => ({
+  createConfigChangeService: vi.fn(() => ({
+    removeConfiguredServerTarget: mockRemoveConfiguredServerTarget,
+  })),
 }));
 
 vi.mock('@src/commands/mcp/utils/mcpServerConfig.js', () => ({
   getAllServers: vi.fn(),
   getServer: vi.fn(),
   setServer: vi.fn(),
-  removeServer: vi.fn(),
   reloadMcpConfig: vi.fn(),
   getInstallationMetadata: vi.fn(),
 }));
@@ -48,30 +62,40 @@ describe('Installation Adapter', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    mockRunInstallationWorkflow.mockResolvedValue({
+      status: 'applied',
+      mode: 'apply',
+      sourceType: 'registry',
+      targetName: 'test-server',
+      version: '1.0.0',
+      warnings: [],
+      configChange: {
+        status: 'changed',
+        operation: 'set_static',
+        configPath: '/tmp/mcp.json',
+        target: { name: 'test-server', source: 'mcpServers' },
+        changed: true,
+        backup: { created: true, path: '/tmp/mcp.json.backup.123' },
+        retentionCleanup: { attempted: true, deletedPaths: [], warnings: [] },
+        reload: { status: 'observed' },
+        warnings: [],
+      },
+    });
+    mockRemoveConfiguredServerTarget.mockResolvedValue({
+      status: 'changed',
+      operation: 'remove',
+      configPath: '/tmp/mcp.json',
+      target: { name: 'test-server', source: 'mcpServers' },
+      changed: true,
+      backup: { created: true, path: '/tmp/mcp.json.backup.123' },
+      reload: { status: 'observed' },
+      warnings: ['retention cleanup warning'],
+    });
     adapter = createInstallationAdapter();
   });
 
   describe('installServer', () => {
-    it('should install server successfully', async () => {
-      const mockResult = {
-        success: true,
-        serverName: 'test-server',
-        version: '1.0.0',
-        installedAt: new Date(),
-        warnings: [],
-        errors: [],
-        operationId: 'test-op-id',
-        config: { type: 'stdio', command: 'node', args: ['server.js'] },
-      };
-
-      const { createServerInstallationService } =
-        await import('@src/domains/server-management/serverInstallationService.js');
-      const mockService = (createServerInstallationService as any)();
-      mockService.installServer.mockResolvedValue(mockResult);
-
-      const { getServer, setServer } = await import('@src/commands/mcp/utils/mcpServerConfig.js');
-      (getServer as any).mockReturnValue({ command: 'node', args: ['server.js'] });
-
+    it('should install registry server through Server Installation Workflow', async () => {
       const result = await adapter.installServer('test-server', '1.0.0', {
         force: false,
         backup: true,
@@ -79,14 +103,128 @@ describe('Installation Adapter', () => {
         env: { NODE_ENV: 'test' },
       });
 
-      expect(result).toEqual(mockResult);
-      expect(mockService.installServer).toHaveBeenCalledWith('test-server', '1.0.0', {
+      expect(result).toMatchObject({
+        success: true,
+        status: 'applied',
+        serverName: 'test-server',
+        version: '1.0.0',
+        configPath: '/tmp/mcp.json',
+        backupPath: '/tmp/mcp.json.backup.123',
+        reloadStatus: 'observed',
+        warnings: [],
+        errors: [],
+      });
+      expect(mockInstallationService.installServer).not.toHaveBeenCalled();
+      expect(mockRunInstallationWorkflow).toHaveBeenCalledWith({
+        mode: 'apply',
         force: false,
+        backup: 'required',
+        source: {
+          type: 'registry',
+          registryId: 'test-server',
+          version: '1.0.0',
+          localName: undefined,
+          tags: ['test'],
+          env: { NODE_ENV: 'test' },
+          args: undefined,
+        },
+      });
+    });
+
+    it('should install direct server through Server Installation Workflow', async () => {
+      await adapter.installServer('direct-server', undefined, {
+        force: true,
+        backup: false,
+        command: 'node',
+        args: ['server.js'],
+        tags: ['local'],
+        env: { NODE_ENV: 'test' },
       });
 
-      const { reloadMcpConfig } = await import('@src/commands/mcp/utils/mcpServerConfig.js');
-      expect(setServer).toHaveBeenCalled();
-      expect(reloadMcpConfig).toHaveBeenCalled();
+      expect(mockRunInstallationWorkflow).toHaveBeenCalledWith({
+        mode: 'apply',
+        force: true,
+        backup: 'skip',
+        source: {
+          type: 'direct',
+          localName: 'direct-server',
+          transport: 'stdio',
+          command: 'node',
+          url: undefined,
+          args: ['server.js'],
+          env: { NODE_ENV: 'test' },
+          tags: ['local'],
+          timeout: undefined,
+          enabled: undefined,
+          cwd: undefined,
+          autoRestart: undefined,
+          maxRestarts: undefined,
+          restartDelay: undefined,
+          package: undefined,
+        },
+      });
+    });
+
+    it('should pass package-only requests as direct workflow sources', async () => {
+      await adapter.installServer('package-server', undefined, {
+        package: '@scope/pkg',
+        args: ['--flag'],
+        transport: 'stdio',
+      });
+
+      expect(mockRunInstallationWorkflow).toHaveBeenCalledWith({
+        mode: 'apply',
+        force: undefined,
+        backup: undefined,
+        source: {
+          type: 'direct',
+          localName: 'package-server',
+          transport: 'stdio',
+          command: undefined,
+          url: undefined,
+          args: ['--flag'],
+          env: undefined,
+          tags: undefined,
+          timeout: undefined,
+          enabled: undefined,
+          cwd: undefined,
+          autoRestart: undefined,
+          maxRestarts: undefined,
+          restartDelay: undefined,
+          package: '@scope/pkg',
+        },
+      });
+    });
+
+    it('should still pass package requests with local names as direct workflow sources', async () => {
+      await adapter.installServer('io.github.owner/server', '1.0.0', {
+        localServerName: 'server',
+        package: '@scope/pkg',
+        args: ['--flag'],
+      });
+
+      expect(mockRunInstallationWorkflow).toHaveBeenCalledWith({
+        mode: 'apply',
+        force: undefined,
+        backup: undefined,
+        source: {
+          type: 'direct',
+          localName: 'server',
+          transport: 'stdio',
+          command: undefined,
+          url: undefined,
+          args: ['--flag'],
+          env: undefined,
+          tags: undefined,
+          timeout: undefined,
+          enabled: undefined,
+          cwd: undefined,
+          autoRestart: undefined,
+          maxRestarts: undefined,
+          restartDelay: undefined,
+          package: '@scope/pkg',
+        },
+      });
     });
 
     it('should validate tags before installation', async () => {
@@ -101,10 +239,7 @@ describe('Installation Adapter', () => {
     });
 
     it('should handle installation errors', async () => {
-      const { createServerInstallationService } =
-        await import('@src/domains/server-management/serverInstallationService.js');
-      const mockService = (createServerInstallationService as any)();
-      mockService.installServer.mockRejectedValue(new Error('Installation failed'));
+      mockRunInstallationWorkflow.mockRejectedValue(new Error('Installation failed'));
 
       await expect(adapter.installServer('test-server')).rejects.toThrow(
         'Server installation failed: Installation failed',
@@ -129,24 +264,100 @@ describe('Installation Adapter', () => {
       const mockService = (createServerInstallationService as any)();
       mockService.uninstallServer.mockResolvedValue(mockResult);
 
-      const { getAllServers, removeServer } = await import('@src/commands/mcp/utils/mcpServerConfig.js');
+      const { getAllServers } = await import('@src/commands/mcp/utils/mcpServerConfig.js');
       (getAllServers as any).mockReturnValue({});
-      (removeServer as any).mockReturnValue(true);
 
       const result = await adapter.uninstallServer('test-server', {
         force: true,
+        backup: true,
         removeAll: true,
       });
 
-      expect(result).toEqual(mockResult);
-      expect(mockService.uninstallServer).toHaveBeenCalledWith('test-server', {
+      expect(result).toMatchObject({
+        success: true,
+        serverName: 'test-server',
+        configRemoved: true,
+        backupPath: '/tmp/mcp.json.backup.123',
+        warnings: ['retention cleanup warning'],
+        errors: [],
+      });
+      expect(result.operationId).toMatch(/^uninstall_/);
+      expect(mockService.uninstallServer).not.toHaveBeenCalled();
+
+      expect(mockRemoveConfiguredServerTarget).toHaveBeenCalledWith({
+        targetName: 'test-server',
+        operation: 'uninstall',
+        backup: 'required',
+      });
+    });
+
+    it('should pass backup skip policy to Config Change when removeAll uses no backup', async () => {
+      const mockResult = {
+        success: true,
+        serverName: 'test-server',
+        removedAt: new Date(),
+        configRemoved: false,
+        warnings: [],
+        errors: [],
+        operationId: 'test-op-id',
+      };
+
+      const { createServerInstallationService } =
+        await import('@src/domains/server-management/serverInstallationService.js');
+      const mockService = (createServerInstallationService as any)();
+      mockService.uninstallServer.mockResolvedValue(mockResult);
+
+      await adapter.uninstallServer('test-server', {
         force: true,
         backup: false,
+        removeAll: true,
       });
 
-      const { reloadMcpConfig } = await import('@src/commands/mcp/utils/mcpServerConfig.js');
-      expect(removeServer).toHaveBeenCalledWith('test-server');
-      expect(reloadMcpConfig).toHaveBeenCalled();
+      expect(mockService.uninstallServer).not.toHaveBeenCalled();
+      expect(mockRemoveConfiguredServerTarget).toHaveBeenCalledWith({
+        targetName: 'test-server',
+        operation: 'uninstall',
+        backup: 'skip',
+      });
+    });
+
+    it('reports removeAll as unsuccessful when config removal changes nothing', async () => {
+      mockRemoveConfiguredServerTarget.mockResolvedValue({
+        status: 'unchanged',
+        operation: 'remove',
+        configPath: '/tmp/mcp.json',
+        target: { name: 'test-server', source: 'mcpServers' },
+        changed: false,
+        backup: { created: false },
+        reload: { status: 'skipped' },
+        warnings: [],
+      });
+
+      const result = await adapter.uninstallServer('test-server', {
+        removeAll: true,
+      });
+
+      expect(result).toMatchObject({
+        success: false,
+        configRemoved: false,
+        warnings: ['Server test-server not found in configuration'],
+        errors: [],
+      });
+    });
+
+    it('reports config removal errors in removeAll results', async () => {
+      mockRemoveConfiguredServerTarget.mockRejectedValue(new Error('write failed'));
+
+      const result = await adapter.uninstallServer('test-server', {
+        removeAll: true,
+      });
+
+      expect(result).toMatchObject({
+        success: false,
+        configRemoved: false,
+        warnings: ['Failed to remove from configuration: write failed'],
+        errors: ['write failed'],
+      });
     });
 
     it('should handle uninstallation errors', async () => {

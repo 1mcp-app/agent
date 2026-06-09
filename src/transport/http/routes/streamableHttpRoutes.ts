@@ -1,8 +1,4 @@
-import { randomUUID } from 'node:crypto';
-
-import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
-
-import { AUTH_CONFIG, MCP_SERVER_NAME, MCP_SERVER_VERSION, STREAMABLE_HTTP_ENDPOINT } from '@src/constants.js';
+import { MCP_SERVER_NAME, MCP_SERVER_VERSION, STREAMABLE_HTTP_ENDPOINT } from '@src/constants.js';
 import { AsyncLoadingOrchestrator } from '@src/core/capabilities/asyncLoadingOrchestrator.js';
 import { ServerManager } from '@src/core/server/serverManager.js';
 import logger from '@src/logger/logger.js';
@@ -14,11 +10,10 @@ import {
   getValidatedTags,
 } from '@src/transport/http/middlewares/scopeAuthMiddleware.js';
 import tagsExtractor from '@src/transport/http/middlewares/tagsExtractor.js';
-import { RestorableStreamableHTTPServerTransport } from '@src/transport/http/restorableStreamableTransport.js';
 import { StreamableSessionRepository } from '@src/transport/http/storage/streamableSessionRepository.js';
+import { StreamableSessionLifecycle, StreamableSessionStatus } from '@src/transport/http/streamableSessionLifecycle.js';
 import { extractContextFromMeta } from '@src/transport/http/utils/contextExtractor.js';
 import { sendBadRequest, sendInternalError, sendNotFound } from '@src/transport/http/utils/httpErrorHandler.js';
-import { SessionService } from '@src/transport/http/utils/sessionService.js';
 import { logError, logWarn } from '@src/transport/http/utils/unifiedLogger.js';
 
 import { Request, RequestHandler, Response, Router } from 'express';
@@ -148,7 +143,12 @@ function buildConfigFromRequest(res: Response, req: Request, customTemplate?: st
  * Sets up client disconnect detection for a request/response pair.
  * Cleans up the transport when the client disconnects, but preserves the session.
  */
-function setupDisconnectDetection(req: Request, res: Response, sessionId: string, serverManager: ServerManager): void {
+function setupDisconnectDetection(
+  req: Request,
+  res: Response,
+  sessionId: string,
+  lifecycle: StreamableSessionLifecycle,
+): void {
   let responseClosed = false;
 
   // Mark response as closed when it ends normally
@@ -156,24 +156,15 @@ function setupDisconnectDetection(req: Request, res: Response, sessionId: string
     responseClosed = true;
   });
 
-  // Detect abnormal client disconnect (connection closed before response finished)
-  res.on('close', () => {
+  const cleanupTransport = () => {
     if (!responseClosed && !res.writableEnded) {
-      // Client disconnected without calling DELETE
       logger.debug(`Client disconnected for session ${sessionId}, cleaning up transport`);
-      serverManager.disconnectTransport(sessionId);
-      // Note: Session persists in repository for reconnection
+      void lifecycle.handleAbnormalDisconnect(sessionId);
     }
-  });
+  };
 
-  // Also detect socket-level close
-  req.socket?.on('close', () => {
-    if (!responseClosed && !res.writableEnded) {
-      logger.debug(`Socket closed for session ${sessionId}, cleaning up transport`);
-      serverManager.disconnectTransport(sessionId);
-      // Note: Session persists in repository for reconnection
-    }
-  });
+  res.on('close', cleanupTransport);
+  req.socket?.on('close', cleanupTransport);
 }
 
 export function setupStreamableHttpRoutes(
@@ -184,7 +175,7 @@ export function setupStreamableHttpRoutes(
   availabilityMiddleware?: RequestHandler,
   asyncOrchestrator?: AsyncLoadingOrchestrator,
   customTemplate?: string,
-  injectedSessionService?: SessionService,
+  injectedLifecycle?: StreamableSessionLifecycle,
 ): void {
   const middlewares = [tagsExtractor, authMiddleware];
 
@@ -193,73 +184,39 @@ export function setupStreamableHttpRoutes(
     middlewares.push(availabilityMiddleware);
   }
 
-  const sessionService =
-    injectedSessionService || new SessionService(serverManager, sessionRepository, asyncOrchestrator);
+  const lifecycle =
+    injectedLifecycle || new StreamableSessionLifecycle(serverManager, sessionRepository, asyncOrchestrator);
 
   router.post(STREAMABLE_HTTP_ENDPOINT, ...middlewares, async (req: Request, res: Response) => {
     try {
-      let transport: StreamableHTTPServerTransport | RestorableStreamableHTTPServerTransport | null;
-      let actualSessionId: string;
       const sessionId = req.headers['mcp-session-id'] as string | undefined;
+      const isInitialize = isInitializeRequest(req.body);
+      const result = await lifecycle.resolvePostSession({
+        sessionId,
+        isInitializeRequest: isInitialize,
+        createSessionData: () => ({
+          config: buildConfigFromRequest(res, req, customTemplate),
+          context: extractContextFromMeta(req) || undefined,
+        }),
+      });
 
-      if (!sessionId) {
-        // Generate new session ID
-        const id = AUTH_CONFIG.SERVER.STREAMABLE_SESSION.ID_PREFIX + randomUUID();
-        actualSessionId = id;
-
-        const config = buildConfigFromRequest(res, req, customTemplate);
-
-        // Extract context from _meta field (from STDIO proxy)
-        const context = extractContextFromMeta(req);
-
-        const createResult = await sessionService.createSession(config, context || undefined, id);
-        transport = createResult.transport;
-
-        // Log warning if session was not persisted
-        if (!createResult.persisted) {
-          logger.warn(`New session ${id} was created but not persisted: ${createResult.persistenceError}`);
-        }
-      } else {
-        actualSessionId = sessionId;
-        transport = await sessionService.getSession(sessionId);
-
-        if (!transport) {
-          // Session doesn't exist - only allow creation via initialize request
-          if (isInitializeRequest(req.body)) {
-            // Allow creating new session with specific ID via initialize
-            logger.info(`Creating new session ${sessionId} via initialize request`);
-
-            const config = buildConfigFromRequest(res, req, customTemplate);
-
-            // Extract context from _meta field (from STDIO proxy)
-            const context = extractContextFromMeta(req);
-
-            const createResult = await sessionService.createSession(config, context || undefined, sessionId);
-            transport = createResult.transport;
-
-            // Log warning if session was not persisted
-            if (!createResult.persisted) {
-              logger.warn(`New session ${sessionId} was created but not persisted: ${createResult.persistenceError}`);
-            }
-          } else {
-            // Non-initialize request for non-existent session → 404
-            sendNotFound(res, 'Session not found. Send an initialize request first to create a new session.', {
-              sessionId,
-            });
-            return;
-          }
-        }
+      if (result.status === StreamableSessionStatus.Missing) {
+        sendNotFound(res, 'Session not found. Send an initialize request first to create a new session.', {
+          sessionId: result.sessionId,
+        });
+        return;
       }
 
-      // Wrap response to catch SDK errors
-      const wrappedRes = wrapResponseForLogging(req, res, actualSessionId);
+      if ('persisted' in result && !result.persisted) {
+        logger.warn(`New session ${result.sessionId} was created but not persisted: ${result.persistenceError}`);
+      }
 
-      // Check if this is an initialize request
-      const isInitialize = isInitializeRequest(req.body);
+      const actualSessionId = result.sessionId;
+      const transport = result.transport;
+      const wrappedRes = wrapResponseForLogging(req, res, actualSessionId);
       const protocolVersion = isInitialize ? extractProtocolVersion(req.body) : null;
 
-      // Log request details for debugging restored sessions
-      if (transport instanceof RestorableStreamableHTTPServerTransport && transport.isRestored()) {
+      if ('isRestored' in transport && typeof transport.isRestored === 'function' && transport.isRestored()) {
         logger.debug('Handling request for restored session', {
           sessionId: actualSessionId,
           isInitialize,
@@ -269,14 +226,11 @@ export function setupStreamableHttpRoutes(
 
       await transport.handleRequest(req, wrappedRes, req.body);
 
-      // After handleRequest completes for initialize, store the response data
       if (isInitialize && protocolVersion) {
         try {
-          // Store minimal initialize response data for session restoration
-          // The exact capabilities don't matter for restoration - we just need protocol version and server info
-          sessionService.storeInitializeResponse(actualSessionId, {
+          lifecycle.storeInitializeResponse(actualSessionId, {
             protocolVersion,
-            capabilities: {}, // Minimal capabilities - actual capabilities are aggregated dynamically
+            capabilities: {},
             serverInfo: { name: MCP_SERVER_NAME, version: MCP_SERVER_VERSION },
           });
           logger.debug(`Stored initialize response for session ${actualSessionId}`);
@@ -302,19 +256,17 @@ export function setupStreamableHttpRoutes(
         return;
       }
 
-      const transport = await sessionService.getSession(sessionId);
+      const result = await lifecycle.resolveExistingSession(sessionId);
 
-      if (!transport) {
+      if (result.status === StreamableSessionStatus.Missing) {
         sendNotFound(res, 'No active streamable HTTP session found for the provided sessionId', { sessionId });
         return;
       }
 
-      // Set up disconnect detection for SSE stream (GET endpoint maintains persistent connection)
-      setupDisconnectDetection(req, res, sessionId, serverManager);
+      setupDisconnectDetection(req, res, sessionId, lifecycle);
 
-      // Wrap response to catch SDK errors
       const wrappedRes = wrapResponseForLogging(req, res, sessionId);
-      await transport.handleRequest(req, wrappedRes, req.body);
+      await result.transport.handleRequest(req, wrappedRes, req.body);
     } catch (error) {
       sendInternalError(res, error, {
         method: req.method,
@@ -333,18 +285,16 @@ export function setupStreamableHttpRoutes(
         return;
       }
 
-      const transport = await sessionService.getSession(sessionId);
+      const result = await lifecycle.resolveExistingSession(sessionId);
 
-      if (!transport) {
+      if (result.status === StreamableSessionStatus.Missing) {
         sendNotFound(res, 'No active streamable HTTP session found for the provided sessionId', { sessionId });
         return;
       }
 
-      // Wrap response to catch SDK errors
       const wrappedRes = wrapResponseForLogging(req, res, sessionId);
-      await transport.handleRequest(req, wrappedRes);
-      // Delete session from storage after explicit delete request
-      await sessionService.deleteSession(sessionId);
+      await result.transport.handleRequest(req, wrappedRes);
+      await lifecycle.completeExplicitDelete(sessionId);
     } catch (error) {
       sendInternalError(res, error, {
         method: req.method,

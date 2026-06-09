@@ -15,7 +15,7 @@ import {
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { getInspectResult, inspectCommand, inspectTools } from './inspect.js';
+import { inspectTools } from './inspect.js';
 
 interface MockSchemaPayload {
   tools: Tool[];
@@ -51,13 +51,16 @@ const mockedResolveProjectContext = vi.hoisted(() => vi.fn());
 const mockedLoadAuthProfile = vi.hoisted(() => vi.fn());
 const mockedStdoutWrite = vi.hoisted(() => vi.fn());
 
-function makeInspectContextHash(projectPath: string): string {
+function makeClientSurfaceContextHash(
+  projectPath: string,
+  clientSurface: 'inspect' | 'instructions' = 'inspect',
+): string {
   return getCliSessionContextHash(
     buildCliContext({
       cwd: projectPath,
       projectRoot: projectPath,
-      transportType: 'inspect',
-      version: 'inspect',
+      transportType: clientSurface,
+      version: clientSurface,
     }),
   );
 }
@@ -229,14 +232,23 @@ describe('inspect command internals', () => {
     vi.unstubAllGlobals();
   });
 
+  it('rejects ambiguous filtered inspect server URL selectors', () => {
+    expect(() =>
+      buildServerUrl('http://127.0.0.1:3050/mcp', {
+        preset: 'dev',
+        tags: ['ignored'],
+      }),
+    ).toThrow(
+      'Cannot use multiple filtering parameters simultaneously. Use "preset" for dynamic presets, "tag-filter" for advanced expressions, "filter" for legacy compatibility, or "tags" for simple OR filtering.',
+    );
+  });
+
   it('builds a filtered inspect server URL', () => {
     const url = buildServerUrl('http://127.0.0.1:3050/mcp', {
       preset: 'dev',
-      tags: ['ignored'],
     });
 
     expect(url.searchParams.get('preset')).toBe('dev');
-    expect(url.searchParams.has('tags')).toBe(false);
   });
 
   it('initializes a fresh session before listing tools', async () => {
@@ -324,7 +336,7 @@ describe('inspect command internals', () => {
       await writeCliSessionCache(cachePath, {
         sessionId: 'session-1',
         serverUrl: 'http://127.0.0.1:3050/mcp?preset=dev',
-        contextHash: makeInspectContextHash('/tmp/agent'),
+        contextHash: makeClientSurfaceContextHash('/tmp/agent'),
         savedAt: Date.now(),
       });
 
@@ -332,7 +344,7 @@ describe('inspect command internals', () => {
       const cache = await readCliSessionCache(
         cachePath,
         'http://127.0.0.1:3050/mcp?preset=dev',
-        makeInspectContextHash('/tmp/agent'),
+        makeClientSurfaceContextHash('/tmp/agent'),
       );
       expect(cache?.sessionId).toBe('session-1');
     });
@@ -346,350 +358,16 @@ describe('inspect command internals', () => {
       await writeCliSessionCache(cachePath, {
         sessionId: 'session-1',
         serverUrl: 'http://127.0.0.1:3050/mcp',
-        contextHash: makeInspectContextHash('/tmp/agent'),
+        contextHash: makeClientSurfaceContextHash('/tmp/agent'),
         savedAt: Date.now() - SESSION_CACHE_TTL_MS - 1,
       });
 
       const cache = await readCliSessionCache(
         cachePath,
         'http://127.0.0.1:3050/mcp',
-        makeInspectContextHash('/tmp/agent'),
+        makeClientSurfaceContextHash('/tmp/agent'),
       );
       expect(cache).toBeNull();
     });
-  });
-
-  it('falls back to MCP when the inspect endpoint is unavailable for a server target', async () => {
-    mockedApiClientGet.mockResolvedValue({ ok: false, status: 404, error: 'HTTP 404' });
-    transportState.schemaPayload = {
-      tools: [
-        {
-          name: 'context7_1mcp_query-docs',
-          description: 'Query docs',
-          inputSchema: {
-            type: 'object',
-            properties: {
-              libraryId: { type: 'string' },
-              query: { type: 'string' },
-            },
-            required: ['libraryId', 'query'],
-          },
-        },
-      ],
-    } as any;
-
-    const cacheDir = join(process.cwd(), '.tmp-test', 'inspect-command-unit', 'retry-missing-server');
-    await mkdir(cacheDir, { recursive: true });
-    const cachePath = getCliSessionCachePath({
-      cachePathTemplate: join(cacheDir, '.cli-session.{pid}'),
-      serverPid: 4242,
-    });
-    await writeCliSessionCache(cachePath, {
-      sessionId: 'cached-session',
-      serverUrl: 'http://127.0.0.1:3050/mcp',
-      contextHash: makeInspectContextHash('/tmp/project'),
-      savedAt: Date.now(),
-    });
-
-    let callCount = 0;
-    transportState.instances = [];
-    const originalPayload = transportState.schemaPayload;
-    mockedTransport.MockStreamableHTTPClientTransport.prototype.send = async function (message: {
-      id?: number;
-      method?: string;
-      params?: Record<string, unknown>;
-    }): Promise<void> {
-      this.sentMessages.push({ method: message.method, params: message.params });
-
-      if (message.id === undefined || !message.method) {
-        return;
-      }
-
-      switch (message.method) {
-        case 'initialize':
-          this.sessionId = transportState.sessionIdOnInitialize;
-          this.onmessage?.({
-            jsonrpc: '2.0',
-            id: message.id,
-            result: {
-              protocolVersion: '2025-06-18',
-              ...transportState.initializeResult,
-            },
-          });
-          break;
-        case 'tools/list':
-          callCount += 1;
-          this.onmessage?.({
-            jsonrpc: '2.0',
-            id: message.id,
-            result:
-              callCount === 1
-                ? originalPayload
-                : {
-                    tools: [
-                      {
-                        name: 'serena_1mcp_find_symbol',
-                        description: 'Find symbol',
-                        inputSchema: {
-                          type: 'object',
-                          properties: { name_path_pattern: { type: 'string' } },
-                          required: ['name_path_pattern'],
-                        },
-                      },
-                    ],
-                  },
-          });
-          break;
-        default:
-          this.onmessage?.({
-            jsonrpc: '2.0',
-            id: message.id,
-            error: {
-              code: -32601,
-              message: `Unhandled mock method: ${message.method}`,
-            },
-          });
-      }
-    };
-
-    await inspectCommand({
-      target: 'serena',
-      format: 'text',
-      'config-dir': cacheDir,
-      'cli-session-cache-path': join(cacheDir, '.cli-session.{pid}'),
-    } as never);
-
-    expect(mockedStdoutWrite).toHaveBeenCalledWith(expect.stringContaining('Inspect: Server'));
-    expect(transportState.instances.map((instance) => instance.sentMessages.map((message) => message.method))).toEqual([
-      ['tools/list'],
-      ['initialize', 'notifications/initialized', 'tools/list'],
-    ]);
-  });
-
-  it('falls back to MCP when a server target is declared but currently disconnected over REST', async () => {
-    mockedApiClientGet.mockResolvedValue({
-      ok: false,
-      status: 503,
-      error: "Server 'serena' is not currently connected",
-    });
-    transportState.schemaPayload = {
-      tools: [
-        {
-          name: 'serena_1mcp_find_symbol',
-          description: 'Find symbol',
-          inputSchema: {
-            type: 'object',
-            properties: { name_path_pattern: { type: 'string' } },
-            required: ['name_path_pattern'],
-          },
-        },
-      ],
-    } as any;
-
-    const cacheDir = join(process.cwd(), '.tmp-test', 'inspect-command-unit', 'rest-disconnected-server');
-    await rm(cacheDir, { recursive: true, force: true });
-    await mkdir(cacheDir, { recursive: true });
-
-    await inspectCommand({
-      target: 'serena',
-      format: 'text',
-      'config-dir': cacheDir,
-      'cli-session-cache-path': join(cacheDir, '.cli-session.{pid}'),
-    } as never);
-
-    expect(mockedStdoutWrite).toHaveBeenCalledWith(expect.stringContaining('Inspect: Server'));
-    expect(mockedStdoutWrite).toHaveBeenCalledWith(expect.stringContaining('server: serena'));
-    expect(transportState.instances.map((instance) => instance.sentMessages.map((message) => message.method))).toEqual([
-      ['initialize', 'notifications/initialized', 'tools/list'],
-    ]);
-  });
-
-  it('lists servers for bare inspect without printing instruction blocks', async () => {
-    mockedApiClientGet.mockResolvedValue({
-      ok: true,
-      status: 200,
-      data: {
-        kind: 'servers',
-        servers: [
-          {
-            server: 'runner',
-            toolCount: 1,
-            hasInstructions: false,
-          },
-        ],
-      },
-    });
-    const cacheDir = join(process.cwd(), '.tmp-test', 'inspect-command-unit', 'inspect-servers');
-    await mkdir(cacheDir, { recursive: true });
-
-    await inspectCommand({
-      format: 'text',
-      'config-dir': cacheDir,
-      'cli-session-cache-path': join(cacheDir, '.cli-session.{pid}'),
-    } as never);
-
-    expect(mockedStdoutWrite).toHaveBeenCalledWith(expect.stringContaining('Inspect: Servers'));
-    expect(mockedStdoutWrite).toHaveBeenCalledWith(expect.stringContaining('- server: runner'));
-    expect(mockedStdoutWrite).not.toHaveBeenCalledWith(
-      expect.stringContaining('# 1MCP - Model Context Protocol Proxy'),
-    );
-    expect(transportState.instances).toHaveLength(0);
-  });
-
-  it('omits server instructions for server targets', async () => {
-    mockedApiClientGet.mockResolvedValue({
-      ok: true,
-      status: 200,
-      data: {
-        kind: 'server',
-        server: 'serena',
-        instructions: '# Serena Instructions\nUse Serena tools first.',
-        tools: [
-          {
-            tool: 'find_symbol',
-            qualifiedName: 'serena_1mcp_find_symbol',
-            description: 'Find symbol',
-            requiredArgs: 1,
-            optionalArgs: 0,
-          },
-        ],
-        totalTools: 1,
-        hasMore: false,
-      },
-    });
-    const cacheDir = join(process.cwd(), '.tmp-test', 'inspect-command-unit', 'retry-missing-instructions');
-    await mkdir(cacheDir, { recursive: true });
-    const cachePath = getCliSessionCachePath({
-      cachePathTemplate: join(cacheDir, '.cli-session.{pid}'),
-      serverPid: 4242,
-    });
-    await writeCliSessionCache(cachePath, {
-      sessionId: 'cached-session',
-      serverUrl: 'http://127.0.0.1:3050/mcp',
-      contextHash: makeInspectContextHash('/tmp/project'),
-      savedAt: Date.now(),
-    });
-
-    await inspectCommand({
-      target: 'serena',
-      format: 'text',
-      'config-dir': cacheDir,
-      'cli-session-cache-path': join(cacheDir, '.cli-session.{pid}'),
-    } as never);
-
-    expect(mockedStdoutWrite).toHaveBeenCalledWith(expect.stringContaining('Inspect: Server'));
-    expect(mockedStdoutWrite).not.toHaveBeenCalledWith(expect.stringContaining('instructions:'));
-    expect(mockedStdoutWrite).not.toHaveBeenCalledWith(expect.stringContaining('# Serena Instructions'));
-    expect(mockedStdoutWrite).not.toHaveBeenCalledWith(
-      expect.stringContaining('# 1MCP - Model Context Protocol Proxy'),
-    );
-    expect(transportState.instances).toHaveLength(0);
-  });
-
-  it('does not reuse proxy initialize instructions as server instructions during MCP fallback', async () => {
-    mockedApiClientGet
-      .mockResolvedValueOnce({
-        ok: false,
-        status: 503,
-        error: "Server 'serena' is not currently connected",
-      })
-      .mockResolvedValueOnce({
-        ok: false,
-        status: 503,
-        error: "Server 'serena' is not currently connected",
-      });
-
-    transportState.initializeResult = {
-      instructions: '# 1MCP - Model Context Protocol Proxy\nProxy-only instructions.',
-    };
-    transportState.schemaPayload = {
-      tools: [
-        {
-          name: 'serena_1mcp_find_symbol',
-          description: 'Find symbol',
-          inputSchema: {
-            type: 'object',
-            properties: {
-              name_path_pattern: { type: 'string' },
-            },
-            required: ['name_path_pattern'],
-          },
-        },
-      ],
-    };
-
-    const cacheDir = join(process.cwd(), '.tmp-test', 'inspect-command-unit', 'ignore-proxy-instructions');
-    await mkdir(cacheDir, { recursive: true });
-
-    await inspectCommand({
-      target: 'serena',
-      format: 'text',
-      'config-dir': cacheDir,
-      'cli-session-cache-path': join(cacheDir, '.cli-session.{pid}'),
-    } as never);
-
-    expect(mockedStdoutWrite).toHaveBeenCalledWith(expect.stringContaining('server: serena'));
-    expect(mockedStdoutWrite).not.toHaveBeenCalledWith(
-      expect.stringContaining('# 1MCP - Model Context Protocol Proxy'),
-    );
-  });
-
-  it('extracts server instructions from aggregated proxy instructions during MCP fallback', async () => {
-    mockedApiClientGet
-      .mockResolvedValueOnce({
-        ok: false,
-        status: 503,
-        error: "Server 'serena' is not currently connected",
-      })
-      .mockResolvedValueOnce({
-        ok: false,
-        status: 503,
-        error: "Server 'serena' is not currently connected",
-      });
-
-    transportState.initializeResult = {
-      instructions: `# 1MCP - Model Context Protocol Proxy
-
-<serena>
-# Serena Instructions
-Use Serena for semantic code navigation and editing.
-</serena>
-
-<runner>
-Runner instructions.
-</runner>`,
-    };
-    transportState.schemaPayload = {
-      tools: [
-        {
-          name: 'serena_1mcp_find_symbol',
-          description: 'Find symbol',
-          inputSchema: {
-            type: 'object',
-            properties: {
-              name_path_pattern: { type: 'string' },
-            },
-            required: ['name_path_pattern'],
-          },
-        },
-      ],
-    };
-
-    const cacheRoot = join(process.cwd(), '.tmp-test', 'inspect-command-unit');
-    await mkdir(cacheRoot, { recursive: true });
-    const cacheDir = await mkdtemp(join(cacheRoot, 'extract-server-instructions-'));
-
-    const result = await getInspectResult({
-      target: 'serena',
-      'config-dir': cacheDir,
-      'cli-session-cache-path': join(cacheDir, '.cli-session.{pid}'),
-    } as never);
-
-    expect(result.kind).toBe('server');
-    if (result.kind === 'server') {
-      expect(result.instructions).toBe('# Serena Instructions\nUse Serena for semantic code navigation and editing.');
-    }
-
-    await rm(cacheDir, { recursive: true, force: true });
   });
 });

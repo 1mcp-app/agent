@@ -3,12 +3,13 @@ import { Tool } from '@modelcontextprotocol/sdk/types.js';
 import logger, { debugIf, errorIf } from '@src/logger/logger.js';
 
 /**
- * Lightweight tool metadata (name + description only, no inputSchema)
+ * Lightweight tool metadata used for discovery and routing.
  */
 export interface ToolMetadata {
   name: string;
   server: string;
   description: string;
+  inputSchema?: Tool['inputSchema'];
   tags?: string[];
 }
 
@@ -89,6 +90,7 @@ export class ToolRegistry {
           name: tool.name,
           server: serverName,
           description: tool.description || '',
+          inputSchema: tool.inputSchema,
           tags,
         });
       }
@@ -116,6 +118,7 @@ export class ToolRegistry {
       name: tool.name,
       server,
       description: tool.description || '',
+      inputSchema: tool.inputSchema,
       tags: tags || [],
     }));
 

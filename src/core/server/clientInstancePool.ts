@@ -1,67 +1,13 @@
-import { Client } from '@modelcontextprotocol/sdk/client/index.js';
-
-import { AuthProviderTransport } from '@src/core/types/index.js';
+import { serializePoolIdentity, templateRenderedHash } from '@src/core/server/templateIdentity.js';
 import type { MCPServerParams } from '@src/core/types/transport.js';
 import logger, { debugIf, infoIf } from '@src/logger/logger.js';
 import { HandlebarsTemplateRenderer } from '@src/template/handlebarsTemplateRenderer.js';
-import { createTransportsWithContext } from '@src/transport/transportFactory.js';
 import type { ContextData } from '@src/types/context.js';
-import { getConnectionTimeout } from '@src/utils/core/timeoutUtils.js';
-import { createHash } from '@src/utils/crypto.js';
 
-/**
- * Configuration options for client instance pool
- */
-export interface ClientPoolOptions {
-  /** Maximum number of instances per template (0 = unlimited) */
-  maxInstances?: number;
-  /** Time in milliseconds to wait before terminating idle instances */
-  idleTimeout?: number;
-  /** Interval in milliseconds to run cleanup checks */
-  cleanupInterval?: number;
-  /** Maximum total instances across all templates (0 = unlimited) */
-  maxTotalInstances?: number;
-}
+import { createPooledClientInstance } from './clientInstanceFactory.js';
+import { ClientPoolOptions, DEFAULT_POOL_OPTIONS, PooledClientInstance } from './clientInstancePoolTypes.js';
 
-/**
- * Default pool configuration
- */
-const DEFAULT_POOL_OPTIONS: ClientPoolOptions = {
-  maxInstances: 10,
-  idleTimeout: 5 * 60 * 1000, // 5 minutes
-  cleanupInterval: 60 * 1000, // 1 minute
-  maxTotalInstances: 100,
-};
-
-/**
- * Represents a pooled client instance connected to an upstream MCP server
- */
-export interface PooledClientInstance {
-  /** Unique identifier for this instance */
-  id: string;
-  /** Name of the template this instance was created from */
-  templateName: string;
-  /** MCP client instance */
-  client: Client;
-  /** Transport connected to upstream server */
-  transport: AuthProviderTransport;
-  /** Hash of the rendered configuration used to create this instance */
-  renderedHash: string;
-  /** Processed server configuration */
-  processedConfig: MCPServerParams;
-  /** Number of clients currently connected to this instance */
-  referenceCount: number;
-  /** Timestamp when this instance was created */
-  createdAt: Date;
-  /** Timestamp of last client activity */
-  lastUsedAt: Date;
-  /** Current status of the instance */
-  status: 'active' | 'idle' | 'terminating';
-  /** Set of client IDs connected to this instance */
-  clientIds: Set<string>;
-  /** Template-specific idle timeout */
-  idleTimeout: number;
-}
+export type { ClientPoolOptions, PooledClientInstance };
 
 /**
  * Manages a pool of MCP client instances created from templates
@@ -78,6 +24,7 @@ export class ClientInstancePool {
   private options: ClientPoolOptions;
   private cleanupTimer?: ReturnType<typeof setInterval>;
   private instanceCounter = 0;
+  private pendingCreations = new Map<string, Promise<PooledClientInstance>>();
 
   constructor(options: Partial<ClientPoolOptions> = {}) {
     this.options = { ...DEFAULT_POOL_OPTIONS, ...options };
@@ -106,7 +53,7 @@ export class ClientInstancePool {
     // Render template with context data
     const renderer = new HandlebarsTemplateRenderer();
     const renderedConfig = renderer.renderTemplate(templateConfig, context);
-    const renderedHash = createHash(JSON.stringify(renderedConfig));
+    const renderedHash = templateRenderedHash(renderedConfig);
 
     // Debug logging to verify template rendering
     debugIf(() => ({
@@ -136,7 +83,7 @@ export class ClientInstancePool {
     const instanceKey = this.createInstanceKey(
       templateName,
       renderedHash,
-      templateSettings.perClient ? clientId : undefined,
+      templateSettings.perClient || !templateSettings.shareable ? clientId : undefined,
     );
     logger.info(`Template ${templateName}, renderedHash: ${renderedHash}, Instance key: ${instanceKey}`);
 
@@ -145,39 +92,57 @@ export class ClientInstancePool {
 
     if (existingInstance && existingInstance.status !== 'terminating') {
       // Check if this template is shareable
-      if (templateSettings.shareable) {
+      if (templateSettings.shareable || existingInstance.clientIds.has(clientId)) {
         return this.addClientToInstance(existingInstance, clientId);
       }
     }
 
-    // Check instance limits before creating new
-    this.checkInstanceLimits(templateName);
+    const pendingCreation = this.pendingCreations.get(instanceKey);
+    if (pendingCreation) {
+      const instance = await pendingCreation;
+      if (instance.status !== 'terminating') {
+        return this.addClientToInstance(instance, clientId);
+      }
+    }
 
-    // Create new client instance
-    const instance: PooledClientInstance = await this.createNewInstance(
-      templateName,
-      templateConfig,
-      renderedConfig, // Use rendered config directly
-      renderedHash, // Use rendered hash
-      clientId,
-      templateSettings.idleTimeout,
-    );
+    const instancePromise = (async (): Promise<PooledClientInstance> => {
+      // Check instance limits before creating new
+      this.checkInstanceLimits(templateName);
 
-    this.instances.set(instanceKey, instance);
-    this.addToTemplateIndex(templateName, instanceKey);
-
-    infoIf(() => ({
-      message: 'Created new client instance from template',
-      meta: {
-        instanceId: instance.id,
+      // Create new client instance
+      const instance: PooledClientInstance = await createPooledClientInstance({
+        instanceId: this.generateInstanceId(),
+        instanceKey,
         templateName,
-        renderedHash: renderedHash.substring(0, 8) + '...',
+        processedConfig: renderedConfig,
+        renderedHash,
         clientId,
-        shareable: templateSettings.shareable,
-      },
-    }));
+        idleTimeout: templateSettings.idleTimeout,
+      });
 
-    return instance;
+      this.instances.set(instanceKey, instance);
+      this.addToTemplateIndex(templateName, instanceKey);
+
+      infoIf(() => ({
+        message: 'Created new client instance from template',
+        meta: {
+          instanceId: instance.id,
+          templateName,
+          renderedHash: renderedHash.substring(0, 8) + '...',
+          clientId,
+          shareable: templateSettings.shareable,
+        },
+      }));
+
+      return instance;
+    })();
+
+    this.pendingCreations.set(instanceKey, instancePromise);
+    try {
+      return await instancePromise;
+    } finally {
+      this.pendingCreations.delete(instanceKey);
+    }
   }
 
   /**
@@ -206,7 +171,7 @@ export class ClientInstancePool {
   /**
    * Removes a client from an instance
    */
-  removeClientFromInstance(instanceKey: string, clientId: string): void {
+  removeClientFromInstance(instanceKey: string, clientId: string, idleSince: Date = new Date()): void {
     const instance = this.instances.get(instanceKey);
     if (!instance) {
       return;
@@ -227,7 +192,7 @@ export class ClientInstancePool {
     // Mark as idle if no more clients
     if (instance.referenceCount === 0) {
       instance.status = 'idle';
-      instance.lastUsedAt = new Date(); // Set lastUsedAt to when it became idle
+      instance.lastUsedAt = idleSince; // Set lastUsedAt to when it became idle
 
       infoIf(() => ({
         message: 'Client instance marked as idle',
@@ -244,6 +209,19 @@ export class ClientInstancePool {
    */
   getInstance(instanceKey: string): PooledClientInstance | undefined {
     return this.instances.get(instanceKey);
+  }
+
+  /**
+   * Gets an instance key by its generated instance ID
+   */
+  getInstanceKeyById(instanceId: string): string | undefined {
+    for (const [instanceKey, instance] of this.instances) {
+      if (instance.id === instanceId) {
+        return instanceKey;
+      }
+    }
+
+    return undefined;
   }
 
   /**
@@ -367,6 +345,7 @@ export class ClientInstancePool {
 
     this.instances.clear();
     this.templateToInstances.clear();
+    this.pendingCreations.clear();
 
     debugIf(() => ({
       message: 'ClientInstancePool shutdown complete',
@@ -397,55 +376,6 @@ export class ClientInstancePool {
       idleInstances: idleCount,
       templateCount: this.templateToInstances.size,
       totalClients,
-    };
-  }
-
-  /**
-   * Creates a new client instance and connects to upstream server
-   */
-  private async createNewInstance(
-    templateName: string,
-    templateConfig: MCPServerParams,
-    processedConfig: MCPServerParams,
-    renderedHash: string,
-    clientId: string,
-    idleTimeout: number,
-  ): Promise<PooledClientInstance> {
-    // Create transport for the upstream server
-    const transports = await createTransportsWithContext(
-      {
-        [templateName]: processedConfig,
-      },
-      undefined, // No context needed as templates are already rendered
-    );
-
-    const transport = transports[templateName];
-    if (!transport) {
-      throw new Error(`Failed to create transport for template ${templateName}`);
-    }
-
-    // Create client instance
-    const { ClientManager } = await import('@src/core/client/clientManager.js');
-    const clientManager = ClientManager.getOrCreateInstance();
-    const client = clientManager.createPooledClientInstance();
-
-    // Connect client to the upstream server, respecting connectionTimeout from transport config
-    const connectionTimeout = getConnectionTimeout(transport);
-    await client.connect(transport, connectionTimeout ? { timeout: connectionTimeout } : undefined);
-
-    return {
-      id: this.generateInstanceId(),
-      templateName,
-      client,
-      transport,
-      renderedHash,
-      processedConfig,
-      referenceCount: 1,
-      createdAt: new Date(),
-      lastUsedAt: new Date(),
-      status: 'active',
-      clientIds: new Set([clientId]),
-      idleTimeout,
     };
   }
 
@@ -487,10 +417,7 @@ export class ClientInstancePool {
    * Creates a unique instance key from template name and variable hash
    */
   private createInstanceKey(templateName: string, variableHash: string, clientId?: string): string {
-    if (clientId) {
-      return `${templateName}:${variableHash}:${clientId}`;
-    }
-    return `${templateName}:${variableHash}`;
+    return serializePoolIdentity({ templateName, renderedHash: variableHash, sessionId: clientId });
   }
 
   /**

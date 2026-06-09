@@ -14,6 +14,21 @@ function isStringRecord(value: unknown): value is Record<string, string> {
   return Object.values(value).every((entry) => typeof entry === 'string');
 }
 
+function mergeEnvFilters(globalFilter: string[] | undefined, serverFilter: string[] | undefined): string[] | undefined {
+  if (globalFilter === undefined) {
+    return serverFilter;
+  }
+  if (serverFilter === undefined) {
+    return globalFilter;
+  }
+
+  return Array.from(new Set([...globalFilter, ...serverFilter]));
+}
+
+function shouldApplyGlobalEnvFilter(serverConfig: MCPServerParams): boolean {
+  return serverConfig.type === 'stdio' || (serverConfig.type === undefined && serverConfig.command !== undefined);
+}
+
 /**
  * Return unknown keys defined under the raw global section.
  */
@@ -52,9 +67,9 @@ export function mergeGlobalAndServerConfig(
   if (merged.inheritParentEnv === undefined && globalConfig.inheritParentEnv !== undefined) {
     merged.inheritParentEnv = globalConfig.inheritParentEnv;
   }
-  if (merged.envFilter === undefined && globalConfig.envFilter !== undefined) {
-    merged.envFilter = globalConfig.envFilter;
-  }
+  merged.envFilter = shouldApplyGlobalEnvFilter(serverConfig)
+    ? mergeEnvFilters(globalConfig.envFilter, serverConfig.envFilter)
+    : serverConfig.envFilter;
 
   // Replace semantics
   if (merged.oauth === undefined && globalConfig.oauth !== undefined) {
@@ -83,13 +98,6 @@ export function mergeGlobalAndServerConfig(
     serverConfig.inheritParentEnv === undefined
   ) {
     delete merged.inheritParentEnv;
-  }
-  if (
-    (merged.type === 'http' || merged.type === 'sse' || merged.type === 'streamableHttp') &&
-    globalConfig.envFilter !== undefined &&
-    serverConfig.envFilter === undefined
-  ) {
-    delete merged.envFilter;
   }
 
   return merged;

@@ -189,7 +189,7 @@ export class FileStorageService {
    * Gets the file path for a given prefix and ID
    */
   public getFilePath(filePrefix: string, id: string): string {
-    if (!this.isValidId(id)) {
+    if (!this.isValidId(id, filePrefix)) {
       throw new Error(`Invalid ID format: ${id}`);
     }
 
@@ -210,7 +210,7 @@ export class FileStorageService {
   /**
    * Validates ID format for security
    */
-  private isValidId(id: string): boolean {
+  private isValidId(id: string, filePrefix?: string): boolean {
     // Check minimum length (prefix + content)
     if (!id || id.length < 8) {
       return false;
@@ -231,10 +231,15 @@ export class FileStorageService {
           // UUID v4 format: 8-4-4-4-12 hexadecimal digits with hyphens
           const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
           return uuidRegex.test(uuidPart);
-        } catch {
+        } catch (error) {
+          logger.debug(`extractUuidPart failed for id=${id}, prefix=${prefix}`, { error });
           return false;
         }
       }
+    }
+
+    if (filePrefix === AUTH_CONFIG.SERVER.STREAMABLE_SESSION.FILE_PREFIX && /^rest-[0-9a-f]{16}$/.test(id)) {
+      return true;
     }
 
     // Check for valid client-side OAuth prefix
@@ -280,7 +285,7 @@ export class FileStorageService {
    * Returns null if file doesn't exist or data is expired
    */
   readData<T extends ExpirableData>(filePrefix: string, id: string): T | null {
-    if (!this.isValidId(id)) {
+    if (!this.isValidId(id, filePrefix)) {
       logger.warn(`Rejected readData with invalid ID: ${id}`);
       return null;
     }
@@ -311,7 +316,7 @@ export class FileStorageService {
    * Deletes data file with the specified prefix and ID
    */
   deleteData(filePrefix: string, id: string): boolean {
-    if (!this.isValidId(id)) {
+    if (!this.isValidId(id, filePrefix)) {
       logger.warn(`Rejected deleteData with invalid ID: ${id}`);
       return false;
     }

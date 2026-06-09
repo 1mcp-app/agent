@@ -9,12 +9,6 @@ import { ServerRegistry } from '@src/core/server/adapters/ServerRegistry.js';
 import { filterDisabledTools, getDisabledToolError } from '@src/core/server/disabledTools.js';
 import { ServerManager } from '@src/core/server/serverManager.js';
 import logger from '@src/logger/logger.js';
-import {
-  CONTEXT_HEADERS,
-  deriveContextSessionId,
-  extractRequestContext,
-} from '@src/transport/http/utils/contextExtractor.js';
-import type { ContextData } from '@src/types/context.js';
 
 import { Request, RequestHandler, Response } from 'express';
 
@@ -35,9 +29,16 @@ import {
   summarizeToolSchema,
   type ToolSummary,
 } from './inspectHelpers.js';
+import { ensureRequestContextInitialized } from './inspectRequestContext.js';
 
+export {
+  buildFilterConfig,
+  ensureRequestContextInitialized,
+  matchesFilterConfig,
+  parseTarget,
+  resolveConnectionByServerName,
+};
 export type { InspectServerPayload, InspectServersPayload, InspectToolPayload, ServerSummary, ToolSummary };
-export { buildFilterConfig, matchesFilterConfig, parseTarget, resolveConnectionByServerName };
 
 type FilteredConnections = ReturnType<typeof FilteringService.getFilteredConnections>;
 
@@ -64,71 +65,6 @@ async function listDirectServerTools(
 
 function getServerConfigs() {
   return McpConfigManager.getInstance().getTransportConfig();
-}
-
-export async function ensureRequestContextInitialized(
-  serverManager: ServerManager,
-  req: Request,
-  res: Response,
-  filterConfig: ReturnType<typeof buildFilterConfig>,
-): Promise<string | undefined> {
-  const context = extractRequestContext(req);
-  if (!context) {
-    return undefined;
-  }
-
-  const headerSessionId = req.headers?.[CONTEXT_HEADERS.SESSION_ID];
-  const sessionId =
-    (Array.isArray(headerSessionId) ? headerSessionId[0] : headerSessionId) ||
-    context.sessionId ||
-    deriveContextSessionId(context);
-
-  res.setHeader?.(CONTEXT_HEADERS.SESSION_ID, sessionId);
-
-  await initializeTemplateServersForContext(serverManager, sessionId, context, filterConfig);
-  return sessionId;
-}
-
-async function initializeTemplateServersForContext(
-  serverManager: ServerManager,
-  sessionId: string,
-  context: ContextData,
-  filterConfig: ReturnType<typeof buildFilterConfig>,
-): Promise<void> {
-  const configManager = ConfigManager.getInstance();
-  const { templateServers } = await configManager.loadConfigWithTemplates(context);
-
-  const templateEntries = Object.entries(templateServers);
-  if (templateEntries.length === 0) {
-    return;
-  }
-
-  const templateManager = serverManager.getTemplateServerManager();
-  const pendingTemplates = Object.fromEntries(
-    templateEntries.filter(([templateName]) => !templateManager.getRenderedHashForSession(sessionId, templateName)),
-  );
-
-  const serverRegistry = serverManager.getServerRegistry();
-  for (const [templateName, config] of templateEntries) {
-    if (!serverRegistry.has(templateName)) {
-      serverRegistry.registerTemplate(templateName, config);
-    }
-  }
-
-  if (Object.keys(pendingTemplates).length === 0) {
-    return;
-  }
-
-  await templateManager.createTemplateBasedServers(
-    sessionId,
-    context,
-    filterConfig,
-    { mcpTemplates: pendingTemplates },
-    serverManager.getClients(),
-    serverManager.getClientTransports(),
-  );
-
-  await serverManager.getLazyLoadingOrchestrator()?.refreshCapabilities();
 }
 
 async function buildServerSummaries(

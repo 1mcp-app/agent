@@ -64,7 +64,11 @@ vi.mock('@src/core/capabilities/internalCapabilitiesProvider.js', () => ({
 describe('requestHandlers disabled tools enforcement', () => {
   let registerRequestHandlers: typeof import('./requestHandlers.js').registerRequestHandlers;
   let mockServer: { setRequestHandler: ReturnType<typeof vi.fn> };
-  let mockClient: { callTool: ReturnType<typeof vi.fn>; setRequestHandler: ReturnType<typeof vi.fn> };
+  let mockClient: {
+    callTool: ReturnType<typeof vi.fn>;
+    listTools: ReturnType<typeof vi.fn>;
+    setRequestHandler: ReturnType<typeof vi.fn>;
+  };
   let outboundConnections: OutboundConnections;
 
   beforeEach(async () => {
@@ -79,6 +83,12 @@ describe('requestHandlers disabled tools enforcement', () => {
 
     mockClient = {
       callTool: vi.fn().mockResolvedValue({ content: [{ type: 'text', text: 'ok' }] }),
+      listTools: vi.fn().mockResolvedValue({
+        tools: [
+          { name: 'read_file', description: 'Read file', inputSchema: { type: 'object' } },
+          { name: 'write_file', description: 'Write file', inputSchema: { type: 'object' } },
+        ],
+      }),
       setRequestHandler: vi.fn(),
     };
 
@@ -151,6 +161,7 @@ describe('requestHandlers disabled tools enforcement', () => {
     const result = await handler({ params: {} });
 
     expect(result.tools.map((tool: { name: string }) => tool.name)).toEqual(['filesystem/read_file']);
+    expect(mockHandlePagination).not.toHaveBeenCalled();
   });
 
   it('re-reads disabled tools config for listTools after config reload', async () => {

@@ -63,22 +63,25 @@ export class ConfigChangeHandler {
     // Get the latest configuration for all operations
     const newConfig = this.configManager.getTransportConfig();
 
+    const appliedChanges: ConfigChange[] = [];
     for (const change of changes) {
       try {
-        await this.processChange(change, newConfig);
+        if (await this.processChange(change, newConfig)) {
+          appliedChanges.push(change);
+        }
       } catch (error) {
         logger.error(`Failed to process change for server ${change.serverName}: ${error}`);
       }
     }
 
     // Notify clients if capabilities changed
-    await this.notifyClientsIfNeeded(changes, newConfig);
+    await this.notifyClientsIfNeeded(appliedChanges, newConfig);
   }
 
   /**
    * Process a single configuration change
    */
-  private async processChange(change: ConfigChange, newConfig: Record<string, MCPServerParams>): Promise<void> {
+  private async processChange(change: ConfigChange, newConfig: Record<string, MCPServerParams>): Promise<boolean> {
     // Access fieldsChanged only for 'modified' type using type guard
     const fieldsChanged = change.type === 'modified' ? change.fieldsChanged : undefined;
 
@@ -88,22 +91,36 @@ export class ConfigChangeHandler {
     }));
 
     switch (change.type) {
-      case ConfigChangeType.ADDED:
-        await this.handleServerAdded(change.serverName, newConfig[change.serverName]);
-        break;
+      case ConfigChangeType.ADDED: {
+        const config = newConfig[change.serverName];
+        if (!config) {
+          logger.warn(`Skipping added server ${change.serverName}: server configuration is missing after reload`);
+          return false;
+        }
+
+        await this.handleServerAdded(change.serverName, config);
+        return true;
+      }
 
       case ConfigChangeType.REMOVED:
         await this.handleServerRemoved(change.serverName);
-        break;
+        return true;
 
-      case ConfigChangeType.MODIFIED:
-        await this.handleServerModified(change.serverName, newConfig[change.serverName], change.fieldsChanged);
-        break;
+      case ConfigChangeType.MODIFIED: {
+        const config = newConfig[change.serverName];
+        if (!config) {
+          logger.warn(`Skipping modified server ${change.serverName}: server configuration is missing after reload`);
+          return false;
+        }
+
+        await this.handleServerModified(change.serverName, config, change.fieldsChanged);
+        return true;
+      }
 
       default: {
         const _exhaustive: never = change;
         logger.warn(`Unknown change type: ${String(_exhaustive)}`);
-        break;
+        return false;
       }
     }
   }
@@ -311,6 +328,8 @@ export class ConfigChangeHandler {
       const { AgentConfigManager } = await import('@src/core/server/agentConfig.js');
       const { NotificationManager } = await import('@src/core/notifications/notificationManager.js');
       const { CapabilityAggregator } = await import('@src/core/capabilities/capabilityAggregator.js');
+      const { createCapabilityNotificationFacts } =
+        await import('@src/core/capabilities/capabilityNotificationFacts.js');
 
       const agentConfig = AgentConfigManager.getInstance();
       if (!agentConfig.get('features').clientNotifications) {
@@ -324,14 +343,15 @@ export class ConfigChangeHandler {
       // Calculate new capabilities
       const capabilityAggregator = new CapabilityAggregator(outboundConnections);
       const changes = await capabilityAggregator.updateCapabilities();
+      const notificationFacts = createCapabilityNotificationFacts(changes);
 
       if (changes.hasChanges) {
         debugIf(() => ({
           message: 'Sending listChanged notifications to clients',
           meta: {
-            toolsChanged: changes.current.tools.length > 0,
-            resourcesChanged: changes.current.resources.length > 0,
-            promptsChanged: changes.current.prompts.length > 0,
+            toolsChanged: notificationFacts.refresh.shouldNotifyListChanged,
+            resourcesChanged: notificationFacts.resourcesChanged,
+            promptsChanged: notificationFacts.promptsChanged,
           },
         }));
 
@@ -340,9 +360,9 @@ export class ConfigChangeHandler {
           try {
             const notificationManager = new NotificationManager(inboundConnection);
             notificationManager.handleCapabilityChanges({
-              toolsChanged: changes.current.tools.length > 0,
-              resourcesChanged: changes.current.resources.length > 0,
-              promptsChanged: changes.current.prompts.length > 0,
+              toolsChanged: notificationFacts.refresh.shouldNotifyListChanged,
+              resourcesChanged: notificationFacts.resourcesChanged,
+              promptsChanged: notificationFacts.promptsChanged,
               hasChanges: true,
               addedServers: changes.addedServers,
               removedServers: changes.removedServers,

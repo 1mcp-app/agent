@@ -25,12 +25,57 @@ export function mergeServeTargetOptions<TOptions extends ResolvableServeTargetOp
   options: TOptions,
   projectConfig: ProjectConfig | null,
 ): TOptions {
+  const explicitSelectorInput = collectFilterInput(options);
+  const projectSelectorInput = selectOneFilterInput({
+    preset: projectConfig?.preset,
+    filter: projectConfig?.filter,
+    tags: normalizeTags(projectConfig?.tags),
+  });
+  const selectorInput = explicitSelectorInput.hasAnySelector ? explicitSelectorInput : projectSelectorInput;
+
   return {
     ...options,
-    preset: options.preset || projectConfig?.preset,
-    filter: options.filter || projectConfig?.filter,
-    tags: options.tags || normalizeTags(projectConfig?.tags),
+    preset: selectorInput.preset,
+    filter: selectorInput.filter,
+    tags: selectorInput.tags,
+    'tag-filter': selectorInput['tag-filter'],
   };
+}
+
+function collectFilterInput(options: ServeUrlOptions): ServeUrlOptions & { hasAnySelector: boolean } {
+  const hasPreset = options.preset !== undefined;
+  const hasTagFilter = options['tag-filter'] !== undefined;
+  const hasFilter = options.filter !== undefined;
+  const hasTags = options.tags !== undefined;
+  const hasAnySelector = hasPreset || hasTagFilter || hasFilter || hasTags;
+
+  return {
+    hasAnySelector,
+    preset: options.preset,
+    'tag-filter': options['tag-filter'],
+    filter: options.filter,
+    tags: options.tags,
+  };
+}
+
+function selectOneFilterInput(options: ServeUrlOptions): ServeUrlOptions & { hasAnySelector: boolean } {
+  const collected = collectFilterInput(options);
+  const { hasAnySelector } = collected;
+
+  if (!hasAnySelector) {
+    return { hasAnySelector };
+  }
+
+  if (collected.preset !== undefined) {
+    return { hasAnySelector, preset: collected.preset };
+  }
+  if (collected['tag-filter'] !== undefined) {
+    return { hasAnySelector, 'tag-filter': collected['tag-filter'] };
+  }
+  if (collected.filter !== undefined) {
+    return { hasAnySelector, filter: collected.filter };
+  }
+  return { hasAnySelector, tags: collected.tags };
 }
 
 export async function resolveServeTarget<TOptions extends ResolvableServeTargetOptions>(

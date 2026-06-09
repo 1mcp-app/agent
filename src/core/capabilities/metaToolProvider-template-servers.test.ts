@@ -8,8 +8,7 @@
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { Tool } from '@modelcontextprotocol/sdk/types.js';
 
-import { OutboundConnections } from '@src/core/types/client.js';
-import { ClientStatus } from '@src/core/types/client.js';
+import { ClientStatus, OutboundConnections } from '@src/core/types/client.js';
 
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -159,6 +158,26 @@ describe('MetaToolProvider - Template Server Support', () => {
       // Servers list should also use clean names
       expect((result as any).servers).toContain('template-server');
       expect((result as any).servers).not.toContain('template-server:abc123');
+    });
+
+    it('should resolve list routes through the caller session for shareable templates', async () => {
+      const sessionAwareProvider = new MetaToolProvider(
+        () => toolRegistry,
+        schemaCache,
+        outboundConnections,
+        undefined,
+        undefined,
+        {
+          getRenderedHashForSession: vi.fn(() => 'abc123'),
+          getAllRenderedHashesForSession: vi.fn(() => new Map([['template-server', 'abc123']])),
+        },
+      );
+      const listVisibleTools = vi.spyOn((sessionAwareProvider as any).capabilityCatalog, 'listVisibleTools');
+
+      const result = await sessionAwareProvider.callMetaTool('tool_list', {}, 'session-123');
+
+      expect((result as any).error).toBeUndefined();
+      expect(listVisibleTools).toHaveBeenCalledWith({}, 'session-123', undefined);
     });
   });
 

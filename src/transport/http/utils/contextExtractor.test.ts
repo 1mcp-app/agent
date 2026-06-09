@@ -344,5 +344,25 @@ describe('contextExtractor', () => {
       expect(first).toBe(second);
       expect(first).toMatch(/^rest-/);
     });
+
+    it('does not let payload sessionId influence derived routing identity', () => {
+      const first = deriveContextSessionId({
+        project: { name: 'demo', path: '/tmp/demo' },
+        user: { username: 'alice' },
+        environment: { variables: {} },
+        sessionId: 'attacker-controlled',
+        transport: { type: 'http' },
+      });
+
+      const second = deriveContextSessionId({
+        project: { name: 'demo', path: '/tmp/demo' },
+        user: { username: 'alice' },
+        environment: { variables: {} },
+        sessionId: 'different-payload-value',
+        transport: { type: 'http' },
+      });
+
+      expect(first).toBe(second);
+    });
   });
 });

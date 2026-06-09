@@ -1,6 +1,12 @@
+import {
+  BackendOAuthDashboardService,
+  getOAuthAuthorizationFlow,
+  OAuthAuthorizationFlow,
+  OAuthAuthorizationFlowProvider,
+} from '@src/auth/oauthAuthorizationFlow.js';
 import { SDKOAuthServerProvider } from '@src/auth/sdkOAuthServerProvider.js';
-import { AUTH_CONFIG, RATE_LIMIT_CONFIG } from '@src/constants.js';
-import { ClientManager, OAuthRequiredError } from '@src/core/client/clientManager.js';
+import { RATE_LIMIT_CONFIG } from '@src/constants.js';
+import { ClientManager } from '@src/core/client/clientManager.js';
 import { LoadingState } from '@src/core/loading/loadingStateTracker.js';
 import { McpLoadingManager } from '@src/core/loading/mcpLoadingManager.js';
 import { AgentConfigManager } from '@src/core/server/agentConfig.js';
@@ -14,28 +20,23 @@ import {
   sanitizeServerNameForContext,
   sanitizeUrlParam,
 } from '@src/utils/validation/sanitization.js';
-import { validateScopes } from '@src/utils/validation/scopeValidation.js';
 
 import { Request, RequestHandler, Response, Router } from 'express';
 import rateLimit from 'express-rate-limit';
+import { z } from 'zod';
 
-/**
- * Service information interface for OAuth dashboard
- */
-interface ServiceInfo {
-  name: string;
-  status: string;
-  authorizationUrl?: string;
-  oauthStartTime?: Date;
-  lastError?: string;
-  lastConnected?: Date;
-}
+const consentBodySchema = z.object({
+  auth_request_id: z.string().min(1).optional(),
+  action: z.string().min(1).optional(),
+  scopes: z.union([z.string(), z.array(z.string())]).optional(),
+});
 
 /**
  * Creates OAuth routes with the provided OAuth provider
  */
 export function createOAuthRoutes(oauthProvider: SDKOAuthServerProvider, loadingManager?: McpLoadingManager): Router {
   const router: Router = Router();
+  const oauthFlow = getOAuthFlow(oauthProvider, loadingManager);
 
   // Rate limiter for OAuth endpoints
   const createOAuthLimiter = () => {
@@ -52,48 +53,18 @@ export function createOAuthRoutes(oauthProvider: SDKOAuthServerProvider, loading
   router.use(createOAuthLimiter());
 
   /**
-   * Check if a server requires OAuth based on runtime behavior
-   * A server requires OAuth if it has ever thrown UnauthorizedError (indicated by authorizationUrl or oauthStartTime)
-   */
-  function requiresOAuth(service: ServiceInfo): boolean {
-    // The most reliable indicator: server has ever had an authorization URL
-    // This means the server threw UnauthorizedError and we captured the OAuth URL
-    if (service.authorizationUrl) {
-      return true;
-    }
-
-    // Secondary indicator: server has ever been in AwaitingOAuth status
-    // This means the server threw UnauthorizedError at some point
-    if (service.oauthStartTime) {
-      return true;
-    }
-
-    // If currently awaiting OAuth, it definitely requires OAuth
-    if (service.status === ClientStatus.AwaitingOAuth) {
-      return true;
-    }
-
-    return false;
-  }
-
-  /**
    * OAuth Dashboard - Shows all services and their OAuth status
    */
   router.get('/', async (req: Request, res: Response) => {
     try {
-      const serverManager = ServerManager.current;
-      const clients = serverManager.getClients();
+      const dashboard = oauthFlow.getBackendOAuthDashboard();
+      if (dashboard.status !== 'ready') {
+        const errorResponse: Record<string, string> = { error: dashboard.errorDescription };
+        res.status(500).json(errorResponse);
+        return;
+      }
 
-      const services: ServiceInfo[] = Array.from(clients.entries()).map(([name, clientInfo]) => ({
-        name,
-        status: clientInfo.status,
-        authorizationUrl: clientInfo.authorizationUrl,
-        oauthStartTime: clientInfo.oauthStartTime,
-        lastError: clientInfo.lastError?.message,
-        lastConnected: clientInfo.lastConnected,
-      }));
-
-      const html = generateOAuthDashboard(services, req);
+      const html = generateOAuthDashboard(dashboard.services, req);
       res.setHeader('Content-Type', 'text/html');
       res.send(html);
     } catch (error) {
@@ -109,36 +80,20 @@ export function createOAuthRoutes(oauthProvider: SDKOAuthServerProvider, loading
   const authorizeHandler: RequestHandler = async (req: Request, res: Response) => {
     try {
       const { serverName } = req.params;
-      const serverManager = ServerManager.current;
 
-      const clientInfo = serverManager.getClient(serverName);
-      if (!clientInfo) {
-        const errorResponse: Record<string, string> = { error: 'Service not found' };
+      const result = await oauthFlow.startBackendOAuth({ serverName });
+      if (result.status === 'redirect') {
+        res.redirect(result.redirectUrl);
+        return;
+      }
+
+      const errorResponse: Record<string, string> = { error: result.errorDescription };
+      if (result.status === 'service_not_found') {
         res.status(404).json(errorResponse);
         return;
       }
 
-      if (clientInfo.authorizationUrl) {
-        // Redirect to existing authorization URL
-        res.redirect(clientInfo.authorizationUrl);
-        return;
-      } else {
-        // Generate new authorization URL by attempting connection
-        await initiateOAuth(serverName);
-
-        // Get updated client info
-        const updatedClients = serverManager.getClients();
-        const updatedClientInfo = updatedClients.get(serverName);
-
-        if (updatedClientInfo?.authorizationUrl) {
-          res.redirect(updatedClientInfo.authorizationUrl);
-          return;
-        } else {
-          const errorResponse: Record<string, string> = { error: 'Failed to generate OAuth URL' };
-          res.status(500).json(errorResponse);
-          return;
-        }
-      }
+      res.status(500).json(errorResponse);
     } catch (error) {
       logger.error(`Error starting OAuth for ${req.params.serverName}:`, error);
       const errorResponse: Record<string, string> = { error: 'Failed to start OAuth flow' };
@@ -155,29 +110,15 @@ export function createOAuthRoutes(oauthProvider: SDKOAuthServerProvider, loading
     const { serverName } = req.params;
     const { code, error } = req.query;
     try {
-      if (error) {
-        logger.error(`OAuth error for ${serverName}:`, error);
-        return res.redirect(`/oauth?error=${encodeURIComponent(String(error))}`);
-      }
-
-      if (!code) {
-        logger.error(`OAuth callback missing authorization code for ${serverName}`);
-        return res.redirect(`/oauth?error=missing_code`);
-      }
-
-      // Complete OAuth and reconnect via ClientManager
-      const clientManager = ClientManager.getOrCreateInstance();
-      await clientManager.completeOAuthAndReconnect(serverName, String(code));
-
-      // Notify the loading manager that the server is now ready
-      if (loadingManager) {
-        try {
-          loadingManager.getStateTracker().updateServerState(serverName, LoadingState.Ready);
-          logger.debug(`Updated LoadingStateTracker: ${serverName} is now Ready after OAuth completion`);
-        } catch (stateError) {
-          // If server wasn't tracked, log it but don't fail - this can happen in some edge cases
-          logger.warn(`Could not update LoadingStateTracker for ${serverName}: ${stateError}`);
-        }
+      const result = await oauthFlow.completeBackendOAuthCallback({
+        serverName,
+        code: code ? String(code) : undefined,
+        error: error ? String(error) : undefined,
+      });
+      if (result.status !== 'completed') {
+        logger.error(`OAuth callback failed for ${serverName}:`, result.errorDescription);
+        const errorCode = result.status === 'provider_error' ? result.errorDescription : result.status;
+        return res.redirect(`/oauth?error=${encodeURIComponent(errorCode)}`);
       }
 
       // Redirect back to dashboard with success
@@ -194,20 +135,20 @@ export function createOAuthRoutes(oauthProvider: SDKOAuthServerProvider, loading
   const restartHandler: RequestHandler = async (req: Request, res: Response) => {
     const { serverName } = req.params;
     try {
-      const serverManager = ServerManager.current;
+      const result = await oauthFlow.restartBackendOAuth({ serverName });
+      if (result.status === 'restarted') {
+        const successResponse: Record<string, string> = { success: 'true', message: 'OAuth flow restarted' };
+        res.json(successResponse);
+        return;
+      }
 
-      const clientInfo = serverManager.getClient(serverName);
-      if (!clientInfo) {
-        const errorResponse: Record<string, string> = { error: 'Service not found' };
+      const errorResponse: Record<string, string> = { error: result.errorDescription };
+      if (result.status === 'service_not_found') {
         res.status(404).json(errorResponse);
         return;
       }
 
-      // Clear existing OAuth data and restart flow
-      await restartOAuthFlow(serverName);
-
-      const successResponse: Record<string, string> = { success: 'true', message: 'OAuth flow restarted' };
-      res.json(successResponse);
+      res.status(500).json(errorResponse);
     } catch (error) {
       logger.error(`Error restarting OAuth for ${serverName}:`, error);
       const errorResponse: Record<string, string> = { error: 'Failed to restart OAuth flow' };
@@ -222,98 +163,31 @@ export function createOAuthRoutes(oauthProvider: SDKOAuthServerProvider, loading
    */
   const consentHandler: RequestHandler = async (req: Request, res: Response) => {
     try {
-      // Extract and validate request body parameters
-      const body = req.body as Record<string, unknown>;
-      const auth_request_id = body.auth_request_id as string | undefined;
-      const action = body.action as string | undefined;
-      const scopes = body.scopes;
+      const body = consentBodySchema.parse(req.body);
+      const result = await oauthFlow.submitConsent({
+        authRequestId: body.auth_request_id,
+        action: body.action,
+        scopes: body.scopes,
+      });
 
-      // Validate required fields
-      if (!auth_request_id || !action) {
-        const errorResponse: Record<string, string> = {
-          error: 'invalid_request',
-          error_description: 'Missing required parameters',
-        };
-        res.status(400).json(errorResponse);
+      if (result.status === 'approved_redirect' || result.status === 'denied_redirect') {
+        res.redirect(result.redirectUrl);
         return;
       }
 
-      // Use the OAuth provider's storage service to ensure consistent storage directory
-      const authRequest = oauthProvider.oauthStorage.getAuthorizationRequest(auth_request_id);
-
-      if (!authRequest) {
-        const errorResponse: Record<string, string> = {
-          error: 'invalid_request',
-          error_description: 'Invalid or expired authorization request',
-        };
-        res.status(400).json(errorResponse);
-        return;
-      }
-
-      // Get client data using the OAuth provider's storage service
-      const clientKey = `${AUTH_CONFIG.CLIENT.PREFIXES.CLIENT}${authRequest.clientId}`;
-      const client = oauthProvider.oauthStorage.clientDataRepository.get(clientKey);
-
-      if (!client) {
-        const errorResponse: Record<string, string> = {
-          error: 'invalid_client',
-          error_description: 'Client not found',
-        };
-        res.status(400).json(errorResponse);
-        return;
-      }
-
-      // Client validation passed - we have a valid client
-
-      if (action === 'deny') {
-        // Use the service layer for denial processing
-        const redirectUrl = await oauthProvider.oauthStorage.processConsentDenial(auth_request_id);
-        res.redirect(redirectUrl.toString());
-        return;
-      }
-
-      if (action === 'approve') {
-        // User approved the authorization
-        let selectedScopes: string[];
-        if (Array.isArray(scopes)) {
-          // Ensure all items are strings
-          selectedScopes = scopes.filter((scope): scope is string => typeof scope === 'string');
-        } else if (typeof scopes === 'string') {
-          selectedScopes = [scopes];
-        } else if (scopes) {
-          // Handle other types by converting to string
-          selectedScopes = [String(scopes)];
-        } else {
-          selectedScopes = [];
-        }
-
-        // Validate selected scopes
-        const validation = validateScopes(selectedScopes);
-        if (!validation.isValid) {
-          const errorResponse: Record<string, string> = {
-            error: 'invalid_scope',
-            error_description: `Invalid scopes: ${validation.errors.join(', ')}`,
-          };
-          res.status(400).json(errorResponse);
-          return;
-        }
-
-        // Use the service layer for approval processing
-        const { redirectUrl } = await oauthProvider.oauthStorage.processConsentApproval(
-          auth_request_id,
-          validation.validScopes,
-        );
-        res.redirect(redirectUrl.toString());
-        return;
-      }
-
-      // Invalid action
-      const errorResponse: Record<string, string> = {
-        error: 'invalid_request',
-        error_description: 'Invalid action',
-      };
-      res.status(400).json(errorResponse);
+      res.status(400).json({
+        error: result.status,
+        error_description: result.errorDescription,
+      });
     } catch (error) {
+      if (error instanceof z.ZodError) {
+        res.status(400).json({
+          error: 'invalid_request',
+          error_description: 'Invalid consent form submission',
+        });
+        return;
+      }
+
       logger.error('Error handling consent form:', error);
       const errorResponse: Record<string, string> = {
         error: 'server_error',
@@ -326,68 +200,9 @@ export function createOAuthRoutes(oauthProvider: SDKOAuthServerProvider, loading
   router.post('/consent', sensitiveOperationLimiter, consentHandler);
 
   /**
-   * Initiate OAuth flow for a service
-   */
-  async function initiateOAuth(serverName: string): Promise<void> {
-    const serverManager = ServerManager.current;
-
-    const clientInfo = serverManager.getClient(serverName);
-    if (!clientInfo) {
-      throw new Error(`Service ${serverName} not found`);
-    }
-
-    try {
-      // Create new client and attempt connection to trigger OAuth
-      const clientManager = ClientManager.getOrCreateInstance();
-      const newClient = clientManager.createClientInstance();
-      await newClient.connect(clientInfo.transport);
-    } catch (error) {
-      if (error instanceof OAuthRequiredError) {
-        // Update client info with OAuth status
-        clientInfo.status = ClientStatus.AwaitingOAuth;
-        clientInfo.oauthStartTime = new Date();
-
-        // Try to get authorization URL from OAuth provider
-        try {
-          const oauthProvider = clientInfo.transport.oauthProvider;
-          if (oauthProvider && typeof oauthProvider.getAuthorizationUrl === 'function') {
-            clientInfo.authorizationUrl = oauthProvider.getAuthorizationUrl();
-          }
-        } catch (urlError) {
-          logger.warn(`Could not extract authorization URL for ${serverName}:`, urlError);
-        }
-
-        logger.info(`OAuth initiated for ${serverName}`);
-      } else {
-        throw error; // Re-throw non-OAuth errors
-      }
-    }
-  }
-
-  /**
-   * Restart OAuth flow for a service
-   */
-  async function restartOAuthFlow(serverName: string): Promise<void> {
-    const serverManager = ServerManager.current;
-
-    const clientInfo = serverManager.getClient(serverName);
-    if (!clientInfo) {
-      throw new Error(`Service ${serverName} not found`);
-    }
-
-    // Clear OAuth state
-    clientInfo.authorizationUrl = undefined;
-    clientInfo.oauthStartTime = undefined;
-    clientInfo.status = ClientStatus.Disconnected;
-
-    // Initiate new OAuth flow
-    await initiateOAuth(serverName);
-  }
-
-  /**
    * Generate OAuth dashboard HTML
    */
-  function generateOAuthDashboard(services: ServiceInfo[], req: Request): string {
+  function generateOAuthDashboard(services: BackendOAuthDashboardService[], req: Request): string {
     const servicesHtml = services
       .map((service) => {
         const statusIcon = getStatusIcon(service.status);
@@ -475,7 +290,7 @@ export function createOAuthRoutes(oauthProvider: SDKOAuthServerProvider, loading
         setTimeout(() => window.location.reload(), 30000);
 
         function restartOAuth(serverName) {
-          fetch(\`/oauth/restart/\${serverName}\`, { method: 'POST' })
+          fetch(\`/oauth/restart/\${encodeURIComponent(serverName)}\`, { method: 'POST' })
             .then(response => response.json())
             .then(data => {
               if (data.success) {
@@ -524,11 +339,10 @@ export function createOAuthRoutes(oauthProvider: SDKOAuthServerProvider, loading
     }
   }
 
-  function getActionButton(service: ServiceInfo): string {
+  function getActionButton(service: BackendOAuthDashboardService): string {
     switch (service.status) {
       case ClientStatus.Connected:
-        // Check if server requires OAuth based on runtime behavior
-        if (requiresOAuth(service)) {
+        if (service.requiresOAuth) {
           return '<span class="status-connected">✓ Authorized</span>';
         } else {
           return '<span class="status-connected">✓ Connected</span>';
@@ -537,10 +351,14 @@ export function createOAuthRoutes(oauthProvider: SDKOAuthServerProvider, loading
         return `<a href="/oauth/authorize/${sanitizeUrlParam(service.name)}" class="btn btn-warning">🔐 Authorize</a>`;
       case ClientStatus.Error:
       case ClientStatus.Disconnected:
-        return `<button onclick="restartOAuth('${sanitizeServerNameForContext(service.name, 'html')}')" class="btn btn-primary">🔄 Restart OAuth</button>`;
+        return getRestartOAuthButton(service.name, 'Restart OAuth');
       default:
-        return `<button onclick="restartOAuth('${sanitizeServerNameForContext(service.name, 'html')}')" class="btn btn-primary">🔄 Start OAuth</button>`;
+        return getRestartOAuthButton(service.name, 'Start OAuth');
     }
+  }
+
+  function getRestartOAuthButton(serverName: string, label: 'Restart OAuth' | 'Start OAuth'): string {
+    return `<button onclick="restartOAuth(this.dataset.serverName)" data-server-name="${escapeHtml(serverName)}" class="btn btn-primary">🔄 ${label}</button>`;
   }
 
   function getAlertHtml(req: Request): string {
@@ -555,6 +373,42 @@ export function createOAuthRoutes(oauthProvider: SDKOAuthServerProvider, loading
   }
 
   return router;
+}
+
+function getOAuthFlow(
+  oauthProvider: SDKOAuthServerProvider & OAuthAuthorizationFlowProvider,
+  loadingManager?: McpLoadingManager,
+): OAuthAuthorizationFlow {
+  const agentConfig = AgentConfigManager.getInstance();
+  return getOAuthAuthorizationFlow(oauthProvider, {
+    serverRuntime: {
+      getClient: (serverName) => ServerManager.current.getClient(serverName),
+      getClients: () => ServerManager.current.getClients(),
+    },
+    clientRuntime: {
+      createClientInstance: () => ClientManager.getOrCreateInstance().createClientInstance(),
+      completeOAuthAndReconnect: (serverName, authorizationCode) =>
+        ClientManager.getOrCreateInstance().completeOAuthAndReconnect(serverName, authorizationCode),
+    },
+    loadingRuntime: loadingManager
+      ? {
+          markReady: (serverName) => {
+            try {
+              loadingManager.getStateTracker().updateServerState(serverName, LoadingState.Ready);
+              logger.debug(`Updated LoadingStateTracker: ${serverName} is now Ready after OAuth completion`);
+            } catch (stateError) {
+              logger.warn(`Could not update LoadingStateTracker for ${serverName}`, { error: stateError });
+            }
+          },
+        }
+      : undefined,
+    createTokenId: () => '',
+    getAuthConfig: () => ({
+      enabled: agentConfig.get('features').auth,
+      oauthTokenTtlMs: agentConfig.get('auth').oauthTokenTtlMs,
+    }),
+    getAvailableTags: () => [],
+  });
 }
 
 // Export the factory function as default

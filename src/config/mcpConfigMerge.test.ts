@@ -45,6 +45,21 @@ describe('mcpConfigMerge', () => {
     expect(merged.envFilter).toEqual(['PATH', 'NODE_*']);
   });
 
+  it('merges global and server envFilter values with stable deduplication', () => {
+    const globalConfig: GlobalTransportConfig = {
+      envFilter: ['UV_*', 'https_proxy', 'HTTP_PROXY', 'no_proxy', 'PATH'],
+    };
+    const serverConfig: MCPServerParams = {
+      type: 'stdio',
+      command: 'bunx',
+      envFilter: ['CONTEXT7_API_KEY', 'PATH', 'UV_*'],
+    };
+
+    const merged = mergeGlobalAndServerConfig(globalConfig, serverConfig);
+
+    expect(merged.envFilter).toEqual(['UV_*', 'https_proxy', 'HTTP_PROXY', 'no_proxy', 'PATH', 'CONTEXT7_API_KEY']);
+  });
+
   it('replaces oauth and headers with server-specific values', () => {
     const globalConfig: GlobalTransportConfig = {
       oauth: { clientId: 'global-client' },
@@ -91,6 +106,21 @@ describe('mcpConfigMerge', () => {
 
     expect(merged.inheritParentEnv).toBeUndefined();
     expect(merged.envFilter).toBeUndefined();
+  });
+
+  it('keeps server envFilter without global envFilter for explicit http transports', () => {
+    const globalConfig: GlobalTransportConfig = {
+      envFilter: ['PATH'],
+    };
+    const serverConfig: MCPServerParams = {
+      type: 'http',
+      url: 'https://example.com/mcp',
+      envFilter: ['SERVER_ONLY'],
+    };
+
+    const merged = mergeGlobalAndServerConfig(globalConfig, serverConfig);
+
+    expect(merged.envFilter).toEqual(['SERVER_ONLY']);
   });
 
   it('merges global config into all servers', () => {

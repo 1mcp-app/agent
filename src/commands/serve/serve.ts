@@ -6,7 +6,6 @@ import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import ConfigContext from '@src/config/configContext.js';
 import { ConfigManager } from '@src/config/configManager.js';
 import { getConfigDir, getDefaultInstructionsTemplatePath, HOST, PORT } from '@src/constants.js';
-import { FlagManager } from '@src/core/flags/flagManager.js';
 import { InstructionAggregator } from '@src/core/instructions/instructionAggregator.js';
 import { formatValidationError, validateTemplateContent } from '@src/core/instructions/templateValidator.js';
 import { LoadingSummary } from '@src/core/loading/loadingStateTracker.js';
@@ -14,13 +13,13 @@ import { McpLoadingManager } from '@src/core/loading/mcpLoadingManager.js';
 import { AgentConfigManager } from '@src/core/server/agentConfig.js';
 import { cleanupPidFileOnExit, registerPidFileCleanup, writePidFile } from '@src/core/server/pidFileManager.js';
 import { ServerManager } from '@src/core/server/serverManager.js';
-import { TagExpression, TagQueryParser } from '@src/domains/preset/parsers/tagQueryParser.js';
-import type { TagQuery } from '@src/domains/preset/types/presetTypes.js';
 import { configureGlobalLogger } from '@src/logger/configureGlobalLogger.js';
 import logger, { debugIf } from '@src/logger/logger.js';
 import { setupServer } from '@src/server.js';
 import { ExpressServer } from '@src/transport/http/server.js';
 import { displayLogo } from '@src/utils/ui/logo.js';
+
+import { parseCommaSeparatedList, parseInternalToolsList, resolveStdioFilterConfig } from './serveOptions.js';
 
 export interface ServeOptions {
   config?: string;
@@ -31,6 +30,7 @@ export interface ServeOptions {
   port?: number;
   host?: string;
   'external-url'?: string;
+  preset?: string;
   filter?: string;
   pagination: boolean;
   auth?: boolean;
@@ -73,23 +73,6 @@ export interface ServeOptions {
   'enable-internal-tools': boolean;
   'internal-tools'?: string;
   'instructions-template'?: string;
-}
-
-function parseCommaSeparatedList(value?: string): string[] {
-  return value ? value.split(',').map((entry) => entry.trim()) : [];
-}
-
-function parseInternalToolsList(value?: string): string[] {
-  if (!value) {
-    return [];
-  }
-
-  try {
-    return FlagManager.getInstance().parseToolsList(value);
-  } catch (error) {
-    logger.error(`Failed to parse internal-tools list: ${error instanceof Error ? error.message : String(error)}`);
-    process.exit(1);
-  }
 }
 
 /**
@@ -435,99 +418,13 @@ export async function serveCommand(parsedArgv: ServeOptions): Promise<void> {
 
         // Use stdio transport
         const transport = new StdioServerTransport();
-        // Parse and validate filter from CLI if provided
-        let tags: string[] | undefined;
-        let tagExpression: TagExpression | undefined;
-        let tagQuery: TagQuery | undefined;
-        let tagFilterMode: 'simple-or' | 'advanced' | 'preset' | 'none' = 'none';
-        let presetName: string | undefined;
-
-        // Check for preset environment variable (for STDIO transport)
-        const presetEnv = process.env.ONE_MCP_PRESET;
-        if (presetEnv) {
-          const PresetManager = (await import('@src/domains/preset/manager/presetManager.js')).PresetManager;
-          const presetManager = PresetManager.getInstance(parsedArgv['config-dir']);
-
-          // Load presets synchronously for STDIO transport (skip file watching to avoid blocking)
-          try {
-            await presetManager.loadPresetsWithoutWatcher();
-          } catch (error) {
-            logger.warn(`Failed to load presets: ${error instanceof Error ? error.message : 'Unknown error'}`);
-          }
-
-          // Load presets if not already loaded
-          if (presetManager.hasPreset(presetEnv)) {
-            const preset = presetManager.getPreset(presetEnv);
-            if (preset) {
-              presetName = presetEnv;
-              tagQuery = preset.tagQuery;
-              tagFilterMode = 'preset';
-
-              // Convert tagQuery to tagExpression for compatibility
-              try {
-                // Convert JSON query to expression string first
-                const queryStr = presetManager.resolvePresetToExpression(presetEnv);
-                if (queryStr) {
-                  tagExpression = TagQueryParser.parseAdvanced(queryStr);
-                  // Provide simple tags for backward compat where possible
-                  if (tagExpression?.type === 'tag') {
-                    tags = [tagExpression.value!];
-                  }
-                }
-                logger.info(`Loaded preset '${presetEnv}' for STDIO transport`, {
-                  strategy: preset.strategy,
-                  tagQuery,
-                });
-              } catch (error) {
-                logger.warn(
-                  `Failed to parse preset tag query as expression: ${error instanceof Error ? error.message : 'Unknown error'}`,
-                );
-              }
-            }
-          } else {
-            logger.warn(`Preset '${presetEnv}' not found, ignoring preset environment variable`);
-          }
-        }
-
-        // Fall back to CLI filter if no preset was loaded
-        if (!presetName && parsedArgv.filter) {
-          try {
-            // First try to parse as advanced expression
-            tagExpression = TagQueryParser.parseAdvanced(parsedArgv.filter);
-            tagFilterMode = 'advanced';
-            // Provide simple tags for backward compat where possible
-            if (tagExpression.type === 'tag') {
-              tags = [tagExpression.value!];
-            }
-          } catch (_advancedError) {
-            // Fall back to simple parsing for comma-separated tags
-            try {
-              tags = TagQueryParser.parseSimple(parsedArgv.filter);
-              tagFilterMode = 'simple-or';
-              if (!tags || tags.length === 0) {
-                logger.warn('No valid tags provided, ignoring filter parameter');
-                tags = undefined;
-                tagFilterMode = 'none';
-              }
-            } catch (simpleError) {
-              logger.error(
-                `Invalid filter expression: ${simpleError instanceof Error ? simpleError.message : 'Unknown error'}`,
-              );
-              logger.error('Examples:');
-              logger.error('  --filter "web,api,database"           # OR logic (comma-separated)');
-              logger.error('  --filter "web AND database"           # AND logic');
-              logger.error('  --filter "(web OR api) AND database"  # Complex expressions');
-              process.exit(1);
-            }
-          }
+        const filterConfig = await resolveStdioFilterConfig(parsedArgv);
+        if (!filterConfig) {
+          return;
         }
 
         await serverManager.connectTransport(transport, 'stdio', {
-          tags,
-          tagExpression,
-          tagQuery,
-          tagFilterMode,
-          presetName,
+          ...filterConfig,
           enablePagination: parsedArgv.pagination,
           customTemplate,
         });

@@ -1,3 +1,6 @@
+// sort-imports-ignore
+import './transportFactory.testSetup.js';
+
 import { SSEClientTransport } from '@modelcontextprotocol/sdk/client/sse.js';
 
 import { SDKOAuthClientProvider } from '@src/auth/sdkOAuthClientProvider.js';
@@ -10,88 +13,6 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { ZodError } from 'zod';
 
 import { createTransports } from './transportFactory.js';
-
-// Mock dependencies
-vi.mock('@modelcontextprotocol/sdk/client/stdio.js', () => ({
-  StdioClientTransport: vi.fn().mockImplementation(function () {
-    return {
-      type: 'stdio',
-      close: vi.fn(),
-    };
-  }),
-  getDefaultEnvironment: vi.fn().mockReturnValue({
-    HOME: '/home/user',
-    PATH: '/usr/bin',
-  }),
-}));
-
-vi.mock('@modelcontextprotocol/sdk/client/sse.js', () => ({
-  SSEClientTransport: vi.fn().mockImplementation(function () {
-    return {
-      type: 'sse',
-      close: vi.fn(),
-    };
-  }),
-}));
-
-vi.mock('@modelcontextprotocol/sdk/client/streamableHttp.js', () => ({
-  StreamableHTTPClientTransport: vi.fn().mockImplementation(function () {
-    return {
-      type: 'http',
-      close: vi.fn(),
-    };
-  }),
-}));
-
-vi.mock('../auth/sdkOAuthClientProvider.js', () => ({
-  SDKOAuthClientProvider: vi.fn().mockImplementation(function () {
-    return {
-      name: 'mock-oauth-provider',
-      authenticate: vi.fn(),
-    };
-  }),
-}));
-
-vi.mock('@src/core/server/agentConfig.js', () => ({
-  AgentConfigManager: {
-    getInstance: vi.fn().mockReturnValue({
-      get: vi.fn().mockImplementation((key: string) => {
-        if (key === 'externalUrl') return 'http://localhost:3000';
-        if (key === 'host') return 'localhost';
-        if (key === 'port') return 3000;
-        if (key === 'auth') return { sessionStoragePath: undefined };
-        return undefined;
-      }),
-      getConfig: vi.fn().mockReturnValue({
-        host: 'localhost',
-        port: 3000,
-      }),
-      getUrl: vi.fn().mockReturnValue('http://localhost:3000'),
-      getSessionStoragePath: vi.fn().mockReturnValue(undefined),
-    }),
-  },
-}));
-
-vi.mock('@src/logger/logger.js', () => ({
-  default: {
-    warn: vi.fn(),
-    info: vi.fn(),
-    debug: vi.fn(),
-    error: vi.fn(),
-  },
-  debugIf: vi.fn(),
-}));
-
-vi.mock('@src/core/types/index.ts', async () => {
-  const actual = await vi.importActual('@src/core/types/index.js');
-  return {
-    ...actual,
-    transportConfigSchema: {
-      parse: vi.fn(),
-      _type: {} as any,
-    },
-  };
-});
 
 describe('TransportFactory', () => {
   beforeEach(() => {
@@ -233,6 +154,37 @@ describe('TransportFactory', () => {
 
       expect(transports['sse-server'].oauthProvider).toBeDefined();
       expect(transports['http-server'].oauthProvider).toBeDefined();
+    });
+
+    it('should substitute HTTP transport URL, headers, and OAuth values from process environment', () => {
+      process.env.HTTP_MCP_URL = 'http://localhost:3010/mcp';
+      process.env.HTTP_AUTH_TOKEN = 'secret-token';
+      process.env.HTTP_CLIENT_ID = 'client-id-from-env';
+
+      const config: Record<string, MCPServerParams> = {
+        'http-env-server': {
+          type: 'http',
+          url: '$HTTP_MCP_URL',
+          headers: {
+            Authorization: 'Bearer ${HTTP_AUTH_TOKEN}',
+          },
+          oauth: {
+            clientId: '$HTTP_CLIENT_ID',
+          },
+        },
+      };
+
+      (transportConfigSchema.parse as any).mockReturnValueOnce(config['http-env-server']);
+
+      createTransports(config);
+
+      expect(SDKOAuthClientProvider).toHaveBeenCalledWith(
+        'http-env-server',
+        expect.objectContaining({
+          clientId: 'client-id-from-env',
+        }),
+        undefined,
+      );
     });
 
     it('should handle validation errors', () => {

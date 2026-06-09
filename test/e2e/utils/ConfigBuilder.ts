@@ -15,6 +15,7 @@ export interface TestServerConfig {
 
 export interface TestConfig {
   mcpServers: Record<string, any>;
+  mcpTemplates?: Record<string, any>;
   servers: any[]; // Legacy compatibility, always initialized
   transport?: {
     stdio?: boolean;

@@ -4,9 +4,10 @@ import { McpConfigManager } from '@src/config/mcpConfigManager.js';
 import { ConnectionResolver, TemplateHashProvider } from '@src/core/server/connectionResolver.js';
 import { getDisabledToolError } from '@src/core/server/disabledTools.js';
 import { OutboundConnections } from '@src/core/types/index.js';
-import logger, { debugIf, errorIf } from '@src/logger/logger.js';
+import logger, { errorIf } from '@src/logger/logger.js';
 import { zodToInputSchema, zodToOutputSchema } from '@src/utils/schemaUtils.js';
 
+import { CapabilityCatalog } from './capabilityCatalog.js';
 import { SchemaCache } from './schemaCache.js';
 import {
   ToolInvokeInputSchema,
@@ -87,6 +88,8 @@ export class MetaToolProvider {
   private loadSchema?: SchemaLoader;
   private allowedServers?: Set<string>;
   private connectionResolver: ConnectionResolver;
+  private capabilityCatalog: CapabilityCatalog;
+  private templateHashProvider?: TemplateHashProvider;
 
   constructor(
     getToolRegistry: ToolRegistryProvider,
@@ -101,7 +104,17 @@ export class MetaToolProvider {
     this.outboundConnections = outboundConnections;
     this.loadSchema = loadSchema;
     this.allowedServers = allowedServers;
+    this.templateHashProvider = templateHashProvider;
     this.connectionResolver = new ConnectionResolver(outboundConnections, templateHashProvider);
+    this.capabilityCatalog = new CapabilityCatalog({
+      getToolRegistry,
+      schemaCache,
+      outboundConnections,
+      loadSchema,
+      defaultAllowedServers: allowedServers,
+      templateHashProvider,
+      getServerConfigs: () => McpConfigManager.getInstance().getTransportConfig(),
+    });
   }
 
   /**
@@ -124,6 +137,15 @@ export class MetaToolProvider {
    */
   public setAllowedServers(serverNames?: Set<string>): void {
     this.allowedServers = serverNames;
+    this.capabilityCatalog = new CapabilityCatalog({
+      getToolRegistry: this.getToolRegistry,
+      schemaCache: this.schemaCache,
+      outboundConnections: this.outboundConnections,
+      loadSchema: this.loadSchema,
+      defaultAllowedServers: serverNames,
+      templateHashProvider: this.templateHashProvider,
+      getServerConfigs: () => McpConfigManager.getInstance().getTransportConfig(),
+    });
   }
 
   private getDisabledError(logicalServerName: string, toolName: string) {
@@ -200,7 +222,7 @@ export class MetaToolProvider {
             },
           } as ListToolsResult;
         }
-        return this.listAvailableTools(parsed.data, allowedServers);
+        return this.listAvailableTools(parsed.data, sessionId, allowedServers);
       }
       case 'tool_schema': {
         const parsed = ToolSchemaInputSchema.safeParse(args);
@@ -261,11 +283,11 @@ export class MetaToolProvider {
    */
   private async listAvailableTools(
     args: ListAvailableToolsArgs,
+    sessionId?: string,
     allowedServers?: Set<string>,
   ): Promise<ListToolsResult> {
     try {
-      const registry = this.toolRegistry(allowedServers);
-      const result = registry.listTools(args);
+      const result = await this.capabilityCatalog.listVisibleTools(args, sessionId, allowedServers);
 
       // Format tools for response
       const tools = result.tools.map((tool: ToolMetadata) => ({
@@ -329,64 +351,17 @@ export class MetaToolProvider {
     allowedServers?: Set<string>,
   ): Promise<DescribeToolResult> {
     try {
-      const { error } = this.validateResolvedToolAccess(args, allowedServers);
-      if (error) {
+      const result = await this.capabilityCatalog.describeVisibleTool(args, sessionId, allowedServers);
+      if (result.error) {
         return {
           schema: {},
-          error,
+          error: result.error,
         };
       }
 
-      const connectionKey = this.resolveConnectionKey(args.server, sessionId);
-
-      // Try to get from cache first
-      const cached = this.schemaCache.getIfCached(connectionKey, args.toolName);
-      if (cached) {
-        debugIf(() => ({ message: `Cache hit for tool schema: ${args.server}:${args.toolName}` }));
-        return {
-          schema: cached,
-          fromCache: true,
-        };
-      }
-
-      // Not in cache - load from server if SchemaLoader is available
-      if (this.loadSchema) {
-        try {
-          debugIf(() => ({ message: `Loading schema from server: ${args.server}:${args.toolName}` }));
-
-          const tool = await this.loadSchema(connectionKey, args.toolName);
-
-          // Cache the loaded schema
-          await this.schemaCache.preload([{ server: connectionKey, toolName: args.toolName }], async (s, t) => {
-            if (s === connectionKey && t === args.toolName) {
-              return tool;
-            }
-            throw new Error('Unexpected preload request');
-          });
-
-          return {
-            schema: tool,
-            fromCache: false,
-          };
-        } catch (loadError) {
-          return {
-            schema: {},
-            error: {
-              type: 'upstream',
-              message: `Failed to load schema from server: ${loadError}`,
-            },
-          };
-        }
-      }
-
-      // No SchemaLoader available - return error
       return {
-        schema: {},
-        error: {
-          type: 'internal',
-          message:
-            'Tool schema not loaded and no SchemaLoader available. Please use the tool invocation flow to load schema on first use.',
-        },
+        schema: result.schema as Tool,
+        fromCache: result.fromCache,
       };
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
@@ -426,42 +401,20 @@ export class MetaToolProvider {
     allowedServers?: Set<string>,
   ): Promise<CallToolResult> {
     try {
-      const { error } = this.validateResolvedToolAccess(args, allowedServers);
-      if (error) {
+      const result = await this.capabilityCatalog.invokeVisibleTool(args, sessionId, allowedServers);
+      if (result.error) {
         return {
           result: {},
           server: args.server,
           tool: args.toolName,
-          error,
+          error: result.error,
         };
       }
 
-      // Get connection - resolve clean server name to actual connection key
-      const connectionKey = this.resolveConnectionKey(args.server, sessionId);
-      const connection = this.outboundConnections.get(connectionKey);
-      if (!connection || !connection.client) {
-        return {
-          result: {},
-          server: args.server,
-          tool: args.toolName,
-          error: {
-            type: 'upstream',
-            message: `Server not connected: ${args.server}`,
-          },
-        };
-      }
-
-      // Call the tool
-      const upstreamResult = await connection.client.callTool({
-        name: args.toolName,
-        arguments: args.args as Record<string, unknown>,
-      });
-
-      // Return structured result matching outputSchema
       return {
-        result: upstreamResult,
-        server: args.server,
-        tool: args.toolName,
+        result: result.result as Record<string, unknown>,
+        server: result.server,
+        tool: result.tool,
       };
     } catch (error) {
       logger.error(`Error in tool_invoke: ${error}`);

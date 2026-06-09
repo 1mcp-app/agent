@@ -13,6 +13,7 @@ import { ClientInfoExtractor } from '@src/utils/client/clientInfoExtractor.js';
  */
 export interface StdioProxyTransportOptions {
   serverUrl: string;
+  bearerToken?: string;
   preset?: string;
   filter?: string;
   tags?: string[];
@@ -235,6 +236,9 @@ export class StdioProxyTransport {
       // Merge headers: preserve existing headers, add/update User-Agent
       const headers = new Headers(init?.headers);
       headers.set('User-Agent', currentUserAgent);
+      if (this.options.bearerToken) {
+        headers.set('Authorization', `Bearer ${this.options.bearerToken}`);
+      }
 
       // Create new init with updated headers
       const updatedInit: RequestInit = {

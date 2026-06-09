@@ -178,6 +178,7 @@ vi.mock('./adapters/index.js', () => ({
     getInstallationAdapter: () => ({
       installServer: vi.fn().mockResolvedValue({
         success: true,
+        status: 'applied',
         serverName: 'test-server',
         version: '1.0.0',
         installedAt: new Date(),
@@ -294,7 +295,7 @@ describe('Cross-Domain Integration Tests', () => {
         backup: false,
       });
 
-      expect(installResult.status).toBe('success');
+      expect(installResult.status).toBe('applied');
       expect(installResult.name).toBe(serverName);
     });
 

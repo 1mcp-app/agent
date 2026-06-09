@@ -76,6 +76,10 @@ class FileBasedClientsStore implements OAuthRegisteredClientsStore {
  * with the new layered storage architecture for better separation of concerns.
  */
 export class SDKOAuthServerProvider implements OAuthServerProvider {
+  /**
+   * @deprecated Compatibility escape hatch for lower-level SDK/storage internals.
+   * HTTP routes should use `OAuthAuthorizationFlow` operations instead of reaching into storage.
+   */
   public oauthStorage: OAuthStorageService;
   private configManager: AgentConfigManager;
   private _clientsStore: OAuthRegisteredClientsStore;
