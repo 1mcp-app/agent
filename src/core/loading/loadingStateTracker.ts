@@ -126,6 +126,23 @@ export class LoadingStateTracker extends EventEmitter {
   }
 
   /**
+   * Register a single server for tracking at runtime (hot-reload add) without
+   * resetting global loading timing. Use this instead of {@link startLoading}
+   * when a server is added after the initial boot load. No-op if already known.
+   */
+  public registerServer(name: string): void {
+    if (this.servers.has(name)) return;
+    this.loadingStarted = true;
+    this.servers.set(name, {
+      name,
+      state: LoadingState.Pending,
+      retryCount: 0,
+    });
+    debugIf(() => ({ message: `Registered server for loading tracker: ${name}` }));
+    this.emitProgress();
+  }
+
+  /**
    * Update the state of a specific server
    */
   public updateServerState(
@@ -277,6 +294,27 @@ export class LoadingStateTracker extends EventEmitter {
    */
   public getServersByState(state: LoadingState): ServerLoadingInfo[] {
     return Array.from(this.servers.values()).filter((s) => s.state === state);
+  }
+
+  /**
+   * Remove a server from tracking.
+   *
+   * Used when a server is removed from the configuration (including renames,
+   * which are processed as a remove of the old name plus an add of the new
+   * one). Without this, a removed server's last state — e.g. AwaitingOAuth or
+   * Failed — lingers forever in the tracker and is still reported by
+   * `/health/mcp`, producing a "ghost" server in the health view that no
+   * longer exists in the configuration.
+   *
+   * @returns true if a tracked server was removed, false if it was not tracked.
+   */
+  public removeServer(name: string): boolean {
+    const existed = this.servers.delete(name);
+    if (existed) {
+      debugIf(() => ({ message: `Removed server from loading tracker: ${name}` }));
+      this.emitProgress();
+    }
+    return existed;
   }
 
   /**
