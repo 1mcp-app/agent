@@ -128,6 +128,7 @@ export class AsyncLoadingOrchestrator extends EventEmitter {
     this.loadingManager.on('server-loaded', (serverName: string, _result: ServerLoadResult) => {
       if (this.isShuttingDown) return;
 
+      this.serverManager.recordMcpServerReady(serverName);
       debugIf(() => ({ message: `Server ${serverName} became ready, updating capabilities`, meta: { serverName } }));
       this.handleServerReady(serverName);
     });

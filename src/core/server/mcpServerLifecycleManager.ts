@@ -162,6 +162,31 @@ export class MCPServerLifecycleManager {
   }
 
   /**
+   * Track a server whose connection is managed by another startup path.
+   */
+  public trackServer(serverName: string, config: MCPServerParams, transport: AuthProviderTransport): void {
+    if (config.disabled) {
+      this.mcpServers.delete(serverName);
+      return;
+    }
+
+    this.mcpServers.set(serverName, { transport, config });
+    debugIf(() => ({
+      message: `Tracked MCP server lifecycle state: ${serverName}`,
+      meta: { serverName, tags: config.tags },
+    }));
+  }
+
+  /**
+   * Remove lifecycle tracking without touching the already-cleaned-up transport.
+   */
+  public untrackServer(serverName: string): void {
+    if (this.mcpServers.delete(serverName)) {
+      debugIf(() => ({ message: `Untracked MCP server lifecycle state: ${serverName}` }));
+    }
+  }
+
+  /**
    * Update metadata for a running server without restarting it
    */
   public async updateServerMetadata(

@@ -5,12 +5,16 @@ import { LazyLoadingOrchestrator } from '@src/core/capabilities/lazyLoadingOrche
 import { getGlobalContextManager } from '@src/core/context/globalContextManager.js';
 import { ClientTemplateTracker, FilterCache, getFilterCache, TemplateIndex } from '@src/core/filtering/index.js';
 import { InstructionAggregator } from '@src/core/instructions/instructionAggregator.js';
+import { LoadingState } from '@src/core/loading/loadingStateTracker.js';
+import { McpLoadingManager } from '@src/core/loading/mcpLoadingManager.js';
 import { ServerRegistry } from '@src/core/server/adapters/ServerRegistry.js';
 import { ConnectionManager } from '@src/core/server/connectionManager.js';
 import { MCPServerLifecycleManager } from '@src/core/server/mcpServerLifecycleManager.js';
 import { TemplateConfigurationManager } from '@src/core/server/templateConfigurationManager.js';
 import { TemplateServerManager } from '@src/core/server/templateServerManager.js';
+import { ClientStatus } from '@src/core/types/index.js';
 import type {
+  AuthProviderTransport,
   InboundConnection,
   InboundConnectionConfig,
   MCPServerParams,
@@ -170,9 +174,9 @@ export class ServerManager {
             await this.templateConfigurationManager.updateServersWithNewConfig(
               newConfig,
               this.getCurrentServerConfigs(),
-              (serverName, config) => this.startServer(serverName, config),
-              (serverName) => this.stopServer(serverName),
-              (serverName, config) => this.restartServer(serverName, config),
+              (serverName, config) => this.loadMcpServer(serverName, config),
+              (serverName) => this.unloadMcpServer(serverName),
+              (serverName, config) => this.loadMcpServer(serverName, config),
             );
           } catch (updateError) {
             logger.error('Failed to update all servers with new config, attempting individual updates:', updateError);
@@ -363,12 +367,106 @@ export class ServerManager {
     await this.mcpServerLifecycleManager.restartServer(serverName, config, this.outboundConns, this.transports);
   }
 
+  public async loadMcpServer(serverName: string, config: MCPServerParams): Promise<void> {
+    const loadingManager = McpLoadingManager.current;
+    await loadingManager.loadServer(serverName, config);
+
+    if (config.disabled) {
+      this.untrackMcpServer(serverName);
+      return;
+    }
+
+    const loadingState = loadingManager.getStateTracker().getServerState(serverName)?.state;
+    if (loadingState !== LoadingState.Ready) {
+      this.untrackMcpServer(serverName);
+      debugIf(() => ({
+        message: `Skipping lifecycle tracking for ${serverName}; loading state is ${loadingState ?? 'unknown'}`,
+      }));
+      return;
+    }
+
+    this.recordMcpServerReady(serverName, config);
+  }
+
+  public async unloadMcpServer(serverName: string): Promise<void> {
+    try {
+      await McpLoadingManager.current.unloadServer(serverName);
+    } finally {
+      this.untrackMcpServer(serverName);
+    }
+  }
+
   public getMcpServerStatus(): Map<string, { running: boolean; config: MCPServerParams }> {
     return this.mcpServerLifecycleManager.getMcpServerStatus();
   }
 
   public isMcpServerRunning(serverName: string): boolean {
     return this.mcpServerLifecycleManager.isMcpServerRunning(serverName);
+  }
+
+  public recordMcpServerReady(serverName: string, config?: MCPServerParams): void {
+    const resolvedConfig = config ?? this.resolveMcpServerConfig(serverName);
+    if (!resolvedConfig) {
+      this.untrackMcpServer(serverName);
+      debugIf(() => ({ message: `No config available to track lifecycle for ${serverName}` }));
+      return;
+    }
+
+    if (resolvedConfig.disabled) {
+      this.untrackMcpServer(serverName);
+      return;
+    }
+
+    const transport = this.getConnectedMcpTransport(serverName);
+    if (!transport) {
+      this.untrackMcpServer(serverName);
+      debugIf(() => ({ message: `No connected transport available to track lifecycle for ${serverName}` }));
+      return;
+    }
+
+    this.trackMcpServer(serverName, resolvedConfig, transport);
+  }
+
+  public syncMcpServerLifecycleFromConnectedClients(configs?: Record<string, MCPServerParams>): void {
+    for (const [serverName, connection] of this.outboundConns.entries()) {
+      if (connection.status !== ClientStatus.Connected) {
+        this.untrackMcpServer(serverName);
+        continue;
+      }
+
+      this.recordMcpServerReady(serverName, configs?.[serverName]);
+    }
+  }
+
+  private trackMcpServer(serverName: string, config: MCPServerParams, transport: AuthProviderTransport): void {
+    this.mcpServerLifecycleManager.trackServer(serverName, config, transport);
+  }
+
+  private untrackMcpServer(serverName: string): void {
+    this.mcpServerLifecycleManager.untrackServer(serverName);
+  }
+
+  private getConnectedMcpTransport(serverName: string): AuthProviderTransport | undefined {
+    const connection = this.outboundConns.get(serverName);
+    if (connection?.status === ClientStatus.Connected) {
+      return connection.transport;
+    }
+
+    return undefined;
+  }
+
+  private resolveMcpServerConfig(serverName: string): MCPServerParams | undefined {
+    const existing = this.mcpServerLifecycleManager.getMcpServerStatus().get(serverName)?.config;
+    if (existing) {
+      return existing;
+    }
+
+    try {
+      return ConfigManager.getInstance().getTransportConfig()[serverName];
+    } catch (error) {
+      debugIf(() => ({ message: `Could not resolve config for ${serverName}: ${error}` }));
+      return undefined;
+    }
   }
 
   public async updateServerMetadata(serverName: string, newConfig: MCPServerParams): Promise<void> {

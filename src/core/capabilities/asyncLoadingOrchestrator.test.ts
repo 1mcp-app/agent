@@ -26,6 +26,7 @@ describe('AsyncLoadingOrchestrator', () => {
     mockServerManager = {
       getServer: vi.fn(),
       getInboundConnections: vi.fn().mockReturnValue(new Map()),
+      recordMcpServerReady: vi.fn(),
     };
 
     mockLoadingManager = {
@@ -201,6 +202,7 @@ describe('AsyncLoadingOrchestrator', () => {
 
       await serverLoadedHandler('test-server', { success: true });
 
+      expect(mockServerManager.recordMcpServerReady).toHaveBeenCalledWith('test-server');
       expect(mockAggregator.updateCapabilities).toHaveBeenCalled();
     });
 

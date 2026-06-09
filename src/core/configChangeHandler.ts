@@ -1,6 +1,6 @@
 import { CONFIG_EVENTS, ConfigChange, ConfigChangeType, ConfigManager } from '@src/config/configManager.js';
 import { ServerManager } from '@src/core/server/serverManager.js';
-import { MCPServerParams } from '@src/core/types/transport.js';
+import { MCPServerParams } from '@src/core/types/index.js';
 import logger, { debugIf } from '@src/logger/logger.js';
 
 /**
@@ -126,19 +126,24 @@ export class ConfigChangeHandler {
   }
 
   /**
-   * Handle server addition
+   * Handle server addition.
+   *
+   * Routes through ServerManager's hot-reload facade so config changes have a
+   * single lifecycle entry point. ServerManager owns the coordination between
+   * the loading pipeline and lifecycle/status tracking.
    */
   private async handleServerAdded(serverName: string, config: MCPServerParams): Promise<void> {
     logger.info(`Starting new server: ${serverName}`);
-    await this.getServerManager().startServer(serverName, config);
+    await this.getServerManager().loadMcpServer(serverName, config);
   }
 
   /**
-   * Handle server removal
+   * Handle server removal — unload via the canonical pipeline so the tracker
+   * entry is cleared (no ghost in /health/mcp).
    */
   private async handleServerRemoved(serverName: string): Promise<void> {
     logger.info(`Stopping server: ${serverName}`);
-    await this.getServerManager().stopServer(serverName);
+    await this.getServerManager().unloadMcpServer(serverName);
   }
 
   /**
@@ -155,7 +160,7 @@ export class ConfigChangeHandler {
     if (config.disabled) {
       // Server was disabled
       logger.info(`Stopping server (disabled): ${serverName}`);
-      await this.getServerManager().stopServer(serverName);
+      await this.getServerManager().unloadMcpServer(serverName);
       return;
     }
 
@@ -170,14 +175,16 @@ export class ConfigChangeHandler {
           disabled: config.disabled,
         },
       });
-      await this.getServerManager().startServer(serverName, config);
+      await this.getServerManager().loadMcpServer(serverName, config);
       return;
     }
 
     // Business logic: determine if this requires server restart
     if (this.requiresServerRestart(fieldsChanged)) {
       logger.info(`Restarting server (functional changes): ${serverName}`);
-      await this.getServerManager().restartServer(serverName, config);
+      // loadMcpServer is idempotent: ServerManager coordinates unload/reload
+      // through the canonical loading pipeline and lifecycle registry.
+      await this.getServerManager().loadMcpServer(serverName, config);
     } else {
       // Only tags changed - update metadata without restart
       logger.info(`Updating server metadata only (no restart needed): ${serverName}`);
