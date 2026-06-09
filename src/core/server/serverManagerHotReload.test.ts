@@ -75,7 +75,7 @@ vi.mock('./templateServerManager.js', () => ({
       rebuildTemplateIndex: vi.fn(),
       getIdleTemplateInstances: vi.fn(() => []),
       cleanupIdleInstances: vi.fn().mockResolvedValue(0),
-      cleanup: vi.fn(),
+      shutdown: vi.fn().mockResolvedValue(undefined),
     };
   }),
 }));

@@ -10,6 +10,8 @@ vi.mock('@src/core/server/serverManager.js', () => ({
       startServer: vi.fn().mockResolvedValue(undefined),
       stopServer: vi.fn().mockResolvedValue(undefined),
       restartServer: vi.fn().mockResolvedValue(undefined),
+      loadMcpServer: vi.fn().mockResolvedValue(undefined),
+      unloadMcpServer: vi.fn().mockResolvedValue(undefined),
       updateServerMetadata: vi.fn().mockResolvedValue(undefined),
       isMcpServerRunning: vi.fn().mockReturnValue(true), // Assume server is running for metadata update tests
       getInboundConnections: vi.fn().mockReturnValue(new Map()),
@@ -87,7 +89,7 @@ describe('ConfigChangeHandler', () => {
       await changeHandler(changes);
 
       const { ServerManager } = await import('@src/core/server/serverManager.js');
-      expect(ServerManager.current.restartServer).toHaveBeenCalled();
+      expect(ServerManager.current.loadMcpServer).toHaveBeenCalled();
     });
 
     it('should return false for tag-only field changes', async () => {
@@ -114,7 +116,7 @@ describe('ConfigChangeHandler', () => {
       await changeHandler(changes);
 
       const { ServerManager } = await import('@src/core/server/serverManager.js');
-      expect(ServerManager.current.restartServer).not.toHaveBeenCalled();
+      expect(ServerManager.current.loadMcpServer).not.toHaveBeenCalled();
     });
 
     it('should return true for mixed field changes (including tags)', async () => {
@@ -141,7 +143,7 @@ describe('ConfigChangeHandler', () => {
       await changeHandler(changes);
 
       const { ServerManager } = await import('@src/core/server/serverManager.js');
-      expect(ServerManager.current.restartServer).toHaveBeenCalled();
+      expect(ServerManager.current.loadMcpServer).toHaveBeenCalled();
     });
   });
 });

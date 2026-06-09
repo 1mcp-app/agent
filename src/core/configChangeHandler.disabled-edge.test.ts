@@ -10,6 +10,8 @@ vi.mock('@src/core/server/serverManager.js', () => ({
       startServer: vi.fn().mockResolvedValue(undefined),
       stopServer: vi.fn().mockResolvedValue(undefined),
       restartServer: vi.fn().mockResolvedValue(undefined),
+      loadMcpServer: vi.fn().mockResolvedValue(undefined),
+      unloadMcpServer: vi.fn().mockResolvedValue(undefined),
       updateServerMetadata: vi.fn().mockResolvedValue(undefined),
       isMcpServerRunning: vi.fn().mockReturnValue(true), // Assume server is running for metadata update tests
       getInboundConnections: vi.fn().mockReturnValue(new Map()),
@@ -89,7 +91,7 @@ describe('ConfigChangeHandler', () => {
       const { ServerManager } = await import('@src/core/server/serverManager.js');
       // Even though it's an ADD event, it should still start the server initially
       // The transport factory will handle skipping disabled servers
-      expect(ServerManager.current.startServer).toHaveBeenCalledWith(
+      expect(ServerManager.current.loadMcpServer).toHaveBeenCalledWith(
         'initially-disabled-server',
         newConfig['initially-disabled-server'],
       );
@@ -121,7 +123,7 @@ describe('ConfigChangeHandler', () => {
       await changeHandler(changes);
 
       const { ServerManager } = await import('@src/core/server/serverManager.js');
-      expect(ServerManager.current.stopServer).toHaveBeenCalledWith('rapid-change-server');
+      expect(ServerManager.current.unloadMcpServer).toHaveBeenCalledWith('rapid-change-server');
 
       // Reset mocks for next change
       vi.clearAllMocks();
@@ -139,7 +141,7 @@ describe('ConfigChangeHandler', () => {
 
       await changeHandler(changes);
 
-      expect(ServerManager.current.startServer).toHaveBeenCalledWith(
+      expect(ServerManager.current.loadMcpServer).toHaveBeenCalledWith(
         'rapid-change-server',
         newConfig['rapid-change-server'],
       );
@@ -169,7 +171,7 @@ describe('ConfigChangeHandler', () => {
       await changeHandler(changes);
 
       const { ServerManager } = await import('@src/core/server/serverManager.js');
-      expect(ServerManager.current.restartServer).toHaveBeenCalledWith(
+      expect(ServerManager.current.loadMcpServer).toHaveBeenCalledWith(
         'undefined-disabled-server',
         newConfig['undefined-disabled-server'],
       );
@@ -196,7 +198,9 @@ describe('ConfigChangeHandler', () => {
 
       // Make stopServer fail
       const { ServerManager } = await import('@src/core/server/serverManager.js');
-      (ServerManager.current.stopServer as ReturnType<typeof vi.fn>).mockRejectedValueOnce(new Error('Stop failed'));
+      (ServerManager.current.unloadMcpServer as ReturnType<typeof vi.fn>).mockRejectedValueOnce(
+        new Error('Stop failed'),
+      );
 
       // Mock console.error to capture error logs
       const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
@@ -207,7 +211,7 @@ describe('ConfigChangeHandler', () => {
       // Should not throw error even if stopServer fails
       await expect(changeHandler(changes)).resolves.toBeUndefined();
 
-      expect(ServerManager.current.stopServer).toHaveBeenCalledWith('stop-error-server');
+      expect(ServerManager.current.unloadMcpServer).toHaveBeenCalledWith('stop-error-server');
 
       consoleSpy.mockRestore();
     });
@@ -233,7 +237,9 @@ describe('ConfigChangeHandler', () => {
 
       // Make startServer fail
       const { ServerManager } = await import('@src/core/server/serverManager.js');
-      (ServerManager.current.startServer as ReturnType<typeof vi.fn>).mockRejectedValueOnce(new Error('Start failed'));
+      (ServerManager.current.loadMcpServer as ReturnType<typeof vi.fn>).mockRejectedValueOnce(
+        new Error('Start failed'),
+      );
 
       // Mock console.error to capture error logs
       const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
@@ -244,7 +250,7 @@ describe('ConfigChangeHandler', () => {
       // Should not throw error even if startServer fails
       await expect(changeHandler(changes)).resolves.toBeUndefined();
 
-      expect(ServerManager.current.startServer).toHaveBeenCalledWith(
+      expect(ServerManager.current.loadMcpServer).toHaveBeenCalledWith(
         'start-error-server',
         newConfig['start-error-server'],
       );

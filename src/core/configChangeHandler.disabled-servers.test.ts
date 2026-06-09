@@ -10,6 +10,8 @@ vi.mock('@src/core/server/serverManager.js', () => ({
       startServer: vi.fn().mockResolvedValue(undefined),
       stopServer: vi.fn().mockResolvedValue(undefined),
       restartServer: vi.fn().mockResolvedValue(undefined),
+      loadMcpServer: vi.fn().mockResolvedValue(undefined),
+      unloadMcpServer: vi.fn().mockResolvedValue(undefined),
       updateServerMetadata: vi.fn().mockResolvedValue(undefined),
       isMcpServerRunning: vi.fn().mockReturnValue(true), // Assume server is running for metadata update tests
       getInboundConnections: vi.fn().mockReturnValue(new Map()),
@@ -88,9 +90,8 @@ describe('ConfigChangeHandler', () => {
       await changeHandler(changes);
 
       const { ServerManager } = await import('@src/core/server/serverManager.js');
-      expect(ServerManager.current.stopServer).toHaveBeenCalledWith('disabled-server');
-      expect(ServerManager.current.startServer).not.toHaveBeenCalled();
-      expect(ServerManager.current.restartServer).not.toHaveBeenCalled();
+      expect(ServerManager.current.unloadMcpServer).toHaveBeenCalledWith('disabled-server');
+      expect(ServerManager.current.loadMcpServer).not.toHaveBeenCalled();
     });
 
     it('should start servers when disabled field changes to false', async () => {
@@ -117,12 +118,11 @@ describe('ConfigChangeHandler', () => {
       await changeHandler(changes);
 
       const { ServerManager } = await import('@src/core/server/serverManager.js');
-      expect(ServerManager.current.startServer).toHaveBeenCalledWith(
+      expect(ServerManager.current.loadMcpServer).toHaveBeenCalledWith(
         're-enabled-server',
         newConfig['re-enabled-server'],
       );
-      expect(ServerManager.current.stopServer).not.toHaveBeenCalled();
-      expect(ServerManager.current.restartServer).not.toHaveBeenCalled();
+      expect(ServerManager.current.unloadMcpServer).not.toHaveBeenCalled();
     });
 
     it('should stop servers when disabled is true regardless of other field changes', async () => {
@@ -149,9 +149,8 @@ describe('ConfigChangeHandler', () => {
       await changeHandler(changes);
 
       const { ServerManager } = await import('@src/core/server/serverManager.js');
-      expect(ServerManager.current.stopServer).toHaveBeenCalledWith('disabled-with-other-changes');
-      expect(ServerManager.current.startServer).not.toHaveBeenCalled();
-      expect(ServerManager.current.restartServer).not.toHaveBeenCalled();
+      expect(ServerManager.current.unloadMcpServer).toHaveBeenCalledWith('disabled-with-other-changes');
+      expect(ServerManager.current.loadMcpServer).not.toHaveBeenCalled();
     });
 
     it('should restart servers for non-disabled field changes when disabled is false', async () => {
@@ -178,12 +177,11 @@ describe('ConfigChangeHandler', () => {
       await changeHandler(changes);
 
       const { ServerManager } = await import('@src/core/server/serverManager.js');
-      expect(ServerManager.current.restartServer).toHaveBeenCalledWith(
+      expect(ServerManager.current.loadMcpServer).toHaveBeenCalledWith(
         'non-disabled-changes',
         newConfig['non-disabled-changes'],
       );
-      expect(ServerManager.current.startServer).not.toHaveBeenCalled();
-      expect(ServerManager.current.stopServer).not.toHaveBeenCalled();
+      expect(ServerManager.current.unloadMcpServer).not.toHaveBeenCalled();
     });
 
     it('should update metadata when only tags change on a disabled server', async () => {
@@ -211,8 +209,8 @@ describe('ConfigChangeHandler', () => {
       await changeHandler(changes);
 
       const { ServerManager } = await import('@src/core/server/serverManager.js');
-      expect(ServerManager.current.stopServer).toHaveBeenCalledWith('disabled-metadata-update');
-      expect(ServerManager.current.restartServer).not.toHaveBeenCalled();
+      expect(ServerManager.current.unloadMcpServer).toHaveBeenCalledWith('disabled-metadata-update');
+      expect(ServerManager.current.loadMcpServer).not.toHaveBeenCalled();
     });
 
     it('should handle mixed disable/enable changes with other servers', async () => {
@@ -300,22 +298,22 @@ describe('ConfigChangeHandler', () => {
       const { ServerManager } = await import('@src/core/server/serverManager.js');
 
       // Verify disabled server is stopped
-      expect(ServerManager.current.stopServer).toHaveBeenCalledWith('disabled-server');
+      expect(ServerManager.current.unloadMcpServer).toHaveBeenCalledWith('disabled-server');
 
       // Verify re-enabled server is started
-      expect(ServerManager.current.startServer).toHaveBeenCalledWith(
+      expect(ServerManager.current.loadMcpServer).toHaveBeenCalledWith(
         're-enabled-server',
         newConfig['re-enabled-server'],
       );
 
       // Verify normal modified server is restarted
-      expect(ServerManager.current.restartServer).toHaveBeenCalledWith(
+      expect(ServerManager.current.loadMcpServer).toHaveBeenCalledWith(
         'normal-modified-server',
         newConfig['normal-modified-server'],
       );
 
       // Verify tag-only server does not get restarted
-      expect(ServerManager.current.restartServer).not.toHaveBeenCalledWith('tag-only-server', expect.any(Object));
+      expect(ServerManager.current.loadMcpServer).not.toHaveBeenCalledWith('tag-only-server', expect.any(Object));
     });
   });
 });
