@@ -2,6 +2,7 @@ coverage
 node_modules/
 .tmp/
 .tmp-test/
+.pnpm-store/
 build/
 logs/
 *.log
