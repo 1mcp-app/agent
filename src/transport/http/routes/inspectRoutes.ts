@@ -6,7 +6,11 @@ import { CapabilityAggregator } from '@src/core/capabilities/capabilityAggregato
 import { ToolRegistry } from '@src/core/capabilities/toolRegistry.js';
 import { FilteringService } from '@src/core/filtering/filteringService.js';
 import { ServerRegistry } from '@src/core/server/adapters/ServerRegistry.js';
-import { filterDisabledTools, getDisabledToolError } from '@src/core/server/disabledTools.js';
+import {
+  filterDisabledTools,
+  getDisabledToolError,
+  getDisabledToolsForServer,
+} from '@src/core/server/disabledTools.js';
 import { ServerManager } from '@src/core/server/serverManager.js';
 import logger from '@src/logger/logger.js';
 
@@ -49,6 +53,10 @@ interface DirectListToolsResult {
   nextCursor?: string;
 }
 
+type DeclaredServers = ReturnType<ConfigManager['loadDeclaredServerConfigs']>;
+type ServerConfigMap =
+  ReturnType<typeof McpConfigManager.getInstance> extends { getTransportConfig(): infer TResult } ? TResult : never;
+
 async function listDirectServerTools(
   connection: NonNullable<FilteredConnections extends Map<unknown, infer TValue> ? TValue : never>,
   options: { limit: number; cursor?: string },
@@ -67,6 +75,61 @@ function getServerConfigs() {
   return McpConfigManager.getInstance().getTransportConfig();
 }
 
+function getServerTargetConfigs(declaredServers: DeclaredServers): ServerConfigMap {
+  return {
+    ...declaredServers.staticServers,
+    ...getServerConfigs(),
+    ...declaredServers.templateServers,
+  };
+}
+
+function hasDisabledTools(serverConfigs: ServerConfigMap, serverName: string): boolean {
+  return getDisabledToolsForServer(serverConfigs, serverName).length > 0;
+}
+
+function summarizeRegistryTools(tools: ReturnType<ToolRegistry['listTools']>['tools']): ToolSummary[] {
+  return tools.map((tool) => ({
+    tool: getToolName(tool.name),
+    qualifiedName: tool.name,
+    description: tool.description,
+    requiredArgs: 0,
+    optionalArgs: 0,
+  }));
+}
+
+function buildRegistryToolsResult(
+  serverName: string,
+  result: ReturnType<ToolRegistry['listTools']>,
+  serverConfigs: ServerConfigMap,
+): { tools: ToolSummary[]; totalTools: number; hasMore: boolean; nextCursor?: string } {
+  const filteredTools = filterDisabledTools(result.tools, serverConfigs, serverName);
+  const disabledToolsConfigured = hasDisabledTools(serverConfigs, serverName);
+
+  return {
+    tools: summarizeRegistryTools(filteredTools),
+    totalTools: disabledToolsConfigured ? filteredTools.length : result.totalCount,
+    hasMore: disabledToolsConfigured ? false : result.hasMore,
+    nextCursor: disabledToolsConfigured ? undefined : result.nextCursor,
+  };
+}
+
+function buildDirectToolsResult(
+  serverName: string,
+  directResult: DirectListToolsResult,
+  serverConfigs: ServerConfigMap,
+): { tools: ToolSummary[]; totalTools: number; hasMore: boolean; nextCursor?: string } {
+  const rawTools = directResult.tools ?? [];
+  const directTools = filterDisabledTools(rawTools, serverConfigs, serverName);
+  const disabledToolsConfigured = hasDisabledTools(serverConfigs, serverName);
+
+  return {
+    tools: directTools.map((tool) => summarizeDirectServerTool(serverName, tool)),
+    totalTools: disabledToolsConfigured ? directTools.length : (directResult.totalCount ?? directTools.length),
+    hasMore: disabledToolsConfigured ? false : (directResult.hasMore ?? Boolean(directResult.nextCursor)),
+    nextCursor: disabledToolsConfigured ? undefined : directResult.nextCursor,
+  };
+}
+
 async function buildServerSummaries(
   filteredConnections: FilteredConnections,
   toolRegistry: ToolRegistry | undefined,
@@ -79,6 +142,7 @@ async function buildServerSummaries(
     includeTemplateInstances?: boolean;
   } = {},
 ): Promise<ServerSummary[]> {
+  const serverConfigs = getServerTargetConfigs(declaredServers);
   const includeTemplateInstances = options.includeTemplateInstances ?? true;
   const summaryConnections = new Map(
     Array.from(filteredConnections.entries()).filter(([name]) => includeTemplateInstances || !name.includes(':')),
@@ -86,10 +150,13 @@ async function buildServerSummaries(
   let toolCountByServer: Record<string, number> = {};
 
   if (toolRegistry) {
-    toolCountByServer = toolRegistry.getToolCountByServer();
+    for (const [serverName, tools] of Object.entries(toolRegistry.groupByServer())) {
+      toolCountByServer[serverName] = filterDisabledTools(tools, serverConfigs, serverName).length;
+    }
   } else if (capabilityAggregator) {
     for (const tool of capabilityAggregator.getCurrentCapabilities().tools) {
       const sn = getServerName(tool.name);
+      if (sn && !filterDisabledTools([tool], serverConfigs, sn).length) continue;
       if (sn) toolCountByServer[sn] = (toolCountByServer[sn] ?? 0) + 1;
     }
   } else {
@@ -99,7 +166,7 @@ async function buildServerSummaries(
         try {
           const result = await connection.client.listTools();
           const cleanName = name.includes(':') ? name.split(':')[0] : name;
-          const visibleTools = filterDisabledTools(result.tools ?? [], getServerConfigs(), cleanName);
+          const visibleTools = filterDisabledTools(result.tools ?? [], serverConfigs, cleanName);
           toolCountByServer[cleanName] = Math.max(toolCountByServer[cleanName] ?? 0, visibleTools.length);
         } catch {
           const cleanName = name.includes(':') ? name.split(':')[0] : name;
@@ -207,6 +274,7 @@ export function createInspectHandler(serverManager: ServerManager): RequestHandl
       const filterConfig = buildFilterConfig(res);
       const instructionAggregator = serverManager.getInstructionAggregator();
       const declaredServers = ConfigManager.getInstance().loadDeclaredServerConfigs();
+      const serverConfigs = getServerTargetConfigs(declaredServers);
 
       // No target: list all filtered servers
       if (!targetRaw) {
@@ -255,7 +323,7 @@ export function createInspectHandler(serverManager: ServerManager): RequestHandl
       // Tool target
       if (target.kind === 'tool') {
         const { serverName, toolName, qualifiedName } = target;
-        const disabledError = getDisabledToolError(getServerConfigs(), serverName, toolName);
+        const disabledError = getDisabledToolError(serverConfigs, serverName, toolName);
         if (disabledError) {
           res.status(404).json({ error: disabledError.message });
           return;
@@ -291,7 +359,7 @@ export function createInspectHandler(serverManager: ServerManager): RequestHandl
           if (connection?.client) {
             try {
               const result = await connection.client.listTools();
-              found = filterDisabledTools(result.tools ?? [], getServerConfigs(), serverName).find(
+              found = filterDisabledTools(result.tools ?? [], serverConfigs, serverName).find(
                 (t) => t.name === qualifiedName || t.name === toolName,
               );
             } catch {
@@ -353,47 +421,21 @@ export function createInspectHandler(serverManager: ServerManager): RequestHandl
         if (connection?.client) {
           try {
             const directResult = await listDirectServerTools(connection, { limit, cursor: cursorParam });
-            const directTools = filterDisabledTools(directResult.tools ?? [], getServerConfigs(), serverName);
-            toolsResult = {
-              tools: directTools.map((tool) => summarizeDirectServerTool(serverName, tool)),
-              totalTools: directResult.totalCount ?? directTools.length,
-              hasMore: directResult.hasMore ?? Boolean(directResult.nextCursor),
-              nextCursor: directResult.nextCursor,
-            };
+            toolsResult = buildDirectToolsResult(serverName, directResult, serverConfigs);
           } catch {
             const result = toolRegistry.listTools({ server: serverName, limit, cursor: cursorParam });
-            toolsResult = {
-              tools: result.tools.map((t) => ({
-                tool: getToolName(t.name),
-                qualifiedName: t.name,
-                description: t.description,
-                requiredArgs: 0,
-                optionalArgs: 0,
-              })),
-              totalTools: result.totalCount,
-              hasMore: result.hasMore,
-              nextCursor: result.nextCursor,
-            };
+            toolsResult = buildRegistryToolsResult(serverName, result, serverConfigs);
           }
         } else {
           const result = toolRegistry.listTools({ server: serverName, limit, cursor: cursorParam });
-          toolsResult = {
-            tools: result.tools.map((t) => ({
-              tool: getToolName(t.name),
-              qualifiedName: t.name,
-              description: t.description,
-              requiredArgs: 0,
-              optionalArgs: 0,
-            })),
-            totalTools: result.totalCount,
-            hasMore: result.hasMore,
-            nextCursor: result.nextCursor,
-          };
+          toolsResult = buildRegistryToolsResult(serverName, result, serverConfigs);
         }
       } else if (capabilityAggregator) {
-        const capTools = capabilityAggregator
-          .getCurrentCapabilities()
-          .tools.filter((t) => getServerName(t.name) === serverName);
+        const capTools = filterDisabledTools(
+          capabilityAggregator.getCurrentCapabilities().tools.filter((t) => getServerName(t.name) === serverName),
+          serverConfigs,
+          serverName,
+        );
         toolsResult = {
           tools: capTools.map(summarizeToolSchema),
           totalTools: capTools.length,
@@ -402,13 +444,7 @@ export function createInspectHandler(serverManager: ServerManager): RequestHandl
       } else {
         try {
           const directResult = await listDirectServerTools(connection, { limit, cursor: cursorParam });
-          const directTools = filterDisabledTools(directResult.tools ?? [], getServerConfigs(), serverName);
-          toolsResult = {
-            tools: directTools.map((tool) => summarizeDirectServerTool(serverName, tool)),
-            totalTools: directResult.totalCount ?? directTools.length,
-            hasMore: directResult.hasMore ?? Boolean(directResult.nextCursor),
-            nextCursor: directResult.nextCursor,
-          };
+          toolsResult = buildDirectToolsResult(serverName, directResult, serverConfigs);
         } catch {
           res.status(503).json({ error: 'Tool inventory not available for this server' });
           return;

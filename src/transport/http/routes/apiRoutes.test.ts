@@ -257,6 +257,76 @@ describe('apiRoutes inspect', () => {
     });
   });
 
+  it('hides disabled tools declared on template servers from direct inspect results', async () => {
+    mockedLoadDeclaredServerConfigs.mockReturnValue({
+      staticServers: {},
+      templateServers: {
+        serena: {
+          type: 'stdio',
+          command: 'uvx',
+          args: ['serena'],
+          tags: ['serena'],
+          disabledTools: ['find_symbol'],
+        },
+      },
+      errors: [],
+    });
+    outboundConnections.set('serena:template-hash', {
+      name: 'serena',
+      transport: { tags: ['serena'] } as never,
+      client: {
+        listTools: vi.fn().mockResolvedValue({
+          tools: [
+            { name: 'find_symbol', description: 'Find symbol', inputSchema: { type: 'object' } },
+            { name: 'list_memories', description: 'List memories', inputSchema: { type: 'object' } },
+          ],
+        }),
+      } as never,
+      status: ClientStatus.Connected,
+    } as never);
+
+    const req = { query: { target: 'serena' } };
+    const res = createMockResponse();
+
+    await invokeInspectRoute(scopeAuthMiddleware, req, res);
+    await invokeInspectRoute(inspectHandler, req, res);
+
+    expect(res.statusCode, JSON.stringify(res.body)).toBe(200);
+    expect(res.body).toMatchObject({
+      kind: 'server',
+      server: 'serena',
+      totalTools: 1,
+      tools: [{ tool: 'list_memories', qualifiedName: 'serena_1mcp_list_memories' }],
+    });
+  });
+
+  it('returns 404 for disabled template tool inspect targets', async () => {
+    mockedLoadDeclaredServerConfigs.mockReturnValue({
+      staticServers: {},
+      templateServers: {
+        serena: {
+          type: 'stdio',
+          command: 'uvx',
+          args: ['serena'],
+          tags: ['serena'],
+          disabledTools: ['find_symbol'],
+        },
+      },
+      errors: [],
+    });
+
+    const req = { query: { target: 'serena/find_symbol' } };
+    const res = createMockResponse();
+
+    await invokeInspectRoute(scopeAuthMiddleware, req, res);
+    await invokeInspectRoute(inspectHandler, req, res);
+
+    expect(res.statusCode).toBe(404);
+    expect(res.body).toEqual({
+      error: "Tool is disabled: serena:find_symbol. Use '1mcp mcp tools enable serena find_symbol' to re-enable it.",
+    });
+  });
+
   it('includes declared template servers before any session has registered an adapter', async () => {
     mockedLoadDeclaredServerConfigs.mockReturnValue({
       staticServers: {},
