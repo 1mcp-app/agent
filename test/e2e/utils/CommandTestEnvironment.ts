@@ -107,10 +107,17 @@ export class CommandTestEnvironment {
     }
 
     if (this.registryUrl) {
-      baseEnv.ONE_MCP_REGISTRY_URL = this.registryUrl;
+      baseEnv.TEST_MCP_REGISTRY_URL = this.registryUrl;
     }
 
     return baseEnv;
+  }
+
+  /**
+   * Get mock registry URL when the test scenario enables one.
+   */
+  getRegistryUrl(): string | undefined {
+    return this.registryUrl || undefined;
   }
 
   /**

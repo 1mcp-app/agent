@@ -100,6 +100,11 @@ describe('MCPRegistryClient', () => {
     delete process.env.ONE_MCP_REGISTRY_CACHE_TTL;
     delete process.env.ONE_MCP_REGISTRY_CACHE_MAX_SIZE;
     delete process.env.ONE_MCP_REGISTRY_CACHE_CLEANUP_INTERVAL;
+    delete process.env.TEST_MCP_REGISTRY_URL;
+    delete process.env.TEST_MCP_REGISTRY_TIMEOUT;
+    delete process.env.TEST_MCP_REGISTRY_CACHE_TTL;
+    delete process.env.TEST_MCP_REGISTRY_CACHE_MAX_SIZE;
+    delete process.env.TEST_MCP_REGISTRY_CACHE_CLEANUP_INTERVAL;
   });
 
   describe('createRegistryClient', () => {
@@ -115,6 +120,24 @@ describe('MCPRegistryClient', () => {
       expect(axios.create).toHaveBeenLastCalledWith(
         expect.objectContaining({
           timeout: 1234,
+        }),
+      );
+
+      envClient.destroy();
+    });
+
+    it('uses test registry environment variables without the ONE_MCP yargs prefix', () => {
+      process.env.TEST_MCP_REGISTRY_URL = 'http://127.0.0.1:12346';
+      process.env.TEST_MCP_REGISTRY_TIMEOUT = '2345';
+      process.env.TEST_MCP_REGISTRY_CACHE_TTL = '23';
+      process.env.TEST_MCP_REGISTRY_CACHE_MAX_SIZE = '45';
+      process.env.TEST_MCP_REGISTRY_CACHE_CLEANUP_INTERVAL = '67';
+
+      const envClient = createRegistryClient();
+
+      expect(axios.create).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          timeout: 2345,
         }),
       );
 

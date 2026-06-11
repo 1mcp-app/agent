@@ -593,7 +593,7 @@ function convertCliOptionsToClientOptions(cliOptions: RegistryOptions = {}): Reg
   }
 
   return {
-    baseUrl: cliOptions.url || process.env.ONE_MCP_REGISTRY_URL || 'https://registry.modelcontextprotocol.io',
+    baseUrl: cliOptions.url || getRegistryEnv('ONE_MCP_REGISTRY_URL') || 'https://registry.modelcontextprotocol.io',
     timeout: cliOptions.timeout || parseRegistryNumberEnv('ONE_MCP_REGISTRY_TIMEOUT') || 10000,
     cache: {
       defaultTtl: cliOptions.cacheTtl || parseRegistryNumberEnv('ONE_MCP_REGISTRY_CACHE_TTL') || 300,
@@ -605,8 +605,16 @@ function convertCliOptionsToClientOptions(cliOptions: RegistryOptions = {}): Reg
   };
 }
 
+function getRegistryEnv(name: string): string | undefined {
+  if (process.env[name]) {
+    return process.env[name];
+  }
+
+  return process.env.NODE_ENV === 'test' ? process.env[name.replace('ONE_MCP_', 'TEST_MCP_')] : undefined;
+}
+
 function parseRegistryNumberEnv(name: string): number | undefined {
-  const value = process.env[name];
+  const value = getRegistryEnv(name);
   if (!value) {
     return undefined;
   }
