@@ -39,6 +39,48 @@ export const globalOptions = {
     type: 'string' as const,
     default: undefined,
   },
+  'registry-url': {
+    describe: 'MCP registry base URL (env: ONE_MCP_REGISTRY_URL)',
+    type: 'string' as const,
+    hidden: true,
+    default: undefined,
+  },
+  'registry-timeout': {
+    describe: 'Registry request timeout in milliseconds (env: ONE_MCP_REGISTRY_TIMEOUT)',
+    type: 'number' as const,
+    hidden: true,
+    default: undefined,
+  },
+  'registry-cache-ttl': {
+    describe: 'Registry cache TTL in seconds (env: ONE_MCP_REGISTRY_CACHE_TTL)',
+    type: 'number' as const,
+    hidden: true,
+    default: undefined,
+  },
+  'registry-cache-max-size': {
+    describe: 'Registry cache maximum size (env: ONE_MCP_REGISTRY_CACHE_MAX_SIZE)',
+    type: 'number' as const,
+    hidden: true,
+    default: undefined,
+  },
+  'registry-cache-cleanup-interval': {
+    describe: 'Registry cache cleanup interval in milliseconds (env: ONE_MCP_REGISTRY_CACHE_CLEANUP_INTERVAL)',
+    type: 'number' as const,
+    hidden: true,
+    default: undefined,
+  },
+  'registry-proxy': {
+    describe: 'Registry HTTP proxy URL (env: ONE_MCP_REGISTRY_PROXY)',
+    type: 'string' as const,
+    hidden: true,
+    default: undefined,
+  },
+  'registry-proxy-auth': {
+    describe: 'Registry proxy authentication (env: ONE_MCP_REGISTRY_PROXY_AUTH)',
+    type: 'string' as const,
+    hidden: true,
+    default: undefined,
+  },
 } as const;
 
 /**
@@ -50,4 +92,11 @@ export interface GlobalOptions {
   'cli-session-cache-path'?: string;
   'log-level'?: 'debug' | 'info' | 'warn' | 'error';
   'log-file'?: string;
+  'registry-url'?: string;
+  'registry-timeout'?: number;
+  'registry-cache-ttl'?: number;
+  'registry-cache-max-size'?: number;
+  'registry-cache-cleanup-interval'?: number;
+  'registry-proxy'?: string;
+  'registry-proxy-auth'?: string;
 }

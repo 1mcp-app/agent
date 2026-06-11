@@ -8,7 +8,10 @@ describe('Registry Show Command E2E', () => {
   let runner: CliTestRunner;
 
   beforeEach(async () => {
-    environment = new CommandTestEnvironment(TestFixtures.createTestScenario('registry-show-test', 'basic'));
+    environment = new CommandTestEnvironment({
+      ...TestFixtures.createTestScenario('registry-show-test', 'basic'),
+      mockRegistry: true,
+    });
     await environment.setup();
     runner = new CliTestRunner(environment);
   });
@@ -357,7 +360,7 @@ describe('Registry Show Command E2E', () => {
     });
 
     it('should handle different servers efficiently', async () => {
-      const serverIds = ['file-system', 'git', 'database'];
+      const serverIds = ['file-system', 'missing-git', 'missing-database'];
       const results = [];
 
       const startTime = Date.now();

@@ -133,7 +133,10 @@ describe('Internal MCP Tools Protocol E2E Tests', () => {
   let mcpClient: SimpleMcpClient;
 
   beforeEach(async () => {
-    environment = new CommandTestEnvironment(TestFixtures.createTestScenario('internal-mcp-tools-test', 'empty'));
+    environment = new CommandTestEnvironment({
+      ...TestFixtures.createTestScenario('internal-mcp-tools-test', 'empty'),
+      mockRegistry: true,
+    });
     await environment.setup();
 
     // Initialize simple MCP client with stdio transport
@@ -141,7 +144,7 @@ describe('Internal MCP Tools Protocol E2E Tests', () => {
       command: 'node',
       args: [resolve(__dirname, '../../build/index.js'), '--transport', 'stdio', '--enable-internal-tools'],
       env: {
-        ONE_MCP_CONFIG_DIR: (environment as any).getConfigDir(),
+        ...environment.getEnvironmentVariables(),
         NODE_ENV: 'test',
       },
     });

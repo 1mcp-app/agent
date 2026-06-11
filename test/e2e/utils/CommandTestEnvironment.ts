@@ -1,4 +1,5 @@
 import { mkdir, mkdtemp, rm, writeFile } from 'fs/promises';
+import { createServer, IncomingMessage, ServerResponse } from 'http';
 import { join } from 'path';
 
 import { ConfigBuilder } from './ConfigBuilder.js';
@@ -9,6 +10,7 @@ export interface TestEnvironmentConfig {
   mockApps?: MockApp[];
   mockMcpServers?: MockMcpServer[];
   mockMcpTemplates?: MockMcpServer[];
+  mockRegistry?: boolean;
   envOverrides?: Record<string, string>;
 }
 
@@ -39,6 +41,7 @@ export interface MockMcpServer {
 export class CommandTestEnvironment {
   private tempDir: string | null = null;
   private configPath: string | null = null;
+  private registryUrl: string | null = null;
   private cleanupHandlers: Array<() => Promise<void>> = [];
 
   constructor(private config: TestEnvironmentConfig) {}
@@ -75,6 +78,10 @@ export class CommandTestEnvironment {
     if (this.config.mockApps) {
       await this.createMockApps();
     }
+
+    if (this.config.mockRegistry) {
+      await this.startMockRegistry();
+    }
   }
 
   /**
@@ -97,6 +104,10 @@ export class CommandTestEnvironment {
 
     if (this.configPath) {
       baseEnv.ONE_MCP_CONFIG = this.configPath;
+    }
+
+    if (this.registryUrl) {
+      baseEnv.ONE_MCP_REGISTRY_URL = this.registryUrl;
     }
 
     return baseEnv;
@@ -323,4 +334,222 @@ export class CommandTestEnvironment {
       await writeFile(join(appDir, 'config.json'), JSON.stringify(app.settings, null, 2));
     }
   }
+
+  private async startMockRegistry(): Promise<void> {
+    const server = createServer((req, res) => {
+      this.handleMockRegistryRequest(req, res);
+    });
+
+    await new Promise<void>((resolve, reject) => {
+      server.once('error', reject);
+      server.listen(0, '127.0.0.1', () => {
+        server.off('error', reject);
+        resolve();
+      });
+    });
+
+    const address = server.address();
+    if (!address || typeof address === 'string') {
+      throw new Error('Failed to start mock registry server');
+    }
+
+    this.registryUrl = `http://127.0.0.1:${address.port}`;
+    this.addCleanupHandler(async () => {
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    });
+  }
+
+  private handleMockRegistryRequest(req: IncomingMessage, res: ServerResponse): void {
+    const url = new URL(req.url || '/', 'http://127.0.0.1');
+
+    if (url.pathname === '/v0.1/health') {
+      this.writeJson(res, { status: 'ok', github_client_id: 'test-registry-client' });
+      return;
+    }
+
+    if (url.pathname === '/v0.1/servers') {
+      const servers = this.filterRegistryServers(url.searchParams);
+      this.writeJson(res, {
+        servers: servers.map((server) => ({
+          server,
+          _meta: server._meta,
+        })),
+        metadata: {
+          count: servers.length,
+        },
+      });
+      return;
+    }
+
+    const versionMatch = url.pathname.match(/^\/v0\.1\/servers\/(.+)\/versions$/);
+    if (versionMatch) {
+      const serverId = decodeURIComponent(versionMatch[1]);
+      const versions = MOCK_REGISTRY_SERVERS.filter((server) => server.name === serverId);
+
+      if (versions.length === 0) {
+        this.writeJson(res, { error: 'Not Found' }, 404);
+        return;
+      }
+
+      this.writeJson(res, {
+        servers: versions.map((server) => ({
+          server,
+          _meta: server._meta,
+        })),
+        metadata: {
+          count: versions.length,
+        },
+      });
+      return;
+    }
+
+    this.writeJson(res, { error: 'Not Found' }, 404);
+  }
+
+  private filterRegistryServers(searchParams: URLSearchParams): MockRegistryServer[] {
+    const query = searchParams.get('search')?.toLowerCase().trim();
+    const limitParam = Number(searchParams.get('limit'));
+    const limit = Number.isFinite(limitParam) && limitParam > 0 ? limitParam : MOCK_REGISTRY_SERVERS.length;
+
+    let servers = MOCK_REGISTRY_SERVERS;
+    if (query) {
+      servers = servers.filter(
+        (server) => server.name.toLowerCase().includes(query) || server.description.toLowerCase().includes(query),
+      );
+    }
+
+    return servers.slice(0, limit);
+  }
+
+  private writeJson(res: ServerResponse, body: unknown, statusCode = 200): void {
+    res.writeHead(statusCode, {
+      'Content-Type': 'application/json',
+      Connection: 'close',
+    });
+    res.end(JSON.stringify(body));
+  }
+}
+
+interface MockRegistryServer {
+  name: string;
+  description: string;
+  status: 'active' | 'deprecated' | 'archived';
+  version: string;
+  repository: {
+    source: string;
+    url: string;
+  };
+  packages: Array<{
+    identifier: string;
+    registryType: string;
+    runtimeHint?: string;
+    transport: {
+      type: string;
+    };
+    version: string;
+  }>;
+  remotes: Array<{
+    type: string;
+    url: string;
+  }>;
+  _meta: {
+    'io.modelcontextprotocol.registry/official': {
+      isLatest: boolean;
+      publishedAt: string;
+      status: 'active' | 'deprecated' | 'archived';
+      updatedAt: string;
+    };
+  };
+}
+
+const MOCK_REGISTRY_SERVERS: MockRegistryServer[] = [
+  createMockRegistryServer({
+    name: 'filesystem',
+    description: 'File system access for local project files',
+    identifier: '@modelcontextprotocol/server-filesystem',
+    transportType: 'stdio',
+    registryType: 'npm',
+  }),
+  createMockRegistryServer({
+    name: 'file-search',
+    description: 'Search files and metadata across a workspace',
+    identifier: '@modelcontextprotocol/server-file-search',
+    transportType: 'stdio',
+    registryType: 'npm',
+  }),
+  createMockRegistryServer({
+    name: 'git',
+    description: 'Git repository tools',
+    identifier: '@modelcontextprotocol/server-git',
+    transportType: 'stdio',
+    registryType: 'npm',
+  }),
+  createMockRegistryServer({
+    name: 'database',
+    description: 'Database query tools',
+    identifier: 'mcp-database',
+    transportType: 'http',
+    registryType: 'docker',
+  }),
+  createMockRegistryServer({
+    name: 'deprecated-test',
+    description: 'Deprecated test server',
+    identifier: '@modelcontextprotocol/server-deprecated-test',
+    status: 'deprecated',
+    transportType: 'stdio',
+    registryType: 'npm',
+  }),
+  createMockRegistryServer({
+    name: 'test-registry',
+    description: 'Registry fixture server for protocol tests',
+    identifier: '@modelcontextprotocol/server-test-registry',
+    transportType: 'stdio',
+    registryType: 'npm',
+  }),
+];
+
+function createMockRegistryServer(options: {
+  name: string;
+  description: string;
+  identifier: string;
+  status?: 'active' | 'deprecated' | 'archived';
+  transportType: string;
+  registryType: string;
+}): MockRegistryServer {
+  const status = options.status || 'active';
+  return {
+    name: options.name,
+    description: options.description,
+    status,
+    version: '1.0.0',
+    repository: {
+      source: 'github',
+      url: `https://github.com/example/${options.name}`,
+    },
+    packages: [
+      {
+        identifier: options.identifier,
+        registryType: options.registryType,
+        runtimeHint: 'node',
+        transport: {
+          type: options.transportType,
+        },
+        version: '1.0.0',
+      },
+    ],
+    remotes: [
+      {
+        type: options.transportType,
+        url: `https://example.test/${options.name}`,
+      },
+    ],
+    _meta: {
+      'io.modelcontextprotocol.registry/official': {
+        isLatest: true,
+        publishedAt: '2026-01-01T00:00:00.000Z',
+        status,
+        updatedAt: '2026-01-02T00:00:00.000Z',
+      },
+    },
+  };
 }

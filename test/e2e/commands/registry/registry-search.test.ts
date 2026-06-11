@@ -8,7 +8,10 @@ describe('Registry Search Command E2E', () => {
   let runner: CliTestRunner;
 
   beforeEach(async () => {
-    environment = new CommandTestEnvironment(TestFixtures.createTestScenario('registry-search-test', 'basic'));
+    environment = new CommandTestEnvironment({
+      ...TestFixtures.createTestScenario('registry-search-test', 'basic'),
+      mockRegistry: true,
+    });
     await environment.setup();
     runner = new CliTestRunner(environment);
   });

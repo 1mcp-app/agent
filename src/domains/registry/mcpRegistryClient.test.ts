@@ -2,7 +2,7 @@
 import axios from 'axios';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { MCPRegistryClient } from './mcpRegistryClient.js';
+import { createRegistryClient, MCPRegistryClient } from './mcpRegistryClient.js';
 import type { RegistryServer } from './types.js';
 
 // Mock axios instance
@@ -95,6 +95,31 @@ describe('MCPRegistryClient', () => {
 
   afterEach(() => {
     client.destroy();
+    delete process.env.ONE_MCP_REGISTRY_URL;
+    delete process.env.ONE_MCP_REGISTRY_TIMEOUT;
+    delete process.env.ONE_MCP_REGISTRY_CACHE_TTL;
+    delete process.env.ONE_MCP_REGISTRY_CACHE_MAX_SIZE;
+    delete process.env.ONE_MCP_REGISTRY_CACHE_CLEANUP_INTERVAL;
+  });
+
+  describe('createRegistryClient', () => {
+    it('uses documented registry environment variables when CLI options are omitted', () => {
+      process.env.ONE_MCP_REGISTRY_URL = 'http://127.0.0.1:12345';
+      process.env.ONE_MCP_REGISTRY_TIMEOUT = '1234';
+      process.env.ONE_MCP_REGISTRY_CACHE_TTL = '12';
+      process.env.ONE_MCP_REGISTRY_CACHE_MAX_SIZE = '34';
+      process.env.ONE_MCP_REGISTRY_CACHE_CLEANUP_INTERVAL = '56';
+
+      const envClient = createRegistryClient();
+
+      expect(axios.create).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          timeout: 1234,
+        }),
+      );
+
+      envClient.destroy();
+    });
   });
 
   describe('getServers', () => {
