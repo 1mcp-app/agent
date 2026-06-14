@@ -168,8 +168,9 @@ async function buildServerSummaries(
           const cleanName = name.includes(':') ? name.split(':')[0] : name;
           const visibleTools = filterDisabledTools(result.tools ?? [], serverConfigs, cleanName);
           toolCountByServer[cleanName] = Math.max(toolCountByServer[cleanName] ?? 0, visibleTools.length);
-        } catch {
+        } catch (error) {
           const cleanName = name.includes(':') ? name.split(':')[0] : name;
+          logger.warn(`Failed to fetch tool count for server '${cleanName}':`, error);
           toolCountByServer[cleanName] = Math.max(toolCountByServer[cleanName] ?? 0, 0);
         }
       }),
@@ -362,8 +363,8 @@ export function createInspectHandler(serverManager: ServerManager): RequestHandl
               found = filterDisabledTools(result.tools ?? [], serverConfigs, serverName).find(
                 (t) => t.name === qualifiedName || t.name === toolName,
               );
-            } catch {
-              // ignore
+            } catch (error) {
+              logger.warn(`Failed to list tools for server '${serverName}' while resolving tool '${toolName}':`, error);
             }
           }
         }

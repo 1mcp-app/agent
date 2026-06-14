@@ -107,7 +107,7 @@ export class CommandTestEnvironment {
     }
 
     if (this.registryUrl) {
-      baseEnv.TEST_MCP_REGISTRY_URL = this.registryUrl;
+      baseEnv.ONE_MCP_REGISTRY_URL = this.registryUrl;
     }
 
     return baseEnv;
@@ -235,6 +235,7 @@ export class CommandTestEnvironment {
     }
 
     this.configPath = null;
+    this.registryUrl = null;
   }
 
   /**
@@ -367,6 +368,7 @@ export class CommandTestEnvironment {
   }
 
   private handleMockRegistryRequest(req: IncomingMessage, res: ServerResponse): void {
+    res.on('error', (err) => console.warn('Mock registry response error:', err));
     const url = new URL(req.url || '/', 'http://127.0.0.1');
 
     if (url.pathname === '/v0.1/health') {

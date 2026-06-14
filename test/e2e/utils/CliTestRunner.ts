@@ -414,10 +414,10 @@ export class CliTestRunner {
         child.stdin?.end();
       }
 
-      child.on('close', (code) => {
+      child.on('close', (code, signal) => {
         clearTimeout(timeoutHandle);
         resolve({
-          exitCode: code || 0,
+          exitCode: code !== null ? code : signal ? -1 : 0,
           stdout: stdout.trim(),
           stderr: stderr.trim(),
           duration: Date.now() - startTime,

@@ -245,8 +245,9 @@ export class MCPRegistryClient {
             }
 
             return registryStatus;
-          } catch (_error) {
+          } catch (error) {
             const responseTime = Date.now() - startTime;
+            logger.warn('Registry status check failed:', error);
             return {
               available: false,
               url: this.baseUrl,
@@ -593,34 +594,15 @@ function convertCliOptionsToClientOptions(cliOptions: RegistryOptions = {}): Reg
   }
 
   return {
-    baseUrl: cliOptions.url || getRegistryEnv('ONE_MCP_REGISTRY_URL') || 'https://registry.modelcontextprotocol.io',
-    timeout: cliOptions.timeout || parseRegistryNumberEnv('ONE_MCP_REGISTRY_TIMEOUT') || 10000,
+    baseUrl: cliOptions.url || 'https://registry.modelcontextprotocol.io',
+    timeout: cliOptions.timeout || 10000,
     cache: {
-      defaultTtl: cliOptions.cacheTtl || parseRegistryNumberEnv('ONE_MCP_REGISTRY_CACHE_TTL') || 300,
-      maxSize: cliOptions.cacheMaxSize || parseRegistryNumberEnv('ONE_MCP_REGISTRY_CACHE_MAX_SIZE') || 1000,
-      cleanupInterval:
-        cliOptions.cacheCleanupInterval || parseRegistryNumberEnv('ONE_MCP_REGISTRY_CACHE_CLEANUP_INTERVAL') || 60000,
+      defaultTtl: cliOptions.cacheTtl || 300,
+      maxSize: cliOptions.cacheMaxSize || 1000,
+      cleanupInterval: cliOptions.cacheCleanupInterval || 60000,
     },
     proxy,
   };
-}
-
-function getRegistryEnv(name: string): string | undefined {
-  if (process.env[name]) {
-    return process.env[name];
-  }
-
-  return process.env.NODE_ENV === 'test' ? process.env[name.replace('ONE_MCP_', 'TEST_MCP_')] : undefined;
-}
-
-function parseRegistryNumberEnv(name: string): number | undefined {
-  const value = getRegistryEnv(name);
-  if (!value) {
-    return undefined;
-  }
-
-  const parsed = Number(value);
-  return Number.isFinite(parsed) ? parsed : undefined;
 }
 
 /**

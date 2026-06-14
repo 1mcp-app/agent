@@ -95,51 +95,21 @@ describe('MCPRegistryClient', () => {
 
   afterEach(() => {
     client.destroy();
-    delete process.env.ONE_MCP_REGISTRY_URL;
-    delete process.env.ONE_MCP_REGISTRY_TIMEOUT;
-    delete process.env.ONE_MCP_REGISTRY_CACHE_TTL;
-    delete process.env.ONE_MCP_REGISTRY_CACHE_MAX_SIZE;
-    delete process.env.ONE_MCP_REGISTRY_CACHE_CLEANUP_INTERVAL;
-    delete process.env.TEST_MCP_REGISTRY_URL;
-    delete process.env.TEST_MCP_REGISTRY_TIMEOUT;
-    delete process.env.TEST_MCP_REGISTRY_CACHE_TTL;
-    delete process.env.TEST_MCP_REGISTRY_CACHE_MAX_SIZE;
-    delete process.env.TEST_MCP_REGISTRY_CACHE_CLEANUP_INTERVAL;
   });
 
   describe('createRegistryClient', () => {
-    it('uses documented registry environment variables when CLI options are omitted', () => {
-      process.env.ONE_MCP_REGISTRY_URL = 'http://127.0.0.1:12345';
-      process.env.ONE_MCP_REGISTRY_TIMEOUT = '1234';
-      process.env.ONE_MCP_REGISTRY_CACHE_TTL = '12';
-      process.env.ONE_MCP_REGISTRY_CACHE_MAX_SIZE = '34';
-      process.env.ONE_MCP_REGISTRY_CACHE_CLEANUP_INTERVAL = '56';
+    it('uses CLI options when provided', () => {
+      const envClient = createRegistryClient({ url: 'http://127.0.0.1:12345', timeout: 1234 });
 
-      const envClient = createRegistryClient();
-
-      expect(axios.create).toHaveBeenLastCalledWith(
-        expect.objectContaining({
-          timeout: 1234,
-        }),
-      );
+      expect(axios.create).toHaveBeenLastCalledWith(expect.objectContaining({ timeout: 1234 }));
 
       envClient.destroy();
     });
 
-    it('uses test registry environment variables without the ONE_MCP yargs prefix', () => {
-      process.env.TEST_MCP_REGISTRY_URL = 'http://127.0.0.1:12346';
-      process.env.TEST_MCP_REGISTRY_TIMEOUT = '2345';
-      process.env.TEST_MCP_REGISTRY_CACHE_TTL = '23';
-      process.env.TEST_MCP_REGISTRY_CACHE_MAX_SIZE = '45';
-      process.env.TEST_MCP_REGISTRY_CACHE_CLEANUP_INTERVAL = '67';
-
+    it('falls back to defaults when no CLI options are provided', () => {
       const envClient = createRegistryClient();
 
-      expect(axios.create).toHaveBeenLastCalledWith(
-        expect.objectContaining({
-          timeout: 2345,
-        }),
-      );
+      expect(axios.create).toHaveBeenLastCalledWith(expect.objectContaining({ timeout: 10000 }));
 
       envClient.destroy();
     });
