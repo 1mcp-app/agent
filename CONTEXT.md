@@ -17,8 +17,20 @@ The configuration directory that defines which **Aggregated Runtime** instance a
 _Avoid_: global lock, machine singleton
 
 **Client Surface**:
-A way callers interact with the **Aggregated Runtime**, such as CLI mode, direct HTTP MCP, REST inspection routes, or stdio proxy.
+A way callers interact with the **Aggregated Runtime**, such as CLI mode, direct HTTP MCP, REST inspection routes, stdio proxy, or the **Admin Console**.
 _Avoid_: frontend, API layer
+
+**Admin Console**:
+The browser-based, same-origin **Client Surface** (titled "1MCP") served by the **Aggregated Runtime** for human operators to observe and manage it. Authenticated by an **Admin Session**, never by an OAuth client token. Subsumes the backend OAuth status and consent view formerly served as the standalone OAuth dashboard.
+_Avoid_: frontend, web app, OAuth dashboard
+
+**Admin Account**:
+A human operator credential record (identified by username, password verified against a stored hash) that can authenticate to the **Admin Console**. Distinct from any OAuth client identity.
+_Avoid_: user, OAuth client, API key
+
+**Admin Session**:
+The cookie-backed login established when an **Admin Account** authenticates to the **Admin Console**, used to authorize its requests. Distinct from a **Request Session**, a **Streamable Transport Session**, and an OAuth client token.
+_Avoid_: user session, HTTP session, Request Session, OAuth session
 
 **Client Surface Attachment**:
 The process that prepares a **Client Surface** to communicate with an **Aggregated Runtime** using the appropriate **Request Context**, authentication, filters, and transport-session behavior.
@@ -111,6 +123,10 @@ _Avoid_: install command, installation adapter, registry install
 ## Relationships
 
 - An **Aggregated Runtime** exposes one or more **Client Surfaces**.
+- The **Admin Console** is a **Client Surface** served same-origin by the **Aggregated Runtime**.
+- The **Admin Console** authorizes its requests with an **Admin Session**, not an OAuth client token.
+- An **Admin Session** is established by exactly one **Admin Account**.
+- An **Admin Account** exists independently of any OAuth client identity and is created outside the **Admin Console** (CLI or environment bootstrap), never by an unauthenticated web request.
 - A **Background Aggregated Runtime** is an **Aggregated Runtime**.
 - A **Runtime Scope** allows at most one active **Aggregated Runtime**.
 - `1mcp serve` owns **Aggregated Runtime** lifecycle operations for a **Runtime Scope**.
