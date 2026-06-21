@@ -21,6 +21,7 @@ export default withMermaid(
     lastUpdated: true,
     cleanUrls: true,
     metaChunk: true,
+    srcExclude: ['agents/**', 'adr/**', 'CLAUDE.md', 'README.md', 'ROADMAP.md'],
 
     rewrites: {
       'en/:rest*': ':rest*',

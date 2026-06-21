@@ -156,3 +156,17 @@ echo '{"jsonrpc":"2.0","method":"initialize","params":{}}' | node build/index.js
 - **Logging**: Winston with conditional logging
 - **Testing**: Vitest with V8 coverage
 - **Build**: esbuild for SEA bundles, tsc for development
+
+## Agent skills
+
+### Issue tracker
+
+Issues and PRDs are tracked in GitHub Issues for `1mcp-app/agent`. See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+Triage uses GitHub labels, with `needs-info` mapped to `question` and the other canonical roles using their default names. See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+This repo uses a single-context layout with root `CONTEXT.md` and `docs/adr/`. See `docs/agents/domain.md`.
