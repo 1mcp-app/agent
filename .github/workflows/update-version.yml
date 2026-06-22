@@ -2,6 +2,19 @@ name: Update Version
 
 on:
   workflow_call:
+    inputs:
+      release_ref:
+        description: Branch to update with release metadata.
+        required: true
+        type: string
+      version:
+        description: Release version to write into metadata.
+        required: true
+        type: string
+    outputs:
+      release_sha:
+        description: Commit SHA containing the release metadata update.
+        value: ${{ jobs.update-version.outputs.release_sha }}
 
 concurrency:
   group: version-${{ github.workflow }}-${{ github.ref }}
@@ -16,10 +29,23 @@ jobs:
     environment: release
     permissions:
       contents: write
+    outputs:
+      release_sha: ${{ steps.release-sha.outputs.release_sha }}
 
     steps:
+      - name: Validate release ref
+        env:
+          RELEASE_REF: ${{ inputs.release_ref }}
+        run: |
+          set -euo pipefail
+          if [[ "$RELEASE_REF" != "main" && ! "$RELEASE_REF" =~ ^release-[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::Invalid release ref: $RELEASE_REF"
+            exit 1
+          fi
+
       - uses: actions/checkout@v4
         with:
+          ref: refs/heads/${{ inputs.release_ref }}
           fetch-depth: 0
           token: ${{ secrets.GITHUB_TOKEN }}
 
@@ -32,13 +58,13 @@ jobs:
           git config --local user.name "github-actions[bot]"
 
       - name: Update version in codebase
+        env:
+          VERSION: ${{ inputs.version }}
         run: |
-          # Extract version from tag
-          VERSION=${GITHUB_REF#refs/tags/v}
+          set -euo pipefail
           echo "Updating to version: $VERSION"
 
-          # Run version update script
-          node scripts/update-version.cjs $VERSION
+          node scripts/update-version.cjs "$VERSION"
 
       - name: Generate changelog
         uses: orhun/git-cliff-action@v4
@@ -50,8 +76,11 @@ jobs:
           GITHUB_REPO: ${{ github.repository }}
 
       - name: Commit and push changes
+        env:
+          RELEASE_REF: ${{ inputs.release_ref }}
+          VERSION: ${{ inputs.version }}
         run: |
-          VERSION=${GITHUB_REF#refs/tags/v}
+          set -euo pipefail
 
           # Add all updated files
           git add package.json src/constants/mcp.ts CHANGELOG.md
@@ -63,8 +92,17 @@ jobs:
             echo "Committing changes for version $VERSION"
             git commit -m "chore: update version and changelog to $VERSION [skip ci]"
 
-            # Push directly to main branch
-            git push origin HEAD:main
+            # Push directly to the validated release branch.
+            git push origin "HEAD:${RELEASE_REF}"
 
-            echo "✅ Version $VERSION committed and pushed to main"
+            echo "Version $VERSION committed and pushed to $RELEASE_REF"
           fi
+
+      - name: Resolve release commit SHA
+        id: release-sha
+        run: |
+          set -euo pipefail
+
+          RELEASE_SHA=$(git rev-parse HEAD)
+          echo "release_sha=${RELEASE_SHA}" >> "$GITHUB_OUTPUT"
+          echo "Release commit SHA: ${RELEASE_SHA}"
