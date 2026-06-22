@@ -27,10 +27,6 @@ on:
         description: Whether the release is a prerelease.
         required: true
         type: boolean
-    secrets:
-      GITHUB_TOKEN:
-        required: true
-
 concurrency:
   group: docker-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
