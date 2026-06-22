@@ -13,6 +13,7 @@ import logger from '@src/logger/logger.js';
 import bodyParser from 'body-parser';
 import cors from 'cors';
 import express from 'express';
+import { z } from 'zod';
 
 import errorHandler from './middlewares/errorHandler.js';
 import { httpRequestLogger } from './middlewares/httpRequestLogger.js';
@@ -35,6 +36,13 @@ interface CompatibleRateLimitOptions {
   legacyHeaders?: boolean;
   handler?: (req: express.Request, res: express.Response) => void;
 }
+
+const RequestHeaderSchema = z
+  .object({
+    host: z.union([z.string(), z.array(z.string())]).optional(),
+    origin: z.union([z.string(), z.array(z.string())]).optional(),
+  })
+  .passthrough();
 
 function isLoopbackOrigin(origin: string | undefined): boolean {
   if (!origin) {
@@ -72,7 +80,16 @@ function normalizeHostHeader(host: string | string[] | undefined): string | unde
 
   if (normalizedHost.startsWith('[')) {
     const end = normalizedHost.indexOf(']');
-    return end > 0 ? host.slice(1, end).toLowerCase() : undefined;
+    if (end <= 0) {
+      return undefined;
+    }
+
+    const remainder = normalizedHost.slice(end + 1);
+    if (remainder && !/^:\d+$/.test(remainder)) {
+      return undefined;
+    }
+
+    return normalizedHost.slice(1, end);
   }
 
   const colonCount = (normalizedHost.match(/:/g) || []).length;
@@ -138,17 +155,23 @@ function isHostAllowed(
 
 function createLoopbackRequestGuard(configManager: AgentConfigManager): express.RequestHandler {
   return (req, res, next) => {
+    const headers = RequestHeaderSchema.safeParse(req.headers);
+    if (!headers.success) {
+      res.status(403).json({ error: 'Forbidden host header' });
+      return;
+    }
+
     const externalHostname = getUrlHostname(configManager.get('externalUrl'));
     const boundHostname = normalizeHostHeader(configManager.get('host'));
-    const requestHost = normalizeHostHeader(req.headers.host);
+    const requestHost = normalizeHostHeader(headers.data.host);
 
     if (!isHostAllowed(requestHost, externalHostname, boundHostname)) {
       res.status(403).json({ error: 'Forbidden host header' });
       return;
     }
 
-    const origin = Array.isArray(req.headers.origin) ? undefined : req.headers.origin;
-    if (isLoopbackHostname(requestHost) && req.headers.origin && (!origin || !isLoopbackOrigin(origin))) {
+    const origin = headers.data.origin;
+    if (isLoopbackHostname(requestHost) && origin && (Array.isArray(origin) || !isLoopbackOrigin(origin))) {
       res.status(403).json({ error: 'Forbidden origin header' });
       return;
     }

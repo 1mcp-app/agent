@@ -69,7 +69,7 @@ vi.mock('./middlewares/scopeAuthMiddleware.js', () => ({
 }));
 
 vi.mock('./middlewares/httpRequestLogger.js', () => ({
-  httpRequestLogger: vi.fn(),
+  httpRequestLogger: vi.fn((_req, _res, next) => next()),
 }));
 
 vi.mock('./routes/streamableHttpRoutes.js', () => ({
@@ -113,32 +113,53 @@ describe('ExpressServer', () => {
   let mockConfigManager: any;
   let expressServer: ExpressServer;
 
-  const runRegisteredMiddleware = (headers: Record<string, string>) =>
-    mockApp.use.mock.calls
+  type TestHeaders = Record<string, string | string[] | undefined>;
+  type MiddlewareResult = {
+    middleware: any;
+    res: {
+      status: ReturnType<typeof vi.fn>;
+      json: ReturnType<typeof vi.fn>;
+    };
+    next: ReturnType<typeof vi.fn>;
+  };
+
+  const runRegisteredMiddleware = (headers: TestHeaders) => {
+    const results: MiddlewareResult[] = [];
+    const middlewares = mockApp.use.mock.calls
       .map(([middleware]: any[]) => middleware)
-      .filter((middleware: unknown) => typeof middleware === 'function')
-      .map((middleware: any) => {
-        const res = {
-          status: vi.fn().mockReturnThis(),
-          json: vi.fn().mockReturnThis(),
-        };
-        const next = vi.fn();
+      .filter((middleware: unknown) => typeof middleware === 'function');
 
-        middleware({ headers }, res, next);
+    for (const middleware of middlewares) {
+      const res = {
+        status: vi.fn().mockReturnThis(),
+        json: vi.fn().mockReturnThis(),
+      };
+      const next = vi.fn();
 
-        return { middleware, res, next };
-      });
+      middleware({ headers }, res, next);
+      results.push({ middleware, res, next });
 
-  const getBlockingMiddleware = (headers: Record<string, string>) => {
+      if (next.mock.calls.length === 0) {
+        break;
+      }
+    }
+
+    return results;
+  };
+
+  const getBlockingMiddleware = (headers: TestHeaders): MiddlewareResult => {
     const blockedResult = runRegisteredMiddleware(headers).find(
       ({ res }: any) => vi.mocked(res.status).mock.calls[0]?.[0] === 403,
     );
 
-    expect(blockedResult).toBeDefined();
+    if (!blockedResult) {
+      throw new Error('Expected a middleware to block the request');
+    }
+
     return blockedResult;
   };
 
-  const expectNoBlockingMiddleware = (headers: Record<string, string>) => {
+  const expectNoBlockingMiddleware = (headers: TestHeaders) => {
     expect(
       runRegisteredMiddleware(headers).some(({ res }: any) => vi.mocked(res.status).mock.calls[0]?.[0] === 403),
     ).toBe(false);
@@ -560,6 +581,57 @@ describe('ExpressServer', () => {
       expressServer = new ExpressServer(mockServerManager);
 
       expectNoBlockingMiddleware({ host: '127.0.0.1:3050' });
+    });
+
+    it('should reject malformed bracketed loopback host headers', async () => {
+      mockConfigManager.get.mockImplementation((key: string) => {
+        if (key === 'trustProxy') return 'loopback';
+        if (key === 'auth') return { sessionStoragePath: '/tmp/sessions' };
+        if (key === 'features') return { enhancedSecurity: false, auth: false };
+        if (key === 'externalUrl') return 'http://127.0.0.1:3050';
+        if (key === 'host') return '0.0.0.0';
+        if (key === 'port') return 3050;
+        if (key === 'rateLimit') return { windowMs: 900000, max: 100 };
+        if (key === 'sessionPersistence') return { backgroundFlushSeconds: 30 };
+        return undefined;
+      });
+      mockConfigManager.getUrl.mockReturnValue('http://127.0.0.1:3050');
+
+      expressServer = new ExpressServer(mockServerManager);
+
+      const blockedResult = getBlockingMiddleware({
+        host: '[::1]attacker.example',
+      });
+
+      expect(blockedResult.res.status).toHaveBeenCalledWith(403);
+      expect(blockedResult.res.json).toHaveBeenCalledWith({ error: 'Forbidden host header' });
+      expect(blockedResult.next).not.toHaveBeenCalled();
+    });
+
+    it('should reject duplicate origin headers on loopback requests', async () => {
+      mockConfigManager.get.mockImplementation((key: string) => {
+        if (key === 'trustProxy') return 'loopback';
+        if (key === 'auth') return { sessionStoragePath: '/tmp/sessions' };
+        if (key === 'features') return { enhancedSecurity: false, auth: false };
+        if (key === 'externalUrl') return 'http://127.0.0.1:3050';
+        if (key === 'host') return '0.0.0.0';
+        if (key === 'port') return 3050;
+        if (key === 'rateLimit') return { windowMs: 900000, max: 100 };
+        if (key === 'sessionPersistence') return { backgroundFlushSeconds: 30 };
+        return undefined;
+      });
+      mockConfigManager.getUrl.mockReturnValue('http://127.0.0.1:3050');
+
+      expressServer = new ExpressServer(mockServerManager);
+
+      const blockedResult = getBlockingMiddleware({
+        host: '127.0.0.1:3050',
+        origin: ['http://127.0.0.1:3050', 'http://attacker.example:3050'],
+      });
+
+      expect(blockedResult.res.status).toHaveBeenCalledWith(403);
+      expect(blockedResult.res.json).toHaveBeenCalledWith({ error: 'Forbidden origin header' });
+      expect(blockedResult.next).not.toHaveBeenCalled();
     });
 
     it('should reject non-loopback origins before CORS for loopback external URLs', async () => {
