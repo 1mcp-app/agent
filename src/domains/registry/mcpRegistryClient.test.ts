@@ -2,7 +2,7 @@
 import axios from 'axios';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { MCPRegistryClient } from './mcpRegistryClient.js';
+import { createRegistryClient, MCPRegistryClient } from './mcpRegistryClient.js';
 import type { RegistryServer } from './types.js';
 
 // Mock axios instance
@@ -95,6 +95,24 @@ describe('MCPRegistryClient', () => {
 
   afterEach(() => {
     client.destroy();
+  });
+
+  describe('createRegistryClient', () => {
+    it('uses CLI options when provided', () => {
+      const envClient = createRegistryClient({ url: 'http://127.0.0.1:12345', timeout: 1234 });
+
+      expect(axios.create).toHaveBeenLastCalledWith(expect.objectContaining({ timeout: 1234 }));
+
+      envClient.destroy();
+    });
+
+    it('falls back to defaults when no CLI options are provided', () => {
+      const envClient = createRegistryClient();
+
+      expect(axios.create).toHaveBeenLastCalledWith(expect.objectContaining({ timeout: 10000 }));
+
+      envClient.destroy();
+    });
   });
 
   describe('getServers', () => {

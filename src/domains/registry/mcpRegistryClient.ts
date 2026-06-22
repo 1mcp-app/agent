@@ -245,8 +245,9 @@ export class MCPRegistryClient {
             }
 
             return registryStatus;
-          } catch (_error) {
+          } catch (error) {
             const responseTime = Date.now() - startTime;
+            logger.warn('Registry status check failed:', error);
             return {
               available: false,
               url: this.baseUrl,

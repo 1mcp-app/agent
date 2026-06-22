@@ -11,38 +11,45 @@ export interface RegistryYargsOptions {
 // Registry-specific options
 export const registryOptions = {
   url: {
-    describe: 'MCP registry base URL (env: ONE_MCP_REGISTRY_URL)',
+    describe: 'MCP registry base URL',
     type: 'string' as const,
+    env: 'ONE_MCP_REGISTRY_URL',
     default: undefined,
   },
   timeout: {
-    describe: 'Registry request timeout in milliseconds (env: ONE_MCP_REGISTRY_TIMEOUT)',
+    describe: 'Registry request timeout in milliseconds',
     type: 'number' as const,
+    env: 'ONE_MCP_REGISTRY_TIMEOUT',
     default: undefined,
   },
   'cache-ttl': {
-    describe: 'Registry cache TTL in seconds (env: ONE_MCP_REGISTRY_CACHE_TTL)',
+    describe: 'Registry cache TTL in seconds',
     type: 'number' as const,
+    env: 'ONE_MCP_REGISTRY_CACHE_TTL',
     default: undefined,
   },
   'cache-max-size': {
-    describe: 'Registry cache maximum size (env: ONE_MCP_REGISTRY_CACHE_MAX_SIZE)',
+    describe: 'Registry cache maximum size',
     type: 'number' as const,
+    env: 'ONE_MCP_REGISTRY_CACHE_MAX_SIZE',
     default: undefined,
   },
   'cache-cleanup-interval': {
-    describe: 'Registry cache cleanup interval in milliseconds (env: ONE_MCP_REGISTRY_CACHE_CLEANUP_INTERVAL)',
+    describe: 'Registry cache cleanup interval in milliseconds',
     type: 'number' as const,
+    env: 'ONE_MCP_REGISTRY_CACHE_CLEANUP_INTERVAL',
     default: undefined,
   },
   proxy: {
-    describe: 'Registry HTTP proxy URL (env: ONE_MCP_REGISTRY_PROXY)',
+    describe: 'Registry HTTP proxy URL',
     type: 'string' as const,
+    env: 'ONE_MCP_REGISTRY_PROXY',
     default: undefined,
   },
   'proxy-auth': {
-    describe: 'Registry proxy authentication (username:password) (env: ONE_MCP_REGISTRY_PROXY_AUTH)',
+    describe: 'Registry proxy authentication (username:password)',
     type: 'string' as const,
+    env: 'ONE_MCP_REGISTRY_PROXY_AUTH',
     default: undefined,
   },
 } as const;
