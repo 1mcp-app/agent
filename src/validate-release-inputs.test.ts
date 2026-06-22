@@ -17,6 +17,7 @@ const { validateReleaseInputs } = require('../scripts/validate-release-inputs.cj
 describe('validateReleaseInputs', () => {
   it.each([
     ['1.2.3-alpha.1', 'alpha'],
+    ['1.2.3-alpha-build.1', 'alpha-build'],
     ['1.2.3-beta1', 'beta1'],
     ['1.2.3-rc1', 'rc1'],
   ])('accepts semver prerelease version %s', (version, releaseTag) => {
@@ -36,7 +37,7 @@ describe('validateReleaseInputs', () => {
     });
   });
 
-  it('rejects malformed prerelease identifiers without catastrophic backtracking', () => {
+  it('rejects invalid release channels without catastrophic backtracking', () => {
     const startedAt = Date.now();
 
     expect(() =>
@@ -45,7 +46,7 @@ describe('validateReleaseInputs', () => {
         version: `0.0.0-0.${'--.'.repeat(250)}x`,
         tagExists: () => false,
       }),
-    ).toThrow('version must be X.Y.Z or X.Y.Z-<prerelease>.');
+    ).toThrow('prerelease channel must start with a letter so it can be used as an npm dist-tag.');
 
     expect(Date.now() - startedAt).toBeLessThan(100);
   });

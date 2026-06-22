@@ -33,10 +33,11 @@ function parseVersion(version) {
     return null;
   }
 
-  const [core, prerelease, extra] = coreAndPrerelease.split('-');
-  if (extra !== undefined) {
-    return null;
-  }
+  const prereleaseSeparatorIndex = coreAndPrerelease.indexOf('-');
+  const core =
+    prereleaseSeparatorIndex === -1 ? coreAndPrerelease : coreAndPrerelease.slice(0, prereleaseSeparatorIndex);
+  const prerelease =
+    prereleaseSeparatorIndex === -1 ? undefined : coreAndPrerelease.slice(prereleaseSeparatorIndex + 1);
 
   const coreParts = core.split('.');
   if (coreParts.length !== 3 || coreParts.some((part) => !VERSION_CORE_PART_REGEX.test(part))) {
