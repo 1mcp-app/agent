@@ -2,6 +2,11 @@ name: Update Version
 
 on:
   workflow_call:
+    inputs:
+      release_ref:
+        description: Branch to update with release metadata.
+        required: true
+        type: string
 
 concurrency:
   group: version-${{ github.workflow }}-${{ github.ref }}
@@ -18,8 +23,19 @@ jobs:
       contents: write
 
     steps:
+      - name: Validate release ref
+        env:
+          RELEASE_REF: ${{ inputs.release_ref }}
+        run: |
+          set -euo pipefail
+          if [[ "$RELEASE_REF" != "main" && ! "$RELEASE_REF" =~ ^release-[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::Invalid release ref: $RELEASE_REF"
+            exit 1
+          fi
+
       - uses: actions/checkout@v4
         with:
+          ref: refs/heads/${{ inputs.release_ref }}
           fetch-depth: 0
           token: ${{ secrets.GITHUB_TOKEN }}
 
@@ -38,7 +54,7 @@ jobs:
           echo "Updating to version: $VERSION"
 
           # Run version update script
-          node scripts/update-version.cjs $VERSION
+          node scripts/update-version.cjs "$VERSION"
 
       - name: Generate changelog
         uses: orhun/git-cliff-action@v4
@@ -50,6 +66,8 @@ jobs:
           GITHUB_REPO: ${{ github.repository }}
 
       - name: Commit and push changes
+        env:
+          RELEASE_REF: ${{ inputs.release_ref }}
         run: |
           VERSION=${GITHUB_REF#refs/tags/v}
 
@@ -63,8 +81,8 @@ jobs:
             echo "Committing changes for version $VERSION"
             git commit -m "chore: update version and changelog to $VERSION [skip ci]"
 
-            # Push directly to main branch
-            git push origin HEAD:main
+            # Push directly to the validated release branch.
+            git push origin "HEAD:${RELEASE_REF}"
 
-            echo "✅ Version $VERSION committed and pushed to main"
+            echo "Version $VERSION committed and pushed to $RELEASE_REF"
           fi
