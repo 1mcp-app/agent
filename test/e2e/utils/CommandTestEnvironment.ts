@@ -106,10 +106,6 @@ export class CommandTestEnvironment {
       baseEnv.ONE_MCP_CONFIG = this.configPath;
     }
 
-    if (this.registryUrl) {
-      baseEnv.ONE_MCP_REGISTRY_URL = this.registryUrl;
-    }
-
     return baseEnv;
   }
 
