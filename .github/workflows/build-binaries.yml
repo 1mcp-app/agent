@@ -5,7 +5,19 @@ on:
     inputs:
       release_ref:
         description: Branch to build release binaries from.
-        required: true
+        required: false
+        type: string
+      release_sha:
+        description: Exact release commit SHA to build from.
+        required: false
+        type: string
+      version:
+        description: Release version being built.
+        required: false
+        type: string
+      version_tag:
+        description: Release tag name.
+        required: false
         type: string
   workflow_dispatch:
 
@@ -55,16 +67,31 @@ jobs:
       - name: Validate release ref
         env:
           RELEASE_REF: ${{ inputs.release_ref || 'main' }}
+          RELEASE_SHA: ${{ inputs.release_sha || '' }}
+          VERSION: ${{ inputs.version || '' }}
+          VERSION_TAG: ${{ inputs.version_tag || '' }}
         run: |
           set -euo pipefail
           if [[ "$RELEASE_REF" != "main" && ! "$RELEASE_REF" =~ ^release-[0-9]+\.[0-9]+$ ]]; then
             echo "::error::Invalid release ref: $RELEASE_REF"
             exit 1
           fi
+          if [[ -n "$RELEASE_SHA" && ! "$RELEASE_SHA" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "::error::Invalid release SHA: $RELEASE_SHA"
+            exit 1
+          fi
+          if [[ -n "$VERSION_TAG" && ! "$VERSION_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-beta\.[0-9]+)?$ ]]; then
+            echo "::error::Invalid release tag: $VERSION_TAG"
+            exit 1
+          fi
+          if [[ -n "$VERSION" && -n "$VERSION_TAG" && "$VERSION_TAG" != "v${VERSION}" ]]; then
+            echo "::error::Release version and tag do not match: $VERSION / $VERSION_TAG"
+            exit 1
+          fi
 
       - uses: actions/checkout@v4
         with:
-          ref: refs/heads/${{ inputs.release_ref || 'main' }}
+          ref: ${{ inputs.release_sha || format('refs/heads/{0}', inputs.release_ref || 'main') }}
 
       - name: Setup Node.js and pnpm
         uses: ./.github/actions/setup-node-pnpm

@@ -7,6 +7,14 @@ on:
         description: Branch to update with release metadata.
         required: true
         type: string
+      version:
+        description: Release version to write into metadata.
+        required: true
+        type: string
+    outputs:
+      release_sha:
+        description: Commit SHA containing the release metadata update.
+        value: ${{ jobs.update-version.outputs.release_sha }}
 
 concurrency:
   group: version-${{ github.workflow }}-${{ github.ref }}
@@ -21,6 +29,8 @@ jobs:
     environment: release
     permissions:
       contents: write
+    outputs:
+      release_sha: ${{ steps.release-sha.outputs.release_sha }}
 
     steps:
       - name: Validate release ref
@@ -48,12 +58,12 @@ jobs:
           git config --local user.name "github-actions[bot]"
 
       - name: Update version in codebase
+        env:
+          VERSION: ${{ inputs.version }}
         run: |
-          # Extract version from tag
-          VERSION=${GITHUB_REF#refs/tags/v}
+          set -euo pipefail
           echo "Updating to version: $VERSION"
 
-          # Run version update script
           node scripts/update-version.cjs "$VERSION"
 
       - name: Generate changelog
@@ -68,8 +78,9 @@ jobs:
       - name: Commit and push changes
         env:
           RELEASE_REF: ${{ inputs.release_ref }}
+          VERSION: ${{ inputs.version }}
         run: |
-          VERSION=${GITHUB_REF#refs/tags/v}
+          set -euo pipefail
 
           # Add all updated files
           git add package.json src/constants/mcp.ts CHANGELOG.md
@@ -86,3 +97,15 @@ jobs:
 
             echo "Version $VERSION committed and pushed to $RELEASE_REF"
           fi
+
+      - name: Resolve release commit SHA
+        id: release-sha
+        env:
+          RELEASE_REF: ${{ inputs.release_ref }}
+        run: |
+          set -euo pipefail
+
+          git fetch --no-tags origin "+refs/heads/${RELEASE_REF}:refs/remotes/origin/${RELEASE_REF}"
+          RELEASE_SHA=$(git rev-parse "origin/${RELEASE_REF}")
+          echo "release_sha=${RELEASE_SHA}" >> "$GITHUB_OUTPUT"
+          echo "Release commit SHA: ${RELEASE_SHA}"

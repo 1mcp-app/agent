@@ -7,6 +7,26 @@ on:
         description: Branch to publish the npm package from.
         required: true
         type: string
+      release_sha:
+        description: Exact release commit SHA to publish from.
+        required: true
+        type: string
+      version:
+        description: Release version to publish.
+        required: true
+        type: string
+      version_tag:
+        description: Release tag name.
+        required: true
+        type: string
+      npm_tag:
+        description: npm dist-tag to publish.
+        required: true
+        type: string
+      is_prerelease:
+        description: Whether the release is a prerelease.
+        required: true
+        type: boolean
 
 concurrency:
   group: npm-${{ github.workflow }}-${{ github.ref }}
@@ -27,41 +47,47 @@ jobs:
       - name: Validate release ref
         env:
           RELEASE_REF: ${{ inputs.release_ref }}
+          RELEASE_SHA: ${{ inputs.release_sha }}
+          VERSION: ${{ inputs.version }}
+          VERSION_TAG: ${{ inputs.version_tag }}
+          NPM_TAG: ${{ inputs.npm_tag }}
         run: |
           set -euo pipefail
           if [[ "$RELEASE_REF" != "main" && ! "$RELEASE_REF" =~ ^release-[0-9]+\.[0-9]+$ ]]; then
             echo "::error::Invalid release ref: $RELEASE_REF"
             exit 1
           fi
+          if [[ ! "$RELEASE_SHA" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "::error::Invalid release SHA: $RELEASE_SHA"
+            exit 1
+          fi
+          if [[ ! "$VERSION_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-beta\.[0-9]+)?$ ]]; then
+            echo "::error::Invalid release tag: $VERSION_TAG"
+            exit 1
+          fi
+          if [[ "$VERSION_TAG" != "v${VERSION}" ]]; then
+            echo "::error::Release version and tag do not match: $VERSION / $VERSION_TAG"
+            exit 1
+          fi
+          if [[ "$NPM_TAG" != "latest" && "$NPM_TAG" != "beta" ]]; then
+            echo "::error::Invalid npm tag: $NPM_TAG"
+            exit 1
+          fi
 
       - uses: actions/checkout@v4
         with:
-          ref: refs/heads/${{ inputs.release_ref }}
+          ref: ${{ inputs.release_sha }}
           fetch-depth: 0
           token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Setup Node.js and pnpm
         uses: ./.github/actions/setup-node-pnpm
 
-      - name: Detect pre-release version
-        id: prerelease
-        run: |
-          VERSION="${{ github.ref_name }}"
-          if [[ "$VERSION" =~ (alpha|beta|rc|preview|next)-? ]] || [[ "$VERSION" =~ -(alpha|beta|rc|preview|next) ]]; then
-            echo "is_prerelease=true" >> "$GITHUB_OUTPUT"
-            echo "npm_tag=next" >> "$GITHUB_OUTPUT"
-            echo "Found pre-release version: $VERSION"
-          else
-            echo "is_prerelease=false" >> "$GITHUB_OUTPUT"
-            echo "npm_tag=latest" >> "$GITHUB_OUTPUT"
-            echo "Found stable version: $VERSION"
-          fi
-
       - name: Build
         run: pnpm build
 
       - name: Publish to npm
-        run: pnpm publish --no-git-checks --access public --provenance --tag ${{ steps.prerelease.outputs.npm_tag }}
+        run: pnpm publish --no-git-checks --access public --provenance --tag ${{ inputs.npm_tag }}
 
       - name: Generate release changelog
         uses: orhun/git-cliff-action@v4
@@ -80,9 +106,11 @@ jobs:
       - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
-          name: Release ${{ github.ref_name }}
+          tag_name: ${{ inputs.version_tag }}
+          target_commitish: ${{ inputs.release_sha }}
+          name: Release ${{ inputs.version_tag }}
           body: ${{ steps.git-cliff.outputs.content }}
           files: binaries/*/*
           draft: false
-          prerelease: ${{ steps.prerelease.outputs.is_prerelease }}
+          prerelease: ${{ inputs.is_prerelease }}
           token: ${{ secrets.GITHUB_TOKEN }}

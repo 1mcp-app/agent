@@ -719,6 +719,29 @@ We follow [Semantic Versioning](https://semver.org/):
 
 All notable changes are documented in [CHANGELOG.md](CHANGELOG.md) following [Keep a Changelog](https://keepachangelog.com/) format.
 
+### Cutting a Release
+
+Releases are cut manually from the GitHub Actions UI — there are no automatic triggers on tag pushes.
+
+1. Open **Actions → Release Pipeline → Run workflow**.
+2. Fill in the inputs:
+   - **target_ref**: `main` for the next stable/beta release on the current line, or `release-X.Y` for a patch on an older line.
+   - **version**: `X.Y.Z` for stable, `X.Y.Z-beta.N` for a beta.
+3. Click **Run workflow**.
+
+The pipeline:
+
+1. **validate** — checks the inputs and that `vX.Y.Z` does not already exist. Stable `X.Y.Z` must run from `main` or its matching `release-X.Y`; betas follow the same rule.
+2. **ci** — runs lint, typecheck, build, and unit tests against the target branch tip.
+3. **update-version** — bumps `package.json` and `src/constants/mcp.ts`, regenerates `CHANGELOG.md`, and pushes a single metadata commit to the target branch. Its SHA (`release_sha`) is what every downstream job builds and publishes.
+4. **binaries** and **docker** — run in parallel against `release_sha`. Docker images are pushed to GHCR; binaries are uploaded as workflow artifacts.
+5. **release** — publishes to npm with the right dist-tag (`latest` or `beta`) and creates the GitHub Release. The release action also creates the `vX.Y.Z` git tag pointing at `release_sha`.
+6. **finalize** — only for stable releases cut from `main`: creates the `release-X.Y` maintenance branch at `release_sha` if it does not already exist.
+
+Because the git tag is created in step 5 (not earlier), a failure in binaries/docker leaves no tag behind — fix the issue and re-dispatch the same version.
+
+If a re-dispatch is needed after step 5 succeeded, delete the tag and GitHub release manually first; otherwise `validate` will refuse the version.
+
 ## License
 
 By contributing, you agree that your contributions will be licensed under the same license as the project (Apache License 2.0).

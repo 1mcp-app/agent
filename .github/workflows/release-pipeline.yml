@@ -1,115 +1,139 @@
 name: Release Pipeline
 
 on:
-  push:
-    tags:
-      - 'v*'
+  workflow_dispatch:
+    inputs:
+      target_ref:
+        description: 'Release source branch: main or release-<major>.<minor>.'
+        required: true
+        default: main
+        type: string
+      version:
+        description: 'Release version: X.Y.Z or X.Y.Z-beta.N.'
+        required: true
+        type: string
 
 permissions:
   contents: read
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: ${{ github.workflow }}-${{ github.event.inputs.version }}
   cancel-in-progress: true
 
 jobs:
-  # Resolve the branch that this release should publish from. Tags like
-  # v0.32.2 may release from a maintenance branch named release-0.32, but only when
-  # the tag points at that branch's current tip.
-  resolve_release_ref:
+  validate:
     runs-on: ubuntu-latest
     permissions:
       contents: read
     outputs:
-      release_ref: ${{ steps.resolve.outputs.release_ref }}
+      version: ${{ steps.validate.outputs.version }}
+      version_tag: ${{ steps.validate.outputs.version_tag }}
+      release_ref: ${{ steps.validate.outputs.release_ref }}
+      expected_release_branch: ${{ steps.validate.outputs.expected_release_branch }}
+      is_prerelease: ${{ steps.validate.outputs.is_prerelease }}
+      npm_tag: ${{ steps.validate.outputs.npm_tag }}
+      docker_raw_tag: ${{ steps.validate.outputs.docker_raw_tag }}
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - name: Resolve release ref
-        id: resolve
+      - name: Validate release inputs
+        id: validate
+        run: node scripts/validate-release-inputs.cjs "$TARGET_REF" "$VERSION"
         env:
-          TAG_NAME: ${{ github.ref_name }}
-        run: |
-          set -euo pipefail
+          TARGET_REF: ${{ inputs.target_ref }}
+          VERSION: ${{ inputs.version }}
 
-          if [[ ! "$TAG_NAME" =~ ^v([0-9]+)\.([0-9]+)(\.[0-9]+)?([-.].*)?$ ]]; then
-            echo "::error::Release tags must look like v<major>.<minor>[.<patch>][-pre]."
-            exit 1
-          fi
-
-          RELEASE_BRANCH="release-${BASH_REMATCH[1]}.${BASH_REMATCH[2]}"
-          MATCHING_BRANCH_SHA=$(git ls-remote --heads origin "refs/heads/${RELEASE_BRANCH}" | awk '{print $1}')
-          TAG_COMMIT=$(git rev-list -n 1 "refs/tags/${TAG_NAME}")
-
-          if [[ -z "$MATCHING_BRANCH_SHA" ]]; then
-            git fetch --no-tags origin "+refs/heads/main:refs/remotes/origin/main"
-            MAIN_SHA=$(git rev-parse "origin/main")
-            if [[ "$TAG_COMMIT" != "$MAIN_SHA" ]]; then
-              echo "::error::Tag $TAG_NAME must point at main when no ${RELEASE_BRANCH} branch exists."
-              exit 1
-            fi
-
-            echo "release_ref=main" >> "$GITHUB_OUTPUT"
-            echo "No ${RELEASE_BRANCH} branch found; releasing from main."
-            exit 0
-          fi
-
-          git fetch --no-tags origin "+refs/heads/${RELEASE_BRANCH}:refs/remotes/origin/${RELEASE_BRANCH}"
-          if [[ "$TAG_COMMIT" != "$MATCHING_BRANCH_SHA" ]]; then
-            echo "::error::Tag $TAG_NAME must point at the current ${RELEASE_BRANCH} branch tip."
-            exit 1
-          fi
-
-          echo "release_ref=${RELEASE_BRANCH}" >> "$GITHUB_OUTPUT"
-          echo "Releasing from ${RELEASE_BRANCH}."
-
-  # Trigger CI workflow for testing and validation
   ci:
-    needs: resolve_release_ref
+    needs: validate
     uses: ./.github/workflows/test-and-validate.yml
+    with:
+      checkout_ref: refs/heads/${{ needs.validate.outputs.release_ref }}
     permissions:
       contents: read
 
-  # Update version in codebase (must run before builds)
   update-version:
-    needs: [resolve_release_ref, ci]
+    needs: [validate, ci]
     uses: ./.github/workflows/update-version.yml
     with:
-      release_ref: ${{ needs.resolve_release_ref.outputs.release_ref }}
+      release_ref: ${{ needs.validate.outputs.release_ref }}
+      version: ${{ needs.validate.outputs.version }}
     secrets: inherit
     permissions:
       contents: write
 
-  # Build binaries (needs updated version)
   binaries:
-    needs: [resolve_release_ref, update-version]
+    needs: [validate, update-version]
     uses: ./.github/workflows/build-binaries.yml
     with:
-      release_ref: ${{ needs.resolve_release_ref.outputs.release_ref }}
+      release_ref: ${{ needs.validate.outputs.release_ref }}
+      release_sha: ${{ needs.update-version.outputs.release_sha }}
+      version: ${{ needs.validate.outputs.version }}
+      version_tag: ${{ needs.validate.outputs.version_tag }}
     permissions:
       contents: write
 
-  # Publish to npm (needs binaries for release)
-  release:
-    needs: [resolve_release_ref, update-version, binaries]
-    uses: ./.github/workflows/publish-to-npm.yml
-    with:
-      release_ref: ${{ needs.resolve_release_ref.outputs.release_ref }}
-    secrets: inherit
-    permissions:
-      contents: write
-      id-token: write
-
-  # Build and publish Docker images (needs updated version)
   docker:
-    needs: [resolve_release_ref, update-version]
+    needs: [validate, update-version]
     uses: ./.github/workflows/build-docker-images.yml
     with:
-      release_ref: ${{ needs.resolve_release_ref.outputs.release_ref }}
+      release_ref: ${{ needs.validate.outputs.release_ref }}
+      release_sha: ${{ needs.update-version.outputs.release_sha }}
+      version: ${{ needs.validate.outputs.version }}
+      version_tag: ${{ needs.validate.outputs.version_tag }}
+      docker_raw_tag: ${{ needs.validate.outputs.docker_raw_tag }}
+      is_prerelease: ${{ needs.validate.outputs.is_prerelease == 'true' }}
     secrets: inherit
     permissions:
       contents: read
       packages: write
       security-events: write
+
+  # Publishes to npm and creates the GitHub Release (which creates the git tag).
+  # Runs after binaries (artifacts attached to the release) and docker (so we don't
+  # tag a release whose images failed to publish).
+  release:
+    needs: [validate, update-version, binaries, docker]
+    uses: ./.github/workflows/publish-to-npm.yml
+    with:
+      release_ref: ${{ needs.validate.outputs.release_ref }}
+      release_sha: ${{ needs.update-version.outputs.release_sha }}
+      version: ${{ needs.validate.outputs.version }}
+      version_tag: ${{ needs.validate.outputs.version_tag }}
+      npm_tag: ${{ needs.validate.outputs.npm_tag }}
+      is_prerelease: ${{ needs.validate.outputs.is_prerelease == 'true' }}
+    secrets: inherit
+    permissions:
+      contents: write
+      id-token: write
+
+  # Cuts the release-X.Y maintenance branch only after npm + docker + GitHub
+  # release all succeeded. Skipped for prereleases and for releases that already
+  # ran from a release-X.Y branch.
+  finalize:
+    needs: [validate, update-version, release]
+    if: ${{ needs.validate.outputs.release_ref == 'main' && needs.validate.outputs.is_prerelease != 'true' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Create release branch
+        env:
+          RELEASE_SHA: ${{ needs.update-version.outputs.release_sha }}
+          EXPECTED_RELEASE_BRANCH: ${{ needs.validate.outputs.expected_release_branch }}
+        run: |
+          set -euo pipefail
+
+          if git ls-remote --exit-code --heads origin "refs/heads/${EXPECTED_RELEASE_BRANCH}" >/dev/null 2>&1; then
+            echo "${EXPECTED_RELEASE_BRANCH} already exists; not creating it."
+            exit 0
+          fi
+
+          git push origin "${RELEASE_SHA}:refs/heads/${EXPECTED_RELEASE_BRANCH}"
+          echo "Created ${EXPECTED_RELEASE_BRANCH} at ${RELEASE_SHA}."

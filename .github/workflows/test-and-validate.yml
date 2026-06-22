@@ -17,6 +17,11 @@ on:
       - 'CHANGELOG*'
   workflow_dispatch:
   workflow_call:
+    inputs:
+      checkout_ref:
+        description: Ref to check out for reusable CI runs.
+        required: false
+        type: string
 
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
@@ -32,6 +37,8 @@ jobs:
       contents: read
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.checkout_ref || github.ref }}
 
       - name: Setup Node.js and pnpm
         uses: ./.github/actions/setup-node-pnpm
@@ -67,6 +74,8 @@ jobs:
       contents: read
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.checkout_ref || github.ref }}
 
       - name: Setup Node.js and pnpm
         uses: ./.github/actions/setup-node-pnpm

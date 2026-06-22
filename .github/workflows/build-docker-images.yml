@@ -7,6 +7,26 @@ on:
         description: Branch to build Docker images from.
         required: true
         type: string
+      release_sha:
+        description: Exact release commit SHA to build from.
+        required: true
+        type: string
+      version:
+        description: Release version being built.
+        required: true
+        type: string
+      version_tag:
+        description: Release tag name.
+        required: true
+        type: string
+      docker_raw_tag:
+        description: Raw Docker tag for the extended image.
+        required: true
+        type: string
+      is_prerelease:
+        description: Whether the release is a prerelease.
+        required: true
+        type: boolean
 
 concurrency:
   group: docker-${{ github.workflow }}-${{ github.ref }}
@@ -27,39 +47,67 @@ jobs:
         include:
           - target: basic
             suffix: -lite
-            latest: lite
+            raw_tag: lite
           - target: extended
             suffix: ''
-            latest: latest
+            raw_tag: latest
 
     steps:
       - name: Validate release ref
         env:
           RELEASE_REF: ${{ inputs.release_ref }}
+          RELEASE_SHA: ${{ inputs.release_sha }}
+          VERSION: ${{ inputs.version }}
+          VERSION_TAG: ${{ inputs.version_tag }}
+          DOCKER_RAW_TAG: ${{ inputs.docker_raw_tag }}
         run: |
           set -euo pipefail
           if [[ "$RELEASE_REF" != "main" && ! "$RELEASE_REF" =~ ^release-[0-9]+\.[0-9]+$ ]]; then
             echo "::error::Invalid release ref: $RELEASE_REF"
             exit 1
           fi
+          if [[ ! "$RELEASE_SHA" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "::error::Invalid release SHA: $RELEASE_SHA"
+            exit 1
+          fi
+          if [[ ! "$VERSION_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-beta\.[0-9]+)?$ ]]; then
+            echo "::error::Invalid release tag: $VERSION_TAG"
+            exit 1
+          fi
+          if [[ "$VERSION_TAG" != "v${VERSION}" ]]; then
+            echo "::error::Release version and tag do not match: $VERSION / $VERSION_TAG"
+            exit 1
+          fi
+          if [[ "$DOCKER_RAW_TAG" != "latest" && "$DOCKER_RAW_TAG" != "beta" ]]; then
+            echo "::error::Invalid Docker raw tag: $DOCKER_RAW_TAG"
+            exit 1
+          fi
 
-      - name: Checkout release branch
+      - name: Checkout release commit
         uses: actions/checkout@v4
         with:
-          ref: refs/heads/${{ inputs.release_ref }}
+          ref: ${{ inputs.release_sha }}
 
-      - name: Detect pre-release version
-        id: prerelease
+      - name: Resolve Docker raw tag
+        id: raw-tag
+        env:
+          IS_PRERELEASE: ${{ inputs.is_prerelease }}
+          DOCKER_RAW_TAG: ${{ inputs.docker_raw_tag }}
+          MATRIX_RAW_TAG: ${{ matrix.raw_tag }}
         run: |
-          VERSION="${{ github.ref_name }}"
-          if [[ "$VERSION" =~ (alpha|beta|rc|preview|next)-? ]] || [[ "$VERSION" =~ -(alpha|beta|rc|preview|next) ]]; then
-            echo "is_prerelease=true" >> "$GITHUB_OUTPUT"
-            echo "docker_tag=next" >> "$GITHUB_OUTPUT"
-            echo "Found pre-release version: $VERSION"
+          set -euo pipefail
+
+          if [[ "$IS_PRERELEASE" == "true" ]]; then
+            if [[ "$MATRIX_RAW_TAG" == "latest" ]]; then
+              echo "docker_tag=${DOCKER_RAW_TAG}" >> "$GITHUB_OUTPUT"
+              echo "publish_raw_tag=true" >> "$GITHUB_OUTPUT"
+            else
+              echo "docker_tag=${MATRIX_RAW_TAG}" >> "$GITHUB_OUTPUT"
+              echo "publish_raw_tag=false" >> "$GITHUB_OUTPUT"
+            fi
           else
-            echo "is_prerelease=false" >> "$GITHUB_OUTPUT"
-            echo "docker_tag=${{ matrix.latest }}" >> "$GITHUB_OUTPUT"
-            echo "Found stable version: $VERSION"
+            echo "docker_tag=${MATRIX_RAW_TAG}" >> "$GITHUB_OUTPUT"
+            echo "publish_raw_tag=true" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Log in to the Container registry
@@ -75,10 +123,10 @@ jobs:
         with:
           images: ghcr.io/${{ github.repository }}
           tags: |
-            type=raw,value=${{ steps.prerelease.outputs.docker_tag }}
-            type=semver,pattern=v{{version}}${{ matrix.suffix }}
-            type=semver,pattern=v{{major}}.{{minor}}${{ matrix.suffix }}
-            type=semver,pattern=v{{major}}${{ matrix.suffix }}
+            type=raw,value=${{ steps.raw-tag.outputs.docker_tag }},enable=${{ steps.raw-tag.outputs.publish_raw_tag == 'true' }}
+            type=semver,pattern=v{{version}}${{ matrix.suffix }},value=${{ inputs.version_tag }}
+            type=semver,pattern=v{{major}}.{{minor}}${{ matrix.suffix }},value=${{ inputs.version_tag }},enable=${{ !inputs.is_prerelease }}
+            type=semver,pattern=v{{major}}${{ matrix.suffix }},value=${{ inputs.version_tag }},enable=${{ !inputs.is_prerelease }}
 
       - name: Read Node.js version
         id: node-version
