@@ -35,4 +35,18 @@ describe('validateReleaseInputs', () => {
       dockerRawTag: releaseTag,
     });
   });
+
+  it('rejects malformed prerelease identifiers without catastrophic backtracking', () => {
+    const startedAt = Date.now();
+
+    expect(() =>
+      validateReleaseInputs({
+        targetRef: 'main',
+        version: `0.0.0-0.${'--.'.repeat(250)}x`,
+        tagExists: () => false,
+      }),
+    ).toThrow('version must be X.Y.Z or X.Y.Z-<prerelease>.');
+
+    expect(Date.now() - startedAt).toBeLessThan(100);
+  });
 });

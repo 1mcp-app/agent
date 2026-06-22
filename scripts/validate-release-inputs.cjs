@@ -3,8 +3,8 @@
 const { execFileSync } = require('child_process');
 const fs = require('fs');
 
-const VERSION_REGEX =
-  /^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(?:-((?:0|[1-9][0-9]*|[0-9A-Za-z-]*[A-Za-z-][0-9A-Za-z-]*)(?:\.(?:0|[1-9][0-9]*|[0-9A-Za-z-]*[A-Za-z-][0-9A-Za-z-]*))*))?$/;
+const VERSION_CORE_PART_REGEX = /^(0|[1-9][0-9]*)$/;
+const PRERELEASE_IDENTIFIER_REGEX = /^[0-9A-Za-z-]+$/;
 const RELEASE_CHANNEL_REGEX = /^[A-Za-z][0-9A-Za-z-]*$/;
 const RELEASE_REF_REGEX = /^release-[0-9]+\.[0-9]+$/;
 
@@ -23,17 +23,57 @@ function defaultTagExists(tagName) {
   }
 }
 
+function isNumericIdentifier(identifier) {
+  return /^[0-9]+$/.test(identifier);
+}
+
+function parseVersion(version) {
+  const [coreAndPrerelease, buildMetadata] = version.split('+');
+  if (buildMetadata !== undefined) {
+    return null;
+  }
+
+  const [core, prerelease, extra] = coreAndPrerelease.split('-');
+  if (extra !== undefined) {
+    return null;
+  }
+
+  const coreParts = core.split('.');
+  if (coreParts.length !== 3 || coreParts.some((part) => !VERSION_CORE_PART_REGEX.test(part))) {
+    return null;
+  }
+
+  if (prerelease === undefined) {
+    return { major: coreParts[0], minor: coreParts[1], prerelease };
+  }
+
+  const identifiers = prerelease.split('.');
+  const validIdentifiers = identifiers.every((identifier) => {
+    if (!PRERELEASE_IDENTIFIER_REGEX.test(identifier)) {
+      return false;
+    }
+
+    return !isNumericIdentifier(identifier) || identifier === '0' || !identifier.startsWith('0');
+  });
+
+  if (!validIdentifiers) {
+    return null;
+  }
+
+  return { major: coreParts[0], minor: coreParts[1], prerelease };
+}
+
 function validateReleaseInputs({ targetRef, version, tagExists = defaultTagExists }) {
   if (targetRef !== 'main' && !RELEASE_REF_REGEX.test(targetRef)) {
     throw new Error('target_ref must be main or release-<major>.<minor>.');
   }
 
-  const match = version.match(VERSION_REGEX);
-  if (!match) {
+  const parsedVersion = parseVersion(version);
+  if (!parsedVersion) {
     throw new Error('version must be X.Y.Z or X.Y.Z-<prerelease>.');
   }
 
-  const [, major, minor, , prerelease] = match;
+  const { major, minor, prerelease } = parsedVersion;
   const expectedReleaseBranch = `release-${major}.${minor}`;
   const releaseChannel = prerelease?.split('.')[0];
   const isPrerelease = releaseChannel !== undefined;
