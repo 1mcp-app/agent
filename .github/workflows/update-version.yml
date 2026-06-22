@@ -100,12 +100,9 @@ jobs:
 
       - name: Resolve release commit SHA
         id: release-sha
-        env:
-          RELEASE_REF: ${{ inputs.release_ref }}
         run: |
           set -euo pipefail
 
-          git fetch --no-tags origin "+refs/heads/${RELEASE_REF}:refs/remotes/origin/${RELEASE_REF}"
-          RELEASE_SHA=$(git rev-parse "origin/${RELEASE_REF}")
+          RELEASE_SHA=$(git rev-parse HEAD)
           echo "release_sha=${RELEASE_SHA}" >> "$GITHUB_OUTPUT"
           echo "Release commit SHA: ${RELEASE_SHA}"

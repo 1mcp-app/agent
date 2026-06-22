@@ -27,6 +27,9 @@ on:
         description: Whether the release is a prerelease.
         required: true
         type: boolean
+    secrets:
+      GITHUB_TOKEN:
+        required: true
 
 concurrency:
   group: docker-${{ github.workflow }}-${{ github.ref }}
@@ -60,6 +63,7 @@ jobs:
           VERSION: ${{ inputs.version }}
           VERSION_TAG: ${{ inputs.version_tag }}
           DOCKER_RAW_TAG: ${{ inputs.docker_raw_tag }}
+          IS_PRERELEASE: ${{ inputs.is_prerelease }}
         run: |
           set -euo pipefail
           if [[ "$RELEASE_REF" != "main" && ! "$RELEASE_REF" =~ ^release-[0-9]+\.[0-9]+$ ]]; then
@@ -70,7 +74,10 @@ jobs:
             echo "::error::Invalid release SHA: $RELEASE_SHA"
             exit 1
           fi
-          if [[ ! "$VERSION_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-beta\.[0-9]+)?$ ]]; then
+          VERSION_TAG_REGEX='^v[0-9]+\.[0-9]+\.[0-9]+(-([0-9A-Za-z-]+)(\.[0-9A-Za-z-]+)*)?$'
+          if [[ "$VERSION_TAG" =~ $VERSION_TAG_REGEX ]]; then
+            PRERELEASE_CHANNEL="${BASH_REMATCH[2]:-}"
+          else
             echo "::error::Invalid release tag: $VERSION_TAG"
             exit 1
           fi
@@ -78,8 +85,24 @@ jobs:
             echo "::error::Release version and tag do not match: $VERSION / $VERSION_TAG"
             exit 1
           fi
-          if [[ "$DOCKER_RAW_TAG" != "latest" && "$DOCKER_RAW_TAG" != "beta" ]]; then
+          if [[ "$DOCKER_RAW_TAG" != "latest" && ! "$DOCKER_RAW_TAG" =~ ^[A-Za-z][0-9A-Za-z-]*$ ]]; then
             echo "::error::Invalid Docker raw tag: $DOCKER_RAW_TAG"
+            exit 1
+          fi
+          if [[ -n "$PRERELEASE_CHANNEL" && "$IS_PRERELEASE" != "true" ]]; then
+            echo "::error::Prerelease tags must set is_prerelease=true"
+            exit 1
+          fi
+          if [[ -z "$PRERELEASE_CHANNEL" && "$IS_PRERELEASE" == "true" ]]; then
+            echo "::error::Stable release tags must set is_prerelease=false"
+            exit 1
+          fi
+          if [[ -n "$PRERELEASE_CHANNEL" && "$DOCKER_RAW_TAG" != "$PRERELEASE_CHANNEL" ]]; then
+            echo "::error::Prerelease builds must use docker_raw_tag=$PRERELEASE_CHANNEL"
+            exit 1
+          fi
+          if [[ -z "$PRERELEASE_CHANNEL" && "$DOCKER_RAW_TAG" != "latest" ]]; then
+            echo "::error::Stable builds must use docker_raw_tag=latest"
             exit 1
           fi
 
@@ -87,6 +110,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           ref: ${{ inputs.release_sha }}
+          persist-credentials: false
 
       - name: Resolve Docker raw tag
         id: raw-tag

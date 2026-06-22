@@ -51,6 +51,7 @@ jobs:
           VERSION: ${{ inputs.version }}
           VERSION_TAG: ${{ inputs.version_tag }}
           NPM_TAG: ${{ inputs.npm_tag }}
+          IS_PRERELEASE: ${{ inputs.is_prerelease }}
         run: |
           set -euo pipefail
           if [[ "$RELEASE_REF" != "main" && ! "$RELEASE_REF" =~ ^release-[0-9]+\.[0-9]+$ ]]; then
@@ -61,7 +62,10 @@ jobs:
             echo "::error::Invalid release SHA: $RELEASE_SHA"
             exit 1
           fi
-          if [[ ! "$VERSION_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-beta\.[0-9]+)?$ ]]; then
+          VERSION_TAG_REGEX='^v[0-9]+\.[0-9]+\.[0-9]+(-([0-9A-Za-z-]+)(\.[0-9A-Za-z-]+)*)?$'
+          if [[ "$VERSION_TAG" =~ $VERSION_TAG_REGEX ]]; then
+            PRERELEASE_CHANNEL="${BASH_REMATCH[2]:-}"
+          else
             echo "::error::Invalid release tag: $VERSION_TAG"
             exit 1
           fi
@@ -69,8 +73,24 @@ jobs:
             echo "::error::Release version and tag do not match: $VERSION / $VERSION_TAG"
             exit 1
           fi
-          if [[ "$NPM_TAG" != "latest" && "$NPM_TAG" != "beta" ]]; then
+          if [[ "$NPM_TAG" != "latest" && ! "$NPM_TAG" =~ ^[A-Za-z][0-9A-Za-z-]*$ ]]; then
             echo "::error::Invalid npm tag: $NPM_TAG"
+            exit 1
+          fi
+          if [[ -n "$PRERELEASE_CHANNEL" && "$NPM_TAG" != "$PRERELEASE_CHANNEL" ]]; then
+            echo "::error::Prerelease tags must use npm_tag=$PRERELEASE_CHANNEL"
+            exit 1
+          fi
+          if [[ -z "$PRERELEASE_CHANNEL" && "$NPM_TAG" != "latest" ]]; then
+            echo "::error::Stable release tags must use npm_tag=latest"
+            exit 1
+          fi
+          if [[ -n "$PRERELEASE_CHANNEL" && "$IS_PRERELEASE" != "true" ]]; then
+            echo "::error::Prerelease tags must set is_prerelease=true"
+            exit 1
+          fi
+          if [[ -z "$PRERELEASE_CHANNEL" && "$IS_PRERELEASE" == "true" ]]; then
+            echo "::error::Stable release tags must set is_prerelease=false"
             exit 1
           fi
 
@@ -79,6 +99,7 @@ jobs:
           ref: ${{ inputs.release_sha }}
           fetch-depth: 0
           token: ${{ secrets.GITHUB_TOKEN }}
+          persist-credentials: false
 
       - name: Setup Node.js and pnpm
         uses: ./.github/actions/setup-node-pnpm

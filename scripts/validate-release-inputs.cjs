@@ -3,7 +3,9 @@
 const { execFileSync } = require('child_process');
 const fs = require('fs');
 
-const VERSION_REGEX = /^([0-9]+)\.([0-9]+)\.([0-9]+)(?:-beta\.([0-9]+))?$/;
+const VERSION_REGEX =
+  /^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(?:-((?:0|[1-9][0-9]*|[0-9A-Za-z-]*[A-Za-z-][0-9A-Za-z-]*)(?:\.(?:0|[1-9][0-9]*|[0-9A-Za-z-]*[A-Za-z-][0-9A-Za-z-]*))*))?$/;
+const RELEASE_CHANNEL_REGEX = /^[A-Za-z][0-9A-Za-z-]*$/;
 const RELEASE_REF_REGEX = /^release-[0-9]+\.[0-9]+$/;
 
 function defaultTagExists(tagName) {
@@ -28,15 +30,20 @@ function validateReleaseInputs({ targetRef, version, tagExists = defaultTagExist
 
   const match = version.match(VERSION_REGEX);
   if (!match) {
-    throw new Error('version must be X.Y.Z or X.Y.Z-beta.N.');
+    throw new Error('version must be X.Y.Z or X.Y.Z-<prerelease>.');
   }
 
-  const [, major, minor, , betaNumber] = match;
+  const [, major, minor, , prerelease] = match;
   const expectedReleaseBranch = `release-${major}.${minor}`;
-  const isPrerelease = betaNumber !== undefined;
+  const releaseChannel = prerelease?.split('.')[0];
+  const isPrerelease = releaseChannel !== undefined;
+
+  if (isPrerelease && !RELEASE_CHANNEL_REGEX.test(releaseChannel)) {
+    throw new Error('prerelease channel must start with a letter so it can be used as an npm dist-tag.');
+  }
 
   if (targetRef !== 'main' && targetRef !== expectedReleaseBranch) {
-    const releaseType = isPrerelease ? 'Beta' : 'Stable';
+    const releaseType = isPrerelease ? 'Prerelease' : 'Stable';
     throw new Error(`${releaseType} release ${version} must run from main or ${expectedReleaseBranch}.`);
   }
 
@@ -51,8 +58,8 @@ function validateReleaseInputs({ targetRef, version, tagExists = defaultTagExist
     targetRef,
     expectedReleaseBranch,
     isPrerelease,
-    npmTag: isPrerelease ? 'beta' : 'latest',
-    dockerRawTag: isPrerelease ? 'beta' : 'latest',
+    npmTag: isPrerelease ? releaseChannel : 'latest',
+    dockerRawTag: isPrerelease ? releaseChannel : 'latest',
   };
 }
 

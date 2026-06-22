@@ -9,7 +9,7 @@ on:
         default: main
         type: string
       version:
-        description: 'Release version: X.Y.Z or X.Y.Z-beta.N.'
+        description: 'Release version: X.Y.Z or X.Y.Z-<prerelease>.'
         required: true
         type: string
 
@@ -37,6 +37,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          persist-credentials: false
 
       - name: Validate release inputs
         id: validate
@@ -84,7 +85,8 @@ jobs:
       version_tag: ${{ needs.validate.outputs.version_tag }}
       docker_raw_tag: ${{ needs.validate.outputs.docker_raw_tag }}
       is_prerelease: ${{ needs.validate.outputs.is_prerelease == 'true' }}
-    secrets: inherit
+    secrets:
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     permissions:
       contents: read
       packages: write
@@ -135,5 +137,13 @@ jobs:
             exit 0
           fi
 
-          git push origin "${RELEASE_SHA}:refs/heads/${EXPECTED_RELEASE_BRANCH}"
+          if ! git push origin "${RELEASE_SHA}:refs/heads/${EXPECTED_RELEASE_BRANCH}"; then
+            if git ls-remote --exit-code --heads origin "refs/heads/${EXPECTED_RELEASE_BRANCH}" >/dev/null 2>&1; then
+              echo "${EXPECTED_RELEASE_BRANCH} was created concurrently; treating as success."
+              exit 0
+            fi
+
+            echo "::error::Failed to create ${EXPECTED_RELEASE_BRANCH}."
+            exit 1
+          fi
           echo "Created ${EXPECTED_RELEASE_BRANCH} at ${RELEASE_SHA}."
