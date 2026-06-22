@@ -59,6 +59,104 @@ function isLoopbackOrigin(origin: string | undefined): boolean {
   }
 }
 
+function normalizeHostHeader(host: string | string[] | undefined): string | undefined {
+  if (!host) {
+    return undefined;
+  }
+
+  if (Array.isArray(host)) {
+    return undefined;
+  }
+
+  const normalizedHost = host.toLowerCase();
+
+  if (normalizedHost.startsWith('[')) {
+    const end = normalizedHost.indexOf(']');
+    return end > 0 ? host.slice(1, end).toLowerCase() : undefined;
+  }
+
+  const colonCount = (normalizedHost.match(/:/g) || []).length;
+  if (colonCount === 0) {
+    return normalizedHost;
+  }
+  if (colonCount === 1) {
+    return normalizedHost.split(':')[0];
+  }
+
+  return normalizedHost;
+}
+
+function isLoopbackHostname(hostname: string | undefined): boolean {
+  if (!hostname) {
+    return false;
+  }
+
+  const normalizedHost = hostname.startsWith('[') && hostname.endsWith(']') ? hostname.slice(1, -1) : hostname;
+  const hostParts = normalizedHost.split('.');
+  const isIPv4Loopback =
+    hostParts.length === 4 &&
+    hostParts[0] === '127' &&
+    hostParts.every((part) => /^\d+$/.test(part) && Number(part) <= 255);
+
+  return normalizedHost === 'localhost' || normalizedHost === '::1' || isIPv4Loopback;
+}
+
+function isWildcardHostname(hostname: string | undefined): boolean {
+  return hostname === '0.0.0.0' || hostname === '::';
+}
+
+function getUrlHostname(url: string | undefined): string | undefined {
+  if (!url) {
+    return undefined;
+  }
+
+  try {
+    return normalizeHostHeader(new URL(url).hostname);
+  } catch {
+    return undefined;
+  }
+}
+
+function isHostAllowed(
+  requestHost: string | undefined,
+  externalHostname: string | undefined,
+  boundHostname: string | undefined,
+): boolean {
+  if (externalHostname && requestHost === externalHostname) {
+    return true;
+  }
+
+  if (
+    isLoopbackHostname(requestHost) &&
+    (isLoopbackHostname(externalHostname) || isLoopbackHostname(boundHostname) || isWildcardHostname(boundHostname))
+  ) {
+    return true;
+  }
+
+  return !externalHostname && Boolean(boundHostname) && requestHost === boundHostname;
+}
+
+function createLoopbackRequestGuard(configManager: AgentConfigManager): express.RequestHandler {
+  return (req, res, next) => {
+    const externalHostname = getUrlHostname(configManager.get('externalUrl'));
+    const boundHostname = normalizeHostHeader(configManager.get('host'));
+    const requestHost = normalizeHostHeader(req.headers.host);
+
+    if (!isHostAllowed(requestHost, externalHostname, boundHostname)) {
+      res.status(403).json({ error: 'Forbidden host header' });
+      return;
+    }
+
+    const origin = Array.isArray(req.headers.origin) ? undefined : req.headers.origin;
+    if (isLoopbackHostname(requestHost) && req.headers.origin && (!origin || !isLoopbackOrigin(origin))) {
+      res.status(403).json({ error: 'Forbidden origin header' });
+      return;
+    }
+
+    next();
+  };
+}
+
 /**
  * ExpressServer orchestrates the HTTP/SSE transport layer for the MCP server.
  *
@@ -141,6 +239,7 @@ export class ExpressServer {
 
     // Add HTTP request logging middleware (early in the stack for complete coverage)
     this.app.use(httpRequestLogger);
+    this.app.use(createLoopbackRequestGuard(this.configManager));
 
     this.app.use(
       cors({
