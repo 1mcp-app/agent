@@ -2,6 +2,7 @@ import {
   CancelledNotificationSchema,
   InitializedNotificationSchema,
   LoggingMessageNotificationSchema,
+  RootsListChangedNotificationSchema,
 } from '@modelcontextprotocol/sdk/types.js';
 
 import {
@@ -11,10 +12,19 @@ import {
   type OutboundConnections,
   ServerStatus,
 } from '@src/core/types/index.js';
+import logger from '@src/logger/logger.js';
 
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { setupClientToServerNotifications, setupServerToClientNotifications } from './notificationHandlers.js';
+
+vi.mock('@src/logger/logger.js', () => ({
+  default: {
+    error: vi.fn(),
+    info: vi.fn(),
+    warn: vi.fn(),
+  },
+}));
 
 describe('Notification Handlers', () => {
   let mockOutboundConns: OutboundConnections;
@@ -117,6 +127,53 @@ describe('Notification Handlers', () => {
       });
     });
 
+    it('should handle async notification rejection when forwarding to server', async () => {
+      const forwardError = new Error('Server rejected async notification');
+      let rejectForwardedNotification!: (error: Error) => void;
+      const forwardedNotification = new Promise<void>((_, reject) => {
+        rejectForwardedNotification = reject;
+      });
+      forwardedNotification.catch(() => undefined);
+
+      mockServer.notification = vi.fn().mockReturnValue(forwardedNotification);
+      mockServer.transport = {
+        timeout: 5000,
+        start: vi.fn(),
+        send: vi.fn(),
+        close: vi.fn(),
+      };
+
+      setupClientToServerNotifications(mockOutboundConns, mockInboundConn);
+
+      const setNotificationHandlerCalls = mockClient.setNotificationHandler.mock.calls;
+      const loggingHandlerCall = setNotificationHandlerCalls.find(
+        (call: any) => call[0] === LoggingMessageNotificationSchema,
+      );
+
+      expect(loggingHandlerCall).toBeDefined();
+      const notificationHandler = loggingHandlerCall[1];
+      const handlerPromise = notificationHandler({
+        method: 'logging/message',
+        params: {
+          level: 'info',
+          data: 'test message',
+        },
+      });
+
+      rejectForwardedNotification(forwardError);
+
+      await expect(handlerPromise).resolves.not.toThrow();
+      expect(mockServer.notification).toHaveBeenCalledWith({
+        method: 'logging/message',
+        params: {
+          level: 'info',
+          data: 'test message',
+          server: 'test-client',
+        },
+      });
+      expect(logger.error).toHaveBeenCalledWith(`Failed to send notification from test-client: ${forwardError}`);
+    });
+
     it('should not send notifications when client is not connected', async () => {
       // Set client status to disconnected
       const disconnectedClient = mockOutboundConns.get('test-client')!;
@@ -199,6 +256,50 @@ describe('Notification Handlers', () => {
           client: 'test-client',
         },
       });
+    });
+
+    it('should handle async capability rejection when forwarding to client', async () => {
+      const capabilityError = new Error(
+        'Client does not support roots list changed notifications (required for notifications/roots/list_changed)',
+      );
+      let rejectForwardedNotification!: (error: Error) => void;
+      const forwardedNotification = new Promise<void>((_, reject) => {
+        rejectForwardedNotification = reject;
+      });
+      forwardedNotification.catch(() => undefined);
+
+      mockClient.notification = vi.fn().mockReturnValue(forwardedNotification);
+      mockClient.transport = {
+        timeout: 5000,
+        start: vi.fn(),
+        send: vi.fn(),
+        close: vi.fn(),
+      };
+
+      setupServerToClientNotifications(mockOutboundConns, mockInboundConn);
+
+      const setNotificationHandlerCalls = mockServer.setNotificationHandler.mock.calls;
+      const rootsChangedHandlerCall = setNotificationHandlerCalls.find(
+        (call: any) => call[0] === RootsListChangedNotificationSchema,
+      );
+
+      expect(rootsChangedHandlerCall).toBeDefined();
+      const notificationHandler = rootsChangedHandlerCall[1];
+      const handlerPromise = notificationHandler({
+        method: 'notifications/roots/list_changed',
+        params: {},
+      });
+
+      rejectForwardedNotification(capabilityError);
+
+      await expect(handlerPromise).resolves.not.toThrow();
+      expect(mockClient.notification).toHaveBeenCalledWith({
+        method: 'notifications/roots/list_changed',
+        params: {
+          client: 'test-client',
+        },
+      });
+      expect(logger.error).toHaveBeenCalledWith(`Failed to send notification to test-client: ${capabilityError}`);
     });
 
     it('should not send notifications when client status is not connected', async () => {

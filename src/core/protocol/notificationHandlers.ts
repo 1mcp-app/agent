@@ -55,7 +55,7 @@ export function setupClientToServerNotifications(
                 server: name,
               },
             };
-            inboundConn.server.notification(forwardedNotification);
+            await inboundConn.server.notification(forwardedNotification);
           } catch (error) {
             if (error instanceof Error && error.message.includes('Not connected')) {
               logger.warn(`Server transport not connected. Dropping notification from ${name}`);
@@ -111,7 +111,7 @@ export function setupServerToClientNotifications(
                 client: name,
               },
             };
-            outboundConn.client.notification(forwardedNotification);
+            await outboundConn.client.notification(forwardedNotification);
           } catch (error) {
             if (error instanceof Error && error.message.includes('Not connected')) {
               logger.warn(`Client ${name} transport not connected. Dropping notification.`);
