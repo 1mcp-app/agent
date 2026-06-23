@@ -109,11 +109,11 @@ jobs:
       id-token: write
 
   # Cuts the release-X.Y maintenance branch only after npm + docker + GitHub
-  # release all succeeded. Skipped for prereleases and for releases that already
-  # ran from a release-X.Y branch.
+  # release all succeeded. Skipped for releases that already ran from a
+  # release-X.Y branch.
   finalize:
     needs: [validate, update-version, release]
-    if: ${{ needs.validate.outputs.release_ref == 'main' && needs.validate.outputs.is_prerelease != 'true' }}
+    if: ${{ needs.validate.outputs.release_ref == 'main' }}
     runs-on: ubuntu-latest
     permissions:
       contents: write
