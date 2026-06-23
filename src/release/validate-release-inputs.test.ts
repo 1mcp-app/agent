@@ -2,7 +2,7 @@ import { createRequire } from 'module';
 import { describe, expect, it } from 'vitest';
 
 const require = createRequire(import.meta.url);
-const { validateReleaseInputs } = require('../scripts/validate-release-inputs.cjs') as {
+const { validateReleaseInputs } = require('../../scripts/validate-release-inputs.cjs') as {
   validateReleaseInputs: (args: { targetRef: string; version: string; tagExists?: (tagName: string) => boolean }) => {
     version: string;
     versionTag: string;
@@ -16,11 +16,13 @@ const { validateReleaseInputs } = require('../scripts/validate-release-inputs.cj
 
 describe('validateReleaseInputs', () => {
   it.each([
-    ['1.2.3-alpha.1', 'alpha'],
-    ['1.2.3-alpha-build.1', 'alpha-build'],
-    ['1.2.3-beta1', 'beta1'],
-    ['1.2.3-rc1', 'rc1'],
-  ])('accepts semver prerelease version %s', (version, releaseTag) => {
+    ['1.2.3-alpha.1', 'next', 'alpha'],
+    ['1.2.3-alpha-build.1', 'next', 'alpha-build'],
+    ['1.2.3-beta1', 'next', 'beta1'],
+    ['1.2.3-beta.1', 'next', 'beta'],
+    ['1.2.3-rc1', 'next', 'rc1'],
+    ['1.2.3-canary.1', 'canary', 'canary'],
+  ])('maps semver prerelease version %s to npm tag %s', (version, npmTag, dockerRawTag) => {
     const result = validateReleaseInputs({
       targetRef: 'main',
       version,
@@ -32,8 +34,8 @@ describe('validateReleaseInputs', () => {
       versionTag: `v${version}`,
       expectedReleaseBranch: 'release-1.2',
       isPrerelease: true,
-      npmTag: releaseTag,
-      dockerRawTag: releaseTag,
+      npmTag,
+      dockerRawTag,
     });
   });
 

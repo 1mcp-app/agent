@@ -77,8 +77,15 @@ jobs:
             echo "::error::Invalid npm tag: $NPM_TAG"
             exit 1
           fi
-          if [[ -n "$PRERELEASE_CHANNEL" && "$NPM_TAG" != "$PRERELEASE_CHANNEL" ]]; then
-            echo "::error::Prerelease tags must use npm_tag=$PRERELEASE_CHANNEL"
+          if [[ "$PRERELEASE_CHANNEL" =~ ^(alpha|beta|rc)([0-9-].*)?$ ]]; then
+            EXPECTED_NPM_TAG=next
+          elif [[ -n "$PRERELEASE_CHANNEL" ]]; then
+            EXPECTED_NPM_TAG="$PRERELEASE_CHANNEL"
+          else
+            EXPECTED_NPM_TAG=latest
+          fi
+          if [[ "$NPM_TAG" != "$EXPECTED_NPM_TAG" ]]; then
+            echo "::error::Release tags must use npm_tag=$EXPECTED_NPM_TAG"
             exit 1
           fi
           if [[ -z "$PRERELEASE_CHANNEL" && "$NPM_TAG" != "latest" ]]; then
@@ -110,14 +117,34 @@ jobs:
       - name: Publish to npm
         run: pnpm publish --no-git-checks --access public --provenance --tag ${{ inputs.npm_tag }}
 
+      - name: Resolve release changelog range
+        id: release-notes-range
+        env:
+          VERSION_TAG: ${{ inputs.version_tag }}
+          RELEASE_SHA: ${{ inputs.release_sha }}
+        run: node scripts/resolve-release-notes-range.cjs "$VERSION_TAG" "$RELEASE_SHA"
+
       - name: Generate release changelog
         uses: orhun/git-cliff-action@v4
         id: git-cliff
         with:
           config: cliff-release.toml
-          args: --latest --strip header
+          args: --tag ${{ inputs.version_tag }} --strip header ${{ steps.release-notes-range.outputs.range }}
         env:
           GITHUB_REPO: ${{ github.repository }}
+
+      - name: Finalize release changelog
+        id: release-notes
+        env:
+          GIT_CLIFF_OUTPUT: ${{ steps.git-cliff.outputs.changelog }}
+          VERSION_TAG: ${{ inputs.version_tag }}
+          PREVIOUS_TAG: ${{ steps.release-notes-range.outputs.previous_tag }}
+          NPM_TAG: ${{ inputs.npm_tag }}
+        run: |
+          set -euo pipefail
+
+          node scripts/finalize-release-notes.cjs "$GIT_CLIFF_OUTPUT" release-notes.md "$VERSION_TAG" "$PREVIOUS_TAG" "$NPM_TAG"
+          echo "path=release-notes.md" >> "$GITHUB_OUTPUT"
 
       - name: Download all binary artifacts
         uses: actions/download-artifact@v4
@@ -130,7 +157,7 @@ jobs:
           tag_name: ${{ inputs.version_tag }}
           target_commitish: ${{ inputs.release_sha }}
           name: Release ${{ inputs.version_tag }}
-          body: ${{ steps.git-cliff.outputs.content }}
+          body_path: ${{ steps.release-notes.outputs.path }}
           files: binaries/*/*
           draft: false
           prerelease: ${{ inputs.is_prerelease }}
