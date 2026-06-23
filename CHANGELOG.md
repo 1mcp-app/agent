@@ -12,6 +12,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Add async handling for notification forwarding in client-server setup by @xizhibei in [#345](https://github.com/1mcp-app/agent/pull/345)
 
 ### 🐛 Bug Fixes
+- Correct prerelease release notes and branch finalization by @xizhibei in [#352](https://github.com/1mcp-app/agent/pull/352)
 - HTTP transport host header validation by @xizhibei in [#347](https://github.com/1mcp-app/agent/pull/347)
 - Inspect disabled tools for template servers by @xizhibei in [#336](https://github.com/1mcp-app/agent/pull/336)
 
