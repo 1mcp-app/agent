@@ -20,6 +20,14 @@ function detectPlatform() {
   return 'linux';
 }
 
+function createArchiver(archiveFormat) {
+  if (archiveFormat === 'zip') {
+    return new archiver.ZipArchive({ zlib: { level: 9 } });
+  }
+
+  return new archiver.TarArchive({ gzip: true, gzipOptions: { level: 9 } });
+}
+
 function createArchive(binaryPath, options = {}) {
   return new Promise((resolve, reject) => {
     const {
@@ -61,15 +69,8 @@ function createArchive(binaryPath, options = {}) {
       fs.unlinkSync(archivePath);
     }
 
-    // Create output stream
     const output = fs.createWriteStream(archivePath);
-    let archive;
-
-    if (archiveFormat === 'zip') {
-      archive = archiver('zip', { zlib: { level: 9 } });
-    } else {
-      archive = archiver('tar', { gzip: true, gzipOptions: { level: 9 } });
-    }
+    const archive = createArchiver(archiveFormat);
 
     // Handle errors
     archive.on('error', (err) => {
@@ -103,7 +104,9 @@ function createArchive(binaryPath, options = {}) {
     archive.file(binaryPath, { name: binaryName });
 
     // Finalize the archive
-    archive.finalize();
+    archive.finalize().catch((error) => {
+      reject(new Error(`Archive finalization failed: ${error.message}`));
+    });
   });
 }
 
@@ -127,20 +130,29 @@ async function archiveAllBinaries(directory = '.', options = {}) {
   binaries.push(...platformBinaries);
 
   if (binaries.length === 0) {
-    console.log('📂 No binaries found to archive');
-    return [];
+    throw new Error('No binaries found to archive.');
   }
 
   console.log(`📦 Found ${binaries.length} binaries to archive`);
 
   const archives = [];
+  const failures = [];
   for (const binary of binaries) {
     try {
       const archive = await createArchive(binary, options);
       archives.push(archive);
     } catch (error) {
       console.error(`❌ Failed to archive ${binary}:`, error.message);
+      failures.push(`${binary}: ${error.message}`);
     }
+  }
+
+  if (failures.length > 0) {
+    throw new Error(`Failed to archive ${failures.length} binaries: ${failures.join('; ')}`);
+  }
+
+  if (archives.length === 0) {
+    throw new Error('No archives were created.');
   }
 
   return archives;

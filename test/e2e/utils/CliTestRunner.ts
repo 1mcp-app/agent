@@ -125,6 +125,12 @@ export class CliTestRunner {
       args.push(...options.args);
     }
 
+    const registryUrl = this.environment.getRegistryUrl();
+    const hasRegistryUrlArg = args.some((arg) => arg === '--url' || arg.startsWith('--url='));
+    if (registryUrl && !hasRegistryUrlArg) {
+      args.push('--url', registryUrl);
+    }
+
     return this.executeCommand(args, options);
   }
 

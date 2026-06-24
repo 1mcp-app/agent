@@ -145,6 +145,7 @@ describe('Internal MCP Tools Protocol E2E Tests', () => {
       args: [resolve(__dirname, '../../build/index.js'), '--transport', 'stdio', '--enable-internal-tools'],
       env: {
         ...environment.getEnvironmentVariables(),
+        TEST_MCP_REGISTRY_URL: environment.getRegistryUrl() ?? '',
         NODE_ENV: 'test',
       },
     });
