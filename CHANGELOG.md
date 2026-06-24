@@ -8,10 +8,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [unreleased]
 
 ### 🚀 Features
+- Update documentation for issue tracking and triage processes by @xizhibei
 - Refine release pipeline by @xizhibei in [#346](https://github.com/1mcp-app/agent/pull/346)
 - Add async handling for notification forwarding in client-server setup by @xizhibei in [#345](https://github.com/1mcp-app/agent/pull/345)
 
 ### 🐛 Bug Fixes
+- Release pipeline validation speed by @xizhibei in [#353](https://github.com/1mcp-app/agent/pull/353)
 - Correct prerelease release notes and branch finalization by @xizhibei in [#352](https://github.com/1mcp-app/agent/pull/352)
 - HTTP transport host header validation by @xizhibei in [#347](https://github.com/1mcp-app/agent/pull/347)
 - Inspect disabled tools for template servers by @xizhibei in [#336](https://github.com/1mcp-app/agent/pull/336)
