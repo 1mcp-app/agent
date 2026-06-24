@@ -36,7 +36,7 @@ jobs:
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           ref: ${{ inputs.checkout_ref || github.ref }}
 
@@ -56,7 +56,7 @@ jobs:
         run: pnpm test:unit
 
   # Parallel E2E tests - run automatically on every push/PR
-  # Using 4 shards for ~75% faster execution (~4min total runtime)
+  # Using 6 shards to keep the growing suite latency bounded
   # Shard count is optimized for the current test suite size and CI runner capacity
   # To adjust shards: update E2E_SHARD_COUNT and matrix.shard array
   # Skip E2E tests for tag events to speed up releases
@@ -65,15 +65,15 @@ jobs:
     needs: ci
     if: github.ref_type != 'tag'
     env:
-      E2E_SHARD_COUNT: 4 # Configure number of parallel shards (adjust based on test suite size)
+      E2E_SHARD_COUNT: 6 # Configure number of parallel shards (adjust based on test suite size)
     strategy:
       matrix:
-        shard: [1, 2, 3, 4] # Update this array when changing E2E_SHARD_COUNT
+        shard: [1, 2, 3, 4, 5, 6] # Update this array when changing E2E_SHARD_COUNT
       fail-fast: false # Run all shards even if one fails for comprehensive results
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           ref: ${{ inputs.checkout_ref || github.ref }}
 
@@ -85,8 +85,12 @@ jobs:
 
       - name: Test E2E - Shard ${{ matrix.shard }}/${{ env.E2E_SHARD_COUNT }}
         run: |
+          started_at=$(date +%s)
           # Run E2E tests with sharding for maximum parallelism
           # Each shard runs a portion of the tests in parallel
           pnpm test:e2e --shard=${{ matrix.shard }}/${{ env.E2E_SHARD_COUNT }} --reporter=minimal
+          finished_at=$(date +%s)
+          duration=$((finished_at - started_at))
+          echo "E2E shard ${{ matrix.shard }}/${{ env.E2E_SHARD_COUNT }} took ${duration}s" >> "$GITHUB_STEP_SUMMARY"
         env:
           CI: true

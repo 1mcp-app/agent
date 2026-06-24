@@ -106,6 +106,58 @@ describe('MCPRegistryClient', () => {
       envClient.destroy();
     });
 
+    it('uses the e2e test registry URL when no CLI URL is provided', async () => {
+      const originalNodeEnv = process.env.NODE_ENV;
+      const originalTestRegistryUrl = process.env.TEST_MCP_REGISTRY_URL;
+      process.env.NODE_ENV = 'test';
+      process.env.TEST_MCP_REGISTRY_URL = 'http://127.0.0.1:54321';
+
+      const envClient = createRegistryClient();
+      mockAxiosInstance.get.mockResolvedValueOnce({ data: { status: 'ok' } });
+
+      await envClient.getRegistryStatus();
+
+      expect(mockAxiosInstance.get).toHaveBeenLastCalledWith('http://127.0.0.1:54321/v0.1/health');
+
+      envClient.destroy();
+      if (originalNodeEnv === undefined) {
+        delete process.env.NODE_ENV;
+      } else {
+        process.env.NODE_ENV = originalNodeEnv;
+      }
+      if (originalTestRegistryUrl === undefined) {
+        delete process.env.TEST_MCP_REGISTRY_URL;
+      } else {
+        process.env.TEST_MCP_REGISTRY_URL = originalTestRegistryUrl;
+      }
+    });
+
+    it('prefers CLI registry URL over the e2e test registry URL', async () => {
+      const originalNodeEnv = process.env.NODE_ENV;
+      const originalTestRegistryUrl = process.env.TEST_MCP_REGISTRY_URL;
+      process.env.NODE_ENV = 'test';
+      process.env.TEST_MCP_REGISTRY_URL = 'http://127.0.0.1:54321';
+
+      const envClient = createRegistryClient({ url: 'http://127.0.0.1:12345' });
+      mockAxiosInstance.get.mockResolvedValueOnce({ data: { status: 'ok' } });
+
+      await envClient.getRegistryStatus();
+
+      expect(mockAxiosInstance.get).toHaveBeenLastCalledWith('http://127.0.0.1:12345/v0.1/health');
+
+      envClient.destroy();
+      if (originalNodeEnv === undefined) {
+        delete process.env.NODE_ENV;
+      } else {
+        process.env.NODE_ENV = originalNodeEnv;
+      }
+      if (originalTestRegistryUrl === undefined) {
+        delete process.env.TEST_MCP_REGISTRY_URL;
+      } else {
+        process.env.TEST_MCP_REGISTRY_URL = originalTestRegistryUrl;
+      }
+    });
+
     it('falls back to defaults when no CLI options are provided', () => {
       const envClient = createRegistryClient();
 

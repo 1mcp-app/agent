@@ -34,7 +34,7 @@ jobs:
       npm_tag: ${{ steps.validate.outputs.npm_tag }}
       docker_raw_tag: ${{ steps.validate.outputs.docker_raw_tag }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
           persist-credentials: false
@@ -118,7 +118,7 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
           token: ${{ secrets.GITHUB_TOKEN }}
