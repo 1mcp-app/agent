@@ -139,4 +139,5 @@ jobs:
           path: |
             *.tar.gz
             *.zip
+          if-no-files-found: error
           retention-days: 1
