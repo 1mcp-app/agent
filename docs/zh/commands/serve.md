@@ -73,11 +73,38 @@ CLI 模式依赖一个正在运行的 `serve` 实例。
 
 ### 生命周期
 
+- **`--background`**：将 HTTP Aggregated Runtime 以分离的后台进程方式为所选 **Runtime Scope（运行时作用域）** 启动，待其就绪后返回。仅支持 HTTP。
 - **`--status`**：报告所选 **Runtime Scope（运行时作用域）** 中运行时的状态，然后退出，不启动服务器。
 
 ## 运行时作用域与生命周期
 
 **Runtime Scope（运行时作用域）** 即配置目录。运行时的唯一性以配置目录为界，而非整台机器：默认配置目录是默认的 Runtime Scope，而通过 `--config-dir` 指定的其他目录则是独立的 Runtime Scope，可运行各自的运行时。
+
+### 后台启动
+
+`1mcp serve --background` 会以分离进程方式启动运行时，待其就绪后返回，从而让脚本得以继续执行：
+
+```bash
+1mcp serve --background
+1mcp serve --background --config-dir ./config --port 3051
+```
+
+成功时会打印 PID、URL 和日志文件，并以 `0` 退出：
+
+```text
+Background runtime started.
+PID: 48213
+URL: http://localhost:3050/mcp
+Log file: /home/me/.config/1mcp/logs/server.log
+```
+
+行为说明：
+
+- **仅支持 HTTP。** 会拒绝 `--transport stdio`（stdio 无法分离）。`sse` 会被规整为 HTTP，运行时记录 `transport: http`。
+- **确定性日志。** 当未配置 `--log-file` 或 `logging.file` 时，后台日志默认写入 `<config-dir>/logs/server.log`。
+- **幂等。** 若该 Runtime Scope 中已有运行时在运行（前台或后台），则报告该运行时并以 `0` 退出，不会启动第二个。不同的 `--config-dir` 属于不同作用域，可各自运行独立的运行时。
+- **孤儿恢复。** 指向已死进程的 PID 文件不会阻止启动；它会被视为过期并替换。
+- **失败处理。** 若运行时未能到达 `/health/ready`，命令会打印日志路径、终止已派生的进程，并以非零码退出。
 
 ### 查看运行时状态
 

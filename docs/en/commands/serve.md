@@ -83,11 +83,38 @@ For runtime-wide configuration details, see the **[Configuration Guide](/guide/e
 
 ### Lifecycle
 
+- **`--background`**: Start the HTTP Aggregated Runtime as a detached background process for the selected **Runtime Scope**, then return once it is ready. HTTP only.
 - **`--status`**: Report the state of the runtime in the selected **Runtime Scope**, then exit without starting a server.
 
 ## Runtime Scope and Lifecycle
 
 A **Runtime Scope** is a configuration directory. Runtime uniqueness is scoped to the config directory, not the whole machine: the default config directory is the default Runtime Scope, and an alternate `--config-dir` is a separate Runtime Scope that can run its own runtime.
+
+### Start in the background
+
+`1mcp serve --background` starts the runtime as a detached process and returns once it is ready, so scripts can continue:
+
+```bash
+1mcp serve --background
+1mcp serve --background --config-dir ./config --port 3051
+```
+
+On success it prints the PID, URL, and log file, then exits `0`:
+
+```text
+Background runtime started.
+PID: 48213
+URL: http://localhost:3050/mcp
+Log file: /home/me/.config/1mcp/logs/server.log
+```
+
+Behavior:
+
+- **HTTP only.** `--transport stdio` is rejected (stdio cannot be detached). `sse` is normalized to HTTP, and the runtime records `transport: http`.
+- **Deterministic logs.** When no `--log-file` or `logging.file` is configured, background logs default to `<config-dir>/logs/server.log`.
+- **Idempotent.** If a runtime is already running in the Runtime Scope (foreground or background), it is reported and the command exits `0` without starting a second one. A separate `--config-dir` is a separate scope and runs its own runtime.
+- **Orphan recovery.** A PID file pointing to a dead process does not block startup; it is treated as stale and replaced.
+- **Failure.** If the runtime does not reach `/health/ready`, the command prints the log path, terminates the spawned process, and exits non-zero.
 
 ### Check runtime status
 

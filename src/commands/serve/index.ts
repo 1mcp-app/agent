@@ -15,6 +15,18 @@ export const serverOptions = {
     type: 'boolean' as const,
     default: false,
   },
+  background: {
+    describe: 'Start the HTTP Aggregated Runtime as a detached background process for the selected Runtime Scope',
+    type: 'boolean' as const,
+    default: false,
+  },
+  // Internal hidden guard flag set on the detached child so it runs the normal
+  // serve path instead of recursively spawning another background process.
+  'background-bootstrap': {
+    type: 'boolean' as const,
+    default: false,
+    hidden: true,
+  },
   transport: {
     alias: 't',
     describe: 'Transport type to use (stdio or http, sse is deprecated)',
