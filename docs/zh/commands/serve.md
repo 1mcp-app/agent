@@ -71,6 +71,44 @@ CLI 模式依赖一个正在运行的 `serve` 实例。
 - **`--enable-config-reload`**：启用配置重载处理。
 - **`--enable-session-persistence`**：启用 HTTP 会话持久化。
 
+### 生命周期
+
+- **`--status`**：报告所选 **Runtime Scope（运行时作用域）** 中运行时的状态，然后退出，不启动服务器。
+
+## 运行时作用域与生命周期
+
+**Runtime Scope（运行时作用域）** 即配置目录。运行时的唯一性以配置目录为界，而非整台机器：默认配置目录是默认的 Runtime Scope，而通过 `--config-dir` 指定的其他目录则是独立的 Runtime Scope，可运行各自的运行时。
+
+### 查看运行时状态
+
+`1mcp serve --status` 会发现所选 Runtime Scope 中占用的运行时并报告其状态：
+
+```bash
+1mcp serve --status
+1mcp serve --status --config-dir ./config
+```
+
+它会打印 PID、URL、Runtime Scope、启动时间、日志文件、进程存活状态以及 `/health/ready` 就绪状态：
+
+```text
+Runtime Scope: /home/me/.config/1mcp
+Status: running (ready)
+PID: 48213
+URL: http://localhost:3050/mcp
+Started: 2026-06-26T00:00:00.000Z
+Log file: /home/me/.config/1mcp/logs/server.log
+Process: alive
+Readiness (/health/ready): ready
+```
+
+退出码会反映状态，方便脚本据此分支：
+
+- `0` —— 正在运行且已就绪
+- `3` —— 未运行（作用域为空，或指向已死进程的过期 PID 文件已被清理）
+- `4` —— 存活但尚未就绪（进程已启动，但 `/health/ready` 尚未通过，例如正在启动中）
+
+`--status` 为只读操作。指向已死进程的 PID 文件会被删除；而存活但尚未就绪的运行时会保留其 PID 文件，从而不会让仍在启动中的运行时被误清理。
+
 ## 示例
 
 ### 启动运行时

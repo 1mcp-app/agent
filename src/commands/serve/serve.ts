@@ -26,6 +26,8 @@ import { parseCommaSeparatedList, parseInternalToolsList, resolveStdioFilterConf
 export interface ServeOptions {
   config?: string;
   'config-dir'?: string;
+  /** Lifecycle action: report the scoped runtime's state and exit. */
+  status?: boolean;
   'log-level'?: 'debug' | 'info' | 'warn' | 'error';
   'log-file'?: string;
   transport?: string;
@@ -248,6 +250,14 @@ function setupGracefulShutdown(
  */
 export async function serveCommand(parsedArgv: ServeOptions): Promise<void> {
   try {
+    // Lifecycle actions short-circuit before any server setup. They operate on
+    // the Runtime Scope (config dir) via the lifecycle module and then exit.
+    if (parsedArgv.status) {
+      const { runServeStatus } = await import('./serveStatus.js');
+      await runServeStatus(parsedArgv['config-dir']);
+      return;
+    }
+
     // Initialize ConfigContext with CLI options
     const configContext = ConfigContext.getInstance();
     if (parsedArgv.config) {

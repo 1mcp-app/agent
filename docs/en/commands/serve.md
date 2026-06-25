@@ -81,6 +81,44 @@ For runtime-wide configuration details, see the **[Configuration Guide](/guide/e
 - **`--enable-config-reload`**: Enable config reload handling.
 - **`--enable-session-persistence`**: Enable HTTP session persistence.
 
+### Lifecycle
+
+- **`--status`**: Report the state of the runtime in the selected **Runtime Scope**, then exit without starting a server.
+
+## Runtime Scope and Lifecycle
+
+A **Runtime Scope** is a configuration directory. Runtime uniqueness is scoped to the config directory, not the whole machine: the default config directory is the default Runtime Scope, and an alternate `--config-dir` is a separate Runtime Scope that can run its own runtime.
+
+### Check runtime status
+
+`1mcp serve --status` discovers the runtime occupying the selected Runtime Scope and reports it:
+
+```bash
+1mcp serve --status
+1mcp serve --status --config-dir ./config
+```
+
+It prints the PID, URL, Runtime Scope, start time, log file, process liveness, and `/health/ready` readiness:
+
+```text
+Runtime Scope: /home/me/.config/1mcp
+Status: running (ready)
+PID: 48213
+URL: http://localhost:3050/mcp
+Started: 2026-06-26T00:00:00.000Z
+Log file: /home/me/.config/1mcp/logs/server.log
+Process: alive
+Readiness (/health/ready): ready
+```
+
+The exit code reflects the state, so scripts can branch on it:
+
+- `0` — running and ready
+- `3` — not running (the scope is empty, or a stale PID file pointing to a dead process was cleaned up)
+- `4` — alive but not yet ready (the process is up but `/health/ready` is not passing, e.g. mid-startup)
+
+`--status` is read-only. A PID file pointing to a dead process is removed; a live-but-not-ready runtime keeps its PID file so a still-starting runtime is never stranded.
+
 ## Examples
 
 ### Start the runtime

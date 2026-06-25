@@ -10,6 +10,11 @@ import type { Argv } from 'yargs';
 
 // Define server options that should be available for serve commands and default command
 export const serverOptions = {
+  status: {
+    describe: 'Report the state of the Background Aggregated Runtime in the selected Runtime Scope, then exit',
+    type: 'boolean' as const,
+    default: false,
+  },
   transport: {
     alias: 't',
     describe: 'Transport type to use (stdio or http, sse is deprecated)',
