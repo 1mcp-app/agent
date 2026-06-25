@@ -30,6 +30,8 @@ export interface ServeOptions {
   status?: boolean;
   /** Lifecycle action: start the runtime as a detached background process. */
   background?: boolean;
+  /** Lifecycle action: stop the runtime in the selected Runtime Scope. */
+  stop?: boolean;
   /** Internal guard set on the detached child to prevent recursive spawning. */
   'background-bootstrap'?: boolean;
   'log-level'?: 'debug' | 'info' | 'warn' | 'error';
@@ -259,6 +261,12 @@ export async function serveCommand(parsedArgv: ServeOptions): Promise<void> {
     if (parsedArgv.status) {
       const { runServeStatus } = await import('./serveStatus.js');
       await runServeStatus(parsedArgv['config-dir']);
+      return;
+    }
+
+    if (parsedArgv.stop) {
+      const { runServeStop } = await import('./serveStop.js');
+      await runServeStop(parsedArgv['config-dir']);
       return;
     }
 

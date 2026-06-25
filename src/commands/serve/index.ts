@@ -20,6 +20,11 @@ export const serverOptions = {
     type: 'boolean' as const,
     default: false,
   },
+  stop: {
+    describe: 'Stop the runtime in the selected Runtime Scope, then exit',
+    type: 'boolean' as const,
+    default: false,
+  },
   // Internal hidden guard flag set on the detached child so it runs the normal
   // serve path instead of recursively spawning another background process.
   'background-bootstrap': {

@@ -75,6 +75,7 @@ CLI 模式依赖一个正在运行的 `serve` 实例。
 
 - **`--background`**：将 HTTP Aggregated Runtime 以分离的后台进程方式为所选 **Runtime Scope（运行时作用域）** 启动，待其就绪后返回。仅支持 HTTP。
 - **`--status`**：报告所选 **Runtime Scope（运行时作用域）** 中运行时的状态，然后退出，不启动服务器。
+- **`--stop`**：停止所选 **Runtime Scope（运行时作用域）** 中的运行时，然后退出。
 
 ## 运行时作用域与生命周期
 
@@ -135,6 +136,26 @@ Readiness (/health/ready): ready
 - `4` —— 存活但尚未就绪（进程已启动，但 `/health/ready` 尚未通过，例如正在启动中）
 
 `--status` 为只读操作。指向已死进程的 PID 文件会被删除；而存活但尚未就绪的运行时会保留其 PID 文件，从而不会让仍在启动中的运行时被误清理。
+
+### 停止运行时
+
+`1mcp serve --stop` 仅停止所选 Runtime Scope 中的运行时：
+
+```bash
+1mcp serve --stop
+1mcp serve --stop --config-dir ./config
+```
+
+它会发现该作用域内的运行时，向其进程发送优雅终止信号，短暂等待其退出（必要时升级处理），并删除 PID 文件：
+
+```text
+Stopped runtime in Runtime Scope /home/me/.config/1mcp (PID 48213).
+```
+
+行为说明：
+
+- **作用域隔离。** 只会向所选 Runtime Scope 记录的运行时发送信号；不同 `--config-dir` 的运行时绝不会受影响。
+- **空闲时干净处理。** 若没有运行中的运行时，会如实报告并以 `0` 退出；若存在过期 PID 文件，则一并删除。
 
 ## 示例
 

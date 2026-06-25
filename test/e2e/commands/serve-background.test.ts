@@ -79,6 +79,13 @@ describe('serve --background E2E', () => {
     return JSON.parse(readFileSync(join(configDir, 'server.pid'), 'utf8'));
   }
 
+  function runStop(configDir: string) {
+    return spawnSync('node', [cliPath, 'serve', '--stop', '--config-dir', configDir], {
+      encoding: 'utf8',
+      timeout: 20000,
+    });
+  }
+
   it('starts a detached runtime and reports PID, URL, and log file', async () => {
     const scope = makeScope();
     const port = await getFreePort();
@@ -127,6 +134,45 @@ describe('serve --background E2E', () => {
 
     expect((await fetch(`http://127.0.0.1:${portA}/health/ready`)).status).toBe(200);
     expect((await fetch(`http://127.0.0.1:${portB}/health/ready`)).status).toBe(200);
+  });
+
+  it('serve --stop terminates the scoped runtime and removes its PID file', async () => {
+    const scope = makeScope();
+    const port = await getFreePort();
+
+    expect(runBackground(scope, port).status).toBe(0);
+    expect((await fetch(`http://127.0.0.1:${port}/health/ready`)).status).toBe(200);
+
+    const stop = runStop(scope);
+    expect(stop.status).toBe(0);
+    expect(stop.stdout).toContain('Stopped runtime');
+
+    // PID file removed and the port is no longer served.
+    expect(existsSync(join(scope, 'server.pid'))).toBe(false);
+    await expect(fetch(`http://127.0.0.1:${port}/health/ready`)).rejects.toThrow();
+  });
+
+  it('serve --stop only affects the targeted Runtime Scope', async () => {
+    const scopeA = makeScope();
+    const scopeB = makeScope();
+    const portA = await getFreePort();
+    const portB = await getFreePort();
+
+    expect(runBackground(scopeA, portA).status).toBe(0);
+    expect(runBackground(scopeB, portB).status).toBe(0);
+
+    expect(runStop(scopeA).status).toBe(0);
+
+    // Scope A is down; scope B is untouched.
+    await expect(fetch(`http://127.0.0.1:${portA}/health/ready`)).rejects.toThrow();
+    expect((await fetch(`http://127.0.0.1:${portB}/health/ready`)).status).toBe(200);
+  });
+
+  it('serve --stop reports cleanly when nothing is running', async () => {
+    const scope = makeScope();
+    const stop = runStop(scope);
+    expect(stop.status).toBe(0);
+    expect(stop.stdout).toContain('No runtime is running');
   });
 
   it('starts despite an orphaned PID file pointing to a dead process', async () => {

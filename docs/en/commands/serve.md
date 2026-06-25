@@ -85,6 +85,7 @@ For runtime-wide configuration details, see the **[Configuration Guide](/guide/e
 
 - **`--background`**: Start the HTTP Aggregated Runtime as a detached background process for the selected **Runtime Scope**, then return once it is ready. HTTP only.
 - **`--status`**: Report the state of the runtime in the selected **Runtime Scope**, then exit without starting a server.
+- **`--stop`**: Stop the runtime in the selected **Runtime Scope**, then exit.
 
 ## Runtime Scope and Lifecycle
 
@@ -145,6 +146,26 @@ The exit code reflects the state, so scripts can branch on it:
 - `4` — alive but not yet ready (the process is up but `/health/ready` is not passing, e.g. mid-startup)
 
 `--status` is read-only. A PID file pointing to a dead process is removed; a live-but-not-ready runtime keeps its PID file so a still-starting runtime is never stranded.
+
+### Stop the runtime
+
+`1mcp serve --stop` stops only the runtime in the selected Runtime Scope:
+
+```bash
+1mcp serve --stop
+1mcp serve --stop --config-dir ./config
+```
+
+It discovers the scoped runtime, sends a graceful termination signal to its process, waits briefly for it to exit (escalating if needed), and removes the PID file:
+
+```text
+Stopped runtime in Runtime Scope /home/me/.config/1mcp (PID 48213).
+```
+
+Behavior:
+
+- **Scope-isolated.** Only the runtime recorded for the selected Runtime Scope is signalled; a runtime in a different `--config-dir` is never touched.
+- **Clean when idle.** If nothing is running it reports so and exits `0`, removing a stale PID file if one is present.
 
 ## Examples
 
