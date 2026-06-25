@@ -92,6 +92,10 @@ export interface LoggerOptions {
   logLevel?: string;
   logFile?: string;
   transport?: string;
+  /** Max size in bytes before the file transport rotates. Enables rotation. */
+  maxSize?: number;
+  /** Max number of rotated files to retain (used with maxSize). */
+  maxFiles?: number;
 }
 
 /**
@@ -128,12 +132,16 @@ export function configureLogger(options: LoggerOptions): void {
 
   // Configure transports based on options
   if (options.logFile) {
-    // Add file transport
+    // Add file transport, with native size-based rotation when configured.
+    // Winston's File transport rotates in place when `maxsize` is set, keeping
+    // up to `maxFiles` rotated files — no extra dependency required.
     logger.add(
       new winston.transports.File({
         filename: options.logFile,
         format: customFormat,
         level: winstonLevel,
+        ...(options.maxSize ? { maxsize: options.maxSize } : {}),
+        ...(options.maxFiles ? { maxFiles: options.maxFiles } : {}),
       }),
     );
 

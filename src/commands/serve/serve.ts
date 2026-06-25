@@ -13,8 +13,10 @@ import { McpLoadingManager } from '@src/core/loading/mcpLoadingManager.js';
 import { AgentConfigManager } from '@src/core/server/agentConfig.js';
 import { cleanupPidFileOnExit, registerPidFileCleanup, writePidFile } from '@src/core/server/pidFileManager.js';
 import { ServerManager } from '@src/core/server/serverManager.js';
+import { GlobalOptions } from '@src/globalOptions.js';
 import { configureGlobalLogger } from '@src/logger/configureGlobalLogger.js';
 import logger, { debugIf } from '@src/logger/logger.js';
+import { resolveLoggingConfig } from '@src/logger/loggingConfig.js';
 import { setupServer } from '@src/server.js';
 import { ExpressServer } from '@src/transport/http/server.js';
 import { displayLogo } from '@src/utils/ui/logo.js';
@@ -274,15 +276,35 @@ export async function serveCommand(parsedArgv: ServeOptions): Promise<void> {
     const effectiveTransport = parsedArgv.transport ?? appConfig.transport ?? 'http';
     const effectivePort = parsedArgv.port ?? appConfig.port ?? PORT;
     const effectiveHost = parsedArgv.host ?? appConfig.host ?? HOST;
+    // Resolve logging from all sources in one place. Precedence:
+    // CLI flag > structured logging.* > deprecated flat alias > env > default.
+    // ONE_MCP_* env vars are already merged into parsedArgv by yargs, so the
+    // env tier here covers the legacy LOG_LEVEL variable.
+    const { resolved: resolvedLogging, deprecatedKeys: deprecatedLoggingKeys } = resolveLoggingConfig({
+      cli: { level: parsedArgv['log-level'], file: parsedArgv['log-file'] },
+      structured: appConfig.logging,
+      flat: { level: appConfig.logLevel, file: appConfig.logFile },
+      env: { level: process.env.LOG_LEVEL },
+    });
     configureGlobalLogger(
       {
         ...parsedArgv,
-        'log-level': parsedArgv['log-level'] ?? appConfig.logLevel,
-        'log-file': parsedArgv['log-file'] ?? appConfig.logFile,
+        'log-level': resolvedLogging.level as GlobalOptions['log-level'],
+        'log-file': resolvedLogging.file,
+        maxSize: resolvedLogging.maxSize,
+        maxFiles: resolvedLogging.maxFiles,
       },
       effectiveTransport,
     );
-    const effectiveLogFile = parsedArgv['log-file'] ?? appConfig.logFile;
+    if (deprecatedLoggingKeys.length > 0) {
+      logger.warn(
+        `⚠️  DEPRECATION WARNING: config keys ${deprecatedLoggingKeys
+          .map((key) => `\`${key}\``)
+          .join(' and ')} are deprecated. Use the structured \`logging\` block ` +
+          '(logging.level / logging.file) instead. The flat keys still work but will be removed in a future release.',
+      );
+    }
+    const effectiveLogFile = resolvedLogging.file;
     if (effectiveTransport !== 'stdio' && !effectiveLogFile) {
       displayLogo({
         transport: effectiveTransport,
@@ -290,7 +312,7 @@ export async function serveCommand(parsedArgv: ServeOptions): Promise<void> {
         host: effectiveHost,
         serverCount,
         authEnabled,
-        logLevel: parsedArgv['log-level'] ?? appConfig.logLevel,
+        logLevel: resolvedLogging.level,
         configDir: getConfigDir(parsedArgv['config-dir']),
       });
     }

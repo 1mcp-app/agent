@@ -367,6 +367,23 @@ logLevel = "debug"
       expect(result.logLevel).toBe('debug');
     });
 
+    it('should load the structured logging block from config.toml', async () => {
+      const tomlContent = `
+[logging]
+file = "/tmp/1mcp.log"
+level = "warn"
+maxSize = "10m"
+maxFiles = 5
+`;
+      await fsPromises.writeFile(join(tempConfigDir, 'config.toml'), tomlContent);
+
+      const result = loader.loadAppConfigFromToml();
+      expect(result.logging?.file).toBe('/tmp/1mcp.log');
+      expect(result.logging?.level).toBe('warn');
+      expect(result.logging?.maxSize).toBe('10m');
+      expect(result.logging?.maxFiles).toBe(5);
+    });
+
     it('should load nested app config sections from config.toml', async () => {
       const tomlContent = `
 [auth]

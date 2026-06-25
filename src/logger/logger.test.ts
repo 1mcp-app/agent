@@ -3,6 +3,7 @@ import { tmpdir } from 'os';
 import path from 'path';
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import winston from 'winston';
 
 import { configureLogger, errorIf } from './logger.js';
 import logger from './logger.js';
@@ -112,6 +113,26 @@ describe('logger configuration', () => {
       expect(mockClear).toHaveBeenCalled();
       expect(mockAdd).toHaveBeenCalledWith(expect.any(Object));
       expect(logger.level).toBe('debug');
+    });
+
+    it('should configure size-based rotation on the file transport when maxSize/maxFiles are set', () => {
+      const mockAdd = vi.spyOn(logger, 'add');
+
+      configureLogger({
+        logLevel: 'info',
+        logFile: tempLogFile,
+        transport: 'http',
+        maxSize: 10 * 1024 * 1024,
+        maxFiles: 5,
+      });
+
+      const fileTransport = mockAdd.mock.calls
+        .map((call) => call[0] as winston.transport)
+        .find((transport) => transport instanceof winston.transports.File) as winston.transports.FileTransportInstance;
+
+      expect(fileTransport).toBeDefined();
+      expect(fileTransport.maxsize).toBe(10 * 1024 * 1024);
+      expect(fileTransport.maxFiles).toBe(5);
     });
 
     it('should only add file transport for stdio mode with log-file', () => {
