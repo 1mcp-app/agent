@@ -14,6 +14,13 @@ export interface ServerPidInfo {
   transport: 'http';
   startedAt: string;
   configDir: string;
+  /**
+   * Effective log file the runtime is writing to, captured at startup.
+   * Optional: absent when no log file is configured, and absent in PID files
+   * written by older versions. `serve --status` reports this real path rather
+   * than recomputing a default that would be wrong under `--log-file`.
+   */
+  logFile?: string;
 }
 
 const PID_FILE_NAME = 'server.pid';
@@ -69,9 +76,14 @@ export function writePidFile(configDir: string, serverInfo: ServerPidInfo): void
 }
 
 /**
- * Read PID file and validate process is alive
+ * Read and parse the PID file. This is a PURE reader: it validates the file
+ * exists and has the required fields, but does NOT check process liveness and
+ * never deletes the file. Liveness handling and the two-tier staleness rule are
+ * owned by the lifecycle module (`runtimeLifecycle.ts`) so every discovery path
+ * applies deletion consistently.
+ *
  * @param configDir Configuration directory
- * @returns Server info if valid, null if file doesn't exist or process is dead
+ * @returns Parsed server info, or null if the file is missing or malformed
  */
 export function readPidFile(configDir: string): ServerPidInfo | null {
   const pidFilePath = getPidFilePath(configDir);
@@ -87,12 +99,6 @@ export function readPidFile(configDir: string): ServerPidInfo | null {
     // Validate required fields
     if (!serverInfo.pid || !serverInfo.url || !serverInfo.port) {
       logger.warn(`Invalid PID file format: ${pidFilePath}`);
-      return null;
-    }
-
-    // Check if process is still alive
-    if (!isProcessAlive(serverInfo.pid)) {
-      logger.warn(`PID file points to dead process (PID: ${serverInfo.pid})`);
       return null;
     }
 

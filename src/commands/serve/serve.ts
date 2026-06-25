@@ -462,6 +462,10 @@ export async function serveCommand(parsedArgv: ServeOptions): Promise<void> {
           transport: 'http',
           startedAt: new Date().toISOString(),
           configDir,
+          // Record the effective log file so `serve --status` reports the real
+          // path rather than recomputing a default that would be wrong under an
+          // explicit `--log-file`. Undefined when no log file is configured.
+          logFile: effectiveLogFile,
         });
 
         // Register cleanup handlers

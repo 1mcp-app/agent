@@ -130,7 +130,7 @@ describe('pidFileManager', () => {
       expect(result).toBeNull();
     });
 
-    it('should return null for dead process', () => {
+    it('should read the record even for a dead process (pure reader; liveness is the lifecycle module concern)', () => {
       const serverInfo: ServerPidInfo = {
         pid: 99999999, // Non-existent process
         url: 'http://localhost:3050/mcp',
@@ -144,7 +144,28 @@ describe('pidFileManager', () => {
       writePidFile(testConfigDir, serverInfo);
 
       const result = readPidFile(testConfigDir);
-      expect(result).toBeNull();
+      expect(result).not.toBeNull();
+      expect(result?.pid).toBe(99999999);
+      // readPidFile must NOT delete the file; deletion is owned by runtimeLifecycle
+      expect(fs.existsSync(testPidFilePath)).toBe(true);
+    });
+
+    it('should round-trip the optional logFile field', () => {
+      const serverInfo: ServerPidInfo = {
+        pid: process.pid,
+        url: 'http://localhost:3050/mcp',
+        port: 3050,
+        host: 'localhost',
+        transport: 'http',
+        startedAt: new Date().toISOString(),
+        configDir: testConfigDir,
+        logFile: path.join(testConfigDir, 'logs', 'server.log'),
+      };
+
+      writePidFile(testConfigDir, serverInfo);
+
+      const result = readPidFile(testConfigDir);
+      expect(result?.logFile).toBe(path.join(testConfigDir, 'logs', 'server.log'));
     });
 
     it('should return null for invalid JSON', () => {
