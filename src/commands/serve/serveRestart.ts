@@ -1,3 +1,4 @@
+import { resolveServeConfigPaths } from './runtimeScope.js';
 import type { ServeOptions } from './serve.js';
 import { runServeBackground } from './serveBackground.js';
 import { runServeStop } from './serveStop.js';
@@ -26,12 +27,13 @@ export interface RunRestartDeps {
 export async function runServeRestart(parsedArgv: ServeOptions, deps: RunRestartDeps = {}): Promise<void> {
   const runStop = deps.runStop ?? runServeStop;
   const runBackground = deps.runBackground ?? runServeBackground;
+  const { runtimeScope } = resolveServeConfigPaths(parsedArgv);
 
   process.stderr.write('Restarting background runtime…\n');
 
   // Phase 1: stop. A "nothing running" or stale-PID scope exits 0 here.
   process.exitCode = undefined;
-  await runStop(parsedArgv['config-dir']);
+  await runStop(runtimeScope);
   if (process.exitCode) {
     process.stderr.write('Error: restart aborted; could not stop the existing runtime. See messages above.\n');
     // Leave the non-zero exit code from the stop phase in place.

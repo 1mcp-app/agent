@@ -12,7 +12,7 @@ import { afterEach, beforeAll, describe, expect, it } from 'vitest';
  */
 describe('serve --background E2E', () => {
   const cliPath = join(process.cwd(), 'build', 'index.js');
-  const startedPids: number[] = [];
+  const startedPids = new Map<string, number>();
   const tempDirs: string[] = [];
 
   beforeAll(() => {
@@ -22,13 +22,14 @@ describe('serve --background E2E', () => {
   });
 
   afterEach(() => {
-    for (const pid of startedPids.splice(0)) {
+    for (const pid of startedPids.values()) {
       try {
         process.kill(pid, 'SIGTERM');
       } catch {
         // already gone
       }
     }
+    startedPids.clear();
     for (const dir of tempDirs.splice(0)) {
       rmSync(dir, { recursive: true, force: true });
     }
@@ -67,7 +68,7 @@ describe('serve --background E2E', () => {
     if (existsSync(pidFile)) {
       try {
         const info = JSON.parse(readFileSync(pidFile, 'utf8')) as { pid: number };
-        if (info.pid) startedPids.push(info.pid);
+        if (info.pid) startedPids.set(configDir, info.pid);
       } catch {
         // ignore
       }
@@ -96,7 +97,7 @@ describe('serve --background E2E', () => {
     if (existsSync(pidFile)) {
       try {
         const info = JSON.parse(readFileSync(pidFile, 'utf8')) as { pid: number };
-        if (info.pid) startedPids.push(info.pid);
+        if (info.pid) startedPids.set(configDir, info.pid);
       } catch {
         // ignore
       }

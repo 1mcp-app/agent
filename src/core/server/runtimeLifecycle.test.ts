@@ -61,6 +61,25 @@ describe('runtimeLifecycle', () => {
       });
     });
 
+    describe('unreadable PID file', () => {
+      it('reports error instead of treating the scope as not-running', async () => {
+        const originalReadFileSync = fs.readFileSync;
+        const error = Object.assign(new Error('denied'), { code: 'EACCES' });
+        vi.spyOn(fs, 'readFileSync').mockImplementation(((filePath: fs.PathOrFileDescriptor, ...args: unknown[]) => {
+          if (filePath === testPidFilePath) {
+            throw error;
+          }
+          return originalReadFileSync(filePath, ...(args as []));
+        }) as typeof fs.readFileSync);
+
+        const result = await discoverScopedRuntime(testConfigDir, async () => true);
+
+        expect(result.status).toBe('error');
+        expect(result.info).toBeNull();
+        expect(result.error).toContain('PID file present but unreadable');
+      });
+    });
+
     describe('tier 2: alive but unreachable', () => {
       it('retains the PID file and reports not-usable', async () => {
         writePidFile(testConfigDir, baseInfo());
@@ -118,6 +137,21 @@ describe('runtimeLifecycle', () => {
 
     it('returns null when the loading endpoint cannot be reached', async () => {
       vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('not up yet')));
+
+      await expect(probeLoadingSummary(baseInfo())).resolves.toBeNull();
+    });
+
+    it('returns null when the loading endpoint payload is malformed', async () => {
+      vi.stubGlobal(
+        'fetch',
+        vi.fn().mockResolvedValue({
+          ok: true,
+          json: async () => ({
+            loading: { isComplete: 'true' },
+            summary: { total: '9', pending: '1', loading: 2, ready: 3, failed: 1 },
+          }),
+        }),
+      );
 
       await expect(probeLoadingSummary(baseInfo())).resolves.toBeNull();
     });

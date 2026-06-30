@@ -2,9 +2,7 @@ import { spawn, type SpawnOptions } from 'child_process';
 import fs from 'fs';
 import path from 'path';
 
-import ConfigContext from '@src/config/configContext.js';
 import { ConfigManager } from '@src/config/configManager.js';
-import { getConfigDir } from '@src/constants.js';
 import { readPidFile, ServerPidInfo } from '@src/core/server/pidFileManager.js';
 import {
   discoverScopedRuntime,
@@ -17,6 +15,7 @@ import logger from '@src/logger/logger.js';
 import { resolveLoggingConfig } from '@src/logger/loggingConfig.js';
 import { normalizedArgv } from '@src/utils/cli/normalizedArgv.js';
 
+import { resolveServeConfigPaths } from './runtimeScope.js';
 import type { ServeOptions } from './serve.js';
 
 /**
@@ -171,15 +170,7 @@ export interface RunBackgroundDeps {
 }
 
 function defaultLoadAppConfig(parsedArgv: ServeOptions) {
-  const configContext = ConfigContext.getInstance();
-  if (parsedArgv.config) {
-    configContext.setConfigPath(parsedArgv.config);
-  } else if (parsedArgv['config-dir']) {
-    configContext.setConfigDir(parsedArgv['config-dir']);
-  } else {
-    configContext.reset();
-  }
-  const configFilePath = configContext.getResolvedConfigPath();
+  const { configFilePath } = resolveServeConfigPaths(parsedArgv);
   return ConfigManager.getInstance(configFilePath).getAppConfig();
 }
 
@@ -188,7 +179,7 @@ function defaultLoadAppConfig(parsedArgv: ServeOptions) {
  * never starts a server in-process.
  */
 export async function runServeBackground(parsedArgv: ServeOptions, deps: RunBackgroundDeps = {}): Promise<void> {
-  const configDir = getConfigDir(parsedArgv['config-dir']);
+  const { runtimeScope: configDir } = resolveServeConfigPaths(parsedArgv);
   const loadAppConfig = deps.loadAppConfig ?? defaultLoadAppConfig;
   const appConfig = loadAppConfig(parsedArgv) as {
     transport?: string;
@@ -227,6 +218,14 @@ export async function runServeBackground(parsedArgv: ServeOptions, deps: RunBack
     process.stderr.write(
       `A runtime already occupies this Runtime Scope (PID ${existing.info.pid}) but is not ready yet.\n` +
         `Refusing to start a second runtime. Check 'serve --status' or stop it first.\n`,
+    );
+    process.exitCode = 1;
+    return;
+  }
+  if (existing.status === 'error') {
+    process.stderr.write(
+      `Cannot inspect Runtime Scope ${configDir}: ${existing.error ?? 'PID file could not be read'}.\n` +
+        `Refusing to start a second runtime until the PID file problem is fixed.\n`,
     );
     process.exitCode = 1;
     return;

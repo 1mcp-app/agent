@@ -1,5 +1,5 @@
 import { runServeStop, waitForProcessExit } from '@src/commands/serve/serveStop.js';
-import type { ServerPidInfo } from '@src/core/server/pidFileManager.js';
+import { PidFileReadError, type ServerPidInfo } from '@src/core/server/pidFileManager.js';
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -76,6 +76,23 @@ describe('runServeStop', () => {
     expect(cleanup).not.toHaveBeenCalled();
     expect(process.exitCode).toBe(0);
     expect(stdout).toContain('No runtime is running');
+  });
+
+  it('fails closed when the scoped PID file cannot be read', async () => {
+    const kill = vi.fn();
+    const cleanup = vi.fn();
+    await runServeStop('/scope', {
+      readInfo: () => {
+        throw new PidFileReadError('/scope/server.pid', Object.assign(new Error('denied'), { code: 'EACCES' }));
+      },
+      kill,
+      cleanup,
+    });
+
+    expect(kill).not.toHaveBeenCalled();
+    expect(cleanup).not.toHaveBeenCalled();
+    expect(process.exitCode).toBe(1);
+    expect(stderr).toContain('cannot inspect Runtime Scope');
   });
 
   it('removes a stale PID file for a dead process without signaling', async () => {

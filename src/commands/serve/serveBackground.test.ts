@@ -243,6 +243,24 @@ describe('runServeBackground orchestration', () => {
     expect(stderr).toContain('555');
   });
 
+  it('refuses to start when the scoped PID file cannot be read', async () => {
+    discoverScopedRuntimeMock.mockResolvedValue({
+      status: 'error',
+      info: null,
+      error: 'PID file present but unreadable',
+    });
+    const spawnChild = vi.fn();
+
+    await runServeBackground({ 'config-dir': tmpDir } as any, {
+      loadAppConfig: () => ({}),
+      spawnChild,
+    });
+
+    expect(spawnChild).not.toHaveBeenCalled();
+    expect(process.exitCode).toBe(1);
+    expect(stderr).toContain('Cannot inspect Runtime Scope');
+  });
+
   it('exits 1 without waiting when the child fails to spawn (no pid)', async () => {
     discoverScopedRuntimeMock.mockResolvedValue({ status: 'not-running', info: null });
     const spawnChild = vi.fn().mockReturnValue(fakeChild(undefined));
@@ -283,6 +301,27 @@ describe('runServeBackground orchestration', () => {
     expect(process.exitCode).toBe(0);
     expect(stdout).toContain('Background runtime started');
     expect(stdout).toContain('PID: 7777');
+  });
+
+  it('uses the directory containing --config as the Runtime Scope', async () => {
+    discoverScopedRuntimeMock.mockResolvedValue({ status: 'not-running', info: null });
+    const spawnChild = vi.fn().mockReturnValue(fakeChild(7777));
+    const waitForReady = vi.fn().mockResolvedValue({
+      ready: true,
+      info: { pid: 7777, url: 'http://localhost:3050/mcp', logFile: path.join(tmpDir, 'logs', 'server.log') },
+    });
+    const configPath = path.join(tmpDir, 'custom-config.json');
+
+    await runServeBackground({ config: configPath } as any, {
+      loadAppConfig: () => ({}),
+      rawArgv: ['serve', '--background', '--config', configPath],
+      spawnChild,
+      waitForReady,
+    });
+
+    expect(discoverScopedRuntimeMock).toHaveBeenCalledWith(tmpDir);
+    expect(waitForReady).toHaveBeenCalledWith(tmpDir, 7777, expect.any(Object));
+    expect(process.exitCode).toBe(0);
   });
 
   it('terminates the child and exits non-zero when readiness fails', async () => {

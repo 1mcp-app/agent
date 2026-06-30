@@ -45,6 +45,18 @@ const serverPidInfoSchema = z.object({
 
 const PID_FILE_NAME = 'server.pid';
 
+export class PidFileReadError extends Error {
+  constructor(
+    public readonly pidFilePath: string,
+    cause: unknown,
+  ) {
+    super(
+      `PID file present but unreadable (${pidFilePath}): ${cause instanceof Error ? cause.message : String(cause)}`,
+    );
+    this.name = 'PidFileReadError';
+  }
+}
+
 /**
  * Get PID file path for a given config directory
  */
@@ -108,6 +120,7 @@ export function writePidFile(configDir: string, serverInfo: ServerPidInfo): void
  *
  * @param configDir Configuration directory
  * @returns Parsed server info, or null if the file is missing or malformed
+ * @throws PidFileReadError when the PID file is present but unreadable.
  */
 export function readPidFile(configDir: string): ServerPidInfo | null {
   const pidFilePath = getPidFilePath(configDir);
@@ -123,8 +136,8 @@ export function readPidFile(configDir: string): ServerPidInfo | null {
     if (error instanceof Error && 'code' in error && (error as { code: string }).code === 'ENOENT') {
       return null;
     }
-    logger.warn(`PID file present but unreadable (${pidFilePath}): ${error}`);
-    return null;
+    logger.error(`PID file present but unreadable (${pidFilePath}): ${error}`);
+    throw new PidFileReadError(pidFilePath, error);
   }
 
   // Validate the boundary with a schema rather than a hand-rolled truthiness
@@ -159,12 +172,13 @@ export function cleanupPidFile(configDir: string): boolean {
   const pidFilePath = getPidFilePath(configDir);
 
   try {
-    if (fs.existsSync(pidFilePath)) {
-      fs.unlinkSync(pidFilePath);
-      logger.info(`PID file cleaned up: ${pidFilePath}`);
-    }
+    fs.unlinkSync(pidFilePath);
+    logger.info(`PID file cleaned up: ${pidFilePath}`);
     return true;
   } catch (error) {
+    if (error instanceof Error && 'code' in error && (error as { code: string }).code === 'ENOENT') {
+      return true;
+    }
     logger.error(`Failed to cleanup PID file: ${error}`);
     return false;
   }
@@ -181,7 +195,15 @@ export function cleanupPidFile(configDir: string): boolean {
  *   matching file existed but could not be deleted.
  */
 export function cleanupPidFileIfMatches(configDir: string, expectedPid: number): boolean {
-  const current = readPidFile(configDir);
+  let current: ServerPidInfo | null;
+  try {
+    current = readPidFile(configDir);
+  } catch (error) {
+    if (error instanceof PidFileReadError) {
+      return false;
+    }
+    throw error;
+  }
   if (!current || current.pid !== expectedPid) {
     // Already gone, or replaced by a newer runtime — leave it untouched.
     return true;

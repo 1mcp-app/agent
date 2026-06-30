@@ -13,8 +13,10 @@ export interface RuntimeStatusReport {
   status: RuntimeStatus;
   /** The Runtime Scope (resolved configuration directory). */
   configDir: string;
-  /** PID record for `running`/`unreachable`; null for `not-running`. */
+  /** PID record for `running`/`unreachable`; null for `not-running`/`error`. */
   info: ServerPidInfo | null;
+  /** Human-readable discovery failure for `error` reports. */
+  error?: string;
 }
 
 /**
@@ -27,6 +29,7 @@ export const STATUS_EXIT_CODES: Record<RuntimeStatus, number> = {
   running: 0,
   'not-running': 3,
   unreachable: 4,
+  error: 2,
 };
 
 /**
@@ -36,8 +39,8 @@ export const STATUS_EXIT_CODES: Record<RuntimeStatus, number> = {
  */
 export async function getRuntimeStatusReport(configDirOption?: string): Promise<RuntimeStatusReport> {
   const configDir = getConfigDir(configDirOption);
-  const { status, info } = await discoverScopedRuntime(configDir);
-  return { status, configDir, info };
+  const { status, info, error } = await discoverScopedRuntime(configDir);
+  return { status, configDir, info, error };
 }
 
 /**
@@ -48,6 +51,11 @@ export function formatRuntimeStatusReport(report: RuntimeStatusReport): string {
   const lines: string[] = [`Runtime Scope: ${configDir}`];
 
   if (status === 'not-running' || !info) {
+    if (status === 'error') {
+      lines.push('Status: error');
+      lines.push(`Error: ${report.error ?? 'PID file could not be read'}`);
+      return `${lines.join('\n')}\n`;
+    }
     lines.push('Status: not running');
     return `${lines.join('\n')}\n`;
   }

@@ -1,10 +1,13 @@
 import {
   cleanupPidFileIfMatches,
   isProcessAlive,
+  PidFileReadError,
   readPidFile,
   ServerPidInfo,
 } from '@src/core/server/pidFileManager.js';
 import logger from '@src/logger/logger.js';
+
+import { z } from 'zod';
 
 /**
  * Lifecycle module for the (Background) Aggregated Runtime.
@@ -25,13 +28,17 @@ import logger from '@src/logger/logger.js';
  *   The PID file is RETAINED — the runtime may be mid-startup or wedged, and
  *   deleting it would strand a real process.
  * - `running`: the recorded process is alive and the readiness probe succeeded.
+ * - `error`: the PID file exists but cannot be read, so callers must fail
+ *   closed instead of treating the scope as empty.
  */
-export type RuntimeStatus = 'not-running' | 'unreachable' | 'running';
+export type RuntimeStatus = 'not-running' | 'unreachable' | 'running' | 'error';
 
 export interface ScopedRuntime {
   status: RuntimeStatus;
   /** The PID record, present for `unreachable` and `running`; null otherwise. */
   info: ServerPidInfo | null;
+  /** Human-readable discovery failure for `error` status. */
+  error?: string;
 }
 
 /**
@@ -81,6 +88,21 @@ export interface LoadingSummarySnapshot {
  */
 export type LoadingProbe = (info: ServerPidInfo) => Promise<LoadingSummarySnapshot | null>;
 
+const loadingSummaryResponseSchema = z.object({
+  loading: z
+    .object({
+      isComplete: z.boolean().optional(),
+    })
+    .optional(),
+  summary: z.object({
+    total: z.number().int().nonnegative().optional(),
+    pending: z.number().int().nonnegative().optional(),
+    loading: z.number().int().nonnegative().optional(),
+    ready: z.number().int().nonnegative().optional(),
+    failed: z.number().int().nonnegative().optional(),
+  }),
+});
+
 export async function probeLoadingSummary(
   info: ServerPidInfo,
   timeoutMs = 3000,
@@ -93,21 +115,18 @@ export async function probeLoadingSummary(
     if (!response.ok) {
       return null;
     }
-    const body = (await response.json()) as {
-      loading?: { isComplete?: boolean };
-      summary?: { total?: number; pending?: number; loading?: number; ready?: number; failed?: number };
-    };
-    const summary = body.summary;
-    if (!summary) {
+    const parsed = loadingSummaryResponseSchema.safeParse(await response.json());
+    if (!parsed.success) {
       return null;
     }
+    const { loading, summary } = parsed.data;
     return {
       ready: summary.ready ?? 0,
       // "loading" groups not-yet-settled servers: queued (pending) + in-flight.
       loading: (summary.pending ?? 0) + (summary.loading ?? 0),
       failed: summary.failed ?? 0,
       total: summary.total ?? 0,
-      isComplete: body.loading?.isComplete ?? false,
+      isComplete: loading?.isComplete ?? false,
     };
   } catch {
     return null;
@@ -125,7 +144,16 @@ export async function discoverScopedRuntime(
   configDir: string,
   readinessProbe: ReadinessProbe = probeReadiness,
 ): Promise<ScopedRuntime> {
-  const info = readPidFile(configDir);
+  let info: ServerPidInfo | null;
+  try {
+    info = readPidFile(configDir);
+  } catch (error) {
+    if (error instanceof PidFileReadError) {
+      logger.error(error.message);
+      return { status: 'error', info: null, error: error.message };
+    }
+    throw error;
+  }
 
   if (!info) {
     return { status: 'not-running', info: null };

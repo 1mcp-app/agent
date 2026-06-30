@@ -49,6 +49,23 @@ describe('runServeRestart', () => {
     expect(process.exitCode).toBe(0);
   });
 
+  it('uses the directory containing --config as the stop Runtime Scope', async () => {
+    const configPath = '/custom/scope/mcp.custom.json';
+    const argvWithConfig = { config: configPath } as ServeOptions;
+    const runStop = vi.fn(async () => {
+      process.exitCode = 0;
+    });
+    const runBackground = vi.fn(async () => {
+      process.exitCode = 0;
+    });
+
+    await runServeRestart(argvWithConfig, { runStop, runBackground });
+
+    expect(runStop).toHaveBeenCalledWith('/custom/scope');
+    expect(runBackground).toHaveBeenCalledWith(argvWithConfig);
+    expect(process.exitCode).toBe(0);
+  });
+
   it('still starts a runtime when nothing was running (no-op stop)', async () => {
     // runServeStop exits 0 with no kill when the scope is empty.
     const runStop = vi.fn(async () => {

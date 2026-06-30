@@ -3,9 +3,8 @@ import path from 'path';
 
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 
-import ConfigContext from '@src/config/configContext.js';
 import { ConfigManager } from '@src/config/configManager.js';
-import { getConfigDir, getDefaultInstructionsTemplatePath, HOST, PORT } from '@src/constants.js';
+import { getDefaultInstructionsTemplatePath, HOST, PORT } from '@src/constants.js';
 import { InstructionAggregator } from '@src/core/instructions/instructionAggregator.js';
 import { formatValidationError, validateTemplateContent } from '@src/core/instructions/templateValidator.js';
 import { LoadingSummary } from '@src/core/loading/loadingStateTracker.js';
@@ -21,6 +20,7 @@ import { setupServer } from '@src/server.js';
 import { ExpressServer } from '@src/transport/http/server.js';
 import { displayLogo } from '@src/utils/ui/logo.js';
 
+import { resolveServeConfigPaths } from './runtimeScope.js';
 import { parseCommaSeparatedList, parseInternalToolsList, resolveStdioFilterConfig } from './serveOptions.js';
 
 export interface ServeOptions {
@@ -258,17 +258,19 @@ function setupGracefulShutdown(
  */
 export async function serveCommand(parsedArgv: ServeOptions): Promise<void> {
   try {
+    const { configFilePath, runtimeScope } = resolveServeConfigPaths(parsedArgv);
+
     // Lifecycle actions short-circuit before any server setup. They operate on
-    // the Runtime Scope (config dir) via the lifecycle module and then exit.
+    // the Runtime Scope via the lifecycle module and then exit.
     if (parsedArgv.status) {
       const { runServeStatus } = await import('./serveStatus.js');
-      await runServeStatus(parsedArgv['config-dir']);
+      await runServeStatus(runtimeScope);
       return;
     }
 
     if (parsedArgv.stop) {
       const { runServeStop } = await import('./serveStop.js');
-      await runServeStop(parsedArgv['config-dir']);
+      await runServeStop(runtimeScope);
       return;
     }
 
@@ -290,18 +292,7 @@ export async function serveCommand(parsedArgv: ServeOptions): Promise<void> {
       return;
     }
 
-    // Initialize ConfigContext with CLI options
-    const configContext = ConfigContext.getInstance();
-    if (parsedArgv.config) {
-      configContext.setConfigPath(parsedArgv.config);
-    } else if (parsedArgv['config-dir']) {
-      configContext.setConfigDir(parsedArgv['config-dir']);
-    } else {
-      configContext.reset();
-    }
-
     // Initialize MCP config manager using resolved config path
-    const configFilePath = configContext.getResolvedConfigPath();
     const mcpConfigManager = ConfigManager.getInstance(configFilePath);
 
     // Load app-level config from config.toml (CLI args take precedence)
@@ -318,20 +309,19 @@ export async function serveCommand(parsedArgv: ServeOptions): Promise<void> {
     const effectiveTransport = parsedArgv.transport ?? appConfig.transport ?? 'http';
     const effectivePort = parsedArgv.port ?? appConfig.port ?? PORT;
     const effectiveHost = parsedArgv.host ?? appConfig.host ?? HOST;
-    // Resolve logging from all sources in one place. Precedence:
-    // CLI flag > structured logging.* > deprecated flat alias > env > default.
-    // ONE_MCP_* env vars are already merged into parsedArgv by yargs, so the
-    // env tier here covers the legacy LOG_LEVEL variable.
+    // Resolve logging from normalized CLI/config sources. ONE_MCP_* env vars
+    // are already merged into parsedArgv by yargs; legacy LOG_LEVEL handling is
+    // centralized in logger.configureLogger when no explicit level is supplied.
     const { resolved: resolvedLogging, deprecatedKeys: deprecatedLoggingKeys } = resolveLoggingConfig({
       cli: { level: parsedArgv['log-level'], file: parsedArgv['log-file'] },
       structured: appConfig.logging,
       flat: { level: appConfig.logLevel, file: appConfig.logFile },
-      env: { level: process.env.LOG_LEVEL },
     });
+    const configuredLogLevel = parsedArgv['log-level'] ?? appConfig.logging?.level ?? appConfig.logLevel;
     configureGlobalLogger(
       {
         ...parsedArgv,
-        'log-level': resolvedLogging.level as GlobalOptions['log-level'],
+        'log-level': configuredLogLevel as GlobalOptions['log-level'],
         'log-file': resolvedLogging.file,
         maxSize: resolvedLogging.maxSize,
         maxFiles: resolvedLogging.maxFiles,
@@ -355,7 +345,7 @@ export async function serveCommand(parsedArgv: ServeOptions): Promise<void> {
         serverCount,
         authEnabled,
         logLevel: resolvedLogging.level,
-        configDir: getConfigDir(parsedArgv['config-dir']),
+        configDir: runtimeScope,
       });
     }
 
@@ -372,10 +362,9 @@ export async function serveCommand(parsedArgv: ServeOptions): Promise<void> {
 
     // Derive session storage path: explicit option > config-dir/sessions > global default
     let sessionStoragePath = parsedArgv['session-storage-path'];
-    if (!sessionStoragePath && parsedArgv['config-dir']) {
-      // When config-dir is specified but session-storage-path is not,
-      // store sessions within the config directory to maintain isolation
-      sessionStoragePath = path.join(parsedArgv['config-dir'], 'sessions');
+    if (!sessionStoragePath && (parsedArgv['config-dir'] || parsedArgv.config)) {
+      // Store sessions within the selected Runtime Scope to maintain isolation.
+      sessionStoragePath = path.join(runtimeScope, 'sessions');
     }
 
     const internalToolsList = parseInternalToolsList(parsedArgv['internal-tools']);
@@ -457,14 +446,14 @@ export async function serveCommand(parsedArgv: ServeOptions): Promise<void> {
     // Initialize PresetManager with config directory option before server setup
     // This ensures the singleton is created with the correct config directory
     const PresetManager = (await import('@src/domains/preset/manager/presetManager.js')).PresetManager;
-    PresetManager.getInstance(parsedArgv['config-dir']);
+    PresetManager.getInstance(runtimeScope);
 
     // Initialize server and get server manager with custom config path if provided
     const { serverManager, loadingManager, asyncOrchestrator, instructionAggregator } =
       await setupServer(configFilePath);
 
     // Load custom instructions template if provided (applies to all transport types)
-    const customTemplate = loadInstructionsTemplate(parsedArgv['instructions-template'], parsedArgv['config-dir']);
+    const customTemplate = loadInstructionsTemplate(parsedArgv['instructions-template'], runtimeScope);
 
     let expressServer: ExpressServer | undefined;
 
@@ -516,16 +505,15 @@ export async function serveCommand(parsedArgv: ServeOptions): Promise<void> {
         expressServer.start();
 
         // Write PID file for proxy auto-discovery
-        const configDir = getConfigDir(parsedArgv['config-dir']);
         const serverUrl = serverConfigManager.getUrl();
-        writePidFile(configDir, {
+        writePidFile(runtimeScope, {
           pid: process.pid,
           url: `${serverUrl}/mcp`,
           port: effectivePort,
           host: effectiveHost,
           transport: 'http',
           startedAt: new Date().toISOString(),
-          configDir,
+          configDir: runtimeScope,
           // Record the effective log file so `serve --status` reports the real
           // path rather than recomputing a default that would be wrong under an
           // explicit `--log-file`. Undefined when no log file is configured.
@@ -533,7 +521,7 @@ export async function serveCommand(parsedArgv: ServeOptions): Promise<void> {
         });
 
         // Register cleanup handlers
-        registerPidFileCleanup(configDir);
+        registerPidFileCleanup(runtimeScope);
 
         break;
       }
@@ -543,8 +531,7 @@ export async function serveCommand(parsedArgv: ServeOptions): Promise<void> {
     }
 
     // Set up graceful shutdown handling
-    const configDir = getConfigDir(parsedArgv['config-dir']);
-    setupGracefulShutdown(serverManager, loadingManager, expressServer, instructionAggregator, configDir);
+    setupGracefulShutdown(serverManager, loadingManager, expressServer, instructionAggregator, runtimeScope);
 
     // Log MCP loading progress (non-blocking)
     loadingManager.on('loading-progress', (summary: LoadingSummary) => {

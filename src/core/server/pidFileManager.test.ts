@@ -8,6 +8,7 @@ import {
   cleanupPidFileOnExit,
   getPidFilePath,
   isProcessAlive,
+  PidFileReadError,
   readPidFile,
   registerPidFileCleanup,
   registerPidFileSignalHandlers,
@@ -29,6 +30,7 @@ describe('pidFileManager', () => {
   });
 
   afterEach(() => {
+    vi.restoreAllMocks();
     // Clean up test directory
     if (fs.existsSync(testPidFilePath)) {
       fs.unlinkSync(testPidFilePath);
@@ -129,6 +131,19 @@ describe('pidFileManager', () => {
     it('should return null for non-existent PID file', () => {
       const result = readPidFile(testConfigDir);
       expect(result).toBeNull();
+    });
+
+    it('should throw for unreadable PID files', () => {
+      const originalReadFileSync = fs.readFileSync;
+      const error = Object.assign(new Error('denied'), { code: 'EACCES' });
+      vi.spyOn(fs, 'readFileSync').mockImplementation(((filePath: fs.PathOrFileDescriptor, ...args: unknown[]) => {
+        if (filePath === testPidFilePath) {
+          throw error;
+        }
+        return originalReadFileSync(filePath, ...(args as []));
+      }) as typeof fs.readFileSync);
+
+      expect(() => readPidFile(testConfigDir)).toThrow(PidFileReadError);
     });
 
     it('should read the record even for a dead process (pure reader; liveness is the lifecycle module concern)', () => {
@@ -251,6 +266,14 @@ describe('pidFileManager', () => {
 
     it('should not throw error if PID file does not exist', () => {
       expect(() => cleanupPidFile(testConfigDir)).not.toThrow();
+      expect(cleanupPidFile(testConfigDir)).toBe(true);
+    });
+
+    it('should treat ENOENT during unlink as successful cleanup', () => {
+      vi.spyOn(fs, 'unlinkSync').mockImplementationOnce(() => {
+        throw Object.assign(new Error('gone'), { code: 'ENOENT' });
+      });
+
       expect(cleanupPidFile(testConfigDir)).toBe(true);
     });
   });

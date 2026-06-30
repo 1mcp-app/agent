@@ -1,5 +1,10 @@
 import { getConfigDir } from '@src/constants.js';
-import { cleanupPidFileIfMatches, isProcessAlive, readPidFile } from '@src/core/server/pidFileManager.js';
+import {
+  cleanupPidFileIfMatches,
+  isProcessAlive,
+  PidFileReadError,
+  readPidFile,
+} from '@src/core/server/pidFileManager.js';
 import logger from '@src/logger/logger.js';
 
 /**
@@ -67,7 +72,17 @@ export async function runServeStop(configDirOption?: string, deps: RunStopDeps =
   const waitForExit = deps.waitForExit ?? waitForProcessExit;
   const gracefulTimeoutMs = deps.gracefulTimeoutMs ?? 10000;
 
-  const info = readInfo(configDir);
+  let info;
+  try {
+    info = readInfo(configDir);
+  } catch (error) {
+    if (error instanceof PidFileReadError) {
+      process.stderr.write(`Error: cannot inspect Runtime Scope ${configDir}: ${error.message}\n`);
+      process.exitCode = 1;
+      return;
+    }
+    throw error;
+  }
 
   if (!info) {
     process.stdout.write(`No runtime is running in this Runtime Scope: ${configDir}\n`);

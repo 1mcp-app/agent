@@ -395,7 +395,7 @@ maxSize = "ten megabytes"
       // flow through as-is and silently degrade to `undefined` (disabling
       // rotation) at parseByteSize. The loader rejects the config and logs.
       const result = loader.loadAppConfigFromToml();
-      expect(result.logging?.maxSize).toBeUndefined();
+      expect(result).toEqual({});
     });
 
     it('should load nested app config sections from config.toml', async () => {
