@@ -1,5 +1,6 @@
 import { getConfigDir } from '@src/constants.js';
 import { discoverScopedRuntime } from '@src/core/server/runtimeLifecycle.js';
+import { debugIf } from '@src/logger/logger.js';
 import { createSafeErrorMessage } from '@src/logger/secureLogger.js';
 import { normalizedArgv } from '@src/utils/cli/normalizedArgv.js';
 
@@ -48,8 +49,14 @@ export async function detectRunningServerUrl(): Promise<string | null> {
       if (response.ok) {
         return `http://localhost:${port}/mcp`;
       }
-    } catch {
-      // Continue to next port
+    } catch (error) {
+      // Connection refused is the expected case while scanning unused ports, but
+      // a TLS/DNS/abort error on a port that IS listening is diagnostic — log it
+      // at debug so a misconfigured-but-present server is not invisible.
+      debugIf(() => ({
+        message: `Port scan probe failed on ${port}`,
+        meta: { port, error: error instanceof Error ? error.message : String(error) },
+      }));
     }
   }
   return null;
@@ -174,8 +181,9 @@ export async function validateServer1mcpUrl(url: string): Promise<{
   error?: string;
 }> {
   try {
-    // Remove /mcp suffix to test base URL
-    const baseUrl = url.replace('/mcp', '');
+    // Remove a trailing /mcp suffix to test base URL. Anchor to the end so a URL
+    // like http://host/mcp-internal/mcp is not mangled by stripping the first match.
+    const baseUrl = url.replace(/\/mcp\/?$/, '');
 
     // Test basic connectivity to OAuth endpoint (which always exists)
     const oauthResponse = await fetch(`${baseUrl}/oauth/`, {

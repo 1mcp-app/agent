@@ -269,6 +269,17 @@ export function setupServeCommand(yargs: Argv): Argv {
       return yargs
         .options(globalOptions || {})
         .options(serverOptions)
+        .check((argv) => {
+          // The lifecycle flags select mutually exclusive actions; combining
+          // them would let handler order silently pick one and mask a typo.
+          const selected = (['status', 'background', 'stop'] as const).filter((flag) => argv[flag]);
+          if (selected.length > 1) {
+            throw new Error(
+              `Options ${selected.map((flag) => `--${flag}`).join(', ')} are mutually exclusive; specify only one.`,
+            );
+          }
+          return true;
+        })
         .example([
           ['$0 serve', 'Start server with HTTP transport (default)'],
           ['$0 serve --transport=stdio', 'Start server with stdio transport'],

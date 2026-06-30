@@ -59,7 +59,7 @@ describe('serve --background E2E', () => {
 
   function runBackground(configDir: string, port: number) {
     const result = spawnSync(
-      'node',
+      process.execPath,
       [cliPath, 'serve', '--background', '--config-dir', configDir, '--port', String(port), '--host', '127.0.0.1'],
       { encoding: 'utf8', timeout: 45000 },
     );
@@ -80,7 +80,7 @@ describe('serve --background E2E', () => {
   }
 
   function runStop(configDir: string) {
-    return spawnSync('node', [cliPath, 'serve', '--stop', '--config-dir', configDir], {
+    return spawnSync(process.execPath, [cliPath, 'serve', '--stop', '--config-dir', configDir], {
       encoding: 'utf8',
       timeout: 20000,
     });

@@ -104,6 +104,7 @@ Log file: /home/me/.config/1mcp/logs/server.log
 - **仅支持 HTTP。** 会拒绝 `--transport stdio`（stdio 无法分离）。`sse` 会被规整为 HTTP，运行时记录 `transport: http`。
 - **确定性日志。** 当未配置 `--log-file` 或 `logging.file` 时，后台日志默认写入 `<config-dir>/logs/server.log`。
 - **幂等。** 若该 Runtime Scope 中已有运行时在运行（前台或后台），则报告该运行时并以 `0` 退出，不会启动第二个。不同的 `--config-dir` 属于不同作用域，可各自运行独立的运行时。
+- **已占用但未就绪。** 若该作用域已被某运行时占用但尚未通过 `/health/ready`，`--background` 会拒绝启动第二个并以非零码退出。请先检查 `--status` 或将其停止。
 - **孤儿恢复。** 指向已死进程的 PID 文件不会阻止启动；它会被视为过期并替换。
 - **失败处理。** 若运行时未能到达 `/health/ready`，命令会打印日志路径、终止已派生的进程，并以非零码退出。
 

@@ -33,9 +33,10 @@ export function defaultBackgroundLogFile(configDir: string): string {
 
 /**
  * Build the child's serve arguments: strip flags the parent overrides
- * (`--background`, `--transport`, `--log-file`, and the guard) and re-append the
- * HTTP transport, the resolved log file, and the guard flag. Background is
- * HTTP-only, so the child is always forced onto `--transport http`.
+ * (`--background`, `--transport`/`-t`, `--log-file`, and the guard — including
+ * their `=`-joined forms) and re-append the HTTP transport, the resolved log
+ * file, and the guard flag. Background is HTTP-only, so the child is always
+ * forced onto `--transport http`.
  */
 export function buildBackgroundChildArgs(serveArgs: string[], opts: { logFile: string }): string[] {
   const stripWithValue = new Set(['--transport', '-t', '--log-file']);
@@ -210,11 +211,13 @@ export async function runServeBackground(parsedArgv: ServeOptions, deps: RunBack
   }
 
   // Resolve the effective log file, defaulting to <configDir>/logs/server.log.
+  // Only `resolved.file` is consumed here — the detached child re-resolves its
+  // own level on the normal serve path, so no env tier is needed (and reading
+  // process.env directly would bypass the yargs-based ONE_MCP_* loading).
   const { resolved } = resolveLoggingConfig({
     cli: { level: parsedArgv['log-level'], file: parsedArgv['log-file'] },
     structured: appConfig.logging,
     flat: { level: appConfig.logLevel, file: appConfig.logFile },
-    env: { level: process.env.LOG_LEVEL },
   });
   const logFile = resolved.file ?? defaultBackgroundLogFile(configDir);
   fs.mkdirSync(path.dirname(logFile), { recursive: true });

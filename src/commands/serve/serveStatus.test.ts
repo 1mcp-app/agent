@@ -10,7 +10,8 @@ import { getPidFilePath, ServerPidInfo, writePidFile } from '@src/core/server/pi
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-const probeReadinessMock = vi.fn();
+// Hoisted so the (hoisted) vi.mock factory below can reference it safely.
+const { probeReadinessMock } = vi.hoisted(() => ({ probeReadinessMock: vi.fn() }));
 
 vi.mock('@src/core/server/runtimeLifecycle.js', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@src/core/server/runtimeLifecycle.js')>();

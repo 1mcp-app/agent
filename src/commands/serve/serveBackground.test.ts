@@ -198,6 +198,42 @@ describe('runServeBackground orchestration', () => {
     expect(stdout).toContain('PID: 999');
   });
 
+  it('refuses to start when an alive-but-unreachable runtime occupies the scope', async () => {
+    discoverScopedRuntimeMock.mockResolvedValue({
+      status: 'unreachable',
+      info: { pid: 555, url: 'http://localhost:3050/mcp' },
+    });
+    const spawnChild = vi.fn();
+
+    await runServeBackground({ 'config-dir': tmpDir } as any, {
+      loadAppConfig: () => ({}),
+      spawnChild,
+    });
+
+    expect(spawnChild).not.toHaveBeenCalled();
+    expect(process.exitCode).toBe(1);
+    expect(stderr).toContain('not ready yet');
+    expect(stderr).toContain('555');
+  });
+
+  it('exits 1 without waiting when the child fails to spawn (no pid)', async () => {
+    discoverScopedRuntimeMock.mockResolvedValue({ status: 'not-running', info: null });
+    const spawnChild = vi.fn().mockReturnValue(fakeChild(undefined));
+    const waitForReady = vi.fn();
+
+    await runServeBackground({ 'config-dir': tmpDir } as any, {
+      loadAppConfig: () => ({}),
+      rawArgv: ['serve', '--background', '--config-dir', tmpDir],
+      spawnChild,
+      waitForReady,
+    });
+
+    expect(spawnChild).toHaveBeenCalledOnce();
+    expect(waitForReady).not.toHaveBeenCalled();
+    expect(process.exitCode).toBe(1);
+    expect(stderr).toContain('failed to spawn');
+  });
+
   it('spawns a detached child and reports success when ready', async () => {
     discoverScopedRuntimeMock.mockResolvedValue({ status: 'not-running', info: null });
     const spawnChild = vi.fn().mockReturnValue(fakeChild(7777));

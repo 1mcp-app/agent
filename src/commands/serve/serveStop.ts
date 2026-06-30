@@ -1,5 +1,5 @@
 import { getConfigDir } from '@src/constants.js';
-import { cleanupPidFile, isProcessAlive, readPidFile } from '@src/core/server/pidFileManager.js';
+import { cleanupPidFileIfMatches, isProcessAlive, readPidFile } from '@src/core/server/pidFileManager.js';
 import logger from '@src/logger/logger.js';
 
 /**
@@ -44,7 +44,8 @@ export interface RunStopDeps {
   readInfo?: typeof readPidFile;
   isAlive?: (pid: number) => boolean;
   kill?: (pid: number, signal: StopSignal) => void;
-  cleanup?: (configDir: string) => void;
+  /** Delete the PID file only if it still records the stopped PID. */
+  cleanup?: (configDir: string, expectedPid: number) => boolean;
   waitForExit?: typeof waitForProcessExit;
   /** Graceful wait before escalating to SIGKILL. */
   gracefulTimeoutMs?: number;
@@ -62,7 +63,7 @@ export async function runServeStop(configDirOption?: string, deps: RunStopDeps =
   const readInfo = deps.readInfo ?? readPidFile;
   const isAlive = deps.isAlive ?? isProcessAlive;
   const kill = deps.kill ?? defaultKill;
-  const cleanup = deps.cleanup ?? cleanupPidFile;
+  const cleanup = deps.cleanup ?? cleanupPidFileIfMatches;
   const waitForExit = deps.waitForExit ?? waitForProcessExit;
   const gracefulTimeoutMs = deps.gracefulTimeoutMs ?? 10000;
 
@@ -76,8 +77,16 @@ export async function runServeStop(configDirOption?: string, deps: RunStopDeps =
 
   // Stale dead-process PID file: clean it up and report cleanly.
   if (!isAlive(info.pid)) {
-    cleanup(configDir);
-    process.stdout.write(`No running runtime in this Runtime Scope; removed a stale PID file (was PID ${info.pid}).\n`);
+    if (cleanup(configDir, info.pid)) {
+      process.stdout.write(
+        `No running runtime in this Runtime Scope; removed a stale PID file (was PID ${info.pid}).\n`,
+      );
+    } else {
+      process.stderr.write(
+        `No running runtime in this Runtime Scope, but the stale PID file could not be removed ` +
+          `(${getConfigDir(configDirOption)}). Remove it manually.\n`,
+      );
+    }
     process.exitCode = 0;
     return;
   }
@@ -102,8 +111,9 @@ export async function runServeStop(configDirOption?: string, deps: RunStopDeps =
 
   if (exited) {
     // The runtime removes its own PID file on graceful shutdown; clean up in
-    // case it was force-killed before it could.
-    cleanup(configDir);
+    // case it was force-killed before it could. Match on PID so a runtime that
+    // restarted in this scope (rare, but possible) is not clobbered.
+    cleanup(configDir, info.pid);
     process.stdout.write(`Stopped runtime in Runtime Scope ${configDir} (PID ${info.pid}).\n`);
     process.exitCode = 0;
     return;

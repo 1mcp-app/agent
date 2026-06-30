@@ -114,6 +114,7 @@ Behavior:
 - **HTTP only.** `--transport stdio` is rejected (stdio cannot be detached). `sse` is normalized to HTTP, and the runtime records `transport: http`.
 - **Deterministic logs.** When no `--log-file` or `logging.file` is configured, background logs default to `<config-dir>/logs/server.log`.
 - **Idempotent.** If a runtime is already running in the Runtime Scope (foreground or background), it is reported and the command exits `0` without starting a second one. A separate `--config-dir` is a separate scope and runs its own runtime.
+- **Occupied but not ready.** If a runtime occupies the scope but has not yet passed `/health/ready`, `--background` refuses to start a second one and exits non-zero. Check `--status` or stop it first.
 - **Orphan recovery.** A PID file pointing to a dead process does not block startup; it is treated as stale and replaced.
 - **Failure.** If the runtime does not reach `/health/ready`, the command prints the log path, terminates the spawned process, and exits non-zero.
 

@@ -80,7 +80,7 @@ describe('runServeStop', () => {
 
   it('removes a stale PID file for a dead process without signaling', async () => {
     const kill = vi.fn();
-    const cleanup = vi.fn();
+    const cleanup = vi.fn().mockReturnValue(true);
     await runServeStop('/scope', {
       readInfo: () => info({ pid: 99999999 }),
       isAlive: () => false,
@@ -89,14 +89,27 @@ describe('runServeStop', () => {
     });
 
     expect(kill).not.toHaveBeenCalled();
-    expect(cleanup).toHaveBeenCalledWith('/scope');
+    expect(cleanup).toHaveBeenCalledWith('/scope', 99999999);
     expect(process.exitCode).toBe(0);
     expect(stdout).toContain('stale PID file');
   });
 
+  it('warns when a stale PID file cannot be removed', async () => {
+    const cleanup = vi.fn().mockReturnValue(false);
+    await runServeStop('/scope', {
+      readInfo: () => info({ pid: 99999999 }),
+      isAlive: () => false,
+      kill: vi.fn(),
+      cleanup,
+    });
+
+    expect(process.exitCode).toBe(0);
+    expect(stderr).toContain('could not be removed');
+  });
+
   it('gracefully terminates a live runtime and cleans up', async () => {
     const kill = vi.fn();
-    const cleanup = vi.fn();
+    const cleanup = vi.fn().mockReturnValue(true);
     const waitForExit = vi.fn().mockResolvedValue(true);
 
     await runServeStop('/scope', {
@@ -109,14 +122,14 @@ describe('runServeStop', () => {
 
     expect(kill).toHaveBeenCalledWith(4321, 'SIGTERM');
     expect(kill).toHaveBeenCalledTimes(1); // no SIGKILL escalation needed
-    expect(cleanup).toHaveBeenCalledWith('/scope');
+    expect(cleanup).toHaveBeenCalledWith('/scope', 4321);
     expect(process.exitCode).toBe(0);
     expect(stdout).toContain('Stopped runtime');
   });
 
   it('escalates to SIGKILL when SIGTERM does not stop the runtime', async () => {
     const kill = vi.fn();
-    const cleanup = vi.fn();
+    const cleanup = vi.fn().mockReturnValue(true);
     // First wait (after SIGTERM) fails, second wait (after SIGKILL) succeeds.
     const waitForExit = vi.fn().mockResolvedValueOnce(false).mockResolvedValueOnce(true);
 
@@ -130,13 +143,13 @@ describe('runServeStop', () => {
 
     expect(kill).toHaveBeenNthCalledWith(1, 4321, 'SIGTERM');
     expect(kill).toHaveBeenNthCalledWith(2, 4321, 'SIGKILL');
-    expect(cleanup).toHaveBeenCalledWith('/scope');
+    expect(cleanup).toHaveBeenCalledWith('/scope', 4321);
     expect(process.exitCode).toBe(0);
   });
 
   it('exits non-zero when the runtime cannot be stopped', async () => {
     const kill = vi.fn();
-    const cleanup = vi.fn();
+    const cleanup = vi.fn().mockReturnValue(true);
     const waitForExit = vi.fn().mockResolvedValue(false);
 
     await runServeStop('/scope', {
@@ -150,5 +163,25 @@ describe('runServeStop', () => {
     expect(cleanup).not.toHaveBeenCalled();
     expect(process.exitCode).toBe(1);
     expect(stderr).toContain('failed to stop runtime');
+  });
+
+  it('continues past a SIGTERM failure and still escalates/cleans up', async () => {
+    // process.kill can throw (ESRCH/EPERM); the command must not crash.
+    const kill = vi.fn().mockImplementationOnce(() => {
+      throw new Error('ESRCH');
+    });
+    const cleanup = vi.fn().mockReturnValue(true);
+    const waitForExit = vi.fn().mockResolvedValue(true);
+
+    await runServeStop('/scope', {
+      readInfo: () => info({ pid: 4321 }),
+      isAlive: () => true,
+      kill,
+      cleanup,
+      waitForExit,
+    });
+
+    expect(process.exitCode).toBe(0);
+    expect(stdout).toContain('Stopped runtime');
   });
 });

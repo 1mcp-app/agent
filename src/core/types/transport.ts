@@ -267,7 +267,16 @@ export const applicationConfigSchema = z.object({
       file: z.string().optional().describe('Path to log file'),
       level: z.enum(['debug', 'info', 'warn', 'error']).optional().describe('Log level'),
       maxSize: z
-        .union([z.number().int().positive(), z.string()])
+        .union([
+          z.number().int().positive(),
+          // Mirror the grammar parseByteSize() accepts (loggingConfig.ts) so an
+          // invalid size is rejected at the config boundary instead of silently
+          // degrading to `undefined` and disabling rotation later.
+          z
+            .string()
+            .trim()
+            .regex(/^\d+(?:\.\d+)?\s*([kmg])?b?$/i, 'Expected a byte size like "10m" or "1g"'),
+        ])
         .optional()
         .describe('Max log file size before rotation: bytes (number) or a string like "10m"/"1g"'),
       maxFiles: z.number().int().positive().optional().describe('Max number of rotated log files to retain'),

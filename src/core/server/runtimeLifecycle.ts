@@ -1,4 +1,9 @@
-import { cleanupPidFile, isProcessAlive, readPidFile, ServerPidInfo } from '@src/core/server/pidFileManager.js';
+import {
+  cleanupPidFileIfMatches,
+  isProcessAlive,
+  readPidFile,
+  ServerPidInfo,
+} from '@src/core/server/pidFileManager.js';
 import logger from '@src/logger/logger.js';
 
 /**
@@ -74,9 +79,11 @@ export async function discoverScopedRuntime(
   }
 
   // Tier 1: dead process → delete the stale PID file, report not-running.
+  // Delete only if the file still records this dead PID: a newer runtime may
+  // have replaced it between the read above and here, and we must not strand it.
   if (!isProcessAlive(info.pid)) {
     logger.warn(`PID file points to dead process (PID: ${info.pid}); removing stale PID file`);
-    cleanupPidFile(configDir);
+    cleanupPidFileIfMatches(configDir, info.pid);
     return { status: 'not-running', info: null };
   }
 

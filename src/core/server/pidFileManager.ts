@@ -3,6 +3,8 @@ import path from 'path';
 
 import logger from '@src/logger/logger.js';
 
+import { z } from 'zod';
+
 /**
  * Server information stored in PID file
  */
@@ -22,6 +24,24 @@ export interface ServerPidInfo {
    */
   logFile?: string;
 }
+
+/**
+ * Schema validating a PID file at the (untrusted, cross-version) file boundary.
+ * `pid` must be a positive integer — this is load-bearing: a negative PID would
+ * make `process.kill(pid, ...)` signal an entire process group (potentially the
+ * operator's own shell), so a corrupt/hand-edited file must never reach the
+ * signal paths in `serveStop`.
+ */
+const serverPidInfoSchema = z.object({
+  pid: z.number().int().positive(),
+  url: z.string().min(1),
+  port: z.number().int().min(1).max(65535),
+  host: z.string().min(1),
+  transport: z.literal('http'),
+  startedAt: z.string().min(1),
+  configDir: z.string().min(1),
+  logFile: z.string().min(1).optional(),
+}) satisfies z.ZodType<ServerPidInfo>;
 
 const PID_FILE_NAME = 'server.pid';
 
@@ -64,9 +84,13 @@ export function writePidFile(configDir: string, serverInfo: ServerPidInfo): void
       fs.mkdirSync(configDir, { recursive: true });
     }
 
-    // Write PID file atomically
+    // Write PID file atomically: write to a sibling temp file then rename into
+    // place (rename is atomic on POSIX). Concurrent readers — racing `serve
+    // --status` / discovery — never observe a half-written, unparseable file.
     const content = JSON.stringify(serverInfo, null, 2);
-    fs.writeFileSync(pidFilePath, content, { encoding: 'utf-8' });
+    const tempFilePath = `${pidFilePath}.${process.pid}.tmp`;
+    fs.writeFileSync(tempFilePath, content, { encoding: 'utf-8' });
+    fs.renameSync(tempFilePath, pidFilePath);
 
     logger.info(`PID file written: ${pidFilePath}`);
   } catch (error) {
@@ -88,32 +112,50 @@ export function writePidFile(configDir: string, serverInfo: ServerPidInfo): void
 export function readPidFile(configDir: string): ServerPidInfo | null {
   const pidFilePath = getPidFilePath(configDir);
 
+  let content: string;
   try {
-    if (!fs.existsSync(pidFilePath)) {
-      return null;
-    }
-
-    const content = fs.readFileSync(pidFilePath, 'utf-8');
-    const serverInfo: ServerPidInfo = JSON.parse(content) as ServerPidInfo;
-
-    // Validate required fields
-    if (!serverInfo.pid || !serverInfo.url || !serverInfo.port) {
-      logger.warn(`Invalid PID file format: ${pidFilePath}`);
-      return null;
-    }
-
-    return serverInfo;
+    content = fs.readFileSync(pidFilePath, 'utf-8');
   } catch (error) {
-    logger.error(`Failed to read PID file: ${error}`);
+    // ENOENT is the normal "no runtime in this scope" case — silent. Anything
+    // else (EACCES, EISDIR, EIO) means the file is present but unreadable; warn
+    // loudly so a permissions/corruption problem is not mistaken for an empty
+    // scope (which would let `--background` double-spawn or `--stop` no-op).
+    if (error instanceof Error && 'code' in error && (error as { code: string }).code === 'ENOENT') {
+      return null;
+    }
+    logger.warn(`PID file present but unreadable (${pidFilePath}): ${error}`);
     return null;
+  }
+
+  // Validate the boundary with a schema rather than a hand-rolled truthiness
+  // check: enforces field types and, critically, `pid > 0` so a malformed file
+  // can never drive the signal paths to a negative (process-group) PID.
+  const parsed = serverPidInfoSchema.safeParse(safeJsonParse(content));
+  if (!parsed.success) {
+    logger.warn(`Invalid PID file format (${pidFilePath}): ${parsed.error.issues.map((i) => i.message).join('; ')}`);
+    return null;
+  }
+
+  return parsed.data;
+}
+
+/** Parse JSON without throwing; returns `undefined` on malformed input. */
+function safeJsonParse(content: string): unknown {
+  try {
+    return JSON.parse(content);
+  } catch {
+    return undefined;
   }
 }
 
 /**
- * Cleanup (delete) PID file
+ * Cleanup (delete) PID file.
  * @param configDir Configuration directory
+ * @returns true if the file was removed (or already absent), false if the
+ *   delete failed (e.g. EACCES/EPERM) and a stale file was left behind. Callers
+ *   should surface a warning on `false` so the operator can remove it manually.
  */
-export function cleanupPidFile(configDir: string): void {
+export function cleanupPidFile(configDir: string): boolean {
   const pidFilePath = getPidFilePath(configDir);
 
   try {
@@ -121,9 +163,30 @@ export function cleanupPidFile(configDir: string): void {
       fs.unlinkSync(pidFilePath);
       logger.info(`PID file cleaned up: ${pidFilePath}`);
     }
+    return true;
   } catch (error) {
     logger.error(`Failed to cleanup PID file: ${error}`);
+    return false;
   }
+}
+
+/**
+ * Delete the PID file only if it still records `expectedPid`. Guards against a
+ * time-of-check/time-of-use race: between reading a stale/dead PID and deleting
+ * the file, a new runtime may have written a fresh PID file in the same scope.
+ * Deleting unconditionally would strand that live runtime (undiscoverable to
+ * later `--status`/`--stop`). Re-reading and matching the PID prevents that.
+ *
+ * @returns true if the file was removed or is already gone/replaced; false if a
+ *   matching file existed but could not be deleted.
+ */
+export function cleanupPidFileIfMatches(configDir: string, expectedPid: number): boolean {
+  const current = readPidFile(configDir);
+  if (!current || current.pid !== expectedPid) {
+    // Already gone, or replaced by a newer runtime — leave it untouched.
+    return true;
+  }
+  return cleanupPidFile(configDir);
 }
 
 /**

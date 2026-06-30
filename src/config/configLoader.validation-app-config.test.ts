@@ -384,6 +384,20 @@ maxFiles = 5
       expect(result.logging?.maxFiles).toBe(5);
     });
 
+    it('should reject an invalid logging.maxSize at the config boundary', async () => {
+      const tomlContent = `
+[logging]
+maxSize = "ten megabytes"
+`;
+      await fsPromises.writeFile(join(tempConfigDir, 'config.toml'), tomlContent);
+
+      // Invalid byte-size strings must be rejected by the schema rather than
+      // flow through as-is and silently degrade to `undefined` (disabling
+      // rotation) at parseByteSize. The loader rejects the config and logs.
+      const result = loader.loadAppConfigFromToml();
+      expect(result.logging?.maxSize).toBeUndefined();
+    });
+
     it('should load nested app config sections from config.toml', async () => {
       const tomlContent = `
 [auth]
