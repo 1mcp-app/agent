@@ -90,18 +90,20 @@ CLI 模式依赖一个正在运行的 `serve` 实例。
 1mcp serve --background --config-dir ./config --port 3051
 ```
 
-成功时会打印 PID、URL 和日志文件，并以 `0` 退出：
+在等待期间，它会向 stderr 打印实时进度（已用时间，以及运行时启动后已就绪的上游服务器数量），因此启动过程不会静默无声。成功时会打印 PID、URL、日志文件和服务器数量，并以 `0` 退出：
 
 ```text
 Background runtime started.
 PID: 48213
 URL: http://localhost:3050/mcp
 Log file: /home/me/.config/1mcp/logs/server.log
+Servers: 3/5 ready
 ```
 
 行为说明：
 
 - **仅支持 HTTP。** 会拒绝 `--transport stdio`（stdio 无法分离）。`sse` 会被规整为 HTTP，运行时记录 `transport: http`。
+- **快速分离。** 在默认的同步模式下，命令会等待所有上游服务器连接完成后才返回，因此等待时间取决于最慢的那个。添加 `--enable-async-loading` 可先绑定 HTTP 入口并在不到一秒内返回，上游服务器则在后台继续加载。
 - **确定性日志。** 当未配置 `--log-file` 或 `logging.file` 时，后台日志默认写入 `<config-dir>/logs/server.log`。
 - **幂等。** 若该 Runtime Scope 中已有运行时在运行（前台或后台），则报告该运行时并以 `0` 退出，不会启动第二个。不同的 `--config-dir` 属于不同作用域，可各自运行独立的运行时。
 - **已占用但未就绪。** 若该作用域已被某运行时占用但尚未通过 `/health/ready`，`--background` 会拒绝启动第二个并以非零码退出。请先检查 `--status` 或将其停止。

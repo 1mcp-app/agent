@@ -100,18 +100,20 @@ A **Runtime Scope** is a configuration directory. Runtime uniqueness is scoped t
 1mcp serve --background --config-dir ./config --port 3051
 ```
 
-On success it prints the PID, URL, and log file, then exits `0`:
+While it waits, it prints live progress to stderr (elapsed time and, once the runtime is up, how many upstream servers are ready) so the startup is never silent. On success it prints the PID, URL, log file, and server count, then exits `0`:
 
 ```text
 Background runtime started.
 PID: 48213
 URL: http://localhost:3050/mcp
 Log file: /home/me/.config/1mcp/logs/server.log
+Servers: 3/5 ready
 ```
 
 Behavior:
 
 - **HTTP only.** `--transport stdio` is rejected (stdio cannot be detached). `sse` is normalized to HTTP, and the runtime records `transport: http`.
+- **Fast detach.** In the default synchronous mode the command returns only after every upstream server connects, so the wait scales with the slowest one. Add `--enable-async-loading` to bind the HTTP endpoint first and return in well under a second, with upstream servers loading in the background.
 - **Deterministic logs.** When no `--log-file` or `logging.file` is configured, background logs default to `<config-dir>/logs/server.log`.
 - **Idempotent.** If a runtime is already running in the Runtime Scope (foreground or background), it is reported and the command exits `0` without starting a second one. A separate `--config-dir` is a separate scope and runs its own runtime.
 - **Occupied but not ready.** If a runtime occupies the scope but has not yet passed `/health/ready`, `--background` refuses to start a second one and exits non-zero. Check `--status` or stop it first.

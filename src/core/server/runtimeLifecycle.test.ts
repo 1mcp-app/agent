@@ -2,7 +2,7 @@ import fs from 'fs';
 import path from 'path';
 
 import { getPidFilePath, ServerPidInfo, writePidFile } from '@src/core/server/pidFileManager.js';
-import { discoverScopedRuntime } from '@src/core/server/runtimeLifecycle.js';
+import { discoverScopedRuntime, probeLoadingSummary } from '@src/core/server/runtimeLifecycle.js';
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -89,6 +89,37 @@ describe('runtimeLifecycle', () => {
         expect(result.info?.logFile).toBe('/tmp/server.log');
         expect(fs.existsSync(testPidFilePath)).toBe(true);
       });
+    });
+  });
+
+  describe('probeLoadingSummary', () => {
+    it('maps /health/mcp loading state into aggregate counts', async () => {
+      const fetchMock = vi.fn().mockResolvedValue({
+        ok: true,
+        headers: new Headers({ 'X-Loading-Complete': 'true' }),
+        json: async () => ({
+          loading: { isComplete: true },
+          summary: { total: 9, pending: 1, loading: 2, ready: 3, failed: 1, awaitingOAuth: 1, cancelled: 1 },
+        }),
+      });
+      vi.stubGlobal('fetch', fetchMock);
+
+      const result = await probeLoadingSummary(baseInfo({ url: 'http://localhost:3050/mcp' }));
+
+      expect(fetchMock).toHaveBeenCalledWith('http://localhost:3050/health/mcp', expect.any(Object));
+      expect(result).toEqual({
+        ready: 3,
+        loading: 3,
+        failed: 1,
+        total: 9,
+        isComplete: true,
+      });
+    });
+
+    it('returns null when the loading endpoint cannot be reached', async () => {
+      vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('not up yet')));
+
+      await expect(probeLoadingSummary(baseInfo())).resolves.toBeNull();
     });
   });
 });

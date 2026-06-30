@@ -129,6 +129,33 @@ describe('waitForBackgroundReady', () => {
     expect(result.ready).toBe(false);
     expect(result.reason).toMatch(/timed out/);
   });
+
+  it('reports pure progress snapshots during the wait loop', async () => {
+    writePidFile(testConfigDir, info({ pid: 4321 }));
+    let clock = 0;
+    const onProgress = vi.fn();
+
+    const result = await waitForBackgroundReady(testConfigDir, 4321, {
+      readinessProbe: async () => false,
+      timeoutMs: 300,
+      intervalMs: 100,
+      now: () => clock,
+      sleep: async () => {
+        clock += 100;
+      },
+      onProgress,
+    });
+
+    expect(result.ready).toBe(false);
+    expect(onProgress).toHaveBeenCalledTimes(3);
+    expect(onProgress).toHaveBeenNthCalledWith(1, expect.objectContaining({ elapsedMs: 0 }));
+    expect(onProgress).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({
+        info: expect.objectContaining({ pid: 4321 }),
+      }),
+    );
+  });
 });
 
 describe('runServeBackground orchestration', () => {

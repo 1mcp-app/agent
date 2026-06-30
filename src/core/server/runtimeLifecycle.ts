@@ -62,6 +62,59 @@ export async function probeReadiness(info: ServerPidInfo, timeoutMs = 5000): Pro
 }
 
 /**
+ * Aggregate MCP loading progress derived from `/health/mcp`. Used to report
+ * background-startup progress; `isComplete` is true once every server has
+ * settled (ready or failed).
+ */
+export interface LoadingSummarySnapshot {
+  ready: number;
+  loading: number;
+  failed: number;
+  total: number;
+  isComplete: boolean;
+}
+
+/**
+ * Probes `/health/mcp` for aggregate loading progress. Returns null when the
+ * endpoint is unreachable (the runtime is still binding its port) or the
+ * response is malformed — callers treat null as "progress not available yet".
+ */
+export type LoadingProbe = (info: ServerPidInfo) => Promise<LoadingSummarySnapshot | null>;
+
+export async function probeLoadingSummary(
+  info: ServerPidInfo,
+  timeoutMs = 3000,
+): Promise<LoadingSummarySnapshot | null> {
+  try {
+    const response = await fetch(`${baseUrlOf(info.url)}/health/mcp`, {
+      signal: AbortSignal.timeout(timeoutMs),
+    });
+    // 200 (complete) and 202 (still loading) are both usable; both are `ok`.
+    if (!response.ok) {
+      return null;
+    }
+    const body = (await response.json()) as {
+      loading?: { isComplete?: boolean };
+      summary?: { total?: number; pending?: number; loading?: number; ready?: number; failed?: number };
+    };
+    const summary = body.summary;
+    if (!summary) {
+      return null;
+    }
+    return {
+      ready: summary.ready ?? 0,
+      // "loading" groups not-yet-settled servers: queued (pending) + in-flight.
+      loading: (summary.pending ?? 0) + (summary.loading ?? 0),
+      failed: summary.failed ?? 0,
+      total: summary.total ?? 0,
+      isComplete: body.loading?.isComplete ?? false,
+    };
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Discover the runtime occupying a Runtime Scope, applying the two-tier
  * staleness rule. Owns PID-file deletion so callers never delete directly.
  *

@@ -6,7 +6,13 @@ import ConfigContext from '@src/config/configContext.js';
 import { ConfigManager } from '@src/config/configManager.js';
 import { getConfigDir } from '@src/constants.js';
 import { readPidFile, ServerPidInfo } from '@src/core/server/pidFileManager.js';
-import { discoverScopedRuntime, probeReadiness, ReadinessProbe } from '@src/core/server/runtimeLifecycle.js';
+import {
+  discoverScopedRuntime,
+  type LoadingSummarySnapshot,
+  probeLoadingSummary,
+  probeReadiness,
+  ReadinessProbe,
+} from '@src/core/server/runtimeLifecycle.js';
 import logger from '@src/logger/logger.js';
 import { resolveLoggingConfig } from '@src/logger/loggingConfig.js';
 import { normalizedArgv } from '@src/utils/cli/normalizedArgv.js';
@@ -84,6 +90,14 @@ function stripServeToken(args: string[]): string[] {
   return [...args.slice(0, index), ...args.slice(index + 1)];
 }
 
+/** A point-in-time snapshot of the background-startup wait, for progress UIs. */
+export interface BackgroundProgress {
+  /** Milliseconds elapsed since the wait began. */
+  elapsedMs: number;
+  /** The child's PID record once it appears; undefined while still spawning. */
+  info?: ServerPidInfo;
+}
+
 export interface WaitForReadyOptions {
   timeoutMs?: number;
   intervalMs?: number;
@@ -91,6 +105,8 @@ export interface WaitForReadyOptions {
   isChildAlive?: () => boolean;
   now?: () => number;
   sleep?: (ms: number) => Promise<void>;
+  /** Invoked once per poll iteration with the current wait snapshot. */
+  onProgress?: (progress: BackgroundProgress) => void;
 }
 
 export interface WaitForReadyResult {
@@ -121,6 +137,7 @@ export async function waitForBackgroundReady(
     }
 
     const info = readPidFile(configDir);
+    options.onProgress?.({ elapsedMs: now() - start, info: info ?? undefined });
     if (info && info.pid === childPid && (await probe(info))) {
       return { ready: true, info };
     }
@@ -178,7 +195,12 @@ export async function runServeBackground(parsedArgv: ServeOptions, deps: RunBack
     logLevel?: string;
     logFile?: string;
     logging?: { level?: string; file?: string; maxSize?: number | string; maxFiles?: number };
+    asyncLoading?: { enabled?: boolean };
   };
+
+  // Mirror the async-loading precedence from serve.ts so the started report can
+  // hint at the fast-detach path when the runtime is in the (default) sync mode.
+  const asyncEnabled = parsedArgv['enable-async-loading'] ?? appConfig.asyncLoading?.enabled ?? false;
 
   // HTTP-only: reject stdio; sse normalizes to http.
   const effectiveTransport = parsedArgv.transport ?? appConfig.transport ?? 'http';
@@ -242,18 +264,29 @@ export async function runServeBackground(parsedArgv: ServeOptions, deps: RunBack
   // Allow the parent to exit independently of the child.
   child.unref();
 
+  // Acknowledge the spawn immediately so the wait is never silent.
+  process.stderr.write(`Starting background runtime (PID ${child.pid})…\n`);
+  process.stderr.write(`Log file: ${logFile}\n`);
+
   let childExited = false;
   child.once('exit', () => {
     childExited = true;
   });
 
+  const renderer = createProgressRenderer(logFile);
+
   const waitForReady = deps.waitForReady ?? waitForBackgroundReady;
   const result = await waitForReady(configDir, child.pid, {
     isChildAlive: () => !childExited,
+    onProgress: renderer.render,
   });
 
+  renderer.clear();
+
   if (result.ready && result.info) {
-    process.stdout.write(`Background runtime started.\n${formatStartedReport(result.info)}`);
+    // One final probe so the report can show how many servers are already up.
+    const summary = await probeLoadingSummary(result.info);
+    process.stdout.write(`Background runtime started.\n${formatStartedReport(result.info, { summary, asyncEnabled })}`);
     process.exitCode = 0;
     return;
   }
@@ -278,6 +311,109 @@ function defaultKillChild(pid: number): void {
   }
 }
 
-function formatStartedReport(info: ServerPidInfo): string {
-  return `PID: ${info.pid}\n` + `URL: ${info.url}\n` + `Log file: ${info.logFile ?? '(console only)'}\n`;
+function formatStartedReport(
+  info: ServerPidInfo,
+  opts: { summary?: LoadingSummarySnapshot | null; asyncEnabled?: boolean } = {},
+): string {
+  let report = `PID: ${info.pid}\n` + `URL: ${info.url}\n` + `Log file: ${info.logFile ?? '(console only)'}\n`;
+  if (opts.summary) {
+    report += `Servers: ${opts.summary.ready}/${opts.summary.total} ready\n`;
+  }
+  // In the default sync mode the wait is bounded by upstream connection time;
+  // point users at the fast-detach path. Omitted when async is already on, or
+  // when the caller does not supply the flag (e.g. the idempotency report).
+  if (opts.asyncEnabled === false) {
+    report += `Tip: run with --enable-async-loading for near-instant background detach.\n`;
+  }
+  return report;
+}
+
+/** Truncate a single line so progress output stays on one terminal row. */
+function truncate(text: string, max: number): string {
+  return text.length > max ? `${text.slice(0, max - 1)}…` : text;
+}
+
+/** Best-effort read of the last non-empty line of a (possibly absent) log file. */
+function tailLastLine(filePath: string): string {
+  try {
+    const content = fs.readFileSync(filePath, 'utf8');
+    const lines = content.split('\n');
+    for (let i = lines.length - 1; i >= 0; i--) {
+      const trimmed = lines[i].trim();
+      if (trimmed.length > 0) {
+        return trimmed;
+      }
+    }
+    return '';
+  } catch {
+    return '';
+  }
+}
+
+/**
+ * Build a stderr progress renderer for the background wait. Throttles to ~1s and
+ * uses an in-place line on a TTY, plain lines otherwise. Two phases:
+ * - before the PID file appears (sync mode's blocking window): elapsed time plus
+ *   the latest child log line;
+ * - once the runtime is up: aggregate `/health/mcp` loading counts.
+ */
+function createProgressRenderer(logFile: string): {
+  render: (progress: BackgroundProgress) => void;
+  clear: () => void;
+} {
+  const isTty = Boolean(process.stderr.isTTY);
+  let lastRenderMs = -1;
+  let lastSummary: LoadingSummarySnapshot | null = null;
+  let summaryProbeInFlight = false;
+  let lineActive = false;
+
+  const render = (progress: BackgroundProgress): void => {
+    // Throttle to roughly one update per second; always render the first tick.
+    if (progress.elapsedMs !== 0 && progress.elapsedMs - lastRenderMs < 900) {
+      return;
+    }
+    lastRenderMs = progress.elapsedMs;
+    const seconds = Math.floor(progress.elapsedMs / 1000);
+
+    // Refresh the loading summary out of band so rendering stays synchronous.
+    if (progress.info && !summaryProbeInFlight) {
+      summaryProbeInFlight = true;
+      void probeLoadingSummary(progress.info)
+        .then((summary) => {
+          lastSummary = summary;
+        })
+        .catch(() => {})
+        .finally(() => {
+          summaryProbeInFlight = false;
+        });
+    }
+
+    let detail: string;
+    if (progress.info && lastSummary) {
+      const s = lastSummary;
+      detail = `${s.ready}/${s.total} servers ready (${s.loading} loading, ${s.failed} failed)`;
+    } else if (progress.info) {
+      detail = 'runtime starting…';
+    } else {
+      const lastLogLine = tailLastLine(logFile);
+      detail = lastLogLine ? truncate(lastLogLine, 100) : 'waiting for runtime to start…';
+    }
+
+    const line = `[${seconds}s] ${detail}`;
+    if (isTty) {
+      process.stderr.write(`\x1b[2K\r${line}`);
+      lineActive = true;
+    } else {
+      process.stderr.write(`${line}\n`);
+    }
+  };
+
+  const clear = (): void => {
+    if (isTty && lineActive) {
+      process.stderr.write('\x1b[2K\r');
+      lineActive = false;
+    }
+  };
+
+  return { render, clear };
 }
