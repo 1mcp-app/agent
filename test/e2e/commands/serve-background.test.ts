@@ -86,6 +86,24 @@ describe('serve --background E2E', () => {
     });
   }
 
+  function runRestart(configDir: string, port: number) {
+    const result = spawnSync(
+      process.execPath,
+      [cliPath, 'serve', '--restart', '--config-dir', configDir, '--port', String(port), '--host', '127.0.0.1'],
+      { encoding: 'utf8', timeout: 45000 },
+    );
+    const pidFile = join(configDir, 'server.pid');
+    if (existsSync(pidFile)) {
+      try {
+        const info = JSON.parse(readFileSync(pidFile, 'utf8')) as { pid: number };
+        if (info.pid) startedPids.push(info.pid);
+      } catch {
+        // ignore
+      }
+    }
+    return result;
+  }
+
   it('starts a detached runtime and reports PID, URL, and log file', async () => {
     const scope = makeScope();
     const port = await getFreePort();
@@ -173,6 +191,32 @@ describe('serve --background E2E', () => {
     const stop = runStop(scope);
     expect(stop.status).toBe(0);
     expect(stop.stdout).toContain('No runtime is running');
+  });
+
+  it('serve --restart stops the old runtime and starts a fresh one with a new PID', async () => {
+    const scope = makeScope();
+    const port = await getFreePort();
+
+    expect(runBackground(scope, port).status).toBe(0);
+    const oldPid = readPid(scope).pid;
+
+    const restart = runRestart(scope, port);
+    expect(restart.status).toBe(0);
+    expect(restart.stdout).toContain('Background runtime started');
+
+    const newPid = readPid(scope).pid;
+    expect(newPid).not.toBe(oldPid);
+    expect((await fetch(`http://127.0.0.1:${port}/health/ready`)).status).toBe(200);
+  });
+
+  it('serve --restart cold-starts a runtime when nothing is running', async () => {
+    const scope = makeScope();
+    const port = await getFreePort();
+
+    const restart = runRestart(scope, port);
+    expect(restart.status).toBe(0);
+    expect(existsSync(join(scope, 'server.pid'))).toBe(true);
+    expect((await fetch(`http://127.0.0.1:${port}/health/ready`)).status).toBe(200);
   });
 
   it('starts despite an orphaned PID file pointing to a dead process', async () => {

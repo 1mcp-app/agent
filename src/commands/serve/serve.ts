@@ -32,6 +32,8 @@ export interface ServeOptions {
   background?: boolean;
   /** Lifecycle action: stop the runtime in the selected Runtime Scope. */
   stop?: boolean;
+  /** Lifecycle action: stop (if running) then start a fresh background runtime. */
+  restart?: boolean;
   /** Internal guard set on the detached child to prevent recursive spawning. */
   'background-bootstrap'?: boolean;
   'log-level'?: 'debug' | 'info' | 'warn' | 'error';
@@ -267,6 +269,15 @@ export async function serveCommand(parsedArgv: ServeOptions): Promise<void> {
     if (parsedArgv.stop) {
       const { runServeStop } = await import('./serveStop.js');
       await runServeStop(parsedArgv['config-dir']);
+      return;
+    }
+
+    // Restart: stop the scoped runtime (if any) then start a fresh detached
+    // background runtime. The guard mirrors the background branch; the detached
+    // child never carries --restart, but the check keeps the branch defensive.
+    if (parsedArgv.restart && !parsedArgv['background-bootstrap']) {
+      const { runServeRestart } = await import('./serveRestart.js');
+      await runServeRestart(parsedArgv);
       return;
     }
 

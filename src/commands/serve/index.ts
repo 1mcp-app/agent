@@ -25,6 +25,12 @@ export const serverOptions = {
     type: 'boolean' as const,
     default: false,
   },
+  restart: {
+    describe:
+      'Restart the Background Aggregated Runtime in the selected Runtime Scope (stop if running, then start a fresh background runtime)',
+    type: 'boolean' as const,
+    default: false,
+  },
   // Internal hidden guard flag set on the detached child so it runs the normal
   // serve path instead of recursively spawning another background process.
   'background-bootstrap': {
@@ -272,7 +278,7 @@ export function setupServeCommand(yargs: Argv): Argv {
         .check((argv) => {
           // The lifecycle flags select mutually exclusive actions; combining
           // them would let handler order silently pick one and mask a typo.
-          const selected = (['status', 'background', 'stop'] as const).filter((flag) => argv[flag]);
+          const selected = (['status', 'background', 'stop', 'restart'] as const).filter((flag) => argv[flag]);
           if (selected.length > 1) {
             throw new Error(
               `Options ${selected.map((flag) => `--${flag}`).join(', ')} are mutually exclusive; specify only one.`,
@@ -284,6 +290,9 @@ export function setupServeCommand(yargs: Argv): Argv {
           ['$0 serve', 'Start server with HTTP transport (default)'],
           ['$0 serve --transport=stdio', 'Start server with stdio transport'],
           ['$0 serve --port=3000', 'Start HTTP server on port 3000'],
+          ['$0 serve --background', 'Start the runtime as a detached background process'],
+          ['$0 serve --restart', 'Stop the background runtime (if running) and start a fresh one'],
+          ['$0 serve --stop', 'Stop the background runtime in the current Runtime Scope'],
           ['$0 serve --filter="web,api"', 'Start server with filtered MCP servers'],
           ['$0 serve --enable-auth', 'Start server with OAuth authentication enabled'],
           ['$0 serve --enable-internal-tools', 'Enable all internal MCP management tools'],

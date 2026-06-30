@@ -76,6 +76,7 @@ CLI 模式依赖一个正在运行的 `serve` 实例。
 - **`--background`**：将 HTTP Aggregated Runtime 以分离的后台进程方式为所选 **Runtime Scope（运行时作用域）** 启动，待其就绪后返回。仅支持 HTTP。
 - **`--status`**：报告所选 **Runtime Scope（运行时作用域）** 中运行时的状态，然后退出，不启动服务器。
 - **`--stop`**：停止所选 **Runtime Scope（运行时作用域）** 中的运行时，然后退出。
+- **`--restart`**：停止所选 **Runtime Scope（运行时作用域）** 中的运行时（如果正在运行），然后启动一个全新的分离后台运行时。仅支持 HTTP。
 
 ## 运行时作用域与生命周期
 
@@ -159,6 +160,23 @@ Stopped runtime in Runtime Scope /home/me/.config/1mcp (PID 48213).
 
 - **作用域隔离。** 只会向所选 Runtime Scope 记录的运行时发送信号；不同 `--config-dir` 的运行时绝不会受影响。
 - **空闲时干净处理。** 若没有运行中的运行时，会如实报告并以 `0` 退出；若存在过期 PID 文件，则一并删除。
+
+### 重启运行时
+
+`1mcp serve --restart` 会停止所选 Runtime Scope 中的运行时（如果有），然后启动一个全新的分离后台运行时：
+
+```bash
+1mcp serve --restart
+1mcp serve --restart --config-dir ./config --port 3051
+```
+
+它由 `--stop` 与 `--background` 组合而成，因此接受与 `--background` 相同的 HTTP 选项，并打印相同的启动进度与启动报告。
+
+行为说明：
+
+- **始终以运行状态结束。** 遵循 `systemctl restart` 语义：对空作用域而言，先执行一次干净的空操作停止，再进行冷启动，因此一次成功的重启总会让运行时处于运行状态并以 `0` 退出。
+- **仅支持 HTTP。** 与 `--background` 一样，`--transport stdio` 会被拒绝。
+- **安全交接。** 若已有运行时无法被停止（升级处理后仍存活），重启会在启动前中止并以非零码退出，从而避免两个运行时争用同一作用域。
 
 ## 示例
 

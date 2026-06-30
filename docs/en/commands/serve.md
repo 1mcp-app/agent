@@ -86,6 +86,7 @@ For runtime-wide configuration details, see the **[Configuration Guide](/guide/e
 - **`--background`**: Start the HTTP Aggregated Runtime as a detached background process for the selected **Runtime Scope**, then return once it is ready. HTTP only.
 - **`--status`**: Report the state of the runtime in the selected **Runtime Scope**, then exit without starting a server.
 - **`--stop`**: Stop the runtime in the selected **Runtime Scope**, then exit.
+- **`--restart`**: Stop the runtime in the selected **Runtime Scope** (if running), then start a fresh detached background runtime. HTTP only.
 
 ## Runtime Scope and Lifecycle
 
@@ -169,6 +170,23 @@ Behavior:
 
 - **Scope-isolated.** Only the runtime recorded for the selected Runtime Scope is signalled; a runtime in a different `--config-dir` is never touched.
 - **Clean when idle.** If nothing is running it reports so and exits `0`, removing a stale PID file if one is present.
+
+### Restart the runtime
+
+`1mcp serve --restart` stops the runtime in the selected Runtime Scope (if any) and then starts a fresh detached background runtime:
+
+```bash
+1mcp serve --restart
+1mcp serve --restart --config-dir ./config --port 3051
+```
+
+It composes `--stop` and `--background`, so it accepts the same HTTP options as `--background` and prints the same startup progress and started report.
+
+Behavior:
+
+- **Always ends running.** Following `systemctl restart` semantics, an empty scope is a clean no-op stop followed by a cold start, so a successful restart always leaves a runtime running and exits `0`.
+- **HTTP only.** Like `--background`, `--transport stdio` is rejected.
+- **Safe handoff.** If the existing runtime cannot be stopped (still alive after escalation), the restart aborts before starting and exits non-zero, so two runtimes never contend for the same scope.
 
 ## Examples
 
