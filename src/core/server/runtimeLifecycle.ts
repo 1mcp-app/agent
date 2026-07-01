@@ -1,0 +1,178 @@
+import {
+  cleanupPidFileIfMatches,
+  isProcessAlive,
+  PidFileReadError,
+  readPidFile,
+  ServerPidInfo,
+} from '@src/core/server/pidFileManager.js';
+import logger from '@src/logger/logger.js';
+
+import { z } from 'zod';
+
+/**
+ * Lifecycle module for the (Background) Aggregated Runtime.
+ *
+ * This is the single place every path discovers a scoped runtime — today's
+ * client surfaces (`proxy`, `inspect`, `run`) and the upcoming `serve --status`,
+ * `serve --stop`, and `serve --background` idempotency check. Centralizing
+ * discovery here guarantees the two-tier staleness rule is applied identically
+ * everywhere and that `readPidFile` can stay a pure reader.
+ */
+
+/**
+ * Discovered state of the runtime occupying a Runtime Scope.
+ *
+ * - `not-running`: no PID file, malformed PID file, or the recorded process is
+ *   dead. The PID file is deleted in the dead-process case.
+ * - `unreachable`: the recorded process is alive but the readiness probe failed.
+ *   The PID file is RETAINED — the runtime may be mid-startup or wedged, and
+ *   deleting it would strand a real process.
+ * - `running`: the recorded process is alive and the readiness probe succeeded.
+ * - `error`: the PID file exists but cannot be read, so callers must fail
+ *   closed instead of treating the scope as empty.
+ */
+export type RuntimeStatus = 'not-running' | 'unreachable' | 'running' | 'error';
+
+export interface ScopedRuntime {
+  status: RuntimeStatus;
+  /** The PID record, present for `unreachable` and `running`; null otherwise. */
+  info: ServerPidInfo | null;
+  /** Human-readable discovery failure for `error` status. */
+  error?: string;
+}
+
+/**
+ * Probes whether a runtime URL is usable. Returns true when usable.
+ *
+ * The default probe hits the `/health/ready` readiness gate, which confirms the
+ * runtime accepts requests even while backend MCP servers continue loading.
+ */
+export type ReadinessProbe = (info: ServerPidInfo) => Promise<boolean>;
+
+/** Derive the runtime base URL (strip a trailing `/mcp`) from a recorded URL. */
+function baseUrlOf(url: string): string {
+  return url.replace(/\/mcp\/?$/, '');
+}
+
+/**
+ * Default readiness probe: GET `<baseUrl>/health/ready`.
+ */
+export async function probeReadiness(info: ServerPidInfo, timeoutMs = 5000): Promise<boolean> {
+  try {
+    const response = await fetch(`${baseUrlOf(info.url)}/health/ready`, {
+      signal: AbortSignal.timeout(timeoutMs),
+    });
+    return response.ok;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Aggregate MCP loading progress derived from `/health/mcp`. Used to report
+ * background-startup progress; `isComplete` is true once every server has
+ * settled (ready or failed).
+ */
+export interface LoadingSummarySnapshot {
+  ready: number;
+  loading: number;
+  failed: number;
+  total: number;
+  isComplete: boolean;
+}
+
+/**
+ * Probes `/health/mcp` for aggregate loading progress. Returns null when the
+ * endpoint is unreachable (the runtime is still binding its port) or the
+ * response is malformed — callers treat null as "progress not available yet".
+ */
+export type LoadingProbe = (info: ServerPidInfo) => Promise<LoadingSummarySnapshot | null>;
+
+const loadingSummaryResponseSchema = z.object({
+  loading: z
+    .object({
+      isComplete: z.boolean().optional(),
+    })
+    .optional(),
+  summary: z.object({
+    total: z.number().int().nonnegative().optional(),
+    pending: z.number().int().nonnegative().optional(),
+    loading: z.number().int().nonnegative().optional(),
+    ready: z.number().int().nonnegative().optional(),
+    failed: z.number().int().nonnegative().optional(),
+  }),
+});
+
+export async function probeLoadingSummary(
+  info: ServerPidInfo,
+  timeoutMs = 3000,
+): Promise<LoadingSummarySnapshot | null> {
+  try {
+    const response = await fetch(`${baseUrlOf(info.url)}/health/mcp`, {
+      signal: AbortSignal.timeout(timeoutMs),
+    });
+    // 200 (complete) and 202 (still loading) are both usable; both are `ok`.
+    if (!response.ok) {
+      return null;
+    }
+    const parsed = loadingSummaryResponseSchema.safeParse(await response.json());
+    if (!parsed.success) {
+      return null;
+    }
+    const { loading, summary } = parsed.data;
+    return {
+      ready: summary.ready ?? 0,
+      // "loading" groups not-yet-settled servers: queued (pending) + in-flight.
+      loading: (summary.pending ?? 0) + (summary.loading ?? 0),
+      failed: summary.failed ?? 0,
+      total: summary.total ?? 0,
+      isComplete: loading?.isComplete ?? false,
+    };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Discover the runtime occupying a Runtime Scope, applying the two-tier
+ * staleness rule. Owns PID-file deletion so callers never delete directly.
+ *
+ * @param configDir Resolved configuration directory for the Runtime Scope
+ * @param readinessProbe Optional reachability check (defaults to `/health/ready`)
+ */
+export async function discoverScopedRuntime(
+  configDir: string,
+  readinessProbe: ReadinessProbe = probeReadiness,
+): Promise<ScopedRuntime> {
+  let info: ServerPidInfo | null;
+  try {
+    info = readPidFile(configDir);
+  } catch (error) {
+    if (error instanceof PidFileReadError) {
+      logger.error(error.message);
+      return { status: 'error', info: null, error: error.message };
+    }
+    throw error;
+  }
+
+  if (!info) {
+    return { status: 'not-running', info: null };
+  }
+
+  // Tier 1: dead process → delete the stale PID file, report not-running.
+  // Delete only if the file still records this dead PID: a newer runtime may
+  // have replaced it between the read above and here, and we must not strand it.
+  if (!isProcessAlive(info.pid)) {
+    logger.warn(`PID file points to dead process (PID: ${info.pid}); removing stale PID file`);
+    cleanupPidFileIfMatches(configDir, info.pid);
+    return { status: 'not-running', info: null };
+  }
+
+  // Tier 2: alive but unreachable → retain the PID file, report not-usable.
+  const reachable = await readinessProbe(info);
+  if (!reachable) {
+    return { status: 'unreachable', info };
+  }
+
+  return { status: 'running', info };
+}

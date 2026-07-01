@@ -81,6 +81,113 @@ For runtime-wide configuration details, see the **[Configuration Guide](/guide/e
 - **`--enable-config-reload`**: Enable config reload handling.
 - **`--enable-session-persistence`**: Enable HTTP session persistence.
 
+### Lifecycle
+
+- **`--background`**: Start the HTTP Aggregated Runtime as a detached background process for the selected **Runtime Scope**, then return once it is ready. HTTP only.
+- **`--status`**: Report the state of the runtime in the selected **Runtime Scope**, then exit without starting a server.
+- **`--stop`**: Stop the runtime in the selected **Runtime Scope**, then exit.
+- **`--restart`**: Stop the runtime in the selected **Runtime Scope** (if running), then start a fresh detached background runtime. HTTP only.
+
+## Runtime Scope and Lifecycle
+
+A **Runtime Scope** is a configuration directory. Runtime uniqueness is scoped to the config directory, not the whole machine: the default config directory is the default Runtime Scope, and an alternate `--config-dir` is a separate Runtime Scope that can run its own runtime.
+
+### Start in the background
+
+`1mcp serve --background` starts the runtime as a detached process and returns once it is ready, so scripts can continue:
+
+```bash
+1mcp serve --background
+1mcp serve --background --config-dir ./config --port 3051
+```
+
+While it waits, it prints live progress to stderr (elapsed time and, once the runtime is up, how many upstream servers are ready) so the startup is never silent. On success it prints the PID, URL, log file, and server count, then exits `0`:
+
+```text
+Background runtime started.
+PID: 48213
+URL: http://localhost:3050/mcp
+Log file: /home/me/.config/1mcp/logs/server.log
+Servers: 3/5 ready
+```
+
+Behavior:
+
+- **HTTP only.** `--transport stdio` is rejected (stdio cannot be detached). `sse` is normalized to HTTP, and the runtime records `transport: http`.
+- **Fast detach.** In the default synchronous mode the command returns only after every upstream server connects, so the wait scales with the slowest one. Add `--enable-async-loading` to bind the HTTP endpoint first and return in well under a second, with upstream servers loading in the background.
+- **Deterministic logs.** When no `--log-file` or `logging.file` is configured, background logs default to `<config-dir>/logs/server.log`.
+- **Idempotent.** If a runtime is already running in the Runtime Scope (foreground or background), it is reported and the command exits `0` without starting a second one. A separate `--config-dir` is a separate scope and runs its own runtime.
+- **Occupied but not ready.** If a runtime occupies the scope but has not yet passed `/health/ready`, `--background` refuses to start a second one and exits non-zero. Check `--status` or stop it first.
+- **Orphan recovery.** A PID file pointing to a dead process does not block startup; it is treated as stale and replaced.
+- **Failure.** If the runtime does not reach `/health/ready`, the command prints the log path, terminates the spawned process, and exits non-zero.
+
+### Check runtime status
+
+`1mcp serve --status` discovers the runtime occupying the selected Runtime Scope and reports it:
+
+```bash
+1mcp serve --status
+1mcp serve --status --config-dir ./config
+```
+
+It prints the PID, URL, Runtime Scope, start time, log file, process liveness, and `/health/ready` readiness:
+
+```text
+Runtime Scope: /home/me/.config/1mcp
+Status: running (ready)
+PID: 48213
+URL: http://localhost:3050/mcp
+Started: 2026-06-26T00:00:00.000Z
+Log file: /home/me/.config/1mcp/logs/server.log
+Process: alive
+Readiness (/health/ready): ready
+```
+
+The exit code reflects the state, so scripts can branch on it:
+
+- `0` — running and ready
+- `3` — not running (the scope is empty, or a stale PID file pointing to a dead process was cleaned up)
+- `4` — alive but not yet ready (the process is up but `/health/ready` is not passing, e.g. mid-startup)
+
+`--status` is read-only. A PID file pointing to a dead process is removed; a live-but-not-ready runtime keeps its PID file so a still-starting runtime is never stranded.
+
+### Stop the runtime
+
+`1mcp serve --stop` stops only the runtime in the selected Runtime Scope:
+
+```bash
+1mcp serve --stop
+1mcp serve --stop --config-dir ./config
+```
+
+It discovers the scoped runtime, sends a graceful termination signal to its process, waits briefly for it to exit (escalating if needed), and removes the PID file:
+
+```text
+Stopped runtime in Runtime Scope /home/me/.config/1mcp (PID 48213).
+```
+
+Behavior:
+
+- **Scope-isolated.** Only the runtime recorded for the selected Runtime Scope is signalled; a runtime in a different `--config-dir` is never touched.
+- **Clean when idle.** If nothing is running it reports so and exits `0`, removing a stale PID file if one is present.
+
+### Restart the runtime
+
+`1mcp serve --restart` stops the runtime in the selected Runtime Scope (if any) and then starts a fresh detached background runtime:
+
+```bash
+1mcp serve --restart
+1mcp serve --restart --config-dir ./config --port 3051
+```
+
+It composes `--stop` and `--background`, so it accepts the same HTTP options as `--background` and prints the same startup progress and started report.
+
+Behavior:
+
+- **Always ends running.** Following `systemctl restart` semantics, an empty scope is a clean no-op stop followed by a cold start, so a successful restart always leaves a runtime running and exits `0`.
+- **HTTP only.** Like `--background`, `--transport stdio` is rejected.
+- **Safe handoff.** If the existing runtime cannot be stopped (still alive after escalation), the restart aborts before starting and exits non-zero, so two runtimes never contend for the same scope.
+
 ## Examples
 
 ### Start the runtime

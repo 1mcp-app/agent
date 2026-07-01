@@ -93,8 +93,22 @@ export interface ApplicationConfig {
   readonly transport?: 'http' | 'sse' | 'stdio';
   readonly port?: number;
   readonly host?: string;
+  /** @deprecated Use `logging.level`. Kept as an alias for backward compatibility. */
   readonly logLevel?: 'debug' | 'info' | 'warn' | 'error';
+  /** @deprecated Use `logging.file`. Kept as an alias for backward compatibility. */
   readonly logFile?: string;
+  /**
+   * Structured logging configuration. Supersedes the flat `logLevel`/`logFile`
+   * keys and adds size-based rotation (`maxSize`/`maxFiles`).
+   */
+  readonly logging?: {
+    readonly file?: string;
+    readonly level?: 'debug' | 'info' | 'warn' | 'error';
+    /** Max size before rotation: bytes (number) or a string like "10m"/"1g". */
+    readonly maxSize?: number | string;
+    /** Max number of rotated files to retain. */
+    readonly maxFiles?: number;
+  };
   readonly auth?: {
     readonly enabled?: boolean;
     readonly sessionTtl?: number;
@@ -246,8 +260,29 @@ export const applicationConfigSchema = z.object({
   transport: z.enum(['http', 'sse', 'stdio']).optional().describe('Transport type for the 1MCP server'),
   port: z.number().int().min(1).max(65535).optional().describe('HTTP port to listen on'),
   host: z.string().optional().describe('HTTP host to listen on'),
-  logLevel: z.enum(['debug', 'info', 'warn', 'error']).optional().describe('Log level'),
-  logFile: z.string().optional().describe('Path to log file'),
+  logLevel: z.enum(['debug', 'info', 'warn', 'error']).optional().describe('Deprecated: use logging.level'),
+  logFile: z.string().optional().describe('Deprecated: use logging.file'),
+  logging: z
+    .object({
+      file: z.string().optional().describe('Path to log file'),
+      level: z.enum(['debug', 'info', 'warn', 'error']).optional().describe('Log level'),
+      maxSize: z
+        .union([
+          z.number().int().positive(),
+          // Mirror the grammar parseByteSize() accepts (loggingConfig.ts) so an
+          // invalid size is rejected at the config boundary instead of silently
+          // degrading to `undefined` and disabling rotation later.
+          z
+            .string()
+            .trim()
+            .regex(/^\d+(?:\.\d+)?\s*([kmg])?b?$/i, 'Expected a byte size like "10m" or "1g"'),
+        ])
+        .optional()
+        .describe('Max log file size before rotation: bytes (number) or a string like "10m"/"1g"'),
+      maxFiles: z.number().int().positive().optional().describe('Max number of rotated log files to retain'),
+    })
+    .optional()
+    .describe('Structured logging configuration with size-based rotation'),
   auth: z
     .object({
       enabled: z.boolean().optional().describe('Enable OAuth 2.1 authentication'),

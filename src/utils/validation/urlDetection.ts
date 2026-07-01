@@ -1,5 +1,6 @@
 import { getConfigDir } from '@src/constants.js';
-import { cleanupPidFile, readPidFile } from '@src/core/server/pidFileManager.js';
+import { discoverScopedRuntime } from '@src/core/server/runtimeLifecycle.js';
+import { debugIf } from '@src/logger/logger.js';
 import { createSafeErrorMessage } from '@src/logger/secureLogger.js';
 import { normalizedArgv } from '@src/utils/cli/normalizedArgv.js';
 
@@ -48,8 +49,14 @@ export async function detectRunningServerUrl(): Promise<string | null> {
       if (response.ok) {
         return `http://localhost:${port}/mcp`;
       }
-    } catch {
-      // Continue to next port
+    } catch (error) {
+      // Connection refused is the expected case while scanning unused ports, but
+      // a TLS/DNS/abort error on a port that IS listening is diagnostic — log it
+      // at debug so a misconfigured-but-present server is not invisible.
+      debugIf(() => ({
+        message: `Port scan probe failed on ${port}`,
+        meta: { port, error: error instanceof Error ? error.message : String(error) },
+      }));
     }
   }
   return null;
@@ -70,20 +77,26 @@ export function detectUrlFromEnv(): string | null {
 }
 
 /**
+ * Reachability probe for client surfaces. Reuses the existing 1mcp-aware
+ * validation (OAuth endpoint check) rather than the readiness gate, preserving
+ * the attach semantics these commands already had.
+ */
+const clientSurfaceProbe = async (info: { url: string }): Promise<boolean> =>
+  (await validateServer1mcpUrl(info.url)).valid;
+
+/**
  * Method 4: Detect URL from PID file (for proxy command)
+ *
+ * Discovery (and the two-tier staleness rule) is delegated to the lifecycle
+ * module: a dead process has its PID file removed; an alive-but-unreachable
+ * runtime keeps its PID file so a mid-startup runtime is not stranded.
  */
 export async function detectUrlFromPidFile(configDir?: string): Promise<string | null> {
   const dir = getConfigDir(configDir);
-  const serverInfo = readPidFile(dir);
+  const runtime = await discoverScopedRuntime(dir, clientSurfaceProbe);
 
-  if (serverInfo) {
-    // Validate server is still responding
-    const validation = await validateServer1mcpUrl(serverInfo.url);
-    if (validation.valid) {
-      return serverInfo.url;
-    }
-    // Server is dead, clean up stale PID file
-    cleanupPidFile(dir);
+  if (runtime.status === 'running' && runtime.info) {
+    return runtime.info.url;
   }
 
   return null;
@@ -123,16 +136,13 @@ export async function discoverServerWithPidFile(
     return { url: normalizedUrl, source: 'user' };
   }
 
-  // 2. Try PID file
+  // 2. Try PID file (lifecycle module owns the two-tier staleness rule:
+  //    dead → delete; alive-but-unreachable → retain and fall through).
   const dir = getConfigDir(configDir);
-  const serverInfo = readPidFile(dir);
+  const runtime = await discoverScopedRuntime(dir, clientSurfaceProbe);
 
-  if (serverInfo) {
-    const validation = await validateServer1mcpUrl(serverInfo.url);
-    if (validation.valid) {
-      return { url: serverInfo.url, source: 'pidfile', pid: serverInfo.pid };
-    }
-    cleanupPidFile(dir);
+  if (runtime.status === 'running' && runtime.info) {
+    return { url: runtime.info.url, source: 'pidfile', pid: runtime.info.pid };
   }
 
   // 3. Fallback to port scanning
@@ -171,8 +181,9 @@ export async function validateServer1mcpUrl(url: string): Promise<{
   error?: string;
 }> {
   try {
-    // Remove /mcp suffix to test base URL
-    const baseUrl = url.replace('/mcp', '');
+    // Remove a trailing /mcp suffix to test base URL. Anchor to the end so a URL
+    // like http://host/mcp-internal/mcp is not mangled by stripping the first match.
+    const baseUrl = url.replace(/\/mcp\/?$/, '');
 
     // Test basic connectivity to OAuth endpoint (which always exists)
     const oauthResponse = await fetch(`${baseUrl}/oauth/`, {

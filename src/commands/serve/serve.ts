@@ -3,9 +3,8 @@ import path from 'path';
 
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 
-import ConfigContext from '@src/config/configContext.js';
 import { ConfigManager } from '@src/config/configManager.js';
-import { getConfigDir, getDefaultInstructionsTemplatePath, HOST, PORT } from '@src/constants.js';
+import { getDefaultInstructionsTemplatePath, HOST, PORT } from '@src/constants.js';
 import { InstructionAggregator } from '@src/core/instructions/instructionAggregator.js';
 import { formatValidationError, validateTemplateContent } from '@src/core/instructions/templateValidator.js';
 import { LoadingSummary } from '@src/core/loading/loadingStateTracker.js';
@@ -13,17 +12,30 @@ import { McpLoadingManager } from '@src/core/loading/mcpLoadingManager.js';
 import { AgentConfigManager } from '@src/core/server/agentConfig.js';
 import { cleanupPidFileOnExit, registerPidFileCleanup, writePidFile } from '@src/core/server/pidFileManager.js';
 import { ServerManager } from '@src/core/server/serverManager.js';
+import { GlobalOptions } from '@src/globalOptions.js';
 import { configureGlobalLogger } from '@src/logger/configureGlobalLogger.js';
 import logger, { debugIf } from '@src/logger/logger.js';
+import { resolveLoggingConfig } from '@src/logger/loggingConfig.js';
 import { setupServer } from '@src/server.js';
 import { ExpressServer } from '@src/transport/http/server.js';
 import { displayLogo } from '@src/utils/ui/logo.js';
 
+import { resolveServeConfigPaths } from './runtimeScope.js';
 import { parseCommaSeparatedList, parseInternalToolsList, resolveStdioFilterConfig } from './serveOptions.js';
 
 export interface ServeOptions {
   config?: string;
   'config-dir'?: string;
+  /** Lifecycle action: report the scoped runtime's state and exit. */
+  status?: boolean;
+  /** Lifecycle action: start the runtime as a detached background process. */
+  background?: boolean;
+  /** Lifecycle action: stop the runtime in the selected Runtime Scope. */
+  stop?: boolean;
+  /** Lifecycle action: stop (if running) then start a fresh background runtime. */
+  restart?: boolean;
+  /** Internal guard set on the detached child to prevent recursive spawning. */
+  'background-bootstrap'?: boolean;
   'log-level'?: 'debug' | 'info' | 'warn' | 'error';
   'log-file'?: string;
   transport?: string;
@@ -246,18 +258,41 @@ function setupGracefulShutdown(
  */
 export async function serveCommand(parsedArgv: ServeOptions): Promise<void> {
   try {
-    // Initialize ConfigContext with CLI options
-    const configContext = ConfigContext.getInstance();
-    if (parsedArgv.config) {
-      configContext.setConfigPath(parsedArgv.config);
-    } else if (parsedArgv['config-dir']) {
-      configContext.setConfigDir(parsedArgv['config-dir']);
-    } else {
-      configContext.reset();
+    const { configFilePath, runtimeScope } = resolveServeConfigPaths(parsedArgv);
+
+    // Lifecycle actions short-circuit before any server setup. They operate on
+    // the Runtime Scope via the lifecycle module and then exit.
+    if (parsedArgv.status) {
+      const { runServeStatus } = await import('./serveStatus.js');
+      await runServeStatus(runtimeScope);
+      return;
+    }
+
+    if (parsedArgv.stop) {
+      const { runServeStop } = await import('./serveStop.js');
+      await runServeStop(runtimeScope);
+      return;
+    }
+
+    // Restart: stop the scoped runtime (if any) then start a fresh detached
+    // background runtime. The guard mirrors the background branch; the detached
+    // child never carries --restart, but the check keeps the branch defensive.
+    if (parsedArgv.restart && !parsedArgv['background-bootstrap']) {
+      const { runServeRestart } = await import('./serveRestart.js');
+      await runServeRestart(parsedArgv);
+      return;
+    }
+
+    // Background parent: spawn a detached child and wait for readiness. The
+    // detached child carries the guard flag, so it falls through to the normal
+    // serve path below instead of recursively spawning another background.
+    if (parsedArgv.background && !parsedArgv['background-bootstrap']) {
+      const { runServeBackground } = await import('./serveBackground.js');
+      await runServeBackground(parsedArgv);
+      return;
     }
 
     // Initialize MCP config manager using resolved config path
-    const configFilePath = configContext.getResolvedConfigPath();
     const mcpConfigManager = ConfigManager.getInstance(configFilePath);
 
     // Load app-level config from config.toml (CLI args take precedence)
@@ -274,15 +309,34 @@ export async function serveCommand(parsedArgv: ServeOptions): Promise<void> {
     const effectiveTransport = parsedArgv.transport ?? appConfig.transport ?? 'http';
     const effectivePort = parsedArgv.port ?? appConfig.port ?? PORT;
     const effectiveHost = parsedArgv.host ?? appConfig.host ?? HOST;
+    // Resolve logging from normalized CLI/config sources. ONE_MCP_* env vars
+    // are already merged into parsedArgv by yargs; legacy LOG_LEVEL handling is
+    // centralized in logger.configureLogger when no explicit level is supplied.
+    const { resolved: resolvedLogging, deprecatedKeys: deprecatedLoggingKeys } = resolveLoggingConfig({
+      cli: { level: parsedArgv['log-level'], file: parsedArgv['log-file'] },
+      structured: appConfig.logging,
+      flat: { level: appConfig.logLevel, file: appConfig.logFile },
+    });
+    const configuredLogLevel = parsedArgv['log-level'] ?? appConfig.logging?.level ?? appConfig.logLevel;
     configureGlobalLogger(
       {
         ...parsedArgv,
-        'log-level': parsedArgv['log-level'] ?? appConfig.logLevel,
-        'log-file': parsedArgv['log-file'] ?? appConfig.logFile,
+        'log-level': configuredLogLevel as GlobalOptions['log-level'],
+        'log-file': resolvedLogging.file,
+        maxSize: resolvedLogging.maxSize,
+        maxFiles: resolvedLogging.maxFiles,
       },
       effectiveTransport,
     );
-    const effectiveLogFile = parsedArgv['log-file'] ?? appConfig.logFile;
+    if (deprecatedLoggingKeys.length > 0) {
+      logger.warn(
+        `⚠️  DEPRECATION WARNING: config keys ${deprecatedLoggingKeys
+          .map((key) => `\`${key}\``)
+          .join(' and ')} are deprecated. Use the structured \`logging\` block ` +
+          '(logging.level / logging.file) instead. The flat keys still work but will be removed in a future release.',
+      );
+    }
+    const effectiveLogFile = resolvedLogging.file;
     if (effectiveTransport !== 'stdio' && !effectiveLogFile) {
       displayLogo({
         transport: effectiveTransport,
@@ -290,8 +344,8 @@ export async function serveCommand(parsedArgv: ServeOptions): Promise<void> {
         host: effectiveHost,
         serverCount,
         authEnabled,
-        logLevel: parsedArgv['log-level'] ?? appConfig.logLevel,
-        configDir: getConfigDir(parsedArgv['config-dir']),
+        logLevel: resolvedLogging.level,
+        configDir: runtimeScope,
       });
     }
 
@@ -308,10 +362,9 @@ export async function serveCommand(parsedArgv: ServeOptions): Promise<void> {
 
     // Derive session storage path: explicit option > config-dir/sessions > global default
     let sessionStoragePath = parsedArgv['session-storage-path'];
-    if (!sessionStoragePath && parsedArgv['config-dir']) {
-      // When config-dir is specified but session-storage-path is not,
-      // store sessions within the config directory to maintain isolation
-      sessionStoragePath = path.join(parsedArgv['config-dir'], 'sessions');
+    if (!sessionStoragePath && (parsedArgv['config-dir'] || parsedArgv.config)) {
+      // Store sessions within the selected Runtime Scope to maintain isolation.
+      sessionStoragePath = path.join(runtimeScope, 'sessions');
     }
 
     const internalToolsList = parseInternalToolsList(parsedArgv['internal-tools']);
@@ -393,14 +446,14 @@ export async function serveCommand(parsedArgv: ServeOptions): Promise<void> {
     // Initialize PresetManager with config directory option before server setup
     // This ensures the singleton is created with the correct config directory
     const PresetManager = (await import('@src/domains/preset/manager/presetManager.js')).PresetManager;
-    PresetManager.getInstance(parsedArgv['config-dir']);
+    PresetManager.getInstance(runtimeScope);
 
     // Initialize server and get server manager with custom config path if provided
     const { serverManager, loadingManager, asyncOrchestrator, instructionAggregator } =
       await setupServer(configFilePath);
 
     // Load custom instructions template if provided (applies to all transport types)
-    const customTemplate = loadInstructionsTemplate(parsedArgv['instructions-template'], parsedArgv['config-dir']);
+    const customTemplate = loadInstructionsTemplate(parsedArgv['instructions-template'], runtimeScope);
 
     let expressServer: ExpressServer | undefined;
 
@@ -452,20 +505,23 @@ export async function serveCommand(parsedArgv: ServeOptions): Promise<void> {
         expressServer.start();
 
         // Write PID file for proxy auto-discovery
-        const configDir = getConfigDir(parsedArgv['config-dir']);
         const serverUrl = serverConfigManager.getUrl();
-        writePidFile(configDir, {
+        writePidFile(runtimeScope, {
           pid: process.pid,
           url: `${serverUrl}/mcp`,
           port: effectivePort,
           host: effectiveHost,
           transport: 'http',
           startedAt: new Date().toISOString(),
-          configDir,
+          configDir: runtimeScope,
+          // Record the effective log file so `serve --status` reports the real
+          // path rather than recomputing a default that would be wrong under an
+          // explicit `--log-file`. Undefined when no log file is configured.
+          logFile: effectiveLogFile,
         });
 
         // Register cleanup handlers
-        registerPidFileCleanup(configDir);
+        registerPidFileCleanup(runtimeScope);
 
         break;
       }
@@ -475,8 +531,7 @@ export async function serveCommand(parsedArgv: ServeOptions): Promise<void> {
     }
 
     // Set up graceful shutdown handling
-    const configDir = getConfigDir(parsedArgv['config-dir']);
-    setupGracefulShutdown(serverManager, loadingManager, expressServer, instructionAggregator, configDir);
+    setupGracefulShutdown(serverManager, loadingManager, expressServer, instructionAggregator, runtimeScope);
 
     // Log MCP loading progress (non-blocking)
     loadingManager.on('loading-progress', (summary: LoadingSummary) => {

@@ -10,6 +10,34 @@ import type { Argv } from 'yargs';
 
 // Define server options that should be available for serve commands and default command
 export const serverOptions = {
+  status: {
+    describe: 'Report the state of the Background Aggregated Runtime in the selected Runtime Scope, then exit',
+    type: 'boolean' as const,
+    default: false,
+  },
+  background: {
+    describe: 'Start the HTTP Aggregated Runtime as a detached background process for the selected Runtime Scope',
+    type: 'boolean' as const,
+    default: false,
+  },
+  stop: {
+    describe: 'Stop the runtime in the selected Runtime Scope, then exit',
+    type: 'boolean' as const,
+    default: false,
+  },
+  restart: {
+    describe:
+      'Restart the Background Aggregated Runtime in the selected Runtime Scope (stop if running, then start a fresh background runtime)',
+    type: 'boolean' as const,
+    default: false,
+  },
+  // Internal hidden guard flag set on the detached child so it runs the normal
+  // serve path instead of recursively spawning another background process.
+  'background-bootstrap': {
+    type: 'boolean' as const,
+    default: false,
+    hidden: true,
+  },
   transport: {
     alias: 't',
     describe: 'Transport type to use (stdio or http, sse is deprecated)',
@@ -247,10 +275,24 @@ export function setupServeCommand(yargs: Argv): Argv {
       return yargs
         .options(globalOptions || {})
         .options(serverOptions)
+        .check((argv) => {
+          // The lifecycle flags select mutually exclusive actions; combining
+          // them would let handler order silently pick one and mask a typo.
+          const selected = (['status', 'background', 'stop', 'restart'] as const).filter((flag) => argv[flag]);
+          if (selected.length > 1) {
+            throw new Error(
+              `Options ${selected.map((flag) => `--${flag}`).join(', ')} are mutually exclusive; specify only one.`,
+            );
+          }
+          return true;
+        })
         .example([
           ['$0 serve', 'Start server with HTTP transport (default)'],
           ['$0 serve --transport=stdio', 'Start server with stdio transport'],
           ['$0 serve --port=3000', 'Start HTTP server on port 3000'],
+          ['$0 serve --background', 'Start the runtime as a detached background process'],
+          ['$0 serve --restart', 'Stop the background runtime (if running) and start a fresh one'],
+          ['$0 serve --stop', 'Stop the background runtime in the current Runtime Scope'],
           ['$0 serve --filter="web,api"', 'Start server with filtered MCP servers'],
           ['$0 serve --enable-auth', 'Start server with OAuth authentication enabled'],
           ['$0 serve --enable-internal-tools', 'Enable all internal MCP management tools'],

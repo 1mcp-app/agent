@@ -4,9 +4,11 @@ import path from 'path';
 
 import {
   cleanupPidFile,
+  cleanupPidFileIfMatches,
   cleanupPidFileOnExit,
   getPidFilePath,
   isProcessAlive,
+  PidFileReadError,
   readPidFile,
   registerPidFileCleanup,
   registerPidFileSignalHandlers,
@@ -28,6 +30,7 @@ describe('pidFileManager', () => {
   });
 
   afterEach(() => {
+    vi.restoreAllMocks();
     // Clean up test directory
     if (fs.existsSync(testPidFilePath)) {
       fs.unlinkSync(testPidFilePath);
@@ -130,7 +133,20 @@ describe('pidFileManager', () => {
       expect(result).toBeNull();
     });
 
-    it('should return null for dead process', () => {
+    it('should throw for unreadable PID files', () => {
+      const originalReadFileSync = fs.readFileSync;
+      const error = Object.assign(new Error('denied'), { code: 'EACCES' });
+      vi.spyOn(fs, 'readFileSync').mockImplementation(((filePath: fs.PathOrFileDescriptor, ...args: unknown[]) => {
+        if (filePath === testPidFilePath) {
+          throw error;
+        }
+        return originalReadFileSync(filePath, ...(args as []));
+      }) as typeof fs.readFileSync);
+
+      expect(() => readPidFile(testConfigDir)).toThrow(PidFileReadError);
+    });
+
+    it('should read the record even for a dead process (pure reader; liveness is the lifecycle module concern)', () => {
       const serverInfo: ServerPidInfo = {
         pid: 99999999, // Non-existent process
         url: 'http://localhost:3050/mcp',
@@ -144,7 +160,28 @@ describe('pidFileManager', () => {
       writePidFile(testConfigDir, serverInfo);
 
       const result = readPidFile(testConfigDir);
-      expect(result).toBeNull();
+      expect(result).not.toBeNull();
+      expect(result?.pid).toBe(99999999);
+      // readPidFile must NOT delete the file; deletion is owned by runtimeLifecycle
+      expect(fs.existsSync(testPidFilePath)).toBe(true);
+    });
+
+    it('should round-trip the optional logFile field', () => {
+      const serverInfo: ServerPidInfo = {
+        pid: process.pid,
+        url: 'http://localhost:3050/mcp',
+        port: 3050,
+        host: 'localhost',
+        transport: 'http',
+        startedAt: new Date().toISOString(),
+        configDir: testConfigDir,
+        logFile: path.join(testConfigDir, 'logs', 'server.log'),
+      };
+
+      writePidFile(testConfigDir, serverInfo);
+
+      const result = readPidFile(testConfigDir);
+      expect(result?.logFile).toBe(path.join(testConfigDir, 'logs', 'server.log'));
     });
 
     it('should return null for invalid JSON', () => {
@@ -159,6 +196,52 @@ describe('pidFileManager', () => {
 
       const result = readPidFile(testConfigDir);
       expect(result).toBeNull();
+    });
+
+    it('should reject a non-positive PID (guards against process-group signals)', () => {
+      // A negative PID would make process.kill() signal an entire process group.
+      const malformed = {
+        pid: -1,
+        url: 'http://localhost:3050/mcp',
+        port: 3050,
+        host: 'localhost',
+        transport: 'http',
+        startedAt: '2026-06-26T00:00:00.000Z',
+        configDir: testConfigDir,
+      };
+      fs.writeFileSync(testPidFilePath, JSON.stringify(malformed), 'utf-8');
+
+      expect(readPidFile(testConfigDir)).toBeNull();
+    });
+
+    it('should reject wrong field types and out-of-range ports', () => {
+      const malformed = {
+        pid: '123',
+        url: 'http://localhost:3050/mcp',
+        port: 70000,
+        host: 'localhost',
+        transport: 'http',
+        startedAt: '2026-06-26T00:00:00.000Z',
+        configDir: testConfigDir,
+      };
+      fs.writeFileSync(testPidFilePath, JSON.stringify(malformed), 'utf-8');
+
+      expect(readPidFile(testConfigDir)).toBeNull();
+    });
+
+    it('should reject a non-http transport', () => {
+      const malformed = {
+        pid: process.pid,
+        url: 'http://localhost:3050/mcp',
+        port: 3050,
+        host: 'localhost',
+        transport: 'stdio',
+        startedAt: '2026-06-26T00:00:00.000Z',
+        configDir: testConfigDir,
+      };
+      fs.writeFileSync(testPidFilePath, JSON.stringify(malformed), 'utf-8');
+
+      expect(readPidFile(testConfigDir)).toBeNull();
     });
   });
 
@@ -177,12 +260,54 @@ describe('pidFileManager', () => {
       writePidFile(testConfigDir, serverInfo);
       expect(fs.existsSync(testPidFilePath)).toBe(true);
 
-      cleanupPidFile(testConfigDir);
+      expect(cleanupPidFile(testConfigDir)).toBe(true);
       expect(fs.existsSync(testPidFilePath)).toBe(false);
     });
 
     it('should not throw error if PID file does not exist', () => {
       expect(() => cleanupPidFile(testConfigDir)).not.toThrow();
+      expect(cleanupPidFile(testConfigDir)).toBe(true);
+    });
+
+    it('should treat ENOENT during unlink as successful cleanup', () => {
+      vi.spyOn(fs, 'unlinkSync').mockImplementationOnce(() => {
+        throw Object.assign(new Error('gone'), { code: 'ENOENT' });
+      });
+
+      expect(cleanupPidFile(testConfigDir)).toBe(true);
+    });
+  });
+
+  describe('cleanupPidFileIfMatches', () => {
+    const infoWithPid = (pid: number): ServerPidInfo => ({
+      pid,
+      url: 'http://localhost:3050/mcp',
+      port: 3050,
+      host: 'localhost',
+      transport: 'http',
+      startedAt: '2026-06-26T00:00:00.000Z',
+      configDir: testConfigDir,
+    });
+
+    it('should delete the PID file when it still records the expected PID', () => {
+      writePidFile(testConfigDir, infoWithPid(process.pid));
+
+      expect(cleanupPidFileIfMatches(testConfigDir, process.pid)).toBe(true);
+      expect(fs.existsSync(testPidFilePath)).toBe(false);
+    });
+
+    it('should NOT delete a PID file that a newer runtime replaced', () => {
+      // Simulate a different runtime owning the scope now (different PID).
+      writePidFile(testConfigDir, infoWithPid(process.pid));
+
+      // Caller expected an older/dead PID; the live file must be left intact.
+      expect(cleanupPidFileIfMatches(testConfigDir, 99999998)).toBe(true);
+      expect(fs.existsSync(testPidFilePath)).toBe(true);
+      expect(readPidFile(testConfigDir)?.pid).toBe(process.pid);
+    });
+
+    it('should be a no-op when no PID file exists', () => {
+      expect(cleanupPidFileIfMatches(testConfigDir, process.pid)).toBe(true);
     });
   });
 
