@@ -8,6 +8,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [unreleased]
 
 ### 🚀 Features
+- Background Aggregated Runtime lifecycle by @xizhibei in [#360](https://github.com/1mcp-app/agent/pull/360)
+
+
+## [0.33.0] - 2026-06-30
+
+### 🚀 Features
 - Update documentation for issue tracking and triage processes by @xizhibei
 - Refine release pipeline by @xizhibei in [#346](https://github.com/1mcp-app/agent/pull/346)
 - Add async handling for notification forwarding in client-server setup by @xizhibei in [#345](https://github.com/1mcp-app/agent/pull/345)
@@ -1010,7 +1016,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 * @xizhibei made their first contribution in [#1](https://github.com/1mcp-app/agent/pull/1)
 * @dependabot[bot] made their first contribution
 
-[unreleased]: https://github.com/1mcp-app/agent/compare/v0.32.2..HEAD
+[unreleased]: https://github.com/1mcp-app/agent/compare/v0.33.0..HEAD
+[0.33.0]: https://github.com/1mcp-app/agent/compare/v0.32.2..v0.33.0
 [0.32.2]: https://github.com/1mcp-app/agent/compare/v0.32.1..v0.32.2
 [0.32.1]: https://github.com/1mcp-app/agent/compare/v0.32.0..v0.32.1
 [0.32.0]: https://github.com/1mcp-app/agent/compare/v0.31.0..v0.32.0
