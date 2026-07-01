@@ -6,6 +6,35 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { serveCommand, ServeOptions } from './serve.js';
 
+const configContextMock = vi.hoisted(() => {
+  let configPath: string | undefined;
+  let configDir: string | undefined;
+
+  return {
+    setConfigPath: vi.fn((path?: string) => {
+      configPath = path;
+      configDir = undefined;
+    }),
+    setConfigDir: vi.fn((dir?: string) => {
+      configDir = dir;
+      configPath = undefined;
+    }),
+    reset: vi.fn(() => {
+      configPath = undefined;
+      configDir = undefined;
+    }),
+    getResolvedConfigPath: vi.fn(() => {
+      if (configPath) {
+        return configPath;
+      }
+      if (configDir) {
+        return path.join(configDir, 'mcp.json');
+      }
+      return '/test/config.json';
+    }),
+  };
+});
+
 // Mock dependencies
 vi.mock('@src/logger/configureGlobalLogger.js');
 vi.mock('@src/config/configManager.js', () => ({
@@ -22,12 +51,7 @@ vi.mock('@src/domains/preset/manager/presetManager.js');
 vi.mock('@src/server.js');
 vi.mock('@src/config/configContext.js', () => ({
   default: {
-    getInstance: vi.fn().mockReturnValue({
-      setConfigPath: vi.fn(),
-      setConfigDir: vi.fn(),
-      reset: vi.fn(),
-      getResolvedConfigPath: vi.fn().mockReturnValue('/test/config.json'),
-    }),
+    getInstance: vi.fn().mockReturnValue(configContextMock),
   },
 }));
 vi.mock('@src/constants.js');
@@ -79,6 +103,7 @@ vi.mock('@src/core/server/agentConfig.js', () => ({
 describe('serveCommand - config-dir session isolation', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    configContextMock.reset();
     // Reset singleton
     (AgentConfigManager as any).instance = null;
   });
@@ -136,15 +161,9 @@ describe('serveCommand - config-dir session isolation', () => {
     const configManager = AgentConfigManager.getInstance();
     const updateConfigSpy = vi.mocked(configManager.updateConfig);
 
-    // Add debugging to see if updateConfig is called
-    updateConfigSpy.mockImplementation((config) => {
-      console.log('updateConfig called with:', config);
-    });
-
     try {
       await serveCommand(options);
-    } catch (error) {
-      console.log('Error in serveCommand:', error);
+    } catch {
       // Ignore errors from mocked dependencies
     }
 
@@ -210,8 +229,7 @@ describe('serveCommand - config-dir session isolation', () => {
 
     try {
       await serveCommand(options);
-    } catch (error) {
-      console.log('Error in serveCommand:', error);
+    } catch {
       // Ignore errors from mocked dependencies
     }
 
@@ -275,8 +293,7 @@ describe('serveCommand - config-dir session isolation', () => {
 
     try {
       await serveCommand(options);
-    } catch (error) {
-      console.log('Error in serveCommand:', error);
+    } catch {
       // Ignore errors from mocked dependencies
     }
 
