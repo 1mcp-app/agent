@@ -10,6 +10,7 @@ const { resolveReleaseNotesRange } = require('../../scripts/resolve-release-note
   resolveReleaseNotesRange: (args: { versionTag: string; releaseSha: string; cwd?: string }) => {
     previousTag: string;
     range: string;
+    tagFilterArgs: string;
   };
 };
 
@@ -19,7 +20,14 @@ function git(cwd: string, args: string[]): string {
   return execFileSync('git', args, { cwd, encoding: 'utf8' }).trim();
 }
 
-function createFixtureRepository(): { cwd: string; releaseSha: string } {
+function commitFile(cwd: string, content: string, message: string): string {
+  fs.writeFileSync(path.join(cwd, 'file.txt'), `${content}\n`);
+  git(cwd, ['add', 'file.txt']);
+  git(cwd, ['commit', '-m', message]);
+  return git(cwd, ['rev-parse', 'HEAD']);
+}
+
+function createPrereleaseFixtureRepository(): { cwd: string; firstPrereleaseSha: string; secondPrereleaseSha: string } {
   fs.mkdirSync(path.join(process.cwd(), '.tmp'), { recursive: true });
   const cwd = fs.mkdtempSync(path.join(process.cwd(), '.tmp', 'release-notes-range-'));
   tempRoots.push(cwd);
@@ -28,16 +36,23 @@ function createFixtureRepository(): { cwd: string; releaseSha: string } {
   git(cwd, ['config', 'user.email', 'test@example.com']);
   git(cwd, ['config', 'user.name', 'Test User']);
 
-  fs.writeFileSync(path.join(cwd, 'file.txt'), 'previous\n');
-  git(cwd, ['add', 'file.txt']);
-  git(cwd, ['commit', '-m', 'previous release']);
+  commitFile(cwd, 'previous', 'previous release');
   git(cwd, ['tag', 'v1.2.3']);
 
-  fs.writeFileSync(path.join(cwd, 'file.txt'), 'current\n');
-  git(cwd, ['add', 'file.txt']);
-  git(cwd, ['commit', '-m', 'current release']);
-  const releaseSha = git(cwd, ['rev-parse', 'HEAD']);
+  const firstPrereleaseSha = commitFile(cwd, 'first prerelease', 'first prerelease');
   git(cwd, ['tag', 'v1.3.0-beta1']);
+
+  const secondPrereleaseSha = commitFile(cwd, 'second prerelease', 'second prerelease');
+  git(cwd, ['tag', 'v1.3.0-beta2']);
+
+  return { cwd, firstPrereleaseSha, secondPrereleaseSha };
+}
+
+function createStableAfterPrereleasesFixtureRepository(): { cwd: string; releaseSha: string } {
+  const { cwd } = createPrereleaseFixtureRepository();
+
+  const releaseSha = commitFile(cwd, 'stable release', 'stable release');
+  git(cwd, ['tag', 'v1.3.0']);
 
   return { cwd, releaseSha };
 }
@@ -49,12 +64,28 @@ afterEach(() => {
 });
 
 describe('resolveReleaseNotesRange', () => {
-  it('resolves release notes from the previous reachable tag to the release SHA', () => {
-    const { cwd, releaseSha } = createFixtureRepository();
+  it('resolves prerelease notes from the previous reachable tag to the release SHA', () => {
+    const { cwd, firstPrereleaseSha, secondPrereleaseSha } = createPrereleaseFixtureRepository();
 
-    expect(resolveReleaseNotesRange({ cwd, versionTag: 'v1.3.0-beta1', releaseSha })).toEqual({
+    expect(resolveReleaseNotesRange({ cwd, versionTag: 'v1.3.0-beta1', releaseSha: firstPrereleaseSha })).toEqual({
+      previousTag: 'v1.2.3',
+      range: `v1.2.3..${firstPrereleaseSha}`,
+      tagFilterArgs: '',
+    });
+    expect(resolveReleaseNotesRange({ cwd, versionTag: 'v1.3.0-beta2', releaseSha: secondPrereleaseSha })).toEqual({
+      previousTag: 'v1.3.0-beta1',
+      range: `v1.3.0-beta1..${secondPrereleaseSha}`,
+      tagFilterArgs: '',
+    });
+  });
+
+  it('resolves stable release notes from the previous stable tag and skips prerelease tags', () => {
+    const { cwd, releaseSha } = createStableAfterPrereleasesFixtureRepository();
+
+    expect(resolveReleaseNotesRange({ cwd, versionTag: 'v1.3.0', releaseSha })).toEqual({
       previousTag: 'v1.2.3',
       range: `v1.2.3..${releaseSha}`,
+      tagFilterArgs: "--ignore-tags '^v.*-?(alpha|beta|rc|preview|next)[-.0-9]+.*$'",
     });
   });
 

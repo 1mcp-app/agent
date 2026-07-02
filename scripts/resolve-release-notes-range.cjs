@@ -5,9 +5,32 @@ const fs = require('fs');
 
 const VERSION_TAG_REGEX = /^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?$/;
 const RELEASE_SHA_REGEX = /^[0-9a-f]{40}$/;
+const PRERELEASE_TAG_IGNORE_PATTERN = '^v.*-?(alpha|beta|rc|preview|next)[-.0-9]+.*$';
 
 function git(cwd, args) {
   return execFileSync('git', args, { cwd, encoding: 'utf8' }).trim();
+}
+
+function isPrereleaseTag(versionTag) {
+  return versionTag.includes('-');
+}
+
+function previousTagArgs(versionTag, releaseSha) {
+  const baseArgs = ['describe', '--tags', '--abbrev=0'];
+
+  if (isPrereleaseTag(versionTag)) {
+    return [...baseArgs, `${releaseSha}^`];
+  }
+
+  return [...baseArgs, '--match', 'v[0-9]*.[0-9]*.[0-9]*', '--exclude', '*-*', `${releaseSha}^`];
+}
+
+function tagFilterArgs(versionTag) {
+  if (isPrereleaseTag(versionTag)) {
+    return '';
+  }
+
+  return `--ignore-tags '${PRERELEASE_TAG_IGNORE_PATTERN}'`;
 }
 
 function resolveReleaseNotesRange({ versionTag, releaseSha, cwd = process.cwd() }) {
@@ -21,7 +44,7 @@ function resolveReleaseNotesRange({ versionTag, releaseSha, cwd = process.cwd() 
 
   let previousTag;
   try {
-    previousTag = git(cwd, ['describe', '--tags', '--abbrev=0', `${releaseSha}^`]);
+    previousTag = git(cwd, previousTagArgs(versionTag, releaseSha));
   } catch {
     throw new Error(`Unable to resolve previous release tag before ${versionTag}.`);
   }
@@ -29,6 +52,7 @@ function resolveReleaseNotesRange({ versionTag, releaseSha, cwd = process.cwd() 
   return {
     previousTag,
     range: `${previousTag}..${releaseSha}`,
+    tagFilterArgs: tagFilterArgs(versionTag),
   };
 }
 
@@ -54,6 +78,7 @@ if (require.main === module) {
         {
           previous_tag: outputs.previousTag,
           range: outputs.range,
+          tag_filter_args: outputs.tagFilterArgs,
         },
         githubOutput,
       );

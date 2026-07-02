@@ -129,7 +129,7 @@ jobs:
         id: git-cliff
         with:
           config: cliff-release.toml
-          args: --tag ${{ inputs.version_tag }} --strip header ${{ steps.release-notes-range.outputs.range }}
+          args: --tag ${{ inputs.version_tag }} --strip header ${{ steps.release-notes-range.outputs.tag_filter_args }} ${{ steps.release-notes-range.outputs.range }}
         env:
           GITHUB_REPO: ${{ github.repository }}
 
@@ -149,6 +149,7 @@ jobs:
       - name: Download all binary artifacts
         uses: actions/download-artifact@v8
         with:
+          pattern: 1mcp-*-*
           path: binaries/
 
       - name: Create Release
@@ -158,7 +159,9 @@ jobs:
           target_commitish: ${{ inputs.release_sha }}
           name: Release ${{ inputs.version_tag }}
           body_path: ${{ steps.release-notes.outputs.path }}
-          files: binaries/*/*
+          files: |
+            binaries/**/*.tar.gz
+            binaries/**/*.zip
           draft: false
           prerelease: ${{ inputs.is_prerelease }}
           token: ${{ secrets.GITHUB_TOKEN }}
