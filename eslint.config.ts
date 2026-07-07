@@ -34,8 +34,8 @@ export default [
   },
   prettierConfig,
   {
-    files: ['**/*.ts'],
-    ignores: ['**/*.test.ts', '**/*.e2e.test.ts', 'test/**/*.ts'],
+    files: ['**/*.{ts,tsx}'],
+    ignores: ['**/*.test.ts', '**/*.test.tsx', '**/*.e2e.test.ts', 'test/**/*.ts'],
     languageOptions: {
       parser: tsParser,
       parserOptions: {
@@ -100,7 +100,7 @@ export default [
   },
   // Admin Console SPA runs in the browser.
   {
-    files: ['web/admin/src/**/*.ts'],
+    files: ['web/admin/src/**/*.{ts,tsx}'],
     languageOptions: {
       parser: tsParser,
       parserOptions: {
@@ -155,7 +155,7 @@ export default [
   },
   // Test files configuration - more lenient rules
   {
-    files: ['**/*.test.ts', '**/*.e2e.test.ts', 'test/**/*.ts'],
+    files: ['**/*.test.ts', '**/*.test.tsx', '**/*.e2e.test.ts', 'test/**/*.ts'],
     languageOptions: {
       parser: tsParser,
       parserOptions: {

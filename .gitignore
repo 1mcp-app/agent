@@ -3,6 +3,7 @@ node_modules/
 .tmp/
 .tmp-test/
 .pnpm-store/
+.npm-cache/
 build/
 logs/
 *.log

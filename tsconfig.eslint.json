@@ -12,6 +12,7 @@
     "*.js",
     "*.ts",
     "web/admin/**/*.ts",
+    "web/admin/**/*.tsx",
     "docs/.vitepress/**/*.ts"
   ]
 }
