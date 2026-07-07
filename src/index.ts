@@ -18,6 +18,7 @@ import { setupProxyCommand } from './commands/proxy/index.js';
 import { setupRegistryCommands } from './commands/registry/index.js';
 import { setupRunCommand } from './commands/run/index.js';
 import { serverOptions, setupServeCommand } from './commands/serve/index.js';
+import { setupTargetCommands } from './commands/target/index.js';
 import { configureGlobalLogger } from './logger/configureGlobalLogger.js';
 
 export { normalizeCliArgv, normalizedArgv };
@@ -64,6 +65,7 @@ yargsInstance = setupProxyCommand(yargsInstance);
 yargsInstance = setupInspectCommand(yargsInstance);
 yargsInstance = setupRunCommand(yargsInstance);
 yargsInstance = setupRegistryCommands(yargsInstance);
+yargsInstance = setupTargetCommands(yargsInstance);
 
 /**
  * Check for conflicting global options (options specified both before and after the command)
@@ -86,7 +88,8 @@ function checkGlobalOptionConflicts(argv: string[]): void {
       arg === 'serve' ||
       arg === 'proxy' ||
       arg === 'inspect' ||
-      arg === 'run',
+      arg === 'run' ||
+      arg === 'target',
   );
 
   if (commandIndex === -1) return;

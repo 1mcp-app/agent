@@ -1,11 +1,22 @@
 import { buildServerUrl, type ServeUrlOptions } from '@src/commands/shared/serveClient.js';
 import { normalizeTags, resolveProjectContext } from '@src/config/projectConfigLoader.js';
 import type { ProjectConfig } from '@src/config/projectConfigTypes.js';
+import {
+  type RuntimeIdentityWarning,
+  verifyRuntimeIdentityForTarget,
+} from '@src/domains/runtime-targets/runtimeIdentityVerification.js';
+import {
+  assertRuntimeTargetConfigDirAllowed,
+  type RuntimeTargetListEntry,
+  RuntimeTargetStore,
+  RuntimeTargetStoreError,
+} from '@src/domains/runtime-targets/runtimeTargetStore.js';
 import type { GlobalOptions } from '@src/globalOptions.js';
 import { discoverServerWithPidFile, validateServer1mcpUrl } from '@src/utils/validation/urlDetection.js';
 
 export interface ResolvableServeTargetOptions extends GlobalOptions, ServeUrlOptions {
   url?: string;
+  context?: string;
 }
 
 export interface ResolvedServeTarget<TOptions extends ResolvableServeTargetOptions> {
@@ -19,6 +30,16 @@ export interface ResolvedServeTarget<TOptions extends ResolvableServeTargetOptio
   serverPid?: number;
   source: 'user' | 'pidfile' | 'portscan';
   projectContextSource: 'project-config' | 'repo-root' | 'cwd';
+  runtimeTargetContext?: {
+    name: string;
+    kind: 'remote';
+  };
+  runtimeIdentityWarnings?: RuntimeIdentityWarning[];
+}
+
+export interface ServeTargetResolverPorts {
+  runtimeTargetStore?: Pick<RuntimeTargetStore, 'current' | 'inspect' | 'updateObservedIdentityMetadata'>;
+  verifyRuntimeIdentity?: typeof verifyRuntimeIdentityForTarget;
 }
 
 export function mergeServeTargetOptions<TOptions extends ResolvableServeTargetOptions>(
@@ -80,9 +101,52 @@ function selectOneFilterInput(options: ServeUrlOptions): ServeUrlOptions & { has
 
 export async function resolveServeTarget<TOptions extends ResolvableServeTargetOptions>(
   options: TOptions,
+  ports: ServeTargetResolverPorts = {},
 ): Promise<ResolvedServeTarget<TOptions>> {
+  if (options.url && options.context) {
+    throw new RuntimeTargetStoreError(
+      'target_selector_conflict',
+      'Use either --url or --context, not both, when selecting a runtime target',
+    );
+  }
+  if (options.url && options['config-dir']) {
+    throw new RuntimeTargetStoreError(
+      'target_config_dir_remote_unsupported',
+      '--config-dir selects only a local Runtime Scope and cannot scope an ephemeral URL target',
+    );
+  }
+
   const resolvedProjectContext = await resolveProjectContext();
-  const mergedOptions = mergeServeTargetOptions(options, resolvedProjectContext.projectConfig);
+  const normalizedOptions = normalizeEphemeralUrlOption(options);
+  const mergedOptions = mergeServeTargetOptions(normalizedOptions, resolvedProjectContext.projectConfig);
+
+  const remoteTarget = await resolveRemoteRuntimeTargetContext(mergedOptions, ports);
+  if (remoteTarget) {
+    const discoveredUrl = withMcpSuffix(remoteTarget.url);
+    const validation = await validateServer1mcpUrl(discoveredUrl);
+
+    if (!validation.valid) {
+      throw new Error(validation.error || 'Cannot connect to the running 1MCP server.');
+    }
+
+    return {
+      cwd: resolvedProjectContext.cwd,
+      projectRoot: resolvedProjectContext.projectRoot,
+      projectName: resolvedProjectContext.projectName,
+      projectConfig: resolvedProjectContext.projectConfig,
+      mergedOptions,
+      discoveredUrl,
+      serverUrl: buildServerUrl(discoveredUrl, mergedOptions),
+      source: 'user',
+      projectContextSource: resolvedProjectContext.source,
+      runtimeTargetContext: {
+        name: remoteTarget.name,
+        kind: 'remote',
+      },
+      runtimeIdentityWarnings: remoteTarget.runtimeIdentityWarnings,
+    };
+  }
+
   const {
     url: discoveredUrl,
     pid: serverPid,
@@ -105,5 +169,65 @@ export async function resolveServeTarget<TOptions extends ResolvableServeTargetO
     serverPid,
     source,
     projectContextSource: resolvedProjectContext.source,
+  };
+}
+
+async function resolveRemoteRuntimeTargetContext<TOptions extends ResolvableServeTargetOptions>(
+  options: TOptions,
+  ports: ServeTargetResolverPorts,
+): Promise<(RuntimeTargetListEntry & { url: string; runtimeIdentityWarnings?: RuntimeIdentityWarning[] }) | null> {
+  if (options.url) {
+    return null;
+  }
+
+  const store = ports.runtimeTargetStore ?? new RuntimeTargetStore();
+  const target = options.context ? store.inspect(options.context) : store.current();
+
+  if (target.name === 'local') {
+    return null;
+  }
+
+  assertRuntimeTargetConfigDirAllowed({
+    command: 'verify',
+    targetName: target.name,
+    configDir: options['config-dir'],
+  });
+
+  if (target.kind !== 'remote' || !target.url) {
+    throw new RuntimeTargetStoreError('target_not_found', `Runtime target "${target.name}" was not found`);
+  }
+  const remoteTarget = { ...target, url: target.url };
+
+  const verifyRuntimeIdentity = ports.verifyRuntimeIdentity ?? verifyRuntimeIdentityForTarget;
+  const verification = await verifyRuntimeIdentity({
+    target: {
+      name: remoteTarget.name,
+      url: remoteTarget.url,
+      observedIdentity: remoteTarget.observedIdentity,
+    },
+  });
+  store.updateObservedIdentityMetadata(remoteTarget.name, verification.identity);
+
+  return {
+    ...remoteTarget,
+    runtimeIdentityWarnings: verification.warnings,
+  };
+}
+
+function withMcpSuffix(url: string): string {
+  const parsed = new URL(url);
+  parsed.search = '';
+  parsed.hash = '';
+  const normalized = parsed.toString().replace(/\/$/, '');
+  return normalized.endsWith('/mcp') ? normalized : `${normalized}/mcp`;
+}
+
+function normalizeEphemeralUrlOption<TOptions extends ResolvableServeTargetOptions>(options: TOptions): TOptions {
+  if (!options.url) {
+    return options;
+  }
+  return {
+    ...options,
+    url: withMcpSuffix(options.url),
   };
 }

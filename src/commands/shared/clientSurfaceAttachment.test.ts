@@ -8,6 +8,7 @@ import {
   attachFreshClientSurface,
   attachReusableClientSurface,
   type ClientSurfaceRestResponse,
+  formatClientSurfaceAuthRequiredMessage,
   type ResolvedAttachmentTarget,
 } from './clientSurfaceAttachment.js';
 import type { CliSessionCache } from './serveClient.js';
@@ -198,12 +199,10 @@ describe('attachReusableClientSurface', () => {
         hasRestEndpoint: true,
       },
     });
-    const rest = vi.fn(
-      async (): Promise<ClientSurfaceRestResponse<string>> => ({
-        status: 'fallback',
-        reason: 'endpoint_missing',
-      }),
-    );
+    const rest = vi.fn(async (): Promise<ClientSurfaceRestResponse<string>> => ({
+      status: 'fallback',
+      reason: 'endpoint_missing',
+    }));
     const mcp = vi.fn(async ({ sessionId }: { sessionId: string }) => ({
       status: 'success' as const,
       sessionId,
@@ -246,12 +245,10 @@ describe('attachReusableClientSurface', () => {
         hasRestEndpoint: true,
       },
     });
-    const rest = vi.fn(
-      async (): Promise<ClientSurfaceRestResponse<string>> => ({
-        status: 'fallback',
-        reason: 'transient_failure',
-      }),
-    );
+    const rest = vi.fn(async (): Promise<ClientSurfaceRestResponse<string>> => ({
+      status: 'fallback',
+      reason: 'transient_failure',
+    }));
     const mcp = vi.fn(async ({ sessionId }: { sessionId: string }) => ({
       status: 'success' as const,
       sessionId,
@@ -282,12 +279,10 @@ describe('attachReusableClientSurface', () => {
 
   it('surfaces REST authentication errors without MCP fallback', async () => {
     const ports = makePorts();
-    const rest = vi.fn(
-      async (): Promise<ClientSurfaceRestResponse<string>> => ({
-        status: 'auth_required',
-        message: 'Authentication required.',
-      }),
-    );
+    const rest = vi.fn(async (): Promise<ClientSurfaceRestResponse<string>> => ({
+      status: 'auth_required',
+      message: 'Authentication required.',
+    }));
     const mcp = unusedAdapter();
 
     const result = await attachReusableClientSurface({
@@ -390,6 +385,136 @@ describe('attachReusableClientSurface', () => {
     expect(result.context.project.custom).toMatchObject({ team: 'platform' });
     expect(result.context.environment.variables?.ONE_MCP_TEST_VALUE).toBe('included');
     delete process.env.ONE_MCP_TEST_VALUE;
+  });
+
+  it('does not load URL-keyed auth profiles for remote target contexts or ephemeral URLs', async () => {
+    const remoteTarget = makeResolvedTarget({
+      runtimeTargetContext: {
+        name: 'prod',
+        kind: 'remote',
+      },
+      discoveredUrl: 'https://prod.example.com/mcp',
+      serverUrl: new URL('https://prod.example.com/mcp'),
+    });
+    const ports = makePorts({
+      target: remoteTarget,
+      authProfile: {
+        serverUrl: 'https://prod.example.com',
+        token: 'legacy-token',
+        savedAt: 1000,
+      },
+    });
+    const rest = vi.fn(async () => ({
+      status: 'success' as const,
+      value: { ok: true },
+    }));
+
+    const result = await attachReusableClientSurface({
+      clientSurface: 'run',
+      version: 'run',
+      options: { context: 'prod' },
+      ports,
+      rest,
+      mcp: unusedAdapter(),
+    });
+
+    expect(result.status).toBe('success');
+    if (result.status !== 'success') {
+      throw new Error(`Unexpected attachment status: ${result.status}`);
+    }
+    expect(ports.loadAuthProfile).not.toHaveBeenCalled();
+    expect(rest).toHaveBeenCalledWith(expect.objectContaining({ bearerToken: undefined }));
+
+    const ephemeralPorts = makePorts({
+      target: makeResolvedTarget({
+        mergedOptions: {
+          url: 'https://adhoc.example.com',
+        },
+        discoveredUrl: 'https://adhoc.example.com/mcp',
+        serverUrl: new URL('https://adhoc.example.com/mcp'),
+      }),
+      authProfile: {
+        serverUrl: 'https://adhoc.example.com',
+        token: 'legacy-url-token',
+        savedAt: 1000,
+      },
+    });
+
+    await attachReusableClientSurface({
+      clientSurface: 'inspect',
+      version: 'inspect',
+      options: { url: 'https://adhoc.example.com' },
+      ports: ephemeralPorts,
+      rest,
+      mcp: unusedAdapter(),
+    });
+
+    expect(ephemeralPorts.loadAuthProfile).not.toHaveBeenCalled();
+  });
+
+  it('formats authentication recovery for local, remote context, and ephemeral URL attachments', () => {
+    expect(
+      formatClientSurfaceAuthRequiredMessage({
+        baseUrl: 'http://127.0.0.1:3050',
+        options: {},
+        target: makeResolvedTarget(),
+      }),
+    ).toBe('Authentication required. Run: 1mcp auth login --url http://127.0.0.1:3050 --token <your-token>');
+
+    expect(
+      formatClientSurfaceAuthRequiredMessage({
+        baseUrl: 'https://prod.example.com',
+        options: { context: 'prod' },
+        target: makeResolvedTarget({
+          runtimeTargetContext: {
+            name: 'prod',
+            kind: 'remote',
+          },
+        }),
+      }),
+    ).toBe(
+      'Authentication required for target context "prod". Context-scoped credentials are required; URL-keyed auth profiles are not used for runtime targets.',
+    );
+
+    expect(
+      formatClientSurfaceAuthRequiredMessage({
+        baseUrl: 'https://adhoc.example.com',
+        options: { url: 'https://adhoc.example.com' },
+        target: makeResolvedTarget(),
+      }),
+    ).toBe(
+      'Authentication required for ephemeral URL target. Ephemeral URLs are credentialless; run: 1mcp target add <name> https://adhoc.example.com and retry with --context <name> after context-scoped credentials are available.',
+    );
+  });
+
+  it('prints remote runtime identity warnings to stderr during attachment', async () => {
+    const stderr = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+    const ports = makePorts({
+      target: makeResolvedTarget({
+        runtimeIdentityWarnings: [
+          {
+            code: 'warning_external_url_mismatch',
+            message: 'Runtime identity externalUrl differs from configured URL',
+          },
+        ],
+      }),
+    });
+
+    try {
+      await attachReusableClientSurface({
+        clientSurface: 'inspect',
+        version: 'inspect',
+        options: {},
+        ports,
+        rest: vi.fn(async () => ({ status: 'success' as const, value: 'ok' })),
+        mcp: unusedAdapter(),
+      });
+      expect(stderr).toHaveBeenCalledWith(
+        'warning_external_url_mismatch: Runtime identity externalUrl differs from configured URL\n',
+      );
+    } finally {
+      stderr.mockRestore();
+    }
   });
 });
 
