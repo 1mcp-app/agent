@@ -1,4 +1,5 @@
 import fs from 'node:fs';
+import path from 'node:path';
 
 import type { AdminConfiguredServerOperations } from '@src/domains/admin/adminConfiguredServerService.js';
 import { AdminIdentityService } from '@src/domains/admin/adminIdentityService.js';
@@ -9,6 +10,7 @@ import request from 'supertest';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { createAdminRoutes } from './adminRoutes.js';
+import { resolveDefaultAdminConsoleAssetsDir } from './adminRoutes.js';
 
 const runtimeIdentity = {
   identityProtocolVersion: '1',
@@ -59,7 +61,11 @@ describe('admin routes', () => {
   });
 
   function mountAdminRoutes(
-    options: { externalUrl?: string; configuredServerService?: AdminConfiguredServerOperations | null } = {},
+    options: {
+      externalUrl?: string;
+      configuredServerService?: AdminConfiguredServerOperations | null;
+      adminConsoleAssetsDir?: string;
+    } = {},
   ) {
     const app = express();
     app.use(express.json());
@@ -85,6 +91,7 @@ describe('admin routes', () => {
           },
         ],
       }),
+      adminConsoleAssetsDir: options.adminConsoleAssetsDir,
     });
 
     if (adminRoutes) {
@@ -92,6 +99,29 @@ describe('admin routes', () => {
     }
 
     return app;
+  }
+
+  function createAdminAssetFixture(): string {
+    const assetsRoot = `${storageDir}/admin-assets`;
+    fs.mkdirSync(`${assetsRoot}/assets`, { recursive: true });
+    fs.writeFileSync(
+      `${assetsRoot}/index.html`,
+      [
+        '<!doctype html>',
+        '<html lang="en">',
+        '<head>',
+        '<meta charset="UTF-8" />',
+        '<title>1MCP Admin Console</title>',
+        '<script type="module" crossorigin src="/admin/assets/admin-console.js"></script>',
+        '<link rel="stylesheet" crossorigin href="/admin/assets/admin-console.css" />',
+        '</head>',
+        '<body><div id="admin-root"></div></body>',
+        '</html>',
+      ].join(''),
+    );
+    fs.writeFileSync(`${assetsRoot}/assets/admin-console.js`, 'window.__adminConsoleSmoke = true;');
+    fs.writeFileSync(`${assetsRoot}/assets/admin-console.css`, '.admin-console { display: block; }');
+    return assetsRoot;
   }
 
   it('does not mount admin routes when admin HTTP surfaces are disabled', async () => {
@@ -165,6 +195,7 @@ describe('admin routes', () => {
       adminService,
       configuredServerService,
       getRuntimeIdentity: () => runtimeIdentity,
+      adminConsoleAssetsDir: createAdminAssetFixture(),
     });
 
     if (adminRoutes) {
@@ -176,10 +207,9 @@ describe('admin routes', () => {
 
     expect(adminResponse.status).toBe(200);
     expect(adminResponse.headers['content-type']).toContain('text/html');
-    expect(adminResponse.text).toContain('data-admin-status="setupRequired"');
-    expect(adminResponse.text).toContain('Setup required');
-    expect(adminResponse.text).toContain('1mcp admin bootstrap');
-    expect(adminResponse.text).not.toMatch(/create account|reset password/i);
+    expect(adminResponse.text).toContain('/admin/assets/admin-console.js');
+    expect(adminResponse.text).not.toMatch(/<script(?![^>]*\bsrc=)[^>]*>/i);
+    expect(adminResponse.text).not.toMatch(/<style[\s>]/i);
 
     expect(capabilitiesResponse.status).toBe(200);
     expect(capabilitiesResponse.body).toEqual({
@@ -214,42 +244,125 @@ describe('admin routes', () => {
     );
   });
 
-  it('serves a bundled admin console shell with login/logout controls and no account management controls', async () => {
+  it('serves the packaged admin console entrypoint without inline application code', async () => {
     await adminService.bootstrapFirstAdmin({ username: 'operator', password: 'correct horse battery staple' });
-    const app = mountAdminRoutes();
+    const app = mountAdminRoutes({ adminConsoleAssetsDir: createAdminAssetFixture() });
 
     const response = await request(app).get('/admin');
 
     expect(response.status).toBe(200);
     expect(response.headers['content-type']).toContain('text/html');
-    expect(response.text).toContain('data-admin-status="loginRequired"');
-    expect(response.text).toContain('id="login-form"');
-    expect(response.text).toContain('/admin/api/session/login');
-    expect(response.text).toContain('/admin/api/session/logout');
-    expect(response.text).toContain('/admin/api/status');
-    expect(response.text).toContain('/admin/api/configured-servers');
+    expect(response.text).toContain('<div id="admin-root"></div>');
+    expect(response.text).toContain('/admin/assets/admin-console.js');
+    expect(response.text).toContain('/admin/assets/admin-console.css');
+    expect(response.text).not.toMatch(/<script(?![^>]*\bsrc=)[^>]*>/i);
+    expect(response.text).not.toMatch(/<style[\s>]/i);
     expect(response.text).not.toMatch(/account create|disable account|delete account|password reset/i);
   });
 
-  it('includes short polling, manual refresh, hidden-tab polling reduction, and enable-disable UI states', async () => {
+  it('falls browser admin subroutes back to the SPA entrypoint', async () => {
     await adminService.bootstrapFirstAdmin({ username: 'operator', password: 'correct horse battery staple' });
-    const app = mountAdminRoutes();
+    const app = mountAdminRoutes({ adminConsoleAssetsDir: createAdminAssetFixture() });
+
+    const response = await request(app).get('/admin/workflows/runtime');
+
+    expect(response.status).toBe(200);
+    expect(response.headers['content-type']).toContain('text/html');
+    expect(response.text).toContain('/admin/assets/admin-console.js');
+  });
+
+  it('serves packaged admin console assets with long-lived cache headers', async () => {
+    await adminService.bootstrapFirstAdmin({ username: 'operator', password: 'correct horse battery staple' });
+    const app = mountAdminRoutes({ adminConsoleAssetsDir: createAdminAssetFixture() });
+
+    const response = await request(app).get('/admin/assets/admin-console.js');
+
+    expect(response.status).toBe(200);
+    expect(response.headers['content-type']).toContain('javascript');
+    expect(response.headers['cache-control']).toContain('public');
+    expect(response.headers['cache-control']).toContain('max-age=31536000');
+    expect(response.text).toBe('window.__adminConsoleSmoke = true;');
+  });
+
+  it('resolves the default admin console asset directory as a decoded filesystem path', () => {
+    const assetsDir = resolveDefaultAdminConsoleAssetsDir();
+
+    expect(path.isAbsolute(assetsDir)).toBe(true);
+    expect(assetsDir).toMatch(new RegExp(`${path.sep}admin$`));
+    expect(assetsDir).not.toContain('%20');
+  });
+
+  it('does not fall missing admin assets back to the SPA entrypoint', async () => {
+    await adminService.bootstrapFirstAdmin({ username: 'operator', password: 'correct horse battery staple' });
+    const app = mountAdminRoutes({ adminConsoleAssetsDir: createAdminAssetFixture() });
+
+    const response = await request(app).get('/admin/assets/missing.js');
+
+    expect(response.status).toBe(404);
+    expect(response.headers['content-type']).toContain('text/plain');
+    expect(response.text).not.toContain('<div id="admin-root"></div>');
+  });
+
+  it('keeps admin API and CLI routes ahead of the SPA fallback', async () => {
+    await adminService.bootstrapFirstAdmin({ username: 'operator', password: 'correct horse battery staple' });
+    const app = mountAdminRoutes({ adminConsoleAssetsDir: createAdminAssetFixture() });
+
+    const sessionResponse = await request(app).get('/admin/api/session');
+    const capabilitiesResponse = await request(app).get('/admin/cli/v1/capabilities');
+
+    expect(sessionResponse.status).toBe(401);
+    expect(sessionResponse.body).toEqual({ authenticated: false });
+    expect(sessionResponse.headers['content-type']).toContain('application/json');
+    expect(capabilitiesResponse.status).toBe(200);
+    expect(capabilitiesResponse.body).toMatchObject({
+      ok: true,
+      cliProtocolVersion: '1',
+      result: {
+        adminSurface: {
+          enabled: true,
+          status: 'loginRequired',
+        },
+      },
+    });
+    expect(capabilitiesResponse.headers['content-type']).toContain('application/json');
+  });
+
+  it('does not fall unknown admin API or CLI paths back to the SPA entrypoint', async () => {
+    await adminService.bootstrapFirstAdmin({ username: 'operator', password: 'correct horse battery staple' });
+    const app = mountAdminRoutes({ adminConsoleAssetsDir: createAdminAssetFixture() });
+    const loginResponse = await request(app)
+      .post('/admin/api/session/login')
+      .send({ username: 'operator', password: 'correct horse battery staple' });
+    const cookie = loginResponse.headers['set-cookie']?.[0] as string;
+
+    const apiResponse = await request(app).get('/admin/api/unknown').set('Cookie', cookie);
+    const cliResponse = await request(app).get('/admin/cli/v1/unknown');
+
+    expect(apiResponse.status).toBe(404);
+    expect(apiResponse.text).not.toContain('<div id="admin-root"></div>');
+    expect(cliResponse.status).toBe(404);
+    expect(cliResponse.text).not.toContain('<div id="admin-root"></div>');
+  });
+
+  it('serves setup-required state through the admin session API without account management facts', async () => {
+    const app = mountAdminRoutes({ adminConsoleAssetsDir: createAdminAssetFixture() });
+
+    const response = await request(app).get('/admin/api/session');
+
+    expect(response.status).toBe(401);
+    expect(response.body).toEqual({ authenticated: false, adminStatus: 'setupRequired' });
+    expect(JSON.stringify(response.body)).not.toMatch(/account|create|reset|password/i);
+  });
+
+  it('keeps SPA interaction logic out of the server-rendered entrypoint', async () => {
+    await adminService.bootstrapFirstAdmin({ username: 'operator', password: 'correct horse battery staple' });
+    const app = mountAdminRoutes({ adminConsoleAssetsDir: createAdminAssetFixture() });
 
     const response = await request(app).get('/admin');
 
-    expect(response.text).toContain('id="refresh-button"');
-    expect(response.text).toContain('document.visibilityState');
-    expect(response.text).toContain('POLL_INTERVAL_VISIBLE_MS = 5000');
-    expect(response.text).toContain('POLL_INTERVAL_HIDDEN_MS = 60000');
-    expect(response.text).toContain("document.addEventListener('visibilitychange'");
-    expect(response.text).toContain('async function enableServer');
-    expect(response.text).toContain('async function disableServer');
-    expect(response.text).toContain('Idempotency-Key');
-    expect(response.text).toContain('server-action-success');
-    expect(response.text).toContain('server-action-error');
-    expect(response.text).toContain('async function refreshConsole');
-    expect(response.text).toContain('Session loaded, but refresh failed: ');
-    expect(response.text).toContain('Login succeeded, but refresh failed: ');
+    expect(response.text).not.toContain('document.visibilityState');
+    expect(response.text).not.toContain('async function enableServer');
+    expect(response.text).not.toContain('Idempotency-Key');
   });
 
   it('logs in with an admin account, validates the current session, and logs out with CSRF', async () => {

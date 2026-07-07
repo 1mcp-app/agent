@@ -1,3 +1,7 @@
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+
 import type { BackendOAuthDashboardResult } from '@src/auth/oauthAuthorizationFlow.js';
 import { RuntimeIdentity } from '@src/core/runtime/runtimeIdentityService.js';
 import type { AdminConfiguredServerOperations } from '@src/domains/admin/adminConfiguredServerService.js';
@@ -10,9 +14,7 @@ import {
 import type { AdminOperationContext, AdminOperationResult } from '@src/domains/admin/adminOperationService.js';
 import { sanitizeErrorMessage } from '@src/utils/validation/sanitization.js';
 
-import { Request, Response, Router } from 'express';
-
-import { renderAdminConsoleHtml } from './adminConsoleHtml.js';
+import express, { Request, Response, Router } from 'express';
 
 const FAILED_LOGIN_LIMIT = 5;
 const FAILED_LOGIN_WINDOW_MS = 15 * 60 * 1000;
@@ -27,6 +29,7 @@ interface AdminRoutesOptions {
   configuredServerService?: AdminConfiguredServerOperations;
   getRuntimeIdentity: () => RuntimeIdentity;
   getOAuthDashboard?: () => BackendOAuthDashboardResult;
+  adminConsoleAssetsDir?: string;
 }
 
 export function createAdminRoutes(options: AdminRoutesOptions): Router | null {
@@ -37,18 +40,8 @@ export function createAdminRoutes(options: AdminRoutesOptions): Router | null {
 
   const router = Router();
   const failedLoginLimiter = new FailedLoginLimiter();
+  const adminConsoleAssets = resolveAdminConsoleAssets(options.adminConsoleAssetsDir);
   options.adminService.bootstrapFirstAdminFromEnvironment();
-
-  router.get('/', (_req, res) => {
-    res
-      .status(200)
-      .type('html')
-      .send(
-        renderAdminConsoleHtml({
-          status: options.adminService.hasAdminAccount() ? 'loginRequired' : 'setupRequired',
-        }),
-      );
-  });
 
   router.get('/cli/v1/capabilities', (req, res) => {
     const identity = options.getRuntimeIdentity();
@@ -182,7 +175,7 @@ export function createAdminRoutes(options: AdminRoutesOptions): Router | null {
     const sessionToken = getAdminSessionCookie(req);
     const session = options.adminService.validateSession(sessionToken);
     if (!session) {
-      res.status(401).json({ authenticated: false });
+      res.status(401).json(unauthenticatedAdminApiResponse(options));
       return;
     }
 
@@ -266,7 +259,64 @@ export function createAdminRoutes(options: AdminRoutesOptions): Router | null {
     await handleConfiguredServerMutation(req, res, options, 'disableConfiguredServer');
   });
 
+  router.use(
+    '/assets',
+    express.static(path.join(adminConsoleAssets.rootDir, 'assets'), {
+      immutable: true,
+      maxAge: '1y',
+    }),
+  );
+
+  router.use('/assets', (_req, res) => {
+    res.status(404).type('text/plain').send('Admin Console asset not found');
+  });
+
+  router.get(['/', '/*splat'], (req, res, next) => {
+    if (isAdminApiPath(req.path)) {
+      next();
+      return;
+    }
+
+    sendAdminConsoleIndex(res, adminConsoleAssets.indexPath);
+  });
+
   return router;
+}
+
+function resolveAdminConsoleAssets(configuredDir?: string): { rootDir: string; indexPath: string } {
+  const rootDir = configuredDir ?? resolveDefaultAdminConsoleAssetsDir();
+  return {
+    rootDir,
+    indexPath: path.join(rootDir, 'index.html'),
+  };
+}
+
+export function resolveDefaultAdminConsoleAssetsDir(): string {
+  return fileURLToPath(new URL('../../../admin', import.meta.url));
+}
+
+function isAdminApiPath(pathname: string): boolean {
+  return (
+    pathname === '/api' || pathname.startsWith('/api/') || pathname === '/cli/v1' || pathname.startsWith('/cli/v1/')
+  );
+}
+
+function sendAdminConsoleIndex(res: Response, indexPath: string): void {
+  if (!fs.existsSync(indexPath)) {
+    res.status(503).type('text/plain').send('Admin Console assets are not available. Run the package build first.');
+    return;
+  }
+
+  res.status(200).sendFile(indexPath);
+}
+
+function unauthenticatedAdminApiResponse(options: AdminRoutesOptions): {
+  authenticated: false;
+  adminStatus?: 'setupRequired';
+} {
+  return options.adminService.hasAdminAccount()
+    ? { authenticated: false }
+    : { authenticated: false, adminStatus: 'setupRequired' };
 }
 
 async function handleCliConfiguredServerMutation(
