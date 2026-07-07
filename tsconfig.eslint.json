@@ -10,6 +10,7 @@
     "vitest.e2e.config.ts",
     "*.js",
     "*.ts",
+    "web/admin/**/*.ts",
     "docs/.vitepress/**/*.ts"
   ]
 }

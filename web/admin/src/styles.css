@@ -1,0 +1,61 @@
+:root {
+  color-scheme: light;
+  --admin-ink: #111827;
+  --admin-surface: #f7f8fa;
+  --admin-panel: #ffffff;
+  --admin-line: #d9dee8;
+  --admin-action: #0e7c66;
+  --admin-muted: #5d6675;
+  font-family:
+    Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--admin-surface);
+  color: var(--admin-ink);
+  font-size: 13px;
+  line-height: 1.35;
+}
+
+button,
+input {
+  font: inherit;
+}
+
+button:focus-visible,
+input:focus-visible {
+  outline: 2px solid var(--admin-action);
+  outline-offset: 2px;
+}
+
+.admin-console {
+  min-height: 100vh;
+}
+
+.status-strip {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1px;
+  background: var(--admin-line);
+  border-bottom: 1px solid var(--admin-line);
+}
+
+.status-cell {
+  min-width: 0;
+  padding: 8px 12px;
+  background: var(--admin-panel);
+}
+
+.status-label {
+  display: block;
+  color: var(--admin-muted);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0;
+  text-transform: uppercase;
+}

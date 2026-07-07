@@ -98,6 +98,21 @@ export default [
       'no-console': 'off',
     },
   },
+  // Admin Console SPA runs in the browser.
+  {
+    files: ['web/admin/src/**/*.ts'],
+    languageOptions: {
+      globals: {
+        ...globals.browser,
+        ...globals.es2022,
+        Buffer: 'off',
+        __dirname: 'off',
+        __filename: 'off',
+        global: 'off',
+        process: 'off',
+      },
+    },
+  },
   // Wizard TUI - allow console.clear() for screen management
   {
     files: ['src/commands/mcp/wizard/**/*.ts', 'src/commands/mcp/install.ts'],
