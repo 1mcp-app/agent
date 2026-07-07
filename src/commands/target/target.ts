@@ -1,7 +1,12 @@
+import fs from 'node:fs';
+
 import type { GlobalOptions } from '@src/globalOptions.js';
 import { discoverServerWithPidFile as defaultDiscoverServerWithPidFile } from '@src/utils/validation/urlDetection.js';
 
-import { fetchRuntimeIdentity as defaultFetchRuntimeIdentity } from '../../domains/runtime-targets/runtimeIdentityVerification.js';
+import {
+  fetchRuntimeIdentity as defaultFetchRuntimeIdentity,
+  type RuntimeTargetTlsOptions,
+} from '../../domains/runtime-targets/runtimeIdentityVerification.js';
 import {
   assertRuntimeTargetConfigDirAllowed,
   type RuntimeTargetListEntry,
@@ -12,7 +17,7 @@ import {
 
 export interface TargetCommandDependencies {
   store?: RuntimeTargetStore;
-  fetchRuntimeIdentity?: (url: string) => Promise<RuntimeTargetObservedIdentity>;
+  fetchRuntimeIdentity?: (url: string, tls?: RuntimeTargetTlsOptions) => Promise<RuntimeTargetObservedIdentity>;
   discoverServerWithPidFile?: typeof defaultDiscoverServerWithPidFile;
 }
 
@@ -26,8 +31,18 @@ export interface TargetAddOptions extends TargetCommandBaseOptions {
   replace?: boolean;
   displayName?: string;
   'display-name'?: string;
+  caFile?: string;
+  'ca-file'?: string;
+  insecureSkipVerify?: boolean;
+  'insecure-skip-verify'?: boolean;
   acceptNewIdentity?: boolean;
   'accept-new-identity'?: boolean;
+}
+
+export interface TargetUseOptions extends TargetCommandBaseOptions {
+  json?: boolean;
+  acceptInsecureTls?: boolean;
+  'accept-insecure-tls'?: boolean;
 }
 
 export interface TargetRenameOptions extends GlobalOptions {
@@ -41,13 +56,38 @@ export interface TargetDeleteOptions extends TargetCommandBaseOptions {
   force?: boolean;
 }
 
+export interface TargetVerifyOptions extends TargetCommandBaseOptions {
+  json?: boolean;
+  acceptInsecureTls?: boolean;
+  'accept-insecure-tls'?: boolean;
+}
+
+export interface TargetExportOptions extends GlobalOptions {
+  output?: string;
+}
+
+export interface TargetImportOptions extends GlobalOptions {
+  file?: string;
+  json?: boolean;
+  dryRun?: boolean;
+  'dry-run'?: boolean;
+}
+
+export interface TargetDoctorOptions extends GlobalOptions {
+  fixSecrets?: boolean;
+  'fix-secrets'?: boolean;
+  pruneOrphans?: boolean;
+  'prune-orphans'?: boolean;
+}
+
 export class TargetCommandError extends Error {
   constructor(
     public readonly code: string,
     message: string,
     public readonly recoveryCommand?: string,
+    public readonly details?: unknown,
   ) {
-    super(`${code}: ${message}${recoveryCommand ? `\nRecovery: ${recoveryCommand}` : ''}`);
+    super(message);
     this.name = 'TargetCommandError';
   }
 }
@@ -68,16 +108,23 @@ export async function targetAddCommand(
     const store = dependencies.store ?? new RuntimeTargetStore();
     const fetchRuntimeIdentity = dependencies.fetchRuntimeIdentity ?? defaultFetchRuntimeIdentity;
     const displayName = options.displayName ?? options['display-name'];
+    const caFile = options.caFile ?? options['ca-file'];
+    const insecureSkipVerify = Boolean(options.insecureSkipVerify ?? options['insecure-skip-verify']);
 
     if (options.replace) {
       validateRuntimeTargetName(name);
       const existing = store.inspect(name);
       const previousRuntimeScopeId = existing.observedIdentity?.runtimeScopeId;
-      const observedIdentity = await fetchRuntimeIdentity(url);
+      const tlsOptions = targetTlsOptions({ caFile, insecureSkipVerify });
+      const observedIdentity = tlsOptions
+        ? await fetchRuntimeIdentity(url, tlsOptions)
+        : await fetchRuntimeIdentity(url);
       const replacement: Parameters<RuntimeTargetStore['replaceVerifiedTarget']>[0] = {
         name,
         url,
         observedIdentity,
+        caFile,
+        insecureSkipVerify,
         acceptNewIdentity: Boolean(options.acceptNewIdentity ?? options['accept-new-identity']),
       };
       if (displayName !== undefined) {
@@ -96,9 +143,17 @@ export async function targetAddCommand(
         name,
         url,
         displayName,
+        caFile,
+        insecureSkipVerify,
         use: Boolean(options.use),
       },
-      ({ url: preparedUrl }) => fetchRuntimeIdentity(preparedUrl),
+      ({ url: preparedUrl, caFile: preparedCaFile, insecureSkipVerify: preparedInsecureSkipVerify }) => {
+        const tlsOptions = targetTlsOptions({
+          caFile: preparedCaFile,
+          insecureSkipVerify: preparedInsecureSkipVerify,
+        });
+        return tlsOptions ? fetchRuntimeIdentity(preparedUrl, tlsOptions) : fetchRuntimeIdentity(preparedUrl);
+      },
     );
 
     process.stdout.write(`Added runtime target "${target.name}" (${target.url}).\n`);
@@ -111,7 +166,7 @@ export async function targetAddCommand(
 }
 
 export async function targetUseCommand(
-  options: TargetCommandBaseOptions,
+  options: TargetUseOptions,
   dependencies: TargetCommandDependencies = {},
 ): Promise<void> {
   await withTargetErrors(async () => {
@@ -122,7 +177,17 @@ export async function targetUseCommand(
       configDir: options['config-dir'],
     });
 
-    const result = (dependencies.store ?? new RuntimeTargetStore()).useTarget(name);
+    const result = (dependencies.store ?? new RuntimeTargetStore()).useTarget(name, {
+      acceptInsecureTls: Boolean(options.acceptInsecureTls ?? options['accept-insecure-tls']),
+    });
+    if (options.json) {
+      writeTargetJsonSuccess({
+        operation: 'target.use',
+        warnings: result.warnings,
+        result,
+      });
+      return;
+    }
     process.stdout.write(
       `Current target: ${result.target.name}${result.target.synthetic ? ' (synthetic local)' : ''}\n`,
     );
@@ -186,6 +251,102 @@ export async function targetInspectCommand(
   });
 }
 
+export async function targetExportCommand(
+  options: TargetExportOptions,
+  dependencies: TargetCommandDependencies = {},
+): Promise<void> {
+  await withTargetErrors(async () => {
+    assertRuntimeTargetConfigDirAllowed({
+      command: 'target-store',
+      targetName: 'export',
+      configDir: options['config-dir'],
+    });
+
+    const bundle = (dependencies.store ?? new RuntimeTargetStore()).exportTargetBundle();
+    const serialized = `${JSON.stringify(bundle, null, 2)}\n`;
+    if (options.output) {
+      fs.writeFileSync(options.output, serialized, 'utf8');
+      process.stdout.write(`Exported runtime target bundle to ${options.output}.\n`);
+      return;
+    }
+    process.stdout.write(serialized);
+  });
+}
+
+export async function targetImportCommand(
+  options: TargetImportOptions,
+  dependencies: TargetCommandDependencies = {},
+): Promise<void> {
+  await withTargetErrors(async () => {
+    const file = requireOption(options.file, 'target import file');
+    assertRuntimeTargetConfigDirAllowed({
+      command: 'target-store',
+      targetName: 'import',
+      configDir: options['config-dir'],
+    });
+
+    const bundle = parseImportBundle(await readImportBundle(file));
+    const store = dependencies.store ?? new RuntimeTargetStore();
+    const dryRun = Boolean(options.dryRun ?? options['dry-run']);
+    const result = dryRun ? store.previewImportTargetBundle(bundle) : store.importTargetBundle(bundle);
+    if (options.json) {
+      writeTargetJsonSuccess({
+        operation: 'target.import',
+        warnings: result.warnings,
+        result: {
+          mode: dryRun ? 'dry_run' : 'import',
+          additions: result.additions,
+          validationFacts: result.validationFacts,
+        },
+      });
+      return;
+    }
+    process.stdout.write(
+      `${dryRun ? 'Dry run: would import' : 'Imported'} ${result.additions.length} runtime target(s).\n`,
+    );
+    for (const addition of result.additions) {
+      process.stdout.write(`- ${addition.name} ${addition.url}\n`);
+    }
+    for (const warning of result.warnings) {
+      process.stdout.write(`${warning.code}: ${warning.message}\n`);
+    }
+  });
+}
+
+export async function targetDoctorCommand(
+  options: TargetDoctorOptions,
+  dependencies: TargetCommandDependencies = {},
+): Promise<void> {
+  await withTargetErrors(async () => {
+    assertRuntimeTargetConfigDirAllowed({
+      command: 'target-store',
+      targetName: 'doctor',
+      configDir: options['config-dir'],
+    });
+
+    const result = (dependencies.store ?? new RuntimeTargetStore()).doctor({
+      fixSecrets: Boolean(options.fixSecrets ?? options['fix-secrets']),
+      pruneOrphans: Boolean(options.pruneOrphans ?? options['prune-orphans']),
+    });
+
+    if (result.issues.length === 0) {
+      process.stdout.write('No runtime target store issues found.\n');
+    } else {
+      process.stdout.write('Issues:\n');
+      for (const issue of result.issues) {
+        process.stdout.write(formatDoctorLine(issue));
+      }
+    }
+
+    if (result.repairs.length > 0) {
+      process.stdout.write('Repairs:\n');
+      for (const repair of result.repairs) {
+        process.stdout.write(formatDoctorLine(repair));
+      }
+    }
+  });
+}
+
 export async function targetDeleteCommand(
   options: TargetDeleteOptions,
   dependencies: TargetCommandDependencies = {},
@@ -222,7 +383,7 @@ export async function targetRenameCommand(
 }
 
 export async function targetVerifyCommand(
-  options: TargetCommandBaseOptions,
+  options: TargetVerifyOptions,
   dependencies: TargetCommandDependencies = {},
 ): Promise<void> {
   await withTargetErrors(async () => {
@@ -234,19 +395,53 @@ export async function targetVerifyCommand(
       const discoverServerWithPidFile = dependencies.discoverServerWithPidFile ?? defaultDiscoverServerWithPidFile;
       const discovered = await discoverServerWithPidFile(options['config-dir']);
       const observedIdentity = await fetchRuntimeIdentity(discovered.url);
+      if (options.json) {
+        writeTargetJsonSuccess({
+          operation: 'target.verify',
+          warnings: [],
+          result: {
+            target: {
+              name: 'local',
+              kind: 'local',
+              synthetic: true,
+              url: discovered.url,
+            },
+            observedIdentity,
+          },
+        });
+        return;
+      }
       process.stdout.write(`Verified local runtime (${discovered.url}).\n`);
       process.stdout.write(`${formatIdentityDetails(observedIdentity)}`);
       return;
     }
 
     const store = dependencies.store ?? new RuntimeTargetStore();
-    const target = store.inspect(name);
+    const target = store.requireInsecureTlsConfirmation({
+      name,
+      operation: 'verify',
+      acceptInsecureTls: Boolean(options.acceptInsecureTls ?? options['accept-insecure-tls']),
+    });
     if (target.kind !== 'remote' || !target.url) {
       throw new TargetCommandError('target_local_reserved', 'The built-in local target has no stored metadata');
     }
 
-    const observedIdentity = await fetchRuntimeIdentity(target.url);
+    const tlsOptions = targetTlsOptions({
+      caFile: target.caFile,
+      insecureSkipVerify: target.insecureSkipVerify,
+    });
+    const observedIdentity = tlsOptions
+      ? await fetchRuntimeIdentity(target.url, tlsOptions)
+      : await fetchRuntimeIdentity(target.url);
     const result = updateObservedIdentityWithRecovery(store, name, target.url, observedIdentity);
+    if (options.json) {
+      writeTargetJsonSuccess({
+        operation: 'target.verify',
+        warnings: result.warnings,
+        result,
+      });
+      return;
+    }
     process.stdout.write(`Verified runtime target "${name}" (${target.url}).\n`);
     for (const warning of result.warnings) {
       process.stdout.write(`${warning.code}: ${warning.message}\n`);
@@ -310,9 +505,19 @@ function normalizeTargetError(error: unknown): Error {
       error.code,
       error.message,
       'recoveryCommand' in error && typeof error.recoveryCommand === 'string' ? error.recoveryCommand : undefined,
+      'details' in error ? error.details : undefined,
     );
   }
   return error instanceof Error ? error : new Error(String(error));
+}
+
+function targetTlsOptions(tls: RuntimeTargetTlsOptions): RuntimeTargetTlsOptions | undefined {
+  return tls.caFile || tls.insecureSkipVerify
+    ? {
+        ...(tls.caFile ? { caFile: tls.caFile } : {}),
+        ...(tls.insecureSkipVerify ? { insecureSkipVerify: true } : {}),
+      }
+    : undefined;
 }
 
 function isCodedError(error: unknown): error is { code: string; message: string; recoveryCommand?: string } {
@@ -326,11 +531,73 @@ function isCodedError(error: unknown): error is { code: string; message: string;
   );
 }
 
+function writeTargetJsonSuccess(input: {
+  operation: string;
+  warnings: Array<{ code: string; message: string; targetName?: string }>;
+  result: unknown;
+}): void {
+  process.stdout.write(
+    `${JSON.stringify({
+      ok: true,
+      cliProtocolVersion: '1',
+      requestId: createCliRequestId(),
+      operation: input.operation,
+      warnings: input.warnings.map((warning) => ({
+        code: warning.code,
+        message: warning.message,
+        ...(warning.targetName ? { details: { targetName: warning.targetName } } : {}),
+      })),
+      result: input.result,
+    })}\n`,
+  );
+}
+
+function createCliRequestId(): string {
+  return `cli_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`;
+}
+
 function requireOption(value: string | undefined, label: string): string {
   if (!value) {
     throw new TargetCommandError('target_argument_missing', `Missing ${label}`);
   }
   return value;
+}
+
+async function readImportBundle(file: string): Promise<string> {
+  if (file !== '-') {
+    return fs.readFileSync(file, 'utf8');
+  }
+
+  const chunks: Buffer[] = [];
+  for await (const chunk of process.stdin) {
+    chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(String(chunk)));
+  }
+  return Buffer.concat(chunks).toString('utf8');
+}
+
+function parseImportBundle(input: string): unknown {
+  try {
+    return JSON.parse(input) as unknown;
+  } catch {
+    throw new TargetCommandError(
+      'target_import_validation_failed',
+      'Runtime target import bundle failed validation',
+      undefined,
+      {
+        validationFacts: [
+          {
+            code: 'invalid_bundle_schema',
+            message: 'Runtime target import file must contain valid JSON',
+          },
+        ],
+      },
+    );
+  }
+}
+
+function formatDoctorLine(entry: { code: string; targetName?: string; message: string }): string {
+  const targetName = entry.targetName ? ` target=${entry.targetName}` : '';
+  return `- ${entry.code}${targetName}: ${entry.message}\n`;
 }
 
 function formatListEntry(target: RuntimeTargetListEntry): string {

@@ -1,5 +1,9 @@
 import { getConfigDir } from '@src/constants.js';
 import { discoverScopedRuntime } from '@src/core/server/runtimeLifecycle.js';
+import {
+  fetchRuntimeTargetUrl,
+  type RuntimeTargetTlsOptions,
+} from '@src/domains/runtime-targets/runtimeIdentityVerification.js';
 import { debugIf } from '@src/logger/logger.js';
 import { createSafeErrorMessage } from '@src/logger/secureLogger.js';
 import { normalizedArgv } from '@src/utils/cli/normalizedArgv.js';
@@ -176,7 +180,10 @@ export async function getServer1mcpUrl(userOverrideUrl?: string): Promise<string
 /**
  * Validate that a URL is accessible and appears to be a 1mcp server
  */
-export async function validateServer1mcpUrl(url: string): Promise<{
+export async function validateServer1mcpUrl(
+  url: string,
+  tls?: RuntimeTargetTlsOptions,
+): Promise<{
   valid: boolean;
   error?: string;
 }> {
@@ -186,8 +193,9 @@ export async function validateServer1mcpUrl(url: string): Promise<{
     const baseUrl = url.replace(/\/mcp\/?$/, '');
 
     // Test basic connectivity to OAuth endpoint (which always exists)
-    const oauthResponse = await fetch(`${baseUrl}/oauth/`, {
+    const oauthResponse = await fetchRuntimeTargetUrl(`${baseUrl}/oauth/`, {
       signal: AbortSignal.timeout(5000),
+      tls,
     });
 
     if (!oauthResponse.ok) {

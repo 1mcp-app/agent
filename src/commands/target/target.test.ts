@@ -14,6 +14,9 @@ import {
   type TargetCommandDependencies,
   targetCurrentCommand,
   targetDeleteCommand,
+  targetDoctorCommand,
+  targetExportCommand,
+  targetImportCommand,
   targetInspectCommand,
   targetListCommand,
   targetRenameCommand,
@@ -78,6 +81,30 @@ describe('target commands', () => {
     );
 
     expect(store.current()).toMatchObject({ name: 'staging', current: true });
+  });
+
+  it('passes TLS trust metadata through target add', async () => {
+    const store = createStore();
+    const fetchRuntimeIdentity = vi.fn(async () => identity());
+
+    await targetAddCommand(
+      {
+        name: 'prod',
+        url: 'https://prod.example.com',
+        caFile: '/etc/ssl/prod-ca.pem',
+        insecureSkipVerify: true,
+      },
+      deps({ store, fetchRuntimeIdentity }),
+    );
+
+    expect(fetchRuntimeIdentity).toHaveBeenCalledWith('https://prod.example.com', {
+      caFile: '/etc/ssl/prod-ca.pem',
+      insecureSkipVerify: true,
+    });
+    expect(store.inspect('prod')).toMatchObject({
+      caFile: '/etc/ssl/prod-ca.pem',
+      insecureSkipVerify: true,
+    });
   });
 
   it('replaces a target URL with the same identity and requires explicit acceptance for identity changes', async () => {
@@ -213,6 +240,25 @@ describe('target commands', () => {
       credentialReferences: { oauth: false, adminSession: true },
     });
 
+    addVerified(
+      store,
+      'custom-tls',
+      { runtimeScopeId: 'scope_tls', externalUrl: 'https://custom-tls.example.com' },
+      { caFile: '/etc/ssl/custom-ca.pem', insecureSkipVerify: true },
+    );
+    const customTlsFetch = vi.fn(async () =>
+      identity({
+        runtimeScopeId: 'scope_tls',
+        externalUrl: 'https://custom-tls.example.com',
+        runtimeVersion: '0.36.0',
+      }),
+    );
+    await targetVerifyCommand({ name: 'custom-tls' }, deps({ store, fetchRuntimeIdentity: customTlsFetch }));
+    expect(customTlsFetch).toHaveBeenCalledWith('https://custom-tls.example.com', {
+      caFile: '/etc/ssl/custom-ca.pem',
+      insecureSkipVerify: true,
+    });
+
     const localStoreDir = fs.mkdtempSync(path.join(os.tmpdir(), 'target-local-verify-'));
     try {
       await targetVerifyCommand(
@@ -236,6 +282,256 @@ describe('target commands', () => {
     }
   });
 
+  it('exports target metadata to stdout or a file without credentials or current pointer', async () => {
+    const store = createStore();
+    addVerified(store, 'prod', {}, { use: true, caFile: '/etc/ssl/prod-ca.pem' });
+    store.setCredentialReferences('prod', 'scope_prod', {
+      oauth: { profileId: 'oauth_ref' },
+      adminSession: { handleId: 'admin_ref' },
+    });
+
+    await targetExportCommand({}, deps({ store }));
+
+    const stdoutBundle = JSON.parse(stdout.mock.calls.map((call: unknown[]) => String(call[0])).join('')) as {
+      targetBundleVersion: 1;
+      targets: Array<Record<string, unknown>>;
+      current?: string;
+    };
+    expect(stdoutBundle).toMatchObject({
+      targetBundleVersion: 1,
+      targets: [expect.objectContaining({ name: 'prod', caFile: '/etc/ssl/prod-ca.pem' })],
+    });
+    expect(stdoutBundle.current).toBeUndefined();
+    expect(JSON.stringify(stdoutBundle)).not.toContain('oauth_ref');
+    expect(JSON.stringify(stdoutBundle)).not.toContain('admin_ref');
+
+    stdout.mockClear();
+    const output = path.join(storeDir, 'bundle.json');
+    await targetExportCommand({ output }, deps({ store }));
+
+    expect(stdout).toHaveBeenCalledWith(`Exported runtime target bundle to ${output}.\n`);
+    expect(JSON.parse(fs.readFileSync(output, 'utf8'))).toMatchObject({
+      targetBundleVersion: 1,
+      targets: [expect.objectContaining({ name: 'prod' })],
+    });
+  });
+
+  it('imports target bundle files with dry-run validation and per-entry validation errors', async () => {
+    const store = createStore();
+    const bundlePath = path.join(storeDir, 'bundle.json');
+    fs.writeFileSync(
+      bundlePath,
+      `${JSON.stringify({
+        targetBundleVersion: 1,
+        targets: [
+          {
+            name: 'lab',
+            url: 'https://lab.example.com/?ignored=1#hash',
+            displayName: ' Lab ',
+            insecureSkipVerify: true,
+          },
+        ],
+      })}\n`,
+    );
+
+    await targetImportCommand({ file: bundlePath, dryRun: true }, deps({ store }));
+
+    expect(() => store.inspect('lab')).toThrowError(expect.objectContaining({ code: 'target_not_found' }));
+    expect(stdout.mock.calls.map((call: unknown[]) => String(call[0])).join('')).toContain('Dry run');
+
+    stdout.mockClear();
+    await targetImportCommand({ file: bundlePath }, deps({ store }));
+
+    expect(store.inspect('lab')).toMatchObject({
+      name: 'lab',
+      url: 'https://lab.example.com',
+      displayName: 'Lab',
+      insecureSkipVerify: true,
+      insecureTlsConfirmationRequired: true,
+      credentialReferences: { oauth: false, adminSession: false },
+    });
+
+    const invalidPath = path.join(storeDir, 'invalid-bundle.json');
+    fs.writeFileSync(
+      invalidPath,
+      `${JSON.stringify({
+        targetBundleVersion: 1,
+        targets: [
+          { name: 'lab', url: 'https://conflict.example.com' },
+          { name: 'local', url: 'https://reserved.example.com' },
+        ],
+      })}\n`,
+    );
+
+    await expect(targetImportCommand({ file: invalidPath }, deps({ store }))).rejects.toMatchObject({
+      code: 'target_import_validation_failed',
+      details: {
+        validationFacts: expect.arrayContaining([
+          expect.objectContaining({ code: 'target_name_conflict', targetName: 'lab' }),
+          expect.objectContaining({ code: 'reserved_local_target', targetName: 'local' }),
+        ]),
+      },
+      message: 'Runtime target import bundle failed validation',
+    });
+  });
+
+  it('prints a single structured JSON object for clean import dry-runs with warnings', async () => {
+    const store = createStore();
+    const bundlePath = path.join(storeDir, 'bundle-warnings.json');
+    fs.writeFileSync(
+      bundlePath,
+      `${JSON.stringify({
+        targetBundleVersion: 1,
+        targets: [
+          {
+            name: 'lab',
+            url: 'https://lab.example.com',
+            caFile: '/missing/lab-ca.pem',
+            insecureSkipVerify: true,
+          },
+        ],
+      })}\n`,
+    );
+
+    await targetImportCommand({ file: bundlePath, dryRun: true, json: true }, deps({ store }));
+
+    const envelope = JSON.parse(stdout.mock.calls.map((call: unknown[]) => String(call[0])).join('')) as {
+      ok: true;
+      cliProtocolVersion: string;
+      requestId: string;
+      operation: string;
+      warnings: Array<{ code: string; details?: unknown }>;
+      result: unknown;
+    };
+    expect(envelope).toMatchObject({
+      ok: true,
+      cliProtocolVersion: '1',
+      operation: 'target.import',
+      warnings: expect.arrayContaining([
+        expect.objectContaining({ code: 'warning_missing_ca_file' }),
+        expect.objectContaining({ code: 'warning_insecure_tls_confirmation_required' }),
+      ]),
+      result: {
+        mode: 'dry_run',
+        additions: [expect.objectContaining({ name: 'lab', url: 'https://lab.example.com' })],
+      },
+    });
+    expect(envelope.requestId).toEqual(expect.any(String));
+  });
+
+  it('runs target doctor offline and prints narrow repairs', async () => {
+    const store = createStore();
+    addVerified(store, 'prod');
+    const secretsPath = path.join(storeDir, 'runtime-target-secrets.json');
+    fs.writeFileSync(
+      secretsPath,
+      JSON.stringify(
+        {
+          schemaVersion: 1,
+          credentials: {
+            orphan: { scope_orphan: { oauth: { profileId: 'orphan_oauth' } } },
+          },
+        },
+        null,
+        2,
+      ),
+      { mode: 0o644 },
+    );
+    fs.chmodSync(secretsPath, 0o644);
+
+    await targetDoctorCommand({ fixSecrets: true, pruneOrphans: true }, deps({ store }));
+
+    const output = stdout.mock.calls.map((call: unknown[]) => String(call[0])).join('');
+    expect(output).toContain('secret_store_insecure_permissions');
+    expect(output).toContain('orphaned_credentials');
+    expect(output).toContain('fixed_secret_store_permissions');
+    expect(output).toContain('pruned_orphaned_credentials');
+    expect(fs.statSync(secretsPath).mode & 0o777).toBe(0o600);
+  });
+
+  it('requires and clears imported insecure TLS confirmation for target use and verify before identity fetch', async () => {
+    const store = createStore();
+    store.importTargetBundle({
+      targetBundleVersion: 1,
+      targets: [
+        { name: 'use-lab', url: 'https://use-lab.example.com', insecureSkipVerify: true },
+        { name: 'verify-lab', url: 'https://verify-lab.example.com', insecureSkipVerify: true },
+      ],
+    });
+    const fetchRuntimeIdentity = vi.fn(async () =>
+      identity({ runtimeScopeId: 'scope_verify_lab', externalUrl: 'https://verify-lab.example.com' }),
+    );
+
+    await expect(targetUseCommand({ name: 'use-lab' }, deps({ store }))).rejects.toMatchObject({
+      code: 'target_insecure_tls_confirmation_required',
+      recoveryCommand: '1mcp target use use-lab --accept-insecure-tls',
+    });
+
+    await targetUseCommand({ name: 'use-lab', acceptInsecureTls: true }, deps({ store }));
+    expect(store.inspect('use-lab')).toMatchObject({ insecureTlsConfirmationRequired: false });
+
+    await expect(
+      targetVerifyCommand({ name: 'verify-lab' }, deps({ store, fetchRuntimeIdentity })),
+    ).rejects.toMatchObject({
+      code: 'target_insecure_tls_confirmation_required',
+      recoveryCommand: '1mcp target verify verify-lab --accept-insecure-tls',
+    });
+    expect(fetchRuntimeIdentity).not.toHaveBeenCalled();
+
+    await targetVerifyCommand({ name: 'verify-lab', acceptInsecureTls: true }, deps({ store, fetchRuntimeIdentity }));
+    expect(fetchRuntimeIdentity).toHaveBeenCalledWith('https://verify-lab.example.com', {
+      insecureSkipVerify: true,
+    });
+    expect(store.inspect('verify-lab')).toMatchObject({ insecureTlsConfirmationRequired: false });
+  });
+
+  it('prints JSON success envelopes for accepted insecure TLS use and verify', async () => {
+    const store = createStore();
+    store.importTargetBundle({
+      targetBundleVersion: 1,
+      targets: [
+        { name: 'use-lab', url: 'https://use-lab.example.com', insecureSkipVerify: true },
+        { name: 'verify-lab', url: 'https://verify-lab.example.com', insecureSkipVerify: true },
+      ],
+    });
+    const fetchRuntimeIdentity = vi.fn(async () =>
+      identity({ runtimeScopeId: 'scope_verify_lab', externalUrl: 'https://verify-lab.example.com' }),
+    );
+
+    await targetUseCommand({ name: 'use-lab', acceptInsecureTls: true, json: true }, deps({ store }));
+    let envelope = JSON.parse(stdout.mock.calls.map((call: unknown[]) => String(call[0])).join('')) as {
+      ok: true;
+      operation: string;
+      result: { target: { name: string } };
+    };
+    expect(envelope).toMatchObject({
+      ok: true,
+      operation: 'target.use',
+      result: { target: { name: 'use-lab' } },
+    });
+
+    stdout.mockClear();
+    await targetVerifyCommand(
+      { name: 'verify-lab', acceptInsecureTls: true, json: true },
+      deps({ store, fetchRuntimeIdentity }),
+    );
+    envelope = JSON.parse(stdout.mock.calls.map((call: unknown[]) => String(call[0])).join('')) as {
+      ok: true;
+      operation: string;
+      result: { target: { name: string; observedIdentity: RuntimeTargetObservedIdentity } };
+    };
+    expect(envelope).toMatchObject({
+      ok: true,
+      operation: 'target.verify',
+      result: {
+        target: {
+          name: 'verify-lab',
+          observedIdentity: expect.objectContaining({ runtimeScopeId: 'scope_verify_lab' }),
+        },
+      },
+    });
+  });
+
   it('rejects config-dir for target store commands and remote verify commands', async () => {
     const store = createStore();
     addVerified(store, 'prod');
@@ -246,6 +542,9 @@ describe('target commands', () => {
     await expect(
       targetVerifyCommand({ name: 'prod', 'config-dir': '/tmp/runtime-scope' }, deps({ store })),
     ).rejects.toMatchObject({ code: 'target_config_dir_remote_unsupported' });
+    await expect(targetExportCommand({ 'config-dir': '/tmp/runtime-scope' }, deps({ store }))).rejects.toMatchObject({
+      code: 'target_store_config_dir_unsupported',
+    });
   });
 
   function createStore(): RuntimeTargetStore {
@@ -269,7 +568,7 @@ describe('target commands', () => {
     store: RuntimeTargetStore,
     name: string,
     identityOverrides: Partial<RuntimeTargetObservedIdentity> = {},
-    options: { use?: boolean } = {},
+    options: { use?: boolean; caFile?: string; insecureSkipVerify?: boolean } = {},
   ): void {
     const observedIdentity = identity(identityOverrides);
     const prepared = store.prepareAddTarget({
@@ -277,6 +576,8 @@ describe('target commands', () => {
       url: observedIdentity.externalUrl,
       displayName: name === 'prod' ? 'Production' : undefined,
       use: options.use,
+      caFile: options.caFile,
+      insecureSkipVerify: options.insecureSkipVerify,
     });
     store.commitVerifiedAdd(prepared, observedIdentity);
   }

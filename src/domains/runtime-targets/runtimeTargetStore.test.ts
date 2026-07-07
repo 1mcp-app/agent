@@ -375,11 +375,509 @@ describe('RuntimeTargetStore', () => {
     expect(store.inspect('prod').credentialReferences).toEqual({ oauth: false, adminSession: true });
   });
 
+  it('exports target metadata with TLS trust and observed identity facts but no credentials or current pointer', () => {
+    const store = createStore();
+    addVerified(store, 'prod', {}, { use: true, caFile: '/etc/ssl/prod-ca.pem' });
+    addVerified(
+      store,
+      'lab',
+      { runtimeScopeId: 'scope_lab', externalUrl: 'https://lab.example.com' },
+      { insecureSkipVerify: true },
+    );
+    store.setCredentialReferences('prod', 'scope_prod', {
+      oauth: { profileId: 'oauth_ref' },
+      adminSession: { handleId: 'admin_ref' },
+    });
+
+    const bundle = store.exportTargetBundle();
+
+    expect(bundle).toEqual({
+      targetBundleVersion: 1,
+      targets: [
+        {
+          name: 'lab',
+          url: 'https://lab.example.com',
+          insecureSkipVerify: true,
+          observedIdentity: {
+            identityProtocolVersion: '1',
+            runtimeScopeId: 'scope_lab',
+            externalUrl: 'https://lab.example.com',
+            runtimeVersion: '0.34.0',
+          },
+          lastVerifiedAt: '2026-07-07T00:00:00.000Z',
+        },
+        {
+          name: 'prod',
+          url: 'https://prod.example.com',
+          displayName: 'Production',
+          caFile: '/etc/ssl/prod-ca.pem',
+          observedIdentity: identity,
+          lastVerifiedAt: '2026-07-07T00:00:00.000Z',
+        },
+      ],
+    });
+    expect(JSON.stringify(bundle)).not.toContain('oauth_ref');
+    expect(JSON.stringify(bundle)).not.toContain('admin_ref');
+    expect(JSON.stringify(bundle)).not.toContain('"current"');
+  });
+
+  it('imports a valid target bundle atomically without credentials or current pointer', () => {
+    const store = createStore();
+    addVerified(
+      store,
+      'existing',
+      { runtimeScopeId: 'scope_existing', externalUrl: 'https://existing.example.com' },
+      {
+        use: true,
+      },
+    );
+    store.setCredentialReferences('existing', 'scope_existing', { oauth: { profileId: 'existing_oauth' } });
+
+    const result = store.importTargetBundle({
+      targetBundleVersion: 1,
+      targets: [
+        {
+          name: 'prod',
+          url: 'https://prod.example.com/?ignored=1#hash',
+          displayName: ' Production ',
+          caFile: '/etc/ssl/prod-ca.pem',
+          observedIdentity: identity,
+          lastVerifiedAt: '2026-07-06T00:00:00.000Z',
+        },
+        {
+          name: 'lab',
+          url: 'https://lab.example.com',
+          insecureSkipVerify: true,
+        },
+      ],
+    });
+
+    expect(result).toMatchObject({
+      additions: [
+        { name: 'lab', url: 'https://lab.example.com', insecureSkipVerify: true },
+        { name: 'prod', url: 'https://prod.example.com', caFile: '/etc/ssl/prod-ca.pem' },
+      ],
+      warnings: expect.arrayContaining([
+        expect.objectContaining({ code: 'warning_insecure_tls_confirmation_required', targetName: 'lab' }),
+      ]),
+    });
+    expect(store.current()).toMatchObject({ name: 'existing' });
+    expect(store.inspect('prod')).toMatchObject({
+      name: 'prod',
+      displayName: 'Production',
+      caFile: '/etc/ssl/prod-ca.pem',
+      observedIdentity: identity,
+      lastVerifiedAt: '2026-07-06T00:00:00.000Z',
+      credentialReferences: { oauth: false, adminSession: false },
+    });
+    expect(store.inspect('lab')).toMatchObject({
+      name: 'lab',
+      insecureSkipVerify: true,
+      insecureTlsConfirmationRequired: true,
+    });
+    expect(readSecrets().credentials).toEqual({ existing: expect.any(Object) });
+  });
+
+  it('dry-runs import validation with planned additions and warnings without writing', () => {
+    const store = createStore();
+
+    const result = store.previewImportTargetBundle(
+      {
+        targetBundleVersion: 1,
+        targets: [
+          {
+            name: 'prod',
+            url: 'https://prod.example.com',
+            caFile: '/missing/prod-ca.pem',
+            insecureSkipVerify: true,
+          },
+        ],
+      },
+      { caFileExists: () => false },
+    );
+
+    expect(result).toEqual({
+      additions: [
+        {
+          name: 'prod',
+          url: 'https://prod.example.com',
+          caFile: '/missing/prod-ca.pem',
+          insecureSkipVerify: true,
+        },
+      ],
+      validationFacts: [],
+      warnings: [
+        expect.objectContaining({ code: 'warning_missing_ca_file', targetName: 'prod' }),
+        expect.objectContaining({ code: 'warning_insecure_tls_confirmation_required', targetName: 'prod' }),
+      ],
+    });
+    expect(() => store.inspect('prod')).toThrowError(expect.objectContaining({ code: 'target_not_found' }));
+  });
+
+  it('fails import validation for conflicts, duplicate names, reserved local, and invalid entry schema without partial writes', () => {
+    const store = createStore();
+    addVerified(store, 'existing');
+
+    expect(() =>
+      store.importTargetBundle({
+        targetBundleVersion: 1,
+        targets: [
+          { name: 'existing', url: 'https://existing.example.com' },
+          { name: 'dupe', url: 'https://dupe-one.example.com' },
+          { name: 'dupe', url: 'https://dupe-two.example.com' },
+          { name: 'local', url: 'https://local.example.com' },
+          { name: 'bad-url', url: 'ssh://bad.example.com' },
+          { name: 'plain-http', url: 'http://prod.example.com' },
+        ],
+      }),
+    ).toThrowError(
+      expect.objectContaining({
+        code: 'target_import_validation_failed',
+        details: {
+          validationFacts: expect.arrayContaining([
+            expect.objectContaining({ code: 'target_name_conflict', targetName: 'existing' }),
+            expect.objectContaining({ code: 'duplicate_bundle_entry', targetName: 'dupe' }),
+            expect.objectContaining({ code: 'reserved_local_target', targetName: 'local' }),
+            expect.objectContaining({ code: 'invalid_url', targetName: 'bad-url' }),
+            expect.objectContaining({ code: 'invalid_url', targetName: 'plain-http' }),
+          ]),
+        },
+      }),
+    );
+    expect(() => store.inspect('dupe')).toThrowError(expect.objectContaining({ code: 'target_not_found' }));
+  });
+
+  it('fails import validation for invalid display names and invalid TLS metadata', () => {
+    const store = createStore();
+
+    expect(() =>
+      store.previewImportTargetBundle({
+        targetBundleVersion: 1,
+        targets: [
+          { name: 'bad-display', url: 'https://display.example.com', displayName: 'bad\nlabel' },
+          { name: 'bad-ca', url: 'https://ca.example.com', caFile: '' },
+          { name: 'bad-insecure', url: 'https://insecure.example.com', insecureSkipVerify: 'yes' },
+        ],
+      }),
+    ).toThrowError(
+      expect.objectContaining({
+        code: 'target_import_validation_failed',
+        details: {
+          validationFacts: expect.arrayContaining([
+            expect.objectContaining({ code: 'invalid_display_name', targetName: 'bad-display' }),
+            expect.objectContaining({ code: 'invalid_tls_metadata', targetName: 'bad-ca' }),
+            expect.objectContaining({ code: 'invalid_tls_metadata', targetName: 'bad-insecure' }),
+          ]),
+        },
+      }),
+    );
+  });
+
+  it('requires explicit insecure opt-in for non-loopback HTTP remote targets', () => {
+    const store = createStore();
+
+    expect(() => store.prepareAddTarget({ name: 'plain-http', url: 'http://prod.example.com' })).toThrowError(
+      expect.objectContaining({ code: 'target_url_invalid' }),
+    );
+    expect(() => store.prepareAddTarget({ name: 'fake-loopback', url: 'http://127.evil.com' })).toThrowError(
+      expect.objectContaining({ code: 'target_url_invalid' }),
+    );
+    expect(
+      store.prepareAddTarget({
+        name: 'plain-http',
+        url: 'http://prod.example.com',
+        insecureSkipVerify: true,
+      }),
+    ).toMatchObject({
+      name: 'plain-http',
+      url: 'http://prod.example.com',
+      insecureSkipVerify: true,
+    });
+    expect(store.prepareAddTarget({ name: 'loopback', url: 'http://127.0.0.1:3050' })).toMatchObject({
+      name: 'loopback',
+      url: 'http://127.0.0.1:3050',
+    });
+    expect(
+      store.previewImportTargetBundle({
+        targetBundleVersion: 1,
+        targets: [{ name: 'insecure-http', url: 'http://prod.example.com', insecureSkipVerify: true }],
+      }),
+    ).toMatchObject({
+      additions: [expect.objectContaining({ name: 'insecure-http', insecureSkipVerify: true })],
+    });
+  });
+
+  it('requires and clears imported insecure TLS confirmation before use, verify, or credentialed attach', () => {
+    const store = createStore();
+    store.importTargetBundle({
+      targetBundleVersion: 1,
+      targets: [{ name: 'lab', url: 'https://lab.example.com', insecureSkipVerify: true }],
+    });
+
+    expect(() => store.useTarget('lab')).toThrowError(
+      expect.objectContaining({
+        code: 'target_insecure_tls_confirmation_required',
+        recoveryCommand: '1mcp target use lab --accept-insecure-tls',
+      }),
+    );
+    expect(() => store.requireInsecureTlsConfirmation({ name: 'lab', operation: 'verify' })).toThrowError(
+      expect.objectContaining({
+        code: 'target_insecure_tls_confirmation_required',
+        recoveryCommand: '1mcp target verify lab --accept-insecure-tls',
+      }),
+    );
+    expect(() => store.requireInsecureTlsConfirmation({ name: 'lab', operation: 'credentialed-attach' })).toThrowError(
+      expect.objectContaining({
+        code: 'target_insecure_tls_confirmation_required',
+        recoveryCommand: '1mcp target verify lab --accept-insecure-tls',
+      }),
+    );
+
+    store.requireInsecureTlsConfirmation({ name: 'lab', operation: 'verify', acceptInsecureTls: true });
+    expect(store.inspect('lab')).toMatchObject({ insecureTlsConfirmationRequired: false });
+    expect(store.useTarget('lab')).toMatchObject({ target: expect.objectContaining({ name: 'lab', current: true }) });
+  });
+
+  it('diagnoses target store consistency offline without contacting runtimes', () => {
+    const store = createStore();
+    addVerified(store, 'prod');
+    const metadataPath = path.join(storeDir, 'runtime-targets.json');
+    const secretsPath = path.join(storeDir, 'runtime-target-secrets.json');
+    fs.writeFileSync(
+      metadataPath,
+      JSON.stringify(
+        {
+          schemaVersion: 1,
+          current: 'missing',
+          targets: {
+            ...JSON.parse(fs.readFileSync(metadataPath, 'utf8')).targets,
+            local: { name: 'local', url: 'https://reserved.example.com' },
+          },
+        },
+        null,
+        2,
+      ),
+    );
+    fs.writeFileSync(
+      secretsPath,
+      JSON.stringify({ schemaVersion: 1, credentials: { orphan: { scope_orphan: { oauth: {} } } } }, null, 2),
+      { mode: 0o644 },
+    );
+    fs.chmodSync(secretsPath, 0o644);
+
+    expect(store.doctor()).toMatchObject({
+      issues: expect.arrayContaining([
+        expect.objectContaining({ code: 'current_context_missing', targetName: 'missing' }),
+        expect.objectContaining({ code: 'reserved_local_stored_target', targetName: 'local' }),
+        expect.objectContaining({ code: 'orphaned_credentials', targetName: 'orphan' }),
+        expect.objectContaining({ code: 'secret_store_insecure_permissions' }),
+      ]),
+      repairs: [],
+    });
+  });
+
+  it('diagnoses malformed target metadata and credential bucket schemas offline', () => {
+    const store = createStore();
+    addVerified(store, 'prod');
+    const metadataPath = path.join(storeDir, 'runtime-targets.json');
+    const secretsPath = path.join(storeDir, 'runtime-target-secrets.json');
+
+    fs.writeFileSync(
+      metadataPath,
+      JSON.stringify(
+        {
+          schemaVersion: 1,
+          targets: {
+            prod: {
+              name: 'different',
+              url: 'not-a-url',
+              caFile: '',
+              insecureSkipVerify: 'yes',
+              observedIdentity: {
+                identityProtocolVersion: '1',
+                runtimeScopeId: '',
+                externalUrl: '',
+                runtimeVersion: '',
+              },
+              lastVerifiedAt: 'not-a-date',
+              createdAt: 123,
+              updatedAt: null,
+            },
+          },
+        },
+        null,
+        2,
+      ),
+    );
+    fs.writeFileSync(
+      secretsPath,
+      JSON.stringify(
+        {
+          schemaVersion: 1,
+          credentials: {
+            prod: 'not-a-scope-map',
+            local: { scope_local: 'not-a-credential-bucket' },
+          },
+        },
+        null,
+        2,
+      ),
+      { mode: 0o600 },
+    );
+
+    expect(store.doctor()).toMatchObject({
+      issues: expect.arrayContaining([
+        expect.objectContaining({ code: 'metadata_schema_invalid', targetName: 'prod' }),
+        expect.objectContaining({ code: 'secrets_schema_invalid', targetName: 'prod' }),
+        expect.objectContaining({ code: 'secrets_schema_invalid', targetName: 'local' }),
+      ]),
+      repairs: [],
+    });
+  });
+
+  it('diagnoses malformed observed identity field types and preserves narrow repair flags', () => {
+    const store = createStore();
+    addVerified(store, 'prod');
+    const metadataPath = path.join(storeDir, 'runtime-targets.json');
+    const secretsPath = path.join(storeDir, 'runtime-target-secrets.json');
+    fs.writeFileSync(
+      metadataPath,
+      JSON.stringify(
+        {
+          schemaVersion: 1,
+          targets: {
+            prod: {
+              name: 'prod',
+              url: 'https://prod.example.com',
+              observedIdentity: {
+                identityProtocolVersion: '1',
+                runtimeScopeId: 123,
+                externalUrl: 'https://prod.example.com',
+                runtimeVersion: '0.34.0',
+                serverTime: 456,
+              },
+              createdAt: '2026-07-07T00:00:00.000Z',
+              updatedAt: '2026-07-07T00:00:00.000Z',
+            },
+            'insecure-http': {
+              name: 'insecure-http',
+              url: 'http://prod.example.com',
+              insecureSkipVerify: true,
+              createdAt: '2026-07-07T00:00:00.000Z',
+              updatedAt: '2026-07-07T00:00:00.000Z',
+            },
+          },
+        },
+        null,
+        2,
+      ),
+    );
+    fs.writeFileSync(
+      secretsPath,
+      JSON.stringify(
+        {
+          schemaVersion: 1,
+          credentials: {
+            orphan: { scope_orphan: { oauth: { profileId: 'orphan_oauth' } } },
+          },
+        },
+        null,
+        2,
+      ),
+      { mode: 0o644 },
+    );
+    fs.chmodSync(secretsPath, 0o644);
+
+    expect(() =>
+      store.importTargetBundle({
+        targetBundleVersion: 1,
+        targets: [
+          {
+            name: 'bad-identity',
+            url: 'https://bad.example.com',
+            observedIdentity: {
+              identityProtocolVersion: '1',
+              runtimeScopeId: 123,
+              externalUrl: 'https://bad.example.com',
+              runtimeVersion: '0.34.0',
+            },
+          },
+        ],
+      }),
+    ).toThrowError(
+      expect.objectContaining({
+        code: 'target_import_validation_failed',
+        details: {
+          validationFacts: [expect.objectContaining({ code: 'invalid_observed_identity' })],
+        },
+      }),
+    );
+
+    const doctorResult = store.doctor({ pruneOrphans: true });
+    expect(doctorResult.issues).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ code: 'metadata_schema_invalid', targetName: 'prod' }),
+        expect.objectContaining({ code: 'secret_store_insecure_permissions' }),
+        expect.objectContaining({ code: 'orphaned_credentials', targetName: 'orphan' }),
+      ]),
+    );
+    expect(doctorResult.issues).not.toEqual(
+      expect.arrayContaining([expect.objectContaining({ targetName: 'insecure-http' })]),
+    );
+    expect(doctorResult.repairs).toEqual([]);
+    expect(fs.statSync(secretsPath).mode & 0o777).toBe(0o644);
+  });
+
+  it('repairs secret-store permissions only when fixSecrets is requested', () => {
+    const store = createStore();
+    addVerified(store, 'prod');
+    store.setCredentialReferences('prod', 'scope_prod', { oauth: { profileId: 'oauth_ref' } });
+    const secretsPath = path.join(storeDir, 'runtime-target-secrets.json');
+    fs.chmodSync(secretsPath, 0o644);
+
+    const result = store.doctor({ fixSecrets: true });
+
+    expect(result.repairs).toEqual([expect.objectContaining({ code: 'fixed_secret_store_permissions' })]);
+    expect(fs.statSync(secretsPath).mode & 0o777).toBe(0o600);
+  });
+
+  it('prunes orphaned remote credentials only when pruneOrphans is requested', () => {
+    const store = createStore();
+    addVerified(store, 'prod');
+    const secretsPath = path.join(storeDir, 'runtime-target-secrets.json');
+    fs.writeFileSync(
+      secretsPath,
+      JSON.stringify(
+        {
+          schemaVersion: 1,
+          credentials: {
+            prod: { scope_prod: { oauth: { profileId: 'prod_oauth' } } },
+            orphan: { scope_orphan: { adminSession: { handleId: 'orphan_admin' } } },
+            local: { scope_local: { adminSession: { handleId: 'local_admin' } } },
+          },
+        },
+        null,
+        2,
+      ),
+      { mode: 0o600 },
+    );
+
+    const result = store.doctor({ pruneOrphans: true });
+
+    expect(result.repairs).toEqual([
+      expect.objectContaining({ code: 'pruned_orphaned_credentials', targetName: 'orphan' }),
+    ]);
+    expect(JSON.parse(fs.readFileSync(secretsPath, 'utf8')).credentials).toEqual({
+      prod: { scope_prod: { oauth: { profileId: 'prod_oauth' } } },
+      local: { scope_local: { adminSession: { handleId: 'local_admin' } } },
+    });
+  });
+
   function addVerified(
     store: RuntimeTargetStore,
     name: string,
     identityOverrides: Partial<typeof identity> = {},
-    options: { use?: boolean } = {},
+    options: { use?: boolean; caFile?: string; insecureSkipVerify?: boolean } = {},
   ) {
     const targetIdentity = { ...identity, ...identityOverrides };
     const prepared = store.prepareAddTarget({
@@ -387,6 +885,8 @@ describe('RuntimeTargetStore', () => {
       url: targetIdentity.externalUrl,
       displayName: name === 'prod' ? 'Production' : undefined,
       use: options.use,
+      caFile: options.caFile,
+      insecureSkipVerify: options.insecureSkipVerify,
     });
     return store.commitVerifiedAdd(prepared, targetIdentity);
   }

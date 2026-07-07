@@ -1,4 +1,5 @@
 import fs from 'node:fs';
+import net from 'node:net';
 import path from 'node:path';
 
 import { getGlobalConfigDir } from '@src/constants.js';
@@ -27,6 +28,8 @@ export interface PrepareAddTargetInput {
   name: string;
   url: string;
   displayName?: string;
+  caFile?: string;
+  insecureSkipVerify?: boolean;
   use?: boolean;
 }
 
@@ -34,6 +37,8 @@ export interface PreparedRuntimeTargetAdd {
   name: string;
   url: string;
   displayName?: string;
+  caFile?: string;
+  insecureSkipVerify?: boolean;
   use: boolean;
 }
 
@@ -47,6 +52,8 @@ export interface ReplaceVerifiedRuntimeTargetInput {
   url: string;
   observedIdentity: RuntimeTargetObservedIdentity;
   displayName?: string;
+  caFile?: string;
+  insecureSkipVerify?: boolean;
   acceptNewIdentity?: boolean;
 }
 
@@ -58,6 +65,8 @@ export interface UpdateObservedIdentityResult {
 export type RuntimeTargetIdentityVerifier = (context: {
   targetName: string;
   url: string;
+  caFile?: string;
+  insecureSkipVerify?: boolean;
   storeLocked: boolean;
 }) => RuntimeTargetObservedIdentity | Promise<RuntimeTargetObservedIdentity>;
 
@@ -65,6 +74,9 @@ export interface StoredRuntimeTarget {
   name: string;
   url: string;
   displayName?: string;
+  caFile?: string;
+  insecureSkipVerify?: boolean;
+  insecureTlsConfirmationRequired?: boolean;
   observedIdentity?: RuntimeTargetObservedIdentity;
   lastVerifiedAt?: string;
   createdAt: string;
@@ -78,6 +90,9 @@ export interface RuntimeTargetListEntry {
   current: boolean;
   url?: string;
   displayName?: string;
+  caFile?: string;
+  insecureSkipVerify?: boolean;
+  insecureTlsConfirmationRequired?: boolean;
   observedIdentity?: RuntimeTargetObservedIdentity;
   lastVerifiedAt?: string;
   verificationStatus: 'synthetic' | 'verified' | 'stale' | 'never-verified';
@@ -90,6 +105,80 @@ export interface RuntimeTargetListEntry {
 export interface RuntimeTargetUseResult {
   target: RuntimeTargetListEntry;
   warnings: Array<{ code: 'warning_target_stale' | 'warning_target_never_verified'; message: string }>;
+}
+
+export interface RuntimeTargetBundleEntry {
+  name: string;
+  url: string;
+  displayName?: string;
+  caFile?: string;
+  insecureSkipVerify?: boolean;
+  observedIdentity?: RuntimeTargetObservedIdentity;
+  lastVerifiedAt?: string;
+}
+
+export interface RuntimeTargetExportBundle {
+  targetBundleVersion: 1;
+  targets: RuntimeTargetBundleEntry[];
+}
+
+export interface RuntimeTargetImportAddition extends RuntimeTargetBundleEntry {}
+
+export interface RuntimeTargetImportWarning {
+  code: 'warning_missing_ca_file' | 'warning_insecure_tls_confirmation_required';
+  targetName: string;
+  message: string;
+}
+
+export interface RuntimeTargetImportValidationFact {
+  code:
+    | 'invalid_bundle_version'
+    | 'invalid_bundle_schema'
+    | 'invalid_target_entry'
+    | 'invalid_target_name'
+    | 'reserved_local_target'
+    | 'duplicate_bundle_entry'
+    | 'target_name_conflict'
+    | 'invalid_url'
+    | 'invalid_display_name'
+    | 'invalid_tls_metadata'
+    | 'invalid_observed_identity'
+    | 'invalid_last_verified_at';
+  targetName?: string;
+  message: string;
+}
+
+export interface RuntimeTargetImportResult {
+  additions: RuntimeTargetImportAddition[];
+  validationFacts: RuntimeTargetImportValidationFact[];
+  warnings: RuntimeTargetImportWarning[];
+}
+
+export type RuntimeTargetInsecureTlsOperation = 'use' | 'verify' | 'credentialed-attach';
+
+export interface RuntimeTargetDoctorIssue {
+  code:
+    | 'metadata_parse_failed'
+    | 'metadata_schema_invalid'
+    | 'secrets_parse_failed'
+    | 'secrets_schema_invalid'
+    | 'current_context_missing'
+    | 'reserved_local_stored_target'
+    | 'orphaned_credentials'
+    | 'secret_store_insecure_permissions';
+  targetName?: string;
+  message: string;
+}
+
+export interface RuntimeTargetDoctorRepair {
+  code: 'fixed_secret_store_permissions' | 'pruned_orphaned_credentials';
+  targetName?: string;
+  message: string;
+}
+
+export interface RuntimeTargetDoctorResult {
+  issues: RuntimeTargetDoctorIssue[];
+  repairs: RuntimeTargetDoctorRepair[];
 }
 
 interface RuntimeTargetMetadataFile {
@@ -112,6 +201,8 @@ export class RuntimeTargetStoreError extends Error {
   constructor(
     public readonly code: string,
     message: string,
+    public readonly details?: unknown,
+    public readonly recoveryCommand?: string,
   ) {
     super(message);
     this.name = 'RuntimeTargetStoreError';
@@ -164,7 +255,7 @@ export class RuntimeTargetStore {
     return this.toListEntry(target, metadata.current === name);
   }
 
-  useTarget(name: string): RuntimeTargetUseResult {
+  useTarget(name: string, options: { acceptInsecureTls?: boolean } = {}): RuntimeTargetUseResult {
     if (name === 'local') {
       return this.withLock(() => {
         const metadata = this.readMetadata();
@@ -179,12 +270,50 @@ export class RuntimeTargetStore {
       if (!target) {
         throw new RuntimeTargetStoreError('target_not_found', `Runtime target "${name}" was not found`);
       }
-      this.writeMetadata({ ...metadata, current: name });
-      const entry = this.toListEntry(target, true);
+      const nextTarget = this.confirmInsecureTlsIfRequired(target, 'use', options.acceptInsecureTls);
+      this.writeMetadata({
+        ...metadata,
+        current: name,
+        targets: {
+          ...metadata.targets,
+          [name]: nextTarget,
+        },
+      });
+      const entry = this.toListEntry(nextTarget, true);
       return {
         target: entry,
         warnings: verificationWarnings(entry),
       };
+    });
+  }
+
+  requireInsecureTlsConfirmation(input: {
+    name: string;
+    operation: RuntimeTargetInsecureTlsOperation;
+    acceptInsecureTls?: boolean;
+  }): RuntimeTargetListEntry {
+    if (input.name === 'local') {
+      return this.localEntry(this.current().name === 'local');
+    }
+
+    return this.withLock(() => {
+      const metadata = this.readMetadata();
+      const target = metadata.targets[input.name];
+      if (!target) {
+        throw new RuntimeTargetStoreError('target_not_found', `Runtime target "${input.name}" was not found`);
+      }
+
+      const nextTarget = this.confirmInsecureTlsIfRequired(target, input.operation, input.acceptInsecureTls);
+      if (nextTarget !== target) {
+        this.writeMetadata({
+          ...metadata,
+          targets: {
+            ...metadata.targets,
+            [input.name]: nextTarget,
+          },
+        });
+      }
+      return this.toListEntry(nextTarget, metadata.current === input.name);
     });
   }
 
@@ -305,9 +434,15 @@ export class RuntimeTargetStore {
 
   replaceVerifiedTarget(input: ReplaceVerifiedRuntimeTargetInput): RuntimeTargetListEntry {
     const name = validateRuntimeTargetName(input.name);
-    const url = normalizeRuntimeTargetUrl(input.url);
     const hasDisplayNameInput = Object.prototype.hasOwnProperty.call(input, 'displayName');
     const nextDisplayName = hasDisplayNameInput ? normalizeDisplayName(input.displayName) : undefined;
+    const tlsMetadata = normalizeTlsMetadata({
+      caFile: input.caFile,
+      insecureSkipVerify: input.insecureSkipVerify,
+    });
+    const url = normalizeRuntimeTargetUrl(input.url, {
+      allowInsecureHttp: tlsMetadata.insecureSkipVerify === true,
+    });
     validateRuntimeIdentity(input.observedIdentity);
 
     return this.withLock(() => {
@@ -332,6 +467,9 @@ export class RuntimeTargetStore {
         ...existing,
         url,
         displayName: hasDisplayNameInput ? nextDisplayName : existing.displayName,
+        caFile: tlsMetadata.caFile,
+        insecureSkipVerify: tlsMetadata.insecureSkipVerify,
+        insecureTlsConfirmationRequired: undefined,
         observedIdentity: input.observedIdentity,
         lastVerifiedAt: now,
         updatedAt: now,
@@ -408,7 +546,13 @@ export class RuntimeTargetStore {
   prepareAddTarget(input: PrepareAddTargetInput): PreparedRuntimeTargetAdd {
     const name = validateRuntimeTargetName(input.name);
     const displayName = normalizeDisplayName(input.displayName);
-    const url = normalizeRuntimeTargetUrl(input.url);
+    const tlsMetadata = normalizeTlsMetadata({
+      caFile: input.caFile,
+      insecureSkipVerify: input.insecureSkipVerify,
+    });
+    const url = normalizeRuntimeTargetUrl(input.url, {
+      allowInsecureHttp: tlsMetadata.insecureSkipVerify === true,
+    });
 
     this.withLock(() => {
       const metadata = this.readMetadata();
@@ -421,6 +565,8 @@ export class RuntimeTargetStore {
       name,
       url,
       displayName,
+      caFile: tlsMetadata.caFile,
+      insecureSkipVerify: tlsMetadata.insecureSkipVerify,
       use: input.use ?? false,
     };
   }
@@ -442,6 +588,8 @@ export class RuntimeTargetStore {
         name: prepared.name,
         url: prepared.url,
         displayName: prepared.displayName,
+        caFile: prepared.caFile,
+        insecureSkipVerify: prepared.insecureSkipVerify,
         observedIdentity,
         lastVerifiedAt: now,
         createdAt: now,
@@ -467,9 +615,466 @@ export class RuntimeTargetStore {
     const observedIdentity = await verifier({
       targetName: prepared.name,
       url: prepared.url,
+      caFile: prepared.caFile,
+      insecureSkipVerify: prepared.insecureSkipVerify,
       storeLocked: this.isLockedInThisProcess(),
     });
     return this.commitVerifiedAdd(prepared, observedIdentity);
+  }
+
+  exportTargetBundle(): RuntimeTargetExportBundle {
+    const metadata = this.readMetadata();
+    return {
+      targetBundleVersion: 1,
+      targets: Object.values(metadata.targets)
+        .sort((left, right) => left.name.localeCompare(right.name))
+        .map((target) => targetToBundleEntry(target)),
+    };
+  }
+
+  previewImportTargetBundle(
+    bundle: unknown,
+    options: { caFileExists?: (caFile: string) => boolean } = {},
+  ): RuntimeTargetImportResult {
+    const metadata = this.readMetadata();
+    return this.validateImportBundle(bundle, metadata, options);
+  }
+
+  importTargetBundle(
+    bundle: unknown,
+    options: { caFileExists?: (caFile: string) => boolean } = {},
+  ): RuntimeTargetImportResult {
+    return this.withLock(() => {
+      const metadata = this.readMetadata();
+      const result = this.validateImportBundle(bundle, metadata, options);
+      const now = this.now().toISOString();
+      const importedTargets = Object.fromEntries(
+        result.additions.map((addition) => [
+          addition.name,
+          {
+            name: addition.name,
+            url: addition.url,
+            displayName: addition.displayName,
+            caFile: addition.caFile,
+            insecureSkipVerify: addition.insecureSkipVerify,
+            insecureTlsConfirmationRequired: addition.insecureSkipVerify === true ? true : undefined,
+            observedIdentity: addition.observedIdentity,
+            lastVerifiedAt: addition.lastVerifiedAt,
+            createdAt: now,
+            updatedAt: now,
+          } satisfies StoredRuntimeTarget,
+        ]),
+      );
+
+      this.writeMetadata({
+        ...metadata,
+        targets: {
+          ...metadata.targets,
+          ...importedTargets,
+        },
+      });
+      return result;
+    });
+  }
+
+  doctor(options: { fixSecrets?: boolean; pruneOrphans?: boolean } = {}): RuntimeTargetDoctorResult {
+    return this.withLock(() => {
+      const issues: RuntimeTargetDoctorIssue[] = [];
+      const repairs: RuntimeTargetDoctorRepair[] = [];
+      const metadataInspection = this.inspectMetadataFileForDoctor(issues);
+      const secretsInspection = this.inspectSecretsFileForDoctor(issues);
+
+      const hasInsecureSecretPermissions = secretsInspection.fileExists && !isOwnerOnly(this.secretsPath());
+      if (hasInsecureSecretPermissions) {
+        issues.push({
+          code: 'secret_store_insecure_permissions',
+          message: 'Runtime target secret store is readable or writable by non-owners',
+        });
+        if (options.fixSecrets) {
+          fs.chmodSync(this.secretsPath(), 0o600);
+          repairs.push({
+            code: 'fixed_secret_store_permissions',
+            message: 'Runtime target secret store permissions were repaired',
+          });
+        }
+      }
+
+      if (metadataInspection.metadata) {
+        const currentName = metadataInspection.metadata.current;
+        if (currentName && currentName !== 'local' && !metadataInspection.metadata.targets[currentName]) {
+          issues.push({
+            code: 'current_context_missing',
+            targetName: currentName,
+            message: `Current runtime target "${currentName}" does not exist`,
+          });
+        }
+        if (metadataInspection.metadata.targets.local) {
+          issues.push({
+            code: 'reserved_local_stored_target',
+            targetName: 'local',
+            message: 'The reserved local target is stored as remote metadata',
+          });
+        }
+      }
+
+      if (metadataInspection.metadata && secretsInspection.secrets) {
+        const orphanNames = Object.keys(secretsInspection.secrets.credentials).filter(
+          (targetName) => targetName !== 'local' && !metadataInspection.metadata?.targets[targetName],
+        );
+        for (const targetName of orphanNames) {
+          issues.push({
+            code: 'orphaned_credentials',
+            targetName,
+            message: `Credential references exist for missing runtime target "${targetName}"`,
+          });
+        }
+        if (options.pruneOrphans && orphanNames.length > 0 && (!hasInsecureSecretPermissions || options.fixSecrets)) {
+          const credentials = { ...secretsInspection.secrets.credentials };
+          for (const targetName of orphanNames) {
+            delete credentials[targetName];
+            repairs.push({
+              code: 'pruned_orphaned_credentials',
+              targetName,
+              message: `Removed orphaned credential references for "${targetName}"`,
+            });
+          }
+          this.writeSecrets({ ...secretsInspection.secrets, credentials });
+        }
+      }
+
+      return { issues, repairs };
+    });
+  }
+
+  private validateImportBundle(
+    bundle: unknown,
+    metadata: RuntimeTargetMetadataFile,
+    options: { caFileExists?: (caFile: string) => boolean },
+  ): RuntimeTargetImportResult {
+    const validationFacts: RuntimeTargetImportValidationFact[] = [];
+    const warnings: RuntimeTargetImportWarning[] = [];
+    const additions: RuntimeTargetImportAddition[] = [];
+    const caFileExists = options.caFileExists ?? ((caFile: string) => fs.existsSync(caFile));
+
+    if (!isRecord(bundle)) {
+      validationFacts.push({
+        code: 'invalid_bundle_schema',
+        message: 'Runtime target import bundle must be an object',
+      });
+      throwImportValidationFailed(validationFacts);
+    }
+
+    if (bundle.targetBundleVersion !== 1) {
+      validationFacts.push({
+        code: 'invalid_bundle_version',
+        message: 'Runtime target import bundle version must be 1',
+      });
+    }
+    if (!Array.isArray(bundle.targets)) {
+      validationFacts.push({
+        code: 'invalid_bundle_schema',
+        message: 'Runtime target import bundle targets must be an array',
+      });
+      throwImportValidationFailed(validationFacts);
+    }
+
+    const seenNames = new Set<string>();
+    for (const rawEntry of bundle.targets) {
+      if (!isRecord(rawEntry)) {
+        validationFacts.push({
+          code: 'invalid_target_entry',
+          message: 'Runtime target import entry must be an object',
+        });
+        continue;
+      }
+
+      const rawName = rawEntry.name;
+      const targetName = typeof rawName === 'string' ? rawName : undefined;
+      let normalizedName: string | undefined;
+      if (!targetName) {
+        validationFacts.push({
+          code: 'invalid_target_name',
+          message: 'Runtime target import entry name must be a string',
+        });
+      } else if (seenNames.has(targetName)) {
+        validationFacts.push({
+          code: 'duplicate_bundle_entry',
+          targetName,
+          message: `Runtime target "${targetName}" is duplicated in the import bundle`,
+        });
+      } else {
+        seenNames.add(targetName);
+      }
+
+      if (targetName) {
+        try {
+          normalizedName = validateRuntimeTargetName(targetName);
+        } catch (error) {
+          const code =
+            error instanceof RuntimeTargetStoreError && error.code === 'target_name_reserved'
+              ? 'reserved_local_target'
+              : 'invalid_target_name';
+          validationFacts.push({
+            code,
+            targetName,
+            message:
+              code === 'reserved_local_target'
+                ? 'The built-in local target cannot be imported as stored metadata'
+                : 'Runtime target import entry name is invalid',
+          });
+        }
+      }
+
+      if (normalizedName && metadata.targets[normalizedName]) {
+        validationFacts.push({
+          code: 'target_name_conflict',
+          targetName: normalizedName,
+          message: `Runtime target "${normalizedName}" already exists`,
+        });
+      }
+
+      let displayName: string | undefined;
+      if (Object.prototype.hasOwnProperty.call(rawEntry, 'displayName')) {
+        if (typeof rawEntry.displayName !== 'string' && rawEntry.displayName !== undefined) {
+          validationFacts.push({
+            code: 'invalid_display_name',
+            targetName,
+            message: 'Runtime target import displayName must be a string',
+          });
+        } else {
+          try {
+            displayName = normalizeDisplayName(rawEntry.displayName);
+          } catch {
+            validationFacts.push({
+              code: 'invalid_display_name',
+              targetName,
+              message: 'Runtime target import displayName is invalid',
+            });
+          }
+        }
+      }
+
+      let tlsMetadata: Pick<RuntimeTargetBundleEntry, 'caFile' | 'insecureSkipVerify'> | undefined;
+      try {
+        tlsMetadata = normalizeTlsMetadata({
+          caFile: rawEntry.caFile,
+          insecureSkipVerify: rawEntry.insecureSkipVerify,
+        });
+      } catch {
+        validationFacts.push({
+          code: 'invalid_tls_metadata',
+          targetName,
+          message: 'Runtime target import TLS metadata is invalid',
+        });
+      }
+
+      let normalizedUrl: string | undefined;
+      if (typeof rawEntry.url !== 'string') {
+        validationFacts.push({
+          code: 'invalid_url',
+          targetName,
+          message: 'Runtime target import entry URL must be a string',
+        });
+      } else {
+        try {
+          normalizedUrl = normalizeRuntimeTargetUrl(rawEntry.url, {
+            allowInsecureHttp: tlsMetadata?.insecureSkipVerify === true,
+          });
+        } catch {
+          validationFacts.push({
+            code: 'invalid_url',
+            targetName,
+            message: 'Runtime target import entry URL is invalid',
+          });
+        }
+      }
+
+      let observedIdentity: RuntimeTargetObservedIdentity | undefined;
+      if (Object.prototype.hasOwnProperty.call(rawEntry, 'observedIdentity')) {
+        if (!isRecord(rawEntry.observedIdentity)) {
+          validationFacts.push({
+            code: 'invalid_observed_identity',
+            targetName,
+            message: 'Runtime target import observedIdentity must be an object',
+          });
+        } else {
+          observedIdentity = {
+            identityProtocolVersion: rawEntry.observedIdentity.identityProtocolVersion,
+            runtimeScopeId: rawEntry.observedIdentity.runtimeScopeId,
+            externalUrl: rawEntry.observedIdentity.externalUrl,
+            runtimeVersion: rawEntry.observedIdentity.runtimeVersion,
+            serverTime: rawEntry.observedIdentity.serverTime,
+          } as RuntimeTargetObservedIdentity;
+          try {
+            validateRuntimeIdentity(observedIdentity);
+          } catch {
+            validationFacts.push({
+              code: 'invalid_observed_identity',
+              targetName,
+              message: 'Runtime target import observedIdentity is invalid',
+            });
+          }
+        }
+      }
+
+      let lastVerifiedAt: string | undefined;
+      if (Object.prototype.hasOwnProperty.call(rawEntry, 'lastVerifiedAt')) {
+        if (typeof rawEntry.lastVerifiedAt !== 'string' || Number.isNaN(Date.parse(rawEntry.lastVerifiedAt))) {
+          validationFacts.push({
+            code: 'invalid_last_verified_at',
+            targetName,
+            message: 'Runtime target import lastVerifiedAt must be an ISO-like timestamp string',
+          });
+        } else {
+          lastVerifiedAt = rawEntry.lastVerifiedAt;
+        }
+      }
+
+      if (normalizedName && normalizedUrl && tlsMetadata) {
+        const addition = omitUndefined({
+          name: normalizedName,
+          url: normalizedUrl,
+          displayName,
+          caFile: tlsMetadata.caFile,
+          insecureSkipVerify: tlsMetadata.insecureSkipVerify,
+          observedIdentity,
+          lastVerifiedAt,
+        });
+        additions.push(addition);
+        if (addition.caFile && !caFileExists(addition.caFile)) {
+          warnings.push({
+            code: 'warning_missing_ca_file',
+            targetName: addition.name,
+            message: `CA bundle path "${addition.caFile}" does not exist on this machine`,
+          });
+        }
+        if (addition.insecureSkipVerify) {
+          warnings.push({
+            code: 'warning_insecure_tls_confirmation_required',
+            targetName: addition.name,
+            message: `Runtime target "${addition.name}" will require insecure TLS confirmation before first use`,
+          });
+        }
+      }
+    }
+
+    if (validationFacts.length > 0) {
+      throwImportValidationFailed(validationFacts);
+    }
+
+    return {
+      additions: additions.sort((left, right) => left.name.localeCompare(right.name)),
+      validationFacts,
+      warnings: warnings.sort((left, right) => left.targetName.localeCompare(right.targetName)),
+    };
+  }
+
+  private confirmInsecureTlsIfRequired(
+    target: StoredRuntimeTarget,
+    operation: RuntimeTargetInsecureTlsOperation,
+    acceptInsecureTls: boolean | undefined,
+  ): StoredRuntimeTarget {
+    if (!target.insecureTlsConfirmationRequired) {
+      return target;
+    }
+    if (!acceptInsecureTls) {
+      throw new RuntimeTargetStoreError(
+        'target_insecure_tls_confirmation_required',
+        `Runtime target "${target.name}" uses imported insecure TLS metadata and requires confirmation`,
+        { operation, targetName: target.name },
+        insecureTlsRecoveryCommand(target.name, operation),
+      );
+    }
+    return {
+      ...target,
+      insecureTlsConfirmationRequired: false,
+      updatedAt: this.now().toISOString(),
+    };
+  }
+
+  private inspectMetadataFileForDoctor(issues: RuntimeTargetDoctorIssue[]): {
+    metadata?: RuntimeTargetMetadataFile;
+  } {
+    const filePath = this.metadataPath();
+    if (!fs.existsSync(filePath)) {
+      return { metadata: { schemaVersion: STORE_SCHEMA_VERSION, targets: {} } };
+    }
+
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(fs.readFileSync(filePath, 'utf8'));
+    } catch {
+      issues.push({
+        code: 'metadata_parse_failed',
+        message: 'Runtime target metadata file is not valid JSON',
+      });
+      return {};
+    }
+
+    if (!isRecord(parsed) || parsed.schemaVersion !== STORE_SCHEMA_VERSION || !isRecord(parsed.targets)) {
+      issues.push({
+        code: 'metadata_schema_invalid',
+        message: 'Runtime target metadata file does not match schema version 1',
+      });
+      return {};
+    }
+    if (parsed.current !== undefined && typeof parsed.current !== 'string') {
+      issues.push({
+        code: 'metadata_schema_invalid',
+        message: 'Runtime target metadata current pointer must be a string',
+      });
+    }
+    for (const [targetName, rawTarget] of Object.entries(parsed.targets)) {
+      inspectStoredTargetForDoctor(targetName, rawTarget, issues);
+    }
+
+    return {
+      metadata: {
+        schemaVersion: STORE_SCHEMA_VERSION,
+        current: typeof parsed.current === 'string' ? parsed.current : undefined,
+        targets: parsed.targets as Record<string, StoredRuntimeTarget>,
+      },
+    };
+  }
+
+  private inspectSecretsFileForDoctor(issues: RuntimeTargetDoctorIssue[]): {
+    fileExists: boolean;
+    secrets?: RuntimeTargetSecretsFile;
+  } {
+    const filePath = this.secretsPath();
+    if (!fs.existsSync(filePath)) {
+      return { fileExists: false, secrets: { schemaVersion: STORE_SCHEMA_VERSION, credentials: {} } };
+    }
+
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(fs.readFileSync(filePath, 'utf8'));
+    } catch {
+      issues.push({
+        code: 'secrets_parse_failed',
+        message: 'Runtime target secrets file is not valid JSON',
+      });
+      return { fileExists: true };
+    }
+
+    if (!isRecord(parsed) || parsed.schemaVersion !== STORE_SCHEMA_VERSION || !isRecord(parsed.credentials)) {
+      issues.push({
+        code: 'secrets_schema_invalid',
+        message: 'Runtime target secrets file does not match schema version 1',
+      });
+      return { fileExists: true };
+    }
+    for (const [targetName, rawScopes] of Object.entries(parsed.credentials)) {
+      inspectCredentialScopesForDoctor(targetName, rawScopes, issues);
+    }
+
+    return {
+      fileExists: true,
+      secrets: {
+        schemaVersion: STORE_SCHEMA_VERSION,
+        credentials: parsed.credentials as Record<string, Record<string, RuntimeTargetCredentialBucket>>,
+      },
+    };
   }
 
   private localEntry(current: boolean, secrets = this.readSecretsForMetadataOnly()): RuntimeTargetListEntry {
@@ -495,6 +1100,9 @@ export class RuntimeTargetStore {
       current,
       url: target.url,
       displayName: target.displayName,
+      caFile: target.caFile,
+      insecureSkipVerify: target.insecureSkipVerify,
+      insecureTlsConfirmationRequired: target.insecureTlsConfirmationRequired ?? false,
       observedIdentity: target.observedIdentity,
       lastVerifiedAt: target.lastVerifiedAt,
       verificationStatus: this.verificationStatus(target),
@@ -695,7 +1303,7 @@ export function assertRuntimeTargetConfigDirAllowed(input: {
   );
 }
 
-function normalizeRuntimeTargetUrl(url: string): string {
+export function normalizeRuntimeTargetUrl(url: string, options: { allowInsecureHttp?: boolean } = {}): string {
   let parsed: URL;
   try {
     parsed = new URL(url);
@@ -705,9 +1313,215 @@ function normalizeRuntimeTargetUrl(url: string): string {
   if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
     throw new RuntimeTargetStoreError('target_url_invalid', 'Runtime target URL must use http or https');
   }
+  if (parsed.protocol === 'http:' && !isLoopbackHostname(parsed.hostname) && !options.allowInsecureHttp) {
+    throw new RuntimeTargetStoreError(
+      'target_url_invalid',
+      'Runtime target URL must use https unless non-loopback HTTP is explicitly accepted with --insecure-skip-verify',
+    );
+  }
   parsed.search = '';
   parsed.hash = '';
   return parsed.toString().replace(/\/$/, '');
+}
+
+function isLoopbackHostname(hostname: string): boolean {
+  const normalized = hostname.toLowerCase().replace(/^\[|\]$/g, '');
+  if (normalized === 'localhost' || normalized === '::1' || normalized === '0:0:0:0:0:0:0:1') {
+    return true;
+  }
+  if (net.isIP(normalized) === 4) {
+    return normalized.split('.')[0] === '127';
+  }
+  return false;
+}
+
+function normalizeTlsMetadata(input: { caFile?: unknown; insecureSkipVerify?: unknown }): {
+  caFile?: string;
+  insecureSkipVerify?: boolean;
+} {
+  let caFile: string | undefined;
+  if (input.caFile !== undefined) {
+    if (typeof input.caFile !== 'string') {
+      throw new RuntimeTargetStoreError('target_tls_metadata_invalid', 'Runtime target CA file must be a string');
+    }
+    caFile = input.caFile.trim();
+    if (caFile === '' || hasControlCodePoint(caFile)) {
+      throw new RuntimeTargetStoreError('target_tls_metadata_invalid', 'Runtime target CA file is invalid');
+    }
+  }
+
+  let insecureSkipVerify: boolean | undefined;
+  if (input.insecureSkipVerify !== undefined) {
+    if (typeof input.insecureSkipVerify !== 'boolean') {
+      throw new RuntimeTargetStoreError(
+        'target_tls_metadata_invalid',
+        'Runtime target insecureSkipVerify must be a boolean',
+      );
+    }
+    insecureSkipVerify = input.insecureSkipVerify === true ? true : undefined;
+  }
+
+  return omitUndefined({ caFile, insecureSkipVerify });
+}
+
+function targetToBundleEntry(target: StoredRuntimeTarget): RuntimeTargetBundleEntry {
+  return omitUndefined({
+    name: target.name,
+    url: target.url,
+    displayName: target.displayName,
+    caFile: target.caFile,
+    insecureSkipVerify: target.insecureSkipVerify,
+    observedIdentity: target.observedIdentity,
+    lastVerifiedAt: target.lastVerifiedAt,
+  });
+}
+
+function throwImportValidationFailed(validationFacts: RuntimeTargetImportValidationFact[]): never {
+  throw new RuntimeTargetStoreError(
+    'target_import_validation_failed',
+    'Runtime target import bundle failed validation',
+    { validationFacts },
+  );
+}
+
+function inspectStoredTargetForDoctor(
+  targetName: string,
+  rawTarget: unknown,
+  issues: RuntimeTargetDoctorIssue[],
+): void {
+  const addIssue = (message: string) => {
+    issues.push({ code: 'metadata_schema_invalid', targetName, message });
+  };
+
+  if (!isRecord(rawTarget)) {
+    addIssue(`Runtime target "${targetName}" metadata must be an object`);
+    return;
+  }
+  if (rawTarget.name !== targetName) {
+    addIssue(`Runtime target "${targetName}" metadata name does not match its key`);
+  }
+  try {
+    validateRuntimeTargetName(targetName);
+  } catch {
+    addIssue(`Runtime target "${targetName}" has an invalid or reserved name`);
+  }
+  let tlsMetadata: Pick<RuntimeTargetBundleEntry, 'caFile' | 'insecureSkipVerify'> | undefined;
+  try {
+    tlsMetadata = normalizeTlsMetadata({
+      caFile: rawTarget.caFile,
+      insecureSkipVerify: rawTarget.insecureSkipVerify,
+    });
+  } catch {
+    addIssue(`Runtime target "${targetName}" TLS metadata is invalid`);
+  }
+  if (typeof rawTarget.url !== 'string') {
+    addIssue(`Runtime target "${targetName}" URL must be a string`);
+  } else {
+    try {
+      normalizeRuntimeTargetUrl(rawTarget.url, {
+        allowInsecureHttp: tlsMetadata?.insecureSkipVerify === true,
+      });
+    } catch {
+      addIssue(`Runtime target "${targetName}" URL is invalid`);
+    }
+  }
+  if (Object.prototype.hasOwnProperty.call(rawTarget, 'displayName')) {
+    if (typeof rawTarget.displayName !== 'string' && rawTarget.displayName !== undefined) {
+      addIssue(`Runtime target "${targetName}" displayName must be a string`);
+    } else {
+      try {
+        normalizeDisplayName(rawTarget.displayName);
+      } catch {
+        addIssue(`Runtime target "${targetName}" displayName is invalid`);
+      }
+    }
+  }
+  if (Object.prototype.hasOwnProperty.call(rawTarget, 'insecureTlsConfirmationRequired')) {
+    if (typeof rawTarget.insecureTlsConfirmationRequired !== 'boolean') {
+      addIssue(`Runtime target "${targetName}" insecure TLS confirmation marker must be a boolean`);
+    }
+  }
+  if (Object.prototype.hasOwnProperty.call(rawTarget, 'observedIdentity')) {
+    if (!isRecord(rawTarget.observedIdentity)) {
+      addIssue(`Runtime target "${targetName}" observed identity must be an object`);
+    } else {
+      try {
+        validateRuntimeIdentity(rawTarget.observedIdentity as unknown as RuntimeTargetObservedIdentity);
+      } catch {
+        addIssue(`Runtime target "${targetName}" observed identity is invalid`);
+      }
+    }
+  }
+  inspectTimestampForDoctor(targetName, rawTarget, 'lastVerifiedAt', issues);
+  inspectTimestampForDoctor(targetName, rawTarget, 'createdAt', issues);
+  inspectTimestampForDoctor(targetName, rawTarget, 'updatedAt', issues);
+}
+
+function inspectTimestampForDoctor(
+  targetName: string,
+  target: Record<string, unknown>,
+  field: 'lastVerifiedAt' | 'createdAt' | 'updatedAt',
+  issues: RuntimeTargetDoctorIssue[],
+): void {
+  if (!Object.prototype.hasOwnProperty.call(target, field)) {
+    if (field === 'createdAt' || field === 'updatedAt') {
+      issues.push({
+        code: 'metadata_schema_invalid',
+        targetName,
+        message: `Runtime target "${targetName}" ${field} timestamp is missing`,
+      });
+    }
+    return;
+  }
+  if (typeof target[field] !== 'string' || Number.isNaN(Date.parse(target[field]))) {
+    issues.push({
+      code: 'metadata_schema_invalid',
+      targetName,
+      message: `Runtime target "${targetName}" ${field} timestamp is invalid`,
+    });
+  }
+}
+
+function inspectCredentialScopesForDoctor(
+  targetName: string,
+  rawScopes: unknown,
+  issues: RuntimeTargetDoctorIssue[],
+): void {
+  if (!isRecord(rawScopes)) {
+    issues.push({
+      code: 'secrets_schema_invalid',
+      targetName,
+      message: `Runtime target "${targetName}" credential scopes must be an object`,
+    });
+    return;
+  }
+  for (const [runtimeScopeId, rawBucket] of Object.entries(rawScopes)) {
+    if (!runtimeScopeId) {
+      issues.push({
+        code: 'secrets_schema_invalid',
+        targetName,
+        message: `Runtime target "${targetName}" credential scope id must be non-empty`,
+      });
+    }
+    if (!isRecord(rawBucket)) {
+      issues.push({
+        code: 'secrets_schema_invalid',
+        targetName,
+        message: `Runtime target "${targetName}" credential bucket for scope "${runtimeScopeId}" must be an object`,
+      });
+    }
+  }
+}
+
+function insecureTlsRecoveryCommand(name: string, operation: RuntimeTargetInsecureTlsOperation): string {
+  if (operation === 'use') {
+    return `1mcp target use ${name} --accept-insecure-tls`;
+  }
+  return `1mcp target verify ${name} --accept-insecure-tls`;
+}
+
+function omitUndefined<T extends Record<string, unknown>>(value: T): T {
+  return Object.fromEntries(Object.entries(value).filter(([, entryValue]) => entryValue !== undefined)) as T;
 }
 
 function compactCredentialReferences(references: RuntimeTargetCredentialReferences): RuntimeTargetCredentialBucket {
@@ -742,9 +1556,13 @@ function normalizeUrlForComparison(url: string): string {
 function validateRuntimeIdentity(identity: RuntimeTargetObservedIdentity): void {
   if (
     identity.identityProtocolVersion !== '1' ||
-    !identity.runtimeScopeId ||
-    !identity.externalUrl ||
-    !identity.runtimeVersion
+    typeof identity.runtimeScopeId !== 'string' ||
+    identity.runtimeScopeId.length === 0 ||
+    typeof identity.externalUrl !== 'string' ||
+    identity.externalUrl.length === 0 ||
+    typeof identity.runtimeVersion !== 'string' ||
+    identity.runtimeVersion.length === 0 ||
+    (identity.serverTime !== undefined && typeof identity.serverTime !== 'string')
   ) {
     throw new RuntimeTargetStoreError('identity_invalid', 'Runtime identity response is missing required fields');
   }
@@ -799,6 +1617,13 @@ function isOwnerOnly(filePath: string): boolean {
 
 function isControlCodePoint(codePoint: number): boolean {
   return codePoint <= 0x1f || (codePoint >= 0x7f && codePoint <= 0x9f);
+}
+
+function hasControlCodePoint(value: string): boolean {
+  return Array.from(value).some((char) => {
+    const codePoint = char.codePointAt(0);
+    return codePoint === undefined || isControlCodePoint(codePoint);
+  });
 }
 
 function isSurrogateCodePoint(codePoint: number): boolean {

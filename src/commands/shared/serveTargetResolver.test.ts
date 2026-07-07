@@ -1,5 +1,6 @@
 import type { ResolvedProjectContext } from '@src/config/projectConfigLoader.js';
 import type { ProjectConfig } from '@src/config/projectConfigTypes.js';
+import { RuntimeTargetStoreError } from '@src/domains/runtime-targets/runtimeTargetStore.js';
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -162,6 +163,17 @@ describe('resolveServeTarget', () => {
     expect(mockedDiscoverServerWithPidFile).toHaveBeenCalledWith(undefined, 'https://prod.example.com/mcp');
   });
 
+  it('rejects non-loopback HTTP ephemeral URL targets without insecure opt-in', async () => {
+    await expect(resolveServeTarget({ url: 'http://prod.example.com' })).rejects.toMatchObject({
+      code: 'target_url_invalid',
+    });
+    expect(mockedDiscoverServerWithPidFile).not.toHaveBeenCalled();
+
+    await resolveServeTarget({ url: 'http://127.0.0.1:3050?x=1#frag' });
+
+    expect(mockedDiscoverServerWithPidFile).toHaveBeenCalledWith(undefined, 'http://127.0.0.1:3050/mcp');
+  });
+
   it('resolves an explicit remote target context through runtime identity before returning a credentialable URL', async () => {
     const updateObservedIdentityMetadata = vi.fn();
     const verifyRuntimeIdentity = vi.fn().mockResolvedValue({
@@ -187,6 +199,8 @@ describe('resolveServeTarget', () => {
             synthetic: false,
             current: false,
             url: 'https://prod.example.com',
+            caFile: '/etc/ssl/prod-ca.pem',
+            insecureSkipVerify: true,
             observedIdentity: {
               identityProtocolVersion: '1',
               runtimeScopeId: 'scope_prod',
@@ -195,6 +209,7 @@ describe('resolveServeTarget', () => {
             },
           }),
           current: vi.fn(),
+          requireInsecureTlsConfirmation: vi.fn(),
           updateObservedIdentityMetadata,
         },
         verifyRuntimeIdentity,
@@ -206,6 +221,8 @@ describe('resolveServeTarget', () => {
       target: expect.objectContaining({
         name: 'prod',
         url: 'https://prod.example.com',
+        caFile: '/etc/ssl/prod-ca.pem',
+        insecureSkipVerify: true,
         observedIdentity: expect.objectContaining({ runtimeScopeId: 'scope_prod' }),
       }),
     });
@@ -213,7 +230,10 @@ describe('resolveServeTarget', () => {
       'prod',
       expect.objectContaining({ runtimeScopeId: 'scope_prod' }),
     );
-    expect(mockedValidateServer1mcpUrl).toHaveBeenCalledWith('https://prod.example.com/mcp');
+    expect(mockedValidateServer1mcpUrl).toHaveBeenCalledWith('https://prod.example.com/mcp', {
+      caFile: '/etc/ssl/prod-ca.pem',
+      insecureSkipVerify: true,
+    });
     expect(result.discoveredUrl).toBe('https://prod.example.com/mcp');
     expect(result.serverUrl.toString()).toBe('https://prod.example.com/mcp?preset=production');
     expect(result.source).toBe('user');
@@ -240,6 +260,7 @@ describe('resolveServeTarget', () => {
             },
           }),
           current: vi.fn(),
+          requireInsecureTlsConfirmation: vi.fn(),
           updateObservedIdentityMetadata: vi.fn(),
         },
         verifyRuntimeIdentity: vi.fn().mockResolvedValue({
@@ -280,6 +301,7 @@ describe('resolveServeTarget', () => {
             },
           }),
           current: vi.fn(),
+          requireInsecureTlsConfirmation: vi.fn(),
           updateObservedIdentityMetadata: vi.fn(),
         },
         verifyRuntimeIdentity: vi.fn().mockResolvedValue({
@@ -326,6 +348,7 @@ describe('resolveServeTarget', () => {
               runtimeVersion: '0.34.0',
             },
           }),
+          requireInsecureTlsConfirmation: vi.fn(),
           updateObservedIdentityMetadata: vi.fn(),
         },
         verifyRuntimeIdentity,
@@ -350,11 +373,94 @@ describe('resolveServeTarget', () => {
               url: 'https://prod.example.com',
             }),
             current: vi.fn(),
+            requireInsecureTlsConfirmation: vi.fn(),
             updateObservedIdentityMetadata: vi.fn(),
           },
         },
       ),
     ).rejects.toMatchObject({ code: 'target_config_dir_remote_unsupported' });
     expect(mockedDiscoverServerWithPidFile).not.toHaveBeenCalled();
+  });
+
+  it('fails named remote attach before identity verification when imported insecure TLS confirmation is pending', async () => {
+    const verifyRuntimeIdentity = vi.fn();
+    const requireInsecureTlsConfirmation = vi.fn(() => {
+      throw new RuntimeTargetStoreError(
+        'target_insecure_tls_confirmation_required',
+        'Runtime target "prod" uses imported insecure TLS metadata and requires confirmation',
+        { operation: 'credentialed-attach', targetName: 'prod' },
+        '1mcp target verify prod --accept-insecure-tls',
+      );
+    });
+
+    await expect(
+      resolveServeTarget(
+        { context: 'prod' },
+        {
+          runtimeTargetStore: {
+            inspect: vi.fn().mockReturnValue({
+              name: 'prod',
+              kind: 'remote',
+              synthetic: false,
+              current: false,
+              url: 'https://prod.example.com',
+              insecureTlsConfirmationRequired: true,
+            }),
+            current: vi.fn(),
+            requireInsecureTlsConfirmation,
+            updateObservedIdentityMetadata: vi.fn(),
+          },
+          verifyRuntimeIdentity,
+        },
+      ),
+    ).rejects.toMatchObject({
+      code: 'target_insecure_tls_confirmation_required',
+      recoveryCommand: '1mcp target verify prod --accept-insecure-tls',
+    });
+    expect(requireInsecureTlsConfirmation).toHaveBeenCalledWith({
+      name: 'prod',
+      operation: 'credentialed-attach',
+    });
+    expect(verifyRuntimeIdentity).not.toHaveBeenCalled();
+    expect(mockedValidateServer1mcpUrl).not.toHaveBeenCalled();
+  });
+
+  it('continues named remote attach after insecure TLS confirmation has already been cleared', async () => {
+    const requireInsecureTlsConfirmation = vi.fn();
+    const verifyRuntimeIdentity = vi.fn().mockResolvedValue({
+      identity: {
+        identityProtocolVersion: '1',
+        runtimeScopeId: 'scope_prod',
+        externalUrl: 'https://prod.example.com',
+        runtimeVersion: '0.34.0',
+      },
+      warnings: [],
+    });
+
+    await resolveServeTarget(
+      { context: 'prod' },
+      {
+        runtimeTargetStore: {
+          inspect: vi.fn().mockReturnValue({
+            name: 'prod',
+            kind: 'remote',
+            synthetic: false,
+            current: false,
+            url: 'https://prod.example.com',
+            insecureTlsConfirmationRequired: false,
+          }),
+          current: vi.fn(),
+          requireInsecureTlsConfirmation,
+          updateObservedIdentityMetadata: vi.fn(),
+        },
+        verifyRuntimeIdentity,
+      },
+    );
+
+    expect(requireInsecureTlsConfirmation).toHaveBeenCalledWith({
+      name: 'prod',
+      operation: 'credentialed-attach',
+    });
+    expect(verifyRuntimeIdentity).toHaveBeenCalled();
   });
 });

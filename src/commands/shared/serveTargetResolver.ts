@@ -3,10 +3,12 @@ import { normalizeTags, resolveProjectContext } from '@src/config/projectConfigL
 import type { ProjectConfig } from '@src/config/projectConfigTypes.js';
 import {
   type RuntimeIdentityWarning,
+  type RuntimeTargetTlsOptions,
   verifyRuntimeIdentityForTarget,
 } from '@src/domains/runtime-targets/runtimeIdentityVerification.js';
 import {
   assertRuntimeTargetConfigDirAllowed,
+  normalizeRuntimeTargetUrl,
   type RuntimeTargetListEntry,
   RuntimeTargetStore,
   RuntimeTargetStoreError,
@@ -38,7 +40,10 @@ export interface ResolvedServeTarget<TOptions extends ResolvableServeTargetOptio
 }
 
 export interface ServeTargetResolverPorts {
-  runtimeTargetStore?: Pick<RuntimeTargetStore, 'current' | 'inspect' | 'updateObservedIdentityMetadata'>;
+  runtimeTargetStore?: Pick<
+    RuntimeTargetStore,
+    'current' | 'inspect' | 'requireInsecureTlsConfirmation' | 'updateObservedIdentityMetadata'
+  >;
   verifyRuntimeIdentity?: typeof verifyRuntimeIdentityForTarget;
 }
 
@@ -123,7 +128,13 @@ export async function resolveServeTarget<TOptions extends ResolvableServeTargetO
   const remoteTarget = await resolveRemoteRuntimeTargetContext(mergedOptions, ports);
   if (remoteTarget) {
     const discoveredUrl = withMcpSuffix(remoteTarget.url);
-    const validation = await validateServer1mcpUrl(discoveredUrl);
+    const tlsOptions = targetTlsOptions({
+      caFile: remoteTarget.caFile,
+      insecureSkipVerify: remoteTarget.insecureSkipVerify,
+    });
+    const validation = tlsOptions
+      ? await validateServer1mcpUrl(discoveredUrl, tlsOptions)
+      : await validateServer1mcpUrl(discoveredUrl);
 
     if (!validation.valid) {
       throw new Error(validation.error || 'Cannot connect to the running 1MCP server.');
@@ -196,6 +207,10 @@ async function resolveRemoteRuntimeTargetContext<TOptions extends ResolvableServ
   if (target.kind !== 'remote' || !target.url) {
     throw new RuntimeTargetStoreError('target_not_found', `Runtime target "${target.name}" was not found`);
   }
+  store.requireInsecureTlsConfirmation({
+    name: target.name,
+    operation: 'credentialed-attach',
+  });
   const remoteTarget = { ...target, url: target.url };
 
   const verifyRuntimeIdentity = ports.verifyRuntimeIdentity ?? verifyRuntimeIdentityForTarget;
@@ -203,6 +218,8 @@ async function resolveRemoteRuntimeTargetContext<TOptions extends ResolvableServ
     target: {
       name: remoteTarget.name,
       url: remoteTarget.url,
+      caFile: remoteTarget.caFile,
+      insecureSkipVerify: remoteTarget.insecureSkipVerify,
       observedIdentity: remoteTarget.observedIdentity,
     },
   });
@@ -222,12 +239,22 @@ function withMcpSuffix(url: string): string {
   return normalized.endsWith('/mcp') ? normalized : `${normalized}/mcp`;
 }
 
+function targetTlsOptions(tls: RuntimeTargetTlsOptions): RuntimeTargetTlsOptions | undefined {
+  return tls.caFile || tls.insecureSkipVerify
+    ? {
+        ...(tls.caFile ? { caFile: tls.caFile } : {}),
+        ...(tls.insecureSkipVerify ? { insecureSkipVerify: true } : {}),
+      }
+    : undefined;
+}
+
 function normalizeEphemeralUrlOption<TOptions extends ResolvableServeTargetOptions>(options: TOptions): TOptions {
   if (!options.url) {
     return options;
   }
+  const normalizedUrl = normalizeRuntimeTargetUrl(options.url);
   return {
     ...options,
-    url: withMcpSuffix(options.url),
+    url: withMcpSuffix(normalizedUrl),
   };
 }
