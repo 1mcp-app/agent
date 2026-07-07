@@ -7,6 +7,14 @@ import { describe, expect, it } from 'vitest';
 const ADMIN_BUILD_DIR = path.join(process.cwd(), 'build', 'admin');
 const PACK_DESTINATION = path.join(process.cwd(), '.tmp-test', 'admin-spa-package');
 const TYPECHECK_PROBE = path.join(process.cwd(), 'web', 'admin', 'src', '__node-type-probe.ts');
+const LEGACY_ADMIN_CONSOLE_HTML_BUILD = path.join(
+  process.cwd(),
+  'build',
+  'transport',
+  'http',
+  'routes',
+  'adminConsoleHtml.js',
+);
 
 function run(command: string, args: string[]): string {
   return execFileSync(command, args, {
@@ -64,6 +72,7 @@ describe('admin SPA package build', () => {
 
     const indexPath = path.join(ADMIN_BUILD_DIR, 'index.html');
     expect(existsSync(indexPath)).toBe(true);
+    expect(existsSync(LEGACY_ADMIN_CONSOLE_HTML_BUILD)).toBe(false);
 
     const indexHtml = readFileSync(indexPath, 'utf8');
     const jsAsset = findBuiltAsset('.js');
@@ -87,5 +96,6 @@ describe('admin SPA package build', () => {
     expect(tarballListing).toContain('package/build/admin/index.html');
     expect(tarballListing).toContain(`package/build/admin/assets/${jsAsset}`);
     expect(tarballListing).toContain(`package/build/admin/assets/${cssAsset}`);
+    expect(tarballListing).not.toContain('package/build/transport/http/routes/adminConsoleHtml.js');
   }, 120000);
 });

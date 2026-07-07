@@ -7,6 +7,9 @@ set -e
 
 echo "🔨 Building 1MCP Agent..."
 
+# Avoid shipping stale files from removed sources or renamed frontend assets.
+rm -rf build
+
 # Compile TypeScript
 echo "📦 Compiling TypeScript..."
 pnpm exec tsc --project tsconfig.build.json
