@@ -129,6 +129,7 @@ function sidebar(): DefaultTheme.Sidebar {
           { text: '企业', link: '/zh/guide/advanced/enterprise' },
           { text: '快速启动', link: '/zh/guide/advanced/fast-startup' },
           { text: '反向代理', link: '/zh/guide/advanced/reverse-proxy' },
+          { text: '云端部署', link: '/zh/guide/advanced/cloud-deployment' },
           { text: '服务器过滤', link: '/zh/guide/advanced/server-filtering' },
         ],
       },

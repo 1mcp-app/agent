@@ -19,6 +19,8 @@ head:
 
 可以通过 `--trust-proxy` 命令行标志或 `ONE_MCP_TRUST_PROXY` 环境变量来配置信任代理设置。
 
-有关可用选项以及如何在 JSON 文件、CLI 或环境中配置它们的详细信息，请参阅 **[配置深入探讨](/guide/essentials/configuration#network-options)**。
+有关可用选项以及如何在 JSON 文件、CLI 或环境中配置它们的详细信息，请参阅 **[配置深入探讨](/zh/guide/essentials/configuration#network-options)**。
 
-有关具体示例和安全注意事项，请参阅 **[信任代理参考](/reference/trust-proxy)**。
+如果需要使用 Caddy 完成云端 Admin Console 与本地 CLI target 工作流，请参阅 **[使用 Caddy 进行云端部署](/zh/guide/advanced/cloud-deployment)**。
+
+有关具体示例和安全注意事项，请参阅 **[信任代理参考](/zh/reference/trust-proxy)**。

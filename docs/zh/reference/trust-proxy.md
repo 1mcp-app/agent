@@ -2,7 +2,9 @@
 
 当在反向代理（如 nginx、Apache 或云负载均衡器）后面运行 1MCP 时，您需要配置其信任代理设置。这可确保代理正确识别客户端的 IP 地址，以用于日志记录、速率限制和其他安全功能。
 
-有关如何通过命令行标志、环境变量或 JSON 配置文件设置信任代理配置的详细信息，请参阅 **[配置深入探讨](../guide/essentials/configuration#network-options)**。
+有关如何通过命令行标志、环境变量或 JSON 配置文件设置信任代理配置的详细信息，请参阅 **[配置深入探讨](/zh/guide/essentials/configuration#network-options)**。
+
+推荐的 Caddy 公开 HTTPS 部署路径请参阅 **[使用 Caddy 进行云端部署](/zh/guide/advanced/cloud-deployment)**。
 
 ## 信任代理选项
 

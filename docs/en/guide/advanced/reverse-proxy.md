@@ -27,4 +27,6 @@ Trust proxy settings can be configured via the `--trust-proxy` command-line flag
 
 For detailed information on the available options and how to configure them in your JSON file, CLI, or environment, please see the **[Configuration Deep Dive](/guide/essentials/configuration#network-options)**.
 
+For a complete cloud-hosted Admin Console and local CLI target workflow using Caddy, see **[Cloud Deployment with Caddy](/guide/advanced/cloud-deployment)**.
+
 For specific examples and security considerations, refer to the **[Trust Proxy Reference](/reference/trust-proxy)**.

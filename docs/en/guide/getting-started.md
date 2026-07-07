@@ -346,6 +346,8 @@ curl -X POST http://localhost:3050/token \
 **🎯 Goal**: Stable production deployment with basic security
 **👤 Perfect for**: Production environments, teams, shared deployments
 
+For a public cloud runtime with Admin Console access and local CLI targets, use the blessed **[Cloud Deployment with Caddy](/guide/advanced/cloud-deployment)** path after this basic service setup.
+
 ### **What You'll Achieve**
 
 - ✅ Systemd service for automatic startup
@@ -488,7 +490,7 @@ chmod +x ~/1mcp-backup.sh
 
 **🔧 Production Checklist**:
 
-- [ ] SSL/TLS certificate configured (use reverse proxy like nginx)
+- [ ] SSL/TLS certificate configured through Caddy; see [Cloud Deployment with Caddy](/guide/advanced/cloud-deployment)
 - [ ] Firewall rules configured (allow only port 3050)
 - [ ] OAuth clients registered for your applications
 - [ ] Server tags configured appropriately
@@ -517,8 +519,11 @@ chmod +x ~/1mcp-backup.sh
 
 - Configure `--trust-proxy` for proxy environments
 - Use `--external-url` for public-facing deployments
+- For the recommended public HTTPS Admin Console path, use [Cloud Deployment with Caddy](/guide/advanced/cloud-deployment)
 
-### **Simple Reverse Proxy Setup** (Optional)
+### **Legacy nginx Reverse Proxy Example** (Optional)
+
+For new public HTTPS deployments, use the Caddy path in [Cloud Deployment with Caddy](/guide/advanced/cloud-deployment). Keep this nginx example only when your existing platform already standardizes on nginx.
 
 ```bash
 # Basic nginx configuration for SSL termination
