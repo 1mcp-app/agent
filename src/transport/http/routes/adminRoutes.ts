@@ -16,6 +16,8 @@ import { renderAdminConsoleHtml } from './adminConsoleHtml.js';
 
 const FAILED_LOGIN_LIMIT = 5;
 const FAILED_LOGIN_WINDOW_MS = 15 * 60 * 1000;
+const CLI_ADMIN_PROTOCOL_VERSION = '1';
+const CLI_SESSION_OPERATIONS = ['admin.login', 'admin.status', 'admin.logout'] as const;
 
 interface AdminRoutesOptions {
   adminEnabled: boolean;
@@ -46,21 +48,93 @@ export function createAdminRoutes(options: AdminRoutesOptions): Router | null {
       );
   });
 
-  router.get('/cli/v1/capabilities', (_req, res) => {
+  router.get('/cli/v1/capabilities', (req, res) => {
     const identity = options.getRuntimeIdentity();
     const setupRequired = !options.adminService.hasAdminAccount();
+    const mcpMutationsReady = Boolean(options.configuredServerService);
 
-    res.status(200).json({
-      cliProtocolVersion: '1',
-      runtimeScopeId: identity.runtimeScopeId,
-      externalUrl: identity.externalUrl,
-      runtimeVersion: identity.runtimeVersion,
-      adminSurface: 'enabled',
-      adminStatus: setupRequired ? 'setupRequired' : 'loginRequired',
-      supportedOperations: [],
-      featureFlags: {
-        adminSetupRequired: setupRequired,
+    sendCliSuccess(req, res, {
+      runtime: toCliRuntimeIdentity(identity),
+      supportedOperations: [...CLI_SESSION_OPERATIONS],
+      adminSurface: {
+        enabled: true,
+        status: setupRequired ? 'setupRequired' : 'loginRequired',
       },
+      mutationReadiness: {
+        mcp: {
+          enabled: mcpMutationsReady,
+          status: mcpMutationsReady ? 'ready' : 'unavailable',
+          operations: [],
+        },
+      },
+      features: {
+        adminSessions: true,
+        bearerSessionAuth: true,
+        csrfTokens: true,
+        mcpEnableDisable: false,
+      },
+    });
+  });
+
+  router.post('/cli/v1/session/login', async (req, res) => {
+    const username = getBodyString(req.body, 'username');
+    const source = getLoginSource(req);
+    if (failedLoginLimiter.isLimited(username, source)) {
+      sendCliError(req, res, {
+        status: 429,
+        code: 'admin_login_rate_limited',
+        message: 'Too many failed admin login attempts',
+        retryable: true,
+      });
+      return;
+    }
+
+    try {
+      const login = await options.adminService.login({
+        username,
+        password: getBodyString(req.body, 'password'),
+      });
+
+      failedLoginLimiter.reset(username, source);
+      sendCliSuccess(req, res, {
+        sessionToken: login.sessionToken,
+        csrfToken: login.csrfToken,
+        expiresAt: login.expiresAt,
+        account: toCliAdminAccount(login.account),
+      });
+    } catch (error) {
+      failedLoginLimiter.recordFailure(username, source);
+      sendCliAdminError(req, res, error);
+    }
+  });
+
+  router.get('/cli/v1/session/status', (req, res) => {
+    const sessionToken = getBearerSessionToken(req);
+    const session = options.adminService.validateSession(sessionToken);
+    const runtime = toCliRuntimeIdentity(options.getRuntimeIdentity());
+    if (!session) {
+      sendCliSuccess(req, res, {
+        authenticated: false,
+        runtime,
+      });
+      return;
+    }
+
+    sendCliSuccess(req, res, {
+      authenticated: true,
+      runtime,
+      account: toCliAdminAccount(session.account),
+      expiresAt: session.expiresAt,
+    });
+  });
+
+  router.post('/cli/v1/session/logout', (req, res) => {
+    const sessionToken = getBearerSessionToken(req);
+    const session = options.adminService.validateSession(sessionToken);
+    options.adminService.revokeSession(sessionToken);
+
+    sendCliSuccess(req, res, {
+      revoked: Boolean(session),
     });
   });
 
@@ -287,12 +361,83 @@ function getAdminSessionCookie(req: Request): string | undefined {
   return undefined;
 }
 
+function getBearerSessionToken(req: Request): string | undefined {
+  const authorization = req.header('authorization')?.trim();
+  if (!authorization) {
+    return undefined;
+  }
+
+  const match = authorization.match(/^Bearer\s+(.+)$/i);
+  const token = match?.[1]?.trim();
+  return token || undefined;
+}
+
 function isHttpsRuntime(externalUrl: string): boolean {
   try {
     return new URL(externalUrl).protocol === 'https:';
   } catch {
     return false;
   }
+}
+
+function sendCliSuccess<T>(req: Request, res: Response, result: T): void {
+  const requestId = getRequestId(req);
+  res.status(200).json({
+    ok: true,
+    cliProtocolVersion: CLI_ADMIN_PROTOCOL_VERSION,
+    requestId,
+    warnings: [],
+    result,
+  });
+}
+
+function sendCliAdminError(req: Request, res: Response, error: unknown): void {
+  if (error instanceof AdminIdentityError) {
+    const status = error.code === 'invalid_credentials' ? 401 : error.code === 'admin_account_not_found' ? 404 : 400;
+    sendCliError(req, res, {
+      status,
+      code: error.code,
+      message: error.message,
+      retryable: false,
+    });
+    return;
+  }
+
+  sendCliError(req, res, {
+    status: 500,
+    code: 'admin_cli_request_failed',
+    message: 'Admin CLI request failed',
+    retryable: false,
+  });
+}
+
+function sendCliError(
+  req: Request,
+  res: Response,
+  error: {
+    status: number;
+    code: string;
+    message: string;
+    retryable: boolean;
+    recoveryCommand?: string;
+    details?: unknown;
+  },
+): void {
+  const requestId = getRequestId(req);
+  res.status(error.status).json({
+    ok: false,
+    cliProtocolVersion: CLI_ADMIN_PROTOCOL_VERSION,
+    requestId,
+    error: {
+      code: error.code,
+      message: error.message,
+      retryable: error.retryable,
+      requestId,
+      ...(error.recoveryCommand ? { recoveryCommand: error.recoveryCommand } : {}),
+      ...(error.details === undefined ? {} : { details: error.details }),
+    },
+    warnings: [],
+  });
 }
 
 function sendAdminError(res: Response, error: unknown): void {
@@ -374,6 +519,23 @@ function toAdminConsoleAccount(account: AdminAccount): Pick<AdminAccount, 'id' |
     id: account.id,
     username: account.username,
     role: account.role,
+  };
+}
+
+function toCliAdminAccount(account: AdminAccount): Pick<AdminAccount, 'username' | 'role'> {
+  return {
+    username: account.username,
+    role: account.role,
+  };
+}
+
+function toCliRuntimeIdentity(
+  identity: RuntimeIdentity,
+): Pick<RuntimeIdentity, 'identityProtocolVersion' | 'runtimeScopeId' | 'runtimeVersion'> {
+  return {
+    identityProtocolVersion: identity.identityProtocolVersion,
+    runtimeScopeId: identity.runtimeScopeId,
+    runtimeVersion: identity.runtimeVersion,
   };
 }
 

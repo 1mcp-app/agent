@@ -17,6 +17,12 @@ const runtimeIdentity = {
   runtimeVersion: '1.2.3',
 } as const;
 
+const cliRuntimeIdentity = {
+  identityProtocolVersion: '1',
+  runtimeScopeId: 'scope_123',
+  runtimeVersion: '1.2.3',
+} as const;
+
 function cookieValue(setCookieHeader: string): string {
   const [nameValue] = setCookieHeader.split(';');
   return nameValue.split('=').slice(1).join('=');
@@ -102,7 +108,49 @@ describe('admin routes', () => {
 
     expect((await request(app).get('/admin')).status).toBe(404);
     expect((await request(app).get('/admin/cli/v1/capabilities')).status).toBe(404);
+    expect((await request(app).post('/admin/cli/v1/session/login').send({})).status).toBe(404);
+    expect((await request(app).get('/admin/cli/v1/session/status')).status).toBe(404);
+    expect((await request(app).post('/admin/cli/v1/session/logout')).status).toBe(404);
     expect(adminService.validateSession(login.sessionToken)).toBeNull();
+  });
+
+  it('returns pre-auth CLI capabilities in a low-disclosure stable envelope', async () => {
+    await adminService.bootstrapFirstAdmin({ username: 'operator', password: 'correct horse battery staple' });
+    const app = mountAdminRoutes();
+
+    const response = await request(app).get('/admin/cli/v1/capabilities').set('X-Request-Id', 'req_caps');
+
+    expect(response.status).toBe(200);
+    expect(response.body).toEqual({
+      ok: true,
+      cliProtocolVersion: '1',
+      requestId: 'req_caps',
+      warnings: [],
+      result: {
+        runtime: cliRuntimeIdentity,
+        supportedOperations: ['admin.login', 'admin.status', 'admin.logout'],
+        adminSurface: {
+          enabled: true,
+          status: 'loginRequired',
+        },
+        mutationReadiness: {
+          mcp: {
+            enabled: true,
+            status: 'ready',
+            operations: [],
+          },
+        },
+        features: {
+          adminSessions: true,
+          bearerSessionAuth: true,
+          csrfTokens: true,
+          mcpEnableDisable: false,
+        },
+      },
+    });
+    expect(JSON.stringify(response.body)).not.toMatch(
+      /runtime\.example\.com|operator|correct horse battery staple|filesystem|raw-token|passwordHash|process\.pid/i,
+    );
   });
 
   it('exposes setup-required admin and CLI capabilities without account facts', async () => {
@@ -130,18 +178,35 @@ describe('admin routes', () => {
 
     expect(capabilitiesResponse.status).toBe(200);
     expect(capabilitiesResponse.body).toEqual({
+      ok: true,
       cliProtocolVersion: '1',
-      runtimeScopeId: 'scope_123',
-      externalUrl: 'https://runtime.example.com',
-      runtimeVersion: '1.2.3',
-      adminSurface: 'enabled',
-      adminStatus: 'setupRequired',
-      supportedOperations: [],
-      featureFlags: {
-        adminSetupRequired: true,
+      requestId: expect.any(String),
+      warnings: [],
+      result: {
+        runtime: cliRuntimeIdentity,
+        supportedOperations: ['admin.login', 'admin.status', 'admin.logout'],
+        adminSurface: {
+          enabled: true,
+          status: 'setupRequired',
+        },
+        mutationReadiness: {
+          mcp: {
+            enabled: true,
+            status: 'ready',
+            operations: [],
+          },
+        },
+        features: {
+          adminSessions: true,
+          bearerSessionAuth: true,
+          csrfTokens: true,
+          mcpEnableDisable: false,
+        },
       },
     });
-    expect(JSON.stringify(capabilitiesResponse.body)).not.toMatch(/account|user|email|serverName|configuredServer/i);
+    expect(JSON.stringify(capabilitiesResponse.body)).not.toMatch(
+      /runtime\.example\.com|account|user|email|serverName|filesystem|raw-token|passwordHash/i,
+    );
   });
 
   it('serves a bundled admin console shell with login/logout controls and no account management controls', async () => {
@@ -264,6 +329,135 @@ describe('admin routes', () => {
 
     expect(loginResponse.status).toBe(200);
     expect(loginResponse.headers['set-cookie']?.[0]).not.toContain('Secure');
+  });
+
+  it('logs in through the CLI adapter with tokens, redacted account facts, and stable credential errors', async () => {
+    await adminService.bootstrapFirstAdmin({ username: 'operator', password: 'correct horse battery staple' });
+    const app = mountAdminRoutes();
+
+    const loginResponse = await request(app)
+      .post('/admin/cli/v1/session/login')
+      .set('X-Request-Id', 'req_cli_login')
+      .send({ username: 'operator', password: 'correct horse battery staple' });
+
+    expect(loginResponse.status).toBe(200);
+    expect(loginResponse.headers['set-cookie']).toBeUndefined();
+    expect(loginResponse.body).toMatchObject({
+      ok: true,
+      cliProtocolVersion: '1',
+      requestId: 'req_cli_login',
+      warnings: [],
+      result: {
+        sessionToken: expect.stringMatching(/^admin_sess_/),
+        csrfToken: expect.stringMatching(/^admin_csrf_/),
+        expiresAt: '2026-07-06T01:00:00.000Z',
+        account: {
+          username: 'operator',
+          role: 'full-admin',
+        },
+      },
+    });
+    expect(JSON.stringify(loginResponse.body.result.account)).not.toMatch(
+      /password|hash|disabled|createdAt|updatedAt|id/i,
+    );
+
+    const invalidResponse = await request(app)
+      .post('/admin/cli/v1/session/login')
+      .set('X-Request-Id', 'req_cli_bad_login')
+      .send({ username: 'operator', password: 'wrong password' });
+
+    expect(invalidResponse.status).toBe(401);
+    expect(invalidResponse.body).toEqual({
+      ok: false,
+      cliProtocolVersion: '1',
+      requestId: 'req_cli_bad_login',
+      error: {
+        code: 'invalid_credentials',
+        message: 'Invalid admin credentials',
+        retryable: false,
+        requestId: 'req_cli_bad_login',
+      },
+      warnings: [],
+    });
+    expect(JSON.stringify(invalidResponse.body)).not.toMatch(
+      /stack|passwordHash|correct horse battery staple|storageDir/i,
+    );
+  });
+
+  it('returns CLI session status envelopes after validating bearer sessions against the admin identity service', async () => {
+    await adminService.bootstrapFirstAdmin({ username: 'operator', password: 'correct horse battery staple' });
+    const validateSpy = vi.spyOn(adminService, 'validateSession');
+    const app = mountAdminRoutes();
+    const loginResponse = await request(app)
+      .post('/admin/cli/v1/session/login')
+      .send({ username: 'operator', password: 'correct horse battery staple' });
+    const sessionToken = loginResponse.body.result.sessionToken as string;
+    validateSpy.mockClear();
+
+    const authenticatedResponse = await request(app)
+      .get('/admin/cli/v1/session/status')
+      .set('Authorization', `Bearer ${sessionToken}`)
+      .set('X-Request-Id', 'req_cli_status');
+    const unauthenticatedResponse = await request(app)
+      .get('/admin/cli/v1/session/status')
+      .set('Authorization', 'Bearer admin_sess_missing')
+      .set('X-Request-Id', 'req_cli_status_missing');
+
+    expect(validateSpy).toHaveBeenCalledWith(sessionToken);
+    expect(authenticatedResponse.status).toBe(200);
+    expect(authenticatedResponse.body).toEqual({
+      ok: true,
+      cliProtocolVersion: '1',
+      requestId: 'req_cli_status',
+      warnings: [],
+      result: {
+        authenticated: true,
+        runtime: cliRuntimeIdentity,
+        account: {
+          username: 'operator',
+          role: 'full-admin',
+        },
+        expiresAt: '2026-07-06T01:00:00.000Z',
+      },
+    });
+    expect(unauthenticatedResponse.status).toBe(200);
+    expect(unauthenticatedResponse.body).toEqual({
+      ok: true,
+      cliProtocolVersion: '1',
+      requestId: 'req_cli_status_missing',
+      warnings: [],
+      result: {
+        authenticated: false,
+        runtime: cliRuntimeIdentity,
+      },
+    });
+  });
+
+  it('logs out through the CLI adapter by revoking the bearer session server-side', async () => {
+    await adminService.bootstrapFirstAdmin({ username: 'operator', password: 'correct horse battery staple' });
+    const app = mountAdminRoutes();
+    const loginResponse = await request(app)
+      .post('/admin/cli/v1/session/login')
+      .send({ username: 'operator', password: 'correct horse battery staple' });
+    const sessionToken = loginResponse.body.result.sessionToken as string;
+    expect(adminService.validateSession(sessionToken)).not.toBeNull();
+
+    const logoutResponse = await request(app)
+      .post('/admin/cli/v1/session/logout')
+      .set('Authorization', `Bearer ${sessionToken}`)
+      .set('X-Request-Id', 'req_cli_logout');
+
+    expect(logoutResponse.status).toBe(200);
+    expect(logoutResponse.body).toEqual({
+      ok: true,
+      cliProtocolVersion: '1',
+      requestId: 'req_cli_logout',
+      warnings: [],
+      result: {
+        revoked: true,
+      },
+    });
+    expect(adminService.validateSession(sessionToken)).toBeNull();
   });
 
   it('rejects unsafe admin API requests without a valid session-bound CSRF token', async () => {

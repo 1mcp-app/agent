@@ -78,4 +78,22 @@ describe('runCliCommand', () => {
       recoveryCommand: '1mcp target verify lab --accept-insecure-tls',
     });
   });
+
+  it('uses local usage exit code for credential context errors', async () => {
+    await runCliCommand({ json: true }, async () => {
+      throw Object.assign(new Error('Admin credential commands require --context <name>'), {
+        code: 'credential_context_required',
+        recoveryCommand: '1mcp admin status --context prod',
+      });
+    });
+
+    expect(process.exitCode).toBe(2);
+    const envelope = JSON.parse(stdout.mock.calls.map((call: unknown[]) => String(call[0])).join('')) as {
+      error: { code: string; recoveryCommand?: string };
+    };
+    expect(envelope.error).toMatchObject({
+      code: 'credential_context_required',
+      recoveryCommand: '1mcp admin status --context prod',
+    });
+  });
 });

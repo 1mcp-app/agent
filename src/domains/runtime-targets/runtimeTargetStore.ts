@@ -432,6 +432,87 @@ export class RuntimeTargetStore {
     });
   }
 
+  setAdminSessionReference(name: string, runtimeScopeId: string, adminSession: unknown): void {
+    if (!runtimeScopeId) {
+      throw new RuntimeTargetStoreError('identity_invalid', 'Runtime scope id is required for credential references');
+    }
+
+    this.withLock(() => {
+      const metadata = this.readMetadata();
+      if (name !== 'local' && !metadata.targets[name]) {
+        throw new RuntimeTargetStoreError('target_not_found', `Runtime target "${name}" was not found`);
+      }
+
+      const secrets = this.readSecretsForCredentialUse();
+      const byScope = secrets.credentials[name] ?? {};
+      const bucket = byScope[runtimeScopeId] ?? {};
+      this.writeSecrets({
+        ...secrets,
+        credentials: {
+          ...secrets.credentials,
+          [name]: {
+            ...byScope,
+            [runtimeScopeId]: {
+              ...bucket,
+              adminSession,
+            },
+          },
+        },
+      });
+    });
+  }
+
+  getAdminSessionReference(name: string, runtimeScopeId: string): unknown | undefined {
+    if (!runtimeScopeId) {
+      throw new RuntimeTargetStoreError('identity_invalid', 'Runtime scope id is required for credential references');
+    }
+
+    const metadata = this.readMetadata();
+    if (name !== 'local' && !metadata.targets[name]) {
+      throw new RuntimeTargetStoreError('target_not_found', `Runtime target "${name}" was not found`);
+    }
+
+    const secrets = this.readSecretsForCredentialUse();
+    return secrets.credentials[name]?.[runtimeScopeId]?.adminSession;
+  }
+
+  clearAdminSessionReference(name: string, runtimeScopeId: string): void {
+    if (!runtimeScopeId) {
+      throw new RuntimeTargetStoreError('identity_invalid', 'Runtime scope id is required for credential references');
+    }
+
+    this.withLock(() => {
+      const metadata = this.readMetadata();
+      if (name !== 'local' && !metadata.targets[name]) {
+        throw new RuntimeTargetStoreError('target_not_found', `Runtime target "${name}" was not found`);
+      }
+
+      const secrets = this.readSecretsForCredentialUse();
+      const byScope = secrets.credentials[name];
+      const bucket = byScope?.[runtimeScopeId];
+      if (!bucket || bucket.adminSession === undefined) {
+        return;
+      }
+
+      const { adminSession: _adminSession, ...nextBucket } = bucket;
+      const nextScopes = { ...byScope };
+      if (Object.keys(nextBucket).length === 0) {
+        delete nextScopes[runtimeScopeId];
+      } else {
+        nextScopes[runtimeScopeId] = nextBucket;
+      }
+
+      const nextCredentials = { ...secrets.credentials };
+      if (Object.keys(nextScopes).length === 0) {
+        delete nextCredentials[name];
+      } else {
+        nextCredentials[name] = nextScopes;
+      }
+
+      this.writeSecrets({ ...secrets, credentials: nextCredentials });
+    });
+  }
+
   replaceVerifiedTarget(input: ReplaceVerifiedRuntimeTargetInput): RuntimeTargetListEntry {
     const name = validateRuntimeTargetName(input.name);
     const hasDisplayNameInput = Object.prototype.hasOwnProperty.call(input, 'displayName');

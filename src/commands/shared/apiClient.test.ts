@@ -84,6 +84,29 @@ describe('ApiClient', () => {
     expect(response.error).toBe('Not found');
   });
 
+  it('preserves structured JSON error bodies for callers that need stable protocol codes', async () => {
+    mockFetch.mockResolvedValueOnce(
+      makeResponse(401, {
+        ok: false,
+        error: { code: 'invalid_credentials', message: 'Invalid admin credentials' },
+      }),
+    );
+
+    const client = new ApiClient({ baseUrl: 'http://localhost:3050' });
+    const response = await client.post<{
+      ok: false;
+      error: { code: string; message: string };
+    }>('/admin/cli/v1/session/login', {});
+
+    expect(response.ok).toBe(false);
+    expect(response.status).toBe(401);
+    expect(response.error).toBe('Invalid admin credentials');
+    expect(response.data).toEqual({
+      ok: false,
+      error: { code: 'invalid_credentials', message: 'Invalid admin credentials' },
+    });
+  });
+
   it('returns error on network failure', async () => {
     mockFetch.mockRejectedValueOnce(new Error('ECONNREFUSED'));
 

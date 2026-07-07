@@ -211,6 +211,91 @@ describe('RuntimeTargetStore', () => {
     expect(store.inspect('prod').credentialReferences).toEqual({ oauth: false, adminSession: false });
   });
 
+  it('stores and reads an admin session reference by target name and runtime scope id', () => {
+    const store = createStore();
+    addVerified(store, 'prod');
+    const adminSession = { handleId: 'admin_ref', issuedAt: '2026-07-07T00:00:00.000Z' };
+
+    store.setAdminSessionReference('prod', 'scope_prod', adminSession);
+
+    expect(store.getAdminSessionReference('prod', 'scope_prod')).toEqual(adminSession);
+    expect(store.getAdminSessionReference('prod', 'scope_other')).toBeUndefined();
+    expect(store.inspect('prod').credentialReferences).toEqual({ oauth: false, adminSession: true });
+  });
+
+  it('sets an admin session reference without replacing existing scoped OAuth references', () => {
+    const store = createStore();
+    addVerified(store, 'prod');
+    store.setCredentialReferences('prod', 'scope_prod', { oauth: { profileId: 'oauth_ref' } });
+
+    store.setAdminSessionReference('prod', 'scope_prod', { handleId: 'admin_ref' });
+
+    expect(readSecrets().credentials.prod).toEqual({
+      scope_prod: {
+        oauth: { profileId: 'oauth_ref' },
+        adminSession: { handleId: 'admin_ref' },
+      },
+    });
+  });
+
+  it('clears only one admin session reference without touching OAuth or other runtime scopes', () => {
+    const store = createStore();
+    addVerified(store, 'prod');
+    store.setCredentialReferences('prod', 'scope_prod', {
+      oauth: { profileId: 'oauth_ref' },
+      adminSession: { handleId: 'admin_ref' },
+    });
+    store.setCredentialReferences('prod', 'scope_other', {
+      oauth: { profileId: 'other_oauth_ref' },
+      adminSession: { handleId: 'other_admin_ref' },
+    });
+
+    store.clearAdminSessionReference('prod', 'scope_prod');
+
+    expect(store.getAdminSessionReference('prod', 'scope_prod')).toBeUndefined();
+    expect(store.getAdminSessionReference('prod', 'scope_other')).toEqual({ handleId: 'other_admin_ref' });
+    expect(readSecrets().credentials.prod).toEqual({
+      scope_prod: { oauth: { profileId: 'oauth_ref' } },
+      scope_other: {
+        oauth: { profileId: 'other_oauth_ref' },
+        adminSession: { handleId: 'other_admin_ref' },
+      },
+    });
+    expect(store.inspect('prod').credentialReferences).toEqual({ oauth: true, adminSession: true });
+  });
+
+  it('supports admin session references for the local context', () => {
+    const store = createStore();
+    const adminSession = { handleId: 'local_admin_ref' };
+
+    store.setAdminSessionReference('local', 'scope_local', adminSession);
+
+    expect(store.getAdminSessionReference('local', 'scope_local')).toEqual(adminSession);
+    expect(store.inspect('local').credentialReferences).toEqual({ oauth: false, adminSession: true });
+  });
+
+  it('fails closed for admin session read, write, and clear helpers when secret permissions are insecure', () => {
+    const store = createStore();
+    addVerified(store, 'prod');
+    store.setCredentialReferences('prod', 'scope_prod', { adminSession: { handleId: 'admin_ref' } });
+    const secretsPath = path.join(storeDir, 'runtime-target-secrets.json');
+    fs.chmodSync(secretsPath, 0o644);
+
+    expect(() => store.getAdminSessionReference('prod', 'scope_prod')).toThrowError(
+      expect.objectContaining({ code: 'target_secret_store_insecure' }),
+    );
+    expect(() =>
+      store.setCredentialReferences('prod', 'scope_prod', { adminSession: { handleId: 'next_admin_ref' } }),
+    ).toThrowError(expect.objectContaining({ code: 'target_secret_store_insecure' }));
+    expect(() => store.setAdminSessionReference('prod', 'scope_prod', { handleId: 'next_admin_ref' })).toThrowError(
+      expect.objectContaining({ code: 'target_secret_store_insecure' }),
+    );
+    expect(() => store.clearAdminSessionReference('prod', 'scope_prod')).toThrowError(
+      expect.objectContaining({ code: 'target_secret_store_insecure' }),
+    );
+    expect(fs.statSync(secretsPath).mode & 0o777).toBe(0o644);
+  });
+
   it('does not commit replacement metadata when credential cleanup fails', () => {
     const store = createStore();
     addVerified(store, 'prod');

@@ -7,6 +7,7 @@ import { normalizeCliArgv, normalizedArgv } from '@src/utils/cli/normalizedArgv.
 import 'source-map-support/register.js';
 import yargs from 'yargs';
 
+import { setupAdminCommands } from './commands/admin/index.js';
 import { setupAppCommands } from './commands/app/index.js';
 import { setupAuthCommands } from './commands/auth/index.js';
 import { setupCliSetupCommand } from './commands/cliSetup/index.js';
@@ -54,6 +55,7 @@ yargsInstance = yargsInstance
   });
 
 // Register command groups with global options
+yargsInstance = setupAdminCommands(yargsInstance);
 yargsInstance = setupAppCommands(yargsInstance);
 yargsInstance = setupAuthCommands(yargsInstance);
 yargsInstance = setupCliSetupCommand(yargsInstance);
@@ -80,6 +82,7 @@ function checkGlobalOptionConflicts(argv: string[]): void {
   const commandIndex = argv.findIndex(
     (arg) =>
       arg === 'app' ||
+      arg === 'admin' ||
       arg === 'auth' ||
       arg === 'cli-setup' ||
       arg === 'instructions' ||

@@ -92,16 +92,19 @@ export class ApiClient {
       if (contentType.includes('application/json')) {
         try {
           const json = (await response.json()) as unknown;
+          data = json as T;
           if (response.ok) {
-            data = json as T;
+            error = undefined;
           } else {
             const errObj = json as Record<string, unknown>;
             error =
               typeof errObj.error === 'string'
                 ? errObj.error
-                : typeof errObj.message === 'string'
-                  ? errObj.message
-                  : `HTTP ${response.status}`;
+                : isErrorObject(errObj.error) && typeof errObj.error.message === 'string'
+                  ? errObj.error.message
+                  : typeof errObj.message === 'string'
+                    ? errObj.message
+                    : `HTTP ${response.status}`;
           }
         } catch {
           error = `HTTP ${response.status}: invalid JSON response`;
@@ -119,4 +122,8 @@ export class ApiClient {
       return { ok: false, status: 0, error: err instanceof Error ? err.message : String(err) };
     }
   }
+}
+
+function isErrorObject(value: unknown): value is { message?: unknown } {
+  return typeof value === 'object' && value !== null;
 }

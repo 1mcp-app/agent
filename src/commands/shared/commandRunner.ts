@@ -59,7 +59,12 @@ function exitCodeForError(error: unknown): number {
   if (!isCodedError(error)) {
     return 1;
   }
-  if (error.code === 'target_argument_missing' || error.code.endsWith('_validation_failed')) {
+  if (
+    error.code === 'target_argument_missing' ||
+    error.code.startsWith('credential_') ||
+    error.code.startsWith('validation_') ||
+    error.code.endsWith('_validation_failed')
+  ) {
     return 2;
   }
   if (error.code.startsWith('auth_') || error.code.includes('session')) {
