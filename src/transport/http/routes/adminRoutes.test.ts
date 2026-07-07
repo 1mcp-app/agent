@@ -58,13 +58,18 @@ describe('admin routes', () => {
     fs.rmSync(storageDir, { recursive: true, force: true });
   });
 
-  function mountAdminRoutes(options: { externalUrl?: string } = {}) {
+  function mountAdminRoutes(
+    options: { externalUrl?: string; configuredServerService?: AdminConfiguredServerOperations | null } = {},
+  ) {
     const app = express();
     app.use(express.json());
     const adminRoutes = createAdminRoutes({
       adminEnabled: true,
       adminService,
-      configuredServerService,
+      configuredServerService:
+        options.configuredServerService === null
+          ? undefined
+          : (options.configuredServerService ?? configuredServerService),
       getRuntimeIdentity: () => ({
         ...runtimeIdentity,
         externalUrl: options.externalUrl ?? runtimeIdentity.externalUrl,
@@ -128,7 +133,7 @@ describe('admin routes', () => {
       warnings: [],
       result: {
         runtime: cliRuntimeIdentity,
-        supportedOperations: ['admin.login', 'admin.status', 'admin.logout'],
+        supportedOperations: ['admin.login', 'admin.status', 'admin.logout', 'mcp.enable', 'mcp.disable'],
         adminSurface: {
           enabled: true,
           status: 'loginRequired',
@@ -137,14 +142,14 @@ describe('admin routes', () => {
           mcp: {
             enabled: true,
             status: 'ready',
-            operations: [],
+            operations: ['enable', 'disable'],
           },
         },
         features: {
           adminSessions: true,
           bearerSessionAuth: true,
           csrfTokens: true,
-          mcpEnableDisable: false,
+          mcpEnableDisable: true,
         },
       },
     });
@@ -184,7 +189,7 @@ describe('admin routes', () => {
       warnings: [],
       result: {
         runtime: cliRuntimeIdentity,
-        supportedOperations: ['admin.login', 'admin.status', 'admin.logout'],
+        supportedOperations: ['admin.login', 'admin.status', 'admin.logout', 'mcp.enable', 'mcp.disable'],
         adminSurface: {
           enabled: true,
           status: 'setupRequired',
@@ -193,14 +198,14 @@ describe('admin routes', () => {
           mcp: {
             enabled: true,
             status: 'ready',
-            operations: [],
+            operations: ['enable', 'disable'],
           },
         },
         features: {
           adminSessions: true,
           bearerSessionAuth: true,
           csrfTokens: true,
-          mcpEnableDisable: false,
+          mcpEnableDisable: true,
         },
       },
     });
@@ -458,6 +463,280 @@ describe('admin routes', () => {
       },
     });
     expect(adminService.validateSession(sessionToken)).toBeNull();
+  });
+
+  it('enables and disables configured servers through the CLI adapter with bearer sessions and idempotency context', async () => {
+    await adminService.bootstrapFirstAdmin({ username: 'operator', password: 'correct horse battery staple' });
+    configuredServerService.enableConfiguredServer.mockResolvedValue({
+      ok: true,
+      status: 'completed',
+      operationId: 'op_cli_enable',
+      operationName: 'enableConfiguredServer',
+      replayed: false,
+      result: {
+        targetName: 'filesystem',
+        enabled: true,
+        outcome: 'enabled',
+        configChange: {
+          status: 'changed',
+          operation: 'enable',
+          configPath: '/tmp/mcp.json',
+          target: { name: 'filesystem', source: 'mcpServers' },
+          changed: true,
+          backup: { created: true, path: '/tmp/mcp.json.backup.1' },
+          retentionCleanup: { attempted: true, deletedPaths: [], warnings: [] },
+          reload: { status: 'observed' },
+          warnings: [],
+        },
+      },
+    });
+    configuredServerService.disableConfiguredServer.mockResolvedValue({
+      ok: true,
+      status: 'completed',
+      operationId: 'op_cli_disable',
+      operationName: 'disableConfiguredServer',
+      replayed: true,
+      result: {
+        targetName: 'filesystem',
+        enabled: false,
+        outcome: 'already_disabled',
+        configChange: {
+          status: 'unchanged',
+          operation: 'disable',
+          configPath: '/tmp/mcp.json',
+          target: { name: 'filesystem', source: 'mcpServers' },
+          changed: false,
+          backup: { created: false },
+          retentionCleanup: { attempted: false, deletedPaths: [], warnings: [] },
+          reload: { status: 'observed' },
+          warnings: [],
+        },
+      },
+    });
+    const app = mountAdminRoutes();
+    const loginResponse = await request(app)
+      .post('/admin/cli/v1/session/login')
+      .send({ username: 'operator', password: 'correct horse battery staple' });
+    const sessionToken = loginResponse.body.result.sessionToken as string;
+
+    const rejected = await request(app)
+      .post('/admin/cli/v1/operations/enable-server')
+      .set('X-Request-Id', 'req_cli_enable_rejected')
+      .set('Idempotency-Key', 'enable-key')
+      .send({ targetName: 'filesystem' });
+    const enabled = await request(app)
+      .post('/admin/cli/v1/operations/enable-server')
+      .set('Authorization', `Bearer ${sessionToken}`)
+      .set('X-Request-Id', 'req_cli_enable')
+      .set('Idempotency-Key', 'enable-key')
+      .send({ targetName: 'filesystem' });
+    const disabled = await request(app)
+      .post('/admin/cli/v1/operations/disable-server')
+      .set('Authorization', `Bearer ${sessionToken}`)
+      .set('X-Request-Id', 'req_cli_disable')
+      .set('Idempotency-Key', 'disable-key')
+      .send({ targetName: 'filesystem' });
+
+    expect(rejected.status).toBe(401);
+    expect(rejected.body).toEqual({
+      ok: false,
+      cliProtocolVersion: '1',
+      requestId: 'req_cli_enable_rejected',
+      error: {
+        code: 'admin_session_required',
+        message: 'A valid admin session bearer token is required',
+        retryable: false,
+        requestId: 'req_cli_enable_rejected',
+      },
+      warnings: [],
+    });
+    expect(enabled.status).toBe(200);
+    expect(enabled.body).toMatchObject({
+      ok: true,
+      cliProtocolVersion: '1',
+      requestId: 'req_cli_enable',
+      warnings: [],
+      result: {
+        operationId: 'op_cli_enable',
+        operationName: 'enableConfiguredServer',
+        replayed: false,
+        targetName: 'filesystem',
+        enabled: true,
+        outcome: 'enabled',
+        configChange: { reload: { status: 'observed' } },
+      },
+    });
+    expect(disabled.status).toBe(200);
+    expect(disabled.body).toMatchObject({
+      ok: true,
+      cliProtocolVersion: '1',
+      requestId: 'req_cli_disable',
+      warnings: [],
+      result: {
+        operationId: 'op_cli_disable',
+        operationName: 'disableConfiguredServer',
+        replayed: true,
+        targetName: 'filesystem',
+        enabled: false,
+        outcome: 'already_disabled',
+      },
+    });
+    expect(configuredServerService.enableConfiguredServer).toHaveBeenCalledTimes(1);
+    expect(configuredServerService.enableConfiguredServer).toHaveBeenCalledWith({
+      context: expect.objectContaining({
+        actor: expect.objectContaining({
+          type: 'admin_session',
+          accountId: expect.any(String),
+          sessionId: sessionToken,
+        }),
+        origin: 'cli',
+        idempotencyKey: 'enable-key',
+        request: { requestId: 'req_cli_enable', jsonMode: true },
+        runtimeIdentity: { runtimeScopeId: 'scope_123', runtimeVersion: '1.2.3' },
+        target: { type: 'configured_server', id: 'filesystem' },
+        requestFingerprint: expect.stringContaining('enableConfiguredServer'),
+      }),
+      targetName: 'filesystem',
+    });
+    expect(configuredServerService.disableConfiguredServer).toHaveBeenCalledWith({
+      context: expect.objectContaining({
+        origin: 'cli',
+        idempotencyKey: 'disable-key',
+        target: { type: 'configured_server', id: 'filesystem' },
+        requestFingerprint: expect.stringContaining('disableConfiguredServer'),
+      }),
+      targetName: 'filesystem',
+    });
+  });
+
+  it('returns stable CLI recovery errors for configured-server mutation failures', async () => {
+    await adminService.bootstrapFirstAdmin({ username: 'operator', password: 'correct horse battery staple' });
+    configuredServerService.enableConfiguredServer.mockResolvedValue({
+      ok: false,
+      status: 'operation_in_progress',
+      code: 'operation_in_progress',
+      retryable: true,
+      operationName: 'enableConfiguredServer',
+      retryAfterMs: 250,
+    });
+    const app = mountAdminRoutes();
+    const loginResponse = await request(app)
+      .post('/admin/cli/v1/session/login')
+      .send({ username: 'operator', password: 'correct horse battery staple' });
+
+    const response = await request(app)
+      .post('/admin/cli/v1/operations/enable-server')
+      .set('Authorization', `Bearer ${loginResponse.body.result.sessionToken}`)
+      .set('X-Request-Id', 'req_cli_recovery')
+      .set('Idempotency-Key', 'enable-key')
+      .send({ targetName: 'filesystem' });
+
+    expect(response.status).toBe(409);
+    expect(response.body).toEqual({
+      ok: false,
+      cliProtocolVersion: '1',
+      requestId: 'req_cli_recovery',
+      error: {
+        code: 'operation_in_progress',
+        message: 'Admin operation is still in progress',
+        retryable: true,
+        requestId: 'req_cli_recovery',
+        retryAfterMs: 250,
+        details: {
+          operationName: 'enableConfiguredServer',
+        },
+      },
+      warnings: [],
+    });
+  });
+
+  it('uses a normalized CLI configured-server request fingerprint independent of raw JSON body shape', async () => {
+    await adminService.bootstrapFirstAdmin({ username: 'operator', password: 'correct horse battery staple' });
+    configuredServerService.enableConfiguredServer.mockResolvedValue({
+      ok: true,
+      status: 'completed',
+      operationId: 'op_cli_enable',
+      operationName: 'enableConfiguredServer',
+      replayed: false,
+      result: {
+        targetName: 'filesystem',
+        enabled: true,
+        outcome: 'enabled',
+        configChange: {
+          status: 'unchanged',
+          operation: 'enable',
+          configPath: '/tmp/mcp.json',
+          target: { name: 'filesystem', source: 'mcpServers' },
+          changed: false,
+          backup: { created: false },
+          retentionCleanup: { attempted: false, deletedPaths: [], warnings: [] },
+          reload: { status: 'observed' },
+          warnings: [],
+        },
+      },
+    });
+    const app = mountAdminRoutes();
+    const loginResponse = await request(app)
+      .post('/admin/cli/v1/session/login')
+      .send({ username: 'operator', password: 'correct horse battery staple' });
+
+    await request(app)
+      .post('/admin/cli/v1/operations/enable-server')
+      .set('Authorization', `Bearer ${loginResponse.body.result.sessionToken}`)
+      .set('Idempotency-Key', 'enable-key-a')
+      .send({ targetName: 'filesystem', ignored: 'first' });
+    await request(app)
+      .post('/admin/cli/v1/operations/enable-server')
+      .set('Authorization', `Bearer ${loginResponse.body.result.sessionToken}`)
+      .set('Idempotency-Key', 'enable-key-b')
+      .send({ ignored: 'second', targetName: 'filesystem' });
+
+    const firstFingerprint =
+      configuredServerService.enableConfiguredServer.mock.calls[0]?.[0].context.requestFingerprint;
+    const secondFingerprint =
+      configuredServerService.enableConfiguredServer.mock.calls[1]?.[0].context.requestFingerprint;
+    expect(firstFingerprint).toBe(secondFingerprint);
+    expect(firstFingerprint).toBe(
+      '{"operationName":"enableConfiguredServer","schemaVersion":1,"target":{"id":"filesystem","type":"configured_server"}}',
+    );
+  });
+
+  it('does not advertise or expose CLI configured-server mutations when the service is unavailable', async () => {
+    await adminService.bootstrapFirstAdmin({ username: 'operator', password: 'correct horse battery staple' });
+    const app = mountAdminRoutes({ configuredServerService: null });
+    const loginResponse = await request(app)
+      .post('/admin/cli/v1/session/login')
+      .send({ username: 'operator', password: 'correct horse battery staple' });
+
+    const capabilities = await request(app).get('/admin/cli/v1/capabilities').set('X-Request-Id', 'req_caps_no_mcp');
+    const mutation = await request(app)
+      .post('/admin/cli/v1/operations/enable-server')
+      .set('Authorization', `Bearer ${loginResponse.body.result.sessionToken}`)
+      .set('X-Request-Id', 'req_cli_no_mcp')
+      .set('Idempotency-Key', 'enable-key')
+      .send({ targetName: 'filesystem' });
+
+    expect(capabilities.status).toBe(200);
+    expect(capabilities.body.result.supportedOperations).toEqual(['admin.login', 'admin.status', 'admin.logout']);
+    expect(capabilities.body.result.mutationReadiness.mcp).toEqual({
+      enabled: false,
+      status: 'unavailable',
+      operations: [],
+    });
+    expect(capabilities.body.result.features.mcpEnableDisable).toBe(false);
+    expect(mutation.status).toBe(404);
+    expect(mutation.body).toEqual({
+      ok: false,
+      cliProtocolVersion: '1',
+      requestId: 'req_cli_no_mcp',
+      error: {
+        code: 'admin_configured_servers_unavailable',
+        message: 'Configured server administration is unavailable',
+        retryable: false,
+        requestId: 'req_cli_no_mcp',
+      },
+      warnings: [],
+    });
   });
 
   it('rejects unsafe admin API requests without a valid session-bound CSRF token', async () => {

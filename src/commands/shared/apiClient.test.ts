@@ -152,6 +152,22 @@ describe('ApiClient', () => {
     expect(init.body).toBe(JSON.stringify({ tool: 'echo', args: {} }));
   });
 
+  it('sends caller-provided POST headers', async () => {
+    mockFetch.mockResolvedValueOnce(makeResponse(200, { result: 'ok' }));
+
+    const client = new ApiClient({ baseUrl: 'http://localhost:3050' });
+    await client.post(
+      '/admin/cli/v1/operations/enable-server',
+      {},
+      {
+        headers: { 'Idempotency-Key': 'idem_enable' },
+      },
+    );
+
+    const [, init] = mockFetch.mock.calls[0] as [string, RequestInit];
+    expect((init.headers as Record<string, string>)['Idempotency-Key']).toBe('idem_enable');
+  });
+
   it('strips trailing slash from baseUrl', async () => {
     mockFetch.mockResolvedValueOnce(makeResponse(200, {}));
 

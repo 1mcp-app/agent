@@ -18,6 +18,8 @@ const FAILED_LOGIN_LIMIT = 5;
 const FAILED_LOGIN_WINDOW_MS = 15 * 60 * 1000;
 const CLI_ADMIN_PROTOCOL_VERSION = '1';
 const CLI_SESSION_OPERATIONS = ['admin.login', 'admin.status', 'admin.logout'] as const;
+const CLI_MCP_OPERATIONS = ['mcp.enable', 'mcp.disable'] as const;
+type AdminOperationFailure = Extract<AdminOperationResult, { ok: false }>;
 
 interface AdminRoutesOptions {
   adminEnabled: boolean;
@@ -52,10 +54,12 @@ export function createAdminRoutes(options: AdminRoutesOptions): Router | null {
     const identity = options.getRuntimeIdentity();
     const setupRequired = !options.adminService.hasAdminAccount();
     const mcpMutationsReady = Boolean(options.configuredServerService);
+    const mcpOperations = mcpMutationsReady ? [...CLI_MCP_OPERATIONS] : [];
+    const mcpMutationOperations = mcpMutationsReady ? ['enable', 'disable'] : [];
 
     sendCliSuccess(req, res, {
       runtime: toCliRuntimeIdentity(identity),
-      supportedOperations: [...CLI_SESSION_OPERATIONS],
+      supportedOperations: [...CLI_SESSION_OPERATIONS, ...mcpOperations],
       adminSurface: {
         enabled: true,
         status: setupRequired ? 'setupRequired' : 'loginRequired',
@@ -64,14 +68,14 @@ export function createAdminRoutes(options: AdminRoutesOptions): Router | null {
         mcp: {
           enabled: mcpMutationsReady,
           status: mcpMutationsReady ? 'ready' : 'unavailable',
-          operations: [],
+          operations: mcpMutationOperations,
         },
       },
       features: {
         adminSessions: true,
         bearerSessionAuth: true,
         csrfTokens: true,
-        mcpEnableDisable: false,
+        mcpEnableDisable: mcpMutationsReady,
       },
     });
   });
@@ -136,6 +140,14 @@ export function createAdminRoutes(options: AdminRoutesOptions): Router | null {
     sendCliSuccess(req, res, {
       revoked: Boolean(session),
     });
+  });
+
+  router.post('/cli/v1/operations/enable-server', async (req, res) => {
+    await handleCliConfiguredServerMutation(req, res, options, 'enableConfiguredServer');
+  });
+
+  router.post('/cli/v1/operations/disable-server', async (req, res) => {
+    await handleCliConfiguredServerMutation(req, res, options, 'disableConfiguredServer');
   });
 
   router.post('/api/session/login', async (req, res) => {
@@ -255,6 +267,67 @@ export function createAdminRoutes(options: AdminRoutesOptions): Router | null {
   });
 
   return router;
+}
+
+async function handleCliConfiguredServerMutation(
+  req: Request,
+  res: Response,
+  options: AdminRoutesOptions,
+  operationName: 'enableConfiguredServer' | 'disableConfiguredServer',
+): Promise<void> {
+  if (!options.configuredServerService) {
+    sendCliError(req, res, {
+      status: 404,
+      code: 'admin_configured_servers_unavailable',
+      message: 'Configured server administration is unavailable',
+      retryable: false,
+    });
+    return;
+  }
+
+  const sessionToken = getBearerSessionToken(req);
+  if (!sessionToken) {
+    sendCliError(req, res, {
+      status: 401,
+      code: 'admin_session_required',
+      message: 'A valid admin session bearer token is required',
+      retryable: false,
+    });
+    return;
+  }
+
+  const session = options.adminService.validateSession(sessionToken);
+  if (!session) {
+    sendCliError(req, res, {
+      status: 401,
+      code: 'admin_session_required',
+      message: 'A valid admin session bearer token is required',
+      retryable: false,
+    });
+    return;
+  }
+
+  const targetName = getBodyString(req.body, 'targetName');
+  if (!targetName) {
+    sendCliError(req, res, {
+      status: 400,
+      code: 'validation_target_required',
+      message: 'Configured server targetName is required',
+      retryable: false,
+    });
+    return;
+  }
+  const context = buildCliAdminOperationContext(req, options, session.account, sessionToken, {
+    type: 'configured_server',
+    id: targetName,
+  });
+  const input = { context, targetName };
+  const result =
+    operationName === 'enableConfiguredServer'
+      ? await options.configuredServerService.enableConfiguredServer(input)
+      : await options.configuredServerService.disableConfiguredServer(input);
+
+  sendCliAdminOperationResult(req, res, result);
 }
 
 async function handleConfiguredServerMutation(
@@ -419,6 +492,7 @@ function sendCliError(
     code: string;
     message: string;
     retryable: boolean;
+    retryAfterMs?: number;
     recoveryCommand?: string;
     details?: unknown;
   },
@@ -433,10 +507,32 @@ function sendCliError(
       message: error.message,
       retryable: error.retryable,
       requestId,
+      ...(error.retryAfterMs === undefined ? {} : { retryAfterMs: error.retryAfterMs }),
       ...(error.recoveryCommand ? { recoveryCommand: error.recoveryCommand } : {}),
       ...(error.details === undefined ? {} : { details: error.details }),
     },
     warnings: [],
+  });
+}
+
+function sendCliAdminOperationResult<T>(req: Request, res: Response, result: AdminOperationResult<T>): void {
+  if (result.ok) {
+    sendCliSuccess(req, res, {
+      operationId: result.operationId,
+      operationName: result.operationName,
+      replayed: result.replayed,
+      ...(typeof result.result === 'object' && result.result !== null ? result.result : { value: result.result }),
+    });
+    return;
+  }
+
+  sendCliError(req, res, {
+    status: cliOperationErrorStatus(result.status),
+    code: result.code,
+    message: cliOperationErrorMessage(result.status),
+    retryable: result.retryable,
+    retryAfterMs: result.status === 'operation_in_progress' ? result.retryAfterMs : undefined,
+    details: cliOperationErrorDetails(result),
   });
 }
 
@@ -495,15 +591,125 @@ function buildAdminOperationContext(
       jsonMode: true,
     },
     idempotencyKey: req.header('Idempotency-Key'),
-    requestFingerprint: `${operationName}:${req.method}:${req.originalUrl}:${JSON.stringify(req.body ?? {})}`,
+    requestFingerprint: configuredServerRequestFingerprint(operationName, target.id),
   };
 }
 
+function buildCliAdminOperationContext(
+  req: Request,
+  options: AdminRoutesOptions,
+  account: AdminAccount,
+  sessionToken: string,
+  target: AdminOperationContext['target'],
+): AdminOperationContext {
+  const runtimeIdentity = options.getRuntimeIdentity();
+  const operationName = operationNameForRequest(req);
+  return {
+    actor: {
+      type: 'admin_session',
+      accountId: account.id,
+      sessionId: sessionToken,
+    },
+    origin: 'cli',
+    target,
+    runtimeIdentity: {
+      runtimeScopeId: runtimeIdentity.runtimeScopeId,
+      runtimeVersion: runtimeIdentity.runtimeVersion,
+    },
+    request: {
+      requestId: getRequestId(req),
+      jsonMode: true,
+    },
+    idempotencyKey: req.header('Idempotency-Key'),
+    requestFingerprint: configuredServerRequestFingerprint(operationName, target.id),
+  };
+}
+
+function configuredServerRequestFingerprint(operationName: string, targetName: string | undefined): string {
+  return stableJsonStringify({
+    schemaVersion: 1,
+    operationName,
+    target: {
+      type: 'configured_server',
+      id: targetName ?? '',
+    },
+  });
+}
+
+function stableJsonStringify(value: unknown): string {
+  if (Array.isArray(value)) {
+    return `[${value.map((item) => stableJsonStringify(item)).join(',')}]`;
+  }
+  if (value && typeof value === 'object') {
+    const entries = Object.entries(value as Record<string, unknown>)
+      .filter(([, entryValue]) => entryValue !== undefined)
+      .sort(([left], [right]) => left.localeCompare(right));
+    return `{${entries
+      .map(([key, entryValue]) => `${JSON.stringify(key)}:${stableJsonStringify(entryValue)}`)
+      .join(',')}}`;
+  }
+  return JSON.stringify(value);
+}
+
+function cliOperationErrorStatus(status: AdminOperationFailure['status']): number {
+  switch (status) {
+    case 'idempotency_key_required':
+      return 400;
+    case 'admin_operation_journal_unavailable':
+      return 503;
+    default:
+      return 409;
+  }
+}
+
+function cliOperationErrorMessage(status: AdminOperationFailure['status']): string {
+  switch (status) {
+    case 'idempotency_key_required':
+      return 'Idempotency key is required';
+    case 'idempotency_conflict':
+      return 'Idempotency key conflicts with another request';
+    case 'operation_in_progress':
+      return 'Admin operation is still in progress';
+    case 'operation_state_unknown':
+      return 'Admin operation state is unknown';
+    case 'mutation_confirmation_required':
+      return 'Additional mutation confirmation is required';
+    case 'mutation_failed':
+      return 'Configured server mutation failed';
+    case 'admin_operation_journal_unavailable':
+      return 'Admin operation journal is unavailable';
+    case 'runtime_scope_mismatch':
+      return 'Runtime scope mismatch';
+    default:
+      return 'Admin operation failed';
+  }
+}
+
+function cliOperationErrorDetails(result: AdminOperationFailure): Record<string, unknown> {
+  const details: Record<string, unknown> = {
+    operationName: result.operationName,
+  };
+
+  if (result.status === 'operation_state_unknown') {
+    details.target = result.target;
+    details.reservedAt = result.reservedAt;
+    details.recovery = result.recovery;
+  }
+  if (result.status === 'mutation_confirmation_required') {
+    details.confirmationRequirements = result.confirmationRequirements;
+  }
+  if (result.status === 'mutation_failed') {
+    details.error = result.error;
+  }
+
+  return details;
+}
+
 function operationNameForRequest(req: Request): string {
-  if (req.path.endsWith('/enable')) {
+  if (req.path.endsWith('/enable') || req.path.endsWith('/enable-server')) {
     return 'enableConfiguredServer';
   }
-  if (req.path.endsWith('/disable')) {
+  if (req.path.endsWith('/disable') || req.path.endsWith('/disable-server')) {
     return 'disableConfiguredServer';
   }
   return 'listConfiguredServers';

@@ -18,6 +18,11 @@ export interface ApiResponse<T> {
   sessionId?: string;
 }
 
+export interface ApiRequestOptions {
+  headers?: Record<string, string>;
+  timeout?: number;
+}
+
 export class ApiClient {
   private readonly baseUrl: string;
   private readonly bearerToken?: string;
@@ -48,18 +53,25 @@ export class ApiClient {
     return this.request<T>(url.toString(), 'GET');
   }
 
-  async post<T>(path: string, body: unknown): Promise<ApiResponse<T>> {
+  async post<T>(path: string, body: unknown, options: ApiRequestOptions = {}): Promise<ApiResponse<T>> {
     const url = `${this.baseUrl}${path}`;
-    return this.request<T>(url, 'POST', body);
+    return this.request<T>(url, 'POST', body, options);
   }
 
-  private async request<T>(url: string, method: string, body?: unknown): Promise<ApiResponse<T>> {
+  private async request<T>(
+    url: string,
+    method: string,
+    body?: unknown,
+    options: ApiRequestOptions = {},
+  ): Promise<ApiResponse<T>> {
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), this.timeout);
+    const timeout = options.timeout ?? this.timeout;
+    const timer = setTimeout(() => controller.abort(), timeout);
 
     const headers: Record<string, string> = {
       'User-Agent': `1MCP/${MCP_SERVER_VERSION}`,
       Accept: 'application/json',
+      ...options.headers,
     };
 
     if (this.bearerToken) {
@@ -117,7 +129,7 @@ export class ApiClient {
     } catch (err) {
       clearTimeout(timer);
       if (err instanceof Error && err.name === 'AbortError') {
-        return { ok: false, status: 0, error: `Request timed out after ${this.timeout}ms` };
+        return { ok: false, status: 0, error: `Request timed out after ${timeout}ms` };
       }
       return { ok: false, status: 0, error: err instanceof Error ? err.message : String(err) };
     }
