@@ -135,6 +135,9 @@ export interface ApplicationConfig {
     readonly enabled?: boolean;
     readonly debounce?: number;
   };
+  readonly admin?: {
+    readonly enabled?: boolean;
+  };
 }
 
 /**
@@ -315,6 +318,11 @@ export const applicationConfigSchema = z.object({
     .object({
       enabled: z.boolean().optional().describe('Enable automatic configuration hot-reload'),
       debounce: z.number().int().min(0).optional().describe('Debounce delay in milliseconds'),
+    })
+    .optional(),
+  admin: z
+    .object({
+      enabled: z.boolean().optional().describe('Enable Admin Console and CLI Admin Adapter HTTP surfaces'),
     })
     .optional(),
 });

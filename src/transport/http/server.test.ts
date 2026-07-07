@@ -249,6 +249,37 @@ describe('ExpressServer', () => {
       expect(mockApp.use.mock.calls.length).toBeGreaterThan(3);
     });
 
+    it('should mount the runtime identity endpoint outside admin and api routes', async () => {
+      expressServer = new ExpressServer(mockServerManager);
+
+      expect(mockApp.use).toHaveBeenCalledWith('/.well-known/1mcp', expect.any(Object));
+    });
+
+    it('should not mount admin routes when admin surfaces are disabled', async () => {
+      expressServer = new ExpressServer(mockServerManager);
+
+      expect(mockApp.use.mock.calls.some(([path]: any[]) => path === '/admin')).toBe(false);
+    });
+
+    it('should mount admin routes when admin surfaces are enabled', async () => {
+      mockConfigManager.get.mockImplementation((key: string) => {
+        if (key === 'trustProxy') return 'loopback';
+        if (key === 'admin') return { enabled: true };
+        if (key === 'auth') return { sessionStoragePath: '/tmp/sessions' };
+        if (key === 'features') return { enhancedSecurity: false, auth: false };
+        if (key === 'externalUrl') return 'http://localhost:3050';
+        if (key === 'host') return 'localhost';
+        if (key === 'port') return 3050;
+        if (key === 'rateLimit') return { windowMs: 900000, max: 100 };
+        if (key === 'sessionPersistence') return { backgroundFlushSeconds: 30 };
+        return undefined;
+      });
+
+      expressServer = new ExpressServer(mockServerManager);
+
+      expect(mockApp.use).toHaveBeenCalledWith('/admin', expect.any(Object));
+    });
+
     it('should handle enhanced security when enabled', async () => {
       const { setupSecurityMiddleware } = await import('./middlewares/securityMiddleware.js');
       vi.mocked(setupSecurityMiddleware).mockReturnValue([vi.fn()]);

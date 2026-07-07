@@ -61,6 +61,9 @@ describe('AgentConfigManager', () => {
         host: 'localhost',
         port: 3050,
         trustProxy: 'loopback',
+        admin: {
+          enabled: false,
+        },
         auth: {
           enabled: false,
           sessionTtlMinutes: 1440,
@@ -142,6 +145,7 @@ describe('AgentConfigManager', () => {
         host: 'example.com',
         port: 8080,
         externalUrl: 'https://api.example.com',
+        runtimeScopeStoragePath: '/tmp/runtime-scope',
         trustProxy: true,
       });
 
@@ -149,6 +153,7 @@ describe('AgentConfigManager', () => {
       expect(config.host).toBe('example.com');
       expect(config.port).toBe(8080);
       expect(config.externalUrl).toBe('https://api.example.com');
+      expect(config.runtimeScopeStoragePath).toBe('/tmp/runtime-scope');
       expect(config.trustProxy).toBe(true);
     });
 

@@ -32,7 +32,11 @@ export interface AgentConfig {
   host: string;
   port: number;
   externalUrl?: string;
+  runtimeScopeStoragePath?: string;
   trustProxy: string | boolean;
+  admin: {
+    enabled: boolean;
+  };
   auth: {
     enabled: boolean;
     sessionTtlMinutes: number;
@@ -127,6 +131,9 @@ export class AgentConfigManager {
       host: HOST,
       port: PORT,
       trustProxy: 'loopback',
+      admin: {
+        enabled: false,
+      },
       auth: {
         enabled: AUTH_CONFIG.SERVER.DEFAULT_ENABLED,
         sessionTtlMinutes: AUTH_CONFIG.SERVER.SESSION.TTL_MINUTES,

@@ -3,11 +3,13 @@ import { mcpAuthRouter } from '@modelcontextprotocol/sdk/server/auth/router.js';
 import { SDKOAuthServerProvider } from '@src/auth/sdkOAuthServerProvider.js';
 import { FileStorageService } from '@src/auth/storage/fileStorageService.js';
 import { McpConfigManager } from '@src/config/mcpConfigManager.js';
-import { RATE_LIMIT_CONFIG, STORAGE_SUBDIRS } from '@src/constants.js';
+import { getGlobalConfigDir, MCP_SERVER_VERSION, RATE_LIMIT_CONFIG, STORAGE_SUBDIRS } from '@src/constants.js';
 import { AsyncLoadingOrchestrator } from '@src/core/capabilities/asyncLoadingOrchestrator.js';
 import { McpLoadingManager } from '@src/core/loading/mcpLoadingManager.js';
+import { RuntimeIdentityService } from '@src/core/runtime/runtimeIdentityService.js';
 import { AgentConfigManager } from '@src/core/server/agentConfig.js';
 import { ServerManager } from '@src/core/server/serverManager.js';
+import { AdminIdentityService } from '@src/domains/admin/adminIdentityService.js';
 import logger from '@src/logger/logger.js';
 
 import bodyParser from 'body-parser';
@@ -20,9 +22,11 @@ import { httpRequestLogger } from './middlewares/httpRequestLogger.js';
 import { createMcpAvailabilityMiddleware } from './middlewares/mcpAvailabilityMiddleware.js';
 import { createScopeAuthMiddleware } from './middlewares/scopeAuthMiddleware.js';
 import { setupSecurityMiddleware } from './middlewares/securityMiddleware.js';
+import { createAdminRoutes } from './routes/adminRoutes.js';
 import { createApiRoutes, createCliTokenRoute, rejectBrowserOriginRequests } from './routes/apiRoutes.js';
 import createHealthRoutes from './routes/healthRoutes.js';
 import createOAuthRoutes from './routes/oauthRoutes.js';
+import { createRuntimeIdentityRoutes } from './routes/runtimeIdentityRoutes.js';
 import { setupSseRoutes } from './routes/sseRoutes.js';
 import { setupStreamableHttpRoutes } from './routes/streamableHttpRoutes.js';
 import { StreamableSessionRepository } from './storage/streamableSessionRepository.js';
@@ -202,6 +206,7 @@ export class ExpressServer {
   private configManager: AgentConfigManager;
   private customTemplate?: string;
   private streamableSessionRepository: StreamableSessionRepository;
+  private runtimeIdentityService: RuntimeIdentityService;
 
   /**
    * Creates a new ExpressServer instance.
@@ -227,6 +232,10 @@ export class ExpressServer {
     this.asyncOrchestrator = asyncOrchestrator;
     this.customTemplate = customTemplate;
     this.configManager = AgentConfigManager.getInstance();
+    this.runtimeIdentityService = new RuntimeIdentityService({
+      storageDir:
+        this.configManager.get('runtimeScopeStoragePath') ?? this.configManager.get('auth').sessionStoragePath,
+    });
 
     // Configure trust proxy setting before any middleware
     this.app.set('trust proxy', this.configManager.get('trustProxy'));
@@ -289,6 +298,19 @@ export class ExpressServer {
    * Logs the authentication status for debugging purposes.
    */
   private setupRoutes(): void {
+    const getRuntimeIdentity = () =>
+      this.runtimeIdentityService.getRuntimeIdentity({
+        externalUrl: this.configManager.getUrl(),
+        runtimeVersion: MCP_SERVER_VERSION,
+      });
+
+    this.app.use(
+      '/.well-known/1mcp',
+      createRuntimeIdentityRoutes({
+        getRuntimeIdentity,
+      }),
+    );
+
     // Setup OAuth routes using SDK's mcpAuthRouter
     const issuerUrl = new URL(this.configManager.getUrl());
 
@@ -333,6 +355,22 @@ export class ExpressServer {
 
     // Setup health check routes (no auth required for monitoring)
     this.app.use('/health', createHealthRoutes(this.loadingManager));
+
+    const adminRoutes = createAdminRoutes({
+      adminEnabled: this.configManager.get('admin')?.enabled ?? false,
+      adminService: new AdminIdentityService({
+        runtimeScopeId: getRuntimeIdentity().runtimeScopeId,
+        storageDir:
+          this.configManager.get('runtimeScopeStoragePath') ??
+          this.configManager.get('auth').sessionStoragePath ??
+          getGlobalConfigDir(),
+        sessionTtlMs: this.configManager.get('auth').sessionTtlMinutes * 60 * 1000,
+      }),
+      getRuntimeIdentity,
+    });
+    if (adminRoutes) {
+      this.app.use('/admin', adminRoutes);
+    }
 
     // CLI token endpoint (localhost-only, no auth middleware).
     // Reject browser-origin requests so a web page cannot silently obtain a full-scope token.
