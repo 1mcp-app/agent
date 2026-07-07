@@ -162,6 +162,7 @@
     "lucide-react": "1.23.0",
     "mermaid": "^11.9.0",
     "nodemon": "^3.1.10",
+    "playwright": "1.61.1",
     "postject": "^1.0.0-alpha.6",
     "prettier": "^3.5.3",
     "react": "18.3.1",

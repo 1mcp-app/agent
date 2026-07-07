@@ -105,6 +105,38 @@ describe('AdminConsoleRoot', () => {
     expect(screen.queryByText(/invalid_credentials/)).not.toBeInTheDocument();
   });
 
+  it('loads console read models after a successful login from the login screen', async () => {
+    const user = userEvent.setup();
+    const api = apiClient({
+      getSession: vi.fn(async () => {
+        throw new AdminApiError(401, { authenticated: false, adminStatus: 'loginRequired' }, 'Unauthorized');
+      }),
+      login: vi.fn(async () => session),
+      getStatus: vi.fn(async () => status),
+      listConfiguredServers: vi.fn(async () => [
+        {
+          id: 'github',
+          source: 'mcpServers' as const,
+          enabled: false,
+          transport: { url: 'https://mcp.example/github' },
+          secretInputs: [],
+        },
+      ]),
+    });
+
+    renderRoot(api);
+
+    expect(await screen.findByRole('heading', { name: /operator login/i })).toBeInTheDocument();
+    await user.type(screen.getByLabelText(/username/i), 'operator');
+    await user.type(screen.getByLabelText(/password/i), 'correct horse battery staple');
+    await user.click(screen.getByRole('button', { name: /log in/i }));
+
+    expect(await screen.findByRole('heading', { name: /runtime operations/i })).toBeInTheDocument();
+    expect(screen.getByText('github')).toBeInTheDocument();
+    expect(api.getStatus).toHaveBeenCalledTimes(1);
+    expect(api.listConfiguredServers).toHaveBeenCalledTimes(1);
+  });
+
   it('maps mutation operation failures to actionable copy', async () => {
     const user = userEvent.setup();
     const api = apiClient({

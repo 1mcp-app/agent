@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { AdminApiError } from './api/adminApi';
-import type { AdminApiClient } from './api/adminApi';
+import type { AdminApiClient, AdminSession } from './api/adminApi';
 import { AdminConsoleApp } from './components/AdminConsoleApp';
 import { type AdminConsoleAction, createInitialState, reduceAdminConsoleState } from './state/adminConsoleState';
 import { pollingDelayForVisibility, shouldPollConsole } from './state/polling';
@@ -87,8 +87,8 @@ function useAdminConsoleController({
   const isCurrentSession = useCallback((sessionKey: string) => stateRef.current.session?.csrfToken === sessionKey, []);
 
   const refreshConsole = useCallback(
-    async (errorPrefix: string) => {
-      const activeSession = stateRef.current.session;
+    async (errorPrefix: string, sessionOverride?: AdminSession) => {
+      const activeSession = sessionOverride ?? stateRef.current.session;
       if (!activeSession) {
         return;
       }
@@ -132,7 +132,7 @@ function useAdminConsoleController({
     try {
       const session = await api.getSession();
       dispatch({ type: 'sessionLoaded', session });
-      await refreshConsole('Session loaded, but refresh failed: ');
+      await refreshConsole('Session loaded, but refresh failed: ', session);
     } catch (error) {
       if (!handleUnauthenticated(error)) {
         dispatch({ type: 'refreshFailed', message: `Session check failed: ${errorMessage(error)}` });
@@ -151,7 +151,7 @@ function useAdminConsoleController({
       try {
         const session = await api.login(input);
         dispatch({ type: 'sessionLoaded', session });
-        await refreshConsole('Login succeeded, but refresh failed: ');
+        await refreshConsole('Login succeeded, but refresh failed: ', session);
       } catch (error) {
         dispatch({ type: 'loginFailed', message: `Login failed: ${errorMessage(error)}` });
       } finally {
