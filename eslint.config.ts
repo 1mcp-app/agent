@@ -102,6 +102,13 @@ export default [
   {
     files: ['web/admin/src/**/*.ts'],
     languageOptions: {
+      parser: tsParser,
+      parserOptions: {
+        ecmaVersion: 'latest',
+        sourceType: 'module',
+        project: 'web/admin/tsconfig.eslint.json',
+        tsconfigRootDir: __dirname,
+      },
       globals: {
         ...globals.browser,
         ...globals.es2022,
@@ -110,6 +117,18 @@ export default [
         __filename: 'off',
         global: 'off',
         process: 'off',
+      },
+    },
+  },
+  {
+    files: ['web/admin/vite.config.ts'],
+    languageOptions: {
+      parser: tsParser,
+      parserOptions: {
+        ecmaVersion: 'latest',
+        sourceType: 'module',
+        project: 'web/admin/tsconfig.vite.json',
+        tsconfigRootDir: __dirname,
       },
     },
   },

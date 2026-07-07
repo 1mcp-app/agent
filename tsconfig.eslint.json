@@ -7,6 +7,7 @@
     "src/**/*",
     "test/**/*",
     "vitest.config.ts",
+    "vitest.admin.config.ts",
     "vitest.e2e.config.ts",
     "*.js",
     "*.ts",
