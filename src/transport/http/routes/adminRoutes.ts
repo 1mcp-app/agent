@@ -1,9 +1,11 @@
 import { RuntimeIdentity } from '@src/core/runtime/runtimeIdentityService.js';
+import type { AdminConfiguredServerOperations } from '@src/domains/admin/adminConfiguredServerService.js';
 import {
   ADMIN_SESSION_COOKIE_NAME,
   AdminIdentityError,
   AdminIdentityService,
 } from '@src/domains/admin/adminIdentityService.js';
+import type { AdminOperationContext, AdminOperationResult } from '@src/domains/admin/adminOperationService.js';
 
 import { Request, Response, Router } from 'express';
 
@@ -13,6 +15,7 @@ const FAILED_LOGIN_WINDOW_MS = 15 * 60 * 1000;
 interface AdminRoutesOptions {
   adminEnabled: boolean;
   adminService: AdminIdentityService;
+  configuredServerService?: AdminConfiguredServerOperations;
   getRuntimeIdentity: () => RuntimeIdentity;
 }
 
@@ -133,7 +136,58 @@ export function createAdminRoutes(options: AdminRoutesOptions): Router | null {
     }
   });
 
+  router.get('/api/configured-servers', async (req, res) => {
+    if (!options.configuredServerService) {
+      res.status(404).json({ error: 'admin_configured_servers_unavailable' });
+      return;
+    }
+
+    const result = await options.configuredServerService.listConfiguredServers({
+      context: buildAdminOperationContext(req, options, { type: 'configured_server_collection' }),
+    });
+    if (!result.ok) {
+      sendAdminOperationResult(res, result);
+      return;
+    }
+
+    res.status(200).json({
+      ok: true,
+      operationId: result.operationId,
+      servers: result.result.servers,
+    });
+  });
+
+  router.post('/api/configured-servers/:name/enable', async (req, res) => {
+    await handleConfiguredServerMutation(req, res, options, 'enableConfiguredServer');
+  });
+
+  router.post('/api/configured-servers/:name/disable', async (req, res) => {
+    await handleConfiguredServerMutation(req, res, options, 'disableConfiguredServer');
+  });
+
   return router;
+}
+
+async function handleConfiguredServerMutation(
+  req: Request,
+  res: Response,
+  options: AdminRoutesOptions,
+  operationName: 'enableConfiguredServer' | 'disableConfiguredServer',
+): Promise<void> {
+  if (!options.configuredServerService) {
+    res.status(404).json({ error: 'admin_configured_servers_unavailable' });
+    return;
+  }
+
+  const targetName = req.params.name;
+  const context = buildAdminOperationContext(req, options, { type: 'configured_server', id: targetName });
+  const input = { context, targetName };
+  const result =
+    operationName === 'enableConfiguredServer'
+      ? await options.configuredServerService.enableConfiguredServer(input)
+      : await options.configuredServerService.disableConfiguredServer(input);
+
+  sendAdminOperationResult(res, result);
 }
 
 class FailedLoginLimiter {
@@ -234,6 +288,70 @@ function sendAdminError(res: Response, error: unknown): void {
   }
 
   throw error;
+}
+
+function sendAdminOperationResult<T>(res: Response, result: AdminOperationResult<T>): void {
+  if (result.ok) {
+    res.status(200).json({
+      ok: true,
+      operationId: result.operationId,
+      replayed: result.replayed,
+      result: result.result,
+    });
+    return;
+  }
+
+  const status = result.status === 'idempotency_key_required' ? 400 : result.status === 'mutation_failed' ? 409 : 409;
+  res.status(status).json(result);
+}
+
+function buildAdminOperationContext(
+  req: Request,
+  options: AdminRoutesOptions,
+  target: AdminOperationContext['target'],
+): AdminOperationContext {
+  const sessionToken = getAdminSessionCookie(req);
+  const session = options.adminService.validateSession(sessionToken);
+  if (!session) {
+    throw new Error('Admin operation context requested without a valid session');
+  }
+
+  const runtimeIdentity = options.getRuntimeIdentity();
+  const operationName = operationNameForRequest(req);
+  return {
+    actor: {
+      type: 'admin_session',
+      accountId: session.account.id,
+      sessionId: sessionToken,
+    },
+    origin: 'browser',
+    target,
+    runtimeIdentity: {
+      runtimeScopeId: runtimeIdentity.runtimeScopeId,
+      runtimeVersion: runtimeIdentity.runtimeVersion,
+    },
+    request: {
+      requestId: getRequestId(req),
+      jsonMode: true,
+    },
+    idempotencyKey: req.header('Idempotency-Key'),
+    requestFingerprint: `${operationName}:${req.method}:${req.originalUrl}:${JSON.stringify(req.body ?? {})}`,
+  };
+}
+
+function operationNameForRequest(req: Request): string {
+  if (req.path.endsWith('/enable')) {
+    return 'enableConfiguredServer';
+  }
+  if (req.path.endsWith('/disable')) {
+    return 'disableConfiguredServer';
+  }
+  return 'listConfiguredServers';
+}
+
+function getRequestId(req: Request): string {
+  const requestId = req.header('X-Request-Id');
+  return requestId?.trim() || `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
 }
 
 function getBodyString(body: unknown, key: string): string {

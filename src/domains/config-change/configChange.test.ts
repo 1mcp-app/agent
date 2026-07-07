@@ -342,6 +342,180 @@ describe('Config Change', () => {
     });
   });
 
+  it('enables a disabled static configured target through backup, validation, write, and reload observation', async () => {
+    await writeConfig({
+      mcpServers: {
+        filesystem: {
+          type: 'stdio',
+          command: 'npx',
+          disabled: true,
+          env: {
+            API_TOKEN: 'secret',
+          },
+        },
+      },
+    });
+
+    const now = Date.UTC(2026, 6, 7);
+    const service = createConfigChangeService({
+      reloadConfig: reload,
+      now: () => now,
+    });
+
+    const result = await service.setConfiguredServerTargetEnabledState({
+      targetName: 'filesystem',
+      enabled: true,
+      backup: 'required',
+    });
+
+    expect(result).toMatchObject({
+      status: 'changed',
+      operation: 'enable',
+      changed: true,
+      target: {
+        name: 'filesystem',
+        source: 'mcpServers',
+      },
+      backup: {
+        created: true,
+        path: `${configPath}.backup.${now}`,
+      },
+      reload: {
+        status: 'observed',
+      },
+    });
+    expect(reload).toHaveBeenCalledWith(configPath);
+    expect(await readConfig()).toEqual({
+      mcpServers: {
+        filesystem: {
+          type: 'stdio',
+          command: 'npx',
+          env: {
+            API_TOKEN: 'secret',
+          },
+        },
+      },
+    });
+  });
+
+  it('disables an enabled static configured target through backup, validation, write, and reload observation', async () => {
+    await writeConfig({
+      mcpServers: {
+        github: {
+          type: 'http',
+          url: 'https://example.com/mcp',
+        },
+      },
+    });
+
+    const service = createConfigChangeService({ reloadConfig: reload });
+
+    const result = await service.setConfiguredServerTargetEnabledState({
+      targetName: 'github',
+      enabled: false,
+      backup: 'required',
+    });
+
+    expect(result).toMatchObject({
+      status: 'changed',
+      operation: 'disable',
+      changed: true,
+      target: {
+        name: 'github',
+        source: 'mcpServers',
+      },
+      backup: {
+        created: true,
+      },
+      reload: {
+        status: 'observed',
+      },
+    });
+    expect(await readConfig()).toEqual({
+      mcpServers: {
+        github: {
+          type: 'http',
+          url: 'https://example.com/mcp',
+          disabled: true,
+        },
+      },
+    });
+  });
+
+  it('returns unchanged without backup, write, or reload when the requested enabled state is already true', async () => {
+    await writeConfig({
+      mcpServers: {
+        alreadyEnabled: {
+          type: 'stdio',
+          command: 'node',
+        },
+      },
+    });
+
+    const service = createConfigChangeService({ reloadConfig: reload });
+
+    const result = await service.setConfiguredServerTargetEnabledState({
+      targetName: 'alreadyEnabled',
+      enabled: true,
+      backup: 'required',
+    });
+
+    expect(result).toMatchObject({
+      status: 'unchanged',
+      operation: 'enable',
+      changed: false,
+      backup: {
+        created: false,
+      },
+      reload: {
+        status: 'skipped',
+      },
+    });
+    expect(reload).not.toHaveBeenCalled();
+    expect(await readConfig()).toEqual({
+      mcpServers: {
+        alreadyEnabled: {
+          type: 'stdio',
+          command: 'node',
+        },
+      },
+    });
+  });
+
+  it('refuses to enable or disable template configured targets', async () => {
+    await writeConfig({
+      mcpTemplates: {
+        templateOnly: {
+          type: 'stdio',
+          command: 'node',
+          disabled: true,
+        },
+      },
+    });
+
+    const service = createConfigChangeService({ reloadConfig: reload });
+
+    const result = await service.setConfiguredServerTargetEnabledState({
+      targetName: 'templateOnly',
+      enabled: true,
+      backup: 'required',
+    });
+
+    expect(result).toMatchObject({
+      status: 'template_conflict',
+      operation: 'enable',
+      changed: false,
+      target: {
+        name: 'templateOnly',
+        source: 'mcpTemplates',
+      },
+      reload: {
+        status: 'skipped',
+      },
+    });
+    expect(reload).not.toHaveBeenCalled();
+  });
+
   it('returns not_found without writing, backing up, or reloading', async () => {
     await writeConfig({
       mcpServers: {

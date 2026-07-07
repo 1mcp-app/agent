@@ -1,9 +1,9 @@
 import type { MCPServerParams } from '@src/core/types/index.js';
 
 export type ConfiguredServerTargetSource = 'mcpServers' | 'mcpTemplates';
-export type ConfigChangeOperation = 'remove' | 'set_static';
-export type ConfigChangeReason = 'install' | 'uninstall' | 'remove' | 'config_change';
-export type ConfigChangeStatus = 'changed' | 'not_found' | 'template_conflict' | 'failed';
+export type ConfigChangeOperation = 'remove' | 'set_static' | 'enable' | 'disable';
+export type ConfigChangeReason = 'install' | 'uninstall' | 'remove' | 'config_change' | 'enable' | 'disable';
+export type ConfigChangeStatus = 'changed' | 'unchanged' | 'not_found' | 'template_conflict' | 'failed';
 export type ConfigReloadStatus = 'observed' | 'runtime_not_running' | 'reload_disabled' | 'failed' | 'skipped';
 export type ConfigBackupPolicy = 'required' | 'skip';
 
@@ -55,6 +55,12 @@ export interface SetStaticConfiguredServerTargetInput {
   backup?: ConfigBackupPolicy;
 }
 
+export interface SetConfiguredServerTargetEnabledStateInput {
+  targetName: string;
+  enabled: boolean;
+  backup?: ConfigBackupPolicy;
+}
+
 export interface ConfigChangePorts {
   getConfigPath?: () => string;
   reloadConfig?: (configPath: string) => void;
@@ -65,6 +71,7 @@ export interface ConfigChangePorts {
 export interface ConfigChangeService {
   removeConfiguredServerTarget(input: RemoveConfiguredServerTargetInput): Promise<ConfigChangeResult>;
   setStaticConfiguredServerTarget(input: SetStaticConfiguredServerTargetInput): Promise<ConfigChangeResult>;
+  setConfiguredServerTargetEnabledState(input: SetConfiguredServerTargetEnabledStateInput): Promise<ConfigChangeResult>;
   acquireConfigLockForTest(configPath: string): Promise<() => void>;
 }
 

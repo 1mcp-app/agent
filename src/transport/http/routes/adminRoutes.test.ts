@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 
+import type { AdminConfiguredServerOperations } from '@src/domains/admin/adminConfiguredServerService.js';
 import { AdminIdentityService } from '@src/domains/admin/adminIdentityService.js';
 
 import express from 'express';
@@ -23,6 +24,11 @@ function cookieValue(setCookieHeader: string): string {
 describe('admin routes', () => {
   let adminService: AdminIdentityService;
   let storageDir: string;
+  let configuredServerService: {
+    listConfiguredServers: ReturnType<typeof vi.fn<AdminConfiguredServerOperations['listConfiguredServers']>>;
+    enableConfiguredServer: ReturnType<typeof vi.fn<AdminConfiguredServerOperations['enableConfiguredServer']>>;
+    disableConfiguredServer: ReturnType<typeof vi.fn<AdminConfiguredServerOperations['disableConfiguredServer']>>;
+  };
 
   beforeEach(() => {
     storageDir = `/tmp/admin-routes-${Date.now()}-${Math.random()}`;
@@ -32,6 +38,11 @@ describe('admin routes', () => {
       now: () => new Date('2026-07-06T00:00:00.000Z'),
       sessionTtlMs: 60 * 60 * 1000,
     });
+    configuredServerService = {
+      listConfiguredServers: vi.fn<AdminConfiguredServerOperations['listConfiguredServers']>(),
+      enableConfiguredServer: vi.fn<AdminConfiguredServerOperations['enableConfiguredServer']>(),
+      disableConfiguredServer: vi.fn<AdminConfiguredServerOperations['disableConfiguredServer']>(),
+    };
   });
 
   afterEach(() => {
@@ -44,6 +55,7 @@ describe('admin routes', () => {
     const adminRoutes = createAdminRoutes({
       adminEnabled: true,
       adminService,
+      configuredServerService,
       getRuntimeIdentity: () => ({
         ...runtimeIdentity,
         externalUrl: options.externalUrl ?? runtimeIdentity.externalUrl,
@@ -66,6 +78,7 @@ describe('admin routes', () => {
     const adminRoutes = createAdminRoutes({
       adminEnabled: false,
       adminService,
+      configuredServerService,
       getRuntimeIdentity: () => runtimeIdentity,
     });
 
@@ -83,6 +96,7 @@ describe('admin routes', () => {
     const adminRoutes = createAdminRoutes({
       adminEnabled: true,
       adminService,
+      configuredServerService,
       getRuntimeIdentity: () => runtimeIdentity,
     });
 
@@ -276,6 +290,186 @@ describe('admin routes', () => {
     expect(disableResponse.status).toBe(404);
     expect(deleteResponse.status).toBe(404);
     expect(adminService.hasAdminAccount()).toBe(true);
+  });
+
+  it('returns normalized configured-server read models from the authenticated admin API', async () => {
+    await adminService.bootstrapFirstAdmin({ username: 'operator', password: 'correct horse battery staple' });
+    configuredServerService.listConfiguredServers.mockResolvedValue({
+      ok: true,
+      status: 'completed',
+      operationId: 'op_read',
+      operationName: 'listConfiguredServers',
+      replayed: false,
+      result: {
+        servers: [
+          {
+            id: 'filesystem',
+            source: 'mcpServers',
+            enabled: true,
+            transport: {
+              type: 'stdio',
+              command: 'npx',
+              env: {
+                API_TOKEN: { present: true, value: '[REDACTED]', secret: true },
+              },
+            },
+            secretInputs: [
+              {
+                fieldPath: ['env', 'API_TOKEN'],
+                label: 'API_TOKEN',
+                state: 'present',
+                allowedActions: ['preserve', 'replace', 'clear'],
+              },
+            ],
+          },
+        ],
+      },
+    });
+    const app = mountAdminRoutes();
+    const loginResponse = await request(app)
+      .post('/admin/api/session/login')
+      .send({ username: 'operator', password: 'correct horse battery staple' });
+    const cookie = loginResponse.headers['set-cookie']?.[0] as string;
+
+    const response = await request(app).get('/admin/api/configured-servers').set('Cookie', cookie);
+
+    expect(response.status).toBe(200);
+    expect(response.body).toEqual({
+      ok: true,
+      operationId: 'op_read',
+      servers: [
+        {
+          id: 'filesystem',
+          source: 'mcpServers',
+          enabled: true,
+          transport: {
+            type: 'stdio',
+            command: 'npx',
+            env: {
+              API_TOKEN: { present: true, value: '[REDACTED]', secret: true },
+            },
+          },
+          secretInputs: [
+            {
+              fieldPath: ['env', 'API_TOKEN'],
+              label: 'API_TOKEN',
+              state: 'present',
+              allowedActions: ['preserve', 'replace', 'clear'],
+            },
+          ],
+        },
+      ],
+    });
+    expect(JSON.stringify(response.body)).not.toContain('super-secret');
+    expect(JSON.stringify(response.body)).not.toContain('raw-token');
+    expect(configuredServerService.listConfiguredServers).toHaveBeenCalledWith({
+      context: expect.objectContaining({
+        actor: expect.objectContaining({ type: 'admin_session', accountId: expect.any(String) }),
+        origin: 'browser',
+        runtimeIdentity: { runtimeScopeId: 'scope_123', runtimeVersion: '1.2.3' },
+        target: { type: 'configured_server_collection' },
+      }),
+    });
+  });
+
+  it('enables and disables configured servers through CSRF-protected admin API mutations', async () => {
+    await adminService.bootstrapFirstAdmin({ username: 'operator', password: 'correct horse battery staple' });
+    configuredServerService.enableConfiguredServer.mockResolvedValue({
+      ok: true,
+      status: 'completed',
+      operationId: 'op_enable',
+      operationName: 'enableConfiguredServer',
+      replayed: false,
+      result: {
+        targetName: 'filesystem',
+        enabled: true,
+        outcome: 'enabled',
+        configChange: {
+          status: 'changed',
+          operation: 'enable',
+          configPath: '/tmp/mcp.json',
+          target: { name: 'filesystem', source: 'mcpServers' },
+          changed: true,
+          backup: { created: true, path: '/tmp/mcp.json.backup.1' },
+          retentionCleanup: { attempted: true, deletedPaths: [], warnings: [] },
+          reload: { status: 'observed' },
+          warnings: [],
+        },
+      },
+    });
+    configuredServerService.disableConfiguredServer.mockResolvedValue({
+      ok: true,
+      status: 'completed',
+      operationId: 'op_disable',
+      operationName: 'disableConfiguredServer',
+      replayed: false,
+      result: {
+        targetName: 'filesystem',
+        enabled: false,
+        outcome: 'disabled',
+        configChange: {
+          status: 'changed',
+          operation: 'disable',
+          configPath: '/tmp/mcp.json',
+          target: { name: 'filesystem', source: 'mcpServers' },
+          changed: true,
+          backup: { created: true, path: '/tmp/mcp.json.backup.2' },
+          retentionCleanup: { attempted: true, deletedPaths: [], warnings: [] },
+          reload: { status: 'observed' },
+          warnings: [],
+        },
+      },
+    });
+    const app = mountAdminRoutes();
+    const loginResponse = await request(app)
+      .post('/admin/api/session/login')
+      .send({ username: 'operator', password: 'correct horse battery staple' });
+    const cookie = loginResponse.headers['set-cookie']?.[0] as string;
+
+    const rejected = await request(app)
+      .post('/admin/api/configured-servers/filesystem/enable')
+      .set('Cookie', cookie)
+      .set('Idempotency-Key', 'enable-key');
+    const enabled = await request(app)
+      .post('/admin/api/configured-servers/filesystem/enable')
+      .set('Cookie', cookie)
+      .set('X-CSRF-Token', loginResponse.body.csrfToken)
+      .set('Idempotency-Key', 'enable-key');
+    const disabled = await request(app)
+      .post('/admin/api/configured-servers/filesystem/disable')
+      .set('Cookie', cookie)
+      .set('X-CSRF-Token', loginResponse.body.csrfToken)
+      .set('Idempotency-Key', 'disable-key');
+
+    expect(rejected.status).toBe(403);
+    expect(enabled.status).toBe(200);
+    expect(enabled.body).toMatchObject({
+      ok: true,
+      operationId: 'op_enable',
+      result: {
+        targetName: 'filesystem',
+        enabled: true,
+        outcome: 'enabled',
+        configChange: { reload: { status: 'observed' } },
+      },
+    });
+    expect(disabled.status).toBe(200);
+    expect(configuredServerService.enableConfiguredServer).toHaveBeenCalledWith({
+      context: expect.objectContaining({
+        idempotencyKey: 'enable-key',
+        target: { type: 'configured_server', id: 'filesystem' },
+        requestFingerprint: expect.stringContaining('enableConfiguredServer'),
+      }),
+      targetName: 'filesystem',
+    });
+    expect(configuredServerService.disableConfiguredServer).toHaveBeenCalledWith({
+      context: expect.objectContaining({
+        idempotencyKey: 'disable-key',
+        target: { type: 'configured_server', id: 'filesystem' },
+        requestFingerprint: expect.stringContaining('disableConfiguredServer'),
+      }),
+      targetName: 'filesystem',
+    });
   });
 
   it('bootstraps the first admin from environment only when no account exists', async () => {

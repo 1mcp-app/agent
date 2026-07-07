@@ -33,6 +33,7 @@ import type {
   ConfiguredServerTargetRef,
   MutableConfigDocument,
   RemoveConfiguredServerTargetInput,
+  SetConfiguredServerTargetEnabledStateInput,
   SetStaticConfiguredServerTargetInput,
 } from './types.js';
 
@@ -51,6 +52,7 @@ export type {
   ConfiguredServerTargetRef,
   ConfiguredServerTargetSource,
   RemoveConfiguredServerTargetInput,
+  SetConfiguredServerTargetEnabledStateInput,
   SetStaticConfiguredServerTargetInput,
 } from './types.js';
 
@@ -199,6 +201,137 @@ class DefaultConfigChangeService implements ConfigChangeService {
           name: input.targetName,
           source: 'mcpServers',
         },
+        changed: true,
+        backup,
+        retentionCleanup,
+        reload: { status: 'skipped' },
+        warnings: retentionCleanup.warnings,
+      };
+    } finally {
+      releaseLock();
+    }
+
+    return {
+      ...resultWithoutReload,
+      reload: this.reloadConfig(configPath),
+    };
+  }
+
+  async setConfiguredServerTargetEnabledState(
+    input: SetConfiguredServerTargetEnabledStateInput,
+  ): Promise<ConfigChangeResult> {
+    const configPath = this.resolveConfigPath();
+    const operation = input.enabled ? 'enable' : 'disable';
+    let releaseLock: ReleaseConfigLock;
+
+    try {
+      releaseLock = await acquireConfigLock(configPath, this.ports.lockTimeoutMs ?? DEFAULT_LOCK_TIMEOUT_MS);
+    } catch (error) {
+      if (error instanceof ConfigLockTimeoutError) {
+        return {
+          status: 'failed',
+          operation,
+          configPath,
+          target: { name: input.targetName },
+          changed: false,
+          backup: { created: false },
+          retentionCleanup: retentionSkipped(),
+          reload: { status: 'skipped' },
+          warnings: [],
+          error: error.message,
+        };
+      }
+
+      throw error;
+    }
+
+    let resultWithoutReload: ConfigChangeResult;
+
+    try {
+      const config = this.loadConfig(configPath);
+      const target = resolveConfiguredServerTarget(config, input.targetName);
+
+      if (!target.source) {
+        resultWithoutReload = {
+          status: 'not_found',
+          operation,
+          configPath,
+          target,
+          changed: false,
+          backup: { created: false },
+          retentionCleanup: retentionSkipped(),
+          reload: { status: 'skipped' },
+          warnings: [],
+        };
+        return resultWithoutReload;
+      }
+
+      if (target.source === 'mcpTemplates') {
+        resultWithoutReload = {
+          status: 'template_conflict',
+          operation,
+          configPath,
+          target,
+          changed: false,
+          backup: { created: false },
+          retentionCleanup: retentionSkipped(),
+          reload: { status: 'skipped' },
+          warnings: [],
+          error: `Configured server target '${input.targetName}' exists in mcpTemplates and does not support enable/disable`,
+        };
+        return resultWithoutReload;
+      }
+
+      const existingConfig = config.mcpServers?.[input.targetName];
+      if (!existingConfig) {
+        resultWithoutReload = {
+          status: 'not_found',
+          operation,
+          configPath,
+          target,
+          changed: false,
+          backup: { created: false },
+          retentionCleanup: retentionSkipped(),
+          reload: { status: 'skipped' },
+          warnings: [],
+        };
+        return resultWithoutReload;
+      }
+
+      if (Boolean(existingConfig.disabled) === !input.enabled) {
+        resultWithoutReload = {
+          status: 'unchanged',
+          operation,
+          configPath,
+          target,
+          changed: false,
+          backup: { created: false },
+          retentionCleanup: retentionSkipped(),
+          reload: { status: 'skipped' },
+          warnings: [],
+        };
+        return resultWithoutReload;
+      }
+
+      const backup = this.createBackupIfNeeded(configPath, input.backup ?? 'required');
+      const updatedConfig: MCPServerParams = {
+        ...existingConfig,
+        disabled: !input.enabled,
+      };
+      if (input.enabled) {
+        delete updatedConfig.disabled;
+      }
+      config.mcpServers = normalizeServerRecord(config.mcpServers);
+      config.mcpServers[input.targetName] = updatedConfig;
+      this.validateConfig(configPath, config);
+      this.writeConfig(configPath, config);
+      const retentionCleanup = this.cleanupBackups(configPath, backup);
+
+      resultWithoutReload = {
+        status: 'changed',
+        operation,
+        configPath,
+        target,
         changed: true,
         backup,
         retentionCleanup,

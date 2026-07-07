@@ -9,7 +9,10 @@ import { McpLoadingManager } from '@src/core/loading/mcpLoadingManager.js';
 import { RuntimeIdentityService } from '@src/core/runtime/runtimeIdentityService.js';
 import { AgentConfigManager } from '@src/core/server/agentConfig.js';
 import { ServerManager } from '@src/core/server/serverManager.js';
+import { AdminConfiguredServerService } from '@src/domains/admin/adminConfiguredServerService.js';
 import { AdminIdentityService } from '@src/domains/admin/adminIdentityService.js';
+import { AdminOperationService } from '@src/domains/admin/adminOperationService.js';
+import { createConfigChangeService } from '@src/domains/config-change/configChange.js';
 import logger from '@src/logger/logger.js';
 
 import bodyParser from 'body-parser';
@@ -356,15 +359,24 @@ export class ExpressServer {
     // Setup health check routes (no auth required for monitoring)
     this.app.use('/health', createHealthRoutes(this.loadingManager));
 
+    const adminStorageDir =
+      this.configManager.get('runtimeScopeStoragePath') ??
+      this.configManager.get('auth').sessionStoragePath ??
+      getGlobalConfigDir();
+    const runtimeIdentity = getRuntimeIdentity();
     const adminRoutes = createAdminRoutes({
       adminEnabled: this.configManager.get('admin')?.enabled ?? false,
       adminService: new AdminIdentityService({
-        runtimeScopeId: getRuntimeIdentity().runtimeScopeId,
-        storageDir:
-          this.configManager.get('runtimeScopeStoragePath') ??
-          this.configManager.get('auth').sessionStoragePath ??
-          getGlobalConfigDir(),
+        runtimeScopeId: runtimeIdentity.runtimeScopeId,
+        storageDir: adminStorageDir,
         sessionTtlMs: this.configManager.get('auth').sessionTtlMinutes * 60 * 1000,
+      }),
+      configuredServerService: new AdminConfiguredServerService({
+        operationService: new AdminOperationService({
+          runtimeScopeId: runtimeIdentity.runtimeScopeId,
+          storageDir: adminStorageDir,
+        }),
+        configChangeService: createConfigChangeService(),
       }),
       getRuntimeIdentity,
     });
