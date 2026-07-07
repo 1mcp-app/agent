@@ -28,7 +28,7 @@ import { setupSecurityMiddleware } from './middlewares/securityMiddleware.js';
 import { createAdminRoutes } from './routes/adminRoutes.js';
 import { createApiRoutes, createCliTokenRoute, rejectBrowserOriginRequests } from './routes/apiRoutes.js';
 import createHealthRoutes from './routes/healthRoutes.js';
-import createOAuthRoutes from './routes/oauthRoutes.js';
+import createOAuthRoutes, { createBackendOAuthDashboardProvider } from './routes/oauthRoutes.js';
 import { createRuntimeIdentityRoutes } from './routes/runtimeIdentityRoutes.js';
 import { setupSseRoutes } from './routes/sseRoutes.js';
 import { setupStreamableHttpRoutes } from './routes/streamableHttpRoutes.js';
@@ -355,6 +355,7 @@ export class ExpressServer {
 
     // Setup OAuth management routes (no auth required)
     this.app.use('/oauth', createOAuthRoutes(this.oauthProvider, this.loadingManager));
+    const getOAuthDashboard = createBackendOAuthDashboardProvider(this.oauthProvider, this.loadingManager);
 
     // Setup health check routes (no auth required for monitoring)
     this.app.use('/health', createHealthRoutes(this.loadingManager));
@@ -379,6 +380,7 @@ export class ExpressServer {
         configChangeService: createConfigChangeService(),
       }),
       getRuntimeIdentity,
+      getOAuthDashboard,
     });
     if (adminRoutes) {
       this.app.use('/admin', adminRoutes);

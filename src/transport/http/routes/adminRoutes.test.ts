@@ -2,6 +2,7 @@ import fs from 'node:fs';
 
 import type { AdminConfiguredServerOperations } from '@src/domains/admin/adminConfiguredServerService.js';
 import { AdminIdentityService } from '@src/domains/admin/adminIdentityService.js';
+import type { AdminAuditFact } from '@src/domains/admin/adminOperationService.js';
 
 import express from 'express';
 import request from 'supertest';
@@ -28,6 +29,7 @@ describe('admin routes', () => {
     listConfiguredServers: ReturnType<typeof vi.fn<AdminConfiguredServerOperations['listConfiguredServers']>>;
     enableConfiguredServer: ReturnType<typeof vi.fn<AdminConfiguredServerOperations['enableConfiguredServer']>>;
     disableConfiguredServer: ReturnType<typeof vi.fn<AdminConfiguredServerOperations['disableConfiguredServer']>>;
+    getRecentAuditFacts: ReturnType<typeof vi.fn<(options?: { limit?: number }) => AdminAuditFact[]>>;
   };
 
   beforeEach(() => {
@@ -42,6 +44,7 @@ describe('admin routes', () => {
       listConfiguredServers: vi.fn<AdminConfiguredServerOperations['listConfiguredServers']>(),
       enableConfiguredServer: vi.fn<AdminConfiguredServerOperations['enableConfiguredServer']>(),
       disableConfiguredServer: vi.fn<AdminConfiguredServerOperations['disableConfiguredServer']>(),
+      getRecentAuditFacts: vi.fn<(options?: { limit?: number }) => AdminAuditFact[]>(() => []),
     };
   });
 
@@ -59,6 +62,17 @@ describe('admin routes', () => {
       getRuntimeIdentity: () => ({
         ...runtimeIdentity,
         externalUrl: options.externalUrl ?? runtimeIdentity.externalUrl,
+      }),
+      getOAuthDashboard: () => ({
+        status: 'ready',
+        services: [
+          {
+            name: 'github',
+            status: 'awaiting_oauth',
+            requiresOAuth: true,
+            lastError: 'token: [REDACTED]',
+          },
+        ],
       }),
     });
 
@@ -108,10 +122,11 @@ describe('admin routes', () => {
     const capabilitiesResponse = await request(app).get('/admin/cli/v1/capabilities');
 
     expect(adminResponse.status).toBe(200);
-    expect(adminResponse.body).toEqual({
-      status: 'setupRequired',
-      adminSurface: 'enabled',
-    });
+    expect(adminResponse.headers['content-type']).toContain('text/html');
+    expect(adminResponse.text).toContain('data-admin-status="setupRequired"');
+    expect(adminResponse.text).toContain('Setup required');
+    expect(adminResponse.text).toContain('1mcp admin bootstrap');
+    expect(adminResponse.text).not.toMatch(/create account|reset password/i);
 
     expect(capabilitiesResponse.status).toBe(200);
     expect(capabilitiesResponse.body).toEqual({
@@ -127,6 +142,44 @@ describe('admin routes', () => {
       },
     });
     expect(JSON.stringify(capabilitiesResponse.body)).not.toMatch(/account|user|email|serverName|configuredServer/i);
+  });
+
+  it('serves a bundled admin console shell with login/logout controls and no account management controls', async () => {
+    await adminService.bootstrapFirstAdmin({ username: 'operator', password: 'correct horse battery staple' });
+    const app = mountAdminRoutes();
+
+    const response = await request(app).get('/admin');
+
+    expect(response.status).toBe(200);
+    expect(response.headers['content-type']).toContain('text/html');
+    expect(response.text).toContain('data-admin-status="loginRequired"');
+    expect(response.text).toContain('id="login-form"');
+    expect(response.text).toContain('/admin/api/session/login');
+    expect(response.text).toContain('/admin/api/session/logout');
+    expect(response.text).toContain('/admin/api/status');
+    expect(response.text).toContain('/admin/api/configured-servers');
+    expect(response.text).not.toMatch(/account create|disable account|delete account|password reset/i);
+  });
+
+  it('includes short polling, manual refresh, hidden-tab polling reduction, and enable-disable UI states', async () => {
+    await adminService.bootstrapFirstAdmin({ username: 'operator', password: 'correct horse battery staple' });
+    const app = mountAdminRoutes();
+
+    const response = await request(app).get('/admin');
+
+    expect(response.text).toContain('id="refresh-button"');
+    expect(response.text).toContain('document.visibilityState');
+    expect(response.text).toContain('POLL_INTERVAL_VISIBLE_MS = 5000');
+    expect(response.text).toContain('POLL_INTERVAL_HIDDEN_MS = 60000');
+    expect(response.text).toContain("document.addEventListener('visibilitychange'");
+    expect(response.text).toContain('async function enableServer');
+    expect(response.text).toContain('async function disableServer');
+    expect(response.text).toContain('Idempotency-Key');
+    expect(response.text).toContain('server-action-success');
+    expect(response.text).toContain('server-action-error');
+    expect(response.text).toContain('async function refreshConsole');
+    expect(response.text).toContain('Session loaded, but refresh failed: ');
+    expect(response.text).toContain('Login succeeded, but refresh failed: ');
   });
 
   it('logs in with an admin account, validates the current session, and logs out with CSRF', async () => {
@@ -221,30 +274,20 @@ describe('admin routes', () => {
       .send({ username: 'operator', password: 'correct horse battery staple' });
     const cookie = loginResponse.headers['set-cookie']?.[0] as string;
 
+    expect((await request(app).post('/admin/api/session/logout').set('Cookie', cookie).send({})).status).toBe(403);
     expect(
       (
         await request(app)
-          .post('/admin/api/session/password')
-          .set('Cookie', cookie)
-          .send({ password: 'changed password' })
-      ).status,
-    ).toBe(403);
-    expect(
-      (
-        await request(app)
-          .post('/admin/api/session/password')
+          .post('/admin/api/session/logout')
           .set('Cookie', cookie)
           .set('X-CSRF-Token', 'admin_csrf_wrong')
-          .send({ password: 'changed password' })
+          .send({})
       ).status,
     ).toBe(403);
   });
 
-  it('revokes the active session on password change through the admin API', async () => {
-    const account = await adminService.bootstrapFirstAdmin({
-      username: 'operator',
-      password: 'correct horse battery staple',
-    });
+  it('does not expose password management from the browser API', async () => {
+    await adminService.bootstrapFirstAdmin({ username: 'operator', password: 'correct horse battery staple' });
     const app = mountAdminRoutes();
     const loginResponse = await request(app)
       .post('/admin/api/session/login')
@@ -257,14 +300,8 @@ describe('admin routes', () => {
       .set('X-CSRF-Token', loginResponse.body.csrfToken)
       .send({ password: 'new correct horse battery staple' });
 
-    expect(passwordResponse.status).toBe(200);
-    expect(passwordResponse.headers['set-cookie']?.[0]).toContain('1mcp_admin_session=;');
-    expect(adminService.validateSession(cookieValue(cookie))).toBeNull();
-    const newLogin = await adminService.login({
-      username: account.username,
-      password: 'new correct horse battery staple',
-    });
-    expect(newLogin.account.username).toBe('operator');
+    expect(passwordResponse.status).toBe(404);
+    expect(adminService.validateSession(cookieValue(cookie))).not.toBeNull();
   });
 
   it('does not expose account disable or delete management routes from the browser API', async () => {
@@ -370,6 +407,108 @@ describe('admin routes', () => {
         target: { type: 'configured_server_collection' },
       }),
     });
+  });
+
+  it('returns authenticated admin console status with runtime identity, OAuth services, and redacted audit facts', async () => {
+    await adminService.bootstrapFirstAdmin({ username: 'operator', password: 'correct horse battery staple' });
+    configuredServerService.getRecentAuditFacts.mockReturnValue([
+      {
+        timestamp: '2026-07-06T00:00:00.000Z',
+        operationId: 'op_enable',
+        operationName: 'enableConfiguredServer',
+        result: 'completed',
+        actor: { type: 'admin_session', accountIdHash: 'hash_account', sessionIdHash: 'hash_session' },
+        origin: 'browser',
+        target: { type: 'configured_server', id: 'filesystem' },
+        request: { requestId: 'req_123' },
+      },
+    ]);
+    const app = mountAdminRoutes();
+    const loginResponse = await request(app)
+      .post('/admin/api/session/login')
+      .send({ username: 'operator', password: 'correct horse battery staple' });
+    const cookie = loginResponse.headers['set-cookie']?.[0] as string;
+
+    const response = await request(app).get('/admin/api/status').set('Cookie', cookie);
+
+    expect(response.status).toBe(200);
+    expect(response.body).toEqual({
+      ok: true,
+      runtime: {
+        identityProtocolVersion: '1',
+        runtimeScopeId: 'scope_123',
+        externalUrl: 'https://runtime.example.com',
+        runtimeVersion: '1.2.3',
+      },
+      session: {
+        authenticated: true,
+        account: { id: expect.any(String), username: 'operator', role: 'full-admin' },
+        expiresAt: '2026-07-06T01:00:00.000Z',
+      },
+      oauth: {
+        status: 'ready',
+        services: [
+          {
+            name: 'github',
+            status: 'awaiting_oauth',
+            requiresOAuth: true,
+            lastError: 'token: [REDACTED]',
+          },
+        ],
+      },
+      audit: {
+        facts: [
+          {
+            timestamp: '2026-07-06T00:00:00.000Z',
+            operationId: 'op_enable',
+            operationName: 'enableConfiguredServer',
+            result: 'completed',
+            actor: { type: 'admin_session', accountIdHash: 'hash_account', sessionIdHash: 'hash_session' },
+            origin: 'browser',
+            target: { type: 'configured_server', id: 'filesystem' },
+            request: { requestId: 'req_123' },
+          },
+        ],
+      },
+    });
+    expect(JSON.stringify(response.body)).not.toContain(cookieValue(cookie));
+    expect(configuredServerService.getRecentAuditFacts).toHaveBeenCalledWith({ limit: 10 });
+  });
+
+  it('redacts OAuth status errors before returning admin console status', async () => {
+    await adminService.bootstrapFirstAdmin({ username: 'operator', password: 'correct horse battery staple' });
+    const app = express();
+    app.use(express.json());
+    const adminRoutes = createAdminRoutes({
+      adminEnabled: true,
+      adminService,
+      configuredServerService,
+      getRuntimeIdentity: () => runtimeIdentity,
+      getOAuthDashboard: () => ({
+        status: 'ready',
+        services: [
+          {
+            name: 'github',
+            status: 'error',
+            requiresOAuth: true,
+            lastError: 'token: raw-secret',
+          },
+        ],
+      }),
+    });
+    if (adminRoutes) {
+      app.use('/admin', adminRoutes);
+    }
+    const loginResponse = await request(app)
+      .post('/admin/api/session/login')
+      .send({ username: 'operator', password: 'correct horse battery staple' });
+    const cookie = loginResponse.headers['set-cookie']?.[0] as string;
+
+    const response = await request(app).get('/admin/api/status').set('Cookie', cookie);
+
+    expect(response.status).toBe(200);
+    expect(JSON.stringify(response.body)).not.toContain('raw-secret');
+    expect(response.body.oauth.services[0].lastError).toBe('token: [REDACTED]');
   });
 
   it('enables and disables configured servers through CSRF-protected admin API mutations', async () => {

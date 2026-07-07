@@ -62,6 +62,7 @@ export interface AdminConfiguredServerOperations {
   disableConfiguredServer(
     input: ConfiguredServerMutationInput,
   ): Promise<AdminOperationResult<ConfiguredServerMutationResult>>;
+  getRecentAuditFacts(options?: { limit?: number }): AdminAuditFact[];
 }
 
 export class AdminConfiguredServerService implements AdminConfiguredServerOperations {

@@ -1,13 +1,18 @@
+import type { BackendOAuthDashboardResult } from '@src/auth/oauthAuthorizationFlow.js';
 import { RuntimeIdentity } from '@src/core/runtime/runtimeIdentityService.js';
 import type { AdminConfiguredServerOperations } from '@src/domains/admin/adminConfiguredServerService.js';
 import {
   ADMIN_SESSION_COOKIE_NAME,
+  AdminAccount,
   AdminIdentityError,
   AdminIdentityService,
 } from '@src/domains/admin/adminIdentityService.js';
 import type { AdminOperationContext, AdminOperationResult } from '@src/domains/admin/adminOperationService.js';
+import { sanitizeErrorMessage } from '@src/utils/validation/sanitization.js';
 
 import { Request, Response, Router } from 'express';
+
+import { renderAdminConsoleHtml } from './adminConsoleHtml.js';
 
 const FAILED_LOGIN_LIMIT = 5;
 const FAILED_LOGIN_WINDOW_MS = 15 * 60 * 1000;
@@ -17,6 +22,7 @@ interface AdminRoutesOptions {
   adminService: AdminIdentityService;
   configuredServerService?: AdminConfiguredServerOperations;
   getRuntimeIdentity: () => RuntimeIdentity;
+  getOAuthDashboard?: () => BackendOAuthDashboardResult;
 }
 
 export function createAdminRoutes(options: AdminRoutesOptions): Router | null {
@@ -30,10 +36,14 @@ export function createAdminRoutes(options: AdminRoutesOptions): Router | null {
   options.adminService.bootstrapFirstAdminFromEnvironment();
 
   router.get('/', (_req, res) => {
-    res.status(200).json({
-      status: options.adminService.hasAdminAccount() ? 'loginRequired' : 'setupRequired',
-      adminSurface: 'enabled',
-    });
+    res
+      .status(200)
+      .type('html')
+      .send(
+        renderAdminConsoleHtml({
+          status: options.adminService.hasAdminAccount() ? 'loginRequired' : 'setupRequired',
+        }),
+      );
   });
 
   router.get('/cli/v1/capabilities', (_req, res) => {
@@ -119,21 +129,26 @@ export function createAdminRoutes(options: AdminRoutesOptions): Router | null {
     res.status(200).json({ ok: true });
   });
 
-  router.post('/api/session/password', async (req, res) => {
-    try {
-      const sessionToken = getAdminSessionCookie(req);
-      const session = options.adminService.validateSession(sessionToken);
-      if (!session) {
-        res.status(401).json({ authenticated: false });
-        return;
-      }
-
-      await options.adminService.changePassword(session.account.id, getBodyString(req.body, 'password'));
-      clearAdminSessionCookie(res, options.getRuntimeIdentity().externalUrl);
-      res.status(200).json({ ok: true });
-    } catch (error) {
-      sendAdminError(res, error);
+  router.get('/api/status', (req, res) => {
+    const session = options.adminService.validateSession(getAdminSessionCookie(req));
+    if (!session) {
+      res.status(401).json({ authenticated: false });
+      return;
     }
+
+    res.status(200).json({
+      ok: true,
+      runtime: options.getRuntimeIdentity(),
+      session: {
+        authenticated: true,
+        account: toAdminConsoleAccount(session.account),
+        expiresAt: session.expiresAt,
+      },
+      oauth: sanitizeOAuthDashboard(options.getOAuthDashboard?.() ?? { status: 'ready', services: [] }),
+      audit: {
+        facts: options.configuredServerService?.getRecentAuditFacts({ limit: 10 }) ?? [],
+      },
+    });
   });
 
   router.get('/api/configured-servers', async (req, res) => {
@@ -352,6 +367,28 @@ function operationNameForRequest(req: Request): string {
 function getRequestId(req: Request): string {
   const requestId = req.header('X-Request-Id');
   return requestId?.trim() || `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+}
+
+function toAdminConsoleAccount(account: AdminAccount): Pick<AdminAccount, 'id' | 'username' | 'role'> {
+  return {
+    id: account.id,
+    username: account.username,
+    role: account.role,
+  };
+}
+
+function sanitizeOAuthDashboard(dashboard: BackendOAuthDashboardResult): BackendOAuthDashboardResult {
+  if (dashboard.status !== 'ready') {
+    return dashboard;
+  }
+
+  return {
+    ...dashboard,
+    services: dashboard.services.map((service) => ({
+      ...service,
+      lastError: service.lastError ? sanitizeErrorMessage(service.lastError) : undefined,
+    })),
+  };
 }
 
 function getBodyString(body: unknown, key: string): string {

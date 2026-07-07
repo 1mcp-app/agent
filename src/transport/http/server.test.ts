@@ -82,6 +82,7 @@ vi.mock('./routes/sseRoutes.js', () => ({
 
 vi.mock('./routes/oauthRoutes.js', () => ({
   default: vi.fn(() => 'oauth-routes'),
+  createBackendOAuthDashboardProvider: vi.fn(() => vi.fn(() => ({ status: 'ready', services: [] }))),
 }));
 
 vi.mock('./routes/healthRoutes.js', () => ({
