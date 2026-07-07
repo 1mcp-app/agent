@@ -114,13 +114,6 @@ export async function resolveServeTarget<TOptions extends ResolvableServeTargetO
       'Use either --url or --context, not both, when selecting a runtime target',
     );
   }
-  if (options.url && options['config-dir']) {
-    throw new RuntimeTargetStoreError(
-      'target_config_dir_remote_unsupported',
-      '--config-dir selects only a local Runtime Scope and cannot scope an ephemeral URL target',
-    );
-  }
-
   const resolvedProjectContext = await resolveProjectContext();
   const normalizedOptions = normalizeEphemeralUrlOption(options);
   const mergedOptions = mergeServeTargetOptions(normalizedOptions, resolvedProjectContext.projectConfig);

@@ -150,11 +150,19 @@ describe('resolveServeTarget', () => {
     expect(mockedDiscoverServerWithPidFile).not.toHaveBeenCalled();
   });
 
-  it('rejects config-dir when an ephemeral url target is selected', async () => {
-    await expect(
-      resolveServeTarget({ url: 'https://prod.example.com', 'config-dir': '/tmp/local-scope' }),
-    ).rejects.toMatchObject({ code: 'target_config_dir_remote_unsupported' });
-    expect(mockedDiscoverServerWithPidFile).not.toHaveBeenCalled();
+  it('allows config-dir to scope local client-command state when an explicit ephemeral url is selected', async () => {
+    mockedDiscoverServerWithPidFile.mockResolvedValueOnce({
+      url: 'https://prod.example.com/mcp',
+      source: 'user',
+    });
+
+    const result = await resolveServeTarget({ url: 'https://prod.example.com', 'config-dir': '/tmp/local-scope' });
+
+    expect(mockedDiscoverServerWithPidFile).toHaveBeenCalledWith('/tmp/local-scope', 'https://prod.example.com/mcp');
+    expect(result.discoveredUrl).toBe('https://prod.example.com/mcp');
+    expect(result.serverUrl.toString()).toBe('https://prod.example.com/mcp?preset=development');
+    expect(result.source).toBe('user');
+    expect(result.runtimeTargetContext).toBeUndefined();
   });
 
   it('normalizes explicit ephemeral url targets before local discovery handling', async () => {

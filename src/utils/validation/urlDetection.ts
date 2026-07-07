@@ -48,9 +48,10 @@ export async function detectRunningServerUrl(): Promise<string | null> {
   for (const port of commonPorts) {
     try {
       const response = await fetch(`http://localhost:${port}/oauth/`, {
+        redirect: 'manual',
         signal: AbortSignal.timeout(2000),
       });
-      if (response.ok) {
+      if (isReachableOAuthProbeResponse(response)) {
         return `http://localhost:${port}/mcp`;
       }
     } catch (error) {
@@ -194,11 +195,12 @@ export async function validateServer1mcpUrl(
 
     // Test basic connectivity to OAuth endpoint (which always exists)
     const oauthResponse = await fetchRuntimeTargetUrl(`${baseUrl}/oauth/`, {
+      redirect: 'manual',
       signal: AbortSignal.timeout(5000),
       tls,
     });
 
-    if (!oauthResponse.ok) {
+    if (!isReachableOAuthProbeResponse(oauthResponse)) {
       return {
         valid: false,
         error: createSafeErrorMessage(`1mcp server not responding (HTTP ${oauthResponse.status})`),
@@ -217,4 +219,16 @@ export async function validateServer1mcpUrl(
       ),
     };
   }
+}
+
+function isReachableOAuthProbeResponse(response: {
+  ok: boolean;
+  status: number;
+  headers?: { get: (name: string) => string | null };
+}): boolean {
+  if (response.ok) {
+    return true;
+  }
+
+  return response.status >= 300 && response.status < 400 && Boolean(response.headers?.get('location'));
 }

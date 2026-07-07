@@ -25,6 +25,7 @@ export interface RuntimeIdentityFetchInit {
   method?: string;
   headers?: Record<string, string>;
   credentials?: 'omit';
+  redirect?: 'follow' | 'error' | 'manual';
   signal?: AbortSignal;
   tls?: RuntimeTargetTlsOptions;
   maxBodyBytes?: number;

@@ -313,7 +313,7 @@ describeRunE2E('run command E2E', () => {
       try {
         const raw = await readFile(pidPath, 'utf8');
         const serverInfo = JSON.parse(raw) as { url: string };
-        const healthUrl = `http://127.0.0.1:${servePort}/oauth/`;
+        const healthUrl = `http://127.0.0.1:${servePort}/health/ready`;
         expect(serverInfo.url).toBe(`http://127.0.0.1:${servePort}/mcp`);
         const response = await fetch(healthUrl, { signal: AbortSignal.timeout(1000) });
         if (response.ok) {
