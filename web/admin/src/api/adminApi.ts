@@ -98,6 +98,63 @@ export interface ConfiguredServerReadModel {
   secretInputs: ConfiguredServerSecretInput[];
 }
 
+export interface ConfiguredServerSecretEditMetadata {
+  state: 'present' | 'empty';
+  defaultAction: 'preserve' | 'replace' | 'clear';
+  allowedActions: Array<'preserve' | 'replace' | 'clear'>;
+  environmentReference: {
+    supported: boolean;
+    recommended: boolean;
+    valueFormat?: 'env_var_name_or_substitution';
+    storesSecretMaterial?: false;
+    guidance?: string;
+  };
+  inlineReplacement: {
+    supported: boolean;
+    emphasis: 'secondary';
+    guidance?: string;
+  };
+}
+
+export interface ConfiguredServerEditField {
+  fieldPath: string[];
+  label: string;
+  control: 'text' | 'switch' | 'tag-list' | 'select' | 'string-list' | 'secret' | 'record' | 'readonly';
+  value?: unknown;
+  options?: string[];
+  editable: boolean;
+  secret?: ConfiguredServerSecretEditMetadata;
+}
+
+export interface ConfiguredServerEditFieldGroup {
+  id: string;
+  label: string;
+  fields: ConfiguredServerEditField[];
+}
+
+export interface ConfiguredServerEditContract {
+  schemaVersion: 1;
+  target: ConfiguredServerReadModel['target'];
+  capabilities: {
+    singleTargetEdit: true;
+    rename: { supported: true };
+    create: { supported: false };
+    delete: { supported: false };
+    bulkEdit: { supported: false };
+    rawJson: { supported: false };
+    preview: { supported: false };
+    apply: { supported: false };
+  };
+  fieldGroups: ConfiguredServerEditFieldGroup[];
+}
+
+export interface ConfiguredServerDetailResponse {
+  ok: true;
+  operationId: string;
+  server: ConfiguredServerReadModel;
+  editContract: ConfiguredServerEditContract;
+}
+
 export interface AdminApiOptions {
   fetch?: typeof fetch;
   idempotencyKey?: (input: { action: 'enable' | 'disable'; targetName: string }) => string;
@@ -146,6 +203,10 @@ export function createAdminApi(options: AdminApiOptions = {}) {
     async listConfiguredServers(): Promise<ConfiguredServerReadModel[]> {
       const response = await request<{ servers: ConfiguredServerReadModel[] }>('/admin/api/configured-servers');
       return response.servers ?? [];
+    },
+
+    getConfiguredServerDetail(name: string): Promise<ConfiguredServerDetailResponse> {
+      return request(`/admin/api/configured-servers/${encodeURIComponent(name)}`);
     },
 
     setConfiguredServerEnabled(input: { name: string; enabled: boolean; csrfToken: string }): Promise<unknown> {

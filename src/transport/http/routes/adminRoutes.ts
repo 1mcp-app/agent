@@ -4,7 +4,10 @@ import { fileURLToPath } from 'node:url';
 
 import type { BackendOAuthDashboardResult } from '@src/auth/oauthAuthorizationFlow.js';
 import { RuntimeIdentity } from '@src/core/runtime/runtimeIdentityService.js';
-import type { AdminConfiguredServerOperations } from '@src/domains/admin/adminConfiguredServerService.js';
+import {
+  AdminConfiguredServerNotFoundError,
+  type AdminConfiguredServerOperations,
+} from '@src/domains/admin/adminConfiguredServerService.js';
 import {
   ADMIN_SESSION_COOKIE_NAME,
   AdminAccount,
@@ -272,6 +275,10 @@ export function createAdminRoutes(options: AdminRoutesOptions): Router | null {
     });
   });
 
+  router.get('/api/configured-servers/:name', async (req, res) => {
+    await handleConfiguredServerDetail(req, res, options);
+  });
+
   router.post('/api/configured-servers/:name/enable', async (req, res) => {
     await handleConfiguredServerMutation(req, res, options, 'enableConfiguredServer');
   });
@@ -421,6 +428,44 @@ async function handleCliConfiguredServerMutation(
       : await options.configuredServerService.disableConfiguredServer(input);
 
   sendCliAdminOperationResult(req, res, result);
+}
+
+async function handleConfiguredServerDetail(req: Request, res: Response, options: AdminRoutesOptions): Promise<void> {
+  if (!options.configuredServerService) {
+    res.status(404).json({ error: 'admin_configured_servers_unavailable' });
+    return;
+  }
+
+  const targetName = req.params.name;
+  try {
+    const result = await options.configuredServerService.getConfiguredServerDetail({
+      context: buildAdminOperationContext(req, options, { type: 'configured_server', id: targetName }),
+      targetName,
+    });
+    if (!result.ok) {
+      sendAdminOperationResult(res, result);
+      return;
+    }
+
+    res.status(200).json({
+      ok: true,
+      operationId: result.operationId,
+      server: result.result.server,
+      editContract: result.result.editContract,
+    });
+  } catch (error) {
+    if (error instanceof AdminConfiguredServerNotFoundError) {
+      res.status(404).json({
+        ok: false,
+        error: error.code,
+        code: error.code,
+        message: 'Configured server target was not found',
+        target: { type: 'configured_server', id: error.targetName },
+      });
+      return;
+    }
+    throw error;
+  }
 }
 
 async function handleConfiguredServerMutation(
@@ -926,6 +971,9 @@ function operationNameForRequest(req: Request): string {
   }
   if (req.path.endsWith('/disable') || req.path.endsWith('/disable-server')) {
     return 'disableConfiguredServer';
+  }
+  if (req.method === 'GET' && req.path.startsWith('/api/configured-servers/')) {
+    return 'getConfiguredServerDetail';
   }
   return 'listConfiguredServers';
 }

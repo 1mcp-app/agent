@@ -77,6 +77,67 @@ describe('admin API client', () => {
     });
   });
 
+  it('loads configured-server detail with an encoded target id', async () => {
+    const calls: Array<{ input: RequestInfo | URL; init?: RequestInit }> = [];
+    const api = createAdminApi({
+      fetch: async (input, init) => {
+        calls.push({ input, init });
+        return jsonResponse({
+          ok: true,
+          operationId: 'op_detail',
+          server: {
+            id: 'github/api server',
+            source: 'mcpServers',
+            target: { type: 'configured_server', id: 'github/api server', source: 'mcpServers' },
+            enabled: true,
+            tags: [],
+            transportSummary: { kind: 'http', label: 'https://api.example.com/mcp?token=REDACTED' },
+            mutationAvailability: { available: true, operations: ['enable', 'disable'] },
+            actionState: {
+              enable: { available: false, label: 'Enable github/api server', disabledReason: 'already_enabled' },
+              disable: { available: true, label: 'Disable github/api server' },
+            },
+            transport: {
+              url: 'https://api.example.com/mcp?token=REDACTED',
+            },
+            secretInputs: [],
+          },
+          editContract: {
+            schemaVersion: 1,
+            target: { type: 'configured_server', id: 'github/api server', source: 'mcpServers' },
+            capabilities: {
+              singleTargetEdit: true,
+              rename: { supported: true },
+              create: { supported: false },
+              delete: { supported: false },
+              bulkEdit: { supported: false },
+              rawJson: { supported: false },
+              preview: { supported: false },
+              apply: { supported: false },
+            },
+            fieldGroups: [],
+          },
+        });
+      },
+    });
+
+    const detail = await api.getConfiguredServerDetail('github/api server');
+
+    expect(calls[0]).toMatchObject({
+      input: '/admin/api/configured-servers/github%2Fapi%20server',
+    });
+    expect(detail).toMatchObject({
+      operationId: 'op_detail',
+      server: { id: 'github/api server' },
+      editContract: {
+        capabilities: {
+          rename: { supported: true },
+          rawJson: { supported: false },
+        },
+      },
+    });
+  });
+
   it('keeps default idempotency keys valid for hostile configured-server ids', async () => {
     const calls: RequestInit[] = [];
     const api = createAdminApi({

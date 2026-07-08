@@ -239,6 +239,30 @@ function createConfiguredServerFixture(): ResettableConfiguredServerFixture {
     async listConfiguredServers() {
       return operationSuccess('listConfiguredServers', 'op_list', { servers });
     },
+    async getConfiguredServerDetail(input) {
+      const server = servers.find((candidate) => candidate.id === input.targetName);
+      if (!server) {
+        throw new Error('Configured server target was not found');
+      }
+      return operationSuccess('getConfiguredServerDetail', 'op_detail', {
+        server,
+        editContract: {
+          schemaVersion: 1,
+          target: server.target,
+          capabilities: {
+            singleTargetEdit: true,
+            rename: { supported: true },
+            create: { supported: false },
+            delete: { supported: false },
+            bulkEdit: { supported: false },
+            rawJson: { supported: false },
+            preview: { supported: false },
+            apply: { supported: false },
+          },
+          fieldGroups: [],
+        },
+      });
+    },
     async enableConfiguredServer(input) {
       setEnabled(servers, input.targetName, true);
       return operationSuccess('enableConfiguredServer', 'op_enable', mutationResult(input.targetName, true));

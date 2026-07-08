@@ -1,7 +1,10 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
-import type { AdminConfiguredServerOperations } from '@src/domains/admin/adminConfiguredServerService.js';
+import {
+  AdminConfiguredServerNotFoundError,
+  type AdminConfiguredServerOperations,
+} from '@src/domains/admin/adminConfiguredServerService.js';
 import { AdminIdentityService } from '@src/domains/admin/adminIdentityService.js';
 import type { AdminAuditFact } from '@src/domains/admin/adminOperationService.js';
 
@@ -35,6 +38,7 @@ describe('admin routes', () => {
   let storageDir: string;
   let configuredServerService: {
     listConfiguredServers: ReturnType<typeof vi.fn<AdminConfiguredServerOperations['listConfiguredServers']>>;
+    getConfiguredServerDetail: ReturnType<typeof vi.fn<AdminConfiguredServerOperations['getConfiguredServerDetail']>>;
     enableConfiguredServer: ReturnType<typeof vi.fn<AdminConfiguredServerOperations['enableConfiguredServer']>>;
     disableConfiguredServer: ReturnType<typeof vi.fn<AdminConfiguredServerOperations['disableConfiguredServer']>>;
     getRecentAuditFacts: ReturnType<typeof vi.fn<(options?: { limit?: number }) => AdminAuditFact[]>>;
@@ -50,6 +54,7 @@ describe('admin routes', () => {
     });
     configuredServerService = {
       listConfiguredServers: vi.fn<AdminConfiguredServerOperations['listConfiguredServers']>(),
+      getConfiguredServerDetail: vi.fn<AdminConfiguredServerOperations['getConfiguredServerDetail']>(),
       enableConfiguredServer: vi.fn<AdminConfiguredServerOperations['enableConfiguredServer']>(),
       disableConfiguredServer: vi.fn<AdminConfiguredServerOperations['disableConfiguredServer']>(),
       getRecentAuditFacts: vi.fn<(options?: { limit?: number }) => AdminAuditFact[]>(() => []),
@@ -1278,6 +1283,164 @@ describe('admin routes', () => {
         target: { type: 'configured_server_collection' },
       }),
     });
+  });
+
+  it('returns one configured-server detail and edit contract with decoded target context', async () => {
+    await adminService.bootstrapFirstAdmin({ username: 'operator', password: 'correct horse battery staple' });
+    configuredServerService.getConfiguredServerDetail.mockResolvedValue({
+      ok: true,
+      status: 'completed',
+      operationId: 'op_detail',
+      operationName: 'getConfiguredServerDetail',
+      replayed: false,
+      result: {
+        server: {
+          id: 'github/api server',
+          source: 'mcpServers',
+          target: { type: 'configured_server', id: 'github/api server', source: 'mcpServers' },
+          enabled: true,
+          tags: ['remote'],
+          transportSummary: { kind: 'http', label: 'https://api.example.com/mcp?token=REDACTED' },
+          mutationAvailability: { available: true, operations: ['enable', 'disable'] },
+          actionState: {
+            enable: { available: false, label: 'Enable github/api server', disabledReason: 'already_enabled' },
+            disable: { available: true, label: 'Disable github/api server' },
+          },
+          transport: {
+            type: 'http',
+            url: 'https://api.example.com/mcp?token=REDACTED',
+            headers: {
+              Authorization: { present: true, value: '[REDACTED]', secret: true },
+            },
+          },
+          secretInputs: [
+            {
+              fieldPath: ['headers', 'Authorization'],
+              label: 'Authorization',
+              state: 'present',
+              allowedActions: ['preserve', 'replace', 'clear'],
+            },
+          ],
+        },
+        editContract: {
+          schemaVersion: 1,
+          target: { type: 'configured_server', id: 'github/api server', source: 'mcpServers' },
+          capabilities: {
+            singleTargetEdit: true,
+            rename: { supported: true },
+            create: { supported: false },
+            delete: { supported: false },
+            bulkEdit: { supported: false },
+            rawJson: { supported: false },
+            preview: { supported: false },
+            apply: { supported: false },
+          },
+          fieldGroups: [
+            {
+              id: 'secrets',
+              label: 'Secrets',
+              fields: [
+                {
+                  fieldPath: ['headers', 'Authorization'],
+                  label: 'Authorization',
+                  control: 'secret',
+                  editable: true,
+                  secret: {
+                    state: 'present',
+                    defaultAction: 'preserve',
+                    allowedActions: ['preserve', 'replace', 'clear'],
+                    environmentReference: {
+                      supported: true,
+                      recommended: true,
+                      valueFormat: 'env_var_name_or_substitution',
+                      storesSecretMaterial: false,
+                      guidance:
+                        'Store only the environment variable name or substitution expression; keep secret material outside 1MCP config.',
+                    },
+                    inlineReplacement: {
+                      supported: true,
+                      emphasis: 'secondary',
+                      guidance:
+                        'Use inline replacement only as a secondary path when an environment reference is not suitable.',
+                    },
+                  },
+                },
+              ],
+            },
+          ],
+        },
+      },
+    });
+    const app = mountAdminRoutes();
+    const loginResponse = await request(app)
+      .post('/admin/api/session/login')
+      .send({ username: 'operator', password: 'correct horse battery staple' });
+    const cookie = loginResponse.headers['set-cookie']?.[0] as string;
+
+    const response = await request(app)
+      .get('/admin/api/configured-servers/github%2Fapi%20server')
+      .set('Cookie', cookie);
+
+    expect(response.status).toBe(200);
+    expect(response.body).toMatchObject({
+      ok: true,
+      operationId: 'op_detail',
+      server: {
+        id: 'github/api server',
+        transport: {
+          headers: {
+            Authorization: { present: true, value: '[REDACTED]', secret: true },
+          },
+        },
+      },
+      editContract: {
+        schemaVersion: 1,
+        target: { type: 'configured_server', id: 'github/api server', source: 'mcpServers' },
+      },
+    });
+    expect(response.body.server.id).toBe('github/api server');
+    expect(response.body.editContract.capabilities).toMatchObject({
+      singleTargetEdit: true,
+      rename: { supported: true },
+      create: { supported: false },
+      delete: { supported: false },
+      bulkEdit: { supported: false },
+      rawJson: { supported: false },
+    });
+    expect(configuredServerService.getConfiguredServerDetail).toHaveBeenCalledWith({
+      context: expect.objectContaining({
+        actor: expect.objectContaining({ type: 'admin_session', accountId: expect.any(String) }),
+        origin: 'browser',
+        runtimeIdentity: { runtimeScopeId: 'scope_123', runtimeVersion: '1.2.3' },
+        target: { type: 'configured_server', id: 'github/api server' },
+      }),
+      targetName: 'github/api server',
+    });
+    expect(JSON.stringify(response.body)).not.toMatch(/raw-token|raw-secret|Bearer raw/i);
+  });
+
+  it('returns an operator-friendly not-found error for missing configured-server detail', async () => {
+    await adminService.bootstrapFirstAdmin({ username: 'operator', password: 'correct horse battery staple' });
+    configuredServerService.getConfiguredServerDetail.mockRejectedValue(
+      new AdminConfiguredServerNotFoundError('missing'),
+    );
+    const app = mountAdminRoutes();
+    const loginResponse = await request(app)
+      .post('/admin/api/session/login')
+      .send({ username: 'operator', password: 'correct horse battery staple' });
+    const cookie = loginResponse.headers['set-cookie']?.[0] as string;
+
+    const response = await request(app).get('/admin/api/configured-servers/missing').set('Cookie', cookie);
+
+    expect(response.status).toBe(404);
+    expect(response.body).toEqual({
+      ok: false,
+      error: 'configured_server_not_found',
+      code: 'configured_server_not_found',
+      message: 'Configured server target was not found',
+      target: { type: 'configured_server', id: 'missing' },
+    });
+    expect(JSON.stringify(response.body)).not.toMatch(/raw|secret|token|password/i);
   });
 
   it('returns authenticated admin console status with runtime identity, OAuth services, and redacted audit facts', async () => {

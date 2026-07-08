@@ -278,6 +278,227 @@ describe('AdminConfiguredServerService', () => {
     expect(JSON.stringify(result)).not.toContain('raw-api-key');
   });
 
+  it('loads one configured-server detail with an operator edit contract and no raw secret exposure', async () => {
+    const readConfigDocument = vi.fn(() => ({
+      mcpServers: {
+        'github/api': {
+          type: 'http',
+          url: 'https://api.example.com/mcp?token=raw-url-token&workspace=docs',
+          headers: {
+            Authorization: 'Bearer raw-header-token',
+          },
+          oauth: {
+            clientSecret: 'raw-client-secret',
+          },
+          tags: ['remote', 'oauth'],
+        },
+      },
+    }));
+    const service = createService({ readConfigDocument });
+
+    const result = await service.getConfiguredServerDetail({
+      context: context({
+        target: { type: 'configured_server', id: 'github/api' },
+        idempotencyKey: undefined,
+        requestFingerprint: undefined,
+      }),
+      targetName: 'github/api',
+    });
+
+    expect(readConfigDocument).toHaveBeenCalledTimes(1);
+    expect(result).toMatchObject({
+      ok: true,
+      status: 'completed',
+      operationName: 'getConfiguredServerDetail',
+      result: {
+        server: {
+          id: 'github/api',
+          enabled: true,
+          tags: ['remote', 'oauth'],
+          transportSummary: {
+            kind: 'http',
+            label: 'https://api.example.com/mcp?token=REDACTED&workspace=docs',
+          },
+          transport: {
+            type: 'http',
+            url: 'https://api.example.com/mcp?token=REDACTED&workspace=docs',
+            headers: {
+              Authorization: { present: true, value: '[REDACTED]', secret: true },
+            },
+            oauth: {
+              clientSecret: { present: true, value: '[REDACTED]', secret: true },
+            },
+          },
+        },
+        editContract: {
+          schemaVersion: 1,
+          target: { type: 'configured_server', id: 'github/api', source: 'mcpServers' },
+          capabilities: {
+            singleTargetEdit: true,
+            rename: { supported: true },
+            create: { supported: false },
+            delete: { supported: false },
+            bulkEdit: { supported: false },
+            rawJson: { supported: false },
+          },
+          fieldGroups: expect.arrayContaining([
+            expect.objectContaining({
+              id: 'identity',
+              fields: expect.arrayContaining([
+                expect.objectContaining({ fieldPath: ['id'], control: 'text', value: 'github/api' }),
+                expect.objectContaining({ fieldPath: ['enabled'], control: 'switch', value: true }),
+                expect.objectContaining({ fieldPath: ['tags'], control: 'tag-list', value: ['remote', 'oauth'] }),
+              ]),
+            }),
+            expect.objectContaining({
+              id: 'secrets',
+              fields: expect.arrayContaining([
+                expect.objectContaining({
+                  fieldPath: ['headers', 'Authorization'],
+                  control: 'secret',
+                  secret: expect.objectContaining({
+                    state: 'present',
+                    defaultAction: 'preserve',
+                    allowedActions: ['preserve', 'replace', 'clear'],
+                    environmentReference: expect.objectContaining({
+                      supported: true,
+                      recommended: true,
+                    }),
+                    inlineReplacement: expect.objectContaining({
+                      supported: true,
+                      emphasis: 'secondary',
+                    }),
+                  }),
+                }),
+              ]),
+            }),
+          ]),
+        },
+      },
+    });
+    expect(JSON.stringify(result)).not.toMatch(/raw-url-token|raw-header-token|raw-client-secret/);
+    expect(JSON.stringify(result)).not.toMatch(/zod|rawSchema|storageShape/i);
+  });
+
+  it('keeps nested secret record values out of editable transport record fields', async () => {
+    const service = createService({
+      readConfigDocument: () => ({
+        mcpServers: {
+          nested: {
+            type: 'stdio',
+            command: 'node',
+            metadata: {
+              region: 'us-east-1',
+              apiToken: 'raw-nested-token',
+            },
+          },
+        },
+      }),
+    });
+
+    const result = await service.getConfiguredServerDetail({
+      context: context({
+        target: { type: 'configured_server', id: 'nested' },
+        idempotencyKey: undefined,
+        requestFingerprint: undefined,
+      }),
+      targetName: 'nested',
+    });
+
+    expect(result).toMatchObject({
+      ok: true,
+      result: {
+        server: {
+          transport: {
+            metadata: {
+              region: 'us-east-1',
+              apiToken: { present: true, value: '[REDACTED]', secret: true },
+            },
+          },
+        },
+        editContract: {
+          fieldGroups: expect.arrayContaining([
+            expect.objectContaining({
+              id: 'transport',
+              fields: expect.arrayContaining([
+                expect.objectContaining({
+                  fieldPath: ['transport', 'metadata'],
+                  control: 'record',
+                  value: {
+                    region: 'us-east-1',
+                  },
+                }),
+              ]),
+            }),
+            expect.objectContaining({
+              id: 'secrets',
+              fields: expect.arrayContaining([
+                expect.objectContaining({
+                  fieldPath: ['metadata', 'apiToken'],
+                  control: 'secret',
+                  secret: expect.objectContaining({
+                    defaultAction: 'preserve',
+                    allowedActions: ['preserve', 'replace', 'clear'],
+                  }),
+                }),
+              ]),
+            }),
+          ]),
+        },
+      },
+    });
+    expect(JSON.stringify(result)).not.toContain('raw-nested-token');
+    expect(
+      JSON.stringify(
+        result.ok
+          ? (result.result.editContract.fieldGroups.find((group) => group.id === 'transport')?.fields ?? [])
+          : [],
+      ),
+    ).not.toMatch(/apiToken|raw-nested-token/);
+  });
+
+  it('redacts URL username and password credentials from detail read models and edit contracts', async () => {
+    const service = createService({
+      readConfigDocument: () => ({
+        mcpServers: {
+          github: {
+            type: 'http',
+            url: 'https://raw-user:raw-pass@api.example.com/mcp?token=raw-token&workspace=docs',
+          },
+        },
+      }),
+    });
+
+    const result = await service.getConfiguredServerDetail({
+      context: context({
+        target: { type: 'configured_server', id: 'github' },
+        idempotencyKey: undefined,
+        requestFingerprint: undefined,
+      }),
+      targetName: 'github',
+    });
+
+    expect(result).toMatchObject({
+      ok: true,
+      result: {
+        server: {
+          transportSummary: {
+            label: 'https://REDACTED:REDACTED@api.example.com/mcp?token=REDACTED&workspace=docs',
+          },
+          transport: {
+            url: 'https://REDACTED:REDACTED@api.example.com/mcp?token=REDACTED&workspace=docs',
+          },
+          secretInputs: expect.arrayContaining([
+            expect.objectContaining({ fieldPath: ['url', 'username'], label: 'url.username' }),
+            expect.objectContaining({ fieldPath: ['url', 'password'], label: 'url.password' }),
+            expect.objectContaining({ fieldPath: ['url', 'query', 'token'], label: 'url.query.token' }),
+          ]),
+        },
+      },
+    });
+    expect(JSON.stringify(result)).not.toMatch(/raw-user|raw-pass|raw-token/);
+  });
+
   it('fails dry-run admission when the request runtime identity does not match the Runtime Scope', async () => {
     writeConfig({
       mcpServers: {

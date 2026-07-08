@@ -24,6 +24,11 @@ interface ConfiguredServerMutationInput {
   confirmationRequirements?: AdminConfirmationRequirement[];
 }
 
+interface ConfiguredServerDetailInput {
+  context: AdminOperationContext;
+  targetName: string;
+}
+
 export interface ConfiguredServerSecretInput {
   fieldPath: string[];
   label: string;
@@ -85,6 +90,64 @@ export interface ConfiguredServerMutationResult {
   configChange: ConfigChangeResult;
 }
 
+export type ConfiguredServerEditFieldControl =
+  'text' | 'switch' | 'tag-list' | 'select' | 'string-list' | 'secret' | 'record' | 'readonly';
+
+export interface ConfiguredServerSecretEditMetadata {
+  state: 'present' | 'empty';
+  defaultAction: ConfiguredServerSecretAction;
+  allowedActions: ConfiguredServerSecretAction[];
+  environmentReference: {
+    supported: boolean;
+    recommended: boolean;
+    valueFormat: 'env_var_name_or_substitution';
+    storesSecretMaterial: false;
+    guidance: string;
+  };
+  inlineReplacement: {
+    supported: boolean;
+    emphasis: 'secondary';
+    guidance: string;
+  };
+}
+
+export interface ConfiguredServerEditField {
+  fieldPath: string[];
+  label: string;
+  control: ConfiguredServerEditFieldControl;
+  value?: unknown;
+  options?: string[];
+  editable: boolean;
+  secret?: ConfiguredServerSecretEditMetadata;
+}
+
+export interface ConfiguredServerEditFieldGroup {
+  id: string;
+  label: string;
+  fields: ConfiguredServerEditField[];
+}
+
+export interface ConfiguredServerEditContract {
+  schemaVersion: 1;
+  target: ConfiguredServerTargetIdentity;
+  capabilities: {
+    singleTargetEdit: true;
+    rename: { supported: true };
+    create: { supported: false };
+    delete: { supported: false };
+    bulkEdit: { supported: false };
+    rawJson: { supported: false };
+    preview: { supported: false };
+    apply: { supported: false };
+  };
+  fieldGroups: ConfiguredServerEditFieldGroup[];
+}
+
+export interface ConfiguredServerDetailResult {
+  server: ConfiguredServerReadModel;
+  editContract: ConfiguredServerEditContract;
+}
+
 export interface ConfiguredServerConfigDocument {
   mcpServers?: Record<string, MCPServerParams>;
 }
@@ -93,6 +156,9 @@ export interface AdminConfiguredServerOperations {
   listConfiguredServers(input: {
     context: AdminOperationContext;
   }): Promise<AdminOperationResult<{ servers: ConfiguredServerReadModel[] }>>;
+  getConfiguredServerDetail(
+    input: ConfiguredServerDetailInput,
+  ): Promise<AdminOperationResult<ConfiguredServerDetailResult>>;
   enableConfiguredServer(
     input: ConfiguredServerMutationInput,
   ): Promise<AdminOperationResult<ConfiguredServerMutationResult>>;
@@ -100,6 +166,15 @@ export interface AdminConfiguredServerOperations {
     input: ConfiguredServerMutationInput,
   ): Promise<AdminOperationResult<ConfiguredServerMutationResult>>;
   getRecentAuditFacts(options?: { limit?: number }): AdminAuditFact[];
+}
+
+export class AdminConfiguredServerNotFoundError extends Error {
+  readonly code = 'configured_server_not_found';
+
+  constructor(readonly targetName: string) {
+    super(`Configured server target '${targetName}' was not found`);
+    this.name = 'AdminConfiguredServerNotFoundError';
+  }
 }
 
 export class AdminConfiguredServerService implements AdminConfiguredServerOperations {
@@ -112,6 +187,31 @@ export class AdminConfiguredServerService implements AdminConfiguredServerOperat
       context: input.context,
       operationName: 'listConfiguredServers',
       run: async () => ({ servers: this.readConfiguredServers() }),
+    });
+  }
+
+  async getConfiguredServerDetail(
+    input: ConfiguredServerDetailInput,
+  ): Promise<AdminOperationResult<ConfiguredServerDetailResult>> {
+    const context = {
+      ...input.context,
+      target: { type: 'configured_server', id: input.targetName },
+    };
+    return this.options.operationService.executeReadOnly({
+      context,
+      operationName: 'getConfiguredServerDetail',
+      run: async () => {
+        const server = this.readConfiguredServers().find(
+          (configuredServer) => configuredServer.id === input.targetName,
+        );
+        if (!server) {
+          throw new AdminConfiguredServerNotFoundError(input.targetName);
+        }
+        return {
+          server,
+          editContract: createConfiguredServerEditContract(server),
+        };
+      },
     });
   }
 
@@ -281,6 +381,172 @@ function createConfiguredServerReadModel(name: string, serverConfig: MCPServerPa
   };
 }
 
+function createConfiguredServerEditContract(server: ConfiguredServerReadModel): ConfiguredServerEditContract {
+  const secretFieldKeys = new Set(server.secretInputs.map((input) => fieldKey(input.fieldPath)));
+  const transportFields = Object.entries(server.transport)
+    .filter(([key]) => !secretFieldKeys.has(key))
+    .map(([key, value]) => transportEditField(key, omitSecretValues(value, [key], secretFieldKeys)));
+
+  return {
+    schemaVersion: 1,
+    target: server.target,
+    capabilities: {
+      singleTargetEdit: true,
+      rename: { supported: true },
+      create: { supported: false },
+      delete: { supported: false },
+      bulkEdit: { supported: false },
+      rawJson: { supported: false },
+      preview: { supported: false },
+      apply: { supported: false },
+    },
+    fieldGroups: [
+      {
+        id: 'identity',
+        label: 'Target',
+        fields: [
+          {
+            fieldPath: ['id'],
+            label: 'Target ID',
+            control: 'text',
+            value: server.id,
+            editable: true,
+          },
+          {
+            fieldPath: ['enabled'],
+            label: 'Enabled',
+            control: 'switch',
+            value: server.enabled,
+            editable: true,
+          },
+          {
+            fieldPath: ['tags'],
+            label: 'Tags',
+            control: 'tag-list',
+            value: server.tags,
+            editable: true,
+          },
+        ],
+      },
+      {
+        id: 'transport',
+        label: 'Transport',
+        fields: transportFields,
+      },
+      {
+        id: 'secrets',
+        label: 'Secrets',
+        fields: server.secretInputs.map(secretEditField),
+      },
+    ],
+  };
+}
+
+function omitSecretValues(value: unknown, fieldPath: string[], secretFieldKeys: Set<string>): unknown {
+  if (secretFieldKeys.has(fieldKey(fieldPath))) {
+    return undefined;
+  }
+
+  if (Array.isArray(value)) {
+    return value
+      .map((entry, index) => omitSecretValues(entry, [...fieldPath, String(index)], secretFieldKeys))
+      .filter((entry) => entry !== undefined);
+  }
+
+  if (!value || typeof value !== 'object') {
+    return value;
+  }
+
+  const cleaned: Record<string, unknown> = {};
+  for (const [key, nestedValue] of Object.entries(value as Record<string, unknown>)) {
+    const nextValue = omitSecretValues(nestedValue, [...fieldPath, key], secretFieldKeys);
+    if (nextValue !== undefined) {
+      cleaned[key] = nextValue;
+    }
+  }
+  return cleaned;
+}
+
+function transportEditField(key: string, value: unknown): ConfiguredServerEditField {
+  if (key === 'type') {
+    return {
+      fieldPath: ['transport', 'type'],
+      label: 'Transport Type',
+      control: 'select',
+      value,
+      options: ['stdio', 'http', 'sse'],
+      editable: true,
+    };
+  }
+
+  if (Array.isArray(value)) {
+    return {
+      fieldPath: ['transport', key],
+      label: labelFromPath([key]),
+      control: 'string-list',
+      value,
+      editable: true,
+    };
+  }
+
+  if (value && typeof value === 'object') {
+    return {
+      fieldPath: ['transport', key],
+      label: labelFromPath([key]),
+      control: 'record',
+      value,
+      editable: true,
+    };
+  }
+
+  return {
+    fieldPath: ['transport', key],
+    label: labelFromPath([key]),
+    control: typeof value === 'boolean' ? 'switch' : 'text',
+    value,
+    editable: true,
+  };
+}
+
+function secretEditField(input: ConfiguredServerSecretInput): ConfiguredServerEditField {
+  return {
+    fieldPath: input.fieldPath,
+    label: input.label,
+    control: 'secret',
+    editable: true,
+    secret: {
+      state: input.state,
+      defaultAction: 'preserve',
+      allowedActions: input.allowedActions,
+      environmentReference: {
+        supported: true,
+        recommended: true,
+        valueFormat: 'env_var_name_or_substitution',
+        storesSecretMaterial: false,
+        guidance:
+          'Store only the environment variable name or substitution expression; keep secret material outside 1MCP config.',
+      },
+      inlineReplacement: {
+        supported: true,
+        emphasis: 'secondary',
+        guidance: 'Use inline replacement only as a secondary path when an environment reference is not suitable.',
+      },
+    },
+  };
+}
+
+function fieldKey(fieldPath: string[]): string {
+  return fieldPath.join('\0');
+}
+
+function labelFromPath(pathSegments: string[]): string {
+  return pathSegments
+    .join(' ')
+    .replace(/([a-z])([A-Z])/gu, '$1 $2')
+    .replace(/[-_.]+/gu, ' ')
+    .replace(/\b\w/gu, (char) => char.toUpperCase());
+}
+
 function createActionState(name: string, enabled: boolean): ConfiguredServerActionState {
   return {
     enable: enabled
@@ -437,6 +703,14 @@ function redactOAuthConfig(value: unknown, secretInputs: ConfiguredServerSecretI
 function redactUrlQuerySecrets(value: string, secretInputs: ConfiguredServerSecretInput[]): string {
   try {
     const url = new URL(value);
+    if (url.username) {
+      url.username = 'REDACTED';
+      secretInputs.push(secretInput(['url', 'username'], 'url.username'));
+    }
+    if (url.password) {
+      url.password = 'REDACTED';
+      secretInputs.push(secretInput(['url', 'password'], 'url.password'));
+    }
     for (const key of Array.from(url.searchParams.keys())) {
       if (isSecretLikeKey(key)) {
         url.searchParams.set(key, 'REDACTED');
