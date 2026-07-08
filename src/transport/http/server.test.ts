@@ -15,6 +15,7 @@ vi.mock('express', () => {
 
   const mockApp = () => ({
     use: vi.fn(),
+    get: vi.fn(),
     listen: vi.fn((port, host, callback) => {
       if (callback) callback();
     }),
@@ -174,6 +175,7 @@ describe('ExpressServer', () => {
     mockApp = {
       use: vi.fn(),
       set: vi.fn(),
+      get: vi.fn(),
       post: vi.fn(),
       listen: vi.fn((port, host, callback) => {
         if (callback) callback();
@@ -261,6 +263,7 @@ describe('ExpressServer', () => {
       expressServer = new ExpressServer(mockServerManager);
 
       expect(mockApp.use.mock.calls.some(([path]: any[]) => path === '/admin')).toBe(false);
+      expect(mockApp.get.mock.calls.some(([path]: any[]) => path === '/')).toBe(false);
     });
 
     it('should mount admin routes when admin surfaces are enabled', async () => {
@@ -280,6 +283,29 @@ describe('ExpressServer', () => {
       expressServer = new ExpressServer(mockServerManager);
 
       expect(mockApp.use).toHaveBeenCalledWith('/admin', expect.any(Object));
+    });
+
+    it('should redirect the server root to admin when admin surfaces are enabled', async () => {
+      mockConfigManager.get.mockImplementation((key: string) => {
+        if (key === 'trustProxy') return 'loopback';
+        if (key === 'admin') return { enabled: true };
+        if (key === 'auth') return { sessionStoragePath: '/tmp/sessions' };
+        if (key === 'features') return { enhancedSecurity: false, auth: false };
+        if (key === 'externalUrl') return 'http://localhost:3050';
+        if (key === 'host') return 'localhost';
+        if (key === 'port') return 3050;
+        if (key === 'rateLimit') return { windowMs: 900000, max: 100 };
+        if (key === 'sessionPersistence') return { backgroundFlushSeconds: 30 };
+        return undefined;
+      });
+
+      expressServer = new ExpressServer(mockServerManager);
+
+      const rootHandler = mockApp.get.mock.calls.find(([path]: any[]) => path === '/')?.[1];
+      const redirect = vi.fn();
+      rootHandler({}, { redirect });
+
+      expect(redirect).toHaveBeenCalledWith(302, '/admin');
     });
 
     it('should handle enhanced security when enabled', async () => {

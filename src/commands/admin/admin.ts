@@ -1,9 +1,13 @@
+import { resolveServeConfigPaths, type ServeConfigPaths } from '@src/commands/serve/runtimeScope.js';
 import { ApiClient } from '@src/commands/shared/apiClient.js';
 import {
   type ResolvableServeTargetOptions,
   type ResolvedServeTarget,
   resolveServeTarget,
 } from '@src/commands/shared/serveTargetResolver.js';
+import { MCP_SERVER_VERSION } from '@src/constants.js';
+import { type RuntimeIdentity, RuntimeIdentityService } from '@src/core/runtime/runtimeIdentityService.js';
+import { AdminIdentityService } from '@src/domains/admin/adminIdentityService.js';
 import { type RuntimeTargetListEntry, RuntimeTargetStore } from '@src/domains/runtime-targets/runtimeTargetStore.js';
 import type { GlobalOptions } from '@src/globalOptions.js';
 import { stripMcpSuffix } from '@src/utils/urlUtils.js';
@@ -18,6 +22,11 @@ interface AdminContextOption {
 }
 
 export interface AdminLoginOptions extends GlobalOptions, AdminJsonOption, AdminContextOption {
+  username?: string;
+  password?: string;
+}
+
+export interface AdminBootstrapOptions extends GlobalOptions, AdminJsonOption {
   username?: string;
   password?: string;
 }
@@ -53,6 +62,15 @@ export interface AdminCommandDependencies {
     options: ResolvableServeTargetOptions & { context: string },
   ) => Promise<ResolvedServeTarget<ResolvableServeTargetOptions & { context: string }>>;
   createApiClient?: (baseUrl: string, bearerToken?: string) => AdminApiClient;
+}
+
+export interface AdminBootstrapDependencies {
+  resolveConfigPaths?: (options: Pick<AdminBootstrapOptions, 'config' | 'config-dir'>) => ServeConfigPaths;
+  createRuntimeIdentityService?: (storageDir: string) => Pick<RuntimeIdentityService, 'getRuntimeIdentity'>;
+  createAdminIdentityService?: (options: {
+    runtimeScopeId: string;
+    storageDir: string;
+  }) => Pick<AdminIdentityService, 'bootstrapFirstAdmin'>;
 }
 
 interface CliAdminEnvelope<T> {
@@ -105,6 +123,40 @@ export class AdminCommandError extends Error {
     super(message);
     this.name = 'AdminCommandError';
   }
+}
+
+export async function adminBootstrapCommand(
+  options: AdminBootstrapOptions,
+  dependencies: AdminBootstrapDependencies = {},
+): Promise<void> {
+  const username = requireOption(options.username, 'admin username');
+  const password = requireOption(options.password, 'admin password');
+  const paths = (dependencies.resolveConfigPaths ?? resolveServeConfigPaths)({
+    config: options.config,
+    'config-dir': options['config-dir'],
+  });
+  const runtimeIdentity = getBootstrapRuntimeIdentity(paths.runtimeScope, dependencies);
+  const adminService =
+    dependencies.createAdminIdentityService?.({
+      runtimeScopeId: runtimeIdentity.runtimeScopeId,
+      storageDir: paths.runtimeScope,
+    }) ??
+    new AdminIdentityService({
+      runtimeScopeId: runtimeIdentity.runtimeScopeId,
+      storageDir: paths.runtimeScope,
+    });
+  const account = await adminService.bootstrapFirstAdmin({ username, password });
+
+  writeAdminSuccess(options, {
+    operation: 'admin.bootstrap',
+    target: {
+      runtimeScopeId: runtimeIdentity.runtimeScopeId,
+      runtimeScope: paths.runtimeScope,
+      configFilePath: paths.configFilePath,
+    },
+    result: { account },
+    human: `Admin bootstrap created first Admin Account for ${account.username}.\n`,
+  });
 }
 
 export async function adminLoginCommand(
@@ -369,6 +421,17 @@ export async function adminLogoutCommand(
       forgotLocalReference: true,
     },
     human: `Admin logout completed for ${context}.\n`,
+  });
+}
+
+function getBootstrapRuntimeIdentity(runtimeScope: string, dependencies: AdminBootstrapDependencies): RuntimeIdentity {
+  const runtimeIdentityService =
+    dependencies.createRuntimeIdentityService?.(runtimeScope) ??
+    new RuntimeIdentityService({ storageDir: runtimeScope });
+  return runtimeIdentityService.getRuntimeIdentity({
+    externalUrl: 'http://127.0.0.1',
+    runtimeVersion: MCP_SERVER_VERSION,
+    includeServerTime: false,
   });
 }
 

@@ -78,7 +78,10 @@ describe('AdminConsoleRoot', () => {
     renderRoot(api);
 
     expect(await screen.findByRole('heading', { name: /setup required/i })).toBeInTheDocument();
-    expect(screen.getByText('1mcp admin bootstrap')).toBeInTheDocument();
+    expect(
+      screen.getByText("1mcp admin bootstrap --username operator --password 'use-a-long-random-password'"),
+    ).toBeInTheDocument();
+    expect(screen.queryByText('1mcp admin bootstrap')).not.toBeInTheDocument();
   });
 
   it('maps known API failures to operator-friendly recovery copy', async () => {

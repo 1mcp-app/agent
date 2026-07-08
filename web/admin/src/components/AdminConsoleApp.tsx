@@ -125,7 +125,7 @@ function SetupRequiredView() {
           Run CLI bootstrap from the runtime host, then refresh this page. The browser setup page does not create admin
           accounts.
         </Text>
-        <Code block>1mcp admin bootstrap</Code>
+        <Code block>1mcp admin bootstrap --username operator --password 'use-a-long-random-password'</Code>
       </Stack>
     </Paper>
   );

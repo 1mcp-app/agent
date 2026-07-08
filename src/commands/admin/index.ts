@@ -10,6 +10,30 @@ export function setupAdminCommands(yargs: Argv): Argv {
     (commandYargs) => {
       commandYargs
         .command(
+          'bootstrap',
+          'Create the first Admin Account for the selected local Runtime Scope',
+          (sub) =>
+            sub
+              .options(globalOptions || {})
+              .option('username', {
+                describe: 'Admin username',
+                type: 'string',
+              })
+              .option('password', {
+                describe: 'Admin password',
+                type: 'string',
+              })
+              .option('json', {
+                describe: 'Write machine-readable JSON output',
+                type: 'boolean',
+                default: false,
+              }),
+          async (argv) => {
+            const { adminBootstrapCommand } = await import('./admin.js');
+            await runCliCommand(argv as Parameters<typeof adminBootstrapCommand>[0], adminBootstrapCommand);
+          },
+        )
+        .command(
           'login',
           'Create a CLI Admin session for a Runtime Target Context',
           (sub) =>
@@ -94,7 +118,7 @@ export function setupAdminCommands(yargs: Argv): Argv {
             await runCliCommand(argv as Parameters<typeof adminLogoutCommand>[0], adminLogoutCommand);
           },
         )
-        .demandCommand(1, 'Specify a subcommand: login, status, or logout');
+        .demandCommand(1, 'Specify a subcommand: bootstrap, login, status, or logout');
     },
   );
 }

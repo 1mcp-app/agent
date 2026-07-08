@@ -14,9 +14,20 @@ describe('setupAdminCommands', () => {
     vi.clearAllMocks();
   });
 
-  it('registers admin login, status, and logout through yargs and runCliCommand', async () => {
+  it('registers admin bootstrap, login, status, and logout through yargs and runCliCommand', async () => {
     const parser = setupAdminCommands(yargs([]).exitProcess(false).help(false).version(false));
 
+    await parser.parseAsync([
+      'admin',
+      'bootstrap',
+      '--config-dir',
+      '/tmp/runtime',
+      '--username',
+      'operator',
+      '--password',
+      'correct horse battery staple',
+      '--json',
+    ]);
     await parser.parseAsync([
       'admin',
       'login',
@@ -34,6 +45,16 @@ describe('setupAdminCommands', () => {
     expect(runCliCommandMock).toHaveBeenNthCalledWith(
       1,
       expect.objectContaining({
+        'config-dir': '/tmp/runtime',
+        username: 'operator',
+        password: 'correct horse battery staple',
+        json: true,
+      }),
+      expect.any(Function),
+    );
+    expect(runCliCommandMock).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({
         context: 'prod',
         username: 'operator',
         password: 'secret',
@@ -42,12 +63,12 @@ describe('setupAdminCommands', () => {
       expect.any(Function),
     );
     expect(runCliCommandMock).toHaveBeenNthCalledWith(
-      2,
+      3,
       expect.objectContaining({ context: 'prod', json: true }),
       expect.any(Function),
     );
     expect(runCliCommandMock).toHaveBeenNthCalledWith(
-      3,
+      4,
       expect.objectContaining({ context: 'prod', forget: true }),
       expect.any(Function),
     );

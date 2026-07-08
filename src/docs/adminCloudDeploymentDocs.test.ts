@@ -39,6 +39,7 @@ describe('admin cloud deployment docs', () => {
     expect(enGuide).toContain('127.0.0.1');
     expect(enGuide).toContain('ONE_MCP_ADMIN_USERNAME');
     expect(enGuide).toContain('ONE_MCP_ADMIN_PASSWORD');
+    expect(enGuide).toContain('1mcp admin bootstrap');
     expect(enGuide).toContain('Admin Session');
     expect(enGuide).toContain('OAuth');
     expect(enGuide).toContain('1mcp target add prod');
@@ -57,6 +58,7 @@ describe('admin cloud deployment docs', () => {
     expect(zhGuide).toContain('Secure');
     expect(zhGuide).toContain('ONE_MCP_ADMIN_USERNAME');
     expect(zhGuide).toContain('ONE_MCP_ADMIN_PASSWORD');
+    expect(zhGuide).toContain('1mcp admin bootstrap');
     expect(zhGuide).toContain('Admin Session');
     expect(zhGuide).toContain('OAuth');
     expect(zhGuide).toContain('1mcp target add prod');

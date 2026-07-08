@@ -19,7 +19,10 @@ describe('AdminConsoleApp', () => {
 
     expect(screen.getByRole('banner', { name: /admin console/i })).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: /setup required/i })).toBeInTheDocument();
-    expect(screen.getByText('1mcp admin bootstrap')).toBeInTheDocument();
+    expect(
+      screen.getByText("1mcp admin bootstrap --username operator --password 'use-a-long-random-password'"),
+    ).toBeInTheDocument();
+    expect(screen.queryByText('1mcp admin bootstrap')).not.toBeInTheDocument();
   });
 
   it('renders login and loading states without account-management controls', () => {

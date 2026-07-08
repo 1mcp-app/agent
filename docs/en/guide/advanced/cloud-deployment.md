@@ -83,7 +83,16 @@ Caddy obtains and renews certificates for the public hostname. Keep port `3050` 
 
 ## Bootstrap Admin Before Exposure
 
-Create the first Admin Account before exposing the runtime through public DNS or opening firewall rules. For headless startup, use environment bootstrap on the first boot only:
+Create the first Admin Account before exposing the runtime through public DNS or opening firewall rules. On the runtime host, bootstrap the local Runtime Scope selected by the same `--config` or `--config-dir` you use for `serve`:
+
+```bash
+1mcp admin bootstrap \
+  --config /etc/1mcp/mcp.json \
+  --username operator \
+  --password 'use-a-long-random-password'
+```
+
+For headless startup, use environment bootstrap on the first boot only:
 
 ```bash
 ONE_MCP_ADMIN_USERNAME=operator \
@@ -91,7 +100,7 @@ ONE_MCP_ADMIN_PASSWORD='use-a-long-random-password' \
 1mcp serve --config /etc/1mcp/mcp.json --host 127.0.0.1 --port 3050
 ```
 
-Environment bootstrap creates the first account only when no Admin Account exists. Remove the password from service environment after the first successful start.
+Both bootstrap paths create the first account only when no Admin Account exists. Remove the password from service environment after the first successful start.
 
 ## Admin Session vs OAuth
 

@@ -77,7 +77,16 @@ Caddy 会为公开主机名申请和续期证书。如果 1MCP 绑定到非 loop
 
 ## 暴露前先创建 Admin Account
 
-在配置公开 DNS 或开放防火墙之前，先创建第一个 Admin Account。无人值守启动时，只在第一次启动使用环境变量 bootstrap：
+在配置公开 DNS 或开放防火墙之前，先创建第一个 Admin Account。在运行时主机上，用与 `serve` 相同的 `--config` 或 `--config-dir` 选择本地 Runtime Scope，然后执行 bootstrap：
+
+```bash
+1mcp admin bootstrap \
+  --config /etc/1mcp/mcp.json \
+  --username operator \
+  --password 'use-a-long-random-password'
+```
+
+无人值守启动时，只在第一次启动使用环境变量 bootstrap：
 
 ```bash
 ONE_MCP_ADMIN_USERNAME=operator \
@@ -85,7 +94,7 @@ ONE_MCP_ADMIN_PASSWORD='use-a-long-random-password' \
 1mcp serve --config /etc/1mcp/mcp.json --host 127.0.0.1 --port 3050
 ```
 
-环境变量 bootstrap 只会在没有任何 Admin Account 时创建第一个账号。首次启动成功后，从服务环境中移除密码。
+两种 bootstrap 路径都只会在没有任何 Admin Account 时创建第一个账号。首次启动成功后，从服务环境中移除密码。
 
 ## Admin Session 与 OAuth 的区别
 

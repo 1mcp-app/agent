@@ -384,6 +384,9 @@ export class ExpressServer {
     });
     if (adminRoutes) {
       this.app.use('/admin', adminRoutes);
+      this.app.get('/', (_req, res) => {
+        res.redirect(302, '/admin');
+      });
     }
 
     // CLI token endpoint (localhost-only, no auth middleware).

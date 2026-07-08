@@ -3,7 +3,14 @@ import { RuntimeTargetStoreError } from '@src/domains/runtime-targets/runtimeTar
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { type AdminCommandDependencies, adminLoginCommand, adminLogoutCommand, adminStatusCommand } from './admin.js';
+import {
+  adminBootstrapCommand,
+  type AdminBootstrapDependencies,
+  type AdminCommandDependencies,
+  adminLoginCommand,
+  adminLogoutCommand,
+  adminStatusCommand,
+} from './admin.js';
 
 describe('admin credential commands', () => {
   let stdout: ReturnType<typeof vi.spyOn>;
@@ -399,5 +406,119 @@ describe('admin credential commands', () => {
 
   function okResponse(data: unknown) {
     return { ok: true, status: 200, data };
+  }
+});
+
+describe('admin bootstrap command', () => {
+  let stdout: ReturnType<typeof vi.spyOn>;
+  let resolveConfigPaths: ReturnType<typeof vi.fn>;
+  let getRuntimeIdentity: ReturnType<typeof vi.fn>;
+  let bootstrapFirstAdmin: ReturnType<typeof vi.fn>;
+
+  beforeEach(() => {
+    stdout = vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
+    resolveConfigPaths = vi.fn(() => ({
+      configFilePath: '/tmp/runtime/mcp.json',
+      runtimeScope: '/tmp/runtime',
+    }));
+    getRuntimeIdentity = vi.fn(() => ({
+      identityProtocolVersion: '1',
+      runtimeScopeId: 'scope_local',
+      externalUrl: 'http://127.0.0.1',
+      runtimeVersion: '0.34.0',
+    }));
+    bootstrapFirstAdmin = vi.fn(async () => ({
+      id: 'admin_acct_1',
+      runtimeScopeId: 'scope_local',
+      username: 'operator',
+      role: 'full-admin',
+      disabled: false,
+      createdAt: '2026-07-08T01:00:00.000Z',
+      updatedAt: '2026-07-08T01:00:00.000Z',
+    }));
+  });
+
+  afterEach(() => {
+    stdout.mockRestore();
+  });
+
+  it('creates the first admin account in the selected local Runtime Scope', async () => {
+    await adminBootstrapCommand(
+      {
+        'config-dir': '/tmp/runtime',
+        username: 'operator',
+        password: 'correct horse battery staple',
+      },
+      bootstrapDeps(),
+    );
+
+    expect(resolveConfigPaths).toHaveBeenCalledWith({ 'config-dir': '/tmp/runtime', config: undefined });
+    expect(getRuntimeIdentity).toHaveBeenCalledWith({
+      externalUrl: 'http://127.0.0.1',
+      runtimeVersion: expect.any(String),
+      includeServerTime: false,
+    });
+    expect(bootstrapFirstAdmin).toHaveBeenCalledWith({
+      username: 'operator',
+      password: 'correct horse battery staple',
+    });
+    expect(stdout.mock.calls.map((call: unknown[]) => String(call[0])).join('')).toContain(
+      'Admin bootstrap created first Admin Account for operator',
+    );
+  });
+
+  it('writes a JSON success envelope without exposing the password', async () => {
+    await adminBootstrapCommand(
+      {
+        config: '/tmp/runtime/mcp.json',
+        username: 'operator',
+        password: 'correct horse battery staple',
+        json: true,
+      },
+      bootstrapDeps(),
+    );
+
+    const output = JSON.parse(stdout.mock.calls.map((call: unknown[]) => String(call[0])).join(''));
+    expect(output).toMatchObject({
+      ok: true,
+      operation: 'admin.bootstrap',
+      target: {
+        runtimeScopeId: 'scope_local',
+        runtimeScope: '/tmp/runtime',
+      },
+      result: {
+        account: {
+          username: 'operator',
+          role: 'full-admin',
+        },
+      },
+    });
+    expect(JSON.stringify(output)).not.toContain('correct horse battery staple');
+  });
+
+  it('requires username and password before writing admin state', async () => {
+    await expect(
+      adminBootstrapCommand({ password: 'correct horse battery staple' }, bootstrapDeps()),
+    ).rejects.toMatchObject({
+      code: 'validation_missing_input',
+      message: 'Missing admin username',
+    });
+    await expect(adminBootstrapCommand({ username: 'operator' }, bootstrapDeps())).rejects.toMatchObject({
+      code: 'validation_missing_input',
+      message: 'Missing admin password',
+    });
+    expect(bootstrapFirstAdmin).not.toHaveBeenCalled();
+  });
+
+  function bootstrapDeps(): AdminBootstrapDependencies {
+    return {
+      resolveConfigPaths: resolveConfigPaths as AdminBootstrapDependencies['resolveConfigPaths'],
+      createRuntimeIdentityService: (() => ({
+        getRuntimeIdentity,
+      })) as AdminBootstrapDependencies['createRuntimeIdentityService'],
+      createAdminIdentityService: (() => ({
+        bootstrapFirstAdmin,
+      })) as AdminBootstrapDependencies['createAdminIdentityService'],
+    };
   }
 });
