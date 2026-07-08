@@ -40,12 +40,14 @@ function makePorts(
   options: {
     target?: ResolvedAttachmentTarget;
     authProfile?: AuthProfile | null;
+    oauthTokenReference?: unknown;
     cachedSession?: CliSessionCache | null;
   } = {},
 ) {
   return {
     resolveTarget: vi.fn().mockResolvedValue(options.target ?? makeResolvedTarget()),
     loadAuthProfile: vi.fn().mockResolvedValue(options.authProfile ?? null),
+    getOAuthTokenReference: vi.fn().mockResolvedValue(options.oauthTokenReference),
     readSessionCache: vi.fn().mockResolvedValue(options.cachedSession ?? null),
     writeSessionCache: vi.fn().mockResolvedValue(undefined),
     deleteSessionCache: vi.fn().mockResolvedValue(undefined),
@@ -387,11 +389,12 @@ describe('attachReusableClientSurface', () => {
     delete process.env.ONE_MCP_TEST_VALUE;
   });
 
-  it('does not load URL-keyed auth profiles for remote target contexts or ephemeral URLs', async () => {
+  it('loads context-scoped OAuth tokens for remote target contexts and ignores URL-keyed auth profiles', async () => {
     const remoteTarget = makeResolvedTarget({
       runtimeTargetContext: {
         name: 'prod',
         kind: 'remote',
+        runtimeScopeId: 'scope_prod',
       },
       discoveredUrl: 'https://prod.example.com/mcp',
       serverUrl: new URL('https://prod.example.com/mcp'),
@@ -401,6 +404,11 @@ describe('attachReusableClientSurface', () => {
       authProfile: {
         serverUrl: 'https://prod.example.com',
         token: 'legacy-token',
+        savedAt: 1000,
+      },
+      oauthTokenReference: {
+        token: 'scoped-token',
+        serverUrl: 'https://prod.example.com',
         savedAt: 1000,
       },
     });
@@ -423,7 +431,8 @@ describe('attachReusableClientSurface', () => {
       throw new Error(`Unexpected attachment status: ${result.status}`);
     }
     expect(ports.loadAuthProfile).not.toHaveBeenCalled();
-    expect(rest).toHaveBeenCalledWith(expect.objectContaining({ bearerToken: undefined }));
+    expect(ports.getOAuthTokenReference).toHaveBeenCalledWith('prod', 'scope_prod');
+    expect(rest).toHaveBeenCalledWith(expect.objectContaining({ bearerToken: 'scoped-token' }));
 
     const ephemeralPorts = makePorts({
       target: makeResolvedTarget({
@@ -450,6 +459,41 @@ describe('attachReusableClientSurface', () => {
     });
 
     expect(ephemeralPorts.loadAuthProfile).not.toHaveBeenCalled();
+    expect(ephemeralPorts.getOAuthTokenReference).not.toHaveBeenCalled();
+  });
+
+  it('loads context-scoped OAuth tokens for explicit local target contexts', async () => {
+    const ports = makePorts({
+      target: makeResolvedTarget({
+        runtimeTargetContext: {
+          name: 'local',
+          kind: 'local',
+          runtimeScopeId: 'scope_local',
+        },
+      }),
+      oauthTokenReference: {
+        token: 'local-scoped-token',
+        serverUrl: 'http://127.0.0.1:3050',
+      },
+    });
+    const rest = vi.fn(async ({ bearerToken }: { bearerToken?: string }) => ({
+      status: 'success' as const,
+      value: { bearerToken },
+    }));
+
+    const result = await attachReusableClientSurface({
+      clientSurface: 'run',
+      version: 'run',
+      options: { context: 'local' },
+      ports,
+      rest,
+      mcp: unusedAdapter(),
+    });
+
+    expect(result.status).toBe('success');
+    expect(ports.getOAuthTokenReference).toHaveBeenCalledWith('local', 'scope_local');
+    expect(ports.loadAuthProfile).not.toHaveBeenCalled();
+    expect(rest).toHaveBeenCalledWith(expect.objectContaining({ bearerToken: 'local-scoped-token' }));
   });
 
   it('formats authentication recovery for local, remote context, and ephemeral URL attachments', () => {
@@ -459,7 +503,7 @@ describe('attachReusableClientSurface', () => {
         options: {},
         target: makeResolvedTarget(),
       }),
-    ).toBe('Authentication required. Run: 1mcp auth login --url http://127.0.0.1:3050 --token <your-token>');
+    ).toBe('Authentication required. Run: 1mcp auth login --context local --token <your-token>');
 
     expect(
       formatClientSurfaceAuthRequiredMessage({
@@ -469,11 +513,12 @@ describe('attachReusableClientSurface', () => {
           runtimeTargetContext: {
             name: 'prod',
             kind: 'remote',
+            runtimeScopeId: 'scope_prod',
           },
         }),
       }),
     ).toBe(
-      'Authentication required for target context "prod". Context-scoped credentials are required; URL-keyed auth profiles are not used for runtime targets.',
+      'Authentication required for target context "prod". Run: 1mcp auth login --context prod --token <your-token>',
     );
 
     expect(

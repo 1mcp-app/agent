@@ -1,22 +1,18 @@
 import { ApiClient } from '@src/commands/shared/apiClient.js';
-import { normalizeServerUrl, saveAuthProfile } from '@src/commands/shared/authProfileStore.js';
 import { API_INSPECT_ENDPOINT } from '@src/constants/api.js';
+import { RuntimeTargetStore } from '@src/domains/runtime-targets/runtimeTargetStore.js';
 import type { GlobalOptions } from '@src/globalOptions.js';
-import { stripMcpSuffix } from '@src/utils/urlUtils.js';
-import { discoverServerWithPidFile } from '@src/utils/validation/urlDetection.js';
+
+import { resolveAuthRuntimeTarget } from './runtimeTargetContext.js';
 
 export interface AuthLoginOptions extends GlobalOptions {
+  context?: string;
   url?: string;
   token?: string;
 }
 
 export async function authLoginCommand(options: AuthLoginOptions): Promise<void> {
-  const { url: discoveredUrl, source } = await discoverServerWithPidFile(options['config-dir'], options.url);
-  const baseUrl = normalizeServerUrl(stripMcpSuffix(discoveredUrl));
-
-  if (source !== 'user') {
-    process.stderr.write(`Auto-detected server at ${baseUrl} (via ${source})\n`);
-  }
+  const { context, baseUrl, runtimeScopeId } = await resolveAuthRuntimeTarget(options, 'login');
 
   // Probe without auth — if it succeeds, auth is disabled
   const probeClient = new ApiClient({ baseUrl });
@@ -52,13 +48,14 @@ export async function authLoginCommand(options: AuthLoginOptions): Promise<void>
     process.stderr.write(`Warning: server returned HTTP ${response.status}, saving token anyway.\n`);
   }
 
-  await saveAuthProfile(options['config-dir'], {
+  new RuntimeTargetStore().setOAuthTokenReference(context, runtimeScopeId, {
     serverUrl: baseUrl,
     token,
     savedAt: Date.now(),
+    label: context,
   });
 
-  process.stdout.write(`Saved authentication profile for ${baseUrl}\n`);
+  process.stdout.write(`Saved authentication profile for ${context} (${baseUrl})\n`);
 }
 
 function isLocalhostUrl(url: string): boolean {

@@ -223,6 +223,18 @@ describe('RuntimeTargetStore', () => {
     expect(store.inspect('prod').credentialReferences).toEqual({ oauth: false, adminSession: true });
   });
 
+  it('stores and reads an OAuth token reference by target name and runtime scope id', () => {
+    const store = createStore();
+    addVerified(store, 'prod');
+    const oauth = { token: 'oauth_token', serverUrl: 'https://prod.example.com', savedAt: 1_000 };
+
+    store.setOAuthTokenReference('prod', 'scope_prod', oauth);
+
+    expect(store.getOAuthTokenReference('prod', 'scope_prod')).toEqual(oauth);
+    expect(store.getOAuthTokenReference('prod', 'scope_other')).toBeUndefined();
+    expect(store.inspect('prod').credentialReferences).toEqual({ oauth: true, adminSession: false });
+  });
+
   it('sets an admin session reference without replacing existing scoped OAuth references', () => {
     const store = createStore();
     addVerified(store, 'prod');
@@ -233,6 +245,21 @@ describe('RuntimeTargetStore', () => {
     expect(readSecrets().credentials.prod).toEqual({
       scope_prod: {
         oauth: { profileId: 'oauth_ref' },
+        adminSession: { handleId: 'admin_ref' },
+      },
+    });
+  });
+
+  it('sets an OAuth token reference without replacing existing scoped admin session references', () => {
+    const store = createStore();
+    addVerified(store, 'prod');
+    store.setCredentialReferences('prod', 'scope_prod', { adminSession: { handleId: 'admin_ref' } });
+
+    store.setOAuthTokenReference('prod', 'scope_prod', { token: 'oauth_token' });
+
+    expect(readSecrets().credentials.prod).toEqual({
+      scope_prod: {
+        oauth: { token: 'oauth_token' },
         adminSession: { handleId: 'admin_ref' },
       },
     });
@@ -264,6 +291,32 @@ describe('RuntimeTargetStore', () => {
     expect(store.inspect('prod').credentialReferences).toEqual({ oauth: true, adminSession: true });
   });
 
+  it('clears only one OAuth token reference without touching admin sessions or other runtime scopes', () => {
+    const store = createStore();
+    addVerified(store, 'prod');
+    store.setCredentialReferences('prod', 'scope_prod', {
+      oauth: { token: 'oauth_token' },
+      adminSession: { handleId: 'admin_ref' },
+    });
+    store.setCredentialReferences('prod', 'scope_other', {
+      oauth: { token: 'other_oauth_token' },
+      adminSession: { handleId: 'other_admin_ref' },
+    });
+
+    store.clearOAuthTokenReference('prod', 'scope_prod');
+
+    expect(store.getOAuthTokenReference('prod', 'scope_prod')).toBeUndefined();
+    expect(store.getOAuthTokenReference('prod', 'scope_other')).toEqual({ token: 'other_oauth_token' });
+    expect(readSecrets().credentials.prod).toEqual({
+      scope_prod: { adminSession: { handleId: 'admin_ref' } },
+      scope_other: {
+        oauth: { token: 'other_oauth_token' },
+        adminSession: { handleId: 'other_admin_ref' },
+      },
+    });
+    expect(store.inspect('prod').credentialReferences).toEqual({ oauth: true, adminSession: true });
+  });
+
   it('supports admin session references for the local context', () => {
     const store = createStore();
     const adminSession = { handleId: 'local_admin_ref' };
@@ -272,6 +325,16 @@ describe('RuntimeTargetStore', () => {
 
     expect(store.getAdminSessionReference('local', 'scope_local')).toEqual(adminSession);
     expect(store.inspect('local').credentialReferences).toEqual({ oauth: false, adminSession: true });
+  });
+
+  it('supports OAuth token references for the local context', () => {
+    const store = createStore();
+    const oauth = { token: 'local_oauth_token' };
+
+    store.setOAuthTokenReference('local', 'scope_local', oauth);
+
+    expect(store.getOAuthTokenReference('local', 'scope_local')).toEqual(oauth);
+    expect(store.inspect('local').credentialReferences).toEqual({ oauth: true, adminSession: false });
   });
 
   it('fails closed for admin session read, write, and clear helpers when secret permissions are insecure', () => {
@@ -288,6 +351,15 @@ describe('RuntimeTargetStore', () => {
       store.setCredentialReferences('prod', 'scope_prod', { adminSession: { handleId: 'next_admin_ref' } }),
     ).toThrowError(expect.objectContaining({ code: 'target_secret_store_insecure' }));
     expect(() => store.setAdminSessionReference('prod', 'scope_prod', { handleId: 'next_admin_ref' })).toThrowError(
+      expect.objectContaining({ code: 'target_secret_store_insecure' }),
+    );
+    expect(() => store.getOAuthTokenReference('prod', 'scope_prod')).toThrowError(
+      expect.objectContaining({ code: 'target_secret_store_insecure' }),
+    );
+    expect(() => store.setOAuthTokenReference('prod', 'scope_prod', { token: 'next_oauth_token' })).toThrowError(
+      expect.objectContaining({ code: 'target_secret_store_insecure' }),
+    );
+    expect(() => store.clearOAuthTokenReference('prod', 'scope_prod')).toThrowError(
       expect.objectContaining({ code: 'target_secret_store_insecure' }),
     );
     expect(() => store.clearAdminSessionReference('prod', 'scope_prod')).toThrowError(

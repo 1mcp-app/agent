@@ -34,7 +34,8 @@ export interface ResolvedServeTarget<TOptions extends ResolvableServeTargetOptio
   projectContextSource: 'project-config' | 'repo-root' | 'cwd';
   runtimeTargetContext?: {
     name: string;
-    kind: 'remote';
+    kind: 'local' | 'remote';
+    runtimeScopeId?: string;
   };
   runtimeIdentityWarnings?: RuntimeIdentityWarning[];
 }
@@ -146,6 +147,7 @@ export async function resolveServeTarget<TOptions extends ResolvableServeTargetO
       runtimeTargetContext: {
         name: remoteTarget.name,
         kind: 'remote',
+        runtimeScopeId: remoteTarget.observedIdentity?.runtimeScopeId,
       },
       runtimeIdentityWarnings: remoteTarget.runtimeIdentityWarnings,
     };
@@ -162,6 +164,23 @@ export async function resolveServeTarget<TOptions extends ResolvableServeTargetO
     throw new Error(validation.error || 'Cannot connect to the running 1MCP server.');
   }
 
+  let localRuntimeIdentity: Awaited<ReturnType<typeof verifyRuntimeIdentityForTarget>> | undefined;
+  if (!mergedOptions.url && mergedOptions.context === 'local') {
+    try {
+      localRuntimeIdentity = await (ports.verifyRuntimeIdentity ?? verifyRuntimeIdentityForTarget)({
+        target: {
+          name: 'local',
+          url: withoutMcpSuffix(discoveredUrl),
+          observedIdentity: undefined,
+        },
+      });
+    } catch (error) {
+      if (mergedOptions.context === 'local') {
+        throw error;
+      }
+    }
+  }
+
   return {
     cwd: resolvedProjectContext.cwd,
     projectRoot: resolvedProjectContext.projectRoot,
@@ -173,6 +192,14 @@ export async function resolveServeTarget<TOptions extends ResolvableServeTargetO
     serverPid,
     source,
     projectContextSource: resolvedProjectContext.source,
+    runtimeTargetContext: localRuntimeIdentity
+      ? {
+          name: 'local',
+          kind: 'local',
+          runtimeScopeId: localRuntimeIdentity.identity.runtimeScopeId,
+        }
+      : undefined,
+    runtimeIdentityWarnings: localRuntimeIdentity?.warnings,
   };
 }
 
@@ -220,6 +247,7 @@ async function resolveRemoteRuntimeTargetContext<TOptions extends ResolvableServ
 
   return {
     ...remoteTarget,
+    observedIdentity: verification.identity,
     runtimeIdentityWarnings: verification.warnings,
   };
 }
@@ -230,6 +258,14 @@ function withMcpSuffix(url: string): string {
   parsed.hash = '';
   const normalized = parsed.toString().replace(/\/$/, '');
   return normalized.endsWith('/mcp') ? normalized : `${normalized}/mcp`;
+}
+
+function withoutMcpSuffix(url: string): string {
+  const parsed = new URL(url);
+  parsed.search = '';
+  parsed.hash = '';
+  const normalized = parsed.toString().replace(/\/$/, '');
+  return normalized.endsWith('/mcp') ? normalized.slice(0, -4) : normalized;
 }
 
 function targetTlsOptions(tls: RuntimeTargetTlsOptions): RuntimeTargetTlsOptions | undefined {

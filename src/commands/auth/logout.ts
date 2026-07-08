@@ -1,53 +1,38 @@
-import { deleteAuthProfile, listAuthProfiles, normalizeServerUrl } from '@src/commands/shared/authProfileStore.js';
+import { RuntimeTargetStore } from '@src/domains/runtime-targets/runtimeTargetStore.js';
 import type { GlobalOptions } from '@src/globalOptions.js';
-import { stripMcpSuffix } from '@src/utils/urlUtils.js';
-import { discoverServerWithPidFile } from '@src/utils/validation/urlDetection.js';
+
+import {
+  AuthCommandError,
+  requireAuthContext,
+  resolveAuthRuntimeTarget,
+  toAuthOAuthTokenReference,
+} from './runtimeTargetContext.js';
 
 export interface AuthLogoutOptions extends GlobalOptions {
+  context?: string;
   url?: string;
   all?: boolean;
 }
 
 export async function authLogoutCommand(options: AuthLogoutOptions): Promise<void> {
+  requireAuthContext(options, 'logout');
+
   if (options.all) {
-    const profiles = await listAuthProfiles(options['config-dir']);
-    if (profiles.length === 0) {
-      process.stdout.write('No saved profiles to remove.\n');
-      return;
-    }
-    for (const profile of profiles) {
-      await deleteAuthProfile(options['config-dir'], profile.serverUrl);
-    }
-    process.stdout.write(`Removed ${profiles.length} profile${profiles.length !== 1 ? 's' : ''}.\n`);
-    return;
+    throw new AuthCommandError(
+      'credential_all_unsupported',
+      'auth logout --all is not supported for Runtime Target Context credentials',
+      `1mcp auth logout --context ${options.context}`,
+    );
   }
 
-  if (!options.url) {
-    let discoveredUrl: string;
-    let source: string;
-
-    try {
-      ({ url: discoveredUrl, source } = await discoverServerWithPidFile(options['config-dir']));
-    } catch {
-      throw new Error('Specify --url <server-url> or --all. No running server detected for auto-discovery.');
-    }
-
-    const baseUrl = normalizeServerUrl(stripMcpSuffix(discoveredUrl));
-    process.stderr.write(`Auto-detected server at ${baseUrl} (via ${source})\n`);
-    const removed = await deleteAuthProfile(options['config-dir'], baseUrl);
-    if (removed) {
-      process.stdout.write(`Removed profile for ${baseUrl}\n`);
-    } else {
-      process.stdout.write(`No saved profile for ${baseUrl}\n`);
-    }
-    return;
-  }
-
-  const baseUrl = normalizeServerUrl(options.url);
-  const removed = await deleteAuthProfile(options['config-dir'], baseUrl);
-  if (removed) {
-    process.stdout.write(`Removed profile for ${baseUrl}\n`);
+  const { context, baseUrl, runtimeScopeId } = await resolveAuthRuntimeTarget(options, 'logout');
+  const store = new RuntimeTargetStore();
+  const rawReference = store.getOAuthTokenReference(context, runtimeScopeId);
+  const profile = toAuthOAuthTokenReference(rawReference);
+  if (profile) {
+    store.clearOAuthTokenReference(context, runtimeScopeId);
+    process.stdout.write(`Removed profile for ${context} (${baseUrl})\n`);
   } else {
-    process.stdout.write(`No saved profile for ${baseUrl}\n`);
+    process.stdout.write(`No saved profile for ${context} (${baseUrl})\n`);
   }
 }

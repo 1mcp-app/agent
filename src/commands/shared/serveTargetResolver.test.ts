@@ -119,7 +119,17 @@ describe('resolveServeTarget', () => {
       'config-dir': '.tmp-test',
       filter: 'tooling',
     };
-    const result = await resolveServeTarget(options);
+    const result = await resolveServeTarget(options, {
+      verifyRuntimeIdentity: vi.fn().mockResolvedValue({
+        identity: {
+          identityProtocolVersion: '1',
+          runtimeScopeId: 'scope_local',
+          externalUrl: 'http://127.0.0.1:3050',
+          runtimeVersion: '0.34.0',
+        },
+        warnings: [],
+      }),
+    });
 
     expect(mockedDiscoverServerWithPidFile).toHaveBeenCalledWith('.tmp-test', undefined);
     expect(mockedValidateServer1mcpUrl).toHaveBeenCalledWith('http://127.0.0.1:3050/mcp');
@@ -163,6 +173,103 @@ describe('resolveServeTarget', () => {
     expect(result.serverUrl.toString()).toBe('https://prod.example.com/mcp?preset=development');
     expect(result.source).toBe('user');
     expect(result.runtimeTargetContext).toBeUndefined();
+  });
+
+  it('resolves explicit local context runtime identity for context-scoped credentials', async () => {
+    const verifyRuntimeIdentity = vi.fn().mockResolvedValue({
+      identity: {
+        identityProtocolVersion: '1',
+        runtimeScopeId: 'scope_local',
+        externalUrl: 'http://127.0.0.1:3050',
+        runtimeVersion: '0.34.0',
+      },
+      warnings: [],
+    });
+
+    const result = await resolveServeTarget(
+      {
+        context: 'local',
+        'config-dir': '/tmp/local-scope',
+      },
+      {
+        runtimeTargetStore: {
+          inspect: vi.fn().mockReturnValue({
+            name: 'local',
+            kind: 'local',
+            synthetic: true,
+            current: true,
+          }),
+          current: vi.fn(),
+          requireInsecureTlsConfirmation: vi.fn(),
+          updateObservedIdentityMetadata: vi.fn(),
+        },
+        verifyRuntimeIdentity,
+      },
+    );
+
+    expect(mockedDiscoverServerWithPidFile).toHaveBeenCalledWith('/tmp/local-scope', undefined);
+    expect(verifyRuntimeIdentity).toHaveBeenCalledWith({
+      target: expect.objectContaining({
+        name: 'local',
+        url: 'http://127.0.0.1:3050',
+        observedIdentity: undefined,
+      }),
+    });
+    expect(result.runtimeTargetContext).toEqual({
+      name: 'local',
+      kind: 'local',
+      runtimeScopeId: 'scope_local',
+    });
+  });
+
+  it('leaves default local target resolution credentialless when no explicit target selector is provided', async () => {
+    const verifyRuntimeIdentity = vi.fn();
+
+    const result = await resolveServeTarget(
+      {},
+      {
+        runtimeTargetStore: {
+          inspect: vi.fn(),
+          current: vi.fn().mockReturnValue({
+            name: 'local',
+            kind: 'local',
+            synthetic: true,
+            current: true,
+          }),
+          requireInsecureTlsConfirmation: vi.fn(),
+          updateObservedIdentityMetadata: vi.fn(),
+        },
+        verifyRuntimeIdentity,
+      },
+    );
+
+    expect(verifyRuntimeIdentity).not.toHaveBeenCalled();
+    expect(result.runtimeTargetContext).toBeUndefined();
+  });
+
+  it('does not probe local runtime identity during default local target resolution', async () => {
+    const verifyRuntimeIdentity = vi.fn().mockRejectedValue(new Error('identity endpoint missing'));
+    const result = await resolveServeTarget(
+      {},
+      {
+        runtimeTargetStore: {
+          inspect: vi.fn(),
+          current: vi.fn().mockReturnValue({
+            name: 'local',
+            kind: 'local',
+            synthetic: true,
+            current: true,
+          }),
+          requireInsecureTlsConfirmation: vi.fn(),
+          updateObservedIdentityMetadata: vi.fn(),
+        },
+        verifyRuntimeIdentity,
+      },
+    );
+
+    expect(result.discoveredUrl).toBe('http://127.0.0.1:3050/mcp');
+    expect(result.runtimeTargetContext).toBeUndefined();
+    expect(verifyRuntimeIdentity).not.toHaveBeenCalled();
   });
 
   it('normalizes explicit ephemeral url targets before local discovery handling', async () => {

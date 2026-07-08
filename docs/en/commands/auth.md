@@ -15,7 +15,7 @@ head:
 
 # Auth Command
 
-Manage authentication profiles for secured 1MCP `serve` instances.
+Manage authentication profiles for named Runtime Target Contexts.
 
 ## Synopsis
 
@@ -25,9 +25,9 @@ npx -y @1mcp/agent auth <subcommand> [options]
 
 ## Subcommands
 
-- **`login`** - Save a bearer token for a server URL
-- **`status`** - Show saved authentication profiles
-- **`logout`** - Remove a saved authentication profile
+- **`login`** - Save a bearer token for a Runtime Target Context
+- **`status`** - Show the saved authentication profile for a Runtime Target Context
+- **`logout`** - Remove a saved authentication profile for a Runtime Target Context
 
 ---
 
@@ -42,27 +42,29 @@ npx -y @1mcp/agent auth login [options]
 ### How token resolution works
 
 1. `--token` flag (explicit)
-2. Stdin pipe (`echo $TOKEN | npx -y @1mcp/agent auth login`)
+2. Stdin pipe (`echo $TOKEN | npx -y @1mcp/agent auth login --context <name>`)
 3. Auto-generated CLI token for localhost servers (when the server supports it)
 
 If the server has auth disabled, `login` exits early with a message — no token is stored.
 
 ### Options
 
-- **`--url, -u <url>`** - 1MCP server URL (auto-detected from running server if omitted)
+- **`--context <name>`** - Runtime Target Context name. Required.
+- **`--url, -u <url>`** - Unsupported for auth credential commands; use `target add <name> <url>` and then `--context <name>`.
 - **`--token, -t <token>`** - Bearer token to save
 
 ### Examples
 
 ```bash
-# Auto-detect local server and save token from flag
-npx -y @1mcp/agent auth login --token mytoken
+# Save token for the local runtime context
+npx -y @1mcp/agent auth login --context local --token mytoken
 
 # Pipe token from a secret manager
-op read "op://vault/1mcp/token" | npx -y @1mcp/agent auth login
+op read "op://vault/1mcp/token" | npx -y @1mcp/agent auth login --context prod
 
-# Specify a remote server
-npx -y @1mcp/agent auth login --url https://1mcp.example.com --token mytoken
+# Save token for a named remote target
+npx -y @1mcp/agent target add prod https://1mcp.example.com
+npx -y @1mcp/agent auth login --context prod --token mytoken
 ```
 
 ---
@@ -75,20 +77,21 @@ Show saved authentication profiles and verify connectivity.
 npx -y @1mcp/agent auth status [options]
 ```
 
-When `--url` is omitted, `status` auto-detects the running server and shows its profile. If no server is found, it lists all saved profiles.
+`status` requires an explicit Runtime Target Context and checks only that context's scoped token.
 
 ### Options
 
-- **`--url, -u <url>`** - Check a specific server URL
+- **`--context <name>`** - Runtime Target Context name. Required.
+- **`--url, -u <url>`** - Unsupported for auth credential commands.
 
 ### Examples
 
 ```bash
-# Check the auto-detected local server
-npx -y @1mcp/agent auth status
+# Check the local runtime context
+npx -y @1mcp/agent auth status --context local
 
-# Check a specific server
-npx -y @1mcp/agent auth status --url https://1mcp.example.com
+# Check a named remote target
+npx -y @1mcp/agent auth status --context prod
 ```
 
 ---
@@ -101,24 +104,22 @@ Remove a saved authentication profile.
 npx -y @1mcp/agent auth logout [options]
 ```
 
-When neither `--url` nor `--all` is provided, `logout` auto-detects the running server and removes its profile.
+`logout` requires an explicit Runtime Target Context and clears only the token for the observed runtime identity.
 
 ### Options
 
-- **`--url, -u <url>`** - Server URL whose profile to remove
-- **`--all`** - Remove all saved profiles
+- **`--context <name>`** - Runtime Target Context name. Required.
+- **`--url, -u <url>`** - Unsupported for auth credential commands.
+- **`--all`** - Unsupported for Runtime Target Context credentials.
 
 ### Examples
 
 ```bash
-# Remove the auto-detected local server's profile
-npx -y @1mcp/agent auth logout
+# Remove the local runtime context profile
+npx -y @1mcp/agent auth logout --context local
 
-# Remove a specific server's profile
-npx -y @1mcp/agent auth logout --url https://1mcp.example.com
-
-# Remove all saved profiles
-npx -y @1mcp/agent auth logout --all
+# Remove a named remote target profile
+npx -y @1mcp/agent auth logout --context prod
 ```
 
 ---

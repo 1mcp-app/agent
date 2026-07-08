@@ -9,7 +9,7 @@ head:
 
 # Auth 命令
 
-管理受保护的 1MCP `serve` 实例的认证配置。
+管理命名 Runtime Target Context 的认证配置。
 
 ## 概要
 
@@ -19,9 +19,9 @@ npx -y @1mcp/agent auth <subcommand> [选项]
 
 ## 子命令
 
-- **`login`** - 为服务器 URL 保存 Bearer Token
-- **`status`** - 查看已保存的认证配置
-- **`logout`** - 删除已保存的认证配置
+- **`login`** - 为 Runtime Target Context 保存 Bearer Token
+- **`status`** - 查看指定 Runtime Target Context 的认证配置
+- **`logout`** - 删除指定 Runtime Target Context 的认证配置
 
 ---
 
@@ -36,27 +36,29 @@ npx -y @1mcp/agent auth login [选项]
 ### Token 解析顺序
 
 1. `--token` 参数（显式指定）
-2. 标准输入管道（`echo $TOKEN | npx -y @1mcp/agent auth login`）
+2. 标准输入管道（`echo $TOKEN | npx -y @1mcp/agent auth login --context <name>`）
 3. 对 localhost 服务器自动生成 CLI Token（服务器支持时）
 
 若服务器未启用认证，`login` 会提前退出并输出提示，不会保存任何 Token。
 
 ### 选项
 
-- **`--url, -u <url>`** - 1MCP 服务器 URL（省略时自动发现运行中的服务器）
+- **`--context <name>`** - Runtime Target Context 名称。必填。
+- **`--url, -u <url>`** - auth credential 命令不支持；请先使用 `target add <name> <url>`，再使用 `--context <name>`。
 - **`--token, -t <token>`** - 要保存的 Bearer Token
 
 ### 示例
 
 ```bash
-# 自动发现本地服务器并通过参数保存 Token
-npx -y @1mcp/agent auth login --token mytoken
+# 为本地运行时 Context 保存 Token
+npx -y @1mcp/agent auth login --context local --token mytoken
 
 # 从密钥管理器通过管道传入 Token
-op read "op://vault/1mcp/token" | npx -y @1mcp/agent auth login
+op read "op://vault/1mcp/token" | npx -y @1mcp/agent auth login --context prod
 
-# 指定远程服务器
-npx -y @1mcp/agent auth login --url https://1mcp.example.com --token mytoken
+# 为命名远程 Target 保存 Token
+npx -y @1mcp/agent target add prod https://1mcp.example.com
+npx -y @1mcp/agent auth login --context prod --token mytoken
 ```
 
 ---
@@ -69,20 +71,21 @@ npx -y @1mcp/agent auth login --url https://1mcp.example.com --token mytoken
 npx -y @1mcp/agent auth status [选项]
 ```
 
-省略 `--url` 时，`status` 会自动发现运行中的服务器并显示其配置。若未找到服务器，则列出所有已保存的配置。
+`status` 需要显式指定 Runtime Target Context，并且只检查该 Context 的作用域 Token。
 
 ### 选项
 
-- **`--url, -u <url>`** - 查看指定服务器 URL 的配置
+- **`--context <name>`** - Runtime Target Context 名称。必填。
+- **`--url, -u <url>`** - auth credential 命令不支持。
 
 ### 示例
 
 ```bash
-# 查看自动发现的本地服务器
-npx -y @1mcp/agent auth status
+# 查看本地运行时 Context
+npx -y @1mcp/agent auth status --context local
 
-# 查看指定服务器
-npx -y @1mcp/agent auth status --url https://1mcp.example.com
+# 查看命名远程 Target
+npx -y @1mcp/agent auth status --context prod
 ```
 
 ---
@@ -95,24 +98,22 @@ npx -y @1mcp/agent auth status --url https://1mcp.example.com
 npx -y @1mcp/agent auth logout [选项]
 ```
 
-未指定 `--url` 或 `--all` 时，`logout` 会自动发现运行中的服务器并删除其配置。
+`logout` 需要显式指定 Runtime Target Context，并且只清除已观测运行时身份对应的 Token。
 
 ### 选项
 
-- **`--url, -u <url>`** - 要删除配置的服务器 URL
-- **`--all`** - 删除所有已保存的配置
+- **`--context <name>`** - Runtime Target Context 名称。必填。
+- **`--url, -u <url>`** - auth credential 命令不支持。
+- **`--all`** - Runtime Target Context credential 不支持。
 
 ### 示例
 
 ```bash
-# 删除自动发现的本地服务器配置
-npx -y @1mcp/agent auth logout
+# 删除本地运行时 Context 的配置
+npx -y @1mcp/agent auth logout --context local
 
-# 删除指定服务器的配置
-npx -y @1mcp/agent auth logout --url https://1mcp.example.com
-
-# 删除所有已保存的配置
-npx -y @1mcp/agent auth logout --all
+# 删除命名远程 Target 的配置
+npx -y @1mcp/agent auth logout --context prod
 ```
 
 ---

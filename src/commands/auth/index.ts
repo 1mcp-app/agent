@@ -15,9 +15,13 @@ export function setupAuthCommands(yargs: Argv): Argv {
           (sub) =>
             sub
               .options(globalOptions || {})
+              .option('context', {
+                describe: 'Runtime Target Context name',
+                type: 'string',
+              })
               .option('url', {
                 alias: 'u',
-                describe: '1MCP server URL (auto-detected if omitted)',
+                describe: 'Unsupported for auth credential commands; use --context',
                 type: 'string',
               })
               .option('token', {
@@ -34,11 +38,17 @@ export function setupAuthCommands(yargs: Argv): Argv {
           'status',
           'Show saved authentication profiles',
           (sub) =>
-            sub.options(globalOptions || {}).option('url', {
-              alias: 'u',
-              describe: 'Check a specific server URL',
-              type: 'string',
-            }),
+            sub
+              .options(globalOptions || {})
+              .option('context', {
+                describe: 'Runtime Target Context name',
+                type: 'string',
+              })
+              .option('url', {
+                alias: 'u',
+                describe: 'Unsupported for auth credential commands; use --context',
+                type: 'string',
+              }),
           async (argv) => {
             const { authStatusCommand } = await import('./status.js');
             await runCliCommand(argv as Parameters<typeof authStatusCommand>[0], authStatusCommand);
@@ -50,13 +60,17 @@ export function setupAuthCommands(yargs: Argv): Argv {
           (sub) =>
             sub
               .options(globalOptions || {})
+              .option('context', {
+                describe: 'Runtime Target Context name',
+                type: 'string',
+              })
               .option('url', {
                 alias: 'u',
-                describe: 'Server URL to remove',
+                describe: 'Unsupported for auth credential commands; use --context',
                 type: 'string',
               })
               .option('all', {
-                describe: 'Remove all saved profiles',
+                describe: 'Unsupported for Runtime Target Context credentials',
                 type: 'boolean',
                 default: false,
               }),
