@@ -22,6 +22,7 @@ describe('admin credential commands', () => {
     setAdminSessionReference: ReturnType<typeof vi.fn>;
     getAdminSessionReference: ReturnType<typeof vi.fn>;
     clearAdminSessionReference: ReturnType<typeof vi.fn>;
+    clearLocalAdminSessionReferences: ReturnType<typeof vi.fn>;
   };
   let apiGet: ReturnType<typeof vi.fn>;
   let apiPost: ReturnType<typeof vi.fn>;
@@ -37,6 +38,7 @@ describe('admin credential commands', () => {
       setAdminSessionReference: vi.fn(),
       getAdminSessionReference: vi.fn(),
       clearAdminSessionReference: vi.fn(),
+      clearLocalAdminSessionReferences: vi.fn(),
     };
     apiGet = vi.fn(async (path: string) =>
       path.endsWith('/capabilities')
@@ -391,6 +393,33 @@ describe('admin credential commands', () => {
     expect(stdout.mock.calls.map((call: unknown[]) => String(call[0])).join('')).toContain(
       'revocation was not confirmed',
     );
+  });
+
+  it('clears all local Admin Session references without contacting the runtime', async () => {
+    store.clearLocalAdminSessionReferences.mockReturnValue(2);
+
+    await adminLogoutCommand({ context: 'local', allLocal: true, json: true }, deps());
+
+    expect(resolveTarget).not.toHaveBeenCalled();
+    expect(apiGet).not.toHaveBeenCalled();
+    expect(apiPost).not.toHaveBeenCalled();
+    expect(store.clearLocalAdminSessionReferences).toHaveBeenCalled();
+    const envelope = JSON.parse(stdout.mock.calls.map((call: unknown[]) => String(call[0])).join('')) as {
+      ok: true;
+      result: { revoked: boolean; forgotLocalReferences: number };
+    };
+    expect(envelope.result).toMatchObject({
+      revoked: false,
+      forgotLocalReferences: 2,
+    });
+  });
+
+  it('rejects all-local Admin Session cleanup for non-local contexts', async () => {
+    await expect(adminLogoutCommand({ context: 'prod', allLocal: true }, deps())).rejects.toMatchObject({
+      code: 'credential_all_local_context_required',
+    });
+    expect(resolveTarget).not.toHaveBeenCalled();
+    expect(store.clearLocalAdminSessionReferences).not.toHaveBeenCalled();
   });
 
   it('clears local references on logout when the selected runtime reports that the CLI Admin adapter is disabled', async () => {

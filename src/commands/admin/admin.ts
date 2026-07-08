@@ -37,6 +37,8 @@ export interface AdminStatusOptions extends GlobalOptions, AdminJsonOption, Admi
 
 export interface AdminLogoutOptions extends GlobalOptions, AdminJsonOption, AdminContextOption {
   forget?: boolean;
+  allLocal?: boolean;
+  'all-local'?: boolean;
 }
 
 interface AdminSessionReference {
@@ -57,6 +59,7 @@ interface AdminCredentialStore {
   setAdminSessionReference(name: string, runtimeScopeId: string, adminSession: AdminSessionReference): void;
   getAdminSessionReference(name: string, runtimeScopeId: string): unknown | undefined;
   clearAdminSessionReference(name: string, runtimeScopeId: string): void;
+  clearLocalAdminSessionReferences(): number;
 }
 
 interface AdminApiClient {
@@ -369,6 +372,31 @@ export async function adminLogoutCommand(
 ): Promise<void> {
   const context = requireCredentialContext(options, dependencies, 'logout');
   const store = dependencies.store ?? new RuntimeTargetStore();
+  if (options.allLocal || options['all-local']) {
+    if (context !== 'local') {
+      throw new AdminCommandError(
+        'credential_all_local_context_required',
+        'admin logout --all-local can only be used with --context local',
+        '1mcp admin logout --context local --all-local',
+      );
+    }
+    const cleared = store.clearLocalAdminSessionReferences();
+    writeAdminSuccess(options, {
+      operation: 'admin.logout',
+      target: targetJson(context, undefined, undefined),
+      warnings: [],
+      result: {
+        revoked: false,
+        forgotLocalReferences: cleared,
+      },
+      human:
+        cleared === 0
+          ? 'No local Admin Session references were found; server-side revocation was not confirmed.\n'
+          : `Forgot ${cleared} local Admin Session reference${cleared !== 1 ? 's' : ''}; server-side revocation was not confirmed.\n`,
+    });
+    return;
+  }
+
   if (options.forget) {
     const runtimeScopeId = observedRuntimeScopeId(store, context);
     if (!runtimeScopeId) {

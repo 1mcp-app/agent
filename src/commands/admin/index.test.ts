@@ -40,7 +40,7 @@ describe('setupAdminCommands', () => {
       '--json',
     ]);
     await parser.parseAsync(['admin', 'status', '--context', 'prod', '--json']);
-    await parser.parseAsync(['admin', 'logout', '--context', 'prod', '--forget']);
+    await parser.parseAsync(['admin', 'logout', '--context', 'local', '--forget', '--all-local']);
 
     expect(runCliCommandMock).toHaveBeenNthCalledWith(
       1,
@@ -69,7 +69,7 @@ describe('setupAdminCommands', () => {
     );
     expect(runCliCommandMock).toHaveBeenNthCalledWith(
       4,
-      expect.objectContaining({ context: 'prod', forget: true }),
+      expect.objectContaining({ context: 'local', forget: true, allLocal: true }),
       expect.any(Function),
     );
   });

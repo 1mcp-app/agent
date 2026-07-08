@@ -111,6 +111,7 @@ npx -y @1mcp/agent auth logout [options]
 - **`--context <name>`** - Runtime Target Context name. Required.
 - **`--url, -u <url>`** - Unsupported for auth credential commands.
 - **`--all`** - Unsupported for Runtime Target Context credentials.
+- **`--all-local`** - With `--context local`, clear every local OAuth token reference without contacting a runtime.
 
 ### Examples
 
@@ -120,6 +121,9 @@ npx -y @1mcp/agent auth logout --context local
 
 # Remove a named remote target profile
 npx -y @1mcp/agent auth logout --context prod
+
+# Clear every local OAuth token reference without contacting a runtime
+npx -y @1mcp/agent auth logout --context local --all-local
 ```
 
 ---

@@ -73,6 +73,11 @@ export function setupAuthCommands(yargs: Argv): Argv {
                 describe: 'Unsupported for Runtime Target Context credentials',
                 type: 'boolean',
                 default: false,
+              })
+              .option('all-local', {
+                describe: 'Clear every local OAuth token reference without contacting a runtime',
+                type: 'boolean',
+                default: false,
               }),
           async (argv) => {
             const { authLogoutCommand } = await import('./logout.js');

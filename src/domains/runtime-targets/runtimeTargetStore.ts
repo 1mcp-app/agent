@@ -513,6 +513,14 @@ export class RuntimeTargetStore {
     });
   }
 
+  clearLocalOAuthTokenReferences(): number {
+    return this.clearLocalCredentialReferences('oauth');
+  }
+
+  clearLocalAdminSessionReferences(): number {
+    return this.clearLocalCredentialReferences('adminSession');
+  }
+
   setAdminSessionReference(name: string, runtimeScopeId: string, adminSession: unknown): void {
     if (!runtimeScopeId) {
       throw new RuntimeTargetStoreError('identity_invalid', 'Runtime scope id is required for credential references');
@@ -1408,6 +1416,44 @@ export class RuntimeTargetStore {
 
   private isLockedInThisProcess(): boolean {
     return RuntimeTargetStore.activeLocks.has(this.lockPath());
+  }
+
+  private clearLocalCredentialReferences(kind: keyof RuntimeTargetCredentialBucket): number {
+    return this.withLock(() => {
+      const secrets = this.readSecretsForCredentialUse();
+      const localScopes = secrets.credentials.local;
+      if (!localScopes) {
+        return 0;
+      }
+
+      let cleared = 0;
+      const nextLocalScopes: Record<string, RuntimeTargetCredentialBucket> = {};
+      for (const [runtimeScopeId, bucket] of Object.entries(localScopes)) {
+        if (bucket[kind] === undefined) {
+          nextLocalScopes[runtimeScopeId] = bucket;
+          continue;
+        }
+        cleared += 1;
+        const nextBucket: RuntimeTargetCredentialBucket = { ...bucket };
+        delete nextBucket[kind];
+        if (Object.keys(nextBucket).length > 0) {
+          nextLocalScopes[runtimeScopeId] = nextBucket;
+        }
+      }
+
+      if (cleared === 0) {
+        return 0;
+      }
+
+      const nextCredentials = { ...secrets.credentials };
+      if (Object.keys(nextLocalScopes).length === 0) {
+        delete nextCredentials.local;
+      } else {
+        nextCredentials.local = nextLocalScopes;
+      }
+      this.writeSecrets({ ...secrets, credentials: nextCredentials });
+      return cleared;
+    });
   }
 }
 

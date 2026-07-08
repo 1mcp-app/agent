@@ -108,6 +108,11 @@ export function setupAdminCommands(yargs: Argv): Argv {
                 type: 'boolean',
                 default: false,
               })
+              .option('all-local', {
+                describe: 'Clear every local Admin Session reference without confirming runtime revocation',
+                type: 'boolean',
+                default: false,
+              })
               .option('json', {
                 describe: 'Write machine-readable JSON output',
                 type: 'boolean',

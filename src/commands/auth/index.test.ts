@@ -52,7 +52,7 @@ describe('setupAuthCommands', () => {
       'https://bad.example.com',
     ]);
     await parser.parseAsync(['auth', 'status', '--context', 'prod']);
-    await parser.parseAsync(['auth', 'logout', '--context', 'prod']);
+    await parser.parseAsync(['auth', 'logout', '--context', 'local', '--all-local']);
 
     expect(authLoginCommandMock).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -62,6 +62,6 @@ describe('setupAuthCommands', () => {
       }),
     );
     expect(authStatusCommandMock).toHaveBeenCalledWith(expect.objectContaining({ context: 'prod' }));
-    expect(authLogoutCommandMock).toHaveBeenCalledWith(expect.objectContaining({ context: 'prod' }));
+    expect(authLogoutCommandMock).toHaveBeenCalledWith(expect.objectContaining({ context: 'local', allLocal: true }));
   });
 });

@@ -2,10 +2,16 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { authLogoutCommand } from './logout.js';
 
-const { mockResolveServeTarget, mockGetOAuthTokenReference, mockClearOAuthTokenReference } = vi.hoisted(() => ({
+const {
+  mockResolveServeTarget,
+  mockGetOAuthTokenReference,
+  mockClearOAuthTokenReference,
+  mockClearLocalOAuthTokenReferences,
+} = vi.hoisted(() => ({
   mockResolveServeTarget: vi.fn(),
   mockGetOAuthTokenReference: vi.fn(),
   mockClearOAuthTokenReference: vi.fn(),
+  mockClearLocalOAuthTokenReferences: vi.fn(),
 }));
 
 vi.mock('@src/commands/shared/serveTargetResolver.js', () => ({
@@ -26,6 +32,7 @@ vi.mock('@src/domains/runtime-targets/runtimeTargetStore.js', () => ({
       current: vi.fn(() => ({ name: 'prod' })),
       getOAuthTokenReference: mockGetOAuthTokenReference,
       clearOAuthTokenReference: mockClearOAuthTokenReference,
+      clearLocalOAuthTokenReferences: mockClearLocalOAuthTokenReferences,
     };
   }),
 }));
@@ -75,6 +82,26 @@ describe('authLogoutCommand', () => {
     });
     expect(mockResolveServeTarget).not.toHaveBeenCalled();
     expect(mockClearOAuthTokenReference).not.toHaveBeenCalled();
+  });
+
+  it('clears all local OAuth token references with explicit --all-local cleanup', async () => {
+    mockClearLocalOAuthTokenReferences.mockReturnValue(2);
+    const writeSpy = vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
+
+    await authLogoutCommand({ ...baseOptions, context: 'local', allLocal: true });
+
+    expect(mockResolveServeTarget).not.toHaveBeenCalled();
+    expect(mockClearLocalOAuthTokenReferences).toHaveBeenCalled();
+    expect(writeSpy).toHaveBeenCalledWith(expect.stringContaining('Removed 2 local authentication profiles'));
+    writeSpy.mockRestore();
+  });
+
+  it('rejects --all-local for non-local contexts', async () => {
+    await expect(authLogoutCommand({ ...baseOptions, context: 'prod', allLocal: true })).rejects.toMatchObject({
+      code: 'credential_all_local_context_required',
+    });
+    expect(mockResolveServeTarget).not.toHaveBeenCalled();
+    expect(mockClearLocalOAuthTokenReferences).not.toHaveBeenCalled();
   });
 
   it('reports no context-scoped profile when no OAuth token reference exists', async () => {

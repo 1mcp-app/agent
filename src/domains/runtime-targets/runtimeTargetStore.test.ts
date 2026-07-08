@@ -337,6 +337,50 @@ describe('RuntimeTargetStore', () => {
     expect(store.inspect('local').credentialReferences).toEqual({ oauth: true, adminSession: false });
   });
 
+  it('clears every local OAuth token reference without touching local admin sessions', () => {
+    const store = createStore();
+    addVerified(store, 'prod');
+    store.setCredentialReferences('local', 'scope_a', {
+      oauth: { token: 'oauth_a' },
+      adminSession: { handleId: 'admin_a' },
+    });
+    store.setCredentialReferences('local', 'scope_b', {
+      oauth: { token: 'oauth_b' },
+    });
+    store.setCredentialReferences('prod', 'scope_prod', { oauth: { token: 'oauth_prod' } });
+
+    const cleared = store.clearLocalOAuthTokenReferences();
+
+    expect(cleared).toBe(2);
+    expect(store.getOAuthTokenReference('local', 'scope_a')).toBeUndefined();
+    expect(store.getAdminSessionReference('local', 'scope_a')).toEqual({ handleId: 'admin_a' });
+    expect(store.getOAuthTokenReference('local', 'scope_b')).toBeUndefined();
+    expect(store.getOAuthTokenReference('prod', 'scope_prod')).toEqual({ token: 'oauth_prod' });
+    expect(store.inspect('local').credentialReferences).toEqual({ oauth: false, adminSession: true });
+  });
+
+  it('clears every local admin session reference without touching local OAuth tokens', () => {
+    const store = createStore();
+    addVerified(store, 'prod');
+    store.setCredentialReferences('local', 'scope_a', {
+      oauth: { token: 'oauth_a' },
+      adminSession: { handleId: 'admin_a' },
+    });
+    store.setCredentialReferences('local', 'scope_b', {
+      adminSession: { handleId: 'admin_b' },
+    });
+    store.setCredentialReferences('prod', 'scope_prod', { adminSession: { handleId: 'admin_prod' } });
+
+    const cleared = store.clearLocalAdminSessionReferences();
+
+    expect(cleared).toBe(2);
+    expect(store.getAdminSessionReference('local', 'scope_a')).toBeUndefined();
+    expect(store.getOAuthTokenReference('local', 'scope_a')).toEqual({ token: 'oauth_a' });
+    expect(store.getAdminSessionReference('local', 'scope_b')).toBeUndefined();
+    expect(store.getAdminSessionReference('prod', 'scope_prod')).toEqual({ handleId: 'admin_prod' });
+    expect(store.inspect('local').credentialReferences).toEqual({ oauth: true, adminSession: false });
+  });
+
   it('fails closed for admin session read, write, and clear helpers when secret permissions are insecure', () => {
     const store = createStore();
     addVerified(store, 'prod');

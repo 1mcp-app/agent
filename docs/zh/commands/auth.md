@@ -105,6 +105,7 @@ npx -y @1mcp/agent auth logout [选项]
 - **`--context <name>`** - Runtime Target Context 名称。必填。
 - **`--url, -u <url>`** - auth credential 命令不支持。
 - **`--all`** - Runtime Target Context credential 不支持。
+- **`--all-local`** - 与 `--context local` 一起使用时，不联系运行时，清除所有本地 OAuth Token 引用。
 
 ### 示例
 
@@ -114,6 +115,9 @@ npx -y @1mcp/agent auth logout --context local
 
 # 删除命名远程 Target 的配置
 npx -y @1mcp/agent auth logout --context prod
+
+# 不联系运行时，清除所有本地 OAuth Token 引用
+npx -y @1mcp/agent auth logout --context local --all-local
 ```
 
 ---
