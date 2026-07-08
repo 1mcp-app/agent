@@ -227,6 +227,57 @@ describe('AdminConfiguredServerService', () => {
     expect(service.getRecentAuditFacts()).toEqual([]);
   });
 
+  it('lists configured servers from the injected config document reader', async () => {
+    const readConfigDocument = vi.fn(() => ({
+      mcpServers: {
+        filesystem: {
+          type: 'stdio',
+          command: 'npx',
+          disabled: true,
+          env: {
+            API_KEY: 'raw-api-key',
+          },
+        },
+      },
+    }));
+    const service = createService({ readConfigDocument });
+
+    const result = await service.listConfiguredServers({
+      context: context({
+        target: { type: 'configured_server_collection' },
+        idempotencyKey: undefined,
+        requestFingerprint: undefined,
+      }),
+    });
+
+    expect(readConfigDocument).toHaveBeenCalledTimes(1);
+    expect(result).toMatchObject({
+      ok: true,
+      result: {
+        servers: [
+          {
+            id: 'filesystem',
+            enabled: false,
+            transportSummary: {
+              kind: 'stdio',
+              label: 'npx',
+            },
+            transport: {
+              env: {
+                API_KEY: {
+                  present: true,
+                  secret: true,
+                  value: '[REDACTED]',
+                },
+              },
+            },
+          },
+        ],
+      },
+    });
+    expect(JSON.stringify(result)).not.toContain('raw-api-key');
+  });
+
   it('fails dry-run admission when the request runtime identity does not match the Runtime Scope', async () => {
     writeConfig({
       mcpServers: {
@@ -724,7 +775,9 @@ describe('AdminConfiguredServerService', () => {
     expect(JSON.stringify(result)).not.toContain('raw-password');
   });
 
-  function createService(): AdminConfiguredServerService {
+  function createService(
+    options: { readConfigDocument?: () => { mcpServers?: Record<string, any> } | null } = {},
+  ): AdminConfiguredServerService {
     const operationService = new AdminOperationService({
       runtimeScopeId: 'scope_123',
       storageDir,
@@ -737,7 +790,15 @@ describe('AdminConfiguredServerService', () => {
         reloadConfig: reload,
         now: () => currentTime.getTime(),
       }),
-      getConfigPath: () => configPath,
+      readConfigDocument:
+        options.readConfigDocument ??
+        (() => {
+          if (!fs.existsSync(configPath)) {
+            return null;
+          }
+          return JSON.parse(fs.readFileSync(configPath, 'utf8')) as { mcpServers?: Record<string, any> };
+        }),
+      ...options,
     });
   }
 

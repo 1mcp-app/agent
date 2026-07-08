@@ -1,7 +1,10 @@
+import fs from 'fs';
+
 import { mcpAuthRouter } from '@modelcontextprotocol/sdk/server/auth/router.js';
 
 import { SDKOAuthServerProvider } from '@src/auth/sdkOAuthServerProvider.js';
 import { FileStorageService } from '@src/auth/storage/fileStorageService.js';
+import ConfigContext from '@src/config/configContext.js';
 import { McpConfigManager } from '@src/config/mcpConfigManager.js';
 import { getGlobalConfigDir, MCP_SERVER_VERSION, RATE_LIMIT_CONFIG, STORAGE_SUBDIRS } from '@src/constants.js';
 import { AsyncLoadingOrchestrator } from '@src/core/capabilities/asyncLoadingOrchestrator.js';
@@ -9,9 +12,8 @@ import { McpLoadingManager } from '@src/core/loading/mcpLoadingManager.js';
 import { RuntimeIdentityService } from '@src/core/runtime/runtimeIdentityService.js';
 import { AgentConfigManager } from '@src/core/server/agentConfig.js';
 import { ServerManager } from '@src/core/server/serverManager.js';
-import { AdminConfiguredServerService } from '@src/domains/admin/adminConfiguredServerService.js';
-import { AdminIdentityService } from '@src/domains/admin/adminIdentityService.js';
-import { AdminOperationService } from '@src/domains/admin/adminOperationService.js';
+import type { ConfiguredServerConfigDocument } from '@src/domains/admin/adminConfiguredServerService.js';
+import { createAdminDomain } from '@src/domains/admin/adminDomain.js';
 import {
   type AdminMutationAvailability,
   type RuntimeScopeAdminLockHandle,
@@ -77,6 +79,14 @@ function isLoopbackOrigin(origin: string | undefined): boolean {
   } catch {
     return false;
   }
+}
+
+function readConfiguredServerConfigDocument(getConfigPath: () => string): ConfiguredServerConfigDocument | null {
+  const configPath = getConfigPath();
+  if (!fs.existsSync(configPath)) {
+    return null;
+  }
+  return JSON.parse(fs.readFileSync(configPath, 'utf8')) as ConfiguredServerConfigDocument;
 }
 
 function normalizeHostHeader(host: string | string[] | undefined): string | undefined {
@@ -377,21 +387,20 @@ export class ExpressServer {
       runtimeIdentity.runtimeScopeId,
       adminStorageDir,
     );
+    const adminConfigPath = ConfigContext.getInstance().getResolvedConfigPath();
+    const getConfigPath = () => adminConfigPath;
+    const adminDomain = createAdminDomain({
+      runtimeScopeId: runtimeIdentity.runtimeScopeId,
+      storageDir: adminStorageDir,
+      sessionTtlMs: this.configManager.get('auth').sessionTtlMinutes * 60 * 1000,
+      mutationAvailability: adminMutationAvailability,
+      configChangeService: createConfigChangeService({ getConfigPath }),
+      readConfigDocument: () => readConfiguredServerConfigDocument(getConfigPath),
+    });
     const adminRoutes = createAdminRoutes({
       adminEnabled,
-      adminService: new AdminIdentityService({
-        runtimeScopeId: runtimeIdentity.runtimeScopeId,
-        storageDir: adminStorageDir,
-        sessionTtlMs: this.configManager.get('auth').sessionTtlMinutes * 60 * 1000,
-      }),
-      configuredServerService: new AdminConfiguredServerService({
-        operationService: new AdminOperationService({
-          runtimeScopeId: runtimeIdentity.runtimeScopeId,
-          storageDir: adminStorageDir,
-          mutationAvailability: adminMutationAvailability,
-        }),
-        configChangeService: createConfigChangeService(),
-      }),
+      adminService: adminDomain.adminService,
+      configuredServerService: adminDomain.configuredServerService,
       adminMutationAvailability,
       getRuntimeIdentity,
       getOAuthDashboard,

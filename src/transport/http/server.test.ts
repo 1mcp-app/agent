@@ -1,3 +1,8 @@
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+
+import ConfigContext from '@src/config/configContext.js';
 import { ServerManager } from '@src/core/server/serverManager.js';
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -103,6 +108,19 @@ vi.mock('@src/domains/admin/runtimeScopeAdminLock.js', () => ({
   tryAcquireRuntimeScopeAdminLock: vi.fn(() => ({ available: true, release: vi.fn() })),
 }));
 
+vi.mock('@src/domains/admin/adminDomain.js', () => ({
+  createAdminDomain: vi.fn(() => ({
+    adminService: {
+      bootstrapFirstAdminFromEnvironment: vi.fn(),
+      revokeAllSessions: vi.fn(),
+      hasAdminAccount: vi.fn(() => true),
+    },
+    configuredServerService: {
+      getRecentAuditFacts: vi.fn(() => []),
+    },
+  })),
+}));
+
 vi.mock('@src/core/server/agentConfig.js', () => ({
   AgentConfigManager: {
     getInstance: vi.fn(),
@@ -119,6 +137,7 @@ describe('ExpressServer', () => {
   let mockServerManager: ServerManager;
   let mockConfigManager: any;
   let expressServer: ExpressServer;
+  let tempDir: string;
 
   type TestHeaders = Record<string, string | string[] | undefined>;
   type MiddlewareResult = {
@@ -174,6 +193,7 @@ describe('ExpressServer', () => {
 
   beforeEach(async () => {
     vi.clearAllMocks();
+    tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'express-server-test-'));
 
     // Mock Express app
     mockApp = {
@@ -239,6 +259,10 @@ describe('ExpressServer', () => {
   });
 
   afterEach(() => {
+    ConfigContext.getInstance().reset();
+    if (tempDir) {
+      fs.rmSync(tempDir, { recursive: true, force: true });
+    }
     vi.resetAllMocks();
   });
 
@@ -307,6 +331,41 @@ describe('ExpressServer', () => {
       expressServer = new ExpressServer(mockServerManager);
 
       expect(mockApp.use).toHaveBeenCalledWith('/admin', expect.any(Object));
+    });
+
+    it('captures one explicit config path for admin domain read and mutation adapters', async () => {
+      const initialConfigPath = path.join(tempDir, 'initial.json');
+      const changedConfigPath = path.join(tempDir, 'changed.json');
+      fs.writeFileSync(
+        initialConfigPath,
+        JSON.stringify({ mcpServers: { initial: { type: 'stdio', command: 'npx' } } }),
+      );
+      fs.writeFileSync(
+        changedConfigPath,
+        JSON.stringify({ mcpServers: { changed: { type: 'stdio', command: 'node' } } }),
+      );
+      ConfigContext.getInstance().setConfigPath(initialConfigPath);
+
+      expressServer = new ExpressServer(mockServerManager);
+
+      const { createAdminDomain } = await import('@src/domains/admin/adminDomain.js');
+      const options = vi.mocked(createAdminDomain).mock.calls[0][0];
+      ConfigContext.getInstance().setConfigPath(changedConfigPath);
+
+      expect(options.readConfigDocument()).toEqual({
+        mcpServers: {
+          initial: { type: 'stdio', command: 'npx' },
+        },
+      });
+      await expect(
+        options.configChangeService.previewConfiguredServerTargetEnabledState({
+          targetName: 'initial',
+          enabled: false,
+          backup: 'skip',
+        }),
+      ).resolves.toMatchObject({
+        target: { name: 'initial' },
+      });
     });
 
     it('should redirect the server root to admin when admin surfaces are enabled', async () => {

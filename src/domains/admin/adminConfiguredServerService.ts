@@ -1,6 +1,3 @@
-import fs from 'node:fs';
-
-import ConfigContext from '@src/config/configContext.js';
 import type { MCPServerParams } from '@src/core/types/index.js';
 import type { ConfigChangeResult, ConfigChangeService } from '@src/domains/config-change/configChange.js';
 
@@ -17,7 +14,7 @@ type ConfiguredServerSecretAction = 'preserve' | 'replace' | 'clear';
 interface AdminConfiguredServerServiceOptions {
   operationService: AdminOperationService;
   configChangeService: ConfigChangeService;
-  getConfigPath?: () => string;
+  readConfigDocument: () => ConfiguredServerConfigDocument | null;
 }
 
 interface ConfiguredServerMutationInput {
@@ -86,6 +83,10 @@ export interface ConfiguredServerMutationResult {
   enabled: boolean;
   outcome: 'enabled' | 'disabled' | 'already_enabled' | 'already_disabled';
   configChange: ConfigChangeResult;
+}
+
+export interface ConfiguredServerConfigDocument {
+  mcpServers?: Record<string, MCPServerParams>;
 }
 
 export interface AdminConfiguredServerOperations {
@@ -184,12 +185,11 @@ export class AdminConfiguredServerService implements AdminConfiguredServerOperat
   }
 
   private readConfiguredServers(): ConfiguredServerReadModel[] {
-    const configPath = this.options.getConfigPath?.() ?? ConfigContext.getInstance().getResolvedConfigPath();
-    if (!fs.existsSync(configPath)) {
+    const parsed = this.options.readConfigDocument();
+    if (!parsed) {
       return [];
     }
 
-    const parsed = JSON.parse(fs.readFileSync(configPath, 'utf8')) as { mcpServers?: Record<string, MCPServerParams> };
     return Object.entries(parsed.mcpServers ?? {}).map(([name, serverConfig]) =>
       createConfiguredServerReadModel(name, serverConfig),
     );
