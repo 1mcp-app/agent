@@ -100,9 +100,17 @@ _Avoid_: server key, connection key, instance key
 A static server definition or **Template Server** definition addressed by a **Config Change** before runtime rendering.
 _Avoid_: server config, target config, raw server
 
+**Global Transport Config**:
+Shared transport settings inherited by **Configured Server Targets** unless a target sets its own override.
+_Avoid_: global server config, default target config
+
 **Configured Server Read Model**:
 A normalized admin-facing view of **Configured Server Targets** with secrets and raw environment values redacted.
 _Avoid_: raw config DTO, config passthrough
+
+**Environment Secret Reference**:
+A configuration value that names or references a secret supplied by the runtime environment or external secret management instead of storing the secret material directly in a **Runtime Scope** config file.
+_Avoid_: inline secret, copied env value
 
 **Request Context Preparation**:
 The runtime step that resolves a **Request Context** and **Request Session**, renders matching **Template Servers**, registers them for routing, and refreshes lazy capabilities when needed.
