@@ -46,6 +46,18 @@ input {
   background: transparent;
 }
 
+.admin-auth-shell {
+  display: grid;
+  min-height: 100vh;
+  min-height: 100dvh;
+  place-items: center;
+  padding: 24px;
+}
+
+.admin-auth-card {
+  width: min(640px, 100%);
+}
+
 .admin-console {
   width: min(1440px, 100%);
   margin: 0 auto;
@@ -102,6 +114,7 @@ input {
 
 .login-panel {
   width: min(420px, 100%);
+  margin: 0 auto;
   padding: 18px;
 }
 
@@ -188,6 +201,10 @@ input {
 }
 
 @media (max-width: 620px) {
+  .admin-auth-shell {
+    padding: 16px;
+  }
+
   .admin-console {
     padding: 12px;
   }

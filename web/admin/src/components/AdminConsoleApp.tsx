@@ -43,6 +43,17 @@ export function AdminConsoleApp({
   onCopyText,
   loginBusy = false,
 }: AdminConsoleAppProps) {
+  if (state.view !== 'console') {
+    return (
+      <AuthShell state={state}>
+        {state.view === 'setupRequired' ? <SetupRequiredView /> : null}
+        {state.view === 'loading' || state.view === 'login' ? (
+          <LoginView loading={state.view === 'loading' || loginBusy} onLogin={onLogin} />
+        ) : null}
+      </AuthShell>
+    );
+  }
+
   return (
     <AppShell className="admin-app-shell" header={{ height: 64 }} padding="md">
       <AppShell.Header aria-label="Admin Console" className="admin-app-header">
@@ -64,22 +75,27 @@ export function AdminConsoleApp({
         <StatusStrip state={state} />
         <Stack gap="md" className="admin-console">
           <Banner state={state} />
-          {state.view === 'setupRequired' ? <SetupRequiredView /> : null}
-          {state.view === 'loading' || state.view === 'login' ? (
-            <LoginView loading={state.view === 'loading' || loginBusy} onLogin={onLogin} />
-          ) : null}
-          {state.view === 'console' ? (
-            <ConsoleView
-              state={state}
-              onLogout={onLogout}
-              onRefresh={onRefresh}
-              onServerAction={onServerAction}
-              onCopyText={onCopyText}
-            />
-          ) : null}
+          <ConsoleView
+            state={state}
+            onLogout={onLogout}
+            onRefresh={onRefresh}
+            onServerAction={onServerAction}
+            onCopyText={onCopyText}
+          />
         </Stack>
       </AppShell.Main>
     </AppShell>
+  );
+}
+
+function AuthShell({ state, children }: { state: AdminConsoleState; children: ReactNode }) {
+  return (
+    <main className="admin-auth-shell" aria-label="Admin authentication">
+      <Stack gap="md" className="admin-auth-card">
+        <Banner state={state} />
+        {children}
+      </Stack>
+    </main>
   );
 }
 

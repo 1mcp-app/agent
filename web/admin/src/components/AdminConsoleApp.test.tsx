@@ -10,14 +10,15 @@ import { createInitialState } from '../state/adminConsoleState';
 import { AdminConsoleApp } from './AdminConsoleApp';
 
 describe('AdminConsoleApp', () => {
-  it('renders setup-required guidance inside the operations shell', () => {
+  it('renders setup-required guidance without authenticated console chrome', () => {
     render(
       <MantineProvider>
         <AdminConsoleApp state={{ ...createInitialState(), view: 'setupRequired' }} />
       </MantineProvider>,
     );
 
-    expect(screen.getByRole('banner', { name: /admin console/i })).toBeInTheDocument();
+    expect(screen.queryByRole('banner', { name: /admin console/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('region', { name: /runtime identity/i })).not.toBeInTheDocument();
     expect(screen.getByRole('heading', { name: /setup required/i })).toBeInTheDocument();
     expect(
       screen.getByText("1mcp admin bootstrap --username operator --password 'use-a-long-random-password'"),
@@ -29,6 +30,8 @@ describe('AdminConsoleApp', () => {
     const { rerender } = renderApp({ ...createInitialState(), view: 'login' });
 
     expect(screen.getByRole('heading', { name: /operator login/i })).toBeInTheDocument();
+    expect(screen.queryByRole('banner', { name: /admin console/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('region', { name: /runtime identity/i })).not.toBeInTheDocument();
     expect(screen.getByLabelText(/username/i)).toHaveAttribute('autocomplete', 'username');
     expect(screen.getByLabelText(/password/i)).toHaveAttribute('autocomplete', 'current-password');
     expect(screen.queryByText(/create account|disable account|delete account|password reset/i)).not.toBeInTheDocument();
@@ -40,6 +43,8 @@ describe('AdminConsoleApp', () => {
     );
 
     expect(screen.getByRole('button', { name: /checking/i })).toBeDisabled();
+    expect(screen.queryByRole('banner', { name: /admin console/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('region', { name: /runtime identity/i })).not.toBeInTheDocument();
     expect(screen.getByLabelText(/username/i)).toBeDisabled();
   });
 

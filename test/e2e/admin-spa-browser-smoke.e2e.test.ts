@@ -109,7 +109,8 @@ describe('admin SPA browser smoke', () => {
     const page = await newPage({ width: 1280, height: 820 });
 
     try {
-      await login(page);
+      await expectCenteredLoginGate(page);
+      await login(page, { skipNavigation: true });
 
       await expectText(page, 'Runtime operations');
       await expectText(page, 'Enabled servers');
@@ -133,7 +134,8 @@ describe('admin SPA browser smoke', () => {
     const page = await newPage({ width: 390, height: 844, isMobile: true });
 
     try {
-      await login(page);
+      await expectCenteredLoginGate(page);
+      await login(page, { skipNavigation: true });
 
       await expectText(page, 'Runtime operations');
       await expectVisible(page.getByRole('button', { name: 'Refresh' }));
@@ -160,8 +162,27 @@ describe('admin SPA browser smoke', () => {
     return page;
   }
 
-  async function login(page: Page): Promise<void> {
+  async function expectCenteredLoginGate(page: Page): Promise<void> {
     await page.goto(`${baseUrl}/admin`);
+    await expectVisible(page.getByRole('heading', { name: 'Operator login' }));
+    expect(await page.locator('.admin-app-header').count()).toBe(0);
+    expect(await page.locator('.status-strip').count()).toBe(0);
+
+    const loginPanelCenter = await page.locator('.login-panel').evaluate((element) => {
+      const rect = element.getBoundingClientRect();
+      return {
+        xDelta: Math.abs(rect.left + rect.width / 2 - globalThis.window.innerWidth / 2),
+        yDelta: Math.abs(rect.top + rect.height / 2 - globalThis.window.innerHeight / 2),
+      };
+    });
+    expect(loginPanelCenter.xDelta).toBeLessThanOrEqual(8);
+    expect(loginPanelCenter.yDelta).toBeLessThanOrEqual(24);
+  }
+
+  async function login(page: Page, options: { skipNavigation?: boolean } = {}): Promise<void> {
+    if (!options.skipNavigation) {
+      await page.goto(`${baseUrl}/admin`);
+    }
     await page.getByLabel('Username').fill('operator');
     await page.getByLabel('Password').fill(PASSWORD);
     const loginResponsePromise = page.waitForResponse((response) =>
