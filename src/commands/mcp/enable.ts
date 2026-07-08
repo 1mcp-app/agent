@@ -241,7 +241,18 @@ async function runEnableDisableCommand(
   try {
     const store = dependencies.runtimeTargetStore ?? new RuntimeTargetStore();
     const contextName = selectRuntimeBackedContext(argv, store);
-    if (contextName) {
+    if (contextName === 'local') {
+      const handledByRuntime = await trySetRuntimeBackedLocalServerEnabledState(
+        argv,
+        enabled,
+        contextName,
+        store,
+        dependencies,
+      );
+      if (handledByRuntime) {
+        return;
+      }
+    } else if (contextName) {
       await setRuntimeBackedServerEnabledState(argv, enabled, contextName, store, dependencies);
       return;
     }
@@ -280,14 +291,51 @@ function selectRuntimeBackedContext(
 
   if (argv.context) {
     if (argv.context === 'local') {
-      return null;
+      return 'local';
     }
     const target = store.inspect(argv.context);
-    return target.name === 'local' ? null : target.name;
+    return target.name === 'local' ? 'local' : target.name;
   }
 
   const current = store.current();
   return current.name === 'local' ? null : current.name;
+}
+
+async function trySetRuntimeBackedLocalServerEnabledState(
+  argv: EnableDisableCommandArgs,
+  enabled: boolean,
+  contextName: 'local',
+  store: Pick<
+    RuntimeTargetStore,
+    'getAdminSessionReference' | 'setAdminSessionReference' | 'clearAdminSessionReference'
+  >,
+  dependencies: RuntimeBackedMcpDependencies,
+): Promise<boolean> {
+  let target: ResolvedServeTarget<ResolvableServeTargetOptions & { context: string }>;
+  try {
+    target = await resolveRuntimeBackedTarget(argv, contextName, dependencies);
+  } catch {
+    return false;
+  }
+  if (
+    target.runtimeTargetContext?.name !== 'local' ||
+    target.runtimeTargetContext.kind !== 'local' ||
+    !target.runtimeTargetContext.runtimeScopeId
+  ) {
+    return false;
+  }
+
+  await setRuntimeBackedServerEnabledState(argv, enabled, contextName, store, dependencies, target);
+  return true;
+}
+
+async function resolveRuntimeBackedTarget(
+  argv: EnableDisableCommandArgs,
+  contextName: string,
+  dependencies: RuntimeBackedMcpDependencies,
+): Promise<ResolvedServeTarget<ResolvableServeTargetOptions & { context: string }>> {
+  const resolver = dependencies.resolveTarget ?? ((input) => resolveServeTarget(input));
+  return resolver({ ...argv, context: contextName, url: undefined });
 }
 
 async function setRuntimeBackedServerEnabledState(
@@ -299,10 +347,10 @@ async function setRuntimeBackedServerEnabledState(
     'getAdminSessionReference' | 'setAdminSessionReference' | 'clearAdminSessionReference'
   >,
   dependencies: RuntimeBackedMcpDependencies,
+  resolvedTarget?: ResolvedServeTarget<ResolvableServeTargetOptions & { context: string }>,
 ): Promise<void> {
   validateServerName(argv.name);
-  const resolver = dependencies.resolveTarget ?? ((input) => resolveServeTarget(input));
-  const target = await resolver({ ...argv, context: contextName, url: undefined });
+  const target = resolvedTarget ?? (await resolveRuntimeBackedTarget(argv, contextName, dependencies));
   const baseUrl = stripMcpSuffix(target.discoveredUrl);
   const unauthenticatedClient = createClient(dependencies, baseUrl);
   const capabilities = await fetchCapabilities(unauthenticatedClient, enabled ? 'mcp.enable' : 'mcp.disable');

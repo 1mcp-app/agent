@@ -151,6 +151,71 @@ describe('enableCommand', () => {
     expect(configUtils.setServer).toHaveBeenCalledWith('test-server', expect.not.objectContaining({ disabled: true }));
   });
 
+  it('prefers the CLI Admin adapter when the current local runtime is running', async () => {
+    resolveTarget.mockResolvedValueOnce({
+      cwd: '/tmp/project',
+      projectRoot: '/tmp/project',
+      projectName: 'project',
+      projectConfig: null,
+      mergedOptions: { context: 'local' },
+      discoveredUrl: 'http://127.0.0.1:3050/mcp',
+      serverUrl: new URL('http://127.0.0.1:3050/mcp'),
+      source: 'pidfile',
+      projectContextSource: 'cwd',
+      runtimeTargetContext: { name: 'local', kind: 'local', runtimeScopeId: 'scope_local' },
+    });
+    apiGet.mockImplementation(async (path: string) =>
+      path.endsWith('/capabilities')
+        ? okResponse({
+            ok: true,
+            cliProtocolVersion: '1',
+            warnings: [],
+            result: {
+              runtime: { runtimeScopeId: 'scope_local', runtimeVersion: '0.34.0' },
+              supportedOperations: ['mcp.enable', 'mcp.disable'],
+              mutationReadiness: { mcp: { enabled: true, operations: ['enable', 'disable'] } },
+              features: { mcpEnableDisable: true },
+            },
+          })
+        : okResponse({
+            ok: true,
+            cliProtocolVersion: '1',
+            warnings: [],
+            result: { authenticated: true },
+          }),
+    );
+
+    await enableCommand(
+      {
+        name: 'test-server',
+        config: '/tmp/test-config.json',
+        'config-dir': '/tmp',
+        context: 'local',
+        json: true,
+        idempotencyKey: 'idem_local',
+      },
+      deps(),
+    );
+
+    expect(resolveTarget).toHaveBeenCalledWith(expect.objectContaining({ context: 'local' }));
+    expect(runtimeTargetStore.getAdminSessionReference).toHaveBeenCalledWith('local', 'scope_local');
+    expect(apiPost).toHaveBeenCalledWith(
+      '/admin/cli/v1/operations/enable-server',
+      { targetName: 'test-server' },
+      { headers: { 'Idempotency-Key': 'idem_local' }, timeout: expect.any(Number) },
+    );
+    expect(configUtils.setServer).not.toHaveBeenCalled();
+    const envelope = JSON.parse(stdout.mock.calls.map((call: unknown[]) => String(call[0])).join('')) as {
+      ok: true;
+      target: { context: string; runtimeScopeId: string; url: string };
+    };
+    expect(envelope.target).toEqual({
+      context: 'local',
+      runtimeScopeId: 'scope_local',
+      url: 'http://127.0.0.1:3050',
+    });
+  });
+
   it('routes named remote contexts through the CLI Admin adapter with scoped Admin Session credentials', async () => {
     await enableCommand(
       {
