@@ -132,7 +132,7 @@ export class AgentConfigManager {
       port: PORT,
       trustProxy: 'loopback',
       admin: {
-        enabled: false,
+        enabled: true,
       },
       auth: {
         enabled: AUTH_CONFIG.SERVER.DEFAULT_ENABLED,

@@ -62,7 +62,7 @@ describe('AgentConfigManager', () => {
         port: 3050,
         trustProxy: 'loopback',
         admin: {
-          enabled: false,
+          enabled: true,
         },
         auth: {
           enabled: false,

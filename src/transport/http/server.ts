@@ -12,6 +12,11 @@ import { ServerManager } from '@src/core/server/serverManager.js';
 import { AdminConfiguredServerService } from '@src/domains/admin/adminConfiguredServerService.js';
 import { AdminIdentityService } from '@src/domains/admin/adminIdentityService.js';
 import { AdminOperationService } from '@src/domains/admin/adminOperationService.js';
+import {
+  type AdminMutationAvailability,
+  type RuntimeScopeAdminLockHandle,
+  tryAcquireRuntimeScopeAdminLock,
+} from '@src/domains/admin/runtimeScopeAdminLock.js';
 import { createConfigChangeService } from '@src/domains/config-change/configChange.js';
 import logger from '@src/logger/logger.js';
 
@@ -210,6 +215,7 @@ export class ExpressServer {
   private customTemplate?: string;
   private streamableSessionRepository: StreamableSessionRepository;
   private runtimeIdentityService: RuntimeIdentityService;
+  private adminLock?: RuntimeScopeAdminLockHandle;
 
   /**
    * Creates a new ExpressServer instance.
@@ -365,8 +371,14 @@ export class ExpressServer {
       this.configManager.get('auth').sessionStoragePath ??
       getGlobalConfigDir();
     const runtimeIdentity = getRuntimeIdentity();
+    const adminEnabled = this.configManager.get('admin')?.enabled ?? true;
+    const adminMutationAvailability = this.acquireAdminMutationAvailability(
+      adminEnabled,
+      runtimeIdentity.runtimeScopeId,
+      adminStorageDir,
+    );
     const adminRoutes = createAdminRoutes({
-      adminEnabled: this.configManager.get('admin')?.enabled ?? false,
+      adminEnabled,
       adminService: new AdminIdentityService({
         runtimeScopeId: runtimeIdentity.runtimeScopeId,
         storageDir: adminStorageDir,
@@ -376,9 +388,11 @@ export class ExpressServer {
         operationService: new AdminOperationService({
           runtimeScopeId: runtimeIdentity.runtimeScopeId,
           storageDir: adminStorageDir,
+          mutationAvailability: adminMutationAvailability,
         }),
         configChangeService: createConfigChangeService(),
       }),
+      adminMutationAvailability,
       getRuntimeIdentity,
       getOAuthDashboard,
     });
@@ -461,7 +475,30 @@ export class ExpressServer {
    * - Streamable session repository flush
    */
   public shutdown(): void {
+    this.adminLock?.release();
+    this.adminLock = undefined;
     this.oauthProvider.shutdown();
     this.streamableSessionRepository.stopPeriodicFlush();
+  }
+
+  private acquireAdminMutationAvailability(
+    adminEnabled: boolean,
+    runtimeScopeId: string,
+    storageDir: string,
+  ): AdminMutationAvailability {
+    if (!adminEnabled) {
+      return {
+        available: false,
+        reason: 'mutation_service_unavailable',
+      };
+    }
+
+    const lock = tryAcquireRuntimeScopeAdminLock({ runtimeScopeId, storageDir });
+    if (!lock.available) {
+      return lock;
+    }
+
+    this.adminLock = lock;
+    return { available: true };
   }
 }

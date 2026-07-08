@@ -380,7 +380,7 @@ export async function serveCommand(parsedArgv: ServeOptions): Promise<void> {
       runtimeScopeStoragePath: runtimeScope,
       trustProxy,
       admin: {
-        enabled: appConfig.admin?.enabled ?? false,
+        enabled: appConfig.admin?.enabled ?? true,
       },
       auth: {
         enabled: authEnabled,

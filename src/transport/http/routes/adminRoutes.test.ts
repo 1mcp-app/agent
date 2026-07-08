@@ -65,6 +65,7 @@ describe('admin routes', () => {
       externalUrl?: string;
       configuredServerService?: AdminConfiguredServerOperations | null;
       adminConsoleAssetsDir?: string;
+      adminMutationAvailability?: { available: boolean; reason?: 'writer_lock_unavailable' };
     } = {},
   ) {
     const app = express();
@@ -80,6 +81,7 @@ describe('admin routes', () => {
         ...runtimeIdentity,
         externalUrl: options.externalUrl ?? runtimeIdentity.externalUrl,
       }),
+      adminMutationAvailability: options.adminMutationAvailability,
       getOAuthDashboard: () => ({
         status: 'ready',
         services: [
@@ -175,6 +177,7 @@ describe('admin routes', () => {
             operations: ['enable', 'disable'],
           },
         },
+        adminMutationsAvailable: true,
         features: {
           adminSessions: true,
           bearerSessionAuth: true,
@@ -226,16 +229,18 @@ describe('admin routes', () => {
         },
         mutationReadiness: {
           mcp: {
-            enabled: true,
-            status: 'ready',
-            operations: ['enable', 'disable'],
+            enabled: false,
+            status: 'setup_required',
+            operations: [],
           },
         },
+        adminMutationsAvailable: false,
+        adminMutationsUnavailableReason: 'setup_required',
         features: {
           adminSessions: true,
           bearerSessionAuth: true,
           csrfTokens: true,
-          mcpEnableDisable: true,
+          mcpEnableDisable: false,
         },
       },
     });
@@ -763,6 +768,59 @@ describe('admin routes', () => {
     });
   });
 
+  it('reports an unavailable runtime scope admin lock and rejects CLI mutations without calling the service', async () => {
+    await adminService.bootstrapFirstAdmin({ username: 'operator', password: 'correct horse battery staple' });
+    const app = mountAdminRoutes({
+      adminMutationAvailability: {
+        available: false,
+        reason: 'writer_lock_unavailable',
+      },
+    });
+    const loginResponse = await request(app)
+      .post('/admin/cli/v1/session/login')
+      .send({ username: 'operator', password: 'correct horse battery staple' });
+
+    const capabilities = await request(app).get('/admin/cli/v1/capabilities').set('X-Request-Id', 'req_caps_locked');
+    const mutation = await request(app)
+      .post('/admin/cli/v1/operations/enable-server')
+      .set('Authorization', `Bearer ${loginResponse.body.result.sessionToken}`)
+      .set('X-Request-Id', 'req_cli_locked')
+      .set('Idempotency-Key', 'enable-key')
+      .send({ targetName: 'filesystem' });
+
+    expect(capabilities.status).toBe(200);
+    expect(capabilities.body.result).toMatchObject({
+      adminMutationsAvailable: false,
+      adminMutationsUnavailableReason: 'writer_lock_unavailable',
+      mutationReadiness: {
+        mcp: {
+          enabled: false,
+          status: 'writer_lock_unavailable',
+          operations: [],
+        },
+      },
+    });
+    expect(JSON.stringify(capabilities.body)).not.toMatch(/pid|lockPath|hostname|filesystem/i);
+    expect(mutation.status).toBe(409);
+    expect(mutation.body).toEqual({
+      ok: false,
+      cliProtocolVersion: '1',
+      requestId: 'req_cli_locked',
+      error: {
+        code: 'runtime_scope_locked',
+        message: 'Runtime scope admin mutations are locked by another writer',
+        retryable: true,
+        requestId: 'req_cli_locked',
+        details: {
+          operationName: 'enableConfiguredServer',
+          reason: 'writer_lock_unavailable',
+        },
+      },
+      warnings: [],
+    });
+    expect(configuredServerService.enableConfiguredServer).not.toHaveBeenCalled();
+  });
+
   it('uses a normalized CLI configured-server request fingerprint independent of raw JSON body shape', async () => {
     await adminService.bootstrapFirstAdmin({ username: 'operator', password: 'correct horse battery staple' });
     configuredServerService.enableConfiguredServer.mockResolvedValue({
@@ -836,6 +894,8 @@ describe('admin routes', () => {
       status: 'unavailable',
       operations: [],
     });
+    expect(capabilities.body.result.adminMutationsAvailable).toBe(false);
+    expect(capabilities.body.result.adminMutationsUnavailableReason).toBe('mutation_service_unavailable');
     expect(capabilities.body.result.features.mcpEnableDisable).toBe(false);
     expect(mutation.status).toBe(404);
     expect(mutation.body).toEqual({

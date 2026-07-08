@@ -12,6 +12,7 @@ import {
   AdminIdentityService,
 } from '@src/domains/admin/adminIdentityService.js';
 import type { AdminOperationContext, AdminOperationResult } from '@src/domains/admin/adminOperationService.js';
+import type { AdminMutationAvailability } from '@src/domains/admin/runtimeScopeAdminLock.js';
 import { sanitizeErrorMessage } from '@src/utils/validation/sanitization.js';
 
 import express, { Request, Response, Router } from 'express';
@@ -27,6 +28,7 @@ interface AdminRoutesOptions {
   adminEnabled: boolean;
   adminService: AdminIdentityService;
   configuredServerService?: AdminConfiguredServerOperations;
+  adminMutationAvailability?: AdminMutationAvailability;
   getRuntimeIdentity: () => RuntimeIdentity;
   getOAuthDashboard?: () => BackendOAuthDashboardResult;
   adminConsoleAssetsDir?: string;
@@ -46,9 +48,12 @@ export function createAdminRoutes(options: AdminRoutesOptions): Router | null {
   router.get('/cli/v1/capabilities', (req, res) => {
     const identity = options.getRuntimeIdentity();
     const setupRequired = !options.adminService.hasAdminAccount();
-    const mcpMutationsReady = Boolean(options.configuredServerService);
-    const mcpOperations = mcpMutationsReady ? [...CLI_MCP_OPERATIONS] : [];
+    const mutationAvailability = cliMutationAvailability(options, setupRequired);
+    const configuredServerOperationsSupported = Boolean(options.configuredServerService);
+    const mcpMutationsReady = configuredServerOperationsSupported && mutationAvailability.available;
+    const mcpOperations = configuredServerOperationsSupported ? [...CLI_MCP_OPERATIONS] : [];
     const mcpMutationOperations = mcpMutationsReady ? ['enable', 'disable'] : [];
+    const mcpReadinessStatus = cliMcpReadinessStatus(mutationAvailability);
 
     sendCliSuccess(req, res, {
       runtime: toCliRuntimeIdentity(identity),
@@ -60,10 +65,12 @@ export function createAdminRoutes(options: AdminRoutesOptions): Router | null {
       mutationReadiness: {
         mcp: {
           enabled: mcpMutationsReady,
-          status: mcpMutationsReady ? 'ready' : 'unavailable',
+          status: mcpReadinessStatus,
           operations: mcpMutationOperations,
         },
       },
+      adminMutationsAvailable: mutationAvailability.available,
+      ...(mutationAvailability.reason ? { adminMutationsUnavailableReason: mutationAvailability.reason } : {}),
       features: {
         adminSessions: true,
         bearerSessionAuth: true,
@@ -335,6 +342,20 @@ async function handleCliConfiguredServerMutation(
     return;
   }
 
+  if (isMutationLocked(options)) {
+    sendCliError(req, res, {
+      status: 409,
+      code: 'runtime_scope_locked',
+      message: 'Runtime scope admin mutations are locked by another writer',
+      retryable: true,
+      details: {
+        operationName,
+        reason: 'writer_lock_unavailable',
+      },
+    });
+    return;
+  }
+
   const sessionToken = getBearerSessionToken(req);
   if (!sessionToken) {
     sendCliError(req, res, {
@@ -391,6 +412,18 @@ async function handleConfiguredServerMutation(
     return;
   }
 
+  if (isMutationLocked(options)) {
+    sendAdminOperationResult(res, {
+      ok: false,
+      status: 'runtime_scope_locked',
+      code: 'runtime_scope_locked',
+      retryable: true,
+      operationName,
+      reason: 'writer_lock_unavailable',
+    });
+    return;
+  }
+
   const targetName = req.params.name;
   const context = buildAdminOperationContext(req, options, { type: 'configured_server', id: targetName });
   const input = { context, targetName };
@@ -400,6 +433,40 @@ async function handleConfiguredServerMutation(
       : await options.configuredServerService.disableConfiguredServer(input);
 
   sendAdminOperationResult(res, result);
+}
+
+function cliMutationAvailability(options: AdminRoutesOptions, setupRequired: boolean): AdminMutationAvailability {
+  if (!options.configuredServerService) {
+    return {
+      available: false,
+      reason: 'mutation_service_unavailable',
+    };
+  }
+
+  if (setupRequired) {
+    return {
+      available: false,
+      reason: 'setup_required',
+    };
+  }
+
+  return options.adminMutationAvailability ?? { available: true };
+}
+
+function isMutationLocked(options: AdminRoutesOptions): boolean {
+  return (
+    options.adminMutationAvailability?.available === false &&
+    options.adminMutationAvailability.reason === 'writer_lock_unavailable'
+  );
+}
+
+function cliMcpReadinessStatus(mutationAvailability: AdminMutationAvailability): string {
+  if (mutationAvailability.available) {
+    return 'ready';
+  }
+  return mutationAvailability.reason === 'mutation_service_unavailable'
+    ? 'unavailable'
+    : (mutationAvailability.reason ?? 'unavailable');
 }
 
 class FailedLoginLimiter {
@@ -730,6 +797,8 @@ function cliOperationErrorMessage(status: AdminOperationFailure['status']): stri
       return 'Admin operation journal is unavailable';
     case 'runtime_scope_mismatch':
       return 'Runtime scope mismatch';
+    case 'runtime_scope_locked':
+      return 'Runtime scope admin mutations are locked by another writer';
     default:
       return 'Admin operation failed';
   }
@@ -744,6 +813,9 @@ function cliOperationErrorDetails(result: AdminOperationFailure): Record<string,
     details.target = result.target;
     details.reservedAt = result.reservedAt;
     details.recovery = result.recovery;
+  }
+  if (result.status === 'runtime_scope_locked') {
+    details.reason = result.reason;
   }
   if (result.status === 'mutation_confirmation_required') {
     details.confirmationRequirements = result.confirmationRequirements;

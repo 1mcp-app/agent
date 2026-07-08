@@ -87,6 +87,8 @@ interface CliCapabilitiesResult {
     runtimeVersion?: string;
   };
   supportedOperations?: string[];
+  adminMutationsAvailable?: boolean;
+  adminMutationsUnavailableReason?: string;
   mutationReadiness?: {
     mcp?: {
       enabled?: boolean;
@@ -454,6 +456,17 @@ async function validateAdminSession(
 
 function requireMutationReadiness(capabilities: CliCapabilitiesResult, requiredOperation: string): void {
   const requiredMcpOperation = requiredOperation === 'mcp.enable' ? 'enable' : 'disable';
+  if (capabilities.adminMutationsAvailable === false) {
+    throw new McpRuntimeCommandError(
+      'capability_mutation_unavailable',
+      `MCP mutation operation "${requiredOperation}" is unavailable on this runtime`,
+      undefined,
+      {
+        status: capabilities.adminMutationsUnavailableReason,
+      },
+    );
+  }
+
   if (
     capabilities.features?.mcpEnableDisable === false ||
     capabilities.mutationReadiness?.mcp?.enabled === false ||

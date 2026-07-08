@@ -363,6 +363,34 @@ describe('enableCommand', () => {
     expect(envelope.error.code).toBe('capability_mutation_unavailable');
   });
 
+  it('hard-fails runtime-backed mutation when coarse admin mutation availability is unavailable', async () => {
+    apiGet.mockResolvedValueOnce(
+      okResponse({
+        ok: true,
+        cliProtocolVersion: '1',
+        warnings: [],
+        result: {
+          runtime: { runtimeScopeId: 'scope_prod', runtimeVersion: '0.34.0' },
+          supportedOperations: ['mcp.enable', 'mcp.disable'],
+          adminMutationsAvailable: false,
+          adminMutationsUnavailableReason: 'writer_lock_unavailable',
+          mutationReadiness: { mcp: { enabled: true, status: 'ready', operations: ['enable', 'disable'] } },
+          features: { mcpEnableDisable: true },
+        },
+      }),
+    );
+
+    await enableCommand({ name: 'test-server', context: 'prod', json: true }, deps());
+
+    expect(apiPost).not.toHaveBeenCalled();
+    expect(process.exitCode).toBe(4);
+    const envelope = JSON.parse(stdout.mock.calls.map((call: unknown[]) => String(call[0])).join('')) as {
+      error: { code: string; details?: { status?: string } };
+    };
+    expect(envelope.error.code).toBe('capability_mutation_unavailable');
+    expect(envelope.error.details?.status).toBe('writer_lock_unavailable');
+  });
+
   it('returns operation-in-progress recovery with the same idempotency key when bounded waiting expires', async () => {
     apiPost.mockResolvedValue(
       okResponse({

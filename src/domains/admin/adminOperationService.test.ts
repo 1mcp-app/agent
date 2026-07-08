@@ -109,6 +109,40 @@ describe('AdminOperationService', () => {
     });
   });
 
+  it('fails mutations closed without reserving idempotency when the runtime scope admin lock is unavailable', async () => {
+    const service = new AdminOperationService({
+      runtimeScopeId: 'scope_a',
+      storageDir,
+      now: () => currentTime,
+      createOperationId: () => `op_${currentTime.getTime()}`,
+      mutationAvailability: {
+        available: false,
+        reason: 'writer_lock_unavailable',
+      },
+    });
+    let executionCount = 0;
+
+    const result = await service.executeMutation({
+      context: context(),
+      operationName: 'enableConfiguredServer',
+      run: async () => {
+        executionCount += 1;
+        return { enabled: true };
+      },
+    });
+
+    expect(result).toEqual({
+      ok: false,
+      status: 'runtime_scope_locked',
+      code: 'runtime_scope_locked',
+      retryable: true,
+      operationName: 'enableConfiguredServer',
+      reason: 'writer_lock_unavailable',
+    });
+    expect(executionCount).toBe(0);
+    expect(fs.existsSync(journalPath())).toBe(false);
+  });
+
   it('replays a failed terminal mutation for the same idempotency key and request fingerprint', async () => {
     const service = createService();
     let executionCount = 0;

@@ -2,6 +2,8 @@ import { createHash, randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 
+import type { AdminMutationAvailability } from './runtimeScopeAdminLock.js';
+
 const ADMIN_STATE_DIR = 'admin';
 const JOURNAL_VERSION = 1;
 const DEFAULT_COMPLETED_RETENTION_MS = 24 * 60 * 60 * 1000;
@@ -58,6 +60,7 @@ export interface AdminAuditFact {
 interface AdminOperationServiceOptions {
   runtimeScopeId: string;
   storageDir: string;
+  mutationAvailability?: AdminMutationAvailability;
   now?: () => Date;
   completedRetentionMs?: number;
   auditRetentionMs?: number;
@@ -155,6 +158,14 @@ export type AdminOperationRecoveryResult =
       code: 'runtime_scope_mismatch';
       retryable: false;
       operationName: string;
+    }
+  | {
+      ok: false;
+      status: 'runtime_scope_locked';
+      code: 'runtime_scope_locked';
+      retryable: true;
+      operationName: string;
+      reason: 'writer_lock_unavailable';
     };
 
 type IdempotencyState = 'in_flight' | 'completed' | 'failed' | 'state_unknown';
@@ -260,6 +271,7 @@ export class AdminOperationService {
   private readonly auditRetentionMs: number;
   private readonly inFlightWaitMs: number;
   private readonly createOperationId: () => string;
+  private readonly mutationAvailability: AdminMutationAvailability;
   private readonly idempotency: Map<string, IdempotencyEntry>;
   private readonly recentAuditFacts: AdminAuditFact[];
   private readonly mutationState: RuntimeScopeMutationState;
@@ -272,6 +284,7 @@ export class AdminOperationService {
     this.auditRetentionMs = options.auditRetentionMs ?? DEFAULT_AUDIT_RETENTION_MS;
     this.inFlightWaitMs = options.inFlightWaitMs ?? DEFAULT_IN_FLIGHT_WAIT_MS;
     this.createOperationId = options.createOperationId ?? (() => `op_${randomUUID()}`);
+    this.mutationAvailability = options.mutationAvailability ?? { available: true };
     this.mutationState = getRuntimeScopeMutationState(this.storageDir, this.runtimeScopeId);
     this.idempotency = this.mutationState.idempotency;
     this.recentAuditFacts = this.mutationState.recentAuditFacts;
@@ -313,6 +326,17 @@ export class AdminOperationService {
         code: 'runtime_scope_mismatch',
         retryable: false,
         operationName: input.operationName,
+      };
+    }
+
+    if (!this.mutationAvailability.available) {
+      return {
+        ok: false,
+        status: 'runtime_scope_locked',
+        code: 'runtime_scope_locked',
+        retryable: true,
+        operationName: input.operationName,
+        reason: 'writer_lock_unavailable',
       };
     }
 
