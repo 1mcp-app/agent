@@ -925,6 +925,46 @@ describe('AdminOperationService', () => {
     expect(executionCount).toBe(0);
   });
 
+  it('dry-runs with mutation admission checks but without idempotency or journal writes', async () => {
+    const service = createService();
+    let executionCount = 0;
+
+    const mismatch = await service.executeDryRun({
+      context: context({
+        runtimeIdentity: { runtimeScopeId: 'scope_b', runtimeVersion: '0.34.0' },
+        idempotencyKey: undefined,
+        requestFingerprint: undefined,
+      }),
+      operationName: 'enableConfiguredServer',
+      run: async () => {
+        executionCount += 1;
+        return { mode: 'dry_run' };
+      },
+    });
+    const failedPreview = await service.executeDryRun({
+      context: context({ idempotencyKey: undefined, requestFingerprint: undefined }),
+      operationName: 'enableConfiguredServer',
+      run: async () => {
+        executionCount += 1;
+        throw new Error('planned config validation failed');
+      },
+    });
+
+    expect(mismatch).toMatchObject({
+      ok: false,
+      status: 'runtime_scope_mismatch',
+      code: 'runtime_scope_mismatch',
+    });
+    expect(failedPreview).toMatchObject({
+      ok: false,
+      status: 'mutation_failed',
+      code: 'mutation_failed',
+      error: 'planned config validation failed',
+    });
+    expect(executionCount).toBe(1);
+    expect(fs.existsSync(journalPath())).toBe(false);
+  });
+
   it('rejects mutation contexts whose runtime identity does not match the service Runtime Scope', async () => {
     const service = createService();
     let executionCount = 0;

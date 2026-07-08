@@ -715,6 +715,28 @@ describe('admin routes', () => {
         requestFingerprint: expect.stringContaining('enableConfiguredServer'),
       }),
       targetName: 'filesystem',
+      confirmationRequirements: [
+        {
+          code: 'confirm_non_loopback_runtime',
+          expected: true,
+          target: { type: 'configured_server', id: 'filesystem' },
+        },
+        {
+          code: 'confirmedOperation',
+          expected: 'mcp.enable',
+          target: { type: 'configured_server', id: 'filesystem' },
+        },
+        {
+          code: 'confirmedRuntimeScopeId',
+          expected: 'scope_123',
+          target: { type: 'configured_server', id: 'filesystem' },
+        },
+        {
+          code: 'confirmationSource',
+          expected: 'cli_flag',
+          target: { type: 'configured_server', id: 'filesystem' },
+        },
+      ],
     });
     expect(configuredServerService.disableConfiguredServer).toHaveBeenCalledWith({
       context: expect.objectContaining({
@@ -724,6 +746,92 @@ describe('admin routes', () => {
         requestFingerprint: expect.stringContaining('disableConfiguredServer'),
       }),
       targetName: 'filesystem',
+      confirmationRequirements: [
+        {
+          code: 'confirm_non_loopback_runtime',
+          expected: true,
+          target: { type: 'configured_server', id: 'filesystem' },
+        },
+        {
+          code: 'confirmedOperation',
+          expected: 'mcp.disable',
+          target: { type: 'configured_server', id: 'filesystem' },
+        },
+        {
+          code: 'confirmedRuntimeScopeId',
+          expected: 'scope_123',
+          target: { type: 'configured_server', id: 'filesystem' },
+        },
+        {
+          code: 'confirmationSource',
+          expected: 'cli_flag',
+          target: { type: 'configured_server', id: 'filesystem' },
+        },
+      ],
+    });
+  });
+
+  it('passes CLI dry-run and confirmation facts into configured-server mutation input', async () => {
+    await adminService.bootstrapFirstAdmin({ username: 'operator', password: 'correct horse battery staple' });
+    configuredServerService.enableConfiguredServer.mockResolvedValue({
+      ok: true,
+      status: 'completed',
+      operationId: 'op_cli_preview',
+      operationName: 'enableConfiguredServer',
+      replayed: false,
+      result: {
+        mode: 'dry_run',
+        targetName: 'filesystem',
+        enabled: true,
+        outcome: 'enabled',
+        configChange: {
+          status: 'changed',
+          operation: 'enable',
+          configPath: '/tmp/mcp.json',
+          target: { name: 'filesystem', source: 'mcpServers' },
+          changed: true,
+          backup: { created: false },
+          retentionCleanup: { attempted: false, deletedPaths: [], warnings: [] },
+          reload: { status: 'skipped' },
+          warnings: [],
+        },
+      },
+    });
+    const app = mountAdminRoutes();
+    const loginResponse = await request(app)
+      .post('/admin/cli/v1/session/login')
+      .send({ username: 'operator', password: 'correct horse battery staple' });
+
+    const response = await request(app)
+      .post('/admin/cli/v1/operations/enable-server')
+      .set('Authorization', `Bearer ${loginResponse.body.result.sessionToken}`)
+      .set('X-Request-Id', 'req_cli_preview')
+      .send({
+        targetName: 'filesystem',
+        dryRun: true,
+        confirmationFacts: {
+          confirm_non_loopback_runtime: true,
+          confirmationSource: 'cli_flag',
+        },
+      });
+
+    expect(response.status).toBe(200);
+    expect(response.body.result).toMatchObject({
+      mode: 'dry_run',
+      targetName: 'filesystem',
+      configChange: { reload: { status: 'skipped' } },
+    });
+    expect(configuredServerService.enableConfiguredServer).toHaveBeenCalledWith({
+      context: expect.objectContaining({
+        origin: 'cli',
+        confirmationFacts: {
+          confirm_non_loopback_runtime: true,
+          confirmationSource: 'cli_flag',
+        },
+      }),
+      targetName: 'filesystem',
+      dryRun: true,
+      confirmationRequirements: [],
     });
   });
 

@@ -36,6 +36,9 @@ describe('setupMcpCommands', () => {
       'idem_enable',
       '--wait-ms',
       '25',
+      '--dry-run',
+      '--confirm-non-loopback',
+      '--no-login-prompt',
     ]);
     await parser.parseAsync(['mcp', 'disable', 'filesystem', '--url', 'https://runtime.example.com', '--json']);
 
@@ -46,6 +49,9 @@ describe('setupMcpCommands', () => {
         json: true,
         idempotencyKey: 'idem_enable',
         waitMs: 25,
+        dryRun: true,
+        confirmNonLoopback: true,
+        loginPrompt: false,
       }),
     );
     expect(disableCommandMock).toHaveBeenCalledWith(

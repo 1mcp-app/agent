@@ -348,6 +348,117 @@ class DefaultConfigChangeService implements ConfigChangeService {
     };
   }
 
+  async previewConfiguredServerTargetEnabledState(
+    input: SetConfiguredServerTargetEnabledStateInput,
+  ): Promise<ConfigChangeResult> {
+    const configPath = this.resolveConfigPath();
+    const operation = input.enabled ? 'enable' : 'disable';
+    const config = this.loadConfig(configPath);
+    const target = resolveConfiguredServerTarget(config, input.targetName);
+
+    if (!target.source) {
+      return {
+        status: 'not_found',
+        operation,
+        configPath,
+        target,
+        changed: false,
+        backup: { created: false },
+        retentionCleanup: retentionSkipped(),
+        reload: { status: 'skipped' },
+        warnings: [],
+      };
+    }
+
+    if (target.source === 'mcpTemplates') {
+      return {
+        status: 'template_conflict',
+        operation,
+        configPath,
+        target,
+        changed: false,
+        backup: { created: false },
+        retentionCleanup: retentionSkipped(),
+        reload: { status: 'skipped' },
+        warnings: [],
+        error: `Configured server target '${input.targetName}' exists in mcpTemplates and does not support enable/disable`,
+      };
+    }
+
+    const existingConfig = config.mcpServers?.[input.targetName];
+    if (!existingConfig) {
+      return {
+        status: 'not_found',
+        operation,
+        configPath,
+        target,
+        changed: false,
+        backup: { created: false },
+        retentionCleanup: retentionSkipped(),
+        reload: { status: 'skipped' },
+        warnings: [],
+      };
+    }
+
+    const changed = Boolean(existingConfig.disabled) !== !input.enabled;
+    if (changed) {
+      const previewConfig = cloneConfig(config);
+      previewConfig.mcpServers = normalizeServerRecord(previewConfig.mcpServers);
+      const previewTargetConfig = previewConfig.mcpServers[input.targetName];
+      if (!previewTargetConfig) {
+        return {
+          status: 'not_found',
+          operation,
+          configPath,
+          target,
+          changed: false,
+          backup: { created: false },
+          retentionCleanup: retentionSkipped(),
+          reload: { status: 'skipped' },
+          warnings: [],
+        };
+      }
+
+      const updatedConfig: MCPServerParams = {
+        ...previewTargetConfig,
+        disabled: !input.enabled,
+      };
+      if (input.enabled) {
+        delete updatedConfig.disabled;
+      }
+      previewConfig.mcpServers[input.targetName] = updatedConfig;
+
+      try {
+        this.validateConfig(configPath, previewConfig);
+      } catch (error) {
+        return {
+          status: 'failed',
+          operation,
+          configPath,
+          target,
+          changed: false,
+          backup: { created: false },
+          retentionCleanup: retentionSkipped(),
+          reload: { status: 'skipped' },
+          warnings: [],
+          error: error instanceof Error ? error.message : String(error),
+        };
+      }
+    }
+
+    return {
+      status: changed ? 'changed' : 'unchanged',
+      operation,
+      configPath,
+      target,
+      changed,
+      backup: { created: false },
+      retentionCleanup: retentionSkipped(),
+      reload: { status: 'skipped' },
+      warnings: [],
+    };
+  }
+
   async acquireConfigLockForTest(configPath: string): Promise<() => void> {
     return acquireConfigLock(configPath, DEFAULT_LOCK_TIMEOUT_MS);
   }
@@ -554,6 +665,10 @@ function removeTarget(config: MutableConfigDocument, target: Required<Configured
   }
 
   delete section[target.name];
+}
+
+function cloneConfig(config: MutableConfigDocument): MutableConfigDocument {
+  return JSON.parse(JSON.stringify(config)) as MutableConfigDocument;
 }
 
 function getNestedRecord(root: Record<string, unknown>, pathSegments: string[]): Record<string, unknown> | undefined {

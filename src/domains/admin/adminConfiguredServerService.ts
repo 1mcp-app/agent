@@ -6,6 +6,7 @@ import type { ConfigChangeResult, ConfigChangeService } from '@src/domains/confi
 
 import type {
   AdminAuditFact,
+  AdminConfirmationRequirement,
   AdminOperationContext,
   AdminOperationResult,
   AdminOperationService,
@@ -22,6 +23,8 @@ interface AdminConfiguredServerServiceOptions {
 interface ConfiguredServerMutationInput {
   context: AdminOperationContext;
   targetName: string;
+  dryRun?: boolean;
+  confirmationRequirements?: AdminConfirmationRequirement[];
 }
 
 export interface ConfiguredServerSecretInput {
@@ -78,6 +81,7 @@ export interface ConfiguredServerReadModel {
 }
 
 export interface ConfiguredServerMutationResult {
+  mode?: 'dry_run';
   targetName: string;
   enabled: boolean;
   outcome: 'enabled' | 'disabled' | 'already_enabled' | 'already_disabled';
@@ -131,12 +135,37 @@ export class AdminConfiguredServerService implements AdminConfiguredServerOperat
     enabled: boolean,
   ): Promise<AdminOperationResult<ConfiguredServerMutationResult>> {
     const operationName = enabled ? 'enableConfiguredServer' : 'disableConfiguredServer';
+    const context = {
+      ...input.context,
+      target: { type: 'configured_server', id: input.targetName },
+    };
+
+    if (input.dryRun) {
+      return this.options.operationService.executeDryRun({
+        context,
+        operationName,
+        run: async () => {
+          const configChange = await this.options.configChangeService.previewConfiguredServerTargetEnabledState({
+            targetName: input.targetName,
+            enabled,
+            backup: 'skip',
+          });
+          assertSuccessfulConfigChange(configChange);
+          return {
+            mode: 'dry_run',
+            targetName: input.targetName,
+            enabled,
+            outcome: mutationOutcome(enabled, configChange.changed),
+            configChange,
+          };
+        },
+      });
+    }
+
     return this.options.operationService.executeMutation({
-      context: {
-        ...input.context,
-        target: { type: 'configured_server', id: input.targetName },
-      },
+      context,
       operationName,
+      confirmationRequirements: input.confirmationRequirements,
       run: async () => {
         const configChange = await this.options.configChangeService.setConfiguredServerTargetEnabledState({
           targetName: input.targetName,

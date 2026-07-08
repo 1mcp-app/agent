@@ -11,7 +11,11 @@ import {
   AdminIdentityError,
   AdminIdentityService,
 } from '@src/domains/admin/adminIdentityService.js';
-import type { AdminOperationContext, AdminOperationResult } from '@src/domains/admin/adminOperationService.js';
+import type {
+  AdminConfirmationRequirement,
+  AdminOperationContext,
+  AdminOperationResult,
+} from '@src/domains/admin/adminOperationService.js';
 import type { AdminMutationAvailability } from '@src/domains/admin/runtimeScopeAdminLock.js';
 import { sanitizeErrorMessage } from '@src/utils/validation/sanitization.js';
 
@@ -388,11 +392,19 @@ async function handleCliConfiguredServerMutation(
     });
     return;
   }
+  const dryRun = getBodyBoolean(req.body, 'dryRun');
   const context = buildCliAdminOperationContext(req, options, session.account, sessionToken, {
     type: 'configured_server',
     id: targetName,
   });
-  const input = { context, targetName };
+  const input = {
+    context,
+    targetName,
+    ...(dryRun ? { dryRun: true } : {}),
+    confirmationRequirements: dryRun
+      ? []
+      : cliConfiguredServerConfirmationRequirements(options, targetName, operationName),
+  };
   const result =
     operationName === 'enableConfiguredServer'
       ? await options.configuredServerService.enableConfiguredServer(input)
@@ -709,7 +721,54 @@ function buildAdminOperationContext(
     },
     idempotencyKey: req.header('Idempotency-Key'),
     requestFingerprint: configuredServerRequestFingerprint(operationName, target.id),
+    confirmationFacts: getBodyRecord(req.body, 'confirmationFacts'),
   };
+}
+
+function cliConfiguredServerConfirmationRequirements(
+  options: AdminRoutesOptions,
+  targetName: string,
+  operationName: 'enableConfiguredServer' | 'disableConfiguredServer',
+): AdminConfirmationRequirement[] {
+  const identity = options.getRuntimeIdentity();
+  if (isLoopbackRuntimeUrl(identity.externalUrl)) {
+    return [];
+  }
+
+  return [
+    {
+      code: 'confirm_non_loopback_runtime',
+      expected: true,
+      target: {
+        type: 'configured_server',
+        id: targetName,
+      },
+    },
+    {
+      code: 'confirmedOperation',
+      expected: operationName === 'enableConfiguredServer' ? 'mcp.enable' : 'mcp.disable',
+      target: {
+        type: 'configured_server',
+        id: targetName,
+      },
+    },
+    {
+      code: 'confirmedRuntimeScopeId',
+      expected: identity.runtimeScopeId,
+      target: {
+        type: 'configured_server',
+        id: targetName,
+      },
+    },
+    {
+      code: 'confirmationSource',
+      expected: 'cli_flag',
+      target: {
+        type: 'configured_server',
+        id: targetName,
+      },
+    },
+  ];
 }
 
 function buildCliAdminOperationContext(
@@ -739,6 +798,7 @@ function buildCliAdminOperationContext(
     },
     idempotencyKey: req.header('Idempotency-Key'),
     requestFingerprint: configuredServerRequestFingerprint(operationName, target.id),
+    confirmationFacts: getBodyRecord(req.body, 'confirmationFacts'),
   };
 }
 
@@ -888,4 +948,32 @@ function getBodyString(body: unknown, key: string): string {
 
   const value = (body as Record<string, unknown>)[key];
   return typeof value === 'string' ? value : '';
+}
+
+function getBodyBoolean(body: unknown, key: string): boolean {
+  if (!body || typeof body !== 'object') {
+    return false;
+  }
+
+  return (body as Record<string, unknown>)[key] === true;
+}
+
+function getBodyRecord(body: unknown, key: string): Record<string, unknown> | undefined {
+  if (!body || typeof body !== 'object') {
+    return undefined;
+  }
+
+  const value = (body as Record<string, unknown>)[key];
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? { ...(value as Record<string, unknown>) }
+    : undefined;
+}
+
+function isLoopbackRuntimeUrl(value: string): boolean {
+  try {
+    const hostname = new URL(value).hostname.toLowerCase();
+    return hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '::1' || hostname === '[::1]';
+  } catch {
+    return false;
+  }
 }

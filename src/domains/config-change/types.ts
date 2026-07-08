@@ -71,6 +71,9 @@ export interface ConfigChangePorts {
 export interface ConfigChangeService {
   removeConfiguredServerTarget(input: RemoveConfiguredServerTargetInput): Promise<ConfigChangeResult>;
   setStaticConfiguredServerTarget(input: SetStaticConfiguredServerTargetInput): Promise<ConfigChangeResult>;
+  previewConfiguredServerTargetEnabledState(
+    input: SetConfiguredServerTargetEnabledStateInput,
+  ): Promise<ConfigChangeResult>;
   setConfiguredServerTargetEnabledState(input: SetConfiguredServerTargetEnabledStateInput): Promise<ConfigChangeResult>;
   acquireConfigLockForTest(configPath: string): Promise<() => void>;
 }

@@ -98,6 +98,72 @@ describe('admin credential commands', () => {
     );
   });
 
+  it('preserves admin login while warning when runtime mutations are temporarily unavailable', async () => {
+    apiGet.mockResolvedValueOnce(
+      okResponse({
+        ok: true,
+        cliProtocolVersion: '1',
+        result: {
+          runtime: {
+            runtimeScopeId: 'scope_prod',
+            externalUrl: 'https://prod.example.com',
+            runtimeVersion: '0.34.0',
+          },
+          supportedOperations: ['admin.login', 'admin.logout', 'admin.status'],
+          adminMutationsAvailable: false,
+          adminMutationsUnavailableReason: 'writer_lock_unavailable',
+        },
+        warnings: [],
+      }),
+    );
+
+    await adminLoginCommand({ context: 'prod', username: 'operator', password: 'correct horse', json: true }, deps());
+
+    const envelope = JSON.parse(stdout.mock.calls.map((call: unknown[]) => String(call[0])).join('')) as {
+      ok: true;
+      warnings: Array<{ code: string; details?: { reason?: string } }>;
+    };
+    expect(envelope.ok).toBe(true);
+    expect(envelope.warnings).toEqual([
+      {
+        code: 'warning_admin_mutations_unavailable',
+        message: 'Admin login succeeded, but mutation commands are currently unavailable',
+        details: {
+          reason: 'writer_lock_unavailable',
+        },
+      },
+    ]);
+    expect(store.setAdminSessionReference).toHaveBeenCalled();
+  });
+
+  it('prompts for missing admin login credentials in human mode without prompting in JSON mode', async () => {
+    const promptForCredentials = vi.fn(async () => ({
+      username: 'operator',
+      password: 'correct horse',
+    }));
+
+    await adminLoginCommand({ context: 'prod' }, { ...deps(), promptForCredentials });
+
+    expect(promptForCredentials).toHaveBeenCalledWith('prod', {
+      username: undefined,
+      password: undefined,
+    });
+    expect(apiPost).toHaveBeenCalledWith('/admin/cli/v1/session/login', {
+      username: 'operator',
+      password: 'correct horse',
+    });
+    expect(store.setAdminSessionReference).toHaveBeenCalledWith('prod', 'scope_prod', {
+      sessionToken: 'admin_sess_remote',
+      csrfToken: 'admin_csrf_remote',
+      expiresAt: '2026-07-07T01:00:00.000Z',
+    });
+
+    await expect(adminLoginCommand({ context: 'prod', json: true }, deps())).rejects.toMatchObject({
+      code: 'validation_missing_input',
+      message: 'Missing admin username',
+    });
+  });
+
   it('surfaces stable CLI Admin error envelopes from the selected runtime', async () => {
     apiPost.mockResolvedValueOnce({
       ok: false,

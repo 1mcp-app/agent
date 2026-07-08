@@ -12,6 +12,8 @@ import { type RuntimeTargetListEntry, RuntimeTargetStore } from '@src/domains/ru
 import type { GlobalOptions } from '@src/globalOptions.js';
 import { stripMcpSuffix } from '@src/utils/urlUtils.js';
 
+import prompts from 'prompts';
+
 interface AdminJsonOption {
   json?: boolean;
 }
@@ -43,6 +45,12 @@ interface AdminSessionReference {
   expiresAt?: string;
 }
 
+interface AdminCredentials {
+  username?: string;
+  password?: string;
+  cancelled?: boolean;
+}
+
 interface AdminCredentialStore {
   current(): Pick<RuntimeTargetListEntry, 'name'>;
   inspect(name: string): Pick<RuntimeTargetListEntry, 'name' | 'observedIdentity'>;
@@ -62,6 +70,10 @@ export interface AdminCommandDependencies {
     options: ResolvableServeTargetOptions & { context: string },
   ) => Promise<ResolvedServeTarget<ResolvableServeTargetOptions & { context: string }>>;
   createApiClient?: (baseUrl: string, bearerToken?: string) => AdminApiClient;
+  promptForCredentials?: (
+    context: string,
+    existing: Pick<AdminCredentials, 'username' | 'password'>,
+  ) => Promise<AdminCredentials>;
 }
 
 export interface AdminBootstrapDependencies {
@@ -104,6 +116,8 @@ interface CliCapabilitiesResult {
     enabled?: boolean;
     status?: string;
   };
+  adminMutationsAvailable?: boolean;
+  adminMutationsUnavailableReason?: string;
 }
 
 interface CliLoginResult {
@@ -169,8 +183,7 @@ export async function adminLoginCommand(
   const client = createClient(dependencies, baseUrl);
   const capabilities = await fetchCapabilities(client, 'admin.login');
   const runtimeScopeId = requireRuntimeScopeId(capabilities);
-  const username = requireOption(options.username, 'admin username');
-  const password = requireOption(options.password, 'admin password');
+  const { username, password } = await resolveAdminLoginCredentials(options, context, dependencies);
 
   const loginEnvelope = await postEnvelope<CliLoginResult>(client, '/admin/cli/v1/session/login', {
     username,
@@ -196,16 +209,17 @@ export async function adminLoginCommand(
     throw error;
   }
 
+  const warnings = [...(loginEnvelope.warnings ?? []), ...mutationReadinessWarnings(capabilities)];
   writeAdminSuccess(options, {
     operation: 'admin.login',
     target: targetJson(context, runtimeScopeId, baseUrl),
-    warnings: loginEnvelope.warnings,
+    warnings,
     result: {
       authenticated: true,
       account: loginEnvelope.result?.account,
       expiresAt: reference.expiresAt,
     },
-    human: `Admin login succeeded for ${context}.\n`,
+    human: `Admin login succeeded for ${context}.\n${warnings.map((warning) => `Warning: ${warning.message}\n`).join('')}`,
   });
 }
 
@@ -570,6 +584,26 @@ function requireAdminCapability(capabilities: CliCapabilitiesResult, requiredOpe
   }
 }
 
+function mutationReadinessWarnings(capabilities: CliCapabilitiesResult): Array<{
+  code: string;
+  message: string;
+  details?: Record<string, unknown>;
+}> {
+  if (capabilities.adminMutationsAvailable !== false) {
+    return [];
+  }
+
+  return [
+    {
+      code: 'warning_admin_mutations_unavailable',
+      message: 'Admin login succeeded, but mutation commands are currently unavailable',
+      details: {
+        reason: capabilities.adminMutationsUnavailableReason ?? 'unavailable',
+      },
+    },
+  ];
+}
+
 function isDisabledAdminAdapterError(error: unknown): boolean {
   return error instanceof AdminCommandError && error.code === 'capability_admin_disabled';
 }
@@ -596,6 +630,74 @@ function requireOption(value: string | undefined, label: string): string {
     throw new AdminCommandError('validation_missing_input', `Missing ${label}`);
   }
   return value;
+}
+
+async function resolveAdminLoginCredentials(
+  options: AdminLoginOptions,
+  context: string,
+  dependencies: AdminCommandDependencies,
+): Promise<{ username: string; password: string }> {
+  if (options.username && options.password) {
+    return {
+      username: options.username,
+      password: options.password,
+    };
+  }
+
+  if (options.json || (!dependencies.promptForCredentials && !process.stdin.isTTY)) {
+    return {
+      username: requireOption(options.username, 'admin username'),
+      password: requireOption(options.password, 'admin password'),
+    };
+  }
+
+  const prompted = await promptForCredentials(context, options, dependencies);
+  if (prompted.cancelled) {
+    throw new AdminCommandError('validation_missing_input', 'Missing admin credentials');
+  }
+
+  return {
+    username: requireOption(prompted.username, 'admin username'),
+    password: requireOption(prompted.password, 'admin password'),
+  };
+}
+
+async function promptForCredentials(
+  context: string,
+  options: AdminLoginOptions,
+  dependencies: AdminCommandDependencies,
+): Promise<AdminCredentials> {
+  const existing = {
+    username: options.username,
+    password: options.password,
+  };
+  if (dependencies.promptForCredentials) {
+    return dependencies.promptForCredentials(context, existing);
+  }
+
+  const questions: prompts.PromptObject[] = [];
+  if (!options.username) {
+    questions.push({
+      type: 'text',
+      name: 'username',
+      message: `Admin username for ${context}`,
+    });
+  }
+  if (!options.password) {
+    questions.push({
+      type: 'password',
+      name: 'password',
+      message: `Admin password for ${context}`,
+    });
+  }
+
+  const result = await prompts(questions);
+  return {
+    username: options.username ?? (typeof result.username === 'string' ? result.username : undefined),
+    password: options.password ?? (typeof result.password === 'string' ? result.password : undefined),
+    cancelled:
+      (!options.username && result.username === undefined) || (!options.password && result.password === undefined),
+  };
 }
 
 function observedRuntimeScopeId(store: AdminCredentialStore, context: string): string | undefined {

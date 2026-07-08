@@ -181,6 +181,201 @@ describe('AdminConfiguredServerService', () => {
     expect(reload).not.toHaveBeenCalled();
   });
 
+  it('previews configured server enablement without writing config, backups, reloads, or audit facts', async () => {
+    writeConfig({
+      mcpServers: {
+        filesystem: {
+          type: 'stdio',
+          command: 'npx',
+          disabled: true,
+        },
+      },
+    });
+    const service = createService();
+
+    const result = await service.enableConfiguredServer({
+      context: context({
+        target: { type: 'configured_server', id: 'filesystem' },
+        idempotencyKey: undefined,
+        requestFingerprint: undefined,
+      }),
+      targetName: 'filesystem',
+      dryRun: true,
+    });
+
+    expect(result).toMatchObject({
+      ok: true,
+      status: 'completed',
+      operationName: 'enableConfiguredServer',
+      result: {
+        mode: 'dry_run',
+        targetName: 'filesystem',
+        enabled: true,
+        outcome: 'enabled',
+        configChange: {
+          status: 'changed',
+          operation: 'enable',
+          changed: true,
+          backup: { created: false },
+          retentionCleanup: { attempted: false, deletedPaths: [], warnings: [] },
+          reload: { status: 'skipped' },
+        },
+      },
+    });
+    expect(readConfig().mcpServers.filesystem.disabled).toBe(true);
+    expect(reload).not.toHaveBeenCalled();
+    expect(service.getRecentAuditFacts()).toEqual([]);
+  });
+
+  it('fails dry-run admission when the request runtime identity does not match the Runtime Scope', async () => {
+    writeConfig({
+      mcpServers: {
+        filesystem: {
+          type: 'stdio',
+          command: 'npx',
+          disabled: true,
+        },
+      },
+    });
+    const service = createService();
+
+    const result = await service.enableConfiguredServer({
+      context: context({
+        runtimeIdentity: { runtimeScopeId: 'scope_other', runtimeVersion: '1.2.3' },
+        target: { type: 'configured_server', id: 'filesystem' },
+        idempotencyKey: undefined,
+        requestFingerprint: undefined,
+      }),
+      targetName: 'filesystem',
+      dryRun: true,
+    });
+
+    expect(result).toMatchObject({
+      ok: false,
+      status: 'runtime_scope_mismatch',
+      code: 'runtime_scope_mismatch',
+      operationName: 'enableConfiguredServer',
+    });
+    expect(readConfig().mcpServers.filesystem.disabled).toBe(true);
+    expect(reload).not.toHaveBeenCalled();
+  });
+
+  it('returns mutation_failed when dry-run planned config validation fails', async () => {
+    writeConfig({
+      mcpServers: {
+        broken: {
+          type: 'http',
+          url: 'invalid-url',
+          disabled: true,
+        },
+      },
+    });
+    const service = createService();
+
+    const result = await service.enableConfiguredServer({
+      context: context({
+        target: { type: 'configured_server', id: 'broken' },
+        idempotencyKey: undefined,
+        requestFingerprint: undefined,
+      }),
+      targetName: 'broken',
+      dryRun: true,
+    });
+
+    expect(result).toMatchObject({
+      ok: false,
+      status: 'mutation_failed',
+      code: 'mutation_failed',
+      operationName: 'enableConfiguredServer',
+    });
+    expect(readConfig().mcpServers.broken.disabled).toBe(true);
+    expect(reload).not.toHaveBeenCalled();
+  });
+
+  it('passes dangerous mutation confirmation requirements to Admin Operation admission', async () => {
+    writeConfig({
+      mcpServers: {
+        filesystem: {
+          type: 'stdio',
+          command: 'npx',
+          disabled: true,
+        },
+      },
+    });
+    const service = createService();
+    const confirmationRequirements = [
+      {
+        code: 'confirm_non_loopback_runtime',
+        expected: true,
+        target: { type: 'configured_server', id: 'filesystem' },
+      },
+      {
+        code: 'confirmedOperation',
+        expected: 'mcp.enable',
+        target: { type: 'configured_server', id: 'filesystem' },
+      },
+      {
+        code: 'confirmedRuntimeScopeId',
+        expected: 'scope_123',
+        target: { type: 'configured_server', id: 'filesystem' },
+      },
+      {
+        code: 'confirmationSource',
+        expected: 'cli_flag',
+        target: { type: 'configured_server', id: 'filesystem' },
+      },
+    ];
+
+    const missingConfirmation = await service.enableConfiguredServer({
+      context: context({
+        target: { type: 'configured_server', id: 'filesystem' },
+        idempotencyKey: 'enable-filesystem',
+        requestFingerprint: 'enable:fingerprint',
+      }),
+      targetName: 'filesystem',
+      confirmationRequirements,
+    });
+    const confirmed = await service.enableConfiguredServer({
+      context: context({
+        target: { type: 'configured_server', id: 'filesystem' },
+        idempotencyKey: 'enable-filesystem-confirmed',
+        requestFingerprint: 'enable:fingerprint:confirmed',
+        confirmationFacts: {
+          confirm_non_loopback_runtime: true,
+          confirmedOperation: 'mcp.enable',
+          confirmedRuntimeScopeId: 'scope_123',
+          confirmedTargetUrl: 'https://target-alias.example.com',
+          confirmationSource: 'cli_flag',
+        },
+      }),
+      targetName: 'filesystem',
+      confirmationRequirements,
+    });
+
+    expect(missingConfirmation).toMatchObject({
+      ok: false,
+      status: 'mutation_confirmation_required',
+      code: 'mutation_confirmation_required',
+      confirmationRequirements,
+    });
+    expect(readConfig().mcpServers.filesystem.disabled).toBeUndefined();
+    expect(confirmed).toMatchObject({
+      ok: true,
+      result: {
+        targetName: 'filesystem',
+        enabled: true,
+        outcome: 'enabled',
+      },
+    });
+    expect(service.getRecentAuditFacts({ limit: 1 })[0]?.confirmationFacts).toEqual({
+      confirm_non_loopback_runtime: true,
+      confirmedOperation: 'mcp.enable',
+      confirmedRuntimeScopeId: 'scope_123',
+      confirmedTargetUrl: 'https://target-alias.example.com',
+      confirmationSource: 'cli_flag',
+    });
+  });
+
   it('treats config change failure and reload observation failure as mutation failures', async () => {
     writeConfig({
       mcpServers: {

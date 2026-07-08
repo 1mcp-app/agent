@@ -42,6 +42,7 @@ describe('enableCommand', () => {
     current: ReturnType<typeof vi.fn>;
     inspect: ReturnType<typeof vi.fn>;
     getAdminSessionReference: ReturnType<typeof vi.fn>;
+    setAdminSessionReference: ReturnType<typeof vi.fn>;
     clearAdminSessionReference: ReturnType<typeof vi.fn>;
   };
   let resolveTarget: ReturnType<typeof vi.fn>;
@@ -65,6 +66,7 @@ describe('enableCommand', () => {
       current: vi.fn(() => ({ name: 'local', kind: 'local' })),
       inspect: vi.fn(() => ({ name: 'prod', kind: 'remote', observedIdentity: { runtimeScopeId: 'scope_prod' } })),
       getAdminSessionReference: vi.fn(() => ({ sessionToken: 'admin_sess_remote' })),
+      setAdminSessionReference: vi.fn(),
       clearAdminSessionReference: vi.fn(),
     };
     resolveTarget = vi.fn(async () => ({
@@ -221,6 +223,235 @@ describe('enableCommand', () => {
     );
   });
 
+  it('posts runtime-backed dry-runs without mutating local config and returns dry-run facts', async () => {
+    apiPost.mockResolvedValueOnce(
+      okResponse({
+        ok: true,
+        cliProtocolVersion: '1',
+        warnings: [],
+        result: {
+          operationId: 'op_preview',
+          operationName: 'enableConfiguredServer',
+          replayed: false,
+          mode: 'dry_run',
+          targetName: 'test-server',
+          enabled: true,
+          outcome: 'enabled',
+          configChange: {
+            status: 'changed',
+            operation: 'enable',
+            changed: true,
+            backup: { created: false },
+            reload: { status: 'skipped' },
+          },
+        },
+      }),
+    );
+
+    await enableCommand(
+      {
+        name: 'test-server',
+        context: 'prod',
+        json: true,
+        dryRun: true,
+        idempotencyKey: 'idem_preview',
+      },
+      deps(),
+    );
+
+    expect(apiPost).toHaveBeenCalledWith(
+      '/admin/cli/v1/operations/enable-server',
+      { targetName: 'test-server', dryRun: true },
+      { headers: { 'Idempotency-Key': 'idem_preview' }, timeout: expect.any(Number) },
+    );
+    expect(configUtils.setServer).not.toHaveBeenCalled();
+    const envelope = JSON.parse(stdout.mock.calls.map((call: unknown[]) => String(call[0])).join('')) as {
+      ok: true;
+      result: { mode: string; targetName: string };
+    };
+    expect(envelope.result).toMatchObject({
+      mode: 'dry_run',
+      targetName: 'test-server',
+    });
+  });
+
+  it('sends explicit non-loopback confirmation facts for runtime-backed mutations', async () => {
+    await enableCommand(
+      {
+        name: 'test-server',
+        context: 'prod',
+        json: true,
+        idempotencyKey: 'idem_confirmed',
+        confirmNonLoopback: true,
+      },
+      deps(),
+    );
+
+    expect(apiPost).toHaveBeenCalledWith(
+      '/admin/cli/v1/operations/enable-server',
+      {
+        targetName: 'test-server',
+        confirmationFacts: {
+          confirm_non_loopback_runtime: true,
+          confirmationSource: 'cli_flag',
+          confirmedOperation: 'mcp.enable',
+          confirmedRuntimeScopeId: 'scope_prod',
+          confirmedTargetContext: 'prod',
+          confirmedTargetUrl: 'https://prod.example.com',
+        },
+      },
+      { headers: { 'Idempotency-Key': 'idem_confirmed' }, timeout: expect.any(Number) },
+    );
+  });
+
+  it('adds non-loopback confirmation recovery guidance when the runtime requires confirmation', async () => {
+    apiPost.mockResolvedValueOnce(
+      okResponse({
+        ok: false,
+        cliProtocolVersion: '1',
+        warnings: [],
+        error: {
+          code: 'mutation_confirmation_required',
+          message: 'Additional mutation confirmation is required',
+          retryable: false,
+          details: {
+            confirmationRequirements: [{ code: 'confirm_non_loopback_runtime', expected: true }],
+          },
+        },
+      }),
+    );
+
+    await enableCommand(
+      {
+        name: 'test-server',
+        context: 'prod',
+        json: true,
+        idempotencyKey: 'idem_confirm',
+      },
+      deps(),
+    );
+
+    expect(process.exitCode).toBe(1);
+    const envelope = JSON.parse(stdout.mock.calls.map((call: unknown[]) => String(call[0])).join('')) as {
+      error: { code: string; recoveryCommand?: string; details?: unknown };
+    };
+    expect(envelope.error).toMatchObject({
+      code: 'mutation_confirmation_required',
+      recoveryCommand:
+        '1mcp mcp enable test-server --context prod --idempotency-key idem_confirm --confirm-non-loopback --json',
+    });
+    expect(envelope).toMatchObject({
+      target: { context: 'prod' },
+    });
+  });
+
+  it('can prompt for admin credentials, store a scoped session, and continue a runtime-backed mutation', async () => {
+    runtimeTargetStore.getAdminSessionReference.mockReturnValue(undefined);
+    apiPost.mockImplementation(async (path: string) =>
+      path.endsWith('/session/login')
+        ? okResponse({
+            ok: true,
+            cliProtocolVersion: '1',
+            warnings: [],
+            result: {
+              sessionToken: 'admin_sess_prompted',
+              csrfToken: 'admin_csrf_prompted',
+              expiresAt: '2026-07-07T01:00:00.000Z',
+            },
+          })
+        : okResponse({
+            ok: true,
+            cliProtocolVersion: '1',
+            warnings: [],
+            result: {
+              operationId: 'op_enable',
+              operationName: 'enableConfiguredServer',
+              replayed: false,
+              targetName: 'test-server',
+              enabled: true,
+              outcome: 'enabled',
+            },
+          }),
+    );
+    const promptForAdminCredentials = vi.fn(async () => ({
+      username: 'operator',
+      password: 'correct horse',
+    }));
+
+    await enableCommand(
+      {
+        name: 'test-server',
+        context: 'prod',
+        idempotencyKey: 'idem_prompted',
+      },
+      { ...deps(), promptForAdminCredentials },
+    );
+
+    expect(promptForAdminCredentials).toHaveBeenCalledWith('prod');
+    expect(apiPost).toHaveBeenCalledWith('/admin/cli/v1/session/login', {
+      username: 'operator',
+      password: 'correct horse',
+    });
+    expect(runtimeTargetStore.setAdminSessionReference).toHaveBeenCalledWith('prod', 'scope_prod', {
+      sessionToken: 'admin_sess_prompted',
+      csrfToken: 'admin_csrf_prompted',
+      expiresAt: '2026-07-07T01:00:00.000Z',
+    });
+    expect(apiPost).toHaveBeenCalledWith(
+      '/admin/cli/v1/operations/enable-server',
+      { targetName: 'test-server' },
+      { headers: { 'Idempotency-Key': 'idem_prompted' }, timeout: expect.any(Number) },
+    );
+  });
+
+  it('revokes a prompted admin session when local session persistence fails', async () => {
+    runtimeTargetStore.getAdminSessionReference.mockReturnValue(undefined);
+    runtimeTargetStore.setAdminSessionReference.mockImplementation(() => {
+      throw new Error('secret store is insecure');
+    });
+    apiPost.mockImplementation(async (path: string) =>
+      path.endsWith('/session/login')
+        ? okResponse({
+            ok: true,
+            cliProtocolVersion: '1',
+            warnings: [],
+            result: {
+              sessionToken: 'admin_sess_prompted',
+              csrfToken: 'admin_csrf_prompted',
+              expiresAt: '2026-07-07T01:00:00.000Z',
+            },
+          })
+        : okResponse({
+            ok: true,
+            cliProtocolVersion: '1',
+            warnings: [],
+            result: { revoked: true },
+          }),
+    );
+
+    await enableCommand(
+      {
+        name: 'test-server',
+        context: 'prod',
+      },
+      {
+        ...deps(),
+        promptForAdminCredentials: vi.fn(async () => ({
+          username: 'operator',
+          password: 'correct horse',
+        })),
+      },
+    );
+
+    expect(apiPost).toHaveBeenCalledWith('/admin/cli/v1/session/logout', {});
+    expect(apiPost).not.toHaveBeenCalledWith(
+      '/admin/cli/v1/operations/enable-server',
+      expect.anything(),
+      expect.anything(),
+    );
+    expect(exit).toHaveBeenCalledWith(1);
+  });
+
   it('rejects ephemeral URL targets for credentialed admin mutation', async () => {
     await enableCommand({ name: 'test-server', url: 'https://runtime.example.com', json: true }, deps());
 
@@ -254,6 +485,7 @@ describe('enableCommand', () => {
     };
     expect(envelope).toMatchObject({
       ok: false,
+      target: { context: 'prod' },
       error: {
         code: 'auth_admin_session_required',
         recoveryCommand: '1mcp admin login --context prod',

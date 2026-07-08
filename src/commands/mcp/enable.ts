@@ -12,6 +12,7 @@ import { GlobalOptions } from '@src/globalOptions.js';
 import printer from '@src/utils/ui/printer.js';
 import { stripMcpSuffix } from '@src/utils/urlUtils.js';
 
+import prompts from 'prompts';
 import type { Argv } from 'yargs';
 
 import {
@@ -33,16 +34,31 @@ export interface EnableDisableCommandArgs extends GlobalOptions {
   json?: boolean;
   idempotencyKey?: string;
   waitMs?: number;
+  dryRun?: boolean;
+  'dry-run'?: boolean;
+  confirmNonLoopback?: boolean;
+  'confirm-non-loopback'?: boolean;
+  yes?: boolean;
+  loginPrompt?: boolean;
+  'login-prompt'?: boolean;
 }
 
 interface AdminSessionReference {
   sessionToken: string;
+  csrfToken?: string;
+  expiresAt?: string;
+}
+
+interface AdminCredentials {
+  username?: string;
+  password?: string;
+  cancelled?: boolean;
 }
 
 interface RuntimeBackedMcpDependencies {
   runtimeTargetStore?: Pick<
     RuntimeTargetStore,
-    'current' | 'inspect' | 'getAdminSessionReference' | 'clearAdminSessionReference'
+    'current' | 'inspect' | 'getAdminSessionReference' | 'setAdminSessionReference' | 'clearAdminSessionReference'
   >;
   resolveTarget?: (
     options: ResolvableServeTargetOptions & { context: string },
@@ -54,6 +70,7 @@ interface RuntimeBackedMcpDependencies {
   ) => RuntimeBackedMcpApiClient;
   createIdempotencyKey?: () => string;
   wait?: (ms: number) => Promise<void>;
+  promptForAdminCredentials?: (contextName: string) => Promise<AdminCredentials>;
 }
 
 interface RuntimeBackedMcpApiClient {
@@ -101,7 +118,14 @@ interface CliCapabilitiesResult {
   };
 }
 
+interface CliLoginResult {
+  sessionToken?: string;
+  csrfToken?: string;
+  expiresAt?: string;
+}
+
 interface LocalMutationResult {
+  mode?: 'dry_run';
   targetName: string;
   enabled: boolean;
   outcome: 'enabled' | 'disabled' | 'already_enabled' | 'already_disabled';
@@ -181,6 +205,26 @@ function buildEnableDisableCommand(yargs: Argv, operation: 'enable' | 'disable')
       type: 'number',
       default: DEFAULT_REMOTE_MUTATION_WAIT_MS,
     })
+    .option('dry-run', {
+      describe: 'Preview the enable/disable operation without writing config or reloading servers',
+      type: 'boolean',
+      default: false,
+    })
+    .option('confirm-non-loopback', {
+      describe: 'Confirm mutation against a non-loopback runtime target',
+      type: 'boolean',
+      default: false,
+    })
+    .option('yes', {
+      describe: 'Skip confirmation prompts for supported runtime-backed mutations',
+      type: 'boolean',
+      default: false,
+    })
+    .option('login-prompt', {
+      describe: 'Prompt for Admin credentials when a selected Runtime Target has no Admin Session',
+      type: 'boolean',
+      default: true,
+    })
     .option('json', {
       describe: 'Write machine-readable JSON output',
       type: 'boolean',
@@ -250,29 +294,51 @@ async function setRuntimeBackedServerEnabledState(
   argv: EnableDisableCommandArgs,
   enabled: boolean,
   contextName: string,
-  store: Pick<RuntimeTargetStore, 'getAdminSessionReference' | 'clearAdminSessionReference'>,
+  store: Pick<
+    RuntimeTargetStore,
+    'getAdminSessionReference' | 'setAdminSessionReference' | 'clearAdminSessionReference'
+  >,
   dependencies: RuntimeBackedMcpDependencies,
 ): Promise<void> {
   validateServerName(argv.name);
   const resolver = dependencies.resolveTarget ?? ((input) => resolveServeTarget(input));
   const target = await resolver({ ...argv, context: contextName, url: undefined });
   const baseUrl = stripMcpSuffix(target.discoveredUrl);
-  const capabilities = await fetchCapabilities(
-    createClient(dependencies, baseUrl),
-    enabled ? 'mcp.enable' : 'mcp.disable',
-  );
+  const unauthenticatedClient = createClient(dependencies, baseUrl);
+  const capabilities = await fetchCapabilities(unauthenticatedClient, enabled ? 'mcp.enable' : 'mcp.disable');
   const runtimeScopeId = requireRuntimeScopeId(capabilities);
-  const reference = toAdminSessionReference(store.getAdminSessionReference(contextName, runtimeScopeId));
+  let reference = toAdminSessionReference(store.getAdminSessionReference(contextName, runtimeScopeId));
   if (!reference) {
-    throw new McpRuntimeCommandError(
-      'auth_admin_session_required',
-      `Admin Session is required for Runtime Target Context "${contextName}"`,
-      `1mcp admin login --context ${contextName}`,
+    reference = await createPromptedAdminSession(
+      argv,
+      contextName,
+      runtimeScopeId,
+      baseUrl,
+      unauthenticatedClient,
+      store,
+      dependencies,
     );
   }
 
-  const authenticatedClient = createClient(dependencies, baseUrl, reference.sessionToken);
-  await validateAdminSession(authenticatedClient, store, contextName, runtimeScopeId);
+  let authenticatedClient = createClient(dependencies, baseUrl, reference.sessionToken);
+  try {
+    await validateAdminSession(authenticatedClient, store, contextName, runtimeScopeId);
+  } catch (error) {
+    if (!shouldRetryWithPromptedAdminSession(argv, dependencies, error)) {
+      throw error;
+    }
+    reference = await createPromptedAdminSession(
+      argv,
+      contextName,
+      runtimeScopeId,
+      baseUrl,
+      unauthenticatedClient,
+      store,
+      dependencies,
+    );
+    authenticatedClient = createClient(dependencies, baseUrl, reference.sessionToken);
+    await validateAdminSession(authenticatedClient, store, contextName, runtimeScopeId);
+  }
 
   const idempotencyKey = argv.idempotencyKey?.trim() || dependencies.createIdempotencyKey?.() || randomUUID();
   const mutationClient = createClient(dependencies, baseUrl, reference.sessionToken, {
@@ -281,15 +347,21 @@ async function setRuntimeBackedServerEnabledState(
   const mutationEnvelope = await postMutationWithBoundedWait({
     argv,
     enabled,
+    contextName,
+    runtimeScopeId,
+    baseUrl,
     client: mutationClient,
     idempotencyKey,
     wait: dependencies.wait ?? defaultWait,
   });
   if (!mutationEnvelope.ok) {
+    const confirmationRequired = mutationEnvelope.error?.code === 'mutation_confirmation_required';
     throw envelopeError(
       mutationEnvelope,
       `Runtime-backed mcp ${enabled ? 'enable' : 'disable'} failed`,
-      recoveryCommand(argv, enabled, contextName, idempotencyKey),
+      recoveryCommand(argv, enabled, contextName, idempotencyKey, {
+        includeNonLoopbackConfirmation: confirmationRequired,
+      }),
     );
   }
 
@@ -308,6 +380,9 @@ async function setRuntimeBackedServerEnabledState(
 async function postMutationWithBoundedWait(input: {
   argv: EnableDisableCommandArgs;
   enabled: boolean;
+  contextName: string;
+  runtimeScopeId: string;
+  baseUrl: string;
   client: RuntimeBackedMcpApiClient;
   idempotencyKey: string;
   wait: (ms: number) => Promise<void>;
@@ -321,7 +396,12 @@ async function postMutationWithBoundedWait(input: {
     const envelope = await postEnvelope(
       input.client,
       path,
-      { targetName: input.argv.name },
+      mutationRequestBody(input.argv, {
+        enabled: input.enabled,
+        contextName: input.contextName,
+        runtimeScopeId: input.runtimeScopeId,
+        baseUrl: input.baseUrl,
+      }),
       { 'Idempotency-Key': input.idempotencyKey },
       requestTimeoutMs,
     );
@@ -369,6 +449,18 @@ async function setLocalServerEnabledState(
       targetName: name,
       enabled,
       outcome: enabled ? 'already_enabled' : 'already_disabled',
+    };
+  }
+
+  if (isDryRun(argv)) {
+    if (!options.silent) {
+      printer.info(`Dry run: would ${enabled ? 'enable' : 'disable'} server '${name}'.`);
+    }
+    return {
+      mode: 'dry_run',
+      targetName: name,
+      enabled,
+      outcome: enabled ? 'enabled' : 'disabled',
     };
   }
 
@@ -454,6 +546,114 @@ async function validateAdminSession(
   );
 }
 
+async function createPromptedAdminSession(
+  argv: EnableDisableCommandArgs,
+  contextName: string,
+  runtimeScopeId: string,
+  baseUrl: string,
+  client: RuntimeBackedMcpApiClient,
+  store: Pick<RuntimeTargetStore, 'setAdminSessionReference'>,
+  dependencies: RuntimeBackedMcpDependencies,
+): Promise<AdminSessionReference> {
+  if (!canPromptForAdminCredentials(argv, dependencies)) {
+    throw new McpRuntimeCommandError(
+      'auth_admin_session_required',
+      `Admin Session is required for Runtime Target Context "${contextName}"`,
+      `1mcp admin login --context ${contextName}`,
+    );
+  }
+
+  const credentials = await promptForAdminCredentials(contextName, dependencies);
+  if (credentials.cancelled || !credentials.username || !credentials.password) {
+    throw new McpRuntimeCommandError(
+      'auth_admin_session_required',
+      `Admin Session is required for Runtime Target Context "${contextName}"`,
+      `1mcp admin login --context ${contextName}`,
+    );
+  }
+
+  const loginEnvelope = await postEnvelope<CliLoginResult>(client, '/admin/cli/v1/session/login', {
+    username: credentials.username,
+    password: credentials.password,
+  });
+  if (!loginEnvelope.ok) {
+    throw envelopeError(loginEnvelope, 'admin login failed', `1mcp admin login --context ${contextName}`);
+  }
+  if (!loginEnvelope.result?.sessionToken) {
+    throw new McpRuntimeCommandError('protocol_invalid_response', 'CLI Admin login response did not include a session');
+  }
+
+  const reference: AdminSessionReference = {
+    sessionToken: loginEnvelope.result.sessionToken,
+    ...(loginEnvelope.result.csrfToken ? { csrfToken: loginEnvelope.result.csrfToken } : {}),
+    ...(loginEnvelope.result.expiresAt ? { expiresAt: loginEnvelope.result.expiresAt } : {}),
+  };
+  try {
+    store.setAdminSessionReference(contextName, runtimeScopeId, reference);
+  } catch (error) {
+    await revokePromptedAdminSession(createClient(dependencies, baseUrl, reference.sessionToken));
+    throw error;
+  }
+  return reference;
+}
+
+async function revokePromptedAdminSession(client: RuntimeBackedMcpApiClient): Promise<void> {
+  try {
+    await postEnvelope(client, '/admin/cli/v1/session/logout', {});
+  } catch {
+    // Preserve the local persistence failure as the operator-facing error.
+  }
+}
+
+async function promptForAdminCredentials(
+  contextName: string,
+  dependencies: RuntimeBackedMcpDependencies,
+): Promise<AdminCredentials> {
+  if (dependencies.promptForAdminCredentials) {
+    return dependencies.promptForAdminCredentials(contextName);
+  }
+
+  const result = await prompts([
+    {
+      type: 'text',
+      name: 'username',
+      message: `Admin username for ${contextName}`,
+    },
+    {
+      type: 'password',
+      name: 'password',
+      message: `Admin password for ${contextName}`,
+    },
+  ]);
+  return {
+    username: typeof result.username === 'string' ? result.username : undefined,
+    password: typeof result.password === 'string' ? result.password : undefined,
+    cancelled: result.username === undefined || result.password === undefined,
+  };
+}
+
+function canPromptForAdminCredentials(
+  argv: EnableDisableCommandArgs,
+  dependencies: RuntimeBackedMcpDependencies,
+): boolean {
+  if (argv.json || argv.loginPrompt === false || argv['login-prompt'] === false) {
+    return false;
+  }
+  return Boolean(dependencies.promptForAdminCredentials) || Boolean(process.stdin.isTTY);
+}
+
+function shouldRetryWithPromptedAdminSession(
+  argv: EnableDisableCommandArgs,
+  dependencies: RuntimeBackedMcpDependencies,
+  error: unknown,
+): boolean {
+  return (
+    canPromptForAdminCredentials(argv, dependencies) &&
+    isCodedError(error) &&
+    (error.code.startsWith('auth_') || error.code.includes('session'))
+  );
+}
+
 function requireMutationReadiness(capabilities: CliCapabilitiesResult, requiredOperation: string): void {
   const requiredMcpOperation = requiredOperation === 'mcp.enable' ? 'enable' : 'disable';
   if (capabilities.adminMutationsAvailable === false) {
@@ -495,10 +695,17 @@ async function postEnvelope<T>(
   client: RuntimeBackedMcpApiClient,
   path: string,
   body: unknown,
-  headers: Record<string, string>,
-  timeout: number,
+  headers: Record<string, string> = {},
+  timeout?: number,
 ): Promise<CliAdminEnvelope<T>> {
-  const response = await client.post<CliAdminEnvelope<T>>(path, body, { headers, timeout });
+  const options =
+    Object.keys(headers).length === 0 && timeout === undefined
+      ? undefined
+      : { headers, ...(timeout === undefined ? {} : { timeout }) };
+  const response =
+    options === undefined
+      ? await client.post<CliAdminEnvelope<T>>(path, body)
+      : await client.post<CliAdminEnvelope<T>>(path, body, options);
   if (response.data) {
     return response.data;
   }
@@ -516,6 +723,42 @@ async function postEnvelope<T>(
     };
   }
   throw new McpRuntimeCommandError('runtime_unreachable', response.error ?? `Runtime returned HTTP ${response.status}`);
+}
+
+function mutationRequestBody(
+  argv: EnableDisableCommandArgs,
+  confirmationContext: {
+    enabled: boolean;
+    contextName: string;
+    runtimeScopeId: string;
+    baseUrl: string;
+  },
+): Record<string, unknown> {
+  const body: Record<string, unknown> = {
+    targetName: argv.name,
+  };
+  if (isDryRun(argv)) {
+    body.dryRun = true;
+  }
+  if (hasNonLoopbackConfirmation(argv)) {
+    body.confirmationFacts = {
+      confirm_non_loopback_runtime: true,
+      confirmationSource: 'cli_flag',
+      confirmedOperation: operationId(confirmationContext.enabled),
+      confirmedRuntimeScopeId: confirmationContext.runtimeScopeId,
+      confirmedTargetContext: confirmationContext.contextName,
+      confirmedTargetUrl: confirmationContext.baseUrl,
+    };
+  }
+  return body;
+}
+
+function isDryRun(argv: EnableDisableCommandArgs): boolean {
+  return argv.dryRun === true || argv['dry-run'] === true;
+}
+
+function hasNonLoopbackConfirmation(argv: EnableDisableCommandArgs): boolean {
+  return argv.confirmNonLoopback === true || argv['confirm-non-loopback'] === true || argv.yes === true;
 }
 
 function boundedMutationWaitMs(value: number | undefined): number {
@@ -626,6 +869,7 @@ function handleEnableDisableError(argv: EnableDisableCommandArgs, enabled: boole
         cliProtocolVersion: '1',
         requestId: createCliRequestId(),
         operation: operationId(enabled),
+        target: errorTarget(argv),
         error: {
           code: coded?.code ?? 'command_failed',
           message,
@@ -642,6 +886,16 @@ function handleEnableDisableError(argv: EnableDisableCommandArgs, enabled: boole
 
   printer.error(`Failed to ${enabled ? 'enable' : 'disable'} server: ${message}`);
   process.exit(1);
+}
+
+function errorTarget(argv: EnableDisableCommandArgs): unknown {
+  if (argv.context) {
+    return { context: argv.context };
+  }
+  if (argv.url) {
+    return { url: argv.url };
+  }
+  return { context: 'current' };
 }
 
 function isCodedError(error: unknown): error is {
@@ -681,8 +935,11 @@ function recoveryCommand(
   enabled: boolean,
   contextName: string,
   idempotencyKey: string,
+  options: { includeNonLoopbackConfirmation?: boolean } = {},
 ): string {
-  return `1mcp mcp ${enabled ? 'enable' : 'disable'} ${argv.name} --context ${contextName} --idempotency-key ${idempotencyKey}${argv.json ? ' --json' : ''}`;
+  const confirmation =
+    options.includeNonLoopbackConfirmation && !hasNonLoopbackConfirmation(argv) ? ' --confirm-non-loopback' : '';
+  return `1mcp mcp ${enabled ? 'enable' : 'disable'} ${argv.name} --context ${contextName} --idempotency-key ${idempotencyKey}${confirmation}${argv.json ? ' --json' : ''}`;
 }
 
 function operationId(enabled: boolean): string {
