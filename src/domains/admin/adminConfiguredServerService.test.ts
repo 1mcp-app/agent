@@ -235,6 +235,7 @@ describe('AdminConfiguredServerService', () => {
           type: 'stdio',
           command: 'npx',
           args: ['-y', '@modelcontextprotocol/server-filesystem', '/tmp/project'],
+          tags: ['local', 'storage'],
           env: {
             PUBLIC_MODE: 'debug',
             API_TOKEN: 'super-secret',
@@ -267,7 +268,32 @@ describe('AdminConfiguredServerService', () => {
           {
             id: 'filesystem',
             source: 'mcpServers',
+            target: {
+              type: 'configured_server',
+              id: 'filesystem',
+              source: 'mcpServers',
+            },
             enabled: true,
+            tags: ['local', 'storage'],
+            transportSummary: {
+              kind: 'stdio',
+              label: 'npx -y @modelcontextprotocol/server-filesystem /tmp/project',
+            },
+            mutationAvailability: {
+              available: true,
+              operations: ['enable', 'disable'],
+            },
+            actionState: {
+              enable: {
+                available: false,
+                disabledReason: 'already_enabled',
+                label: 'Enable filesystem',
+              },
+              disable: {
+                available: true,
+                label: 'Disable filesystem',
+              },
+            },
             transport: {
               type: 'stdio',
               command: 'npx',
@@ -289,7 +315,32 @@ describe('AdminConfiguredServerService', () => {
           {
             id: 'github',
             source: 'mcpServers',
+            target: {
+              type: 'configured_server',
+              id: 'github',
+              source: 'mcpServers',
+            },
             enabled: false,
+            tags: [],
+            transportSummary: {
+              kind: 'http',
+              label: 'https://api.example.com/mcp?token=REDACTED&workspace=docs',
+            },
+            mutationAvailability: {
+              available: true,
+              operations: ['enable', 'disable'],
+            },
+            actionState: {
+              enable: {
+                available: true,
+                label: 'Enable github',
+              },
+              disable: {
+                available: false,
+                disabledReason: 'already_disabled',
+                label: 'Disable github',
+              },
+            },
             transport: {
               type: 'http',
               url: 'https://api.example.com/mcp?token=REDACTED&workspace=docs',
@@ -345,6 +396,56 @@ describe('AdminConfiguredServerService', () => {
               {
                 fieldPath: ['url', 'query', 'apiKey'],
                 label: 'url.query.apiKey',
+                state: 'present',
+                allowedActions: ['preserve', 'replace', 'clear'],
+              },
+            ]),
+          },
+        ],
+      },
+    });
+    expect(JSON.stringify(result)).not.toContain('raw-token');
+    expect(JSON.stringify(result)).not.toContain('raw-key');
+  });
+
+  it('redacts secret-like stdio args from the transport model and summary', async () => {
+    writeConfig({
+      mcpServers: {
+        cli: {
+          type: 'stdio',
+          command: 'node',
+          args: ['server.js', '--token', 'raw-token', '--api-key=raw-key', '--workspace', 'docs'],
+        },
+      },
+    });
+
+    const result = await createService().listConfiguredServers({
+      context: context({ idempotencyKey: undefined, requestFingerprint: undefined }),
+    });
+
+    expect(result).toMatchObject({
+      ok: true,
+      result: {
+        servers: [
+          {
+            id: 'cli',
+            transportSummary: {
+              kind: 'stdio',
+              label: 'node server.js --token REDACTED --api-key=REDACTED --workspace docs',
+            },
+            transport: {
+              args: ['server.js', '--token', 'REDACTED', '--api-key=REDACTED', '--workspace', 'docs'],
+            },
+            secretInputs: expect.arrayContaining([
+              {
+                fieldPath: ['args', '2'],
+                label: 'args.--token',
+                state: 'present',
+                allowedActions: ['preserve', 'replace', 'clear'],
+              },
+              {
+                fieldPath: ['args', '3'],
+                label: 'args.--api-key',
                 state: 'present',
                 allowedActions: ['preserve', 'replace', 'clear'],
               },

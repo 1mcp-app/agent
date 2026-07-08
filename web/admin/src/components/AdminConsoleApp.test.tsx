@@ -58,6 +58,8 @@ describe('AdminConsoleApp', () => {
     expect(screen.getByText('https://runtime.example.com')).toBeInTheDocument();
     expect(screen.getByText('scope_123')).toBeInTheDocument();
     expect(screen.getAllByText('github').length).toBeGreaterThanOrEqual(2);
+    expect(screen.getByText('local / storage')).toBeInTheDocument();
+    expect(screen.getByText('npx -y @modelcontextprotocol/server-filesystem /tmp/project')).toBeInTheDocument();
     expect(screen.getByText('awaiting_oauth')).toBeInTheDocument();
     expect(screen.getByText('enableConfiguredServer')).toBeInTheDocument();
 
@@ -88,6 +90,65 @@ describe('AdminConsoleApp', () => {
     await user.click(screen.getByRole('button', { name: /copy runtime scope/i }));
 
     expect(screen.getByText('Could not copy runtime scope id. Select the value manually.')).toBeInTheDocument();
+  });
+
+  it('keeps legacy configured-server rows usable while read-model fields roll forward', async () => {
+    const user = userEvent.setup();
+    const onServerAction = vi.fn();
+
+    renderApp(
+      {
+        ...consoleState(),
+        configuredServers: [
+          {
+            id: 'legacy',
+            source: 'mcpServers',
+            enabled: false,
+            transport: { type: 'stdio', command: 'node' },
+            secretInputs: [],
+          } as any,
+        ],
+      },
+      { onServerAction },
+    );
+
+    expect(screen.getByText('node')).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: /enable legacy/i }));
+    expect(onServerAction).toHaveBeenCalledWith('legacy', 'enable');
+  });
+
+  it('disables server actions when the read model marks mutations unavailable', async () => {
+    const user = userEvent.setup();
+    const onServerAction = vi.fn();
+
+    renderApp(
+      {
+        ...consoleState(),
+        configuredServers: [
+          {
+            id: 'locked',
+            source: 'mcpServers',
+            target: { type: 'configured_server', id: 'locked', source: 'mcpServers' },
+            enabled: false,
+            tags: [],
+            transportSummary: { kind: 'http', label: 'https://example.com/mcp' },
+            mutationAvailability: { available: false, operations: ['enable', 'disable'] },
+            actionState: {
+              enable: { available: true, label: 'Enable locked' },
+              disable: { available: false, label: 'Disable locked', disabledReason: 'already_disabled' },
+            },
+            transport: { type: 'http', url: 'https://example.com/mcp' },
+            secretInputs: [],
+          },
+        ],
+      },
+      { onServerAction },
+    );
+
+    const button = screen.getByRole('button', { name: /enable locked/i });
+    expect(button).toBeDisabled();
+    await user.click(button);
+    expect(onServerAction).not.toHaveBeenCalled();
   });
 
   it('submits login, logout, refresh, and direct disable actions through callbacks', async () => {
@@ -188,14 +249,40 @@ function consoleState(): AdminConsoleState {
       {
         id: 'filesystem',
         source: 'mcpServers',
+        target: { type: 'configured_server', id: 'filesystem', source: 'mcpServers' },
         enabled: true,
-        transport: { type: 'stdio', command: 'npx' },
+        tags: ['local', 'storage'],
+        transportSummary: {
+          kind: 'stdio',
+          label: 'npx -y @modelcontextprotocol/server-filesystem /tmp/project',
+        },
+        mutationAvailability: { available: true, operations: ['enable', 'disable'] },
+        actionState: {
+          enable: { available: false, label: 'Enable filesystem', disabledReason: 'already_enabled' },
+          disable: { available: true, label: 'Disable filesystem' },
+        },
+        transport: {
+          type: 'stdio',
+          command: 'npx',
+          args: ['-y', '@modelcontextprotocol/server-filesystem', '/tmp/project'],
+        },
         secretInputs: [],
       },
       {
         id: 'github',
         source: 'mcpServers',
+        target: { type: 'configured_server', id: 'github', source: 'mcpServers' },
         enabled: false,
+        tags: [],
+        transportSummary: {
+          kind: 'http',
+          label: 'https://example.com/mcp?token=REDACTED',
+        },
+        mutationAvailability: { available: true, operations: ['enable', 'disable'] },
+        actionState: {
+          enable: { available: true, label: 'Enable github' },
+          disable: { available: false, label: 'Disable github', disabledReason: 'already_disabled' },
+        },
         transport: { type: 'http', url: 'https://example.com/mcp?token=REDACTED' },
         secretInputs: [{ fieldPath: ['url', 'query', 'token'], label: 'url.query.token', state: 'present' }],
       },

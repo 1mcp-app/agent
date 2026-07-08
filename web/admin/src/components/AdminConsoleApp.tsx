@@ -347,11 +347,19 @@ function ServerRow({
 }) {
   const action = server.enabled ? 'disable' : 'enable';
   const busy = mutation?.state === 'busy';
+  const tags = serverTags(server);
+  const actionState = serverActionState(server, action);
+  const actionUnavailable = !serverMutationsAvailable(server) || !actionState.available;
 
   return (
     <Table.Tr className={mutation ? `server-action-${mutation.state}` : undefined}>
       <Table.Td>
         <Text fw={700}>{server.id}</Text>
+        {tags.length > 0 ? (
+          <Text size="xs" c="dimmed">
+            {tags.join(' / ')}
+          </Text>
+        ) : null}
         {mutation?.message ? (
           <Text size="xs" c={mutation.state === 'failed' ? 'red' : 'dimmed'}>
             {mutation.message}
@@ -363,7 +371,7 @@ function ServerRow({
           {server.enabled ? 'enabled' : 'disabled'}
         </Badge>
       </Table.Td>
-      <Table.Td>{describeTransport(server.transport)}</Table.Td>
+      <Table.Td>{transportSummaryLabel(server)}</Table.Td>
       <Table.Td>{secretSummary(server)}</Table.Td>
       <Table.Td>
         <Button
@@ -371,10 +379,10 @@ function ServerRow({
           color={action === 'disable' ? 'red' : 'teal'}
           variant={action === 'disable' ? 'light' : 'filled'}
           loading={busy}
-          disabled={busy}
+          disabled={busy || actionUnavailable}
           onClick={() => void onServerAction?.(server.id, action)}
         >
-          {action === 'disable' ? `Disable ${server.id}` : `Enable ${server.id}`}
+          {actionState.label}
         </Button>
       </Table.Td>
     </Table.Tr>
@@ -570,6 +578,8 @@ function filterServers(servers: ConfiguredServerReadModel[], query: string, filt
     const matchesQuery =
       !normalizedQuery ||
       server.id.toLowerCase().includes(normalizedQuery) ||
+      serverTags(server).some((tag) => tag.toLowerCase().includes(normalizedQuery)) ||
+      transportSummaryLabel(server).toLowerCase().includes(normalizedQuery) ||
       describeTransport(server.transport).toLowerCase().includes(normalizedQuery);
     const matchesFilter =
       filter === 'all' || (filter === 'enabled' && server.enabled) || (filter === 'disabled' && !server.enabled);
@@ -600,6 +610,27 @@ function describeTransport(transport: Record<string, unknown>): string {
     return transport.type;
   }
   return 'configured';
+}
+
+function transportSummaryLabel(server: ConfiguredServerReadModel): string {
+  return server.transportSummary?.label ?? describeTransport(server.transport);
+}
+
+function serverTags(server: ConfiguredServerReadModel): string[] {
+  return Array.isArray(server.tags) ? server.tags : [];
+}
+
+function serverMutationsAvailable(server: ConfiguredServerReadModel): boolean {
+  return server.mutationAvailability?.available ?? true;
+}
+
+function serverActionState(server: ConfiguredServerReadModel, action: 'enable' | 'disable') {
+  return (
+    server.actionState?.[action] ?? {
+      available: true,
+      label: action === 'enable' ? `Enable ${server.id}` : `Disable ${server.id}`,
+    }
+  );
 }
 
 function secretSummary(server: ConfiguredServerReadModel): string {

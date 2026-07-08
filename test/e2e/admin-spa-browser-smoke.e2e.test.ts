@@ -248,14 +248,24 @@ function createConfiguredServerReadModels(): ConfiguredServerReadModel[] {
     {
       id: 'filesystem',
       source: 'mcpServers',
+      target: { type: 'configured_server', id: 'filesystem', source: 'mcpServers' },
       enabled: true,
+      tags: [],
+      transportSummary: { kind: 'stdio', label: 'node ./servers/filesystem.js' },
+      mutationAvailability: { available: true, operations: ['enable', 'disable'] },
+      actionState: actionState('filesystem', true),
       transport: { command: 'node ./servers/filesystem.js' },
       secretInputs: [],
     },
     {
       id: 'github',
       source: 'mcpServers',
+      target: { type: 'configured_server', id: 'github', source: 'mcpServers' },
       enabled: false,
+      tags: [],
+      transportSummary: { kind: 'http', label: 'https://mcp.example/github' },
+      mutationAvailability: { available: true, operations: ['enable', 'disable'] },
+      actionState: actionState('github', false),
       transport: { url: 'https://mcp.example/github' },
       secretInputs: [
         {
@@ -307,5 +317,17 @@ function setEnabled(servers: ConfiguredServerReadModel[], targetName: string, en
   const server = servers.find((candidate) => candidate.id === targetName);
   if (server) {
     server.enabled = enabled;
+    server.actionState = actionState(targetName, enabled);
   }
+}
+
+function actionState(targetName: string, enabled: boolean): ConfiguredServerReadModel['actionState'] {
+  return {
+    enable: enabled
+      ? { available: false, label: `Enable ${targetName}`, disabledReason: 'already_enabled' }
+      : { available: true, label: `Enable ${targetName}` },
+    disable: enabled
+      ? { available: true, label: `Disable ${targetName}` }
+      : { available: false, label: `Disable ${targetName}`, disabledReason: 'already_disabled' },
+  };
 }

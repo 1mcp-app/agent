@@ -67,7 +67,33 @@ export interface ConfiguredServerSecretInput {
 export interface ConfiguredServerReadModel {
   id: string;
   source: 'mcpServers';
+  target: {
+    type: 'configured_server';
+    id: string;
+    source: 'mcpServers';
+  };
   enabled: boolean;
+  tags: string[];
+  transportSummary: {
+    kind: string;
+    label: string;
+  };
+  mutationAvailability: {
+    available: boolean;
+    operations: Array<'enable' | 'disable'>;
+  };
+  actionState: {
+    enable: {
+      available: boolean;
+      label: string;
+      disabledReason?: 'already_enabled' | 'already_disabled';
+    };
+    disable: {
+      available: boolean;
+      label: string;
+      disabledReason?: 'already_enabled' | 'already_disabled';
+    };
+  };
   transport: Record<string, unknown>;
   secretInputs: ConfiguredServerSecretInput[];
 }

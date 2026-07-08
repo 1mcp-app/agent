@@ -37,10 +37,42 @@ export interface RedactedConfiguredServerValue {
   secret: true;
 }
 
+export interface ConfiguredServerTargetIdentity {
+  type: 'configured_server';
+  id: string;
+  source: 'mcpServers';
+}
+
+export interface ConfiguredServerTransportSummary {
+  kind: string;
+  label: string;
+}
+
+export interface ConfiguredServerMutationAvailability {
+  available: boolean;
+  operations: Array<'enable' | 'disable'>;
+}
+
+export interface ConfiguredServerActionAvailability {
+  available: boolean;
+  label: string;
+  disabledReason?: 'already_enabled' | 'already_disabled';
+}
+
+export interface ConfiguredServerActionState {
+  enable: ConfiguredServerActionAvailability;
+  disable: ConfiguredServerActionAvailability;
+}
+
 export interface ConfiguredServerReadModel {
   id: string;
   source: 'mcpServers';
+  target: ConfiguredServerTargetIdentity;
   enabled: boolean;
+  tags: string[];
+  transportSummary: ConfiguredServerTransportSummary;
+  mutationAvailability: ConfiguredServerMutationAvailability;
+  actionState: ConfiguredServerActionState;
   transport: Record<string, unknown>;
   secretInputs: ConfiguredServerSecretInput[];
 }
@@ -165,7 +197,7 @@ function createConfiguredServerReadModel(name: string, serverConfig: MCPServerPa
   const transport: Record<string, unknown> = {};
 
   for (const [key, value] of Object.entries(serverConfig)) {
-    if (key === 'disabled') {
+    if (key === 'disabled' || key === 'tags') {
       continue;
     }
 
@@ -176,6 +208,11 @@ function createConfiguredServerReadModel(name: string, serverConfig: MCPServerPa
 
     if (key === 'headers') {
       transport.headers = redactNamedSecretRecord(value, ['headers'], secretInputs);
+      continue;
+    }
+
+    if (key === 'args') {
+      transport.args = sanitizeCommandArgs(value, secretInputs);
       continue;
     }
 
@@ -192,13 +229,138 @@ function createConfiguredServerReadModel(name: string, serverConfig: MCPServerPa
     transport[key] = sanitizeUnknownValue(value, [key], secretInputs);
   }
 
+  const enabled = serverConfig.disabled ? false : true;
+
   return {
     id: name,
     source: 'mcpServers',
-    enabled: serverConfig.disabled ? false : true,
+    target: {
+      type: 'configured_server',
+      id: name,
+      source: 'mcpServers',
+    },
+    enabled,
+    tags: normalizeTags(serverConfig.tags),
+    transportSummary: createTransportSummary(serverConfig, transport),
+    mutationAvailability: {
+      available: true,
+      operations: ['enable', 'disable'],
+    },
+    actionState: createActionState(name, enabled),
     transport,
     secretInputs,
   };
+}
+
+function createActionState(name: string, enabled: boolean): ConfiguredServerActionState {
+  return {
+    enable: enabled
+      ? {
+          available: false,
+          disabledReason: 'already_enabled',
+          label: `Enable ${name}`,
+        }
+      : {
+          available: true,
+          label: `Enable ${name}`,
+        },
+    disable: enabled
+      ? {
+          available: true,
+          label: `Disable ${name}`,
+        }
+      : {
+          available: false,
+          disabledReason: 'already_disabled',
+          label: `Disable ${name}`,
+        },
+  };
+}
+
+function createTransportSummary(
+  serverConfig: MCPServerParams,
+  transport: Record<string, unknown>,
+): ConfiguredServerTransportSummary {
+  const kind = transportKind(serverConfig);
+  const url = typeof transport.url === 'string' ? transport.url : undefined;
+  const command = typeof serverConfig.command === 'string' ? serverConfig.command : undefined;
+  const args = Array.isArray(transport.args)
+    ? transport.args.filter((arg): arg is string => typeof arg === 'string')
+    : [];
+
+  if (url) {
+    return { kind, label: url };
+  }
+
+  if (command) {
+    return {
+      kind,
+      label: [command, ...args].join(' '),
+    };
+  }
+
+  return { kind, label: kind };
+}
+
+function sanitizeCommandArgs(value: unknown, secretInputs: ConfiguredServerSecretInput[]): unknown {
+  if (!Array.isArray(value)) {
+    return sanitizeUnknownValue(value, ['args'], secretInputs);
+  }
+
+  let pendingSecretFlag: string | undefined;
+  return value.map((entry, index) => {
+    const fieldPath = ['args', String(index)];
+    if (typeof entry !== 'string') {
+      pendingSecretFlag = undefined;
+      return sanitizeUnknownValue(entry, fieldPath, secretInputs);
+    }
+
+    if (pendingSecretFlag) {
+      secretInputs.push(secretInput(fieldPath, `args.${pendingSecretFlag}`));
+      pendingSecretFlag = undefined;
+      return 'REDACTED';
+    }
+
+    const assignment = secretAssignmentArg(entry);
+    if (assignment) {
+      secretInputs.push(secretInput(fieldPath, `args.${assignment.label}`));
+      return `${assignment.prefix}REDACTED`;
+    }
+
+    pendingSecretFlag = secretFlagArg(entry);
+    return entry;
+  });
+}
+
+function secretAssignmentArg(value: string): { prefix: string; label: string } | null {
+  const match = value.match(/^((-{1,2}[^=\s]+)|([A-Za-z_][A-Za-z0-9_]*))=(.*)$/u);
+  if (!match) {
+    return null;
+  }
+
+  const key = match[1];
+  return isSecretLikeKey(key) ? { prefix: `${key}=`, label: key } : null;
+}
+
+function secretFlagArg(value: string): string | undefined {
+  return /^-{1,2}[^=\s]+$/u.test(value) && isSecretLikeKey(value) ? value : undefined;
+}
+
+function transportKind(serverConfig: MCPServerParams): string {
+  if (typeof serverConfig.type === 'string') {
+    return serverConfig.type;
+  }
+  if (typeof serverConfig.url === 'string') {
+    return 'http';
+  }
+  if (typeof serverConfig.command === 'string') {
+    return 'stdio';
+  }
+  return 'unknown';
+}
+
+function normalizeTags(tags: unknown): string[] {
+  return Array.isArray(tags) ? tags.filter((tag): tag is string => typeof tag === 'string') : [];
 }
 
 function redactNamedSecretRecord(

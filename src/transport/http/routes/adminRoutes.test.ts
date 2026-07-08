@@ -928,7 +928,15 @@ describe('admin routes', () => {
           {
             id: 'filesystem',
             source: 'mcpServers',
+            target: { type: 'configured_server', id: 'filesystem', source: 'mcpServers' },
             enabled: true,
+            tags: [],
+            transportSummary: { kind: 'stdio', label: 'npx' },
+            mutationAvailability: { available: true, operations: ['enable', 'disable'] },
+            actionState: {
+              enable: { available: false, label: 'Enable filesystem', disabledReason: 'already_enabled' },
+              disable: { available: true, label: 'Disable filesystem' },
+            },
             transport: {
               type: 'stdio',
               command: 'npx',
@@ -964,7 +972,15 @@ describe('admin routes', () => {
         {
           id: 'filesystem',
           source: 'mcpServers',
+          target: { type: 'configured_server', id: 'filesystem', source: 'mcpServers' },
           enabled: true,
+          tags: [],
+          transportSummary: { kind: 'stdio', label: 'npx' },
+          mutationAvailability: { available: true, operations: ['enable', 'disable'] },
+          actionState: {
+            enable: { available: false, label: 'Enable filesystem', disabledReason: 'already_enabled' },
+            disable: { available: true, label: 'Disable filesystem' },
+          },
           transport: {
             type: 'stdio',
             command: 'npx',
