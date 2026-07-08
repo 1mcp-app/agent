@@ -24,9 +24,19 @@ import express, { Request, Response, Router } from 'express';
 const FAILED_LOGIN_LIMIT = 5;
 const FAILED_LOGIN_WINDOW_MS = 15 * 60 * 1000;
 const CLI_ADMIN_PROTOCOL_VERSION = '1';
+const CLI_ADMIN_RESPONSE_MAX_BYTES = 256 * 1024;
+const CLI_ADMIN_RESPONSE_TOO_LARGE_MESSAGE =
+  'CLI Admin response exceeded the maximum supported size; use a narrower or paginated request.';
 const CLI_SESSION_OPERATIONS = ['admin.login', 'admin.status', 'admin.logout'] as const;
 const CLI_MCP_OPERATIONS = ['mcp.enable', 'mcp.disable'] as const;
 type AdminOperationFailure = Extract<AdminOperationResult, { ok: false }>;
+interface CliAdminEnvelope {
+  ok: boolean;
+  cliProtocolVersion: typeof CLI_ADMIN_PROTOCOL_VERSION;
+  requestId: string;
+  warnings: unknown[];
+  [key: string]: unknown;
+}
 
 interface AdminRoutesOptions {
   adminEnabled: boolean;
@@ -584,7 +594,7 @@ function isHttpsRuntime(externalUrl: string): boolean {
 
 function sendCliSuccess<T>(req: Request, res: Response, result: T): void {
   const requestId = getRequestId(req);
-  res.status(200).json({
+  sendBoundedCliEnvelope(res, 200, {
     ok: true,
     cliProtocolVersion: CLI_ADMIN_PROTOCOL_VERSION,
     requestId,
@@ -627,7 +637,7 @@ function sendCliError(
   },
 ): void {
   const requestId = getRequestId(req);
-  res.status(error.status).json({
+  sendBoundedCliEnvelope(res, error.status, {
     ok: false,
     cliProtocolVersion: CLI_ADMIN_PROTOCOL_VERSION,
     requestId,
@@ -642,6 +652,29 @@ function sendCliError(
     },
     warnings: [],
   });
+}
+
+function sendBoundedCliEnvelope(res: Response, status: number, envelope: CliAdminEnvelope): void {
+  if (Buffer.byteLength(JSON.stringify(envelope), 'utf8') > CLI_ADMIN_RESPONSE_MAX_BYTES) {
+    res.status(422).json({
+      ok: false,
+      cliProtocolVersion: CLI_ADMIN_PROTOCOL_VERSION,
+      requestId: envelope.requestId,
+      error: {
+        code: 'validation_response_too_large',
+        message: CLI_ADMIN_RESPONSE_TOO_LARGE_MESSAGE,
+        retryable: false,
+        requestId: envelope.requestId,
+        details: {
+          maxBytes: CLI_ADMIN_RESPONSE_MAX_BYTES,
+        },
+      },
+      warnings: [],
+    });
+    return;
+  }
+
+  res.status(status).json(envelope);
 }
 
 function sendCliAdminOperationResult<T>(req: Request, res: Response, result: AdminOperationResult<T>): void {

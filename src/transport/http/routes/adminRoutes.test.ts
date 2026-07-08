@@ -876,6 +876,107 @@ describe('admin routes', () => {
     });
   });
 
+  it('returns a bounded CLI error instead of streaming oversized success responses', async () => {
+    await adminService.bootstrapFirstAdmin({ username: 'operator', password: 'correct horse battery staple' });
+    const oversizedValue = 'x'.repeat(300 * 1024);
+    configuredServerService.enableConfiguredServer.mockResolvedValue({
+      ok: true,
+      status: 'completed',
+      operationId: 'op_cli_large_success',
+      operationName: 'enableConfiguredServer',
+      replayed: false,
+      result: {
+        targetName: 'filesystem',
+        enabled: true,
+        outcome: 'enabled',
+        configChange: {
+          status: 'changed',
+          operation: 'enable',
+          configPath: '/tmp/mcp.json',
+          target: { name: 'filesystem', source: 'mcpServers' },
+          changed: true,
+          backup: { created: false },
+          retentionCleanup: { attempted: false, deletedPaths: [], warnings: [] },
+          reload: { status: 'observed' },
+          warnings: [oversizedValue],
+        },
+      },
+    });
+    const app = mountAdminRoutes();
+    const loginResponse = await request(app)
+      .post('/admin/cli/v1/session/login')
+      .send({ username: 'operator', password: 'correct horse battery staple' });
+
+    const response = await request(app)
+      .post('/admin/cli/v1/operations/enable-server')
+      .set('Authorization', `Bearer ${loginResponse.body.result.sessionToken}`)
+      .set('X-Request-Id', 'req_cli_large_success')
+      .set('Idempotency-Key', 'large-success-key')
+      .send({ targetName: 'filesystem' });
+
+    expect(response.status).toBe(422);
+    expect(response.body).toMatchObject({
+      ok: false,
+      cliProtocolVersion: '1',
+      requestId: 'req_cli_large_success',
+      error: {
+        code: 'validation_response_too_large',
+        message: 'CLI Admin response exceeded the maximum supported size; use a narrower or paginated request.',
+        retryable: false,
+        requestId: 'req_cli_large_success',
+        details: {
+          maxBytes: expect.any(Number),
+        },
+      },
+      warnings: [],
+    });
+    expect(response.body.error.details.maxBytes).toBeLessThan(oversizedValue.length);
+    expect(response.text).not.toContain(oversizedValue.slice(0, 128));
+  });
+
+  it('returns a bounded CLI error instead of streaming oversized error details', async () => {
+    await adminService.bootstrapFirstAdmin({ username: 'operator', password: 'correct horse battery staple' });
+    const oversizedValue = 'x'.repeat(300 * 1024);
+    configuredServerService.enableConfiguredServer.mockResolvedValue({
+      ok: false,
+      status: 'mutation_failed',
+      code: 'mutation_failed',
+      retryable: false,
+      operationName: 'enableConfiguredServer',
+      error: oversizedValue,
+    });
+    const app = mountAdminRoutes();
+    const loginResponse = await request(app)
+      .post('/admin/cli/v1/session/login')
+      .send({ username: 'operator', password: 'correct horse battery staple' });
+
+    const response = await request(app)
+      .post('/admin/cli/v1/operations/enable-server')
+      .set('Authorization', `Bearer ${loginResponse.body.result.sessionToken}`)
+      .set('X-Request-Id', 'req_cli_large_error')
+      .set('Idempotency-Key', 'large-error-key')
+      .send({ targetName: 'filesystem' });
+
+    expect(response.status).toBe(422);
+    expect(response.body).toMatchObject({
+      ok: false,
+      cliProtocolVersion: '1',
+      requestId: 'req_cli_large_error',
+      error: {
+        code: 'validation_response_too_large',
+        message: 'CLI Admin response exceeded the maximum supported size; use a narrower or paginated request.',
+        retryable: false,
+        requestId: 'req_cli_large_error',
+        details: {
+          maxBytes: expect.any(Number),
+        },
+      },
+      warnings: [],
+    });
+    expect(response.body.error.details.maxBytes).toBeLessThan(oversizedValue.length);
+    expect(response.text).not.toContain(oversizedValue.slice(0, 128));
+  });
+
   it('reports an unavailable runtime scope admin lock and rejects CLI mutations without calling the service', async () => {
     await adminService.bootstrapFirstAdmin({ username: 'operator', password: 'correct horse battery staple' });
     const app = mountAdminRoutes({
