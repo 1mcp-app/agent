@@ -5,41 +5,83 @@ import {
   Button,
   Code,
   Group,
+  NativeSelect,
   Paper,
   PasswordInput,
+  Radio,
   SegmentedControl,
   SimpleGrid,
   Stack,
+  Switch,
   Table,
+  TagsInput,
   Text,
+  Textarea,
   TextInput,
   Title,
 } from '@mantine/core';
 
 import { Activity, AlertTriangle, CheckCircle2, Clipboard, LogOut, RefreshCw, Search, ServerCog } from 'lucide-react';
-import { type ReactNode, useMemo, useState } from 'react';
+import { type ReactNode, useEffect, useMemo, useState } from 'react';
 
-import type { AdminAuditFact, ConfiguredServerReadModel, OAuthServiceStatus, RuntimeIdentity } from '../api/adminApi';
+import type {
+  AdminAuditFact,
+  ConfiguredServerDetailResponse,
+  ConfiguredServerEditDraft,
+  ConfiguredServerEditField,
+  ConfiguredServerPreviewResponse,
+  ConfiguredServerReadModel,
+  OAuthServiceStatus,
+  RuntimeIdentity,
+} from '../api/adminApi';
 import type { AdminConsoleState, ServerMutation } from '../state/adminConsoleState';
 
 type ServerFilter = 'all' | 'enabled' | 'disabled';
 
 export interface AdminConsoleAppProps {
   state: AdminConsoleState;
+  serverDetail?: ConfiguredServerDetailPanelState;
   onLogin?: (input: { username: string; password: string }) => void | Promise<void>;
   onLogout?: () => void | Promise<void>;
   onRefresh?: () => void | Promise<void>;
   onServerAction?: (serverId: string, action: 'enable' | 'disable') => void | Promise<void>;
+  onOpenServerDetail?: (serverId: string) => void | Promise<void>;
+  onCloseServerDetail?: (dirty?: boolean) => void | Promise<void>;
+  onServerDetailDirtyChange?: (dirty: boolean) => void;
+  onPreviewServerEdit?: (
+    serverId: string,
+    edit: ConfiguredServerEditDraft,
+    connectivityCheck?: 'auto' | 'manual',
+  ) => void | Promise<void>;
   onCopyText?: (label: string, value: string) => void | Promise<void>;
   loginBusy?: boolean;
 }
 
+export type ConfiguredServerDetailPanelState =
+  | { status: 'list' }
+  | { status: 'loading'; serverId: string }
+  | {
+      status: 'loaded';
+      serverId: string;
+      detail: ConfiguredServerDetailResponse;
+      preview?: ConfiguredServerPreviewResponse['preview'];
+      previewBusy: boolean;
+      previewError?: string;
+    }
+  | { status: 'missing'; serverId: string }
+  | { status: 'failed'; serverId: string; message: string };
+
 export function AdminConsoleApp({
   state,
+  serverDetail = { status: 'list' },
   onLogin,
   onLogout,
   onRefresh,
   onServerAction,
+  onOpenServerDetail,
+  onCloseServerDetail,
+  onServerDetailDirtyChange,
+  onPreviewServerEdit,
   onCopyText,
   loginBusy = false,
 }: AdminConsoleAppProps) {
@@ -80,7 +122,12 @@ export function AdminConsoleApp({
             onLogout={onLogout}
             onRefresh={onRefresh}
             onServerAction={onServerAction}
+            onOpenServerDetail={onOpenServerDetail}
+            onCloseServerDetail={onCloseServerDetail}
+            onServerDetailDirtyChange={onServerDetailDirtyChange}
+            onPreviewServerEdit={onPreviewServerEdit}
             onCopyText={onCopyText}
+            serverDetail={serverDetail}
           />
         </Stack>
       </AppShell.Main>
@@ -203,13 +250,23 @@ function ConsoleView({
   onLogout,
   onRefresh,
   onServerAction,
+  onOpenServerDetail,
+  onCloseServerDetail,
+  onServerDetailDirtyChange,
+  onPreviewServerEdit,
   onCopyText,
+  serverDetail,
 }: {
   state: AdminConsoleState;
   onLogout?: AdminConsoleAppProps['onLogout'];
   onRefresh?: AdminConsoleAppProps['onRefresh'];
   onServerAction?: AdminConsoleAppProps['onServerAction'];
+  onOpenServerDetail?: AdminConsoleAppProps['onOpenServerDetail'];
+  onCloseServerDetail?: AdminConsoleAppProps['onCloseServerDetail'];
+  onServerDetailDirtyChange?: AdminConsoleAppProps['onServerDetailDirtyChange'];
+  onPreviewServerEdit?: AdminConsoleAppProps['onPreviewServerEdit'];
   onCopyText?: AdminConsoleAppProps['onCopyText'];
+  serverDetail: ConfiguredServerDetailPanelState;
 }) {
   const failedAudits = (state.status?.audit.facts ?? []).filter((fact) => fact.result === 'failed').length;
   const oauthAttention = (state.status?.oauth.services ?? []).filter(isOAuthAttention).length;
@@ -256,7 +313,13 @@ function ConsoleView({
         <SummaryCounter label="Failed audits" value={failedAudits} tone={failedAudits > 0 ? 'bad' : 'good'} />
       </SimpleGrid>
       <SimpleGrid cols={{ base: 1, lg: 2 }} spacing="md" mt="md">
-        <ConfiguredServersPanel state={state} onServerAction={onServerAction} />
+        <ConfiguredServersPanel state={state} onServerAction={onServerAction} onOpenServerDetail={onOpenServerDetail} />
+        <ConfiguredServerDetailPanel
+          state={serverDetail}
+          onClose={onCloseServerDetail}
+          onDirtyChange={onServerDetailDirtyChange}
+          onPreviewServerEdit={onPreviewServerEdit}
+        />
         <RuntimePanel runtime={state.status?.runtime} onCopyText={copyText} />
         <OAuthPanel services={state.status?.oauth.services ?? []} />
         <AuditPanel facts={state.status?.audit.facts ?? []} onCopyText={copyText} />
@@ -284,9 +347,11 @@ function SummaryCounter({ label, value, tone }: { label: string; value: number; 
 function ConfiguredServersPanel({
   state,
   onServerAction,
+  onOpenServerDetail,
 }: {
   state: AdminConsoleState;
   onServerAction?: AdminConsoleAppProps['onServerAction'];
+  onOpenServerDetail?: AdminConsoleAppProps['onOpenServerDetail'];
 }) {
   const [query, setQuery] = useState('');
   const [filter, setFilter] = useState<ServerFilter>('all');
@@ -342,6 +407,7 @@ function ConfiguredServersPanel({
                   server={server}
                   mutation={state.serverMutations[server.id]}
                   onServerAction={onServerAction}
+                  onOpenServerDetail={onOpenServerDetail}
                 />
               ))}
             </Table.Tbody>
@@ -356,10 +422,12 @@ function ServerRow({
   server,
   mutation,
   onServerAction,
+  onOpenServerDetail,
 }: {
   server: ConfiguredServerReadModel;
   mutation?: ServerMutation;
   onServerAction?: AdminConsoleAppProps['onServerAction'];
+  onOpenServerDetail?: AdminConsoleAppProps['onOpenServerDetail'];
 }) {
   const action = server.enabled ? 'disable' : 'enable';
   const busy = mutation?.state === 'busy';
@@ -371,6 +439,14 @@ function ServerRow({
     <Table.Tr className={mutation ? `server-action-${mutation.state}` : undefined}>
       <Table.Td>
         <Text fw={700}>{server.id}</Text>
+        <Button
+          aria-label={`Open ${server.id} details`}
+          size="compact-xs"
+          variant="subtle"
+          onClick={() => void onOpenServerDetail?.(server.id)}
+        >
+          Details
+        </Button>
         {tags.length > 0 ? (
           <Text size="xs" c="dimmed">
             {tags.join(' / ')}
@@ -403,6 +479,647 @@ function ServerRow({
       </Table.Td>
     </Table.Tr>
   );
+}
+
+type SecretDraftState = Record<
+  string,
+  {
+    fieldPath: string[];
+    action: 'preserve' | 'replace' | 'clear';
+    replacementKind: 'environmentReference' | 'inlineSecret';
+    replacementValue: string;
+  }
+>;
+
+type FieldDraftState = Record<string, unknown>;
+
+function ConfiguredServerDetailPanel({
+  state,
+  onClose,
+  onDirtyChange,
+  onPreviewServerEdit,
+}: {
+  state: ConfiguredServerDetailPanelState;
+  onClose?: AdminConsoleAppProps['onCloseServerDetail'];
+  onDirtyChange?: AdminConsoleAppProps['onServerDetailDirtyChange'];
+  onPreviewServerEdit?: AdminConsoleAppProps['onPreviewServerEdit'];
+}) {
+  const [fieldDraft, setFieldDraft] = useState<FieldDraftState>({});
+  const [initialFieldDraft, setInitialFieldDraft] = useState<FieldDraftState>({});
+  const [secretDraft, setSecretDraft] = useState<SecretDraftState>({});
+
+  useEffect(() => {
+    if (state.status !== 'loaded') {
+      setFieldDraft({});
+      setInitialFieldDraft({});
+      setSecretDraft({});
+      return;
+    }
+
+    const nextFields: FieldDraftState = {};
+    const nextSecrets: SecretDraftState = {};
+    for (const group of state.detail.editContract.fieldGroups) {
+      for (const field of group.fields) {
+        if (field.control === 'secret') {
+          nextSecrets[fieldKey(field.fieldPath)] = {
+            fieldPath: field.fieldPath,
+            action: field.secret?.defaultAction ?? 'preserve',
+            replacementKind:
+              field.secret?.environmentReference.supported === false ? 'inlineSecret' : 'environmentReference',
+            replacementValue: '',
+          };
+        } else {
+          nextFields[fieldKey(field.fieldPath)] = initialDraftValue(field);
+        }
+      }
+    }
+    setFieldDraft(nextFields);
+    setInitialFieldDraft(nextFields);
+    setSecretDraft(nextSecrets);
+  }, [state.status === 'loaded' ? state.serverId : state.status]);
+
+  const previewEdit =
+    state.status === 'loaded'
+      ? buildPreviewEdit(state.detail.editContract.fieldGroups, fieldDraft, initialFieldDraft, secretDraft)
+      : {};
+  const dirty = Object.keys(previewEdit).length > 0;
+
+  useEffect(() => {
+    onDirtyChange?.(dirty);
+    return () => onDirtyChange?.(false);
+  }, [dirty, onDirtyChange]);
+
+  if (state.status === 'list') {
+    return (
+      <Panel title="Server detail" utility="select a target" icon={<ServerCog size={17} />}>
+        <EmptyState message="Open a configured server to inspect normalized detail and preview edits." />
+      </Panel>
+    );
+  }
+
+  if (state.status === 'loading') {
+    return (
+      <Panel title="Server detail" utility={state.serverId} icon={<ServerCog size={17} />}>
+        <EmptyState message="Loading server detail." />
+      </Panel>
+    );
+  }
+
+  if (state.status === 'missing') {
+    return (
+      <Panel title="Server detail" utility={state.serverId} icon={<ServerCog size={17} />}>
+        <Stack gap="sm">
+          <Title order={3}>Server target not found</Title>
+          <Text c="dimmed">
+            {state.serverId} is no longer available. Return to the list and refresh before editing.
+          </Text>
+          <Button variant="default" onClick={() => void onClose?.()}>
+            Back to servers
+          </Button>
+        </Stack>
+      </Panel>
+    );
+  }
+
+  if (state.status === 'failed') {
+    return (
+      <Panel title="Server detail" utility={state.serverId} icon={<ServerCog size={17} />}>
+        <Alert color="red" role="alert">
+          {state.message}
+        </Alert>
+      </Panel>
+    );
+  }
+
+  return (
+    <Panel
+      title="Server detail"
+      utility={state.detail.server.enabled ? 'enabled' : 'disabled'}
+      icon={<ServerCog size={17} />}
+    >
+      <Stack gap="sm">
+        <Group justify="space-between" align="flex-start">
+          <div>
+            <Text className="eyebrow" size="xs">
+              Configured Server Target
+            </Text>
+            <Title order={2}>{state.detail.server.id}</Title>
+            <Text c="dimmed" size="sm">
+              {transportSummaryLabel(state.detail.server)}
+            </Text>
+          </div>
+          <Button variant="default" onClick={() => void onClose?.(dirty)}>
+            Back
+          </Button>
+        </Group>
+        {state.detail.editContract.fieldGroups.map((group) => (
+          <Stack key={group.id} gap="xs">
+            <Text fw={800}>{group.label}</Text>
+            {group.fields.map((field) =>
+              field.control === 'secret' ? (
+                <SecretFieldDraft
+                  key={fieldKey(field.fieldPath)}
+                  field={field}
+                  draft={secretDraft[fieldKey(field.fieldPath)]}
+                  onChange={(draft) =>
+                    setSecretDraft((current) => ({ ...current, [fieldKey(field.fieldPath)]: draft }))
+                  }
+                />
+              ) : (
+                <ConfiguredServerFieldDraft
+                  key={fieldKey(field.fieldPath)}
+                  field={field}
+                  value={fieldDraft[fieldKey(field.fieldPath)]}
+                  onChange={(value) => setFieldDraft((current) => ({ ...current, [fieldKey(field.fieldPath)]: value }))}
+                />
+              ),
+            )}
+          </Stack>
+        ))}
+        <Group gap="xs">
+          <Button
+            loading={state.previewBusy}
+            onClick={() => void onPreviewServerEdit?.(state.serverId, previewEdit, 'auto')}
+          >
+            Preview change
+          </Button>
+          {state.preview ? (
+            <Button
+              variant="default"
+              loading={state.previewBusy}
+              onClick={() => void onPreviewServerEdit?.(state.serverId, previewEdit, 'manual')}
+            >
+              Rerun connectivity
+            </Button>
+          ) : null}
+        </Group>
+        {state.previewError ? (
+          <Alert color="red" role="alert">
+            {state.previewError}
+          </Alert>
+        ) : null}
+        {state.preview ? <PreviewResult preview={state.preview} /> : null}
+      </Stack>
+    </Panel>
+  );
+}
+
+function ConfiguredServerFieldDraft({
+  field,
+  value,
+  onChange,
+}: {
+  field: ConfiguredServerEditField;
+  value: unknown;
+  onChange: (value: unknown) => void;
+}) {
+  if (!field.editable || field.control === 'readonly') {
+    return <DetailRow label={field.label} value={displayFieldValue(value)} />;
+  }
+
+  if (field.control === 'switch') {
+    return (
+      <Switch
+        label={field.label}
+        checked={Boolean(value)}
+        onChange={(event) => onChange(event.currentTarget.checked)}
+      />
+    );
+  }
+
+  if (field.control === 'tag-list') {
+    return <TagsInput label={field.label} value={stringArray(value)} onChange={onChange} />;
+  }
+
+  if (field.control === 'select') {
+    return (
+      <NativeSelect
+        label={field.label}
+        value={String(value ?? '')}
+        data={field.options ?? []}
+        onChange={(event) => onChange(event.currentTarget.value)}
+      />
+    );
+  }
+
+  if (field.control === 'string-list') {
+    return (
+      <Textarea
+        label={field.label}
+        value={stringArray(value).join('\n')}
+        autosize
+        minRows={2}
+        onChange={(event) => onChange(splitStringList(event.currentTarget.value))}
+      />
+    );
+  }
+
+  if (field.control === 'record') {
+    return <RecordFieldDraft label={field.label} value={objectRecord(value)} onChange={onChange} />;
+  }
+
+  return (
+    <TextInput
+      label={field.label}
+      value={String(value ?? '')}
+      onChange={(event) => onChange(event.currentTarget.value)}
+    />
+  );
+}
+
+function RecordFieldDraft({
+  label,
+  value,
+  onChange,
+}: {
+  label: string;
+  value: Record<string, unknown>;
+  onChange: (value: Record<string, unknown>) => void;
+}) {
+  const [newKey, setNewKey] = useState('');
+  const [newValue, setNewValue] = useState('');
+
+  function updateEntry(key: string, entryValue: string) {
+    onChange({ ...value, [key]: entryValue });
+  }
+
+  function removeEntry(key: string) {
+    const next = { ...value };
+    delete next[key];
+    onChange(next);
+  }
+
+  function addEntry() {
+    const key = newKey.trim();
+    if (!key) {
+      return;
+    }
+    onChange({ ...value, [key]: newValue });
+    setNewKey('');
+    setNewValue('');
+  }
+
+  return (
+    <Stack className="record-editor" gap="xs">
+      <Text fw={700}>{label}</Text>
+      {Object.entries(value).map(([key, entryValue]) => (
+        <Group key={key} gap="xs" align="flex-end" wrap="nowrap">
+          <TextInput
+            className="record-editor-value"
+            label={`${label} ${key}`}
+            value={String(entryValue ?? '')}
+            onChange={(event) => updateEntry(key, event.currentTarget.value)}
+          />
+          <Button
+            aria-label={`Remove ${label} ${key}`}
+            size="compact-xs"
+            variant="subtle"
+            color="red"
+            onClick={() => removeEntry(key)}
+          >
+            Remove
+          </Button>
+        </Group>
+      ))}
+      <Group gap="xs" align="flex-end">
+        <TextInput
+          label={`New ${label} key`}
+          value={newKey}
+          onChange={(event) => setNewKey(event.currentTarget.value)}
+        />
+        <TextInput
+          label={`New ${label} value`}
+          value={newValue}
+          onChange={(event) => setNewValue(event.currentTarget.value)}
+        />
+        <Button variant="default" onClick={addEntry}>
+          Add entry
+        </Button>
+      </Group>
+    </Stack>
+  );
+}
+
+function SecretFieldDraft({
+  field,
+  draft,
+  onChange,
+}: {
+  field: ConfiguredServerEditField;
+  draft?: SecretDraftState[string];
+  onChange: (draft: SecretDraftState[string]) => void;
+}) {
+  const current =
+    draft ??
+    ({
+      fieldPath: field.fieldPath,
+      action: 'preserve',
+      replacementKind: field.secret?.environmentReference.supported === false ? 'inlineSecret' : 'environmentReference',
+      replacementValue: '',
+    } satisfies SecretDraftState[string]);
+  const actions = field.secret?.allowedActions ?? ['preserve', 'replace', 'clear'];
+  const environmentSupported = field.secret?.environmentReference.supported ?? true;
+  const inlineSupported = field.secret?.inlineReplacement.supported ?? false;
+
+  return (
+    <Paper className="secret-editor" withBorder>
+      <Stack gap="xs">
+        <Group justify="space-between" align="flex-start">
+          <div>
+            <Text fw={700}>{field.label}</Text>
+            <Text size="xs" c="dimmed">
+              {field.secret?.environmentReference.guidance}
+            </Text>
+          </div>
+          <Badge variant="light">redacted</Badge>
+        </Group>
+        <Radio.Group
+          value={current.action}
+          onChange={(value) => onChange({ ...current, action: value as SecretDraftState[string]['action'] })}
+        >
+          <Group gap="sm">
+            {actions.map((action) => (
+              <Radio key={action} value={action} label={`${action} ${field.label}`} />
+            ))}
+          </Group>
+        </Radio.Group>
+        {current.action === 'replace' ? (
+          <Stack gap="xs">
+            <Radio.Group
+              label="Replacement source"
+              value={current.replacementKind}
+              onChange={(value) =>
+                onChange({ ...current, replacementKind: value as SecretDraftState[string]['replacementKind'] })
+              }
+            >
+              <Group gap="sm">
+                <Radio disabled={!environmentSupported} value="environmentReference" label="Environment variable" />
+              </Group>
+            </Radio.Group>
+            {current.replacementKind === 'environmentReference' ? (
+              <>
+                <TextInput
+                  label={`Environment variable for ${field.label}`}
+                  value={current.replacementValue}
+                  onChange={(event) => onChange({ ...current, replacementValue: event.currentTarget.value })}
+                />
+                {inlineSupported ? (
+                  <Button
+                    size="compact-sm"
+                    variant="subtle"
+                    color="yellow"
+                    onClick={() => onChange({ ...current, replacementKind: 'inlineSecret', replacementValue: '' })}
+                  >
+                    Use advanced inline secret instead
+                  </Button>
+                ) : null}
+              </>
+            ) : (
+              <>
+                <Alert color="yellow" role="alert">
+                  Inline replacement stores secret material in configuration. Use it only when an environment reference
+                  is not suitable.
+                </Alert>
+                <PasswordInput
+                  label={`Inline secret for ${field.label}`}
+                  value={current.replacementValue}
+                  onChange={(event) => onChange({ ...current, replacementValue: event.currentTarget.value })}
+                />
+                {environmentSupported ? (
+                  <Button
+                    size="compact-sm"
+                    variant="subtle"
+                    onClick={() =>
+                      onChange({ ...current, replacementKind: 'environmentReference', replacementValue: '' })
+                    }
+                  >
+                    Use environment variable instead
+                  </Button>
+                ) : null}
+              </>
+            )}
+            <Text size="xs" c="dimmed">
+              {current.replacementKind === 'environmentReference'
+                ? field.secret?.environmentReference.guidance
+                : field.secret?.inlineReplacement.guidance}
+            </Text>
+          </Stack>
+        ) : null}
+      </Stack>
+    </Paper>
+  );
+}
+
+function PreviewResult({ preview }: { preview: ConfiguredServerPreviewResponse['preview'] }) {
+  return (
+    <Paper className="preview-result" withBorder>
+      <Stack gap="xs">
+        <Group justify="space-between">
+          <Text fw={800}>Preview</Text>
+          <Code>{preview.previewFingerprint}</Code>
+        </Group>
+        <DetailRow label="Target" value={preview.targetName} meta={`Proposed: ${preview.proposedTargetName}`} />
+        <DetailRow label="Validation" value={preview.validation.status} />
+        <DetailRow
+          label="Config change"
+          value={preview.configChange.status}
+          meta={`${preview.configChange.operation} / ${preview.configChange.changed ? 'changed' : 'unchanged'}`}
+        />
+        <DetailRow label="Reload" value={preview.configChange.reload.status} meta={preview.configChange.reload.error} />
+        <DetailRow
+          label="Backup"
+          value={preview.configChange.backup.created ? 'created' : 'not created'}
+          meta={preview.configChange.backup.path}
+        />
+        {preview.configChange.warnings?.map((warning) => (
+          <DetailRow key={`warning:${warning}`} label="Warning" value={warning} />
+        ))}
+        {preview.configChange.retentionCleanup.warnings.map((warning) => (
+          <DetailRow key={`retention:${warning}`} label="Retention warning" value={warning} />
+        ))}
+        <DetailRow label="Connectivity" value={preview.connectivityCheck.status} meta={connectivityMeta(preview)} />
+        {preview.validation.errors.map((error) => (
+          <DetailRow
+            key={`${fieldKey(error.fieldPath)}:${error.code}`}
+            label={error.fieldPath.join('.')}
+            value={error.code}
+            meta={error.message}
+          />
+        ))}
+        {preview.diff.map((entry) => (
+          <DetailRow
+            key={fieldKey(entry.fieldPath)}
+            label={entry.fieldPath.join('.')}
+            value={`${formatPreviewValue(entry.oldValue)} -> ${formatPreviewValue(entry.newValue)}`}
+            meta={entry.riskFlags.join(' / ')}
+            description={entry.secretAction ? `Secret action: ${entry.secretAction}` : undefined}
+          />
+        ))}
+      </Stack>
+    </Paper>
+  );
+}
+
+function buildPreviewEdit(
+  fieldGroups: ConfiguredServerDetailResponse['editContract']['fieldGroups'],
+  fieldDraft: FieldDraftState,
+  initialFieldDraft: FieldDraftState,
+  secretDraft: SecretDraftState,
+): ConfiguredServerEditDraft {
+  const edit: Record<string, unknown> = {};
+  const transport: Record<string, unknown> = {};
+
+  for (const group of fieldGroups) {
+    for (const field of group.fields) {
+      if (field.control === 'secret' || !field.editable || field.control === 'readonly') {
+        continue;
+      }
+
+      const key = fieldKey(field.fieldPath);
+      const value = draftValueForField(field, fieldDraft[key]);
+      if (stableDisplayValue(value) === stableDisplayValue(draftValueForField(field, initialFieldDraft[key]))) {
+        continue;
+      }
+
+      const root = field.fieldPath[0];
+      if (root === 'id') {
+        edit.id = String(value ?? '');
+      } else if (root === 'enabled') {
+        edit.enabled = Boolean(value);
+      } else if (root === 'tags') {
+        edit.tags = stringArray(value);
+      } else if (root === 'transport' && field.fieldPath.length > 1) {
+        setNestedDraftValue(transport, field.fieldPath.slice(1), value);
+      } else if (root) {
+        setNestedDraftValue(edit, field.fieldPath, value);
+      }
+    }
+  }
+
+  const secrets = Object.values(secretDraft)
+    .filter((draft) => draft.action !== 'preserve')
+    .map((draft) => ({
+      fieldPath: draft.fieldPath,
+      action: draft.action,
+      ...(draft.action === 'replace'
+        ? {
+            replacement: {
+              kind: draft.replacementKind,
+              value: draft.replacementValue,
+            },
+          }
+        : {}),
+    }));
+
+  return {
+    ...edit,
+    ...(Object.keys(transport).length > 0 ? { transport } : {}),
+    ...(secrets.length > 0 ? { secrets } : {}),
+  } as ConfiguredServerEditDraft;
+}
+
+function setNestedDraftValue(target: Record<string, unknown>, path: string[], value: unknown) {
+  let cursor = target;
+  for (const segment of path.slice(0, -1)) {
+    const existing = cursor[segment];
+    if (!existing || typeof existing !== 'object' || Array.isArray(existing)) {
+      cursor[segment] = {};
+    }
+    cursor = cursor[segment] as Record<string, unknown>;
+  }
+  const leaf = path.at(-1);
+  if (leaf) {
+    cursor[leaf] = value;
+  }
+}
+
+function initialDraftValue(field: ConfiguredServerEditField): unknown {
+  return draftValueForField(field, field.value);
+}
+
+function draftValueForField(field: ConfiguredServerEditField, value: unknown): unknown {
+  if (field.control === 'switch') {
+    return Boolean(value);
+  }
+  if (field.control === 'tag-list' || field.control === 'string-list') {
+    return stringArray(value);
+  }
+  if (field.control === 'record') {
+    return objectRecord(value);
+  }
+  if (field.control === 'text' || field.control === 'select') {
+    return String(value ?? '');
+  }
+  return value;
+}
+
+function stringArray(value: unknown): string[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value.filter((entry): entry is string => typeof entry === 'string');
+}
+
+function splitStringList(value: string): string[] {
+  return value
+    .split(/\r?\n/u)
+    .map((entry) => entry.trim())
+    .filter(Boolean);
+}
+
+function objectRecord(value: unknown): Record<string, unknown> {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return {};
+  }
+  return { ...(value as Record<string, unknown>) };
+}
+
+function displayFieldValue(value: unknown): string {
+  if (Array.isArray(value)) {
+    return value.join(', ');
+  }
+  if (value && typeof value === 'object') {
+    return Object.keys(value).length > 0 ? Object.keys(value).join(', ') : '-';
+  }
+  return String(value ?? '-');
+}
+
+function formatPreviewValue(value: unknown): string {
+  if (value === undefined || value === null) {
+    return '-';
+  }
+  if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
+    return String(value);
+  }
+  if (Array.isArray(value)) {
+    return value.map(formatPreviewValue).join(', ');
+  }
+  if (typeof value !== 'object') {
+    return '-';
+  }
+
+  const record = value as Record<string, unknown>;
+  if (record.secret === true || record.value === '[REDACTED]') {
+    return '[REDACTED]';
+  }
+  if (record.kind === 'inlineSecret') {
+    return 'inline secret: [REDACTED]';
+  }
+  if (typeof record.kind === 'string' && typeof record.value === 'string') {
+    return `${humanize(record.kind)}: ${record.value}`;
+  }
+
+  return Object.entries(record)
+    .map(([key, nestedValue]) => `${key}: ${secretLikeKey(key) ? '[REDACTED]' : formatPreviewValue(nestedValue)}`)
+    .join('; ');
+}
+
+function secretLikeKey(key: string): boolean {
+  return /authorization|password|secret|token/iu.test(key);
+}
+
+function stableDisplayValue(value: unknown): string {
+  return JSON.stringify(value);
 }
 
 function RuntimePanel({
@@ -647,6 +1364,21 @@ function serverActionState(server: ConfiguredServerReadModel, action: 'enable' |
       label: action === 'enable' ? `Enable ${server.id}` : `Disable ${server.id}`,
     }
   );
+}
+
+function fieldKey(fieldPath: string[]): string {
+  return fieldPath.join('\0');
+}
+
+function connectivityMeta(preview: ConfiguredServerPreviewResponse['preview']): string | undefined {
+  const check = preview.connectivityCheck;
+  if (check.status === 'skipped') {
+    return check.reason;
+  }
+  if (check.status === 'failed') {
+    return check.message;
+  }
+  return check.checkedAt;
 }
 
 function secretSummary(server: ConfiguredServerReadModel): string {

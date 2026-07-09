@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { AdminApiError } from './api/adminApi';
-import type { AdminApiClient, AdminSession } from './api/adminApi';
-import { AdminConsoleApp } from './components/AdminConsoleApp';
+import type { AdminApiClient, AdminSession, ConfiguredServerEditDraft } from './api/adminApi';
+import { AdminConsoleApp, type ConfiguredServerDetailPanelState } from './components/AdminConsoleApp';
 import { type AdminConsoleAction, createInitialState, reduceAdminConsoleState } from './state/adminConsoleState';
 import { pollingDelayForVisibility, shouldPollConsole } from './state/polling';
 
@@ -15,6 +15,11 @@ interface AdminConsoleDocument {
 interface AdminConsoleWindow {
   setTimeout: Window['setTimeout'];
   clearTimeout: Window['clearTimeout'];
+  location?: Pick<Location, 'pathname'>;
+  history?: Pick<History, 'pushState' | 'replaceState'>;
+  confirm?: Window['confirm'];
+  addEventListener?: Window['addEventListener'];
+  removeEventListener?: Window['removeEventListener'];
 }
 
 export interface AdminConsoleRootProps {
@@ -34,7 +39,12 @@ export function AdminConsoleRoot({ api, documentRef = document, windowRef = wind
       onLogout={controller.logout}
       onRefresh={() => controller.refreshConsole('Manual refresh failed: ')}
       onServerAction={controller.mutateServer}
+      onOpenServerDetail={controller.openServerDetail}
+      onCloseServerDetail={controller.closeServerDetail}
+      onServerDetailDirtyChange={controller.setServerDetailDirty}
+      onPreviewServerEdit={controller.previewServerEdit}
       onCopyText={controller.copyText}
+      serverDetail={controller.serverDetail}
       loginBusy={controller.loginBusy}
     />
   );
@@ -47,9 +57,14 @@ function useAdminConsoleController({
   nowLabel,
 }: Required<Omit<AdminConsoleRootProps, 'nowLabel'>> & Pick<AdminConsoleRootProps, 'nowLabel'>) {
   const [state, setState] = useState(createInitialState);
+  const [serverDetail, setServerDetail] = useState<ConfiguredServerDetailPanelState>({ status: 'list' });
   const [loginBusy, setLoginBusy] = useState(false);
   const stateRef = useRef(state);
+  const serverDetailRef = useRef(serverDetail);
   const timerRef = useRef<ReturnType<Window['setTimeout']> | null>(null);
+  const detailRequestRef = useRef(0);
+  const previewRequestRef = useRef(0);
+  const detailDirtyRef = useRef(false);
   const formatNow = useCallback(() => nowLabel?.() ?? new Date().toLocaleTimeString(), [nowLabel]);
 
   const dispatch = useCallback((action: AdminConsoleAction) => {
@@ -63,6 +78,10 @@ function useAdminConsoleController({
   useEffect(() => {
     stateRef.current = state;
   }, [state]);
+
+  useEffect(() => {
+    serverDetailRef.current = serverDetail;
+  }, [serverDetail]);
 
   const clearPoll = useCallback(() => {
     if (timerRef.current !== null) {
@@ -78,6 +97,10 @@ function useAdminConsoleController({
       }
 
       clearPoll();
+      detailRequestRef.current += 1;
+      previewRequestRef.current += 1;
+      detailDirtyRef.current = false;
+      setServerDetail({ status: 'list' });
       dispatch({ type: 'sessionUnauthenticated', adminStatus: readAdminStatus(error.body) });
       return true;
     },
@@ -85,6 +108,54 @@ function useAdminConsoleController({
   );
 
   const isCurrentSession = useCallback((sessionKey: string) => stateRef.current.session?.csrfToken === sessionKey, []);
+
+  const loadServerDetail = useCallback(
+    async (serverId: string) => {
+      const activeSession = stateRef.current.session;
+      if (!activeSession) {
+        return;
+      }
+      const sessionKey = activeSession.csrfToken;
+      const requestId = detailRequestRef.current + 1;
+      detailRequestRef.current = requestId;
+      previewRequestRef.current += 1;
+      detailDirtyRef.current = false;
+
+      setServerDetail({ status: 'loading', serverId });
+      try {
+        const detail = await api.getConfiguredServerDetail(serverId);
+        if (!isCurrentSession(sessionKey) || requestId !== detailRequestRef.current) {
+          return;
+        }
+        setServerDetail({ status: 'loaded', serverId, detail, previewBusy: false });
+      } catch (error) {
+        if (!isCurrentSession(sessionKey) || requestId !== detailRequestRef.current) {
+          return;
+        }
+        if (handleUnauthenticated(error)) {
+          return;
+        }
+        if (isConfiguredServerNotFound(error)) {
+          setServerDetail({ status: 'missing', serverId });
+          return;
+        }
+        setServerDetail({ status: 'failed', serverId, message: `Server detail failed: ${errorMessage(error)}` });
+      }
+    },
+    [api, handleUnauthenticated, isCurrentSession],
+  );
+
+  const loadRouteDetail = useCallback(async () => {
+    const serverId = serverIdFromAdminPath(windowRef.location?.pathname ?? '');
+    if (serverId) {
+      await loadServerDetail(serverId);
+      return;
+    }
+    detailRequestRef.current += 1;
+    previewRequestRef.current += 1;
+    detailDirtyRef.current = false;
+    setServerDetail({ status: 'list' });
+  }, [loadServerDetail, windowRef.location]);
 
   const refreshConsole = useCallback(
     async (errorPrefix: string, sessionOverride?: AdminSession) => {
@@ -133,6 +204,7 @@ function useAdminConsoleController({
       const session = await api.getSession();
       dispatch({ type: 'sessionLoaded', session });
       await refreshConsole('Session loaded, but refresh failed: ', session);
+      await loadRouteDetail();
     } catch (error) {
       if (!handleUnauthenticated(error)) {
         dispatch({ type: 'refreshFailed', message: `Session check failed: ${errorMessage(error)}` });
@@ -140,7 +212,7 @@ function useAdminConsoleController({
     } finally {
       schedulePoll();
     }
-  }, [api, dispatch, handleUnauthenticated, refreshConsole, schedulePoll]);
+  }, [api, dispatch, handleUnauthenticated, loadRouteDetail, refreshConsole, schedulePoll]);
 
   const login = useCallback(
     async (input: { username: string; password: string }) => {
@@ -152,6 +224,7 @@ function useAdminConsoleController({
         const session = await api.login(input);
         dispatch({ type: 'sessionLoaded', session });
         await refreshConsole('Login succeeded, but refresh failed: ', session);
+        await loadRouteDetail();
       } catch (error) {
         dispatch({ type: 'loginFailed', message: `Login failed: ${errorMessage(error)}` });
       } finally {
@@ -159,7 +232,86 @@ function useAdminConsoleController({
         schedulePoll();
       }
     },
-    [api, dispatch, loginBusy, refreshConsole, schedulePoll],
+    [api, dispatch, loadRouteDetail, loginBusy, refreshConsole, schedulePoll],
+  );
+
+  const confirmDiscardDetail = useCallback(
+    (dirty: boolean) => !dirty || windowRef.confirm?.('Discard unsaved configured-server edits?') !== false,
+    [windowRef],
+  );
+
+  const openServerDetail = useCallback(
+    async (serverId: string) => {
+      const currentDetail = serverDetailRef.current;
+      if (
+        currentDetail.status === 'loaded' &&
+        currentDetail.serverId !== serverId &&
+        !confirmDiscardDetail(detailDirtyRef.current)
+      ) {
+        windowRef.history?.pushState(null, '', `/admin/servers/${encodeURIComponent(currentDetail.serverId)}`);
+        return;
+      }
+      windowRef.history?.pushState(null, '', `/admin/servers/${encodeURIComponent(serverId)}`);
+      await loadServerDetail(serverId);
+    },
+    [confirmDiscardDetail, loadServerDetail, windowRef.history],
+  );
+
+  const closeServerDetail = useCallback(
+    (dirty = false) => {
+      if (!confirmDiscardDetail(dirty)) {
+        return;
+      }
+      windowRef.history?.pushState(null, '', '/admin');
+      detailRequestRef.current += 1;
+      previewRequestRef.current += 1;
+      detailDirtyRef.current = false;
+      setServerDetail({ status: 'list' });
+    },
+    [confirmDiscardDetail, windowRef.history],
+  );
+
+  const setServerDetailDirty = useCallback((dirty: boolean) => {
+    detailDirtyRef.current = dirty;
+  }, []);
+
+  const previewServerEdit = useCallback(
+    async (serverId: string, edit: ConfiguredServerEditDraft, connectivityCheck: 'auto' | 'manual' = 'auto') => {
+      const activeSession = stateRef.current.session;
+      const currentDetail = serverDetailRef.current;
+      if (!activeSession || currentDetail.status !== 'loaded') {
+        return;
+      }
+      const sessionKey = activeSession.csrfToken;
+      const requestId = previewRequestRef.current + 1;
+      previewRequestRef.current = requestId;
+
+      setServerDetail({ ...currentDetail, previewBusy: true, previewError: undefined });
+      try {
+        const response = await api.previewConfiguredServerEdit({
+          name: serverId,
+          csrfToken: sessionKey,
+          connectivityCheck,
+          edit,
+        });
+        if (!isCurrentSession(sessionKey) || requestId !== previewRequestRef.current) {
+          return;
+        }
+        setServerDetail({ ...currentDetail, preview: response.preview, previewBusy: false });
+      } catch (error) {
+        if (!isCurrentSession(sessionKey) || requestId !== previewRequestRef.current) {
+          return;
+        }
+        if (!handleUnauthenticated(error)) {
+          setServerDetail({
+            ...currentDetail,
+            previewBusy: false,
+            previewError: `Preview failed: ${errorMessage(error)}`,
+          });
+        }
+      }
+    },
+    [api, handleUnauthenticated, isCurrentSession],
   );
 
   const mutateServer = useCallback(
@@ -207,6 +359,10 @@ function useAdminConsoleController({
       }
     } finally {
       clearPoll();
+      detailRequestRef.current += 1;
+      previewRequestRef.current += 1;
+      detailDirtyRef.current = false;
+      setServerDetail({ status: 'list' });
       dispatch({ type: 'logoutSucceeded' });
     }
   }, [api, clearPoll, dispatch]);
@@ -229,6 +385,19 @@ function useAdminConsoleController({
     return () => documentRef.removeEventListener?.('visibilitychange', listener);
   }, [documentRef, schedulePoll]);
 
+  useEffect(() => {
+    const listener = () => {
+      const currentDetail = serverDetailRef.current;
+      if (currentDetail.status === 'loaded' && !confirmDiscardDetail(detailDirtyRef.current)) {
+        windowRef.history?.pushState(null, '', `/admin/servers/${encodeURIComponent(currentDetail.serverId)}`);
+        return;
+      }
+      void loadRouteDetail();
+    };
+    windowRef.addEventListener?.('popstate', listener);
+    return () => windowRef.removeEventListener?.('popstate', listener);
+  }, [confirmDiscardDetail, loadRouteDetail, windowRef]);
+
   return {
     state,
     loginBusy,
@@ -236,7 +405,12 @@ function useAdminConsoleController({
     logout,
     refreshConsole,
     mutateServer,
+    openServerDetail,
+    closeServerDetail,
+    setServerDetailDirty,
+    previewServerEdit,
     copyText,
+    serverDetail,
   };
 }
 
@@ -246,6 +420,33 @@ function readAdminStatus(body: unknown): 'setupRequired' | 'loginRequired' {
     return adminStatus === 'setupRequired' ? 'setupRequired' : 'loginRequired';
   }
   return 'loginRequired';
+}
+
+function serverIdFromAdminPath(pathname: string): string | null {
+  const prefix = '/admin/servers/';
+  if (!pathname.startsWith(prefix)) {
+    return null;
+  }
+
+  const encoded = pathname.slice(prefix.length);
+  if (!encoded) {
+    return null;
+  }
+
+  try {
+    return decodeURIComponent(encoded);
+  } catch {
+    return encoded;
+  }
+}
+
+function isConfiguredServerNotFound(error: unknown): boolean {
+  if (!(error instanceof AdminApiError) || error.status !== 404 || !error.body || typeof error.body !== 'object') {
+    return false;
+  }
+
+  const record = error.body as Record<string, unknown>;
+  return record.code === 'configured_server_not_found' || record.error === 'configured_server_not_found';
 }
 
 function errorMessage(error: unknown): string {

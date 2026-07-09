@@ -175,6 +175,25 @@ input {
   min-width: 0;
 }
 
+.secret-editor,
+.preview-result {
+  padding: 10px;
+  border-radius: 8px;
+  background: #fbfcfc;
+}
+
+.record-editor {
+  padding: 10px;
+  border: 1px solid var(--admin-line);
+  border-radius: 8px;
+  background: #fbfcfc;
+}
+
+.record-editor-value {
+  min-width: 0;
+  flex: 1;
+}
+
 .server-action-busy {
   background: #edf4ff;
 }

@@ -1,5 +1,5 @@
 import { MantineProvider } from '@mantine/core';
-import { render, screen, within } from '@testing-library/react';
+import { fireEvent, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
 import type { ComponentProps } from 'react';
@@ -95,6 +95,249 @@ describe('AdminConsoleApp', () => {
     await user.click(screen.getByRole('button', { name: /copy runtime scope/i }));
 
     expect(screen.getByText('Could not copy runtime scope id. Select the value manually.')).toBeInTheDocument();
+  });
+
+  it('renders configured-server detail controls from the normalized contract without raw JSON or apply controls', async () => {
+    const user = userEvent.setup();
+    const onPreviewServerEdit = vi.fn();
+
+    renderApp(consoleState(), {
+      serverDetail: configuredServerDetailState(),
+      onPreviewServerEdit,
+    });
+
+    expect(screen.getByRole('heading', { name: 'github' })).toBeInTheDocument();
+    expect(screen.getByDisplayValue('https://example.com/mcp?token=REDACTED')).toBeInTheDocument();
+    expect(screen.getByRole('radio', { name: /preserve url\.query\.token/i })).toBeChecked();
+    expect(screen.getByText(/Store only the environment variable name/i)).toBeInTheDocument();
+    expect(screen.queryByText(/raw-token|Bearer raw/i)).not.toBeInTheDocument();
+    expect(screen.queryByRole('textbox', { name: /raw json/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /apply/i })).not.toBeInTheDocument();
+
+    await user.clear(screen.getByLabelText('URL'));
+    await user.type(screen.getByLabelText('URL'), 'https://example.com/v2/mcp');
+    await user.click(screen.getByRole('radio', { name: /clear url\.query\.token/i }));
+    await user.click(screen.getByRole('button', { name: /preview change/i }));
+
+    expect(onPreviewServerEdit).toHaveBeenCalledWith(
+      'github',
+      {
+        transport: { url: 'https://example.com/v2/mcp' },
+        secrets: [{ fieldPath: ['url', 'query', 'token'], action: 'clear' }],
+      },
+      'auto',
+    );
+  });
+
+  it('normalizes configured-server structured edit controls without raw JSON', async () => {
+    const user = userEvent.setup();
+    const onPreviewServerEdit = vi.fn();
+
+    renderApp(consoleState(), {
+      serverDetail: configuredServerDetailState({
+        fieldGroups: [
+          {
+            id: 'identity',
+            label: 'Target',
+            fields: [
+              { fieldPath: ['id'], label: 'Target ID', control: 'text', value: 'github', editable: true },
+              { fieldPath: ['enabled'], label: 'Enabled', control: 'switch', value: true, editable: true },
+              { fieldPath: ['tags'], label: 'Tags', control: 'tag-list', value: ['remote', 'oauth'], editable: true },
+            ],
+          },
+          {
+            id: 'transport',
+            label: 'Transport',
+            fields: [
+              {
+                fieldPath: ['transport', 'type'],
+                label: 'Transport Type',
+                control: 'select',
+                value: 'http',
+                options: ['stdio', 'http', 'sse'],
+                editable: true,
+              },
+              {
+                fieldPath: ['transport', 'args'],
+                label: 'Args',
+                control: 'string-list',
+                value: ['--old'],
+                editable: true,
+              },
+              {
+                fieldPath: ['transport', 'headers'],
+                label: 'Headers',
+                control: 'record',
+                value: { 'X-Feature': 'old' },
+                editable: true,
+              },
+            ],
+          },
+          {
+            id: 'secrets',
+            label: 'Secrets',
+            fields: [
+              {
+                fieldPath: ['headers', 'authorization'],
+                label: 'headers.authorization',
+                control: 'secret',
+                editable: true,
+                secret: {
+                  state: 'present',
+                  defaultAction: 'preserve',
+                  allowedActions: ['preserve', 'replace', 'clear'],
+                  environmentReference: {
+                    supported: true,
+                    recommended: true,
+                    valueFormat: 'env_var_name_or_substitution',
+                    storesSecretMaterial: false,
+                    guidance: 'Keep secret material in the runtime environment.',
+                  },
+                  inlineReplacement: {
+                    supported: true,
+                    emphasis: 'secondary',
+                    guidance: 'Use inline replacement only when an environment reference is not suitable.',
+                  },
+                },
+              },
+            ],
+          },
+        ],
+      }),
+      onPreviewServerEdit,
+    });
+
+    await user.clear(screen.getByLabelText('Target ID'));
+    await user.type(screen.getByLabelText('Target ID'), 'github-v2');
+    await user.click(screen.getByRole('switch', { name: 'Enabled' }));
+    await user.type(screen.getByRole('textbox', { name: 'Tags' }), 'beta{Enter}');
+    await user.selectOptions(screen.getByLabelText('Transport Type'), 'sse');
+    fireEvent.change(screen.getByLabelText('Args'), { target: { value: '--one\n--two' } });
+    expect(screen.getByRole('button', { name: /remove headers x-feature/i })).toBeInTheDocument();
+    await user.clear(screen.getByLabelText('Headers X-Feature'));
+    await user.type(screen.getByLabelText('Headers X-Feature'), 'new');
+    await user.click(screen.getByRole('radio', { name: /replace headers\.authorization/i }));
+    await user.click(screen.getByRole('button', { name: /use advanced inline secret/i }));
+    expect(screen.getByRole('alert')).toHaveTextContent(/stores secret material in configuration/i);
+    await user.type(screen.getByLabelText(/inline secret for headers\.authorization/i), 'raw-secret');
+    await user.click(screen.getByRole('button', { name: /preview change/i }));
+
+    expect(screen.queryByRole('textbox', { name: /raw json/i })).not.toBeInTheDocument();
+    expect(onPreviewServerEdit).toHaveBeenCalledWith(
+      'github',
+      {
+        id: 'github-v2',
+        enabled: false,
+        tags: ['remote', 'oauth', 'beta'],
+        transport: {
+          type: 'sse',
+          args: ['--one', '--two'],
+          headers: { 'X-Feature': 'new' },
+        },
+        secrets: [
+          {
+            fieldPath: ['headers', 'authorization'],
+            action: 'replace',
+            replacement: { kind: 'inlineSecret', value: 'raw-secret' },
+          },
+        ],
+      },
+      'auto',
+    );
+  });
+
+  it('passes dirty state when closing a modified configured-server detail form', async () => {
+    const user = userEvent.setup();
+    const onCloseServerDetail = vi.fn();
+
+    renderApp(consoleState(), {
+      serverDetail: configuredServerDetailState(),
+      onCloseServerDetail,
+    });
+
+    await user.clear(screen.getByLabelText('URL'));
+    await user.type(screen.getByLabelText('URL'), 'https://example.com/v2/mcp');
+    await user.click(screen.getByRole('button', { name: /^back$/i }));
+
+    expect(onCloseServerDetail).toHaveBeenCalledWith(true);
+  });
+
+  it('reruns preview connectivity on demand after a preview exists', async () => {
+    const user = userEvent.setup();
+    const onPreviewServerEdit = vi.fn();
+
+    renderApp(consoleState(), {
+      serverDetail: {
+        ...configuredServerDetailState(),
+        preview: {
+          targetName: 'github',
+          proposedTargetName: 'github',
+          previewFingerprint: 'preview_123',
+          validation: { status: 'valid', errors: [] },
+          diff: [],
+          configChange: {
+            status: 'unchanged',
+            operation: 'set_static',
+            target: { name: 'github', source: 'mcpServers' },
+            changed: false,
+            backup: { created: false },
+            retentionCleanup: { attempted: false, deletedPaths: [], warnings: [] },
+            reload: { status: 'skipped' },
+            warnings: [],
+          },
+          connectivityCheck: { status: 'skipped', reason: 'connection_critical_fields_unchanged' },
+        },
+      },
+      onPreviewServerEdit,
+    });
+
+    await user.click(screen.getByRole('button', { name: /rerun connectivity/i }));
+
+    expect(onPreviewServerEdit).toHaveBeenCalledWith('github', {}, 'manual');
+  });
+
+  it('renders preview validation, diff, config-change, and connectivity facts', () => {
+    renderApp(consoleState(), {
+      serverDetail: {
+        ...configuredServerDetailState(),
+        preview: {
+          targetName: 'github',
+          proposedTargetName: 'github',
+          previewFingerprint: 'preview_123',
+          validation: {
+            status: 'invalid',
+            errors: [{ fieldPath: ['transport', 'url'], code: 'invalid_url', message: 'URL is invalid.' }],
+          },
+          diff: [
+            {
+              fieldPath: ['transport', 'url'],
+              oldValue: 'https://example.com/mcp?token=REDACTED',
+              newValue: 'not-a-url',
+              riskFlags: ['connection_critical'],
+            },
+          ],
+          configChange: {
+            status: 'unchanged',
+            operation: 'set_static',
+            target: { name: 'github', source: 'mcpServers' },
+            changed: false,
+            backup: { created: false },
+            retentionCleanup: { attempted: false, deletedPaths: [], warnings: [] },
+            reload: { status: 'skipped' },
+            warnings: [],
+          },
+          connectivityCheck: { status: 'skipped', reason: 'validation_failed' },
+        },
+      },
+    });
+
+    expect(screen.getByText('preview_123')).toBeInTheDocument();
+    expect(screen.getByText('invalid')).toBeInTheDocument();
+    expect(screen.getByText(/set_static \/ unchanged/i)).toBeInTheDocument();
+    expect(screen.getByText('validation_failed')).toBeInTheDocument();
+    expect(screen.getAllByText('transport.url').length).toBeGreaterThanOrEqual(1);
+    expect(screen.getByText(/https:\/\/example\.com\/mcp\?token=REDACTED -> not-a-url/i)).toBeInTheDocument();
+    expect(screen.getByText('connection_critical')).toBeInTheDocument();
   });
 
   it('keeps legacy configured-server rows usable while read-model fields roll forward', async () => {
@@ -293,5 +536,99 @@ function consoleState(): AdminConsoleState {
       },
     ],
     lastUpdatedAt: '00:01:02',
+  };
+}
+
+function configuredServerDetailState(
+  overrides: Partial<
+    NonNullable<ComponentProps<typeof AdminConsoleApp>['serverDetail']>['detail']['editContract']
+  > = {},
+): ComponentProps<typeof AdminConsoleApp>['serverDetail'] {
+  const server = {
+    id: 'github',
+    source: 'mcpServers',
+    target: { type: 'configured_server' as const, id: 'github', source: 'mcpServers' as const },
+    enabled: true,
+    tags: ['remote'],
+    transportSummary: { kind: 'http', label: 'https://example.com/mcp?token=REDACTED' },
+    mutationAvailability: { available: true, operations: ['enable' as const, 'disable' as const] },
+    actionState: {
+      enable: { available: false, label: 'Enable github', disabledReason: 'already_enabled' as const },
+      disable: { available: true, label: 'Disable github' },
+    },
+    transport: { type: 'http', url: 'https://example.com/mcp?token=REDACTED' },
+    secretInputs: [{ fieldPath: ['url', 'query', 'token'], label: 'url.query.token', state: 'present' as const }],
+  };
+
+  return {
+    status: 'loaded',
+    serverId: 'github',
+    previewBusy: false,
+    detail: {
+      ok: true,
+      operationId: 'op_detail',
+      server,
+      editContract: {
+        schemaVersion: 1,
+        target: server.target,
+        capabilities: {
+          singleTargetEdit: true,
+          rename: { supported: true },
+          create: { supported: false },
+          delete: { supported: false },
+          bulkEdit: { supported: false },
+          rawJson: { supported: false },
+          preview: { supported: true },
+          apply: { supported: false },
+        },
+        fieldGroups: [
+          {
+            id: 'transport',
+            label: 'Transport',
+            fields: [
+              {
+                fieldPath: ['transport', 'url'],
+                label: 'URL',
+                control: 'text',
+                value: 'https://example.com/mcp?token=REDACTED',
+                editable: true,
+              },
+            ],
+          },
+          {
+            id: 'secrets',
+            label: 'Secrets',
+            fields: [
+              {
+                fieldPath: ['url', 'query', 'token'],
+                label: 'url.query.token',
+                control: 'secret',
+                editable: true,
+                secret: {
+                  state: 'present',
+                  defaultAction: 'preserve',
+                  allowedActions: ['preserve', 'replace', 'clear'],
+                  environmentReference: {
+                    supported: true,
+                    recommended: true,
+                    valueFormat: 'env_var_name_or_substitution',
+                    storesSecretMaterial: false,
+                    guidance:
+                      'Store only the environment variable name or substitution expression; keep secret material outside 1MCP config.',
+                  },
+                  inlineReplacement: {
+                    supported: true,
+                    emphasis: 'secondary',
+                    guidance:
+                      'Use inline replacement only as a secondary path when an environment reference is not suitable.',
+                  },
+                },
+              },
+            ],
+          },
+        ],
+        ...overrides,
+      },
+    },
   };
 }
