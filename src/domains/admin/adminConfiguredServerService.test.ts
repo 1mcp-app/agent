@@ -7,7 +7,10 @@ import { createConfigChangeService } from '@src/domains/config-change/configChan
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { AdminConfiguredServerService } from './adminConfiguredServerService.js';
+import {
+  AdminConfiguredServerService,
+  type ConfiguredServerConnectivityChecker,
+} from './adminConfiguredServerService.js';
 import { type AdminOperationContext, AdminOperationService } from './adminOperationService.js';
 
 const mockAgentConfig = {
@@ -497,6 +500,2182 @@ describe('AdminConfiguredServerService', () => {
       },
     });
     expect(JSON.stringify(result)).not.toMatch(/raw-user|raw-pass|raw-token/);
+  });
+
+  it('previews a configured-server edit with redacted diff, preview fingerprint, and automatic connectivity facts', async () => {
+    const checkConnectivity = vi.fn(async () => ({
+      status: 'passed' as const,
+      mode: 'bounded_dry_run' as const,
+      checkedAt: '2026-07-07T00:00:00.000Z',
+    }));
+    const service = createService({ checkConnectivity });
+    writeConfig({
+      mcpServers: {
+        github: {
+          type: 'http',
+          url: 'https://api.example.com/mcp?token=raw-token&workspace=docs',
+          headers: {
+            Authorization: 'Bearer raw-header-token',
+          },
+          tags: ['remote'],
+        },
+      },
+    });
+
+    const result = await service.previewConfiguredServerEdit({
+      context: context({
+        target: { type: 'configured_server', id: 'github' },
+        idempotencyKey: undefined,
+        requestFingerprint: undefined,
+      }),
+      targetName: 'github',
+      edit: {
+        id: 'github-renamed',
+        enabled: true,
+        tags: ['remote', 'edited'],
+        transport: {
+          url: 'https://api.example.com/v2/mcp?workspace=docs',
+        },
+        secrets: [
+          {
+            fieldPath: ['url', 'query', 'token'],
+            action: 'replace',
+            replacement: {
+              kind: 'environmentReference',
+              value: 'GITHUB_TOKEN',
+            },
+          },
+          {
+            fieldPath: ['headers', 'Authorization'],
+            action: 'replace',
+            replacement: {
+              kind: 'environmentReference',
+              value: 'GITHUB_AUTHORIZATION',
+            },
+          },
+        ],
+      },
+    });
+
+    expect(result).toMatchObject({
+      ok: true,
+      status: 'completed',
+      operationName: 'previewConfiguredServerEdit',
+      result: {
+        targetName: 'github',
+        proposedTargetName: 'github-renamed',
+        previewFingerprint: expect.stringMatching(/^preview_[a-f0-9]{64}$/),
+        validation: {
+          status: 'valid',
+          errors: [],
+        },
+        configChange: {
+          operation: 'set_static',
+          changed: true,
+          target: { name: 'github', source: 'mcpServers' },
+          reload: { status: 'skipped' },
+          backup: { created: false },
+        },
+        connectivityCheck: {
+          status: 'passed',
+          mode: 'bounded_dry_run',
+          checkedAt: '2026-07-07T00:00:00.000Z',
+        },
+        diff: expect.arrayContaining([
+          expect.objectContaining({
+            fieldPath: ['id'],
+            oldValue: 'github',
+            newValue: 'github-renamed',
+            riskFlags: ['rename'],
+          }),
+          expect.objectContaining({
+            fieldPath: ['tags'],
+            oldValue: ['remote'],
+            newValue: ['remote', 'edited'],
+            riskFlags: [],
+          }),
+          expect.objectContaining({
+            fieldPath: ['transport', 'url'],
+            oldValue: 'https://api.example.com/mcp?token=REDACTED&workspace=docs',
+            newValue: 'https://api.example.com/v2/mcp?workspace=docs&token=REDACTED',
+            riskFlags: ['connection_critical'],
+          }),
+          expect.objectContaining({
+            fieldPath: ['url', 'query', 'token'],
+            secretAction: 'replace',
+            oldValue: { present: true, value: '[REDACTED]', secret: true },
+            newValue: {
+              kind: 'environmentReference',
+              value: '${GITHUB_TOKEN}',
+              storesSecretMaterial: false,
+            },
+            riskFlags: ['connection_critical', 'secret'],
+          }),
+          expect.objectContaining({
+            fieldPath: ['headers', 'Authorization'],
+            secretAction: 'replace',
+            oldValue: { present: true, value: '[REDACTED]', secret: true },
+            newValue: {
+              kind: 'environmentReference',
+              value: '${GITHUB_AUTHORIZATION}',
+              storesSecretMaterial: false,
+            },
+            riskFlags: ['connection_critical', 'secret'],
+          }),
+        ]),
+      },
+    });
+    expect(checkConnectivity).toHaveBeenCalledWith({
+      targetName: 'github-renamed',
+      serverConfig: expect.objectContaining({
+        url: 'https://api.example.com/v2/mcp?workspace=docs&token=${GITHUB_TOKEN}',
+        headers: {
+          Authorization: '${GITHUB_AUTHORIZATION}',
+        },
+      }),
+    });
+    expect(readConfig().mcpServers.github.headers.Authorization).toBe('Bearer raw-header-token');
+    expect(reload).not.toHaveBeenCalled();
+    expect(service.getRecentAuditFacts()).toEqual([]);
+    expect(JSON.stringify(result)).not.toMatch(/raw-token|raw-header-token/);
+  });
+
+  it('skips automatic connectivity when endpoint changes would carry preserved secrets', async () => {
+    const checkConnectivity = vi.fn();
+    const service = createService({ checkConnectivity });
+    writeConfig({
+      mcpServers: {
+        github: {
+          type: 'http',
+          url: 'https://api.example.com/mcp',
+          headers: {
+            Authorization: 'Bearer raw-header-token',
+          },
+        },
+      },
+    });
+
+    const result = await service.previewConfiguredServerEdit({
+      context: context({
+        target: { type: 'configured_server', id: 'github' },
+        idempotencyKey: undefined,
+        requestFingerprint: undefined,
+      }),
+      targetName: 'github',
+      edit: {
+        transport: {
+          url: 'https://other.example.com/mcp',
+        },
+      },
+    });
+
+    expect(result).toMatchObject({
+      ok: true,
+      result: {
+        validation: { status: 'valid', errors: [] },
+        diff: expect.arrayContaining([
+          expect.objectContaining({
+            fieldPath: ['transport', 'url'],
+            oldValue: 'https://api.example.com/mcp',
+            newValue: 'https://other.example.com/mcp',
+            riskFlags: ['connection_critical'],
+          }),
+        ]),
+        configChange: {
+          changed: true,
+        },
+        connectivityCheck: {
+          status: 'skipped',
+          reason: 'endpoint_changed_with_preserved_secrets',
+        },
+      },
+    });
+    expect(checkConnectivity).not.toHaveBeenCalled();
+    expect(JSON.stringify(result)).not.toMatch(/raw-header-token/);
+  });
+
+  it('previews validation and skipped connectivity for disabled targets without writing config', async () => {
+    const checkConnectivity = vi.fn();
+    const service = createService({ checkConnectivity });
+    writeConfig({
+      mcpServers: {
+        broken: {
+          type: 'http',
+          url: 'https://api.example.com/mcp',
+          disabled: true,
+        },
+      },
+    });
+
+    const result = await service.previewConfiguredServerEdit({
+      context: context({
+        target: { type: 'configured_server', id: 'broken' },
+        idempotencyKey: undefined,
+        requestFingerprint: undefined,
+      }),
+      targetName: 'broken',
+      edit: {
+        transport: {
+          type: 'http',
+          url: 'not a url',
+        },
+      },
+    });
+
+    expect(result).toMatchObject({
+      ok: true,
+      result: {
+        validation: {
+          status: 'invalid',
+          errors: [
+            {
+              fieldPath: ['transport', 'url'],
+              code: 'invalid_url',
+              message: 'URL must be a valid URL or environment substitution reference.',
+            },
+          ],
+        },
+        connectivityCheck: {
+          status: 'skipped',
+          reason: 'target_disabled',
+        },
+        configChange: {
+          changed: false,
+          reload: { status: 'skipped' },
+        },
+      },
+    });
+    expect(checkConnectivity).not.toHaveBeenCalled();
+    expect(readConfig().mcpServers.broken.url).toBe('https://api.example.com/mcp');
+  });
+
+  it('throws not found for missing preview targets before dry-run wraps failures', async () => {
+    const service = createService();
+    writeConfig({
+      mcpServers: {},
+    });
+
+    await expect(
+      service.previewConfiguredServerEdit({
+        context: context({
+          target: { type: 'configured_server', id: 'missing' },
+          idempotencyKey: undefined,
+          requestFingerprint: undefined,
+        }),
+        targetName: 'missing',
+        edit: {},
+      }),
+    ).rejects.toMatchObject({
+      code: 'configured_server_not_found',
+      targetName: 'missing',
+    });
+  });
+
+  it('rejects unsupported top-level edit fields instead of accepting raw storage-shaped payloads', async () => {
+    const service = createService();
+    writeConfig({
+      mcpServers: {
+        github: {
+          type: 'http',
+          url: 'https://api.example.com/mcp',
+        },
+      },
+    });
+
+    const result = await service.previewConfiguredServerEdit({
+      context: context({
+        target: { type: 'configured_server', id: 'github' },
+        idempotencyKey: undefined,
+        requestFingerprint: undefined,
+      }),
+      targetName: 'github',
+      edit: {
+        mcpServers: {
+          other: {
+            type: 'http',
+            url: 'https://evil.example.com/mcp',
+          },
+        },
+        globalTransport: {
+          headers: {
+            Authorization: 'Bearer raw-secret',
+          },
+        },
+      },
+    });
+
+    expect(result).toMatchObject({
+      ok: true,
+      result: {
+        validation: {
+          status: 'invalid',
+          errors: expect.arrayContaining([
+            expect.objectContaining({
+              fieldPath: ['mcpServers'],
+              code: 'unsupported_edit_field',
+            }),
+            expect.objectContaining({
+              fieldPath: ['globalTransport'],
+              code: 'unsupported_edit_field',
+            }),
+          ]),
+        },
+        diff: [],
+        configChange: {
+          changed: false,
+        },
+        connectivityCheck: {
+          status: 'skipped',
+          reason: 'validation_failed',
+        },
+      },
+    });
+    expect(JSON.stringify(result)).not.toMatch(/raw-secret/);
+    expect(readConfig().mcpServers.github.url).toBe('https://api.example.com/mcp');
+  });
+
+  it('previews URL and args secret replacements against the raw target shape', async () => {
+    const checkConnectivity = vi.fn(async () => ({
+      status: 'passed' as const,
+      mode: 'bounded_dry_run' as const,
+      checkedAt: '2026-07-07T00:00:00.000Z',
+    }));
+    const service = createService({ checkConnectivity });
+    writeConfig({
+      mcpServers: {
+        gateway: {
+          type: 'http',
+          url: 'https://api.example.com/mcp?token=raw-token&workspace=docs',
+          args: ['--api-key', 'raw-key'],
+        },
+      },
+    });
+
+    const result = await service.previewConfiguredServerEdit({
+      context: context({
+        target: { type: 'configured_server', id: 'gateway' },
+        idempotencyKey: undefined,
+        requestFingerprint: undefined,
+      }),
+      targetName: 'gateway',
+      edit: {
+        secrets: [
+          {
+            fieldPath: ['url', 'query', 'token'],
+            action: 'replace',
+            replacement: { kind: 'environmentReference', value: 'GATEWAY_TOKEN' },
+          },
+          {
+            fieldPath: ['args', '1'],
+            action: 'replace',
+            replacement: { kind: 'environmentReference', value: 'GATEWAY_API_KEY' },
+          },
+        ],
+      },
+    });
+
+    expect(result).toMatchObject({
+      ok: true,
+      result: {
+        validation: { status: 'valid', errors: [] },
+        diff: expect.arrayContaining([
+          expect.objectContaining({
+            fieldPath: ['url', 'query', 'token'],
+            oldValue: { present: true, value: '[REDACTED]', secret: true },
+            newValue: {
+              kind: 'environmentReference',
+              value: '${GATEWAY_TOKEN}',
+              storesSecretMaterial: false,
+            },
+          }),
+          expect.objectContaining({
+            fieldPath: ['args', '1'],
+            oldValue: { present: true, value: '[REDACTED]', secret: true },
+            newValue: {
+              kind: 'environmentReference',
+              value: '${GATEWAY_API_KEY}',
+              storesSecretMaterial: false,
+            },
+          }),
+        ]),
+      },
+    });
+    expect(checkConnectivity).toHaveBeenCalledWith({
+      targetName: 'gateway',
+      serverConfig: expect.objectContaining({
+        url: 'https://api.example.com/mcp?token=${GATEWAY_TOKEN}&workspace=docs',
+        args: ['--api-key', '${GATEWAY_API_KEY}'],
+      }),
+    });
+    expect(JSON.stringify(result)).not.toMatch(/raw-token|raw-key/);
+  });
+
+  it('previews env-array secret replacements without changing the env shape', async () => {
+    const checkConnectivity = vi.fn(async () => ({
+      status: 'passed' as const,
+      mode: 'bounded_dry_run' as const,
+      checkedAt: '2026-07-07T00:00:00.000Z',
+    }));
+    const service = createService({ checkConnectivity });
+    writeConfig({
+      mcpServers: {
+        filesystem: {
+          type: 'http',
+          url: 'https://api.example.com/mcp',
+          env: ['PUBLIC_MODE=debug', 'API_TOKEN=raw-token', 'OTHER=value'],
+        },
+      },
+    });
+
+    const result = await service.previewConfiguredServerEdit({
+      context: context({
+        target: { type: 'configured_server', id: 'filesystem' },
+        idempotencyKey: undefined,
+        requestFingerprint: undefined,
+      }),
+      targetName: 'filesystem',
+      edit: {
+        secrets: [
+          {
+            fieldPath: ['env', 'API_TOKEN'],
+            action: 'replace',
+            replacement: { kind: 'environmentReference', value: 'FILESYSTEM_API_TOKEN' },
+          },
+        ],
+      },
+    });
+
+    expect(result).toMatchObject({
+      ok: true,
+      result: {
+        validation: { status: 'valid', errors: [] },
+        diff: [
+          expect.objectContaining({
+            fieldPath: ['env', 'API_TOKEN'],
+            oldValue: { present: true, value: '[REDACTED]', secret: true },
+            newValue: {
+              kind: 'environmentReference',
+              value: '${FILESYSTEM_API_TOKEN}',
+              storesSecretMaterial: false,
+            },
+          }),
+        ],
+      },
+    });
+    expect(checkConnectivity).toHaveBeenCalledWith({
+      targetName: 'filesystem',
+      serverConfig: expect.objectContaining({
+        env: ['PUBLIC_MODE=debug', 'API_TOKEN=${FILESYSTEM_API_TOKEN}', 'OTHER=value'],
+      }),
+    });
+    expect(JSON.stringify(result)).not.toMatch(/raw-token/);
+  });
+
+  it('skips preview connectivity for stdio targets without executing proposed commands', async () => {
+    const checkConnectivity = vi.fn();
+    const service = createService({ checkConnectivity });
+    writeConfig({
+      mcpServers: {
+        filesystem: {
+          command: 'npx',
+          url: 'https://api.example.com/mcp',
+          args: ['server-a'],
+        },
+      },
+    });
+
+    const result = await service.previewConfiguredServerEdit({
+      context: context({
+        target: { type: 'configured_server', id: 'filesystem' },
+        idempotencyKey: undefined,
+        requestFingerprint: undefined,
+      }),
+      targetName: 'filesystem',
+      edit: {
+        transport: {
+          command: 'node',
+          args: ['server-b'],
+        },
+      },
+      connectivityCheck: 'manual',
+    });
+
+    expect(result).toMatchObject({
+      ok: true,
+      result: {
+        validation: { status: 'valid', errors: [] },
+        connectivityCheck: {
+          status: 'skipped',
+          reason: 'local_stdio_transport',
+        },
+      },
+    });
+    expect(checkConnectivity).not.toHaveBeenCalled();
+  });
+
+  it('skips connectivity checks when enabled target previews fail validation', async () => {
+    const checkConnectivity = vi.fn();
+    const service = createService({ checkConnectivity });
+    writeConfig({
+      mcpServers: {
+        github: {
+          type: 'http',
+          url: 'https://api.example.com/mcp',
+        },
+      },
+    });
+
+    const result = await service.previewConfiguredServerEdit({
+      context: context({
+        target: { type: 'configured_server', id: 'github' },
+        idempotencyKey: undefined,
+        requestFingerprint: undefined,
+      }),
+      targetName: 'github',
+      edit: {
+        transport: {
+          url: 'not a url',
+        },
+      },
+    });
+
+    expect(result).toMatchObject({
+      ok: true,
+      result: {
+        validation: { status: 'invalid' },
+        connectivityCheck: {
+          status: 'skipped',
+          reason: 'validation_failed',
+        },
+        configChange: {
+          changed: false,
+          reload: { status: 'skipped' },
+        },
+      },
+    });
+    expect(checkConnectivity).not.toHaveBeenCalled();
+  });
+
+  it('binds inline secret replacement values into preview fingerprints without echoing them', async () => {
+    writeConfig({
+      mcpServers: {
+        github: {
+          type: 'http',
+          url: 'https://api.example.com/mcp',
+          headers: {
+            Authorization: 'Bearer raw-header-token',
+          },
+        },
+      },
+    });
+    const service = createService();
+    const baseInput = {
+      context: context({
+        target: { type: 'configured_server', id: 'github' },
+        idempotencyKey: undefined,
+        requestFingerprint: undefined,
+      }),
+      targetName: 'github',
+    };
+
+    const first = await service.previewConfiguredServerEdit({
+      ...baseInput,
+      edit: {
+        secrets: [
+          {
+            fieldPath: ['headers', 'Authorization'],
+            action: 'replace',
+            replacement: { kind: 'inlineSecret', value: 'first-secret-value' },
+          },
+        ],
+      },
+    });
+    const second = await service.previewConfiguredServerEdit({
+      ...baseInput,
+      edit: {
+        secrets: [
+          {
+            fieldPath: ['headers', 'Authorization'],
+            action: 'replace',
+            replacement: { kind: 'inlineSecret', value: 'second-secret-value' },
+          },
+        ],
+      },
+    });
+
+    expect(first).toMatchObject({ ok: true });
+    expect(second).toMatchObject({ ok: true });
+    expect(first.ok && second.ok ? first.result.previewFingerprint : undefined).not.toBe(
+      second.ok && first.ok ? second.result.previewFingerprint : undefined,
+    );
+    expect(JSON.stringify(first)).not.toMatch(/first-secret-value|second-secret-value/);
+    expect(JSON.stringify(second)).not.toMatch(/first-secret-value|second-secret-value/);
+  });
+
+  it('returns structured validation for malformed preview edit shapes', async () => {
+    writeConfig({
+      mcpServers: {
+        github: {
+          type: 'http',
+          url: 'https://api.example.com/mcp',
+        },
+      },
+    });
+    const service = createService();
+
+    const result = await service.previewConfiguredServerEdit({
+      context: context({
+        target: { type: 'configured_server', id: 'github' },
+        idempotencyKey: undefined,
+        requestFingerprint: undefined,
+      }),
+      targetName: 'github',
+      edit: {
+        id: 123,
+        secrets: { bad: true },
+      } as any,
+    });
+
+    expect(result).toMatchObject({
+      ok: true,
+      result: {
+        validation: {
+          status: 'invalid',
+          errors: expect.arrayContaining([
+            {
+              fieldPath: ['id'],
+              code: 'invalid_target_id',
+              message: 'Target ID must be a string.',
+            },
+            {
+              fieldPath: ['secrets'],
+              code: 'invalid_secret_actions',
+              message: 'Secret actions must be a list.',
+            },
+          ]),
+        },
+      },
+    });
+  });
+
+  it('rejects raw values submitted as environment-reference secret replacements without echoing them', async () => {
+    writeConfig({
+      mcpServers: {
+        github: {
+          type: 'http',
+          url: 'https://api.example.com/mcp',
+          headers: {
+            Authorization: 'Bearer existing-token',
+          },
+        },
+      },
+    });
+    const service = createService();
+
+    const result = await service.previewConfiguredServerEdit({
+      context: context({
+        target: { type: 'configured_server', id: 'github' },
+        idempotencyKey: undefined,
+        requestFingerprint: undefined,
+      }),
+      targetName: 'github',
+      edit: {
+        secrets: [
+          {
+            fieldPath: ['headers', 'Authorization'],
+            action: 'replace',
+            replacement: { kind: 'environmentReference', value: 'Bearer raw-token-value' },
+          },
+        ],
+      },
+    });
+
+    expect(result).toMatchObject({
+      ok: true,
+      result: {
+        validation: {
+          status: 'invalid',
+          errors: expect.arrayContaining([
+            {
+              fieldPath: ['secrets', '0', 'replacement', 'value'],
+              code: 'invalid_environment_reference',
+              message: 'Environment reference must be an environment variable name or substitution expression.',
+            },
+          ]),
+        },
+        connectivityCheck: {
+          status: 'skipped',
+          reason: 'validation_failed',
+        },
+      },
+    });
+    expect(JSON.stringify(result)).not.toMatch(/raw-token-value|Bearer raw/i);
+    expect(readConfig().mcpServers.github.headers.Authorization).toBe('Bearer existing-token');
+  });
+
+  it('allows adding new secret-capable fields through environment-reference secret actions', async () => {
+    const checkConnectivity = vi.fn(async () => ({
+      status: 'passed' as const,
+      mode: 'bounded_dry_run' as const,
+      checkedAt: '2026-07-07T00:00:00.000Z',
+    }));
+    const service = createService({ checkConnectivity });
+    writeConfig({
+      mcpServers: {
+        github: {
+          type: 'http',
+          url: 'https://api.example.com/mcp',
+        },
+      },
+    });
+
+    const result = await service.previewConfiguredServerEdit({
+      context: context({
+        target: { type: 'configured_server', id: 'github' },
+        idempotencyKey: undefined,
+        requestFingerprint: undefined,
+      }),
+      targetName: 'github',
+      edit: {
+        secrets: [
+          {
+            fieldPath: ['headers', 'Authorization'],
+            action: 'replace',
+            replacement: { kind: 'environmentReference', value: 'GITHUB_AUTHORIZATION' },
+          },
+        ],
+      },
+    });
+
+    expect(result).toMatchObject({
+      ok: true,
+      result: {
+        validation: { status: 'valid', errors: [] },
+        diff: [
+          expect.objectContaining({
+            fieldPath: ['headers', 'Authorization'],
+            secretAction: 'replace',
+            oldValue: undefined,
+            newValue: {
+              kind: 'environmentReference',
+              value: '${GITHUB_AUTHORIZATION}',
+              storesSecretMaterial: false,
+            },
+            riskFlags: ['connection_critical', 'secret'],
+          }),
+        ],
+      },
+    });
+    expect(checkConnectivity).toHaveBeenCalledWith({
+      targetName: 'github',
+      serverConfig: expect.objectContaining({
+        headers: {
+          Authorization: '${GITHUB_AUTHORIZATION}',
+        },
+      }),
+    });
+  });
+
+  it('rejects secret-capable fields submitted through raw transport edits', async () => {
+    writeConfig({
+      mcpServers: {
+        github: {
+          type: 'http',
+          url: 'https://api.example.com/mcp',
+          headers: {
+            Authorization: 'Bearer existing-token',
+          },
+        },
+      },
+    });
+    const service = createService();
+
+    const result = await service.previewConfiguredServerEdit({
+      context: context({
+        target: { type: 'configured_server', id: 'github' },
+        idempotencyKey: undefined,
+        requestFingerprint: undefined,
+      }),
+      targetName: 'github',
+      edit: {
+        transport: {
+          headers: {
+            Authorization: 'Bearer raw-new-token',
+          },
+        },
+      },
+    });
+
+    expect(result).toMatchObject({
+      ok: true,
+      result: {
+        validation: {
+          status: 'invalid',
+          errors: expect.arrayContaining([
+            {
+              fieldPath: ['transport', 'headers'],
+              code: 'secret_transport_edit_requires_secret_action',
+              message: 'Secret-capable transport fields must use explicit secret actions.',
+            },
+          ]),
+        },
+        diff: [],
+        connectivityCheck: {
+          status: 'skipped',
+          reason: 'validation_failed',
+        },
+      },
+    });
+    expect(JSON.stringify(result)).not.toMatch(/raw-new-token|existing-token/);
+  });
+
+  it('rejects nested raw OAuth secret material submitted through transport edits', async () => {
+    writeConfig({
+      mcpServers: {
+        github: {
+          type: 'http',
+          url: 'https://api.example.com/mcp',
+        },
+      },
+    });
+    const service = createService();
+
+    const result = await service.previewConfiguredServerEdit({
+      context: context({
+        target: { type: 'configured_server', id: 'github' },
+        idempotencyKey: undefined,
+        requestFingerprint: undefined,
+      }),
+      targetName: 'github',
+      edit: {
+        transport: {
+          oauth: {
+            metadata: {
+              clientSecret: 'raw-oauth-secret',
+            },
+          },
+        },
+      },
+    });
+
+    expect(result).toMatchObject({
+      ok: true,
+      result: {
+        validation: {
+          status: 'invalid',
+          errors: expect.arrayContaining([
+            {
+              fieldPath: ['transport', 'oauth'],
+              code: 'secret_transport_edit_requires_secret_action',
+              message: 'Secret-capable transport fields must use explicit secret actions.',
+            },
+          ]),
+        },
+        diff: [],
+      },
+    });
+    expect(JSON.stringify(result)).not.toMatch(/raw-oauth-secret/);
+  });
+
+  it('rejects nested raw OAuth secret-looking values submitted through transport edits', async () => {
+    writeConfig({
+      mcpServers: {
+        github: {
+          type: 'http',
+          url: 'https://api.example.com/mcp',
+        },
+      },
+    });
+    const service = createService();
+
+    const result = await service.previewConfiguredServerEdit({
+      context: context({
+        target: { type: 'configured_server', id: 'github' },
+        idempotencyKey: undefined,
+        requestFingerprint: undefined,
+      }),
+      targetName: 'github',
+      edit: {
+        transport: {
+          oauth: {
+            metadata: {
+              header: 'Bearer raw-oauth-token',
+            },
+          },
+        },
+      },
+    });
+
+    expect(result).toMatchObject({
+      ok: true,
+      result: {
+        validation: {
+          status: 'invalid',
+          errors: expect.arrayContaining([
+            {
+              fieldPath: ['transport', 'oauth'],
+              code: 'secret_transport_edit_requires_secret_action',
+              message: 'Secret-capable transport fields must use explicit secret actions.',
+            },
+          ]),
+        },
+        diff: [],
+      },
+    });
+    expect(JSON.stringify(result)).not.toMatch(/raw-oauth-token|Bearer raw/i);
+  });
+
+  it('rejects raw OAuth string fields that bypass explicit secret actions', async () => {
+    writeConfig({
+      mcpServers: {
+        github: {
+          type: 'http',
+          url: 'https://api.example.com/mcp',
+        },
+      },
+    });
+    const service = createService();
+
+    const result = await service.previewConfiguredServerEdit({
+      context: context({
+        target: { type: 'configured_server', id: 'github' },
+        idempotencyKey: undefined,
+        requestFingerprint: undefined,
+      }),
+      targetName: 'github',
+      edit: {
+        transport: {
+          oauth: {
+            clientId: 'raw-client-id',
+            redirectUrl: 'https://callback.example.com/oauth',
+          },
+        },
+      },
+    });
+
+    expect(result).toMatchObject({
+      ok: true,
+      result: {
+        validation: {
+          status: 'invalid',
+          errors: expect.arrayContaining([
+            {
+              fieldPath: ['transport', 'oauth'],
+              code: 'secret_transport_edit_requires_secret_action',
+              message: 'Secret-capable transport fields must use explicit secret actions.',
+            },
+          ]),
+        },
+        diff: [],
+      },
+    });
+    expect(JSON.stringify(result)).not.toMatch(/raw-client-id/);
+  });
+
+  it('rejects raw unknown transport fields that contain secret material', async () => {
+    writeConfig({
+      mcpServers: {
+        github: {
+          type: 'http',
+          url: 'https://api.example.com/mcp',
+        },
+      },
+    });
+    const service = createService();
+
+    const result = await service.previewConfiguredServerEdit({
+      context: context({
+        target: { type: 'configured_server', id: 'github' },
+        idempotencyKey: undefined,
+        requestFingerprint: undefined,
+      }),
+      targetName: 'github',
+      edit: {
+        transport: {
+          apiKey: 'raw-api-key',
+          metadata: {
+            clientSecret: {
+              value: 'raw-metadata-secret',
+            },
+          },
+        },
+      },
+    });
+
+    expect(result).toMatchObject({
+      ok: true,
+      result: {
+        validation: {
+          status: 'invalid',
+          errors: expect.arrayContaining([
+            {
+              fieldPath: ['transport', 'apiKey'],
+              code: 'secret_transport_edit_requires_secret_action',
+              message: 'Secret-capable transport fields must use explicit secret actions.',
+            },
+            {
+              fieldPath: ['transport', 'metadata'],
+              code: 'secret_transport_edit_requires_secret_action',
+              message: 'Secret-capable transport fields must use explicit secret actions.',
+            },
+          ]),
+        },
+        diff: [],
+      },
+    });
+    expect(JSON.stringify(result)).not.toMatch(/raw-api-key|raw-metadata-secret/);
+  });
+
+  it('rejects raw args values that carry secret material', async () => {
+    writeConfig({
+      mcpServers: {
+        github: {
+          type: 'stdio',
+          command: 'node',
+          args: ['server.js'],
+        },
+      },
+    });
+    const service = createService();
+
+    const result = await service.previewConfiguredServerEdit({
+      context: context({
+        target: { type: 'configured_server', id: 'github' },
+        idempotencyKey: undefined,
+        requestFingerprint: undefined,
+      }),
+      targetName: 'github',
+      edit: {
+        transport: {
+          args: ['--header', 'Authorization: Bearer raw-token'],
+        },
+      },
+    });
+
+    expect(result).toMatchObject({
+      ok: true,
+      result: {
+        validation: {
+          status: 'invalid',
+          errors: expect.arrayContaining([
+            {
+              fieldPath: ['transport', 'args'],
+              code: 'secret_transport_edit_requires_secret_action',
+              message: 'Secret-capable transport fields must use explicit secret actions.',
+            },
+          ]),
+        },
+        diff: [],
+      },
+    });
+    expect(JSON.stringify(result)).not.toMatch(/raw-token|Authorization: Bearer/i);
+  });
+
+  it('rejects reserved transport edit keys before applying preview edits', async () => {
+    const service = createService();
+    writeConfig({
+      mcpServers: {
+        gateway: {
+          type: 'http',
+          url: 'https://api.example.com/mcp',
+        },
+      },
+    });
+
+    const result = await service.previewConfiguredServerEdit({
+      context: context({
+        target: { type: 'configured_server', id: 'gateway' },
+        idempotencyKey: undefined,
+        requestFingerprint: undefined,
+      }),
+      targetName: 'gateway',
+      edit: JSON.parse('{"transport":{"__proto__":{"url":"https://polluted.example.com/mcp"}}}'),
+    });
+
+    expect(result).toMatchObject({
+      ok: true,
+      result: {
+        validation: {
+          status: 'invalid',
+          errors: expect.arrayContaining([
+            {
+              fieldPath: ['transport', '__proto__'],
+              code: 'invalid_transport_field_path',
+              message: 'Transport field path contains a reserved segment.',
+            },
+          ]),
+        },
+        diff: [],
+        connectivityCheck: {
+          status: 'skipped',
+          reason: 'validation_failed',
+        },
+      },
+    });
+    expect(({} as Record<string, unknown>).url).toBeUndefined();
+  });
+
+  it('redacts nested OAuth secret material from existing config read models', async () => {
+    writeConfig({
+      mcpServers: {
+        github: {
+          type: 'http',
+          url: 'https://api.example.com/mcp',
+          oauth: {
+            metadata: {
+              clientSecret: 'raw-existing-oauth-secret',
+            },
+          },
+        },
+      },
+    });
+    const service = createService();
+
+    const result = await service.getConfiguredServerDetail({
+      context: context({
+        target: { type: 'configured_server', id: 'github' },
+        idempotencyKey: undefined,
+        requestFingerprint: undefined,
+      }),
+      targetName: 'github',
+    });
+
+    expect(result).toMatchObject({
+      ok: true,
+      result: {
+        server: {
+          transport: {
+            oauth: {
+              metadata: {
+                clientSecret: { present: true, value: '[REDACTED]', secret: true },
+              },
+            },
+          },
+          secretInputs: expect.arrayContaining([
+            expect.objectContaining({
+              fieldPath: ['oauth', 'metadata', 'clientSecret'],
+            }),
+          ]),
+        },
+      },
+    });
+    expect(JSON.stringify(result)).not.toMatch(/raw-existing-oauth-secret/);
+  });
+
+  it('redacts secret-bearing command args from existing config read models and summaries', async () => {
+    writeConfig({
+      mcpServers: {
+        github: {
+          type: 'stdio',
+          command: 'node',
+          args: [
+            'server.js',
+            '--header',
+            'Authorization: Bearer raw-arg-token',
+            '--header=Authorization: Bearer raw-inline-token',
+            'Authorization: Bearer raw-standalone-token',
+          ],
+        },
+      },
+    });
+    const service = createService();
+
+    const result = await service.getConfiguredServerDetail({
+      context: context({
+        target: { type: 'configured_server', id: 'github' },
+        idempotencyKey: undefined,
+        requestFingerprint: undefined,
+      }),
+      targetName: 'github',
+    });
+
+    expect(result).toMatchObject({
+      ok: true,
+      result: {
+        server: {
+          transportSummary: {
+            label: 'node server.js --header REDACTED --header=REDACTED REDACTED',
+          },
+          transport: {
+            args: ['server.js', '--header', 'REDACTED', '--header=REDACTED', 'REDACTED'],
+          },
+          secretInputs: expect.arrayContaining([
+            expect.objectContaining({
+              fieldPath: ['args', '2'],
+            }),
+            expect.objectContaining({
+              fieldPath: ['args', '3'],
+            }),
+            expect.objectContaining({
+              fieldPath: ['args', '4'],
+            }),
+          ]),
+        },
+      },
+    });
+    expect(JSON.stringify(result)).not.toMatch(
+      /raw-arg-token|raw-inline-token|raw-standalone-token|Authorization: Bearer/i,
+    );
+  });
+
+  it('redacts object-valued secret-like fields from existing config read models', async () => {
+    writeConfig({
+      mcpServers: {
+        github: {
+          type: 'http',
+          url: 'https://api.example.com/mcp',
+          oauth: {
+            metadata: {
+              clientSecret: {
+                value: 'raw-object-oauth-secret',
+              },
+            },
+          },
+        },
+      },
+    });
+    const service = createService();
+
+    const result = await service.getConfiguredServerDetail({
+      context: context({
+        target: { type: 'configured_server', id: 'github' },
+        idempotencyKey: undefined,
+        requestFingerprint: undefined,
+      }),
+      targetName: 'github',
+    });
+
+    expect(result).toMatchObject({
+      ok: true,
+      result: {
+        server: {
+          transport: {
+            oauth: {
+              metadata: {
+                clientSecret: { present: true, value: '[REDACTED]', secret: true },
+              },
+            },
+          },
+          secretInputs: expect.arrayContaining([
+            expect.objectContaining({
+              fieldPath: ['oauth', 'metadata', 'clientSecret'],
+            }),
+          ]),
+        },
+      },
+    });
+    expect(JSON.stringify(result)).not.toMatch(/raw-object-oauth-secret/);
+  });
+
+  it('redacts nested OAuth secret-looking values from existing config read models', async () => {
+    writeConfig({
+      mcpServers: {
+        github: {
+          type: 'http',
+          url: 'https://api.example.com/mcp',
+          oauth: {
+            metadata: {
+              header: 'Bearer raw-existing-oauth-token',
+            },
+          },
+        },
+      },
+    });
+    const service = createService();
+
+    const result = await service.getConfiguredServerDetail({
+      context: context({
+        target: { type: 'configured_server', id: 'github' },
+        idempotencyKey: undefined,
+        requestFingerprint: undefined,
+      }),
+      targetName: 'github',
+    });
+
+    expect(result).toMatchObject({
+      ok: true,
+      result: {
+        server: {
+          transport: {
+            oauth: {
+              metadata: {
+                header: { present: true, value: '[REDACTED]', secret: true },
+              },
+            },
+          },
+          secretInputs: expect.arrayContaining([
+            expect.objectContaining({
+              fieldPath: ['oauth', 'metadata', 'header'],
+            }),
+          ]),
+        },
+      },
+    });
+    expect(JSON.stringify(result)).not.toMatch(/raw-existing-oauth-token|Bearer raw/i);
+  });
+
+  it('rejects malformed raw URL edits that contain userinfo secret material without echoing them', async () => {
+    writeConfig({
+      mcpServers: {
+        github: {
+          type: 'http',
+          url: 'https://api.example.com/mcp',
+        },
+      },
+    });
+    const service = createService();
+
+    const result = await service.previewConfiguredServerEdit({
+      context: context({
+        target: { type: 'configured_server', id: 'github' },
+        idempotencyKey: undefined,
+        requestFingerprint: undefined,
+      }),
+      targetName: 'github',
+      edit: {
+        transport: {
+          url: 'https://user:raw pass@bad host/mcp',
+        },
+      },
+    });
+
+    expect(result).toMatchObject({
+      ok: true,
+      result: {
+        validation: {
+          status: 'invalid',
+          errors: expect.arrayContaining([
+            {
+              fieldPath: ['transport', 'url'],
+              code: 'secret_transport_edit_requires_secret_action',
+              message: 'Secret-capable transport fields must use explicit secret actions.',
+            },
+          ]),
+        },
+        diff: [],
+      },
+    });
+    expect(JSON.stringify(result)).not.toMatch(/raw pass|user:raw pass/);
+  });
+
+  it('redacts userinfo from malformed existing URLs in read models and summaries', async () => {
+    writeConfig({
+      mcpServers: {
+        github: {
+          type: 'http',
+          url: 'https://user:raw pass@bad host/mcp?token=raw-token',
+        },
+      },
+    });
+    const service = createService();
+
+    const result = await service.getConfiguredServerDetail({
+      context: context({
+        target: { type: 'configured_server', id: 'github' },
+        idempotencyKey: undefined,
+        requestFingerprint: undefined,
+      }),
+      targetName: 'github',
+    });
+
+    expect(result).toMatchObject({
+      ok: true,
+      result: {
+        server: {
+          transportSummary: {
+            label: 'https://REDACTED@bad host/mcp?token=REDACTED',
+          },
+          transport: {
+            url: 'https://REDACTED@bad host/mcp?token=REDACTED',
+          },
+          secretInputs: expect.arrayContaining([
+            expect.objectContaining({ fieldPath: ['url', 'userinfo'] }),
+            expect.objectContaining({ fieldPath: ['url', 'query', 'token'] }),
+          ]),
+        },
+      },
+    });
+    expect(JSON.stringify(result)).not.toMatch(/raw pass|raw-token|user:raw pass/);
+  });
+
+  it('redacts existing URL query values that contain secret-looking material', async () => {
+    writeConfig({
+      mcpServers: {
+        github: {
+          type: 'http',
+          url: 'https://api.example.com/mcp?workspace=Bearer raw-url-token',
+        },
+      },
+    });
+    const service = createService();
+
+    const result = await service.getConfiguredServerDetail({
+      context: context({
+        target: { type: 'configured_server', id: 'github' },
+        idempotencyKey: undefined,
+        requestFingerprint: undefined,
+      }),
+      targetName: 'github',
+    });
+
+    expect(result).toMatchObject({
+      ok: true,
+      result: {
+        server: {
+          transportSummary: {
+            label: 'https://api.example.com/mcp?workspace=REDACTED',
+          },
+          transport: {
+            url: 'https://api.example.com/mcp?workspace=REDACTED',
+          },
+          secretInputs: expect.arrayContaining([expect.objectContaining({ fieldPath: ['url', 'query', 'workspace'] })]),
+        },
+      },
+    });
+    expect(JSON.stringify(result)).not.toMatch(/raw-url-token|Bearer raw/i);
+  });
+
+  it('rejects and redacts username-only malformed URL userinfo', async () => {
+    writeConfig({
+      mcpServers: {
+        github: {
+          type: 'http',
+          url: 'https://raw user@bad host/mcp',
+        },
+      },
+    });
+    const service = createService();
+
+    const detail = await service.getConfiguredServerDetail({
+      context: context({
+        target: { type: 'configured_server', id: 'github' },
+        idempotencyKey: undefined,
+        requestFingerprint: undefined,
+      }),
+      targetName: 'github',
+    });
+    const preview = await service.previewConfiguredServerEdit({
+      context: context({
+        target: { type: 'configured_server', id: 'github' },
+        idempotencyKey: undefined,
+        requestFingerprint: undefined,
+      }),
+      targetName: 'github',
+      edit: {
+        transport: {
+          url: 'https://raw user@bad host/mcp',
+        },
+      },
+    });
+
+    expect(detail).toMatchObject({
+      ok: true,
+      result: {
+        server: {
+          transport: {
+            url: 'https://REDACTED@bad host/mcp',
+          },
+        },
+      },
+    });
+    expect(preview).toMatchObject({
+      ok: true,
+      result: {
+        validation: {
+          status: 'invalid',
+          errors: expect.arrayContaining([
+            {
+              fieldPath: ['transport', 'url'],
+              code: 'secret_transport_edit_requires_secret_action',
+              message: 'Secret-capable transport fields must use explicit secret actions.',
+            },
+          ]),
+        },
+        diff: [],
+      },
+    });
+    expect(JSON.stringify(detail)).not.toMatch(/raw user/);
+    expect(JSON.stringify(preview)).not.toMatch(/raw user/);
+  });
+
+  it('rejects replace and clear actions for malformed URL userinfo virtual fields', async () => {
+    writeConfig({
+      mcpServers: {
+        gateway: {
+          type: 'http',
+          url: 'https://raw user@bad host/mcp',
+        },
+      },
+    });
+    const service = createService();
+
+    const result = await service.previewConfiguredServerEdit({
+      context: context({
+        target: { type: 'configured_server', id: 'gateway' },
+        idempotencyKey: undefined,
+        requestFingerprint: undefined,
+      }),
+      targetName: 'gateway',
+      edit: {
+        secrets: [
+          {
+            fieldPath: ['url', 'userinfo'],
+            action: 'replace',
+            replacement: { kind: 'environmentReference', value: 'GATEWAY_USERINFO' },
+          },
+          {
+            fieldPath: ['url', 'userinfo'],
+            action: 'clear',
+          },
+        ],
+      },
+    });
+
+    expect(result).toMatchObject({
+      ok: true,
+      result: {
+        validation: {
+          status: 'invalid',
+          errors: expect.arrayContaining([
+            expect.objectContaining({
+              fieldPath: ['secrets', '0', 'action'],
+              code: 'unsupported_secret_action',
+            }),
+            expect.objectContaining({
+              fieldPath: ['secrets', '1', 'action'],
+              code: 'unsupported_secret_action',
+            }),
+          ]),
+        },
+        diff: [],
+        configChange: {
+          changed: false,
+        },
+        connectivityCheck: {
+          status: 'skipped',
+          reason: 'validation_failed',
+        },
+      },
+    });
+    expect(readConfig().mcpServers.gateway.url).toBe('https://raw user@bad host/mcp');
+    expect(JSON.stringify(result)).not.toMatch(/raw user|GATEWAY_USERINFO/);
+  });
+
+  it('marks template changes with rendered-template risk', async () => {
+    writeConfig({
+      mcpServers: {
+        templated: {
+          type: 'http',
+          url: 'https://api.example.com/mcp',
+          template: {
+            shareable: true,
+          },
+        },
+      },
+    });
+    const service = createService();
+
+    const result = await service.previewConfiguredServerEdit({
+      context: context({
+        target: { type: 'configured_server', id: 'templated' },
+        idempotencyKey: undefined,
+        requestFingerprint: undefined,
+      }),
+      targetName: 'templated',
+      edit: {
+        transport: {
+          template: {
+            shareable: false,
+          },
+        },
+      },
+    });
+
+    expect(result).toMatchObject({
+      ok: true,
+      result: {
+        diff: expect.arrayContaining([
+          expect.objectContaining({
+            fieldPath: ['transport', 'template'],
+            riskFlags: ['connection_critical', 'template_risk'],
+          }),
+        ]),
+      },
+    });
+  });
+
+  it('marks template secret changes with rendered-template risk', async () => {
+    writeConfig({
+      mcpServers: {
+        templated: {
+          type: 'http',
+          url: 'https://api.example.com/mcp',
+          template: {
+            clientSecret: 'raw-template-secret',
+          },
+        },
+      },
+    });
+    const service = createService();
+
+    const result = await service.previewConfiguredServerEdit({
+      context: context({
+        target: { type: 'configured_server', id: 'templated' },
+        idempotencyKey: undefined,
+        requestFingerprint: undefined,
+      }),
+      targetName: 'templated',
+      edit: {
+        secrets: [
+          {
+            fieldPath: ['template', 'clientSecret'],
+            action: 'replace',
+            replacement: { kind: 'environmentReference', value: 'TEMPLATE_CLIENT_SECRET' },
+          },
+        ],
+      },
+    });
+
+    expect(result).toMatchObject({
+      ok: true,
+      result: {
+        diff: expect.arrayContaining([
+          expect.objectContaining({
+            fieldPath: ['template', 'clientSecret'],
+            secretAction: 'replace',
+            riskFlags: ['connection_critical', 'template_risk', 'secret'],
+          }),
+        ]),
+      },
+    });
+    expect(JSON.stringify(result)).not.toMatch(/raw-template-secret/);
+  });
+
+  it('rejects dangerous secret field-path segments before applying preview edits', async () => {
+    const parsed = JSON.parse(
+      '{"mcpServers":{"github":{"type":"http","url":"https://api.example.com/mcp","env":{"__proto__":"raw-secret"}}}}',
+    );
+    const service = createService({ readConfigDocument: () => parsed });
+
+    const result = await service.previewConfiguredServerEdit({
+      context: context({
+        target: { type: 'configured_server', id: 'github' },
+        idempotencyKey: undefined,
+        requestFingerprint: undefined,
+      }),
+      targetName: 'github',
+      edit: {
+        secrets: [
+          {
+            fieldPath: ['env', '__proto__'],
+            action: 'replace',
+            replacement: { kind: 'environmentReference', value: 'GITHUB_TOKEN' },
+          },
+        ],
+      },
+    });
+
+    expect(result).toMatchObject({
+      ok: true,
+      result: {
+        validation: {
+          status: 'invalid',
+          errors: expect.arrayContaining([
+            {
+              fieldPath: ['secrets', '0', 'fieldPath'],
+              code: 'invalid_secret_field_path',
+              message: 'Secret field path contains a reserved segment.',
+            },
+          ]),
+        },
+        diff: [],
+      },
+    });
+    expect(({} as Record<string, unknown>).GITHUB_TOKEN).toBeUndefined();
+  });
+
+  it('validates malformed transport fields against the runtime target schema', async () => {
+    const service = createService();
+    writeConfig({
+      mcpServers: {
+        gateway: {
+          type: 'stdio',
+          command: 'node',
+        },
+      },
+    });
+
+    const result = await service.previewConfiguredServerEdit({
+      context: context({
+        target: { type: 'configured_server', id: 'gateway' },
+        idempotencyKey: undefined,
+        requestFingerprint: undefined,
+      }),
+      targetName: 'gateway',
+      edit: {
+        transport: {
+          template: {
+            maxInstances: -1,
+          },
+          oauth: {
+            autoRegister: 123,
+          },
+          disabledTools: ['safe-tool', 123],
+          connectionTimeout: 'slow',
+        },
+      },
+    });
+
+    expect(result).toMatchObject({
+      ok: true,
+      result: {
+        validation: {
+          status: 'invalid',
+          errors: expect.arrayContaining([
+            expect.objectContaining({
+              fieldPath: ['transport', 'template', 'maxInstances'],
+              code: 'invalid_transport_field',
+            }),
+            expect.objectContaining({
+              fieldPath: ['transport', 'oauth', 'autoRegister'],
+              code: 'invalid_transport_field',
+            }),
+            expect.objectContaining({
+              fieldPath: ['transport', 'disabledTools', '1'],
+              code: 'invalid_transport_field',
+            }),
+            expect.objectContaining({
+              fieldPath: ['transport', 'connectionTimeout'],
+              code: 'invalid_transport_field',
+            }),
+          ]),
+        },
+      },
+    });
+  });
+
+  it('validates transport type-specific required fields', async () => {
+    const service = createService();
+    writeConfig({
+      mcpServers: {
+        stdioSource: {
+          type: 'stdio',
+          command: 'node',
+        },
+        httpSource: {
+          type: 'http',
+          url: 'https://api.example.com/mcp',
+        },
+      },
+    });
+
+    const httpWithoutUrl = await service.previewConfiguredServerEdit({
+      context: context({
+        target: { type: 'configured_server', id: 'gateway' },
+        idempotencyKey: undefined,
+        requestFingerprint: undefined,
+      }),
+      targetName: 'stdioSource',
+      edit: {
+        transport: {
+          type: 'http',
+        },
+      },
+    });
+    const stdioWithoutCommand = await service.previewConfiguredServerEdit({
+      context: context({
+        target: { type: 'configured_server', id: 'gateway' },
+        idempotencyKey: undefined,
+        requestFingerprint: undefined,
+      }),
+      targetName: 'httpSource',
+      edit: {
+        transport: {
+          type: 'stdio',
+        },
+      },
+    });
+    const malformedScalars = await service.previewConfiguredServerEdit({
+      context: context({
+        target: { type: 'configured_server', id: 'gateway' },
+        idempotencyKey: undefined,
+        requestFingerprint: undefined,
+      }),
+      targetName: 'httpSource',
+      edit: {
+        transport: {
+          type: 123,
+          url: 456,
+        },
+      },
+    });
+
+    expect(httpWithoutUrl).toMatchObject({
+      ok: true,
+      result: {
+        validation: {
+          status: 'invalid',
+          errors: expect.arrayContaining([
+            {
+              fieldPath: ['transport', 'url'],
+              code: 'missing_transport_url',
+              message: 'URL is required for http servers.',
+            },
+          ]),
+        },
+      },
+    });
+    expect(stdioWithoutCommand).toMatchObject({
+      ok: true,
+      result: {
+        validation: {
+          status: 'invalid',
+          errors: expect.arrayContaining([
+            {
+              fieldPath: ['transport', 'command'],
+              code: 'missing_stdio_command',
+              message: 'Command is required for stdio servers.',
+            },
+          ]),
+        },
+      },
+    });
+    expect(malformedScalars).toMatchObject({
+      ok: true,
+      result: {
+        validation: {
+          status: 'invalid',
+          errors: expect.arrayContaining([
+            expect.objectContaining({
+              fieldPath: ['transport', 'type'],
+              code: 'invalid_transport_field',
+            }),
+            expect.objectContaining({
+              fieldPath: ['transport', 'url'],
+              code: 'invalid_transport_field',
+            }),
+          ]),
+        },
+      },
+    });
+  });
+
+  it('rejects raw URL secret material submitted through transport edits', async () => {
+    const service = createService();
+    writeConfig({
+      mcpServers: {
+        github: {
+          type: 'http',
+          url: 'https://api.example.com/mcp',
+        },
+      },
+    });
+
+    const result = await service.previewConfiguredServerEdit({
+      context: context({
+        target: { type: 'configured_server', id: 'github' },
+        idempotencyKey: undefined,
+        requestFingerprint: undefined,
+      }),
+      targetName: 'github',
+      edit: {
+        transport: {
+          url: 'https://api.example.com/mcp?token=raw-url-secret',
+        },
+      },
+    });
+
+    expect(result).toMatchObject({
+      ok: true,
+      result: {
+        validation: {
+          status: 'invalid',
+          errors: expect.arrayContaining([
+            {
+              fieldPath: ['transport', 'url'],
+              code: 'secret_transport_edit_requires_secret_action',
+              message: 'Secret-capable transport fields must use explicit secret actions.',
+            },
+          ]),
+        },
+        diff: [],
+        connectivityCheck: {
+          status: 'skipped',
+          reason: 'validation_failed',
+        },
+      },
+    });
+    expect(JSON.stringify(result)).not.toMatch(/raw-url-secret/);
+  });
+
+  it('rejects raw URL secret query environment references so the diff cannot hide the change', async () => {
+    const service = createService();
+    writeConfig({
+      mcpServers: {
+        github: {
+          type: 'http',
+          url: 'https://api.example.com/mcp?token=raw-url-secret',
+        },
+      },
+    });
+
+    const result = await service.previewConfiguredServerEdit({
+      context: context({
+        target: { type: 'configured_server', id: 'github' },
+        idempotencyKey: undefined,
+        requestFingerprint: undefined,
+      }),
+      targetName: 'github',
+      edit: {
+        transport: {
+          url: 'https://api.example.com/mcp?token=${GITHUB_TOKEN}',
+        },
+      },
+    });
+
+    expect(result).toMatchObject({
+      ok: true,
+      result: {
+        validation: {
+          status: 'invalid',
+          errors: expect.arrayContaining([
+            {
+              fieldPath: ['transport', 'url'],
+              code: 'secret_transport_edit_requires_secret_action',
+              message: 'Secret-capable transport fields must use explicit secret actions.',
+            },
+          ]),
+        },
+        diff: [],
+        configChange: {
+          changed: false,
+        },
+        connectivityCheck: {
+          status: 'skipped',
+          reason: 'validation_failed',
+        },
+      },
+    });
+    expect(JSON.stringify(result)).not.toMatch(/raw-url-secret|GITHUB_TOKEN/);
+  });
+
+  it('rejects raw URL query values that contain secret-looking material', async () => {
+    const service = createService();
+    writeConfig({
+      mcpServers: {
+        github: {
+          type: 'http',
+          url: 'https://api.example.com/mcp',
+        },
+      },
+    });
+
+    const result = await service.previewConfiguredServerEdit({
+      context: context({
+        target: { type: 'configured_server', id: 'github' },
+        idempotencyKey: undefined,
+        requestFingerprint: undefined,
+      }),
+      targetName: 'github',
+      edit: {
+        transport: {
+          url: 'https://api.example.com/mcp?workspace=Bearer raw-url-token',
+        },
+      },
+    });
+
+    expect(result).toMatchObject({
+      ok: true,
+      result: {
+        validation: {
+          status: 'invalid',
+          errors: expect.arrayContaining([
+            {
+              fieldPath: ['transport', 'url'],
+              code: 'secret_transport_edit_requires_secret_action',
+              message: 'Secret-capable transport fields must use explicit secret actions.',
+            },
+          ]),
+        },
+        diff: [],
+      },
+    });
+    expect(JSON.stringify(result)).not.toMatch(/raw-url-token|Bearer raw/i);
+  });
+
+  it('rejects secret edits for unsupported fields and replace actions without replacement', async () => {
+    writeConfig({
+      mcpServers: {
+        github: {
+          type: 'http',
+          url: 'https://api.example.com/mcp',
+          headers: {
+            Authorization: 'Bearer existing-token',
+          },
+        },
+      },
+    });
+    const service = createService();
+
+    const result = await service.previewConfiguredServerEdit({
+      context: context({
+        target: { type: 'configured_server', id: 'github' },
+        idempotencyKey: undefined,
+        requestFingerprint: undefined,
+      }),
+      targetName: 'github',
+      edit: {
+        secrets: [
+          {
+            fieldPath: ['url'],
+            action: 'clear',
+          },
+          {
+            fieldPath: ['headers', 'Authorization'],
+            action: 'replace',
+          },
+        ],
+      },
+    });
+
+    expect(result).toMatchObject({
+      ok: true,
+      result: {
+        validation: {
+          status: 'invalid',
+          errors: expect.arrayContaining([
+            {
+              fieldPath: ['secrets', '0', 'fieldPath'],
+              code: 'unsupported_secret_field',
+              message: 'Secret action must target a secret-capable field.',
+            },
+            {
+              fieldPath: ['secrets', '1', 'replacement'],
+              code: 'missing_secret_replacement',
+              message: 'Replace actions require an explicit replacement.',
+            },
+          ]),
+        },
+        diff: [],
+        configChange: {
+          changed: false,
+        },
+        connectivityCheck: {
+          status: 'skipped',
+          reason: 'validation_failed',
+        },
+      },
+    });
+    expect(readConfig().mcpServers.github.url).toBe('https://api.example.com/mcp');
+    expect(readConfig().mcpServers.github.headers.Authorization).toBe('Bearer existing-token');
+  });
+
+  it('includes the current redacted target state in the preview fingerprint', async () => {
+    const service = createService();
+    writeConfig({
+      mcpServers: {
+        github: {
+          type: 'http',
+          url: 'https://api.example.com/mcp',
+          headers: {
+            Authorization: 'Bearer first',
+          },
+        },
+      },
+    });
+    const input = {
+      context: context({
+        target: { type: 'configured_server', id: 'github' },
+        idempotencyKey: undefined,
+        requestFingerprint: undefined,
+      }),
+      targetName: 'github',
+      edit: {
+        transport: {
+          url: 'https://api.example.com/v2/mcp',
+        },
+      },
+    };
+
+    const first = await service.previewConfiguredServerEdit(input);
+    writeConfig({
+      mcpServers: {
+        github: {
+          type: 'http',
+          url: 'https://other.example.com/mcp',
+          headers: {
+            Authorization: 'Bearer second',
+          },
+        },
+      },
+    });
+    const second = await service.previewConfiguredServerEdit(input);
+
+    expect(first).toMatchObject({ ok: true });
+    expect(second).toMatchObject({ ok: true });
+    expect(first.ok && second.ok ? first.result.previewFingerprint : undefined).not.toBe(
+      second.ok && first.ok ? second.result.previewFingerprint : undefined,
+    );
+    expect(JSON.stringify(first)).not.toMatch(/Bearer first|Bearer second/);
+    expect(JSON.stringify(second)).not.toMatch(/Bearer first|Bearer second/);
+  });
+
+  it('accepts streamableHttp previews and validates args as strings', async () => {
+    const service = createService();
+    writeConfig({
+      mcpServers: {
+        gateway: {
+          type: 'streamableHttp',
+          url: 'https://api.example.com/mcp',
+          args: ['--verbose'],
+        },
+      },
+    });
+
+    const valid = await service.previewConfiguredServerEdit({
+      context: context({
+        target: { type: 'configured_server', id: 'gateway' },
+        idempotencyKey: undefined,
+        requestFingerprint: undefined,
+      }),
+      targetName: 'gateway',
+      edit: {},
+    });
+    const invalid = await service.previewConfiguredServerEdit({
+      context: context({
+        target: { type: 'configured_server', id: 'gateway' },
+        idempotencyKey: undefined,
+        requestFingerprint: undefined,
+      }),
+      targetName: 'gateway',
+      edit: {
+        transport: {
+          args: ['--flag', 123],
+        },
+      },
+    });
+
+    expect(valid).toMatchObject({
+      ok: true,
+      result: {
+        validation: { status: 'valid', errors: [] },
+      },
+    });
+    expect(invalid).toMatchObject({
+      ok: true,
+      result: {
+        validation: {
+          status: 'invalid',
+          errors: expect.arrayContaining([
+            {
+              fieldPath: ['transport', 'args'],
+              code: 'invalid_string_list',
+              message: 'Args must be a list of strings.',
+            },
+          ]),
+        },
+      },
+    });
   });
 
   it('fails dry-run admission when the request runtime identity does not match the Runtime Scope', async () => {
@@ -997,7 +3176,10 @@ describe('AdminConfiguredServerService', () => {
   });
 
   function createService(
-    options: { readConfigDocument?: () => { mcpServers?: Record<string, any> } | null } = {},
+    options: {
+      readConfigDocument?: () => { mcpServers?: Record<string, any> } | null;
+      checkConnectivity?: ConfiguredServerConnectivityChecker;
+    } = {},
   ): AdminConfiguredServerService {
     const operationService = new AdminOperationService({
       runtimeScopeId: 'scope_123',

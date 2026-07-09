@@ -279,6 +279,10 @@ export function createAdminRoutes(options: AdminRoutesOptions): Router | null {
     await handleConfiguredServerDetail(req, res, options);
   });
 
+  router.post('/api/configured-servers/:name/preview', async (req, res) => {
+    await handleConfiguredServerPreview(req, res, options);
+  });
+
   router.post('/api/configured-servers/:name/enable', async (req, res) => {
     await handleConfiguredServerMutation(req, res, options, 'enableConfiguredServer');
   });
@@ -452,6 +456,46 @@ async function handleConfiguredServerDetail(req: Request, res: Response, options
       operationId: result.operationId,
       server: result.result.server,
       editContract: result.result.editContract,
+    });
+  } catch (error) {
+    if (error instanceof AdminConfiguredServerNotFoundError) {
+      res.status(404).json({
+        ok: false,
+        error: error.code,
+        code: error.code,
+        message: 'Configured server target was not found',
+        target: { type: 'configured_server', id: error.targetName },
+      });
+      return;
+    }
+    throw error;
+  }
+}
+
+async function handleConfiguredServerPreview(req: Request, res: Response, options: AdminRoutesOptions): Promise<void> {
+  if (!options.configuredServerService) {
+    res.status(404).json({ error: 'admin_configured_servers_unavailable' });
+    return;
+  }
+
+  const targetName = req.params.name;
+  const edit = getBodyValue(req.body, 'edit');
+  try {
+    const result = await options.configuredServerService.previewConfiguredServerEdit({
+      context: buildAdminOperationContext(req, options, { type: 'configured_server', id: targetName }),
+      targetName,
+      edit: edit === undefined ? {} : edit,
+      connectivityCheck: getBodyString(req.body, 'connectivityCheck') === 'manual' ? 'manual' : 'auto',
+    });
+    if (!result.ok) {
+      sendAdminOperationResult(res, result);
+      return;
+    }
+
+    res.status(200).json({
+      ok: true,
+      operationId: result.operationId,
+      preview: result.result,
     });
   } catch (error) {
     if (error instanceof AdminConfiguredServerNotFoundError) {
@@ -972,6 +1016,9 @@ function operationNameForRequest(req: Request): string {
   if (req.path.endsWith('/disable') || req.path.endsWith('/disable-server')) {
     return 'disableConfiguredServer';
   }
+  if (req.path.endsWith('/preview')) {
+    return 'previewConfiguredServerEdit';
+  }
   if (req.method === 'GET' && req.path.startsWith('/api/configured-servers/')) {
     return 'getConfiguredServerDetail';
   }
@@ -1020,6 +1067,14 @@ function sanitizeOAuthDashboard(dashboard: BackendOAuthDashboardResult): Backend
       lastError: service.lastError ? sanitizeErrorMessage(service.lastError) : undefined,
     })),
   };
+}
+
+function getBodyValue(body: unknown, key: string): unknown {
+  if (!body || typeof body !== 'object') {
+    return undefined;
+  }
+
+  return (body as Record<string, unknown>)[key];
 }
 
 function getBodyString(body: unknown, key: string): string {

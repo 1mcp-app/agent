@@ -13,6 +13,7 @@ import { RuntimeIdentityService } from '@src/core/runtime/runtimeIdentityService
 import { AgentConfigManager } from '@src/core/server/agentConfig.js';
 import { ServerManager } from '@src/core/server/serverManager.js';
 import type { ConfiguredServerConfigDocument } from '@src/domains/admin/adminConfiguredServerService.js';
+import { createAdminConnectivityChecker } from '@src/domains/admin/adminConnectivityChecker.js';
 import { createAdminDomain } from '@src/domains/admin/adminDomain.js';
 import {
   type AdminMutationAvailability,
@@ -396,6 +397,7 @@ export class ExpressServer {
       mutationAvailability: adminMutationAvailability,
       configChangeService: createConfigChangeService({ getConfigPath }),
       readConfigDocument: () => readConfiguredServerConfigDocument(getConfigPath),
+      checkConnectivity: createAdminConnectivityChecker(),
     });
     const adminRoutes = createAdminRoutes({
       adminEnabled,

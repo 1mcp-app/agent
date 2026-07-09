@@ -4,6 +4,7 @@ import {
   type AdminConfiguredServerOperations,
   AdminConfiguredServerService,
   type ConfiguredServerConfigDocument,
+  type ConfiguredServerConnectivityChecker,
 } from './adminConfiguredServerService.js';
 import { AdminIdentityService } from './adminIdentityService.js';
 import { AdminOperationService } from './adminOperationService.js';
@@ -15,6 +16,7 @@ export interface AdminDomainOptions {
   sessionTtlMs: number;
   configChangeService: ConfigChangeService;
   readConfigDocument: () => ConfiguredServerConfigDocument | null;
+  checkConnectivity?: ConfiguredServerConnectivityChecker;
   mutationAvailability?: AdminMutationAvailability;
   now?: () => Date;
   createOperationId?: () => string;
@@ -44,6 +46,7 @@ export function createAdminDomain(options: AdminDomainOptions): AdminDomain {
     operationService,
     configChangeService: options.configChangeService,
     readConfigDocument: options.readConfigDocument,
+    ...(options.checkConnectivity ? { checkConnectivity: options.checkConnectivity } : {}),
   });
 
   return {

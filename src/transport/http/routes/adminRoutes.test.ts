@@ -4,9 +4,12 @@ import path from 'node:path';
 import {
   AdminConfiguredServerNotFoundError,
   type AdminConfiguredServerOperations,
+  AdminConfiguredServerService,
+  type ConfiguredServerConfigDocument,
 } from '@src/domains/admin/adminConfiguredServerService.js';
 import { AdminIdentityService } from '@src/domains/admin/adminIdentityService.js';
-import type { AdminAuditFact } from '@src/domains/admin/adminOperationService.js';
+import { type AdminAuditFact, AdminOperationService } from '@src/domains/admin/adminOperationService.js';
+import { createConfigChangeService } from '@src/domains/config-change/configChange.js';
 
 import express from 'express';
 import request from 'supertest';
@@ -39,6 +42,9 @@ describe('admin routes', () => {
   let configuredServerService: {
     listConfiguredServers: ReturnType<typeof vi.fn<AdminConfiguredServerOperations['listConfiguredServers']>>;
     getConfiguredServerDetail: ReturnType<typeof vi.fn<AdminConfiguredServerOperations['getConfiguredServerDetail']>>;
+    previewConfiguredServerEdit: ReturnType<
+      typeof vi.fn<AdminConfiguredServerOperations['previewConfiguredServerEdit']>
+    >;
     enableConfiguredServer: ReturnType<typeof vi.fn<AdminConfiguredServerOperations['enableConfiguredServer']>>;
     disableConfiguredServer: ReturnType<typeof vi.fn<AdminConfiguredServerOperations['disableConfiguredServer']>>;
     getRecentAuditFacts: ReturnType<typeof vi.fn<(options?: { limit?: number }) => AdminAuditFact[]>>;
@@ -55,6 +61,7 @@ describe('admin routes', () => {
     configuredServerService = {
       listConfiguredServers: vi.fn<AdminConfiguredServerOperations['listConfiguredServers']>(),
       getConfiguredServerDetail: vi.fn<AdminConfiguredServerOperations['getConfiguredServerDetail']>(),
+      previewConfiguredServerEdit: vi.fn<AdminConfiguredServerOperations['previewConfiguredServerEdit']>(),
       enableConfiguredServer: vi.fn<AdminConfiguredServerOperations['enableConfiguredServer']>(),
       disableConfiguredServer: vi.fn<AdminConfiguredServerOperations['disableConfiguredServer']>(),
       getRecentAuditFacts: vi.fn<(options?: { limit?: number }) => AdminAuditFact[]>(() => []),
@@ -106,6 +113,21 @@ describe('admin routes', () => {
     }
 
     return app;
+  }
+
+  function createRealConfiguredServerService(
+    readConfigDocument: () => ConfiguredServerConfigDocument | null,
+  ): AdminConfiguredServerOperations {
+    return new AdminConfiguredServerService({
+      operationService: new AdminOperationService({
+        runtimeScopeId: 'scope_123',
+        storageDir,
+        now: () => new Date('2026-07-06T00:00:00.000Z'),
+        createOperationId: () => 'op_preview_missing',
+      }),
+      configChangeService: createConfigChangeService(),
+      readConfigDocument,
+    });
   }
 
   function createAdminAssetFixture(): string {
@@ -1332,7 +1354,7 @@ describe('admin routes', () => {
             delete: { supported: false },
             bulkEdit: { supported: false },
             rawJson: { supported: false },
-            preview: { supported: false },
+            preview: { supported: true },
             apply: { supported: false },
           },
           fieldGroups: [
@@ -1441,6 +1463,259 @@ describe('admin routes', () => {
       target: { type: 'configured_server', id: 'missing' },
     });
     expect(JSON.stringify(response.body)).not.toMatch(/raw|secret|token|password/i);
+  });
+
+  it('returns an operator-friendly not-found error for missing configured-server preview', async () => {
+    await adminService.bootstrapFirstAdmin({ username: 'operator', password: 'correct horse battery staple' });
+    configuredServerService.previewConfiguredServerEdit.mockRejectedValue(
+      new AdminConfiguredServerNotFoundError('missing'),
+    );
+    const app = mountAdminRoutes();
+    const loginResponse = await request(app)
+      .post('/admin/api/session/login')
+      .send({ username: 'operator', password: 'correct horse battery staple' });
+    const cookie = loginResponse.headers['set-cookie']?.[0] as string;
+
+    const response = await request(app)
+      .post('/admin/api/configured-servers/missing/preview')
+      .set('Cookie', cookie)
+      .set('X-CSRF-Token', loginResponse.body.csrfToken)
+      .send({ edit: {} });
+
+    expect(response.status).toBe(404);
+    expect(response.body).toEqual({
+      ok: false,
+      error: 'configured_server_not_found',
+      code: 'configured_server_not_found',
+      message: 'Configured server target was not found',
+      target: { type: 'configured_server', id: 'missing' },
+    });
+    expect(JSON.stringify(response.body)).not.toMatch(/raw|secret|token|password/i);
+  });
+
+  it('returns preview not-found as 404 when using the real configured-server service', async () => {
+    await adminService.bootstrapFirstAdmin({ username: 'operator', password: 'correct horse battery staple' });
+    const app = mountAdminRoutes({
+      configuredServerService: createRealConfiguredServerService(() => ({
+        mcpServers: {},
+      })),
+    });
+    const loginResponse = await request(app)
+      .post('/admin/api/session/login')
+      .send({ username: 'operator', password: 'correct horse battery staple' });
+    const cookie = loginResponse.headers['set-cookie']?.[0] as string;
+
+    const response = await request(app)
+      .post('/admin/api/configured-servers/missing/preview')
+      .set('Cookie', cookie)
+      .set('X-CSRF-Token', loginResponse.body.csrfToken)
+      .send({ edit: {} });
+
+    expect(response.status).toBe(404);
+    expect(response.body).toEqual({
+      ok: false,
+      error: 'configured_server_not_found',
+      code: 'configured_server_not_found',
+      message: 'Configured server target was not found',
+      target: { type: 'configured_server', id: 'missing' },
+    });
+  });
+
+  it('previews configured-server edits through the CSRF-protected admin API without idempotency reservation', async () => {
+    await adminService.bootstrapFirstAdmin({ username: 'operator', password: 'correct horse battery staple' });
+    configuredServerService.previewConfiguredServerEdit.mockResolvedValue({
+      ok: true,
+      status: 'completed',
+      operationId: 'op_preview',
+      operationName: 'previewConfiguredServerEdit',
+      replayed: false,
+      result: {
+        targetName: 'github/api',
+        proposedTargetName: 'github-renamed',
+        previewFingerprint: 'preview_123',
+        validation: { status: 'valid', errors: [] },
+        diff: [
+          {
+            fieldPath: ['headers', 'Authorization'],
+            secretAction: 'replace',
+            oldValue: { present: true, value: '[REDACTED]', secret: true },
+            newValue: {
+              kind: 'environmentReference',
+              value: '${GITHUB_AUTHORIZATION}',
+              storesSecretMaterial: false,
+            },
+            riskFlags: ['connection_critical', 'secret'],
+          },
+        ],
+        configChange: {
+          status: 'changed',
+          operation: 'set_static',
+          configPath: '[redacted]',
+          target: { name: 'github/api', source: 'mcpServers' },
+          changed: true,
+          backup: { created: false },
+          retentionCleanup: { attempted: false, deletedPaths: [], warnings: [] },
+          reload: { status: 'skipped' },
+          warnings: [],
+        },
+        connectivityCheck: {
+          status: 'passed',
+          mode: 'bounded_dry_run',
+          checkedAt: '2026-07-07T00:00:00.000Z',
+        },
+      },
+    });
+    const app = mountAdminRoutes();
+    const loginResponse = await request(app)
+      .post('/admin/api/session/login')
+      .send({ username: 'operator', password: 'correct horse battery staple' });
+    const cookie = loginResponse.headers['set-cookie']?.[0] as string;
+    const edit = {
+      id: 'github-renamed',
+      secrets: [
+        {
+          fieldPath: ['headers', 'Authorization'],
+          action: 'replace',
+          replacement: { kind: 'environmentReference', value: 'GITHUB_AUTHORIZATION' },
+        },
+      ],
+    };
+
+    const rejected = await request(app)
+      .post('/admin/api/configured-servers/github%2Fapi/preview')
+      .set('Cookie', cookie)
+      .send({ edit });
+    const response = await request(app)
+      .post('/admin/api/configured-servers/github%2Fapi/preview')
+      .set('Cookie', cookie)
+      .set('X-CSRF-Token', loginResponse.body.csrfToken)
+      .send({ edit, connectivityCheck: 'manual' });
+
+    expect(rejected.status).toBe(403);
+    expect(response.status).toBe(200);
+    expect(response.body).toEqual({
+      ok: true,
+      operationId: 'op_preview',
+      preview: {
+        targetName: 'github/api',
+        proposedTargetName: 'github-renamed',
+        previewFingerprint: 'preview_123',
+        validation: { status: 'valid', errors: [] },
+        diff: [
+          {
+            fieldPath: ['headers', 'Authorization'],
+            secretAction: 'replace',
+            oldValue: { present: true, value: '[REDACTED]', secret: true },
+            newValue: {
+              kind: 'environmentReference',
+              value: '${GITHUB_AUTHORIZATION}',
+              storesSecretMaterial: false,
+            },
+            riskFlags: ['connection_critical', 'secret'],
+          },
+        ],
+        configChange: {
+          status: 'changed',
+          operation: 'set_static',
+          configPath: '[redacted]',
+          target: { name: 'github/api', source: 'mcpServers' },
+          changed: true,
+          backup: { created: false },
+          retentionCleanup: { attempted: false, deletedPaths: [], warnings: [] },
+          reload: { status: 'skipped' },
+          warnings: [],
+        },
+        connectivityCheck: {
+          status: 'passed',
+          mode: 'bounded_dry_run',
+          checkedAt: '2026-07-07T00:00:00.000Z',
+        },
+      },
+    });
+    expect(configuredServerService.previewConfiguredServerEdit).toHaveBeenCalledWith({
+      context: expect.objectContaining({
+        actor: expect.objectContaining({ type: 'admin_session', accountId: expect.any(String) }),
+        origin: 'browser',
+        target: { type: 'configured_server', id: 'github/api' },
+        requestFingerprint: expect.stringContaining('previewConfiguredServerEdit'),
+      }),
+      targetName: 'github/api',
+      edit,
+      connectivityCheck: 'manual',
+    });
+    expect(response.text).not.toMatch(/raw-secret|raw-token|Bearer raw/i);
+  });
+
+  it('forwards malformed configured-server preview edits to the validation service', async () => {
+    await adminService.bootstrapFirstAdmin({ username: 'operator', password: 'correct horse battery staple' });
+    configuredServerService.previewConfiguredServerEdit.mockResolvedValue({
+      ok: true,
+      status: 'completed',
+      operationId: 'op_preview_invalid',
+      operationName: 'previewConfiguredServerEdit',
+      replayed: false,
+      result: {
+        targetName: 'github/api',
+        proposedTargetName: 'github/api',
+        previewFingerprint: 'preview_invalid',
+        validation: {
+          status: 'invalid',
+          errors: [
+            {
+              fieldPath: [],
+              code: 'invalid_edit',
+              message: 'Edit must be an object.',
+            },
+          ],
+        },
+        diff: [],
+        configChange: {
+          status: 'unchanged',
+          operation: 'set_static',
+          configPath: '[redacted]',
+          target: { name: 'github/api', source: 'mcpServers' },
+          changed: false,
+          backup: { created: false },
+          retentionCleanup: { attempted: false, deletedPaths: [], warnings: [] },
+          reload: { status: 'skipped' },
+          warnings: [],
+        },
+        connectivityCheck: {
+          status: 'skipped',
+          reason: 'validation_failed',
+        },
+      },
+    });
+    const app = mountAdminRoutes();
+    const loginResponse = await request(app)
+      .post('/admin/api/session/login')
+      .send({ username: 'operator', password: 'correct horse battery staple' });
+    const cookie = loginResponse.headers['set-cookie']?.[0] as string;
+
+    const response = await request(app)
+      .post('/admin/api/configured-servers/github%2Fapi/preview')
+      .set('Cookie', cookie)
+      .set('X-CSRF-Token', loginResponse.body.csrfToken)
+      .send({ edit: 'not-an-object' });
+
+    expect(response.status).toBe(200);
+    expect(response.body.preview.validation).toEqual({
+      status: 'invalid',
+      errors: [
+        {
+          fieldPath: [],
+          code: 'invalid_edit',
+          message: 'Edit must be an object.',
+        },
+      ],
+    });
+    expect(configuredServerService.previewConfiguredServerEdit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        targetName: 'github/api',
+        edit: 'not-an-object',
+        connectivityCheck: 'auto',
+      }),
+    );
   });
 
   it('returns authenticated admin console status with runtime identity, OAuth services, and redacted audit facts', async () => {

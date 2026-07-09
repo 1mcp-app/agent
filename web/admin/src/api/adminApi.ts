@@ -142,7 +142,7 @@ export interface ConfiguredServerEditContract {
     delete: { supported: false };
     bulkEdit: { supported: false };
     rawJson: { supported: false };
-    preview: { supported: false };
+    preview: { supported: true };
     apply: { supported: false };
   };
   fieldGroups: ConfiguredServerEditFieldGroup[];
@@ -153,6 +153,100 @@ export interface ConfiguredServerDetailResponse {
   operationId: string;
   server: ConfiguredServerReadModel;
   editContract: ConfiguredServerEditContract;
+}
+
+export interface ConfiguredServerSecretReplacement {
+  kind: 'environmentReference' | 'inlineSecret';
+  value: string;
+}
+
+export interface ConfiguredServerSecretEditDraft {
+  fieldPath: string[];
+  action: 'preserve' | 'replace' | 'clear';
+  replacement?: ConfiguredServerSecretReplacement;
+}
+
+export interface ConfiguredServerEditDraft {
+  id?: string;
+  enabled?: boolean;
+  tags?: string[];
+  transport?: Record<string, unknown>;
+  secrets?: ConfiguredServerSecretEditDraft[];
+}
+
+export type ConfiguredServerPreviewRiskFlag = 'rename' | 'connection_critical' | 'secret' | 'template_risk';
+
+export type ConfiguredServerConnectivityCheck =
+  | {
+      status: 'passed';
+      mode: 'bounded_dry_run';
+      checkedAt?: string;
+    }
+  | {
+      status: 'failed';
+      mode: 'bounded_dry_run';
+      message: string;
+    }
+  | {
+      status: 'skipped';
+      reason:
+        | 'connection_critical_fields_unchanged'
+        | 'target_disabled'
+        | 'validation_failed'
+        | 'local_stdio_transport'
+        | 'checker_unavailable'
+        | 'endpoint_changed_with_preserved_secrets';
+    };
+
+export interface ConfiguredServerPreviewConfigChange {
+  status: string;
+  operation: string;
+  configPath?: string;
+  target: {
+    name: string;
+    source: string;
+  };
+  changed: boolean;
+  backup: {
+    created: boolean;
+    path?: string;
+  };
+  retentionCleanup: {
+    attempted: boolean;
+    deletedPaths: string[];
+    warnings: string[];
+  };
+  reload: {
+    status: string;
+    error?: string;
+    before?: unknown;
+    after?: unknown;
+  };
+  warnings?: string[];
+  error?: string;
+}
+
+export interface ConfiguredServerPreviewResponse {
+  ok: true;
+  operationId: string;
+  preview: {
+    targetName: string;
+    proposedTargetName: string;
+    previewFingerprint: string;
+    validation: {
+      status: 'valid' | 'invalid';
+      errors: Array<{ fieldPath: string[]; code: string; message: string }>;
+    };
+    diff: Array<{
+      fieldPath: string[];
+      oldValue: unknown;
+      newValue: unknown;
+      secretAction?: 'preserve' | 'replace' | 'clear';
+      riskFlags: ConfiguredServerPreviewRiskFlag[];
+    }>;
+    configChange: ConfiguredServerPreviewConfigChange;
+    connectivityCheck: ConfiguredServerConnectivityCheck;
+  };
 }
 
 export interface AdminApiOptions {
@@ -207,6 +301,24 @@ export function createAdminApi(options: AdminApiOptions = {}) {
 
     getConfiguredServerDetail(name: string): Promise<ConfiguredServerDetailResponse> {
       return request(`/admin/api/configured-servers/${encodeURIComponent(name)}`);
+    },
+
+    previewConfiguredServerEdit(input: {
+      name: string;
+      csrfToken: string;
+      edit: ConfiguredServerEditDraft;
+      connectivityCheck?: 'auto' | 'manual';
+    }): Promise<ConfiguredServerPreviewResponse> {
+      return request(`/admin/api/configured-servers/${encodeURIComponent(input.name)}/preview`, {
+        method: 'POST',
+        headers: {
+          'X-CSRF-Token': input.csrfToken,
+        },
+        body: JSON.stringify({
+          edit: input.edit,
+          ...(input.connectivityCheck ? { connectivityCheck: input.connectivityCheck } : {}),
+        }),
+      });
     },
 
     setConfiguredServerEnabled(input: { name: string; enabled: boolean; csrfToken: string }): Promise<unknown> {

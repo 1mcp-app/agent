@@ -112,7 +112,7 @@ describe('admin API client', () => {
               delete: { supported: false },
               bulkEdit: { supported: false },
               rawJson: { supported: false },
-              preview: { supported: false },
+              preview: { supported: true },
               apply: { supported: false },
             },
             fieldGroups: [],
@@ -136,6 +136,79 @@ describe('admin API client', () => {
         },
       },
     });
+  });
+
+  it('previews configured-server edits with CSRF and without an idempotency key', async () => {
+    const calls: Array<{ input: RequestInfo | URL; init?: RequestInit }> = [];
+    const api = createAdminApi({
+      fetch: async (input, init) => {
+        calls.push({ input, init });
+        return jsonResponse({
+          ok: true,
+          operationId: 'op_preview',
+          preview: {
+            targetName: 'github/api server',
+            proposedTargetName: 'github-renamed',
+            previewFingerprint: 'preview_123',
+            validation: { status: 'valid', errors: [] },
+            diff: [],
+            configChange: {
+              status: 'unchanged',
+              operation: 'set_static',
+              configPath: '[redacted]',
+              target: { name: 'github/api server', source: 'mcpServers' },
+              changed: false,
+              backup: { created: false },
+              retentionCleanup: { attempted: false, deletedPaths: [], warnings: [] },
+              reload: { status: 'skipped' },
+              warnings: [],
+            },
+            connectivityCheck: { status: 'skipped', reason: 'connection_critical_fields_unchanged' },
+          },
+        });
+      },
+    });
+
+    const response = await api.previewConfiguredServerEdit({
+      name: 'github/api server',
+      csrfToken: 'csrf_123',
+      connectivityCheck: 'manual',
+      edit: {
+        id: 'github-renamed',
+        secrets: [
+          {
+            fieldPath: ['headers', 'Authorization'],
+            action: 'replace',
+            replacement: { kind: 'inlineSecret', value: 'raw-preview-only-secret' },
+          },
+        ],
+      },
+    });
+
+    expect(calls[0]).toMatchObject({
+      input: '/admin/api/configured-servers/github%2Fapi%20server/preview',
+      init: {
+        method: 'POST',
+        headers: {
+          'X-CSRF-Token': 'csrf_123',
+        },
+      },
+    });
+    expect(calls[0].init?.headers).not.toHaveProperty('Idempotency-Key');
+    expect(JSON.parse(calls[0].init?.body as string)).toEqual({
+      connectivityCheck: 'manual',
+      edit: {
+        id: 'github-renamed',
+        secrets: [
+          {
+            fieldPath: ['headers', 'Authorization'],
+            action: 'replace',
+            replacement: { kind: 'inlineSecret', value: 'raw-preview-only-secret' },
+          },
+        ],
+      },
+    });
+    expect(response.preview.previewFingerprint).toBe('preview_123');
   });
 
   it('keeps default idempotency keys valid for hostile configured-server ids', async () => {

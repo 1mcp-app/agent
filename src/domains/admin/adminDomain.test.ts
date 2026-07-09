@@ -6,7 +6,10 @@ import type { ConfigChangeService } from '@src/domains/config-change/configChang
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import type { ConfiguredServerConfigDocument } from './adminConfiguredServerService.js';
+import {
+  type ConfiguredServerConfigDocument,
+  type ConfiguredServerConnectivityChecker,
+} from './adminConfiguredServerService.js';
 import { createAdminDomain } from './adminDomain.js';
 import type { AdminOperationContext } from './adminOperationService.js';
 
@@ -70,6 +73,60 @@ describe('createAdminDomain', () => {
     });
   });
 
+  it('passes configured-server preview connectivity through to the service', async () => {
+    const checkConnectivity = vi.fn<ConfiguredServerConnectivityChecker>().mockResolvedValue({
+      status: 'passed',
+      mode: 'bounded_dry_run',
+      checkedAt: '2026-07-07T00:00:00.000Z',
+    });
+    const domain = createAdminDomain({
+      runtimeScopeId: 'scope_123',
+      storageDir,
+      sessionTtlMs: 60_000,
+      configChangeService: fakeConfigChangeService(),
+      readConfigDocument: (): ConfiguredServerConfigDocument => ({
+        mcpServers: {
+          github: {
+            type: 'http',
+            url: 'https://api.example.com/mcp',
+          },
+        },
+      }),
+      checkConnectivity,
+      now: () => currentTime,
+    });
+
+    const result = await domain.configuredServerService.previewConfiguredServerEdit({
+      context: context({
+        target: { type: 'configured_server', id: 'github' },
+        idempotencyKey: undefined,
+        requestFingerprint: undefined,
+      }),
+      targetName: 'github',
+      edit: {
+        transport: {
+          url: 'https://api.example.com/v2/mcp',
+        },
+      },
+    });
+
+    expect(result).toMatchObject({
+      ok: true,
+      result: {
+        connectivityCheck: {
+          status: 'passed',
+          mode: 'bounded_dry_run',
+        },
+      },
+    });
+    expect(checkConnectivity).toHaveBeenCalledWith({
+      targetName: 'github',
+      serverConfig: expect.objectContaining({
+        url: 'https://api.example.com/v2/mcp',
+      }),
+    });
+  });
+
   function context(overrides: Partial<AdminOperationContext> = {}): AdminOperationContext {
     return {
       actor: { type: 'admin_session', accountId: 'acct_1', sessionId: 'sess_1' },
@@ -77,6 +134,8 @@ describe('createAdminDomain', () => {
       target: { type: 'configured_server_collection' },
       runtimeIdentity: { runtimeScopeId: 'scope_123', runtimeVersion: '1.2.3' },
       request: { requestId: 'req_1', jsonMode: true },
+      idempotencyKey: 'idem_1',
+      requestFingerprint: 'fingerprint_1',
       ...overrides,
     };
   }

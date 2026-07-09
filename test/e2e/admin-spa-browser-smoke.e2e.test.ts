@@ -256,11 +256,35 @@ function createConfiguredServerFixture(): ResettableConfiguredServerFixture {
             delete: { supported: false },
             bulkEdit: { supported: false },
             rawJson: { supported: false },
-            preview: { supported: false },
+            preview: { supported: true },
             apply: { supported: false },
           },
           fieldGroups: [],
         },
+      });
+    },
+    async previewConfiguredServerEdit(input) {
+      const edit = input.edit && typeof input.edit === 'object' && !Array.isArray(input.edit) ? input.edit : {};
+      const proposedTargetName =
+        typeof (edit as { id?: unknown }).id === 'string' ? (edit as { id: string }).id : input.targetName;
+      return operationSuccess('previewConfiguredServerEdit', 'op_preview', {
+        targetName: input.targetName,
+        proposedTargetName,
+        previewFingerprint: 'preview_fixture',
+        validation: { status: 'valid', errors: [] },
+        diff: [],
+        configChange: {
+          status: 'unchanged',
+          operation: 'set_static',
+          configPath: '[redacted]',
+          target: { name: input.targetName, source: 'mcpServers' },
+          changed: false,
+          backup: { created: false },
+          retentionCleanup: { attempted: false, deletedPaths: [], warnings: [] },
+          reload: { status: 'skipped' },
+          warnings: [],
+        },
+        connectivityCheck: { status: 'skipped', reason: 'connection_critical_fields_unchanged' },
       });
     },
     async enableConfiguredServer(input) {

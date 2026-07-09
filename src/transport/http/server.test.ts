@@ -357,6 +357,7 @@ describe('ExpressServer', () => {
           initial: { type: 'stdio', command: 'npx' },
         },
       });
+      expect(options.checkConnectivity).toEqual(expect.any(Function));
       await expect(
         options.configChangeService.previewConfiguredServerTargetEnabledState({
           targetName: 'initial',
