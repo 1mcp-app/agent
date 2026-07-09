@@ -97,6 +97,17 @@ describe('AdminConsoleApp', () => {
     expect(screen.getByText('Could not copy runtime scope id. Select the value manually.')).toBeInTheDocument();
   });
 
+  it('makes configured-server editing obvious from the server list', async () => {
+    const user = userEvent.setup();
+    const onOpenServerDetail = vi.fn();
+
+    renderApp(consoleState(), { onOpenServerDetail });
+
+    await user.click(screen.getByRole('button', { name: /edit github server/i }));
+
+    expect(onOpenServerDetail).toHaveBeenCalledWith('github');
+  });
+
   it('renders configured-server detail controls from the normalized contract without raw JSON or apply controls', async () => {
     const user = userEvent.setup();
     const onPreviewServerEdit = vi.fn();
@@ -107,8 +118,12 @@ describe('AdminConsoleApp', () => {
     });
 
     expect(screen.getByRole('heading', { name: 'github' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: /edit server/i })).toBeInTheDocument();
+    expect(screen.getByText(/Draft changes stay local until preview/i)).toBeInTheDocument();
+    expect(screen.getByText(/No changes yet/i)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /preview change/i })).toBeDisabled();
     expect(screen.getByDisplayValue('https://example.com/mcp?token=REDACTED')).toBeInTheDocument();
-    expect(screen.getByRole('radio', { name: /preserve url\.query\.token/i })).toBeChecked();
+    expect(screen.getByRole('radio', { name: /preserve existing url\.query\.token/i })).toBeChecked();
     expect(screen.getByText(/Store only the environment variable name/i)).toBeInTheDocument();
     expect(screen.queryByText(/raw-token|Bearer raw/i)).not.toBeInTheDocument();
     expect(screen.queryByRole('textbox', { name: /raw json/i })).not.toBeInTheDocument();
@@ -116,7 +131,9 @@ describe('AdminConsoleApp', () => {
 
     await user.clear(screen.getByLabelText('URL'));
     await user.type(screen.getByLabelText('URL'), 'https://example.com/v2/mcp');
-    await user.click(screen.getByRole('radio', { name: /clear url\.query\.token/i }));
+    await user.click(screen.getByRole('radio', { name: /clear saved url\.query\.token/i }));
+    expect(screen.getByText(/Unsaved changes/i)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /preview change/i })).toBeEnabled();
     await user.click(screen.getByRole('button', { name: /preview change/i }));
 
     expect(onPreviewServerEdit).toHaveBeenCalledWith(
@@ -127,6 +144,13 @@ describe('AdminConsoleApp', () => {
       },
       'auto',
     );
+  });
+
+  it('explains how to start editing when no configured server is selected', () => {
+    renderApp(consoleState());
+
+    expect(screen.getByText(/Select Edit server to change target settings/i)).toBeInTheDocument();
+    expect(screen.getByText(/Edit fields -> Preview change -> Review result/i)).toBeInTheDocument();
   });
 
   it('normalizes configured-server structured edit controls without raw JSON', async () => {
@@ -332,6 +356,7 @@ describe('AdminConsoleApp', () => {
     });
 
     expect(screen.getByText('preview_123')).toBeInTheDocument();
+    expect(screen.getByText(/Preview only - no config has been written/i)).toBeInTheDocument();
     expect(screen.getByText('invalid')).toBeInTheDocument();
     expect(screen.getByText(/set_static \/ unchanged/i)).toBeInTheDocument();
     expect(screen.getByText('validation_failed')).toBeInTheDocument();

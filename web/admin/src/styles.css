@@ -163,6 +163,12 @@ input {
   vertical-align: top;
 }
 
+.admin-table th:last-child,
+.admin-table td:last-child {
+  width: 220px;
+  overflow: visible;
+}
+
 .detail-row {
   min-height: 46px;
   padding: 8px 10px;
@@ -180,6 +186,27 @@ input {
   padding: 10px;
   border-radius: 8px;
   background: #fbfcfc;
+}
+
+.edit-empty-state,
+.edit-section,
+.draft-action-bar {
+  padding: 10px;
+  border-radius: 8px;
+  background: #fbfcfc;
+}
+
+.edit-empty-state,
+.draft-action-bar {
+  border: 1px dashed var(--admin-line);
+}
+
+.draft-action-bar {
+  align-items: center;
+}
+
+.edit-section {
+  border-color: var(--admin-line);
 }
 
 .record-editor {

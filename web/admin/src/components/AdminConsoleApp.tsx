@@ -21,7 +21,17 @@ import {
   Title,
 } from '@mantine/core';
 
-import { Activity, AlertTriangle, CheckCircle2, Clipboard, LogOut, RefreshCw, Search, ServerCog } from 'lucide-react';
+import {
+  Activity,
+  AlertTriangle,
+  CheckCircle2,
+  Clipboard,
+  LogOut,
+  Pencil,
+  RefreshCw,
+  Search,
+  ServerCog,
+} from 'lucide-react';
 import { type ReactNode, useEffect, useMemo, useState } from 'react';
 
 import type {
@@ -389,7 +399,7 @@ function ConfiguredServersPanel({
       {servers.length === 0 ? (
         <EmptyState message="No servers match the current filter." />
       ) : (
-        <Table.ScrollContainer minWidth={660}>
+        <Table.ScrollContainer minWidth={820}>
           <Table className="admin-table" verticalSpacing="xs">
             <Table.Thead>
               <Table.Tr>
@@ -439,14 +449,6 @@ function ServerRow({
     <Table.Tr className={mutation ? `server-action-${mutation.state}` : undefined}>
       <Table.Td>
         <Text fw={700}>{server.id}</Text>
-        <Button
-          aria-label={`Open ${server.id} details`}
-          size="compact-xs"
-          variant="subtle"
-          onClick={() => void onOpenServerDetail?.(server.id)}
-        >
-          Details
-        </Button>
         {tags.length > 0 ? (
           <Text size="xs" c="dimmed">
             {tags.join(' / ')}
@@ -466,16 +468,27 @@ function ServerRow({
       <Table.Td>{transportSummaryLabel(server)}</Table.Td>
       <Table.Td>{secretSummary(server)}</Table.Td>
       <Table.Td>
-        <Button
-          size="xs"
-          color={action === 'disable' ? 'red' : 'teal'}
-          variant={action === 'disable' ? 'light' : 'filled'}
-          loading={busy}
-          disabled={busy || actionUnavailable}
-          onClick={() => void onServerAction?.(server.id, action)}
-        >
-          {actionState.label}
-        </Button>
+        <Group gap="xs" wrap="wrap">
+          <Button
+            aria-label={`Edit ${server.id} server`}
+            leftSection={<Pencil size={14} />}
+            size="xs"
+            variant="default"
+            onClick={() => void onOpenServerDetail?.(server.id)}
+          >
+            Edit server
+          </Button>
+          <Button
+            size="xs"
+            color={action === 'disable' ? 'red' : 'teal'}
+            variant={action === 'disable' ? 'light' : 'filled'}
+            loading={busy}
+            disabled={busy || actionUnavailable}
+            onClick={() => void onServerAction?.(server.id, action)}
+          >
+            {actionState.label}
+          </Button>
+        </Group>
       </Table.Td>
     </Table.Tr>
   );
@@ -551,8 +564,13 @@ function ConfiguredServerDetailPanel({
 
   if (state.status === 'list') {
     return (
-      <Panel title="Server detail" utility="select a target" icon={<ServerCog size={17} />}>
-        <EmptyState message="Open a configured server to inspect normalized detail and preview edits." />
+      <Panel title="Edit server" utility="select a target" icon={<Pencil size={17} />}>
+        <Stack className="edit-empty-state" gap="xs">
+          <Text fw={700}>Select Edit server to change target settings.</Text>
+          <Text c="dimmed" size="sm">
+            Edit fields -&gt; Preview change -&gt; Review result
+          </Text>
+        </Stack>
       </Panel>
     );
   }
@@ -593,9 +611,9 @@ function ConfiguredServerDetailPanel({
 
   return (
     <Panel
-      title="Server detail"
+      title="Edit server"
       utility={state.detail.server.enabled ? 'enabled' : 'disabled'}
-      icon={<ServerCog size={17} />}
+      icon={<Pencil size={17} />}
     >
       <Stack gap="sm">
         <Group justify="space-between" align="flex-start">
@@ -603,9 +621,17 @@ function ConfiguredServerDetailPanel({
             <Text className="eyebrow" size="xs">
               Configured Server Target
             </Text>
-            <Title order={2}>{state.detail.server.id}</Title>
+            <Group gap="xs" align="center">
+              <Title order={2}>{state.detail.server.id}</Title>
+              <Badge color={state.detail.server.enabled ? 'teal' : 'yellow'} variant="light">
+                {state.detail.server.enabled ? 'enabled' : 'disabled'}
+              </Badge>
+            </Group>
             <Text c="dimmed" size="sm">
               {transportSummaryLabel(state.detail.server)}
+            </Text>
+            <Text c="dimmed" size="xs">
+              Draft changes stay local until preview.
             </Text>
           </div>
           <Button variant="default" onClick={() => void onClose?.(dirty)}>
@@ -613,45 +639,68 @@ function ConfiguredServerDetailPanel({
           </Button>
         </Group>
         {state.detail.editContract.fieldGroups.map((group) => (
-          <Stack key={group.id} gap="xs">
-            <Text fw={800}>{group.label}</Text>
-            {group.fields.map((field) =>
-              field.control === 'secret' ? (
-                <SecretFieldDraft
-                  key={fieldKey(field.fieldPath)}
-                  field={field}
-                  draft={secretDraft[fieldKey(field.fieldPath)]}
-                  onChange={(draft) =>
-                    setSecretDraft((current) => ({ ...current, [fieldKey(field.fieldPath)]: draft }))
-                  }
-                />
-              ) : (
-                <ConfiguredServerFieldDraft
-                  key={fieldKey(field.fieldPath)}
-                  field={field}
-                  value={fieldDraft[fieldKey(field.fieldPath)]}
-                  onChange={(value) => setFieldDraft((current) => ({ ...current, [fieldKey(field.fieldPath)]: value }))}
-                />
-              ),
-            )}
-          </Stack>
+          <Paper key={group.id} className="edit-section" withBorder>
+            <Stack gap="xs">
+              <Group justify="space-between" align="flex-start">
+                <div>
+                  <Text fw={800}>{group.label}</Text>
+                  <Text c="dimmed" size="xs">
+                    {editGroupHelp(group.id)}
+                  </Text>
+                </div>
+                <Badge variant="outline">{group.fields.length} fields</Badge>
+              </Group>
+              {group.fields.map((field) =>
+                field.control === 'secret' ? (
+                  <SecretFieldDraft
+                    key={fieldKey(field.fieldPath)}
+                    field={field}
+                    draft={secretDraft[fieldKey(field.fieldPath)]}
+                    onChange={(draft) =>
+                      setSecretDraft((current) => ({ ...current, [fieldKey(field.fieldPath)]: draft }))
+                    }
+                  />
+                ) : (
+                  <ConfiguredServerFieldDraft
+                    key={fieldKey(field.fieldPath)}
+                    field={field}
+                    value={fieldDraft[fieldKey(field.fieldPath)]}
+                    onChange={(value) =>
+                      setFieldDraft((current) => ({ ...current, [fieldKey(field.fieldPath)]: value }))
+                    }
+                  />
+                ),
+              )}
+            </Stack>
+          </Paper>
         ))}
-        <Group gap="xs">
-          <Button
-            loading={state.previewBusy}
-            onClick={() => void onPreviewServerEdit?.(state.serverId, previewEdit, 'auto')}
-          >
-            Preview change
-          </Button>
-          {state.preview ? (
+        <Group className="draft-action-bar" justify="space-between" gap="sm">
+          <div>
+            <Badge color={dirty ? 'yellow' : 'gray'} variant={dirty ? 'light' : 'outline'}>
+              {dirty ? 'Unsaved changes' : 'No changes yet'}
+            </Badge>
+            <Text c="dimmed" size="xs">
+              Preview validates the draft without writing config.
+            </Text>
+          </div>
+          <Group gap="xs">
             <Button
-              variant="default"
               loading={state.previewBusy}
-              onClick={() => void onPreviewServerEdit?.(state.serverId, previewEdit, 'manual')}
+              disabled={!dirty || state.previewBusy}
+              onClick={() => void onPreviewServerEdit?.(state.serverId, previewEdit, 'auto')}
             >
-              Rerun connectivity
+              Preview change
             </Button>
-          ) : null}
+            {state.preview ? (
+              <Button
+                variant="default"
+                loading={state.previewBusy}
+                onClick={() => void onPreviewServerEdit?.(state.serverId, previewEdit, 'manual')}
+              >
+                Rerun connectivity
+              </Button>
+            ) : null}
+          </Group>
         </Group>
         {state.previewError ? (
           <Alert color="red" role="alert">
@@ -662,6 +711,19 @@ function ConfiguredServerDetailPanel({
       </Stack>
     </Panel>
   );
+}
+
+function editGroupHelp(groupId: string): string {
+  if (groupId === 'identity') {
+    return 'Rename or enable this target before previewing.';
+  }
+  if (groupId === 'secrets') {
+    return 'Choose preserve, replace, or clear without revealing current values.';
+  }
+  if (groupId === 'transport') {
+    return 'Change how the runtime connects to this server.';
+  }
+  return 'Edit normalized fields owned by the Admin Domain.';
 }
 
 function ConfiguredServerFieldDraft({
@@ -839,7 +901,7 @@ function SecretFieldDraft({
         >
           <Group gap="sm">
             {actions.map((action) => (
-              <Radio key={action} value={action} label={`${action} ${field.label}`} />
+              <Radio key={action} value={action} label={secretActionLabel(action, field.label)} />
             ))}
           </Group>
         </Radio.Group>
@@ -910,6 +972,16 @@ function SecretFieldDraft({
   );
 }
 
+function secretActionLabel(action: SecretDraftState[string]['action'], label: string): string {
+  if (action === 'preserve') {
+    return `Preserve existing ${label}`;
+  }
+  if (action === 'replace') {
+    return `Replace ${label}`;
+  }
+  return `Clear saved ${label}`;
+}
+
 function PreviewResult({ preview }: { preview: ConfiguredServerPreviewResponse['preview'] }) {
   return (
     <Paper className="preview-result" withBorder>
@@ -918,6 +990,9 @@ function PreviewResult({ preview }: { preview: ConfiguredServerPreviewResponse['
           <Text fw={800}>Preview</Text>
           <Code>{preview.previewFingerprint}</Code>
         </Group>
+        <Alert color="blue" variant="light">
+          Preview only - no config has been written.
+        </Alert>
         <DetailRow label="Target" value={preview.targetName} meta={`Proposed: ${preview.proposedTargetName}`} />
         <DetailRow label="Validation" value={preview.validation.status} />
         <DetailRow
