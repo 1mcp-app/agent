@@ -113,6 +113,10 @@ describe('admin SPA browser smoke', () => {
       await login(page, { skipNavigation: true });
 
       await expectText(page, 'Runtime operations');
+      await expectVisible(page.getByRole('navigation', { name: 'Operations navigation' }));
+      await expectText(page, 'Operations overview');
+      await expectText(page, 'Runtime online');
+      await expectText(page, 'Server inventory');
       await expectText(page, 'Enabled servers');
       await expectText(page, 'Disabled servers');
       await expectText(page, 'OAuth attention');
@@ -125,6 +129,10 @@ describe('admin SPA browser smoke', () => {
       await page.getByRole('button', { name: 'Enable github' }).click();
       await expectText(page, 'Server enable completed.');
       await expectVisible(page.locator('tbody tr', { hasText: 'github' }).getByText('enabled', { exact: true }));
+
+      await page.getByRole('button', { name: 'Edit github server' }).click();
+      await expectVisible(page.getByRole('heading', { name: 'github', exact: true }));
+      await expectText(page, 'Edit server');
     } finally {
       await page.context().close();
     }
@@ -138,6 +146,7 @@ describe('admin SPA browser smoke', () => {
       await login(page, { skipNavigation: true });
 
       await expectText(page, 'Runtime operations');
+      await expectText(page, 'Operations overview');
       await expectVisible(page.getByRole('button', { name: 'Refresh' }));
       await expectVisible(page.getByRole('button', { name: 'Log out' }));
       const hasPageOverflow = await page.evaluate(

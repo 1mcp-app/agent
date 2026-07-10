@@ -215,7 +215,7 @@ describe('AdminConsoleRoot', () => {
       },
     });
     expect(await screen.findByText('preview_abc123')).toBeInTheDocument();
-    expect(screen.getByText('endpoint_changed_with_preserved_secrets')).toBeInTheDocument();
+    expect(screen.getByText(/Endpoint changed while secrets stayed preserved/i)).toBeInTheDocument();
 
     await user.click(screen.getByRole('button', { name: /rerun connectivity/i }));
 

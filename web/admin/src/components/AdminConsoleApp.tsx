@@ -24,13 +24,17 @@ import {
 import {
   Activity,
   AlertTriangle,
+  Boxes,
   CheckCircle2,
   Clipboard,
+  FileClock,
+  Gauge,
   LogOut,
   Pencil,
   RefreshCw,
   Search,
   ServerCog,
+  ShieldCheck,
 } from 'lucide-react';
 import { type ReactNode, useEffect, useMemo, useState } from 'react';
 
@@ -107,24 +111,62 @@ export function AdminConsoleApp({
   }
 
   return (
-    <AppShell className="admin-app-shell" header={{ height: 64 }} padding="md">
+    <AppShell
+      className="admin-app-shell"
+      header={{ height: 66 }}
+      navbar={{ width: 224, breakpoint: 'md', collapsed: { mobile: true } }}
+      padding={0}
+    >
       <AppShell.Header aria-label="Admin Console" className="admin-app-header">
-        <Group h="100%" px="md" justify="space-between" wrap="nowrap">
-          <div>
-            <Text className="eyebrow" size="xs">
-              1MCP
-            </Text>
-            <Title order={1} size="h3">
-              Admin Console
-            </Title>
-          </div>
-          <Badge variant="light" color={viewBadgeColor(state)}>
-            {viewLabel(state)}
-          </Badge>
+        <Group h="100%" px="lg" justify="space-between" wrap="nowrap" className="command-bar">
+          <Group gap="sm" wrap="nowrap">
+            <div className="brand-mark" aria-hidden="true">
+              1
+            </div>
+            <div>
+              <Text className="eyebrow command-eyebrow" size="xs">
+                1MCP control plane
+              </Text>
+              <Title order={1} size="h4">
+                Admin Console
+              </Title>
+            </div>
+          </Group>
+          <Group gap="sm" wrap="nowrap">
+            <div className="runtime-live" aria-label="Runtime online">
+              <span className="runtime-live-dot" />
+              <Text size="xs" fw={800}>
+                Runtime online
+              </Text>
+            </div>
+            <Badge variant="light" color={viewBadgeColor(state)}>
+              {viewLabel(state)}
+            </Badge>
+          </Group>
         </Group>
       </AppShell.Header>
+      <AppShell.Navbar className="admin-app-navbar" aria-label="Operations navigation">
+        <Stack gap="xs" className="nav-stack">
+          <Text className="nav-section-label">Workspace</Text>
+          <NavItem icon={<Gauge size={17} />} label="Overview" active />
+          <NavItem icon={<Boxes size={17} />} label="Server inventory" />
+          <NavItem icon={<ShieldCheck size={17} />} label="OAuth services" />
+          <NavItem icon={<FileClock size={17} />} label="Audit trail" />
+        </Stack>
+        <Stack gap="xs" className="nav-runtime-card">
+          <Text className="nav-section-label">Runtime target</Text>
+          <Text fw={800} className="truncate">
+            {runtimeSummary(state.status?.runtime)}
+          </Text>
+          <Text size="xs" c="dimmed" className="truncate">
+            {runtimeEndpointSummary(state.status?.runtime)}
+          </Text>
+          <Text size="xs" className="nav-scope truncate">
+            {state.status?.runtime.runtimeScopeId ?? 'scope unavailable'}
+          </Text>
+        </Stack>
+      </AppShell.Navbar>
       <AppShell.Main className="admin-shell-main">
-        <StatusStrip state={state} />
         <Stack gap="md" className="admin-console">
           <Banner state={state} />
           <ConsoleView
@@ -145,6 +187,17 @@ export function AdminConsoleApp({
   );
 }
 
+function NavItem({ icon, label, active = false }: { icon: ReactNode; label: string; active?: boolean }) {
+  return (
+    <div className={`nav-item${active ? ' nav-item-active' : ''}`}>
+      {icon}
+      <Text size="sm" fw={700}>
+        {label}
+      </Text>
+    </div>
+  );
+}
+
 function AuthShell({ state, children }: { state: AdminConsoleState; children: ReactNode }) {
   return (
     <main className="admin-auth-shell" aria-label="Admin authentication">
@@ -153,27 +206,6 @@ function AuthShell({ state, children }: { state: AdminConsoleState; children: Re
         {children}
       </Stack>
     </main>
-  );
-}
-
-function StatusStrip({ state }: { state: AdminConsoleState }) {
-  return (
-    <section className="status-strip" aria-label="Runtime identity">
-      <StatusCell label="Session" value={state.session?.account.username ?? sessionStatus(state)} />
-      <StatusCell label="Runtime" value={runtimeSummary(state.status?.runtime)} />
-      <StatusCell label="OAuth" value={state.status?.oauth.status ?? 'unknown'} />
-      <StatusCell label="Servers" value={`${enabledServers(state.configuredServers)} enabled`} />
-      <StatusCell label="Updated" value={state.lastUpdatedAt ?? 'never'} />
-    </section>
-  );
-}
-
-function StatusCell({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="status-cell">
-      <Text className="status-label">{label}</Text>
-      <Text className="status-value">{value}</Text>
-    </div>
   );
 }
 
@@ -292,19 +324,19 @@ function ConsoleView({
   }
 
   return (
-    <section aria-labelledby="runtime-operations-title">
-      <Group justify="space-between" align="flex-start" className="toolbar">
+    <section aria-labelledby="runtime-operations-title" className="operations-workspace">
+      <Title id="runtime-operations-title" order={2} className="sr-only">
+        Runtime operations
+      </Title>
+      <Group justify="space-between" align="flex-start" className="workspace-heading">
         <div>
           <Text className="eyebrow" size="xs">
-            Operator workspace
+            Operator workspace / live
           </Text>
-          <Title id="runtime-operations-title" order={2}>
-            Runtime operations
-          </Title>
+          <Title order={2}>Operations overview</Title>
           <Text c="dimmed" size="sm">
-            {state.session
-              ? `${state.session.account.username} / ${state.session.account.role} / expires ${state.session.expiresAt}`
-              : 'Not authenticated'}
+            Runtime operations for {state.session?.account.username ?? 'operator'} · {state.configuredServers.length}{' '}
+            configured targets · updated {state.lastUpdatedAt ?? 'never'}
           </Text>
         </div>
         <Group gap="xs">
@@ -317,23 +349,41 @@ function ConsoleView({
         </Group>
       </Group>
       <SimpleGrid cols={{ base: 2, sm: 4 }} spacing="sm" className="summary-grid">
-        <SummaryCounter label="Enabled servers" value={enabledServers(state.configuredServers)} tone="good" />
-        <SummaryCounter label="Disabled servers" value={disabledServers(state.configuredServers)} tone="warn" />
-        <SummaryCounter label="OAuth attention" value={oauthAttention} tone={oauthAttention > 0 ? 'warn' : 'good'} />
-        <SummaryCounter label="Failed audits" value={failedAudits} tone={failedAudits > 0 ? 'bad' : 'good'} />
-      </SimpleGrid>
-      <SimpleGrid cols={{ base: 1, lg: 2 }} spacing="md" mt="md">
-        <ConfiguredServersPanel state={state} onServerAction={onServerAction} onOpenServerDetail={onOpenServerDetail} />
-        <ConfiguredServerDetailPanel
-          state={serverDetail}
-          onClose={onCloseServerDetail}
-          onDirtyChange={onServerDetailDirtyChange}
-          onPreviewServerEdit={onPreviewServerEdit}
+        <SummaryCounter label="Enabled servers" value={enabledServers(state.configuredServers)} tone="good" icon="01" />
+        <SummaryCounter
+          label="Disabled servers"
+          value={disabledServers(state.configuredServers)}
+          tone="warn"
+          icon="02"
         />
-        <RuntimePanel runtime={state.status?.runtime} onCopyText={copyText} />
-        <OAuthPanel services={state.status?.oauth.services ?? []} />
-        <AuditPanel facts={state.status?.audit.facts ?? []} onCopyText={copyText} />
+        <SummaryCounter
+          label="OAuth attention"
+          value={oauthAttention}
+          tone={oauthAttention > 0 ? 'warn' : 'good'}
+          icon="03"
+        />
+        <SummaryCounter label="Failed audits" value={failedAudits} tone={failedAudits > 0 ? 'bad' : 'good'} icon="04" />
       </SimpleGrid>
+      <div className="workspace-grid">
+        <div className="inventory-column">
+          <ConfiguredServersPanel
+            state={state}
+            onServerAction={onServerAction}
+            onOpenServerDetail={onOpenServerDetail}
+          />
+          <AuditPanel facts={state.status?.audit.facts ?? []} onCopyText={copyText} />
+        </div>
+        <div className="inspector-column">
+          <ConfiguredServerDetailPanel
+            state={serverDetail}
+            onClose={onCloseServerDetail}
+            onDirtyChange={onServerDetailDirtyChange}
+            onPreviewServerEdit={onPreviewServerEdit}
+          />
+          <RuntimePanel runtime={state.status?.runtime} onCopyText={copyText} />
+          <OAuthPanel services={state.status?.oauth.services ?? []} />
+        </div>
+      </div>
       {copyFeedback ? (
         <Alert aria-live="polite" color={copyFeedback.startsWith('Could not') ? 'red' : 'teal'} mt="sm">
           {copyFeedback}
@@ -343,13 +393,28 @@ function ConsoleView({
   );
 }
 
-function SummaryCounter({ label, value, tone }: { label: string; value: number; tone: 'good' | 'warn' | 'bad' }) {
+function SummaryCounter({
+  label,
+  value,
+  tone,
+  icon,
+}: {
+  label: string;
+  value: number;
+  tone: 'good' | 'warn' | 'bad';
+  icon: string;
+}) {
   return (
     <Paper className={`summary-counter summary-${tone}`} withBorder>
-      <Text size="xs" c="dimmed">
-        {label}
-      </Text>
-      <Text className="summary-value">{value}</Text>
+      <Group justify="space-between" align="flex-start" wrap="nowrap">
+        <div>
+          <Text size="xs" c="dimmed" fw={800} tt="uppercase">
+            {label}
+          </Text>
+          <Text className="summary-value">{value}</Text>
+        </div>
+        <Text className="summary-index">{icon}</Text>
+      </Group>
     </Paper>
   );
 }
@@ -372,7 +437,7 @@ function ConfiguredServersPanel({
 
   return (
     <Panel
-      title="Configured servers"
+      title="Server inventory"
       utility={`${servers.length} of ${state.configuredServers.length} targets`}
       icon={<ServerCog size={17} />}
     >
@@ -589,8 +654,12 @@ function ConfiguredServerDetailPanel({
         <Stack gap="sm">
           <Title order={3}>Server target not found</Title>
           <Text c="dimmed">
-            {state.serverId} is no longer available. Return to the list and refresh before editing.
+            {state.serverId} is no longer available. It may have been renamed or removed. Return to the list, refresh,
+            and open the current target ID if a rename succeeded.
           </Text>
+          <Alert color="yellow" variant="light">
+            Old detail URLs are not aliases. Use the server list after a rename instead of bookmarking the previous ID.
+          </Alert>
           <Button variant="default" onClick={() => void onClose?.()}>
             Back to servers
           </Button>
@@ -602,9 +671,18 @@ function ConfiguredServerDetailPanel({
   if (state.status === 'failed') {
     return (
       <Panel title="Server detail" utility={state.serverId} icon={<ServerCog size={17} />}>
-        <Alert color="red" role="alert">
-          {state.message}
-        </Alert>
+        <Stack gap="sm">
+          <Alert color="red" role="alert">
+            {state.message}
+          </Alert>
+          <Text c="dimmed" size="sm">
+            Refresh the console or return to the server list, then retry. Preserve any non-secret request ID from the
+            error when asking for support.
+          </Text>
+          <Button variant="default" onClick={() => void onClose?.()}>
+            Back to servers
+          </Button>
+        </Stack>
       </Panel>
     );
   }
@@ -680,7 +758,8 @@ function ConfiguredServerDetailPanel({
               {dirty ? 'Unsaved changes' : 'No changes yet'}
             </Badge>
             <Text c="dimmed" size="xs">
-              Preview validates the draft without writing config.
+              Preview validates the draft without writing config. Leaving this page with unsaved changes asks for
+              confirmation.
             </Text>
           </div>
           <Group gap="xs">
@@ -881,6 +960,7 @@ function SecretFieldDraft({
     } satisfies SecretDraftState[string]);
   const actions = field.secret?.allowedActions ?? ['preserve', 'replace', 'clear'];
   const environmentSupported = field.secret?.environmentReference.supported ?? true;
+  const environmentRecommended = field.secret?.environmentReference.recommended ?? environmentSupported;
   const inlineSupported = field.secret?.inlineReplacement.supported ?? false;
 
   return (
@@ -890,10 +970,18 @@ function SecretFieldDraft({
           <div>
             <Text fw={700}>{field.label}</Text>
             <Text size="xs" c="dimmed">
-              {field.secret?.environmentReference.guidance}
+              {field.secret?.environmentReference.guidance ??
+                'Store only an environment variable name or substitution expression when possible.'}
             </Text>
           </div>
-          <Badge variant="light">redacted</Badge>
+          <Group gap={4}>
+            <Badge variant="light">redacted</Badge>
+            {environmentRecommended ? (
+              <Badge color="teal" variant="light">
+                env reference recommended
+              </Badge>
+            ) : null}
+          </Group>
         </Group>
         <Radio.Group
           value={current.action}
@@ -907,6 +995,10 @@ function SecretFieldDraft({
         </Radio.Group>
         {current.action === 'replace' ? (
           <Stack gap="xs">
+            <Alert color="teal" variant="light">
+              Recommended: keep secret material outside 1MCP config by writing only an environment variable name or
+              substitution expression.
+            </Alert>
             <Radio.Group
               label="Replacement source"
               value={current.replacementKind}
@@ -915,13 +1007,18 @@ function SecretFieldDraft({
               }
             >
               <Group gap="sm">
-                <Radio disabled={!environmentSupported} value="environmentReference" label="Environment variable" />
+                <Radio
+                  disabled={!environmentSupported}
+                  value="environmentReference"
+                  label="Environment variable (recommended)"
+                />
               </Group>
             </Radio.Group>
             {current.replacementKind === 'environmentReference' ? (
               <>
                 <TextInput
                   label={`Environment variable for ${field.label}`}
+                  description="Example: GITHUB_TOKEN or ${GITHUB_TOKEN}"
                   value={current.replacementValue}
                   onChange={(event) => onChange({ ...current, replacementValue: event.currentTarget.value })}
                 />
@@ -939,8 +1036,8 @@ function SecretFieldDraft({
             ) : (
               <>
                 <Alert color="yellow" role="alert">
-                  Inline replacement stores secret material in configuration. Use it only when an environment reference
-                  is not suitable.
+                  Advanced path: inline replacement stores secret material in configuration. Prefer an environment
+                  reference unless the deployment cannot provide one.
                 </Alert>
                 <PasswordInput
                   label={`Inline secret for ${field.label}`}
@@ -983,53 +1080,139 @@ function secretActionLabel(action: SecretDraftState[string]['action'], label: st
 }
 
 function PreviewResult({ preview }: { preview: ConfiguredServerPreviewResponse['preview'] }) {
+  const connectivity = preview.connectivityCheck;
+  const validationTone = preview.validation.status === 'valid' ? 'teal' : 'red';
+  const connectivityTone =
+    connectivity.status === 'passed' ? 'teal' : connectivity.status === 'failed' ? 'red' : 'yellow';
+
   return (
     <Paper className="preview-result" withBorder>
-      <Stack gap="xs">
-        <Group justify="space-between">
-          <Text fw={800}>Preview</Text>
-          <Code>{preview.previewFingerprint}</Code>
+      <Stack gap="sm">
+        <Group justify="space-between" align="flex-start">
+          <div>
+            <Text fw={800}>Preview result</Text>
+            <Text c="dimmed" size="xs">
+              Domain facts only. No config has been written.
+            </Text>
+          </div>
+          <Code className="preview-fingerprint">{preview.previewFingerprint}</Code>
         </Group>
         <Alert color="blue" variant="light">
           Preview only - no config has been written.
         </Alert>
-        <DetailRow label="Target" value={preview.targetName} meta={`Proposed: ${preview.proposedTargetName}`} />
-        <DetailRow label="Validation" value={preview.validation.status} />
-        <DetailRow
-          label="Config change"
-          value={preview.configChange.status}
-          meta={`${preview.configChange.operation} / ${preview.configChange.changed ? 'changed' : 'unchanged'}`}
-        />
-        <DetailRow label="Reload" value={preview.configChange.reload.status} meta={preview.configChange.reload.error} />
-        <DetailRow
-          label="Backup"
-          value={preview.configChange.backup.created ? 'created' : 'not created'}
-          meta={preview.configChange.backup.path}
-        />
+        <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="xs">
+          <DetailRow label="Target" value={preview.targetName} meta={`Proposed: ${preview.proposedTargetName}`} />
+          <DetailRow
+            label="Validation"
+            value={preview.validation.status}
+            meta={
+              preview.validation.errors.length > 0
+                ? `${preview.validation.errors.length} field issue${preview.validation.errors.length === 1 ? '' : 's'}`
+                : 'Ready for confirmation when apply is available'
+            }
+          />
+          <DetailRow
+            label="Config change"
+            value={preview.configChange.status}
+            meta={`${preview.configChange.operation} / ${preview.configChange.changed ? 'changed' : 'unchanged'}`}
+          />
+          <DetailRow
+            label="Reload"
+            value={preview.configChange.reload.status}
+            meta={preview.configChange.reload.error}
+          />
+          <DetailRow
+            label="Backup"
+            value={preview.configChange.backup.created ? 'created' : 'not created'}
+            meta={preview.configChange.backup.path}
+          />
+          <Paper className={`connectivity-card connectivity-${connectivity.status}`} withBorder>
+            <Stack gap={4}>
+              <Group justify="space-between" gap="xs">
+                <Text fw={700}>Connectivity</Text>
+                <Badge color={connectivityTone} variant="light">
+                  {connectivity.status}
+                </Badge>
+              </Group>
+              <Text size="sm">{connectivitySummary(connectivity)}</Text>
+              {connectivityMeta(preview) ? (
+                <Text c="dimmed" size="xs">
+                  {connectivityMeta(preview)}
+                </Text>
+              ) : null}
+            </Stack>
+          </Paper>
+        </SimpleGrid>
         {preview.configChange.warnings?.map((warning) => (
           <DetailRow key={`warning:${warning}`} label="Warning" value={warning} />
         ))}
         {preview.configChange.retentionCleanup.warnings.map((warning) => (
           <DetailRow key={`retention:${warning}`} label="Retention warning" value={warning} />
         ))}
-        <DetailRow label="Connectivity" value={preview.connectivityCheck.status} meta={connectivityMeta(preview)} />
-        {preview.validation.errors.map((error) => (
-          <DetailRow
-            key={`${fieldKey(error.fieldPath)}:${error.code}`}
-            label={error.fieldPath.join('.')}
-            value={error.code}
-            meta={error.message}
-          />
-        ))}
-        {preview.diff.map((entry) => (
-          <DetailRow
-            key={fieldKey(entry.fieldPath)}
-            label={entry.fieldPath.join('.')}
-            value={`${formatPreviewValue(entry.oldValue)} -> ${formatPreviewValue(entry.newValue)}`}
-            meta={entry.riskFlags.join(' / ')}
-            description={entry.secretAction ? `Secret action: ${entry.secretAction}` : undefined}
-          />
-        ))}
+        {preview.validation.errors.length > 0 ? (
+          <Stack gap="xs">
+            <Group gap="xs">
+              <Text fw={800}>Validation issues</Text>
+              <Badge color={validationTone} variant="light">
+                {preview.validation.errors.length}
+              </Badge>
+            </Group>
+            {preview.validation.errors.map((error) => (
+              <DetailRow
+                key={`${fieldKey(error.fieldPath)}:${error.code}`}
+                label={error.fieldPath.join('.') || 'form'}
+                value={error.code}
+                meta={error.message}
+              />
+            ))}
+          </Stack>
+        ) : null}
+        {preview.diff.length > 0 ? (
+          <Stack gap="xs">
+            <Group gap="xs">
+              <Text fw={800}>Redacted diff</Text>
+              <Badge variant="outline">
+                {preview.diff.length} change{preview.diff.length === 1 ? '' : 's'}
+              </Badge>
+            </Group>
+            {preview.diff.map((entry) => (
+              <Paper key={fieldKey(entry.fieldPath)} className="preview-diff-entry" withBorder>
+                <Stack gap={6}>
+                  <Group justify="space-between" align="flex-start" gap="xs">
+                    <Text fw={700}>{entry.fieldPath.join('.')}</Text>
+                    <Group gap={4}>
+                      {entry.secretAction ? (
+                        <Badge color="grape" variant="light">
+                          secret: {entry.secretAction}
+                        </Badge>
+                      ) : null}
+                      {entry.riskFlags.map((flag) => (
+                        <Badge key={flag} color={riskFlagColor(flag)} variant="light">
+                          {riskFlagLabel(flag)}
+                        </Badge>
+                      ))}
+                    </Group>
+                  </Group>
+                  <Text size="sm">
+                    <Text span c="dimmed">
+                      from{' '}
+                    </Text>
+                    {formatPreviewValue(entry.oldValue)}
+                    <Text span c="dimmed">
+                      {' '}
+                      to{' '}
+                    </Text>
+                    {formatPreviewValue(entry.newValue)}
+                  </Text>
+                </Stack>
+              </Paper>
+            ))}
+          </Stack>
+        ) : (
+          <Text c="dimmed" size="sm">
+            No field-level changes were reported by preview.
+          </Text>
+        )}
       </Stack>
     </Paper>
   );
@@ -1205,7 +1388,7 @@ function RuntimePanel({
   onCopyText?: (label: string, value: string) => Promise<void>;
 }) {
   return (
-    <Panel title="Runtime identity" utility="low disclosure" icon={<Activity size={17} />}>
+    <Panel title="Runtime identity" utility="Runtime health · support details" icon={<Activity size={17} />}>
       {runtime ? (
         <Stack gap="xs">
           <DetailRow label="Version" value={runtime.runtimeVersion} />
@@ -1215,12 +1398,22 @@ function RuntimePanel({
             copyLabel="externalUrl"
             onCopyText={onCopyText}
           />
-          <DetailRow
-            label="Runtime scope"
-            value={runtime.runtimeScopeId}
-            copyLabel="runtimeScopeId"
-            onCopyText={onCopyText}
-          />
+          <Paper className="identity-details" withBorder>
+            <Stack gap={4}>
+              <Text className="eyebrow" size="xs">
+                Identity details
+              </Text>
+              <Text size="sm" c="dimmed">
+                Full runtime scope ID is support metadata. Prefer version and external URL in the main scan path.
+              </Text>
+              <DetailRow
+                label="Runtime scope"
+                value={runtime.runtimeScopeId}
+                copyLabel="runtimeScopeId"
+                onCopyText={onCopyText}
+              />
+            </Stack>
+          </Paper>
         </Stack>
       ) : (
         <EmptyState message="Runtime status has not loaded." />
@@ -1448,12 +1641,71 @@ function fieldKey(fieldPath: string[]): string {
 function connectivityMeta(preview: ConfiguredServerPreviewResponse['preview']): string | undefined {
   const check = preview.connectivityCheck;
   if (check.status === 'skipped') {
-    return check.reason;
+    return connectivitySkipReason(check.reason);
   }
   if (check.status === 'failed') {
     return check.message;
   }
-  return check.checkedAt;
+  return check.checkedAt ? `Checked at ${check.checkedAt}` : undefined;
+}
+
+function connectivitySummary(check: ConfiguredServerPreviewResponse['preview']['connectivityCheck']): string {
+  if (check.status === 'passed') {
+    return 'Bounded dry-run connectivity check passed.';
+  }
+  if (check.status === 'failed') {
+    return 'Connectivity check failed. Apply remains blocked until the check passes or a later override path is available.';
+  }
+  return 'Connectivity check was skipped for this preview.';
+}
+
+function connectivitySkipReason(reason: string): string {
+  switch (reason) {
+    case 'connection_critical_fields_unchanged':
+      return 'Connection-critical fields are unchanged. Rerun connectivity if you want an explicit check.';
+    case 'target_disabled':
+      return 'Target is disabled, so automatic connectivity was skipped.';
+    case 'validation_failed':
+      return 'Validation failed before a connectivity check could run.';
+    case 'local_stdio_transport':
+      return 'Local stdio transport does not use remote connectivity checks.';
+    case 'checker_unavailable':
+      return 'Connectivity checker is unavailable on this runtime.';
+    case 'endpoint_changed_with_preserved_secrets':
+      return 'Endpoint changed while secrets stayed preserved. Supply replacements or rerun after updating secrets.';
+    default:
+      return reason;
+  }
+}
+
+function riskFlagColor(flag: string): string {
+  switch (flag) {
+    case 'rename':
+      return 'violet';
+    case 'connection_critical':
+      return 'red';
+    case 'secret':
+      return 'grape';
+    case 'template_risk':
+      return 'orange';
+    default:
+      return 'gray';
+  }
+}
+
+function riskFlagLabel(flag: string): string {
+  switch (flag) {
+    case 'rename':
+      return 'rename';
+    case 'connection_critical':
+      return 'connection critical';
+    case 'secret':
+      return 'secret';
+    case 'template_risk':
+      return 'template risk';
+    default:
+      return flag;
+  }
 }
 
 function secretSummary(server: ConfiguredServerReadModel): string {
@@ -1464,14 +1716,11 @@ function secretSummary(server: ConfiguredServerReadModel): string {
 }
 
 function runtimeSummary(runtime?: RuntimeIdentity): string {
-  return runtime ? `${runtime.runtimeVersion} / ${runtime.runtimeScopeId}` : 'unknown';
+  return runtime?.runtimeVersion ?? 'unknown';
 }
 
-function sessionStatus(state: AdminConsoleState): string {
-  if (state.view === 'setupRequired') {
-    return 'setup required';
-  }
-  return state.view === 'loading' ? 'checking' : 'logged out';
+function runtimeEndpointSummary(runtime?: RuntimeIdentity): string {
+  return runtime?.externalUrl ?? 'not reported';
 }
 
 function viewLabel(state: AdminConsoleState): string {

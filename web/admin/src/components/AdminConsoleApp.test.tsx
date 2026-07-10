@@ -55,13 +55,20 @@ describe('AdminConsoleApp', () => {
 
     renderApp(consoleState(), { onServerAction, onCopyText });
 
+    expect(screen.getByRole('navigation', { name: /operations navigation/i })).toBeInTheDocument();
+    expect(screen.getByRole('banner', { name: /admin console/i })).toHaveTextContent(/runtime online/i);
+    expect(screen.getByRole('heading', { name: /operations overview/i })).toBeInTheDocument();
+    expect(screen.getByText(/runtime health/i)).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: /server inventory/i })).toBeInTheDocument();
     expect(screen.getByText('Enabled servers')).toBeInTheDocument();
     expect(screen.getAllByText('1').length).toBeGreaterThanOrEqual(4);
     expect(screen.getByText('Disabled servers')).toBeInTheDocument();
     expect(screen.getByText('OAuth attention')).toBeInTheDocument();
     expect(screen.getByText('Failed audits')).toBeInTheDocument();
-    expect(screen.getByText('https://runtime.example.com')).toBeInTheDocument();
-    expect(screen.getByText('scope_123')).toBeInTheDocument();
+    expect(screen.getAllByText('https://runtime.example.com').length).toBeGreaterThanOrEqual(1);
+    expect(screen.getAllByText('1.2.3').length).toBeGreaterThanOrEqual(1);
+    expect(screen.getByText(/Identity details/i)).toBeInTheDocument();
+    expect(screen.getAllByText('scope_123').length).toBeGreaterThanOrEqual(1);
     expect(screen.getAllByText('github').length).toBeGreaterThanOrEqual(2);
     expect(screen.getByText('local / storage')).toBeInTheDocument();
     expect(screen.getByText('npx -y @modelcontextprotocol/server-filesystem /tmp/project')).toBeInTheDocument();
@@ -132,7 +139,7 @@ describe('AdminConsoleApp', () => {
     await user.clear(screen.getByLabelText('URL'));
     await user.type(screen.getByLabelText('URL'), 'https://example.com/v2/mcp');
     await user.click(screen.getByRole('radio', { name: /clear saved url\.query\.token/i }));
-    expect(screen.getByText(/Unsaved changes/i)).toBeInTheDocument();
+    expect(screen.getByText('Unsaved changes', { exact: true })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /preview change/i })).toBeEnabled();
     await user.click(screen.getByRole('button', { name: /preview change/i }));
 
@@ -242,7 +249,11 @@ describe('AdminConsoleApp', () => {
     await user.type(screen.getByLabelText('Headers X-Feature'), 'new');
     await user.click(screen.getByRole('radio', { name: /replace headers\.authorization/i }));
     await user.click(screen.getByRole('button', { name: /use advanced inline secret/i }));
-    expect(screen.getByRole('alert')).toHaveTextContent(/stores secret material in configuration/i);
+    expect(
+      screen
+        .getAllByRole('alert')
+        .some((alert) => /stores secret material in configuration/i.test(alert.textContent ?? '')),
+    ).toBe(true);
     await user.type(screen.getByLabelText(/inline secret for headers\.authorization/i), 'raw-secret');
     await user.click(screen.getByRole('button', { name: /preview change/i }));
 
@@ -359,10 +370,12 @@ describe('AdminConsoleApp', () => {
     expect(screen.getByText(/Preview only - no config has been written/i)).toBeInTheDocument();
     expect(screen.getByText('invalid')).toBeInTheDocument();
     expect(screen.getByText(/set_static \/ unchanged/i)).toBeInTheDocument();
-    expect(screen.getByText('validation_failed')).toBeInTheDocument();
+    expect(screen.getByText(/Validation failed before a connectivity check could run/i)).toBeInTheDocument();
     expect(screen.getAllByText('transport.url').length).toBeGreaterThanOrEqual(1);
-    expect(screen.getByText(/https:\/\/example\.com\/mcp\?token=REDACTED -> not-a-url/i)).toBeInTheDocument();
-    expect(screen.getByText('connection_critical')).toBeInTheDocument();
+    expect(screen.getByText(/from/i)).toBeInTheDocument();
+    expect(screen.getAllByText(/https:\/\/example\.com\/mcp\?token=REDACTED/i).length).toBeGreaterThanOrEqual(1);
+    expect(screen.getByText(/not-a-url/i)).toBeInTheDocument();
+    expect(screen.getByText(/connection critical/i)).toBeInTheDocument();
   });
 
   it('keeps legacy configured-server rows usable while read-model fields roll forward', async () => {
