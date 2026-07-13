@@ -55,6 +55,46 @@ export interface AdminStatus {
   audit: {
     facts: AdminAuditFact[];
   };
+  about: AdminAboutMetadata;
+}
+
+export interface AdminAboutMetadata {
+  productName: string;
+  runtimeVersion: string;
+  adminUiBuildVersion?: string;
+  adminApiProtocolVersion: string;
+  adminUiProtocolVersion?: string;
+  protocolCompatible: boolean;
+  runtime: { runtimeScopeId: string; externalUrl?: string };
+  build: { commit?: string; timestamp?: string };
+  project: { repository?: string; documentation?: string; issues?: string; license?: string };
+}
+
+export interface AdminPresetDraft {
+  name: string;
+  description?: string;
+  strategy: 'or' | 'and' | 'advanced';
+  tagQuery: Record<string, unknown>;
+}
+
+export interface AdminPresetListItem extends AdminPresetDraft {
+  querySummary: string;
+  matchCount: number;
+}
+
+export interface AdminPresetPreview {
+  draft: AdminPresetDraft;
+  revision: string;
+  previewFingerprint: string;
+  validation: {
+    status: 'valid' | 'invalid';
+    fieldErrors: Array<{ field: string; message: string }>;
+    globalErrors: string[];
+    warnings: string[];
+  };
+  matches: Array<{ name: string; tags: string[]; enabled: boolean; matched: boolean; reason: string }>;
+  matchCount: number;
+  structuredConversion: { lossless: boolean; strategy?: 'or' | 'and'; tags?: string[]; reason?: string };
 }
 
 export interface ConfiguredServerSecretInput {
@@ -294,6 +334,110 @@ export function createAdminApi(options: AdminApiOptions = {}) {
       return request('/admin/api/status');
     },
 
+    async listPresets(): Promise<{ revision: string; presets: AdminPresetListItem[] }> {
+      const response = await request<{ result: { revision: string; presets: AdminPresetListItem[] } }>(
+        '/admin/api/presets',
+      );
+      return response.result;
+    },
+
+    async getPreset(name: string): Promise<{
+      revision: string;
+      preset: AdminPresetDraft;
+      structuredConversion: AdminPresetPreview['structuredConversion'];
+    }> {
+      const response = await request<{
+        result: {
+          revision: string;
+          preset: AdminPresetDraft;
+          structuredConversion: AdminPresetPreview['structuredConversion'];
+        };
+      }>(`/admin/api/presets/${encodeURIComponent(name)}`);
+      return response.result;
+    },
+
+    async previewPreset(input: {
+      draft: AdminPresetDraft;
+      sourceName?: string;
+      csrfToken: string;
+    }): Promise<AdminPresetPreview> {
+      const response = await request<{ result: AdminPresetPreview }>('/admin/api/presets/preview', {
+        method: 'POST',
+        headers: { 'X-CSRF-Token': input.csrfToken },
+        body: JSON.stringify({ draft: input.draft, sourceName: input.sourceName }),
+      });
+      return response.result;
+    },
+
+    mutatePreset(input: {
+      action: 'create' | 'update' | 'duplicate';
+      sourceName?: string;
+      draft: AdminPresetDraft;
+      revision: string;
+      previewFingerprint: string;
+      confirmations: Record<string, unknown>;
+      csrfToken: string;
+    }): Promise<unknown> {
+      const path =
+        input.action === 'create'
+          ? '/admin/api/presets'
+          : `/admin/api/presets/${encodeURIComponent(input.sourceName ?? '')}/${input.action === 'duplicate' ? 'duplicate' : 'update'}`;
+      return request(path, {
+        method: 'POST',
+        headers: {
+          'X-CSRF-Token': input.csrfToken,
+          'Idempotency-Key': defaultPresetIdempotencyKey(input.action, input.draft.name),
+        },
+        body: JSON.stringify({
+          draft: input.draft,
+          revision: input.revision,
+          previewFingerprint: input.previewFingerprint,
+          confirmationFacts: input.confirmations,
+        }),
+      });
+    },
+
+    async previewPresetDelete(input: { name: string; revision: string; csrfToken: string }): Promise<{
+      previewFingerprint: string;
+      matches: AdminPresetPreview['matches'];
+      matchCount: number;
+      consequence: string;
+    }> {
+      const response = await request<{
+        result: {
+          previewFingerprint: string;
+          matches: AdminPresetPreview['matches'];
+          matchCount: number;
+          consequence: string;
+        };
+      }>(`/admin/api/presets/${encodeURIComponent(input.name)}/delete-preview`, {
+        method: 'POST',
+        headers: { 'X-CSRF-Token': input.csrfToken },
+        body: JSON.stringify({ revision: input.revision }),
+      });
+      return response.result;
+    },
+
+    deletePreset(input: {
+      name: string;
+      revision: string;
+      previewFingerprint: string;
+      csrfToken: string;
+    }): Promise<unknown> {
+      return request(`/admin/api/presets/${encodeURIComponent(input.name)}`, {
+        method: 'DELETE',
+        headers: {
+          'X-CSRF-Token': input.csrfToken,
+          'Idempotency-Key': defaultPresetIdempotencyKey('delete', input.name),
+        },
+        body: JSON.stringify({
+          revision: input.revision,
+          previewFingerprint: input.previewFingerprint,
+          confirmationFacts: { previewConfirmed: input.previewFingerprint, presetNameConfirmed: input.name },
+        }),
+      });
+    },
+
     async listConfiguredServers(): Promise<ConfiguredServerReadModel[]> {
       const response = await request<{ servers: ConfiguredServerReadModel[] }>('/admin/api/configured-servers');
       return response.servers ?? [];
@@ -335,12 +479,18 @@ export function createAdminApi(options: AdminApiOptions = {}) {
   };
 }
 
+function defaultPresetIdempotencyKey(action: string, name: string): string {
+  return `admin-console-preset-${action}-${encodeIdempotencyKeyPart(name)}-${Date.now()}-${crypto.getRandomValues(new Uint32Array(2)).join('-')}`;
+}
+
 export type AdminApiClient = ReturnType<typeof createAdminApi>;
 
 function createRequest(fetchImpl: typeof fetch) {
   return async function requestJson<T>(path: string, init: RequestInit = {}): Promise<T> {
     const headers = {
       'Content-Type': 'application/json',
+      'X-Admin-UI-Build-Version': import.meta.env.VITE_ADMIN_UI_BUILD_VERSION ?? 'unavailable',
+      'X-Admin-UI-Protocol-Version': import.meta.env.VITE_ADMIN_UI_PROTOCOL_VERSION ?? 'unavailable',
       ...(init.headers ?? {}),
     };
     const response = await fetchImpl(path, {

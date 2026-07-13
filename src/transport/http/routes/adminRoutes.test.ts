@@ -1779,6 +1779,20 @@ describe('admin routes', () => {
           },
         ],
       },
+      about: {
+        productName: '1MCP Agent',
+        runtimeVersion: '1.2.3',
+        adminApiProtocolVersion: '1',
+        protocolCompatible: false,
+        runtime: { runtimeScopeId: 'scope_123', externalUrl: 'https://runtime.example.com' },
+        build: {},
+        project: {
+          repository: 'https://github.com/1mcp-app/agent',
+          documentation: 'https://docs.1mcp.app',
+          issues: 'https://github.com/1mcp-app/agent/issues',
+          license: 'Apache-2.0',
+        },
+      },
     });
     expect(JSON.stringify(response.body)).not.toContain(cookieValue(cookie));
     expect(configuredServerService.getRecentAuditFacts).toHaveBeenCalledWith({ limit: 10 });

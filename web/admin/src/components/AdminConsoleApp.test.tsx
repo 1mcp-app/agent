@@ -89,6 +89,88 @@ describe('AdminConsoleApp', () => {
     expect(onServerAction).toHaveBeenCalledWith('github', 'enable');
   });
 
+  it('navigates to Presets and About as final top-level items', async () => {
+    const user = userEvent.setup();
+    const onNavigate = vi.fn();
+    renderApp(consoleState(), { onNavigate });
+
+    const navigation = screen.getByRole('navigation', { name: /operations navigation/i });
+    const buttons = within(navigation).getAllByRole('button');
+    expect(buttons.at(-1)).toHaveTextContent('About');
+    await user.click(screen.getByRole('button', { name: 'Presets' }));
+    await user.click(screen.getByRole('button', { name: 'About' }));
+    expect(onNavigate).toHaveBeenNthCalledWith(1, 'presets');
+    expect(onNavigate).toHaveBeenNthCalledWith(2, 'about');
+  });
+
+  it('renders compatible version skew without warning and unavailable optional metadata', () => {
+    const state = consoleState();
+    state.status!.about.adminUiBuildVersion = '9.9.9';
+    state.status!.about.build = {};
+    renderApp(state, { route: 'about' });
+
+    expect(screen.getByRole('heading', { name: /About 1MCP Agent/i })).toBeInTheDocument();
+    expect(screen.getByText('9.9.9')).toBeInTheDocument();
+    expect(screen.getAllByText('Unavailable')).toHaveLength(2);
+    expect(screen.queryByText(/protocol incompatibility/i)).not.toBeInTheDocument();
+    expect(screen.getByRole('link', { name: /Repository.*new tab/i })).toHaveAttribute('rel', 'noopener noreferrer');
+  });
+
+  it('warns when the Admin UI and API protocol contracts are incompatible', () => {
+    const state = consoleState();
+    state.status!.about.adminUiProtocolVersion = '2';
+    state.status!.about.protocolCompatible = false;
+    renderApp(state, { route: 'about' });
+    expect(screen.getByText(/Admin UI protocol incompatibility/i)).toBeInTheDocument();
+  });
+
+  it('blocks lossy conversion from advanced JSON to structured mode', async () => {
+    const user = userEvent.setup();
+    renderApp(consoleState(), {
+      route: 'presets',
+      presets: [
+        {
+          name: 'complex',
+          strategy: 'advanced',
+          tagQuery: { $not: { tag: 'private' } },
+          querySummary: 'NOT private',
+          matchCount: 1,
+        },
+      ],
+    });
+    await user.click(screen.getByRole('button', { name: 'Edit' }));
+    expect(screen.getByRole('button', { name: 'OR' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'AND' })).toBeDisabled();
+  });
+
+  it('previews and confirms preset creation including disabled matches', async () => {
+    const user = userEvent.setup();
+    const onPreviewPreset = vi.fn().mockResolvedValue({
+      draft: { name: 'web', strategy: 'or', tagQuery: { $or: [{ tag: 'web' }] } },
+      revision: 'rev',
+      previewFingerprint: 'preview',
+      validation: { status: 'valid', fieldErrors: [], globalErrors: [], warnings: [] },
+      matches: [{ name: 'disabled-web', tags: ['web'], enabled: false, matched: true, reason: 'Matched web' }],
+      matchCount: 1,
+      structuredConversion: { lossless: true, strategy: 'or', tags: ['web'] },
+    });
+    const onSavePreset = vi.fn();
+    vi.spyOn(window, 'confirm').mockReturnValue(true);
+    renderApp(consoleState(), { route: 'presets', onPreviewPreset, onSavePreset });
+
+    await user.type(screen.getByLabelText('Preset name'), 'web');
+    await user.type(screen.getByLabelText('Tags'), 'web');
+    await user.click(screen.getByRole('button', { name: /Preview matches/i }));
+    expect(await screen.findByText(/disabled-web · disabled/i)).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: /Confirm and save/i }));
+    expect(onSavePreset).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: 'create',
+        preview: expect.objectContaining({ previewFingerprint: 'preview' }),
+      }),
+    );
+  });
+
   it('shows visible copy feedback when clipboard writing fails', async () => {
     const user = userEvent.setup();
 

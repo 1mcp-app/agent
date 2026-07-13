@@ -19,10 +19,17 @@ import type {
   AdminOperationContext,
   AdminOperationResult,
 } from '@src/domains/admin/adminOperationService.js';
+import {
+  AdminPresetConflictError,
+  type AdminPresetDraft,
+  AdminPresetNotFoundError,
+  type AdminPresetOperations,
+} from '@src/domains/admin/adminPresetService.js';
 import type { AdminMutationAvailability } from '@src/domains/admin/runtimeScopeAdminLock.js';
 import { sanitizeErrorMessage } from '@src/utils/validation/sanitization.js';
 
 import express, { Request, Response, Router } from 'express';
+import { createRequire } from 'node:module';
 
 const FAILED_LOGIN_LIMIT = 5;
 const FAILED_LOGIN_WINDOW_MS = 15 * 60 * 1000;
@@ -31,6 +38,16 @@ const CLI_ADMIN_RESPONSE_MAX_BYTES = 256 * 1024;
 const CLI_ADMIN_RESPONSE_TOO_LARGE_MESSAGE =
   'CLI Admin response exceeded the maximum supported size; use a narrower or paginated request.';
 const CLI_SESSION_OPERATIONS = ['admin.login', 'admin.status', 'admin.logout'] as const;
+const ADMIN_API_PROTOCOL_VERSION = '1';
+const packageMetadata = createRequire(import.meta.url)('../../../../package.json') as {
+  name: string;
+  version: string;
+  homepage?: string;
+  documentation?: string;
+  bugs?: { url?: string };
+  license?: string;
+  repository?: { url?: string };
+};
 const CLI_MCP_OPERATIONS = ['mcp.enable', 'mcp.disable'] as const;
 type AdminOperationFailure = Extract<AdminOperationResult, { ok: false }>;
 interface CliAdminEnvelope {
@@ -45,6 +62,7 @@ interface AdminRoutesOptions {
   adminEnabled: boolean;
   adminService: AdminIdentityService;
   configuredServerService?: AdminConfiguredServerOperations;
+  presetService?: AdminPresetOperations;
   adminMutationAvailability?: AdminMutationAvailability;
   getRuntimeIdentity: () => RuntimeIdentity;
   getOAuthDashboard?: () => BackendOAuthDashboardResult;
@@ -249,9 +267,99 @@ export function createAdminRoutes(options: AdminRoutesOptions): Router | null {
       },
       oauth: sanitizeOAuthDashboard(options.getOAuthDashboard?.() ?? { status: 'ready', services: [] }),
       audit: {
-        facts: options.configuredServerService?.getRecentAuditFacts({ limit: 10 }) ?? [],
+        facts:
+          options.configuredServerService?.getRecentAuditFacts({ limit: 10 }) ??
+          options.presetService?.getRecentAuditFacts({ limit: 10 }) ??
+          [],
       },
+      about: buildAboutMetadata(options.getRuntimeIdentity(), {
+        buildVersion: req.header('X-Admin-UI-Build-Version'),
+        protocolVersion: req.header('X-Admin-UI-Protocol-Version'),
+      }),
     });
+  });
+
+  router.get('/api/presets', async (req, res) => {
+    if (!options.presetService) return void res.status(404).json({ error: 'admin_presets_unavailable' });
+    const result = await options.presetService.listPresets({
+      context: buildAdminOperationContext(req, options, { type: 'preset_collection' }),
+    });
+    sendAdminOperationResult(res, result);
+  });
+
+  router.get('/api/presets/:name', async (req, res) => {
+    if (!options.presetService) return void res.status(404).json({ error: 'admin_presets_unavailable' });
+    try {
+      sendAdminOperationResult(
+        res,
+        await options.presetService.getPreset({
+          context: buildAdminOperationContext(req, options, { type: 'preset', id: req.params.name }),
+          name: req.params.name,
+        }),
+      );
+    } catch (error) {
+      sendPresetError(res, error);
+    }
+  });
+
+  router.post('/api/presets/preview', async (req, res) => {
+    if (!options.presetService) return void res.status(404).json({ error: 'admin_presets_unavailable' });
+    try {
+      sendAdminOperationResult(
+        res,
+        await options.presetService.previewPreset({
+          context: buildAdminOperationContext(req, options, {
+            type: 'preset',
+            id: getBodyString(req.body, 'sourceName') || getBodyString(getBodyValue(req.body, 'draft'), 'name'),
+          }),
+          draft: getPresetDraft(req.body),
+          sourceName: getBodyString(req.body, 'sourceName') || undefined,
+        }),
+      );
+    } catch (error) {
+      sendPresetError(res, error);
+    }
+  });
+
+  router.post('/api/presets', async (req, res) => {
+    await handlePresetMutation(req, res, options, 'create');
+  });
+  router.post('/api/presets/:name/update', async (req, res) => {
+    await handlePresetMutation(req, res, options, 'update');
+  });
+  router.post('/api/presets/:name/duplicate', async (req, res) => {
+    await handlePresetMutation(req, res, options, 'duplicate');
+  });
+  router.post('/api/presets/:name/delete-preview', async (req, res) => {
+    if (!options.presetService) return void res.status(404).json({ error: 'admin_presets_unavailable' });
+    try {
+      sendAdminOperationResult(
+        res,
+        await options.presetService.previewDeletePreset({
+          context: buildAdminOperationContext(req, options, { type: 'preset', id: req.params.name }),
+          name: req.params.name,
+          revision: getBodyString(req.body, 'revision'),
+        }),
+      );
+    } catch (error) {
+      sendPresetError(res, error);
+    }
+  });
+  router.delete('/api/presets/:name', async (req, res) => {
+    if (!options.presetService) return void res.status(404).json({ error: 'admin_presets_unavailable' });
+    try {
+      sendAdminOperationResult(
+        res,
+        await options.presetService.deletePreset({
+          context: buildAdminOperationContext(req, options, { type: 'preset', id: req.params.name }),
+          name: req.params.name,
+          revision: getBodyString(req.body, 'revision'),
+          previewFingerprint: getBodyString(req.body, 'previewFingerprint'),
+        }),
+      );
+    } catch (error) {
+      sendPresetError(res, error);
+    }
   });
 
   router.get('/api/configured-servers', async (req, res) => {
@@ -810,6 +918,100 @@ function sendAdminOperationResult<T>(res: Response, result: AdminOperationResult
 
   const status = result.status === 'idempotency_key_required' ? 400 : result.status === 'mutation_failed' ? 409 : 409;
   res.status(status).json(result);
+}
+
+async function handlePresetMutation(
+  req: Request,
+  res: Response,
+  options: AdminRoutesOptions,
+  action: 'create' | 'update' | 'duplicate',
+): Promise<void> {
+  if (!options.presetService) {
+    res.status(404).json({ error: 'admin_presets_unavailable' });
+    return;
+  }
+  const draft = getPresetDraft(req.body);
+  const common = {
+    context: buildAdminOperationContext(req, options, { type: 'preset', id: req.params.name || draft.name }),
+    draft,
+    revision: getBodyString(req.body, 'revision'),
+    previewFingerprint: getBodyString(req.body, 'previewFingerprint'),
+  };
+  try {
+    const result =
+      action === 'create'
+        ? await options.presetService.createPreset(common)
+        : action === 'update'
+          ? await options.presetService.updatePreset({ ...common, sourceName: req.params.name })
+          : await options.presetService.duplicatePreset({ ...common, sourceName: req.params.name });
+    if (!result.ok && result.status === 'mutation_failed' && result.error === 'preset_revision_conflict') {
+      res.status(409).json({ error: 'preset_revision_conflict' });
+      return;
+    }
+    sendAdminOperationResult(res, result);
+  } catch (error) {
+    sendPresetError(res, error);
+  }
+}
+
+function sendPresetError(res: Response, error: unknown): void {
+  if (error instanceof AdminPresetNotFoundError) {
+    res.status(404).json({ error: error.code });
+    return;
+  }
+  if (error instanceof AdminPresetConflictError) {
+    res.status(409).json({ error: error.code });
+    return;
+  }
+  if (error instanceof Error) {
+    res.status(400).json({ error: 'preset_validation_failed', message: sanitizeErrorMessage(error.message) });
+    return;
+  }
+  throw error;
+}
+
+function getPresetDraft(body: unknown): AdminPresetDraft {
+  const value = getBodyValue(body, 'draft');
+  const record = value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
+  const strategy = record.strategy;
+  return {
+    name: typeof record.name === 'string' ? record.name : '',
+    description: typeof record.description === 'string' ? record.description : undefined,
+    strategy: strategy === 'and' || strategy === 'advanced' ? strategy : 'or',
+    tagQuery:
+      record.tagQuery && typeof record.tagQuery === 'object' && !Array.isArray(record.tagQuery)
+        ? (record.tagQuery as AdminPresetDraft['tagQuery'])
+        : {},
+  };
+}
+
+function buildAboutMetadata(runtime: RuntimeIdentity, ui: { buildVersion?: string; protocolVersion?: string }) {
+  return {
+    productName: '1MCP Agent',
+    runtimeVersion: runtime.runtimeVersion,
+    adminUiBuildVersion: ui.buildVersion || undefined,
+    adminApiProtocolVersion: ADMIN_API_PROTOCOL_VERSION,
+    adminUiProtocolVersion: ui.protocolVersion || undefined,
+    protocolCompatible: ui.protocolVersion === ADMIN_API_PROTOCOL_VERSION,
+    runtime: {
+      runtimeScopeId: runtime.runtimeScopeId,
+      externalUrl: runtime.externalUrl || undefined,
+    },
+    build: {
+      commit: process.env.ADMIN_UI_BUILD_COMMIT || undefined,
+      timestamp: process.env.ADMIN_UI_BUILD_TIMESTAMP || undefined,
+    },
+    project: {
+      repository: normalizeRepositoryUrl(packageMetadata.repository?.url) ?? packageMetadata.homepage,
+      documentation: packageMetadata.documentation,
+      issues: packageMetadata.bugs?.url,
+      license: packageMetadata.license,
+    },
+  };
+}
+
+function normalizeRepositoryUrl(value?: string): string | undefined {
+  return value?.replace(/^git\+/u, '').replace(/\.git$/u, '');
 }
 
 function buildAdminOperationContext(

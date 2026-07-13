@@ -18,6 +18,7 @@
   ],
   "author": "William Xu <xuzp@1mcp.app>",
   "homepage": "https://github.com/1mcp-app/agent",
+  "documentation": "https://docs.1mcp.app",
   "bugs": {
     "url": "https://github.com/1mcp-app/agent/issues"
   },

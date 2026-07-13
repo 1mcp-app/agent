@@ -1,9 +1,11 @@
 import fs from 'fs';
+import path from 'path';
 
 import { mcpAuthRouter } from '@modelcontextprotocol/sdk/server/auth/router.js';
 
 import { SDKOAuthServerProvider } from '@src/auth/sdkOAuthServerProvider.js';
 import { FileStorageService } from '@src/auth/storage/fileStorageService.js';
+import { getAllServerTargets } from '@src/commands/shared/baseConfigUtils.js';
 import ConfigContext from '@src/config/configContext.js';
 import { McpConfigManager } from '@src/config/mcpConfigManager.js';
 import { getGlobalConfigDir, MCP_SERVER_VERSION, RATE_LIMIT_CONFIG, STORAGE_SUBDIRS } from '@src/constants.js';
@@ -21,6 +23,7 @@ import {
   tryAcquireRuntimeScopeAdminLock,
 } from '@src/domains/admin/runtimeScopeAdminLock.js';
 import { createConfigChangeService } from '@src/domains/config-change/configChange.js';
+import { PresetManager } from '@src/domains/preset/manager/presetManager.js';
 import logger from '@src/logger/logger.js';
 
 import bodyParser from 'body-parser';
@@ -398,11 +401,14 @@ export class ExpressServer {
       configChangeService: createConfigChangeService({ getConfigPath }),
       readConfigDocument: () => readConfiguredServerConfigDocument(getConfigPath),
       checkConnectivity: createAdminConnectivityChecker(),
+      presetManager: PresetManager.getInstance(path.dirname(adminConfigPath)),
+      readServerTargets: getAllServerTargets,
     });
     const adminRoutes = createAdminRoutes({
       adminEnabled,
       adminService: adminDomain.adminService,
       configuredServerService: adminDomain.configuredServerService,
+      presetService: adminDomain.presetService,
       adminMutationAvailability,
       getRuntimeIdentity,
       getOAuthDashboard,

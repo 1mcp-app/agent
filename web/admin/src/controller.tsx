@@ -1,7 +1,14 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { AdminApiError } from './api/adminApi';
-import type { AdminApiClient, AdminSession, ConfiguredServerEditDraft } from './api/adminApi';
+import type {
+  AdminApiClient,
+  AdminPresetDraft,
+  AdminPresetListItem,
+  AdminPresetPreview,
+  AdminSession,
+  ConfiguredServerEditDraft,
+} from './api/adminApi';
 import { AdminConsoleApp, type ConfiguredServerDetailPanelState } from './components/AdminConsoleApp';
 import { type AdminConsoleAction, createInitialState, reduceAdminConsoleState } from './state/adminConsoleState';
 import { pollingDelayForVisibility, shouldPollConsole } from './state/polling';
@@ -46,6 +53,15 @@ export function AdminConsoleRoot({ api, documentRef = document, windowRef = wind
       onCopyText={controller.copyText}
       serverDetail={controller.serverDetail}
       loginBusy={controller.loginBusy}
+      route={controller.route}
+      onNavigate={controller.navigate}
+      presets={controller.presets}
+      presetRevision={controller.presetRevision}
+      presetBusy={controller.presetBusy}
+      onLoadPresets={controller.loadPresets}
+      onPreviewPreset={controller.previewPreset}
+      onSavePreset={controller.savePreset}
+      onDeletePreset={controller.deletePreset}
     />
   );
 }
@@ -59,6 +75,10 @@ function useAdminConsoleController({
   const [state, setState] = useState(createInitialState);
   const [serverDetail, setServerDetail] = useState<ConfiguredServerDetailPanelState>({ status: 'list' });
   const [loginBusy, setLoginBusy] = useState(false);
+  const [route, setRoute] = useState(() => adminRoute(windowRef.location?.pathname ?? '/admin'));
+  const [presets, setPresets] = useState<AdminPresetListItem[]>([]);
+  const [presetRevision, setPresetRevision] = useState('');
+  const [presetBusy, setPresetBusy] = useState(false);
   const stateRef = useRef(state);
   const serverDetailRef = useRef(serverDetail);
   const timerRef = useRef<ReturnType<Window['setTimeout']> | null>(null);
@@ -146,6 +166,7 @@ function useAdminConsoleController({
   );
 
   const loadRouteDetail = useCallback(async () => {
+    setRoute(adminRoute(windowRef.location?.pathname ?? '/admin'));
     const serverId = serverIdFromAdminPath(windowRef.location?.pathname ?? '');
     if (serverId) {
       await loadServerDetail(serverId);
@@ -156,6 +177,82 @@ function useAdminConsoleController({
     detailDirtyRef.current = false;
     setServerDetail({ status: 'list' });
   }, [loadServerDetail, windowRef.location]);
+
+  const loadPresets = useCallback(async () => {
+    if (!stateRef.current.session) return;
+    setPresetBusy(true);
+    try {
+      const result = await api.listPresets();
+      setPresets(result.presets);
+      setPresetRevision(result.revision);
+    } finally {
+      setPresetBusy(false);
+    }
+  }, [api]);
+
+  const previewPreset = useCallback(
+    async (draft: AdminPresetDraft, sourceName?: string): Promise<AdminPresetPreview> => {
+      const csrfToken = stateRef.current.session?.csrfToken;
+      if (!csrfToken) throw new Error('admin_session_required');
+      return api.previewPreset({ draft, sourceName, csrfToken });
+    },
+    [api],
+  );
+
+  const savePreset = useCallback(
+    async (input: { action: 'create' | 'update' | 'duplicate'; sourceName?: string; preview: AdminPresetPreview }) => {
+      const csrfToken = stateRef.current.session?.csrfToken;
+      if (!csrfToken) return;
+      await api.mutatePreset({
+        action: input.action,
+        sourceName: input.sourceName,
+        draft: input.preview.draft,
+        revision: input.preview.revision,
+        previewFingerprint: input.preview.previewFingerprint,
+        confirmations: {
+          previewConfirmed: input.preview.previewFingerprint,
+          ...(input.preview.matchCount === 0 ? { zeroMatchConfirmed: true } : {}),
+        },
+        csrfToken,
+      });
+      await loadPresets();
+    },
+    [api, loadPresets],
+  );
+
+  const deletePreset = useCallback(
+    async (name: string) => {
+      const csrfToken = stateRef.current.session?.csrfToken;
+      if (!csrfToken) return;
+      const preview = await api.previewPresetDelete({ name, revision: presetRevision, csrfToken });
+      const matches = preview.matches.filter((match) => match.matched).map((match) => match.name);
+      if (
+        windowRef.confirm?.(
+          `Confirm preset name "${name}" and delete it? Current matches: ${matches.join(', ') || 'none'}. ${preview.consequence}`,
+        ) === false
+      ) {
+        return;
+      }
+      await api.deletePreset({
+        name,
+        revision: presetRevision,
+        previewFingerprint: preview.previewFingerprint,
+        csrfToken,
+      });
+      await loadPresets();
+    },
+    [api, loadPresets, presetRevision, windowRef],
+  );
+
+  const navigate = useCallback(
+    (nextRoute: 'overview' | 'presets' | 'about') => {
+      const pathname = nextRoute === 'overview' ? '/admin' : `/admin/${nextRoute}`;
+      windowRef.history?.pushState(null, '', pathname);
+      setRoute(nextRoute);
+      if (nextRoute === 'presets') void loadPresets();
+    },
+    [loadPresets, windowRef.history],
+  );
 
   const refreshConsole = useCallback(
     async (errorPrefix: string, sessionOverride?: AdminSession) => {
@@ -205,6 +302,7 @@ function useAdminConsoleController({
       dispatch({ type: 'sessionLoaded', session });
       await refreshConsole('Session loaded, but refresh failed: ', session);
       await loadRouteDetail();
+      if (adminRoute(windowRef.location?.pathname ?? '/admin') === 'presets') await loadPresets();
     } catch (error) {
       if (!handleUnauthenticated(error)) {
         dispatch({ type: 'refreshFailed', message: `Session check failed: ${errorMessage(error)}` });
@@ -212,7 +310,16 @@ function useAdminConsoleController({
     } finally {
       schedulePoll();
     }
-  }, [api, dispatch, handleUnauthenticated, loadRouteDetail, refreshConsole, schedulePoll]);
+  }, [
+    api,
+    dispatch,
+    handleUnauthenticated,
+    loadPresets,
+    loadRouteDetail,
+    refreshConsole,
+    schedulePoll,
+    windowRef.location,
+  ]);
 
   const login = useCallback(
     async (input: { username: string; password: string }) => {
@@ -225,6 +332,7 @@ function useAdminConsoleController({
         dispatch({ type: 'sessionLoaded', session });
         await refreshConsole('Login succeeded, but refresh failed: ', session);
         await loadRouteDetail();
+        if (adminRoute(windowRef.location?.pathname ?? '/admin') === 'presets') await loadPresets();
       } catch (error) {
         dispatch({ type: 'loginFailed', message: `Login failed: ${errorMessage(error)}` });
       } finally {
@@ -232,7 +340,7 @@ function useAdminConsoleController({
         schedulePoll();
       }
     },
-    [api, dispatch, loadRouteDetail, loginBusy, refreshConsole, schedulePoll],
+    [api, dispatch, loadPresets, loadRouteDetail, loginBusy, refreshConsole, schedulePoll, windowRef.location],
   );
 
   const confirmDiscardDetail = useCallback(
@@ -411,7 +519,22 @@ function useAdminConsoleController({
     previewServerEdit,
     copyText,
     serverDetail,
+    route,
+    navigate,
+    presets,
+    presetRevision,
+    presetBusy,
+    loadPresets,
+    previewPreset,
+    savePreset,
+    deletePreset,
   };
+}
+
+function adminRoute(pathname: string): 'overview' | 'presets' | 'about' {
+  if (pathname.startsWith('/admin/presets')) return 'presets';
+  if (pathname.startsWith('/admin/about')) return 'about';
+  return 'overview';
 }
 
 function readAdminStatus(body: unknown): 'setupRequired' | 'loginRequired' {

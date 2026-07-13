@@ -62,6 +62,22 @@ export function consoleState(): AdminConsoleState {
           },
         ],
       },
+      about: {
+        productName: '1MCP Agent',
+        runtimeVersion: '1.2.3',
+        adminUiBuildVersion: '1.2.4',
+        adminApiProtocolVersion: '1',
+        adminUiProtocolVersion: '1',
+        protocolCompatible: true,
+        runtime: { runtimeScopeId: 'scope_123', externalUrl: 'https://runtime.example.com' },
+        build: { commit: 'abc123', timestamp: '2026-07-07T00:00:00.000Z' },
+        project: {
+          repository: 'https://github.com/1mcp-app/agent',
+          documentation: 'https://docs.1mcp.app',
+          issues: 'https://github.com/1mcp-app/agent/issues',
+          license: 'Apache-2.0',
+        },
+      },
     },
     configuredServers: [
       {

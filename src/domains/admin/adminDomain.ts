@@ -1,4 +1,6 @@
+import type { MCPServerParams } from '@src/core/types/index.js';
 import type { ConfigChangeService } from '@src/domains/config-change/configChange.js';
+import type { PresetManager } from '@src/domains/preset/manager/presetManager.js';
 
 import {
   type AdminConfiguredServerOperations,
@@ -8,6 +10,7 @@ import {
 } from './adminConfiguredServerService.js';
 import { AdminIdentityService } from './adminIdentityService.js';
 import { AdminOperationService } from './adminOperationService.js';
+import { type AdminPresetOperations, AdminPresetService } from './adminPresetService.js';
 import type { AdminMutationAvailability } from './runtimeScopeAdminLock.js';
 
 export interface AdminDomainOptions {
@@ -20,12 +23,15 @@ export interface AdminDomainOptions {
   mutationAvailability?: AdminMutationAvailability;
   now?: () => Date;
   createOperationId?: () => string;
+  presetManager?: PresetManager;
+  readServerTargets?: () => Record<string, MCPServerParams>;
 }
 
 export interface AdminDomain {
   adminService: AdminIdentityService;
   operationService: AdminOperationService;
   configuredServerService: AdminConfiguredServerOperations;
+  presetService?: AdminPresetOperations;
 }
 
 export function createAdminDomain(options: AdminDomainOptions): AdminDomain {
@@ -48,10 +54,19 @@ export function createAdminDomain(options: AdminDomainOptions): AdminDomain {
     readConfigDocument: options.readConfigDocument,
     ...(options.checkConnectivity ? { checkConnectivity: options.checkConnectivity } : {}),
   });
+  const presetService =
+    options.presetManager && options.readServerTargets
+      ? new AdminPresetService({
+          operationService,
+          presetManager: options.presetManager,
+          readServerTargets: options.readServerTargets,
+        })
+      : undefined;
 
   return {
     adminService,
     operationService,
     configuredServerService,
+    presetService,
   };
 }

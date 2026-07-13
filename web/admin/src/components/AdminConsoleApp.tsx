@@ -10,14 +10,31 @@ import {
   SimpleGrid,
   Stack,
   Text,
+  Textarea,
   TextInput,
   Title,
 } from '@mantine/core';
 
-import { Boxes, FileClock, Gauge, LogOut, RefreshCw, ShieldCheck } from 'lucide-react';
+import {
+  Boxes,
+  FileClock,
+  Gauge,
+  Info,
+  LogOut,
+  RefreshCw,
+  Save,
+  ShieldCheck,
+  SlidersHorizontal,
+  Trash2,
+} from 'lucide-react';
 import { type ReactNode, useState } from 'react';
 
-import type { ConfiguredServerEditDraft } from '../api/adminApi';
+import type {
+  AdminPresetDraft,
+  AdminPresetListItem,
+  AdminPresetPreview,
+  ConfiguredServerEditDraft,
+} from '../api/adminApi';
 import type { AdminConsoleState } from '../state/adminConsoleState';
 import {
   disabledServers,
@@ -52,6 +69,19 @@ export interface AdminConsoleAppProps {
   ) => void | Promise<void>;
   onCopyText?: (label: string, value: string) => void | Promise<void>;
   loginBusy?: boolean;
+  route?: 'overview' | 'presets' | 'about';
+  onNavigate?: (route: 'overview' | 'presets' | 'about') => void;
+  presets?: AdminPresetListItem[];
+  presetRevision?: string;
+  presetBusy?: boolean;
+  onLoadPresets?: () => void | Promise<void>;
+  onPreviewPreset?: (draft: AdminPresetDraft, sourceName?: string) => Promise<AdminPresetPreview>;
+  onSavePreset?: (input: {
+    action: 'create' | 'update' | 'duplicate';
+    sourceName?: string;
+    preview: AdminPresetPreview;
+  }) => void | Promise<void>;
+  onDeletePreset?: (name: string) => void | Promise<void>;
 }
 
 export function AdminConsoleApp({
@@ -67,6 +97,14 @@ export function AdminConsoleApp({
   onPreviewServerEdit,
   onCopyText,
   loginBusy = false,
+  route = 'overview',
+  onNavigate,
+  presets = [],
+  presetBusy = false,
+  onLoadPresets,
+  onPreviewPreset,
+  onSavePreset,
+  onDeletePreset,
 }: AdminConsoleAppProps) {
   if (state.view !== 'console') {
     return (
@@ -117,10 +155,27 @@ export function AdminConsoleApp({
       <AppShell.Navbar className="admin-app-navbar" aria-label="Operations navigation">
         <Stack gap="xs" className="nav-stack">
           <Text className="nav-section-label">Workspace</Text>
-          <NavItem icon={<Gauge size={17} />} label="Overview" active />
+          <NavItem
+            icon={<Gauge size={17} />}
+            label="Overview"
+            active={route === 'overview'}
+            onClick={() => onNavigate?.('overview')}
+          />
           <NavItem icon={<Boxes size={17} />} label="Server inventory" />
           <NavItem icon={<ShieldCheck size={17} />} label="OAuth services" />
           <NavItem icon={<FileClock size={17} />} label="Audit trail" />
+          <NavItem
+            icon={<SlidersHorizontal size={17} />}
+            label="Presets"
+            active={route === 'presets'}
+            onClick={() => onNavigate?.('presets')}
+          />
+          <NavItem
+            icon={<Info size={17} />}
+            label="About"
+            active={route === 'about'}
+            onClick={() => onNavigate?.('about')}
+          />
         </Stack>
         <Stack gap="xs" className="nav-runtime-card">
           <Text className="nav-section-label">Runtime target</Text>
@@ -138,32 +193,56 @@ export function AdminConsoleApp({
       <AppShell.Main className="admin-shell-main">
         <Stack gap="md" className="admin-console">
           <Banner state={state} />
-          <ConsoleView
-            state={state}
-            onLogout={onLogout}
-            onRefresh={onRefresh}
-            onServerAction={onServerAction}
-            onOpenServerDetail={onOpenServerDetail}
-            onCloseServerDetail={onCloseServerDetail}
-            onServerDetailDirtyChange={onServerDetailDirtyChange}
-            onPreviewServerEdit={onPreviewServerEdit}
-            onCopyText={onCopyText}
-            serverDetail={serverDetail}
-          />
+          {route === 'presets' ? (
+            <PresetsView
+              presets={presets}
+              busy={presetBusy}
+              onLoad={onLoadPresets}
+              onPreview={onPreviewPreset}
+              onSave={onSavePreset}
+              onDelete={onDeletePreset}
+              runtimeScopeId={state.status?.runtime.runtimeScopeId}
+            />
+          ) : route === 'about' ? (
+            <AboutView state={state} />
+          ) : (
+            <ConsoleView
+              state={state}
+              onLogout={onLogout}
+              onRefresh={onRefresh}
+              onServerAction={onServerAction}
+              onOpenServerDetail={onOpenServerDetail}
+              onCloseServerDetail={onCloseServerDetail}
+              onServerDetailDirtyChange={onServerDetailDirtyChange}
+              onPreviewServerEdit={onPreviewServerEdit}
+              onCopyText={onCopyText}
+              serverDetail={serverDetail}
+            />
+          )}
         </Stack>
       </AppShell.Main>
     </AppShell>
   );
 }
 
-function NavItem({ icon, label, active = false }: { icon: ReactNode; label: string; active?: boolean }) {
+function NavItem({
+  icon,
+  label,
+  active = false,
+  onClick,
+}: {
+  icon: ReactNode;
+  label: string;
+  active?: boolean;
+  onClick?: () => void;
+}) {
   return (
-    <div className={`nav-item${active ? ' nav-item-active' : ''}`}>
+    <button type="button" className={`nav-item${active ? ' nav-item-active' : ''}`} onClick={onClick}>
       {icon}
       <Text size="sm" fw={700}>
         {label}
       </Text>
-    </div>
+    </button>
   );
 }
 
@@ -399,4 +478,397 @@ function Banner({ state }: { state: AdminConsoleState }) {
       {banner.message}
     </Alert>
   );
+}
+
+function PresetsView({
+  presets,
+  busy,
+  onLoad,
+  onPreview,
+  onSave,
+  onDelete,
+  runtimeScopeId,
+}: {
+  presets: AdminPresetListItem[];
+  busy: boolean;
+  onLoad?: () => void | Promise<void>;
+  onPreview?: (draft: AdminPresetDraft, sourceName?: string) => Promise<AdminPresetPreview>;
+  onSave?: AdminConsoleAppProps['onSavePreset'];
+  onDelete?: AdminConsoleAppProps['onDeletePreset'];
+  runtimeScopeId?: string;
+}) {
+  const [sourceName, setSourceName] = useState<string | undefined>();
+  const [name, setName] = useState('');
+  const [description, setDescription] = useState('');
+  const [strategy, setStrategy] = useState<'or' | 'and' | 'advanced'>('or');
+  const [tags, setTags] = useState('');
+  const [advanced, setAdvanced] = useState('{}');
+  const [preview, setPreview] = useState<AdminPresetPreview | null>(null);
+  const [message, setMessage] = useState<string | null>(null);
+  const [structuredConversion, setStructuredConversion] = useState<AdminPresetPreview['structuredConversion']>({
+    lossless: true,
+  });
+
+  function editPreset(preset: AdminPresetListItem, duplicate = false) {
+    setSourceName(duplicate ? preset.name : preset.name);
+    setName(duplicate ? `${preset.name}-copy` : preset.name);
+    setDescription(preset.description ?? '');
+    setStrategy(preset.strategy);
+    setAdvanced(JSON.stringify(preset.tagQuery, null, 2));
+    const conversion = flatStructuredQuery(preset);
+    setTags(conversion?.tags.join(', ') ?? '');
+    setStructuredConversion(
+      conversion
+        ? { lossless: true, strategy: preset.strategy === 'and' ? 'and' : 'or', tags: conversion.tags }
+        : { lossless: false, reason: 'This advanced query cannot be represented losslessly in structured mode.' },
+    );
+    setPreview(null);
+  }
+
+  function draft(): AdminPresetDraft {
+    const selectedTags = tags
+      .split(',')
+      .map((tag) => tag.trim())
+      .filter(Boolean);
+    let tagQuery: Record<string, unknown>;
+    if (strategy === 'advanced') {
+      const parsed: unknown = JSON.parse(advanced);
+      if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+        throw new Error('Advanced JSON must be an object.');
+      }
+      tagQuery = parsed as Record<string, unknown>;
+    } else {
+      tagQuery = { [strategy === 'or' ? '$or' : '$and']: selectedTags.map((tag) => ({ tag })) };
+    }
+    return {
+      name,
+      description: description || undefined,
+      strategy,
+      tagQuery,
+    };
+  }
+
+  async function createPreview() {
+    try {
+      const next = await onPreview?.(draft(), sourceName);
+      setPreview(next ?? null);
+      if (next) setStructuredConversion(next.structuredConversion);
+      setMessage(null);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'Preset preview failed.');
+    }
+  }
+
+  async function save() {
+    if (!preview) return;
+    const action = sourceName ? (sourceName === preview.draft.name ? 'update' : 'duplicate') : 'create';
+    if (
+      !window.confirm(
+        `Confirm ${action} preset ${preview.draft.name}${preview.matchCount === 0 ? ' with zero matches' : ''}?`,
+      )
+    )
+      return;
+    await onSave?.({ action, sourceName, preview });
+    setPreview(null);
+    setMessage(`Preset ${preview.draft.name} saved.`);
+  }
+
+  return (
+    <section aria-labelledby="presets-title" className="operations-workspace">
+      <Group justify="space-between" align="flex-start" className="workspace-heading">
+        <div>
+          <Text className="eyebrow" size="xs">
+            Runtime Scope / {runtimeScopeId ?? 'unavailable'}
+          </Text>
+          <Title id="presets-title" order={2}>
+            Presets
+          </Title>
+          <Text c="dimmed" size="sm">
+            Manage the preset store owned by this running Runtime Scope.
+          </Text>
+        </div>
+        <Group>
+          <Button variant="default" onClick={() => void onLoad?.()} loading={busy}>
+            Refresh
+          </Button>
+          <Button
+            onClick={() => {
+              setSourceName(undefined);
+              setName('');
+              setDescription('');
+              setStrategy('or');
+              setTags('');
+              setAdvanced('{}');
+              setPreview(null);
+            }}
+          >
+            New preset
+          </Button>
+        </Group>
+      </Group>
+      <div className="workspace-grid">
+        <Paper withBorder p="md">
+          <Stack gap="sm">
+            {presets.map((preset) => (
+              <Paper key={preset.name} withBorder p="sm">
+                <Group justify="space-between" align="flex-start">
+                  <div>
+                    <Text fw={800}>{preset.name}</Text>
+                    <Text size="sm" c="dimmed">
+                      {preset.description || 'No description'}
+                    </Text>
+                    <Text size="xs">
+                      {preset.strategy.toUpperCase()} · {preset.querySummary || 'empty query'} · {preset.matchCount}{' '}
+                      matches
+                    </Text>
+                  </div>
+                  <Group gap="xs">
+                    <Button size="xs" variant="default" onClick={() => editPreset(preset)}>
+                      Edit
+                    </Button>
+                    <Button size="xs" variant="default" onClick={() => editPreset(preset, true)}>
+                      Duplicate
+                    </Button>
+                    <Button
+                      size="xs"
+                      color="red"
+                      variant="light"
+                      leftSection={<Trash2 size={14} />}
+                      onClick={() => void onDelete?.(preset.name)}
+                    >
+                      Delete
+                    </Button>
+                  </Group>
+                </Group>
+              </Paper>
+            ))}
+            {!busy && presets.length === 0 ? <Text c="dimmed">No presets in this Runtime Scope.</Text> : null}
+          </Stack>
+        </Paper>
+        <Paper withBorder p="md">
+          <Stack gap="sm">
+            <Title order={3}>{sourceName ? `Edit ${sourceName}` : 'Create preset'}</Title>
+            <TextInput
+              label="Preset name"
+              value={name}
+              disabled={Boolean(sourceName && sourceName === name)}
+              onChange={(event) => {
+                setName(event.currentTarget.value);
+                setPreview(null);
+              }}
+            />
+            <TextInput
+              label="Description"
+              value={description}
+              onChange={(event) => {
+                setDescription(event.currentTarget.value);
+                setPreview(null);
+              }}
+            />
+            <Group>
+              <Button
+                variant={strategy === 'or' ? 'filled' : 'default'}
+                disabled={strategy === 'advanced' && !structuredConversion.lossless}
+                title={
+                  strategy === 'advanced' && !structuredConversion.lossless ? structuredConversion.reason : undefined
+                }
+                onClick={() => {
+                  setStrategy('or');
+                  if (structuredConversion.tags) setTags(structuredConversion.tags.join(', '));
+                  setPreview(null);
+                }}
+              >
+                OR
+              </Button>
+              <Button
+                variant={strategy === 'and' ? 'filled' : 'default'}
+                disabled={strategy === 'advanced' && !structuredConversion.lossless}
+                title={
+                  strategy === 'advanced' && !structuredConversion.lossless ? structuredConversion.reason : undefined
+                }
+                onClick={() => {
+                  setStrategy('and');
+                  if (structuredConversion.tags) setTags(structuredConversion.tags.join(', '));
+                  setPreview(null);
+                }}
+              >
+                AND
+              </Button>
+              <Button
+                variant={strategy === 'advanced' ? 'filled' : 'default'}
+                onClick={() => {
+                  setStrategy('advanced');
+                  setPreview(null);
+                }}
+              >
+                Advanced JSON
+              </Button>
+            </Group>
+            {strategy === 'advanced' ? (
+              <Textarea
+                label="Advanced JSON"
+                minRows={8}
+                value={advanced}
+                onChange={(event) => {
+                  setAdvanced(event.currentTarget.value);
+                  setPreview(null);
+                }}
+              />
+            ) : (
+              <TextInput
+                label="Tags"
+                description="Comma-separated tags"
+                value={tags}
+                onChange={(event) => {
+                  setTags(event.currentTarget.value);
+                  setPreview(null);
+                }}
+              />
+            )}
+            <Button leftSection={<SlidersHorizontal size={16} />} onClick={() => void createPreview()}>
+              Preview matches
+            </Button>
+            {preview ? (
+              <Paper withBorder p="sm">
+                <Text fw={800}>{preview.matchCount} current matches</Text>
+                {preview.validation.globalErrors.map((error) => (
+                  <Text key={error} c="red">
+                    {error}
+                  </Text>
+                ))}
+                {preview.validation.fieldErrors.map((error) => (
+                  <Text key={`${error.field}-${error.message}`} c="red">
+                    {error.field}: {error.message}
+                  </Text>
+                ))}
+                {preview.validation.warnings.map((warning) => (
+                  <Text key={warning} c="yellow">
+                    {warning}
+                  </Text>
+                ))}
+                {preview.matches.map((match) => (
+                  <Text key={match.name} size="sm">
+                    {match.matched ? '✓' : '–'} {match.name} · {match.enabled ? 'enabled' : 'disabled'} · {match.reason}
+                  </Text>
+                ))}
+                <Button
+                  mt="sm"
+                  disabled={preview.validation.status === 'invalid'}
+                  leftSection={<Save size={16} />}
+                  onClick={() => void save()}
+                >
+                  Confirm and save
+                </Button>
+              </Paper>
+            ) : null}
+            {message ? <Alert>{message}</Alert> : null}
+          </Stack>
+        </Paper>
+      </div>
+    </section>
+  );
+}
+
+function AboutView({ state }: { state: AdminConsoleState }) {
+  const about = state.status?.about;
+  if (!about) return <Alert>About metadata is unavailable.</Alert>;
+  return (
+    <section aria-labelledby="about-title" className="operations-workspace">
+      <Text className="eyebrow" size="xs">
+        Product and protocol metadata
+      </Text>
+      <Title id="about-title" order={2}>
+        About {about.productName}
+      </Title>
+      {!about.protocolCompatible ? (
+        <Alert color="red" title="Admin UI protocol incompatibility">
+          This Admin UI build expects protocol {about.adminUiProtocolVersion ?? 'Unavailable'}, but the runtime exposes{' '}
+          {about.adminApiProtocolVersion}.
+        </Alert>
+      ) : null}
+      <SimpleGrid cols={{ base: 1, md: 2 }} mt="md">
+        <AboutPanel
+          title="Versions"
+          values={[
+            ['Runtime Version', about.runtimeVersion],
+            ['Admin UI Build Version', about.adminUiBuildVersion ?? 'Unavailable'],
+            ['Admin API Protocol Version', about.adminApiProtocolVersion],
+            ['Admin UI Protocol Version', about.adminUiProtocolVersion ?? 'Unavailable'],
+          ]}
+        />
+        <AboutPanel
+          title="Runtime Scope"
+          values={[
+            ['Runtime Scope ID', about.runtime.runtimeScopeId],
+            ['External URL', about.runtime.externalUrl ?? 'Unavailable'],
+          ]}
+        />
+        <AboutPanel
+          title="Build"
+          values={[
+            ['Commit', about.build.commit ?? 'Unavailable'],
+            ['Build timestamp', about.build.timestamp ?? 'Unavailable'],
+          ]}
+        />
+        <Paper withBorder p="md">
+          <Title order={3}>Project</Title>
+          <Stack gap="xs" mt="sm">
+            {about.project.repository ? (
+              <SafeExternalLink label="Repository" href={about.project.repository} />
+            ) : (
+              <Text>Repository · Unavailable</Text>
+            )}
+            {about.project.documentation ? (
+              <SafeExternalLink label="Documentation" href={about.project.documentation} />
+            ) : (
+              <Text>Documentation · Unavailable</Text>
+            )}
+            {about.project.issues ? (
+              <SafeExternalLink label="Report an issue" href={about.project.issues} />
+            ) : (
+              <Text>Issue reporting · Unavailable</Text>
+            )}
+            <Text>License · {about.project.license ?? 'Unavailable'}</Text>
+          </Stack>
+        </Paper>
+      </SimpleGrid>
+    </section>
+  );
+}
+
+function AboutPanel({ title, values }: { title: string; values: Array<[string, string]> }) {
+  return (
+    <Paper withBorder p="md">
+      <Title order={3}>{title}</Title>
+      <Stack gap="xs" mt="sm">
+        {values.map(([label, value]) => (
+          <div key={label}>
+            <Text size="xs" c="dimmed">
+              {label}
+            </Text>
+            <Text>{value}</Text>
+          </div>
+        ))}
+      </Stack>
+    </Paper>
+  );
+}
+
+function SafeExternalLink({ label, href }: { label: string; href: string }) {
+  return (
+    <a href={href} target="_blank" rel="noopener noreferrer" aria-label={`${label} (opens in a new tab)`}>
+      {label}
+    </a>
+  );
+}
+
+function flatStructuredQuery(preset: AdminPresetDraft): { tags: string[] } | null {
+  const clauses = preset.tagQuery[preset.strategy === 'and' ? '$and' : '$or'];
+  if (!Array.isArray(clauses)) return null;
+  const tags = clauses.map((clause) =>
+    clause && typeof clause === 'object' && typeof (clause as { tag?: unknown }).tag === 'string'
+      ? (clause as { tag: string }).tag
+      : null,
+  );
+  return tags.every((tag): tag is string => tag !== null) ? { tags } : null;
 }
