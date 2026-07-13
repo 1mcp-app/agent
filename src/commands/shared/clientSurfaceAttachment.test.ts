@@ -198,12 +198,10 @@ describe('attachReusableClientSurface', () => {
         hasRestEndpoint: true,
       },
     });
-    const rest = vi.fn(
-      async (): Promise<ClientSurfaceRestResponse<string>> => ({
-        status: 'fallback',
-        reason: 'endpoint_missing',
-      }),
-    );
+    const rest = vi.fn(async (): Promise<ClientSurfaceRestResponse<string>> => ({
+      status: 'fallback',
+      reason: 'endpoint_missing',
+    }));
     const mcp = vi.fn(async ({ sessionId }: { sessionId: string }) => ({
       status: 'success' as const,
       sessionId,
@@ -246,12 +244,10 @@ describe('attachReusableClientSurface', () => {
         hasRestEndpoint: true,
       },
     });
-    const rest = vi.fn(
-      async (): Promise<ClientSurfaceRestResponse<string>> => ({
-        status: 'fallback',
-        reason: 'transient_failure',
-      }),
-    );
+    const rest = vi.fn(async (): Promise<ClientSurfaceRestResponse<string>> => ({
+      status: 'fallback',
+      reason: 'transient_failure',
+    }));
     const mcp = vi.fn(async ({ sessionId }: { sessionId: string }) => ({
       status: 'success' as const,
       sessionId,
@@ -282,12 +278,10 @@ describe('attachReusableClientSurface', () => {
 
   it('surfaces REST authentication errors without MCP fallback', async () => {
     const ports = makePorts();
-    const rest = vi.fn(
-      async (): Promise<ClientSurfaceRestResponse<string>> => ({
-        status: 'auth_required',
-        message: 'Authentication required.',
-      }),
-    );
+    const rest = vi.fn(async (): Promise<ClientSurfaceRestResponse<string>> => ({
+      status: 'auth_required',
+      message: 'Authentication required.',
+    }));
     const mcp = unusedAdapter();
 
     const result = await attachReusableClientSurface({
