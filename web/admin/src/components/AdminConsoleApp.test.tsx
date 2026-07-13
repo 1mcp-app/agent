@@ -132,15 +132,15 @@ describe('AdminConsoleApp', () => {
         {
           name: 'complex',
           strategy: 'advanced',
-          tagQuery: { $not: { tag: 'private' } },
-          querySummary: 'NOT private',
+          tagQuery: { $or: [{ tag: 'public' }, { $not: { tag: 'private' } }] },
+          querySummary: 'public OR NOT private',
           matchCount: 1,
         },
       ],
     });
     await user.click(screen.getByRole('button', { name: 'Edit' }));
-    expect(screen.getByRole('button', { name: 'OR' })).toBeDisabled();
-    expect(screen.getByRole('button', { name: 'AND' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: /Match any included tag/i })).toBeDisabled();
+    expect(screen.getByRole('button', { name: /Match all included tags/i })).toBeDisabled();
   });
 
   it('previews and confirms preset creation including disabled matches', async () => {
@@ -159,7 +159,7 @@ describe('AdminConsoleApp', () => {
     renderApp(consoleState(), { route: 'presets', onPreviewPreset, onSavePreset });
 
     await user.type(screen.getByLabelText('Preset name'), 'web');
-    await user.type(screen.getByLabelText('Tags'), 'web');
+    await user.click(screen.getByRole('button', { name: /Include local/i }));
     await user.click(screen.getByRole('button', { name: /Preview matches/i }));
     expect(await screen.findByText(/disabled-web · disabled/i)).toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: /Confirm and save/i }));
@@ -169,6 +169,105 @@ describe('AdminConsoleApp', () => {
         preview: expect.objectContaining({ previewFingerprint: 'preview' }),
       }),
     );
+  });
+
+  it('builds presets from discovered tags with include, exclude, and live server impact', async () => {
+    const user = userEvent.setup();
+    const onPreviewPreset = vi.fn().mockResolvedValue({
+      draft: {
+        name: 'local-only',
+        strategy: 'and',
+        tagQuery: { $and: [{ tag: 'local' }, { $not: { tag: 'storage' } }] },
+      },
+      revision: 'rev',
+      previewFingerprint: 'preview',
+      validation: { status: 'valid', fieldErrors: [], globalErrors: [], warnings: [] },
+      matches: [],
+      matchCount: 0,
+      structuredConversion: { lossless: false, reason: 'Contains an exclusion.' },
+    });
+    renderApp(consoleState(), { route: 'presets', onPreviewPreset });
+
+    expect(screen.getByRole('heading', { name: /Tag matrix/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Include local, 1 server/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Exclude storage, 1 server/i })).toBeInTheDocument();
+    expect(screen.getByText(/filesystem · enabled/i)).toBeInTheDocument();
+
+    await user.type(screen.getByLabelText('Preset name'), 'local-only');
+    await user.click(screen.getByRole('button', { name: /Match all included tags/i }));
+    await user.click(screen.getByRole('button', { name: /Include local/i }));
+    await user.click(screen.getByRole('button', { name: /Exclude storage/i }));
+
+    expect(screen.getByText(/INCLUDE local/i)).toBeInTheDocument();
+    expect(screen.getByText(/EXCLUDE storage/i)).toBeInTheDocument();
+    expect(screen.getByText(/0 of 2 configured targets match this draft/i)).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: /Preview matches/i }));
+    expect(onPreviewPreset).toHaveBeenCalledWith(
+      {
+        name: 'local-only',
+        description: undefined,
+        strategy: 'and',
+        tagQuery: { $and: [{ tag: 'local' }, { $not: { tag: 'storage' } }] },
+      },
+      undefined,
+    );
+  });
+
+  it('restores structured include and exclude states when editing a preset', async () => {
+    const user = userEvent.setup();
+    renderApp(consoleState(), {
+      route: 'presets',
+      presets: [
+        {
+          name: 'local-not-storage',
+          strategy: 'and',
+          tagQuery: { $and: [{ tag: 'local' }, { $not: { tag: 'storage' } }] },
+          querySummary: 'local AND NOT storage',
+          matchCount: 0,
+        },
+      ],
+    });
+
+    await user.click(screen.getByRole('button', { name: 'Edit' }));
+
+    expect(screen.getByRole('button', { name: /Include local/i })).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByRole('button', { name: /Exclude storage/i })).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByText(/INCLUDE local/i)).toBeInTheDocument();
+    expect(screen.getByText(/EXCLUDE storage/i)).toBeInTheDocument();
+  });
+
+  it('discovers template targets and serializes structured edits into Advanced JSON', async () => {
+    const user = userEvent.setup();
+    renderApp(consoleState(), {
+      route: 'presets',
+      presetTargets: [
+        { name: 'filesystem', tags: ['local'], enabled: true },
+        { name: 'template-search', tags: ['template', 'search'], enabled: false },
+      ],
+    });
+
+    expect(screen.getByRole('button', { name: /Include template, 1 server/i })).toBeInTheDocument();
+    expect(screen.getAllByText(/0 enabled · 1 disabled · template-search/i)).toHaveLength(2);
+    await user.click(screen.getByRole('button', { name: /Include template/i }));
+    await user.click(screen.getByRole('button', { name: /Advanced JSON/i }));
+    expect(screen.getByLabelText('Advanced JSON')).toHaveValue(JSON.stringify({ tag: 'template' }, null, 2));
+  });
+
+  it('shows and allows clearing criteria whose tags are no longer discovered', async () => {
+    const user = userEvent.setup();
+    renderApp(consoleState(), {
+      route: 'presets',
+      presetTargets: [{ name: 'filesystem', tags: ['local'], enabled: true }],
+      presets: [
+        { name: 'legacy', strategy: 'or', tagQuery: { tag: 'retired' }, querySummary: 'retired', matchCount: 0 },
+      ],
+    });
+    await user.click(screen.getByRole('button', { name: 'Edit' }));
+    const retiredGroup = screen.getByRole('group', { name: /retired tag state/i }).parentElement;
+    expect(retiredGroup).toHaveTextContent(/retired.*no longer discovered/i);
+    await user.click(screen.getByRole('button', { name: /Include retired/i }));
+    expect(screen.queryByText(/INCLUDE retired/i)).not.toBeInTheDocument();
   });
 
   it('shows visible copy feedback when clipboard writing fails', async () => {

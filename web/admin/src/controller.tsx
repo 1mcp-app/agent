@@ -6,6 +6,7 @@ import type {
   AdminPresetDraft,
   AdminPresetListItem,
   AdminPresetPreview,
+  AdminPresetTarget,
   AdminSession,
   ConfiguredServerEditDraft,
 } from './api/adminApi';
@@ -56,6 +57,7 @@ export function AdminConsoleRoot({ api, documentRef = document, windowRef = wind
       route={controller.route}
       onNavigate={controller.navigate}
       presets={controller.presets}
+      presetTargets={controller.presetTargets}
       presetRevision={controller.presetRevision}
       presetBusy={controller.presetBusy}
       onLoadPresets={controller.loadPresets}
@@ -77,6 +79,7 @@ function useAdminConsoleController({
   const [loginBusy, setLoginBusy] = useState(false);
   const [route, setRoute] = useState(() => adminRoute(windowRef.location?.pathname ?? '/admin'));
   const [presets, setPresets] = useState<AdminPresetListItem[]>([]);
+  const [presetTargets, setPresetTargets] = useState<AdminPresetTarget[]>([]);
   const [presetRevision, setPresetRevision] = useState('');
   const [presetBusy, setPresetBusy] = useState(false);
   const stateRef = useRef(state);
@@ -184,6 +187,7 @@ function useAdminConsoleController({
     try {
       const result = await api.listPresets();
       setPresets(result.presets);
+      setPresetTargets(result.targets ?? []);
       setPresetRevision(result.revision);
     } finally {
       setPresetBusy(false);
@@ -522,6 +526,7 @@ function useAdminConsoleController({
     route,
     navigate,
     presets,
+    presetTargets,
     presetRevision,
     presetBusy,
     loadPresets,

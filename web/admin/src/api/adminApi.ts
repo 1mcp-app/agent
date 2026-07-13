@@ -82,6 +82,12 @@ export interface AdminPresetListItem extends AdminPresetDraft {
   matchCount: number;
 }
 
+export interface AdminPresetTarget {
+  name: string;
+  tags: string[];
+  enabled: boolean;
+}
+
 export interface AdminPresetPreview {
   draft: AdminPresetDraft;
   revision: string;
@@ -94,7 +100,13 @@ export interface AdminPresetPreview {
   };
   matches: Array<{ name: string; tags: string[]; enabled: boolean; matched: boolean; reason: string }>;
   matchCount: number;
-  structuredConversion: { lossless: boolean; strategy?: 'or' | 'and'; tags?: string[]; reason?: string };
+  structuredConversion: {
+    lossless: boolean;
+    strategy?: 'or' | 'and';
+    tags?: string[];
+    states?: Record<string, 'neutral' | 'include' | 'exclude'>;
+    reason?: string;
+  };
 }
 
 export interface ConfiguredServerSecretInput {
@@ -334,10 +346,10 @@ export function createAdminApi(options: AdminApiOptions = {}) {
       return request('/admin/api/status');
     },
 
-    async listPresets(): Promise<{ revision: string; presets: AdminPresetListItem[] }> {
-      const response = await request<{ result: { revision: string; presets: AdminPresetListItem[] } }>(
-        '/admin/api/presets',
-      );
+    async listPresets(): Promise<{ revision: string; presets: AdminPresetListItem[]; targets: AdminPresetTarget[] }> {
+      const response = await request<{
+        result: { revision: string; presets: AdminPresetListItem[]; targets: AdminPresetTarget[] };
+      }>('/admin/api/presets');
       return response.result;
     },
 

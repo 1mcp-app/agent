@@ -29,10 +29,17 @@ import {
 } from 'lucide-react';
 import { type ReactNode, useState } from 'react';
 
+import {
+  buildTagAuthoringQuery,
+  evaluateTagAuthoringQuery,
+  parseTagAuthoringQuery,
+  type TagAuthoringState,
+} from '../../../../src/domains/preset/tagAuthoring';
 import type {
   AdminPresetDraft,
   AdminPresetListItem,
   AdminPresetPreview,
+  AdminPresetTarget,
   ConfiguredServerEditDraft,
 } from '../api/adminApi';
 import type { AdminConsoleState } from '../state/adminConsoleState';
@@ -72,6 +79,7 @@ export interface AdminConsoleAppProps {
   route?: 'overview' | 'presets' | 'about';
   onNavigate?: (route: 'overview' | 'presets' | 'about') => void;
   presets?: AdminPresetListItem[];
+  presetTargets?: AdminPresetTarget[];
   presetRevision?: string;
   presetBusy?: boolean;
   onLoadPresets?: () => void | Promise<void>;
@@ -100,6 +108,7 @@ export function AdminConsoleApp({
   route = 'overview',
   onNavigate,
   presets = [],
+  presetTargets = [],
   presetBusy = false,
   onLoadPresets,
   onPreviewPreset,
@@ -202,6 +211,15 @@ export function AdminConsoleApp({
               onSave={onSavePreset}
               onDelete={onDeletePreset}
               runtimeScopeId={state.status?.runtime.runtimeScopeId}
+              presetTargets={
+                presetTargets.length > 0
+                  ? presetTargets
+                  : state.configuredServers.map((server) => ({
+                      name: server.id,
+                      tags: server.tags,
+                      enabled: server.enabled,
+                    }))
+              }
             />
           ) : route === 'about' ? (
             <AboutView state={state} />
@@ -488,6 +506,7 @@ function PresetsView({
   onSave,
   onDelete,
   runtimeScopeId,
+  presetTargets,
 }: {
   presets: AdminPresetListItem[];
   busy: boolean;
@@ -496,12 +515,13 @@ function PresetsView({
   onSave?: AdminConsoleAppProps['onSavePreset'];
   onDelete?: AdminConsoleAppProps['onDeletePreset'];
   runtimeScopeId?: string;
+  presetTargets: AdminPresetTarget[];
 }) {
   const [sourceName, setSourceName] = useState<string | undefined>();
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
   const [strategy, setStrategy] = useState<'or' | 'and' | 'advanced'>('or');
-  const [tags, setTags] = useState('');
+  const [tagStates, setTagStates] = useState<Record<string, TagAuthoringState>>({});
   const [advanced, setAdvanced] = useState('{}');
   const [preview, setPreview] = useState<AdminPresetPreview | null>(null);
   const [message, setMessage] = useState<string | null>(null);
@@ -513,23 +533,25 @@ function PresetsView({
     setSourceName(duplicate ? preset.name : preset.name);
     setName(duplicate ? `${preset.name}-copy` : preset.name);
     setDescription(preset.description ?? '');
-    setStrategy(preset.strategy);
+    const parsedQuery = parseTagAuthoringQuery(preset.tagQuery);
+    setStrategy(parsedQuery ? parsedQuery.strategy : 'advanced');
     setAdvanced(JSON.stringify(preset.tagQuery, null, 2));
-    const conversion = flatStructuredQuery(preset);
-    setTags(conversion?.tags.join(', ') ?? '');
+    const conversion = parsedQuery ? { tags: Object.keys(parsedQuery.states) } : null;
+    setTagStates(parsedQuery?.states ?? {});
     setStructuredConversion(
       conversion
-        ? { lossless: true, strategy: preset.strategy === 'and' ? 'and' : 'or', tags: conversion.tags }
+        ? {
+            lossless: true,
+            strategy: parsedQuery?.strategy,
+            tags: conversion.tags,
+            states: parsedQuery?.states,
+          }
         : { lossless: false, reason: 'This advanced query cannot be represented losslessly in structured mode.' },
     );
     setPreview(null);
   }
 
   function draft(): AdminPresetDraft {
-    const selectedTags = tags
-      .split(',')
-      .map((tag) => tag.trim())
-      .filter(Boolean);
     let tagQuery: Record<string, unknown>;
     if (strategy === 'advanced') {
       const parsed: unknown = JSON.parse(advanced);
@@ -538,7 +560,7 @@ function PresetsView({
       }
       tagQuery = parsed as Record<string, unknown>;
     } else {
-      tagQuery = { [strategy === 'or' ? '$or' : '$and']: selectedTags.map((tag) => ({ tag })) };
+      tagQuery = buildTagAuthoringQuery(tagStates, strategy);
     }
     return {
       name,
@@ -597,7 +619,7 @@ function PresetsView({
               setName('');
               setDescription('');
               setStrategy('or');
-              setTags('');
+              setTagStates({});
               setAdvanced('{}');
               setPreview(null);
             }}
@@ -668,35 +690,43 @@ function PresetsView({
             <Group>
               <Button
                 variant={strategy === 'or' ? 'filled' : 'default'}
+                aria-pressed={strategy === 'or'}
                 disabled={strategy === 'advanced' && !structuredConversion.lossless}
                 title={
                   strategy === 'advanced' && !structuredConversion.lossless ? structuredConversion.reason : undefined
                 }
                 onClick={() => {
                   setStrategy('or');
-                  if (structuredConversion.tags) setTags(structuredConversion.tags.join(', '));
+                  if (structuredConversion.states) setTagStates(structuredConversion.states);
+                  else if (structuredConversion.tags) setTagStates(includedTagStates(structuredConversion.tags));
                   setPreview(null);
                 }}
               >
-                OR
+                Match any included tag
               </Button>
               <Button
                 variant={strategy === 'and' ? 'filled' : 'default'}
+                aria-pressed={strategy === 'and'}
                 disabled={strategy === 'advanced' && !structuredConversion.lossless}
                 title={
                   strategy === 'advanced' && !structuredConversion.lossless ? structuredConversion.reason : undefined
                 }
                 onClick={() => {
                   setStrategy('and');
-                  if (structuredConversion.tags) setTags(structuredConversion.tags.join(', '));
+                  if (structuredConversion.states) setTagStates(structuredConversion.states);
+                  else if (structuredConversion.tags) setTagStates(includedTagStates(structuredConversion.tags));
                   setPreview(null);
                 }}
               >
-                AND
+                Match all included tags
               </Button>
               <Button
                 variant={strategy === 'advanced' ? 'filled' : 'default'}
+                aria-pressed={strategy === 'advanced'}
                 onClick={() => {
+                  setAdvanced(
+                    JSON.stringify(buildTagAuthoringQuery(tagStates, strategy === 'and' ? 'and' : 'or'), null, 2),
+                  );
                   setStrategy('advanced');
                   setPreview(null);
                 }}
@@ -710,17 +740,41 @@ function PresetsView({
                 minRows={8}
                 value={advanced}
                 onChange={(event) => {
-                  setAdvanced(event.currentTarget.value);
+                  const value = event.currentTarget.value;
+                  setAdvanced(value);
+                  try {
+                    const parsed: unknown = JSON.parse(value);
+                    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+                      const structured = parseTagAuthoringQuery(parsed as Record<string, unknown>);
+                      setStructuredConversion(
+                        structured
+                          ? {
+                              lossless: true,
+                              strategy: structured.strategy,
+                              tags: Object.keys(structured.states),
+                              states: structured.states,
+                            }
+                          : { lossless: false, reason: 'This advanced query cannot be represented losslessly.' },
+                      );
+                    } else {
+                      setStructuredConversion({ lossless: false, reason: 'Advanced JSON must be an object.' });
+                    }
+                  } catch {
+                    setStructuredConversion({
+                      lossless: false,
+                      reason: 'Advanced JSON must be valid before conversion.',
+                    });
+                  }
                   setPreview(null);
                 }}
               />
             ) : (
-              <TextInput
-                label="Tags"
-                description="Comma-separated tags"
-                value={tags}
-                onChange={(event) => {
-                  setTags(event.currentTarget.value);
+              <TagMatrix
+                targets={presetTargets}
+                strategy={strategy}
+                states={tagStates}
+                onChange={(nextStates) => {
+                  setTagStates(nextStates);
                   setPreview(null);
                 }}
               />
@@ -862,13 +916,131 @@ function SafeExternalLink({ label, href }: { label: string; href: string }) {
   );
 }
 
-function flatStructuredQuery(preset: AdminPresetDraft): { tags: string[] } | null {
-  const clauses = preset.tagQuery[preset.strategy === 'and' ? '$and' : '$or'];
-  if (!Array.isArray(clauses)) return null;
-  const tags = clauses.map((clause) =>
-    clause && typeof clause === 'object' && typeof (clause as { tag?: unknown }).tag === 'string'
-      ? (clause as { tag: string }).tag
-      : null,
+function TagMatrix({
+  targets,
+  strategy,
+  states,
+  onChange,
+}: {
+  targets: AdminPresetTarget[];
+  strategy: 'or' | 'and';
+  states: Record<string, TagAuthoringState>;
+  onChange: (states: Record<string, TagAuthoringState>) => void;
+}) {
+  const catalog = tagCatalog(targets, states);
+  const query = buildTagAuthoringQuery(states, strategy);
+  const matchingServers = targets.filter((server) => evaluateTagAuthoringQuery(query, server.tags));
+  const activeTags = catalog.filter(({ tag }) => (states[tag] ?? 'neutral') !== 'neutral');
+
+  function setTagState(tag: string, state: TagAuthoringState) {
+    onChange({ ...states, [tag]: state });
+  }
+
+  return (
+    <section className="preset-tag-builder" aria-labelledby="preset-tag-matrix-title">
+      <Group justify="space-between" align="flex-start" gap="md">
+        <div>
+          <Title id="preset-tag-matrix-title" order={4}>
+            Tag matrix
+          </Title>
+          <Text size="sm" c="dimmed">
+            Discover tags from configured targets. Include tags select servers; exclude tags remove them.
+          </Text>
+        </div>
+        <Badge variant="light" color={matchingServers.length > 0 ? 'teal' : 'yellow'}>
+          {matchingServers.length} / {targets.length} match
+        </Badge>
+      </Group>
+      <Stack gap="xs" mt="sm" className="preset-tag-list">
+        {catalog.map(({ tag, servers, enabledCount, disabledCount, discovered }) => {
+          const state = states[tag] ?? 'neutral';
+          return (
+            <div className={`preset-tag-row preset-tag-${state}`} key={tag}>
+              <div className="preset-tag-identity">
+                <Text fw={800}>{tag}</Text>
+                <Text size="xs" c="dimmed">
+                  {servers.length} {servers.length === 1 ? 'server' : 'servers'} · {enabledCount} enabled ·{' '}
+                  {disabledCount} disabled · {servers.join(', ') || 'no current targets'}
+                  {!discovered ? ' · no longer discovered' : ''}
+                </Text>
+              </div>
+              <Group gap={4} wrap="nowrap" role="group" aria-label={`${tag} tag state`}>
+                <Button
+                  size="compact-xs"
+                  variant={state === 'include' ? 'filled' : 'subtle'}
+                  color="teal"
+                  aria-pressed={state === 'include'}
+                  aria-label={`Include ${tag}, ${servers.length} ${servers.length === 1 ? 'server' : 'servers'}`}
+                  onClick={() => setTagState(tag, state === 'include' ? 'neutral' : 'include')}
+                >
+                  Include
+                </Button>
+                <Button
+                  size="compact-xs"
+                  variant={state === 'exclude' ? 'filled' : 'subtle'}
+                  color="red"
+                  aria-pressed={state === 'exclude'}
+                  aria-label={`Exclude ${tag}, ${servers.length} ${servers.length === 1 ? 'server' : 'servers'}`}
+                  onClick={() => setTagState(tag, state === 'exclude' ? 'neutral' : 'exclude')}
+                >
+                  Exclude
+                </Button>
+              </Group>
+            </div>
+          );
+        })}
+        {catalog.length === 0 ? <Text c="dimmed">No configured target tags are available.</Text> : null}
+      </Stack>
+      <div className="preset-query-strip">
+        <Text size="xs" fw={800} tt="uppercase">
+          Draft query
+        </Text>
+        <Group gap="xs" mt={6}>
+          {activeTags.length === 0 ? <Text c="dimmed">Select tags to build a query.</Text> : null}
+          {activeTags.map(({ tag }) => (
+            <Badge key={tag} color={states[tag] === 'exclude' ? 'red' : 'teal'} variant="light">
+              {states[tag] === 'exclude' ? 'EXCLUDE' : 'INCLUDE'} {tag}
+            </Badge>
+          ))}
+        </Group>
+        <Text size="sm" mt="xs">
+          {matchingServers.length} of {targets.length} configured targets match this draft.
+        </Text>
+        <Stack gap={3} mt="xs">
+          {targets.map((server) => {
+            const matched = matchingServers.some((candidate) => candidate.name === server.name);
+            return (
+              <Text key={server.name} size="xs" c={matched ? undefined : 'dimmed'}>
+                {matched ? '✓' : '–'} {server.name} · {server.enabled ? 'enabled' : 'disabled'} ·{' '}
+                {server.tags.join(', ') || 'untagged'}
+              </Text>
+            );
+          })}
+        </Stack>
+      </div>
+    </section>
   );
-  return tags.every((tag): tag is string => tag !== null) ? { tags } : null;
+}
+
+function tagCatalog(targets: AdminPresetTarget[], states: Record<string, TagAuthoringState>) {
+  const catalog = new Map<string, { servers: string[]; enabledCount: number; disabledCount: number }>();
+  for (const server of targets) {
+    for (const tag of server.tags) {
+      const current = catalog.get(tag) ?? { servers: [], enabledCount: 0, disabledCount: 0 };
+      current.servers.push(server.name);
+      if (server.enabled) current.enabledCount += 1;
+      else current.disabledCount += 1;
+      catalog.set(tag, current);
+    }
+  }
+  for (const tag of Object.keys(states)) {
+    if (!catalog.has(tag)) catalog.set(tag, { servers: [], enabledCount: 0, disabledCount: 0 });
+  }
+  return Array.from(catalog, ([tag, details]) => ({ tag, ...details, discovered: details.servers.length > 0 })).sort(
+    (left, right) => left.tag.localeCompare(right.tag),
+  );
+}
+
+function includedTagStates(tags: string[]): Record<string, TagAuthoringState> {
+  return Object.fromEntries(tags.map((tag) => [tag, 'include' as const]));
 }

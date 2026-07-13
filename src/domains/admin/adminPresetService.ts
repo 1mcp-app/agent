@@ -119,6 +119,11 @@ export class AdminPresetService implements AdminPresetOperations {
         const targets = this.readServerTargets();
         return {
           revision,
+          targets: Object.entries(targets).map(([name, target]) => ({
+            name,
+            tags: target.tags ?? [],
+            enabled: target.disabled !== true && target.disabled !== 'true',
+          })),
           presets: this.presetManager.getPresetList().map((preset) => ({
             ...preset,
             querySummary: TagQueryEvaluator.queryToString(preset.tagQuery),
