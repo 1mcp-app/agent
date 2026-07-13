@@ -8,8 +8,7 @@ import { ServerManager } from './serverManager.js';
 
 const mockState = vi.hoisted(() => ({
   contextChangedHandler: undefined as
-    | ((data: { newContext?: unknown; sessionIdChanged: boolean }) => Promise<void>)
-    | undefined,
+    ((data: { newContext?: unknown; sessionIdChanged: boolean }) => Promise<void>) | undefined,
   reprocessTemplatesWithNewContext: vi.fn(),
   updateServersWithNewConfig: vi.fn(),
 }));

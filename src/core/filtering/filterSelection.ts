@@ -70,8 +70,7 @@ export type FilterSelectionError =
     };
 
 export type FilterSelectionResult =
-  | { ok: true; selection: FilterSelection }
-  | { ok: false; error: FilterSelectionError };
+  { ok: true; selection: FilterSelection } | { ok: false; error: FilterSelectionError };
 
 export interface ResolveFilterSelectionOptions {
   presetLookup?: FilterSelectionPresetLookup;
