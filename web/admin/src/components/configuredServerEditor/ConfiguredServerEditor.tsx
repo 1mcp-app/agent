@@ -3,50 +3,28 @@ import { Alert, Badge, Button, Group, Paper, Stack, Text, Title } from '@mantine
 import { Pencil, ServerCog } from 'lucide-react';
 import { useEffect, useState } from 'react';
 
-import type { ConfiguredServerDetailResponse, ConfiguredServerPreviewResponse } from '../api/adminApi';
-import type { AdminConsoleAppProps } from './AdminConsoleApp';
-import { EmptyState, Panel } from './AdminConsoleShared';
-import { fieldKey, transportSummaryLabel } from './adminConsoleUtils';
-import { buildPreviewEdit, initialDraftValue } from './configuredServerDraft';
-import { ConfiguredServerFieldDraft, editGroupHelp, SecretFieldDraft } from './ConfiguredServerEditControls';
-import { PreviewResult } from './ConfiguredServerPreview';
+import type { ConfiguredServerEditDraft } from '../../api/adminApi';
+import { EmptyState, Panel } from '../AdminConsoleShared';
+import { fieldKey, transportSummaryLabel } from '../adminConsoleUtils';
+import { buildPreviewEdit, initialDraftValue } from './draft';
+import { ConfiguredServerFieldDraft, editGroupHelp, SecretFieldDraft } from './EditControls';
+import { PreviewResult } from './PreviewResult';
+import type { ConfiguredServerEditorState, FieldDraftState, SecretDraftState } from './types';
 
-export type ConfiguredServerDetailPanelState =
-  | { status: 'list' }
-  | { status: 'loading'; serverId: string }
-  | {
-      status: 'loaded';
-      serverId: string;
-      detail: ConfiguredServerDetailResponse;
-      preview?: ConfiguredServerPreviewResponse['preview'];
-      previewBusy: boolean;
-      previewError?: string;
-    }
-  | { status: 'missing'; serverId: string }
-  | { status: 'failed'; serverId: string; message: string };
-
-export type SecretDraftState = Record<
-  string,
-  {
-    fieldPath: string[];
-    action: 'preserve' | 'replace' | 'clear';
-    replacementKind: 'environmentReference' | 'inlineSecret';
-    replacementValue: string;
-  }
->;
-
-export type FieldDraftState = Record<string, unknown>;
-
-export function ConfiguredServerDetailPanel({
+export function ConfiguredServerEditor({
   state,
   onClose,
   onDirtyChange,
   onPreviewServerEdit,
 }: {
-  state: ConfiguredServerDetailPanelState;
-  onClose?: AdminConsoleAppProps['onCloseServerDetail'];
-  onDirtyChange?: AdminConsoleAppProps['onServerDetailDirtyChange'];
-  onPreviewServerEdit?: AdminConsoleAppProps['onPreviewServerEdit'];
+  state: ConfiguredServerEditorState;
+  onClose?: (dirty?: boolean) => void | Promise<void>;
+  onDirtyChange?: (dirty: boolean) => void;
+  onPreviewServerEdit?: (
+    serverId: string,
+    edit: ConfiguredServerEditDraft,
+    connectivityCheck?: 'auto' | 'manual',
+  ) => void | Promise<void>;
 }) {
   const [fieldDraft, setFieldDraft] = useState<FieldDraftState>({});
   const [initialFieldDraft, setInitialFieldDraft] = useState<FieldDraftState>({});

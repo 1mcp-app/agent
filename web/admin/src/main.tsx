@@ -4,7 +4,7 @@ import '@mantine/core/styles.css';
 import { createRoot } from 'react-dom/client';
 
 import { createAdminApi } from './api/adminApi';
-import { AdminConsoleRoot } from './controller';
+import { AdminConsoleRoot } from './session/AdminConsoleSession';
 import './styles.css';
 import { adminConsoleTheme } from './theme';
 

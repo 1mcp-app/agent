@@ -7,7 +7,7 @@ import { describe, expect, it, vi } from 'vitest';
 
 import { AdminApiError } from './api/adminApi';
 import type { AdminApiClient } from './api/adminApi';
-import { AdminConsoleRoot } from './controller';
+import { AdminConsoleRoot } from './session/AdminConsoleSession';
 
 const session = {
   authenticated: true,
@@ -463,7 +463,9 @@ describe('AdminConsoleRoot', () => {
     const api = apiClient({
       getSession: vi.fn(async () => session),
       getStatus: vi.fn(async () => {
-        throw new Error('connect ECONNREFUSED /Users/x/.1mcp/config.json');
+        const message =
+          'The Admin Console could not reach the runtime. Check that the runtime is still available, then refresh.';
+        throw new AdminApiError(0, {}, message, { kind: 'unavailable', message });
       }),
       listConfiguredServers: vi.fn(async () => []),
     });

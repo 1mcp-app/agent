@@ -244,4 +244,37 @@ describe('admin API client', () => {
       message: 'csrf_required',
     });
   });
+
+  it('attaches classified operation facts to adapter errors', () => {
+    expect(
+      new AdminApiError(401, { error: 'invalid_credentials', requestId: 'req_login' }, 'invalid_credentials').failure,
+    ).toEqual({
+      kind: 'unauthenticated',
+      adminStatus: 'loginRequired',
+      code: 'invalid_credentials',
+      message: 'Check the admin username and password, then try again. Request ID: req_login',
+      requestId: 'req_login',
+      status: 401,
+    });
+
+    expect(
+      new AdminApiError(404, { code: 'configured_server_not_found' }, 'configured_server_not_found').failure,
+    ).toMatchObject({ kind: 'configuredServerNotFound', code: 'configured_server_not_found', status: 404 });
+  });
+
+  it('classifies fetch failures before they cross the adapter seam', async () => {
+    const api = createAdminApi({
+      fetch: async () => {
+        throw new TypeError('fetch failed');
+      },
+    });
+
+    await expect(api.getStatus()).rejects.toMatchObject({
+      failure: {
+        kind: 'unavailable',
+        message:
+          'The Admin Console could not reach the runtime. Check that the runtime is still available, then refresh.',
+      },
+    });
+  });
 });

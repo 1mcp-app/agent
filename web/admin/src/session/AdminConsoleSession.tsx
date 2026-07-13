@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 
-import { AdminApiError } from './api/adminApi';
+import { AdminApiError } from '../api/adminApi';
 import type {
   AdminApiClient,
   AdminPresetDraft,
@@ -9,10 +9,17 @@ import type {
   AdminPresetTarget,
   AdminSession,
   ConfiguredServerEditDraft,
-} from './api/adminApi';
-import { AdminConsoleApp, type ConfiguredServerDetailPanelState } from './components/AdminConsoleApp';
-import { type AdminConsoleAction, createInitialState, reduceAdminConsoleState } from './state/adminConsoleState';
-import { pollingDelayForVisibility, shouldPollConsole } from './state/polling';
+} from '../api/adminApi';
+import { AdminConsoleApp } from '../components/AdminConsoleApp';
+import type { ConfiguredServerEditorState } from '../components/configuredServerEditor';
+import { type AdminConsoleAction, createInitialState, reduceAdminConsoleState } from '../state/adminConsoleState';
+import { pollingDelayForVisibility, shouldPollConsole } from '../state/polling';
+import type { AdminConsoleSessionModel } from './AdminConsoleSessionModel';
+
+function failureMessage(error: unknown): string {
+  if (error instanceof AdminApiError) return error.failure.message;
+  throw error;
+}
 
 interface AdminConsoleDocument {
   visibilityState: string;
@@ -38,44 +45,20 @@ export interface AdminConsoleRootProps {
 }
 
 export function AdminConsoleRoot({ api, documentRef = document, windowRef = window, nowLabel }: AdminConsoleRootProps) {
-  const controller = useAdminConsoleController({ api, documentRef, windowRef, nowLabel });
+  const session = useAdminConsoleSession({ api, documentRef, windowRef, nowLabel });
 
-  return (
-    <AdminConsoleApp
-      state={controller.state}
-      onLogin={controller.login}
-      onLogout={controller.logout}
-      onRefresh={() => controller.refreshConsole('Manual refresh failed: ')}
-      onServerAction={controller.mutateServer}
-      onOpenServerDetail={controller.openServerDetail}
-      onCloseServerDetail={controller.closeServerDetail}
-      onServerDetailDirtyChange={controller.setServerDetailDirty}
-      onPreviewServerEdit={controller.previewServerEdit}
-      onCopyText={controller.copyText}
-      serverDetail={controller.serverDetail}
-      loginBusy={controller.loginBusy}
-      route={controller.route}
-      onNavigate={controller.navigate}
-      presets={controller.presets}
-      presetTargets={controller.presetTargets}
-      presetRevision={controller.presetRevision}
-      presetBusy={controller.presetBusy}
-      onLoadPresets={controller.loadPresets}
-      onPreviewPreset={controller.previewPreset}
-      onSavePreset={controller.savePreset}
-      onDeletePreset={controller.deletePreset}
-    />
-  );
+  return <AdminConsoleApp session={session} />;
 }
 
-function useAdminConsoleController({
+export function useAdminConsoleSession({
   api,
   documentRef,
   windowRef,
   nowLabel,
-}: Required<Omit<AdminConsoleRootProps, 'nowLabel'>> & Pick<AdminConsoleRootProps, 'nowLabel'>) {
+}: Required<Omit<AdminConsoleRootProps, 'nowLabel'>> &
+  Pick<AdminConsoleRootProps, 'nowLabel'>): AdminConsoleSessionModel {
   const [state, setState] = useState(createInitialState);
-  const [serverDetail, setServerDetail] = useState<ConfiguredServerDetailPanelState>({ status: 'list' });
+  const [serverDetail, setServerDetail] = useState<ConfiguredServerEditorState>({ status: 'list' });
   const [loginBusy, setLoginBusy] = useState(false);
   const [route, setRoute] = useState(() => adminRoute(windowRef.location?.pathname ?? '/admin'));
   const [presets, setPresets] = useState<AdminPresetListItem[]>([]);
@@ -115,7 +98,8 @@ function useAdminConsoleController({
 
   const handleUnauthenticated = useCallback(
     (error: unknown) => {
-      if (!(error instanceof AdminApiError) || error.status !== 401) {
+      const failure = error instanceof AdminApiError ? error.failure : null;
+      if (failure?.kind !== 'unauthenticated') {
         return false;
       }
 
@@ -124,7 +108,7 @@ function useAdminConsoleController({
       previewRequestRef.current += 1;
       detailDirtyRef.current = false;
       setServerDetail({ status: 'list' });
-      dispatch({ type: 'sessionUnauthenticated', adminStatus: readAdminStatus(error.body) });
+      dispatch({ type: 'sessionUnauthenticated', adminStatus: failure.adminStatus });
       return true;
     },
     [clearPoll, dispatch],
@@ -158,11 +142,12 @@ function useAdminConsoleController({
         if (handleUnauthenticated(error)) {
           return;
         }
-        if (isConfiguredServerNotFound(error)) {
+        const failure = error instanceof AdminApiError ? error.failure : null;
+        if (failure?.kind === 'configuredServerNotFound') {
           setServerDetail({ status: 'missing', serverId });
           return;
         }
-        setServerDetail({ status: 'failed', serverId, message: `Server detail failed: ${errorMessage(error)}` });
+        setServerDetail({ status: 'failed', serverId, message: `Server detail failed: ${failureMessage(error)}` });
       }
     },
     [api, handleUnauthenticated, isCurrentSession],
@@ -282,7 +267,7 @@ function useAdminConsoleController({
           return;
         }
         if (!handleUnauthenticated(error)) {
-          dispatch({ type: 'refreshFailed', message: `${errorPrefix}${errorMessage(error)}` });
+          dispatch({ type: 'refreshFailed', message: `${errorPrefix}${failureMessage(error)}` });
         }
       }
     },
@@ -309,7 +294,7 @@ function useAdminConsoleController({
       if (adminRoute(windowRef.location?.pathname ?? '/admin') === 'presets') await loadPresets();
     } catch (error) {
       if (!handleUnauthenticated(error)) {
-        dispatch({ type: 'refreshFailed', message: `Session check failed: ${errorMessage(error)}` });
+        dispatch({ type: 'refreshFailed', message: `Session check failed: ${failureMessage(error)}` });
       }
     } finally {
       schedulePoll();
@@ -338,7 +323,7 @@ function useAdminConsoleController({
         await loadRouteDetail();
         if (adminRoute(windowRef.location?.pathname ?? '/admin') === 'presets') await loadPresets();
       } catch (error) {
-        dispatch({ type: 'loginFailed', message: `Login failed: ${errorMessage(error)}` });
+        dispatch({ type: 'loginFailed', message: `Login failed: ${failureMessage(error)}` });
       } finally {
         setLoginBusy(false);
         schedulePoll();
@@ -418,7 +403,7 @@ function useAdminConsoleController({
           setServerDetail({
             ...currentDetail,
             previewBusy: false,
-            previewError: `Preview failed: ${errorMessage(error)}`,
+            previewError: `Preview failed: ${failureMessage(error)}`,
           });
         }
       }
@@ -455,7 +440,7 @@ function useAdminConsoleController({
             type: 'mutationFailed',
             serverId: name,
             action,
-            message: `Server ${action} failed: ${errorMessage(error)}`,
+            message: `Server ${action} failed: ${failureMessage(error)}`,
           });
         }
       }
@@ -515,24 +500,27 @@ function useAdminConsoleController({
     loginBusy,
     login,
     logout,
-    refreshConsole,
-    mutateServer,
-    openServerDetail,
-    closeServerDetail,
-    setServerDetailDirty,
-    previewServerEdit,
-    copyText,
-    serverDetail,
-    route,
-    navigate,
-    presets,
-    presetTargets,
-    presetRevision,
-    presetBusy,
-    loadPresets,
-    previewPreset,
-    savePreset,
-    deletePreset,
+    refresh: () => refreshConsole('Manual refresh failed: '),
+    navigation: { route, navigate },
+    configuredServers: {
+      editor: serverDetail,
+      mutate: mutateServer,
+      open: openServerDetail,
+      close: closeServerDetail,
+      setDirty: setServerDetailDirty,
+      preview: previewServerEdit,
+      copy: copyText,
+    },
+    presets: {
+      items: presets,
+      targets: presetTargets,
+      revision: presetRevision,
+      busy: presetBusy,
+      load: loadPresets,
+      preview: previewPreset,
+      save: savePreset,
+      delete: deletePreset,
+    },
   };
 }
 
@@ -540,14 +528,6 @@ function adminRoute(pathname: string): 'overview' | 'presets' | 'about' {
   if (pathname.startsWith('/admin/presets')) return 'presets';
   if (pathname.startsWith('/admin/about')) return 'about';
   return 'overview';
-}
-
-function readAdminStatus(body: unknown): 'setupRequired' | 'loginRequired' {
-  if (body && typeof body === 'object') {
-    const adminStatus = (body as { adminStatus?: string }).adminStatus;
-    return adminStatus === 'setupRequired' ? 'setupRequired' : 'loginRequired';
-  }
-  return 'loginRequired';
 }
 
 function serverIdFromAdminPath(pathname: string): string | null {
@@ -566,99 +546,4 @@ function serverIdFromAdminPath(pathname: string): string | null {
   } catch {
     return encoded;
   }
-}
-
-function isConfiguredServerNotFound(error: unknown): boolean {
-  if (!(error instanceof AdminApiError) || error.status !== 404 || !error.body || typeof error.body !== 'object') {
-    return false;
-  }
-
-  const record = error.body as Record<string, unknown>;
-  return record.code === 'configured_server_not_found' || record.error === 'configured_server_not_found';
-}
-
-function errorMessage(error: unknown): string {
-  if (error instanceof AdminApiError) {
-    const requestId = readRequestId(error.body);
-    const message = friendlyAdminError(error);
-    return requestId ? `${message} Request ID: ${requestId}` : message;
-  }
-  return 'The Admin Console could not reach the runtime. Check that the runtime is still available, then refresh.';
-}
-
-function friendlyAdminError(error: AdminApiError): string {
-  const code = readErrorCode(error);
-  switch (code) {
-    case 'invalid_credentials':
-      return 'Check the admin username and password, then try again.';
-    case 'csrf_required':
-      return 'Refresh the page to renew the admin session, then retry the action.';
-    case 'admin_login_rate_limited':
-      return 'Too many failed login attempts. Wait before trying again.';
-    case 'idempotency_conflict':
-      return 'This action was already retried with different inputs. Refresh the console and try again.';
-    case 'idempotency_key_required':
-      return 'Refresh the console and retry the action with a new request.';
-    case 'admin_configured_servers_unavailable':
-      return 'Configured-server operations are not available on this runtime.';
-    case 'mutation_failed':
-      return 'The runtime could not apply the server change. Refresh the console and inspect the current state.';
-    case 'operation_in_progress':
-      return 'Another admin operation is still running. Wait for it to finish, then refresh the console.';
-    case 'operation_state_unknown':
-      return 'The runtime could not confirm the operation result. Refresh the console and inspect the current state before retrying.';
-    case 'admin_operation_journal_unavailable':
-      return 'The runtime cannot record admin operations right now. Check runtime health before retrying.';
-    case 'runtime_scope_mismatch':
-      return 'The runtime identity changed. Stop using this session and verify the selected runtime before retrying.';
-    case 'mutation_confirmation_required':
-      return 'This operation needs an explicit confirmation flow that is not available in the console yet.';
-    default:
-      if (error.status === 401) {
-        return 'The admin session is no longer valid. Log in again.';
-      }
-      if (error.status === 403) {
-        return 'The admin session cannot perform this action. Refresh the page and try again.';
-      }
-      if (error.status === 429) {
-        return 'The runtime is rate limiting this request. Wait before trying again.';
-      }
-      return 'The Admin Console request failed. Refresh the console and try again.';
-  }
-}
-
-function readErrorCode(error: AdminApiError): string {
-  if (error.body && typeof error.body === 'object') {
-    const record = error.body as Record<string, unknown>;
-    if (typeof record.error === 'string') {
-      return record.error;
-    }
-    if (typeof record.code === 'string') {
-      return record.code;
-    }
-    if (record.error && typeof record.error === 'object') {
-      const nested = record.error as Record<string, unknown>;
-      if (typeof nested.code === 'string') {
-        return nested.code;
-      }
-    }
-  }
-  return error.message;
-}
-
-function readRequestId(body: unknown): string | null {
-  if (!body || typeof body !== 'object') {
-    return null;
-  }
-  const record = body as Record<string, unknown>;
-  if (typeof record.requestId === 'string') {
-    return record.requestId;
-  }
-  if (record.error && typeof record.error === 'object') {
-    const nested = record.error as Record<string, unknown>;
-    if (typeof nested.requestId === 'string') {
-      return nested.requestId;
-    }
-  }
-  return null;
 }

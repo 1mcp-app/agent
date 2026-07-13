@@ -307,14 +307,68 @@ export interface AdminApiOptions {
 }
 
 export class AdminApiError extends Error {
+  public readonly failure: AdminApiFailure;
+
   constructor(
     public readonly status: number,
     public readonly body: unknown,
     message: string,
+    failure?: AdminApiFailure,
   ) {
     super(message);
     this.name = 'AdminApiError';
+    this.failure = failure ?? classifyAdminApiError(this);
   }
+}
+
+export type AdminApiFailure =
+  | {
+      kind: 'unauthenticated';
+      adminStatus: 'setupRequired' | 'loginRequired';
+      code: string;
+      message: string;
+      requestId: string | null;
+      status: 401;
+    }
+  | {
+      kind: 'configuredServerNotFound';
+      code: 'configured_server_not_found';
+      message: string;
+      requestId: string | null;
+      status: 404;
+    }
+  | {
+      kind: 'rejected';
+      code: string;
+      message: string;
+      requestId: string | null;
+      status: number;
+    }
+  | {
+      kind: 'unavailable';
+      message: string;
+    };
+
+function classifyAdminApiError(error: AdminApiError): AdminApiFailure {
+  const code = readErrorCode(error);
+  const requestId = readRequestId(error.body);
+  const message = requestId
+    ? `${friendlyAdminError(error, code)} Request ID: ${requestId}`
+    : friendlyAdminError(error, code);
+  if (error.status === 401) {
+    return {
+      kind: 'unauthenticated',
+      adminStatus: readAdminStatus(error.body),
+      code,
+      message,
+      requestId,
+      status: 401,
+    };
+  }
+  if (error.status === 404 && code === 'configured_server_not_found') {
+    return { kind: 'configuredServerNotFound', code, message, requestId, status: 404 };
+  }
+  return { kind: 'rejected', code, message, requestId, status: error.status };
 }
 
 export function createAdminApi(options: AdminApiOptions = {}) {
@@ -505,10 +559,17 @@ function createRequest(fetchImpl: typeof fetch) {
       'X-Admin-UI-Protocol-Version': import.meta.env.VITE_ADMIN_UI_PROTOCOL_VERSION ?? 'unavailable',
       ...(init.headers ?? {}),
     };
-    const response = await fetchImpl(path, {
-      ...init,
-      headers,
-    });
+    let response: Response;
+    try {
+      response = await fetchImpl(path, {
+        ...init,
+        headers,
+      });
+    } catch {
+      const message =
+        'The Admin Console could not reach the runtime. Check that the runtime is still available, then refresh.';
+      throw new AdminApiError(0, {}, message, { kind: 'unavailable', message });
+    }
     const body = await readJson(response);
 
     if (!response.ok) {
@@ -542,6 +603,71 @@ function errorMessage(body: unknown, fallback: string): string {
     }
   }
   return fallback || 'Admin API request failed';
+}
+
+function readAdminStatus(body: unknown): 'setupRequired' | 'loginRequired' {
+  if (body && typeof body === 'object') {
+    return (body as { adminStatus?: string }).adminStatus === 'setupRequired' ? 'setupRequired' : 'loginRequired';
+  }
+  return 'loginRequired';
+}
+
+function readErrorCode(error: AdminApiError): string {
+  if (error.body && typeof error.body === 'object') {
+    const record = error.body as Record<string, unknown>;
+    if (typeof record.error === 'string') return record.error;
+    if (typeof record.code === 'string') return record.code;
+    if (record.error && typeof record.error === 'object') {
+      const nested = record.error as Record<string, unknown>;
+      if (typeof nested.code === 'string') return nested.code;
+    }
+  }
+  return error.message;
+}
+
+function readRequestId(body: unknown): string | null {
+  if (!body || typeof body !== 'object') return null;
+  const record = body as Record<string, unknown>;
+  if (typeof record.requestId === 'string') return record.requestId;
+  if (record.error && typeof record.error === 'object') {
+    const nested = record.error as Record<string, unknown>;
+    if (typeof nested.requestId === 'string') return nested.requestId;
+  }
+  return null;
+}
+
+function friendlyAdminError(error: AdminApiError, code: string): string {
+  switch (code) {
+    case 'invalid_credentials':
+      return 'Check the admin username and password, then try again.';
+    case 'csrf_required':
+      return 'Refresh the page to renew the admin session, then retry the action.';
+    case 'admin_login_rate_limited':
+      return 'Too many failed login attempts. Wait before trying again.';
+    case 'idempotency_conflict':
+      return 'This action was already retried with different inputs. Refresh the console and try again.';
+    case 'idempotency_key_required':
+      return 'Refresh the console and retry the action with a new request.';
+    case 'admin_configured_servers_unavailable':
+      return 'Configured-server operations are not available on this runtime.';
+    case 'mutation_failed':
+      return 'The runtime could not apply the server change. Refresh the console and inspect the current state.';
+    case 'operation_in_progress':
+      return 'Another admin operation is still running. Wait for it to finish, then refresh the console.';
+    case 'operation_state_unknown':
+      return 'The runtime could not confirm the operation result. Refresh the console and inspect the current state before retrying.';
+    case 'admin_operation_journal_unavailable':
+      return 'The runtime cannot record admin operations right now. Check runtime health before retrying.';
+    case 'runtime_scope_mismatch':
+      return 'The runtime identity changed. Stop using this session and verify the selected runtime before retrying.';
+    case 'mutation_confirmation_required':
+      return 'This operation needs an explicit confirmation flow that is not available in the console yet.';
+    default:
+      if (error.status === 401) return 'The admin session is no longer valid. Log in again.';
+      if (error.status === 403) return 'The admin session cannot perform this action. Refresh the page and try again.';
+      if (error.status === 429) return 'The runtime is rate limiting this request. Wait before trying again.';
+      return 'The Admin Console request failed. Refresh the console and try again.';
+  }
 }
 
 function defaultIdempotencyKey(input: { action: 'enable' | 'disable'; targetName: string }): string {

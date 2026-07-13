@@ -5,7 +5,6 @@ import { useMemo, useState } from 'react';
 
 import type { ConfiguredServerReadModel } from '../api/adminApi';
 import type { AdminConsoleState, ServerMutation } from '../state/adminConsoleState';
-import type { AdminConsoleAppProps } from './AdminConsoleApp';
 import { EmptyState, Panel } from './AdminConsoleShared';
 import {
   filterServers,
@@ -24,8 +23,8 @@ export function ConfiguredServersPanel({
   onOpenServerDetail,
 }: {
   state: AdminConsoleState;
-  onServerAction?: AdminConsoleAppProps['onServerAction'];
-  onOpenServerDetail?: AdminConsoleAppProps['onOpenServerDetail'];
+  onServerAction?: (serverId: string, action: 'enable' | 'disable') => void | Promise<void>;
+  onOpenServerDetail?: (serverId: string) => void | Promise<void>;
 }) {
   const [query, setQuery] = useState('');
   const [filter, setFilter] = useState<ServerFilter>('all');
@@ -100,8 +99,8 @@ function ServerRow({
 }: {
   server: ConfiguredServerReadModel;
   mutation?: ServerMutation;
-  onServerAction?: AdminConsoleAppProps['onServerAction'];
-  onOpenServerDetail?: AdminConsoleAppProps['onOpenServerDetail'];
+  onServerAction?: (serverId: string, action: 'enable' | 'disable') => void | Promise<void>;
+  onOpenServerDetail?: (serverId: string) => void | Promise<void>;
 }) {
   const action = server.enabled ? 'disable' : 'enable';
   const busy = mutation?.state === 'busy';

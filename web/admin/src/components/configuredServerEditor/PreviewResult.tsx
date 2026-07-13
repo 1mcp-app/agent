@@ -1,9 +1,9 @@
 import { Alert, Badge, Code, Group, Paper, SimpleGrid, Stack, Text } from '@mantine/core';
 
-import type { ConfiguredServerPreviewResponse } from '../api/adminApi';
-import { DetailRow } from './AdminConsoleShared';
-import { connectivityMeta, connectivitySummary, fieldKey, riskFlagColor, riskFlagLabel } from './adminConsoleUtils';
-import { formatPreviewValue } from './configuredServerDraft';
+import type { ConfiguredServerPreviewResponse } from '../../api/adminApi';
+import { DetailRow } from '../AdminConsoleShared';
+import { connectivityMeta, connectivitySummary, fieldKey, riskFlagColor, riskFlagLabel } from '../adminConsoleUtils';
+import { formatPreviewValue } from './draft';
 
 export function PreviewResult({ preview }: { preview: ConfiguredServerPreviewResponse['preview'] }) {
   const connectivity = preview.connectivityCheck;

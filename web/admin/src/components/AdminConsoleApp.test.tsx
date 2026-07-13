@@ -6,13 +6,13 @@ import { vi } from 'vitest';
 
 import { createInitialState } from '../state/adminConsoleState';
 import { AdminConsoleApp } from './AdminConsoleApp';
-import { configuredServerDetailState, consoleState, renderApp } from './AdminConsoleApp.fixtures';
+import { configuredServerDetailState, consoleState, fixtureSession, renderApp } from './AdminConsoleApp.fixtures';
 
 describe('AdminConsoleApp', () => {
   it('renders setup-required guidance without authenticated console chrome', () => {
     render(
       <MantineProvider>
-        <AdminConsoleApp state={{ ...createInitialState(), view: 'setupRequired' }} />
+        <AdminConsoleApp session={fixtureSession({ ...createInitialState(), view: 'setupRequired' })} />
       </MantineProvider>,
     );
 
@@ -37,7 +37,7 @@ describe('AdminConsoleApp', () => {
 
     rerender(
       <MantineProvider>
-        <AdminConsoleApp state={createInitialState()} />
+        <AdminConsoleApp session={fixtureSession(createInitialState())} />
       </MantineProvider>,
     );
 
@@ -52,7 +52,7 @@ describe('AdminConsoleApp', () => {
     const onServerAction = vi.fn();
     const onCopyText = vi.fn();
 
-    renderApp(consoleState(), { onServerAction, onCopyText });
+    renderApp(consoleState(), { configuredServers: { mutate: onServerAction, copy: onCopyText } });
 
     expect(screen.getByRole('navigation', { name: /operations navigation/i })).toBeInTheDocument();
     expect(screen.getByRole('banner', { name: /admin console/i })).toHaveTextContent(/runtime online/i);
@@ -92,7 +92,7 @@ describe('AdminConsoleApp', () => {
   it('navigates to Presets and About as final top-level items', async () => {
     const user = userEvent.setup();
     const onNavigate = vi.fn();
-    renderApp(consoleState(), { onNavigate });
+    renderApp(consoleState(), { navigation: { navigate: onNavigate } });
 
     const navigation = screen.getByRole('navigation', { name: /operations navigation/i });
     const buttons = within(navigation).getAllByRole('button');
@@ -107,7 +107,7 @@ describe('AdminConsoleApp', () => {
     const state = consoleState();
     state.status!.about.adminUiBuildVersion = '9.9.9';
     state.status!.about.build = {};
-    renderApp(state, { route: 'about' });
+    renderApp(state, { navigation: { route: 'about' } });
 
     expect(screen.getByRole('heading', { name: /About 1MCP Agent/i })).toBeInTheDocument();
     expect(screen.getByText('9.9.9')).toBeInTheDocument();
@@ -120,23 +120,25 @@ describe('AdminConsoleApp', () => {
     const state = consoleState();
     state.status!.about.adminUiProtocolVersion = '2';
     state.status!.about.protocolCompatible = false;
-    renderApp(state, { route: 'about' });
+    renderApp(state, { navigation: { route: 'about' } });
     expect(screen.getByText(/Admin UI protocol incompatibility/i)).toBeInTheDocument();
   });
 
   it('blocks lossy conversion from advanced JSON to structured mode', async () => {
     const user = userEvent.setup();
     renderApp(consoleState(), {
-      route: 'presets',
-      presets: [
-        {
-          name: 'complex',
-          strategy: 'advanced',
-          tagQuery: { $or: [{ tag: 'public' }, { $not: { tag: 'private' } }] },
-          querySummary: 'public OR NOT private',
-          matchCount: 1,
-        },
-      ],
+      navigation: { route: 'presets' },
+      presets: {
+        items: [
+          {
+            name: 'complex',
+            strategy: 'advanced',
+            tagQuery: { $or: [{ tag: 'public' }, { $not: { tag: 'private' } }] },
+            querySummary: 'public OR NOT private',
+            matchCount: 1,
+          },
+        ],
+      },
     });
     await user.click(screen.getByRole('button', { name: 'Edit' }));
     expect(screen.getByRole('button', { name: /Match any included tag/i })).toBeDisabled();
@@ -156,7 +158,10 @@ describe('AdminConsoleApp', () => {
     });
     const onSavePreset = vi.fn();
     vi.spyOn(window, 'confirm').mockReturnValue(true);
-    renderApp(consoleState(), { route: 'presets', onPreviewPreset, onSavePreset });
+    renderApp(consoleState(), {
+      navigation: { route: 'presets' },
+      presets: { preview: onPreviewPreset, save: onSavePreset },
+    });
 
     await user.type(screen.getByLabelText('Preset name'), 'web');
     await user.click(screen.getByRole('button', { name: /Include local/i }));
@@ -186,7 +191,7 @@ describe('AdminConsoleApp', () => {
       matchCount: 0,
       structuredConversion: { lossless: false, reason: 'Contains an exclusion.' },
     });
-    renderApp(consoleState(), { route: 'presets', onPreviewPreset });
+    renderApp(consoleState(), { navigation: { route: 'presets' }, presets: { preview: onPreviewPreset } });
 
     expect(screen.getByRole('heading', { name: /Tag matrix/i })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /Include local, 1 server/i })).toBeInTheDocument();
@@ -217,16 +222,18 @@ describe('AdminConsoleApp', () => {
   it('restores structured include and exclude states when editing a preset', async () => {
     const user = userEvent.setup();
     renderApp(consoleState(), {
-      route: 'presets',
-      presets: [
-        {
-          name: 'local-not-storage',
-          strategy: 'and',
-          tagQuery: { $and: [{ tag: 'local' }, { $not: { tag: 'storage' } }] },
-          querySummary: 'local AND NOT storage',
-          matchCount: 0,
-        },
-      ],
+      navigation: { route: 'presets' },
+      presets: {
+        items: [
+          {
+            name: 'local-not-storage',
+            strategy: 'and',
+            tagQuery: { $and: [{ tag: 'local' }, { $not: { tag: 'storage' } }] },
+            querySummary: 'local AND NOT storage',
+            matchCount: 0,
+          },
+        ],
+      },
     });
 
     await user.click(screen.getByRole('button', { name: 'Edit' }));
@@ -240,11 +247,13 @@ describe('AdminConsoleApp', () => {
   it('discovers template targets and serializes structured edits into Advanced JSON', async () => {
     const user = userEvent.setup();
     renderApp(consoleState(), {
-      route: 'presets',
-      presetTargets: [
-        { name: 'filesystem', tags: ['local'], enabled: true },
-        { name: 'template-search', tags: ['template', 'search'], enabled: false },
-      ],
+      navigation: { route: 'presets' },
+      presets: {
+        targets: [
+          { name: 'filesystem', tags: ['local'], enabled: true },
+          { name: 'template-search', tags: ['template', 'search'], enabled: false },
+        ],
+      },
     });
 
     expect(screen.getByRole('button', { name: /Include template, 1 server/i })).toBeInTheDocument();
@@ -257,11 +266,13 @@ describe('AdminConsoleApp', () => {
   it('shows and allows clearing criteria whose tags are no longer discovered', async () => {
     const user = userEvent.setup();
     renderApp(consoleState(), {
-      route: 'presets',
-      presetTargets: [{ name: 'filesystem', tags: ['local'], enabled: true }],
-      presets: [
-        { name: 'legacy', strategy: 'or', tagQuery: { tag: 'retired' }, querySummary: 'retired', matchCount: 0 },
-      ],
+      navigation: { route: 'presets' },
+      presets: {
+        targets: [{ name: 'filesystem', tags: ['local'], enabled: true }],
+        items: [
+          { name: 'legacy', strategy: 'or', tagQuery: { tag: 'retired' }, querySummary: 'retired', matchCount: 0 },
+        ],
+      },
     });
     await user.click(screen.getByRole('button', { name: 'Edit' }));
     const retiredGroup = screen.getByRole('group', { name: /retired tag state/i }).parentElement;
@@ -274,9 +285,11 @@ describe('AdminConsoleApp', () => {
     const user = userEvent.setup();
 
     renderApp(consoleState(), {
-      onCopyText: vi.fn(async () => {
-        throw new Error('clipboard unavailable');
-      }),
+      configuredServers: {
+        copy: vi.fn(async () => {
+          throw new Error('clipboard unavailable');
+        }),
+      },
     });
 
     await user.click(screen.getByRole('button', { name: /copy runtime scope/i }));
@@ -288,7 +301,7 @@ describe('AdminConsoleApp', () => {
     const user = userEvent.setup();
     const onOpenServerDetail = vi.fn();
 
-    renderApp(consoleState(), { onOpenServerDetail });
+    renderApp(consoleState(), { configuredServers: { open: onOpenServerDetail } });
 
     await user.click(screen.getByRole('button', { name: /edit github server/i }));
 
@@ -300,8 +313,7 @@ describe('AdminConsoleApp', () => {
     const onPreviewServerEdit = vi.fn();
 
     renderApp(consoleState(), {
-      serverDetail: configuredServerDetailState(),
-      onPreviewServerEdit,
+      configuredServers: { editor: configuredServerDetailState(), preview: onPreviewServerEdit },
     });
 
     expect(screen.getByRole('heading', { name: 'github' })).toBeInTheDocument();
@@ -345,77 +357,79 @@ describe('AdminConsoleApp', () => {
     const onPreviewServerEdit = vi.fn();
 
     renderApp(consoleState(), {
-      serverDetail: configuredServerDetailState({
-        fieldGroups: [
-          {
-            id: 'identity',
-            label: 'Target',
-            fields: [
-              { fieldPath: ['id'], label: 'Target ID', control: 'text', value: 'github', editable: true },
-              { fieldPath: ['enabled'], label: 'Enabled', control: 'switch', value: true, editable: true },
-              { fieldPath: ['tags'], label: 'Tags', control: 'tag-list', value: ['remote', 'oauth'], editable: true },
-            ],
-          },
-          {
-            id: 'transport',
-            label: 'Transport',
-            fields: [
-              {
-                fieldPath: ['transport', 'type'],
-                label: 'Transport Type',
-                control: 'select',
-                value: 'http',
-                options: ['stdio', 'http', 'sse'],
-                editable: true,
-              },
-              {
-                fieldPath: ['transport', 'args'],
-                label: 'Args',
-                control: 'string-list',
-                value: ['--old'],
-                editable: true,
-              },
-              {
-                fieldPath: ['transport', 'headers'],
-                label: 'Headers',
-                control: 'record',
-                value: { 'X-Feature': 'old' },
-                editable: true,
-              },
-            ],
-          },
-          {
-            id: 'secrets',
-            label: 'Secrets',
-            fields: [
-              {
-                fieldPath: ['headers', 'authorization'],
-                label: 'headers.authorization',
-                control: 'secret',
-                editable: true,
-                secret: {
-                  state: 'present',
-                  defaultAction: 'preserve',
-                  allowedActions: ['preserve', 'replace', 'clear'],
-                  environmentReference: {
-                    supported: true,
-                    recommended: true,
-                    valueFormat: 'env_var_name_or_substitution',
-                    storesSecretMaterial: false,
-                    guidance: 'Keep secret material in the runtime environment.',
-                  },
-                  inlineReplacement: {
-                    supported: true,
-                    emphasis: 'secondary',
-                    guidance: 'Use inline replacement only when an environment reference is not suitable.',
+      configuredServers: {
+        editor: configuredServerDetailState({
+          fieldGroups: [
+            {
+              id: 'identity',
+              label: 'Target',
+              fields: [
+                { fieldPath: ['id'], label: 'Target ID', control: 'text', value: 'github', editable: true },
+                { fieldPath: ['enabled'], label: 'Enabled', control: 'switch', value: true, editable: true },
+                { fieldPath: ['tags'], label: 'Tags', control: 'tag-list', value: ['remote', 'oauth'], editable: true },
+              ],
+            },
+            {
+              id: 'transport',
+              label: 'Transport',
+              fields: [
+                {
+                  fieldPath: ['transport', 'type'],
+                  label: 'Transport Type',
+                  control: 'select',
+                  value: 'http',
+                  options: ['stdio', 'http', 'sse'],
+                  editable: true,
+                },
+                {
+                  fieldPath: ['transport', 'args'],
+                  label: 'Args',
+                  control: 'string-list',
+                  value: ['--old'],
+                  editable: true,
+                },
+                {
+                  fieldPath: ['transport', 'headers'],
+                  label: 'Headers',
+                  control: 'record',
+                  value: { 'X-Feature': 'old' },
+                  editable: true,
+                },
+              ],
+            },
+            {
+              id: 'secrets',
+              label: 'Secrets',
+              fields: [
+                {
+                  fieldPath: ['headers', 'authorization'],
+                  label: 'headers.authorization',
+                  control: 'secret',
+                  editable: true,
+                  secret: {
+                    state: 'present',
+                    defaultAction: 'preserve',
+                    allowedActions: ['preserve', 'replace', 'clear'],
+                    environmentReference: {
+                      supported: true,
+                      recommended: true,
+                      valueFormat: 'env_var_name_or_substitution',
+                      storesSecretMaterial: false,
+                      guidance: 'Keep secret material in the runtime environment.',
+                    },
+                    inlineReplacement: {
+                      supported: true,
+                      emphasis: 'secondary',
+                      guidance: 'Use inline replacement only when an environment reference is not suitable.',
+                    },
                   },
                 },
-              },
-            ],
-          },
-        ],
-      }),
-      onPreviewServerEdit,
+              ],
+            },
+          ],
+        }),
+        preview: onPreviewServerEdit,
+      },
     });
 
     await user.clear(screen.getByLabelText('Target ID'));
@@ -466,8 +480,7 @@ describe('AdminConsoleApp', () => {
     const onCloseServerDetail = vi.fn();
 
     renderApp(consoleState(), {
-      serverDetail: configuredServerDetailState(),
-      onCloseServerDetail,
+      configuredServers: { editor: configuredServerDetailState(), close: onCloseServerDetail },
     });
 
     await user.clear(screen.getByLabelText('URL'));
@@ -482,28 +495,30 @@ describe('AdminConsoleApp', () => {
     const onPreviewServerEdit = vi.fn();
 
     renderApp(consoleState(), {
-      serverDetail: {
-        ...configuredServerDetailState(),
-        preview: {
-          targetName: 'github',
-          proposedTargetName: 'github',
-          previewFingerprint: 'preview_123',
-          validation: { status: 'valid', errors: [] },
-          diff: [],
-          configChange: {
-            status: 'unchanged',
-            operation: 'set_static',
-            target: { name: 'github', source: 'mcpServers' },
-            changed: false,
-            backup: { created: false },
-            retentionCleanup: { attempted: false, deletedPaths: [], warnings: [] },
-            reload: { status: 'skipped' },
-            warnings: [],
+      configuredServers: {
+        editor: {
+          ...configuredServerDetailState(),
+          preview: {
+            targetName: 'github',
+            proposedTargetName: 'github',
+            previewFingerprint: 'preview_123',
+            validation: { status: 'valid', errors: [] },
+            diff: [],
+            configChange: {
+              status: 'unchanged',
+              operation: 'set_static',
+              target: { name: 'github', source: 'mcpServers' },
+              changed: false,
+              backup: { created: false },
+              retentionCleanup: { attempted: false, deletedPaths: [], warnings: [] },
+              reload: { status: 'skipped' },
+              warnings: [],
+            },
+            connectivityCheck: { status: 'skipped', reason: 'connection_critical_fields_unchanged' },
           },
-          connectivityCheck: { status: 'skipped', reason: 'connection_critical_fields_unchanged' },
         },
+        preview: onPreviewServerEdit,
       },
-      onPreviewServerEdit,
     });
 
     await user.click(screen.getByRole('button', { name: /rerun connectivity/i }));
@@ -513,35 +528,37 @@ describe('AdminConsoleApp', () => {
 
   it('renders preview validation, diff, config-change, and connectivity facts', () => {
     renderApp(consoleState(), {
-      serverDetail: {
-        ...configuredServerDetailState(),
-        preview: {
-          targetName: 'github',
-          proposedTargetName: 'github',
-          previewFingerprint: 'preview_123',
-          validation: {
-            status: 'invalid',
-            errors: [{ fieldPath: ['transport', 'url'], code: 'invalid_url', message: 'URL is invalid.' }],
-          },
-          diff: [
-            {
-              fieldPath: ['transport', 'url'],
-              oldValue: 'https://example.com/mcp?token=REDACTED',
-              newValue: 'not-a-url',
-              riskFlags: ['connection_critical'],
+      configuredServers: {
+        editor: {
+          ...configuredServerDetailState(),
+          preview: {
+            targetName: 'github',
+            proposedTargetName: 'github',
+            previewFingerprint: 'preview_123',
+            validation: {
+              status: 'invalid',
+              errors: [{ fieldPath: ['transport', 'url'], code: 'invalid_url', message: 'URL is invalid.' }],
             },
-          ],
-          configChange: {
-            status: 'unchanged',
-            operation: 'set_static',
-            target: { name: 'github', source: 'mcpServers' },
-            changed: false,
-            backup: { created: false },
-            retentionCleanup: { attempted: false, deletedPaths: [], warnings: [] },
-            reload: { status: 'skipped' },
-            warnings: [],
+            diff: [
+              {
+                fieldPath: ['transport', 'url'],
+                oldValue: 'https://example.com/mcp?token=REDACTED',
+                newValue: 'not-a-url',
+                riskFlags: ['connection_critical'],
+              },
+            ],
+            configChange: {
+              status: 'unchanged',
+              operation: 'set_static',
+              target: { name: 'github', source: 'mcpServers' },
+              changed: false,
+              backup: { created: false },
+              retentionCleanup: { attempted: false, deletedPaths: [], warnings: [] },
+              reload: { status: 'skipped' },
+              warnings: [],
+            },
+            connectivityCheck: { status: 'skipped', reason: 'validation_failed' },
           },
-          connectivityCheck: { status: 'skipped', reason: 'validation_failed' },
         },
       },
     });
@@ -575,7 +592,7 @@ describe('AdminConsoleApp', () => {
           } as any,
         ],
       },
-      { onServerAction },
+      { configuredServers: { mutate: onServerAction } },
     );
 
     expect(screen.getByText('node')).toBeInTheDocument();
@@ -608,7 +625,7 @@ describe('AdminConsoleApp', () => {
           },
         ],
       },
-      { onServerAction },
+      { configuredServers: { mutate: onServerAction } },
     );
 
     const button = screen.getByRole('button', { name: /enable locked/i });
@@ -626,7 +643,7 @@ describe('AdminConsoleApp', () => {
 
     const { rerender } = renderApp(
       { ...createInitialState(), view: 'login' },
-      { onLogin, onLogout, onRefresh, onServerAction },
+      { login: onLogin, logout: onLogout, refresh: onRefresh, configuredServers: { mutate: onServerAction } },
     );
 
     await user.type(screen.getByLabelText(/username/i), 'operator');
@@ -637,11 +654,12 @@ describe('AdminConsoleApp', () => {
     rerender(
       <MantineProvider>
         <AdminConsoleApp
-          state={consoleState()}
-          onLogin={onLogin}
-          onLogout={onLogout}
-          onRefresh={onRefresh}
-          onServerAction={onServerAction}
+          session={fixtureSession(consoleState(), {
+            login: onLogin,
+            logout: onLogout,
+            refresh: onRefresh,
+            configuredServers: { mutate: onServerAction },
+          })}
         />
       </MantineProvider>,
     );

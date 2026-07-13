@@ -2,9 +2,9 @@ import type {
   ConfiguredServerDetailResponse,
   ConfiguredServerEditDraft,
   ConfiguredServerEditField,
-} from '../api/adminApi';
-import { fieldKey, humanize } from './adminConsoleUtils';
-import type { FieldDraftState, SecretDraftState } from './ConfiguredServerDetailPanel';
+} from '../../api/adminApi';
+import { fieldKey, humanize } from '../adminConsoleUtils';
+import type { FieldDraftState, SecretDraftState } from './types';
 
 export function buildPreviewEdit(
   fieldGroups: ConfiguredServerDetailResponse['editContract']['fieldGroups'],

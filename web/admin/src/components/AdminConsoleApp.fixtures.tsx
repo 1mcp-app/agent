@@ -1,19 +1,67 @@
 import { MantineProvider } from '@mantine/core';
 import { render } from '@testing-library/react';
 
-import type { ComponentProps } from 'react';
-
 import type { ConfiguredServerReadModel } from '../api/adminApi';
+import type { AdminConsoleSessionModel } from '../session/AdminConsoleSessionModel';
 import type { AdminConsoleState } from '../state/adminConsoleState';
 import { createInitialState } from '../state/adminConsoleState';
 import { AdminConsoleApp } from './AdminConsoleApp';
+import type { ConfiguredServerEditorState } from './configuredServerEditor';
 
-export function renderApp(state: AdminConsoleState, callbacks: Partial<ComponentProps<typeof AdminConsoleApp>> = {}) {
+interface SessionOverrides {
+  loginBusy?: boolean;
+  login?: AdminConsoleSessionModel['login'];
+  logout?: AdminConsoleSessionModel['logout'];
+  refresh?: AdminConsoleSessionModel['refresh'];
+  navigation?: Partial<AdminConsoleSessionModel['navigation']>;
+  configuredServers?: Partial<AdminConsoleSessionModel['configuredServers']>;
+  presets?: Partial<AdminConsoleSessionModel['presets']>;
+}
+
+export function renderApp(state: AdminConsoleState, overrides: SessionOverrides = {}) {
+  const session = fixtureSession(state, overrides);
   return render(
     <MantineProvider>
-      <AdminConsoleApp state={state} {...callbacks} />
+      <AdminConsoleApp session={session} />
     </MantineProvider>,
   );
+}
+
+export function fixtureSession(state: AdminConsoleState, overrides: SessionOverrides = {}): AdminConsoleSessionModel {
+  return {
+    state,
+    loginBusy: overrides.loginBusy ?? false,
+    login: overrides.login ?? (() => undefined),
+    logout: overrides.logout ?? (() => undefined),
+    refresh: overrides.refresh ?? (() => undefined),
+    navigation: {
+      route: overrides.navigation?.route ?? 'overview',
+      navigate: overrides.navigation?.navigate ?? (() => undefined),
+    },
+    configuredServers: {
+      editor: overrides.configuredServers?.editor ?? { status: 'list' },
+      mutate: overrides.configuredServers?.mutate ?? (() => undefined),
+      open: overrides.configuredServers?.open ?? (() => undefined),
+      close: overrides.configuredServers?.close ?? (() => undefined),
+      setDirty: overrides.configuredServers?.setDirty ?? (() => undefined),
+      preview: overrides.configuredServers?.preview ?? (() => undefined),
+      copy: overrides.configuredServers?.copy ?? (() => undefined),
+    },
+    presets: {
+      items: overrides.presets?.items ?? [],
+      targets: overrides.presets?.targets ?? [],
+      revision: overrides.presets?.revision ?? '',
+      busy: overrides.presets?.busy ?? false,
+      load: overrides.presets?.load ?? (() => undefined),
+      preview:
+        overrides.presets?.preview ??
+        (async () => {
+          throw new Error('Preset preview was not configured for this test');
+        }),
+      save: overrides.presets?.save ?? (() => undefined),
+      delete: overrides.presets?.delete ?? (() => undefined),
+    },
+  };
 }
 
 export function consoleState(): AdminConsoleState {
@@ -123,13 +171,8 @@ export function consoleState(): AdminConsoleState {
 }
 
 export function configuredServerDetailState(
-  overrides: Partial<
-    Extract<
-      NonNullable<ComponentProps<typeof AdminConsoleApp>['serverDetail']>,
-      { status: 'loaded' }
-    >['detail']['editContract']
-  > = {},
-): ComponentProps<typeof AdminConsoleApp>['serverDetail'] {
+  overrides: Partial<Extract<ConfiguredServerEditorState, { status: 'loaded' }>['detail']['editContract']> = {},
+): ConfiguredServerEditorState {
   const server: ConfiguredServerReadModel = {
     id: 'github',
     source: 'mcpServers',
