@@ -8,14 +8,27 @@ import { ConfigWatcher } from '@src/config/configWatcher.js';
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-const mockWatchClose = vi.hoisted(() => vi.fn());
+const watchMock = vi.hoisted(() => ({
+  callback: undefined as ((eventType: string, filename: string | null) => void) | undefined,
+  close: vi.fn(),
+}));
 
 vi.mock('fs', async (importOriginal) => {
   const actual = await importOriginal<typeof import('fs')>();
+  const existsSync = vi.fn(() => true);
+  const watch = vi.fn((_path, callback) => {
+    watchMock.callback = callback;
+    return { close: watchMock.close, on: vi.fn() };
+  });
   return {
     ...actual,
-    existsSync: vi.fn(() => true),
-    watch: vi.fn(() => ({ close: mockWatchClose })),
+    existsSync,
+    watch,
+    default: {
+      ...actual,
+      existsSync,
+      watch,
+    },
   };
 });
 
@@ -77,7 +90,9 @@ describe('ConfigWatcher', () => {
     } catch {
       // Ignore cleanup errors
     }
+    vi.useRealTimers();
     vi.clearAllMocks();
+    watchMock.callback = undefined;
   });
 
   describe('startWatching and stopWatching', () => {
@@ -96,6 +111,45 @@ describe('ConfigWatcher', () => {
   });
 
   describe('reload event', () => {
+    it('should reload for an exact config filename event', () => {
+      vi.useFakeTimers();
+      const reloadSpy = vi.fn();
+      vi.spyOn(configLoader, 'checkFileModified').mockReturnValue(false);
+      configWatcher.on('reload', reloadSpy);
+
+      configWatcher.startWatching();
+      watchMock.callback?.('change', 'mcp.json');
+      vi.advanceTimersByTime(100);
+
+      expect(reloadSpy).toHaveBeenCalledOnce();
+    });
+
+    it('should ignore backup files prefixed with the config filename', () => {
+      vi.useFakeTimers();
+      const reloadSpy = vi.fn();
+      vi.spyOn(configLoader, 'checkFileModified').mockReturnValue(false);
+      configWatcher.on('reload', reloadSpy);
+
+      configWatcher.startWatching();
+      watchMock.callback?.('rename', 'mcp.json.backup.test');
+      vi.advanceTimersByTime(100);
+
+      expect(reloadSpy).not.toHaveBeenCalled();
+    });
+
+    it('should reload when modification polling confirms an unmatched event', () => {
+      vi.useFakeTimers();
+      const reloadSpy = vi.fn();
+      vi.spyOn(configLoader, 'checkFileModified').mockReturnValue(true);
+      configWatcher.on('reload', reloadSpy);
+
+      configWatcher.startWatching();
+      watchMock.callback?.('rename', null);
+      vi.advanceTimersByTime(100);
+
+      expect(reloadSpy).toHaveBeenCalledOnce();
+    });
+
     it('should emit reload event when config file changes', async () => {
       const reloadSpy = vi.fn();
       configWatcher.on('reload', reloadSpy);
