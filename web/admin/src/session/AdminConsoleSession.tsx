@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { AdminApiError } from '../api/adminApi';
 import type {
@@ -8,10 +8,9 @@ import type {
   AdminPresetPreview,
   AdminPresetTarget,
   AdminSession,
-  ConfiguredServerEditDraft,
 } from '../api/adminApi';
 import { AdminConsoleApp } from '../components/AdminConsoleApp';
-import type { ConfiguredServerEditorState } from '../components/configuredServerEditor';
+import { useConfiguredServerEdit } from '../configuredServerEdit/useConfiguredServerEdit';
 import { type AdminConsoleAction, createInitialState, reduceAdminConsoleState } from '../state/adminConsoleState';
 import { pollingDelayForVisibility, shouldPollConsole } from '../state/polling';
 import type { AdminConsoleSessionModel } from './AdminConsoleSessionModel';
@@ -58,7 +57,6 @@ export function useAdminConsoleSession({
 }: Required<Omit<AdminConsoleRootProps, 'nowLabel'>> &
   Pick<AdminConsoleRootProps, 'nowLabel'>): AdminConsoleSessionModel {
   const [state, setState] = useState(createInitialState);
-  const [serverDetail, setServerDetail] = useState<ConfiguredServerEditorState>({ status: 'list' });
   const [loginBusy, setLoginBusy] = useState(false);
   const [route, setRoute] = useState(() => adminRoute(windowRef.location?.pathname ?? '/admin'));
   const [presets, setPresets] = useState<AdminPresetListItem[]>([]);
@@ -66,28 +64,18 @@ export function useAdminConsoleSession({
   const [presetRevision, setPresetRevision] = useState('');
   const [presetBusy, setPresetBusy] = useState(false);
   const stateRef = useRef(state);
-  const serverDetailRef = useRef(serverDetail);
   const timerRef = useRef<ReturnType<Window['setTimeout']> | null>(null);
-  const detailRequestRef = useRef(0);
-  const previewRequestRef = useRef(0);
-  const detailDirtyRef = useRef(false);
   const formatNow = useCallback(() => nowLabel?.() ?? new Date().toLocaleTimeString(), [nowLabel]);
 
   const dispatch = useCallback((action: AdminConsoleAction) => {
-    setState((current) => {
-      const next = reduceAdminConsoleState(current, action);
-      stateRef.current = next;
-      return next;
-    });
+    const next = reduceAdminConsoleState(stateRef.current, action);
+    stateRef.current = next;
+    setState(next);
   }, []);
 
   useEffect(() => {
     stateRef.current = state;
   }, [state]);
-
-  useEffect(() => {
-    serverDetailRef.current = serverDetail;
-  }, [serverDetail]);
 
   const clearPoll = useCallback(() => {
     if (timerRef.current !== null) {
@@ -96,75 +84,46 @@ export function useAdminConsoleSession({
     }
   }, [windowRef]);
 
-  const handleUnauthenticated = useCallback(
-    (error: unknown) => {
-      const failure = error instanceof AdminApiError ? error.failure : null;
-      if (failure?.kind !== 'unauthenticated') {
-        return false;
-      }
-
+  const invalidateAdminSession = useCallback(
+    (adminStatus: 'setupRequired' | 'loginRequired') => {
       clearPoll();
-      detailRequestRef.current += 1;
-      previewRequestRef.current += 1;
-      detailDirtyRef.current = false;
-      setServerDetail({ status: 'list' });
-      dispatch({ type: 'sessionUnauthenticated', adminStatus: failure.adminStatus });
-      return true;
+      dispatch({ type: 'sessionUnauthenticated', adminStatus });
     },
     [clearPoll, dispatch],
   );
 
-  const isCurrentSession = useCallback((sessionKey: string) => stateRef.current.session?.csrfToken === sessionKey, []);
-
-  const loadServerDetail = useCallback(
-    async (serverId: string) => {
-      const activeSession = stateRef.current.session;
-      if (!activeSession) {
-        return;
-      }
-      const sessionKey = activeSession.csrfToken;
-      const requestId = detailRequestRef.current + 1;
-      detailRequestRef.current = requestId;
-      previewRequestRef.current += 1;
-      detailDirtyRef.current = false;
-
-      setServerDetail({ status: 'loading', serverId });
-      try {
-        const detail = await api.getConfiguredServerDetail(serverId);
-        if (!isCurrentSession(sessionKey) || requestId !== detailRequestRef.current) {
-          return;
-        }
-        setServerDetail({ status: 'loaded', serverId, detail, previewBusy: false });
-      } catch (error) {
-        if (!isCurrentSession(sessionKey) || requestId !== detailRequestRef.current) {
-          return;
-        }
-        if (handleUnauthenticated(error)) {
-          return;
-        }
-        const failure = error instanceof AdminApiError ? error.failure : null;
-        if (failure?.kind === 'configuredServerNotFound') {
-          setServerDetail({ status: 'missing', serverId });
-          return;
-        }
-        setServerDetail({ status: 'failed', serverId, message: `Server detail failed: ${failureMessage(error)}` });
-      }
+  const handleUnauthenticated = useCallback(
+    (error: unknown) => {
+      const failure = error instanceof AdminApiError ? error.failure : null;
+      if (failure?.kind !== 'unauthenticated') return false;
+      invalidateAdminSession(failure.adminStatus);
+      return true;
     },
-    [api, handleUnauthenticated, isCurrentSession],
+    [invalidateAdminSession],
   );
 
-  const loadRouteDetail = useCallback(async () => {
-    setRoute(adminRoute(windowRef.location?.pathname ?? '/admin'));
-    const serverId = serverIdFromAdminPath(windowRef.location?.pathname ?? '');
-    if (serverId) {
-      await loadServerDetail(serverId);
-      return;
-    }
-    detailRequestRef.current += 1;
-    previewRequestRef.current += 1;
-    detailDirtyRef.current = false;
-    setServerDetail({ status: 'list' });
-  }, [loadServerDetail, windowRef.location]);
+  const configuredServerEditBrowser = useMemo(
+    () => ({
+      pathname: () => windowRef.location?.pathname ?? '/admin',
+      push: (pathname: string) => windowRef.history?.pushState(null, '', pathname),
+      replace: (pathname: string) => windowRef.history?.replaceState(null, '', pathname),
+      confirm: (message: string) => windowRef.confirm?.(message) !== false,
+      subscribePopState: (listener: () => void) => {
+        windowRef.addEventListener?.('popstate', listener);
+        return () => windowRef.removeEventListener?.('popstate', listener);
+      },
+    }),
+    [windowRef],
+  );
+
+  const configuredServerEdit = useConfiguredServerEdit({
+    api,
+    session: state.session,
+    browser: configuredServerEditBrowser,
+    onUnauthenticated: invalidateAdminSession,
+  });
+
+  const isCurrentSession = useCallback((sessionKey: string) => stateRef.current.session?.csrfToken === sessionKey, []);
 
   const loadPresets = useCallback(async () => {
     if (!stateRef.current.session) return;
@@ -236,11 +195,11 @@ export function useAdminConsoleSession({
   const navigate = useCallback(
     (nextRoute: 'overview' | 'presets' | 'about') => {
       const pathname = nextRoute === 'overview' ? '/admin' : `/admin/${nextRoute}`;
-      windowRef.history?.pushState(null, '', pathname);
+      if (!configuredServerEdit.close(pathname)) return;
       setRoute(nextRoute);
       if (nextRoute === 'presets') void loadPresets();
     },
-    [loadPresets, windowRef.history],
+    [configuredServerEdit, loadPresets],
   );
 
   const refreshConsole = useCallback(
@@ -290,7 +249,6 @@ export function useAdminConsoleSession({
       const session = await api.getSession();
       dispatch({ type: 'sessionLoaded', session });
       await refreshConsole('Session loaded, but refresh failed: ', session);
-      await loadRouteDetail();
       if (adminRoute(windowRef.location?.pathname ?? '/admin') === 'presets') await loadPresets();
     } catch (error) {
       if (!handleUnauthenticated(error)) {
@@ -299,16 +257,7 @@ export function useAdminConsoleSession({
     } finally {
       schedulePoll();
     }
-  }, [
-    api,
-    dispatch,
-    handleUnauthenticated,
-    loadPresets,
-    loadRouteDetail,
-    refreshConsole,
-    schedulePoll,
-    windowRef.location,
-  ]);
+  }, [api, dispatch, handleUnauthenticated, loadPresets, refreshConsole, schedulePoll, windowRef.location]);
 
   const login = useCallback(
     async (input: { username: string; password: string }) => {
@@ -320,7 +269,6 @@ export function useAdminConsoleSession({
         const session = await api.login(input);
         dispatch({ type: 'sessionLoaded', session });
         await refreshConsole('Login succeeded, but refresh failed: ', session);
-        await loadRouteDetail();
         if (adminRoute(windowRef.location?.pathname ?? '/admin') === 'presets') await loadPresets();
       } catch (error) {
         dispatch({ type: 'loginFailed', message: `Login failed: ${failureMessage(error)}` });
@@ -329,86 +277,7 @@ export function useAdminConsoleSession({
         schedulePoll();
       }
     },
-    [api, dispatch, loadPresets, loadRouteDetail, loginBusy, refreshConsole, schedulePoll, windowRef.location],
-  );
-
-  const confirmDiscardDetail = useCallback(
-    (dirty: boolean) => !dirty || windowRef.confirm?.('Discard unsaved configured-server edits?') !== false,
-    [windowRef],
-  );
-
-  const openServerDetail = useCallback(
-    async (serverId: string) => {
-      const currentDetail = serverDetailRef.current;
-      if (
-        currentDetail.status === 'loaded' &&
-        currentDetail.serverId !== serverId &&
-        !confirmDiscardDetail(detailDirtyRef.current)
-      ) {
-        windowRef.history?.pushState(null, '', `/admin/servers/${encodeURIComponent(currentDetail.serverId)}`);
-        return;
-      }
-      windowRef.history?.pushState(null, '', `/admin/servers/${encodeURIComponent(serverId)}`);
-      await loadServerDetail(serverId);
-    },
-    [confirmDiscardDetail, loadServerDetail, windowRef.history],
-  );
-
-  const closeServerDetail = useCallback(
-    (dirty = false) => {
-      if (!confirmDiscardDetail(dirty)) {
-        return;
-      }
-      windowRef.history?.pushState(null, '', '/admin');
-      detailRequestRef.current += 1;
-      previewRequestRef.current += 1;
-      detailDirtyRef.current = false;
-      setServerDetail({ status: 'list' });
-    },
-    [confirmDiscardDetail, windowRef.history],
-  );
-
-  const setServerDetailDirty = useCallback((dirty: boolean) => {
-    detailDirtyRef.current = dirty;
-  }, []);
-
-  const previewServerEdit = useCallback(
-    async (serverId: string, edit: ConfiguredServerEditDraft, connectivityCheck: 'auto' | 'manual' = 'auto') => {
-      const activeSession = stateRef.current.session;
-      const currentDetail = serverDetailRef.current;
-      if (!activeSession || currentDetail.status !== 'loaded') {
-        return;
-      }
-      const sessionKey = activeSession.csrfToken;
-      const requestId = previewRequestRef.current + 1;
-      previewRequestRef.current = requestId;
-
-      setServerDetail({ ...currentDetail, previewBusy: true, previewError: undefined });
-      try {
-        const response = await api.previewConfiguredServerEdit({
-          name: serverId,
-          csrfToken: sessionKey,
-          connectivityCheck,
-          edit,
-        });
-        if (!isCurrentSession(sessionKey) || requestId !== previewRequestRef.current) {
-          return;
-        }
-        setServerDetail({ ...currentDetail, preview: response.preview, previewBusy: false });
-      } catch (error) {
-        if (!isCurrentSession(sessionKey) || requestId !== previewRequestRef.current) {
-          return;
-        }
-        if (!handleUnauthenticated(error)) {
-          setServerDetail({
-            ...currentDetail,
-            previewBusy: false,
-            previewError: `Preview failed: ${failureMessage(error)}`,
-          });
-        }
-      }
-    },
-    [api, handleUnauthenticated, isCurrentSession],
+    [api, dispatch, loadPresets, loginBusy, refreshConsole, schedulePoll, windowRef.location],
   );
 
   const mutateServer = useCallback(
@@ -456,10 +325,6 @@ export function useAdminConsoleSession({
       }
     } finally {
       clearPoll();
-      detailRequestRef.current += 1;
-      previewRequestRef.current += 1;
-      detailDirtyRef.current = false;
-      setServerDetail({ status: 'list' });
       dispatch({ type: 'logoutSucceeded' });
     }
   }, [api, clearPoll, dispatch]);
@@ -484,16 +349,13 @@ export function useAdminConsoleSession({
 
   useEffect(() => {
     const listener = () => {
-      const currentDetail = serverDetailRef.current;
-      if (currentDetail.status === 'loaded' && !confirmDiscardDetail(detailDirtyRef.current)) {
-        windowRef.history?.pushState(null, '', `/admin/servers/${encodeURIComponent(currentDetail.serverId)}`);
-        return;
-      }
-      void loadRouteDetail();
+      const nextRoute = adminRoute(windowRef.location?.pathname ?? '/admin');
+      setRoute(nextRoute);
+      if (nextRoute === 'presets') void loadPresets();
     };
     windowRef.addEventListener?.('popstate', listener);
     return () => windowRef.removeEventListener?.('popstate', listener);
-  }, [confirmDiscardDetail, loadRouteDetail, windowRef]);
+  }, [loadPresets, windowRef]);
 
   return {
     state,
@@ -503,12 +365,8 @@ export function useAdminConsoleSession({
     refresh: () => refreshConsole('Manual refresh failed: '),
     navigation: { route, navigate },
     configuredServers: {
-      editor: serverDetail,
+      edit: configuredServerEdit,
       mutate: mutateServer,
-      open: openServerDetail,
-      close: closeServerDetail,
-      setDirty: setServerDetailDirty,
-      preview: previewServerEdit,
       copy: copyText,
     },
     presets: {
@@ -528,22 +386,4 @@ function adminRoute(pathname: string): 'overview' | 'presets' | 'about' {
   if (pathname.startsWith('/admin/presets')) return 'presets';
   if (pathname.startsWith('/admin/about')) return 'about';
   return 'overview';
-}
-
-function serverIdFromAdminPath(pathname: string): string | null {
-  const prefix = '/admin/servers/';
-  if (!pathname.startsWith(prefix)) {
-    return null;
-  }
-
-  const encoded = pathname.slice(prefix.length);
-  if (!encoded) {
-    return null;
-  }
-
-  try {
-    return decodeURIComponent(encoded);
-  } catch {
-    return encoded;
-  }
 }

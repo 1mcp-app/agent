@@ -1,75 +1,16 @@
 import { Alert, Badge, Button, Group, Paper, Stack, Text, Title } from '@mantine/core';
 
 import { Pencil, ServerCog } from 'lucide-react';
-import { useEffect, useState } from 'react';
 
-import type { ConfiguredServerEditDraft } from '../../api/adminApi';
+import { fieldKey } from '../../configuredServerEdit/configuredServerEditDraft';
+import type { ConfiguredServerEditModel } from '../../configuredServerEdit/useConfiguredServerEdit';
 import { EmptyState, Panel } from '../AdminConsoleShared';
-import { fieldKey, transportSummaryLabel } from '../adminConsoleUtils';
-import { buildPreviewEdit, initialDraftValue } from './draft';
+import { transportSummaryLabel } from '../adminConsoleUtils';
 import { ConfiguredServerFieldDraft, editGroupHelp, SecretFieldDraft } from './EditControls';
 import { PreviewResult } from './PreviewResult';
-import type { ConfiguredServerEditorState, FieldDraftState, SecretDraftState } from './types';
 
-export function ConfiguredServerEditor({
-  state,
-  onClose,
-  onDirtyChange,
-  onPreviewServerEdit,
-}: {
-  state: ConfiguredServerEditorState;
-  onClose?: (dirty?: boolean) => void | Promise<void>;
-  onDirtyChange?: (dirty: boolean) => void;
-  onPreviewServerEdit?: (
-    serverId: string,
-    edit: ConfiguredServerEditDraft,
-    connectivityCheck?: 'auto' | 'manual',
-  ) => void | Promise<void>;
-}) {
-  const [fieldDraft, setFieldDraft] = useState<FieldDraftState>({});
-  const [initialFieldDraft, setInitialFieldDraft] = useState<FieldDraftState>({});
-  const [secretDraft, setSecretDraft] = useState<SecretDraftState>({});
-
-  useEffect(() => {
-    if (state.status !== 'loaded') {
-      setFieldDraft({});
-      setInitialFieldDraft({});
-      setSecretDraft({});
-      return;
-    }
-
-    const nextFields: FieldDraftState = {};
-    const nextSecrets: SecretDraftState = {};
-    for (const group of state.detail.editContract.fieldGroups) {
-      for (const field of group.fields) {
-        if (field.control === 'secret') {
-          nextSecrets[fieldKey(field.fieldPath)] = {
-            fieldPath: field.fieldPath,
-            action: field.secret?.defaultAction ?? 'preserve',
-            replacementKind:
-              field.secret?.environmentReference.supported === false ? 'inlineSecret' : 'environmentReference',
-            replacementValue: '',
-          };
-        } else {
-          nextFields[fieldKey(field.fieldPath)] = initialDraftValue(field);
-        }
-      }
-    }
-    setFieldDraft(nextFields);
-    setInitialFieldDraft(nextFields);
-    setSecretDraft(nextSecrets);
-  }, [state.status === 'loaded' ? state.serverId : state.status]);
-
-  const previewEdit =
-    state.status === 'loaded'
-      ? buildPreviewEdit(state.detail.editContract.fieldGroups, fieldDraft, initialFieldDraft, secretDraft)
-      : {};
-  const dirty = Object.keys(previewEdit).length > 0;
-
-  useEffect(() => {
-    onDirtyChange?.(dirty);
-    return () => onDirtyChange?.(false);
-  }, [dirty, onDirtyChange]);
+export function ConfiguredServerEditor({ model }: { model: ConfiguredServerEditModel }) {
+  const { state } = model;
 
   if (state.status === 'list') {
     return (
@@ -104,7 +45,7 @@ export function ConfiguredServerEditor({
           <Alert color="yellow" variant="light">
             Old detail URLs are not aliases. Use the server list after a rename instead of bookmarking the previous ID.
           </Alert>
-          <Button variant="default" onClick={() => void onClose?.()}>
+          <Button variant="default" onClick={() => model.close()}>
             Back to servers
           </Button>
         </Stack>
@@ -123,7 +64,7 @@ export function ConfiguredServerEditor({
             Refresh the console or return to the server list, then retry. Preserve any non-secret request ID from the
             error when asking for support.
           </Text>
-          <Button variant="default" onClick={() => void onClose?.()}>
+          <Button variant="default" onClick={() => model.close()}>
             Back to servers
           </Button>
         </Stack>
@@ -156,7 +97,7 @@ export function ConfiguredServerEditor({
               Draft changes stay local until preview.
             </Text>
           </div>
-          <Button variant="default" onClick={() => void onClose?.(dirty)}>
+          <Button variant="default" onClick={() => model.close()}>
             Back
           </Button>
         </Group>
@@ -177,19 +118,15 @@ export function ConfiguredServerEditor({
                   <SecretFieldDraft
                     key={fieldKey(field.fieldPath)}
                     field={field}
-                    draft={secretDraft[fieldKey(field.fieldPath)]}
-                    onChange={(draft) =>
-                      setSecretDraft((current) => ({ ...current, [fieldKey(field.fieldPath)]: draft }))
-                    }
+                    draft={state.secretDraft[fieldKey(field.fieldPath)]}
+                    onChange={(draft) => model.changeSecret(field.fieldPath, draft)}
                   />
                 ) : (
                   <ConfiguredServerFieldDraft
                     key={fieldKey(field.fieldPath)}
                     field={field}
-                    value={fieldDraft[fieldKey(field.fieldPath)]}
-                    onChange={(value) =>
-                      setFieldDraft((current) => ({ ...current, [fieldKey(field.fieldPath)]: value }))
-                    }
+                    value={state.fieldDraft[fieldKey(field.fieldPath)]}
+                    onChange={(value) => model.changeField(field.fieldPath, value)}
                   />
                 ),
               )}
@@ -198,8 +135,8 @@ export function ConfiguredServerEditor({
         ))}
         <Group className="draft-action-bar" justify="space-between" gap="sm">
           <div>
-            <Badge color={dirty ? 'yellow' : 'gray'} variant={dirty ? 'light' : 'outline'}>
-              {dirty ? 'Unsaved changes' : 'No changes yet'}
+            <Badge color={state.dirty ? 'yellow' : 'gray'} variant={state.dirty ? 'light' : 'outline'}>
+              {state.dirty ? 'Unsaved changes' : 'No changes yet'}
             </Badge>
             <Text c="dimmed" size="xs">
               Preview validates the draft without writing config. Leaving this page with unsaved changes asks for
@@ -209,17 +146,13 @@ export function ConfiguredServerEditor({
           <Group gap="xs">
             <Button
               loading={state.previewBusy}
-              disabled={!dirty || state.previewBusy}
-              onClick={() => void onPreviewServerEdit?.(state.serverId, previewEdit, 'auto')}
+              disabled={!state.dirty || state.previewBusy}
+              onClick={() => void model.preview('auto')}
             >
               Preview change
             </Button>
             {state.preview ? (
-              <Button
-                variant="default"
-                loading={state.previewBusy}
-                onClick={() => void onPreviewServerEdit?.(state.serverId, previewEdit, 'manual')}
-              >
+              <Button variant="default" loading={state.previewBusy} onClick={() => void model.preview('manual')}>
                 Rerun connectivity
               </Button>
             ) : null}

@@ -67,10 +67,6 @@ export function serverActionState(server: ConfiguredServerReadModel, action: 'en
   );
 }
 
-export function fieldKey(fieldPath: string[]): string {
-  return fieldPath.join('\0');
-}
-
 export function connectivityMeta(preview: ConfiguredServerPreviewResponse['preview']): string | undefined {
   const check = preview.connectivityCheck;
   if (check.status === 'skipped') {

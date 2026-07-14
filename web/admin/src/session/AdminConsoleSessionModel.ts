@@ -1,11 +1,5 @@
-import type {
-  AdminPresetDraft,
-  AdminPresetListItem,
-  AdminPresetPreview,
-  AdminPresetTarget,
-  ConfiguredServerEditDraft,
-} from '../api/adminApi';
-import type { ConfiguredServerEditorState } from '../components/configuredServerEditor';
+import type { AdminPresetDraft, AdminPresetListItem, AdminPresetPreview, AdminPresetTarget } from '../api/adminApi';
+import type { ConfiguredServerEditModel } from '../configuredServerEdit/useConfiguredServerEdit';
 import type { AdminConsoleState } from '../state/adminConsoleState';
 
 export interface AdminConsoleSessionModel {
@@ -19,16 +13,8 @@ export interface AdminConsoleSessionModel {
     navigate(route: 'overview' | 'presets' | 'about'): void;
   };
   configuredServers: {
-    editor: ConfiguredServerEditorState;
+    edit: ConfiguredServerEditModel;
     mutate(serverId: string, action: 'enable' | 'disable'): void | Promise<void>;
-    open(serverId: string): void | Promise<void>;
-    close(dirty?: boolean): void | Promise<void>;
-    setDirty(dirty: boolean): void;
-    preview(
-      serverId: string,
-      edit: ConfiguredServerEditDraft,
-      connectivityCheck?: 'auto' | 'manual',
-    ): void | Promise<void>;
     copy(label: string, value: string): void | Promise<void>;
   };
   presets: {

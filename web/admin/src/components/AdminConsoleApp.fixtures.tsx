@@ -1,12 +1,28 @@
 import { MantineProvider } from '@mantine/core';
 import { render } from '@testing-library/react';
 
+import { useReducer } from 'react';
+
 import type { ConfiguredServerReadModel } from '../api/adminApi';
+import {
+  type ConfiguredServerEditState,
+  createConfiguredServerEditState,
+  reduceConfiguredServerEditState,
+} from '../configuredServerEdit/configuredServerEditState';
+import type { ConfiguredServerEditModel } from '../configuredServerEdit/useConfiguredServerEdit';
 import type { AdminConsoleSessionModel } from '../session/AdminConsoleSessionModel';
 import type { AdminConsoleState } from '../state/adminConsoleState';
 import { createInitialState } from '../state/adminConsoleState';
 import { AdminConsoleApp } from './AdminConsoleApp';
-import type { ConfiguredServerEditorState } from './configuredServerEditor';
+
+interface ConfiguredServerOverrides {
+  editor?: ConfiguredServerEditState;
+  mutate?: AdminConsoleSessionModel['configuredServers']['mutate'];
+  open?: ConfiguredServerEditModel['open'];
+  close?: ConfiguredServerEditModel['close'];
+  preview?: ConfiguredServerEditModel['preview'];
+  copy?: AdminConsoleSessionModel['configuredServers']['copy'];
+}
 
 interface SessionOverrides {
   loginBusy?: boolean;
@@ -14,20 +30,41 @@ interface SessionOverrides {
   logout?: AdminConsoleSessionModel['logout'];
   refresh?: AdminConsoleSessionModel['refresh'];
   navigation?: Partial<AdminConsoleSessionModel['navigation']>;
-  configuredServers?: Partial<AdminConsoleSessionModel['configuredServers']>;
+  configuredServers?: ConfiguredServerOverrides;
   presets?: Partial<AdminConsoleSessionModel['presets']>;
 }
 
 export function renderApp(state: AdminConsoleState, overrides: SessionOverrides = {}) {
-  const session = fixtureSession(state, overrides);
   return render(
     <MantineProvider>
-      <AdminConsoleApp session={session} />
+      <FixtureAdminConsoleApp state={state} overrides={overrides} />
     </MantineProvider>,
   );
 }
 
-export function fixtureSession(state: AdminConsoleState, overrides: SessionOverrides = {}): AdminConsoleSessionModel {
+function FixtureAdminConsoleApp({ state, overrides }: { state: AdminConsoleState; overrides: SessionOverrides }) {
+  const configuredServers = overrides.configuredServers;
+  const [editState, editDispatch] = useReducer(
+    reduceConfiguredServerEditState,
+    configuredServers?.editor,
+    configuredServerEditStateFromFixture,
+  );
+  const edit: ConfiguredServerEditModel = {
+    state: editState,
+    open: configuredServers?.open ?? (() => undefined),
+    close: configuredServers?.close ?? (() => true),
+    changeField: (fieldPath, value) => editDispatch({ type: 'fieldChanged', fieldPath, value }),
+    changeSecret: (fieldPath, value) => editDispatch({ type: 'secretChanged', fieldPath, value }),
+    preview: configuredServers?.preview ?? (() => undefined),
+  };
+  return <AdminConsoleApp session={fixtureSession(state, overrides, edit)} />;
+}
+
+export function fixtureSession(
+  state: AdminConsoleState,
+  overrides: SessionOverrides = {},
+  edit: ConfiguredServerEditModel = staticConfiguredServerEditModel(overrides.configuredServers),
+): AdminConsoleSessionModel {
   return {
     state,
     loginBusy: overrides.loginBusy ?? false,
@@ -39,12 +76,8 @@ export function fixtureSession(state: AdminConsoleState, overrides: SessionOverr
       navigate: overrides.navigation?.navigate ?? (() => undefined),
     },
     configuredServers: {
-      editor: overrides.configuredServers?.editor ?? { status: 'list' },
+      edit,
       mutate: overrides.configuredServers?.mutate ?? (() => undefined),
-      open: overrides.configuredServers?.open ?? (() => undefined),
-      close: overrides.configuredServers?.close ?? (() => undefined),
-      setDirty: overrides.configuredServers?.setDirty ?? (() => undefined),
-      preview: overrides.configuredServers?.preview ?? (() => undefined),
       copy: overrides.configuredServers?.copy ?? (() => undefined),
     },
     presets: {
@@ -62,6 +95,21 @@ export function fixtureSession(state: AdminConsoleState, overrides: SessionOverr
       delete: overrides.presets?.delete ?? (() => undefined),
     },
   };
+}
+
+function staticConfiguredServerEditModel(overrides?: ConfiguredServerOverrides): ConfiguredServerEditModel {
+  return {
+    state: configuredServerEditStateFromFixture(overrides?.editor),
+    open: overrides?.open ?? (() => undefined),
+    close: overrides?.close ?? (() => true),
+    changeField: () => undefined,
+    changeSecret: () => undefined,
+    preview: () => undefined,
+  };
+}
+
+function configuredServerEditStateFromFixture(editor?: ConfiguredServerEditState): ConfiguredServerEditState {
+  return editor ?? createConfiguredServerEditState();
 }
 
 export function consoleState(): AdminConsoleState {
@@ -171,8 +219,8 @@ export function consoleState(): AdminConsoleState {
 }
 
 export function configuredServerDetailState(
-  overrides: Partial<Extract<ConfiguredServerEditorState, { status: 'loaded' }>['detail']['editContract']> = {},
-): ConfiguredServerEditorState {
+  overrides: Partial<Extract<ConfiguredServerEditState, { status: 'loaded' }>['detail']['editContract']> = {},
+): ConfiguredServerEditState {
   const server: ConfiguredServerReadModel = {
     id: 'github',
     source: 'mcpServers',
@@ -189,10 +237,9 @@ export function configuredServerDetailState(
     secretInputs: [{ fieldPath: ['url', 'query', 'token'], label: 'url.query.token', state: 'present' as const }],
   };
 
-  return {
-    status: 'loaded',
+  return reduceConfiguredServerEditState(createConfiguredServerEditState(), {
+    type: 'detailLoaded',
     serverId: 'github',
-    previewBusy: false,
     detail: {
       ok: true,
       operationId: 'op_detail',
@@ -259,5 +306,5 @@ export function configuredServerDetailState(
         ...overrides,
       },
     },
-  };
+  });
 }

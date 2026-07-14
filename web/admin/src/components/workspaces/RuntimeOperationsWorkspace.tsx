@@ -70,17 +70,12 @@ export function RuntimeOperationsWorkspace({ model }: { model: RuntimeOperations
           <ConfiguredServersPanel
             state={state}
             onServerAction={configuredServers.mutate}
-            onOpenServerDetail={configuredServers.open}
+            onOpenServerDetail={configuredServers.edit.open}
           />
           <AuditPanel facts={state.status?.audit.facts ?? []} onCopyText={copyText} />
         </div>
         <div className="inspector-column">
-          <ConfiguredServerEditor
-            state={configuredServers.editor}
-            onClose={configuredServers.close}
-            onDirtyChange={configuredServers.setDirty}
-            onPreviewServerEdit={configuredServers.preview}
-          />
+          <ConfiguredServerEditor model={configuredServers.edit} />
           <RuntimePanel runtime={state.status?.runtime} onCopyText={copyText} />
           <OAuthPanel services={state.status?.oauth.services ?? []} />
         </div>

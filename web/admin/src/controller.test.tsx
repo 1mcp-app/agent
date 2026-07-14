@@ -54,7 +54,9 @@ describe('AdminConsoleRoot', () => {
     renderRoot(api);
 
     expect(await screen.findByRole('heading', { name: /runtime operations/i })).toBeInTheDocument();
-    expect(screen.getByText('filesystem')).toBeInTheDocument();
+    await waitFor(() => expect(api.getStatus).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(api.listConfiguredServers).toHaveBeenCalledTimes(1));
+    expect(await screen.findByText('filesystem')).toBeInTheDocument();
 
     await user.click(screen.getByRole('button', { name: /disable filesystem/i }));
     expect(api.setConfiguredServerEnabled).toHaveBeenCalledWith({
@@ -287,6 +289,23 @@ describe('AdminConsoleRoot', () => {
     expect(await screen.findByText(/Select Edit server to change target settings/i)).toBeInTheDocument();
   });
 
+  it('follows browser navigation between top-level admin workspaces', async () => {
+    const routeWindow = createRouteWindow('/admin');
+    const api = apiClient({
+      getSession: vi.fn(async () => session),
+      getStatus: vi.fn(async () => status),
+      listConfiguredServers: vi.fn(async () => [configuredServerListItem()]),
+    });
+
+    renderRoot(api, { windowRef: routeWindow });
+    expect(await screen.findByRole('heading', { name: /runtime operations/i })).toBeInTheDocument();
+
+    routeWindow.location.pathname = '/admin/about';
+    await act(async () => routeWindow.emitPopState());
+
+    expect(await screen.findByText('About metadata is unavailable.')).toBeInTheDocument();
+  });
+
   it('keeps the current detail route when the operator cancels dirty draft discard', async () => {
     const user = userEvent.setup();
     const routeWindow = createRouteWindow('/admin');
@@ -312,7 +331,7 @@ describe('AdminConsoleRoot', () => {
     });
 
     expect(routeWindow.confirm).toHaveBeenCalledWith('Discard unsaved configured-server edits?');
-    expect(routeWindow.history.pushState).toHaveBeenLastCalledWith(null, '', '/admin/servers/github%2Fapi');
+    expect(routeWindow.history.replaceState).toHaveBeenLastCalledWith(null, '', '/admin/servers/github%2Fapi');
     expect(screen.getByRole('heading', { name: /github\/api/i })).toBeInTheDocument();
   });
 
@@ -543,7 +562,11 @@ function createRouteWindow(pathname: string) {
           routeWindow.location.pathname = url;
         }
       }),
-      replaceState: vi.fn(),
+      replaceState: vi.fn((_state: unknown, _title: string, url?: string | URL | null) => {
+        if (typeof url === 'string') {
+          routeWindow.location.pathname = url;
+        }
+      }),
     },
     confirm: vi.fn(() => true),
     addEventListener: vi.fn((type: string, listener: EventListenerOrEventListenerObject) => {

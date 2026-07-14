@@ -335,14 +335,7 @@ describe('AdminConsoleApp', () => {
     expect(screen.getByRole('button', { name: /preview change/i })).toBeEnabled();
     await user.click(screen.getByRole('button', { name: /preview change/i }));
 
-    expect(onPreviewServerEdit).toHaveBeenCalledWith(
-      'github',
-      {
-        transport: { url: 'https://example.com/v2/mcp' },
-        secrets: [{ fieldPath: ['url', 'query', 'token'], action: 'clear' }],
-      },
-      'auto',
-    );
+    expect(onPreviewServerEdit).toHaveBeenCalledWith('auto');
   });
 
   it('explains how to start editing when no configured server is selected', () => {
@@ -452,30 +445,10 @@ describe('AdminConsoleApp', () => {
     await user.click(screen.getByRole('button', { name: /preview change/i }));
 
     expect(screen.queryByRole('textbox', { name: /raw json/i })).not.toBeInTheDocument();
-    expect(onPreviewServerEdit).toHaveBeenCalledWith(
-      'github',
-      {
-        id: 'github-v2',
-        enabled: false,
-        tags: ['remote', 'oauth', 'beta'],
-        transport: {
-          type: 'sse',
-          args: ['--one', '--two'],
-          headers: { 'X-Feature': 'new' },
-        },
-        secrets: [
-          {
-            fieldPath: ['headers', 'authorization'],
-            action: 'replace',
-            replacement: { kind: 'inlineSecret', value: 'raw-secret' },
-          },
-        ],
-      },
-      'auto',
-    );
+    expect(onPreviewServerEdit).toHaveBeenCalledWith('auto');
   });
 
-  it('passes dirty state when closing a modified configured-server detail form', async () => {
+  it('delegates closing a modified configured-server detail form to the edit model', async () => {
     const user = userEvent.setup();
     const onCloseServerDetail = vi.fn();
 
@@ -487,7 +460,7 @@ describe('AdminConsoleApp', () => {
     await user.type(screen.getByLabelText('URL'), 'https://example.com/v2/mcp');
     await user.click(screen.getByRole('button', { name: /^back$/i }));
 
-    expect(onCloseServerDetail).toHaveBeenCalledWith(true);
+    expect(onCloseServerDetail).toHaveBeenCalledWith();
   });
 
   it('reruns preview connectivity on demand after a preview exists', async () => {
@@ -523,7 +496,7 @@ describe('AdminConsoleApp', () => {
 
     await user.click(screen.getByRole('button', { name: /rerun connectivity/i }));
 
-    expect(onPreviewServerEdit).toHaveBeenCalledWith('github', {}, 'manual');
+    expect(onPreviewServerEdit).toHaveBeenCalledWith('manual');
   });
 
   it('renders preview validation, diff, config-change, and connectivity facts', () => {

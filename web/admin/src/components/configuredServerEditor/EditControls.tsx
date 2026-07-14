@@ -18,9 +18,14 @@ import {
 import { useState } from 'react';
 
 import type { ConfiguredServerEditField } from '../../api/adminApi';
+import {
+  displayFieldValue,
+  objectRecord,
+  type SecretDraftState,
+  splitStringList,
+  stringArray,
+} from '../../configuredServerEdit/configuredServerEditDraft';
 import { DetailRow } from '../AdminConsoleShared';
-import { displayFieldValue, objectRecord, splitStringList, stringArray } from './draft';
-import type { SecretDraftState } from './types';
 
 export function editGroupHelp(groupId: string): string {
   if (groupId === 'identity') {
