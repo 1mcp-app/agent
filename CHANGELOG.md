@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [unreleased]
 
+### 🐛 Bug Fixes
+- Prevent duplicate session initialization by @xizhibei in [#376](https://github.com/1mcp-app/agent/pull/376)
+
+
+## [0.34.1] - 2026-07-13
+
 ### 🚀 Features
 - Enhance release notes resolution with prerelease tag filtering by @xizhibei
 
@@ -1025,7 +1031,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 * @xizhibei made their first contribution in [#1](https://github.com/1mcp-app/agent/pull/1)
 * @dependabot[bot] made their first contribution
 
-[unreleased]: https://github.com/1mcp-app/agent/compare/v0.34.0..HEAD
+[unreleased]: https://github.com/1mcp-app/agent/compare/v0.34.1..HEAD
+[0.34.1]: https://github.com/1mcp-app/agent/compare/v0.34.0..v0.34.1
 [0.34.0]: https://github.com/1mcp-app/agent/compare/v0.33.0..v0.34.0
 [0.33.0]: https://github.com/1mcp-app/agent/compare/v0.32.2..v0.33.0
 [0.32.2]: https://github.com/1mcp-app/agent/compare/v0.32.1..v0.32.2
