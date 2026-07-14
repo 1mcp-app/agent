@@ -27,40 +27,40 @@ Agent 支持三种配置方法，按以下优先级顺序应用：
 
 所有可用的命令行选项及其对应的环境变量：
 
-| 选项 (CLI)                      | 环境变量                              | 描述                                                             |   默认值   |
-| :------------------------------ | :------------------------------------ | :--------------------------------------------------------------- | :--------: |
-| `--transport`, `-t`             | `ONE_MCP_TRANSPORT`                   | 选择传输类型（"stdio"、"http" 或 "sse"）                         |   "http"   |
-| `--config`, `-c`                | `ONE_MCP_CONFIG`                      | 使用特定的配置文件                                               |            |
-| `--config-dir`, `-d`            | `ONE_MCP_CONFIG_DIR`                  | 配置目录路径（覆盖默认配置位置）                                 |            |
-| `--cli-session-cache-path`      | `ONE_MCP_CLI_SESSION_CACHE_PATH`      | `run` / `inspect` CLI 会话缓存路径模板，支持 `{pid}`             |            |
-| `--port`, `-P`                  | `ONE_MCP_PORT`                        | 更改 HTTP 端口                                                   |    3050    |
-| `--host`, `-H`                  | `ONE_MCP_HOST`                        | 更改 HTTP 主机                                                   | localhost  |
-| `--external-url`, `-u`          | `ONE_MCP_EXTERNAL_URL`                | OAuth 回调和公共 URL 的外部 URL（例如 https://example.com）      |            |
-| `--trust-proxy`                 | `ONE_MCP_TRUST_PROXY`                 | 客户端 IP 检测的信任代理配置（布尔值、IP、CIDR、预设）           | "loopback" |
-| `--filter`, `-f`                | `ONE_MCP_FILTER`                      | 按简单逗号分隔标签或高级布尔逻辑筛选运行时暴露的服务器           |            |
-| `--pagination`, `-p`            | `ONE_MCP_PAGINATION`                  | 为客户端/服务器列表启用分页（布尔值）                            |   false    |
-| `--enable-auth`                 | `ONE_MCP_ENABLE_AUTH`                 | 启用身份验证（OAuth 2.1）                                        |   false    |
-| `--enable-scope-validation`     | `ONE_MCP_ENABLE_SCOPE_VALIDATION`     | 启用基于标签的范围验证（布尔值）                                 |    true    |
-| `--enable-enhanced-security`    | `ONE_MCP_ENABLE_ENHANCED_SECURITY`    | 启用增强安全中间件（布尔值）                                     |   false    |
-| `--session-ttl`                 | `ONE_MCP_SESSION_TTL`                 | 会话过期时间（分钟）（数字）                                     |    1440    |
-| `--session-storage-path`        | `ONE_MCP_SESSION_STORAGE_PATH`        | 自定义会话存储目录路径（字符串）                                 |            |
-| `--rate-limit-window`           | `ONE_MCP_RATE_LIMIT_WINDOW`           | OAuth 速率限制窗口（分钟）（数字）                               |     15     |
-| `--rate-limit-max`              | `ONE_MCP_RATE_LIMIT_MAX`              | 每个 OAuth 速率限制窗口的最大请求数（数字）                      |    100     |
-| `--enable-async-loading`        | `ONE_MCP_ENABLE_ASYNC_LOADING`        | 启用异步 MCP 服务器加载（布尔值）                                |   false    |
-| `--enable-config-reload`        | `ONE_MCP_ENABLE_CONFIG_RELOAD`        | 启用配置文件热重载（布尔值）                                     |    true    |
-| `--config-reload-debounce`      | `ONE_MCP_CONFIG_RELOAD_DEBOUNCE`      | 配置重载防抖时间（毫秒）（数字）                                 |    500     |
-| `--enable-env-substitution`     | `ONE_MCP_ENABLE_ENV_SUBSTITUTION`     | 在配置文件中启用环境变量替换（布尔值）                           |    true    |
-| `--enable-session-persistence`  | `ONE_MCP_ENABLE_SESSION_PERSISTENCE`  | 启用 HTTP 会话持久化（布尔值）                                   |    true    |
-| `--session-persist-requests`    | `ONE_MCP_SESSION_PERSIST_REQUESTS`    | 会话持久化请求阈值（数字）                                       |    100     |
-| `--session-persist-interval`    | `ONE_MCP_SESSION_PERSIST_INTERVAL`    | 会话持久化间隔（分钟）（数字）                                   |     5      |
-| `--session-background-flush`    | `ONE_MCP_SESSION_BACKGROUND_FLUSH`    | 会话后台刷新间隔（秒）（数字）                                   |     60     |
-| `--enable-client-notifications` | `ONE_MCP_ENABLE_CLIENT_NOTIFICATIONS` | 启用实时客户端通知（布尔值）                                     |    true    |
-| `--enable-internal-tools`       | `ONE_MCP_ENABLE_INTERNAL_TOOLS`       | 为 AI 助手启用所有 MCP 内部工具（布尔值）                        |   false    |
-| `--internal-tools`              | `ONE_MCP_INTERNAL_TOOLS`              | 启用特定的内部工具类别（discovery,installation,management,safe） |            |
-| `--health-info-level`           | `ONE_MCP_HEALTH_INFO_LEVEL`           | 健康端点信息详细级别（"full"、"basic"、"minimal"）               | "minimal"  |
-| `--log-level`                   | `ONE_MCP_LOG_LEVEL`                   | 设置日志级别（"debug"、"info"、"warn"、"error"）                 |   "info"   |
-| `--log-file`                    | `ONE_MCP_LOG_FILE`                    | 除控制台外还将日志写入文件（仅对 stdio 传输禁用控制台日志记录）  |            |
-| `--help`, `-h`                  |                                       | 显示帮助                                                         |            |
+| 选项 (CLI)                      | 环境变量                              | 描述                                                              |   默认值   |
+| :------------------------------ | :------------------------------------ | :---------------------------------------------------------------- | :--------: |
+| `--transport`, `-t`             | `ONE_MCP_TRANSPORT`                   | 选择传输类型（"stdio"、"http" 或 "sse"）                          |   "http"   |
+| `--config`, `-c`                | `ONE_MCP_CONFIG`                      | 使用特定的配置文件                                                |            |
+| `--config-dir`, `-d`            | `ONE_MCP_CONFIG_DIR`                  | 配置目录路径（覆盖默认配置位置）                                  |            |
+| `--cli-session-cache-path`      | `ONE_MCP_CLI_SESSION_CACHE_PATH`      | `run` / `inspect` CLI 会话缓存路径模板，支持 `{pid}` 与 `{scope}` |            |
+| `--port`, `-P`                  | `ONE_MCP_PORT`                        | 更改 HTTP 端口                                                    |    3050    |
+| `--host`, `-H`                  | `ONE_MCP_HOST`                        | 更改 HTTP 主机                                                    | localhost  |
+| `--external-url`, `-u`          | `ONE_MCP_EXTERNAL_URL`                | OAuth 回调和公共 URL 的外部 URL（例如 https://example.com）       |            |
+| `--trust-proxy`                 | `ONE_MCP_TRUST_PROXY`                 | 客户端 IP 检测的信任代理配置（布尔值、IP、CIDR、预设）            | "loopback" |
+| `--filter`, `-f`                | `ONE_MCP_FILTER`                      | 按简单逗号分隔标签或高级布尔逻辑筛选运行时暴露的服务器            |            |
+| `--pagination`, `-p`            | `ONE_MCP_PAGINATION`                  | 为客户端/服务器列表启用分页（布尔值）                             |   false    |
+| `--enable-auth`                 | `ONE_MCP_ENABLE_AUTH`                 | 启用身份验证（OAuth 2.1）                                         |   false    |
+| `--enable-scope-validation`     | `ONE_MCP_ENABLE_SCOPE_VALIDATION`     | 启用基于标签的范围验证（布尔值）                                  |    true    |
+| `--enable-enhanced-security`    | `ONE_MCP_ENABLE_ENHANCED_SECURITY`    | 启用增强安全中间件（布尔值）                                      |   false    |
+| `--session-ttl`                 | `ONE_MCP_SESSION_TTL`                 | 会话过期时间（分钟）（数字）                                      |    1440    |
+| `--session-storage-path`        | `ONE_MCP_SESSION_STORAGE_PATH`        | 自定义会话存储目录路径（字符串）                                  |            |
+| `--rate-limit-window`           | `ONE_MCP_RATE_LIMIT_WINDOW`           | OAuth 速率限制窗口（分钟）（数字）                                |     15     |
+| `--rate-limit-max`              | `ONE_MCP_RATE_LIMIT_MAX`              | 每个 OAuth 速率限制窗口的最大请求数（数字）                       |    100     |
+| `--enable-async-loading`        | `ONE_MCP_ENABLE_ASYNC_LOADING`        | 启用异步 MCP 服务器加载（布尔值）                                 |   false    |
+| `--enable-config-reload`        | `ONE_MCP_ENABLE_CONFIG_RELOAD`        | 启用配置文件热重载（布尔值）                                      |    true    |
+| `--config-reload-debounce`      | `ONE_MCP_CONFIG_RELOAD_DEBOUNCE`      | 配置重载防抖时间（毫秒）（数字）                                  |    500     |
+| `--enable-env-substitution`     | `ONE_MCP_ENABLE_ENV_SUBSTITUTION`     | 在配置文件中启用环境变量替换（布尔值）                            |    true    |
+| `--enable-session-persistence`  | `ONE_MCP_ENABLE_SESSION_PERSISTENCE`  | 启用 HTTP 会话持久化（布尔值）                                    |    true    |
+| `--session-persist-requests`    | `ONE_MCP_SESSION_PERSIST_REQUESTS`    | 会话持久化请求阈值（数字）                                        |    100     |
+| `--session-persist-interval`    | `ONE_MCP_SESSION_PERSIST_INTERVAL`    | 会话持久化间隔（分钟）（数字）                                    |     5      |
+| `--session-background-flush`    | `ONE_MCP_SESSION_BACKGROUND_FLUSH`    | 会话后台刷新间隔（秒）（数字）                                    |     60     |
+| `--enable-client-notifications` | `ONE_MCP_ENABLE_CLIENT_NOTIFICATIONS` | 启用实时客户端通知（布尔值）                                      |    true    |
+| `--enable-internal-tools`       | `ONE_MCP_ENABLE_INTERNAL_TOOLS`       | 为 AI 助手启用所有 MCP 内部工具（布尔值）                         |   false    |
+| `--internal-tools`              | `ONE_MCP_INTERNAL_TOOLS`              | 启用特定的内部工具类别（discovery,installation,management,safe）  |            |
+| `--health-info-level`           | `ONE_MCP_HEALTH_INFO_LEVEL`           | 健康端点信息详细级别（"full"、"basic"、"minimal"）                | "minimal"  |
+| `--log-level`                   | `ONE_MCP_LOG_LEVEL`                   | 设置日志级别（"debug"、"info"、"warn"、"error"）                  |   "info"   |
+| `--log-file`                    | `ONE_MCP_LOG_FILE`                    | 除控制台外还将日志写入文件（仅对 stdio 传输禁用控制台日志记录）   |            |
+| `--help`, `-h`                  |                                       | 显示帮助                                                          |            |
 
 ---
 
@@ -82,14 +82,14 @@ Agent 支持三种配置方法，按以下优先级顺序应用：
 
 `run` 和 `inspect` 默认会在配置目录之外维护一个轻量级会话缓存文件。
 
-- **默认值**：`${os.tmpdir()}/1mcp/.cli-session.{pid}`
+- **默认值**：`${os.tmpdir()}/1mcp/.cli-session.{pid}.{scope}`
 - **环境变量**：`ONE_MCP_CLI_SESSION_CACHE_PATH`
-- **占位符**：`{pid}` 在可用时会解析为发现到的 `1mcp serve` 进程 PID；对于内置默认路径，如果无法得到 PID，1MCP 会退回到由服务器 URL 派生的稳定标识
+- **占位符**：`{pid}` 在可用时会解析为发现到的 `1mcp serve` 进程 PID；`{scope}` 用于隔离目标 URL 与 CLI 上下文。对于内置默认路径，如果无法得到 PID，1MCP 会退回到稳定的服务器标识。
 
 示例：
 
 ```bash
-ONE_MCP_CLI_SESSION_CACHE_PATH=/tmp/1mcp/.cli-session.{pid} npx -y @1mcp/agent run filesystem/read_file --args '{"path":"./README.md"}'
+ONE_MCP_CLI_SESSION_CACHE_PATH=/tmp/1mcp/.cli-session.{pid}.{scope} npx -y @1mcp/agent run filesystem/read_file --args '{"path":"./README.md"}'
 ```
 
 ```bash

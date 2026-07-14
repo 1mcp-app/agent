@@ -157,7 +157,7 @@ describe('attachReusableClientSurface', () => {
       },
     });
     const rest = unusedAdapter();
-    const mcp = vi.fn(async ({ sessionId }: { sessionId: string }) => ({
+    const mcp = vi.fn(async ({ sessionId }: { sessionId?: string }) => ({
       status: 'success' as const,
       sessionId,
       value: 'mcp-value',
@@ -205,7 +205,7 @@ describe('attachReusableClientSurface', () => {
       status: 'fallback',
       reason: 'endpoint_missing',
     }));
-    const mcp = vi.fn(async ({ sessionId }: { sessionId: string }) => ({
+    const mcp = vi.fn(async ({ sessionId }: { sessionId?: string }) => ({
       status: 'success' as const,
       sessionId,
       value: 'mcp-value',
@@ -251,7 +251,7 @@ describe('attachReusableClientSurface', () => {
       status: 'fallback',
       reason: 'transient_failure',
     }));
-    const mcp = vi.fn(async ({ sessionId }: { sessionId: string }) => ({
+    const mcp = vi.fn(async ({ sessionId }: { sessionId?: string }) => ({
       status: 'success' as const,
       sessionId,
       value: 'mcp-value',
@@ -276,6 +276,36 @@ describe('attachReusableClientSurface', () => {
     expect(ports.writeSessionCache).toHaveBeenCalledWith(
       '/tmp/cache/.cli-session.4242',
       expect.objectContaining({ hasRestEndpoint: true }),
+    );
+  });
+
+  it('initializes MCP without a transport session when REST transiently fails without a cache', async () => {
+    const ports = makePorts();
+    const rest = vi.fn(async (): Promise<ClientSurfaceRestResponse<string>> => ({
+      status: 'fallback',
+      reason: 'transient_failure',
+    }));
+    const mcp = vi.fn(async () => ({
+      status: 'success' as const,
+      sessionId: 'fresh-session',
+      value: 'mcp-value',
+    }));
+
+    const result = await attachReusableClientSurface({
+      clientSurface: 'run',
+      version: 'run',
+      options: {},
+      ports,
+      rest,
+      mcp,
+    });
+
+    expect(result.status).toBe('success');
+    expect(mcp).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sessionId: undefined,
+        sendInitialize: true,
+      }),
     );
   });
 
@@ -305,7 +335,7 @@ describe('attachReusableClientSurface', () => {
     expect(ports.writeSessionCache).not.toHaveBeenCalled();
   });
 
-  it('deletes stale cached sessions and retries MCP with initialize on the same canonical session', async () => {
+  it('deletes stale cached sessions and retries MCP without reusing the stale transport session', async () => {
     const ports = makePorts({
       cachedSession: {
         sessionId: 'cached-session',
@@ -341,10 +371,7 @@ describe('attachReusableClientSurface', () => {
       1,
       expect.objectContaining({ sessionId: 'cached-session', sendInitialize: false }),
     );
-    expect(mcp).toHaveBeenNthCalledWith(
-      2,
-      expect.objectContaining({ sessionId: 'cached-session', sendInitialize: true }),
-    );
+    expect(mcp).toHaveBeenNthCalledWith(2, expect.objectContaining({ sessionId: undefined, sendInitialize: true }));
   });
 
   it('passes auth profile token and project-config environment into attachment context', async () => {

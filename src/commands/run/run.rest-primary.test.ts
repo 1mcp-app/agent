@@ -374,7 +374,7 @@ describe('runCommand REST-first path', () => {
     expect(cache?.hasRestEndpoint).toBe(true);
   });
 
-  it('uses the same canonical session id for fresh MCP fallback initialize', async () => {
+  it('initializes a fresh MCP transport while preserving the logical context session id', async () => {
     mockFetch.mockResolvedValueOnce(makeTextResponse(404, 'Not Found'));
     mockFetch.mockResolvedValueOnce(makeTextResponse(404, 'Cannot POST /api/v1/tool-invocations'));
 
@@ -399,7 +399,7 @@ describe('runCommand REST-first path', () => {
       'tools/call',
     ]);
     expect(initializeContext.context.sessionId).toMatch(/^rest-[a-f0-9]{16}$/);
-    expect(instance.initialSessionId).toBe(initializeContext.context.sessionId);
+    expect(instance.initialSessionId).toBeUndefined();
   });
 
   it('falls back to MCP when REST endpoint is missing', async () => {

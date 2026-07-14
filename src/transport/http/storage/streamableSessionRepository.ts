@@ -372,7 +372,17 @@ export class StreamableSessionRepository {
     for (const sessionId of sessionsToFlush) {
       const lastAccess = this.lastAccessTimes.get(sessionId);
       if (lastAccess) {
-        this.persistSessionAccess(sessionId, lastAccess);
+        try {
+          this.persistSessionAccess(sessionId, lastAccess);
+        } catch (error) {
+          logError('Failed to persist background session access', {
+            method: 'flushDirtySessions',
+            path: 'streamableSessionRepository',
+            sessionId,
+            phase: 'disk write',
+            error,
+          });
+        }
       }
     }
 

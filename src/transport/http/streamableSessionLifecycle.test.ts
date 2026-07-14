@@ -137,15 +137,31 @@ describe('StreamableSessionLifecycle', () => {
 
   it('recovers a missing POST session only for initialize requests', async () => {
     const config: InboundConnectionConfig = { tags: ['init'], enablePagination: false };
+    const sessionId = 'rest-0123456789abcdef';
 
     const result = await lifecycle.resolvePostSession({
-      sessionId: 'client-provided-session',
+      sessionId,
       isInitializeRequest: true,
       createSessionData: () => ({ config }),
     });
 
     expect(result.status).toBe(StreamableSessionStatus.InitializeRecovered);
-    expect(sessionRepository.create).toHaveBeenCalledWith('client-provided-session', expect.objectContaining(config));
+    expect(sessionRepository.create).toHaveBeenCalledWith(sessionId, expect.objectContaining(config));
+  });
+
+  it('rejects invalid client-provided session ids before initialization recovery', async () => {
+    const result = await lifecycle.resolvePostSession({
+      sessionId: 'collision-probe-1784035498852',
+      isInitializeRequest: true,
+      createSessionData: () => ({ config: { tags: [], enablePagination: false } }),
+    });
+
+    expect(result).toMatchObject({
+      status: StreamableSessionStatus.Missing,
+      sessionId: 'collision-probe-1784035498852',
+      reason: StreamableSessionMissingReason.InvalidSession,
+    });
+    expect(sessionRepository.create).not.toHaveBeenCalled();
   });
 
   it('keeps non-initialize requests for missing sessions as missing', async () => {

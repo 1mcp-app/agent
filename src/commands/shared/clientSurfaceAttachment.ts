@@ -170,7 +170,10 @@ export interface AttachReusableClientSurfaceOptions<TOptions extends ResolvableS
   ports?: Partial<ClientSurfaceAttachmentPorts<TOptions>>;
   rest: (context: ClientSurfaceAttachmentContext<TOptions>) => Promise<ClientSurfaceRestResponse<TValue>>;
   mcp: (
-    context: ClientSurfaceAttachmentContext<TOptions> & { sendInitialize: boolean },
+    context: Omit<ClientSurfaceAttachmentContext<TOptions>, 'sessionId'> & {
+      sessionId?: string;
+      sendInitialize: boolean;
+    },
   ) => Promise<ClientSurfaceMcpResponse<TValue>>;
 }
 
@@ -235,6 +238,7 @@ export async function attachReusableClientSurface<TOptions extends ResolvableSer
     cachePathTemplate: options['cli-session-cache-path'],
     serverPid: target.serverPid,
     serverUrl: target.serverUrl.toString(),
+    contextHash,
   });
   const baseUrl = stripMcpSuffix(target.discoveredUrl);
   const bearerTokenPromise = loadBearerToken(ports, target, options, baseUrl);
@@ -313,17 +317,12 @@ export async function attachReusableClientSurface<TOptions extends ResolvableSer
 
     if (restResponse.reason === 'endpoint_missing') {
       restSupport = false;
-      await persistSession(ports, cachePath, {
-        sessionId: cachedSession?.sessionId ?? requestSessionId,
-        serverUrl: target.serverUrl.toString(),
-        contextHash,
-        restSupport,
-      });
     }
   }
 
   let mcpResponse = await input.mcp({
     ...attachmentContext,
+    sessionId: cachedSession?.sessionId,
     restSupport,
     sendInitialize: !cachedSession?.sessionId,
   });
@@ -332,6 +331,7 @@ export async function attachReusableClientSurface<TOptions extends ResolvableSer
     await ports.deleteSessionCache(cachePath);
     mcpResponse = await input.mcp({
       ...attachmentContext,
+      sessionId: undefined,
       restSupport,
       sendInitialize: true,
     });

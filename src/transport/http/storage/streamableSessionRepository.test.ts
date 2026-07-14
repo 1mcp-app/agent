@@ -380,6 +380,31 @@ describe('StreamableSessionRepository', () => {
   });
 
   describe('stopPeriodicFlush', () => {
+    it('isolates background persistence failures without throwing from the timer', () => {
+      repository.stopPeriodicFlush();
+      vi.useFakeTimers();
+      vi.setSystemTime(1000);
+
+      const flushingRepository = new StreamableSessionRepository(mockFileStorageService as any);
+      mockFileStorageService.readData.mockReturnValue({
+        expires: 2000,
+        createdAt: 0,
+        lastAccessedAt: 0,
+      });
+      flushingRepository.updateAccess('collision-probe-1784035498852');
+      mockFileStorageService.writeData.mockImplementation(() => {
+        throw new Error('Invalid ID format: collision-probe-1784035498852');
+      });
+
+      try {
+        expect(() => vi.advanceTimersToNextTimer()).not.toThrow();
+      } finally {
+        mockFileStorageService.writeData.mockReset();
+        flushingRepository.stopPeriodicFlush();
+        vi.useRealTimers();
+      }
+    });
+
     it('should stop periodic flush without errors', () => {
       // Act & Assert - should not throw
       expect(() => repository.stopPeriodicFlush()).not.toThrow();
