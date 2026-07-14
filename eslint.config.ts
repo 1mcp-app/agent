@@ -30,6 +30,7 @@ export default [
       'docs/.vitepress/dist',
       'docs/.vitepress/cache',
       '.claude/**',
+      '.agents/**',
     ],
   },
   prettierConfig,

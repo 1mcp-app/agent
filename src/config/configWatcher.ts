@@ -87,10 +87,7 @@ export class ConfigWatcher extends EventEmitter {
       meta: { eventType, filename, configDir, configFileName },
     }));
 
-    const isConfigFileEvent =
-      filename === configFileName ||
-      (filename && filename.startsWith(configFileName)) ||
-      (eventType === 'rename' && filename && filename.includes(path.parse(configFileName).name));
+    const isConfigFileEvent = filename === configFileName;
 
     if (isConfigFileEvent || this.loader.checkFileModified()) {
       debugIf(() => ({
