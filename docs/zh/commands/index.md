@@ -44,7 +44,7 @@ head:
 
 - `ONE_MCP_CONFIG=/path/to/config.json`
 - `ONE_MCP_CONFIG_DIR=/path/to/config/dir`
-- `ONE_MCP_CLI_SESSION_CACHE_PATH=/tmp/1mcp/.cli-session.{pid}`
+- `ONE_MCP_CLI_SESSION_CACHE_PATH=/tmp/1mcp/.cli-session.{pid}.{scope}`
 
 ### 命令特定选项
 
