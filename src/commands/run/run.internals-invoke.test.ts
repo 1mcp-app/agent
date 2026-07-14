@@ -249,11 +249,11 @@ describe('run command internals', () => {
 
   describe('cache path resolution', () => {
     it('uses the temp-based default with server pid', () => {
-      expect(getCliSessionCachePath({ serverPid: 4242 })).toBe(join(os.tmpdir(), '1mcp', '.cli-session.4242'));
+      expect(getCliSessionCachePath({ serverPid: 4242 })).toBe(join(os.tmpdir(), '1mcp', '.cli-session.4242.default'));
     });
 
     it('falls back to unknown when no pid is available', () => {
-      expect(getCliSessionCachePath()).toBe(join(os.tmpdir(), '1mcp', '.cli-session.unknown'));
+      expect(getCliSessionCachePath()).toBe(join(os.tmpdir(), '1mcp', '.cli-session.unknown.default'));
     });
 
     it('uses a stable server-url token when no pid is available in the default path', () => {
@@ -262,10 +262,49 @@ describe('run command internals', () => {
       expect(cachePath).toBe(getCliSessionCachePath({ serverUrl: 'http://127.0.0.1:3050/mcp' }));
     });
 
+    it('scopes the default cache by target URL and context hash', () => {
+      const grafanaPath = getCliSessionCachePath({
+        serverPid: 4242,
+        serverUrl: 'http://127.0.0.1:3050/mcp?tags=grafana',
+        contextHash: 'context-a',
+      });
+      const presetPath = getCliSessionCachePath({
+        serverPid: 4242,
+        serverUrl: 'http://127.0.0.1:3050/mcp?preset=dev-backend',
+        contextHash: 'context-a',
+      });
+      const otherContextPath = getCliSessionCachePath({
+        serverPid: 4242,
+        serverUrl: 'http://127.0.0.1:3050/mcp?tags=grafana',
+        contextHash: 'context-b',
+      });
+
+      expect(grafanaPath).not.toBe(presetPath);
+      expect(grafanaPath).not.toBe(otherContextPath);
+      expect(grafanaPath).toBe(
+        getCliSessionCachePath({
+          serverPid: 4242,
+          serverUrl: 'http://127.0.0.1:3050/mcp?tags=grafana',
+          contextHash: 'context-a',
+        }),
+      );
+    });
+
     it('expands {pid} in explicit cache templates', () => {
       expect(getCliSessionCachePath({ cachePathTemplate: '/tmp/custom/.cli-session.{pid}', serverPid: 99 })).toBe(
         '/tmp/custom/.cli-session.99',
       );
+    });
+
+    it('expands {scope} in explicit cache templates when requested', () => {
+      const cachePath = getCliSessionCachePath({
+        cachePathTemplate: '/tmp/custom/.cli-session.{pid}.{scope}',
+        serverPid: 99,
+        serverUrl: 'http://127.0.0.1:3050/mcp?tags=grafana',
+        contextHash: 'context-a',
+      });
+
+      expect(cachePath).toMatch(/^\/tmp\/custom\/\.cli-session\.99\.[0-9a-f]{12}$/);
     });
   });
 });

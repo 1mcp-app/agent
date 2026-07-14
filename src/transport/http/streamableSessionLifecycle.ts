@@ -97,6 +97,15 @@ function isValidSessionId(sessionId: string): boolean {
   return typeof sessionId === 'string' && sessionId.trim().length > 0;
 }
 
+function isPersistableSessionId(sessionId: string): boolean {
+  const streamPrefix = AUTH_CONFIG.SERVER.STREAMABLE_SESSION.ID_PREFIX.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const streamSessionPattern = new RegExp(
+    `^${streamPrefix}[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$`,
+    'i',
+  );
+  return streamSessionPattern.test(sessionId) || /^rest-[0-9a-f]{16}$/.test(sessionId);
+}
+
 function defaultIsStreamableTransport(transport: unknown): transport is StreamableTransport {
   return (
     transport instanceof StreamableHTTPServerTransport || transport instanceof RestorableStreamableHTTPServerTransport
@@ -169,6 +178,14 @@ export class StreamableSessionLifecycle {
         status: StreamableSessionStatus.Missing,
         sessionId: input.sessionId,
         reason: StreamableSessionMissingReason.InitializeRequired,
+      };
+    }
+
+    if (!isPersistableSessionId(input.sessionId)) {
+      return {
+        status: StreamableSessionStatus.Missing,
+        sessionId: input.sessionId,
+        reason: StreamableSessionMissingReason.InvalidSession,
       };
     }
 

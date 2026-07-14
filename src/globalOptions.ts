@@ -24,7 +24,7 @@ export const globalOptions = {
   },
   'cli-session-cache-path': {
     describe:
-      'Path template for the run/inspect CLI session cache file, supports {pid} (env: ONE_MCP_CLI_SESSION_CACHE_PATH)',
+      'Path template for the run/inspect CLI session cache file, supports {pid} and {scope} (env: ONE_MCP_CLI_SESSION_CACHE_PATH)',
     type: 'string' as const,
     default: undefined,
   },

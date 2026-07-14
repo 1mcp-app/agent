@@ -47,7 +47,7 @@ npx -y @1mcp/agent inspect [target] [选项]
 ### 相关全局选项
 
 - **`--config-dir, -d <path>`** - 用于鉴权配置和服务器发现的配置目录
-- **`--cli-session-cache-path <path>`** - 覆盖 `inspect` 与 `run` 使用的会话缓存路径模板
+- **`--cli-session-cache-path <path>`** - 覆盖 `inspect` 与 `run` 使用的会话缓存路径模板；支持 `{pid}` 与 `{scope}`
 
 ## 示例
 

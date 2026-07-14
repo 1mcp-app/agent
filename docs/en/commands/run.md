@@ -63,7 +63,7 @@ If `--args` is omitted and stdin is provided, `run` tries to map stdin automatic
 ### Related Global Options
 
 - **`--config-dir, -d <path>`** - Config directory for auth profile lookup and server discovery
-- **`--cli-session-cache-path <path>`** - Override the session cache path template used by `run` and `inspect`
+- **`--cli-session-cache-path <path>`** - Override the session cache path template used by `run` and `inspect`; supports `{pid}` and `{scope}`
 
 ## Examples
 
@@ -94,7 +94,7 @@ npx -y @1mcp/agent run filesystem/read_file --args '{"path":"./README.md"}' --fo
 ### Use a Custom Session Cache Path
 
 ```bash
-ONE_MCP_CLI_SESSION_CACHE_PATH=/tmp/1mcp/.cli-session.{pid} \
+ONE_MCP_CLI_SESSION_CACHE_PATH=/tmp/1mcp/.cli-session.{pid}.{scope} \
   npx -y @1mcp/agent run filesystem/read_file --args '{"path":"./README.md"}'
 ```
 
