@@ -48,7 +48,7 @@ npx -y @1mcp/agent run <server>/<tool> [选项]
 ### 相关全局选项
 
 - **`--config-dir, -d <path>`** - 用于鉴权配置和服务器发现的配置目录
-- **`--cli-session-cache-path <path>`** - 覆盖 `run` 与 `inspect` 使用的会话缓存路径模板
+- **`--cli-session-cache-path <path>`** - 覆盖 `run` 与 `inspect` 使用的会话缓存路径模板；支持 `{pid}` 与 `{scope}`
 
 ## 示例
 
@@ -79,7 +79,7 @@ npx -y @1mcp/agent run filesystem/read_file --args '{"path":"./README.md"}' --fo
 ### 使用自定义会话缓存路径
 
 ```bash
-ONE_MCP_CLI_SESSION_CACHE_PATH=/tmp/1mcp/.cli-session.{pid} \
+ONE_MCP_CLI_SESSION_CACHE_PATH=/tmp/1mcp/.cli-session.{pid}.{scope} \
   npx -y @1mcp/agent run filesystem/read_file --args '{"path":"./README.md"}'
 ```
 

@@ -44,7 +44,7 @@ All 1MCP commands support the following global options:
 - **`--version`** - Show version information
 - **`--config, -c <path>`** - Specify configuration file path
 - **`--config-dir, -d <path>`** - Path to the config directory
-- **`--cli-session-cache-path <path>`** - Path template for the `run`/`inspect` CLI session cache file
+- **`--cli-session-cache-path <path>`** - Path template for the `run`/`inspect` CLI session cache file; supports `{pid}` and `{scope}`
 
 **Environment Variables**: All global options can be set via environment variables with the `ONE_MCP_` prefix:
 

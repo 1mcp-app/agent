@@ -62,7 +62,7 @@ This is the command that turns the broad inventory from `instructions` into a sc
 ### Related Global Options
 
 - **`--config-dir, -d <path>`** - Config directory for auth profile lookup and server discovery
-- **`--cli-session-cache-path <path>`** - Override the session cache path template used by `inspect` and `run`
+- **`--cli-session-cache-path <path>`** - Override the session cache path template used by `inspect` and `run`; supports `{pid}` and `{scope}`
 
 ## Examples
 

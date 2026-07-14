@@ -70,6 +70,7 @@ export interface CliSessionCachePathOptions {
   cachePathTemplate?: string;
   serverPid?: number;
   serverUrl?: string;
+  contextHash?: string;
 }
 
 export const SESSION_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
@@ -254,7 +255,7 @@ export function buildServerUrl(baseUrl: string, options: ServeUrlOptions): URL {
 }
 
 export function getDefaultCliSessionCachePathTemplate(): string {
-  return path.join(os.tmpdir(), '1mcp', '.cli-session.{pid}');
+  return path.join(os.tmpdir(), '1mcp', '.cli-session.{pid}.{scope}');
 }
 
 export function resolveCliSessionCachePathTemplate(cachePathTemplate?: string): string {
@@ -269,7 +270,14 @@ export function getCliSessionCachePath(options: CliSessionCachePathOptions = {})
       : options.serverUrl
         ? `server-${createHash('sha256').update(options.serverUrl).digest('hex').slice(0, 12)}`
         : 'unknown';
-  return resolvedTemplate.replaceAll('{pid}', pidToken);
+  const scopeToken =
+    options.serverUrl || options.contextHash
+      ? createHash('sha256')
+          .update(`${options.serverUrl ?? ''}\0${options.contextHash ?? ''}`)
+          .digest('hex')
+          .slice(0, 12)
+      : 'default';
+  return resolvedTemplate.replaceAll('{pid}', pidToken).replaceAll('{scope}', scopeToken);
 }
 
 export function getCliSessionContextHash(context: ContextData): string {

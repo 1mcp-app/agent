@@ -38,7 +38,7 @@ head:
 - **`--version`** - 显示版本信息
 - **`--config, -c <path>`** - 指定配置文件路径
 - **`--config-dir, -d <path>`** - 配置目录路径
-- **`--cli-session-cache-path <path>`** - `run` / `inspect` 使用的 CLI 会话缓存路径模板
+- **`--cli-session-cache-path <path>`** - `run` / `inspect` 使用的 CLI 会话缓存路径模板；支持 `{pid}` 与 `{scope}`
 
 **环境变量**：所有全局选项都可以通过带有 `ONE_MCP_` 前缀的环境变量来设置：
 
