@@ -194,7 +194,9 @@ export interface ConfiguredServerPreviewResult {
 }
 
 export type ConfiguredServerEditFieldControl =
-  'text' | 'switch' | 'tag-list' | 'select' | 'string-list' | 'secret' | 'record' | 'readonly';
+  'text' | 'number' | 'switch' | 'tag-list' | 'select' | 'string-list' | 'secret' | 'record' | 'readonly';
+
+export type ConfiguredServerTransportType = 'stdio' | 'http' | 'sse' | 'streamableHttp';
 
 export interface ConfiguredServerSecretEditMetadata {
   state: 'present' | 'empty';
@@ -221,6 +223,7 @@ export interface ConfiguredServerEditField {
   value?: unknown;
   options?: string[];
   editable: boolean;
+  applicableTransportTypes?: ConfiguredServerTransportType[];
   secret?: ConfiguredServerSecretEditMetadata;
 }
 
@@ -231,7 +234,7 @@ export interface ConfiguredServerEditFieldGroup {
 }
 
 export interface ConfiguredServerEditContract {
-  schemaVersion: 1;
+  schemaVersion: 2;
   target: ConfiguredServerTargetIdentity;
   capabilities: {
     singleTargetEdit: true;
@@ -432,17 +435,27 @@ export class AdminConfiguredServerService implements AdminConfiguredServerOperat
     const normalizedEdit = normalizeEditDraft(input.edit);
     const currentReadModel = createConfiguredServerReadModel(input.targetName, currentConfig);
     const secretValidation = validateSecretEditCapabilities(normalizedEdit.edit, currentReadModel.secretInputs);
+    const transportApplicabilityValidation = validateTransportFieldApplicability(currentConfig, normalizedEdit.edit);
     const applicableEdit = filterApplicableSecretEdits(normalizedEdit.edit, currentReadModel.secretInputs);
     const proposedTargetName = applicableEdit.id?.trim() || input.targetName;
     const proposedConfig = applyEditDraft(currentConfig, applicableEdit);
     const proposedReadModel = createConfiguredServerReadModel(proposedTargetName, proposedConfig);
+    const proposedTransportType = configuredTransportType(proposedConfig);
     const serverValidation = validatePreviewServerConfig(proposedConfig);
-    const validation = mergeValidation(mergeValidation(normalizedEdit.validation, secretValidation), serverValidation);
+    const validation = mergeValidation(
+      mergeValidation(mergeValidation(normalizedEdit.validation, secretValidation), transportApplicabilityValidation),
+      serverValidation,
+    );
     const diff = createPreviewDiff(currentReadModel, proposedReadModel, applicableEdit);
     const changed = validation.status === 'valid' && diff.length > 0;
     const endpointChangedWithPreservedSecrets =
       endpointAuthorityChanged(currentConfig, proposedConfig) &&
-      hasPreservedSecretInputs(currentReadModel.secretInputs, applicableEdit);
+      hasPreservedSecretInputs(
+        currentReadModel.secretInputs.filter(
+          (input) => !proposedTransportType || transportFieldAppliesToType(input.fieldPath[0], proposedTransportType),
+        ),
+        applicableEdit,
+      );
 
     return {
       targetName: input.targetName,
@@ -1061,8 +1074,22 @@ function applyEditDraft(currentConfig: MCPServerParams, edit: ConfiguredServerEd
   }
 
   if (edit.transport && typeof edit.transport === 'object') {
+    const currentType = configuredTransportType(currentConfig);
+    const proposedType = configuredTransportType({ ...currentConfig, ...edit.transport });
+    if (currentType && proposedType && currentType !== proposedType) {
+      for (const definition of TRANSPORT_FIELD_DEFINITIONS) {
+        if (definition.applicableTransportTypes && !definition.applicableTransportTypes.includes(proposedType)) {
+          delete (nextConfig as Record<string, unknown>)[definition.key];
+        }
+      }
+    }
+
     for (const [key, value] of Object.entries(edit.transport)) {
-      if (value === undefined || !isSafeFieldPathSegment(key)) {
+      if (
+        value === undefined ||
+        !isSafeFieldPathSegment(key) ||
+        (proposedType && !transportFieldAppliesToType(key, proposedType))
+      ) {
         continue;
       }
       (nextConfig as Record<string, unknown>)[key] = cloneUnknown(value);
@@ -1078,6 +1105,46 @@ function applyEditDraft(currentConfig: MCPServerParams, edit: ConfiguredServerEd
 
 function cloneServerConfig(serverConfig: MCPServerParams): MCPServerParams {
   return cloneUnknown(serverConfig) as MCPServerParams;
+}
+
+function validateTransportFieldApplicability(
+  currentConfig: MCPServerParams,
+  edit: ConfiguredServerEditDraft,
+): ConfiguredServerPreviewValidation {
+  const transport = edit.transport;
+  if (!transport) return { status: 'valid', errors: [] };
+
+  const proposedType = configuredTransportType({ ...currentConfig, ...transport });
+  if (!proposedType) return { status: 'valid', errors: [] };
+
+  const errors: ConfiguredServerPreviewValidationError[] = [];
+  for (const key of Object.keys(transport)) {
+    if (transportFieldAppliesToType(key, proposedType)) continue;
+    errors.push({
+      fieldPath: ['transport', key],
+      code: 'transport_field_not_applicable',
+      message: `${TRANSPORT_FIELD_DEFINITION_BY_KEY.get(key)?.label ?? labelFromPath([key])} does not apply to ${proposedType} transports.`,
+    });
+  }
+  return { status: errors.length > 0 ? 'invalid' : 'valid', errors };
+}
+
+function configuredTransportType(config: Record<string, unknown>): ConfiguredServerTransportType | undefined {
+  if (config.type === 'stdio' || config.type === 'http' || config.type === 'sse' || config.type === 'streamableHttp') {
+    return config.type;
+  }
+  if (typeof config.command === 'string') return 'stdio';
+  if (typeof config.url === 'string') return 'http';
+  return undefined;
+}
+
+function transportFieldApplicability(key: string): ConfiguredServerTransportType[] | undefined {
+  return TRANSPORT_FIELD_DEFINITION_BY_KEY.get(key)?.applicableTransportTypes;
+}
+
+function transportFieldAppliesToType(key: string, transportType: ConfiguredServerTransportType): boolean {
+  const applicableTypes = transportFieldApplicability(key);
+  return !applicableTypes || applicableTypes.includes(transportType);
 }
 
 function cloneUnknown<T>(value: T): T {
@@ -1444,7 +1511,7 @@ function previewFingerprint(input: {
   return `preview_${createHash('sha256')
     .update(
       stableStringify({
-        schemaVersion: 1,
+        schemaVersion: 2,
         targetName: input.targetName,
         edit: redactEditDraftForFingerprint(input.edit),
         current: input.current,
@@ -1496,11 +1563,13 @@ function createPreviewDiff(
 
   const secretEditedTopLevelKeys = new Set((edit.secrets ?? []).map((secret) => secret.fieldPath[0]));
   const transportEditedKeys = new Set(Object.keys(edit.transport ?? {}));
-  for (const [key, proposedValue] of Object.entries(proposed.transport)) {
+  const transportKeys = new Set([...Object.keys(current.transport), ...Object.keys(proposed.transport)]);
+  for (const key of transportKeys) {
     if (secretEditedTopLevelKeys.has(key) && !transportEditedKeys.has(key)) {
       continue;
     }
     const currentValue = current.transport[key];
+    const proposedValue = proposed.transport[key];
     pushDiff(diff, ['transport', key], currentValue, proposedValue, previewRiskFlags([key]));
   }
 
@@ -1701,14 +1770,141 @@ function createConfiguredServerReadModel(name: string, serverConfig: MCPServerPa
   };
 }
 
+const STDIO_TRANSPORT_TYPES: ConfiguredServerTransportType[] = ['stdio'];
+const NETWORK_TRANSPORT_TYPES: ConfiguredServerTransportType[] = ['http', 'sse', 'streamableHttp'];
+
+interface TransportFieldDefinition {
+  key: string;
+  label: string;
+  control: ConfiguredServerEditFieldControl;
+  defaultValue?: unknown;
+  options?: string[];
+  applicableTransportTypes?: ConfiguredServerTransportType[];
+}
+
+const TRANSPORT_FIELD_DEFINITIONS: TransportFieldDefinition[] = [
+  {
+    key: 'type',
+    label: 'Transport Type',
+    control: 'select',
+    options: ['stdio', 'http', 'sse', 'streamableHttp'],
+  },
+  { key: 'timeout', label: 'Deprecated Timeout', control: 'number' },
+  { key: 'connectionTimeout', label: 'Connection Timeout', control: 'number' },
+  { key: 'requestTimeout', label: 'Request Timeout', control: 'number' },
+  { key: 'disabledTools', label: 'Disabled Tools', control: 'string-list', defaultValue: [] },
+  { key: 'template', label: 'Template', control: 'record', defaultValue: {} },
+  {
+    key: 'url',
+    label: 'URL',
+    control: 'text',
+    defaultValue: '',
+    applicableTransportTypes: NETWORK_TRANSPORT_TYPES,
+  },
+  {
+    key: 'headers',
+    label: 'Headers',
+    control: 'record',
+    defaultValue: {},
+    applicableTransportTypes: NETWORK_TRANSPORT_TYPES,
+  },
+  {
+    key: 'oauth',
+    label: 'OAuth',
+    control: 'record',
+    defaultValue: {},
+    applicableTransportTypes: NETWORK_TRANSPORT_TYPES,
+  },
+  {
+    key: 'command',
+    label: 'Command',
+    control: 'text',
+    defaultValue: '',
+    applicableTransportTypes: STDIO_TRANSPORT_TYPES,
+  },
+  {
+    key: 'args',
+    label: 'Args',
+    control: 'string-list',
+    defaultValue: [],
+    applicableTransportTypes: STDIO_TRANSPORT_TYPES,
+  },
+  {
+    key: 'stderr',
+    label: 'Stderr',
+    control: 'text',
+    defaultValue: '',
+    applicableTransportTypes: STDIO_TRANSPORT_TYPES,
+  },
+  {
+    key: 'cwd',
+    label: 'Working Directory',
+    control: 'text',
+    defaultValue: '',
+    applicableTransportTypes: STDIO_TRANSPORT_TYPES,
+  },
+  {
+    key: 'env',
+    label: 'Environment',
+    control: 'record',
+    defaultValue: {},
+    applicableTransportTypes: STDIO_TRANSPORT_TYPES,
+  },
+  {
+    key: 'inheritParentEnv',
+    label: 'Inherit Parent Environment',
+    control: 'switch',
+    defaultValue: false,
+    applicableTransportTypes: STDIO_TRANSPORT_TYPES,
+  },
+  {
+    key: 'envFilter',
+    label: 'Environment Filter',
+    control: 'string-list',
+    defaultValue: [],
+    applicableTransportTypes: STDIO_TRANSPORT_TYPES,
+  },
+  {
+    key: 'restartOnExit',
+    label: 'Restart On Exit',
+    control: 'switch',
+    defaultValue: false,
+    applicableTransportTypes: STDIO_TRANSPORT_TYPES,
+  },
+  {
+    key: 'maxRestarts',
+    label: 'Maximum Restarts',
+    control: 'number',
+    applicableTransportTypes: STDIO_TRANSPORT_TYPES,
+  },
+  {
+    key: 'restartDelay',
+    label: 'Restart Delay',
+    control: 'number',
+    applicableTransportTypes: STDIO_TRANSPORT_TYPES,
+  },
+];
+
+const TRANSPORT_FIELD_DEFINITION_BY_KEY = new Map(
+  TRANSPORT_FIELD_DEFINITIONS.map((definition) => [definition.key, definition]),
+);
+
 function createConfiguredServerEditContract(server: ConfiguredServerReadModel): ConfiguredServerEditContract {
   const secretFieldKeys = new Set(server.secretInputs.map((input) => fieldKey(input.fieldPath)));
-  const transportFields = Object.entries(server.transport)
-    .filter(([key]) => !secretFieldKeys.has(key))
-    .map(([key, value]) => transportEditField(key, omitSecretValues(value, [key], secretFieldKeys)));
+  const transportFields = TRANSPORT_FIELD_DEFINITIONS.map((definition) => {
+    const value = Object.prototype.hasOwnProperty.call(server.transport, definition.key)
+      ? server.transport[definition.key]
+      : definition.defaultValue;
+    return transportEditField(definition.key, omitSecretValues(value, [definition.key], secretFieldKeys), definition);
+  });
+  const knownTransportFields = new Set(TRANSPORT_FIELD_DEFINITIONS.map((definition) => definition.key));
+  for (const [key, value] of Object.entries(server.transport)) {
+    if (knownTransportFields.has(key) || secretFieldKeys.has(key)) continue;
+    transportFields.push(transportEditField(key, omitSecretValues(value, [key], secretFieldKeys)));
+  }
 
   return {
-    schemaVersion: 1,
+    schemaVersion: 2,
     target: server.target,
     capabilities: {
       singleTargetEdit: true,
@@ -1787,15 +1983,20 @@ function omitSecretValues(value: unknown, fieldPath: string[], secretFieldKeys: 
   return cleaned;
 }
 
-function transportEditField(key: string, value: unknown): ConfiguredServerEditField {
-  if (key === 'type') {
+function transportEditField(
+  key: string,
+  value: unknown,
+  definition = TRANSPORT_FIELD_DEFINITION_BY_KEY.get(key),
+): ConfiguredServerEditField {
+  if (definition) {
     return {
-      fieldPath: ['transport', 'type'],
-      label: 'Transport Type',
-      control: 'select',
+      fieldPath: ['transport', key],
+      label: definition.label,
+      control: definition.control,
       value,
-      options: ['stdio', 'http', 'sse', 'streamableHttp'],
+      options: definition.options,
       editable: true,
+      applicableTransportTypes: definition.applicableTransportTypes,
     };
   }
 
@@ -1834,6 +2035,7 @@ function secretEditField(input: ConfiguredServerSecretInput): ConfiguredServerEd
     label: input.label,
     control: 'secret',
     editable: true,
+    applicableTransportTypes: transportFieldApplicability(input.fieldPath[0]),
     secret: {
       state: input.state,
       defaultAction: 'preserve',

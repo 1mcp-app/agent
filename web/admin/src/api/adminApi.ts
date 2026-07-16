@@ -171,10 +171,11 @@ export interface ConfiguredServerSecretEditMetadata {
 export interface ConfiguredServerEditField {
   fieldPath: string[];
   label: string;
-  control: 'text' | 'switch' | 'tag-list' | 'select' | 'string-list' | 'secret' | 'record' | 'readonly';
+  control: 'text' | 'number' | 'switch' | 'tag-list' | 'select' | 'string-list' | 'secret' | 'record' | 'readonly';
   value?: unknown;
   options?: string[];
   editable: boolean;
+  applicableTransportTypes?: Array<'stdio' | 'http' | 'sse' | 'streamableHttp'>;
   secret?: ConfiguredServerSecretEditMetadata;
 }
 
@@ -185,7 +186,7 @@ export interface ConfiguredServerEditFieldGroup {
 }
 
 export interface ConfiguredServerEditContract {
-  schemaVersion: 1;
+  schemaVersion: 1 | 2;
   target: ConfiguredServerReadModel['target'];
   capabilities: {
     singleTargetEdit: true;

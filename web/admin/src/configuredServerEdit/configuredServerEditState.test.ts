@@ -101,4 +101,77 @@ describe('configured server edit state', () => {
     expect(state.preview).toBeUndefined();
     expect(state.previewError).toBeUndefined();
   });
+
+  it('serializes only fields applicable to the selected transport while retaining hidden draft values', () => {
+    const conversionDetail = detail();
+    conversionDetail.editContract.schemaVersion = 2;
+    conversionDetail.editContract.fieldGroups[0].fields.push(
+      {
+        fieldPath: ['transport', 'type'],
+        label: 'Transport Type',
+        control: 'select',
+        value: 'http',
+        options: ['stdio', 'http', 'sse', 'streamableHttp'],
+        editable: true,
+      },
+      {
+        fieldPath: ['transport', 'command'],
+        label: 'Command',
+        control: 'text',
+        value: '',
+        editable: true,
+        applicableTransportTypes: ['stdio'],
+      },
+      {
+        fieldPath: ['transport', 'args'],
+        label: 'Args',
+        control: 'string-list',
+        value: [],
+        editable: true,
+        applicableTransportTypes: ['stdio'],
+      },
+    );
+    const urlField = conversionDetail.editContract.fieldGroups[0].fields.find(
+      (field) => field.fieldPath.join('.') === 'transport.url',
+    );
+    if (!urlField) throw new Error('Expected URL field');
+    urlField.applicableTransportTypes = ['http', 'sse', 'streamableHttp'];
+
+    let state = reduceConfiguredServerEditState(createConfiguredServerEditState(), {
+      type: 'detailLoaded',
+      serverId: 'github',
+      detail: conversionDetail,
+    });
+    state = reduceConfiguredServerEditState(state, {
+      type: 'fieldChanged',
+      fieldPath: ['transport', 'url'],
+      value: 'https://draft.example.com/mcp',
+    });
+    state = reduceConfiguredServerEditState(state, {
+      type: 'fieldChanged',
+      fieldPath: ['transport', 'type'],
+      value: 'stdio',
+    });
+    state = reduceConfiguredServerEditState(state, {
+      type: 'fieldChanged',
+      fieldPath: ['transport', 'command'],
+      value: 'node',
+    });
+
+    expect(state.status).toBe('loaded');
+    if (state.status !== 'loaded') return;
+    expect(state.fieldDraft['transport\0url']).toBe('https://draft.example.com/mcp');
+    expect(configuredServerEditDraft(state)).toEqual({ transport: { type: 'stdio', command: 'node' } });
+
+    state = reduceConfiguredServerEditState(state, {
+      type: 'fieldChanged',
+      fieldPath: ['transport', 'type'],
+      value: 'http',
+    });
+    expect(state.status).toBe('loaded');
+    if (state.status !== 'loaded') return;
+    expect(configuredServerEditDraft(state)).toEqual({
+      transport: { url: 'https://draft.example.com/mcp' },
+    });
+  });
 });

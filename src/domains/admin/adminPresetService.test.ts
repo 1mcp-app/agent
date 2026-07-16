@@ -55,6 +55,25 @@ describe('AdminPresetService', () => {
     });
   });
 
+  it('previews presets when the runtime scope writer lock is unavailable', async () => {
+    const lockedService = new AdminPresetService({
+      operationService: new AdminOperationService({
+        runtimeScopeId: 'scope_1',
+        storageDir: tempDir,
+        mutationAvailability: { available: false, reason: 'writer_lock_unavailable' },
+      }),
+      presetManager: manager,
+      readServerTargets: () => ({ enabled: { type: 'stdio', command: 'node', tags: ['web'] } }),
+    });
+
+    const result = await lockedService.previewPreset({
+      context: context(),
+      draft: { name: 'web', strategy: 'or', tagQuery: { $or: [{ tag: 'web' }] } },
+    });
+
+    expect(result).toMatchObject({ ok: true, result: { matchCount: 1 } });
+  });
+
   it('requires preview and zero-match confirmations before creating', async () => {
     const previewResult = await service.previewPreset({
       context: context(),

@@ -334,7 +334,7 @@ describe('AdminConfiguredServerService', () => {
           },
         },
         editContract: {
-          schemaVersion: 1,
+          schemaVersion: 2,
           target: { type: 'configured_server', id: 'github/api', source: 'mcpServers' },
           capabilities: {
             singleTargetEdit: true,
@@ -354,11 +354,31 @@ describe('AdminConfiguredServerService', () => {
               ]),
             }),
             expect.objectContaining({
+              id: 'transport',
+              fields: expect.arrayContaining([
+                expect.objectContaining({
+                  fieldPath: ['transport', 'url'],
+                  applicableTransportTypes: ['http', 'sse', 'streamableHttp'],
+                }),
+                expect.objectContaining({
+                  fieldPath: ['transport', 'command'],
+                  value: '',
+                  applicableTransportTypes: ['stdio'],
+                }),
+                expect.objectContaining({
+                  fieldPath: ['transport', 'args'],
+                  value: [],
+                  applicableTransportTypes: ['stdio'],
+                }),
+              ]),
+            }),
+            expect.objectContaining({
               id: 'secrets',
               fields: expect.arrayContaining([
                 expect.objectContaining({
                   fieldPath: ['headers', 'Authorization'],
                   control: 'secret',
+                  applicableTransportTypes: ['http', 'sse', 'streamableHttp'],
                   secret: expect.objectContaining({
                     state: 'present',
                     defaultAction: 'preserve',
@@ -638,6 +658,183 @@ describe('AdminConfiguredServerService', () => {
     expect(reload).not.toHaveBeenCalled();
     expect(service.getRecentAuditFacts()).toEqual([]);
     expect(JSON.stringify(result)).not.toMatch(/raw-token|raw-header-token/);
+  });
+
+  it('converts HTTP transports to stdio and removes incompatible network fields from the preview', async () => {
+    writeConfig({
+      mcpServers: {
+        github: {
+          type: 'http',
+          url: 'https://api.example.com/mcp',
+          headers: { 'X-Workspace': 'docs' },
+          oauth: { clientId: 'client-id' },
+          requestTimeout: 5_000,
+        },
+      },
+    });
+    const service = createService();
+
+    const result = await service.previewConfiguredServerEdit({
+      context: context({
+        target: { type: 'configured_server', id: 'github' },
+        idempotencyKey: undefined,
+        requestFingerprint: undefined,
+      }),
+      targetName: 'github',
+      edit: {
+        transport: {
+          type: 'stdio',
+          command: 'node',
+          args: ['server.js'],
+        },
+      },
+    });
+
+    expect(result).toMatchObject({
+      ok: true,
+      result: {
+        validation: { status: 'valid', errors: [] },
+        connectivityCheck: { status: 'skipped', reason: 'local_stdio_transport' },
+        diff: expect.arrayContaining([
+          expect.objectContaining({ fieldPath: ['transport', 'type'], oldValue: 'http', newValue: 'stdio' }),
+          expect.objectContaining({ fieldPath: ['transport', 'url'], oldValue: 'https://api.example.com/mcp' }),
+          expect.objectContaining({
+            fieldPath: ['transport', 'headers'],
+            oldValue: { 'X-Workspace': { present: true, value: '[REDACTED]', secret: true } },
+          }),
+          expect.objectContaining({
+            fieldPath: ['transport', 'oauth'],
+            oldValue: { clientId: { present: true, value: '[REDACTED]', secret: true } },
+          }),
+          expect.objectContaining({ fieldPath: ['transport', 'command'], newValue: 'node' }),
+          expect.objectContaining({ fieldPath: ['transport', 'args'], newValue: ['server.js'] }),
+        ]),
+      },
+    });
+    if (!result.ok) return;
+    const removed = result.result.diff.filter((entry) => ['url', 'headers', 'oauth'].includes(entry.fieldPath[1]));
+    expect(removed.every((entry) => entry.newValue === undefined)).toBe(true);
+    expect(result.result.diff).not.toEqual(
+      expect.arrayContaining([expect.objectContaining({ fieldPath: ['transport', 'requestTimeout'] })]),
+    );
+  });
+
+  it('converts stdio transports to HTTP and removes incompatible process fields from the preview', async () => {
+    writeConfig({
+      mcpServers: {
+        local: {
+          type: 'stdio',
+          command: 'node',
+          args: ['server.js'],
+          cwd: '/workspace',
+          inheritParentEnv: true,
+          restartOnExit: true,
+          connectionTimeout: 2_000,
+        },
+      },
+    });
+    const service = createService();
+
+    const result = await service.previewConfiguredServerEdit({
+      context: context({
+        target: { type: 'configured_server', id: 'local' },
+        idempotencyKey: undefined,
+        requestFingerprint: undefined,
+      }),
+      targetName: 'local',
+      edit: { transport: { type: 'http', url: 'https://api.example.com/mcp' } },
+    });
+
+    expect(result).toMatchObject({
+      ok: true,
+      result: {
+        validation: { status: 'valid', errors: [] },
+        connectivityCheck: { status: 'skipped', reason: 'checker_unavailable' },
+        diff: expect.arrayContaining([
+          expect.objectContaining({ fieldPath: ['transport', 'type'], oldValue: 'stdio', newValue: 'http' }),
+          expect.objectContaining({ fieldPath: ['transport', 'command'], oldValue: 'node' }),
+          expect.objectContaining({ fieldPath: ['transport', 'args'], oldValue: ['server.js'] }),
+          expect.objectContaining({ fieldPath: ['transport', 'cwd'], oldValue: '/workspace' }),
+          expect.objectContaining({ fieldPath: ['transport', 'inheritParentEnv'], oldValue: true }),
+          expect.objectContaining({ fieldPath: ['transport', 'restartOnExit'], oldValue: true }),
+          expect.objectContaining({
+            fieldPath: ['transport', 'url'],
+            newValue: 'https://api.example.com/mcp',
+          }),
+        ]),
+      },
+    });
+    if (!result.ok) return;
+    const removedKeys = new Set(['command', 'args', 'cwd', 'inheritParentEnv', 'restartOnExit']);
+    expect(
+      result.result.diff
+        .filter((entry) => removedKeys.has(entry.fieldPath[1]))
+        .every((entry) => entry.newValue === undefined),
+    ).toBe(true);
+    expect(result.result.diff).not.toEqual(
+      expect.arrayContaining([expect.objectContaining({ fieldPath: ['transport', 'connectionTimeout'] })]),
+    );
+  });
+
+  it('previews configured-server edits when the runtime scope writer lock is unavailable', async () => {
+    writeConfig({
+      mcpServers: {
+        github: { type: 'http', url: 'https://api.example.com/mcp' },
+      },
+    });
+    const service = createService({
+      mutationAvailability: { available: false, reason: 'writer_lock_unavailable' },
+    });
+
+    const result = await service.previewConfiguredServerEdit({
+      context: context({
+        target: { type: 'configured_server', id: 'github' },
+        idempotencyKey: undefined,
+        requestFingerprint: undefined,
+      }),
+      targetName: 'github',
+      edit: { tags: ['previewed'] },
+    });
+
+    expect(result).toMatchObject({ ok: true, result: { validation: { status: 'valid' } } });
+  });
+
+  it('rejects transport fields that do not apply to the selected transport type', async () => {
+    writeConfig({
+      mcpServers: {
+        github: {
+          type: 'http',
+          url: 'https://api.example.com/mcp',
+        },
+      },
+    });
+    const service = createService();
+
+    const result = await service.previewConfiguredServerEdit({
+      context: context({
+        target: { type: 'configured_server', id: 'github' },
+        idempotencyKey: undefined,
+        requestFingerprint: undefined,
+      }),
+      targetName: 'github',
+      edit: { transport: { type: 'stdio', command: 'node', url: 'https://other.example.com/mcp' } },
+    });
+
+    expect(result).toMatchObject({
+      ok: true,
+      result: {
+        validation: {
+          status: 'invalid',
+          errors: expect.arrayContaining([
+            {
+              fieldPath: ['transport', 'url'],
+              code: 'transport_field_not_applicable',
+              message: 'URL does not apply to stdio transports.',
+            },
+          ]),
+        },
+      },
+    });
   });
 
   it('skips automatic connectivity when endpoint changes would carry preserved secrets', async () => {
@@ -2237,8 +2434,8 @@ describe('AdminConfiguredServerService', () => {
               code: 'invalid_transport_field',
             }),
             expect.objectContaining({
-              fieldPath: ['transport', 'oauth', 'autoRegister'],
-              code: 'invalid_transport_field',
+              fieldPath: ['transport', 'oauth'],
+              code: 'transport_field_not_applicable',
             }),
             expect.objectContaining({
               fieldPath: ['transport', 'disabledTools', '1'],
@@ -2669,8 +2866,8 @@ describe('AdminConfiguredServerService', () => {
           errors: expect.arrayContaining([
             {
               fieldPath: ['transport', 'args'],
-              code: 'invalid_string_list',
-              message: 'Args must be a list of strings.',
+              code: 'transport_field_not_applicable',
+              message: 'Args does not apply to streamableHttp transports.',
             },
           ]),
         },
@@ -3179,13 +3376,16 @@ describe('AdminConfiguredServerService', () => {
     options: {
       readConfigDocument?: () => { mcpServers?: Record<string, any> } | null;
       checkConnectivity?: ConfiguredServerConnectivityChecker;
+      mutationAvailability?: { available: boolean; reason?: 'writer_lock_unavailable' };
     } = {},
   ): AdminConfiguredServerService {
+    const { mutationAvailability, ...serviceOptions } = options;
     const operationService = new AdminOperationService({
       runtimeScopeId: 'scope_123',
       storageDir,
       now: () => currentTime,
       createOperationId: () => `op_${currentTime.getTime()}`,
+      mutationAvailability,
     });
     return new AdminConfiguredServerService({
       operationService,
@@ -3194,14 +3394,14 @@ describe('AdminConfiguredServerService', () => {
         now: () => currentTime.getTime(),
       }),
       readConfigDocument:
-        options.readConfigDocument ??
+        serviceOptions.readConfigDocument ??
         (() => {
           if (!fs.existsSync(configPath)) {
             return null;
           }
           return JSON.parse(fs.readFileSync(configPath, 'utf8')) as { mcpServers?: Record<string, any> };
         }),
-      ...options,
+      ...serviceOptions,
     });
   }
 

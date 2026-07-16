@@ -15,12 +15,14 @@ export type SecretDraftState = Record<
 >;
 
 export type FieldDraftState = Record<string, unknown>;
+export type ConfiguredServerTransportType = 'stdio' | 'http' | 'sse' | 'streamableHttp';
 
 export function buildPreviewEdit(
   fieldGroups: ConfiguredServerDetailResponse['editContract']['fieldGroups'],
   fieldDraft: FieldDraftState,
   initialFieldDraft: FieldDraftState,
   secretDraft: SecretDraftState,
+  transportType?: ConfiguredServerTransportType,
 ): ConfiguredServerEditDraft {
   const edit: Record<string, unknown> = {};
   const transport: Record<string, unknown> = {};
@@ -28,6 +30,7 @@ export function buildPreviewEdit(
   for (const group of fieldGroups) {
     for (const field of group.fields) {
       if (field.control === 'secret' || !field.editable || field.control === 'readonly') continue;
+      if (!fieldAppliesToTransport(field, transportType)) continue;
 
       const key = fieldKey(field.fieldPath);
       const value = draftValueForField(field, fieldDraft[key]);
@@ -44,6 +47,12 @@ export function buildPreviewEdit(
   }
 
   const secrets = Object.values(secretDraft)
+    .filter((draft) => {
+      const field = fieldGroups
+        .flatMap((group) => group.fields)
+        .find((candidate) => fieldKey(candidate.fieldPath) === fieldKey(draft.fieldPath));
+      return !field || fieldAppliesToTransport(field, transportType);
+    })
     .filter((draft) => draft.action !== 'preserve')
     .map((draft) => ({
       fieldPath: draft.fieldPath,
@@ -66,6 +75,21 @@ export function fieldKey(fieldPath: string[]): string {
 
 export function initialDraftValue(field: ConfiguredServerEditField): unknown {
   return draftValueForField(field, field.value);
+}
+
+export function selectedTransportType(
+  fieldDraft: FieldDraftState,
+  fallback?: unknown,
+): ConfiguredServerTransportType | undefined {
+  const value = fieldDraft[fieldKey(['transport', 'type'])] ?? fallback;
+  return value === 'stdio' || value === 'http' || value === 'sse' || value === 'streamableHttp' ? value : undefined;
+}
+
+export function fieldAppliesToTransport(
+  field: ConfiguredServerEditField,
+  transportType?: ConfiguredServerTransportType,
+): boolean {
+  return !transportType || !field.applicableTransportTypes || field.applicableTransportTypes.includes(transportType);
 }
 
 export function stringArray(value: unknown): string[] {
@@ -113,6 +137,7 @@ function draftValueForField(field: ConfiguredServerEditField, value: unknown): u
   if (field.control === 'switch') return Boolean(value);
   if (field.control === 'tag-list' || field.control === 'string-list') return stringArray(value);
   if (field.control === 'record') return objectRecord(value);
+  if (field.control === 'number') return typeof value === 'number' ? value : undefined;
   if (field.control === 'text' || field.control === 'select') return String(value ?? '');
   return value;
 }

@@ -311,7 +311,7 @@ export class AdminOperationService {
   }
 
   async executeDryRun<T>(input: ExecuteDryRunInput<T>): Promise<AdminOperationResult<T>> {
-    const admissionResult = this.validateMutationAdmission(input.context, input.operationName);
+    const admissionResult = this.validateRuntimeScope(input.context, input.operationName);
     if (admissionResult) {
       return admissionResult;
     }
@@ -463,15 +463,8 @@ export class AdminOperationService {
     context: AdminOperationContext,
     operationName: string,
   ): Extract<AdminOperationRecoveryResult, { status: 'runtime_scope_mismatch' | 'runtime_scope_locked' }> | null {
-    if (context.runtimeIdentity.runtimeScopeId !== this.runtimeScopeId) {
-      return {
-        ok: false,
-        status: 'runtime_scope_mismatch',
-        code: 'runtime_scope_mismatch',
-        retryable: false,
-        operationName,
-      };
-    }
+    const runtimeScopeResult = this.validateRuntimeScope(context, operationName);
+    if (runtimeScopeResult) return runtimeScopeResult;
 
     if (!this.mutationAvailability.available) {
       return {
@@ -485,6 +478,21 @@ export class AdminOperationService {
     }
 
     return null;
+  }
+
+  private validateRuntimeScope(
+    context: AdminOperationContext,
+    operationName: string,
+  ): Extract<AdminOperationRecoveryResult, { status: 'runtime_scope_mismatch' }> | null {
+    if (context.runtimeIdentity.runtimeScopeId === this.runtimeScopeId) return null;
+
+    return {
+      ok: false,
+      status: 'runtime_scope_mismatch',
+      code: 'runtime_scope_mismatch',
+      retryable: false,
+      operationName,
+    };
   }
 
   private async runReservedMutation<T>(

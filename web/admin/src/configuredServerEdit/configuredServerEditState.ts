@@ -9,6 +9,7 @@ import {
   fieldKey,
   initialDraftValue,
   type SecretDraftState,
+  selectedTransportType,
 } from './configuredServerEditDraft';
 
 interface LoadedConfiguredServerEditState {
@@ -49,11 +50,13 @@ export function createConfiguredServerEditState(): ConfiguredServerEditState {
 
 export function configuredServerEditDraft(state: ConfiguredServerEditState): ConfiguredServerEditDraft {
   if (state.status !== 'loaded') return {};
+  const transportType = selectedTransportType(state.fieldDraft, state.detail.server.transport.type);
   return buildPreviewEdit(
     state.detail.editContract.fieldGroups,
     state.fieldDraft,
     state.initialFieldDraft,
     state.secretDraft,
+    transportType,
   );
 }
 

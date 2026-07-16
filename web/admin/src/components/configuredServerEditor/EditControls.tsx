@@ -4,6 +4,7 @@ import {
   Button,
   Group,
   NativeSelect,
+  NumberInput,
   Paper,
   PasswordInput,
   Radio,
@@ -74,6 +75,16 @@ export function ConfiguredServerFieldDraft({
         value={String(value ?? '')}
         data={field.options ?? []}
         onChange={(event) => onChange(event.currentTarget.value)}
+      />
+    );
+  }
+
+  if (field.control === 'number') {
+    return (
+      <NumberInput
+        label={field.label}
+        value={typeof value === 'number' ? value : ''}
+        onChange={(nextValue) => onChange(nextValue === '' ? undefined : nextValue)}
       />
     );
   }

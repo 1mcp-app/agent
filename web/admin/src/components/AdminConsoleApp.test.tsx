@@ -448,6 +448,107 @@ describe('AdminConsoleApp', () => {
     expect(onPreviewServerEdit).toHaveBeenCalledWith('auto');
   });
 
+  it('switches configured-server fields with the selected transport type', async () => {
+    const user = userEvent.setup();
+    renderApp(consoleState(), {
+      configuredServers: {
+        editor: configuredServerDetailState({
+          schemaVersion: 2,
+          fieldGroups: [
+            {
+              id: 'transport',
+              label: 'Transport',
+              fields: [
+                {
+                  fieldPath: ['transport', 'type'],
+                  label: 'Transport Type',
+                  control: 'select',
+                  value: 'http',
+                  options: ['stdio', 'http', 'sse', 'streamableHttp'],
+                  editable: true,
+                },
+                {
+                  fieldPath: ['transport', 'url'],
+                  label: 'URL',
+                  control: 'text',
+                  value: 'https://example.com/mcp',
+                  editable: true,
+                  applicableTransportTypes: ['http', 'sse', 'streamableHttp'],
+                },
+                {
+                  fieldPath: ['transport', 'headers'],
+                  label: 'Headers',
+                  control: 'record',
+                  value: {},
+                  editable: true,
+                  applicableTransportTypes: ['http', 'sse', 'streamableHttp'],
+                },
+                {
+                  fieldPath: ['transport', 'command'],
+                  label: 'Command',
+                  control: 'text',
+                  value: '',
+                  editable: true,
+                  applicableTransportTypes: ['stdio'],
+                },
+                {
+                  fieldPath: ['transport', 'args'],
+                  label: 'Args',
+                  control: 'string-list',
+                  value: [],
+                  editable: true,
+                  applicableTransportTypes: ['stdio'],
+                },
+                {
+                  fieldPath: ['transport', 'cwd'],
+                  label: 'Working Directory',
+                  control: 'text',
+                  value: '',
+                  editable: true,
+                  applicableTransportTypes: ['stdio'],
+                },
+                {
+                  fieldPath: ['transport', 'env'],
+                  label: 'Environment',
+                  control: 'record',
+                  value: {},
+                  editable: true,
+                  applicableTransportTypes: ['stdio'],
+                },
+                {
+                  fieldPath: ['transport', 'restartOnExit'],
+                  label: 'Restart On Exit',
+                  control: 'switch',
+                  value: false,
+                  editable: true,
+                  applicableTransportTypes: ['stdio'],
+                },
+              ],
+            },
+          ],
+        }),
+      },
+    });
+
+    expect(screen.getByLabelText('URL')).toBeInTheDocument();
+    expect(screen.getByLabelText('New Headers key')).toBeInTheDocument();
+    expect(screen.queryByLabelText('Command')).not.toBeInTheDocument();
+
+    await user.selectOptions(screen.getByLabelText('Transport Type'), 'stdio');
+
+    expect(screen.queryByLabelText('URL')).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('New Headers key')).not.toBeInTheDocument();
+    expect(screen.getByLabelText('Command')).toBeInTheDocument();
+    expect(screen.getByLabelText('Args')).toBeInTheDocument();
+    expect(screen.getByLabelText('Working Directory')).toBeInTheDocument();
+    expect(screen.getByLabelText('New Environment key')).toBeInTheDocument();
+    expect(screen.getByRole('switch', { name: 'Restart On Exit' })).toBeInTheDocument();
+
+    await user.selectOptions(screen.getByLabelText('Transport Type'), 'http');
+    expect(screen.getByLabelText('URL')).toHaveValue('https://example.com/mcp');
+    expect(screen.queryByLabelText('Command')).not.toBeInTheDocument();
+  });
+
   it('delegates closing a modified configured-server detail form to the edit model', async () => {
     const user = userEvent.setup();
     const onCloseServerDetail = vi.fn();

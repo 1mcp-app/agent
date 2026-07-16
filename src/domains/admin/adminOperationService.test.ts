@@ -143,6 +143,36 @@ describe('AdminOperationService', () => {
     expect(fs.existsSync(journalPath())).toBe(false);
   });
 
+  it('allows dry-run previews when the runtime scope writer lock is unavailable', async () => {
+    const service = new AdminOperationService({
+      runtimeScopeId: 'scope_a',
+      storageDir,
+      mutationAvailability: {
+        available: false,
+        reason: 'writer_lock_unavailable',
+      },
+    });
+    let executionCount = 0;
+
+    const result = await service.executeDryRun({
+      context: context({ idempotencyKey: undefined, requestFingerprint: undefined }),
+      operationName: 'previewPresetUpdate',
+      run: async () => {
+        executionCount += 1;
+        return { mode: 'dry_run' };
+      },
+    });
+
+    expect(result).toMatchObject({
+      ok: true,
+      status: 'completed',
+      operationName: 'previewPresetUpdate',
+      result: { mode: 'dry_run' },
+    });
+    expect(executionCount).toBe(1);
+    expect(fs.existsSync(journalPath())).toBe(false);
+  });
+
   it('replays a failed terminal mutation for the same idempotency key and request fingerprint', async () => {
     const service = createService();
     let executionCount = 0;

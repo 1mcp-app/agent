@@ -1345,7 +1345,7 @@ describe('admin routes', () => {
           ],
         },
         editContract: {
-          schemaVersion: 1,
+          schemaVersion: 2,
           target: { type: 'configured_server', id: 'github/api server', source: 'mcpServers' },
           capabilities: {
             singleTargetEdit: true,
@@ -1416,7 +1416,7 @@ describe('admin routes', () => {
         },
       },
       editContract: {
-        schemaVersion: 1,
+        schemaVersion: 2,
         target: { type: 'configured_server', id: 'github/api server', source: 'mcpServers' },
       },
     });

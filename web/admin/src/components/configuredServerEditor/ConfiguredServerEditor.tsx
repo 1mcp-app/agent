@@ -2,7 +2,11 @@ import { Alert, Badge, Button, Group, Paper, Stack, Text, Title } from '@mantine
 
 import { Pencil, ServerCog } from 'lucide-react';
 
-import { fieldKey } from '../../configuredServerEdit/configuredServerEditDraft';
+import {
+  fieldAppliesToTransport,
+  fieldKey,
+  selectedTransportType,
+} from '../../configuredServerEdit/configuredServerEditDraft';
 import type { ConfiguredServerEditModel } from '../../configuredServerEdit/useConfiguredServerEdit';
 import { EmptyState, Panel } from '../AdminConsoleShared';
 import { transportSummaryLabel } from '../adminConsoleUtils';
@@ -72,6 +76,14 @@ export function ConfiguredServerEditor({ model }: { model: ConfiguredServerEditM
     );
   }
 
+  const transportType = selectedTransportType(state.fieldDraft, state.detail.server.transport.type);
+  const fieldGroups = state.detail.editContract.fieldGroups
+    .map((group) => ({
+      ...group,
+      fields: group.fields.filter((field) => fieldAppliesToTransport(field, transportType)),
+    }))
+    .filter((group) => group.fields.length > 0);
+
   return (
     <Panel
       title="Edit server"
@@ -101,7 +113,7 @@ export function ConfiguredServerEditor({ model }: { model: ConfiguredServerEditM
             Back
           </Button>
         </Group>
-        {state.detail.editContract.fieldGroups.map((group) => (
+        {fieldGroups.map((group) => (
           <Paper key={group.id} className="edit-section" withBorder>
             <Stack gap="xs">
               <Group justify="space-between" align="flex-start">
