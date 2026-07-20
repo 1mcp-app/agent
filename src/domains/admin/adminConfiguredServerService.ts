@@ -1,9 +1,16 @@
 import { createHash } from 'node:crypto';
 
-import { type MCPServerParams, transportConfigSchema } from '@src/core/types/index.js';
+import { mergeGlobalAndServerConfig } from '@src/config/mcpConfigMerge.js';
+import {
+  GLOBAL_TRANSPORT_CONFIG_KEYS,
+  type GlobalTransportConfig,
+  type MCPServerParams,
+  transportConfigSchema,
+} from '@src/core/types/index.js';
 import {
   type ConfigChangeResult,
   type ConfigChangeService,
+  fingerprintConfiguredServerDefaults,
   fingerprintConfiguredServerSecretValue,
   fingerprintConfiguredServerTarget,
   isConfiguredServerTargetDisabled,
@@ -81,6 +88,7 @@ export interface ConfiguredServerEditDraft {
   tags?: string[];
   transport?: Record<string, unknown>;
   secrets?: ConfiguredServerSecretEditDraft[];
+  clearTransportOverrides?: string[];
 }
 
 export interface ConfiguredServerSecretInput {
@@ -245,6 +253,9 @@ export interface ConfiguredServerEditField {
   editable: boolean;
   applicableTransportTypes?: ConfiguredServerTransportType[];
   secret?: ConfiguredServerSecretEditMetadata;
+  source?: 'server' | 'inherited' | 'default';
+  overrideSupported?: boolean;
+  clearOverrideSupported?: boolean;
 }
 
 export interface ConfiguredServerEditFieldGroup {
@@ -254,7 +265,7 @@ export interface ConfiguredServerEditFieldGroup {
 }
 
 export interface ConfiguredServerEditContract {
-  schemaVersion: 2;
+  schemaVersion: 3;
   target: ConfiguredServerTargetIdentity;
   capabilities: {
     singleTargetEdit: true;
@@ -275,6 +286,7 @@ export interface ConfiguredServerDetailResult {
 }
 
 export interface ConfiguredServerConfigDocument {
+  serverDefaults?: GlobalTransportConfig;
   mcpServers?: Record<string, MCPServerParams>;
 }
 
@@ -333,15 +345,14 @@ export class AdminConfiguredServerService implements AdminConfiguredServerOperat
       context,
       operationName: 'getConfiguredServerDetail',
       run: async () => {
-        const server = this.readConfiguredServers().find(
-          (configuredServer) => configuredServer.id === input.targetName,
+        const { currentConfig, serverDefaults } = this.readConfiguredServerState(input.targetName);
+        const server = createConfiguredServerReadModel(
+          input.targetName,
+          mergeGlobalAndServerConfig(serverDefaults, currentConfig),
         );
-        if (!server) {
-          throw new AdminConfiguredServerNotFoundError(input.targetName);
-        }
         return {
           server,
-          editContract: createConfiguredServerEditContract(server),
+          editContract: createConfiguredServerEditContract(server, currentConfig, serverDefaults),
         };
       },
     });
@@ -354,11 +365,11 @@ export class AdminConfiguredServerService implements AdminConfiguredServerOperat
       ...input.context,
       target: { type: 'configured_server', id: input.targetName },
     };
-    const currentConfig = this.readConfiguredServerConfig(input.targetName);
+    const { currentConfig, serverDefaults } = this.readConfiguredServerState(input.targetName);
     return this.options.operationService.executeDryRun({
       context,
       operationName: 'previewConfiguredServerEdit',
-      run: async () => this.previewConfiguredServerEditResult(input, currentConfig),
+      run: async () => this.previewConfiguredServerEditResult(input, currentConfig, serverDefaults),
     });
   }
 
@@ -375,17 +386,24 @@ export class AdminConfiguredServerService implements AdminConfiguredServerOperat
       context,
       operationName: 'applyConfiguredServerEdit',
       prepare: async () => {
-        const currentConfig = this.readConfiguredServerConfig(input.targetName);
+        const { currentConfig, serverDefaults } = this.readConfiguredServerState(input.targetName);
         const preview = await this.previewConfiguredServerEditResult(
           { ...input, connectivityCheck: 'auto' },
           currentConfig,
+          serverDefaults,
           true,
         );
         const normalizedEdit = normalizeEditDraft(input.edit);
-        const currentReadModel = createConfiguredServerReadModel(input.targetName, currentConfig);
+        const currentReadModel = createConfiguredServerReadModel(
+          input.targetName,
+          mergeGlobalAndServerConfig(serverDefaults, currentConfig),
+        );
         const applicableEdit = filterApplicableSecretEdits(normalizedEdit.edit, currentReadModel.secretInputs);
-        const proposedConfig = applyEditDraft(currentConfig, applicableEdit);
-        const proposedReadModel = createConfiguredServerReadModel(preview.proposedTargetName, proposedConfig);
+        const proposedConfig = applyEditDraft(currentConfig, applicableEdit, serverDefaults);
+        const proposedReadModel = createConfiguredServerReadModel(
+          preview.proposedTargetName,
+          mergeGlobalAndServerConfig(serverDefaults, proposedConfig),
+        );
         const connectionCritical = preview.diff.some((entry) => entry.riskFlags.includes('connection_critical'));
         const secretChange = preview.diff.some((entry) => entry.riskFlags.includes('secret'));
 
@@ -402,7 +420,11 @@ export class AdminConfiguredServerService implements AdminConfiguredServerOperat
           connectionCritical &&
           !wouldUseLocalStdioTransport(proposedConfig) &&
           proposedReadModel.enabled &&
-          preview.connectivityCheck.status !== 'passed'
+          preview.connectivityCheck.status !== 'passed' &&
+          !(
+            preview.connectivityCheck.status === 'failed' &&
+            input.context.confirmationFacts?.connectivityFailureOverrideConfirmed === true
+          )
         ) {
           throw new AdminConfiguredServerApplyError('configured_server_connectivity_blocked');
         }
@@ -415,6 +437,9 @@ export class AdminConfiguredServerService implements AdminConfiguredServerOperat
               : []),
             ...(secretChange ? [{ code: 'secretChangeConfirmed', expected: true }] : []),
             ...(connectionCritical ? [{ code: 'connectionCriticalConfirmed', expected: true }] : []),
+            ...(preview.connectivityCheck.status === 'failed'
+              ? [{ code: 'connectivityFailureOverrideConfirmed', expected: true }]
+              : []),
           ],
           run: async () => {
             const configChange = await this.options.configChangeService.editConfiguredServerTarget({
@@ -422,6 +447,7 @@ export class AdminConfiguredServerService implements AdminConfiguredServerOperat
               targetName: preview.proposedTargetName,
               serverConfig: proposedConfig,
               expectedSourceFingerprint: fingerprintConfiguredServerTarget(currentConfig),
+              expectedGlobalConfigFingerprint: fingerprintConfiguredServerDefaults(serverDefaults),
             });
             assertSuccessfulConfiguredServerEdit(configChange);
             return {
@@ -512,8 +538,20 @@ export class AdminConfiguredServerService implements AdminConfiguredServerOperat
     }
 
     return Object.entries(parsed.mcpServers ?? {}).map(([name, serverConfig]) =>
-      createConfiguredServerReadModel(name, serverConfig),
+      createConfiguredServerReadModel(name, mergeGlobalAndServerConfig(parsed.serverDefaults, serverConfig)),
     );
+  }
+
+  private readConfiguredServerState(targetName: string): {
+    currentConfig: MCPServerParams;
+    serverDefaults: GlobalTransportConfig | undefined;
+  } {
+    const parsed = this.options.readConfigDocument();
+    const currentConfig = parsed?.mcpServers?.[targetName];
+    if (!currentConfig) {
+      throw new AdminConfiguredServerNotFoundError(targetName);
+    }
+    return { currentConfig, serverDefaults: parsed?.serverDefaults };
   }
 
   private readConfiguredServerConfig(targetName: string): MCPServerParams {
@@ -528,23 +566,35 @@ export class AdminConfiguredServerService implements AdminConfiguredServerOperat
   private async previewConfiguredServerEditResult(
     input: ConfiguredServerPreviewInput,
     currentConfig: MCPServerParams,
+    serverDefaults: GlobalTransportConfig | undefined,
     requireCriticalConnectivity = false,
   ): Promise<ConfiguredServerPreviewResult> {
     const normalizedEdit = normalizeEditDraft(input.edit);
-    const currentReadModel = createConfiguredServerReadModel(input.targetName, currentConfig);
+    const currentReadModel = createConfiguredServerReadModel(
+      input.targetName,
+      mergeGlobalAndServerConfig(serverDefaults, currentConfig),
+    );
     const secretValidation = validateSecretEditCapabilities(normalizedEdit.edit, currentReadModel.secretInputs);
     const transportApplicabilityValidation = validateTransportFieldApplicability(currentConfig, normalizedEdit.edit);
+    const overrideValidation = validateTransportOverrideClears(currentConfig, normalizedEdit.edit);
     const applicableEdit = filterApplicableSecretEdits(normalizedEdit.edit, currentReadModel.secretInputs);
     const proposedTargetName = applicableEdit.id?.trim() || input.targetName;
-    const proposedConfig = applyEditDraft(currentConfig, applicableEdit);
-    const proposedReadModel = createConfiguredServerReadModel(proposedTargetName, proposedConfig);
+    const proposedConfig = applyEditDraft(currentConfig, applicableEdit, serverDefaults);
+    const proposedReadModel = createConfiguredServerReadModel(
+      proposedTargetName,
+      mergeGlobalAndServerConfig(serverDefaults, proposedConfig),
+    );
     const proposedTransportType = configuredTransportType(proposedConfig);
     const serverValidation = validatePreviewServerConfig(proposedConfig);
     const validation = mergeValidation(
-      mergeValidation(mergeValidation(normalizedEdit.validation, secretValidation), transportApplicabilityValidation),
+      mergeValidation(
+        mergeValidation(mergeValidation(normalizedEdit.validation, secretValidation), transportApplicabilityValidation),
+        overrideValidation,
+      ),
       serverValidation,
     );
     const diff = createPreviewDiff(currentReadModel, proposedReadModel, applicableEdit);
+    appendClearedOverrideDiff(diff, currentReadModel, proposedReadModel, applicableEdit);
     const changed = validation.status === 'valid' && diff.length > 0;
     const endpointChangedWithPreservedSecrets =
       endpointAuthorityChanged(currentConfig, proposedConfig) &&
@@ -561,6 +611,7 @@ export class AdminConfiguredServerService implements AdminConfiguredServerOperat
       previewFingerprint: previewFingerprint({
         targetName: input.targetName,
         sourceFingerprint: fingerprintConfiguredServerTarget(currentConfig),
+        globalConfigFingerprint: fingerprintConfiguredServerDefaults(serverDefaults),
         edit: normalizedEdit.edit,
         current: currentReadModel,
         proposed: proposedReadModel,
@@ -672,6 +723,7 @@ function sanitizeApplyConfirmationFacts(
 ): Record<string, unknown> | undefined {
   if (!facts) return undefined;
   const allowed = ['previewConfirmed', 'targetNameConfirmed', 'secretChangeConfirmed', 'connectionCriticalConfirmed'];
+  allowed.push('connectivityFailureOverrideConfirmed');
   const sanitized = Object.fromEntries(allowed.filter((key) => key in facts).map((key) => [key, facts[key]]));
   return Object.keys(sanitized).length > 0 ? sanitized : undefined;
 }
@@ -689,7 +741,7 @@ function normalizeEditDraft(value: unknown): {
 } {
   const errors: ConfiguredServerPreviewValidationError[] = [];
   const edit: ConfiguredServerEditDraft = {};
-  const supportedKeys = new Set(['id', 'enabled', 'tags', 'transport', 'secrets']);
+  const supportedKeys = new Set(['id', 'enabled', 'tags', 'transport', 'secrets', 'clearTransportOverrides']);
 
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
     return {
@@ -774,6 +826,22 @@ function normalizeEditDraft(value: unknown): {
         fieldPath: ['secrets'],
         code: 'invalid_secret_actions',
         message: 'Secret actions must be a list.',
+      });
+    }
+  }
+
+  if (record.clearTransportOverrides !== undefined) {
+    const allowedKeys = new Set<string>(GLOBAL_TRANSPORT_CONFIG_KEYS);
+    if (
+      Array.isArray(record.clearTransportOverrides) &&
+      record.clearTransportOverrides.every((key) => typeof key === 'string' && allowedKeys.has(key))
+    ) {
+      edit.clearTransportOverrides = Array.from(new Set(record.clearTransportOverrides));
+    } else {
+      errors.push({
+        fieldPath: ['clearTransportOverrides'],
+        code: 'invalid_transport_override_clear',
+        message: 'Transport overrides must be a list of supported global transport field names.',
       });
     }
   }
@@ -1193,8 +1261,16 @@ function potentialSecretInput(fieldPath: string[]): ConfiguredServerSecretInput 
   return undefined;
 }
 
-function applyEditDraft(currentConfig: MCPServerParams, edit: ConfiguredServerEditDraft): MCPServerParams {
+function applyEditDraft(
+  currentConfig: MCPServerParams,
+  edit: ConfiguredServerEditDraft,
+  serverDefaults?: GlobalTransportConfig,
+): MCPServerParams {
   const nextConfig = cloneServerConfig(currentConfig);
+
+  for (const key of edit.clearTransportOverrides ?? []) {
+    delete (nextConfig as Record<string, unknown>)[key];
+  }
 
   if (typeof edit.enabled === 'boolean') {
     if (edit.enabled) {
@@ -1232,10 +1308,25 @@ function applyEditDraft(currentConfig: MCPServerParams, edit: ConfiguredServerEd
   }
 
   for (const secret of edit.secrets ?? []) {
+    seedWholeFieldSecretOverride(nextConfig, serverDefaults, secret);
     applySecretEdit(nextConfig, secret);
   }
 
   return nextConfig;
+}
+
+function seedWholeFieldSecretOverride(
+  serverConfig: MCPServerParams,
+  serverDefaults: GlobalTransportConfig | undefined,
+  secret: ConfiguredServerSecretEditDraft,
+): void {
+  if (secret.action !== 'replace') return;
+  const key = secret.fieldPath[0];
+  if (key !== 'headers' && key !== 'oauth') return;
+  if (Object.prototype.hasOwnProperty.call(serverConfig, key)) return;
+  const inherited = serverDefaults?.[key];
+  if (!inherited || typeof inherited !== 'object' || Array.isArray(inherited)) return;
+  (serverConfig as Record<string, unknown>)[key] = cloneUnknown(inherited);
 }
 
 function cloneServerConfig(serverConfig: MCPServerParams): MCPServerParams {
@@ -1261,6 +1352,35 @@ function validateTransportFieldApplicability(
       message: `${TRANSPORT_FIELD_DEFINITION_BY_KEY.get(key)?.label ?? labelFromPath([key])} does not apply to ${proposedType} transports.`,
     });
   }
+  return { status: errors.length > 0 ? 'invalid' : 'valid', errors };
+}
+
+function validateTransportOverrideClears(
+  currentConfig: MCPServerParams,
+  edit: ConfiguredServerEditDraft,
+): ConfiguredServerPreviewValidation {
+  const secretEditedKeys = new Set((edit.secrets ?? []).map((secret) => secret.fieldPath[0]));
+  const errors = (edit.clearTransportOverrides ?? []).flatMap((key) => {
+    if (!Object.prototype.hasOwnProperty.call(currentConfig, key)) {
+      return [
+        {
+          fieldPath: ['clearTransportOverrides', key],
+          code: 'transport_override_not_present',
+          message: `${TRANSPORT_FIELD_DEFINITION_BY_KEY.get(key)?.label ?? labelFromPath([key])} is not overridden by this server.`,
+        },
+      ];
+    }
+    if (Object.prototype.hasOwnProperty.call(edit.transport ?? {}, key) || secretEditedKeys.has(key)) {
+      return [
+        {
+          fieldPath: ['clearTransportOverrides', key],
+          code: 'transport_override_conflict',
+          message: 'A transport override cannot be cleared and edited in the same request.',
+        },
+      ];
+    }
+    return [];
+  });
   return { status: errors.length > 0 ? 'invalid' : 'valid', errors };
 }
 
@@ -1638,6 +1758,7 @@ function previewConfigChange(targetName: string, changed: boolean): ConfigChange
 function previewFingerprint(input: {
   targetName: string;
   sourceFingerprint: string;
+  globalConfigFingerprint: string;
   edit: ConfiguredServerEditDraft;
   current: ConfiguredServerReadModel;
   proposed: ConfiguredServerReadModel;
@@ -1650,6 +1771,7 @@ function previewFingerprint(input: {
         schemaVersion: 2,
         targetName: input.targetName,
         sourceFingerprint: input.sourceFingerprint,
+        globalConfigFingerprint: input.globalConfigFingerprint,
         edit: redactEditDraftForFingerprint(input.edit),
         current: input.current,
         proposed: input.proposed,
@@ -1725,6 +1847,25 @@ function createPreviewDiff(
   }
 
   return diff;
+}
+
+function appendClearedOverrideDiff(
+  diff: ConfiguredServerPreviewDiffEntry[],
+  current: ConfiguredServerReadModel,
+  proposed: ConfiguredServerReadModel,
+  edit: ConfiguredServerEditDraft,
+): void {
+  for (const key of edit.clearTransportOverrides ?? []) {
+    if (diff.some((entry) => entry.fieldPath[0] === 'transport' && entry.fieldPath[1] === key)) {
+      continue;
+    }
+    diff.push({
+      fieldPath: ['transport', key],
+      oldValue: current.transport[key],
+      newValue: proposed.transport[key],
+      riskFlags: previewRiskFlags([key]),
+    });
+  }
 }
 
 function pushDiff(
@@ -2026,22 +2167,38 @@ const TRANSPORT_FIELD_DEFINITION_BY_KEY = new Map(
   TRANSPORT_FIELD_DEFINITIONS.map((definition) => [definition.key, definition]),
 );
 
-function createConfiguredServerEditContract(server: ConfiguredServerReadModel): ConfiguredServerEditContract {
+function createConfiguredServerEditContract(
+  server: ConfiguredServerReadModel,
+  rawServerConfig: MCPServerParams,
+  serverDefaults: GlobalTransportConfig | undefined,
+): ConfiguredServerEditContract {
   const secretFieldKeys = new Set(server.secretInputs.map((input) => fieldKey(input.fieldPath)));
   const transportFields = TRANSPORT_FIELD_DEFINITIONS.map((definition) => {
     const value = Object.prototype.hasOwnProperty.call(server.transport, definition.key)
       ? server.transport[definition.key]
       : definition.defaultValue;
-    return transportEditField(definition.key, omitSecretValues(value, [definition.key], secretFieldKeys), definition);
+    return transportEditField(
+      definition.key,
+      omitSecretValues(value, [definition.key], secretFieldKeys),
+      definition,
+      transportFieldOwnership(definition.key, rawServerConfig, serverDefaults),
+    );
   });
   const knownTransportFields = new Set(TRANSPORT_FIELD_DEFINITIONS.map((definition) => definition.key));
   for (const [key, value] of Object.entries(server.transport)) {
     if (knownTransportFields.has(key) || secretFieldKeys.has(key)) continue;
-    transportFields.push(transportEditField(key, omitSecretValues(value, [key], secretFieldKeys)));
+    transportFields.push(
+      transportEditField(
+        key,
+        omitSecretValues(value, [key], secretFieldKeys),
+        undefined,
+        transportFieldOwnership(key, rawServerConfig, serverDefaults),
+      ),
+    );
   }
 
   return {
-    schemaVersion: 2,
+    schemaVersion: 3,
     target: server.target,
     capabilities: {
       singleTargetEdit: true,
@@ -2089,7 +2246,9 @@ function createConfiguredServerEditContract(server: ConfiguredServerReadModel): 
       {
         id: 'secrets',
         label: 'Secrets',
-        fields: server.secretInputs.map(secretEditField),
+        fields: server.secretInputs.map((input) =>
+          secretEditField(input, secretFieldOwnership(input.fieldPath, rawServerConfig, serverDefaults)),
+        ),
       },
     ],
   };
@@ -2124,7 +2283,14 @@ function transportEditField(
   key: string,
   value: unknown,
   definition = TRANSPORT_FIELD_DEFINITION_BY_KEY.get(key),
+  ownership = transportFieldOwnership(key, {} as MCPServerParams, undefined),
 ): ConfiguredServerEditField {
+  const overrideSupported = (GLOBAL_TRANSPORT_CONFIG_KEYS as readonly string[]).includes(key);
+  const overrideMetadata = {
+    source: ownership,
+    overrideSupported,
+    clearOverrideSupported: overrideSupported && ownership === 'server',
+  } as const;
   if (definition) {
     return {
       fieldPath: ['transport', key],
@@ -2134,6 +2300,7 @@ function transportEditField(
       options: definition.options,
       editable: true,
       applicableTransportTypes: definition.applicableTransportTypes,
+      ...overrideMetadata,
     };
   }
 
@@ -2144,6 +2311,7 @@ function transportEditField(
       control: 'string-list',
       value,
       editable: true,
+      ...overrideMetadata,
     };
   }
 
@@ -2154,6 +2322,7 @@ function transportEditField(
       control: 'record',
       value,
       editable: true,
+      ...overrideMetadata,
     };
   }
 
@@ -2163,20 +2332,57 @@ function transportEditField(
     control: typeof value === 'boolean' ? 'switch' : 'text',
     value,
     editable: true,
+    ...overrideMetadata,
   };
 }
 
-function secretEditField(input: ConfiguredServerSecretInput): ConfiguredServerEditField {
+function transportFieldOwnership(
+  key: string,
+  rawServerConfig: MCPServerParams,
+  serverDefaults: GlobalTransportConfig | undefined,
+): 'server' | 'inherited' | 'default' {
+  if (Object.prototype.hasOwnProperty.call(rawServerConfig, key)) return 'server';
+  if (serverDefaults && Object.prototype.hasOwnProperty.call(serverDefaults, key)) return 'inherited';
+  return 'default';
+}
+
+function secretFieldOwnership(
+  fieldPath: string[],
+  rawServerConfig: MCPServerParams,
+  serverDefaults: GlobalTransportConfig | undefined,
+): 'server' | 'inherited' | 'default' {
+  const [key, nestedKey] = fieldPath;
+  if (key === 'env' && nestedKey) {
+    const rawEnv = rawServerConfig.env;
+    if (rawEnv && !Array.isArray(rawEnv) && Object.prototype.hasOwnProperty.call(rawEnv, nestedKey)) return 'server';
+    const defaultEnv = serverDefaults?.env;
+    if (defaultEnv && !Array.isArray(defaultEnv) && Object.prototype.hasOwnProperty.call(defaultEnv, nestedKey)) {
+      return 'inherited';
+    }
+  }
+  return transportFieldOwnership(key, rawServerConfig, serverDefaults);
+}
+
+function secretEditField(
+  input: ConfiguredServerSecretInput,
+  source: 'server' | 'inherited' | 'default' = 'server',
+): ConfiguredServerEditField {
+  const overrideSupported = (GLOBAL_TRANSPORT_CONFIG_KEYS as readonly string[]).includes(input.fieldPath[0]);
+  const allowedActions =
+    source === 'inherited' ? input.allowedActions.filter((action) => action !== 'clear') : input.allowedActions;
   return {
     fieldPath: input.fieldPath,
     label: input.label,
     control: 'secret',
     editable: true,
     applicableTransportTypes: transportFieldApplicability(input.fieldPath[0]),
+    source,
+    overrideSupported,
+    clearOverrideSupported: overrideSupported && source === 'server',
     secret: {
       state: input.state,
       defaultAction: 'preserve',
-      allowedActions: input.allowedActions,
+      allowedActions,
       environmentReference: {
         supported: true,
         recommended: true,

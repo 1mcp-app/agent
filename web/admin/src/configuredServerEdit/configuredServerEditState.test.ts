@@ -176,7 +176,7 @@ describe('configured server edit state', () => {
     });
   });
 
-  it('uses the proposed enabled state when gating connection-critical apply', () => {
+  it('allows an explicit override when an enabled remote connection-critical check fails', () => {
     const proposedEnableDetail = detail();
     proposedEnableDetail.server.enabled = false;
     proposedEnableDetail.editContract.capabilities.apply.supported = true;
@@ -196,7 +196,30 @@ describe('configured server edit state', () => {
       preview: previewWithConnectionFailure(),
     });
 
-    expect(configuredServerApplyEligibility(state)).toMatchObject({ eligible: false });
+    expect(configuredServerApplyEligibility(state)).toEqual({ eligible: true });
+  });
+
+  it('tracks clearing and restoring a server transport override in the normalized draft', () => {
+    let state = reduceConfiguredServerEditState(createConfiguredServerEditState(), {
+      type: 'detailLoaded',
+      serverId: 'github',
+      detail: detail(),
+    });
+    state = reduceConfiguredServerEditState(state, {
+      type: 'transportOverrideChanged',
+      key: 'requestTimeout',
+      clear: true,
+    });
+    expect(configuredServerEditDraft(state)).toEqual({ clearTransportOverrides: ['requestTimeout'] });
+    expect(state).toMatchObject({ dirty: true });
+
+    state = reduceConfiguredServerEditState(state, {
+      type: 'transportOverrideChanged',
+      key: 'requestTimeout',
+      clear: false,
+    });
+    expect(configuredServerEditDraft(state)).toEqual({});
+    expect(state).toMatchObject({ dirty: false });
   });
 
   it('invalidates stale previews and keeps committed writes non-retryable when detail refresh fails', () => {

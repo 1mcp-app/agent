@@ -15,7 +15,7 @@ import express from 'express';
 import request from 'supertest';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { createAdminRoutes } from './adminRoutes.js';
+import { createAdminRoutes, FailedLoginLimiter } from './adminRoutes.js';
 import { resolveDefaultAdminConsoleAssetsDir } from './adminRoutes.js';
 
 const runtimeIdentity = {
@@ -536,6 +536,25 @@ describe('admin routes', () => {
     );
   });
 
+  it('rejects oversized and mistyped login inputs before authentication or rate-limit key allocation', async () => {
+    await adminService.bootstrapFirstAdmin({ username: 'operator', password: 'correct horse battery staple' });
+    const login = vi.spyOn(adminService, 'login');
+    const app = mountAdminRoutes();
+
+    const browserResponse = await request(app)
+      .post('/admin/api/session/login')
+      .send({ username: 'x'.repeat(257), password: 'wrong password' });
+    const cliResponse = await request(app)
+      .post('/admin/cli/v1/session/login')
+      .send({ username: 'operator', password: 123 });
+
+    expect(browserResponse.status).toBe(400);
+    expect(browserResponse.body).toEqual({ error: 'admin_login_request_invalid' });
+    expect(cliResponse.status).toBe(400);
+    expect(cliResponse.body.error.code).toBe('admin_login_request_invalid');
+    expect(login).not.toHaveBeenCalled();
+  });
+
   it('returns CLI session status envelopes after validating bearer sessions against the admin identity service', async () => {
     await adminService.bootstrapFirstAdmin({ username: 'operator', password: 'correct horse battery staple' });
     const validateSpy = vi.spyOn(adminService, 'validateSession');
@@ -862,6 +881,23 @@ describe('admin routes', () => {
       dryRun: true,
       confirmationRequirements: [],
     });
+  });
+
+  it('rejects a non-boolean CLI dryRun without invoking a live mutation', async () => {
+    await adminService.bootstrapFirstAdmin({ username: 'operator', password: 'correct horse battery staple' });
+    const app = mountAdminRoutes();
+    const loginResponse = await request(app)
+      .post('/admin/cli/v1/session/login')
+      .send({ username: 'operator', password: 'correct horse battery staple' });
+
+    const response = await request(app)
+      .post('/admin/cli/v1/operations/enable-server')
+      .set('Authorization', `Bearer ${loginResponse.body.result.sessionToken}`)
+      .send({ targetName: 'filesystem', dryRun: 'true' });
+
+    expect(response.status).toBe(400);
+    expect(response.body.error.code).toBe('validation_request_invalid');
+    expect(configuredServerService.enableConfiguredServer).not.toHaveBeenCalled();
   });
 
   it('returns stable CLI recovery errors for configured-server mutation failures', async () => {
@@ -1347,7 +1383,7 @@ describe('admin routes', () => {
           ],
         },
         editContract: {
-          schemaVersion: 2,
+          schemaVersion: 3,
           target: { type: 'configured_server', id: 'github/api server', source: 'mcpServers' },
           capabilities: {
             singleTargetEdit: true,
@@ -1418,7 +1454,7 @@ describe('admin routes', () => {
         },
       },
       editContract: {
-        schemaVersion: 2,
+        schemaVersion: 3,
         target: { type: 'configured_server', id: 'github/api server', source: 'mcpServers' },
       },
     });
@@ -2059,5 +2095,21 @@ describe('admin routes', () => {
     mountAdminRoutes();
 
     expect(bootstrapSpy).toHaveBeenCalled();
+  });
+});
+
+describe('FailedLoginLimiter', () => {
+  it('bounds active keys, fails closed at capacity, and prunes expired entries globally', () => {
+    let now = 0;
+    const limiter = new FailedLoginLimiter(() => now, 2, 100);
+    limiter.recordFailure('one', 'source');
+    limiter.recordFailure('two', 'source');
+
+    expect(limiter.isLimited('three', 'source')).toBe(true);
+    limiter.recordFailure('three', 'source');
+    now = 101;
+    expect(limiter.isLimited('three', 'source')).toBe(false);
+    limiter.recordFailure('three', 'source');
+    expect(limiter.isLimited('four', 'source')).toBe(false);
   });
 });

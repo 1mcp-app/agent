@@ -69,6 +69,10 @@ export function fingerprintConfiguredServerTarget(serverConfig: MCPServerParams)
   return `configured_server_${keyedConfiguredServerFingerprint('target', stableStringify(serverConfig))}`;
 }
 
+export function fingerprintConfiguredServerDefaults(serverDefaults: unknown): string {
+  return `configured_server_defaults_${keyedConfiguredServerFingerprint('defaults', stableStringify(serverDefaults ?? {}))}`;
+}
+
 export function fingerprintConfiguredServerSecretValue(value: string): string {
   return keyedConfiguredServerFingerprint('inline-secret', value);
 }
@@ -406,6 +410,17 @@ class DefaultConfigChangeService implements ConfigChangeService {
           configPath,
           source,
           `Configured server target '${input.sourceName}' changed after preview`,
+        );
+      }
+      if (
+        input.expectedGlobalConfigFingerprint !== undefined &&
+        fingerprintConfiguredServerDefaults(config.serverDefaults) !== input.expectedGlobalConfigFingerprint
+      ) {
+        return editConflictResult(
+          'source_conflict',
+          configPath,
+          source,
+          'Global transport defaults changed after preview',
         );
       }
 

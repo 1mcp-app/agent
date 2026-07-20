@@ -334,7 +334,7 @@ describe('AdminConfiguredServerService', () => {
           },
         },
         editContract: {
-          schemaVersion: 2,
+          schemaVersion: 3,
           target: { type: 'configured_server', id: 'github/api', source: 'mcpServers' },
           capabilities: {
             singleTargetEdit: true,
@@ -3733,9 +3733,192 @@ describe('AdminConfiguredServerService', () => {
     expect(JSON.stringify(result)).not.toContain('raw-password');
   });
 
+  it('shows effective global transport defaults with field ownership and redacted inherited secrets', async () => {
+    writeConfig({
+      serverDefaults: {
+        timeout: 5_000,
+        headers: { Authorization: 'Bearer inherited-secret' },
+        env: { SHARED_TOKEN: 'inherited-token' },
+      },
+      mcpServers: {
+        alpha: { type: 'http', url: 'https://example.com/mcp', requestTimeout: 2_000 },
+      },
+    });
+    const detail = await createService().getConfiguredServerDetail({ context: context(), targetName: 'alpha' });
+
+    expect(detail.ok).toBe(true);
+    if (!detail.ok) return;
+    expect(detail.result.server.transport).toMatchObject({
+      timeout: 5_000,
+      requestTimeout: 2_000,
+      headers: { Authorization: { present: true, value: '[REDACTED]', secret: true } },
+      env: { SHARED_TOKEN: { present: true, value: '[REDACTED]', secret: true } },
+    });
+    const fields = detail.result.editContract.fieldGroups.flatMap((group) => group.fields);
+    expect(fields.find((field) => field.fieldPath.join('.') === 'transport.timeout')).toMatchObject({
+      source: 'inherited',
+      overrideSupported: true,
+      clearOverrideSupported: false,
+    });
+    expect(fields.find((field) => field.fieldPath.join('.') === 'transport.requestTimeout')).toMatchObject({
+      source: 'server',
+      clearOverrideSupported: true,
+    });
+    expect(fields.find((field) => field.fieldPath.join('.') === 'headers.Authorization')).toMatchObject({
+      source: 'inherited',
+      secret: { allowedActions: ['preserve', 'replace'] },
+    });
+    expect(JSON.stringify(detail)).not.toContain('inherited-secret');
+    expect(JSON.stringify(detail)).not.toContain('inherited-token');
+  });
+
+  it('clears a server transport override and resumes inheritance from global defaults', async () => {
+    writeConfig({
+      serverDefaults: { timeout: 5_000 },
+      mcpServers: { alpha: { type: 'http', url: 'https://example.com/mcp', timeout: 2_000 } },
+    });
+    const service = createService();
+    const edit = { clearTransportOverrides: ['timeout'] };
+    const preview = await service.previewConfiguredServerEdit({
+      context: context({ idempotencyKey: undefined, requestFingerprint: undefined }),
+      targetName: 'alpha',
+      edit,
+    });
+    expect(preview.ok).toBe(true);
+    if (!preview.ok) return;
+    expect(preview.result.diff).toContainEqual(
+      expect.objectContaining({ fieldPath: ['transport', 'timeout'], oldValue: 2_000, newValue: 5_000 }),
+    );
+
+    const applied = await service.applyConfiguredServerEdit({
+      context: context({ confirmationFacts: { previewConfirmed: preview.result.previewFingerprint } }),
+      targetName: 'alpha',
+      edit,
+      previewFingerprint: preview.result.previewFingerprint,
+    });
+    expect(applied.ok).toBe(true);
+    expect(readConfig().mcpServers.alpha).not.toHaveProperty('timeout');
+    const detail = await service.getConfiguredServerDetail({ context: context(), targetName: 'alpha' });
+    expect(detail.ok && detail.result.server.transport.timeout).toBe(5_000);
+  });
+
+  it('preserves sibling global values when replacing one inherited whole-field secret', async () => {
+    writeConfig({
+      serverDefaults: {
+        headers: { Authorization: 'Bearer inherited-secret', 'X-Workspace': 'global-workspace' },
+      },
+      mcpServers: { alpha: { type: 'http', url: 'https://example.com/mcp', disabled: true } },
+    });
+    const service = createService();
+    const edit = {
+      secrets: [
+        {
+          fieldPath: ['headers', 'Authorization'],
+          action: 'replace',
+          replacement: { kind: 'environmentReference', value: 'NEW_TOKEN' },
+        },
+      ],
+    };
+    const preview = await service.previewConfiguredServerEdit({
+      context: context({ idempotencyKey: undefined, requestFingerprint: undefined }),
+      targetName: 'alpha',
+      edit,
+    });
+    expect(preview.ok).toBe(true);
+    if (!preview.ok) return;
+
+    const applied = await service.applyConfiguredServerEdit({
+      context: context({
+        confirmationFacts: {
+          previewConfirmed: preview.result.previewFingerprint,
+          connectionCriticalConfirmed: true,
+          secretChangeConfirmed: true,
+        },
+      }),
+      targetName: 'alpha',
+      edit,
+      previewFingerprint: preview.result.previewFingerprint,
+    });
+
+    expect(applied.ok).toBe(true);
+    expect(readConfig().mcpServers.alpha.headers).toEqual({
+      Authorization: '${NEW_TOKEN}',
+      'X-Workspace': 'global-workspace',
+    });
+  });
+
+  it('rejects an apply when global transport defaults changed after preview', async () => {
+    writeConfig({
+      serverDefaults: { timeout: 5_000 },
+      mcpServers: { alpha: { type: 'http', url: 'https://example.com/mcp' } },
+    });
+    const service = createService();
+    const edit = { tags: ['updated'] };
+    const preview = await service.previewConfiguredServerEdit({
+      context: context({ idempotencyKey: undefined, requestFingerprint: undefined }),
+      targetName: 'alpha',
+      edit,
+    });
+    expect(preview.ok).toBe(true);
+    if (!preview.ok) return;
+    writeConfig({
+      serverDefaults: { timeout: 6_000 },
+      mcpServers: { alpha: { type: 'http', url: 'https://example.com/mcp' } },
+    });
+
+    await expect(
+      service.applyConfiguredServerEdit({
+        context: context({ confirmationFacts: { previewConfirmed: preview.result.previewFingerprint } }),
+        targetName: 'alpha',
+        edit,
+        previewFingerprint: preview.result.previewFingerprint,
+      }),
+    ).rejects.toMatchObject({ code: 'configured_server_stale_preview' });
+    expect(readConfig().mcpServers.alpha).not.toHaveProperty('tags');
+  });
+
+  it('applies a failed connectivity preview only with an explicit audited override', async () => {
+    writeConfig({ mcpServers: { alpha: { type: 'http', url: 'https://old.example.com/mcp' } } });
+    const service = createService({
+      checkConnectivity: vi.fn<ConfiguredServerConnectivityChecker>().mockResolvedValue({
+        status: 'failed',
+        mode: 'bounded_dry_run',
+        message: 'Connection refused with token=secret-value',
+      }),
+    });
+    const edit = { transport: { url: 'https://new.example.com/mcp' } };
+    const preview = await service.previewConfiguredServerEdit({
+      context: context({ idempotencyKey: undefined, requestFingerprint: undefined }),
+      targetName: 'alpha',
+      edit,
+    });
+    expect(preview.ok).toBe(true);
+    if (!preview.ok) return;
+
+    const result = await service.applyConfiguredServerEdit({
+      context: context({
+        confirmationFacts: {
+          previewConfirmed: preview.result.previewFingerprint,
+          connectionCriticalConfirmed: true,
+          connectivityFailureOverrideConfirmed: true,
+        },
+      }),
+      targetName: 'alpha',
+      edit,
+      previewFingerprint: preview.result.previewFingerprint,
+    });
+
+    expect(result.ok).toBe(true);
+    expect(readConfig().mcpServers.alpha.url).toBe('https://new.example.com/mcp');
+    expect(service.getRecentAuditFacts({ limit: 1 })[0]?.confirmationFacts).toMatchObject({
+      connectivityFailureOverrideConfirmed: true,
+    });
+    expect(JSON.stringify(service.getRecentAuditFacts())).not.toContain('secret-value');
+  });
+
   function createService(
     options: {
-      readConfigDocument?: () => { mcpServers?: Record<string, any> } | null;
+      readConfigDocument?: () => { serverDefaults?: Record<string, any>; mcpServers?: Record<string, any> } | null;
       checkConnectivity?: ConfiguredServerConnectivityChecker;
       mutationAvailability?: { available: boolean; reason?: 'writer_lock_unavailable' };
     } = {},

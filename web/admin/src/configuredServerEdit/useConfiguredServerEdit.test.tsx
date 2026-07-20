@@ -297,7 +297,7 @@ describe('useConfiguredServerEdit', () => {
     });
   });
 
-  it('blocks enabled remote connection-critical edits until connectivity passes', async () => {
+  it('allows enabled remote connection-critical edits to override a failed check', async () => {
     const loadedDetail = detail();
     loadedDetail.editContract.capabilities.apply.supported = true;
     let state = reduceConfiguredServerEditState(createConfiguredServerEditState(), {
@@ -333,10 +333,45 @@ describe('useConfiguredServerEdit', () => {
       },
     });
 
-    expect(configuredServerApplyEligibility(state)).toEqual({
-      eligible: false,
-      reason: 'A fresh connectivity check must pass before applying these changes.',
+    expect(configuredServerApplyEligibility(state)).toEqual({ eligible: true });
+  });
+
+  it('uses a danger confirmation and sends the failed-connectivity override fact', async () => {
+    const browserAdapter = browser('/admin/servers/github');
+    const loadedDetail = detail();
+    loadedDetail.editContract.capabilities.apply.supported = true;
+    const failedPreview = applyPreview();
+    failedPreview.preview.diff[0].riskFlags = ['connection_critical'];
+    failedPreview.preview.connectivityCheck = {
+      status: 'failed',
+      mode: 'bounded_dry_run',
+      message: 'connection refused',
+    };
+    const adminApi = api({
+      getConfiguredServerDetail: vi.fn(async () => loadedDetail),
+      previewConfiguredServerEdit: vi.fn(async () => failedPreview),
+      applyConfiguredServerEdit: vi.fn(async () => applyResponse()),
     });
+    const { result } = renderHook(() =>
+      useConfiguredServerEdit({ api: adminApi, session, browser: browserAdapter.adapter, onUnauthenticated: vi.fn() }),
+    );
+
+    await waitFor(() => expect(result.current.state.status).toBe('loaded'));
+    act(() => result.current.changeField(['transport', 'url'], 'https://example.com/v2/mcp'));
+    await act(() => result.current.preview());
+    await act(() => result.current.apply());
+
+    expect(browserAdapter.adapter.confirm).toHaveBeenCalledWith(
+      expect.objectContaining({ tone: 'danger', confirmLabel: 'Apply despite failure' }),
+    );
+    expect(adminApi.applyConfiguredServerEdit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        confirmationFacts: expect.objectContaining({
+          connectionCriticalConfirmed: true,
+          connectivityFailureOverrideConfirmed: true,
+        }),
+      }),
+    );
   });
 
   it('reuses one idempotency key for a network retry and blocks reentrant apply confirmation', async () => {

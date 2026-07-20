@@ -134,6 +134,7 @@ export async function detectServer1mcpUrl(): Promise<string> {
 export async function discoverServerWithPidFile(
   configDir?: string,
   userUrl?: string,
+  options: { failOnOwnedRuntimeUnavailable?: boolean } = {},
 ): Promise<{ url: string; source: 'user' | 'pidfile' | 'portscan'; pid?: number }> {
   // 1. User override (highest priority)
   if (userUrl) {
@@ -150,6 +151,19 @@ export async function discoverServerWithPidFile(
     return { url: runtime.info.url, source: 'pidfile', pid: runtime.info.pid };
   }
 
+  if (options.failOnOwnedRuntimeUnavailable && runtime.status === 'unreachable' && runtime.info) {
+    throw new LocalRuntimeAttachmentError(
+      'local_runtime_unreachable',
+      `Runtime Scope process ${runtime.info.pid} is alive but its 1MCP endpoint is unreachable`,
+    );
+  }
+  if (options.failOnOwnedRuntimeUnavailable && runtime.status === 'error') {
+    throw new LocalRuntimeAttachmentError(
+      'local_runtime_discovery_failed',
+      runtime.error ?? 'Runtime Scope ownership could not be inspected safely',
+    );
+  }
+
   // 3. Fallback to port scanning
   const portScanUrl = await detectRunningServerUrl();
   if (portScanUrl) {
@@ -157,13 +171,32 @@ export async function discoverServerWithPidFile(
   }
 
   // 4. No server found
-  throw new Error(
+  throw new LocalRuntimeUnavailableError(
     'No running 1MCP server found.\n\n' +
       'Start a server first:\n' +
       '  1mcp serve\n\n' +
       'Or specify URL manually:\n' +
       '  1mcp proxy --url http://localhost:3050/mcp',
   );
+}
+
+export class LocalRuntimeUnavailableError extends Error {
+  readonly code = 'local_runtime_unavailable';
+
+  constructor(message: string) {
+    super(message);
+    this.name = 'LocalRuntimeUnavailableError';
+  }
+}
+
+export class LocalRuntimeAttachmentError extends Error {
+  constructor(
+    readonly code: 'local_runtime_unreachable' | 'local_runtime_discovery_failed',
+    message: string,
+  ) {
+    super(message);
+    this.name = 'LocalRuntimeAttachmentError';
+  }
 }
 
 /**

@@ -230,6 +230,20 @@ export class RuntimeTargetStore {
     return currentName === 'local' ? this.localEntry(true) : this.toListEntry(metadata.targets[currentName], true);
   }
 
+  resolveForConnection(name?: string): RuntimeTargetListEntry {
+    const metadata = this.readMetadata();
+    const currentName = metadata.current && metadata.targets[metadata.current] ? metadata.current : 'local';
+    const targetName = name ?? currentName;
+    if (targetName === 'local') {
+      return this.localEntry(targetName === currentName);
+    }
+    const target = metadata.targets[targetName];
+    if (!target) {
+      throw new RuntimeTargetStoreError('target_not_found', `Runtime target "${targetName}" was not found`);
+    }
+    return this.toListEntry(target, metadata.current === targetName, undefined, true);
+  }
+
   list(): RuntimeTargetListEntry[] {
     const metadata = this.readMetadata();
     const secrets = this.readSecretsForMetadataOnly();
@@ -1262,18 +1276,24 @@ export class RuntimeTargetStore {
     target: StoredRuntimeTarget,
     current: boolean,
     secrets = this.readSecretsForMetadataOnly(),
+    includeEmbeddedCredentials = false,
   ): RuntimeTargetListEntry {
     return {
       name: target.name,
       kind: 'remote',
       synthetic: false,
       current,
-      url: target.url,
+      url: includeEmbeddedCredentials ? target.url : redactRuntimeTargetUrlUserinfo(target.url),
       displayName: target.displayName,
       caFile: target.caFile,
       insecureSkipVerify: target.insecureSkipVerify,
       insecureTlsConfirmationRequired: target.insecureTlsConfirmationRequired ?? false,
-      observedIdentity: target.observedIdentity,
+      observedIdentity: target.observedIdentity
+        ? {
+            ...target.observedIdentity,
+            externalUrl: redactRuntimeTargetUrlUserinfo(target.observedIdentity.externalUrl),
+          }
+        : undefined,
       lastVerifiedAt: target.lastVerifiedAt,
       verificationStatus: this.verificationStatus(target),
       credentialReferences: credentialReferencePresence(secrets.credentials[target.name]),
@@ -1521,6 +1541,12 @@ export function normalizeRuntimeTargetUrl(url: string, options: { allowInsecureH
   if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
     throw new RuntimeTargetStoreError('target_url_invalid', 'Runtime target URL must use http or https');
   }
+  if (parsed.username || parsed.password) {
+    throw new RuntimeTargetStoreError(
+      'target_url_credentials_unsupported',
+      'Runtime target URLs must not contain embedded credentials',
+    );
+  }
   if (parsed.protocol === 'http:' && !isLoopbackHostname(parsed.hostname) && !options.allowInsecureHttp) {
     throw new RuntimeTargetStoreError(
       'target_url_invalid',
@@ -1575,13 +1601,29 @@ function normalizeTlsMetadata(input: { caFile?: unknown; insecureSkipVerify?: un
 function targetToBundleEntry(target: StoredRuntimeTarget): RuntimeTargetBundleEntry {
   return omitUndefined({
     name: target.name,
-    url: target.url,
+    url: redactRuntimeTargetUrlUserinfo(target.url),
     displayName: target.displayName,
     caFile: target.caFile,
     insecureSkipVerify: target.insecureSkipVerify,
-    observedIdentity: target.observedIdentity,
+    observedIdentity: target.observedIdentity
+      ? {
+          ...target.observedIdentity,
+          externalUrl: redactRuntimeTargetUrlUserinfo(target.observedIdentity.externalUrl),
+        }
+      : undefined,
     lastVerifiedAt: target.lastVerifiedAt,
   });
+}
+
+function redactRuntimeTargetUrlUserinfo(url: string): string {
+  try {
+    const parsed = new URL(url);
+    parsed.username = '';
+    parsed.password = '';
+    return parsed.toString().replace(/\/$/, '');
+  } catch {
+    return '';
+  }
 }
 
 function throwImportValidationFailed(validationFacts: RuntimeTargetImportValidationFact[]): never {

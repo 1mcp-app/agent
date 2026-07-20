@@ -67,6 +67,7 @@ export interface EditConfiguredServerTargetInput {
   targetName: string;
   serverConfig: MCPServerParams;
   expectedSourceFingerprint: string;
+  expectedGlobalConfigFingerprint?: string;
 }
 
 export interface ConfigChangePorts {

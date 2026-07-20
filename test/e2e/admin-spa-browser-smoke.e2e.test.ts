@@ -359,7 +359,7 @@ function createConfiguredServerFixture(): ResettableConfiguredServerFixture {
       return operationSuccess('getConfiguredServerDetail', 'op_detail', {
         server,
         editContract: {
-          schemaVersion: 2,
+          schemaVersion: 3,
           target: server.target,
           capabilities: {
             singleTargetEdit: true,

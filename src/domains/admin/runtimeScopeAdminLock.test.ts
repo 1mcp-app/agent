@@ -50,4 +50,48 @@ describe('tryAcquireRuntimeScopeAdminLock', () => {
       afterRelease.release();
     }
   });
+
+  it('reclaims a lock only when its recorded process is dead', () => {
+    const first = tryAcquireRuntimeScopeAdminLock({
+      runtimeScopeId: 'scope_a',
+      storageDir,
+      pid: 111,
+      processAlive: () => false,
+      createOwnerToken: () => 'owner-one',
+    });
+    expect(first.available).toBe(true);
+
+    const reclaimed = tryAcquireRuntimeScopeAdminLock({
+      runtimeScopeId: 'scope_a',
+      storageDir,
+      pid: 222,
+      processAlive: (pid) => pid === 222,
+      createOwnerToken: () => 'owner-two',
+    });
+    expect(reclaimed.available).toBe(true);
+    if (reclaimed.available) reclaimed.release();
+  });
+
+  it('fails closed for corrupt locks and does not let an old handle remove a replacement owner', () => {
+    const first = tryAcquireRuntimeScopeAdminLock({
+      runtimeScopeId: 'scope_a',
+      storageDir,
+      pid: 111,
+      processAlive: () => true,
+      createOwnerToken: () => 'owner-one',
+    });
+    expect(first.available).toBe(true);
+    const lockPath = fs
+      .readdirSync(path.join(storageDir, 'admin'))
+      .map((name) => path.join(storageDir, 'admin', name))[0];
+    const original = JSON.parse(fs.readFileSync(lockPath, 'utf8')) as Record<string, unknown>;
+    fs.writeFileSync(lockPath, JSON.stringify({ ...original, pid: 222, ownerToken: 'owner-two' }));
+
+    if (first.available) first.release();
+    expect(fs.existsSync(lockPath)).toBe(true);
+    fs.writeFileSync(lockPath, '{not-json');
+    expect(
+      tryAcquireRuntimeScopeAdminLock({ runtimeScopeId: 'scope_a', storageDir, processAlive: () => false }),
+    ).toEqual({ available: false, reason: 'writer_lock_unavailable' });
+  });
 });

@@ -272,7 +272,13 @@ export class ExpressServer {
     this.streamableSessionRepository = new StreamableSessionRepository(fileStorageService);
 
     this.setupMiddleware();
-    this.setupRoutes();
+    try {
+      this.setupRoutes();
+    } catch (error) {
+      this.adminLock?.release();
+      this.adminLock = undefined;
+      throw error;
+    }
   }
 
   /**

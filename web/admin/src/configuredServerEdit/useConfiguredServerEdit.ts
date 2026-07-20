@@ -25,6 +25,7 @@ export interface ConfiguredServerEditModel {
   close(pathname?: string): Promise<boolean>;
   changeField(fieldPath: string[], value: unknown): void;
   changeSecret(fieldPath: string[], value: SecretDraftState[string]): void;
+  changeTransportOverride(key: string, clear: boolean): void;
   preview(connectivityCheck?: 'auto' | 'manual'): void | Promise<void>;
   apply(): void | Promise<void>;
 }
@@ -148,6 +149,12 @@ export function useConfiguredServerEdit({
     dispatch({ type: 'secretChanged', fieldPath, value });
   }, []);
 
+  const changeTransportOverride = useCallback((key: string, clear: boolean) => {
+    previewRequestRef.current += 1;
+    applyAttemptRef.current = undefined;
+    dispatch({ type: 'transportOverrideChanged', key, clear });
+  }, []);
+
   const preview = useCallback(
     async (connectivityCheck: 'auto' | 'manual' = 'auto') => {
       const activeSession = sessionRef.current;
@@ -193,10 +200,16 @@ export function useConfiguredServerEdit({
     try {
       const previewResult = current.preview;
       const riskFlags = Array.from(new Set(previewResult.diff.flatMap((entry) => entry.riskFlags)));
+      const overridingConnectivityFailure = previewResult.connectivityCheck.status === 'failed';
       const confirmed = await browser.confirm({
-        title: `Apply changes to ${previewResult.proposedTargetName}?`,
-        message: 'This writes the validated configuration and reloads the Runtime Scope.',
-        confirmLabel: 'Apply changes',
+        title: overridingConnectivityFailure
+          ? `Apply despite failed connectivity to ${previewResult.proposedTargetName}?`
+          : `Apply changes to ${previewResult.proposedTargetName}?`,
+        message: overridingConnectivityFailure
+          ? 'The bounded connectivity check failed. Applying may make this configured server unavailable.'
+          : 'This writes the validated configuration and reloads the Runtime Scope.',
+        confirmLabel: overridingConnectivityFailure ? 'Apply despite failure' : 'Apply changes',
+        tone: overridingConnectivityFailure ? 'danger' : undefined,
         details: [
           { label: 'Current target', value: previewResult.targetName },
           { label: 'Final target', value: previewResult.proposedTargetName },
@@ -236,6 +249,7 @@ export function useConfiguredServerEdit({
               : {}),
             ...(riskFlags.includes('connection_critical') ? { connectionCriticalConfirmed: true } : {}),
             ...(riskFlags.includes('secret') ? { secretChangeConfirmed: true } : {}),
+            ...(overridingConnectivityFailure ? { connectivityFailureOverrideConfirmed: true } : {}),
           },
         });
       } catch (error) {
@@ -312,7 +326,7 @@ export function useConfiguredServerEdit({
     [browser, load, onPathCommitted, reset],
   );
 
-  return { state, open, close, changeField, changeSecret, preview, apply };
+  return { state, open, close, changeField, changeSecret, changeTransportOverride, preview, apply };
 }
 
 export function configuredServerApplyEligibility(state: ConfiguredServerEditState): {
@@ -334,9 +348,10 @@ export function configuredServerApplyEligibility(state: ConfiguredServerEditStat
     proposedEnabled &&
     transportType !== 'stdio' &&
     connectionCritical &&
-    state.preview.connectivityCheck.status !== 'passed'
+    state.preview.connectivityCheck.status !== 'passed' &&
+    state.preview.connectivityCheck.status !== 'failed'
   ) {
-    return { eligible: false, reason: 'A fresh connectivity check must pass before applying these changes.' };
+    return { eligible: false, reason: 'A connectivity check must run before applying these changes.' };
   }
   return { eligible: true };
 }

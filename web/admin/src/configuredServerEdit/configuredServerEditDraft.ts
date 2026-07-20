@@ -23,6 +23,7 @@ export function buildPreviewEdit(
   initialFieldDraft: FieldDraftState,
   secretDraft: SecretDraftState,
   transportType?: ConfiguredServerTransportType,
+  clearTransportOverrides: string[] = [],
 ): ConfiguredServerEditDraft {
   const edit: Record<string, unknown> = {};
   const transport: Record<string, unknown> = {};
@@ -66,6 +67,7 @@ export function buildPreviewEdit(
     ...edit,
     ...(Object.keys(transport).length > 0 ? { transport } : {}),
     ...(secrets.length > 0 ? { secrets } : {}),
+    ...(clearTransportOverrides.length > 0 ? { clearTransportOverrides } : {}),
   } as ConfiguredServerEditDraft;
 }
 

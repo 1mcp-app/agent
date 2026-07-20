@@ -808,6 +808,60 @@ describe('RuntimeTargetStore', () => {
     });
   });
 
+  it('rejects new embedded URL credentials and atomically rejects them during import', () => {
+    const store = createStore();
+
+    expect(() =>
+      store.prepareAddTarget({ name: 'credentialed', url: 'https://user:password@example.com/mcp' }),
+    ).toThrowError(expect.objectContaining({ code: 'target_url_credentials_unsupported' }));
+    expect(() =>
+      store.previewImportTargetBundle({
+        targetBundleVersion: 1,
+        targets: [{ name: 'credentialed', url: 'https://user:password@example.com/mcp' }],
+      }),
+    ).toThrowError(
+      expect.objectContaining({
+        code: 'target_import_validation_failed',
+        details: { validationFacts: [expect.objectContaining({ code: 'invalid_url' })] },
+      }),
+    );
+    expect(store.list()).toHaveLength(1);
+  });
+
+  it('redacts embedded credentials from legacy metadata and bundle serialization while retaining connection use', () => {
+    fs.writeFileSync(
+      path.join(storeDir, 'runtime-targets.json'),
+      JSON.stringify({
+        schemaVersion: 1,
+        current: 'legacy',
+        targets: {
+          legacy: {
+            name: 'legacy',
+            url: 'https://user:password@example.com/mcp',
+            observedIdentity: {
+              ...identity,
+              externalUrl: 'https://identity:secret@example.com',
+            },
+            createdAt: '2026-07-07T00:00:00.000Z',
+            updatedAt: '2026-07-07T00:00:00.000Z',
+          },
+        },
+      }),
+    );
+    const store = createStore();
+
+    expect(store.inspect('legacy')).toMatchObject({
+      url: 'https://example.com/mcp',
+      observedIdentity: { externalUrl: 'https://example.com' },
+    });
+    expect(store.exportTargetBundle().targets[0]).toMatchObject({
+      url: 'https://example.com/mcp',
+      observedIdentity: { externalUrl: 'https://example.com' },
+    });
+    expect(store.resolveForConnection('legacy').url).toBe('https://user:password@example.com/mcp');
+    expect(JSON.stringify(store.exportTargetBundle())).not.toMatch(/user|password|secret/iu);
+  });
+
   it('requires and clears imported insecure TLS confirmation before use, verify, or credentialed attach', () => {
     const store = createStore();
     store.importTargetBundle({

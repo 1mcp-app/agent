@@ -1,4 +1,5 @@
 import printer from '@src/utils/ui/printer.js';
+import { LocalRuntimeUnavailableError } from '@src/utils/validation/urlDetection.js';
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -124,12 +125,16 @@ describe('enableCommand', () => {
   });
 
   it('persists the enabled state without calling runtime reload', async () => {
-    await enableCommand({
-      name: 'test-server',
-      config: '/tmp/test-config.json',
-      'config-dir': '/tmp',
-      context: 'local',
-    });
+    resolveTarget.mockRejectedValueOnce(new LocalRuntimeUnavailableError('No running 1MCP server found'));
+    await enableCommand(
+      {
+        name: 'test-server',
+        config: '/tmp/test-config.json',
+        'config-dir': '/tmp',
+        context: 'local',
+      },
+      deps(),
+    );
 
     expect(configUtils.setServer).toHaveBeenCalledWith('test-server', expect.not.objectContaining({ disabled: true }));
     expect(configUtils.reloadMcpConfig).not.toHaveBeenCalled();
@@ -213,6 +218,29 @@ describe('enableCommand', () => {
       context: 'local',
       runtimeScopeId: 'scope_local',
       url: 'http://127.0.0.1:3050',
+    });
+  });
+
+  it('does not fall back to direct config writes when an explicit local runtime fails validation', async () => {
+    resolveTarget.mockRejectedValueOnce(new Error('Runtime identity mismatch'));
+
+    await enableCommand(
+      {
+        name: 'test-server',
+        config: '/tmp/test-config.json',
+        'config-dir': '/tmp',
+        context: 'local',
+        json: true,
+      },
+      deps(),
+    );
+
+    expect(configUtils.setServer).not.toHaveBeenCalled();
+    expect(process.exitCode).toBe(1);
+    expect(JSON.parse(stdout.mock.calls.map((call: unknown[]) => String(call[0])).join(''))).toMatchObject({
+      ok: false,
+      target: { context: 'local' },
+      error: { code: 'command_failed', message: 'Runtime identity mismatch' },
     });
   });
 

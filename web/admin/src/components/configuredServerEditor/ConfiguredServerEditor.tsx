@@ -162,23 +162,43 @@ export function ConfiguredServerEditor({ model }: { model: ConfiguredServerEditM
                 </div>
                 <Badge variant="outline">{group.fields.length} fields</Badge>
               </Group>
-              {group.fields.map((field) =>
-                field.control === 'secret' ? (
-                  <SecretFieldDraft
-                    key={fieldKey(field.fieldPath)}
-                    field={field}
-                    draft={state.secretDraft[fieldKey(field.fieldPath)]}
-                    onChange={(draft) => model.changeSecret(field.fieldPath, draft)}
-                  />
-                ) : (
-                  <ConfiguredServerFieldDraft
-                    key={fieldKey(field.fieldPath)}
-                    field={field}
-                    value={state.fieldDraft[fieldKey(field.fieldPath)]}
-                    onChange={(value) => model.changeField(field.fieldPath, value)}
-                  />
-                ),
-              )}
+              {group.fields.map((field) => {
+                const overrideKey = field.fieldPath[0] === 'transport' ? field.fieldPath[1] : field.fieldPath[0];
+                const overrideCleared = Boolean(overrideKey && state.clearedTransportOverrides.includes(overrideKey));
+                return (
+                  <Stack key={fieldKey(field.fieldPath)} gap={4}>
+                    {field.control === 'secret' ? (
+                      <SecretFieldDraft
+                        field={field}
+                        draft={state.secretDraft[fieldKey(field.fieldPath)]}
+                        onChange={(draft) => model.changeSecret(field.fieldPath, draft)}
+                      />
+                    ) : (
+                      <ConfiguredServerFieldDraft
+                        field={field}
+                        value={state.fieldDraft[fieldKey(field.fieldPath)]}
+                        onChange={(value) => model.changeField(field.fieldPath, value)}
+                      />
+                    )}
+                    {field.overrideSupported && overrideKey ? (
+                      <Group justify="space-between" gap="xs">
+                        <Badge variant="outline">
+                          {overrideCleared ? 'will inherit' : field.source === 'inherited' ? 'inherited' : field.source}
+                        </Badge>
+                        {field.clearOverrideSupported ? (
+                          <Button
+                            size="compact-xs"
+                            variant="subtle"
+                            onClick={() => model.changeTransportOverride(overrideKey, !overrideCleared)}
+                          >
+                            {overrideCleared ? 'Restore override' : 'Clear override'}
+                          </Button>
+                        ) : null}
+                      </Group>
+                    ) : null}
+                  </Stack>
+                );
+              })}
             </Stack>
           </Paper>
         ))}

@@ -177,6 +177,9 @@ export interface ConfiguredServerEditField {
   editable: boolean;
   applicableTransportTypes?: Array<'stdio' | 'http' | 'sse' | 'streamableHttp'>;
   secret?: ConfiguredServerSecretEditMetadata;
+  source?: 'server' | 'inherited' | 'default';
+  overrideSupported?: boolean;
+  clearOverrideSupported?: boolean;
 }
 
 export interface ConfiguredServerEditFieldGroup {
@@ -186,7 +189,7 @@ export interface ConfiguredServerEditFieldGroup {
 }
 
 export interface ConfiguredServerEditContract {
-  schemaVersion: 1 | 2;
+  schemaVersion: 1 | 2 | 3;
   target: ConfiguredServerReadModel['target'];
   capabilities: {
     singleTargetEdit: true;
@@ -225,6 +228,7 @@ export interface ConfiguredServerEditDraft {
   tags?: string[];
   transport?: Record<string, unknown>;
   secrets?: ConfiguredServerSecretEditDraft[];
+  clearTransportOverrides?: string[];
 }
 
 export type ConfiguredServerPreviewRiskFlag = 'rename' | 'connection_critical' | 'secret' | 'template_risk';

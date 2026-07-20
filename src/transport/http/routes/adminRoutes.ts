@@ -32,9 +32,13 @@ import { sanitizeErrorMessage } from '@src/utils/validation/sanitization.js';
 
 import express, { Request, Response, Router } from 'express';
 import { createRequire } from 'node:module';
+import { z } from 'zod';
 
 const FAILED_LOGIN_LIMIT = 5;
 const FAILED_LOGIN_WINDOW_MS = 15 * 60 * 1000;
+const FAILED_LOGIN_MAX_ACTIVE_KEYS = 10_000;
+const ADMIN_USERNAME_MAX_LENGTH = 256;
+const ADMIN_PASSWORD_MAX_LENGTH = 4096;
 const CLI_ADMIN_PROTOCOL_VERSION = '1';
 const CLI_ADMIN_RESPONSE_MAX_BYTES = 256 * 1024;
 const CLI_ADMIN_RESPONSE_TOO_LARGE_MESSAGE =
@@ -51,6 +55,14 @@ const packageMetadata = createRequire(import.meta.url)('../../../../package.json
   repository?: { url?: string };
 };
 const CLI_MCP_OPERATIONS = ['mcp.enable', 'mcp.disable'] as const;
+const adminLoginBodySchema = z.object({
+  username: z.string().trim().min(1).max(ADMIN_USERNAME_MAX_LENGTH),
+  password: z.string().min(1).max(ADMIN_PASSWORD_MAX_LENGTH),
+});
+const cliConfiguredServerMutationBodySchema = z.object({
+  targetName: z.string().trim().min(1).max(256),
+  dryRun: z.boolean().optional(),
+});
 type AdminOperationFailure = Extract<AdminOperationResult, { ok: false }>;
 interface CliAdminEnvelope {
   ok: boolean;
@@ -118,7 +130,17 @@ export function createAdminRoutes(options: AdminRoutesOptions): Router | null {
   });
 
   router.post('/cli/v1/session/login', async (req, res) => {
-    const username = getBodyString(req.body, 'username');
+    const parsedBody = adminLoginBodySchema.safeParse(req.body);
+    if (!parsedBody.success) {
+      sendCliError(req, res, {
+        status: 400,
+        code: 'admin_login_request_invalid',
+        message: 'Admin username and password are required and must be valid strings',
+        retryable: false,
+      });
+      return;
+    }
+    const { username, password } = parsedBody.data;
     const source = getLoginSource(req);
     if (failedLoginLimiter.isLimited(username, source)) {
       sendCliError(req, res, {
@@ -133,7 +155,7 @@ export function createAdminRoutes(options: AdminRoutesOptions): Router | null {
     try {
       const login = await options.adminService.login({
         username,
-        password: getBodyString(req.body, 'password'),
+        password,
       });
 
       failedLoginLimiter.reset(username, source);
@@ -188,7 +210,12 @@ export function createAdminRoutes(options: AdminRoutesOptions): Router | null {
   });
 
   router.post('/api/session/login', async (req, res) => {
-    const username = getBodyString(req.body, 'username');
+    const parsedBody = adminLoginBodySchema.safeParse(req.body);
+    if (!parsedBody.success) {
+      res.status(400).json({ error: 'admin_login_request_invalid' });
+      return;
+    }
+    const { username, password } = parsedBody.data;
     const source = getLoginSource(req);
     if (failedLoginLimiter.isLimited(username, source)) {
       res.status(429).json({ error: 'admin_login_rate_limited' });
@@ -198,7 +225,7 @@ export function createAdminRoutes(options: AdminRoutesOptions): Router | null {
     try {
       const login = await options.adminService.login({
         username,
-        password: getBodyString(req.body, 'password'),
+        password,
       });
 
       failedLoginLimiter.reset(username, source);
@@ -517,17 +544,17 @@ async function handleCliConfiguredServerMutation(
     return;
   }
 
-  const targetName = getBodyString(req.body, 'targetName');
-  if (!targetName) {
+  const parsedBody = cliConfiguredServerMutationBodySchema.safeParse(req.body);
+  if (!parsedBody.success) {
     sendCliError(req, res, {
       status: 400,
-      code: 'validation_target_required',
-      message: 'Configured server targetName is required',
+      code: 'validation_request_invalid',
+      message: 'Configured server targetName and dryRun must have valid types',
       retryable: false,
     });
     return;
   }
-  const dryRun = getBodyBoolean(req.body, 'dryRun');
+  const { targetName, dryRun = false } = parsedBody.data;
   const context = buildCliAdminOperationContext(req, options, session.account, sessionToken, {
     type: 'configured_server',
     id: targetName,
@@ -770,18 +797,32 @@ function cliMcpReadinessStatus(mutationAvailability: AdminMutationAvailability):
     : (mutationAvailability.reason ?? 'unavailable');
 }
 
-class FailedLoginLimiter {
+export class FailedLoginLimiter {
   private readonly attempts = new Map<string, { count: number; firstFailureAt: number }>();
 
+  constructor(
+    private readonly now: () => number = Date.now,
+    private readonly maxActiveKeys = FAILED_LOGIN_MAX_ACTIVE_KEYS,
+    private readonly windowMs = FAILED_LOGIN_WINDOW_MS,
+  ) {}
+
   isLimited(username: string, origin: string): boolean {
+    this.pruneExpired();
     const attempt = this.getAttempt(username, origin);
-    return attempt ? attempt.count >= FAILED_LOGIN_LIMIT : false;
+    if (attempt) {
+      return attempt.count >= FAILED_LOGIN_LIMIT;
+    }
+    return this.attempts.size >= this.maxActiveKeys;
   }
 
   recordFailure(username: string, origin: string): void {
     const key = this.key(username, origin);
-    const now = Date.now();
+    this.pruneExpired();
+    const now = this.now();
     const attempt = this.getAttempt(username, origin);
+    if (!attempt && this.attempts.size >= this.maxActiveKeys) {
+      return;
+    }
     this.attempts.set(key, attempt ? { ...attempt, count: attempt.count + 1 } : { count: 1, firstFailureAt: now });
   }
 
@@ -796,7 +837,7 @@ class FailedLoginLimiter {
       return null;
     }
 
-    if (Date.now() - attempt.firstFailureAt > FAILED_LOGIN_WINDOW_MS) {
+    if (this.now() - attempt.firstFailureAt > this.windowMs) {
       this.attempts.delete(key);
       return null;
     }
@@ -806,6 +847,15 @@ class FailedLoginLimiter {
 
   private key(username: string, origin: string): string {
     return `${username.trim() || '<missing>'}\0${origin}`;
+  }
+
+  private pruneExpired(): void {
+    const now = this.now();
+    for (const [key, attempt] of this.attempts) {
+      if (now - attempt.firstFailureAt > this.windowMs) {
+        this.attempts.delete(key);
+      }
+    }
   }
 }
 
@@ -1386,14 +1436,6 @@ function getBodyString(body: unknown, key: string): string {
 
   const value = (body as Record<string, unknown>)[key];
   return typeof value === 'string' ? value : '';
-}
-
-function getBodyBoolean(body: unknown, key: string): boolean {
-  if (!body || typeof body !== 'object') {
-    return false;
-  }
-
-  return (body as Record<string, unknown>)[key] === true;
 }
 
 function getBodyRecord(body: unknown, key: string): Record<string, unknown> | undefined {

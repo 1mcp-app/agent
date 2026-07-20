@@ -56,6 +56,7 @@ function FixtureAdminConsoleApp({ state, overrides }: { state: AdminConsoleState
     close: configuredServers?.close ?? (async () => true),
     changeField: (fieldPath, value) => editDispatch({ type: 'fieldChanged', fieldPath, value }),
     changeSecret: (fieldPath, value) => editDispatch({ type: 'secretChanged', fieldPath, value }),
+    changeTransportOverride: (key, clear) => editDispatch({ type: 'transportOverrideChanged', key, clear }),
     preview: configuredServers?.preview ?? (() => undefined),
     apply: configuredServers?.apply ?? (() => undefined),
   };
@@ -107,6 +108,7 @@ function staticConfiguredServerEditModel(overrides?: ConfiguredServerOverrides):
     close: overrides?.close ?? (async () => true),
     changeField: () => undefined,
     changeSecret: () => undefined,
+    changeTransportOverride: () => undefined,
     preview: () => undefined,
     apply: overrides?.apply ?? (() => undefined),
   };

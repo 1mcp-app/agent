@@ -20,6 +20,7 @@ interface LoadedConfiguredServerEditState {
   fieldDraft: FieldDraftState;
   initialFieldDraft: FieldDraftState;
   secretDraft: SecretDraftState;
+  clearedTransportOverrides: string[];
   dirty: boolean;
   preview?: ConfiguredServerPreviewResponse['preview'];
   previewBusy: boolean;
@@ -47,6 +48,7 @@ export type ConfiguredServerEditAction =
   | { type: 'detailFailed'; serverId: string; message: string }
   | { type: 'fieldChanged'; fieldPath: string[]; value: unknown }
   | { type: 'secretChanged'; fieldPath: string[]; value: SecretDraftState[string] }
+  | { type: 'transportOverrideChanged'; key: string; clear: boolean }
   | { type: 'previewStarted' }
   | { type: 'previewSucceeded'; preview: ConfiguredServerPreviewResponse['preview'] }
   | { type: 'previewFailed'; message: string }
@@ -74,6 +76,7 @@ export function configuredServerEditDraft(state: ConfiguredServerEditState): Con
     state.initialFieldDraft,
     state.secretDraft,
     transportType,
+    state.clearedTransportOverrides,
   );
 }
 
@@ -97,12 +100,23 @@ export function reduceConfiguredServerEditState(
       if (state.applyBusy) return state;
       return withDraftChange(state, {
         fieldDraft: { ...state.fieldDraft, [fieldKey(action.fieldPath)]: action.value },
+        clearedTransportOverrides:
+          action.fieldPath[0] === 'transport' && action.fieldPath[1]
+            ? state.clearedTransportOverrides.filter((key) => key !== action.fieldPath[1])
+            : state.clearedTransportOverrides,
       });
     case 'secretChanged':
       if (state.status !== 'loaded') return state;
       if (state.applyBusy) return state;
       return withDraftChange(state, {
         secretDraft: { ...state.secretDraft, [fieldKey(action.fieldPath)]: action.value },
+      });
+    case 'transportOverrideChanged':
+      if (state.status !== 'loaded' || state.applyBusy) return state;
+      return withDraftChange(state, {
+        clearedTransportOverrides: action.clear
+          ? Array.from(new Set([...state.clearedTransportOverrides, action.key]))
+          : state.clearedTransportOverrides.filter((key) => key !== action.key),
       });
     case 'previewStarted':
       if (state.status !== 'loaded') return state;
@@ -177,6 +191,7 @@ function loadedState(serverId: string, detail: ConfiguredServerDetailResponse): 
     fieldDraft,
     initialFieldDraft: fieldDraft,
     secretDraft,
+    clearedTransportOverrides: [],
     dirty: false,
     previewBusy: false,
     applyBusy: false,
@@ -185,7 +200,7 @@ function loadedState(serverId: string, detail: ConfiguredServerDetailResponse): 
 
 function withDraftChange(
   state: LoadedConfiguredServerEditState,
-  change: Partial<Pick<LoadedConfiguredServerEditState, 'fieldDraft' | 'secretDraft'>>,
+  change: Partial<Pick<LoadedConfiguredServerEditState, 'fieldDraft' | 'secretDraft' | 'clearedTransportOverrides'>>,
 ): LoadedConfiguredServerEditState {
   const next = {
     ...state,

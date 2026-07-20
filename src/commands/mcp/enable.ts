@@ -11,6 +11,7 @@ import { RuntimeTargetStore, RuntimeTargetStoreError } from '@src/domains/runtim
 import { GlobalOptions } from '@src/globalOptions.js';
 import printer from '@src/utils/ui/printer.js';
 import { stripMcpSuffix } from '@src/utils/urlUtils.js';
+import { LocalRuntimeUnavailableError } from '@src/utils/validation/urlDetection.js';
 
 import prompts from 'prompts';
 import type { Argv } from 'yargs';
@@ -314,8 +315,11 @@ async function trySetRuntimeBackedLocalServerEnabledState(
   let target: ResolvedServeTarget<ResolvableServeTargetOptions & { context: string }>;
   try {
     target = await resolveRuntimeBackedTarget(argv, contextName, dependencies);
-  } catch {
-    return false;
+  } catch (error) {
+    if (error instanceof LocalRuntimeUnavailableError) {
+      return false;
+    }
+    throw error;
   }
   if (
     target.runtimeTargetContext?.name !== 'local' ||

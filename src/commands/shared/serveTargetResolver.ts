@@ -44,7 +44,8 @@ export interface ServeTargetResolverPorts {
   runtimeTargetStore?: Pick<
     RuntimeTargetStore,
     'current' | 'inspect' | 'requireInsecureTlsConfirmation' | 'updateObservedIdentityMetadata'
-  >;
+  > &
+    Partial<Pick<RuntimeTargetStore, 'resolveForConnection'>>;
   verifyRuntimeIdentity?: typeof verifyRuntimeIdentityForTarget;
 }
 
@@ -153,11 +154,13 @@ export async function resolveServeTarget<TOptions extends ResolvableServeTargetO
     };
   }
 
-  const {
-    url: discoveredUrl,
-    pid: serverPid,
-    source,
-  } = await discoverServerWithPidFile(mergedOptions['config-dir'], mergedOptions.url);
+  const localDiscovery =
+    mergedOptions.context === 'local'
+      ? await discoverServerWithPidFile(mergedOptions['config-dir'], mergedOptions.url, {
+          failOnOwnedRuntimeUnavailable: true,
+        })
+      : await discoverServerWithPidFile(mergedOptions['config-dir'], mergedOptions.url);
+  const { url: discoveredUrl, pid: serverPid, source } = localDiscovery;
   const validation = await validateServer1mcpUrl(discoveredUrl);
 
   if (!validation.valid) {
@@ -212,7 +215,11 @@ async function resolveRemoteRuntimeTargetContext<TOptions extends ResolvableServ
   }
 
   const store = ports.runtimeTargetStore ?? new RuntimeTargetStore();
-  const target = options.context ? store.inspect(options.context) : store.current();
+  const target = store.resolveForConnection
+    ? store.resolveForConnection(options.context)
+    : options.context
+      ? store.inspect(options.context)
+      : store.current();
 
   if (target.name === 'local') {
     return null;

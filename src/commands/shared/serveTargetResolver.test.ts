@@ -207,7 +207,9 @@ describe('resolveServeTarget', () => {
       },
     );
 
-    expect(mockedDiscoverServerWithPidFile).toHaveBeenCalledWith('/tmp/local-scope', undefined);
+    expect(mockedDiscoverServerWithPidFile).toHaveBeenCalledWith('/tmp/local-scope', undefined, {
+      failOnOwnedRuntimeUnavailable: true,
+    });
     expect(verifyRuntimeIdentity).toHaveBeenCalledWith({
       target: expect.objectContaining({
         name: 'local',
