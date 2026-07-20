@@ -10,6 +10,7 @@ import type {
   AdminSession,
 } from '../api/adminApi';
 import { AdminConsoleApp } from '../components/AdminConsoleApp';
+import { ConfirmationDialogProvider, useConfirmationDialog } from '../components/ConfirmationDialogProvider';
 import { useConfiguredServerEdit } from '../configuredServerEdit/useConfiguredServerEdit';
 import { type AdminConsoleAction, createInitialState, reduceAdminConsoleState } from '../state/adminConsoleState';
 import { pollingDelayForVisibility, shouldPollConsole } from '../state/polling';
@@ -29,9 +30,8 @@ interface AdminConsoleDocument {
 interface AdminConsoleWindow {
   setTimeout: Window['setTimeout'];
   clearTimeout: Window['clearTimeout'];
-  location?: Pick<Location, 'pathname'>;
+  location?: Pick<Location, 'pathname' | 'hash'>;
   history?: Pick<History, 'pushState' | 'replaceState'>;
-  confirm?: Window['confirm'];
   addEventListener?: Window['addEventListener'];
   removeEventListener?: Window['removeEventListener'];
 }
@@ -44,7 +44,21 @@ export interface AdminConsoleRootProps {
 }
 
 export function AdminConsoleRoot({ api, documentRef = document, windowRef = window, nowLabel }: AdminConsoleRootProps) {
-  const session = useAdminConsoleSession({ api, documentRef, windowRef, nowLabel });
+  return (
+    <ConfirmationDialogProvider>
+      <AdminConsoleSessionRoot api={api} documentRef={documentRef} windowRef={windowRef} nowLabel={nowLabel} />
+    </ConfirmationDialogProvider>
+  );
+}
+
+function AdminConsoleSessionRoot({
+  api,
+  documentRef,
+  windowRef,
+  nowLabel,
+}: Required<Omit<AdminConsoleRootProps, 'nowLabel'>> & Pick<AdminConsoleRootProps, 'nowLabel'>) {
+  const confirm = useConfirmationDialog();
+  const session = useAdminConsoleSession({ api, documentRef, windowRef, nowLabel, confirm });
 
   return <AdminConsoleApp session={session} />;
 }
@@ -54,17 +68,24 @@ export function useAdminConsoleSession({
   documentRef,
   windowRef,
   nowLabel,
+  confirm,
 }: Required<Omit<AdminConsoleRootProps, 'nowLabel'>> &
-  Pick<AdminConsoleRootProps, 'nowLabel'>): AdminConsoleSessionModel {
+  Pick<AdminConsoleRootProps, 'nowLabel'> & {
+    confirm: ReturnType<typeof useConfirmationDialog>;
+  }): AdminConsoleSessionModel {
   const [state, setState] = useState(createInitialState);
   const [loginBusy, setLoginBusy] = useState(false);
   const [route, setRoute] = useState(() => adminRoute(windowRef.location?.pathname ?? '/admin'));
+  const [section, setSection] = useState(() => adminSection(windowRef.location?.hash ?? ''));
   const [presets, setPresets] = useState<AdminPresetListItem[]>([]);
   const [presetTargets, setPresetTargets] = useState<AdminPresetTarget[]>([]);
   const [presetRevision, setPresetRevision] = useState('');
   const [presetBusy, setPresetBusy] = useState(false);
   const stateRef = useRef(state);
   const timerRef = useRef<ReturnType<Window['setTimeout']> | null>(null);
+  const configuredServerAppliedRef = useRef<() => void | Promise<void>>();
+  const presetSaveBusyRef = useRef(false);
+  const presetDeleteBusyRef = useRef(false);
   const formatNow = useCallback(() => nowLabel?.() ?? new Date().toLocaleTimeString(), [nowLabel]);
 
   const dispatch = useCallback((action: AdminConsoleAction) => {
@@ -104,23 +125,32 @@ export function useAdminConsoleSession({
 
   const configuredServerEditBrowser = useMemo(
     () => ({
-      pathname: () => windowRef.location?.pathname ?? '/admin',
+      pathname: () => `${windowRef.location?.pathname ?? '/admin'}${windowRef.location?.hash ?? ''}`,
       push: (pathname: string) => windowRef.history?.pushState(null, '', pathname),
       replace: (pathname: string) => windowRef.history?.replaceState(null, '', pathname),
-      confirm: (message: string) => windowRef.confirm?.(message) !== false,
+      confirm,
       subscribePopState: (listener: () => void) => {
         windowRef.addEventListener?.('popstate', listener);
         return () => windowRef.removeEventListener?.('popstate', listener);
       },
     }),
-    [windowRef],
+    [confirm, windowRef],
   );
+
+  const commitBrowserPath = useCallback((path: string) => {
+    const [pathname, hash = ''] = path.split('#');
+    const nextRoute = adminRoute(pathname);
+    setRoute(nextRoute);
+    setSection(nextRoute === 'overview' ? adminSection(hash) : null);
+  }, []);
 
   const configuredServerEdit = useConfiguredServerEdit({
     api,
     session: state.session,
     browser: configuredServerEditBrowser,
     onUnauthenticated: invalidateAdminSession,
+    onApplied: () => configuredServerAppliedRef.current?.(),
+    onPathCommitted: commitBrowserPath,
   });
 
   const isCurrentSession = useCallback((sessionKey: string) => stateRef.current.session?.csrfToken === sessionKey, []);
@@ -138,6 +168,10 @@ export function useAdminConsoleSession({
     }
   }, [api]);
 
+  useEffect(() => {
+    if (route === 'presets' && state.session) void loadPresets();
+  }, [loadPresets, route, state.session]);
+
   const previewPreset = useCallback(
     async (draft: AdminPresetDraft, sourceName?: string): Promise<AdminPresetPreview> => {
       const csrfToken = stateRef.current.session?.csrfToken;
@@ -149,57 +183,89 @@ export function useAdminConsoleSession({
 
   const savePreset = useCallback(
     async (input: { action: 'create' | 'update' | 'duplicate'; sourceName?: string; preview: AdminPresetPreview }) => {
-      const csrfToken = stateRef.current.session?.csrfToken;
-      if (!csrfToken) return;
-      await api.mutatePreset({
-        action: input.action,
-        sourceName: input.sourceName,
-        draft: input.preview.draft,
-        revision: input.preview.revision,
-        previewFingerprint: input.preview.previewFingerprint,
-        confirmations: {
-          previewConfirmed: input.preview.previewFingerprint,
-          ...(input.preview.matchCount === 0 ? { zeroMatchConfirmed: true } : {}),
-        },
-        csrfToken,
-      });
-      await loadPresets();
+      if (presetSaveBusyRef.current) return false;
+      presetSaveBusyRef.current = true;
+      try {
+        const csrfToken = stateRef.current.session?.csrfToken;
+        if (!csrfToken) return false;
+        const confirmed = await confirm({
+          title: `${presetActionLabel(input.action)} ${input.preview.draft.name}?`,
+          message: 'The preview must still match the current preset store when this change is saved.',
+          confirmLabel: `${presetActionLabel(input.action)} preset`,
+          details: [
+            { label: 'Preset', value: input.preview.draft.name },
+            { label: 'Current matches', value: String(input.preview.matchCount) },
+            ...(input.preview.matchCount === 0
+              ? [{ label: 'Attention', value: 'This preset currently matches no configured servers.' }]
+              : []),
+          ],
+        });
+        if (!confirmed) return false;
+        await api.mutatePreset({
+          action: input.action,
+          sourceName: input.sourceName,
+          draft: input.preview.draft,
+          revision: input.preview.revision,
+          previewFingerprint: input.preview.previewFingerprint,
+          confirmations: {
+            previewConfirmed: input.preview.previewFingerprint,
+            ...(input.preview.matchCount === 0 ? { zeroMatchConfirmed: true } : {}),
+          },
+          csrfToken,
+        });
+        await loadPresets();
+        return true;
+      } finally {
+        presetSaveBusyRef.current = false;
+      }
     },
-    [api, loadPresets],
+    [api, confirm, loadPresets],
   );
 
   const deletePreset = useCallback(
     async (name: string) => {
-      const csrfToken = stateRef.current.session?.csrfToken;
-      if (!csrfToken) return;
-      const preview = await api.previewPresetDelete({ name, revision: presetRevision, csrfToken });
-      const matches = preview.matches.filter((match) => match.matched).map((match) => match.name);
-      if (
-        windowRef.confirm?.(
-          `Confirm preset name "${name}" and delete it? Current matches: ${matches.join(', ') || 'none'}. ${preview.consequence}`,
-        ) === false
-      ) {
-        return;
+      if (presetDeleteBusyRef.current) return;
+      presetDeleteBusyRef.current = true;
+      try {
+        const csrfToken = stateRef.current.session?.csrfToken;
+        if (!csrfToken) return;
+        const preview = await api.previewPresetDelete({ name, revision: presetRevision, csrfToken });
+        const matches = preview.matches.filter((match) => match.matched).map((match) => match.name);
+        const confirmed = await confirm({
+          title: `Delete ${name}?`,
+          message: 'This removes the preset from the current Runtime Scope.',
+          confirmLabel: 'Delete preset',
+          tone: 'danger',
+          details: [
+            { label: 'Preset', value: name },
+            { label: 'Current matches', value: matches.join(', ') || 'none' },
+            { label: 'Consequence', value: preview.consequence },
+          ],
+        });
+        if (!confirmed) return;
+        await api.deletePreset({
+          name,
+          revision: presetRevision,
+          previewFingerprint: preview.previewFingerprint,
+          csrfToken,
+        });
+        await loadPresets();
+      } finally {
+        presetDeleteBusyRef.current = false;
       }
-      await api.deletePreset({
-        name,
-        revision: presetRevision,
-        previewFingerprint: preview.previewFingerprint,
-        csrfToken,
-      });
-      await loadPresets();
     },
-    [api, loadPresets, presetRevision, windowRef],
+    [api, confirm, loadPresets, presetRevision],
   );
 
   const navigate = useCallback(
-    (nextRoute: 'overview' | 'presets' | 'about') => {
-      const pathname = nextRoute === 'overview' ? '/admin' : `/admin/${nextRoute}`;
-      if (!configuredServerEdit.close(pathname)) return;
+    async (nextRoute: 'overview' | 'presets' | 'about', nextSection: 'inventory' | 'oauth' | 'audit' | null = null) => {
+      const hash = nextRoute === 'overview' && nextSection ? `#${nextSection}` : '';
+      const pathname = `${nextRoute === 'overview' ? '/admin' : `/admin/${nextRoute}`}${hash}`;
+      if (!(await configuredServerEdit.close(pathname))) return;
       setRoute(nextRoute);
-      if (nextRoute === 'presets') void loadPresets();
+      setSection(nextRoute === 'overview' ? nextSection : null);
     },
-    [configuredServerEdit, loadPresets],
+    [configuredServerEdit],
   );
 
   const refreshConsole = useCallback(
@@ -232,6 +298,7 @@ export function useAdminConsoleSession({
     },
     [api, dispatch, formatNow, handleUnauthenticated, isCurrentSession],
   );
+  configuredServerAppliedRef.current = () => refreshConsole('');
 
   const schedulePoll = useCallback(() => {
     clearPoll();
@@ -249,7 +316,6 @@ export function useAdminConsoleSession({
       const session = await api.getSession();
       dispatch({ type: 'sessionLoaded', session });
       await refreshConsole('Session loaded, but refresh failed: ', session);
-      if (adminRoute(windowRef.location?.pathname ?? '/admin') === 'presets') await loadPresets();
     } catch (error) {
       if (!handleUnauthenticated(error)) {
         dispatch({ type: 'refreshFailed', message: `Session check failed: ${failureMessage(error)}` });
@@ -257,7 +323,7 @@ export function useAdminConsoleSession({
     } finally {
       schedulePoll();
     }
-  }, [api, dispatch, handleUnauthenticated, loadPresets, refreshConsole, schedulePoll, windowRef.location]);
+  }, [api, dispatch, handleUnauthenticated, refreshConsole, schedulePoll]);
 
   const login = useCallback(
     async (input: { username: string; password: string }) => {
@@ -269,7 +335,6 @@ export function useAdminConsoleSession({
         const session = await api.login(input);
         dispatch({ type: 'sessionLoaded', session });
         await refreshConsole('Login succeeded, but refresh failed: ', session);
-        if (adminRoute(windowRef.location?.pathname ?? '/admin') === 'presets') await loadPresets();
       } catch (error) {
         dispatch({ type: 'loginFailed', message: `Login failed: ${failureMessage(error)}` });
       } finally {
@@ -277,7 +342,7 @@ export function useAdminConsoleSession({
         schedulePoll();
       }
     },
-    [api, dispatch, loadPresets, loginBusy, refreshConsole, schedulePoll, windowRef.location],
+    [api, dispatch, loginBusy, refreshConsole, schedulePoll],
   );
 
   const mutateServer = useCallback(
@@ -347,23 +412,13 @@ export function useAdminConsoleSession({
     return () => documentRef.removeEventListener?.('visibilitychange', listener);
   }, [documentRef, schedulePoll]);
 
-  useEffect(() => {
-    const listener = () => {
-      const nextRoute = adminRoute(windowRef.location?.pathname ?? '/admin');
-      setRoute(nextRoute);
-      if (nextRoute === 'presets') void loadPresets();
-    };
-    windowRef.addEventListener?.('popstate', listener);
-    return () => windowRef.removeEventListener?.('popstate', listener);
-  }, [loadPresets, windowRef]);
-
   return {
     state,
     loginBusy,
     login,
     logout,
     refresh: () => refreshConsole('Manual refresh failed: '),
-    navigation: { route, navigate },
+    navigation: { route, section, navigate },
     configuredServers: {
       edit: configuredServerEdit,
       mutate: mutateServer,
@@ -380,6 +435,17 @@ export function useAdminConsoleSession({
       delete: deletePreset,
     },
   };
+}
+
+function adminSection(hash: string): 'inventory' | 'oauth' | 'audit' | null {
+  const section = hash.replace(/^#/, '');
+  return section === 'inventory' || section === 'oauth' || section === 'audit' ? section : null;
+}
+
+function presetActionLabel(action: 'create' | 'update' | 'duplicate'): string {
+  if (action === 'create') return 'Create';
+  if (action === 'duplicate') return 'Duplicate';
+  return 'Update';
 }
 
 function adminRoute(pathname: string): 'overview' | 'presets' | 'about' {

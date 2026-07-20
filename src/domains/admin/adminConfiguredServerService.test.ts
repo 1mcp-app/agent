@@ -660,6 +660,367 @@ describe('AdminConfiguredServerService', () => {
     expect(JSON.stringify(result)).not.toMatch(/raw-token|raw-header-token/);
   });
 
+  it('applies a fresh confirmed preview, preserves secrets, renames atomically, and audits redacted facts', async () => {
+    writeConfig({
+      mcpServers: {
+        github: {
+          type: 'http',
+          url: 'https://api.example.com/mcp',
+          headers: { Authorization: 'Bearer raw-secret' },
+          tags: ['remote'],
+        },
+      },
+    });
+    const checkConnectivity = vi.fn<ConfiguredServerConnectivityChecker>().mockResolvedValue({
+      status: 'passed',
+      mode: 'bounded_dry_run',
+      checkedAt: '2026-07-07T00:00:00.000Z',
+    });
+    const service = createService({ checkConnectivity });
+    const edit = {
+      id: 'github-renamed',
+      tags: ['remote', 'edited'],
+      transport: { url: 'https://new.example.com/mcp' },
+    };
+    const preview = await service.previewConfiguredServerEdit({
+      context: context({ idempotencyKey: undefined, requestFingerprint: undefined }),
+      targetName: 'github',
+      edit,
+    });
+    expect(preview.ok).toBe(true);
+    if (!preview.ok) return;
+
+    const unconfirmed = await service.applyConfiguredServerEdit({
+      context: context({
+        target: { type: 'configured_server', id: 'github' },
+        idempotencyKey: 'apply-github',
+        requestFingerprint: 'apply-fingerprint',
+        confirmationFacts: {},
+      }),
+      targetName: 'github',
+      edit,
+      previewFingerprint: preview.result.previewFingerprint,
+    });
+    expect(unconfirmed).toMatchObject({
+      ok: false,
+      status: 'mutation_confirmation_required',
+      confirmationRequirements: expect.arrayContaining([
+        { code: 'previewConfirmed', expected: preview.result.previewFingerprint },
+        { code: 'targetNameConfirmed', expected: 'github-renamed' },
+        { code: 'connectionCriticalConfirmed', expected: true },
+      ]),
+    });
+
+    const result = await service.applyConfiguredServerEdit({
+      context: context({
+        target: { type: 'configured_server', id: 'github' },
+        idempotencyKey: 'apply-github',
+        requestFingerprint: 'apply-fingerprint',
+        confirmationFacts: {
+          previewConfirmed: preview.result.previewFingerprint,
+          targetNameConfirmed: 'github-renamed',
+          connectionCriticalConfirmed: true,
+          ignoredRawValue: 'must-not-be-audited',
+        },
+      }),
+      targetName: 'github',
+      edit,
+      previewFingerprint: preview.result.previewFingerprint,
+    });
+
+    expect(result).toMatchObject({
+      ok: true,
+      operationName: 'applyConfiguredServerEdit',
+      result: {
+        originalTargetName: 'github',
+        targetName: 'github-renamed',
+        previewFingerprint: preview.result.previewFingerprint,
+        configChange: {
+          status: 'changed',
+          operation: 'edit',
+          backup: { created: true },
+          reload: { status: 'observed' },
+        },
+      },
+    });
+    expect(readConfig().mcpServers).toEqual({
+      'github-renamed': {
+        type: 'http',
+        url: 'https://new.example.com/mcp',
+        headers: { Authorization: 'Bearer raw-secret' },
+        tags: ['remote', 'edited'],
+      },
+    });
+    expect(checkConnectivity).toHaveBeenCalled();
+    const audit = service.getRecentAuditFacts({ limit: 1 })[0];
+    expect(audit.confirmationFacts).toEqual({
+      previewConfirmed: preview.result.previewFingerprint,
+      targetNameConfirmed: 'github-renamed',
+      connectionCriticalConfirmed: true,
+    });
+    expect(JSON.stringify(audit)).not.toMatch(/raw-secret|must-not-be-audited/u);
+
+    const connectivityCallsBeforeReplay = checkConnectivity.mock.calls.length;
+    const replay = await service.applyConfiguredServerEdit({
+      context: context({
+        target: { type: 'configured_server', id: 'github' },
+        idempotencyKey: 'apply-github',
+        requestFingerprint: 'apply-fingerprint',
+        confirmationFacts: {
+          previewConfirmed: preview.result.previewFingerprint,
+          targetNameConfirmed: 'github-renamed',
+          connectionCriticalConfirmed: true,
+        },
+      }),
+      targetName: 'github',
+      edit,
+      previewFingerprint: preview.result.previewFingerprint,
+    });
+    expect(replay).toMatchObject({
+      ok: true,
+      replayed: true,
+      operationId: result.ok ? result.operationId : undefined,
+      result: { originalTargetName: 'github', targetName: 'github-renamed' },
+    });
+    expect(checkConnectivity).toHaveBeenCalledTimes(connectivityCallsBeforeReplay);
+  });
+
+  it('replays an ordinary successful apply before reading mutable config state', async () => {
+    writeConfig({ mcpServers: { alpha: { type: 'stdio', command: 'node', tags: ['one'] } } });
+    const service = createService();
+    const edit = { tags: ['two'] };
+    const preview = await service.previewConfiguredServerEdit({
+      context: context({ idempotencyKey: undefined, requestFingerprint: undefined }),
+      targetName: 'alpha',
+      edit,
+    });
+    expect(preview.ok).toBe(true);
+    if (!preview.ok) return;
+    const applyInput = {
+      context: context({
+        idempotencyKey: 'apply-alpha',
+        requestFingerprint: 'apply-alpha-fingerprint',
+        confirmationFacts: { previewConfirmed: preview.result.previewFingerprint },
+      }),
+      targetName: 'alpha',
+      edit,
+      previewFingerprint: preview.result.previewFingerprint,
+    };
+
+    const first = await service.applyConfiguredServerEdit(applyInput);
+    const replay = await service.applyConfiguredServerEdit(applyInput);
+
+    expect(first).toMatchObject({ ok: true, replayed: false, result: { targetName: 'alpha' } });
+    expect(replay).toMatchObject({
+      ok: true,
+      replayed: true,
+      operationId: first.ok ? first.operationId : undefined,
+      result: { targetName: 'alpha', previewFingerprint: preview.result.previewFingerprint },
+    });
+    expect(reload).toHaveBeenCalledTimes(1);
+  });
+
+  it('completes and replays an applied edit when reload observation fails after the write', async () => {
+    writeConfig({ mcpServers: { alpha: { type: 'stdio', command: 'node', tags: ['one'] } } });
+    reload.mockImplementation(() => {
+      throw new Error('reload watcher unavailable');
+    });
+    const service = createService();
+    const edit = { tags: ['two'] };
+    const preview = await service.previewConfiguredServerEdit({
+      context: context({ idempotencyKey: undefined, requestFingerprint: undefined }),
+      targetName: 'alpha',
+      edit,
+    });
+    expect(preview.ok).toBe(true);
+    if (!preview.ok) return;
+    const applyInput = {
+      context: context({
+        idempotencyKey: 'apply-reload-failure',
+        requestFingerprint: 'apply-reload-failure-fingerprint',
+        confirmationFacts: { previewConfirmed: preview.result.previewFingerprint },
+      }),
+      targetName: 'alpha',
+      edit,
+      previewFingerprint: preview.result.previewFingerprint,
+    };
+
+    const first = await service.applyConfiguredServerEdit(applyInput);
+    const replay = await service.applyConfiguredServerEdit(applyInput);
+
+    expect(first).toMatchObject({
+      ok: true,
+      replayed: false,
+      result: {
+        configChange: {
+          status: 'changed',
+          changed: true,
+          reload: { status: 'failed', error: 'reload watcher unavailable' },
+        },
+      },
+    });
+    expect(replay).toMatchObject({
+      ok: true,
+      replayed: true,
+      operationId: first.ok ? first.operationId : undefined,
+      result: { configChange: { reload: { status: 'failed', error: 'reload watcher unavailable' } } },
+    });
+    expect(readConfig().mcpServers.alpha.tags).toEqual(['two']);
+    expect(service.getRecentAuditFacts({ limit: 1 })[0]).toMatchObject({
+      operationName: 'applyConfiguredServerEdit',
+      result: 'completed',
+    });
+  });
+
+  it('does not reserve invalid first apply requests', async () => {
+    writeConfig({ mcpServers: { alpha: { type: 'stdio', command: 'node', tags: ['one'] } } });
+    const service = createService();
+    const invalidEdit = { transport: { command: '' } };
+    const invalidPreview = await service.previewConfiguredServerEdit({
+      context: context({ idempotencyKey: undefined, requestFingerprint: undefined }),
+      targetName: 'alpha',
+      edit: invalidEdit,
+    });
+    expect(invalidPreview.ok).toBe(true);
+    if (!invalidPreview.ok) return;
+    const sharedContext = context({
+      idempotencyKey: 'apply-after-invalid',
+      requestFingerprint: 'shared-fingerprint',
+      confirmationFacts: { previewConfirmed: invalidPreview.result.previewFingerprint },
+    });
+
+    await expect(
+      service.applyConfiguredServerEdit({
+        context: sharedContext,
+        targetName: 'alpha',
+        edit: invalidEdit,
+        previewFingerprint: invalidPreview.result.previewFingerprint,
+      }),
+    ).rejects.toMatchObject({ code: 'configured_server_edit_invalid' });
+    expect(service.getRecentAuditFacts()).toEqual([]);
+
+    const validEdit = { tags: ['two'] };
+    const validPreview = await service.previewConfiguredServerEdit({
+      context: context({ idempotencyKey: undefined, requestFingerprint: undefined }),
+      targetName: 'alpha',
+      edit: validEdit,
+    });
+    expect(validPreview.ok).toBe(true);
+    if (!validPreview.ok) return;
+    const result = await service.applyConfiguredServerEdit({
+      context: {
+        ...sharedContext,
+        confirmationFacts: { previewConfirmed: validPreview.result.previewFingerprint },
+      },
+      targetName: 'alpha',
+      edit: validEdit,
+      previewFingerprint: validPreview.result.previewFingerprint,
+    });
+
+    expect(result).toMatchObject({ ok: true, replayed: false, result: { targetName: 'alpha' } });
+    expect(readConfig().mcpServers.alpha.tags).toEqual(['two']);
+  });
+
+  it('rejects stale previews before reserving or writing a mutation', async () => {
+    writeConfig({ mcpServers: { alpha: { type: 'stdio', command: 'node', tags: ['one'] } } });
+    const service = createService();
+    const edit = { tags: ['two'] };
+    const preview = await service.previewConfiguredServerEdit({
+      context: context({ idempotencyKey: undefined, requestFingerprint: undefined }),
+      targetName: 'alpha',
+      edit,
+    });
+    expect(preview.ok).toBe(true);
+    if (!preview.ok) return;
+    writeConfig({ mcpServers: { alpha: { type: 'stdio', command: 'node', tags: ['changed'] } } });
+
+    await expect(
+      service.applyConfiguredServerEdit({
+        context: context({ confirmationFacts: { previewConfirmed: true } }),
+        targetName: 'alpha',
+        edit,
+        previewFingerprint: preview.result.previewFingerprint,
+      }),
+    ).rejects.toMatchObject({ code: 'configured_server_stale_preview' });
+    expect(readConfig().mcpServers.alpha.tags).toEqual(['changed']);
+    expect(service.getRecentAuditFacts()).toEqual([]);
+  });
+
+  it('blocks enabled remote connection-critical applies when connectivity does not pass', async () => {
+    writeConfig({ mcpServers: { alpha: { type: 'http', url: 'https://old.example.com/mcp' } } });
+    const service = createService({
+      checkConnectivity: vi.fn<ConfiguredServerConnectivityChecker>().mockResolvedValue({
+        status: 'failed',
+        mode: 'bounded_dry_run',
+        message: 'Connection refused',
+      }),
+    });
+    const edit = { transport: { url: 'https://new.example.com/mcp' } };
+    const preview = await service.previewConfiguredServerEdit({
+      context: context({ idempotencyKey: undefined, requestFingerprint: undefined }),
+      targetName: 'alpha',
+      edit,
+    });
+    expect(preview.ok).toBe(true);
+    if (!preview.ok) return;
+
+    await expect(
+      service.applyConfiguredServerEdit({
+        context: context({
+          confirmationFacts: { previewConfirmed: true, connectionCriticalConfirmed: true },
+        }),
+        targetName: 'alpha',
+        edit,
+        previewFingerprint: preview.result.previewFingerprint,
+      }),
+    ).rejects.toMatchObject({ code: 'configured_server_connectivity_blocked' });
+    expect(readConfig().mcpServers.alpha.url).toBe('https://old.example.com/mcp');
+  });
+
+  it('treats legacy disabled false strings as enabled for strict apply connectivity', async () => {
+    writeConfig({
+      mcpServers: {
+        alpha: { type: 'http', url: 'https://old.example.com/mcp', disabled: 'false' },
+      },
+    });
+    const checkConnectivity = vi.fn<ConfiguredServerConnectivityChecker>().mockResolvedValue({
+      status: 'failed',
+      mode: 'bounded_dry_run',
+      message: 'Connection refused',
+    });
+    const service = createService({ checkConnectivity });
+    const detail = await service.getConfiguredServerDetail({
+      context: context(),
+      targetName: 'alpha',
+    });
+    expect(detail.ok && detail.result.server.enabled).toBe(true);
+
+    const edit = { transport: { url: 'https://new.example.com/mcp' } };
+    const preview = await service.previewConfiguredServerEdit({
+      context: context({ idempotencyKey: undefined, requestFingerprint: undefined }),
+      targetName: 'alpha',
+      edit,
+    });
+    expect(preview.ok).toBe(true);
+    if (!preview.ok) return;
+
+    await expect(
+      service.applyConfiguredServerEdit({
+        context: context({
+          confirmationFacts: {
+            previewConfirmed: preview.result.previewFingerprint,
+            connectionCriticalConfirmed: true,
+          },
+        }),
+        targetName: 'alpha',
+        edit,
+        previewFingerprint: preview.result.previewFingerprint,
+      }),
+    ).rejects.toMatchObject({ code: 'configured_server_connectivity_blocked' });
+    expect(checkConnectivity).toHaveBeenCalled();
+    expect(readConfig().mcpServers.alpha.url).toBe('https://old.example.com/mcp');
+  });
+
   it('converts HTTP transports to stdio and removes incompatible network fields from the preview', async () => {
     writeConfig({
       mcpServers: {

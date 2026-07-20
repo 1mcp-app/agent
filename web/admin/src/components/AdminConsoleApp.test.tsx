@@ -103,6 +103,30 @@ describe('AdminConsoleApp', () => {
     expect(onNavigate).toHaveBeenNthCalledWith(2, 'about');
   });
 
+  it('navigates to overview sections and exposes the current section', async () => {
+    const user = userEvent.setup();
+    const onNavigate = vi.fn();
+    renderApp(consoleState(), { navigation: { section: 'oauth', navigate: onNavigate } });
+
+    expect(screen.getByRole('button', { name: 'OAuth services' })).toHaveAttribute('aria-current', 'page');
+    expect(document.querySelector('#oauth')).toHaveFocus();
+
+    await user.click(screen.getByRole('button', { name: 'Server inventory' }));
+    await user.click(screen.getByRole('button', { name: 'Audit trail' }));
+
+    expect(onNavigate).toHaveBeenNthCalledWith(1, 'overview', 'inventory');
+    expect(onNavigate).toHaveBeenNthCalledWith(2, 'overview', 'audit');
+  });
+
+  it('opens and closes the accessible mobile navigation control', async () => {
+    const user = userEvent.setup();
+    renderApp(consoleState());
+
+    const toggle = screen.getByRole('button', { name: 'Open operations navigation' });
+    await user.click(toggle);
+    expect(screen.getByRole('button', { name: 'Close operations navigation' })).toBeInTheDocument();
+  });
+
   it('renders compatible version skew without warning and unavailable optional metadata', () => {
     const state = consoleState();
     state.status!.about.adminUiBuildVersion = '9.9.9';
@@ -156,7 +180,7 @@ describe('AdminConsoleApp', () => {
       matchCount: 1,
       structuredConversion: { lossless: true, strategy: 'or', tags: ['web'] },
     });
-    const onSavePreset = vi.fn();
+    const onSavePreset = vi.fn(async () => true);
     vi.spyOn(window, 'confirm').mockReturnValue(true);
     renderApp(consoleState(), {
       navigation: { route: 'presets' },

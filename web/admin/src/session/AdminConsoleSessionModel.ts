@@ -10,7 +10,11 @@ export interface AdminConsoleSessionModel {
   refresh(): void | Promise<void>;
   navigation: {
     route: 'overview' | 'presets' | 'about';
-    navigate(route: 'overview' | 'presets' | 'about'): void;
+    section: 'inventory' | 'oauth' | 'audit' | null;
+    navigate(
+      route: 'overview' | 'presets' | 'about',
+      section?: 'inventory' | 'oauth' | 'audit' | null,
+    ): void | Promise<void>;
   };
   configuredServers: {
     edit: ConfiguredServerEditModel;
@@ -28,7 +32,7 @@ export interface AdminConsoleSessionModel {
       action: 'create' | 'update' | 'duplicate';
       sourceName?: string;
       preview: AdminPresetPreview;
-    }): void | Promise<void>;
+    }): boolean | Promise<boolean>;
     delete(name: string): void | Promise<void>;
   };
 }

@@ -306,10 +306,87 @@ describe('AdminConsoleRoot', () => {
     expect(await screen.findByText('About metadata is unavailable.')).toBeInTheDocument();
   });
 
+  it('prevents reentrant preset save from queueing duplicate dialogs or mutations', async () => {
+    const user = userEvent.setup();
+    const routeWindow = createRouteWindow('/admin/presets');
+    const mutatePreset = vi.fn(async () => ({ ok: true }));
+    const api = apiClient({
+      getSession: vi.fn(async () => session),
+      getStatus: vi.fn(async () => status),
+      listConfiguredServers: vi.fn(async () => []),
+      listPresets: vi.fn(async () => ({ revision: 'rev-1', presets: [], targets: [] })),
+      previewPreset: vi.fn(async ({ draft }) => ({
+        draft,
+        revision: 'rev-1',
+        previewFingerprint: 'preset-preview-1',
+        validation: { status: 'valid', fieldErrors: [], globalErrors: [], warnings: [] },
+        matches: [],
+        matchCount: 0,
+        structuredConversion: { lossless: true, strategy: 'or', tags: [] },
+      })),
+      mutatePreset,
+    });
+
+    renderRoot(api, { windowRef: routeWindow });
+    expect(await screen.findByRole('heading', { name: /^presets$/i })).toBeInTheDocument();
+    await user.type(screen.getByLabelText('Preset name'), 'empty-preset');
+    await user.click(screen.getByRole('button', { name: /preview matches/i }));
+    const saveButton = await screen.findByRole('button', { name: /confirm and save/i });
+    fireEvent.click(saveButton);
+    fireEvent.click(saveButton);
+    const confirmButton = await screen.findByRole('button', { name: /create preset/i });
+    fireEvent.click(confirmButton);
+    fireEvent.click(confirmButton);
+
+    await waitFor(() => expect(mutatePreset).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+  });
+
+  it('prevents reentrant preset delete from duplicating preview or mutation requests', async () => {
+    const routeWindow = createRouteWindow('/admin/presets');
+    const previewPresetDelete = vi.fn(async () => ({
+      previewFingerprint: 'delete-preview-1',
+      matches: [],
+      matchCount: 0,
+      consequence: 'The preset will no longer be available.',
+    }));
+    const deletePreset = vi.fn(async () => ({ ok: true }));
+    const api = apiClient({
+      getSession: vi.fn(async () => session),
+      getStatus: vi.fn(async () => status),
+      listConfiguredServers: vi.fn(async () => []),
+      listPresets: vi.fn(async () => ({
+        revision: 'rev-1',
+        targets: [],
+        presets: [
+          {
+            name: 'obsolete',
+            strategy: 'or',
+            tagQuery: {},
+            querySummary: 'empty query',
+            matchCount: 0,
+          },
+        ],
+      })),
+      previewPresetDelete,
+      deletePreset,
+    });
+
+    renderRoot(api, { windowRef: routeWindow });
+    const deleteButton = await screen.findByRole('button', { name: /delete/i });
+    fireEvent.click(deleteButton);
+    fireEvent.click(deleteButton);
+    const confirmButton = await screen.findByRole('button', { name: /delete preset/i });
+    fireEvent.click(confirmButton);
+    fireEvent.click(confirmButton);
+
+    await waitFor(() => expect(deletePreset).toHaveBeenCalledTimes(1));
+    expect(previewPresetDelete).toHaveBeenCalledTimes(1);
+  });
+
   it('keeps the current detail route when the operator cancels dirty draft discard', async () => {
     const user = userEvent.setup();
     const routeWindow = createRouteWindow('/admin');
-    routeWindow.confirm.mockReturnValue(false);
     const api = apiClient({
       getSession: vi.fn(async () => session),
       getStatus: vi.fn(async () => status),
@@ -330,7 +407,8 @@ describe('AdminConsoleRoot', () => {
       routeWindow.emitPopState();
     });
 
-    expect(routeWindow.confirm).toHaveBeenCalledWith('Discard unsaved configured-server edits?');
+    expect(await screen.findByRole('dialog', { name: /discard unsaved changes/i })).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: /^cancel$/i }));
     expect(routeWindow.history.replaceState).toHaveBeenLastCalledWith(null, '', '/admin/servers/github%2Fapi');
     expect(screen.getByRole('heading', { name: /github\/api/i })).toBeInTheDocument();
   });
@@ -338,7 +416,6 @@ describe('AdminConsoleRoot', () => {
   it('keeps the current detail route when switching servers would discard dirty draft edits', async () => {
     const user = userEvent.setup();
     const routeWindow = createRouteWindow('/admin');
-    routeWindow.confirm.mockReturnValue(false);
     const api = apiClient({
       getSession: vi.fn(async () => session),
       getStatus: vi.fn(async () => status),
@@ -359,7 +436,8 @@ describe('AdminConsoleRoot', () => {
 
     await user.click(screen.getByRole('button', { name: /edit filesystem server/i }));
 
-    expect(routeWindow.confirm).toHaveBeenCalledWith('Discard unsaved configured-server edits?');
+    expect(await screen.findByRole('dialog', { name: /discard unsaved changes/i })).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: /^cancel$/i }));
     expect(api.getConfiguredServerDetail).not.toHaveBeenCalledWith('filesystem');
     expect(routeWindow.history.pushState).toHaveBeenLastCalledWith(null, '', '/admin/servers/github%2Fapi');
     expect(screen.getByRole('heading', { name: /github\/api/i })).toBeInTheDocument();
@@ -435,6 +513,7 @@ describe('AdminConsoleRoot', () => {
     fireEvent.click(previewButton);
     expect(api.previewConfiguredServerEdit).toHaveBeenCalledTimes(1);
     await user.click(screen.getByRole('button', { name: /edit filesystem server/i }));
+    await user.click(await screen.findByRole('button', { name: /discard changes/i }));
     expect(await screen.findByRole('heading', { name: /^filesystem$/i })).toBeInTheDocument();
 
     await act(async () => {
@@ -545,6 +624,7 @@ function apiClient(overrides: Partial<AdminApiClient>): AdminApiClient {
     listConfiguredServers: vi.fn(),
     getConfiguredServerDetail: vi.fn(),
     previewConfiguredServerEdit: vi.fn(),
+    applyConfiguredServerEdit: vi.fn(),
     setConfiguredServerEnabled: vi.fn(),
     ...overrides,
   };
@@ -555,20 +635,23 @@ function createRouteWindow(pathname: string) {
   const routeWindow = {
     setTimeout: vi.fn((handler: TimerHandler, timeout?: number) => window.setTimeout(handler, timeout)),
     clearTimeout: vi.fn((id: number) => window.clearTimeout(id)),
-    location: { pathname },
+    location: { pathname, hash: '' },
     history: {
       pushState: vi.fn((_state: unknown, _title: string, url?: string | URL | null) => {
         if (typeof url === 'string') {
-          routeWindow.location.pathname = url;
+          const [nextPathname, nextHash = ''] = url.split('#');
+          routeWindow.location.pathname = nextPathname;
+          routeWindow.location.hash = nextHash ? `#${nextHash}` : '';
         }
       }),
       replaceState: vi.fn((_state: unknown, _title: string, url?: string | URL | null) => {
         if (typeof url === 'string') {
-          routeWindow.location.pathname = url;
+          const [nextPathname, nextHash = ''] = url.split('#');
+          routeWindow.location.pathname = nextPathname;
+          routeWindow.location.hash = nextHash ? `#${nextHash}` : '';
         }
       }),
     },
-    confirm: vi.fn(() => true),
     addEventListener: vi.fn((type: string, listener: EventListenerOrEventListenerObject) => {
       const handleEvent = typeof listener === 'function' ? listener : (event: Event) => listener.handleEvent(event);
       listeners.set(type, [...(listeners.get(type) ?? []), handleEvent]);

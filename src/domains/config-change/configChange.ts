@@ -1,4 +1,5 @@
 import fs from 'fs';
+import { createHash } from 'node:crypto';
 import path from 'path';
 
 import ConfigContext from '@src/config/configContext.js';
@@ -31,6 +32,7 @@ import type {
   ConfigReloadResult,
   ConfigRetentionCleanupResult,
   ConfiguredServerTargetRef,
+  EditConfiguredServerTargetInput,
   MutableConfigDocument,
   RemoveConfiguredServerTargetInput,
   SetConfiguredServerTargetEnabledStateInput,
@@ -51,6 +53,7 @@ export type {
   ConfigRetentionCleanupResult,
   ConfiguredServerTargetRef,
   ConfiguredServerTargetSource,
+  EditConfiguredServerTargetInput,
   RemoveConfiguredServerTargetInput,
   SetConfiguredServerTargetEnabledStateInput,
   SetStaticConfiguredServerTargetInput,
@@ -58,6 +61,16 @@ export type {
 
 export function createConfigChangeService(ports: ConfigChangePorts = {}): ConfigChangeService {
   return new DefaultConfigChangeService(ports);
+}
+
+export function fingerprintConfiguredServerTarget(serverConfig: MCPServerParams): string {
+  return `configured_server_${createHash('sha256').update(stableStringify(serverConfig)).digest('hex')}`;
+}
+
+export function isConfiguredServerTargetDisabled(value: MCPServerParams['disabled']): boolean {
+  if (typeof value !== 'string') return value === true;
+  const normalized = value.trim().toLowerCase();
+  return normalized === 'true' || normalized === '1' || normalized === 'yes';
 }
 
 class DefaultConfigChangeService implements ConfigChangeService {
@@ -298,7 +311,7 @@ class DefaultConfigChangeService implements ConfigChangeService {
         return resultWithoutReload;
       }
 
-      if (Boolean(existingConfig.disabled) === !input.enabled) {
+      if (isConfiguredServerTargetDisabled(existingConfig.disabled) === !input.enabled) {
         resultWithoutReload = {
           status: 'unchanged',
           operation,
@@ -346,6 +359,93 @@ class DefaultConfigChangeService implements ConfigChangeService {
       ...resultWithoutReload,
       reload: this.reloadConfig(configPath),
     };
+  }
+
+  async editConfiguredServerTarget(input: EditConfiguredServerTargetInput): Promise<ConfigChangeResult> {
+    const configPath = this.resolveConfigPath();
+    let releaseLock: ReleaseConfigLock;
+
+    try {
+      releaseLock = await acquireConfigLock(configPath, this.ports.lockTimeoutMs ?? DEFAULT_LOCK_TIMEOUT_MS);
+    } catch (error) {
+      if (error instanceof ConfigLockTimeoutError) {
+        return failedEditResult(configPath, input.sourceName, error.message);
+      }
+      throw error;
+    }
+
+    let resultWithoutReload: ConfigChangeResult;
+    try {
+      const config = this.loadConfig(configPath);
+      const source = resolveConfiguredServerTarget(config, input.sourceName);
+      if (!source.source) {
+        return editConflictResult('not_found', configPath, source);
+      }
+      if (source.source === 'mcpTemplates') {
+        return editConflictResult(
+          'template_conflict',
+          configPath,
+          source,
+          `Configured server target '${input.sourceName}' exists in mcpTemplates and cannot be edited`,
+        );
+      }
+
+      const existingConfig = config.mcpServers?.[input.sourceName];
+      if (!existingConfig) {
+        return editConflictResult('not_found', configPath, source);
+      }
+      if (fingerprintConfiguredServerTarget(existingConfig) !== input.expectedSourceFingerprint) {
+        return editConflictResult(
+          'source_conflict',
+          configPath,
+          source,
+          `Configured server target '${input.sourceName}' changed after preview`,
+        );
+      }
+
+      if (input.targetName !== input.sourceName) {
+        const destination = resolveConfiguredServerTarget(config, input.targetName);
+        if (destination.source) {
+          return editConflictResult(
+            'destination_conflict',
+            configPath,
+            destination,
+            `Configured server target '${input.targetName}' already exists`,
+          );
+        }
+      }
+
+      if (
+        input.targetName === input.sourceName &&
+        fingerprintConfiguredServerTarget(input.serverConfig) === input.expectedSourceFingerprint
+      ) {
+        return editConflictResult('unchanged', configPath, source);
+      }
+
+      const nextConfig = cloneConfig(config);
+      nextConfig.mcpServers = normalizeServerRecord(nextConfig.mcpServers);
+      delete nextConfig.mcpServers[input.sourceName];
+      nextConfig.mcpServers[input.targetName] = input.serverConfig;
+      this.validateConfig(configPath, nextConfig);
+      const backup = this.createBackupIfNeeded(configPath, 'required');
+      this.writeConfig(configPath, nextConfig);
+      const retentionCleanup = this.cleanupBackups(configPath, backup);
+      resultWithoutReload = {
+        status: 'changed',
+        operation: 'edit',
+        configPath,
+        target: { name: input.targetName, source: 'mcpServers' },
+        changed: true,
+        backup,
+        retentionCleanup,
+        reload: { status: 'skipped' },
+        warnings: retentionCleanup.warnings,
+      };
+    } finally {
+      releaseLock();
+    }
+
+    return { ...resultWithoutReload, reload: this.reloadConfig(configPath) };
   }
 
   async previewConfiguredServerTargetEnabledState(
@@ -400,7 +500,7 @@ class DefaultConfigChangeService implements ConfigChangeService {
       };
     }
 
-    const changed = Boolean(existingConfig.disabled) !== !input.enabled;
+    const changed = isConfiguredServerTargetDisabled(existingConfig.disabled) !== !input.enabled;
     if (changed) {
       const previewConfig = cloneConfig(config);
       previewConfig.mcpServers = normalizeServerRecord(previewConfig.mcpServers);
@@ -669,6 +769,44 @@ function removeTarget(config: MutableConfigDocument, target: Required<Configured
 
 function cloneConfig(config: MutableConfigDocument): MutableConfigDocument {
   return JSON.parse(JSON.stringify(config)) as MutableConfigDocument;
+}
+
+function failedEditResult(configPath: string, targetName: string, error: string): ConfigChangeResult {
+  return editConflictResult('failed', configPath, { name: targetName }, error);
+}
+
+function editConflictResult(
+  status: Extract<
+    ConfigChangeResult['status'],
+    'not_found' | 'template_conflict' | 'source_conflict' | 'destination_conflict' | 'unchanged' | 'failed'
+  >,
+  configPath: string,
+  target: ConfiguredServerTargetRef,
+  error?: string,
+): ConfigChangeResult {
+  return {
+    status,
+    operation: 'edit',
+    configPath,
+    target,
+    changed: false,
+    backup: { created: false },
+    retentionCleanup: retentionSkipped(),
+    reload: { status: 'skipped' },
+    warnings: [],
+    ...(error ? { error } : {}),
+  };
+}
+
+function stableStringify(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(stableStringify).join(',')}]`;
+  if (value && typeof value === 'object') {
+    return `{${Object.entries(value as Record<string, unknown>)
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([key, entry]) => `${JSON.stringify(key)}:${stableStringify(entry)}`)
+      .join(',')}}`;
+  }
+  return JSON.stringify(value);
 }
 
 function getNestedRecord(root: Record<string, unknown>, pathSegments: string[]): Record<string, unknown> | undefined {

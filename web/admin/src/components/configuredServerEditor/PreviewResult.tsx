@@ -34,7 +34,7 @@ export function PreviewResult({ preview }: { preview: ConfiguredServerPreviewRes
             meta={
               preview.validation.errors.length > 0
                 ? `${preview.validation.errors.length} field issue${preview.validation.errors.length === 1 ? '' : 's'}`
-                : 'Ready for confirmation when apply is available'
+                : 'Ready to apply after confirmation'
             }
           />
           <DetailRow

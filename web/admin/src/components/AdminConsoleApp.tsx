@@ -2,6 +2,7 @@ import {
   Alert,
   AppShell,
   Badge,
+  Burger,
   Button,
   Code,
   Group,
@@ -30,6 +31,7 @@ export interface AdminConsoleAppProps {
 export function AdminConsoleApp({ session }: AdminConsoleAppProps) {
   const { state, loginBusy, navigation, configuredServers, presets } = session;
   const route = navigation.route;
+  const [mobileNavigationOpened, setMobileNavigationOpened] = useState(false);
   if (state.view !== 'console') {
     return (
       <AuthShell state={state}>
@@ -45,12 +47,20 @@ export function AdminConsoleApp({ session }: AdminConsoleAppProps) {
     <AppShell
       className="admin-app-shell"
       header={{ height: 66 }}
-      navbar={{ width: 224, breakpoint: 'md', collapsed: { mobile: true } }}
+      navbar={{ width: 224, breakpoint: 'md', collapsed: { mobile: !mobileNavigationOpened } }}
       padding={0}
     >
       <AppShell.Header aria-label="Admin Console" className="admin-app-header">
         <Group h="100%" px="lg" justify="space-between" wrap="nowrap" className="command-bar">
           <Group gap="sm" wrap="nowrap">
+            <Burger
+              aria-label={mobileNavigationOpened ? 'Close operations navigation' : 'Open operations navigation'}
+              className="mobile-navigation-toggle"
+              color="var(--admin-ink)"
+              opened={mobileNavigationOpened}
+              size="sm"
+              onClick={() => setMobileNavigationOpened((opened) => !opened)}
+            />
             <div className="brand-mark" aria-hidden="true">
               1
             </div>
@@ -82,23 +92,38 @@ export function AdminConsoleApp({ session }: AdminConsoleAppProps) {
           <NavItem
             icon={<Gauge size={17} />}
             label="Overview"
-            active={route === 'overview'}
-            onClick={() => navigation.navigate('overview')}
+            active={route === 'overview' && !navigation.section}
+            onClick={() => navigate('overview')}
           />
-          <NavItem icon={<Boxes size={17} />} label="Server inventory" />
-          <NavItem icon={<ShieldCheck size={17} />} label="OAuth services" />
-          <NavItem icon={<FileClock size={17} />} label="Audit trail" />
+          <NavItem
+            icon={<Boxes size={17} />}
+            label="Server inventory"
+            active={route === 'overview' && navigation.section === 'inventory'}
+            onClick={() => navigate('overview', 'inventory')}
+          />
+          <NavItem
+            icon={<ShieldCheck size={17} />}
+            label="OAuth services"
+            active={route === 'overview' && navigation.section === 'oauth'}
+            onClick={() => navigate('overview', 'oauth')}
+          />
+          <NavItem
+            icon={<FileClock size={17} />}
+            label="Audit trail"
+            active={route === 'overview' && navigation.section === 'audit'}
+            onClick={() => navigate('overview', 'audit')}
+          />
           <NavItem
             icon={<SlidersHorizontal size={17} />}
             label="Presets"
             active={route === 'presets'}
-            onClick={() => navigation.navigate('presets')}
+            onClick={() => navigate('presets')}
           />
           <NavItem
             icon={<Info size={17} />}
             label="About"
             active={route === 'about'}
-            onClick={() => navigation.navigate('about')}
+            onClick={() => navigate('about')}
           />
         </Stack>
         <Stack gap="xs" className="nav-runtime-card">
@@ -137,12 +162,22 @@ export function AdminConsoleApp({ session }: AdminConsoleAppProps) {
           ) : (
             <RuntimeOperationsWorkspace
               model={{ state, logout: session.logout, refresh: session.refresh, configuredServers }}
+              activeSection={navigation.section}
             />
           )}
         </Stack>
       </AppShell.Main>
     </AppShell>
   );
+
+  function navigate(route: 'overview' | 'presets' | 'about', section?: 'inventory' | 'oauth' | 'audit') {
+    if (section) {
+      void navigation.navigate(route, section);
+    } else {
+      void navigation.navigate(route);
+    }
+    setMobileNavigationOpened(false);
+  }
 }
 
 function NavItem({
@@ -157,7 +192,12 @@ function NavItem({
   onClick?: () => void;
 }) {
   return (
-    <button type="button" className={`nav-item${active ? ' nav-item-active' : ''}`} onClick={onClick}>
+    <button
+      type="button"
+      aria-current={active ? 'page' : undefined}
+      className={`nav-item${active ? ' nav-item-active' : ''}`}
+      onClick={onClick}
+    >
       {icon}
       <Text size="sm" fw={700}>
         {label}

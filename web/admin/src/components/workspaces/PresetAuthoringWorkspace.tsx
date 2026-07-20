@@ -95,13 +95,8 @@ export function PresetAuthoringWorkspace({
   async function save() {
     if (!preview) return;
     const action = sourceName ? (sourceName === preview.draft.name ? 'update' : 'duplicate') : 'create';
-    if (
-      !window.confirm(
-        `Confirm ${action} preset ${preview.draft.name}${preview.matchCount === 0 ? ' with zero matches' : ''}?`,
-      )
-    )
-      return;
-    await savePreset({ action, sourceName, preview });
+    const saved = await savePreset({ action, sourceName, preview });
+    if (!saved) return;
     setPreview(null);
     setMessage(`Preset ${preview.draft.name} saved.`);
   }

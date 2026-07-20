@@ -1,7 +1,7 @@
 import { Alert, Button, Group, Paper, SimpleGrid, Text, Title } from '@mantine/core';
 
 import { LogOut, RefreshCw } from 'lucide-react';
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
 import type { RuntimeOperationsModel } from '../../session/AdminConsoleSessionModel';
 import { disabledServers, enabledServers, humanize, isOAuthAttention } from '../adminConsoleUtils';
@@ -9,11 +9,35 @@ import { ConfiguredServerEditor } from '../configuredServerEditor';
 import { ConfiguredServersPanel } from '../ConfiguredServersPanel';
 import { AuditPanel, OAuthPanel, RuntimePanel } from '../OperationsStatusPanels';
 
-export function RuntimeOperationsWorkspace({ model }: { model: RuntimeOperationsModel }) {
+type OverviewSection = 'inventory' | 'oauth' | 'audit';
+
+export function RuntimeOperationsWorkspace({
+  model,
+  activeSection,
+}: {
+  model: RuntimeOperationsModel;
+  activeSection?: OverviewSection | null;
+}) {
   const { state, logout, refresh, configuredServers } = model;
   const failedAudits = (state.status?.audit.facts ?? []).filter((fact) => fact.result === 'failed').length;
   const oauthAttention = (state.status?.oauth.services ?? []).filter(isOAuthAttention).length;
   const [copyFeedback, setCopyFeedback] = useState<string | null>(null);
+  const inventorySectionRef = useRef<HTMLDivElement>(null);
+  const oauthSectionRef = useRef<HTMLDivElement>(null);
+  const auditSectionRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!activeSection) {
+      return;
+    }
+    const section = {
+      inventory: inventorySectionRef,
+      oauth: oauthSectionRef,
+      audit: auditSectionRef,
+    }[activeSection].current;
+    section?.scrollIntoView?.({ behavior: 'auto', block: 'start' });
+    section?.focus({ preventScroll: true });
+  }, [activeSection]);
 
   async function copyText(label: string, value: string): Promise<void> {
     try {
@@ -67,17 +91,23 @@ export function RuntimeOperationsWorkspace({ model }: { model: RuntimeOperations
       </SimpleGrid>
       <div className="workspace-grid">
         <div className="inventory-column">
-          <ConfiguredServersPanel
-            state={state}
-            onServerAction={configuredServers.mutate}
-            onOpenServerDetail={configuredServers.edit.open}
-          />
-          <AuditPanel facts={state.status?.audit.facts ?? []} onCopyText={copyText} />
+          <div id="inventory" className="overview-section-target" ref={inventorySectionRef} tabIndex={-1}>
+            <ConfiguredServersPanel
+              state={state}
+              onServerAction={configuredServers.mutate}
+              onOpenServerDetail={configuredServers.edit.open}
+            />
+          </div>
+          <div id="audit" className="overview-section-target" ref={auditSectionRef} tabIndex={-1}>
+            <AuditPanel facts={state.status?.audit.facts ?? []} onCopyText={copyText} />
+          </div>
         </div>
         <div className="inspector-column">
           <ConfiguredServerEditor model={configuredServers.edit} />
           <RuntimePanel runtime={state.status?.runtime} onCopyText={copyText} />
-          <OAuthPanel services={state.status?.oauth.services ?? []} />
+          <div id="oauth" className="overview-section-target" ref={oauthSectionRef} tabIndex={-1}>
+            <OAuthPanel services={state.status?.oauth.services ?? []} />
+          </div>
         </div>
       </div>
       {copyFeedback ? (

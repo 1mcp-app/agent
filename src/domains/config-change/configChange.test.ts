@@ -7,7 +7,7 @@ import ConfigContext from '@src/config/configContext.js';
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { createConfigChangeService } from './configChange.js';
+import { createConfigChangeService, fingerprintConfiguredServerTarget } from './configChange.js';
 
 const mockAgentConfig = {
   get: vi.fn().mockImplementation((key: string) => {
@@ -44,6 +44,73 @@ describe('Config Change', () => {
     ConfigContext.getInstance().reset();
     vi.clearAllMocks();
     await fs.rm(tempDir, { recursive: true, force: true });
+  });
+
+  it('atomically edits and renames a configured server with one required backup and reload', async () => {
+    const original = {
+      type: 'http' as const,
+      url: 'https://old.example.com/mcp',
+      headers: { Authorization: 'secret' },
+    };
+    await writeConfig({ customTopLevel: { preserved: true }, mcpServers: { alpha: original } });
+    const service = createConfigChangeService({ reloadConfig: reload });
+
+    const result = await service.editConfiguredServerTarget({
+      sourceName: 'alpha',
+      targetName: 'renamed',
+      serverConfig: { ...original, url: 'https://new.example.com/mcp' },
+      expectedSourceFingerprint: fingerprintConfiguredServerTarget(original),
+    });
+
+    expect(result).toMatchObject({
+      status: 'changed',
+      operation: 'edit',
+      target: { name: 'renamed', source: 'mcpServers' },
+      changed: true,
+      backup: { created: true },
+      reload: { status: 'observed' },
+    });
+    expect(await readConfig()).toEqual({
+      customTopLevel: { preserved: true },
+      mcpServers: { renamed: { ...original, url: 'https://new.example.com/mcp' } },
+    });
+    expect(reload).toHaveBeenCalledTimes(1);
+  });
+
+  it('rejects stale edit preconditions without backup, write, or reload', async () => {
+    const original = { type: 'stdio' as const, command: 'node' };
+    await writeConfig({ mcpServers: { alpha: original } });
+    const service = createConfigChangeService({ reloadConfig: reload });
+
+    const result = await service.editConfiguredServerTarget({
+      sourceName: 'alpha',
+      targetName: 'alpha',
+      serverConfig: { ...original, command: 'bun' },
+      expectedSourceFingerprint: fingerprintConfiguredServerTarget({ ...original, command: 'changed' }),
+    });
+
+    expect(result).toMatchObject({ status: 'source_conflict', changed: false, backup: { created: false } });
+    expect(await readConfig()).toEqual({ mcpServers: { alpha: original } });
+    expect(reload).not.toHaveBeenCalled();
+  });
+
+  it('rejects rename destination conflicts before backup or write', async () => {
+    const original = { type: 'stdio' as const, command: 'node' };
+    await writeConfig({
+      mcpServers: { alpha: original, occupied: { type: 'stdio', command: 'bun' } },
+    });
+    const service = createConfigChangeService({ reloadConfig: reload });
+
+    const result = await service.editConfiguredServerTarget({
+      sourceName: 'alpha',
+      targetName: 'occupied',
+      serverConfig: original,
+      expectedSourceFingerprint: fingerprintConfiguredServerTarget(original),
+    });
+
+    expect(result).toMatchObject({ status: 'destination_conflict', changed: false, backup: { created: false } });
+    expect((await readConfig()).mcpServers).toHaveProperty('alpha');
+    expect(reload).not.toHaveBeenCalled();
   });
 
   it('removes a static configured target with default destructive backup and observed reload', async () => {

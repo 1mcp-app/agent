@@ -1,7 +1,12 @@
 import { createHash } from 'node:crypto';
 
 import { type MCPServerParams, transportConfigSchema } from '@src/core/types/index.js';
-import type { ConfigChangeResult, ConfigChangeService } from '@src/domains/config-change/configChange.js';
+import {
+  type ConfigChangeResult,
+  type ConfigChangeService,
+  fingerprintConfiguredServerTarget,
+  isConfiguredServerTargetDisabled,
+} from '@src/domains/config-change/configChange.js';
 
 import { z } from 'zod';
 
@@ -49,6 +54,13 @@ interface ConfiguredServerPreviewInput {
   targetName: string;
   edit: unknown;
   connectivityCheck?: 'auto' | 'manual';
+}
+
+interface ConfiguredServerApplyInput {
+  context: AdminOperationContext;
+  targetName: string;
+  edit: unknown;
+  previewFingerprint: string;
 }
 
 export interface ConfiguredServerSecretReplacement {
@@ -193,6 +205,13 @@ export interface ConfiguredServerPreviewResult {
   connectivityCheck: ConfiguredServerConnectivityCheckResult;
 }
 
+export interface ConfiguredServerApplyResult {
+  originalTargetName: string;
+  targetName: string;
+  previewFingerprint: string;
+  configChange: ConfigChangeResult;
+}
+
 export type ConfiguredServerEditFieldControl =
   'text' | 'number' | 'switch' | 'tag-list' | 'select' | 'string-list' | 'secret' | 'record' | 'readonly';
 
@@ -244,7 +263,7 @@ export interface ConfiguredServerEditContract {
     bulkEdit: { supported: false };
     rawJson: { supported: false };
     preview: { supported: true };
-    apply: { supported: false };
+    apply: { supported: true };
   };
   fieldGroups: ConfiguredServerEditFieldGroup[];
 }
@@ -268,6 +287,9 @@ export interface AdminConfiguredServerOperations {
   previewConfiguredServerEdit(
     input: ConfiguredServerPreviewInput,
   ): Promise<AdminOperationResult<ConfiguredServerPreviewResult>>;
+  applyConfiguredServerEdit(
+    input: ConfiguredServerApplyInput,
+  ): Promise<AdminOperationResult<ConfiguredServerApplyResult>>;
   enableConfiguredServer(
     input: ConfiguredServerMutationInput,
   ): Promise<AdminOperationResult<ConfiguredServerMutationResult>>;
@@ -336,6 +358,80 @@ export class AdminConfiguredServerService implements AdminConfiguredServerOperat
       context,
       operationName: 'previewConfiguredServerEdit',
       run: async () => this.previewConfiguredServerEditResult(input, currentConfig),
+    });
+  }
+
+  async applyConfiguredServerEdit(
+    input: ConfiguredServerApplyInput,
+  ): Promise<AdminOperationResult<ConfiguredServerApplyResult>> {
+    const context = {
+      ...input.context,
+      target: { type: 'configured_server', id: input.targetName },
+      confirmationFacts: sanitizeApplyConfirmationFacts(input.context.confirmationFacts),
+    };
+
+    return this.options.operationService.executeMutation({
+      context,
+      operationName: 'applyConfiguredServerEdit',
+      prepare: async () => {
+        const currentConfig = this.readConfiguredServerConfig(input.targetName);
+        const preview = await this.previewConfiguredServerEditResult(
+          { ...input, connectivityCheck: 'auto' },
+          currentConfig,
+          true,
+        );
+        const normalizedEdit = normalizeEditDraft(input.edit);
+        const currentReadModel = createConfiguredServerReadModel(input.targetName, currentConfig);
+        const applicableEdit = filterApplicableSecretEdits(normalizedEdit.edit, currentReadModel.secretInputs);
+        const proposedConfig = applyEditDraft(currentConfig, applicableEdit);
+        const proposedReadModel = createConfiguredServerReadModel(preview.proposedTargetName, proposedConfig);
+        const connectionCritical = preview.diff.some((entry) => entry.riskFlags.includes('connection_critical'));
+        const secretChange = preview.diff.some((entry) => entry.riskFlags.includes('secret'));
+
+        if (preview.validation.status !== 'valid') {
+          throw new AdminConfiguredServerApplyError('configured_server_edit_invalid');
+        }
+        if (!preview.configChange.changed) {
+          throw new AdminConfiguredServerApplyError('configured_server_edit_unchanged');
+        }
+        if (preview.previewFingerprint !== input.previewFingerprint) {
+          throw new AdminConfiguredServerApplyError('configured_server_stale_preview');
+        }
+        if (
+          connectionCritical &&
+          !wouldUseLocalStdioTransport(proposedConfig) &&
+          proposedReadModel.enabled &&
+          preview.connectivityCheck.status !== 'passed'
+        ) {
+          throw new AdminConfiguredServerApplyError('configured_server_connectivity_blocked');
+        }
+
+        return {
+          confirmationRequirements: [
+            { code: 'previewConfirmed', expected: input.previewFingerprint },
+            ...(preview.proposedTargetName !== input.targetName
+              ? [{ code: 'targetNameConfirmed', expected: preview.proposedTargetName }]
+              : []),
+            ...(secretChange ? [{ code: 'secretChangeConfirmed', expected: true }] : []),
+            ...(connectionCritical ? [{ code: 'connectionCriticalConfirmed', expected: true }] : []),
+          ],
+          run: async () => {
+            const configChange = await this.options.configChangeService.editConfiguredServerTarget({
+              sourceName: input.targetName,
+              targetName: preview.proposedTargetName,
+              serverConfig: proposedConfig,
+              expectedSourceFingerprint: fingerprintConfiguredServerTarget(currentConfig),
+            });
+            assertSuccessfulConfiguredServerEdit(configChange);
+            return {
+              originalTargetName: input.targetName,
+              targetName: preview.proposedTargetName,
+              previewFingerprint: preview.previewFingerprint,
+              configChange,
+            };
+          },
+        };
+      },
     });
   }
 
@@ -431,6 +527,7 @@ export class AdminConfiguredServerService implements AdminConfiguredServerOperat
   private async previewConfiguredServerEditResult(
     input: ConfiguredServerPreviewInput,
     currentConfig: MCPServerParams,
+    requireCriticalConnectivity = false,
   ): Promise<ConfiguredServerPreviewResult> {
     const normalizedEdit = normalizeEditDraft(input.edit);
     const currentReadModel = createConfiguredServerReadModel(input.targetName, currentConfig);
@@ -462,6 +559,7 @@ export class AdminConfiguredServerService implements AdminConfiguredServerOperat
       proposedTargetName,
       previewFingerprint: previewFingerprint({
         targetName: input.targetName,
+        sourceFingerprint: fingerprintConfiguredServerTarget(currentConfig),
         edit: normalizedEdit.edit,
         current: currentReadModel,
         proposed: proposedReadModel,
@@ -477,7 +575,9 @@ export class AdminConfiguredServerService implements AdminConfiguredServerOperat
         enabled: proposedReadModel.enabled,
         validationStatus: validation.status,
         connectionCriticalChanged: diff.some((entry) => entry.riskFlags.includes('connection_critical')),
-        force: input.connectivityCheck === 'manual',
+        force:
+          input.connectivityCheck === 'manual' ||
+          (requireCriticalConnectivity && diff.some((entry) => entry.riskFlags.includes('connection_critical'))),
         endpointChangedWithPreservedSecrets,
       }),
     };
@@ -539,6 +639,40 @@ function assertSuccessfulConfigChange(configChange: ConfigChangeResult): void {
   if (configChange.status === 'template_conflict') {
     throw new Error(configChange.error ?? `Configured server target '${configChange.target.name}' is unsupported`);
   }
+}
+
+export class AdminConfiguredServerApplyError extends Error {
+  constructor(readonly code: string) {
+    super(code);
+    this.name = 'AdminConfiguredServerApplyError';
+  }
+}
+
+function assertSuccessfulConfiguredServerEdit(configChange: ConfigChangeResult): void {
+  switch (configChange.status) {
+    case 'changed':
+      return;
+    case 'source_conflict':
+      throw new AdminConfiguredServerApplyError('configured_server_stale_preview');
+    case 'destination_conflict':
+    case 'template_conflict':
+      throw new AdminConfiguredServerApplyError('configured_server_destination_conflict');
+    case 'not_found':
+      throw new AdminConfiguredServerApplyError('configured_server_not_found');
+    case 'unchanged':
+      throw new AdminConfiguredServerApplyError('configured_server_edit_unchanged');
+    default:
+      throw new AdminConfiguredServerApplyError('configured_server_apply_failed');
+  }
+}
+
+function sanitizeApplyConfirmationFacts(
+  facts: Record<string, unknown> | undefined,
+): Record<string, unknown> | undefined {
+  if (!facts) return undefined;
+  const allowed = ['previewConfirmed', 'targetNameConfirmed', 'secretChangeConfirmed', 'connectionCriticalConfirmed'];
+  const sanitized = Object.fromEntries(allowed.filter((key) => key in facts).map((key) => [key, facts[key]]));
+  return Object.keys(sanitized).length > 0 ? sanitized : undefined;
 }
 
 function mutationOutcome(enabled: boolean, changed: boolean): ConfiguredServerMutationResult['outcome'] {
@@ -1502,6 +1636,7 @@ function previewConfigChange(targetName: string, changed: boolean): ConfigChange
 
 function previewFingerprint(input: {
   targetName: string;
+  sourceFingerprint: string;
   edit: ConfiguredServerEditDraft;
   current: ConfiguredServerReadModel;
   proposed: ConfiguredServerReadModel;
@@ -1513,6 +1648,7 @@ function previewFingerprint(input: {
       stableStringify({
         schemaVersion: 2,
         targetName: input.targetName,
+        sourceFingerprint: input.sourceFingerprint,
         edit: redactEditDraftForFingerprint(input.edit),
         current: input.current,
         proposed: input.proposed,
@@ -1747,7 +1883,7 @@ function createConfiguredServerReadModel(name: string, serverConfig: MCPServerPa
     transport[key] = sanitizeUnknownValue(value, [key], secretInputs);
   }
 
-  const enabled = serverConfig.disabled ? false : true;
+  const enabled = !isConfiguredServerTargetDisabled(serverConfig.disabled);
 
   return {
     id: name,
@@ -1914,7 +2050,7 @@ function createConfiguredServerEditContract(server: ConfiguredServerReadModel): 
       bulkEdit: { supported: false },
       rawJson: { supported: false },
       preview: { supported: true },
-      apply: { supported: false },
+      apply: { supported: true },
     },
     fieldGroups: [
       {

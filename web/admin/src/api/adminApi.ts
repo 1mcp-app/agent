@@ -196,7 +196,7 @@ export interface ConfiguredServerEditContract {
     bulkEdit: { supported: false };
     rawJson: { supported: false };
     preview: { supported: true };
-    apply: { supported: false };
+    apply: { supported: boolean };
   };
   fieldGroups: ConfiguredServerEditFieldGroup[];
 }
@@ -299,6 +299,17 @@ export interface ConfiguredServerPreviewResponse {
     }>;
     configChange: ConfiguredServerPreviewConfigChange;
     connectivityCheck: ConfiguredServerConnectivityCheck;
+  };
+}
+
+export interface ConfiguredServerApplyResponse {
+  ok: true;
+  operationId: string;
+  result: {
+    originalTargetName: string;
+    targetName: string;
+    previewFingerprint: string;
+    configChange: ConfiguredServerPreviewConfigChange;
   };
 }
 
@@ -532,6 +543,28 @@ export function createAdminApi(options: AdminApiOptions = {}) {
       });
     },
 
+    applyConfiguredServerEdit(input: {
+      name: string;
+      csrfToken: string;
+      idempotencyKey: string;
+      edit: ConfiguredServerEditDraft;
+      previewFingerprint: string;
+      confirmationFacts: Record<string, unknown>;
+    }): Promise<ConfiguredServerApplyResponse> {
+      return request(`/admin/api/configured-servers/${encodeURIComponent(input.name)}/apply`, {
+        method: 'POST',
+        headers: {
+          'X-CSRF-Token': input.csrfToken,
+          'Idempotency-Key': input.idempotencyKey,
+        },
+        body: JSON.stringify({
+          edit: input.edit,
+          previewFingerprint: input.previewFingerprint,
+          confirmationFacts: input.confirmationFacts,
+        }),
+      });
+    },
+
     setConfiguredServerEnabled(input: { name: string; enabled: boolean; csrfToken: string }): Promise<unknown> {
       const action = input.enabled ? 'enable' : 'disable';
       return request(`/admin/api/configured-servers/${encodeURIComponent(input.name)}/${action}`, {
@@ -544,6 +577,10 @@ export function createAdminApi(options: AdminApiOptions = {}) {
       });
     },
   };
+}
+
+export function createConfiguredServerApplyIdempotencyKey(name: string): string {
+  return `admin-console-server-apply-${encodeIdempotencyKeyPart(name)}-${Date.now()}-${crypto.getRandomValues(new Uint32Array(2)).join('-')}`;
 }
 
 function defaultPresetIdempotencyKey(action: string, name: string): string {
@@ -653,6 +690,22 @@ function friendlyAdminError(error: AdminApiError, code: string): string {
       return 'Configured-server operations are not available on this runtime.';
     case 'mutation_failed':
       return 'The runtime could not apply the server change. Refresh the console and inspect the current state.';
+    case 'configured_server_stale_preview':
+      return 'The server changed after this preview. Preview the edit again before applying.';
+    case 'configured_server_destination_conflict':
+      return 'The requested server name is already in use. Choose another target name and preview again.';
+    case 'configured_server_connectivity_blocked':
+      return 'Connectivity validation did not pass. Fix the connection settings and rerun connectivity before applying.';
+    case 'configured_server_edit_invalid':
+      return 'The server edit is invalid. Review the field errors and preview again.';
+    case 'configured_server_edit_unchanged':
+      return 'The preview no longer contains a change. Refresh the server detail before editing again.';
+    case 'configured_server_not_found':
+      return 'The configured server no longer exists. Return to the inventory and refresh it.';
+    case 'configured_server_reload_failed':
+      return 'The configuration was written, but the runtime reload failed. Inspect runtime health before continuing.';
+    case 'configured_server_apply_failed':
+      return 'The server edit could not be written. Refresh the detail and inspect runtime health before retrying.';
     case 'operation_in_progress':
       return 'Another admin operation is still running. Wait for it to finish, then refresh the console.';
     case 'operation_state_unknown':
@@ -667,8 +720,18 @@ function friendlyAdminError(error: AdminApiError, code: string): string {
       if (error.status === 401) return 'The admin session is no longer valid. Log in again.';
       if (error.status === 403) return 'The admin session cannot perform this action. Refresh the page and try again.';
       if (error.status === 429) return 'The runtime is rate limiting this request. Wait before trying again.';
+      if (code.startsWith('configured_server_')) {
+        const bodyMessage = readBodyMessage(error.body);
+        if (bodyMessage) return bodyMessage;
+      }
       return 'The Admin Console request failed. Refresh the console and try again.';
   }
+}
+
+function readBodyMessage(body: unknown): string | null {
+  if (!body || typeof body !== 'object') return null;
+  const message = (body as Record<string, unknown>).message;
+  return typeof message === 'string' && message.trim().length > 0 ? message.trim() : null;
 }
 
 function defaultIdempotencyKey(input: { action: 'enable' | 'disable'; targetName: string }): string {

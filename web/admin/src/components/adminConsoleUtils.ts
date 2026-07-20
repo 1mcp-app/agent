@@ -30,7 +30,7 @@ export function disabledServers(servers: ConfiguredServerReadModel[]): number {
 }
 
 export function isOAuthAttention(service: OAuthServiceStatus): boolean {
-  return Boolean(service.requiresOAuth) || service.status !== 'ready' || Boolean(service.lastError);
+  return Boolean(service.requiresOAuth) && (service.status !== 'connected' || Boolean(service.lastError));
 }
 
 export function describeTransport(transport: Record<string, unknown>): string {

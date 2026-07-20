@@ -45,6 +45,7 @@ describe('admin routes', () => {
     previewConfiguredServerEdit: ReturnType<
       typeof vi.fn<AdminConfiguredServerOperations['previewConfiguredServerEdit']>
     >;
+    applyConfiguredServerEdit: ReturnType<typeof vi.fn<AdminConfiguredServerOperations['applyConfiguredServerEdit']>>;
     enableConfiguredServer: ReturnType<typeof vi.fn<AdminConfiguredServerOperations['enableConfiguredServer']>>;
     disableConfiguredServer: ReturnType<typeof vi.fn<AdminConfiguredServerOperations['disableConfiguredServer']>>;
     getRecentAuditFacts: ReturnType<typeof vi.fn<(options?: { limit?: number }) => AdminAuditFact[]>>;
@@ -62,6 +63,7 @@ describe('admin routes', () => {
       listConfiguredServers: vi.fn<AdminConfiguredServerOperations['listConfiguredServers']>(),
       getConfiguredServerDetail: vi.fn<AdminConfiguredServerOperations['getConfiguredServerDetail']>(),
       previewConfiguredServerEdit: vi.fn<AdminConfiguredServerOperations['previewConfiguredServerEdit']>(),
+      applyConfiguredServerEdit: vi.fn<AdminConfiguredServerOperations['applyConfiguredServerEdit']>(),
       enableConfiguredServer: vi.fn<AdminConfiguredServerOperations['enableConfiguredServer']>(),
       disableConfiguredServer: vi.fn<AdminConfiguredServerOperations['disableConfiguredServer']>(),
       getRecentAuditFacts: vi.fn<(options?: { limit?: number }) => AdminAuditFact[]>(() => []),
@@ -1355,7 +1357,7 @@ describe('admin routes', () => {
             bulkEdit: { supported: false },
             rawJson: { supported: false },
             preview: { supported: true },
-            apply: { supported: false },
+            apply: { supported: true },
           },
           fieldGroups: [
             {
@@ -1644,6 +1646,124 @@ describe('admin routes', () => {
       connectivityCheck: 'manual',
     });
     expect(response.text).not.toMatch(/raw-secret|raw-token|Bearer raw/i);
+  });
+
+  it('applies configured-server edits through the CSRF and idempotency protected admin API', async () => {
+    await adminService.bootstrapFirstAdmin({ username: 'operator', password: 'correct horse battery staple' });
+    configuredServerService.applyConfiguredServerEdit.mockResolvedValue({
+      ok: true,
+      status: 'completed',
+      operationId: 'op_apply',
+      operationName: 'applyConfiguredServerEdit',
+      replayed: false,
+      result: {
+        originalTargetName: 'github/api',
+        targetName: 'github-renamed',
+        previewFingerprint: 'preview_123',
+        configChange: {
+          status: 'changed',
+          operation: 'edit',
+          configPath: '/runtime/mcp.json',
+          target: { name: 'github-renamed', source: 'mcpServers' },
+          changed: true,
+          backup: { created: true, path: '/runtime/mcp.json.backup.1' },
+          retentionCleanup: { attempted: true, deletedPaths: [], warnings: [] },
+          reload: { status: 'observed' },
+          warnings: [],
+        },
+      },
+    });
+    const app = mountAdminRoutes();
+    const loginResponse = await request(app)
+      .post('/admin/api/session/login')
+      .send({ username: 'operator', password: 'correct horse battery staple' });
+    const cookie = loginResponse.headers['set-cookie']?.[0] as string;
+    const body = {
+      edit: {
+        id: 'github-renamed',
+        secrets: [
+          {
+            fieldPath: ['headers', 'Authorization'],
+            action: 'replace',
+            replacement: { kind: 'inlineSecret', value: 'raw-secret' },
+          },
+        ],
+      },
+      previewFingerprint: 'preview_123',
+      confirmationFacts: {
+        previewConfirmed: 'preview_123',
+        targetNameConfirmed: 'github-renamed',
+        secretChangeConfirmed: true,
+        connectionCriticalConfirmed: true,
+      },
+    };
+
+    const csrfRejected = await request(app)
+      .post('/admin/api/configured-servers/github%2Fapi/apply')
+      .set('Cookie', cookie)
+      .set('Idempotency-Key', 'apply-1')
+      .send(body);
+    const response = await request(app)
+      .post('/admin/api/configured-servers/github%2Fapi/apply')
+      .set('Cookie', cookie)
+      .set('X-CSRF-Token', loginResponse.body.csrfToken)
+      .set('Idempotency-Key', 'apply-1')
+      .send(body);
+
+    expect(csrfRejected.status).toBe(403);
+    expect(response.status).toBe(200);
+    expect(response.body).toMatchObject({
+      ok: true,
+      operationId: 'op_apply',
+      result: {
+        originalTargetName: 'github/api',
+        targetName: 'github-renamed',
+        previewFingerprint: 'preview_123',
+        configChange: { status: 'changed', operation: 'edit' },
+      },
+    });
+    expect(configuredServerService.applyConfiguredServerEdit).toHaveBeenCalledWith({
+      context: expect.objectContaining({
+        idempotencyKey: 'apply-1',
+        requestFingerprint: expect.stringMatching(/^configured_server_apply_[a-f0-9]{64}$/u),
+        confirmationFacts: body.confirmationFacts,
+      }),
+      targetName: 'github/api',
+      edit: body.edit,
+      previewFingerprint: 'preview_123',
+    });
+    const operationContext = configuredServerService.applyConfiguredServerEdit.mock.calls[0]?.[0].context;
+    expect(operationContext.requestFingerprint).not.toContain('raw-secret');
+  });
+
+  it('maps configured-server apply conflicts to structured responses', async () => {
+    await adminService.bootstrapFirstAdmin({ username: 'operator', password: 'correct horse battery staple' });
+    configuredServerService.applyConfiguredServerEdit.mockResolvedValue({
+      ok: false,
+      status: 'mutation_failed',
+      code: 'mutation_failed',
+      retryable: false,
+      operationName: 'applyConfiguredServerEdit',
+      error: 'configured_server_stale_preview',
+    });
+    const app = mountAdminRoutes();
+    const loginResponse = await request(app)
+      .post('/admin/api/session/login')
+      .send({ username: 'operator', password: 'correct horse battery staple' });
+    const response = await request(app)
+      .post('/admin/api/configured-servers/alpha/apply')
+      .set('Cookie', loginResponse.headers['set-cookie']?.[0] as string)
+      .set('X-CSRF-Token', loginResponse.body.csrfToken)
+      .set('Idempotency-Key', 'apply-conflict')
+      .send({ edit: { tags: ['edited'] }, previewFingerprint: 'stale', confirmationFacts: {} });
+
+    expect(response.status).toBe(409);
+    expect(response.body).toEqual({
+      ok: false,
+      error: 'configured_server_stale_preview',
+      code: 'configured_server_stale_preview',
+      message: 'The configured server changed after preview. Preview the edit again.',
+    });
   });
 
   it('forwards malformed configured-server preview edits to the validation service', async () => {

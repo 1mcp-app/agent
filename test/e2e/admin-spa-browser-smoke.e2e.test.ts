@@ -138,21 +138,116 @@ describe('admin SPA browser smoke', () => {
     }
   });
 
-  it('keeps the built console usable at narrow width without page-level horizontal overflow', async () => {
-    const page = await newPage({ width: 390, height: 844, isMobile: true });
+  it('previews and applies a configured-server edit through the HTML confirmation dialog', async () => {
+    const page = await newPage({ width: 1280, height: 900 });
 
     try {
       await expectCenteredLoginGate(page);
       await login(page, { skipNavigation: true });
 
-      await expectText(page, 'Runtime operations');
-      await expectText(page, 'Operations overview');
-      await expectVisible(page.getByRole('button', { name: 'Refresh' }));
-      await expectVisible(page.getByRole('button', { name: 'Log out' }));
-      const hasPageOverflow = await page.evaluate(
-        () => globalThis.document.documentElement.scrollWidth > globalThis.window.innerWidth + 1,
+      await page.getByRole('button', { name: 'Edit github server' }).click();
+      await expectVisible(page.getByRole('heading', { name: 'github', exact: true }));
+
+      const tags = page.getByRole('textbox', { name: 'Tags' });
+      await tags.fill('verified');
+      await tags.press('Enter');
+      await expectText(page, 'Unsaved changes');
+      await page.getByRole('button', { name: 'Preview change' }).click();
+
+      await expectText(page, 'Preview result');
+      await expectText(page, 'Preview only - no config has been written.');
+      const applyButton = page.getByRole('button', { name: 'Apply changes' });
+      await applyButton.click();
+
+      const dialog = page.getByRole('dialog');
+      await expectVisible(dialog);
+      await expectVisible(dialog.getByText('Apply changes to github?'));
+      await expectVisible(dialog.getByText('This writes the validated configuration and reloads the Runtime Scope.'));
+      await page.keyboard.press('Escape');
+      await dialog.waitFor({ state: 'hidden' });
+      expect(await applyButton.evaluate((element) => element === globalThis.document.activeElement)).toBe(true);
+      expect(await page.getByText('Changes applied to github.').count()).toBe(0);
+
+      const applyResponsePromise = page.waitForResponse((response) =>
+        response.url().endsWith('/admin/api/configured-servers/github/apply'),
       );
-      expect(hasPageOverflow).toBe(false);
+      await applyButton.click();
+      await expectVisible(dialog);
+      await dialog.getByRole('button', { name: 'Apply changes' }).click();
+      const applyResponse = await applyResponsePromise;
+      expect(applyResponse.status(), await applyResponse.text()).toBe(200);
+
+      await expectText(page, 'Changes applied to github.');
+      await expectText(page, 'No changes yet');
+      await expectVisible(page.getByRole('textbox', { name: 'Tags' }));
+      await expectVisible(page.locator('.edit-section').getByText('verified', { exact: true }));
+      expect(await page.getByRole('button', { name: 'Preview change' }).isDisabled()).toBe(true);
+      expect(await page.getByRole('button', { name: 'Apply changes' }).count()).toBe(0);
+    } finally {
+      await page.context().close();
+    }
+  });
+
+  it.each([
+    { width: 390, height: 844, compactInventory: true },
+    { width: 800, height: 900, compactInventory: false },
+  ])(
+    'keeps the built console usable at $width px without page-level horizontal overflow',
+    async ({ width, height, compactInventory }) => {
+      const page = await newPage({ width, height, isMobile: width === 390 });
+
+      try {
+        await expectCenteredLoginGate(page);
+        await login(page, { skipNavigation: true });
+
+        await expectText(page, 'Runtime operations');
+        await expectText(page, 'Operations overview');
+        await expectVisible(page.getByRole('button', { name: 'Refresh' }));
+        await expectVisible(page.getByRole('button', { name: 'Log out' }));
+        await expectNoPageOverflow(page);
+
+        if (compactInventory) {
+          await expectVisible(page.locator('.server-mobile-card').first());
+          expect(await page.locator('.server-table-view').count()).toBe(0);
+        } else {
+          await expectVisible(page.locator('.server-table-view'));
+          expect(await page.locator('.server-mobile-card').count()).toBe(0);
+        }
+
+        const navigationToggle = page.getByRole('button', { name: 'Open operations navigation' });
+        await expectVisible(navigationToggle);
+        await navigationToggle.click();
+        await expectVisible(page.getByRole('navigation', { name: 'Operations navigation' }));
+        await page.getByRole('button', { name: 'OAuth services' }).click();
+        await page.waitForFunction(() => globalThis.location.hash === '#oauth');
+        await page.waitForFunction(() => globalThis.document.activeElement?.id === 'oauth');
+        await expectVisible(page.getByRole('button', { name: 'Open operations navigation' }));
+        await expectNoPageOverflow(page);
+      } finally {
+        await page.context().close();
+      }
+    },
+  );
+
+  it('stacks the inspector below inventory at 1440 px', async () => {
+    const page = await newPage({ width: 1440, height: 1100 });
+
+    try {
+      await expectCenteredLoginGate(page);
+      await login(page, { skipNavigation: true });
+      await expectNoPageOverflow(page);
+
+      const layout = await page.locator('.workspace-grid').evaluate((element) => {
+        const inventory = element.querySelector('.inventory-column')?.getBoundingClientRect();
+        const inspector = element.querySelector('.inspector-column')?.getBoundingClientRect();
+        return {
+          columns: globalThis.getComputedStyle(element).gridTemplateColumns.split(' ').length,
+          inventoryBottom: inventory?.bottom ?? 0,
+          inspectorTop: inspector?.top ?? 0,
+        };
+      });
+      expect(layout.columns).toBe(1);
+      expect(layout.inspectorTop).toBeGreaterThanOrEqual(layout.inventoryBottom);
     } finally {
       await page.context().close();
     }
@@ -230,6 +325,14 @@ async function expectVisible(locator: Locator): Promise<void> {
   await locator.waitFor({ state: 'visible' });
 }
 
+async function expectNoPageOverflow(page: Page): Promise<void> {
+  const dimensions = await page.evaluate(() => ({
+    scrollWidth: globalThis.document.documentElement.scrollWidth,
+    viewportWidth: globalThis.window.innerWidth,
+  }));
+  expect(dimensions.scrollWidth).toBeLessThanOrEqual(dimensions.viewportWidth + 1);
+}
+
 async function waitForRowCount(page: Page, expectedCount: number): Promise<void> {
   await page.waitForFunction(
     (count) => globalThis.document.querySelectorAll('tbody tr').length === count,
@@ -266,9 +369,23 @@ function createConfiguredServerFixture(): ResettableConfiguredServerFixture {
             bulkEdit: { supported: false },
             rawJson: { supported: false },
             preview: { supported: true },
-            apply: { supported: false },
+            apply: { supported: true },
           },
-          fieldGroups: [],
+          fieldGroups: [
+            {
+              id: 'identity',
+              label: 'Target',
+              fields: [
+                {
+                  fieldPath: ['tags'],
+                  label: 'Tags',
+                  control: 'tag-list',
+                  value: [...server.tags],
+                  editable: true,
+                },
+              ],
+            },
+          ],
         },
       });
     },
@@ -276,24 +393,48 @@ function createConfiguredServerFixture(): ResettableConfiguredServerFixture {
       const edit = input.edit && typeof input.edit === 'object' && !Array.isArray(input.edit) ? input.edit : {};
       const proposedTargetName =
         typeof (edit as { id?: unknown }).id === 'string' ? (edit as { id: string }).id : input.targetName;
+      const server = servers.find((candidate) => candidate.id === input.targetName);
+      const proposedTags = Array.isArray((edit as { tags?: unknown }).tags)
+        ? (edit as { tags: unknown[] }).tags.filter((tag): tag is string => typeof tag === 'string')
+        : (server?.tags ?? []);
       return operationSuccess('previewConfiguredServerEdit', 'op_preview', {
         targetName: input.targetName,
         proposedTargetName,
         previewFingerprint: 'preview_fixture',
         validation: { status: 'valid', errors: [] },
-        diff: [],
+        diff: [
+          {
+            fieldPath: ['tags'],
+            oldValue: server?.tags ?? [],
+            newValue: proposedTags,
+            riskFlags: [],
+          },
+        ],
         configChange: {
-          status: 'unchanged',
+          status: 'changed',
           operation: 'set_static',
           configPath: '[redacted]',
           target: { name: input.targetName, source: 'mcpServers' },
-          changed: false,
+          changed: true,
           backup: { created: false },
           retentionCleanup: { attempted: false, deletedPaths: [], warnings: [] },
           reload: { status: 'skipped' },
           warnings: [],
         },
         connectivityCheck: { status: 'skipped', reason: 'connection_critical_fields_unchanged' },
+      });
+    },
+    async applyConfiguredServerEdit(input) {
+      const edit = input.edit && typeof input.edit === 'object' && !Array.isArray(input.edit) ? input.edit : {};
+      const server = servers.find((candidate) => candidate.id === input.targetName);
+      if (server && Array.isArray((edit as { tags?: unknown }).tags)) {
+        server.tags = (edit as { tags: unknown[] }).tags.filter((tag): tag is string => typeof tag === 'string');
+      }
+      return operationSuccess('applyConfiguredServerEdit', 'op_apply', {
+        originalTargetName: input.targetName,
+        targetName: input.targetName,
+        previewFingerprint: input.previewFingerprint,
+        configChange: configChangeResult(input.targetName, true),
       });
     },
     async enableConfiguredServer(input) {

@@ -172,6 +172,7 @@ describe('admin API client', () => {
     const response = await api.previewConfiguredServerEdit({
       name: 'github/api server',
       csrfToken: 'csrf_123',
+      idempotencyKey: 'apply-attempt-123',
       connectivityCheck: 'manual',
       edit: {
         id: 'github-renamed',
@@ -209,6 +210,81 @@ describe('admin API client', () => {
       },
     });
     expect(response.preview.previewFingerprint).toBe('preview_123');
+  });
+
+  it('applies a confirmed configured-server preview with CSRF and idempotency', async () => {
+    const calls: Array<{ input: RequestInfo | URL; init?: RequestInit }> = [];
+    const api = createAdminApi({
+      fetch: async (input, init) => {
+        calls.push({ input, init });
+        return jsonResponse({
+          ok: true,
+          operationId: 'op_apply',
+          result: {
+            originalTargetName: 'github/api server',
+            targetName: 'github-renamed',
+            previewFingerprint: 'preview_123',
+            configChange: {},
+          },
+        });
+      },
+    });
+
+    await api.applyConfiguredServerEdit({
+      name: 'github/api server',
+      csrfToken: 'csrf_123',
+      idempotencyKey: 'apply-attempt-123',
+      edit: { id: 'github-renamed' },
+      previewFingerprint: 'preview_123',
+      confirmationFacts: { previewConfirmed: 'preview_123', targetNameConfirmed: 'github-renamed' },
+    });
+
+    expect(calls[0]).toMatchObject({
+      input: '/admin/api/configured-servers/github%2Fapi%20server/apply',
+      init: {
+        method: 'POST',
+        headers: {
+          'X-CSRF-Token': 'csrf_123',
+          'Idempotency-Key': 'apply-attempt-123',
+        },
+      },
+    });
+    expect(JSON.parse(calls[0].init?.body as string)).toEqual({
+      edit: { id: 'github-renamed' },
+      previewFingerprint: 'preview_123',
+      confirmationFacts: { previewConfirmed: 'preview_123', targetNameConfirmed: 'github-renamed' },
+    });
+  });
+
+  it('maps configured-server apply conflicts to actionable operator copy', async () => {
+    const api = createAdminApi({
+      fetch: async () =>
+        jsonResponse(
+          {
+            ok: false,
+            error: 'configured_server_stale_preview',
+            message: 'The configured server changed after preview.',
+          },
+          409,
+        ),
+    });
+
+    await expect(
+      api.applyConfiguredServerEdit({
+        name: 'github',
+        csrfToken: 'csrf',
+        idempotencyKey: 'apply-1',
+        edit: { enabled: true },
+        previewFingerprint: 'stale',
+        confirmationFacts: { previewConfirmed: 'stale' },
+      }),
+    ).rejects.toMatchObject({
+      failure: {
+        kind: 'rejected',
+        code: 'configured_server_stale_preview',
+        message: 'The server changed after this preview. Preview the edit again before applying.',
+      },
+    });
   });
 
   it('keeps default idempotency keys valid for hostile configured-server ids', async () => {

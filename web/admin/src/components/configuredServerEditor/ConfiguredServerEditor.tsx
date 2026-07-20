@@ -1,6 +1,6 @@
 import { Alert, Badge, Button, Group, Paper, Stack, Text, Title } from '@mantine/core';
 
-import { Pencil, ServerCog } from 'lucide-react';
+import { Pencil, ServerCog, ShieldCheck } from 'lucide-react';
 
 import {
   fieldAppliesToTransport,
@@ -8,6 +8,7 @@ import {
   selectedTransportType,
 } from '../../configuredServerEdit/configuredServerEditDraft';
 import type { ConfiguredServerEditModel } from '../../configuredServerEdit/useConfiguredServerEdit';
+import { configuredServerApplyEligibility } from '../../configuredServerEdit/useConfiguredServerEdit';
 import { EmptyState, Panel } from '../AdminConsoleShared';
 import { transportSummaryLabel } from '../adminConsoleUtils';
 import { ConfiguredServerFieldDraft, editGroupHelp, SecretFieldDraft } from './EditControls';
@@ -33,6 +34,41 @@ export function ConfiguredServerEditor({ model }: { model: ConfiguredServerEditM
     return (
       <Panel title="Server detail" utility={state.serverId} icon={<ServerCog size={17} />}>
         <EmptyState message="Loading server detail." />
+      </Panel>
+    );
+  }
+
+  if (state.status === 'committed' || state.status === 'committedRefreshFailed') {
+    return (
+      <Panel title="Server detail" utility={state.serverId} icon={<ServerCog size={17} />}>
+        <Stack gap="sm">
+          <Alert color="teal" role="status">
+            {state.success}
+          </Alert>
+          {state.warning ? (
+            <Alert color="yellow" role="status">
+              {state.warning}
+            </Alert>
+          ) : null}
+          {state.status === 'committed' ? (
+            <EmptyState message="Refreshing the committed server detail." />
+          ) : (
+            <Alert color="yellow" role="status">
+              {state.message}
+            </Alert>
+          )}
+          <Text c="dimmed" size="sm">
+            Editing stays unavailable until the runtime returns a fresh server detail model.
+          </Text>
+          <Group>
+            {state.status === 'committedRefreshFailed' ? (
+              <Button onClick={() => void model.open(state.serverId)}>Retry detail</Button>
+            ) : null}
+            <Button variant="default" onClick={() => void model.close()}>
+              Back to servers
+            </Button>
+          </Group>
+        </Stack>
       </Panel>
     );
   }
@@ -83,6 +119,7 @@ export function ConfiguredServerEditor({ model }: { model: ConfiguredServerEditM
       fields: group.fields.filter((field) => fieldAppliesToTransport(field, transportType)),
     }))
     .filter((group) => group.fields.length > 0);
+  const applyEligibility = configuredServerApplyEligibility(state);
 
   return (
     <Panel
@@ -158,13 +195,18 @@ export function ConfiguredServerEditor({ model }: { model: ConfiguredServerEditM
           <Group gap="xs">
             <Button
               loading={state.previewBusy}
-              disabled={!state.dirty || state.previewBusy}
+              disabled={!state.dirty || state.previewBusy || state.applyBusy}
               onClick={() => void model.preview('auto')}
             >
               Preview change
             </Button>
             {state.preview ? (
-              <Button variant="default" loading={state.previewBusy} onClick={() => void model.preview('manual')}>
+              <Button
+                variant="default"
+                loading={state.previewBusy}
+                disabled={state.applyBusy}
+                onClick={() => void model.preview('manual')}
+              >
                 Rerun connectivity
               </Button>
             ) : null}
@@ -175,7 +217,41 @@ export function ConfiguredServerEditor({ model }: { model: ConfiguredServerEditM
             {state.previewError}
           </Alert>
         ) : null}
-        {state.preview ? <PreviewResult preview={state.preview} /> : null}
+        {state.applyError ? (
+          <Alert color="red" role="alert">
+            {state.applyError}
+          </Alert>
+        ) : null}
+        {state.applyWarning ? (
+          <Alert color="yellow" role="status">
+            {state.applyWarning}
+          </Alert>
+        ) : null}
+        {state.applySuccess ? (
+          <Alert color="teal" role="status">
+            {state.applySuccess}
+          </Alert>
+        ) : null}
+        {state.preview ? (
+          <>
+            <PreviewResult preview={state.preview} />
+            <Group justify="flex-end" align="center">
+              {!applyEligibility.eligible ? (
+                <Text c="dimmed" size="sm">
+                  {applyEligibility.reason}
+                </Text>
+              ) : null}
+              <Button
+                leftSection={<ShieldCheck size={16} />}
+                loading={state.applyBusy}
+                disabled={!applyEligibility.eligible || state.applyBusy}
+                onClick={() => void model.apply()}
+              >
+                Apply changes
+              </Button>
+            </Group>
+          </>
+        ) : null}
       </Stack>
     </Panel>
   );

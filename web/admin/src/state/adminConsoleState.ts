@@ -112,9 +112,6 @@ function withServerMutation(state: AdminConsoleState, serverId: string, mutation
       ...state.serverMutations,
       [serverId]: mutation,
     },
-    banner:
-      mutation.state === 'succeeded' || mutation.state === 'failed'
-        ? { kind: mutation.state === 'succeeded' ? 'success' : 'error', message: mutation.message ?? '' }
-        : state.banner,
+    banner: mutation.state === 'failed' ? { kind: 'error', message: mutation.message ?? '' } : state.banner,
   };
 }

@@ -21,6 +21,7 @@ interface ConfiguredServerOverrides {
   open?: ConfiguredServerEditModel['open'];
   close?: ConfiguredServerEditModel['close'];
   preview?: ConfiguredServerEditModel['preview'];
+  apply?: ConfiguredServerEditModel['apply'];
   copy?: AdminConsoleSessionModel['configuredServers']['copy'];
 }
 
@@ -52,10 +53,11 @@ function FixtureAdminConsoleApp({ state, overrides }: { state: AdminConsoleState
   const edit: ConfiguredServerEditModel = {
     state: editState,
     open: configuredServers?.open ?? (() => undefined),
-    close: configuredServers?.close ?? (() => true),
+    close: configuredServers?.close ?? (async () => true),
     changeField: (fieldPath, value) => editDispatch({ type: 'fieldChanged', fieldPath, value }),
     changeSecret: (fieldPath, value) => editDispatch({ type: 'secretChanged', fieldPath, value }),
     preview: configuredServers?.preview ?? (() => undefined),
+    apply: configuredServers?.apply ?? (() => undefined),
   };
   return <AdminConsoleApp session={fixtureSession(state, overrides, edit)} />;
 }
@@ -73,6 +75,7 @@ export function fixtureSession(
     refresh: overrides.refresh ?? (() => undefined),
     navigation: {
       route: overrides.navigation?.route ?? 'overview',
+      section: overrides.navigation?.section ?? null,
       navigate: overrides.navigation?.navigate ?? (() => undefined),
     },
     configuredServers: {
@@ -91,7 +94,7 @@ export function fixtureSession(
         (async () => {
           throw new Error('Preset preview was not configured for this test');
         }),
-      save: overrides.presets?.save ?? (() => undefined),
+      save: overrides.presets?.save ?? (() => true),
       delete: overrides.presets?.delete ?? (() => undefined),
     },
   };
@@ -101,10 +104,11 @@ function staticConfiguredServerEditModel(overrides?: ConfiguredServerOverrides):
   return {
     state: configuredServerEditStateFromFixture(overrides?.editor),
     open: overrides?.open ?? (() => undefined),
-    close: overrides?.close ?? (() => true),
+    close: overrides?.close ?? (async () => true),
     changeField: () => undefined,
     changeSecret: () => undefined,
     preview: () => undefined,
+    apply: overrides?.apply ?? (() => undefined),
   };
 }
 

@@ -68,12 +68,25 @@ interface AdminOperationServiceOptions {
   createOperationId?: () => string;
 }
 
-interface ExecuteMutationInput<T> {
+interface ExecuteMutationBase {
   context: AdminOperationContext;
   operationName: string;
+}
+
+interface PreparedMutation<T> {
   confirmationRequirements?: AdminConfirmationRequirement[];
   run: (context: AdminOperationContext) => Promise<T>;
 }
+
+type ExecuteMutationInput<T> = ExecuteMutationBase &
+  (
+    | PreparedMutation<T>
+    | {
+        prepare: () => Promise<PreparedMutation<T>>;
+      }
+  );
+
+type ReadyMutationInput<T> = ExecuteMutationBase & PreparedMutation<T>;
 
 interface ExecuteReadOnlyInput<T> {
   context: AdminOperationContext;
@@ -259,9 +272,14 @@ interface ActiveMutation {
   promise: Promise<AdminOperationResult<unknown>>;
 }
 
+interface ActivePreparation extends ActiveMutation {
+  fingerprintHash: string;
+}
+
 interface RuntimeScopeMutationState {
   mutationQueue: Promise<void>;
   activeMutations: Map<string, ActiveMutation>;
+  activePreparations: Map<string, ActivePreparation>;
   idempotency: Map<string, IdempotencyEntry>;
   recentAuditFacts: AdminAuditFact[];
   journalUnavailable: boolean;
@@ -423,7 +441,48 @@ export class AdminOperationService {
       return (await this.waitForActiveMutation(scopedKeyHash, input.operationName)) as AdminOperationResult<T>;
     }
 
-    const confirmationResult = this.validateConfirmations(input);
+    const activePreparation = this.mutationState.activePreparations.get(scopedKeyHash);
+    if (activePreparation) {
+      if (activePreparation.fingerprintHash !== fingerprintHash) {
+        return {
+          ok: false,
+          status: 'idempotency_conflict',
+          code: 'idempotency_conflict',
+          retryable: false,
+          operationName: input.operationName,
+        };
+      }
+      return (await this.waitForActivePreparation(activePreparation, input.operationName)) as AdminOperationResult<T>;
+    }
+
+    const preparationPromise = this.prepareAndExecuteMutation(input, scopedKeyHash, fingerprintHash);
+    this.mutationState.activePreparations.set(scopedKeyHash, {
+      fingerprintHash,
+      promise: preparationPromise as Promise<AdminOperationResult<unknown>>,
+    });
+    try {
+      return await preparationPromise;
+    } finally {
+      const active = this.mutationState.activePreparations.get(scopedKeyHash);
+      if (active?.promise === preparationPromise) {
+        this.mutationState.activePreparations.delete(scopedKeyHash);
+      }
+    }
+  }
+
+  private async prepareAndExecuteMutation<T>(
+    input: ExecuteMutationInput<T>,
+    scopedKeyHash: string,
+    fingerprintHash: string,
+  ): Promise<AdminOperationResult<T>> {
+    const prepared = 'prepare' in input ? await input.prepare() : input;
+    const readyInput: ReadyMutationInput<T> = {
+      context: input.context,
+      operationName: input.operationName,
+      confirmationRequirements: prepared.confirmationRequirements,
+      run: prepared.run,
+    };
+    const confirmationResult = this.validateConfirmations(readyInput);
     if (confirmationResult) {
       return confirmationResult;
     }
@@ -448,7 +507,7 @@ export class AdminOperationService {
     }
     this.idempotency.set(scopedKeyHash, entry);
 
-    const activePromise = this.enqueueMutation(async () => this.runReservedMutation(input, entry));
+    const activePromise = this.enqueueMutation(async () => this.runReservedMutation(readyInput, entry));
     this.mutationState.activeMutations.set(scopedKeyHash, {
       promise: activePromise as Promise<AdminOperationResult<unknown>>,
     });
@@ -457,6 +516,17 @@ export class AdminOperationService {
     });
 
     return (await activePromise) as AdminOperationResult<T>;
+  }
+
+  private async waitForActivePreparation<T>(
+    active: ActivePreparation,
+    operationName: string,
+  ): Promise<AdminOperationResult<T>> {
+    const timeoutMs = this.retryWaitMs();
+    const timeout = new Promise<AdminOperationResult<T>>((resolve) => {
+      setTimeout(() => resolve(this.operationInProgress(operationName, timeoutMs)), timeoutMs);
+    });
+    return Promise.race([active.promise as Promise<AdminOperationResult<T>>, timeout]);
   }
 
   private validateMutationAdmission(
@@ -496,7 +566,7 @@ export class AdminOperationService {
   }
 
   private async runReservedMutation<T>(
-    input: ExecuteMutationInput<T>,
+    input: ReadyMutationInput<T>,
     entry: IdempotencyEntry,
   ): Promise<AdminOperationResult<T>> {
     let result: T;
@@ -541,7 +611,7 @@ export class AdminOperationService {
   }
 
   private recordMutationFailure<T>(
-    input: ExecuteMutationInput<T>,
+    input: ReadyMutationInput<T>,
     entry: IdempotencyEntry,
     error: unknown,
   ): AdminOperationResult<T> {
@@ -628,7 +698,7 @@ export class AdminOperationService {
     };
   }
 
-  private validateConfirmations(input: ExecuteMutationInput<unknown>): AdminOperationRecoveryResult | null {
+  private validateConfirmations(input: ReadyMutationInput<unknown>): AdminOperationRecoveryResult | null {
     if (!input.confirmationRequirements?.length) {
       return null;
     }
@@ -1035,6 +1105,7 @@ function getRuntimeScopeMutationState(storageDir: string, runtimeScopeId: string
   const state: RuntimeScopeMutationState = {
     mutationQueue: Promise.resolve(),
     activeMutations: new Map(),
+    activePreparations: new Map(),
     idempotency: new Map(),
     recentAuditFacts: [],
     journalUnavailable: false,

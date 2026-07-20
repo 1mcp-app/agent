@@ -1,4 +1,5 @@
 import type {
+  ConfiguredServerApplyResponse,
   ConfiguredServerDetailResponse,
   ConfiguredServerEditDraft,
   ConfiguredServerPreviewResponse,
@@ -23,11 +24,17 @@ interface LoadedConfiguredServerEditState {
   preview?: ConfiguredServerPreviewResponse['preview'];
   previewBusy: boolean;
   previewError?: string;
+  applyBusy: boolean;
+  applyError?: string;
+  applyWarning?: string;
+  applySuccess?: string;
 }
 
 export type ConfiguredServerEditState =
   | { status: 'list' }
   | { status: 'loading'; serverId: string }
+  | { status: 'committed'; serverId: string; success: string; warning?: string }
+  | { status: 'committedRefreshFailed'; serverId: string; success: string; warning?: string; message: string }
   | LoadedConfiguredServerEditState
   | { status: 'missing'; serverId: string }
   | { status: 'failed'; serverId: string; message: string };
@@ -42,7 +49,17 @@ export type ConfiguredServerEditAction =
   | { type: 'secretChanged'; fieldPath: string[]; value: SecretDraftState[string] }
   | { type: 'previewStarted' }
   | { type: 'previewSucceeded'; preview: ConfiguredServerPreviewResponse['preview'] }
-  | { type: 'previewFailed'; message: string };
+  | { type: 'previewFailed'; message: string }
+  | { type: 'applyStarted' }
+  | { type: 'applyCommitted'; serverId: string; result: ConfiguredServerApplyResponse['result'] }
+  | {
+      type: 'applySucceeded';
+      serverId: string;
+      detail: ConfiguredServerDetailResponse;
+      result: ConfiguredServerApplyResponse['result'];
+    }
+  | { type: 'applyFailed'; message: string; clearPreview?: boolean }
+  | { type: 'applyRefreshFailed'; message: string };
 
 export function createConfiguredServerEditState(): ConfiguredServerEditState {
   return { status: 'list' };
@@ -77,11 +94,13 @@ export function reduceConfiguredServerEditState(
       return { status: 'failed', serverId: action.serverId, message: action.message };
     case 'fieldChanged':
       if (state.status !== 'loaded') return state;
+      if (state.applyBusy) return state;
       return withDraftChange(state, {
         fieldDraft: { ...state.fieldDraft, [fieldKey(action.fieldPath)]: action.value },
       });
     case 'secretChanged':
       if (state.status !== 'loaded') return state;
+      if (state.applyBusy) return state;
       return withDraftChange(state, {
         secretDraft: { ...state.secretDraft, [fieldKey(action.fieldPath)]: action.value },
       });
@@ -94,6 +113,41 @@ export function reduceConfiguredServerEditState(
     case 'previewFailed':
       if (state.status !== 'loaded') return state;
       return { ...state, previewBusy: false, previewError: action.message };
+    case 'applyStarted':
+      if (state.status !== 'loaded') return state;
+      return {
+        ...state,
+        applyBusy: true,
+        applyError: undefined,
+        applySuccess: undefined,
+      };
+    case 'applyCommitted':
+      if (state.status !== 'loaded') return state;
+      return {
+        status: 'committed',
+        serverId: action.serverId,
+        success: `Changes applied to ${action.result.targetName}.`,
+        warning: configuredServerReloadWarning(action.result),
+      };
+    case 'applySucceeded': {
+      const next = loadedState(action.serverId, action.detail);
+      return {
+        ...next,
+        applySuccess: `Changes applied to ${action.result.targetName}.`,
+        applyWarning: configuredServerReloadWarning(action.result),
+      };
+    }
+    case 'applyFailed':
+      if (state.status !== 'loaded') return state;
+      return {
+        ...state,
+        preview: action.clearPreview ? undefined : state.preview,
+        applyBusy: false,
+        applyError: action.message,
+      };
+    case 'applyRefreshFailed':
+      if (state.status !== 'committed') return state;
+      return { ...state, status: 'committedRefreshFailed', message: action.message };
   }
 }
 
@@ -125,6 +179,7 @@ function loadedState(serverId: string, detail: ConfiguredServerDetailResponse): 
     secretDraft,
     dirty: false,
     previewBusy: false,
+    applyBusy: false,
   };
 }
 
@@ -138,6 +193,16 @@ function withDraftChange(
     preview: undefined,
     previewBusy: false,
     previewError: undefined,
+    applyError: undefined,
+    applyWarning: undefined,
+    applySuccess: undefined,
   };
   return { ...next, dirty: Object.keys(configuredServerEditDraft(next)).length > 0 };
+}
+
+function configuredServerReloadWarning(result: ConfiguredServerApplyResponse['result']): string | undefined {
+  if (result.configChange.reload.status !== 'failed') return undefined;
+  return result.configChange.reload.error
+    ? `Configuration was written, but runtime reload failed: ${result.configChange.reload.error}`
+    : 'Configuration was written, but runtime reload failed. Inspect runtime health before continuing.';
 }

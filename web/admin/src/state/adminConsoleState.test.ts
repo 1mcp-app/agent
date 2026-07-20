@@ -169,7 +169,7 @@ describe('admin console state', () => {
     expect(recovered.error).toBeNull();
   });
 
-  it('preserves mutation success banners through the follow-up refresh', () => {
+  it('keeps mutation success feedback local to the affected server row', () => {
     const succeeded = reduceAdminConsoleState(createInitialState(), {
       type: 'mutationSucceeded',
       serverId: 'filesystem',
@@ -196,8 +196,10 @@ describe('admin console state', () => {
       updatedAt: '00:01:02',
     });
 
-    expect(refreshed.banner).toEqual({
-      kind: 'success',
+    expect(refreshed.banner).toBeNull();
+    expect(refreshed.serverMutations.filesystem).toEqual({
+      state: 'succeeded',
+      action: 'disable',
       message: 'Server disable completed.',
     });
   });

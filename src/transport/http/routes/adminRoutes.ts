@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -5,6 +6,7 @@ import { fileURLToPath } from 'node:url';
 import type { BackendOAuthDashboardResult } from '@src/auth/oauthAuthorizationFlow.js';
 import { RuntimeIdentity } from '@src/core/runtime/runtimeIdentityService.js';
 import {
+  AdminConfiguredServerApplyError,
   AdminConfiguredServerNotFoundError,
   type AdminConfiguredServerOperations,
 } from '@src/domains/admin/adminConfiguredServerService.js';
@@ -391,6 +393,10 @@ export function createAdminRoutes(options: AdminRoutesOptions): Router | null {
     await handleConfiguredServerPreview(req, res, options);
   });
 
+  router.post('/api/configured-servers/:name/apply', async (req, res) => {
+    await handleConfiguredServerApply(req, res, options);
+  });
+
   router.post('/api/configured-servers/:name/enable', async (req, res) => {
     await handleConfiguredServerMutation(req, res, options, 'enableConfiguredServer');
   });
@@ -617,6 +623,82 @@ async function handleConfiguredServerPreview(req: Request, res: Response, option
       return;
     }
     throw error;
+  }
+}
+
+async function handleConfiguredServerApply(req: Request, res: Response, options: AdminRoutesOptions): Promise<void> {
+  if (!options.configuredServerService) {
+    res.status(404).json({ error: 'admin_configured_servers_unavailable' });
+    return;
+  }
+  if (isMutationLocked(options)) {
+    sendAdminOperationResult(res, {
+      ok: false,
+      status: 'runtime_scope_locked',
+      code: 'runtime_scope_locked',
+      retryable: true,
+      operationName: 'applyConfiguredServerEdit',
+      reason: 'writer_lock_unavailable',
+    });
+    return;
+  }
+
+  const targetName = req.params.name;
+  try {
+    const result = await options.configuredServerService.applyConfiguredServerEdit({
+      context: buildAdminOperationContext(req, options, { type: 'configured_server', id: targetName }),
+      targetName,
+      edit: getBodyValue(req.body, 'edit') ?? {},
+      previewFingerprint: getBodyString(req.body, 'previewFingerprint'),
+    });
+    if (!result.ok && result.status === 'mutation_failed' && isConfiguredServerApplyErrorCode(result.error)) {
+      sendConfiguredServerApplyError(res, result.error);
+      return;
+    }
+    sendAdminOperationResult(res, result);
+  } catch (error) {
+    if (error instanceof AdminConfiguredServerNotFoundError) {
+      sendConfiguredServerApplyError(res, error.code);
+      return;
+    }
+    if (error instanceof AdminConfiguredServerApplyError) {
+      sendConfiguredServerApplyError(res, error.code);
+      return;
+    }
+    throw error;
+  }
+}
+
+function isConfiguredServerApplyErrorCode(value: string): boolean {
+  return value.startsWith('configured_server_');
+}
+
+function sendConfiguredServerApplyError(res: Response, code: string): void {
+  const status = code === 'configured_server_not_found' ? 404 : 409;
+  res.status(status).json({
+    ok: false,
+    error: code,
+    code,
+    message: configuredServerApplyErrorMessage(code),
+  });
+}
+
+function configuredServerApplyErrorMessage(code: string): string {
+  switch (code) {
+    case 'configured_server_stale_preview':
+      return 'The configured server changed after preview. Preview the edit again.';
+    case 'configured_server_destination_conflict':
+      return 'The requested configured server target name is already in use.';
+    case 'configured_server_connectivity_blocked':
+      return 'Connectivity validation did not pass for the enabled remote server.';
+    case 'configured_server_edit_invalid':
+      return 'The configured server edit is invalid.';
+    case 'configured_server_edit_unchanged':
+      return 'The configured server edit does not contain any changes.';
+    case 'configured_server_not_found':
+      return 'Configured server target was not found.';
+    default:
+      return 'The configured server edit could not be applied.';
   }
 }
 
@@ -1044,7 +1126,7 @@ function buildAdminOperationContext(
       jsonMode: true,
     },
     idempotencyKey: req.header('Idempotency-Key'),
-    requestFingerprint: configuredServerRequestFingerprint(operationName, target.id),
+    requestFingerprint: configuredServerRequestFingerprint(operationName, target.id, req.body),
     confirmationFacts: getBodyRecord(req.body, 'confirmationFacts'),
   };
 }
@@ -1126,15 +1208,30 @@ function buildCliAdminOperationContext(
   };
 }
 
-function configuredServerRequestFingerprint(operationName: string, targetName: string | undefined): string {
-  return stableJsonStringify({
+function configuredServerRequestFingerprint(
+  operationName: string,
+  targetName: string | undefined,
+  body?: unknown,
+): string {
+  const normalized = stableJsonStringify({
     schemaVersion: 1,
     operationName,
     target: {
       type: 'configured_server',
       id: targetName ?? '',
     },
+    ...(operationName === 'applyConfiguredServerEdit'
+      ? {
+          previewFingerprint: getBodyString(body, 'previewFingerprint'),
+          editDigest: createHash('sha256')
+            .update(stableJsonStringify(getBodyValue(body, 'edit') ?? {}))
+            .digest('hex'),
+        }
+      : {}),
   });
+  return operationName === 'applyConfiguredServerEdit'
+    ? `configured_server_apply_${createHash('sha256').update(normalized).digest('hex')}`
+    : normalized;
 }
 
 function stableJsonStringify(value: unknown): string {
@@ -1220,6 +1317,9 @@ function operationNameForRequest(req: Request): string {
   }
   if (req.path.endsWith('/preview')) {
     return 'previewConfiguredServerEdit';
+  }
+  if (req.path.endsWith('/apply')) {
+    return 'applyConfiguredServerEdit';
   }
   if (req.method === 'GET' && req.path.startsWith('/api/configured-servers/')) {
     return 'getConfiguredServerDetail';
