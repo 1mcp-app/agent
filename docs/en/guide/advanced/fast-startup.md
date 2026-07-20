@@ -144,6 +144,8 @@ sequenceDiagram
 - **Batched Notifications**: Multiple changes grouped to prevent spam
 - **Better UX**: No need to manually refresh or reconnect
 
+The capability registry is intentionally progressive. The `async-min-servers` setting is a startup readiness gate, not an atomic publication threshold: capability counts can continue increasing as later servers connect. Inspection endpoints such as `/api/tools` return the current cached registry snapshot without forcing all servers to reconnect or refresh.
+
 ## Configuration
 
 You can customize the async loading behavior, such as timeouts and retry logic, in the `loading` section of your JSON configuration file.

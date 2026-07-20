@@ -57,42 +57,37 @@ describe('ParallelExecutor', () => {
       expect(maxActiveCount).toBeLessThanOrEqual(2);
     });
 
-    it('should process items in batches', async () => {
-      const executor = new ParallelExecutor<string, number>();
-      const batchCompletionOrder: number[] = [];
-
-      executor.on(ParallelExecutorEvent.BatchComplete, (batch) => {
-        batchCompletionOrder.push(batch.length);
+    it('starts the next item as soon as a concurrency slot becomes available', async () => {
+      const executor = new ParallelExecutor<number, number>();
+      const started: number[] = [];
+      let releaseSlowItem: (() => void) | undefined;
+      const slowItem = new Promise<void>((resolve) => {
+        releaseSlowItem = resolve;
       });
 
-      const handler = async (item: string): Promise<number> => {
-        await new Promise((resolve) => setTimeout(resolve, 10));
-        return item.length;
-      };
+      const execution = executor.execute(
+        [0, 1, 2, 3, 4, 5],
+        async (item) => {
+          started.push(item);
+          if (item === 0) {
+            await slowItem;
+          }
+          return item;
+        },
+        { maxConcurrent: 5 },
+      );
 
-      await executor.execute(['a', 'b', 'c', 'd', 'e', 'f'], handler, { maxConcurrent: 2 });
-
-      // With maxConcurrent: 2 and 6 items, we expect 3 batches
-      expect(batchCompletionOrder.length).toBe(3);
-      expect(batchCompletionOrder).toEqual([2, 2, 2]);
+      await vi.waitFor(() => expect(started).toContain(5));
+      releaseSlowItem?.();
+      await execution;
     });
 
-    it('should handle partial batch at the end', async () => {
-      const executor = new ParallelExecutor<string, number>();
-      const batchSizes: number[] = [];
+    it('rejects a non-positive concurrency limit', async () => {
+      const executor = new ParallelExecutor<number, number>();
 
-      executor.on(ParallelExecutorEvent.BatchComplete, (batch) => {
-        batchSizes.push(batch.length);
-      });
-
-      const handler = async (item: string): Promise<number> => {
-        await new Promise((resolve) => setTimeout(resolve, 5));
-        return item.length;
-      };
-
-      await executor.execute(['a', 'b', 'c', 'd', 'e'], handler, { maxConcurrent: 2 });
-
-      expect(batchSizes).toEqual([2, 2, 1]); // Last batch has only 1 item
+      await expect(executor.execute([1], async (item) => item, { maxConcurrent: 0 })).rejects.toThrow(
+        'maxConcurrent must be a positive integer',
+      );
     });
   });
 
@@ -134,20 +129,40 @@ describe('ParallelExecutor', () => {
       expect(itemCompleteSpy).toHaveBeenCalledWith('ccc', 3);
     });
 
-    it('should emit BatchComplete event after each batch', async () => {
-      const executor = new ParallelExecutor<string, number>();
-      const batchCompleteSpy = vi.fn();
+    it('should preserve ordered BatchComplete events without blocking later items', async () => {
+      const executor = new ParallelExecutor<number, number>();
+      const completedBatches: number[][] = [];
+      let releaseFirstItem: (() => void) | undefined;
+      let markThirdItemComplete: (() => void) | undefined;
+      const firstItem = new Promise<void>((resolve) => {
+        releaseFirstItem = resolve;
+      });
+      const thirdItemComplete = new Promise<void>((resolve) => {
+        markThirdItemComplete = resolve;
+      });
 
-      executor.on(ParallelExecutorEvent.BatchComplete, batchCompleteSpy);
+      executor.on(ParallelExecutorEvent.BatchComplete, (batch) => completedBatches.push(batch));
 
-      const handler = async (item: string): Promise<number> => {
-        await new Promise((resolve) => setTimeout(resolve, 5));
-        return item.length;
-      };
+      const execution = executor.execute(
+        [0, 1, 2],
+        async (item) => {
+          if (item === 0) {
+            await firstItem;
+          }
+          if (item === 2) {
+            markThirdItemComplete?.();
+          }
+          return item;
+        },
+        { maxConcurrent: 2 },
+      );
 
-      await executor.execute(['a', 'b', 'c', 'd'], handler, { maxConcurrent: 2 });
+      await thirdItemComplete;
+      expect(completedBatches).toEqual([]);
+      releaseFirstItem?.();
+      await execution;
 
-      expect(batchCompleteSpy).toHaveBeenCalledTimes(2);
+      expect(completedBatches).toEqual([[0, 1], [2]]);
     });
   });
 
@@ -224,28 +239,6 @@ describe('ParallelExecutor', () => {
       expect(results.has(2)).toBe(false);
       expect(results.has(4)).toBe(false);
       expect(results.size).toBe(3);
-    });
-  });
-
-  describe('batch processing behavior', () => {
-    it('should wait for batch to complete before starting next', async () => {
-      const executor = new ParallelExecutor<string, number>();
-      const batchStartTimes: number[] = [];
-
-      const handler = async (item: string): Promise<number> => {
-        const idx = ['a', 'b', 'c', 'd'].indexOf(item);
-        if (idx === 0 || idx === 2) {
-          batchStartTimes.push(Date.now());
-        }
-        await new Promise((resolve) => setTimeout(resolve, 20));
-        return item.length;
-      };
-
-      await executor.execute(['a', 'b', 'c', 'd'], handler, { maxConcurrent: 2 });
-
-      // Second batch should start after first batch completes
-      // Use 15ms threshold to account for timing jitter in CI environments
-      expect(batchStartTimes.length).toBe(2);
     });
   });
 

@@ -90,7 +90,7 @@ describe('ConnectionHandler', () => {
 
       const result = await connectionHandler.connectWithRetry(mockClient as Client, mockTransport, 'test-client');
 
-      expect(result).toBe(mockClient);
+      expect(result).toEqual({ client: mockClient, transport: mockTransport });
       expect(mockClient.connect).toHaveBeenCalledTimes(1);
     });
 
@@ -111,7 +111,8 @@ describe('ConnectionHandler', () => {
 
       const result = await connectPromise;
 
-      expect(result).toBeDefined();
+      expect(result.client).toBe(mockClient);
+      expect(result.transport).toBe(mockTransport);
       expect(mockClient.connect).toHaveBeenCalledTimes(2);
     });
 
@@ -205,7 +206,12 @@ describe('ConnectionHandler', () => {
         version: '1.0.0',
       });
 
-      const recreateTransport = vi.fn().mockReturnValue(mockHttpTransport);
+      const recreatedHttpTransport = {
+        ...mockHttpTransport,
+        close: vi.fn().mockResolvedValue(undefined),
+      };
+      Object.setPrototypeOf(recreatedHttpTransport, StreamableHTTPClientTransport.prototype);
+      const recreateTransport = vi.fn().mockReturnValue(recreatedHttpTransport);
 
       const connectPromise = connectionHandler.connectWithRetry(
         mockClient as Client,
@@ -218,9 +224,10 @@ describe('ConnectionHandler', () => {
       await vi.advanceTimersByTimeAsync(CONNECTION_RETRY.INITIAL_DELAY_MS);
       await vi.runAllTimersAsync();
 
-      await connectPromise;
+      const result = await connectPromise;
 
       expect(recreateTransport).toHaveBeenCalled();
+      expect(result.transport).toBe(recreatedHttpTransport);
     });
 
     it('should recreate SSE transport on retry', async () => {
@@ -241,7 +248,12 @@ describe('ConnectionHandler', () => {
         version: '1.0.0',
       });
 
-      const recreateTransport = vi.fn().mockReturnValue(mockSseTransport);
+      const recreatedSseTransport = {
+        ...mockSseTransport,
+        close: vi.fn().mockResolvedValue(undefined),
+      };
+      Object.setPrototypeOf(recreatedSseTransport, SSEClientTransport.prototype);
+      const recreateTransport = vi.fn().mockReturnValue(recreatedSseTransport);
 
       const connectPromise = connectionHandler.connectWithRetry(
         mockClient as Client,
@@ -254,9 +266,10 @@ describe('ConnectionHandler', () => {
       await vi.advanceTimersByTimeAsync(CONNECTION_RETRY.INITIAL_DELAY_MS);
       await vi.runAllTimersAsync();
 
-      await connectPromise;
+      const result = await connectPromise;
 
       expect(recreateTransport).toHaveBeenCalled();
+      expect(result.transport).toBe(recreatedSseTransport);
     });
   });
 

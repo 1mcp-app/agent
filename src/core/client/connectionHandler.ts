@@ -13,6 +13,11 @@ import { getConnectionTimeout } from '@src/utils/core/timeoutUtils.js';
 
 import { OAuthRequiredError } from './types.js';
 
+export interface ConnectedClient {
+  readonly client: Client;
+  readonly transport: AuthProviderTransport;
+}
+
 export class ConnectionHandler {
   public async connectWithRetry(
     client: Client,
@@ -20,7 +25,7 @@ export class ConnectionHandler {
     name: string,
     abortSignal?: AbortSignal,
     recreateTransport?: (transport: AuthProviderTransport) => AuthProviderTransport,
-  ): Promise<Client> {
+  ): Promise<ConnectedClient> {
     let retryDelay = CONNECTION_RETRY.INITIAL_DELAY_MS;
     let currentClient = client;
     let currentTransport = transport;
@@ -41,7 +46,7 @@ export class ConnectionHandler {
         }
 
         logger.info(`Successfully connected to ${name} with server ${sv?.name} version ${sv?.version}`);
-        return currentClient;
+        return { client: currentClient, transport: currentTransport as AuthProviderTransport };
       } catch (error) {
         if (error instanceof UnauthorizedError) {
           const configManager = AgentConfigManager.getInstance();

@@ -300,6 +300,35 @@ describe('ClientManager (Integration)', () => {
       const clients = clientManager.getClients();
       expect(clients.size).toBe(1);
     });
+
+    it('recreates a failed HTTP transport before a new top-level connection attempt', async () => {
+      vi.useRealTimers();
+      const originalTransport = {
+        _url: new URL('https://example.com/mcp'),
+        close: vi.fn().mockResolvedValue(undefined),
+      } as unknown as AuthProviderTransport;
+      Object.setPrototypeOf(originalTransport, StreamableHTTPClientTransport.prototype);
+
+      const recreatedTransport = {
+        _url: new URL('https://example.com/mcp'),
+        close: vi.fn().mockResolvedValue(undefined),
+      } as unknown as AuthProviderTransport;
+      Object.setPrototypeOf(recreatedTransport, StreamableHTTPClientTransport.prototype);
+
+      const connectWithRetry = vi
+        .fn()
+        .mockRejectedValueOnce(new Error('fetch failed'))
+        .mockResolvedValueOnce({ client: mockClient, transport: recreatedTransport });
+      (clientManager as any).connectionHandler.connectWithRetry = connectWithRetry;
+      vi.spyOn((clientManager as any).transportRecreator, 'recreateHttpTransport').mockReturnValue(recreatedTransport);
+
+      await expect(clientManager.createSingleClient('http-server', originalTransport)).rejects.toThrow('fetch failed');
+      await clientManager.createSingleClient('http-server', originalTransport);
+
+      expect(connectWithRetry.mock.calls[1][1]).toBe(recreatedTransport);
+      expect(clientManager.getTransport('http-server')).toBe(recreatedTransport);
+      expect(clientManager.getClient('http-server').transport).toBe(recreatedTransport);
+    });
   });
 
   describe('getClient and getClients', () => {

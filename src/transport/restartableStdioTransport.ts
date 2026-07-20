@@ -6,6 +6,8 @@ import { JSONRPCMessage } from '@modelcontextprotocol/sdk/types.js';
 
 import logger, { debugIf } from '@src/logger/logger.js';
 
+import { ManagedStdioStderr } from './managedStdioStderr.js';
+
 /**
  * Configuration for the restartable stdio transport
  */
@@ -47,6 +49,7 @@ export class RestartableStdioTransport implements Transport {
   constructor(
     private readonly serverParams: StdioServerParameters,
     private readonly restartConfig: RestartableTransportConfig,
+    private readonly managedStderr?: ManagedStdioStderr,
   ) {
     debugIf(() => ({
       message: `Creating RestartableStdioTransport for command: ${serverParams.command}`,
@@ -59,6 +62,7 @@ export class RestartableStdioTransport implements Transport {
    */
   private createTransport(): StdioClientTransport {
     const transport = new StdioClientTransport(this.serverParams);
+    this.managedStderr?.attach(transport.stderr);
 
     // Forward event handlers
     transport.onclose = () => this.handleTransportClose();
@@ -220,6 +224,8 @@ export class RestartableStdioTransport implements Transport {
       await this._currentTransport.close();
       this._currentTransport = null;
     }
+
+    this.managedStderr?.close();
 
     debugIf('RestartableStdioTransport closed');
   }

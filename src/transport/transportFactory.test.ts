@@ -2,6 +2,7 @@
 import './transportFactory.testSetup.js';
 
 import { SSEClientTransport } from '@modelcontextprotocol/sdk/client/sse.js';
+import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 
 import { SDKOAuthClientProvider } from '@src/auth/sdkOAuthClientProvider.js';
 import { MCPServerParams } from '@src/core/types/index.js';
@@ -57,6 +58,38 @@ describe('TransportFactory', () => {
       expect(transports['sse-server'].tags).toEqual(['web']);
       expect(transports['http-server'].timeout).toBe(15000);
       expect(transports['http-server'].tags).toEqual(['api']);
+    });
+
+    it.each([undefined, 'pipe'] as const)('should manage stdio stderr when configured as %s', (stderr) => {
+      const config: Record<string, MCPServerParams> = {
+        'stdio-server': {
+          type: 'stdio',
+          command: 'node',
+          ...(stderr ? { stderr } : {}),
+        },
+      };
+
+      (transportConfigSchema.parse as any).mockReturnValueOnce(config['stdio-server']);
+
+      createTransports(config);
+
+      expect(StdioClientTransport).toHaveBeenCalledWith(expect.objectContaining({ stderr: 'pipe' }));
+    });
+
+    it.each(['inherit', 'ignore', 2] as const)('should preserve explicit stdio stderr target %s', (stderr) => {
+      const config: Record<string, MCPServerParams> = {
+        'stdio-server': {
+          type: 'stdio',
+          command: 'node',
+          stderr,
+        },
+      };
+
+      (transportConfigSchema.parse as any).mockReturnValueOnce(config['stdio-server']);
+
+      createTransports(config);
+
+      expect(StdioClientTransport).toHaveBeenCalledWith(expect.objectContaining({ stderr }));
     });
 
     it('should skip disabled transports', () => {

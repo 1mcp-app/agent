@@ -170,21 +170,22 @@ export class ClientManager {
     logger.info(`Creating client for ${name}`);
     try {
       const client = this.clientFactory.createClient();
-      const connectedClient = await this.connectionHandler.connectWithRetry(client, transport, name, undefined, (t) =>
+      const connected = await this.connectionHandler.connectWithRetry(client, transport, name, undefined, (t) =>
         this.transportRecreator.recreateHttpTransport(t),
       );
+      this.transports[name] = connected.transport;
 
       this.outboundConns.set(name, {
         name,
-        transport,
-        client: connectedClient,
+        transport: connected.transport,
+        client: connected.client,
         status: ClientStatus.Connected,
         lastConnected: new Date(),
       });
       logger.info(`Client created for ${name}`);
 
-      this.extractAndCacheInstructions(name, connectedClient);
-      this.setupConnectionHandlers(name, connectedClient);
+      this.extractAndCacheInstructions(name, connected.client);
+      this.setupConnectionHandlers(name, connected.client);
     } catch (error) {
       this.handleClientCreationError(name, transport, error);
     }
@@ -269,7 +270,8 @@ export class ClientManager {
     abortSignal?: AbortSignal,
   ): Promise<void> {
     logger.info(`Creating client for ${name}`);
-    this.transports[name] = transport;
+    const attemptTransport = this.prepareTransportForAttempt(name, transport);
+    this.transports[name] = attemptTransport;
 
     try {
       if (abortSignal?.aborted) {
@@ -277,25 +279,39 @@ export class ClientManager {
       }
 
       const client = this.clientFactory.createClient();
-      const connectedClient = await this.connectionHandler.connectWithRetry(client, transport, name, abortSignal, (t) =>
-        this.transportRecreator.recreateHttpTransport(t),
+      const connected = await this.connectionHandler.connectWithRetry(
+        client,
+        attemptTransport,
+        name,
+        abortSignal,
+        (t) => this.transportRecreator.recreateHttpTransport(t),
       );
+      this.transports[name] = connected.transport;
 
       this.outboundConns.set(name, {
         name,
-        transport,
-        client: connectedClient,
+        transport: connected.transport,
+        client: connected.client,
         status: ClientStatus.Connected,
         lastConnected: new Date(),
       });
       logger.info(`Client created for ${name}`);
 
-      this.extractAndCacheInstructions(name, connectedClient);
-      this.setupConnectionHandlers(name, connectedClient);
+      this.extractAndCacheInstructions(name, connected.client);
+      this.setupConnectionHandlers(name, connected.client);
     } catch (error) {
-      this.handleSingleClientError(name, transport, error);
+      this.handleSingleClientError(name, attemptTransport, error);
       throw error;
     }
+  }
+
+  private prepareTransportForAttempt(name: string, requestedTransport: AuthProviderTransport): AuthProviderTransport {
+    const previousConnection = this.outboundConns.get(name);
+    if (previousConnection?.status !== ClientStatus.Error) {
+      return requestedTransport;
+    }
+
+    return this.transportRecreator.recreateForRetry(requestedTransport, name);
   }
 
   private handleSingleClientError(name: string, transport: AuthProviderTransport, error: unknown): void {

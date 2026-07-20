@@ -8,6 +8,14 @@ interface TransportWithUrl {
 }
 
 export class TransportRecreator {
+  public recreateForRetry(transport: AuthProviderTransport, serverName?: string): AuthProviderTransport {
+    if (transport instanceof StreamableHTTPClientTransport || transport instanceof SSEClientTransport) {
+      return this.recreateHttpTransport(transport, serverName);
+    }
+
+    return transport;
+  }
+
   public recreateHttpTransport(transport: AuthProviderTransport, serverName?: string): AuthProviderTransport {
     if (!(transport instanceof StreamableHTTPClientTransport) && !(transport instanceof SSEClientTransport)) {
       const name = serverName ? `Transport for ${serverName}` : 'Transport';

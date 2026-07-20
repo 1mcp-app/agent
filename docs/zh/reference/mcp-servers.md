@@ -144,6 +144,7 @@ npx -y @1mcp/agent --config-dir ./project-config
 - `env` (对象或数组, 可选): 环境变量。可以是对象 `{"KEY": "value"}` 或数组 `["KEY=value", "PATH"]`。
 - `inheritParentEnv` (布尔值, 可选): 从父进程继承环境变量。默认为 `false`。
 - `envFilter` (字符串数组, 可选): 用于过滤继承的环境变量的模式。支持 `*` 通配符和 `!` 排除。
+- `stderr` (字符串或整数, 可选): 控制子进程的标准错误输出目标。省略此项或设为 `"pipe"` 时，标准错误输出会由 1MCP 日志系统捕获并限制输出量（每行最多 8 KiB、每 10 秒最多 20 条不同内容，并每 5 秒汇总重复行）。设为 `"inherit"` 可直接输出到终端，设为 `"ignore"` 可丢弃输出，也可以使用非负文件描述符将其传递给子进程。
 - `restartOnExit` (布尔值, 可选): 进程退出时自动重启。默认为 `false`。
 - `maxRestarts` (数字, 可选): 最大重启尝试次数。如果未指定，则允许无限重启。
 - `restartDelay` (数字, 可选): 重启尝试之间的延迟（毫秒）。默认为 `1000`（1秒）。
@@ -197,6 +198,7 @@ npx -y @1mcp/agent --config-dir ./project-config
         "API_KEY": "${MCP_API_KEY}",
         "DEBUG": "false"
       },
+      "stderr": "pipe",
       "restartOnExit": true,
       "maxRestarts": 5,
       "restartDelay": 2000,
