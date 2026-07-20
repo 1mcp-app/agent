@@ -1,5 +1,5 @@
 import fs from 'fs';
-import { createHash } from 'node:crypto';
+import { createHmac, randomBytes } from 'node:crypto';
 import path from 'path';
 
 import ConfigContext from '@src/config/configContext.js';
@@ -63,8 +63,14 @@ export function createConfigChangeService(ports: ConfigChangePorts = {}): Config
   return new DefaultConfigChangeService(ports);
 }
 
+const CONFIGURED_SERVER_FINGERPRINT_KEY = randomBytes(32);
+
 export function fingerprintConfiguredServerTarget(serverConfig: MCPServerParams): string {
-  return `configured_server_${createHash('sha256').update(stableStringify(serverConfig)).digest('hex')}`;
+  return `configured_server_${keyedConfiguredServerFingerprint('target', stableStringify(serverConfig))}`;
+}
+
+export function fingerprintConfiguredServerSecretValue(value: string): string {
+  return keyedConfiguredServerFingerprint('inline-secret', value);
 }
 
 export function isConfiguredServerTargetDisabled(value: MCPServerParams['disabled']): boolean {
@@ -807,6 +813,14 @@ function stableStringify(value: unknown): string {
       .join(',')}}`;
   }
   return JSON.stringify(value);
+}
+
+function keyedConfiguredServerFingerprint(domain: string, value: string): string {
+  return createHmac('sha256', CONFIGURED_SERVER_FINGERPRINT_KEY)
+    .update(domain)
+    .update('\0')
+    .update(value)
+    .digest('hex');
 }
 
 function getNestedRecord(root: Record<string, unknown>, pathSegments: string[]): Record<string, unknown> | undefined {

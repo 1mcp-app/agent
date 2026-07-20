@@ -1,4 +1,4 @@
-import { randomBytes } from 'crypto';
+import { createHash, randomBytes } from 'crypto';
 import { promises as fs } from 'fs';
 import { tmpdir } from 'os';
 import path from 'path';
@@ -44,6 +44,26 @@ describe('Config Change', () => {
     ConfigContext.getInstance().reset();
     vi.clearAllMocks();
     await fs.rm(tempDir, { recursive: true, force: true });
+  });
+
+  it('uses a keyed opaque fingerprint for configured server credentials', () => {
+    const serverConfig = {
+      type: 'http' as const,
+      url: 'https://user:password@example.com/mcp',
+    };
+
+    const fingerprint = fingerprintConfiguredServerTarget(serverConfig);
+    const formerUnkeyedFingerprint = `configured_server_${createHash('sha256')
+      .update(JSON.stringify(serverConfig))
+      .digest('hex')}`;
+
+    expect(fingerprintConfiguredServerTarget(serverConfig)).toBe(fingerprint);
+    expect(fingerprint).toMatch(/^configured_server_[a-f0-9]{64}$/);
+    expect(fingerprint).not.toBe(formerUnkeyedFingerprint);
+    expect(fingerprint).not.toContain('password');
+    expect(fingerprintConfiguredServerTarget({ ...serverConfig, url: 'https://user:other@example.com/mcp' })).not.toBe(
+      fingerprint,
+    );
   });
 
   it('atomically edits and renames a configured server with one required backup and reload', async () => {

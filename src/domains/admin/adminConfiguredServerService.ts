@@ -4,6 +4,7 @@ import { type MCPServerParams, transportConfigSchema } from '@src/core/types/ind
 import {
   type ConfigChangeResult,
   type ConfigChangeService,
+  fingerprintConfiguredServerSecretValue,
   fingerprintConfiguredServerTarget,
   isConfiguredServerTargetDisabled,
 } from '@src/domains/config-change/configChange.js';
@@ -1682,7 +1683,7 @@ function fingerprintSecretReplacement(
 
   return {
     kind: replacement.kind,
-    value: `sha256:${createHash('sha256').update(replacement.value).digest('hex')}`,
+    value: `hmac-sha256:${fingerprintConfiguredServerSecretValue(replacement.value)}`,
   };
 }
 

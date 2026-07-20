@@ -24,6 +24,9 @@ pnpm exec tsc --noEmit --project web/admin/tsconfig.json
 pnpm exec tsc --noEmit --project web/admin/tsconfig.vite.json
 pnpm exec vite build --config web/admin/vite.config.ts
 
+# Runtime and E2E sandboxes may live under build/.tmp, but must never be published.
+cp scripts/build.npmignore build/.npmignore
+
 # Make the built file executable
 echo "🔧 Making build/index.js executable..."
 node -e "require('fs').chmodSync('build/index.js', '755')"

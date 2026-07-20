@@ -63,12 +63,9 @@ describe('admin SPA package build', () => {
     expect(lintOutput).toContain("'process' is not defined");
   });
 
-  it('builds and packs the admin console SPA with external hashed assets', () => {
-    rmSync(ADMIN_BUILD_DIR, { recursive: true, force: true });
+  it('packs the prebuilt admin console SPA with external hashed assets', () => {
     rmSync(PACK_DESTINATION, { recursive: true, force: true });
     mkdirSync(PACK_DESTINATION, { recursive: true });
-
-    run('pnpm', ['build']);
 
     const indexPath = path.join(ADMIN_BUILD_DIR, 'index.html');
     expect(existsSync(indexPath)).toBe(true);
@@ -96,6 +93,7 @@ describe('admin SPA package build', () => {
     expect(tarballListing).toContain('package/build/admin/index.html');
     expect(tarballListing).toContain(`package/build/admin/assets/${jsAsset}`);
     expect(tarballListing).toContain(`package/build/admin/assets/${cssAsset}`);
+    expect(tarballListing).not.toContain('package/build/.tmp/');
     expect(tarballListing).not.toContain('package/build/transport/http/routes/adminConsoleHtml.js');
   }, 120000);
 });
