@@ -8,6 +8,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [unreleased]
 
 ### 🐛 Bug Fixes
+- Bound backend stderr and unblock async loading by @xizhibei in [#381](https://github.com/1mcp-app/agent/pull/381)
+
+
+## [0.34.3] - 2026-07-17
+
+### 🐛 Bug Fixes
 - Honor pre-registered oauth clientId to skip DCR by @aris1009 in [#378](https://github.com/1mcp-app/agent/pull/378)
 
 ## New Contributors
@@ -1039,7 +1045,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 * @xizhibei made their first contribution in [#1](https://github.com/1mcp-app/agent/pull/1)
 * @dependabot[bot] made their first contribution
 
-[unreleased]: https://github.com/1mcp-app/agent/compare/v0.34.2..HEAD
+[unreleased]: https://github.com/1mcp-app/agent/compare/v0.34.3..HEAD
+[0.34.3]: https://github.com/1mcp-app/agent/compare/v0.34.2..v0.34.3
 [0.34.2]: https://github.com/1mcp-app/agent/compare/v0.34.1..v0.34.2
 [0.34.1]: https://github.com/1mcp-app/agent/compare/v0.34.0..v0.34.1
 [0.34.0]: https://github.com/1mcp-app/agent/compare/v0.33.0..v0.34.0
