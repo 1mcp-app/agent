@@ -10,7 +10,7 @@ export const enum ParallelExecutorEvent {
   ItemStart = 'item-start',
   /** Emitted when an item completes processing (success or failure) */
   ItemComplete = 'item-complete',
-  /** Emitted when a batch of items completes processing */
+  /** Emitted when an original concurrency group completes processing */
   BatchComplete = 'batch-complete',
 }
 
@@ -40,8 +40,8 @@ export type ExecutionResult<R> = R | Error;
  * ParallelExecutor - Executes items in parallel with concurrency control
  *
  * This utility processes multiple items concurrently while respecting a maximum
- * concurrency limit. Items are processed in batches, and events are emitted for
- * observability during execution.
+ * concurrency limit. Workers claim the next item as soon as they become free,
+ * and events are emitted for observability during execution.
  *
  * @example
  * ```typescript
@@ -76,61 +76,59 @@ export class ParallelExecutor<T, R> extends EventEmitter {
    * @param options - Execution options including max concurrency
    * @returns Map of items to their successful results only. Failed items are not included
    *          but can be tracked via ItemComplete events (which emit Error objects)
-   * @throws Never throws - individual item failures are caught and logged, other items continue processing
-   * @remarks Errors from individual items do not prevent other items from processing.
+   * @throws RangeError if maxConcurrent is not a positive integer
+   * @remarks Errors from individual handlers do not prevent other items from processing.
    *          Failed items emit ItemComplete events with Error objects and are logged,
    *          then excluded from the returned results Map. Use event listeners to track failures.
    */
   async execute(items: T[], handler: (item: T) => Promise<R>, options: ParallelExecutorOptions): Promise<Map<T, R>> {
+    if (!Number.isInteger(options.maxConcurrent) || options.maxConcurrent <= 0) {
+      throw new RangeError('maxConcurrent must be a positive integer');
+    }
+
     const results = new Map<T, R>();
+    let nextIndex = 0;
+    let nextBatchToEmit = 0;
+    const batches = Array.from({ length: Math.ceil(items.length / options.maxConcurrent) }, (_, index) =>
+      items.slice(index * options.maxConcurrent, (index + 1) * options.maxConcurrent),
+    );
+    const remainingInBatch = batches.map((batch) => batch.length);
 
-    // Process items in batches based on maxConcurrent
-    for (let i = 0; i < items.length; i += options.maxConcurrent) {
-      const batch = items.slice(i, i + options.maxConcurrent);
+    const markItemComplete = (index: number): void => {
+      const batchIndex = Math.floor(index / options.maxConcurrent);
+      remainingInBatch[batchIndex]--;
 
-      // Start all items in this batch
-      const batchPromises = batch.map(async (item) => {
+      while (nextBatchToEmit < batches.length && remainingInBatch[nextBatchToEmit] === 0) {
+        this.emit(ParallelExecutorEvent.BatchComplete, batches[nextBatchToEmit]);
+        nextBatchToEmit++;
+      }
+    };
+
+    const runWorker = async (): Promise<void> => {
+      while (nextIndex < items.length) {
+        const itemIndex = nextIndex++;
+        const item = items[itemIndex];
         this.emit(ParallelExecutorEvent.ItemStart, item);
 
         try {
           const result = await handler(item);
           results.set(item, result);
           this.emit(ParallelExecutorEvent.ItemComplete, item, result);
-          return result;
         } catch (error) {
           const errorObj = error instanceof Error ? error : new Error(String(error));
-          // Still emit the completion event, but don't set in results Map
-          // This allows other items to continue processing
           this.emit(ParallelExecutorEvent.ItemComplete, item, errorObj);
-          throw errorObj; // Re-throw for Promise.allSettled handling
-        }
-      });
-
-      // Wait for this batch to complete before starting next batch
-      const batchResults = await Promise.allSettled(batchPromises);
-
-      // Log and track failed items from this batch
-      const failedItems: Array<{ item: T; result: PromiseRejectedResult }> = [];
-      batchResults.forEach((result, index) => {
-        if (result.status === 'rejected') {
-          failedItems.push({ item: batch[index], result });
-        }
-      });
-
-      if (failedItems.length > 0) {
-        for (const { item, result } of failedItems) {
-          const error = result.reason as unknown;
-          const errorMessage = error instanceof Error ? error.message : String(error);
           logger.error(`Failed to process item in parallel execution: ${item}`, {
-            error: errorMessage,
+            error: errorObj.message,
             itemType: typeof item,
           });
+        } finally {
+          markItemComplete(itemIndex);
         }
       }
+    };
 
-      // Emit batch complete event
-      this.emit(ParallelExecutorEvent.BatchComplete, batch);
-    }
+    const workerCount = Math.min(options.maxConcurrent, items.length);
+    await Promise.all(Array.from({ length: workerCount }, () => runWorker()));
 
     return results;
   }

@@ -1,9 +1,11 @@
+import { McpLoadingEvent } from '@src/core/loading/mcpLoadingManager.js';
 import { AgentConfigManager } from '@src/core/server/agentConfig.js';
 import { InboundConnection, ServerStatus } from '@src/core/types/index.js';
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { AsyncLoadingOrchestrator } from './asyncLoadingOrchestrator.js';
+import { AsyncLoadingOrchestratorEvent } from './asyncLoadingOrchestratorEvent.js';
 
 // Mock modules
 vi.mock('../server/agentConfig.js', () => ({
@@ -87,7 +89,8 @@ describe('AsyncLoadingOrchestrator', () => {
     it('should initialize when async loading is enabled', async () => {
       await orchestrator.initialize();
 
-      expect(mockLoadingManager.on).toHaveBeenCalledWith('server-loaded', expect.any(Function));
+      expect(mockLoadingManager.on).toHaveBeenCalledWith(McpLoadingEvent.ServerLoaded, expect.any(Function));
+      expect(mockLoadingManager.on).toHaveBeenCalledWith(McpLoadingEvent.LoadingComplete, expect.any(Function));
       expect(orchestrator.isReady()).toBe(true);
     });
 
@@ -114,7 +117,7 @@ describe('AsyncLoadingOrchestrator', () => {
       await orchestrator.initialize();
 
       // Should only set up events once
-      expect(mockLoadingManager.on).toHaveBeenCalledTimes(1); // One event handler (server-loaded)
+      expect(mockLoadingManager.on).toHaveBeenCalledTimes(2);
     });
   });
 
@@ -162,8 +165,13 @@ describe('AsyncLoadingOrchestrator', () => {
       orchestrator.initializeNotifications(mockInboundConnection);
     });
 
-    it('should handle server-loaded events', async () => {
-      const serverLoadedHandler = mockLoadingManager.on.mock.calls.find((call: any) => call[0] === 'server-loaded')[1];
+    it('should publish capabilities only after the loading cycle completes', async () => {
+      const serverLoadedHandler = mockLoadingManager.on.mock.calls.find(
+        (call: any) => call[0] === McpLoadingEvent.ServerLoaded,
+      )[1];
+      const loadingCompleteHandler = mockLoadingManager.on.mock.calls.find(
+        (call: any) => call[0] === McpLoadingEvent.LoadingComplete,
+      )[1];
 
       // Mock the capability aggregator update
       const mockAggregator = orchestrator.getCapabilityAggregator();
@@ -199,21 +207,26 @@ describe('AsyncLoadingOrchestrator', () => {
           timestamp: new Date(),
         },
       });
+      const capabilitiesUpdated = vi.fn();
+      orchestrator.on(AsyncLoadingOrchestratorEvent.CapabilitySnapshotPublished, capabilitiesUpdated);
 
       await serverLoadedHandler('test-server', { success: true });
 
       expect(mockServerManager.recordMcpServerReady).toHaveBeenCalledWith('test-server');
-      expect(mockAggregator.updateCapabilities).toHaveBeenCalled();
+      expect(mockAggregator.updateCapabilities).not.toHaveBeenCalled();
+
+      loadingCompleteHandler();
+
+      await vi.waitFor(() => expect(mockAggregator.updateCapabilities).toHaveBeenCalledOnce());
+      expect(capabilitiesUpdated).toHaveBeenCalledOnce();
     });
 
-    it('should handle capability-changed events', () => {
-      const capabilityChangedHandler = mockLoadingManager.on.mock.calls.find(
-        (call: any) => call[0] === 'server-loaded',
+    it('should register a loading-complete publication handler', () => {
+      const loadingCompleteHandler = mockLoadingManager.on.mock.calls.find(
+        (call: any) => call[0] === McpLoadingEvent.LoadingComplete,
       )[1];
 
-      // This tests the internal event flow - not directly testable without
-      // complex mocking, but the integration is covered
-      expect(capabilityChangedHandler).toBeDefined();
+      expect(loadingCompleteHandler).toBeDefined();
     });
   });
 

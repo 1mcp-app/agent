@@ -1,33 +1,25 @@
 import { EventEmitter } from 'events';
 
-import { McpLoadingManager, ServerLoadResult } from '@src/core/loading/mcpLoadingManager.js';
+import { McpLoadingEvent, McpLoadingManager } from '@src/core/loading/mcpLoadingManager.js';
 import { NotificationManager } from '@src/core/notifications/notificationManager.js';
 import { AgentConfigManager } from '@src/core/server/agentConfig.js';
 import { ServerManager } from '@src/core/server/serverManager.js';
 import { InboundConnection, OutboundConnections } from '@src/core/types/index.js';
 import logger, { debugIf } from '@src/logger/logger.js';
 
+import { AsyncLoadingOrchestratorEvent } from './asyncLoadingOrchestratorEvent.js';
 import { CapabilityAggregator, CapabilityChanges } from './capabilityAggregator.js';
 import type { CapabilityRefreshResult } from './capabilityCatalog.js';
 import { InternalCapabilitiesProvider } from './internalCapabilitiesProvider.js';
-
-/**
- * Events emitted by AsyncLoadingOrchestrator
- */
-export interface AsyncLoadingOrchestratorEvents {
-  'orchestrator-ready': () => void;
-  'server-capabilities-updated': (serverName: string, changes: CapabilityChanges) => void;
-  'notifications-sent': (types: string[]) => void;
-}
 
 /**
  * Orchestrates the async loading system by coordinating CapabilityAggregator,
  * NotificationManager, and LoadingStateTracker events.
  *
  * This class handles the complete flow:
- * 1. MCP server becomes ready
- * 2. Capability aggregation detects changes
- * 3. Notifications are sent to clients about new capabilities
+ * 1. Every MCP server reaches a terminal loading state
+ * 2. Capability aggregation publishes one completed snapshot
+ * 3. Notifications are sent to clients about the completed snapshot
  *
  * @example
  * ```typescript
@@ -90,7 +82,7 @@ export class AsyncLoadingOrchestrator extends EventEmitter {
 
     this.isInitialized = true;
     logger.info('AsyncLoadingOrchestrator initialized successfully');
-    this.emit('orchestrator-ready');
+    this.emit(AsyncLoadingOrchestratorEvent.OrchestratorReady);
   }
 
   /**
@@ -125,12 +117,21 @@ export class AsyncLoadingOrchestrator extends EventEmitter {
    */
   private setupEventChain(): void {
     // 1. Listen for server readiness from LoadingManager
-    this.loadingManager.on('server-loaded', (serverName: string, _result: ServerLoadResult) => {
+    this.loadingManager.on(McpLoadingEvent.ServerLoaded, (serverName: string) => {
       if (this.isShuttingDown) return;
 
       this.serverManager.recordMcpServerReady(serverName);
-      debugIf(() => ({ message: `Server ${serverName} became ready, updating capabilities`, meta: { serverName } }));
-      this.handleServerReady(serverName);
+      debugIf(() => ({
+        message: `Server ${serverName} became ready, waiting for loading cycle completion`,
+        meta: { serverName },
+      }));
+    });
+
+    this.loadingManager.on(McpLoadingEvent.LoadingComplete, () => {
+      if (this.isShuttingDown) return;
+
+      debugIf('Loading cycle completed, publishing capability snapshot');
+      void this.handleLoadingComplete();
     });
 
     // 2. Listen for capability changes from CapabilityAggregator
@@ -157,7 +158,7 @@ export class AsyncLoadingOrchestrator extends EventEmitter {
       if (this.isShuttingDown) return;
 
       logger.info(`Sent listChanged notifications to ${clientCount} clients: [${notifications.join(', ')}]`);
-      this.emit('notifications-sent', notifications);
+      this.emit(AsyncLoadingOrchestratorEvent.NotificationsSent, notifications);
     });
 
     this.notificationManager.on('notification-failed', (type: string, error: Error) => {
@@ -168,27 +169,24 @@ export class AsyncLoadingOrchestrator extends EventEmitter {
   }
 
   /**
-   * Handle a server becoming ready by updating capabilities
+   * Publish capabilities after every server reaches a terminal loading state.
    */
-  private async handleServerReady(serverName: string): Promise<void> {
+  private async handleLoadingComplete(): Promise<void> {
     try {
       // Update capability aggregation
       const changes = await this.capabilityAggregator.updateCapabilities();
 
       if (changes.hasChanges) {
         logger.info(
-          `Server ${serverName} ready: ${changes.current.tools.length} tools, ${changes.current.resources.length} resources, ${changes.current.prompts.length} prompts now available`,
+          `Loading cycle complete: ${changes.current.tools.length} tools, ${changes.current.resources.length} resources, ${changes.current.prompts.length} prompts now available`,
         );
-        this.emit('server-capabilities-updated', serverName, changes);
+        this.emit(AsyncLoadingOrchestratorEvent.CapabilitySnapshotPublished, changes);
       } else {
-        debugIf(() => ({
-          message: `Server ${serverName} ready but no capability changes detected`,
-          meta: { serverName },
-        }));
+        debugIf('Loading cycle completed with no capability changes');
       }
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
-      logger.error(`Failed to update capabilities after ${serverName} became ready: ${errorMessage}`);
+      logger.error(`Failed to publish capabilities after loading completed: ${errorMessage}`);
     }
   }
 

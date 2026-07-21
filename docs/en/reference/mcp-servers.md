@@ -165,6 +165,7 @@ This is a dictionary of all the backend MCP servers the agent will manage.
 - `env` (object or array, optional): Environment variables. Can be an object `{"KEY": "value"}` or array `["KEY=value", "PATH"]`.
 - `inheritParentEnv` (boolean, optional): Inherit environment variables from parent process. Defaults to `false`.
 - `envFilter` (array of strings, optional): Patterns for filtering inherited environment variables. Supports `*` wildcards and `!` for exclusion.
+- `stderr` (string or integer, optional): Controls the child process stderr target. Omitted, `"pipe"`, or `"overlapped"` captures stderr in the 1MCP logger with bounded output (8 KiB per line, 20 unique lines per 10 seconds, and repeated-line summaries every 5 seconds). On Windows, `"overlapped"` uses overlapped I/O handles. Use `"inherit"` for direct terminal output, `"ignore"` to discard it, or a non-negative file descriptor to pass it through to the child process.
 - `restartOnExit` (boolean, optional): Automatically restart the process when it exits. Defaults to `false`.
 - `maxRestarts` (number, optional): Maximum number of restart attempts. If not specified, unlimited restarts are allowed.
 - `restartDelay` (number, optional): Delay in milliseconds between restart attempts. Defaults to `1000` (1 second).
@@ -218,6 +219,7 @@ This is a dictionary of all the backend MCP servers the agent will manage.
         "API_KEY": "${MCP_API_KEY}",
         "DEBUG": "false"
       },
+      "stderr": "pipe",
       "restartOnExit": true,
       "maxRestarts": 5,
       "restartDelay": 2000,

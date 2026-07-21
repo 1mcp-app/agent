@@ -209,13 +209,16 @@
             }
           },
           "stderr": {
-            "description": "How to handle stderr output (inherit, ignore, pipe, or file descriptor)",
+            "description": "How to handle stderr output (inherit, ignore, overlapped, pipe, or file descriptor)",
             "anyOf": [
               {
-                "type": "string"
+                "type": "string",
+                "enum": ["inherit", "ignore", "overlapped", "pipe"]
               },
               {
-                "type": "number"
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
               }
             ]
           },
@@ -418,13 +421,16 @@
             }
           },
           "stderr": {
-            "description": "How to handle stderr output (inherit, ignore, pipe, or file descriptor)",
+            "description": "How to handle stderr output (inherit, ignore, overlapped, pipe, or file descriptor)",
             "anyOf": [
               {
-                "type": "string"
+                "type": "string",
+                "enum": ["inherit", "ignore", "overlapped", "pipe"]
               },
               {
-                "type": "number"
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
               }
             ]
           },

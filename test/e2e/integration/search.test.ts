@@ -13,7 +13,10 @@ describe('MCP Search Command Integration', () => {
   let runner: CliTestRunner;
 
   beforeEach(async () => {
-    environment = new CommandTestEnvironment(TestFixtures.createTestScenario('mcp-search-test', 'empty'));
+    environment = new CommandTestEnvironment({
+      ...TestFixtures.createTestScenario('mcp-search-test', 'empty'),
+      mockRegistry: true,
+    });
     await environment.setup();
     runner = new CliTestRunner(environment);
   });
@@ -25,7 +28,7 @@ describe('MCP Search Command Integration', () => {
   describe('Search Alias Delegation', () => {
     it('should delegate search to registry search command', async () => {
       // Test that mcp search properly delegates to registry search
-      const result = await runner.runCommand('mcp', 'search', {
+      const result = await runner.runMcpCommand('search', {
         args: ['filesystem'],
         timeout: 30000,
       });
@@ -51,7 +54,7 @@ describe('MCP Search Command Integration', () => {
     });
 
     it('should handle search without query', async () => {
-      const result = await runner.runCommand('mcp', 'search', {
+      const result = await runner.runMcpCommand('search', {
         timeout: 30000,
       });
 
@@ -71,7 +74,7 @@ describe('MCP Search Command Integration', () => {
 
     it('should pass query parameter correctly', async () => {
       const query = 'file';
-      const result = await runner.runCommand('mcp', 'search', {
+      const result = await runner.runMcpCommand('search', {
         args: [query],
         timeout: 30000,
       });
@@ -93,7 +96,7 @@ describe('MCP Search Command Integration', () => {
     });
 
     it('should handle search with limit parameter', async () => {
-      const result = await runner.runCommand('mcp', 'search', {
+      const result = await runner.runMcpCommand('search', {
         args: ['--limit', '5'],
         timeout: 30000,
       });
@@ -117,7 +120,7 @@ describe('MCP Search Command Integration', () => {
 
   describe('Search Results', () => {
     it('should return search results when matches found', async () => {
-      const result = await runner.runCommand('mcp', 'search', {
+      const result = await runner.runMcpCommand('search', {
         args: ['filesystem'],
         timeout: 30000,
       });
@@ -138,7 +141,7 @@ describe('MCP Search Command Integration', () => {
     });
 
     it('should handle no matches gracefully', async () => {
-      const result = await runner.runCommand('mcp', 'search', {
+      const result = await runner.runMcpCommand('search', {
         args: ['nonexistent-server-xyz-12345-test'],
         timeout: 30000,
       });
@@ -161,7 +164,7 @@ describe('MCP Search Command Integration', () => {
 
     it('should support different output formats', async () => {
       // Test JSON format
-      const jsonResult = await runner.runCommand('mcp', 'search', {
+      const jsonResult = await runner.runMcpCommand('search', {
         args: ['file', '--format=json'],
         timeout: 30000,
       });
@@ -185,7 +188,7 @@ describe('MCP Search Command Integration', () => {
 
   describe('Search Options', () => {
     it('should support status filter', async () => {
-      const result = await runner.runCommand('mcp', 'search', {
+      const result = await runner.runMcpCommand('search', {
         args: ['--status=active'],
         timeout: 30000,
       });
@@ -207,7 +210,7 @@ describe('MCP Search Command Integration', () => {
     });
 
     it('should support category filter', async () => {
-      const result = await runner.runCommand('mcp', 'search', {
+      const result = await runner.runMcpCommand('search', {
         args: ['--category=development'],
         timeout: 30000,
       });
@@ -229,7 +232,7 @@ describe('MCP Search Command Integration', () => {
     });
 
     it('should support tag filter', async () => {
-      const result = await runner.runCommand('mcp', 'search', {
+      const result = await runner.runMcpCommand('search', {
         args: ['--tag=test'],
         timeout: 30000,
       });
@@ -251,7 +254,7 @@ describe('MCP Search Command Integration', () => {
     });
 
     it('should combine query with filters', async () => {
-      const result = await runner.runCommand('mcp', 'search', {
+      const result = await runner.runMcpCommand('search', {
         args: ['file', '--category=development', '--status=active'],
         timeout: 30000,
       });
@@ -273,7 +276,7 @@ describe('MCP Search Command Integration', () => {
 
   describe('Error Handling', () => {
     it('should handle invalid search parameters gracefully', async () => {
-      const result = await runner.runCommand('mcp', 'search', {
+      const result = await runner.runMcpCommand('search', {
         args: ['--format=invalid'],
         timeout: 15000,
       });
@@ -296,7 +299,7 @@ describe('MCP Search Command Integration', () => {
 
     it('should handle network errors gracefully', async () => {
       // Use very short timeout to simulate network issue
-      const _result = await runner.runCommand('mcp', 'search', {
+      const _result = await runner.runMcpCommand('search', {
         args: ['test'],
         timeout: 1000, // Very short timeout
       });
@@ -307,7 +310,7 @@ describe('MCP Search Command Integration', () => {
 
     it('should handle empty queries gracefully', async () => {
       // Empty query should be handled
-      const result = await runner.runCommand('mcp', 'search', {
+      const result = await runner.runMcpCommand('search', {
         args: [''],
         timeout: 30000,
       });
@@ -329,7 +332,7 @@ describe('MCP Search Command Integration', () => {
 
   describe('Help and Usage', () => {
     it('should show help when requested', async () => {
-      const result = await runner.runCommand('mcp', 'search', {
+      const result = await runner.runMcpCommand('search', {
         args: ['--help'],
         timeout: 15000,
       });
