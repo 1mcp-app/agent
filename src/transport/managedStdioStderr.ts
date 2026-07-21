@@ -2,33 +2,19 @@ import { Stream } from 'node:stream';
 
 import logger from '@src/logger/logger.js';
 
+import { ManagedStdioStderrEvent } from './managedStdioStderrEvent.js';
+import type { ManagedStdioStderrOptions } from './managedStdioStderrOptions.js';
+
 const DEFAULT_MAX_LINE_BYTES = 8 * 1024;
 const DEFAULT_MAX_LINES_PER_WINDOW = 20;
 const DEFAULT_WINDOW_MS = 10_000;
 const DEFAULT_REPEAT_SUMMARY_INTERVAL_MS = 5_000;
 
-export interface ManagedStdioStderrMetadata {
-  readonly serverName: string;
-  readonly source: 'backend-stderr';
-  readonly line?: string;
-  readonly truncated?: boolean;
-  readonly repeatCount?: number;
-  readonly suppressedCount?: number;
-}
-
-export interface ManagedStdioStderrOptions {
-  readonly emit?: (message: string, metadata: ManagedStdioStderrMetadata) => void;
-  readonly maxLineBytes?: number;
-  readonly maxLinesPerWindow?: number;
-  readonly windowMs?: number;
-  readonly repeatSummaryIntervalMs?: number;
-}
-
 /**
  * Drains one backend's stderr without allowing it to grow parent logs without bound.
  */
 export class ManagedStdioStderr {
-  private readonly emit: (message: string, metadata: ManagedStdioStderrMetadata) => void;
+  private readonly emit: NonNullable<ManagedStdioStderrOptions['emit']>;
   private readonly maxLineBytes: number;
   private readonly maxLinesPerWindow: number;
   private readonly windowMs: number;
@@ -153,7 +139,7 @@ export class ManagedStdioStderr {
     }
 
     this.emittedInWindow++;
-    this.emit('Backend stderr', {
+    this.emit(ManagedStdioStderrEvent.Line, {
       serverName: this.serverName,
       source: 'backend-stderr',
       line,
@@ -197,7 +183,7 @@ export class ManagedStdioStderr {
       return;
     }
 
-    this.emit('Backend stderr repeated', {
+    this.emit(ManagedStdioStderrEvent.Repeated, {
       serverName: this.serverName,
       source: 'backend-stderr',
       repeatCount: this.repeatCount,
@@ -211,7 +197,7 @@ export class ManagedStdioStderr {
       return;
     }
 
-    this.emit('Backend stderr suppressed', {
+    this.emit(ManagedStdioStderrEvent.Suppressed, {
       serverName: this.serverName,
       source: 'backend-stderr',
       suppressedCount: this.suppressedCount,

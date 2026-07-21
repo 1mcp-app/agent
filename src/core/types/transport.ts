@@ -232,9 +232,9 @@ export const transportConfigSchema = z.object({
   command: z.string().optional().describe('Command to execute for stdio transport'),
   args: z.array(z.string()).optional().describe('Command-line arguments for the command'),
   stderr: z
-    .union([z.enum(['inherit', 'ignore', 'pipe']), z.number().int().min(0)])
+    .union([z.enum(['inherit', 'ignore', 'overlapped', 'pipe']), z.number().int().min(0)])
     .optional()
-    .describe('How to handle stderr output (inherit, ignore, pipe, or file descriptor)'),
+    .describe('How to handle stderr output (inherit, ignore, overlapped, pipe, or file descriptor)'),
   cwd: z.string().optional().describe('Working directory for the command'),
   env: z
     .union([z.record(z.string(), z.string()), z.array(z.string())])

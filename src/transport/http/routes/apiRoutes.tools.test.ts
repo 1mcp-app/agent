@@ -290,7 +290,7 @@ describe('apiRoutes /api/tools', () => {
     expect(res.body).toEqual(mockResult);
   });
 
-  it('serves the cached tool registry without refreshing all capabilities', async () => {
+  it('serves the current Capability Snapshot through the Capability Catalog without refreshing', async () => {
     const refreshCapabilities = vi.fn();
     const callMetaTool = vi.fn();
     const registry = ToolRegistry.fromToolsWithServer([

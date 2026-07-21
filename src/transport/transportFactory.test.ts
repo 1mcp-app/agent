@@ -14,6 +14,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { ZodError } from 'zod';
 
 import { createTransports } from './transportFactory.js';
+import { ManagedStdioStderr } from './managedStdioStderr.js';
 
 describe('TransportFactory', () => {
   beforeEach(() => {
@@ -60,7 +61,11 @@ describe('TransportFactory', () => {
       expect(transports['http-server'].tags).toEqual(['api']);
     });
 
-    it.each([undefined, 'pipe'] as const)('should manage stdio stderr when configured as %s', (stderr) => {
+    it.each([
+      [undefined, 'pipe'],
+      ['pipe', 'pipe'],
+      ['overlapped', 'overlapped'],
+    ] as const)('should manage stdio stderr when configured as %s', (stderr, expectedMode) => {
       const config: Record<string, MCPServerParams> = {
         'stdio-server': {
           type: 'stdio',
@@ -73,7 +78,25 @@ describe('TransportFactory', () => {
 
       createTransports(config);
 
-      expect(StdioClientTransport).toHaveBeenCalledWith(expect.objectContaining({ stderr: 'pipe' }));
+      expect(StdioClientTransport).toHaveBeenCalledWith(expect.objectContaining({ stderr: expectedMode }));
+    });
+
+    it('should close managed stderr with a standard stdio transport', async () => {
+      const closeSpy = vi.spyOn(ManagedStdioStderr.prototype, 'close');
+      const config: Record<string, MCPServerParams> = {
+        'stdio-server': {
+          type: 'stdio',
+          command: 'node',
+        },
+      };
+
+      (transportConfigSchema.parse as any).mockReturnValueOnce(config['stdio-server']);
+
+      const transports = createTransports(config);
+      await transports['stdio-server'].close();
+
+      expect(closeSpy).toHaveBeenCalledOnce();
+      closeSpy.mockRestore();
     });
 
     it.each(['inherit', 'ignore', 2] as const)('should preserve explicit stdio stderr target %s', (stderr) => {

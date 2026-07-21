@@ -219,14 +219,17 @@ function createStdioTransport(name: string, validatedTransport: ValidatedTranspo
       ? substituteEnvVars(validatedTransport.cwd, envResult.processedEnv)
       : validatedTransport.cwd;
 
-  const shouldManageStderr = validatedTransport.stderr === undefined || validatedTransport.stderr === 'pipe';
+  const shouldManageStderr =
+    validatedTransport.stderr === undefined ||
+    validatedTransport.stderr === 'pipe' ||
+    validatedTransport.stderr === 'overlapped';
   const managedStderr = shouldManageStderr ? new ManagedStdioStderr(name) : undefined;
 
   // Create SDK-compatible parameters with processed environment
   const stdioParams: StdioServerParameters = {
     command,
     args,
-    stderr: shouldManageStderr ? 'pipe' : validatedTransport.stderr,
+    stderr: validatedTransport.stderr ?? 'pipe',
     cwd,
     env: envResult.processedEnv,
   };
@@ -251,7 +254,17 @@ function createStdioTransport(name: string, validatedTransport: ValidatedTranspo
   // Create standard stdio transport
   debugIf(`Creating standard stdio transport for: ${name}`);
   const transport = new StdioClientTransport(stdioParams);
-  managedStderr?.attach(transport.stderr);
+  if (managedStderr) {
+    managedStderr.attach(transport.stderr);
+    const closeTransport = transport.close.bind(transport);
+    transport.close = async (): Promise<void> => {
+      try {
+        await closeTransport();
+      } finally {
+        managedStderr.close();
+      }
+    };
+  }
   return transport as AuthProviderTransport;
 }
 

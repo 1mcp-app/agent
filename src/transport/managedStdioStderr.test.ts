@@ -3,6 +3,7 @@ import { PassThrough } from 'node:stream';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { ManagedStdioStderr } from './managedStdioStderr.js';
+import { ManagedStdioStderrEvent } from './managedStdioStderrEvent.js';
 
 describe('ManagedStdioStderr', () => {
   afterEach(() => {
@@ -19,17 +20,17 @@ describe('ManagedStdioStderr', () => {
 
     expect(emit).toHaveBeenNthCalledWith(
       1,
-      'Backend stderr',
+      ManagedStdioStderrEvent.Line,
       expect.objectContaining({ serverName: 'noisy-server', line: 'same line' }),
     );
     expect(emit).toHaveBeenNthCalledWith(
       2,
-      'Backend stderr repeated',
+      ManagedStdioStderrEvent.Repeated,
       expect.objectContaining({ serverName: 'noisy-server', repeatCount: 2 }),
     );
     expect(emit).toHaveBeenNthCalledWith(
       3,
-      'Backend stderr',
+      ManagedStdioStderrEvent.Line,
       expect.objectContaining({ serverName: 'noisy-server', line: 'next line' }),
     );
 
@@ -52,7 +53,7 @@ describe('ManagedStdioStderr', () => {
     expect(emit).toHaveBeenCalledTimes(2);
     await vi.advanceTimersByTimeAsync(100);
     expect(emit).toHaveBeenLastCalledWith(
-      'Backend stderr suppressed',
+      ManagedStdioStderrEvent.Suppressed,
       expect.objectContaining({ serverName: 'noisy-server', suppressedCount: 1 }),
     );
 
@@ -68,7 +69,7 @@ describe('ManagedStdioStderr', () => {
     stream.write('abcdefghijklmnop\n');
 
     expect(emit).toHaveBeenCalledWith(
-      'Backend stderr',
+      ManagedStdioStderrEvent.Line,
       expect.objectContaining({ serverName: 'noisy-server', line: 'abcdefgh', truncated: true }),
     );
 
@@ -88,7 +89,7 @@ describe('ManagedStdioStderr', () => {
     stderr.close();
 
     expect(emit).toHaveBeenCalledWith(
-      'Backend stderr repeated',
+      ManagedStdioStderrEvent.Repeated,
       expect.objectContaining({ serverName: 'restartable-server', repeatCount: 2 }),
     );
   });

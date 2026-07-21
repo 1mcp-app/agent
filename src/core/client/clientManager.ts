@@ -16,6 +16,7 @@ import { CapabilityError, ClientConnectionError, ClientNotFoundError } from '@sr
 import { executeOperation } from '@src/utils/core/operationExecution.js';
 
 import { ClientFactory } from './clientFactory.js';
+import type { ConnectedClient } from './connectedClient.js';
 import { ConnectionHandler } from './connectionHandler.js';
 import { OAuthFlowHandler } from './oauthFlowHandler.js';
 import { TransportRecreator } from './transportRecreator.js';
@@ -171,21 +172,9 @@ export class ClientManager {
     try {
       const client = this.clientFactory.createClient();
       const connected = await this.connectionHandler.connectWithRetry(client, transport, name, undefined, (t) =>
-        this.transportRecreator.recreateHttpTransport(t),
+        this.transportRecreator.recreateForRetry(t, name),
       );
-      this.transports[name] = connected.transport;
-
-      this.outboundConns.set(name, {
-        name,
-        transport: connected.transport,
-        client: connected.client,
-        status: ClientStatus.Connected,
-        lastConnected: new Date(),
-      });
-      logger.info(`Client created for ${name}`);
-
-      this.extractAndCacheInstructions(name, connected.client);
-      this.setupConnectionHandlers(name, connected.client);
+      this.recordConnectedClient(name, connected);
     } catch (error) {
       this.handleClientCreationError(name, transport, error);
     }
@@ -284,21 +273,9 @@ export class ClientManager {
         attemptTransport,
         name,
         abortSignal,
-        (t) => this.transportRecreator.recreateHttpTransport(t),
+        (t) => this.transportRecreator.recreateForRetry(t, name),
       );
-      this.transports[name] = connected.transport;
-
-      this.outboundConns.set(name, {
-        name,
-        transport: connected.transport,
-        client: connected.client,
-        status: ClientStatus.Connected,
-        lastConnected: new Date(),
-      });
-      logger.info(`Client created for ${name}`);
-
-      this.extractAndCacheInstructions(name, connected.client);
-      this.setupConnectionHandlers(name, connected.client);
+      this.recordConnectedClient(name, connected);
     } catch (error) {
       this.handleSingleClientError(name, attemptTransport, error);
       throw error;
@@ -312,6 +289,20 @@ export class ClientManager {
     }
 
     return this.transportRecreator.recreateForRetry(requestedTransport, name);
+  }
+
+  private recordConnectedClient(name: string, connected: ConnectedClient): void {
+    this.transports[name] = connected.transport;
+    this.outboundConns.set(name, {
+      name,
+      transport: connected.transport,
+      client: connected.client,
+      status: ClientStatus.Connected,
+      lastConnected: new Date(),
+    });
+    logger.info(`Client created for ${name}`);
+    this.extractAndCacheInstructions(name, connected.client);
+    this.setupConnectionHandlers(name, connected.client);
   }
 
   private handleSingleClientError(name: string, transport: AuthProviderTransport, error: unknown): void {
