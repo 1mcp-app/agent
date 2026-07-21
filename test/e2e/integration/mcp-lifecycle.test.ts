@@ -11,14 +11,17 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
  */
 
 describe('MCP Server Lifecycle E2E', () => {
-  const registryServerId = 'com.pulsemcp/remote-filesystem';
-  const registryLocalName = 'remote-filesystem';
+  const registryServerId = 'filesystem';
+  const registryLocalName = 'filesystem';
 
   let environment: CommandTestEnvironment;
   let runner: CliTestRunner;
 
   beforeEach(async () => {
-    environment = new CommandTestEnvironment(TestFixtures.createTestScenario('mcp-lifecycle-test', 'empty'));
+    environment = new CommandTestEnvironment({
+      ...TestFixtures.createTestScenario('mcp-lifecycle-test', 'empty'),
+      mockRegistry: true,
+    });
     await environment.setup();
     runner = new CliTestRunner(environment);
   });
