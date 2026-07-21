@@ -18,8 +18,22 @@ describe('TransportRecreator', () => {
   describe('recreateHttpTransport', () => {
     describe('StreamableHTTPClientTransport', () => {
       it('should recreate StreamableHTTPClientTransport', () => {
+        const requestInit = {
+          headers: { Authorization: 'Bearer configured-token', 'User-Agent': '1MCP/test' },
+        };
+        const customFetch = vi.fn();
+        const reconnectionOptions = {
+          maxReconnectionDelay: 30000,
+          initialReconnectionDelay: 1000,
+          reconnectionDelayGrowFactor: 1.5,
+          maxRetries: 2,
+        };
         const originalTransport = {
           _url: new URL('https://example.com/mcp'),
+          _requestInit: requestInit,
+          _fetch: customFetch,
+          _reconnectionOptions: reconnectionOptions,
+          _sessionId: 'existing-session',
           oauthProvider: {
             token: 'test-token',
             getAuthorizationUrl: vi.fn(),
@@ -40,6 +54,10 @@ describe('TransportRecreator', () => {
         expect(newTransport.requestTimeout).toBe(10000);
         expect(newTransport.timeout).toBe(30000);
         expect(newTransport.tags).toEqual(['test', 'http']);
+        expect((newTransport as any)._requestInit).toBe(requestInit);
+        expect((newTransport as any)._fetch).toBe(customFetch);
+        expect((newTransport as any)._reconnectionOptions).toBe(reconnectionOptions);
+        expect((newTransport as any)._sessionId).toBe('existing-session');
       });
 
       it('should preserve oauthProvider configuration', () => {
@@ -88,6 +106,9 @@ describe('TransportRecreator', () => {
       });
 
       it('should preserve SSE-specific properties', () => {
+        const requestInit = { headers: { Authorization: 'Bearer sse-token' } };
+        const customFetch = vi.fn();
+        const eventSourceInit = { fetch: customFetch };
         const oauthProvider = {
           token: 'sse-oauth-token',
           getAuthorizationUrl: vi.fn().mockReturnValue('https://sse.example.com/auth'),
@@ -95,6 +116,9 @@ describe('TransportRecreator', () => {
 
         const originalTransport = {
           _url: new URL('https://sse.example.com/events'),
+          _requestInit: requestInit,
+          _fetch: customFetch,
+          _eventSourceInit: eventSourceInit,
           oauthProvider,
           tags: ['sse', 'realtime'],
         } as unknown as AuthProviderTransport;
@@ -104,6 +128,9 @@ describe('TransportRecreator', () => {
 
         expect(newTransport.oauthProvider).toBe(oauthProvider);
         expect(newTransport.tags).toEqual(['sse', 'realtime']);
+        expect((newTransport as any)._requestInit).toBe(requestInit);
+        expect((newTransport as any)._fetch).toBe(customFetch);
+        expect((newTransport as any)._eventSourceInit).toBe(eventSourceInit);
       });
     });
 

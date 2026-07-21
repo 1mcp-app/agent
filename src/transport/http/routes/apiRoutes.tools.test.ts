@@ -1,3 +1,5 @@
+import { ToolRegistry } from '@src/core/capabilities/toolRegistry.js';
+
 import type { Request, RequestHandler, Response } from 'express';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -286,6 +288,40 @@ describe('apiRoutes /api/tools', () => {
       undefined,
     );
     expect(res.body).toEqual(mockResult);
+  });
+
+  it('serves the current Capability Snapshot through the Capability Catalog without refreshing', async () => {
+    const refreshCapabilities = vi.fn();
+    const callMetaTool = vi.fn();
+    const registry = ToolRegistry.fromToolsWithServer([
+      {
+        server: 'alpha',
+        tool: { name: 'alpha_tool', description: 'Alpha tool', inputSchema: { type: 'object' } },
+      },
+    ]);
+    const serverManager = {
+      getLazyLoadingOrchestrator: vi.fn(() => ({
+        callMetaTool,
+        refreshCapabilities,
+        getToolRegistry: () => registry,
+        getSchemaCache: () => ({}),
+      })),
+      getClients: vi.fn(() => new Map()),
+    };
+    const handler = createToolsHandler(serverManager as never);
+    const res = createMockResponse();
+
+    await invokeInspectRoute(scopeAuthMiddleware, { query: {} }, res);
+    await invokeInspectRoute(handler, { query: {} }, res);
+
+    expect(res.statusCode).toBe(200);
+    expect(res.body).toMatchObject({
+      tools: [{ name: 'alpha_tool', server: 'alpha' }],
+      totalCount: 1,
+      servers: ['alpha'],
+    });
+    expect(refreshCapabilities).not.toHaveBeenCalled();
+    expect(callMetaTool).not.toHaveBeenCalled();
   });
 
   it('canonicalizes context to the header session before lazy tool listing', async () => {

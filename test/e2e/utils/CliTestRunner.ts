@@ -87,7 +87,12 @@ export class CliTestRunner {
       args.push(...options.args);
     }
 
-    return this.executeCommand(args, options);
+    const registryUrl = this.environment.getRegistryUrl();
+    const envOverrides = registryUrl
+      ? { TEST_MCP_REGISTRY_URL: registryUrl, ...options.envOverrides }
+      : options.envOverrides;
+
+    return this.executeCommand(args, { ...options, envOverrides });
   }
 
   /**

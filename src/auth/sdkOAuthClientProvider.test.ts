@@ -161,11 +161,82 @@ describe('SDKOAuthClientProvider', () => {
     it('should handle missing session data gracefully', () => {
       mockClientSessionRepository.get.mockReturnValue(null);
 
-      provider = new SDKOAuthClientProvider('test-server', mockConfig);
+      const dcrConfig: OAuthClientConfig = { redirectUrl: 'http://localhost:3000/callback' };
+      provider = new SDKOAuthClientProvider('test-server', dcrConfig);
 
       expect(provider.clientInformation()).toBeUndefined();
       expect(provider.tokens()).toBeUndefined();
       expect(provider.codeVerifier()).toBe('');
+    });
+  });
+
+  describe('pre-registered client seeding', () => {
+    it('should seed client information from config.clientId when no persisted data exists', () => {
+      mockClientSessionRepository.get.mockReturnValue(null);
+
+      provider = new SDKOAuthClientProvider('test-server', mockConfig);
+
+      expect(provider.clientInformation()).toEqual({
+        ...provider.clientMetadata,
+        client_id: 'test-client-id',
+        client_secret: 'test-client-secret',
+      });
+    });
+
+    it('should seed client information without client_secret when only clientId is set', () => {
+      mockClientSessionRepository.get.mockReturnValue(null);
+
+      const publicClientConfig: OAuthClientConfig = {
+        clientId: 'public-client-id',
+        scopes: ['read'],
+        redirectUrl: 'http://localhost:3000/callback',
+      };
+      provider = new SDKOAuthClientProvider('test-server', publicClientConfig);
+
+      const info = provider.clientInformation();
+      expect(info?.client_id).toBe('public-client-id');
+      expect(info?.client_secret).toBeUndefined();
+      expect(info?.token_endpoint_auth_method).toBe('none');
+    });
+
+    it('should not seed client information when config.clientId is absent (DCR path)', () => {
+      mockClientSessionRepository.get.mockReturnValue(null);
+
+      const dcrConfig: OAuthClientConfig = { redirectUrl: 'http://localhost:3000/callback' };
+      provider = new SDKOAuthClientProvider('test-server', dcrConfig);
+
+      expect(provider.clientInformation()).toBeUndefined();
+    });
+
+    it('should prefer persisted client information over config.clientId', () => {
+      const persistedClientInfo: OAuthClientInformationFull = {
+        ...mockClientInfo,
+        client_id: 'persisted-client-id',
+      };
+      const mockSessionData: ClientSessionData = {
+        serverName: 'test-server',
+        clientInfo: JSON.stringify(persistedClientInfo),
+        expires: Date.now() + 3600000,
+        createdAt: Date.now(),
+      };
+      mockClientSessionRepository.get.mockReturnValue(mockSessionData);
+
+      provider = new SDKOAuthClientProvider('test-server', mockConfig);
+
+      expect(provider.clientInformation()).toEqual(persistedClientInfo);
+    });
+
+    it('should let saveClientInformation override a seeded client', () => {
+      mockClientSessionRepository.get.mockReturnValue(null);
+      provider = new SDKOAuthClientProvider('test-server', mockConfig);
+
+      const registered: OAuthClientInformationFull = {
+        ...mockClientInfo,
+        client_id: 'registered-client-id',
+      };
+      provider.saveClientInformation(registered);
+
+      expect(provider.clientInformation()).toEqual(registered);
     });
   });
 
@@ -189,7 +260,9 @@ describe('SDKOAuthClientProvider', () => {
     });
 
     it('should return undefined when no client info is set', () => {
-      expect(provider.clientInformation()).toBeUndefined();
+      const dcrConfig: OAuthClientConfig = { redirectUrl: 'http://localhost:3000/callback' };
+      const dcrProvider = new SDKOAuthClientProvider('test-server', dcrConfig);
+      expect(dcrProvider.clientInformation()).toBeUndefined();
     });
   });
 
@@ -482,7 +555,8 @@ describe('SDKOAuthClientProvider', () => {
 
       mockClientSessionRepository.get.mockReturnValue(mockSessionData);
 
-      provider = new SDKOAuthClientProvider('test-server', mockConfig);
+      const dcrConfig: OAuthClientConfig = { redirectUrl: 'http://localhost:3000/callback' };
+      provider = new SDKOAuthClientProvider('test-server', dcrConfig);
 
       expect(provider.clientInformation()).toBeUndefined();
       expect(provider.tokens()).toBeUndefined();

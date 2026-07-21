@@ -11,6 +11,7 @@ import { ClientStatus, OutboundConnections } from '@src/core/types/index.js';
 import logger, { debugIf, errorIf } from '@src/logger/logger.js';
 
 import { AsyncLoadingOrchestrator } from './asyncLoadingOrchestrator.js';
+import { AsyncLoadingOrchestratorEvent } from './asyncLoadingOrchestratorEvent.js';
 import { AggregatedCapabilities, CapabilityAggregator } from './capabilityAggregator.js';
 import { MetaToolProvider } from './metaToolProvider.js';
 import { SchemaCache, SchemaCacheConfig } from './schemaCache.js';
@@ -105,17 +106,17 @@ export class LazyLoadingOrchestrator extends EventEmitter {
       );
     }
 
-    // Listen to server-capabilities-updated events from async orchestrator
+    // Refresh the ToolRegistry only after a completed Capability Snapshot is published.
     if (asyncOrchestrator) {
-      asyncOrchestrator.on('server-capabilities-updated', async (serverName: string) => {
+      asyncOrchestrator.on(AsyncLoadingOrchestratorEvent.CapabilitySnapshotPublished, async () => {
         try {
-          debugIf(() => ({ message: `Server ${serverName} capabilities updated, refreshing tool registry` }));
+          debugIf('Completed capability snapshot published, refreshing tool registry');
           await this.refreshCapabilities();
         } catch (error) {
           const errorMessage = error instanceof Error ? error.message : String(error);
           errorIf(() => ({
-            message: 'Failed to refresh capabilities after server update',
-            meta: { serverName, error: errorMessage },
+            message: 'Failed to refresh tool registry after capability publication',
+            meta: { error: errorMessage },
           }));
         }
       });

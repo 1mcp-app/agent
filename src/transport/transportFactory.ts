@@ -18,6 +18,7 @@ import type { ContextData } from '@src/types/context.js';
 
 import { z, ZodError } from 'zod';
 
+import { ManagedStdioStderr } from './managedStdioStderr.js';
 import { RestartableStdioTransport } from './restartableStdioTransport.js';
 
 type ValidatedTransport = z.infer<typeof transportConfigSchema>;
@@ -218,11 +219,17 @@ function createStdioTransport(name: string, validatedTransport: ValidatedTranspo
       ? substituteEnvVars(validatedTransport.cwd, envResult.processedEnv)
       : validatedTransport.cwd;
 
+  const shouldManageStderr =
+    validatedTransport.stderr === undefined ||
+    validatedTransport.stderr === 'pipe' ||
+    validatedTransport.stderr === 'overlapped';
+  const managedStderr = shouldManageStderr ? new ManagedStdioStderr(name) : undefined;
+
   // Create SDK-compatible parameters with processed environment
   const stdioParams: StdioServerParameters = {
     command,
     args,
-    stderr: validatedTransport.stderr as 'inherit' | 'pipe' | 'ignore', // IOType validation is complex, trust Zod validation
+    stderr: validatedTransport.stderr ?? 'pipe',
     cwd,
     env: envResult.processedEnv,
   };
@@ -230,11 +237,15 @@ function createStdioTransport(name: string, validatedTransport: ValidatedTranspo
   // Create transport with restart capability if enabled
   if (validatedTransport.restartOnExit) {
     logger.info(`Creating restartable stdio transport for: ${name}`);
-    const restartableTransport = new RestartableStdioTransport(stdioParams, {
-      restartOnExit: true,
-      maxRestarts: validatedTransport.maxRestarts, // Use config value or undefined for unlimited
-      restartDelay: validatedTransport.restartDelay ?? 1000, // Use config value or default to 1 second
-    });
+    const restartableTransport = new RestartableStdioTransport(
+      stdioParams,
+      {
+        restartOnExit: true,
+        maxRestarts: validatedTransport.maxRestarts, // Use config value or undefined for unlimited
+        restartDelay: validatedTransport.restartDelay ?? 1000, // Use config value or default to 1 second
+      },
+      managedStderr,
+    );
 
     // Add AuthProviderTransport properties
     return restartableTransport as unknown as AuthProviderTransport;
@@ -242,7 +253,19 @@ function createStdioTransport(name: string, validatedTransport: ValidatedTranspo
 
   // Create standard stdio transport
   debugIf(`Creating standard stdio transport for: ${name}`);
-  return new StdioClientTransport(stdioParams) as AuthProviderTransport;
+  const transport = new StdioClientTransport(stdioParams);
+  if (managedStderr) {
+    managedStderr.attach(transport.stderr);
+    const closeTransport = transport.close.bind(transport);
+    transport.close = async (): Promise<void> => {
+      try {
+        await closeTransport();
+      } finally {
+        managedStderr.close();
+      }
+    };
+  }
+  return transport as AuthProviderTransport;
 }
 
 /**

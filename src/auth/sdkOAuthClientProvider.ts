@@ -67,6 +67,17 @@ export class SDKOAuthClientProvider implements OAuthClientProvider {
 
     // Load existing client info and tokens if available
     this.loadPersistedData();
+
+    // Seed client info from a pre-registered clientId so the SDK skips Dynamic
+    // Client Registration for servers without a registration_endpoint (e.g. Slack).
+    // Guarded so persisted client info always wins.
+    if (!this._clientInfo && config.clientId) {
+      this._clientInfo = {
+        ...this._clientMetadata,
+        client_id: config.clientId,
+        client_secret: config.clientSecret,
+      };
+    }
   }
 
   get redirectUrl(): string {

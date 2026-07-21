@@ -144,6 +144,8 @@ sequenceDiagram
 - **Batched Notifications**: Multiple changes grouped to prevent spam
 - **Better UX**: No need to manually refresh or reconnect
 
+The `async-min-servers` setting is a startup readiness gate. During each loading cycle, 1MCP keeps the previous Capability Snapshot visible until every configured backend is connected or marked unavailable, then publishes the completed snapshot atomically. Inspection endpoints such as `/api/tools` query the Capability Catalog without forcing all servers to reconnect or refresh.
+
 ## Configuration
 
 You can customize the async loading behavior, such as timeouts and retry logic, in the `loading` section of your JSON configuration file.

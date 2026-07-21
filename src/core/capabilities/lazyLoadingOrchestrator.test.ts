@@ -1274,7 +1274,7 @@ describe('LazyLoadingOrchestrator', () => {
     });
   });
 
-  describe('server-capabilities-updated event error handling', () => {
+  describe('completed capability publication event error handling', () => {
     it('should handle errors in refreshCapabilities gracefully', async () => {
       const mockAsyncOrchestrator = {
         on: vi.fn(),
@@ -1289,7 +1289,7 @@ describe('LazyLoadingOrchestrator', () => {
       const emitHandler = mockAsyncOrchestrator.on.mock.calls[0]?.[1];
       if (emitHandler) {
         // Should not throw
-        await expect(emitHandler('test-server')).resolves.toBeUndefined();
+        await expect(emitHandler()).resolves.toBeUndefined();
 
         // Wait for async handler
         await new Promise((resolve) => setTimeout(resolve, 100));
@@ -1323,11 +1323,11 @@ describe('LazyLoadingOrchestrator', () => {
       const emitHandler = mockAsyncOrchestrator.on.mock.calls[0]?.[1];
       if (emitHandler) {
         // First event fails
-        await emitHandler('server1');
+        await emitHandler();
         await new Promise((resolve) => setTimeout(resolve, 100));
 
         // Second event succeeds
-        await emitHandler('server2');
+        await emitHandler();
         await new Promise((resolve) => setTimeout(resolve, 100));
 
         expect(callCount).toBe(2);

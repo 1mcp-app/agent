@@ -1,7 +1,5 @@
 import { UnauthorizedError } from '@modelcontextprotocol/sdk/client/auth.js';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
-import { SSEClientTransport } from '@modelcontextprotocol/sdk/client/sse.js';
-import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
 
 import { CONNECTION_RETRY, MCP_SERVER_NAME } from '@src/constants.js';
@@ -11,6 +9,7 @@ import logger, { debugIf } from '@src/logger/logger.js';
 import { ClientConnectionError } from '@src/utils/core/errorTypes.js';
 import { getConnectionTimeout } from '@src/utils/core/timeoutUtils.js';
 
+import type { ConnectedClient } from './connectedClient.js';
 import { OAuthRequiredError } from './types.js';
 
 export class ConnectionHandler {
@@ -20,7 +19,7 @@ export class ConnectionHandler {
     name: string,
     abortSignal?: AbortSignal,
     recreateTransport?: (transport: AuthProviderTransport) => AuthProviderTransport,
-  ): Promise<Client> {
+  ): Promise<ConnectedClient> {
     let retryDelay = CONNECTION_RETRY.INITIAL_DELAY_MS;
     let currentClient = client;
     let currentTransport = transport;
@@ -41,7 +40,7 @@ export class ConnectionHandler {
         }
 
         logger.info(`Successfully connected to ${name} with server ${sv?.name} version ${sv?.version}`);
-        return currentClient;
+        return { client: currentClient, transport: currentTransport as AuthProviderTransport };
       } catch (error) {
         if (error instanceof UnauthorizedError) {
           const configManager = AgentConfigManager.getInstance();
@@ -69,10 +68,7 @@ export class ConnectionHandler {
 
         currentClient = new Client({ name: '1mcp-client', version: '1.0.0' }, { capabilities: {} });
 
-        if (
-          recreateTransport &&
-          (currentTransport instanceof StreamableHTTPClientTransport || currentTransport instanceof SSEClientTransport)
-        ) {
+        if (recreateTransport) {
           currentTransport = recreateTransport(currentTransport as AuthProviderTransport);
         }
       }
