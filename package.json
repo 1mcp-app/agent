@@ -18,6 +18,7 @@
   ],
   "author": "William Xu <xuzp@1mcp.app>",
   "homepage": "https://github.com/1mcp-app/agent",
+  "documentation": "https://docs.1mcp.app",
   "bugs": {
     "url": "https://github.com/1mcp-app/agent/issues"
   },
@@ -43,10 +44,10 @@
     }
   },
   "lint-staged": {
-    "*.ts": [
-      "bash -c 'tsc --noEmit --project tsconfig.test.json'"
+    "*.{ts,tsx}": [
+      "bash -c 'tsc --noEmit --project tsconfig.test.json && tsc --noEmit --project web/admin/tsconfig.json'"
     ],
-    "*.{js,ts,cjs}": [
+    "*.{js,ts,tsx,cjs}": [
       "eslint --fix",
       "prettier --write"
     ],
@@ -63,13 +64,14 @@
     "prepare": "husky || true",
     "watch": "tsc --watch --project tsconfig.build.json",
     "inspector": "npx -y @modelcontextprotocol/inspector",
-    "lint": "eslint . --ext .ts",
-    "lint:fix": "eslint . --ext .ts --fix",
-    "format": "prettier --write \"src/**/*.{js,ts}\" \"test/**/*.{js,ts}\"",
-    "format:check": "prettier --check \"src/**/*.{js,ts}\" \"test/**/*.{js,ts}\"",
+    "lint": "eslint . --ext .ts,.tsx",
+    "lint:fix": "eslint . --ext .ts,.tsx --fix",
+    "format": "prettier --write \"src/**/*.{js,ts,tsx}\" \"test/**/*.{js,ts,tsx}\" \"web/admin/src/**/*.{ts,tsx}\"",
+    "format:check": "prettier --check \"src/**/*.{js,ts,tsx}\" \"test/**/*.{js,ts,tsx}\" \"web/admin/src/**/*.{ts,tsx}\"",
     "typecheck": "tsc --noEmit --project tsconfig.test.json",
-    "test": "pnpm test:unit",
+    "test": "pnpm test:unit && pnpm test:admin",
     "test:unit": "vitest run",
+    "test:admin": "vitest run --config vitest.admin.config.ts",
     "test:unit:watch": "vitest",
     "test:unit:coverage": "vitest run --coverage",
     "test:e2e": "vitest run --config vitest.e2e.config.ts",
@@ -123,7 +125,11 @@
   "devDependencies": {
     "@braintree/sanitize-url": "^7.1.1",
     "@eslint/js": "^9.22.0",
+    "@mantine/core": "8.3.14",
+    "@mantine/hooks": "8.3.14",
     "@testing-library/jest-dom": "^6.6.3",
+    "@testing-library/react": "16.3.2",
+    "@testing-library/user-event": "14.6.1",
     "@trivago/prettier-plugin-sort-imports": "^6.0.0",
     "@types/archiver": "^8.0.0",
     "@types/body-parser": "^1.19.5",
@@ -131,6 +137,8 @@
     "@types/express": "^5.0.0",
     "@types/node": "^25.5.0",
     "@types/prompts": "^2.4.9",
+    "@types/react": "18.3.31",
+    "@types/react-dom": "18.3.7",
     "@types/semver": "^7.7.1",
     "@types/supertest": "^7.2.0",
     "@types/yargs": "^17.0.33",
@@ -150,11 +158,16 @@
     "globals": "^17.6.0",
     "husky": "^9.1.7",
     "jiti": "^2.4.2",
+    "jsdom": "29.1.1",
     "lint-staged": "^17.0.5",
+    "lucide-react": "1.23.0",
     "mermaid": "^11.9.0",
     "nodemon": "^3.1.10",
+    "playwright": "1.61.1",
     "postject": "^1.0.0-alpha.6",
     "prettier": "^3.5.3",
+    "react": "18.3.1",
+    "react-dom": "18.3.1",
     "supertest": "^7.1.4",
     "ts-node": "^10.9.2",
     "tsc-alias": "^1.8.16",

@@ -119,6 +119,7 @@ function sidebar(): DefaultTheme.Sidebar {
           { text: 'Enterprise', link: '/guide/advanced/enterprise' },
           { text: 'Fast Startup', link: '/guide/advanced/fast-startup' },
           { text: 'Reverse Proxy', link: '/guide/advanced/reverse-proxy' },
+          { text: 'Cloud Deployment', link: '/guide/advanced/cloud-deployment' },
           { text: 'Server Filtering', link: '/guide/advanced/server-filtering' },
         ],
       },

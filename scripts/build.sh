@@ -7,6 +7,9 @@ set -e
 
 echo "🔨 Building 1MCP Agent..."
 
+# Avoid shipping stale files from removed sources or renamed frontend assets.
+rm -rf build
+
 # Compile TypeScript
 echo "📦 Compiling TypeScript..."
 pnpm exec tsc --project tsconfig.build.json
@@ -14,6 +17,15 @@ pnpm exec tsc --project tsconfig.build.json
 # Resolve path aliases
 echo "🔗 Resolving path aliases..."
 pnpm exec tsc-alias -p tsconfig.build.json
+
+# Build Admin Console SPA
+echo "🖥️ Building Admin Console SPA..."
+pnpm exec tsc --noEmit --project web/admin/tsconfig.json
+pnpm exec tsc --noEmit --project web/admin/tsconfig.vite.json
+pnpm exec vite build --config web/admin/vite.config.ts
+
+# Runtime and E2E sandboxes may live under build/.tmp, but must never be published.
+cp scripts/build.npmignore build/.npmignore
 
 # Make the built file executable
 echo "🔧 Making build/index.js executable..."

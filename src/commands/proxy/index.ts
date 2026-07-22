@@ -11,6 +11,7 @@ import type { Argv } from 'yargs';
 
 export interface ProxyOptions extends GlobalOptions {
   url?: string;
+  context?: string;
   timeout?: number;
   filter?: string;
   preset?: string;
@@ -30,6 +31,10 @@ export function setupProxyCommand(yargs: Argv): Argv {
         .option('url', {
           alias: 'u',
           describe: 'Override auto-detected 1MCP server URL',
+          type: 'string',
+        })
+        .option('context', {
+          describe: 'Use a named Runtime Target Context',
           type: 'string',
         })
         .option('timeout', {

@@ -12,13 +12,57 @@ _Avoid_: proxy server, HTTP wrapper
 An **Aggregated Runtime** started by `1mcp serve --background` that keeps running after the invoking terminal command returns.
 _Avoid_: auto-started proxy, implicit inspect server
 
+**Runtime Lifecycle Command**:
+A local CLI command, such as `1mcp serve` or `1mcp serve --background`, that starts or manages an **Aggregated Runtime** for a local **Runtime Scope**. It does not select remote runtime targets.
+_Avoid_: Runtime-Backed Command, remote serve command
+
 **Runtime Scope**:
-The configuration directory that defines which **Aggregated Runtime** instance a command should discover, start, or manage.
-_Avoid_: global lock, machine singleton
+The configuration directory that defines which local **Aggregated Runtime** instance a command should discover, start, or manage. `--config-dir` selects local scope only.
+_Avoid_: global lock, machine singleton, remote config directory
 
 **Client Surface**:
-A way callers interact with the **Aggregated Runtime**, such as CLI mode, direct HTTP MCP, REST inspection routes, or stdio proxy.
+A way callers interact with the **Aggregated Runtime**, such as CLI mode, direct HTTP MCP, REST inspection routes, stdio proxy, or the **Admin Console**.
 _Avoid_: frontend, API layer
+
+**Admin Console**:
+The browser-based, same-origin **Client Surface** (titled "1MCP") served by the **Aggregated Runtime** for human operators to observe and manage it. Authenticated by an **Admin Session**, never by an OAuth client token. Subsumes the backend OAuth status and consent view formerly served as the standalone OAuth dashboard.
+_Avoid_: frontend, web app, OAuth dashboard
+
+**Admin Account**:
+A human operator credential record (identified by username, password verified against a stored hash) that can authenticate to admin surfaces. Distinct from any OAuth client identity.
+_Avoid_: user, OAuth client, API key
+
+**Admin Session**:
+The server-side login established when an **Admin Account** authenticates to an admin surface, used to authorize full-admin operations. Browser access transports it as an httpOnly cookie; runtime-backed CLI access stores only a scoped local reference and asks the target runtime to validate it.
+_Avoid_: user session, HTTP session, Request Session, OAuth session
+
+**Admin Operation**:
+A named full-admin runtime operation, such as configuration mutation, backend OAuth consent, or admin session management. Adapters invoke these operations and translate structured result facts into HTTP responses, CLI output, and UI copy.
+_Avoid_: admin endpoint, frontend action, generic CRUD repository
+
+**CLI Admin Adapter**:
+The `/admin/cli/v1` HTTP adapter used by **Runtime-Backed Commands** to invoke **Admin Operations** on a selected **Runtime Target**. It is CLI-oriented and versioned separately from `/admin/api`.
+_Avoid_: public API, Admin Console API, frontend endpoint
+
+**Runtime Target**:
+A local or remote **Aggregated Runtime** selected by a CLI command for runtime-attaching behavior.
+_Avoid_: deployment, profile, server config
+
+**Runtime Target Context**:
+A named local CLI profile that stores non-secret target metadata and selects a **Runtime Target** for commands. The reserved `local` context preserves today's local discovery and `--config-dir` behavior.
+_Avoid_: request context, project context, remote config
+
+**Runtime Target Store**:
+The user-global local store for **Runtime Target Context** metadata, the current-context pointer, observed runtime identity, and credential references. It is not scoped by `--config-dir` and is not part of runtime configuration.
+_Avoid_: Runtime Scope config, project config, remote state
+
+**Runtime Identity**:
+The low-disclosure identity facts a runtime exposes so a CLI can verify it is still talking to the same trust boundary. The key stable value is `runtimeScopeId`.
+_Avoid_: host identity, URL identity, process identity
+
+**Runtime-Backed Command**:
+A CLI command that attaches to a local or remote **Runtime Target** to perform runtime-aware reads or admin-authorized mutations instead of operating only on local files.
+_Avoid_: lifecycle command, direct file edit command
 
 **Client Surface Attachment**:
 The process that prepares a **Client Surface** to communicate with an **Aggregated Runtime** using the appropriate **Request Context**, authentication, filters, and transport-session behavior.
@@ -55,6 +99,18 @@ _Avoid_: server key, connection key, instance key
 **Configured Server Target**:
 A static server definition or **Template Server** definition addressed by a **Config Change** before runtime rendering.
 _Avoid_: server config, target config, raw server
+
+**Global Transport Config**:
+Shared transport settings inherited by **Configured Server Targets** unless a target sets its own override.
+_Avoid_: global server config, default target config
+
+**Configured Server Read Model**:
+A normalized admin-facing view of **Configured Server Targets** with secrets and raw environment values redacted.
+_Avoid_: raw config DTO, config passthrough
+
+**Environment Secret Reference**:
+A configuration value that names or references a secret supplied by the runtime environment or external secret management instead of storing the secret material directly in a **Runtime Scope** config file.
+_Avoid_: inline secret, copied env value
 
 **Request Context Preparation**:
 The runtime step that resolves a **Request Context** and **Request Session**, renders matching **Template Servers**, registers them for routing, and refreshes lazy capabilities when needed.
@@ -111,12 +167,27 @@ _Avoid_: install command, installation adapter, registry install
 ## Relationships
 
 - An **Aggregated Runtime** exposes one or more **Client Surfaces**.
+- The **Admin Console** is a **Client Surface** served same-origin by the **Aggregated Runtime**.
+- The **Admin Console** authorizes its requests with an **Admin Session**, not an OAuth client token.
+- The **Admin Console** invokes **Admin Operations** through `/admin/api`.
+- A **Runtime-Backed Command** invokes **Admin Operations** through the **CLI Admin Adapter**.
+- `/admin/api` and the **CLI Admin Adapter** use separate wire schemas over shared **Admin Operation** result facts.
+- An **Admin Session** is established by exactly one **Admin Account**.
+- An **Admin Account** exists independently of any OAuth client identity and is created outside the **Admin Console** (CLI or environment bootstrap), never by an unauthenticated web request.
 - A **Background Aggregated Runtime** is an **Aggregated Runtime**.
 - A **Runtime Scope** allows at most one active **Aggregated Runtime**.
 - `1mcp serve` owns **Aggregated Runtime** lifecycle operations for a **Runtime Scope**.
+- **Runtime Lifecycle Commands** operate on local **Runtime Scope**, not the current **Runtime Target Context**.
+- A **Runtime Target Context** selects the target for runtime-attaching CLI commands.
+- The reserved `local` **Runtime Target Context** preserves local runtime discovery and `--config-dir` behavior.
+- An ephemeral `--url` target is per-command and does not use stored credential state.
+- The **Runtime Target Store** stores local target metadata and credential references, not runtime configuration.
+- **Runtime Identity** is verified before stored credentials are sent to a named remote target.
+- `--config-dir` selects a local **Runtime Scope** and must not be interpreted as a remote runtime path.
 - A **Config Change** belongs to exactly one **Runtime Scope**.
 - A **Config Change** can add, update, or remove one **Configured Server Target**.
 - A **Configured Server Target** is either a static server definition or a **Template Server** definition.
+- The **Admin Console** presents **Configured Server Targets** for configuration changes and **Template Server Instances** for runtime observation.
 - A **Config Change** may create one **Config Backup** before persisting the change.
 - A **Config Backup** belongs to exactly one **Runtime Scope**.
 - A **Config Change** may affect the **Aggregated Runtime** for that **Runtime Scope**.
@@ -162,7 +233,8 @@ _Avoid_: install command, installation adapter, registry install
 
 ## Flagged ambiguities
 
-- "session" can mean the standard MCP streamable HTTP session or the contextual identity used by REST inspection routes. Use **Streamable Transport Session** for the MCP transport lifecycle and **Request Session** when the identity is used for contextual template rendering and routing.
+- "session" can mean the standard MCP streamable HTTP session, a contextual runtime identity, or an admin login. Use **Streamable Transport Session**, **Request Session**, and **Admin Session** explicitly.
+- "context" can mean **Request Context** or **Runtime Target Context**. Use **Request Context** for per-request template/filter data, and **Runtime Target Context** for the CLI profile that selects a runtime target.
 - "attach-only" does not always mean "reuse an existing session"; short-lived **Client Surfaces** may reuse a cached **Streamable Transport Session**, while long-lived proxy-style surfaces may create a fresh one.
 - A header-only `mcp-session-id` is a routing-only **Request Session** when no **Request Context** is supplied; it does not by itself mean the caller supplied contextual data for rendering **Template Servers**.
 - If both transport session identity and contextual session data are supplied, they must not create competing **Request Sessions**; the transport session identity is authoritative.

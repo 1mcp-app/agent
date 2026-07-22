@@ -1,5 +1,6 @@
 import type { ResolvedProjectContext } from '@src/config/projectConfigLoader.js';
 import type { ProjectConfig } from '@src/config/projectConfigTypes.js';
+import { RuntimeTargetStoreError } from '@src/domains/runtime-targets/runtimeTargetStore.js';
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -118,7 +119,17 @@ describe('resolveServeTarget', () => {
       'config-dir': '.tmp-test',
       filter: 'tooling',
     };
-    const result = await resolveServeTarget(options);
+    const result = await resolveServeTarget(options, {
+      verifyRuntimeIdentity: vi.fn().mockResolvedValue({
+        identity: {
+          identityProtocolVersion: '1',
+          runtimeScopeId: 'scope_local',
+          externalUrl: 'http://127.0.0.1:3050',
+          runtimeVersion: '0.34.0',
+        },
+        warnings: [],
+      }),
+    });
 
     expect(mockedDiscoverServerWithPidFile).toHaveBeenCalledWith('.tmp-test', undefined);
     expect(mockedValidateServer1mcpUrl).toHaveBeenCalledWith('http://127.0.0.1:3050/mcp');
@@ -140,5 +151,433 @@ describe('resolveServeTarget', () => {
     });
 
     await expect(resolveServeTarget({})).rejects.toThrow('Cannot connect');
+  });
+
+  it('rejects mutually exclusive explicit url and context selectors', async () => {
+    await expect(resolveServeTarget({ url: 'https://prod.example.com', context: 'prod' })).rejects.toMatchObject({
+      code: 'target_selector_conflict',
+    });
+    expect(mockedDiscoverServerWithPidFile).not.toHaveBeenCalled();
+  });
+
+  it('allows config-dir to scope local client-command state when an explicit ephemeral url is selected', async () => {
+    mockedDiscoverServerWithPidFile.mockResolvedValueOnce({
+      url: 'https://prod.example.com/mcp',
+      source: 'user',
+    });
+
+    const result = await resolveServeTarget({ url: 'https://prod.example.com', 'config-dir': '/tmp/local-scope' });
+
+    expect(mockedDiscoverServerWithPidFile).toHaveBeenCalledWith('/tmp/local-scope', 'https://prod.example.com/mcp');
+    expect(result.discoveredUrl).toBe('https://prod.example.com/mcp');
+    expect(result.serverUrl.toString()).toBe('https://prod.example.com/mcp?preset=development');
+    expect(result.source).toBe('user');
+    expect(result.runtimeTargetContext).toBeUndefined();
+  });
+
+  it('resolves explicit local context runtime identity for context-scoped credentials', async () => {
+    const verifyRuntimeIdentity = vi.fn().mockResolvedValue({
+      identity: {
+        identityProtocolVersion: '1',
+        runtimeScopeId: 'scope_local',
+        externalUrl: 'http://127.0.0.1:3050',
+        runtimeVersion: '0.34.0',
+      },
+      warnings: [],
+    });
+
+    const result = await resolveServeTarget(
+      {
+        context: 'local',
+        'config-dir': '/tmp/local-scope',
+      },
+      {
+        runtimeTargetStore: {
+          inspect: vi.fn().mockReturnValue({
+            name: 'local',
+            kind: 'local',
+            synthetic: true,
+            current: true,
+          }),
+          current: vi.fn(),
+          requireInsecureTlsConfirmation: vi.fn(),
+          updateObservedIdentityMetadata: vi.fn(),
+        },
+        verifyRuntimeIdentity,
+      },
+    );
+
+    expect(mockedDiscoverServerWithPidFile).toHaveBeenCalledWith('/tmp/local-scope', undefined, {
+      failOnOwnedRuntimeUnavailable: true,
+    });
+    expect(verifyRuntimeIdentity).toHaveBeenCalledWith({
+      target: expect.objectContaining({
+        name: 'local',
+        url: 'http://127.0.0.1:3050',
+        observedIdentity: undefined,
+      }),
+    });
+    expect(result.runtimeTargetContext).toEqual({
+      name: 'local',
+      kind: 'local',
+      runtimeScopeId: 'scope_local',
+    });
+  });
+
+  it('leaves default local target resolution credentialless when no explicit target selector is provided', async () => {
+    const verifyRuntimeIdentity = vi.fn();
+
+    const result = await resolveServeTarget(
+      {},
+      {
+        runtimeTargetStore: {
+          inspect: vi.fn(),
+          current: vi.fn().mockReturnValue({
+            name: 'local',
+            kind: 'local',
+            synthetic: true,
+            current: true,
+          }),
+          requireInsecureTlsConfirmation: vi.fn(),
+          updateObservedIdentityMetadata: vi.fn(),
+        },
+        verifyRuntimeIdentity,
+      },
+    );
+
+    expect(verifyRuntimeIdentity).not.toHaveBeenCalled();
+    expect(result.runtimeTargetContext).toBeUndefined();
+  });
+
+  it('does not probe local runtime identity during default local target resolution', async () => {
+    const verifyRuntimeIdentity = vi.fn().mockRejectedValue(new Error('identity endpoint missing'));
+    const result = await resolveServeTarget(
+      {},
+      {
+        runtimeTargetStore: {
+          inspect: vi.fn(),
+          current: vi.fn().mockReturnValue({
+            name: 'local',
+            kind: 'local',
+            synthetic: true,
+            current: true,
+          }),
+          requireInsecureTlsConfirmation: vi.fn(),
+          updateObservedIdentityMetadata: vi.fn(),
+        },
+        verifyRuntimeIdentity,
+      },
+    );
+
+    expect(result.discoveredUrl).toBe('http://127.0.0.1:3050/mcp');
+    expect(result.runtimeTargetContext).toBeUndefined();
+    expect(verifyRuntimeIdentity).not.toHaveBeenCalled();
+  });
+
+  it('normalizes explicit ephemeral url targets before local discovery handling', async () => {
+    await resolveServeTarget({ url: 'https://prod.example.com?x=1#frag' });
+
+    expect(mockedDiscoverServerWithPidFile).toHaveBeenCalledWith(undefined, 'https://prod.example.com/mcp');
+  });
+
+  it('rejects non-loopback HTTP ephemeral URL targets without insecure opt-in', async () => {
+    await expect(resolveServeTarget({ url: 'http://prod.example.com' })).rejects.toMatchObject({
+      code: 'target_url_invalid',
+    });
+    expect(mockedDiscoverServerWithPidFile).not.toHaveBeenCalled();
+
+    await resolveServeTarget({ url: 'http://127.0.0.1:3050?x=1#frag' });
+
+    expect(mockedDiscoverServerWithPidFile).toHaveBeenCalledWith(undefined, 'http://127.0.0.1:3050/mcp');
+  });
+
+  it('resolves an explicit remote target context through runtime identity before returning a credentialable URL', async () => {
+    const updateObservedIdentityMetadata = vi.fn();
+    const verifyRuntimeIdentity = vi.fn().mockResolvedValue({
+      identity: {
+        identityProtocolVersion: '1',
+        runtimeScopeId: 'scope_prod',
+        externalUrl: 'https://prod.example.com',
+        runtimeVersion: '0.34.0',
+      },
+      warnings: [],
+    });
+
+    const result = await resolveServeTarget(
+      {
+        context: 'prod',
+        preset: 'production',
+      },
+      {
+        runtimeTargetStore: {
+          inspect: vi.fn().mockReturnValue({
+            name: 'prod',
+            kind: 'remote',
+            synthetic: false,
+            current: false,
+            url: 'https://prod.example.com',
+            caFile: '/etc/ssl/prod-ca.pem',
+            insecureSkipVerify: true,
+            observedIdentity: {
+              identityProtocolVersion: '1',
+              runtimeScopeId: 'scope_prod',
+              externalUrl: 'https://prod.example.com',
+              runtimeVersion: '0.34.0',
+            },
+          }),
+          current: vi.fn(),
+          requireInsecureTlsConfirmation: vi.fn(),
+          updateObservedIdentityMetadata,
+        },
+        verifyRuntimeIdentity,
+      },
+    );
+
+    expect(mockedDiscoverServerWithPidFile).not.toHaveBeenCalled();
+    expect(verifyRuntimeIdentity).toHaveBeenCalledWith({
+      target: expect.objectContaining({
+        name: 'prod',
+        url: 'https://prod.example.com',
+        caFile: '/etc/ssl/prod-ca.pem',
+        insecureSkipVerify: true,
+        observedIdentity: expect.objectContaining({ runtimeScopeId: 'scope_prod' }),
+      }),
+    });
+    expect(updateObservedIdentityMetadata).toHaveBeenCalledWith(
+      'prod',
+      expect.objectContaining({ runtimeScopeId: 'scope_prod' }),
+    );
+    expect(mockedValidateServer1mcpUrl).toHaveBeenCalledWith('https://prod.example.com/mcp', {
+      caFile: '/etc/ssl/prod-ca.pem',
+      insecureSkipVerify: true,
+    });
+    expect(result.discoveredUrl).toBe('https://prod.example.com/mcp');
+    expect(result.serverUrl.toString()).toBe('https://prod.example.com/mcp?preset=production');
+    expect(result.source).toBe('user');
+  });
+
+  it('carries externalUrl mismatch warnings from named remote identity verification', async () => {
+    const result = await resolveServeTarget(
+      {
+        context: 'prod',
+      },
+      {
+        runtimeTargetStore: {
+          inspect: vi.fn().mockReturnValue({
+            name: 'prod',
+            kind: 'remote',
+            synthetic: false,
+            current: false,
+            url: 'https://prod.example.com',
+            observedIdentity: {
+              identityProtocolVersion: '1',
+              runtimeScopeId: 'scope_prod',
+              externalUrl: 'https://prod.example.com',
+              runtimeVersion: '0.34.0',
+            },
+          }),
+          current: vi.fn(),
+          requireInsecureTlsConfirmation: vi.fn(),
+          updateObservedIdentityMetadata: vi.fn(),
+        },
+        verifyRuntimeIdentity: vi.fn().mockResolvedValue({
+          identity: {
+            identityProtocolVersion: '1',
+            runtimeScopeId: 'scope_prod',
+            externalUrl: 'https://proxy.example.com',
+            runtimeVersion: '0.34.0',
+          },
+          warnings: [{ code: 'warning_external_url_mismatch', message: 'external URL differs' }],
+        }),
+      },
+    );
+
+    expect(result.runtimeIdentityWarnings).toEqual([
+      { code: 'warning_external_url_mismatch', message: 'external URL differs' },
+    ]);
+  });
+
+  it('normalizes stored remote target URLs before appending the MCP suffix', async () => {
+    await resolveServeTarget(
+      {
+        context: 'prod',
+      },
+      {
+        runtimeTargetStore: {
+          inspect: vi.fn().mockReturnValue({
+            name: 'prod',
+            kind: 'remote',
+            synthetic: false,
+            current: false,
+            url: 'https://prod.example.com/mcp?ignored=true',
+            observedIdentity: {
+              identityProtocolVersion: '1',
+              runtimeScopeId: 'scope_prod',
+              externalUrl: 'https://prod.example.com',
+              runtimeVersion: '0.34.0',
+            },
+          }),
+          current: vi.fn(),
+          requireInsecureTlsConfirmation: vi.fn(),
+          updateObservedIdentityMetadata: vi.fn(),
+        },
+        verifyRuntimeIdentity: vi.fn().mockResolvedValue({
+          identity: {
+            identityProtocolVersion: '1',
+            runtimeScopeId: 'scope_prod',
+            externalUrl: 'https://prod.example.com',
+            runtimeVersion: '0.34.0',
+          },
+          warnings: [],
+        }),
+      },
+    );
+
+    expect(mockedValidateServer1mcpUrl).toHaveBeenCalledWith('https://prod.example.com/mcp');
+  });
+
+  it('uses the current remote context when no explicit url or context is provided', async () => {
+    const verifyRuntimeIdentity = vi.fn().mockResolvedValue({
+      identity: {
+        identityProtocolVersion: '1',
+        runtimeScopeId: 'scope_prod',
+        externalUrl: 'https://prod.example.com',
+        runtimeVersion: '0.34.0',
+      },
+      warnings: [],
+    });
+
+    await resolveServeTarget(
+      {},
+      {
+        runtimeTargetStore: {
+          inspect: vi.fn(),
+          current: vi.fn().mockReturnValue({
+            name: 'prod',
+            kind: 'remote',
+            synthetic: false,
+            current: true,
+            url: 'https://prod.example.com',
+            observedIdentity: {
+              identityProtocolVersion: '1',
+              runtimeScopeId: 'scope_prod',
+              externalUrl: 'https://prod.example.com',
+              runtimeVersion: '0.34.0',
+            },
+          }),
+          requireInsecureTlsConfirmation: vi.fn(),
+          updateObservedIdentityMetadata: vi.fn(),
+        },
+        verifyRuntimeIdentity,
+      },
+    );
+
+    expect(mockedDiscoverServerWithPidFile).not.toHaveBeenCalled();
+    expect(verifyRuntimeIdentity).toHaveBeenCalled();
+  });
+
+  it('rejects config-dir when a remote target context is selected', async () => {
+    await expect(
+      resolveServeTarget(
+        { context: 'prod', 'config-dir': '/tmp/local-scope' },
+        {
+          runtimeTargetStore: {
+            inspect: vi.fn().mockReturnValue({
+              name: 'prod',
+              kind: 'remote',
+              synthetic: false,
+              current: false,
+              url: 'https://prod.example.com',
+            }),
+            current: vi.fn(),
+            requireInsecureTlsConfirmation: vi.fn(),
+            updateObservedIdentityMetadata: vi.fn(),
+          },
+        },
+      ),
+    ).rejects.toMatchObject({ code: 'target_config_dir_remote_unsupported' });
+    expect(mockedDiscoverServerWithPidFile).not.toHaveBeenCalled();
+  });
+
+  it('fails named remote attach before identity verification when imported insecure TLS confirmation is pending', async () => {
+    const verifyRuntimeIdentity = vi.fn();
+    const requireInsecureTlsConfirmation = vi.fn(() => {
+      throw new RuntimeTargetStoreError(
+        'target_insecure_tls_confirmation_required',
+        'Runtime target "prod" uses imported insecure TLS metadata and requires confirmation',
+        { operation: 'credentialed-attach', targetName: 'prod' },
+        '1mcp target verify prod --accept-insecure-tls',
+      );
+    });
+
+    await expect(
+      resolveServeTarget(
+        { context: 'prod' },
+        {
+          runtimeTargetStore: {
+            inspect: vi.fn().mockReturnValue({
+              name: 'prod',
+              kind: 'remote',
+              synthetic: false,
+              current: false,
+              url: 'https://prod.example.com',
+              insecureTlsConfirmationRequired: true,
+            }),
+            current: vi.fn(),
+            requireInsecureTlsConfirmation,
+            updateObservedIdentityMetadata: vi.fn(),
+          },
+          verifyRuntimeIdentity,
+        },
+      ),
+    ).rejects.toMatchObject({
+      code: 'target_insecure_tls_confirmation_required',
+      recoveryCommand: '1mcp target verify prod --accept-insecure-tls',
+    });
+    expect(requireInsecureTlsConfirmation).toHaveBeenCalledWith({
+      name: 'prod',
+      operation: 'credentialed-attach',
+    });
+    expect(verifyRuntimeIdentity).not.toHaveBeenCalled();
+    expect(mockedValidateServer1mcpUrl).not.toHaveBeenCalled();
+  });
+
+  it('continues named remote attach after insecure TLS confirmation has already been cleared', async () => {
+    const requireInsecureTlsConfirmation = vi.fn();
+    const verifyRuntimeIdentity = vi.fn().mockResolvedValue({
+      identity: {
+        identityProtocolVersion: '1',
+        runtimeScopeId: 'scope_prod',
+        externalUrl: 'https://prod.example.com',
+        runtimeVersion: '0.34.0',
+      },
+      warnings: [],
+    });
+
+    await resolveServeTarget(
+      { context: 'prod' },
+      {
+        runtimeTargetStore: {
+          inspect: vi.fn().mockReturnValue({
+            name: 'prod',
+            kind: 'remote',
+            synthetic: false,
+            current: false,
+            url: 'https://prod.example.com',
+            insecureTlsConfirmationRequired: false,
+          }),
+          current: vi.fn(),
+          requireInsecureTlsConfirmation,
+          updateObservedIdentityMetadata: vi.fn(),
+        },
+        verifyRuntimeIdentity,
+      },
+    );
+
+    expect(requireInsecureTlsConfirmation).toHaveBeenCalledWith({
+      name: 'prod',
+      operation: 'credentialed-attach',
+    });
+    expect(verifyRuntimeIdentity).toHaveBeenCalled();
   });
 });

@@ -84,6 +84,29 @@ describe('ApiClient', () => {
     expect(response.error).toBe('Not found');
   });
 
+  it('preserves structured JSON error bodies for callers that need stable protocol codes', async () => {
+    mockFetch.mockResolvedValueOnce(
+      makeResponse(401, {
+        ok: false,
+        error: { code: 'invalid_credentials', message: 'Invalid admin credentials' },
+      }),
+    );
+
+    const client = new ApiClient({ baseUrl: 'http://localhost:3050' });
+    const response = await client.post<{
+      ok: false;
+      error: { code: string; message: string };
+    }>('/admin/cli/v1/session/login', {});
+
+    expect(response.ok).toBe(false);
+    expect(response.status).toBe(401);
+    expect(response.error).toBe('Invalid admin credentials');
+    expect(response.data).toEqual({
+      ok: false,
+      error: { code: 'invalid_credentials', message: 'Invalid admin credentials' },
+    });
+  });
+
   it('returns error on network failure', async () => {
     mockFetch.mockRejectedValueOnce(new Error('ECONNREFUSED'));
 
@@ -127,6 +150,22 @@ describe('ApiClient', () => {
     expect(init.method).toBe('POST');
     expect((init.headers as Record<string, string>)['Content-Type']).toBe('application/json');
     expect(init.body).toBe(JSON.stringify({ tool: 'echo', args: {} }));
+  });
+
+  it('sends caller-provided POST headers', async () => {
+    mockFetch.mockResolvedValueOnce(makeResponse(200, { result: 'ok' }));
+
+    const client = new ApiClient({ baseUrl: 'http://localhost:3050' });
+    await client.post(
+      '/admin/cli/v1/operations/enable-server',
+      {},
+      {
+        headers: { 'Idempotency-Key': 'idem_enable' },
+      },
+    );
+
+    const [, init] = mockFetch.mock.calls[0] as [string, RequestInit];
+    expect((init.headers as Record<string, string>)['Idempotency-Key']).toBe('idem_enable');
   });
 
   it('strips trailing slash from baseUrl', async () => {

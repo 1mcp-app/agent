@@ -93,7 +93,7 @@ npx -y @1mcp/agent run <server>/<tool> --args '<json>'
 If authentication is required, the playbook directs the user or agent to retry with:
 
 ```bash
-1mcp auth login --url <server-url> --token <token>
+1mcp auth login --context <name> --token <token>
 ```
 
 ## See Also

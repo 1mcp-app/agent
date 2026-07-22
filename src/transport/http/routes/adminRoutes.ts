@@ -1,0 +1,1459 @@
+import { createHash } from 'node:crypto';
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+import type { BackendOAuthDashboardResult } from '@src/auth/oauthAuthorizationFlow.js';
+import { RuntimeIdentity } from '@src/core/runtime/runtimeIdentityService.js';
+import {
+  AdminConfiguredServerApplyError,
+  AdminConfiguredServerNotFoundError,
+  type AdminConfiguredServerOperations,
+} from '@src/domains/admin/adminConfiguredServerService.js';
+import {
+  ADMIN_SESSION_COOKIE_NAME,
+  AdminAccount,
+  AdminIdentityError,
+  AdminIdentityService,
+} from '@src/domains/admin/adminIdentityService.js';
+import type {
+  AdminConfirmationRequirement,
+  AdminOperationContext,
+  AdminOperationResult,
+} from '@src/domains/admin/adminOperationService.js';
+import {
+  AdminPresetConflictError,
+  type AdminPresetDraft,
+  AdminPresetNotFoundError,
+  type AdminPresetOperations,
+} from '@src/domains/admin/adminPresetService.js';
+import type { AdminMutationAvailability } from '@src/domains/admin/runtimeScopeAdminLock.js';
+import { sanitizeErrorMessage } from '@src/utils/validation/sanitization.js';
+
+import express, { Request, Response, Router } from 'express';
+import { createRequire } from 'node:module';
+import { z } from 'zod';
+
+const FAILED_LOGIN_LIMIT = 5;
+const FAILED_LOGIN_WINDOW_MS = 15 * 60 * 1000;
+const FAILED_LOGIN_MAX_ACTIVE_KEYS = 10_000;
+const ADMIN_USERNAME_MAX_LENGTH = 256;
+const ADMIN_PASSWORD_MAX_LENGTH = 4096;
+const CLI_ADMIN_PROTOCOL_VERSION = '1';
+const CLI_ADMIN_RESPONSE_MAX_BYTES = 256 * 1024;
+const CLI_ADMIN_RESPONSE_TOO_LARGE_MESSAGE =
+  'CLI Admin response exceeded the maximum supported size; use a narrower or paginated request.';
+const CLI_SESSION_OPERATIONS = ['admin.login', 'admin.status', 'admin.logout'] as const;
+const ADMIN_API_PROTOCOL_VERSION = '1';
+const packageMetadata = createRequire(import.meta.url)('../../../../package.json') as {
+  name: string;
+  version: string;
+  homepage?: string;
+  documentation?: string;
+  bugs?: { url?: string };
+  license?: string;
+  repository?: { url?: string };
+};
+const CLI_MCP_OPERATIONS = ['mcp.enable', 'mcp.disable'] as const;
+const adminLoginBodySchema = z.object({
+  username: z.string().trim().min(1).max(ADMIN_USERNAME_MAX_LENGTH),
+  password: z.string().min(1).max(ADMIN_PASSWORD_MAX_LENGTH),
+});
+const cliConfiguredServerMutationBodySchema = z.object({
+  targetName: z.string().trim().min(1).max(256),
+  dryRun: z.boolean().optional(),
+});
+type AdminOperationFailure = Extract<AdminOperationResult, { ok: false }>;
+interface CliAdminEnvelope {
+  ok: boolean;
+  cliProtocolVersion: typeof CLI_ADMIN_PROTOCOL_VERSION;
+  requestId: string;
+  warnings: unknown[];
+  [key: string]: unknown;
+}
+
+interface AdminRoutesOptions {
+  adminEnabled: boolean;
+  adminService: AdminIdentityService;
+  configuredServerService?: AdminConfiguredServerOperations;
+  presetService?: AdminPresetOperations;
+  adminMutationAvailability?: AdminMutationAvailability;
+  getRuntimeIdentity: () => RuntimeIdentity;
+  getOAuthDashboard?: () => BackendOAuthDashboardResult;
+  adminConsoleAssetsDir?: string;
+}
+
+export function createAdminRoutes(options: AdminRoutesOptions): Router | null {
+  if (!options.adminEnabled) {
+    options.adminService.revokeAllSessions();
+    return null;
+  }
+
+  const router = Router();
+  const failedLoginLimiter = new FailedLoginLimiter();
+  const adminConsoleAssets = resolveAdminConsoleAssets(options.adminConsoleAssetsDir);
+  options.adminService.bootstrapFirstAdminFromEnvironment();
+
+  router.get('/cli/v1/capabilities', (req, res) => {
+    const identity = options.getRuntimeIdentity();
+    const setupRequired = !options.adminService.hasAdminAccount();
+    const mutationAvailability = cliMutationAvailability(options, setupRequired);
+    const configuredServerOperationsSupported = Boolean(options.configuredServerService);
+    const mcpMutationsReady = configuredServerOperationsSupported && mutationAvailability.available;
+    const mcpOperations = configuredServerOperationsSupported ? [...CLI_MCP_OPERATIONS] : [];
+    const mcpMutationOperations = mcpMutationsReady ? ['enable', 'disable'] : [];
+    const mcpReadinessStatus = cliMcpReadinessStatus(mutationAvailability);
+
+    sendCliSuccess(req, res, {
+      runtime: toCliRuntimeIdentity(identity),
+      supportedOperations: [...CLI_SESSION_OPERATIONS, ...mcpOperations],
+      adminSurface: {
+        enabled: true,
+        status: setupRequired ? 'setupRequired' : 'loginRequired',
+      },
+      mutationReadiness: {
+        mcp: {
+          enabled: mcpMutationsReady,
+          status: mcpReadinessStatus,
+          operations: mcpMutationOperations,
+        },
+      },
+      adminMutationsAvailable: mutationAvailability.available,
+      ...(mutationAvailability.reason ? { adminMutationsUnavailableReason: mutationAvailability.reason } : {}),
+      features: {
+        adminSessions: true,
+        bearerSessionAuth: true,
+        csrfTokens: true,
+        mcpEnableDisable: mcpMutationsReady,
+      },
+    });
+  });
+
+  router.post('/cli/v1/session/login', async (req, res) => {
+    const parsedBody = adminLoginBodySchema.safeParse(req.body);
+    if (!parsedBody.success) {
+      sendCliError(req, res, {
+        status: 400,
+        code: 'admin_login_request_invalid',
+        message: 'Admin username and password are required and must be valid strings',
+        retryable: false,
+      });
+      return;
+    }
+    const { username, password } = parsedBody.data;
+    const source = getLoginSource(req);
+    if (failedLoginLimiter.isLimited(username, source)) {
+      sendCliError(req, res, {
+        status: 429,
+        code: 'admin_login_rate_limited',
+        message: 'Too many failed admin login attempts',
+        retryable: true,
+      });
+      return;
+    }
+
+    try {
+      const login = await options.adminService.login({
+        username,
+        password,
+      });
+
+      failedLoginLimiter.reset(username, source);
+      sendCliSuccess(req, res, {
+        sessionToken: login.sessionToken,
+        csrfToken: login.csrfToken,
+        expiresAt: login.expiresAt,
+        account: toCliAdminAccount(login.account),
+      });
+    } catch (error) {
+      failedLoginLimiter.recordFailure(username, source);
+      sendCliAdminError(req, res, error);
+    }
+  });
+
+  router.get('/cli/v1/session/status', (req, res) => {
+    const sessionToken = getBearerSessionToken(req);
+    const session = options.adminService.validateSession(sessionToken);
+    const runtime = toCliRuntimeIdentity(options.getRuntimeIdentity());
+    if (!session) {
+      sendCliSuccess(req, res, {
+        authenticated: false,
+        runtime,
+      });
+      return;
+    }
+
+    sendCliSuccess(req, res, {
+      authenticated: true,
+      runtime,
+      account: toCliAdminAccount(session.account),
+      expiresAt: session.expiresAt,
+    });
+  });
+
+  router.post('/cli/v1/session/logout', (req, res) => {
+    const sessionToken = getBearerSessionToken(req);
+    const session = options.adminService.validateSession(sessionToken);
+    options.adminService.revokeSession(sessionToken);
+
+    sendCliSuccess(req, res, {
+      revoked: Boolean(session),
+    });
+  });
+
+  router.post('/cli/v1/operations/enable-server', async (req, res) => {
+    await handleCliConfiguredServerMutation(req, res, options, 'enableConfiguredServer');
+  });
+
+  router.post('/cli/v1/operations/disable-server', async (req, res) => {
+    await handleCliConfiguredServerMutation(req, res, options, 'disableConfiguredServer');
+  });
+
+  router.post('/api/session/login', async (req, res) => {
+    const parsedBody = adminLoginBodySchema.safeParse(req.body);
+    if (!parsedBody.success) {
+      res.status(400).json({ error: 'admin_login_request_invalid' });
+      return;
+    }
+    const { username, password } = parsedBody.data;
+    const source = getLoginSource(req);
+    if (failedLoginLimiter.isLimited(username, source)) {
+      res.status(429).json({ error: 'admin_login_rate_limited' });
+      return;
+    }
+
+    try {
+      const login = await options.adminService.login({
+        username,
+        password,
+      });
+
+      failedLoginLimiter.reset(username, source);
+      setAdminSessionCookie(res, options.getRuntimeIdentity().externalUrl, login.sessionToken, login.expiresAt);
+      res.status(200).json({
+        authenticated: true,
+        account: login.account,
+        csrfToken: login.csrfToken,
+        expiresAt: login.expiresAt,
+      });
+    } catch (error) {
+      failedLoginLimiter.recordFailure(username, source);
+      sendAdminError(res, error);
+    }
+  });
+
+  router.use('/api', (req, res, next) => {
+    const sessionToken = getAdminSessionCookie(req);
+    const session = options.adminService.validateSession(sessionToken);
+    if (!session) {
+      res.status(401).json(unauthenticatedAdminApiResponse(options));
+      return;
+    }
+
+    if (isUnsafeMethod(req.method) && !options.adminService.validateCsrf(sessionToken, req.header('X-CSRF-Token'))) {
+      res.status(403).json({ error: 'csrf_required' });
+      return;
+    }
+
+    next();
+  });
+
+  router.get('/api/session', (req, res) => {
+    const session = options.adminService.validateSession(getAdminSessionCookie(req));
+    if (!session) {
+      res.status(401).json({ authenticated: false });
+      return;
+    }
+
+    res.status(200).json({
+      authenticated: true,
+      account: session.account,
+      csrfToken: session.csrfToken,
+      expiresAt: session.expiresAt,
+    });
+  });
+
+  router.post('/api/session/logout', (req, res) => {
+    options.adminService.revokeSession(getAdminSessionCookie(req));
+    clearAdminSessionCookie(res, options.getRuntimeIdentity().externalUrl);
+    res.status(200).json({ ok: true });
+  });
+
+  router.get('/api/status', (req, res) => {
+    const session = options.adminService.validateSession(getAdminSessionCookie(req));
+    if (!session) {
+      res.status(401).json({ authenticated: false });
+      return;
+    }
+
+    res.status(200).json({
+      ok: true,
+      runtime: options.getRuntimeIdentity(),
+      session: {
+        authenticated: true,
+        account: toAdminConsoleAccount(session.account),
+        expiresAt: session.expiresAt,
+      },
+      oauth: sanitizeOAuthDashboard(options.getOAuthDashboard?.() ?? { status: 'ready', services: [] }),
+      audit: {
+        facts:
+          options.configuredServerService?.getRecentAuditFacts({ limit: 10 }) ??
+          options.presetService?.getRecentAuditFacts({ limit: 10 }) ??
+          [],
+      },
+      about: buildAboutMetadata(options.getRuntimeIdentity(), {
+        buildVersion: req.header('X-Admin-UI-Build-Version'),
+        protocolVersion: req.header('X-Admin-UI-Protocol-Version'),
+      }),
+    });
+  });
+
+  router.get('/api/presets', async (req, res) => {
+    if (!options.presetService) return void res.status(404).json({ error: 'admin_presets_unavailable' });
+    const result = await options.presetService.listPresets({
+      context: buildAdminOperationContext(req, options, { type: 'preset_collection' }),
+    });
+    sendAdminOperationResult(res, result);
+  });
+
+  router.get('/api/presets/:name', async (req, res) => {
+    if (!options.presetService) return void res.status(404).json({ error: 'admin_presets_unavailable' });
+    try {
+      sendAdminOperationResult(
+        res,
+        await options.presetService.getPreset({
+          context: buildAdminOperationContext(req, options, { type: 'preset', id: req.params.name }),
+          name: req.params.name,
+        }),
+      );
+    } catch (error) {
+      sendPresetError(res, error);
+    }
+  });
+
+  router.post('/api/presets/preview', async (req, res) => {
+    if (!options.presetService) return void res.status(404).json({ error: 'admin_presets_unavailable' });
+    try {
+      sendAdminOperationResult(
+        res,
+        await options.presetService.previewPreset({
+          context: buildAdminOperationContext(req, options, {
+            type: 'preset',
+            id: getBodyString(req.body, 'sourceName') || getBodyString(getBodyValue(req.body, 'draft'), 'name'),
+          }),
+          draft: getPresetDraft(req.body),
+          sourceName: getBodyString(req.body, 'sourceName') || undefined,
+        }),
+      );
+    } catch (error) {
+      sendPresetError(res, error);
+    }
+  });
+
+  router.post('/api/presets', async (req, res) => {
+    await handlePresetMutation(req, res, options, 'create');
+  });
+  router.post('/api/presets/:name/update', async (req, res) => {
+    await handlePresetMutation(req, res, options, 'update');
+  });
+  router.post('/api/presets/:name/duplicate', async (req, res) => {
+    await handlePresetMutation(req, res, options, 'duplicate');
+  });
+  router.post('/api/presets/:name/delete-preview', async (req, res) => {
+    if (!options.presetService) return void res.status(404).json({ error: 'admin_presets_unavailable' });
+    try {
+      sendAdminOperationResult(
+        res,
+        await options.presetService.previewDeletePreset({
+          context: buildAdminOperationContext(req, options, { type: 'preset', id: req.params.name }),
+          name: req.params.name,
+          revision: getBodyString(req.body, 'revision'),
+        }),
+      );
+    } catch (error) {
+      sendPresetError(res, error);
+    }
+  });
+  router.delete('/api/presets/:name', async (req, res) => {
+    if (!options.presetService) return void res.status(404).json({ error: 'admin_presets_unavailable' });
+    try {
+      sendAdminOperationResult(
+        res,
+        await options.presetService.deletePreset({
+          context: buildAdminOperationContext(req, options, { type: 'preset', id: req.params.name }),
+          name: req.params.name,
+          revision: getBodyString(req.body, 'revision'),
+          previewFingerprint: getBodyString(req.body, 'previewFingerprint'),
+        }),
+      );
+    } catch (error) {
+      sendPresetError(res, error);
+    }
+  });
+
+  router.get('/api/configured-servers', async (req, res) => {
+    if (!options.configuredServerService) {
+      res.status(404).json({ error: 'admin_configured_servers_unavailable' });
+      return;
+    }
+
+    const result = await options.configuredServerService.listConfiguredServers({
+      context: buildAdminOperationContext(req, options, { type: 'configured_server_collection' }),
+    });
+    if (!result.ok) {
+      sendAdminOperationResult(res, result);
+      return;
+    }
+
+    res.status(200).json({
+      ok: true,
+      operationId: result.operationId,
+      servers: result.result.servers,
+    });
+  });
+
+  router.get('/api/configured-servers/:name', async (req, res) => {
+    await handleConfiguredServerDetail(req, res, options);
+  });
+
+  router.post('/api/configured-servers/:name/preview', async (req, res) => {
+    await handleConfiguredServerPreview(req, res, options);
+  });
+
+  router.post('/api/configured-servers/:name/apply', async (req, res) => {
+    await handleConfiguredServerApply(req, res, options);
+  });
+
+  router.post('/api/configured-servers/:name/enable', async (req, res) => {
+    await handleConfiguredServerMutation(req, res, options, 'enableConfiguredServer');
+  });
+
+  router.post('/api/configured-servers/:name/disable', async (req, res) => {
+    await handleConfiguredServerMutation(req, res, options, 'disableConfiguredServer');
+  });
+
+  router.use(
+    '/assets',
+    express.static(path.join(adminConsoleAssets.rootDir, 'assets'), {
+      immutable: true,
+      maxAge: '1y',
+    }),
+  );
+
+  router.use('/assets', (_req, res) => {
+    res.status(404).type('text/plain').send('Admin Console asset not found');
+  });
+
+  router.get(['/', '/*splat'], (req, res, next) => {
+    if (isAdminApiPath(req.path)) {
+      next();
+      return;
+    }
+
+    sendAdminConsoleIndex(res, adminConsoleAssets.indexPath);
+  });
+
+  return router;
+}
+
+function resolveAdminConsoleAssets(configuredDir?: string): { rootDir: string; indexPath: string } {
+  const rootDir = configuredDir ?? resolveDefaultAdminConsoleAssetsDir();
+  return {
+    rootDir,
+    indexPath: path.join(rootDir, 'index.html'),
+  };
+}
+
+export function resolveDefaultAdminConsoleAssetsDir(): string {
+  return fileURLToPath(new URL('../../../admin', import.meta.url));
+}
+
+function isAdminApiPath(pathname: string): boolean {
+  return (
+    pathname === '/api' || pathname.startsWith('/api/') || pathname === '/cli/v1' || pathname.startsWith('/cli/v1/')
+  );
+}
+
+function sendAdminConsoleIndex(res: Response, indexPath: string): void {
+  if (!fs.existsSync(indexPath)) {
+    res.status(503).type('text/plain').send('Admin Console assets are not available. Run the package build first.');
+    return;
+  }
+
+  res.status(200).sendFile(indexPath);
+}
+
+function unauthenticatedAdminApiResponse(options: AdminRoutesOptions): {
+  authenticated: false;
+  adminStatus?: 'setupRequired';
+} {
+  return options.adminService.hasAdminAccount()
+    ? { authenticated: false }
+    : { authenticated: false, adminStatus: 'setupRequired' };
+}
+
+async function handleCliConfiguredServerMutation(
+  req: Request,
+  res: Response,
+  options: AdminRoutesOptions,
+  operationName: 'enableConfiguredServer' | 'disableConfiguredServer',
+): Promise<void> {
+  if (!options.configuredServerService) {
+    sendCliError(req, res, {
+      status: 404,
+      code: 'admin_configured_servers_unavailable',
+      message: 'Configured server administration is unavailable',
+      retryable: false,
+    });
+    return;
+  }
+
+  if (isMutationLocked(options)) {
+    sendCliError(req, res, {
+      status: 409,
+      code: 'runtime_scope_locked',
+      message: 'Runtime scope admin mutations are locked by another writer',
+      retryable: true,
+      details: {
+        operationName,
+        reason: 'writer_lock_unavailable',
+      },
+    });
+    return;
+  }
+
+  const sessionToken = getBearerSessionToken(req);
+  if (!sessionToken) {
+    sendCliError(req, res, {
+      status: 401,
+      code: 'admin_session_required',
+      message: 'A valid admin session bearer token is required',
+      retryable: false,
+    });
+    return;
+  }
+
+  const session = options.adminService.validateSession(sessionToken);
+  if (!session) {
+    sendCliError(req, res, {
+      status: 401,
+      code: 'admin_session_required',
+      message: 'A valid admin session bearer token is required',
+      retryable: false,
+    });
+    return;
+  }
+
+  const parsedBody = cliConfiguredServerMutationBodySchema.safeParse(req.body);
+  if (!parsedBody.success) {
+    sendCliError(req, res, {
+      status: 400,
+      code: 'validation_request_invalid',
+      message: 'Configured server targetName and dryRun must have valid types',
+      retryable: false,
+    });
+    return;
+  }
+  const { targetName, dryRun = false } = parsedBody.data;
+  const context = buildCliAdminOperationContext(req, options, session.account, sessionToken, {
+    type: 'configured_server',
+    id: targetName,
+  });
+  const input = {
+    context,
+    targetName,
+    ...(dryRun ? { dryRun: true } : {}),
+    confirmationRequirements: dryRun
+      ? []
+      : cliConfiguredServerConfirmationRequirements(options, targetName, operationName),
+  };
+  const result =
+    operationName === 'enableConfiguredServer'
+      ? await options.configuredServerService.enableConfiguredServer(input)
+      : await options.configuredServerService.disableConfiguredServer(input);
+
+  sendCliAdminOperationResult(req, res, result);
+}
+
+async function handleConfiguredServerDetail(req: Request, res: Response, options: AdminRoutesOptions): Promise<void> {
+  if (!options.configuredServerService) {
+    res.status(404).json({ error: 'admin_configured_servers_unavailable' });
+    return;
+  }
+
+  const targetName = req.params.name;
+  try {
+    const result = await options.configuredServerService.getConfiguredServerDetail({
+      context: buildAdminOperationContext(req, options, { type: 'configured_server', id: targetName }),
+      targetName,
+    });
+    if (!result.ok) {
+      sendAdminOperationResult(res, result);
+      return;
+    }
+
+    res.status(200).json({
+      ok: true,
+      operationId: result.operationId,
+      server: result.result.server,
+      editContract: result.result.editContract,
+    });
+  } catch (error) {
+    if (error instanceof AdminConfiguredServerNotFoundError) {
+      res.status(404).json({
+        ok: false,
+        error: error.code,
+        code: error.code,
+        message: 'Configured server target was not found',
+        target: { type: 'configured_server', id: error.targetName },
+      });
+      return;
+    }
+    throw error;
+  }
+}
+
+async function handleConfiguredServerPreview(req: Request, res: Response, options: AdminRoutesOptions): Promise<void> {
+  if (!options.configuredServerService) {
+    res.status(404).json({ error: 'admin_configured_servers_unavailable' });
+    return;
+  }
+
+  const targetName = req.params.name;
+  const edit = getBodyValue(req.body, 'edit');
+  try {
+    const result = await options.configuredServerService.previewConfiguredServerEdit({
+      context: buildAdminOperationContext(req, options, { type: 'configured_server', id: targetName }),
+      targetName,
+      edit: edit === undefined ? {} : edit,
+      connectivityCheck: getBodyString(req.body, 'connectivityCheck') === 'manual' ? 'manual' : 'auto',
+    });
+    if (!result.ok) {
+      sendAdminOperationResult(res, result);
+      return;
+    }
+
+    res.status(200).json({
+      ok: true,
+      operationId: result.operationId,
+      preview: result.result,
+    });
+  } catch (error) {
+    if (error instanceof AdminConfiguredServerNotFoundError) {
+      res.status(404).json({
+        ok: false,
+        error: error.code,
+        code: error.code,
+        message: 'Configured server target was not found',
+        target: { type: 'configured_server', id: error.targetName },
+      });
+      return;
+    }
+    throw error;
+  }
+}
+
+async function handleConfiguredServerApply(req: Request, res: Response, options: AdminRoutesOptions): Promise<void> {
+  if (!options.configuredServerService) {
+    res.status(404).json({ error: 'admin_configured_servers_unavailable' });
+    return;
+  }
+  if (isMutationLocked(options)) {
+    sendAdminOperationResult(res, {
+      ok: false,
+      status: 'runtime_scope_locked',
+      code: 'runtime_scope_locked',
+      retryable: true,
+      operationName: 'applyConfiguredServerEdit',
+      reason: 'writer_lock_unavailable',
+    });
+    return;
+  }
+
+  const targetName = req.params.name;
+  try {
+    const result = await options.configuredServerService.applyConfiguredServerEdit({
+      context: buildAdminOperationContext(req, options, { type: 'configured_server', id: targetName }),
+      targetName,
+      edit: getBodyValue(req.body, 'edit') ?? {},
+      previewFingerprint: getBodyString(req.body, 'previewFingerprint'),
+    });
+    if (!result.ok && result.status === 'mutation_failed' && isConfiguredServerApplyErrorCode(result.error)) {
+      sendConfiguredServerApplyError(res, result.error);
+      return;
+    }
+    sendAdminOperationResult(res, result);
+  } catch (error) {
+    if (error instanceof AdminConfiguredServerNotFoundError) {
+      sendConfiguredServerApplyError(res, error.code);
+      return;
+    }
+    if (error instanceof AdminConfiguredServerApplyError) {
+      sendConfiguredServerApplyError(res, error.code);
+      return;
+    }
+    throw error;
+  }
+}
+
+function isConfiguredServerApplyErrorCode(value: string): boolean {
+  return value.startsWith('configured_server_');
+}
+
+function sendConfiguredServerApplyError(res: Response, code: string): void {
+  const status = code === 'configured_server_not_found' ? 404 : 409;
+  res.status(status).json({
+    ok: false,
+    error: code,
+    code,
+    message: configuredServerApplyErrorMessage(code),
+  });
+}
+
+function configuredServerApplyErrorMessage(code: string): string {
+  switch (code) {
+    case 'configured_server_stale_preview':
+      return 'The configured server changed after preview. Preview the edit again.';
+    case 'configured_server_destination_conflict':
+      return 'The requested configured server target name is already in use.';
+    case 'configured_server_connectivity_blocked':
+      return 'Connectivity validation did not pass for the enabled remote server.';
+    case 'configured_server_edit_invalid':
+      return 'The configured server edit is invalid.';
+    case 'configured_server_edit_unchanged':
+      return 'The configured server edit does not contain any changes.';
+    case 'configured_server_not_found':
+      return 'Configured server target was not found.';
+    default:
+      return 'The configured server edit could not be applied.';
+  }
+}
+
+async function handleConfiguredServerMutation(
+  req: Request,
+  res: Response,
+  options: AdminRoutesOptions,
+  operationName: 'enableConfiguredServer' | 'disableConfiguredServer',
+): Promise<void> {
+  if (!options.configuredServerService) {
+    res.status(404).json({ error: 'admin_configured_servers_unavailable' });
+    return;
+  }
+
+  if (isMutationLocked(options)) {
+    sendAdminOperationResult(res, {
+      ok: false,
+      status: 'runtime_scope_locked',
+      code: 'runtime_scope_locked',
+      retryable: true,
+      operationName,
+      reason: 'writer_lock_unavailable',
+    });
+    return;
+  }
+
+  const targetName = req.params.name;
+  const context = buildAdminOperationContext(req, options, { type: 'configured_server', id: targetName });
+  const input = { context, targetName };
+  const result =
+    operationName === 'enableConfiguredServer'
+      ? await options.configuredServerService.enableConfiguredServer(input)
+      : await options.configuredServerService.disableConfiguredServer(input);
+
+  sendAdminOperationResult(res, result);
+}
+
+function cliMutationAvailability(options: AdminRoutesOptions, setupRequired: boolean): AdminMutationAvailability {
+  if (!options.configuredServerService) {
+    return {
+      available: false,
+      reason: 'mutation_service_unavailable',
+    };
+  }
+
+  if (setupRequired) {
+    return {
+      available: false,
+      reason: 'setup_required',
+    };
+  }
+
+  return options.adminMutationAvailability ?? { available: true };
+}
+
+function isMutationLocked(options: AdminRoutesOptions): boolean {
+  return (
+    options.adminMutationAvailability?.available === false &&
+    options.adminMutationAvailability.reason === 'writer_lock_unavailable'
+  );
+}
+
+function cliMcpReadinessStatus(mutationAvailability: AdminMutationAvailability): string {
+  if (mutationAvailability.available) {
+    return 'ready';
+  }
+  return mutationAvailability.reason === 'mutation_service_unavailable'
+    ? 'unavailable'
+    : (mutationAvailability.reason ?? 'unavailable');
+}
+
+export class FailedLoginLimiter {
+  private readonly attempts = new Map<string, { count: number; firstFailureAt: number }>();
+
+  constructor(
+    private readonly now: () => number = Date.now,
+    private readonly maxActiveKeys = FAILED_LOGIN_MAX_ACTIVE_KEYS,
+    private readonly windowMs = FAILED_LOGIN_WINDOW_MS,
+  ) {}
+
+  isLimited(username: string, origin: string): boolean {
+    this.pruneExpired();
+    const attempt = this.getAttempt(username, origin);
+    if (attempt) {
+      return attempt.count >= FAILED_LOGIN_LIMIT;
+    }
+    return this.attempts.size >= this.maxActiveKeys;
+  }
+
+  recordFailure(username: string, origin: string): void {
+    const key = this.key(username, origin);
+    this.pruneExpired();
+    const now = this.now();
+    const attempt = this.getAttempt(username, origin);
+    if (!attempt && this.attempts.size >= this.maxActiveKeys) {
+      return;
+    }
+    this.attempts.set(key, attempt ? { ...attempt, count: attempt.count + 1 } : { count: 1, firstFailureAt: now });
+  }
+
+  reset(username: string, origin: string): void {
+    this.attempts.delete(this.key(username, origin));
+  }
+
+  private getAttempt(username: string, origin: string): { count: number; firstFailureAt: number } | null {
+    const key = this.key(username, origin);
+    const attempt = this.attempts.get(key);
+    if (!attempt) {
+      return null;
+    }
+
+    if (this.now() - attempt.firstFailureAt > this.windowMs) {
+      this.attempts.delete(key);
+      return null;
+    }
+
+    return attempt;
+  }
+
+  private key(username: string, origin: string): string {
+    return `${username.trim() || '<missing>'}\0${origin}`;
+  }
+
+  private pruneExpired(): void {
+    const now = this.now();
+    for (const [key, attempt] of this.attempts) {
+      if (now - attempt.firstFailureAt > this.windowMs) {
+        this.attempts.delete(key);
+      }
+    }
+  }
+}
+
+function isUnsafeMethod(method: string): boolean {
+  return method !== 'GET' && method !== 'HEAD' && method !== 'OPTIONS';
+}
+
+function getLoginSource(req: Request): string {
+  return req.ip ?? req.socket.remoteAddress ?? req.header('origin') ?? 'unknown';
+}
+
+function setAdminSessionCookie(res: Response, externalUrl: string, sessionToken: string, expiresAt: string): void {
+  res.cookie(ADMIN_SESSION_COOKIE_NAME, sessionToken, {
+    httpOnly: true,
+    sameSite: 'strict',
+    secure: isHttpsRuntime(externalUrl),
+    path: '/admin',
+    expires: new Date(expiresAt),
+  });
+}
+
+function clearAdminSessionCookie(res: Response, externalUrl: string): void {
+  res.clearCookie(ADMIN_SESSION_COOKIE_NAME, {
+    httpOnly: true,
+    sameSite: 'strict',
+    secure: isHttpsRuntime(externalUrl),
+    path: '/admin',
+  });
+}
+
+function getAdminSessionCookie(req: Request): string | undefined {
+  const cookieHeader = req.header('cookie');
+  if (!cookieHeader) {
+    return undefined;
+  }
+
+  for (const cookie of cookieHeader.split(';')) {
+    const [name, ...valueParts] = cookie.trim().split('=');
+    if (name === ADMIN_SESSION_COOKIE_NAME) {
+      return valueParts.join('=');
+    }
+  }
+
+  return undefined;
+}
+
+function getBearerSessionToken(req: Request): string | undefined {
+  const authorization = req.header('authorization')?.trim();
+  if (!authorization) {
+    return undefined;
+  }
+
+  const match = authorization.match(/^Bearer\s+(.+)$/i);
+  const token = match?.[1]?.trim();
+  return token || undefined;
+}
+
+function isHttpsRuntime(externalUrl: string): boolean {
+  try {
+    return new URL(externalUrl).protocol === 'https:';
+  } catch {
+    return false;
+  }
+}
+
+function sendCliSuccess<T>(req: Request, res: Response, result: T): void {
+  const requestId = getRequestId(req);
+  sendBoundedCliEnvelope(res, 200, {
+    ok: true,
+    cliProtocolVersion: CLI_ADMIN_PROTOCOL_VERSION,
+    requestId,
+    warnings: [],
+    result,
+  });
+}
+
+function sendCliAdminError(req: Request, res: Response, error: unknown): void {
+  if (error instanceof AdminIdentityError) {
+    const status = error.code === 'invalid_credentials' ? 401 : error.code === 'admin_account_not_found' ? 404 : 400;
+    sendCliError(req, res, {
+      status,
+      code: error.code,
+      message: error.message,
+      retryable: false,
+    });
+    return;
+  }
+
+  sendCliError(req, res, {
+    status: 500,
+    code: 'admin_cli_request_failed',
+    message: 'Admin CLI request failed',
+    retryable: false,
+  });
+}
+
+function sendCliError(
+  req: Request,
+  res: Response,
+  error: {
+    status: number;
+    code: string;
+    message: string;
+    retryable: boolean;
+    retryAfterMs?: number;
+    recoveryCommand?: string;
+    details?: unknown;
+  },
+): void {
+  const requestId = getRequestId(req);
+  sendBoundedCliEnvelope(res, error.status, {
+    ok: false,
+    cliProtocolVersion: CLI_ADMIN_PROTOCOL_VERSION,
+    requestId,
+    error: {
+      code: error.code,
+      message: error.message,
+      retryable: error.retryable,
+      requestId,
+      ...(error.retryAfterMs === undefined ? {} : { retryAfterMs: error.retryAfterMs }),
+      ...(error.recoveryCommand ? { recoveryCommand: error.recoveryCommand } : {}),
+      ...(error.details === undefined ? {} : { details: error.details }),
+    },
+    warnings: [],
+  });
+}
+
+function sendBoundedCliEnvelope(res: Response, status: number, envelope: CliAdminEnvelope): void {
+  if (Buffer.byteLength(JSON.stringify(envelope), 'utf8') > CLI_ADMIN_RESPONSE_MAX_BYTES) {
+    res.status(422).json({
+      ok: false,
+      cliProtocolVersion: CLI_ADMIN_PROTOCOL_VERSION,
+      requestId: envelope.requestId,
+      error: {
+        code: 'validation_response_too_large',
+        message: CLI_ADMIN_RESPONSE_TOO_LARGE_MESSAGE,
+        retryable: false,
+        requestId: envelope.requestId,
+        details: {
+          maxBytes: CLI_ADMIN_RESPONSE_MAX_BYTES,
+        },
+      },
+      warnings: [],
+    });
+    return;
+  }
+
+  res.status(status).json(envelope);
+}
+
+function sendCliAdminOperationResult<T>(req: Request, res: Response, result: AdminOperationResult<T>): void {
+  if (result.ok) {
+    sendCliSuccess(req, res, {
+      operationId: result.operationId,
+      operationName: result.operationName,
+      replayed: result.replayed,
+      ...(typeof result.result === 'object' && result.result !== null ? result.result : { value: result.result }),
+    });
+    return;
+  }
+
+  sendCliError(req, res, {
+    status: cliOperationErrorStatus(result.status),
+    code: result.code,
+    message: cliOperationErrorMessage(result.status),
+    retryable: result.retryable,
+    retryAfterMs: result.status === 'operation_in_progress' ? result.retryAfterMs : undefined,
+    details: cliOperationErrorDetails(result),
+  });
+}
+
+function sendAdminError(res: Response, error: unknown): void {
+  if (error instanceof AdminIdentityError) {
+    const status = error.code === 'invalid_credentials' ? 401 : error.code === 'admin_account_not_found' ? 404 : 400;
+    res.status(status).json({ error: error.code });
+    return;
+  }
+
+  throw error;
+}
+
+function sendAdminOperationResult<T>(res: Response, result: AdminOperationResult<T>): void {
+  if (result.ok) {
+    res.status(200).json({
+      ok: true,
+      operationId: result.operationId,
+      replayed: result.replayed,
+      result: result.result,
+    });
+    return;
+  }
+
+  const status = result.status === 'idempotency_key_required' ? 400 : result.status === 'mutation_failed' ? 409 : 409;
+  res.status(status).json(result);
+}
+
+async function handlePresetMutation(
+  req: Request,
+  res: Response,
+  options: AdminRoutesOptions,
+  action: 'create' | 'update' | 'duplicate',
+): Promise<void> {
+  if (!options.presetService) {
+    res.status(404).json({ error: 'admin_presets_unavailable' });
+    return;
+  }
+  const draft = getPresetDraft(req.body);
+  const common = {
+    context: buildAdminOperationContext(req, options, { type: 'preset', id: req.params.name || draft.name }),
+    draft,
+    revision: getBodyString(req.body, 'revision'),
+    previewFingerprint: getBodyString(req.body, 'previewFingerprint'),
+  };
+  try {
+    const result =
+      action === 'create'
+        ? await options.presetService.createPreset(common)
+        : action === 'update'
+          ? await options.presetService.updatePreset({ ...common, sourceName: req.params.name })
+          : await options.presetService.duplicatePreset({ ...common, sourceName: req.params.name });
+    if (!result.ok && result.status === 'mutation_failed' && result.error === 'preset_revision_conflict') {
+      res.status(409).json({ error: 'preset_revision_conflict' });
+      return;
+    }
+    sendAdminOperationResult(res, result);
+  } catch (error) {
+    sendPresetError(res, error);
+  }
+}
+
+function sendPresetError(res: Response, error: unknown): void {
+  if (error instanceof AdminPresetNotFoundError) {
+    res.status(404).json({ error: error.code });
+    return;
+  }
+  if (error instanceof AdminPresetConflictError) {
+    res.status(409).json({ error: error.code });
+    return;
+  }
+  if (error instanceof Error) {
+    res.status(400).json({ error: 'preset_validation_failed', message: sanitizeErrorMessage(error.message) });
+    return;
+  }
+  throw error;
+}
+
+function getPresetDraft(body: unknown): AdminPresetDraft {
+  const value = getBodyValue(body, 'draft');
+  const record = value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
+  const strategy = record.strategy;
+  return {
+    name: typeof record.name === 'string' ? record.name : '',
+    description: typeof record.description === 'string' ? record.description : undefined,
+    strategy: strategy === 'and' || strategy === 'advanced' ? strategy : 'or',
+    tagQuery:
+      record.tagQuery && typeof record.tagQuery === 'object' && !Array.isArray(record.tagQuery)
+        ? (record.tagQuery as AdminPresetDraft['tagQuery'])
+        : {},
+  };
+}
+
+function buildAboutMetadata(runtime: RuntimeIdentity, ui: { buildVersion?: string; protocolVersion?: string }) {
+  return {
+    productName: '1MCP Agent',
+    runtimeVersion: runtime.runtimeVersion,
+    adminUiBuildVersion: ui.buildVersion || undefined,
+    adminApiProtocolVersion: ADMIN_API_PROTOCOL_VERSION,
+    adminUiProtocolVersion: ui.protocolVersion || undefined,
+    protocolCompatible: ui.protocolVersion === ADMIN_API_PROTOCOL_VERSION,
+    runtime: {
+      runtimeScopeId: runtime.runtimeScopeId,
+      externalUrl: runtime.externalUrl || undefined,
+    },
+    build: {
+      commit: process.env.ADMIN_UI_BUILD_COMMIT || undefined,
+      timestamp: process.env.ADMIN_UI_BUILD_TIMESTAMP || undefined,
+    },
+    project: {
+      repository: normalizeRepositoryUrl(packageMetadata.repository?.url) ?? packageMetadata.homepage,
+      documentation: packageMetadata.documentation,
+      issues: packageMetadata.bugs?.url,
+      license: packageMetadata.license,
+    },
+  };
+}
+
+function normalizeRepositoryUrl(value?: string): string | undefined {
+  return value?.replace(/^git\+/u, '').replace(/\.git$/u, '');
+}
+
+function buildAdminOperationContext(
+  req: Request,
+  options: AdminRoutesOptions,
+  target: AdminOperationContext['target'],
+): AdminOperationContext {
+  const sessionToken = getAdminSessionCookie(req);
+  const session = options.adminService.validateSession(sessionToken);
+  if (!session) {
+    throw new Error('Admin operation context requested without a valid session');
+  }
+
+  const runtimeIdentity = options.getRuntimeIdentity();
+  const operationName = operationNameForRequest(req);
+  return {
+    actor: {
+      type: 'admin_session',
+      accountId: session.account.id,
+      sessionId: sessionToken,
+    },
+    origin: 'browser',
+    target,
+    runtimeIdentity: {
+      runtimeScopeId: runtimeIdentity.runtimeScopeId,
+      runtimeVersion: runtimeIdentity.runtimeVersion,
+    },
+    request: {
+      requestId: getRequestId(req),
+      jsonMode: true,
+    },
+    idempotencyKey: req.header('Idempotency-Key'),
+    requestFingerprint: configuredServerRequestFingerprint(operationName, target.id, req.body),
+    confirmationFacts: getBodyRecord(req.body, 'confirmationFacts'),
+  };
+}
+
+function cliConfiguredServerConfirmationRequirements(
+  options: AdminRoutesOptions,
+  targetName: string,
+  operationName: 'enableConfiguredServer' | 'disableConfiguredServer',
+): AdminConfirmationRequirement[] {
+  const identity = options.getRuntimeIdentity();
+  if (isLoopbackRuntimeUrl(identity.externalUrl)) {
+    return [];
+  }
+
+  return [
+    {
+      code: 'confirm_non_loopback_runtime',
+      expected: true,
+      target: {
+        type: 'configured_server',
+        id: targetName,
+      },
+    },
+    {
+      code: 'confirmedOperation',
+      expected: operationName === 'enableConfiguredServer' ? 'mcp.enable' : 'mcp.disable',
+      target: {
+        type: 'configured_server',
+        id: targetName,
+      },
+    },
+    {
+      code: 'confirmedRuntimeScopeId',
+      expected: identity.runtimeScopeId,
+      target: {
+        type: 'configured_server',
+        id: targetName,
+      },
+    },
+    {
+      code: 'confirmationSource',
+      expected: 'cli_flag',
+      target: {
+        type: 'configured_server',
+        id: targetName,
+      },
+    },
+  ];
+}
+
+function buildCliAdminOperationContext(
+  req: Request,
+  options: AdminRoutesOptions,
+  account: AdminAccount,
+  sessionToken: string,
+  target: AdminOperationContext['target'],
+): AdminOperationContext {
+  const runtimeIdentity = options.getRuntimeIdentity();
+  const operationName = operationNameForRequest(req);
+  return {
+    actor: {
+      type: 'admin_session',
+      accountId: account.id,
+      sessionId: sessionToken,
+    },
+    origin: 'cli',
+    target,
+    runtimeIdentity: {
+      runtimeScopeId: runtimeIdentity.runtimeScopeId,
+      runtimeVersion: runtimeIdentity.runtimeVersion,
+    },
+    request: {
+      requestId: getRequestId(req),
+      jsonMode: true,
+    },
+    idempotencyKey: req.header('Idempotency-Key'),
+    requestFingerprint: configuredServerRequestFingerprint(operationName, target.id),
+    confirmationFacts: getBodyRecord(req.body, 'confirmationFacts'),
+  };
+}
+
+function configuredServerRequestFingerprint(
+  operationName: string,
+  targetName: string | undefined,
+  body?: unknown,
+): string {
+  const normalized = stableJsonStringify({
+    schemaVersion: 1,
+    operationName,
+    target: {
+      type: 'configured_server',
+      id: targetName ?? '',
+    },
+    ...(operationName === 'applyConfiguredServerEdit'
+      ? {
+          previewFingerprint: getBodyString(body, 'previewFingerprint'),
+          editDigest: createHash('sha256')
+            .update(stableJsonStringify(getBodyValue(body, 'edit') ?? {}))
+            .digest('hex'),
+        }
+      : {}),
+  });
+  return operationName === 'applyConfiguredServerEdit'
+    ? `configured_server_apply_${createHash('sha256').update(normalized).digest('hex')}`
+    : normalized;
+}
+
+function stableJsonStringify(value: unknown): string {
+  if (Array.isArray(value)) {
+    return `[${value.map((item) => stableJsonStringify(item)).join(',')}]`;
+  }
+  if (value && typeof value === 'object') {
+    const entries = Object.entries(value as Record<string, unknown>)
+      .filter(([, entryValue]) => entryValue !== undefined)
+      .sort(([left], [right]) => left.localeCompare(right));
+    return `{${entries
+      .map(([key, entryValue]) => `${JSON.stringify(key)}:${stableJsonStringify(entryValue)}`)
+      .join(',')}}`;
+  }
+  return JSON.stringify(value);
+}
+
+function cliOperationErrorStatus(status: AdminOperationFailure['status']): number {
+  switch (status) {
+    case 'idempotency_key_required':
+      return 400;
+    case 'admin_operation_journal_unavailable':
+      return 503;
+    default:
+      return 409;
+  }
+}
+
+function cliOperationErrorMessage(status: AdminOperationFailure['status']): string {
+  switch (status) {
+    case 'idempotency_key_required':
+      return 'Idempotency key is required';
+    case 'idempotency_conflict':
+      return 'Idempotency key conflicts with another request';
+    case 'operation_in_progress':
+      return 'Admin operation is still in progress';
+    case 'operation_state_unknown':
+      return 'Admin operation state is unknown';
+    case 'mutation_confirmation_required':
+      return 'Additional mutation confirmation is required';
+    case 'mutation_failed':
+      return 'Configured server mutation failed';
+    case 'admin_operation_journal_unavailable':
+      return 'Admin operation journal is unavailable';
+    case 'runtime_scope_mismatch':
+      return 'Runtime scope mismatch';
+    case 'runtime_scope_locked':
+      return 'Runtime scope admin mutations are locked by another writer';
+    default:
+      return 'Admin operation failed';
+  }
+}
+
+function cliOperationErrorDetails(result: AdminOperationFailure): Record<string, unknown> {
+  const details: Record<string, unknown> = {
+    operationName: result.operationName,
+  };
+
+  if (result.status === 'operation_state_unknown') {
+    details.target = result.target;
+    details.reservedAt = result.reservedAt;
+    details.recovery = result.recovery;
+  }
+  if (result.status === 'runtime_scope_locked') {
+    details.reason = result.reason;
+  }
+  if (result.status === 'mutation_confirmation_required') {
+    details.confirmationRequirements = result.confirmationRequirements;
+  }
+  if (result.status === 'mutation_failed') {
+    details.error = result.error;
+  }
+
+  return details;
+}
+
+function operationNameForRequest(req: Request): string {
+  if (req.path.endsWith('/enable') || req.path.endsWith('/enable-server')) {
+    return 'enableConfiguredServer';
+  }
+  if (req.path.endsWith('/disable') || req.path.endsWith('/disable-server')) {
+    return 'disableConfiguredServer';
+  }
+  if (req.path.endsWith('/preview')) {
+    return 'previewConfiguredServerEdit';
+  }
+  if (req.path.endsWith('/apply')) {
+    return 'applyConfiguredServerEdit';
+  }
+  if (req.method === 'GET' && req.path.startsWith('/api/configured-servers/')) {
+    return 'getConfiguredServerDetail';
+  }
+  return 'listConfiguredServers';
+}
+
+function getRequestId(req: Request): string {
+  const requestId = req.header('X-Request-Id');
+  return requestId?.trim() || `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+}
+
+function toAdminConsoleAccount(account: AdminAccount): Pick<AdminAccount, 'id' | 'username' | 'role'> {
+  return {
+    id: account.id,
+    username: account.username,
+    role: account.role,
+  };
+}
+
+function toCliAdminAccount(account: AdminAccount): Pick<AdminAccount, 'username' | 'role'> {
+  return {
+    username: account.username,
+    role: account.role,
+  };
+}
+
+function toCliRuntimeIdentity(
+  identity: RuntimeIdentity,
+): Pick<RuntimeIdentity, 'identityProtocolVersion' | 'runtimeScopeId' | 'runtimeVersion'> {
+  return {
+    identityProtocolVersion: identity.identityProtocolVersion,
+    runtimeScopeId: identity.runtimeScopeId,
+    runtimeVersion: identity.runtimeVersion,
+  };
+}
+
+function sanitizeOAuthDashboard(dashboard: BackendOAuthDashboardResult): BackendOAuthDashboardResult {
+  if (dashboard.status !== 'ready') {
+    return dashboard;
+  }
+
+  return {
+    ...dashboard,
+    services: dashboard.services.map((service) => ({
+      ...service,
+      lastError: service.lastError ? sanitizeErrorMessage(service.lastError) : undefined,
+    })),
+  };
+}
+
+function getBodyValue(body: unknown, key: string): unknown {
+  if (!body || typeof body !== 'object') {
+    return undefined;
+  }
+
+  return (body as Record<string, unknown>)[key];
+}
+
+function getBodyString(body: unknown, key: string): string {
+  if (!body || typeof body !== 'object') {
+    return '';
+  }
+
+  const value = (body as Record<string, unknown>)[key];
+  return typeof value === 'string' ? value : '';
+}
+
+function getBodyRecord(body: unknown, key: string): Record<string, unknown> | undefined {
+  if (!body || typeof body !== 'object') {
+    return undefined;
+  }
+
+  const value = (body as Record<string, unknown>)[key];
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? { ...(value as Record<string, unknown>) }
+    : undefined;
+}
+
+function isLoopbackRuntimeUrl(value: string): boolean {
+  try {
+    const hostname = new URL(value).hostname.toLowerCase();
+    return hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '::1' || hostname === '[::1]';
+  } catch {
+    return false;
+  }
+}

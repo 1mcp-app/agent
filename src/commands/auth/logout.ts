@@ -1,53 +1,57 @@
-import { deleteAuthProfile, listAuthProfiles, normalizeServerUrl } from '@src/commands/shared/authProfileStore.js';
+import { RuntimeTargetStore } from '@src/domains/runtime-targets/runtimeTargetStore.js';
 import type { GlobalOptions } from '@src/globalOptions.js';
-import { stripMcpSuffix } from '@src/utils/urlUtils.js';
-import { discoverServerWithPidFile } from '@src/utils/validation/urlDetection.js';
+
+import {
+  AuthCommandError,
+  requireAuthContext,
+  resolveAuthRuntimeTarget,
+  toAuthOAuthTokenReference,
+} from './runtimeTargetContext.js';
 
 export interface AuthLogoutOptions extends GlobalOptions {
+  context?: string;
   url?: string;
   all?: boolean;
+  allLocal?: boolean;
+  'all-local'?: boolean;
 }
 
 export async function authLogoutCommand(options: AuthLogoutOptions): Promise<void> {
+  const context = requireAuthContext(options, 'logout');
+
   if (options.all) {
-    const profiles = await listAuthProfiles(options['config-dir']);
-    if (profiles.length === 0) {
-      process.stdout.write('No saved profiles to remove.\n');
-      return;
-    }
-    for (const profile of profiles) {
-      await deleteAuthProfile(options['config-dir'], profile.serverUrl);
-    }
-    process.stdout.write(`Removed ${profiles.length} profile${profiles.length !== 1 ? 's' : ''}.\n`);
-    return;
+    throw new AuthCommandError(
+      'credential_all_unsupported',
+      'auth logout --all is not supported for Runtime Target Context credentials',
+      `1mcp auth logout --context ${options.context}`,
+    );
   }
 
-  if (!options.url) {
-    let discoveredUrl: string;
-    let source: string;
-
-    try {
-      ({ url: discoveredUrl, source } = await discoverServerWithPidFile(options['config-dir']));
-    } catch {
-      throw new Error('Specify --url <server-url> or --all. No running server detected for auto-discovery.');
+  if (options.allLocal || options['all-local']) {
+    if (context !== 'local') {
+      throw new AuthCommandError(
+        'credential_all_local_context_required',
+        'auth logout --all-local can only be used with --context local',
+        '1mcp auth logout --context local --all-local',
+      );
     }
-
-    const baseUrl = normalizeServerUrl(stripMcpSuffix(discoveredUrl));
-    process.stderr.write(`Auto-detected server at ${baseUrl} (via ${source})\n`);
-    const removed = await deleteAuthProfile(options['config-dir'], baseUrl);
-    if (removed) {
-      process.stdout.write(`Removed profile for ${baseUrl}\n`);
+    const cleared = new RuntimeTargetStore().clearLocalOAuthTokenReferences();
+    if (cleared === 0) {
+      process.stdout.write('No saved local authentication profiles.\n');
     } else {
-      process.stdout.write(`No saved profile for ${baseUrl}\n`);
+      process.stdout.write(`Removed ${cleared} local authentication profile${cleared !== 1 ? 's' : ''}.\n`);
     }
     return;
   }
 
-  const baseUrl = normalizeServerUrl(options.url);
-  const removed = await deleteAuthProfile(options['config-dir'], baseUrl);
-  if (removed) {
-    process.stdout.write(`Removed profile for ${baseUrl}\n`);
+  const { baseUrl, runtimeScopeId } = await resolveAuthRuntimeTarget(options, 'logout');
+  const store = new RuntimeTargetStore();
+  const rawReference = store.getOAuthTokenReference(context, runtimeScopeId);
+  const profile = toAuthOAuthTokenReference(rawReference);
+  if (profile) {
+    store.clearOAuthTokenReference(context, runtimeScopeId);
+    process.stdout.write(`Removed profile for ${context} (${baseUrl})\n`);
   } else {
-    process.stdout.write(`No saved profile for ${baseUrl}\n`);
+    process.stdout.write(`No saved profile for ${context} (${baseUrl})\n`);
   }
 }

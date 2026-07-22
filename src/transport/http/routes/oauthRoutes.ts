@@ -1,5 +1,4 @@
 import {
-  BackendOAuthDashboardService,
   getOAuthAuthorizationFlow,
   OAuthAuthorizationFlow,
   OAuthAuthorizationFlowProvider,
@@ -11,15 +10,8 @@ import { LoadingState } from '@src/core/loading/loadingStateTracker.js';
 import { McpLoadingManager } from '@src/core/loading/mcpLoadingManager.js';
 import { AgentConfigManager } from '@src/core/server/agentConfig.js';
 import { ServerManager } from '@src/core/server/serverManager.js';
-import { ClientStatus } from '@src/core/types/index.js';
 import logger from '@src/logger/logger.js';
 import { sensitiveOperationLimiter } from '@src/transport/http/middlewares/securityMiddleware.js';
-import {
-  escapeHtml,
-  sanitizeErrorMessage,
-  sanitizeServerNameForContext,
-  sanitizeUrlParam,
-} from '@src/utils/validation/sanitization.js';
 
 import { Request, RequestHandler, Response, Router } from 'express';
 import rateLimit from 'express-rate-limit';
@@ -55,23 +47,8 @@ export function createOAuthRoutes(oauthProvider: SDKOAuthServerProvider, loading
   /**
    * OAuth Dashboard - Shows all services and their OAuth status
    */
-  router.get('/', async (req: Request, res: Response) => {
-    try {
-      const dashboard = oauthFlow.getBackendOAuthDashboard();
-      if (dashboard.status !== 'ready') {
-        const errorResponse: Record<string, string> = { error: dashboard.errorDescription };
-        res.status(500).json(errorResponse);
-        return;
-      }
-
-      const html = generateOAuthDashboard(dashboard.services, req);
-      res.setHeader('Content-Type', 'text/html');
-      res.send(html);
-    } catch (error) {
-      logger.error('Error serving OAuth dashboard:', error);
-      const errorResponse: Record<string, string> = { error: 'Internal server error' };
-      res.status(500).json(errorResponse);
-    }
+  router.get('/', (_req: Request, res: Response) => {
+    res.redirect('/admin');
   });
 
   /**
@@ -199,180 +176,14 @@ export function createOAuthRoutes(oauthProvider: SDKOAuthServerProvider, loading
 
   router.post('/consent', sensitiveOperationLimiter, consentHandler);
 
-  /**
-   * Generate OAuth dashboard HTML
-   */
-  function generateOAuthDashboard(services: BackendOAuthDashboardService[], req: Request): string {
-    const servicesHtml = services
-      .map((service) => {
-        const statusIcon = getStatusIcon(service.status);
-        const statusText = getStatusText(service.status);
-        const actionButton = getActionButton(service);
-
-        return `
-      <tr>
-        <td>${sanitizeServerNameForContext(service.name, 'html')}</td>
-        <td>${statusIcon} ${statusText}</td>
-        <td>${service.lastConnected ? escapeHtml(new Date(service.lastConnected).toLocaleString()) : 'Never'}</td>
-        <td>${service.lastError ? sanitizeErrorMessage(service.lastError) : '-'}</td>
-        <td>${actionButton}</td>
-      </tr>
-    `;
-      })
-      .join('');
-
-    return `
-    <!DOCTYPE html>
-    <html lang="en">
-    <head>
-      <meta charset="UTF-8">
-      <meta name="viewport" content="width=device-width, initial-scale=1.0">
-      <title>1MCP OAuth Management</title>
-      <style>
-        body { font-family: Arial, sans-serif; margin: 20px; background-color: #f5f5f5; }
-        .container { max-width: 1200px; margin: 0 auto; background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
-        h1 { color: #333; text-align: center; margin-bottom: 30px; }
-        table { width: 100%; border-collapse: collapse; margin-top: 20px; }
-        th, td { padding: 12px; text-align: left; border-bottom: 1px solid #ddd; }
-        th { background-color: #f8f9fa; font-weight: bold; }
-        .status-connected { color: #28a745; }
-        .status-awaiting { color: #ffc107; }
-        .status-error { color: #dc3545; }
-        .status-disconnected { color: #6c757d; }
-        .btn { padding: 8px 16px; border: none; border-radius: 4px; cursor: pointer; text-decoration: none; display: inline-block; font-size: 14px; }
-        .btn-primary { background-color: #007bff; color: white; }
-        .btn-warning { background-color: #ffc107; color: black; }
-        .btn-success { background-color: #28a745; color: white; }
-        .btn:hover { opacity: 0.8; }
-        .alert { padding: 15px; margin: 20px 0; border-radius: 4px; }
-        .alert-success { background-color: #d4edda; color: #155724; border: 1px solid #c3e6cb; }
-        .alert-error { background-color: #f8d7da; color: #721c24; border: 1px solid #f5c6cb; }
-        .refresh-btn { float: right; margin-bottom: 20px; }
-      </style>
-    </head>
-    <body>
-      <div class="container">
-        <h1>🔐 1MCP OAuth Management</h1>
-
-        ${getAlertHtml(req)}
-
-        <button class="btn btn-primary refresh-btn" onclick="window.location.reload()">🔄 Refresh</button>
-
-        <table>
-          <thead>
-            <tr>
-              <th>Service</th>
-              <th>Status</th>
-              <th>Last Connected</th>
-              <th>Error</th>
-              <th>Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            ${servicesHtml}
-          </tbody>
-        </table>
-
-        <div style="margin-top: 30px; padding: 20px; background-color: #f8f9fa; border-radius: 4px;">
-          <h3>Instructions:</h3>
-          <ul>
-            <li><strong>Connected:</strong> Service is working properly (no authentication required)</li>
-            <li><strong>Authorized:</strong> Service is working properly (OAuth authentication completed)</li>
-            <li><strong>Awaiting OAuth:</strong> Click "Authorize" to complete authentication</li>
-            <li><strong>Error:</strong> Check error message and try "Restart OAuth" if needed</li>
-            <li><strong>Disconnected:</strong> Service is not connected</li>
-          </ul>
-        </div>
-      </div>
-
-      <script>
-        // Auto-refresh every 30 seconds
-        setTimeout(() => window.location.reload(), 30000);
-
-        function restartOAuth(serverName) {
-          fetch(\`/oauth/restart/\${encodeURIComponent(serverName)}\`, { method: 'POST' })
-            .then(response => response.json())
-            .then(data => {
-              if (data.success) {
-                window.location.reload();
-              } else {
-                alert('Failed to restart OAuth: ' + (data.error || 'Unknown error'));
-              }
-            })
-            .catch(error => {
-              alert('Failed to restart OAuth: ' + error.message);
-            });
-        }
-      </script>
-    </body>
-    </html>
-  `;
-  }
-
-  function getStatusIcon(status: string): string {
-    switch (status) {
-      case ClientStatus.Connected:
-        return '✅';
-      case ClientStatus.AwaitingOAuth:
-        return '⏳';
-      case ClientStatus.Error:
-        return '❌';
-      case ClientStatus.Disconnected:
-        return '🔌';
-      default:
-        return '❓';
-    }
-  }
-
-  function getStatusText(status: string): string {
-    switch (status) {
-      case ClientStatus.Connected:
-        return '<span class="status-connected">Connected</span>';
-      case ClientStatus.AwaitingOAuth:
-        return '<span class="status-awaiting">Awaiting OAuth</span>';
-      case ClientStatus.Error:
-        return '<span class="status-error">Error</span>';
-      case ClientStatus.Disconnected:
-        return '<span class="status-disconnected">Disconnected</span>';
-      default:
-        return '<span class="status-disconnected">Unknown</span>';
-    }
-  }
-
-  function getActionButton(service: BackendOAuthDashboardService): string {
-    switch (service.status) {
-      case ClientStatus.Connected:
-        if (service.requiresOAuth) {
-          return '<span class="status-connected">✓ Authorized</span>';
-        } else {
-          return '<span class="status-connected">✓ Connected</span>';
-        }
-      case ClientStatus.AwaitingOAuth:
-        return `<a href="/oauth/authorize/${sanitizeUrlParam(service.name)}" class="btn btn-warning">🔐 Authorize</a>`;
-      case ClientStatus.Error:
-      case ClientStatus.Disconnected:
-        return getRestartOAuthButton(service.name, 'Restart OAuth');
-      default:
-        return getRestartOAuthButton(service.name, 'Start OAuth');
-    }
-  }
-
-  function getRestartOAuthButton(serverName: string, label: 'Restart OAuth' | 'Start OAuth'): string {
-    return `<button onclick="restartOAuth(this.dataset.serverName)" data-server-name="${escapeHtml(serverName)}" class="btn btn-primary">🔄 ${label}</button>`;
-  }
-
-  function getAlertHtml(req: Request): string {
-    if (req.query.success) {
-      return '<div class="alert alert-success">✅ OAuth authorization completed successfully!</div>';
-    }
-    if (req.query.error) {
-      const error = req.query.error;
-      return `<div class="alert alert-error">❌ OAuth error: ${sanitizeErrorMessage(String(error))}</div>`;
-    }
-    return '';
-  }
-
   return router;
+}
+
+export function createBackendOAuthDashboardProvider(
+  oauthProvider: SDKOAuthServerProvider & OAuthAuthorizationFlowProvider,
+  loadingManager?: McpLoadingManager,
+): () => ReturnType<OAuthAuthorizationFlow['getBackendOAuthDashboard']> {
+  return () => getOAuthFlow(oauthProvider, loadingManager).getBackendOAuthDashboard();
 }
 
 function getOAuthFlow(

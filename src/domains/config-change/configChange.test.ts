@@ -1,4 +1,4 @@
-import { randomBytes } from 'crypto';
+import { createHash, randomBytes } from 'crypto';
 import { promises as fs } from 'fs';
 import { tmpdir } from 'os';
 import path from 'path';
@@ -7,7 +7,7 @@ import ConfigContext from '@src/config/configContext.js';
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { createConfigChangeService } from './configChange.js';
+import { createConfigChangeService, fingerprintConfiguredServerTarget } from './configChange.js';
 
 const mockAgentConfig = {
   get: vi.fn().mockImplementation((key: string) => {
@@ -44,6 +44,93 @@ describe('Config Change', () => {
     ConfigContext.getInstance().reset();
     vi.clearAllMocks();
     await fs.rm(tempDir, { recursive: true, force: true });
+  });
+
+  it('uses a keyed opaque fingerprint for configured server credentials', () => {
+    const serverConfig = {
+      type: 'http' as const,
+      url: 'https://user:password@example.com/mcp',
+    };
+
+    const fingerprint = fingerprintConfiguredServerTarget(serverConfig);
+    const formerUnkeyedFingerprint = `configured_server_${createHash('sha256')
+      .update(JSON.stringify(serverConfig))
+      .digest('hex')}`;
+
+    expect(fingerprintConfiguredServerTarget(serverConfig)).toBe(fingerprint);
+    expect(fingerprint).toMatch(/^configured_server_[a-f0-9]{64}$/);
+    expect(fingerprint).not.toBe(formerUnkeyedFingerprint);
+    expect(fingerprint).not.toContain('password');
+    expect(fingerprintConfiguredServerTarget({ ...serverConfig, url: 'https://user:other@example.com/mcp' })).not.toBe(
+      fingerprint,
+    );
+  });
+
+  it('atomically edits and renames a configured server with one required backup and reload', async () => {
+    const original = {
+      type: 'http' as const,
+      url: 'https://old.example.com/mcp',
+      headers: { Authorization: 'secret' },
+    };
+    await writeConfig({ customTopLevel: { preserved: true }, mcpServers: { alpha: original } });
+    const service = createConfigChangeService({ reloadConfig: reload });
+
+    const result = await service.editConfiguredServerTarget({
+      sourceName: 'alpha',
+      targetName: 'renamed',
+      serverConfig: { ...original, url: 'https://new.example.com/mcp' },
+      expectedSourceFingerprint: fingerprintConfiguredServerTarget(original),
+    });
+
+    expect(result).toMatchObject({
+      status: 'changed',
+      operation: 'edit',
+      target: { name: 'renamed', source: 'mcpServers' },
+      changed: true,
+      backup: { created: true },
+      reload: { status: 'observed' },
+    });
+    expect(await readConfig()).toEqual({
+      customTopLevel: { preserved: true },
+      mcpServers: { renamed: { ...original, url: 'https://new.example.com/mcp' } },
+    });
+    expect(reload).toHaveBeenCalledTimes(1);
+  });
+
+  it('rejects stale edit preconditions without backup, write, or reload', async () => {
+    const original = { type: 'stdio' as const, command: 'node' };
+    await writeConfig({ mcpServers: { alpha: original } });
+    const service = createConfigChangeService({ reloadConfig: reload });
+
+    const result = await service.editConfiguredServerTarget({
+      sourceName: 'alpha',
+      targetName: 'alpha',
+      serverConfig: { ...original, command: 'bun' },
+      expectedSourceFingerprint: fingerprintConfiguredServerTarget({ ...original, command: 'changed' }),
+    });
+
+    expect(result).toMatchObject({ status: 'source_conflict', changed: false, backup: { created: false } });
+    expect(await readConfig()).toEqual({ mcpServers: { alpha: original } });
+    expect(reload).not.toHaveBeenCalled();
+  });
+
+  it('rejects rename destination conflicts before backup or write', async () => {
+    const original = { type: 'stdio' as const, command: 'node' };
+    await writeConfig({
+      mcpServers: { alpha: original, occupied: { type: 'stdio', command: 'bun' } },
+    });
+    const service = createConfigChangeService({ reloadConfig: reload });
+
+    const result = await service.editConfiguredServerTarget({
+      sourceName: 'alpha',
+      targetName: 'occupied',
+      serverConfig: original,
+      expectedSourceFingerprint: fingerprintConfiguredServerTarget(original),
+    });
+
+    expect(result).toMatchObject({ status: 'destination_conflict', changed: false, backup: { created: false } });
+    expect((await readConfig()).mcpServers).toHaveProperty('alpha');
+    expect(reload).not.toHaveBeenCalled();
   });
 
   it('removes a static configured target with default destructive backup and observed reload', async () => {
@@ -340,6 +427,180 @@ describe('Config Change', () => {
     expect(await readConfig()).toEqual({
       mcpServers: {},
     });
+  });
+
+  it('enables a disabled static configured target through backup, validation, write, and reload observation', async () => {
+    await writeConfig({
+      mcpServers: {
+        filesystem: {
+          type: 'stdio',
+          command: 'npx',
+          disabled: true,
+          env: {
+            API_TOKEN: 'secret',
+          },
+        },
+      },
+    });
+
+    const now = Date.UTC(2026, 6, 7);
+    const service = createConfigChangeService({
+      reloadConfig: reload,
+      now: () => now,
+    });
+
+    const result = await service.setConfiguredServerTargetEnabledState({
+      targetName: 'filesystem',
+      enabled: true,
+      backup: 'required',
+    });
+
+    expect(result).toMatchObject({
+      status: 'changed',
+      operation: 'enable',
+      changed: true,
+      target: {
+        name: 'filesystem',
+        source: 'mcpServers',
+      },
+      backup: {
+        created: true,
+        path: `${configPath}.backup.${now}`,
+      },
+      reload: {
+        status: 'observed',
+      },
+    });
+    expect(reload).toHaveBeenCalledWith(configPath);
+    expect(await readConfig()).toEqual({
+      mcpServers: {
+        filesystem: {
+          type: 'stdio',
+          command: 'npx',
+          env: {
+            API_TOKEN: 'secret',
+          },
+        },
+      },
+    });
+  });
+
+  it('disables an enabled static configured target through backup, validation, write, and reload observation', async () => {
+    await writeConfig({
+      mcpServers: {
+        github: {
+          type: 'http',
+          url: 'https://example.com/mcp',
+        },
+      },
+    });
+
+    const service = createConfigChangeService({ reloadConfig: reload });
+
+    const result = await service.setConfiguredServerTargetEnabledState({
+      targetName: 'github',
+      enabled: false,
+      backup: 'required',
+    });
+
+    expect(result).toMatchObject({
+      status: 'changed',
+      operation: 'disable',
+      changed: true,
+      target: {
+        name: 'github',
+        source: 'mcpServers',
+      },
+      backup: {
+        created: true,
+      },
+      reload: {
+        status: 'observed',
+      },
+    });
+    expect(await readConfig()).toEqual({
+      mcpServers: {
+        github: {
+          type: 'http',
+          url: 'https://example.com/mcp',
+          disabled: true,
+        },
+      },
+    });
+  });
+
+  it('returns unchanged without backup, write, or reload when the requested enabled state is already true', async () => {
+    await writeConfig({
+      mcpServers: {
+        alreadyEnabled: {
+          type: 'stdio',
+          command: 'node',
+        },
+      },
+    });
+
+    const service = createConfigChangeService({ reloadConfig: reload });
+
+    const result = await service.setConfiguredServerTargetEnabledState({
+      targetName: 'alreadyEnabled',
+      enabled: true,
+      backup: 'required',
+    });
+
+    expect(result).toMatchObject({
+      status: 'unchanged',
+      operation: 'enable',
+      changed: false,
+      backup: {
+        created: false,
+      },
+      reload: {
+        status: 'skipped',
+      },
+    });
+    expect(reload).not.toHaveBeenCalled();
+    expect(await readConfig()).toEqual({
+      mcpServers: {
+        alreadyEnabled: {
+          type: 'stdio',
+          command: 'node',
+        },
+      },
+    });
+  });
+
+  it('refuses to enable or disable template configured targets', async () => {
+    await writeConfig({
+      mcpTemplates: {
+        templateOnly: {
+          type: 'stdio',
+          command: 'node',
+          disabled: true,
+        },
+      },
+    });
+
+    const service = createConfigChangeService({ reloadConfig: reload });
+
+    const result = await service.setConfiguredServerTargetEnabledState({
+      targetName: 'templateOnly',
+      enabled: true,
+      backup: 'required',
+    });
+
+    expect(result).toMatchObject({
+      status: 'template_conflict',
+      operation: 'enable',
+      changed: false,
+      target: {
+        name: 'templateOnly',
+        source: 'mcpTemplates',
+      },
+      reload: {
+        status: 'skipped',
+      },
+    });
+    expect(reload).not.toHaveBeenCalled();
   });
 
   it('returns not_found without writing, backing up, or reloading', async () => {

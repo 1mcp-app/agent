@@ -1,13 +1,29 @@
+import fs from 'fs';
+import path from 'path';
+
 import { mcpAuthRouter } from '@modelcontextprotocol/sdk/server/auth/router.js';
 
 import { SDKOAuthServerProvider } from '@src/auth/sdkOAuthServerProvider.js';
 import { FileStorageService } from '@src/auth/storage/fileStorageService.js';
+import { getAllServerTargets } from '@src/commands/shared/baseConfigUtils.js';
+import ConfigContext from '@src/config/configContext.js';
 import { McpConfigManager } from '@src/config/mcpConfigManager.js';
-import { RATE_LIMIT_CONFIG, STORAGE_SUBDIRS } from '@src/constants.js';
+import { getGlobalConfigDir, MCP_SERVER_VERSION, RATE_LIMIT_CONFIG, STORAGE_SUBDIRS } from '@src/constants.js';
 import { AsyncLoadingOrchestrator } from '@src/core/capabilities/asyncLoadingOrchestrator.js';
 import { McpLoadingManager } from '@src/core/loading/mcpLoadingManager.js';
+import { RuntimeIdentityService } from '@src/core/runtime/runtimeIdentityService.js';
 import { AgentConfigManager } from '@src/core/server/agentConfig.js';
 import { ServerManager } from '@src/core/server/serverManager.js';
+import type { ConfiguredServerConfigDocument } from '@src/domains/admin/adminConfiguredServerService.js';
+import { createAdminConnectivityChecker } from '@src/domains/admin/adminConnectivityChecker.js';
+import { createAdminDomain } from '@src/domains/admin/adminDomain.js';
+import {
+  type AdminMutationAvailability,
+  type RuntimeScopeAdminLockHandle,
+  tryAcquireRuntimeScopeAdminLock,
+} from '@src/domains/admin/runtimeScopeAdminLock.js';
+import { createConfigChangeService } from '@src/domains/config-change/configChange.js';
+import { PresetManager } from '@src/domains/preset/manager/presetManager.js';
 import logger from '@src/logger/logger.js';
 
 import bodyParser from 'body-parser';
@@ -20,9 +36,11 @@ import { httpRequestLogger } from './middlewares/httpRequestLogger.js';
 import { createMcpAvailabilityMiddleware } from './middlewares/mcpAvailabilityMiddleware.js';
 import { createScopeAuthMiddleware } from './middlewares/scopeAuthMiddleware.js';
 import { setupSecurityMiddleware } from './middlewares/securityMiddleware.js';
+import { createAdminRoutes } from './routes/adminRoutes.js';
 import { createApiRoutes, createCliTokenRoute, rejectBrowserOriginRequests } from './routes/apiRoutes.js';
 import createHealthRoutes from './routes/healthRoutes.js';
-import createOAuthRoutes from './routes/oauthRoutes.js';
+import createOAuthRoutes, { createBackendOAuthDashboardProvider } from './routes/oauthRoutes.js';
+import { createRuntimeIdentityRoutes } from './routes/runtimeIdentityRoutes.js';
 import { setupSseRoutes } from './routes/sseRoutes.js';
 import { setupStreamableHttpRoutes } from './routes/streamableHttpRoutes.js';
 import { StreamableSessionRepository } from './storage/streamableSessionRepository.js';
@@ -65,6 +83,14 @@ function isLoopbackOrigin(origin: string | undefined): boolean {
   } catch {
     return false;
   }
+}
+
+function readConfiguredServerConfigDocument(getConfigPath: () => string): ConfiguredServerConfigDocument | null {
+  const configPath = getConfigPath();
+  if (!fs.existsSync(configPath)) {
+    return null;
+  }
+  return JSON.parse(fs.readFileSync(configPath, 'utf8')) as ConfiguredServerConfigDocument;
 }
 
 function normalizeHostHeader(host: string | string[] | undefined): string | undefined {
@@ -202,6 +228,8 @@ export class ExpressServer {
   private configManager: AgentConfigManager;
   private customTemplate?: string;
   private streamableSessionRepository: StreamableSessionRepository;
+  private runtimeIdentityService: RuntimeIdentityService;
+  private adminLock?: RuntimeScopeAdminLockHandle;
 
   /**
    * Creates a new ExpressServer instance.
@@ -227,6 +255,10 @@ export class ExpressServer {
     this.asyncOrchestrator = asyncOrchestrator;
     this.customTemplate = customTemplate;
     this.configManager = AgentConfigManager.getInstance();
+    this.runtimeIdentityService = new RuntimeIdentityService({
+      storageDir:
+        this.configManager.get('runtimeScopeStoragePath') ?? this.configManager.get('auth').sessionStoragePath,
+    });
 
     // Configure trust proxy setting before any middleware
     this.app.set('trust proxy', this.configManager.get('trustProxy'));
@@ -240,7 +272,13 @@ export class ExpressServer {
     this.streamableSessionRepository = new StreamableSessionRepository(fileStorageService);
 
     this.setupMiddleware();
-    this.setupRoutes();
+    try {
+      this.setupRoutes();
+    } catch (error) {
+      this.adminLock?.release();
+      this.adminLock = undefined;
+      throw error;
+    }
   }
 
   /**
@@ -289,6 +327,19 @@ export class ExpressServer {
    * Logs the authentication status for debugging purposes.
    */
   private setupRoutes(): void {
+    const getRuntimeIdentity = () =>
+      this.runtimeIdentityService.getRuntimeIdentity({
+        externalUrl: this.configManager.getUrl(),
+        runtimeVersion: MCP_SERVER_VERSION,
+      });
+
+    this.app.use(
+      '/.well-known/1mcp',
+      createRuntimeIdentityRoutes({
+        getRuntimeIdentity,
+      }),
+    );
+
     // Setup OAuth routes using SDK's mcpAuthRouter
     const issuerUrl = new URL(this.configManager.getUrl());
 
@@ -330,9 +381,50 @@ export class ExpressServer {
 
     // Setup OAuth management routes (no auth required)
     this.app.use('/oauth', createOAuthRoutes(this.oauthProvider, this.loadingManager));
+    const getOAuthDashboard = createBackendOAuthDashboardProvider(this.oauthProvider, this.loadingManager);
 
     // Setup health check routes (no auth required for monitoring)
     this.app.use('/health', createHealthRoutes(this.loadingManager));
+
+    const adminStorageDir =
+      this.configManager.get('runtimeScopeStoragePath') ??
+      this.configManager.get('auth').sessionStoragePath ??
+      getGlobalConfigDir();
+    const runtimeIdentity = getRuntimeIdentity();
+    const adminEnabled = this.configManager.get('admin')?.enabled ?? true;
+    const adminMutationAvailability = this.acquireAdminMutationAvailability(
+      adminEnabled,
+      runtimeIdentity.runtimeScopeId,
+      adminStorageDir,
+    );
+    const adminConfigPath = ConfigContext.getInstance().getResolvedConfigPath();
+    const getConfigPath = () => adminConfigPath;
+    const adminDomain = createAdminDomain({
+      runtimeScopeId: runtimeIdentity.runtimeScopeId,
+      storageDir: adminStorageDir,
+      sessionTtlMs: this.configManager.get('auth').sessionTtlMinutes * 60 * 1000,
+      mutationAvailability: adminMutationAvailability,
+      configChangeService: createConfigChangeService({ getConfigPath }),
+      readConfigDocument: () => readConfiguredServerConfigDocument(getConfigPath),
+      checkConnectivity: createAdminConnectivityChecker(),
+      presetManager: PresetManager.getInstance(path.dirname(adminConfigPath)),
+      readServerTargets: getAllServerTargets,
+    });
+    const adminRoutes = createAdminRoutes({
+      adminEnabled,
+      adminService: adminDomain.adminService,
+      configuredServerService: adminDomain.configuredServerService,
+      presetService: adminDomain.presetService,
+      adminMutationAvailability,
+      getRuntimeIdentity,
+      getOAuthDashboard,
+    });
+    if (adminRoutes) {
+      this.app.use('/admin', adminRoutes);
+      this.app.get('/', (_req, res) => {
+        res.redirect(302, '/admin');
+      });
+    }
 
     // CLI token endpoint (localhost-only, no auth middleware).
     // Reject browser-origin requests so a web page cannot silently obtain a full-scope token.
@@ -406,7 +498,30 @@ export class ExpressServer {
    * - Streamable session repository flush
    */
   public shutdown(): void {
+    this.adminLock?.release();
+    this.adminLock = undefined;
     this.oauthProvider.shutdown();
     this.streamableSessionRepository.stopPeriodicFlush();
+  }
+
+  private acquireAdminMutationAvailability(
+    adminEnabled: boolean,
+    runtimeScopeId: string,
+    storageDir: string,
+  ): AdminMutationAvailability {
+    if (!adminEnabled) {
+      return {
+        available: false,
+        reason: 'mutation_service_unavailable',
+      };
+    }
+
+    const lock = tryAcquireRuntimeScopeAdminLock({ runtimeScopeId, storageDir });
+    if (!lock.available) {
+      return lock;
+    }
+
+    this.adminLock = lock;
+    return { available: true };
   }
 }

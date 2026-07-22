@@ -2,14 +2,20 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { authLogoutCommand } from './logout.js';
 
-const { mockDiscoverServerWithPidFile, mockDeleteAuthProfile, mockListAuthProfiles } = vi.hoisted(() => ({
-  mockDiscoverServerWithPidFile: vi.fn(),
-  mockDeleteAuthProfile: vi.fn(),
-  mockListAuthProfiles: vi.fn(),
+const {
+  mockResolveServeTarget,
+  mockGetOAuthTokenReference,
+  mockClearOAuthTokenReference,
+  mockClearLocalOAuthTokenReferences,
+} = vi.hoisted(() => ({
+  mockResolveServeTarget: vi.fn(),
+  mockGetOAuthTokenReference: vi.fn(),
+  mockClearOAuthTokenReference: vi.fn(),
+  mockClearLocalOAuthTokenReferences: vi.fn(),
 }));
 
-vi.mock('@src/utils/validation/urlDetection.js', () => ({
-  discoverServerWithPidFile: mockDiscoverServerWithPidFile,
+vi.mock('@src/commands/shared/serveTargetResolver.js', () => ({
+  resolveServeTarget: mockResolveServeTarget,
 }));
 
 vi.mock('@src/commands/shared/authProfileStore.js', () => ({
@@ -18,82 +24,102 @@ vi.mock('@src/commands/shared/authProfileStore.js', () => ({
       .replace(/\/mcp$/, '')
       .replace(/\/$/, '')
       .toLowerCase(),
-  deleteAuthProfile: mockDeleteAuthProfile,
-  listAuthProfiles: mockListAuthProfiles,
+}));
+
+vi.mock('@src/domains/runtime-targets/runtimeTargetStore.js', () => ({
+  RuntimeTargetStore: vi.fn().mockImplementation(function () {
+    return {
+      current: vi.fn(() => ({ name: 'prod' })),
+      getOAuthTokenReference: mockGetOAuthTokenReference,
+      clearOAuthTokenReference: mockClearOAuthTokenReference,
+      clearLocalOAuthTokenReferences: mockClearLocalOAuthTokenReferences,
+    };
+  }),
 }));
 
 const baseOptions = { 'config-dir': '/tmp/test-config' } as Parameters<typeof authLogoutCommand>[0];
 
 beforeEach(() => {
   vi.clearAllMocks();
-  mockDeleteAuthProfile.mockResolvedValue(true);
-  mockListAuthProfiles.mockResolvedValue([]);
+  mockResolveServeTarget.mockResolvedValue({
+    discoveredUrl: 'https://prod.example.com/mcp',
+    runtimeTargetContext: {
+      name: 'prod',
+      kind: 'remote',
+      runtimeScopeId: 'scope_prod',
+    },
+  });
+  mockGetOAuthTokenReference.mockReturnValue({ token: 'tk-prod' });
 });
 
 describe('authLogoutCommand', () => {
-  it('auto-detects server when --url is omitted', async () => {
-    mockDiscoverServerWithPidFile.mockResolvedValue({
-      url: 'http://localhost:3050/mcp',
-      source: 'pidfile',
+  it('requires explicit context and rejects credential URL mode', async () => {
+    await expect(authLogoutCommand(baseOptions)).rejects.toMatchObject({
+      code: 'credential_context_required',
     });
+    await expect(authLogoutCommand({ ...baseOptions, url: 'https://prod.example.com' })).rejects.toMatchObject({
+      code: 'credential_url_unsupported',
+    });
+    expect(mockResolveServeTarget).not.toHaveBeenCalled();
+  });
 
+  it('uses the selected Runtime Target Context', async () => {
     const writeSpy = vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
-    await authLogoutCommand(baseOptions);
+    await authLogoutCommand({ ...baseOptions, context: 'prod' });
 
-    expect(mockDiscoverServerWithPidFile).toHaveBeenCalledWith('/tmp/test-config');
-    expect(mockDeleteAuthProfile).toHaveBeenCalledWith('/tmp/test-config', 'http://localhost:3050');
+    expect(mockResolveServeTarget).toHaveBeenCalledWith({ context: 'prod', 'config-dir': '/tmp/test-config' });
+    expect(mockClearOAuthTokenReference).toHaveBeenCalledWith('prod', 'scope_prod');
     expect(writeSpy).toHaveBeenCalledWith(expect.stringContaining('Removed profile'));
     writeSpy.mockRestore();
   });
 
-  it('uses explicit --url when provided', async () => {
-    await authLogoutCommand({ ...baseOptions, url: 'http://localhost:3051' });
-
-    expect(mockDiscoverServerWithPidFile).not.toHaveBeenCalled();
-    expect(mockDeleteAuthProfile).toHaveBeenCalledWith('/tmp/test-config', 'http://localhost:3051');
+  it('does not let --all bypass explicit context enforcement or context-scoped cleanup', async () => {
+    await expect(authLogoutCommand({ ...baseOptions, all: true })).rejects.toMatchObject({
+      code: 'credential_context_required',
+    });
+    await expect(authLogoutCommand({ ...baseOptions, context: 'prod', all: true })).rejects.toMatchObject({
+      code: 'credential_all_unsupported',
+    });
+    expect(mockResolveServeTarget).not.toHaveBeenCalled();
+    expect(mockClearOAuthTokenReference).not.toHaveBeenCalled();
   });
 
-  it('removes all profiles with --all', async () => {
-    mockListAuthProfiles.mockResolvedValue([
-      { serverUrl: 'http://a.example.com', token: 't1', savedAt: 0 },
-      { serverUrl: 'http://b.example.com', token: 't2', savedAt: 0 },
-    ]);
-
+  it('clears all local OAuth token references with explicit --all-local cleanup', async () => {
+    mockClearLocalOAuthTokenReferences.mockReturnValue(2);
     const writeSpy = vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
-    await authLogoutCommand({ ...baseOptions, all: true });
 
-    expect(mockDeleteAuthProfile).toHaveBeenCalledTimes(2);
-    expect(writeSpy).toHaveBeenCalledWith(expect.stringContaining('Removed 2 profiles'));
+    await authLogoutCommand({ ...baseOptions, context: 'local', allLocal: true });
+
+    expect(mockResolveServeTarget).not.toHaveBeenCalled();
+    expect(mockClearLocalOAuthTokenReferences).toHaveBeenCalled();
+    expect(writeSpy).toHaveBeenCalledWith(expect.stringContaining('Removed 2 local authentication profiles'));
     writeSpy.mockRestore();
   });
 
-  it('reports no profile found when auto-detected server has no saved profile', async () => {
-    mockDiscoverServerWithPidFile.mockResolvedValue({
-      url: 'http://localhost:3050/mcp',
-      source: 'portscan',
+  it('rejects --all-local for non-local contexts', async () => {
+    await expect(authLogoutCommand({ ...baseOptions, context: 'prod', allLocal: true })).rejects.toMatchObject({
+      code: 'credential_all_local_context_required',
     });
-    mockDeleteAuthProfile.mockResolvedValue(false);
+    expect(mockResolveServeTarget).not.toHaveBeenCalled();
+    expect(mockClearLocalOAuthTokenReferences).not.toHaveBeenCalled();
+  });
+
+  it('reports no context-scoped profile when no OAuth token reference exists', async () => {
+    mockGetOAuthTokenReference.mockReturnValue(undefined);
 
     const writeSpy = vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
-    await authLogoutCommand(baseOptions);
+    await authLogoutCommand({ ...baseOptions, context: 'prod' });
 
     expect(writeSpy).toHaveBeenCalledWith(expect.stringContaining('No saved profile'));
+    expect(mockClearOAuthTokenReference).not.toHaveBeenCalled();
     writeSpy.mockRestore();
   });
 
-  it('throws when no server found and no --url or --all', async () => {
-    mockDiscoverServerWithPidFile.mockRejectedValue(new Error('No running 1MCP server found.'));
-
-    await expect(authLogoutCommand(baseOptions)).rejects.toThrow('Specify --url');
-  });
-
-  it('preserves non-discovery errors during auto-detected logout', async () => {
-    mockDiscoverServerWithPidFile.mockResolvedValue({
-      url: 'http://localhost:3050/mcp',
-      source: 'pidfile',
+  it('preserves context-scoped profile deletion errors', async () => {
+    mockClearOAuthTokenReference.mockImplementation(() => {
+      throw new Error('disk write failed');
     });
-    mockDeleteAuthProfile.mockRejectedValue(new Error('disk write failed'));
 
-    await expect(authLogoutCommand(baseOptions)).rejects.toThrow('disk write failed');
+    await expect(authLogoutCommand({ ...baseOptions, context: 'prod' })).rejects.toThrow('disk write failed');
   });
 });

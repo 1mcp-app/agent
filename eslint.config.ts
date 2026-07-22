@@ -35,8 +35,8 @@ export default [
   },
   prettierConfig,
   {
-    files: ['**/*.ts'],
-    ignores: ['**/*.test.ts', '**/*.e2e.test.ts', 'test/**/*.ts'],
+    files: ['**/*.{ts,tsx}'],
+    ignores: ['**/*.test.ts', '**/*.test.tsx', '**/*.e2e.test.ts', 'test/**/*.ts'],
     languageOptions: {
       parser: tsParser,
       parserOptions: {
@@ -99,6 +99,40 @@ export default [
       'no-console': 'off',
     },
   },
+  // Admin Console SPA runs in the browser.
+  {
+    files: ['web/admin/src/**/*.{ts,tsx}'],
+    languageOptions: {
+      parser: tsParser,
+      parserOptions: {
+        ecmaVersion: 'latest',
+        sourceType: 'module',
+        project: 'web/admin/tsconfig.eslint.json',
+        tsconfigRootDir: __dirname,
+      },
+      globals: {
+        ...globals.browser,
+        ...globals.es2022,
+        Buffer: 'off',
+        __dirname: 'off',
+        __filename: 'off',
+        global: 'off',
+        process: 'off',
+      },
+    },
+  },
+  {
+    files: ['web/admin/vite.config.ts'],
+    languageOptions: {
+      parser: tsParser,
+      parserOptions: {
+        ecmaVersion: 'latest',
+        sourceType: 'module',
+        project: 'web/admin/tsconfig.vite.json',
+        tsconfigRootDir: __dirname,
+      },
+    },
+  },
   // Wizard TUI - allow console.clear() for screen management
   {
     files: ['src/commands/mcp/wizard/**/*.ts', 'src/commands/mcp/install.ts'],
@@ -122,7 +156,7 @@ export default [
   },
   // Test files configuration - more lenient rules
   {
-    files: ['**/*.test.ts', '**/*.e2e.test.ts', 'test/**/*.ts'],
+    files: ['**/*.test.ts', '**/*.test.tsx', '**/*.e2e.test.ts', 'test/**/*.ts'],
     languageOptions: {
       parser: tsParser,
       parserOptions: {

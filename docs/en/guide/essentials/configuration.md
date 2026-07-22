@@ -246,6 +246,8 @@ npx -y @1mcp/agent --trust-proxy 10.0.0.0/8
 
 For detailed trust proxy configuration, see the **[Trust Proxy Reference](/reference/trust-proxy)**.
 
+For the recommended public HTTPS path with Caddy, Admin Console access, and local CLI Runtime Target setup, see **[Cloud Deployment with Caddy](/guide/advanced/cloud-deployment)**.
+
 ### Server Filtering
 
 Control which backend MCP servers the runtime exposes.
@@ -721,5 +723,6 @@ npx -y @1mcp/agent \
 - **[MCP Servers Reference](/reference/mcp-servers)** - Backend server configuration
 - **[Serve Command Reference](/commands/serve)** - Command-line usage examples
 - **[Trust Proxy Guide](/reference/trust-proxy)** - Reverse proxy configuration
+- **[Cloud Deployment with Caddy](/guide/advanced/cloud-deployment)** - Public HTTPS deployment path
 - **[Health Check Reference](/reference/health-check)** - Monitoring and health endpoints
 - **[Security Guide](/reference/security)** - Security best practices

@@ -253,5 +253,6 @@ http://127.0.0.1:3051/mcp?app=cursor
 
 - **[CLI 模式指南](/zh/guide/integrations/cli-mode)**
 - **[Proxy 命令](/zh/commands/proxy)**
+- **[使用 Caddy 进行云端部署](/zh/guide/advanced/cloud-deployment)**
 - **[架构](/zh/reference/architecture)**
 - **[配置指南](/zh/guide/essentials/configuration)**

@@ -335,6 +335,8 @@ curl -X POST http://localhost:3050/token \
 - ✅ 配置备份
 - ✅ 基本监控
 
+如果要公开云端运行时、Admin Console 和本地 CLI target，完成这个基础服务设置后，请使用推荐的 **[使用 Caddy 进行云端部署](/zh/guide/advanced/cloud-deployment)** 路径。
+
 ### **步骤 1：生产配置** (5 分钟)
 
 ```bash
@@ -468,7 +470,7 @@ chmod +x ~/1mcp-backup.sh
 
 **🔧 生产清单**：
 
-- [ ] SSL/TLS 证书已配置 (使用像 nginx 这样的反向代理)
+- [ ] 已通过 Caddy 配置 SSL/TLS 证书；参阅[使用 Caddy 进行云端部署](/zh/guide/advanced/cloud-deployment)
 - [ ] 防火墙规则已配置 (仅允许端口 3050)
 - [ ] 已为您的应用程序注册 OAuth 客户端
 - [ ] 服务器标签已适当配置
@@ -497,8 +499,11 @@ chmod +x ~/1mcp-backup.sh
 
 - 为代理环境配置 `--trust-proxy`
 - 为面向公众的部署使用 `--external-url`
+- 推荐的公开 HTTPS Admin Console 路径请使用[使用 Caddy 进行云端部署](/zh/guide/advanced/cloud-deployment)
 
-### **简单的反向代理设置** (可选)
+### **旧版 nginx 反向代理示例** (可选)
+
+新的公开 HTTPS 部署应优先使用[使用 Caddy 进行云端部署](/zh/guide/advanced/cloud-deployment)中的 Caddy 路径。只有在现有平台已经标准化使用 nginx 时，才保留这个 nginx 示例。
 
 ```bash
 # 用于 SSL 终止的基本 nginx 配置

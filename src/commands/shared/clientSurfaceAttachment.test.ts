@@ -8,6 +8,7 @@ import {
   attachFreshClientSurface,
   attachReusableClientSurface,
   type ClientSurfaceRestResponse,
+  formatClientSurfaceAuthRequiredMessage,
   type ResolvedAttachmentTarget,
 } from './clientSurfaceAttachment.js';
 import type { CliSessionCache } from './serveClient.js';
@@ -39,12 +40,14 @@ function makePorts(
   options: {
     target?: ResolvedAttachmentTarget;
     authProfile?: AuthProfile | null;
+    oauthTokenReference?: unknown;
     cachedSession?: CliSessionCache | null;
   } = {},
 ) {
   return {
     resolveTarget: vi.fn().mockResolvedValue(options.target ?? makeResolvedTarget()),
     loadAuthProfile: vi.fn().mockResolvedValue(options.authProfile ?? null),
+    getOAuthTokenReference: vi.fn().mockResolvedValue(options.oauthTokenReference),
     readSessionCache: vi.fn().mockResolvedValue(options.cachedSession ?? null),
     writeSessionCache: vi.fn().mockResolvedValue(undefined),
     deleteSessionCache: vi.fn().mockResolvedValue(undefined),
@@ -411,6 +414,179 @@ describe('attachReusableClientSurface', () => {
     expect(result.context.project.custom).toMatchObject({ team: 'platform' });
     expect(result.context.environment.variables?.ONE_MCP_TEST_VALUE).toBe('included');
     delete process.env.ONE_MCP_TEST_VALUE;
+  });
+
+  it('loads context-scoped OAuth tokens for remote target contexts and ignores URL-keyed auth profiles', async () => {
+    const remoteTarget = makeResolvedTarget({
+      runtimeTargetContext: {
+        name: 'prod',
+        kind: 'remote',
+        runtimeScopeId: 'scope_prod',
+      },
+      discoveredUrl: 'https://prod.example.com/mcp',
+      serverUrl: new URL('https://prod.example.com/mcp'),
+    });
+    const ports = makePorts({
+      target: remoteTarget,
+      authProfile: {
+        serverUrl: 'https://prod.example.com',
+        token: 'legacy-token',
+        savedAt: 1000,
+      },
+      oauthTokenReference: {
+        token: 'scoped-token',
+        serverUrl: 'https://prod.example.com',
+        savedAt: 1000,
+      },
+    });
+    const rest = vi.fn(async () => ({
+      status: 'success' as const,
+      value: { ok: true },
+    }));
+
+    const result = await attachReusableClientSurface({
+      clientSurface: 'run',
+      version: 'run',
+      options: { context: 'prod' },
+      ports,
+      rest,
+      mcp: unusedAdapter(),
+    });
+
+    expect(result.status).toBe('success');
+    if (result.status !== 'success') {
+      throw new Error(`Unexpected attachment status: ${result.status}`);
+    }
+    expect(ports.loadAuthProfile).not.toHaveBeenCalled();
+    expect(ports.getOAuthTokenReference).toHaveBeenCalledWith('prod', 'scope_prod');
+    expect(rest).toHaveBeenCalledWith(expect.objectContaining({ bearerToken: 'scoped-token' }));
+
+    const ephemeralPorts = makePorts({
+      target: makeResolvedTarget({
+        mergedOptions: {
+          url: 'https://adhoc.example.com',
+        },
+        discoveredUrl: 'https://adhoc.example.com/mcp',
+        serverUrl: new URL('https://adhoc.example.com/mcp'),
+      }),
+      authProfile: {
+        serverUrl: 'https://adhoc.example.com',
+        token: 'legacy-url-token',
+        savedAt: 1000,
+      },
+    });
+
+    await attachReusableClientSurface({
+      clientSurface: 'inspect',
+      version: 'inspect',
+      options: { url: 'https://adhoc.example.com' },
+      ports: ephemeralPorts,
+      rest,
+      mcp: unusedAdapter(),
+    });
+
+    expect(ephemeralPorts.loadAuthProfile).not.toHaveBeenCalled();
+    expect(ephemeralPorts.getOAuthTokenReference).not.toHaveBeenCalled();
+  });
+
+  it('loads context-scoped OAuth tokens for explicit local target contexts', async () => {
+    const ports = makePorts({
+      target: makeResolvedTarget({
+        runtimeTargetContext: {
+          name: 'local',
+          kind: 'local',
+          runtimeScopeId: 'scope_local',
+        },
+      }),
+      oauthTokenReference: {
+        token: 'local-scoped-token',
+        serverUrl: 'http://127.0.0.1:3050',
+      },
+    });
+    const rest = vi.fn(async ({ bearerToken }: { bearerToken?: string }) => ({
+      status: 'success' as const,
+      value: { bearerToken },
+    }));
+
+    const result = await attachReusableClientSurface({
+      clientSurface: 'run',
+      version: 'run',
+      options: { context: 'local' },
+      ports,
+      rest,
+      mcp: unusedAdapter(),
+    });
+
+    expect(result.status).toBe('success');
+    expect(ports.getOAuthTokenReference).toHaveBeenCalledWith('local', 'scope_local');
+    expect(ports.loadAuthProfile).not.toHaveBeenCalled();
+    expect(rest).toHaveBeenCalledWith(expect.objectContaining({ bearerToken: 'local-scoped-token' }));
+  });
+
+  it('formats authentication recovery for local, remote context, and ephemeral URL attachments', () => {
+    expect(
+      formatClientSurfaceAuthRequiredMessage({
+        baseUrl: 'http://127.0.0.1:3050',
+        options: {},
+        target: makeResolvedTarget(),
+      }),
+    ).toBe('Authentication required. Run: 1mcp auth login --context local --token <your-token>');
+
+    expect(
+      formatClientSurfaceAuthRequiredMessage({
+        baseUrl: 'https://prod.example.com',
+        options: { context: 'prod' },
+        target: makeResolvedTarget({
+          runtimeTargetContext: {
+            name: 'prod',
+            kind: 'remote',
+            runtimeScopeId: 'scope_prod',
+          },
+        }),
+      }),
+    ).toBe(
+      'Authentication required for target context "prod". Run: 1mcp auth login --context prod --token <your-token>',
+    );
+
+    expect(
+      formatClientSurfaceAuthRequiredMessage({
+        baseUrl: 'https://adhoc.example.com',
+        options: { url: 'https://adhoc.example.com' },
+        target: makeResolvedTarget(),
+      }),
+    ).toBe(
+      'Authentication required for ephemeral URL target. Ephemeral URLs are credentialless; run: 1mcp target add <name> https://adhoc.example.com and retry with --context <name> after context-scoped credentials are available.',
+    );
+  });
+
+  it('prints remote runtime identity warnings to stderr during attachment', async () => {
+    const stderr = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+    const ports = makePorts({
+      target: makeResolvedTarget({
+        runtimeIdentityWarnings: [
+          {
+            code: 'warning_external_url_mismatch',
+            message: 'Runtime identity externalUrl differs from configured URL',
+          },
+        ],
+      }),
+    });
+
+    try {
+      await attachReusableClientSurface({
+        clientSurface: 'inspect',
+        version: 'inspect',
+        options: {},
+        ports,
+        rest: vi.fn(async () => ({ status: 'success' as const, value: 'ok' })),
+        mcp: unusedAdapter(),
+      });
+      expect(stderr).toHaveBeenCalledWith(
+        'warning_external_url_mismatch: Runtime identity externalUrl differs from configured URL\n',
+      );
+    } finally {
+      stderr.mockRestore();
+    }
   });
 });
 

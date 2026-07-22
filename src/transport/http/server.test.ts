@@ -1,3 +1,8 @@
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+
+import ConfigContext from '@src/config/configContext.js';
 import { ServerManager } from '@src/core/server/serverManager.js';
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -15,6 +20,7 @@ vi.mock('express', () => {
 
   const mockApp = () => ({
     use: vi.fn(),
+    get: vi.fn(),
     listen: vi.fn((port, host, callback) => {
       if (callback) callback();
     }),
@@ -22,6 +28,7 @@ vi.mock('express', () => {
 
   const mockExpress = Object.assign(vi.fn(mockApp), {
     Router: vi.fn(mockRouter),
+    static: vi.fn(() => 'static-middleware'),
   });
 
   return {
@@ -82,6 +89,7 @@ vi.mock('./routes/sseRoutes.js', () => ({
 
 vi.mock('./routes/oauthRoutes.js', () => ({
   default: vi.fn(() => 'oauth-routes'),
+  createBackendOAuthDashboardProvider: vi.fn(() => vi.fn(() => ({ status: 'ready', services: [] }))),
 }));
 
 vi.mock('./routes/healthRoutes.js', () => ({
@@ -94,6 +102,23 @@ vi.mock('@src/auth/sdkOAuthServerProvider.js', () => ({
       shutdown: vi.fn(),
     };
   }),
+}));
+
+vi.mock('@src/domains/admin/runtimeScopeAdminLock.js', () => ({
+  tryAcquireRuntimeScopeAdminLock: vi.fn(() => ({ available: true, release: vi.fn() })),
+}));
+
+vi.mock('@src/domains/admin/adminDomain.js', () => ({
+  createAdminDomain: vi.fn(() => ({
+    adminService: {
+      bootstrapFirstAdminFromEnvironment: vi.fn(),
+      revokeAllSessions: vi.fn(),
+      hasAdminAccount: vi.fn(() => true),
+    },
+    configuredServerService: {
+      getRecentAuditFacts: vi.fn(() => []),
+    },
+  })),
 }));
 
 vi.mock('@src/core/server/agentConfig.js', () => ({
@@ -112,6 +137,7 @@ describe('ExpressServer', () => {
   let mockServerManager: ServerManager;
   let mockConfigManager: any;
   let expressServer: ExpressServer;
+  let tempDir: string;
 
   type TestHeaders = Record<string, string | string[] | undefined>;
   type MiddlewareResult = {
@@ -167,11 +193,13 @@ describe('ExpressServer', () => {
 
   beforeEach(async () => {
     vi.clearAllMocks();
+    tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'express-server-test-'));
 
     // Mock Express app
     mockApp = {
       use: vi.fn(),
       set: vi.fn(),
+      get: vi.fn(),
       post: vi.fn(),
       listen: vi.fn((port, host, callback) => {
         if (callback) callback();
@@ -231,6 +259,10 @@ describe('ExpressServer', () => {
   });
 
   afterEach(() => {
+    ConfigContext.getInstance().reset();
+    if (tempDir) {
+      fs.rmSync(tempDir, { recursive: true, force: true });
+    }
     vi.resetAllMocks();
   });
 
@@ -247,6 +279,117 @@ describe('ExpressServer', () => {
       // Verify middleware setup
       expect(mockApp.use).toHaveBeenCalled();
       expect(mockApp.use.mock.calls.length).toBeGreaterThan(3);
+    });
+
+    it('should mount the runtime identity endpoint outside admin and api routes', async () => {
+      expressServer = new ExpressServer(mockServerManager);
+
+      expect(mockApp.use).toHaveBeenCalledWith('/.well-known/1mcp', expect.any(Object));
+    });
+
+    it('should mount admin routes by default when admin surfaces are not explicitly disabled', async () => {
+      expressServer = new ExpressServer(mockServerManager);
+
+      expect(mockApp.use).toHaveBeenCalledWith('/admin', expect.any(Object));
+      expect(mockApp.get.mock.calls.some(([path]: any[]) => path === '/')).toBe(true);
+    });
+
+    it('should not mount admin routes when admin surfaces are explicitly disabled', async () => {
+      mockConfigManager.get.mockImplementation((key: string) => {
+        if (key === 'trustProxy') return 'loopback';
+        if (key === 'admin') return { enabled: false };
+        if (key === 'auth') return { sessionStoragePath: '/tmp/sessions' };
+        if (key === 'features') return { enhancedSecurity: false, auth: false };
+        if (key === 'externalUrl') return 'http://localhost:3050';
+        if (key === 'host') return 'localhost';
+        if (key === 'port') return 3050;
+        if (key === 'rateLimit') return { windowMs: 900000, max: 100 };
+        if (key === 'sessionPersistence') return { backgroundFlushSeconds: 30 };
+        return undefined;
+      });
+
+      expressServer = new ExpressServer(mockServerManager);
+
+      expect(mockApp.use.mock.calls.some(([path]: any[]) => path === '/admin')).toBe(false);
+      expect(mockApp.get.mock.calls.some(([path]: any[]) => path === '/')).toBe(false);
+    });
+
+    it('should mount admin routes when admin surfaces are enabled', async () => {
+      mockConfigManager.get.mockImplementation((key: string) => {
+        if (key === 'trustProxy') return 'loopback';
+        if (key === 'admin') return { enabled: true };
+        if (key === 'auth') return { sessionStoragePath: '/tmp/sessions' };
+        if (key === 'features') return { enhancedSecurity: false, auth: false };
+        if (key === 'externalUrl') return 'http://localhost:3050';
+        if (key === 'host') return 'localhost';
+        if (key === 'port') return 3050;
+        if (key === 'rateLimit') return { windowMs: 900000, max: 100 };
+        if (key === 'sessionPersistence') return { backgroundFlushSeconds: 30 };
+        return undefined;
+      });
+
+      expressServer = new ExpressServer(mockServerManager);
+
+      expect(mockApp.use).toHaveBeenCalledWith('/admin', expect.any(Object));
+    });
+
+    it('captures one explicit config path for admin domain read and mutation adapters', async () => {
+      const initialConfigPath = path.join(tempDir, 'initial.json');
+      const changedConfigPath = path.join(tempDir, 'changed.json');
+      fs.writeFileSync(
+        initialConfigPath,
+        JSON.stringify({ mcpServers: { initial: { type: 'stdio', command: 'npx' } } }),
+      );
+      fs.writeFileSync(
+        changedConfigPath,
+        JSON.stringify({ mcpServers: { changed: { type: 'stdio', command: 'node' } } }),
+      );
+      ConfigContext.getInstance().setConfigPath(initialConfigPath);
+
+      expressServer = new ExpressServer(mockServerManager);
+
+      const { createAdminDomain } = await import('@src/domains/admin/adminDomain.js');
+      const options = vi.mocked(createAdminDomain).mock.calls[0][0];
+      ConfigContext.getInstance().setConfigPath(changedConfigPath);
+
+      expect(options.readConfigDocument()).toEqual({
+        mcpServers: {
+          initial: { type: 'stdio', command: 'npx' },
+        },
+      });
+      expect(options.checkConnectivity).toEqual(expect.any(Function));
+      await expect(
+        options.configChangeService.previewConfiguredServerTargetEnabledState({
+          targetName: 'initial',
+          enabled: false,
+          backup: 'skip',
+        }),
+      ).resolves.toMatchObject({
+        target: { name: 'initial' },
+      });
+    });
+
+    it('should redirect the server root to admin when admin surfaces are enabled', async () => {
+      mockConfigManager.get.mockImplementation((key: string) => {
+        if (key === 'trustProxy') return 'loopback';
+        if (key === 'admin') return { enabled: true };
+        if (key === 'auth') return { sessionStoragePath: '/tmp/sessions' };
+        if (key === 'features') return { enhancedSecurity: false, auth: false };
+        if (key === 'externalUrl') return 'http://localhost:3050';
+        if (key === 'host') return 'localhost';
+        if (key === 'port') return 3050;
+        if (key === 'rateLimit') return { windowMs: 900000, max: 100 };
+        if (key === 'sessionPersistence') return { backgroundFlushSeconds: 30 };
+        return undefined;
+      });
+
+      expressServer = new ExpressServer(mockServerManager);
+
+      const rootHandler = mockApp.get.mock.calls.find(([path]: any[]) => path === '/')?.[1];
+      const redirect = vi.fn();
+      rootHandler({}, { redirect });
+
+      expect(redirect).toHaveBeenCalledWith(302, '/admin');
     });
 
     it('should handle enhanced security when enabled', async () => {

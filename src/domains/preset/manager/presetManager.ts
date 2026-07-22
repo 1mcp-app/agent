@@ -99,6 +99,10 @@ export class PresetManager {
     await this.loadPresets(true);
   }
 
+  public async reloadFromStorage(): Promise<void> {
+    await this.loadPresets(true);
+  }
+
   /**
    * Load presets from storage file
    */

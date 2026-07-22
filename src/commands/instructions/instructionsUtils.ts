@@ -67,7 +67,7 @@ export function formatInstructionsOutput(output: InstructionsOutput): string {
       '4. Run `1mcp inspect <server>/<tool>` to inspect the tool schema and arguments.',
       "5. Run `1mcp run <server>/<tool> --args '<json>'` only after inspecting the tool.",
       '6. Use `--preset`, `--tags`, or `--tag-filter` to narrow the server set when needed.',
-      '7. If authentication is required, run `1mcp auth login --url <server-url> --token <token>` and retry.',
+      '7. If authentication is required, run `1mcp auth login --context <name> --token <token>` and retry.',
     ].join('\n'),
   ];
 

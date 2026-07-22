@@ -8,6 +8,7 @@ import { formatInstructionsOutput } from './instructionsUtils.js';
 
 export interface InstructionsCommandOptions extends GlobalOptions {
   url?: string;
+  context?: string;
   preset?: string;
   filter?: string;
   tags?: string[];

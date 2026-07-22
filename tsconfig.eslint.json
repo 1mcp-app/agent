@@ -7,9 +7,12 @@
     "src/**/*",
     "test/**/*",
     "vitest.config.ts",
+    "vitest.admin.config.ts",
     "vitest.e2e.config.ts",
     "*.js",
     "*.ts",
+    "web/admin/**/*.ts",
+    "web/admin/**/*.tsx",
     "docs/.vitepress/**/*.ts"
   ]
 }

@@ -25,7 +25,7 @@ pnpm lint && pnpm typecheck && pnpm build && pnpm test:unit
 # Testing
 pnpm test:unit                              # Run all unit tests
 pnpm test:unit src/config/mcpConfigManager.test.ts  # Run single test file
-pnpm test:unit --grep "ServerManager"       # Run tests matching pattern
+pnpm test:unit -t "ServerManager"           # Run tests matching name pattern (-t = --testNamePattern)
 pnpm test:unit:watch                        # Watch mode
 pnpm test:unit:coverage                     # With coverage
 pnpm test:e2e                               # E2E tests (sequential, with fixtures)
@@ -59,14 +59,18 @@ src/
 ├── core/               # Business logic
 │   ├── server/         # ServerManager - lifecycle management
 │   ├── capabilities/   # Tool/resource aggregation
-│   ├── loading/        # AsyncLoadingOrchestrator
+│   ├── loading/        # mcpLoadingManager, parallelExecutor, state tracking
 │   └── filtering/      # Request filtering
 ├── config/             # McpConfigManager with hot-reload
 ├── auth/               # OAuth 2.1 with scope-based authorization
 ├── domains/            # Self-contained business domains
-│   ├── preset/         # Preset management
-│   ├── backup/         # Backup management
-│   └── discovery/      # App discovery
+│   ├── preset/             # Preset management
+│   ├── backup/             # Backup management
+│   ├── discovery/          # App discovery
+│   ├── installation/       # App installation
+│   ├── registry/           # Server registry
+│   ├── server-management/  # Server management
+│   └── config-change/      # Config mutation/reload observation
 ├── application/        # Cross-cutting services (health, config reload)
 └── logger/             # Winston-based conditional logging
 ```
@@ -79,14 +83,14 @@ src/
 
 ### Key Files
 
-| Purpose           | Location                                       |
-| ----------------- | ---------------------------------------------- |
-| Entry Point       | `src/index.ts`                                 |
-| Server Lifecycle  | `src/core/server/ServerManager.ts`             |
-| Config Management | `src/config/mcpConfigManager.ts`               |
-| Transport Factory | `src/transport/transportFactory.ts`            |
-| Async Loading     | `src/core/loading/AsyncLoadingOrchestrator.ts` |
-| Mock Factories    | `test/unit-utils/MockFactories.ts`             |
+| Purpose           | Location                                            |
+| ----------------- | --------------------------------------------------- |
+| Entry Point       | `src/index.ts`                                      |
+| Server Lifecycle  | `src/core/server/ServerManager.ts`                  |
+| Config Management | `src/config/mcpConfigManager.ts`                    |
+| Transport Factory | `src/transport/transportFactory.ts`                 |
+| Async Loading     | `src/core/capabilities/asyncLoadingOrchestrator.ts` |
+| Mock Factories    | `test/unit-utils/MockFactories.ts`                  |
 
 ## Development Conventions
 

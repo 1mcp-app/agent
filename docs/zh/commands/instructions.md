@@ -78,7 +78,7 @@ npx -y @1mcp/agent run <server>/<tool> --args '<json>'
 如果需要身份验证，playbook 会提示用户或 agent 使用以下命令重试：
 
 ```bash
-1mcp auth login --url <server-url> --token <token>
+1mcp auth login --context <name> --token <token>
 ```
 
 ## 另请参阅

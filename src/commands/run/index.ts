@@ -19,6 +19,10 @@ export function setupRunCommand(yargs: Argv): Argv {
           describe: 'Override auto-detected 1MCP server URL',
           type: 'string',
         })
+        .option('context', {
+          describe: 'Use a named Runtime Target Context',
+          type: 'string',
+        })
         .option('preset', {
           alias: 'p',
           describe: 'Use a preset when calling the running 1MCP server',

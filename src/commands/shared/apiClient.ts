@@ -18,6 +18,11 @@ export interface ApiResponse<T> {
   sessionId?: string;
 }
 
+export interface ApiRequestOptions {
+  headers?: Record<string, string>;
+  timeout?: number;
+}
+
 export class ApiClient {
   private readonly baseUrl: string;
   private readonly bearerToken?: string;
@@ -48,18 +53,25 @@ export class ApiClient {
     return this.request<T>(url.toString(), 'GET');
   }
 
-  async post<T>(path: string, body: unknown): Promise<ApiResponse<T>> {
+  async post<T>(path: string, body: unknown, options: ApiRequestOptions = {}): Promise<ApiResponse<T>> {
     const url = `${this.baseUrl}${path}`;
-    return this.request<T>(url, 'POST', body);
+    return this.request<T>(url, 'POST', body, options);
   }
 
-  private async request<T>(url: string, method: string, body?: unknown): Promise<ApiResponse<T>> {
+  private async request<T>(
+    url: string,
+    method: string,
+    body?: unknown,
+    options: ApiRequestOptions = {},
+  ): Promise<ApiResponse<T>> {
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), this.timeout);
+    const timeout = options.timeout ?? this.timeout;
+    const timer = setTimeout(() => controller.abort(), timeout);
 
     const headers: Record<string, string> = {
       'User-Agent': `1MCP/${MCP_SERVER_VERSION}`,
       Accept: 'application/json',
+      ...options.headers,
     };
 
     if (this.bearerToken) {
@@ -92,16 +104,19 @@ export class ApiClient {
       if (contentType.includes('application/json')) {
         try {
           const json = (await response.json()) as unknown;
+          data = json as T;
           if (response.ok) {
-            data = json as T;
+            error = undefined;
           } else {
             const errObj = json as Record<string, unknown>;
             error =
               typeof errObj.error === 'string'
                 ? errObj.error
-                : typeof errObj.message === 'string'
-                  ? errObj.message
-                  : `HTTP ${response.status}`;
+                : isErrorObject(errObj.error) && typeof errObj.error.message === 'string'
+                  ? errObj.error.message
+                  : typeof errObj.message === 'string'
+                    ? errObj.message
+                    : `HTTP ${response.status}`;
           }
         } catch {
           error = `HTTP ${response.status}: invalid JSON response`;
@@ -114,9 +129,13 @@ export class ApiClient {
     } catch (err) {
       clearTimeout(timer);
       if (err instanceof Error && err.name === 'AbortError') {
-        return { ok: false, status: 0, error: `Request timed out after ${this.timeout}ms` };
+        return { ok: false, status: 0, error: `Request timed out after ${timeout}ms` };
       }
       return { ok: false, status: 0, error: err instanceof Error ? err.message : String(err) };
     }
   }
+}
+
+function isErrorObject(value: unknown): value is { message?: unknown } {
+  return typeof value === 'object' && value !== null;
 }

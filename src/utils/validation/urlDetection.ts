@@ -1,5 +1,9 @@
 import { getConfigDir } from '@src/constants.js';
 import { discoverScopedRuntime } from '@src/core/server/runtimeLifecycle.js';
+import {
+  fetchRuntimeTargetUrl,
+  type RuntimeTargetTlsOptions,
+} from '@src/domains/runtime-targets/runtimeIdentityVerification.js';
 import { debugIf } from '@src/logger/logger.js';
 import { createSafeErrorMessage } from '@src/logger/secureLogger.js';
 import { normalizedArgv } from '@src/utils/cli/normalizedArgv.js';
@@ -44,9 +48,10 @@ export async function detectRunningServerUrl(): Promise<string | null> {
   for (const port of commonPorts) {
     try {
       const response = await fetch(`http://localhost:${port}/oauth/`, {
+        redirect: 'manual',
         signal: AbortSignal.timeout(2000),
       });
-      if (response.ok) {
+      if (isReachableOAuthProbeResponse(response)) {
         return `http://localhost:${port}/mcp`;
       }
     } catch (error) {
@@ -129,6 +134,7 @@ export async function detectServer1mcpUrl(): Promise<string> {
 export async function discoverServerWithPidFile(
   configDir?: string,
   userUrl?: string,
+  options: { failOnOwnedRuntimeUnavailable?: boolean } = {},
 ): Promise<{ url: string; source: 'user' | 'pidfile' | 'portscan'; pid?: number }> {
   // 1. User override (highest priority)
   if (userUrl) {
@@ -145,6 +151,19 @@ export async function discoverServerWithPidFile(
     return { url: runtime.info.url, source: 'pidfile', pid: runtime.info.pid };
   }
 
+  if (options.failOnOwnedRuntimeUnavailable && runtime.status === 'unreachable' && runtime.info) {
+    throw new LocalRuntimeAttachmentError(
+      'local_runtime_unreachable',
+      `Runtime Scope process ${runtime.info.pid} is alive but its 1MCP endpoint is unreachable`,
+    );
+  }
+  if (options.failOnOwnedRuntimeUnavailable && runtime.status === 'error') {
+    throw new LocalRuntimeAttachmentError(
+      'local_runtime_discovery_failed',
+      runtime.error ?? 'Runtime Scope ownership could not be inspected safely',
+    );
+  }
+
   // 3. Fallback to port scanning
   const portScanUrl = await detectRunningServerUrl();
   if (portScanUrl) {
@@ -152,13 +171,32 @@ export async function discoverServerWithPidFile(
   }
 
   // 4. No server found
-  throw new Error(
+  throw new LocalRuntimeUnavailableError(
     'No running 1MCP server found.\n\n' +
       'Start a server first:\n' +
       '  1mcp serve\n\n' +
       'Or specify URL manually:\n' +
       '  1mcp proxy --url http://localhost:3050/mcp',
   );
+}
+
+export class LocalRuntimeUnavailableError extends Error {
+  readonly code = 'local_runtime_unavailable';
+
+  constructor(message: string) {
+    super(message);
+    this.name = 'LocalRuntimeUnavailableError';
+  }
+}
+
+export class LocalRuntimeAttachmentError extends Error {
+  constructor(
+    readonly code: 'local_runtime_unreachable' | 'local_runtime_discovery_failed',
+    message: string,
+  ) {
+    super(message);
+    this.name = 'LocalRuntimeAttachmentError';
+  }
 }
 
 /**
@@ -176,7 +214,10 @@ export async function getServer1mcpUrl(userOverrideUrl?: string): Promise<string
 /**
  * Validate that a URL is accessible and appears to be a 1mcp server
  */
-export async function validateServer1mcpUrl(url: string): Promise<{
+export async function validateServer1mcpUrl(
+  url: string,
+  tls?: RuntimeTargetTlsOptions,
+): Promise<{
   valid: boolean;
   error?: string;
 }> {
@@ -186,11 +227,13 @@ export async function validateServer1mcpUrl(url: string): Promise<{
     const baseUrl = url.replace(/\/mcp\/?$/, '');
 
     // Test basic connectivity to OAuth endpoint (which always exists)
-    const oauthResponse = await fetch(`${baseUrl}/oauth/`, {
+    const oauthResponse = await fetchRuntimeTargetUrl(`${baseUrl}/oauth/`, {
+      redirect: 'manual',
       signal: AbortSignal.timeout(5000),
+      tls,
     });
 
-    if (!oauthResponse.ok) {
+    if (!isReachableOAuthProbeResponse(oauthResponse)) {
       return {
         valid: false,
         error: createSafeErrorMessage(`1mcp server not responding (HTTP ${oauthResponse.status})`),
@@ -209,4 +252,16 @@ export async function validateServer1mcpUrl(url: string): Promise<{
       ),
     };
   }
+}
+
+function isReachableOAuthProbeResponse(response: {
+  ok: boolean;
+  status: number;
+  headers?: { get: (name: string) => string | null };
+}): boolean {
+  if (response.ok) {
+    return true;
+  }
+
+  return response.status >= 300 && response.status < 400 && Boolean(response.headers?.get('location'));
 }

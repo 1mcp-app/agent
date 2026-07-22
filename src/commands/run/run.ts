@@ -18,6 +18,7 @@ import {
   attachReusableClientSurface,
   type ClientSurfaceAttachmentContext,
   type ClientSurfaceRestResponse,
+  formatClientSurfaceAuthRequiredMessage,
 } from '@src/commands/shared/clientSurfaceAttachment.js';
 import {
   type JsonRpcErrorEnvelope,
@@ -31,6 +32,7 @@ import type { ContextData } from '@src/types/context.js';
 
 export interface RunCommandOptions extends GlobalOptions {
   url?: string;
+  context?: string;
   preset?: string;
   filter?: string;
   tags?: string[];
@@ -203,7 +205,7 @@ async function tryRunRest(
   if (apiResponse.status === 401 || apiResponse.status === 403) {
     return {
       status: 'auth_required',
-      message: `Authentication required. Run: 1mcp auth login --url ${context.baseUrl} --token <your-token>`,
+      message: formatClientSurfaceAuthRequiredMessage(context),
     };
   }
 

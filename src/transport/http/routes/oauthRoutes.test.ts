@@ -1,6 +1,8 @@
 import { LoadingState } from '@src/core/loading/loadingStateTracker.js';
 import { ClientStatus } from '@src/core/types/index.js';
 
+import express from 'express';
+import request from 'supertest';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 // Mock all dependencies
@@ -169,23 +171,53 @@ describe('OAuth Routes', () => {
   });
 
   describe('Dashboard Rendering', () => {
-    it('should handle empty services list', async () => {
+    it('redirects the legacy OAuth dashboard entry point to the admin console', async () => {
+      mockOAuthProvider.oauthFlow.getBackendOAuthDashboard.mockReturnValue({
+        status: 'ready',
+        services: [],
+      });
+      const app = express();
+      app.use('/oauth', createOAuthRoutes(mockOAuthProvider));
+
+      const response = await request(app).get('/oauth');
+
+      expect(response.status).toBe(302);
+      expect(response.headers.location).toBe('/admin');
+      expect(mockOAuthProvider.oauthFlow.getBackendOAuthDashboard).not.toHaveBeenCalled();
+    });
+
+    it('preserves OAuth protocol flow routes under the dashboard redirect', async () => {
+      mockOAuthProvider.oauthFlow.startBackendOAuth.mockResolvedValue({
+        status: 'redirect',
+        redirectUrl: 'https://example.com/auth',
+      });
+      const app = express();
+      app.use('/oauth', createOAuthRoutes(mockOAuthProvider));
+
+      const response = await request(app).get('/oauth/authorize/github');
+
+      expect(response.status).toBe(302);
+      expect(response.headers.location).toBe('https://example.com/auth');
+      expect(mockOAuthProvider.oauthFlow.startBackendOAuth).toHaveBeenCalledWith({ serverName: 'github' });
+    });
+
+    it('should handle empty services list through the admin status provider', async () => {
       mockOAuthProvider.oauthFlow.getBackendOAuthDashboard.mockReturnValue({
         status: 'ready',
         services: [],
       });
 
-      const router = createOAuthRoutes(mockOAuthProvider);
-      const dashboardRoute = router.stack.find((layer: any) => layer.route?.path === '/' && layer.route?.methods?.get);
+      const { createBackendOAuthDashboardProvider } = await import('./oauthRoutes.js');
+      const getDashboard = createBackendOAuthDashboardProvider(mockOAuthProvider);
 
-      await dashboardRoute?.route?.stack[0].handle(mockRequest, mockResponse);
-
-      expect(mockResponse.setHeader).toHaveBeenCalledWith('Content-Type', 'text/html');
-      expect(mockResponse.send).toHaveBeenCalled();
+      expect(getDashboard()).toEqual({
+        status: 'ready',
+        services: [],
+      });
       expect(mockOAuthProvider.oauthFlow.getBackendOAuthDashboard).toHaveBeenCalledWith();
     });
 
-    it('should handle services with different statuses', async () => {
+    it('should handle services with different statuses through the admin status provider', async () => {
       mockOAuthProvider.oauthFlow.getBackendOAuthDashboard.mockReturnValue({
         status: 'ready',
         services: [
@@ -204,15 +236,13 @@ describe('OAuth Routes', () => {
         ],
       });
 
-      const router = createOAuthRoutes(mockOAuthProvider);
-      const dashboardRoute = router.stack.find((layer: any) => layer.route?.path === '/' && layer.route?.methods?.get);
+      const { createBackendOAuthDashboardProvider } = await import('./oauthRoutes.js');
+      const dashboard = getReadyDashboard(createBackendOAuthDashboardProvider(mockOAuthProvider)());
 
-      await dashboardRoute?.route?.stack[0].handle(mockRequest, mockResponse);
-
-      expect(mockResponse.send).toHaveBeenCalled();
-      const htmlContent = mockResponse.send.mock.calls[0][0];
-      expect(htmlContent).toContain('connected-service');
-      expect(htmlContent).toContain('awaiting-service');
+      expect(dashboard.services.map((service: { name: string }) => service.name)).toEqual([
+        'connected-service',
+        'awaiting-service',
+      ]);
     });
 
     it('should not inline executable server names in OAuth restart buttons', async () => {
@@ -228,15 +258,10 @@ describe('OAuth Routes', () => {
         ],
       });
 
-      const router = createOAuthRoutes(mockOAuthProvider);
-      const dashboardRoute = router.stack.find((layer: any) => layer.route?.path === '/' && layer.route?.methods?.get);
+      const { createBackendOAuthDashboardProvider } = await import('./oauthRoutes.js');
+      const dashboard = getReadyDashboard(createBackendOAuthDashboardProvider(mockOAuthProvider)());
 
-      await dashboardRoute?.route?.stack[0].handle(mockRequest, mockResponse);
-
-      const htmlContent = mockResponse.send.mock.calls[0][0];
-      expect(htmlContent).toContain('onclick="restartOAuth(this.dataset.serverName)"');
-      expect(htmlContent).toContain(`data-server-name="${maliciousName}"`);
-      expect(htmlContent).not.toContain(`restartOAuth('${maliciousName}')`);
+      expect(dashboard.services[0].name).toBe(maliciousName);
     });
 
     it('should map unavailable dashboard runtime to an error response', async () => {
@@ -245,13 +270,13 @@ describe('OAuth Routes', () => {
         errorDescription: 'Backend OAuth runtime is unavailable',
       });
 
-      const router = createOAuthRoutes(mockOAuthProvider);
-      const dashboardRoute = router.stack.find((layer: any) => layer.route?.path === '/' && layer.route?.methods?.get);
+      const { createBackendOAuthDashboardProvider } = await import('./oauthRoutes.js');
+      const dashboard = createBackendOAuthDashboardProvider(mockOAuthProvider)();
 
-      await dashboardRoute?.route?.stack[0].handle(mockRequest, mockResponse);
-
-      expect(mockResponse.status).toHaveBeenCalledWith(500);
-      expect(mockResponse.json).toHaveBeenCalledWith({ error: 'Backend OAuth runtime is unavailable' });
+      expect(dashboard).toEqual({
+        status: 'runtime_unavailable',
+        errorDescription: 'Backend OAuth runtime is unavailable',
+      });
     });
   });
 
@@ -512,3 +537,8 @@ describe('OAuth Routes', () => {
     });
   });
 });
+
+function getReadyDashboard(result: any) {
+  expect(result.status).toBe('ready');
+  return result;
+}

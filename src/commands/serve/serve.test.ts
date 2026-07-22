@@ -170,6 +170,9 @@ describe('serveCommand - config-dir session isolation', () => {
     // Verify that sessionStoragePath was set to config-dir/sessions
     expect(updateConfigSpy).toHaveBeenCalledWith(
       expect.objectContaining({
+        admin: expect.objectContaining({
+          enabled: true,
+        }),
         auth: expect.objectContaining({
           sessionStoragePath: path.join('.tmp-test', 'sessions'),
         }),

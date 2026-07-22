@@ -240,6 +240,8 @@ npx -y @1mcp/agent --trust-proxy 10.0.0.0/8
 
 有关详细的信任代理配置，请参阅 **[信任代理参考](/zh/reference/trust-proxy)**。
 
+如果需要推荐的 Caddy 公开 HTTPS、Admin Console 和本地 CLI Runtime Target 路径，请参阅 **[使用 Caddy 进行云端部署](/zh/guide/advanced/cloud-deployment)**。
+
 ### 服务器过滤
 
 控制运行时暴露哪些后端 MCP 服务器。
@@ -715,5 +717,6 @@ npx -y @1mcp/agent \
 - **[MCP 服务器参考](/zh/reference/mcp-servers)** - 后端服务器配置
 - **[Serve 命令参考](/zh/commands/serve)** - 命令行使用示例
 - **[信任代理指南](/zh/reference/trust-proxy)** - 反向代理配置
+- **[使用 Caddy 进行云端部署](/zh/guide/advanced/cloud-deployment)** - 公开 HTTPS 部署路径
 - **[健康检查参考](/zh/reference/health-check)** - 监控和健康端点
 - **[安全指南](/zh/reference/security)** - 安全最佳实践

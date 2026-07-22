@@ -377,7 +377,11 @@ export async function serveCommand(parsedArgv: ServeOptions): Promise<void> {
       host: effectiveHost,
       port: effectivePort,
       externalUrl: parsedArgv['external-url'],
+      runtimeScopeStoragePath: runtimeScope,
       trustProxy,
+      admin: {
+        enabled: appConfig.admin?.enabled ?? true,
+      },
       auth: {
         enabled: authEnabled,
         sessionTtlMinutes,

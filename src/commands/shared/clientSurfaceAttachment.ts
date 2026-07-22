@@ -14,6 +14,8 @@ import {
   resolveServeTarget,
 } from '@src/commands/shared/serveTargetResolver.js';
 import type { ProjectConfig } from '@src/config/projectConfigTypes.js';
+import type { RuntimeIdentityWarning } from '@src/domains/runtime-targets/runtimeIdentityVerification.js';
+import { RuntimeTargetStore } from '@src/domains/runtime-targets/runtimeTargetStore.js';
 import type { ContextData } from '@src/types/context.js';
 import { resolveCanonicalSessionId, withCanonicalSessionId } from '@src/utils/context/sessionIdentity.js';
 import { stripMcpSuffix } from '@src/utils/urlUtils.js';
@@ -33,11 +35,18 @@ export interface ResolvedAttachmentTarget<
   serverUrl: URL;
   serverPid?: number;
   source: 'user' | 'pidfile' | 'portscan';
+  runtimeTargetContext?: {
+    name: string;
+    kind: 'local' | 'remote';
+    runtimeScopeId?: string;
+  };
+  runtimeIdentityWarnings?: RuntimeIdentityWarning[];
 }
 
 export interface ClientSurfaceAttachmentPorts<TOptions extends ResolvableServeTargetOptions> {
   resolveTarget: (options: TOptions) => Promise<ResolvedAttachmentTarget<TOptions>>;
   loadAuthProfile: (configDir: string | undefined, normalizedBaseUrl: string) => Promise<AuthProfile | null>;
+  getOAuthTokenReference: (contextName: string, runtimeScopeId: string) => Promise<unknown | undefined>;
   readSessionCache: (cachePath: string, serverUrl: string, contextHash: string) => Promise<CliSessionCache | null>;
   writeSessionCache: (cachePath: string, cache: CliSessionCache) => Promise<void>;
   deleteSessionCache: (cachePath: string) => Promise<void>;
@@ -59,6 +68,14 @@ export interface ClientSurfaceAttachmentContext<
   requestSessionId: string;
   sessionId: string;
   restSupport?: boolean;
+}
+
+export interface ClientSurfaceAuthRequiredContext<
+  TOptions extends ResolvableServeTargetOptions = ResolvableServeTargetOptions,
+> {
+  baseUrl: string;
+  options: TOptions;
+  target: Pick<ResolvedAttachmentTarget<TOptions>, 'runtimeTargetContext'>;
 }
 
 export interface FreshClientSurfaceAttachmentResult<TOptions extends ResolvableServeTargetOptions> {
@@ -172,6 +189,7 @@ export async function attachFreshClientSurface<TOptions extends ResolvableServeT
 ): Promise<FreshClientSurfaceAttachmentResult<TOptions>> {
   const ports = withDefaultPorts(input.ports);
   const target = await ports.resolveTarget(input.options);
+  writeRuntimeTargetWarnings(target.runtimeIdentityWarnings);
   const options = target.mergedOptions as TOptions;
   const freshSessionId = generateStreamableSessionId();
   const baseContext = buildCliContext({
@@ -184,7 +202,7 @@ export async function attachFreshClientSurface<TOptions extends ResolvableServeT
   });
   const contextHash = getCliSessionContextHash(baseContext);
   const baseUrl = stripMcpSuffix(target.discoveredUrl);
-  const authProfile = await ports.loadAuthProfile(options['config-dir'], normalizeServerUrl(baseUrl));
+  const bearerToken = await loadBearerToken(ports, target, options, baseUrl);
   const requestSessionId = resolveCanonicalSessionId({ context: baseContext, transportSessionId: freshSessionId });
   const context = withCanonicalSessionId(baseContext, requestSessionId);
 
@@ -193,7 +211,7 @@ export async function attachFreshClientSurface<TOptions extends ResolvableServeT
     options,
     baseUrl,
     serverUrl: target.serverUrl,
-    bearerToken: authProfile?.token,
+    bearerToken,
     context,
     contextHash,
     requestSessionId,
@@ -206,6 +224,7 @@ export async function attachReusableClientSurface<TOptions extends ResolvableSer
 ): Promise<ReusableClientSurfaceAttachmentResult<TOptions, TValue>> {
   const ports = withDefaultPorts(input.ports);
   const target = await ports.resolveTarget(input.options);
+  writeRuntimeTargetWarnings(target.runtimeIdentityWarnings);
   const options = target.mergedOptions as TOptions;
   const baseContext = buildCliContext({
     cwd: target.cwd,
@@ -222,8 +241,9 @@ export async function attachReusableClientSurface<TOptions extends ResolvableSer
     contextHash,
   });
   const baseUrl = stripMcpSuffix(target.discoveredUrl);
-  const [authProfile, cachedSession] = await Promise.all([
-    ports.loadAuthProfile(options['config-dir'], normalizeServerUrl(baseUrl)),
+  const bearerTokenPromise = loadBearerToken(ports, target, options, baseUrl);
+  const [bearerToken, cachedSession] = await Promise.all([
+    bearerTokenPromise,
     ports.readSessionCache(cachePath, target.serverUrl.toString(), contextHash),
   ]);
   const requestSessionId = resolveCanonicalSessionId({
@@ -238,7 +258,7 @@ export async function attachReusableClientSurface<TOptions extends ResolvableSer
     options,
     baseUrl,
     serverUrl: target.serverUrl,
-    bearerToken: authProfile?.token,
+    bearerToken,
     context,
     contextHash,
     cachePath,
@@ -271,7 +291,7 @@ export async function attachReusableClientSurface<TOptions extends ResolvableSer
         cachePath,
         target,
         baseUrl,
-        bearerToken: authProfile?.token,
+        bearerToken,
         cachedSession,
         restSupport,
         observed: restResponse.observed,
@@ -288,7 +308,7 @@ export async function attachReusableClientSurface<TOptions extends ResolvableSer
         cachePath,
         target,
         baseUrl,
-        bearerToken: authProfile?.token,
+        bearerToken,
         cachedSession,
         restSupport,
         observed: restResponse.observed,
@@ -336,7 +356,7 @@ export async function attachReusableClientSurface<TOptions extends ResolvableSer
       cachePath,
       target,
       baseUrl,
-      bearerToken: authProfile?.token,
+      bearerToken,
       cachedSession,
       restSupport,
       observed: mcpResponse.observed,
@@ -352,7 +372,7 @@ export async function attachReusableClientSurface<TOptions extends ResolvableSer
     cachePath,
     target,
     baseUrl,
-    bearerToken: authProfile?.token,
+    bearerToken,
     cachedSession,
     restSupport,
     observed: mcpResponse.observed,
@@ -366,11 +386,69 @@ function withDefaultPorts<TOptions extends ResolvableServeTargetOptions>(
     resolveTarget:
       ports?.resolveTarget ?? ((options) => resolveServeTarget(options) as Promise<ResolvedServeTarget<TOptions>>),
     loadAuthProfile: ports?.loadAuthProfile ?? loadAuthProfile,
+    getOAuthTokenReference:
+      ports?.getOAuthTokenReference ??
+      ((contextName, runtimeScopeId) =>
+        Promise.resolve(new RuntimeTargetStore().getOAuthTokenReference(contextName, runtimeScopeId))),
     readSessionCache: ports?.readSessionCache ?? readCliSessionCache,
     writeSessionCache: ports?.writeSessionCache ?? writeCliSessionCache,
     deleteSessionCache: ports?.deleteSessionCache ?? deleteCliSessionCache,
     now: ports?.now ?? Date.now,
   };
+}
+
+async function loadBearerToken<TOptions extends ResolvableServeTargetOptions>(
+  ports: ClientSurfaceAttachmentPorts<TOptions>,
+  target: ResolvedAttachmentTarget<TOptions>,
+  options: TOptions,
+  baseUrl: string,
+): Promise<string | undefined> {
+  if (options.url) {
+    return undefined;
+  }
+
+  const runtimeTargetContext = target.runtimeTargetContext;
+  if (runtimeTargetContext) {
+    if (!runtimeTargetContext.runtimeScopeId) {
+      return undefined;
+    }
+    const reference = await ports.getOAuthTokenReference(
+      runtimeTargetContext.name,
+      runtimeTargetContext.runtimeScopeId,
+    );
+    return toOAuthTokenReference(reference)?.token;
+  }
+
+  const authProfile = await ports.loadAuthProfile(options['config-dir'], normalizeServerUrl(baseUrl));
+  return authProfile?.token;
+}
+
+export function formatClientSurfaceAuthRequiredMessage<TOptions extends ResolvableServeTargetOptions>(
+  context: ClientSurfaceAuthRequiredContext<TOptions>,
+): string {
+  if (context.target.runtimeTargetContext) {
+    return `Authentication required for target context "${context.target.runtimeTargetContext.name}". Run: 1mcp auth login --context ${context.target.runtimeTargetContext.name} --token <your-token>`;
+  }
+
+  if (context.options.url) {
+    return `Authentication required for ephemeral URL target. Ephemeral URLs are credentialless; run: 1mcp target add <name> ${context.baseUrl} and retry with --context <name> after context-scoped credentials are available.`;
+  }
+
+  return 'Authentication required. Run: 1mcp auth login --context local --token <your-token>';
+}
+
+function toOAuthTokenReference(value: unknown): { token: string } | undefined {
+  if (typeof value !== 'object' || value === null) {
+    return undefined;
+  }
+  const candidate = value as { token?: unknown };
+  return typeof candidate.token === 'string' && candidate.token.length > 0 ? { token: candidate.token } : undefined;
+}
+
+function writeRuntimeTargetWarnings(warnings: RuntimeIdentityWarning[] | undefined): void {
+  for (const warning of warnings ?? []) {
+    process.stderr.write(`${warning.code}: ${warning.message}\n`);
+  }
 }
 
 async function persistSession<TOptions extends ResolvableServeTargetOptions>(
