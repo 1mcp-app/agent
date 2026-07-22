@@ -41,6 +41,22 @@ export interface EnhancedTransport extends Transport {
   timeout?: number;
 
   tags?: string[];
+
+  /** Runtime-owned policy and factory for a supervised stdio backend. */
+  stdioSupervision?: {
+    readonly policy: {
+      readonly restartOnExit: true;
+      readonly maxRestarts?: number;
+      readonly restartDelay?: number;
+    };
+    readonly recreate: () => EnhancedTransport;
+    readonly getLastExit: () => {
+      code: number | null;
+      signal: string | null;
+      pid: number | null;
+      at: Date;
+    } | null;
+  };
 }
 
 /**
@@ -83,6 +99,9 @@ export interface GlobalTransportConfig {
   readonly headers?: Record<string, string>;
   readonly inheritParentEnv?: boolean;
   readonly envFilter?: string[];
+  readonly restartOnExit?: boolean;
+  readonly maxRestarts?: number;
+  readonly restartDelay?: number;
 }
 
 /**
@@ -248,9 +267,20 @@ export const transportConfigSchema = z.object({
     .array(z.string())
     .optional()
     .describe('List of environment variable names to include when inheritParentEnv is true'),
-  restartOnExit: z.boolean().optional().describe('Automatically restart the server if it exits'),
-  maxRestarts: z.number().min(0).optional().describe('Maximum number of restart attempts (0 = unlimited)'),
-  restartDelay: z.number().min(0).optional().describe('Delay in milliseconds before restarting'),
+  restartOnExit: z
+    .boolean()
+    .optional()
+    .describe('Enable runtime-owned automatic restart after an unexpected stdio backend exit'),
+  maxRestarts: z
+    .number()
+    .min(0)
+    .optional()
+    .describe('Maximum consecutive restart attempts (omitted = 5, 0 = unlimited; resets after 5 stable minutes)'),
+  restartDelay: z
+    .number()
+    .min(0)
+    .optional()
+    .describe('Initial restart delay in milliseconds (omitted = 1000; backoff is 1x, 2x, 4x, 8x, then 16x)'),
 
   // Template configuration
   template: templateServerConfigSchema.optional().describe('Template-based server instance management configuration'),
@@ -339,6 +369,9 @@ export const GLOBAL_TRANSPORT_CONFIG_KEYS = [
   'headers',
   'inheritParentEnv',
   'envFilter',
+  'restartOnExit',
+  'maxRestarts',
+  'restartDelay',
 ] as const;
 
 /**
@@ -354,6 +387,9 @@ export const globalTransportConfigSchema = transportConfigSchema.pick({
   headers: true,
   inheritParentEnv: true,
   envFilter: true,
+  restartOnExit: true,
+  maxRestarts: true,
+  restartDelay: true,
 });
 
 /**

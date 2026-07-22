@@ -1,7 +1,9 @@
 /**
  * Management server types
  */
+import type { BackendSupervisionSnapshot } from '@src/core/server/backendStdioSupervisor.js';
 import { MCPServerParams } from '@src/core/types/index.js';
+import type { RuntimeBackendRestartResult } from '@src/domains/admin/adminBackendRestartService.js';
 
 /**
  * Management adapter interface
@@ -57,12 +59,20 @@ export interface ServerStatusInfo {
   timestamp: string;
   servers: Array<{
     name: string;
-    status: 'enabled' | 'disabled' | 'unknown';
+    status: 'enabled' | 'disabled' | 'connected' | 'disconnected' | 'restarting' | 'crash-loop' | 'error' | 'unknown';
+    targetType?: 'static' | 'template';
+    type?: MCPServerParams['type'];
     transport?: string;
     url?: string;
     healthStatus?: string;
     lastChecked?: string;
     errors?: string[];
+    supervision?: Omit<BackendSupervisionSnapshot, 'lastError'> & { lastError: string | null };
+    instances?: Array<{
+      instanceId: string;
+      status: string;
+      supervision?: Omit<BackendSupervisionSnapshot, 'lastError'> & { lastError: string | null };
+    }>;
   }>;
   totalServers: number;
   enabledServers: number;
@@ -161,6 +171,7 @@ export interface ReloadResult {
   reloadedServers?: string[];
   warnings?: string[];
   errors?: string[];
+  outcome?: RuntimeBackendRestartResult;
 }
 
 /**

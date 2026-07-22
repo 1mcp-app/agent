@@ -11,9 +11,14 @@ import {
   saveConfig,
   setServer,
 } from '@src/commands/mcp/utils/mcpServerConfig.js';
+import { resolveServerTarget } from '@src/commands/shared/baseConfigUtils.js';
 import { ConfigManager } from '@src/config/configManager.js';
 import { McpConfigManager } from '@src/config/mcpConfigManager.js';
 import { ClientManager } from '@src/core/client/clientManager.js';
+import type { BackendSupervisionSnapshot } from '@src/core/server/backendStdioSupervisor.js';
+import type { PooledClientInstance } from '@src/core/server/clientInstancePool.js';
+import { ServerManager } from '@src/core/server/serverManager.js';
+import { formatTemplateInstanceId } from '@src/core/server/templateIdentity.js';
 import {
   McpDisableToolArgs,
   McpEnableToolArgs,
@@ -25,9 +30,10 @@ import {
   McpUpdateToolArgs,
 } from '@src/core/tools/internal/schemas/index.js';
 import { MCPServerParams } from '@src/core/types/transport.js';
+import type { RuntimeBackendRestartResult } from '@src/domains/admin/adminBackendRestartService.js';
+import { RuntimeServerManagerBackendRestartService } from '@src/domains/admin/runtimeServerManagerBackendRestartService.js';
 import { debugIf } from '@src/logger/logger.js';
 import logger from '@src/logger/logger.js';
-import { createTransports } from '@src/transport/transportFactory.js';
 
 /**
  * Simple helper to check for Handlebars template syntax in configuration
@@ -74,8 +80,10 @@ function hasHandlebarsTemplates(config: MCPServerParams): boolean {
  */
 interface EnhancedServerInfo extends Omit<MCPServerParams, 'env'> {
   name: string;
-  status: 'enabled' | 'disabled' | 'running' | 'stopped';
+  status:
+    'enabled' | 'disabled' | 'connected' | 'disconnected' | 'error' | 'awaiting_oauth' | 'restarting' | 'crash-loop';
   configured: boolean;
+  supervision?: Omit<BackendSupervisionSnapshot, 'lastError'> & { lastError: string | null };
   env?: Record<string, string>;
   capabilities?: {
     tools: string;
@@ -87,6 +95,16 @@ interface EnhancedServerInfo extends Omit<MCPServerParams, 'env'> {
     lastConnected: string | null;
     responseTime: number | null;
   };
+}
+
+interface TemplateInstanceStatus {
+  instanceId: string;
+  status: string;
+  supervision?: EnhancedServerInfo['supervision'];
+}
+
+function operationalSupervision(snapshot: BackendSupervisionSnapshot | undefined): EnhancedServerInfo['supervision'] {
+  return snapshot ? { ...snapshot, lastError: snapshot.lastError?.message ?? null } : undefined;
 }
 
 /**
@@ -333,6 +351,12 @@ export async function handleMcpList(args: McpListToolArgs) {
         configured: true,
       };
 
+      const connection = ClientManager.current?.getClients().get(name);
+      if (!server.disabled && connection) {
+        baseInfo.status = connection.status;
+        baseInfo.supervision = operationalSupervision(connection.supervision);
+      }
+
       // Handle env property - only include record format, not array format
       if (serverEnv && !Array.isArray(serverEnv)) {
         baseInfo.env = serverEnv;
@@ -344,8 +368,6 @@ export async function handleMcpList(args: McpListToolArgs) {
       // Include capabilities - get from client manager if available
       if (args.includeCapabilities) {
         try {
-          const clientManager = ClientManager.getOrCreateInstance();
-          const connection = clientManager.getClient(name);
           if (connection && connection.capabilities) {
             baseInfo.capabilities = {
               tools: connection.capabilities.tools ? 'enabled' : 'not supported',
@@ -364,10 +386,8 @@ export async function handleMcpList(args: McpListToolArgs) {
       // Include health information
       if (args.includeHealth) {
         try {
-          const clientManager = ClientManager.getOrCreateInstance();
-          const connection = clientManager.getClient(name);
           baseInfo.health = {
-            connected: !!connection,
+            connected: connection?.status === 'connected',
             lastConnected: connection?.lastConnected?.toISOString() || null,
             responseTime: null, // We don't track response time in OutboundConnection
           };
@@ -421,41 +441,89 @@ export async function handleServerStatus(args: McpStatusToolArgs) {
   // Load configuration
   const config = loadConfig();
 
+  const targets = {
+    ...Object.fromEntries(
+      Object.entries(config.mcpServers).map(([name, server]) => [name, { server, targetType: 'static' as const }]),
+    ),
+    ...Object.fromEntries(
+      Object.entries(config.mcpTemplates ?? {}).map(([name, server]) => [
+        name,
+        { server, targetType: 'template' as const },
+      ]),
+    ),
+  };
+
   if (args.name) {
-    // Get status for specific server
-    if (!(args.name in config.mcpServers)) {
+    const target = targets[args.name];
+    if (!target) {
       throw new Error(`Server '${args.name}' not found`);
     }
-
-    const server = config.mcpServers[args.name];
-
     return {
-      server: {
-        name: args.name,
-        ...server,
-        status: server.disabled ? 'disabled' : 'enabled',
-        configured: true,
-      },
+      server: buildRuntimeServerStatus(args.name, target.server, target.targetType),
     };
   } else {
-    // Get status for all servers
-    const servers = Object.entries(config.mcpServers);
-    const serversWithStatus = servers.map(([name, server]: [string, MCPServerParams]) => ({
-      name,
-      ...server,
-      status: server.disabled ? 'disabled' : 'enabled',
-      configured: true,
-    }));
+    const serversWithStatus = Object.entries(targets).map(([name, target]) =>
+      buildRuntimeServerStatus(name, target.server, target.targetType),
+    );
 
     return {
       servers: serversWithStatus,
       summary: {
-        total: servers.length,
-        enabled: servers.filter(([_, server]) => !server.disabled).length,
-        disabled: servers.filter(([_, server]) => server.disabled).length,
+        total: serversWithStatus.length,
+        enabled: serversWithStatus.filter((server) => server.status !== 'disabled').length,
+        disabled: serversWithStatus.filter((server) => server.status === 'disabled').length,
+        connected: serversWithStatus.filter((server) => server.status === 'connected').length,
+        restarting: serversWithStatus.filter((server) => server.status === 'restarting').length,
+        crashLoop: serversWithStatus.filter((server) => server.status === 'crash-loop').length,
       },
     };
   }
+}
+
+function buildRuntimeServerStatus(name: string, server: MCPServerParams, targetType: 'static' | 'template') {
+  if (targetType === 'template') {
+    const instances = ServerManager.current
+      .getTemplateServerManager()
+      .getTemplateInstances(name)
+      .filter((instance) => instance.referenceCount > 0);
+    const instanceStatuses = instances.map(templateInstanceStatus);
+    return {
+      name,
+      ...server,
+      targetType,
+      status: server.disabled ? 'disabled' : aggregateTemplateStatus(instanceStatuses),
+      instances: instanceStatuses,
+      configured: true,
+    };
+  }
+
+  const connection = ClientManager.current?.getClients().get(name);
+  return {
+    name,
+    ...server,
+    targetType,
+    status: server.disabled ? 'disabled' : (connection?.status ?? 'disconnected'),
+    supervision: operationalSupervision(connection?.supervision),
+    configured: true,
+  };
+}
+
+function templateInstanceStatus(instance: PooledClientInstance): TemplateInstanceStatus {
+  return {
+    instanceId: formatTemplateInstanceId(instance.id),
+    status: instance.supervision?.state ?? instance.status,
+    supervision: operationalSupervision(instance.supervision),
+  };
+}
+
+function aggregateTemplateStatus(instances: TemplateInstanceStatus[]): string {
+  if (instances.length === 0) return 'disconnected';
+  if (instances.some((instance) => instance.status === 'crash-loop')) return 'crash-loop';
+  if (instances.some((instance) => instance.status === 'restarting')) return 'restarting';
+  if (instances.every((instance) => instance.status === 'connected' || instance.status === 'active')) {
+    return 'connected';
+  }
+  return 'disconnected';
 }
 
 /**
@@ -516,35 +584,22 @@ export async function handleReloadOperation(args: McpReloadToolArgs) {
   // If a specific server is requested, reload it
   if (reloadTarget === 'server' && serverName) {
     logger.info(`Restarting server: ${serverName}`);
-    const clientManager = ClientManager.current;
-
     try {
-      // 1. Remove existing client
-      await clientManager.removeClient(serverName);
-
-      // 2. Re-create client from current config
-      const config = configManager.getTransportConfig();
-      const serverConfig = config[serverName];
-
-      if (!serverConfig) {
-        throw new Error(`Server ${serverName} not found in configuration`);
-      }
-
-      const transportMap = createTransports({ [serverName]: serverConfig });
-      const transport = transportMap[serverName];
-
-      if (transport) {
-        await clientManager.createSingleClient(serverName, transport);
-      } else {
-        throw new Error(`Failed to create transport for ${serverName}`);
-      }
+      const restartService = new RuntimeServerManagerBackendRestartService({
+        serverManager: ServerManager.current,
+        resolveTarget: resolveServerTarget,
+      });
+      const outcome = await restartService.restart({ targetName: serverName, selection: { mode: 'target_default' } });
+      const success = outcome.outcome === 'restarted';
 
       return {
         target: 'server',
         serverName: serverName,
-        action: 'reloaded',
+        action: success ? 'reloaded' : 'not_reloaded',
         timestamp: new Date().toISOString(),
-        success: true,
+        success,
+        outcome,
+        ...(success ? {} : { error: reloadOutcomeMessage(outcome.outcome, serverName) }),
       };
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
@@ -591,4 +646,21 @@ export async function handleReloadOperation(args: McpReloadToolArgs) {
       message: 'Configuration reloaded successfully',
     },
   };
+}
+
+function reloadOutcomeMessage(outcome: RuntimeBackendRestartResult['outcome'], serverName: string): string {
+  switch (outcome) {
+    case 'target_not_found':
+      return `Server '${serverName}' was not found`;
+    case 'instance_not_found':
+      return `Template server '${serverName}' has no matching active instance`;
+    case 'instance_ambiguous':
+      return `Template server '${serverName}' matched multiple active instances`;
+    case 'no_active_instances':
+      return `Template server '${serverName}' has no active instances`;
+    case 'no_unhealthy_instances':
+      return `Template server '${serverName}' has no unhealthy active instances`;
+    case 'restarted':
+      return `Server '${serverName}' restarted`;
+  }
 }

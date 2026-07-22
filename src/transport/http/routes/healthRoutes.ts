@@ -1,6 +1,8 @@
 import { HealthService, HealthStatus } from '@src/application/services/healthService.js';
+import { ClientManager } from '@src/core/client/clientManager.js';
 import { LoadingState } from '@src/core/loading/loadingStateTracker.js';
 import { McpLoadingManager } from '@src/core/loading/mcpLoadingManager.js';
+import type { BackendSupervisionSnapshot } from '@src/core/server/backendStdioSupervisor.js';
 import logger from '@src/logger/logger.js';
 
 import { Request, RequestHandler, Response, Router } from 'express';
@@ -12,6 +14,21 @@ import rateLimit from 'express-rate-limit';
 export function createHealthRoutes(loadingManager?: McpLoadingManager): Router {
   const router: Router = Router();
   const healthService = HealthService.getInstance();
+  const getBackendSupervision = (): Record<
+    string,
+    Omit<BackendSupervisionSnapshot, 'lastError'> & { lastError: string | null }
+  > => {
+    const connections = ClientManager.current?.getClients?.();
+    if (!connections) return {};
+    return Object.fromEntries(
+      Array.from(connections.entries())
+        .filter(([, connection]) => connection.supervision)
+        .map(([name, connection]) => {
+          const snapshot = connection.supervision!;
+          return [name, { ...snapshot, lastError: snapshot.lastError?.message ?? null }] as const;
+        }),
+    );
+  };
 
   // Rate limiter for health endpoints - more permissive than OAuth endpoints
   const createHealthLimiter = () => {
@@ -104,7 +121,11 @@ export function createHealthRoutes(loadingManager?: McpLoadingManager): Router {
       const healthData = await healthService.performHealthCheck();
 
       // Service is ready if configuration is loaded
-      const isReady = healthData.configuration.loaded;
+      const backendSupervision = getBackendSupervision();
+      const unavailableBackends = Object.values(backendSupervision).filter(
+        (snapshot) => snapshot?.state === 'restarting' || snapshot?.state === 'crash-loop',
+      );
+      const isReady = healthData.configuration.loaded && unavailableBackends.length === 0;
       const statusCode = isReady ? 200 : 503;
 
       res.setHeader('Content-Type', 'application/json');
@@ -114,6 +135,7 @@ export function createHealthRoutes(loadingManager?: McpLoadingManager): Router {
         status: isReady ? 'ready' : 'not_ready',
         timestamp: new Date().toISOString(),
         configuration: healthData.configuration,
+        backendSupervision,
       });
     } catch (error) {
       logger.error('Readiness check failed:', error);
@@ -146,6 +168,7 @@ export function createHealthRoutes(loadingManager?: McpLoadingManager): Router {
 
       const summary = loadingManager.getSummary();
       const allStates = loadingManager.getStateTracker().getAllServerStates();
+      const backendSupervision = getBackendSupervision();
 
       // Group servers by state for better organization
       const serversByState = {
@@ -231,6 +254,10 @@ export function createHealthRoutes(loadingManager?: McpLoadingManager): Router {
           byState: serversByState,
           details: serverDetails,
         },
+        backendSupervision,
+        degraded: Object.values(backendSupervision).some(
+          (snapshot) => snapshot?.state === 'restarting' || snapshot?.state === 'crash-loop',
+        ),
         timestamp: new Date().toISOString(),
       };
 
@@ -265,6 +292,39 @@ export function createHealthRoutes(loadingManager?: McpLoadingManager): Router {
       }
 
       const serverName = req.params.serverName;
+      const backendSupervision = getBackendSupervision();
+      const supervision = backendSupervision[serverName];
+      if (supervision) {
+        res.setHeader('Content-Type', 'application/json');
+        res.setHeader('Cache-Control', 'no-cache');
+        res.setHeader('X-Server-State', supervision.state);
+        res.status(supervision.state === 'connected' ? 200 : 503).json({
+          name: serverName,
+          ...supervision,
+          timestamp: new Date().toISOString(),
+        });
+        return;
+      }
+      const templateInstances = Object.values(backendSupervision).filter((snapshot) =>
+        snapshot.backendId.startsWith(`template:${serverName}:`),
+      );
+      if (templateInstances.length > 0) {
+        const state = templateInstances.some((snapshot) => snapshot.state === 'crash-loop')
+          ? 'crash-loop'
+          : templateInstances.some((snapshot) => snapshot.state === 'restarting')
+            ? 'restarting'
+            : 'connected';
+        res.setHeader('Content-Type', 'application/json');
+        res.setHeader('Cache-Control', 'no-cache');
+        res.setHeader('X-Server-State', state);
+        res.status(state === 'connected' ? 200 : 503).json({
+          name: serverName,
+          state,
+          instances: templateInstances,
+          timestamp: new Date().toISOString(),
+        });
+        return;
+      }
       const serverInfo = loadingManager.getStateTracker().getServerState(serverName);
 
       if (!serverInfo) {

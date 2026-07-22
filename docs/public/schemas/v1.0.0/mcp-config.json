@@ -99,6 +99,20 @@
           "items": {
             "type": "string"
           }
+        },
+        "restartOnExit": {
+          "description": "Enable runtime-owned automatic restart after an unexpected stdio backend exit",
+          "type": "boolean"
+        },
+        "maxRestarts": {
+          "description": "Maximum consecutive restart attempts (omitted = 5, 0 = unlimited; resets after 5 stable minutes)",
+          "type": "number",
+          "minimum": 0
+        },
+        "restartDelay": {
+          "description": "Initial restart delay in milliseconds (omitted = 1000; backoff is 1x, 2x, 4x, 8x, then 16x)",
+          "type": "number",
+          "minimum": 0
         }
       }
     },
@@ -258,16 +272,16 @@
             }
           },
           "restartOnExit": {
-            "description": "Automatically restart the server if it exits",
+            "description": "Enable runtime-owned automatic restart after an unexpected stdio backend exit",
             "type": "boolean"
           },
           "maxRestarts": {
-            "description": "Maximum number of restart attempts (0 = unlimited)",
+            "description": "Maximum consecutive restart attempts (omitted = 5, 0 = unlimited; resets after 5 stable minutes)",
             "type": "number",
             "minimum": 0
           },
           "restartDelay": {
-            "description": "Delay in milliseconds before restarting",
+            "description": "Initial restart delay in milliseconds (omitted = 1000; backoff is 1x, 2x, 4x, 8x, then 16x)",
             "type": "number",
             "minimum": 0
           },
@@ -470,16 +484,16 @@
             }
           },
           "restartOnExit": {
-            "description": "Automatically restart the server if it exits",
+            "description": "Enable runtime-owned automatic restart after an unexpected stdio backend exit",
             "type": "boolean"
           },
           "maxRestarts": {
-            "description": "Maximum number of restart attempts (0 = unlimited)",
+            "description": "Maximum consecutive restart attempts (omitted = 5, 0 = unlimited; resets after 5 stable minutes)",
             "type": "number",
             "minimum": 0
           },
           "restartDelay": {
-            "description": "Delay in milliseconds before restarting",
+            "description": "Initial restart delay in milliseconds (omitted = 1000; backoff is 1x, 2x, 4x, 8x, then 16x)",
             "type": "number",
             "minimum": 0
           },

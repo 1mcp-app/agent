@@ -6,6 +6,16 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import createHealthRoutes from './healthRoutes.js';
 
+const mockRuntimeConnections = new Map<string, any>();
+
+vi.mock('@src/core/client/clientManager.js', () => ({
+  ClientManager: {
+    current: {
+      getClients: () => mockRuntimeConnections,
+    },
+  },
+}));
+
 // Mock dependencies
 vi.mock('@src/logger/logger.js', () => ({
   default: {
@@ -54,6 +64,7 @@ describe('Health Routes', () => {
   let mockHealthService: any;
 
   beforeEach(async () => {
+    mockRuntimeConnections.clear();
     // Create Express app with health routes
     app = express();
     app.use(express.json());
@@ -266,6 +277,7 @@ describe('Health Routes', () => {
         status: 'ready',
         timestamp: expect.any(String),
         configuration: mockHealthData.configuration,
+        backendSupervision: {},
       });
     });
 
@@ -288,8 +300,37 @@ describe('Health Routes', () => {
         status: 'not_ready',
         timestamp: expect.any(String),
         configuration: mockHealthData.configuration,
+        backendSupervision: {},
       });
     });
+
+    it.each(['restarting', 'crash-loop'])(
+      'returns 503 while a backend is %s without affecting liveness',
+      async (state) => {
+        mockHealthService.performHealthCheck.mockResolvedValue({
+          configuration: { loaded: true, serverCount: 1, authEnabled: false, transport: 'http' },
+        });
+        mockRuntimeConnections.set('worker', {
+          supervision: {
+            backendId: 'worker',
+            state,
+            attempt: 2,
+            limit: 5,
+            nextRetryAt: null,
+            lastExit: { code: 1, signal: null, at: new Date().toISOString() },
+            error: 'exited',
+            currentPid: null,
+          },
+        });
+
+        const readiness = await request(app).get('/health/ready');
+        const liveness = await request(app).get('/health/live');
+
+        expect(readiness.status).toBe(503);
+        expect(readiness.body.backendSupervision.worker.state).toBe(state);
+        expect(liveness.status).toBe(200);
+      },
+    );
 
     it('should handle readiness check errors with 503', async () => {
       const error = new Error('Readiness check failed');
@@ -302,6 +343,52 @@ describe('Health Routes', () => {
         status: 'not_ready',
         timestamp: expect.any(String),
         error: 'Readiness check failed',
+      });
+    });
+  });
+
+  describe('GET /health/mcp/:serverName', () => {
+    it('groups operational facts for all instances of a template target', async () => {
+      const loadingManager = {
+        getStateTracker: () => ({ getServerState: vi.fn() }),
+      } as any;
+      const templateApp = express();
+      templateApp.use('/health', createHealthRoutes(loadingManager));
+      mockRuntimeConnections.set('worker:first', {
+        supervision: {
+          backendId: `template:worker:${'a'.repeat(64)}`,
+          state: 'connected',
+          attempt: 0,
+          limit: 5,
+          nextRetryAt: null,
+          lastExit: null,
+          lastError: null,
+          currentPid: 101,
+        },
+      });
+      mockRuntimeConnections.set('worker:second', {
+        supervision: {
+          backendId: `template:worker:${'b'.repeat(64)}`,
+          state: 'crash-loop',
+          attempt: 5,
+          limit: 5,
+          nextRetryAt: null,
+          lastExit: { code: 1, signal: null, pid: 102, at: new Date() },
+          lastError: new Error('failed'),
+          currentPid: null,
+        },
+      });
+
+      const response = await request(templateApp).get('/health/mcp/worker');
+
+      expect(response.status).toBe(503);
+      expect(response.body).toMatchObject({
+        name: 'worker',
+        state: 'crash-loop',
+        instances: [
+          { state: 'connected', currentPid: 101 },
+          { state: 'crash-loop', lastError: 'failed', currentPid: null },
+        ],
       });
     });
   });

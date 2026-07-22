@@ -5,6 +5,12 @@ import { fileURLToPath } from 'node:url';
 
 import type { BackendOAuthDashboardResult } from '@src/auth/oauthAuthorizationFlow.js';
 import { RuntimeIdentity } from '@src/core/runtime/runtimeIdentityService.js';
+import type {
+  AdminBackendRestartOperations,
+  BackendRestartOutcome,
+  BackendRestartSelection,
+  RuntimeBackendRestartResult,
+} from '@src/domains/admin/adminBackendRestartService.js';
 import {
   AdminConfiguredServerApplyError,
   AdminConfiguredServerNotFoundError,
@@ -54,7 +60,8 @@ const packageMetadata = createRequire(import.meta.url)('../../../../package.json
   license?: string;
   repository?: { url?: string };
 };
-const CLI_MCP_OPERATIONS = ['mcp.enable', 'mcp.disable'] as const;
+const CLI_CONFIGURED_SERVER_OPERATIONS = ['mcp.enable', 'mcp.disable'] as const;
+const CLI_BACKEND_RESTART_OPERATION = 'mcp.restart' as const;
 const adminLoginBodySchema = z.object({
   username: z.string().trim().min(1).max(ADMIN_USERNAME_MAX_LENGTH),
   password: z.string().min(1).max(ADMIN_PASSWORD_MAX_LENGTH),
@@ -63,6 +70,15 @@ const cliConfiguredServerMutationBodySchema = z.object({
   targetName: z.string().trim().min(1).max(256),
   dryRun: z.boolean().optional(),
 });
+const cliBackendRestartBodySchema = z
+  .object({
+    targetName: z.string().trim().min(1).max(256),
+    instance: z.string().trim().min(1).max(64).optional(),
+    allInstances: z.boolean().optional(),
+  })
+  .refine((value) => !(value.instance !== undefined && value.allInstances === true), {
+    message: 'instance and allInstances are mutually exclusive',
+  });
 type AdminOperationFailure = Extract<AdminOperationResult, { ok: false }>;
 interface CliAdminEnvelope {
   ok: boolean;
@@ -76,6 +92,7 @@ interface AdminRoutesOptions {
   adminEnabled: boolean;
   adminService: AdminIdentityService;
   configuredServerService?: AdminConfiguredServerOperations;
+  backendRestartService?: AdminBackendRestartOperations;
   presetService?: AdminPresetOperations;
   adminMutationAvailability?: AdminMutationAvailability;
   getRuntimeIdentity: () => RuntimeIdentity;
@@ -99,9 +116,19 @@ export function createAdminRoutes(options: AdminRoutesOptions): Router | null {
     const setupRequired = !options.adminService.hasAdminAccount();
     const mutationAvailability = cliMutationAvailability(options, setupRequired);
     const configuredServerOperationsSupported = Boolean(options.configuredServerService);
-    const mcpMutationsReady = configuredServerOperationsSupported && mutationAvailability.available;
-    const mcpOperations = configuredServerOperationsSupported ? [...CLI_MCP_OPERATIONS] : [];
-    const mcpMutationOperations = mcpMutationsReady ? ['enable', 'disable'] : [];
+    const backendRestartSupported = Boolean(options.backendRestartService);
+    const mcpMutationsReady =
+      (configuredServerOperationsSupported || backendRestartSupported) && mutationAvailability.available;
+    const mcpOperations = [
+      ...(configuredServerOperationsSupported ? [...CLI_CONFIGURED_SERVER_OPERATIONS] : []),
+      ...(backendRestartSupported ? [CLI_BACKEND_RESTART_OPERATION] : []),
+    ];
+    const mcpMutationOperations = mutationAvailability.available
+      ? [
+          ...(configuredServerOperationsSupported ? ['enable', 'disable'] : []),
+          ...(backendRestartSupported ? ['restart'] : []),
+        ]
+      : [];
     const mcpReadinessStatus = cliMcpReadinessStatus(mutationAvailability);
 
     sendCliSuccess(req, res, {
@@ -124,7 +151,8 @@ export function createAdminRoutes(options: AdminRoutesOptions): Router | null {
         adminSessions: true,
         bearerSessionAuth: true,
         csrfTokens: true,
-        mcpEnableDisable: mcpMutationsReady,
+        mcpEnableDisable: configuredServerOperationsSupported && mutationAvailability.available,
+        mcpRestart: backendRestartSupported && mutationAvailability.available,
       },
     });
   });
@@ -207,6 +235,10 @@ export function createAdminRoutes(options: AdminRoutesOptions): Router | null {
 
   router.post('/cli/v1/operations/disable-server', async (req, res) => {
     await handleCliConfiguredServerMutation(req, res, options, 'disableConfiguredServer');
+  });
+
+  router.post('/cli/v1/operations/restart-server', async (req, res) => {
+    await handleCliBackendRestart(req, res, options);
   });
 
   router.post('/api/session/login', async (req, res) => {
@@ -575,6 +607,126 @@ async function handleCliConfiguredServerMutation(
   sendCliAdminOperationResult(req, res, result);
 }
 
+async function handleCliBackendRestart(req: Request, res: Response, options: AdminRoutesOptions): Promise<void> {
+  if (!options.backendRestartService) {
+    sendCliError(req, res, {
+      status: 404,
+      code: 'backend_restart_unavailable',
+      message: 'Backend restart administration is unavailable',
+      retryable: false,
+    });
+    return;
+  }
+
+  if (isMutationLocked(options)) {
+    sendCliError(req, res, {
+      status: 409,
+      code: 'runtime_scope_locked',
+      message: 'Runtime scope admin mutations are locked by another writer',
+      retryable: true,
+      details: { operationName: 'restartBackend', reason: 'writer_lock_unavailable' },
+    });
+    return;
+  }
+
+  const sessionToken = getBearerSessionToken(req);
+  const session = sessionToken ? options.adminService.validateSession(sessionToken) : null;
+  if (!sessionToken || !session) {
+    sendCliError(req, res, {
+      status: 401,
+      code: 'admin_session_required',
+      message: 'A valid admin session bearer token is required',
+      retryable: false,
+    });
+    return;
+  }
+
+  const parsedBody = cliBackendRestartBodySchema.safeParse(req.body);
+  if (!parsedBody.success) {
+    sendCliError(req, res, {
+      status: 400,
+      code: 'validation_request_invalid',
+      message: 'Backend targetName and restart selectors must have valid, mutually exclusive values',
+      retryable: false,
+    });
+    return;
+  }
+
+  const { targetName, instance, allInstances = false } = parsedBody.data;
+  const selection: BackendRestartSelection = instance
+    ? { mode: 'instance', instanceIdOrPrefix: instance }
+    : allInstances
+      ? { mode: 'all_instances' }
+      : { mode: 'target_default' };
+  const context = buildCliAdminOperationContext(req, options, session.account, sessionToken, {
+    type: 'backend',
+    id: targetName,
+  });
+  const result = await options.backendRestartService.restartBackend({
+    context,
+    targetName,
+    selection,
+    confirmationRequirements: cliBackendRestartConfirmationRequirements(options, targetName),
+  });
+
+  if (result.ok && isBackendRestartFailureResult(result.result)) {
+    sendCliBackendRestartOutcome(req, res, result.result);
+    return;
+  }
+  sendCliAdminOperationResult(req, res, result);
+}
+
+function sendCliBackendRestartOutcome(
+  req: Request,
+  res: Response,
+  result: RuntimeBackendRestartResult & { outcome: Exclude<BackendRestartOutcome, 'restarted'> },
+): void {
+  const response = backendRestartFailure(result.outcome);
+  sendCliError(req, res, {
+    status: response.status,
+    code: response.code,
+    message: response.message,
+    retryable: false,
+    details: {
+      targetName: result.targetName,
+      ...(result.candidateInstanceIds ? { candidateInstanceIds: result.candidateInstanceIds } : {}),
+    },
+  });
+}
+
+function isBackendRestartFailureResult(
+  result: RuntimeBackendRestartResult,
+): result is RuntimeBackendRestartResult & { outcome: Exclude<BackendRestartOutcome, 'restarted'> } {
+  return result.outcome !== 'restarted';
+}
+
+function backendRestartFailure(outcome: Exclude<BackendRestartOutcome, 'restarted'>): {
+  status: number;
+  code: string;
+  message: string;
+} {
+  switch (outcome) {
+    case 'target_not_found':
+      return { status: 404, code: 'backend_not_found', message: 'Backend target was not found' };
+    case 'instance_not_found':
+      return { status: 404, code: 'backend_instance_not_found', message: 'Backend instance was not found' };
+    case 'instance_ambiguous':
+      return { status: 409, code: 'backend_instance_ambiguous', message: 'Backend instance prefix is ambiguous' };
+    case 'no_active_instances':
+      return {
+        status: 409,
+        code: 'backend_no_active_instances',
+        message: 'Backend has no active instances to restart',
+      };
+    case 'no_unhealthy_instances':
+      return {
+        status: 409,
+        code: 'backend_no_unhealthy_instances',
+        message: 'Backend has no unhealthy active instances to restart by default',
+      };
+  }
+}
+
 async function handleConfiguredServerDetail(req: Request, res: Response, options: AdminRoutesOptions): Promise<void> {
   if (!options.configuredServerService) {
     res.status(404).json({ error: 'admin_configured_servers_unavailable' });
@@ -764,7 +916,7 @@ async function handleConfiguredServerMutation(
 }
 
 function cliMutationAvailability(options: AdminRoutesOptions, setupRequired: boolean): AdminMutationAvailability {
-  if (!options.configuredServerService) {
+  if (!options.configuredServerService && !options.backendRestartService) {
     return {
       available: false,
       reason: 'mutation_service_unavailable',
@@ -1227,6 +1379,23 @@ function cliConfiguredServerConfirmationRequirements(
   ];
 }
 
+function cliBackendRestartConfirmationRequirements(
+  options: AdminRoutesOptions,
+  targetName: string,
+): AdminConfirmationRequirement[] {
+  const identity = options.getRuntimeIdentity();
+  if (isLoopbackRuntimeUrl(identity.externalUrl)) {
+    return [];
+  }
+  const target = { type: 'backend', id: targetName };
+  return [
+    { code: 'confirm_non_loopback_runtime', expected: true, target },
+    { code: 'confirmedOperation', expected: 'mcp.restart', target },
+    { code: 'confirmedRuntimeScopeId', expected: identity.runtimeScopeId, target },
+    { code: 'confirmationSource', expected: 'cli_flag', target },
+  ];
+}
+
 function buildCliAdminOperationContext(
   req: Request,
   options: AdminRoutesOptions,
@@ -1253,7 +1422,7 @@ function buildCliAdminOperationContext(
       jsonMode: true,
     },
     idempotencyKey: req.header('Idempotency-Key'),
-    requestFingerprint: configuredServerRequestFingerprint(operationName, target.id),
+    requestFingerprint: configuredServerRequestFingerprint(operationName, target.id, req.body),
     confirmationFacts: getBodyRecord(req.body, 'confirmationFacts'),
   };
 }
@@ -1267,7 +1436,7 @@ function configuredServerRequestFingerprint(
     schemaVersion: 1,
     operationName,
     target: {
-      type: 'configured_server',
+      type: operationName === 'restartBackend' ? 'backend' : 'configured_server',
       id: targetName ?? '',
     },
     ...(operationName === 'applyConfiguredServerEdit'
@@ -1276,6 +1445,14 @@ function configuredServerRequestFingerprint(
           editDigest: createHash('sha256')
             .update(stableJsonStringify(getBodyValue(body, 'edit') ?? {}))
             .digest('hex'),
+        }
+      : {}),
+    ...(operationName === 'restartBackend'
+      ? {
+          restartSelection: {
+            instance: getBodyString(body, 'instance'),
+            allInstances: getBodyValue(body, 'allInstances') === true,
+          },
         }
       : {}),
   });
@@ -1359,6 +1536,9 @@ function cliOperationErrorDetails(result: AdminOperationFailure): Record<string,
 }
 
 function operationNameForRequest(req: Request): string {
+  if (req.path.endsWith('/restart-server')) {
+    return 'restartBackend';
+  }
   if (req.path.endsWith('/enable') || req.path.endsWith('/enable-server')) {
     return 'enableConfiguredServer';
   }

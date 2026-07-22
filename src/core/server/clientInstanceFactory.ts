@@ -54,6 +54,7 @@ export async function createPooledClientInstance({
     createdAt: new Date(),
     lastUsedAt: new Date(),
     status: 'active',
+    outboundKeys: new Set(),
     clientIds: new Set([clientId]),
     idleTimeout,
   };

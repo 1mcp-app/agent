@@ -353,6 +353,65 @@ describe('ClientInstancePool', () => {
     it('should handle removing non-existent instance gracefully', async () => {
       await expect(pool.removeInstance('non-existent')).resolves.not.toThrow();
     });
+
+    it('does not let an old close delete a replacement installed under the same key', async () => {
+      const { createTransportsWithContext } = await import('@src/transport/transportFactory.js');
+      const { ClientManager } = await import('@src/core/client/clientManager.js');
+      let finishOldClose!: () => void;
+      const oldClose = new Promise<void>((resolve) => {
+        finishOldClose = resolve;
+      });
+      const oldClient = {
+        connect: vi.fn().mockResolvedValue(undefined),
+        close: vi.fn(() => oldClose),
+      } as any;
+      const replacementClient = {
+        connect: vi.fn().mockResolvedValue(undefined),
+        close: vi.fn().mockResolvedValue(undefined),
+      } as any;
+      const oldTransport = { close: vi.fn().mockResolvedValue(undefined), start: vi.fn(), send: vi.fn() } as any;
+      const replacementTransport = {
+        close: vi.fn().mockResolvedValue(undefined),
+        start: vi.fn(),
+        send: vi.fn(),
+      } as any;
+      vi.mocked(createTransportsWithContext)
+        .mockResolvedValueOnce({ testTemplate: oldTransport })
+        .mockResolvedValueOnce({ testTemplate: replacementTransport });
+      const getClientManager = vi.mocked(ClientManager.getOrCreateInstance);
+      const originalGetClientManager = getClientManager.getMockImplementation();
+      getClientManager.mockReturnValue({
+        createPooledClientInstance: vi.fn().mockReturnValueOnce(oldClient).mockReturnValueOnce(replacementClient),
+      } as any);
+
+      try {
+        const oldInstance = await pool.getOrCreateClientInstance(
+          'testTemplate',
+          mockTemplateConfig,
+          mockContext,
+          'client-1',
+        );
+        const removal = pool.removeInstance(oldInstance.instanceKey);
+        expect(oldInstance.status).toBe('terminating');
+        await vi.waitFor(() => expect(oldClient.close).toHaveBeenCalledTimes(1));
+
+        const replacement = await pool.getOrCreateClientInstance(
+          'testTemplate',
+          mockTemplateConfig,
+          mockContext,
+          'client-2',
+        );
+        expect(replacement).not.toBe(oldInstance);
+
+        finishOldClose();
+        await removal;
+
+        expect(oldTransport.close).toHaveBeenCalledTimes(1);
+        expect(pool.getInstance(oldInstance.instanceKey)).toBe(replacement);
+      } finally {
+        getClientManager.mockImplementation(originalGetClientManager!);
+      }
+    });
   });
 
   describe('shutdown', () => {

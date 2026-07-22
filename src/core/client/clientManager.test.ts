@@ -579,6 +579,273 @@ describe('ClientManager (Integration)', () => {
     });
   });
 
+  describe('runtime-owned stdio supervision', () => {
+    it('withdraws an exited backend and reconnects a fresh MCP client after the configured delay', async () => {
+      const initialClient = {
+        ...mockClient,
+        connect: vi.fn().mockResolvedValue(undefined),
+        getServerVersion: vi.fn().mockResolvedValue({ name: 'fixture', version: '1.0.0' }),
+      } as Partial<Client>;
+      const replacementClient = {
+        ...mockClient,
+        connect: vi.fn().mockResolvedValue(undefined),
+        getServerVersion: vi.fn().mockResolvedValue({ name: 'fixture', version: '1.0.0' }),
+      } as Partial<Client>;
+      (Client as unknown as MockInstance)
+        .mockImplementationOnce(function () {
+          return initialClient;
+        })
+        .mockImplementationOnce(function () {
+          return replacementClient;
+        });
+
+      const replacementTransport = {
+        start: vi.fn(),
+        send: vi.fn(),
+        close: vi.fn(),
+        pid: 222,
+      } as unknown as AuthProviderTransport;
+      const recreate = vi.fn(() => replacementTransport);
+      const supervisedTransport = {
+        start: vi.fn(),
+        send: vi.fn(),
+        close: vi.fn(),
+        pid: 111,
+        stdioSupervision: {
+          policy: { restartOnExit: true as const, maxRestarts: 2, restartDelay: 25 },
+          recreate,
+          getLastExit: () => ({ code: 9, signal: null, pid: 111, at: new Date() }),
+        },
+      } as unknown as AuthProviderTransport;
+      replacementTransport.stdioSupervision = supervisedTransport.stdioSupervision;
+
+      await clientManager.createSingleClient('supervised', supervisedTransport);
+      const connection = clientManager.getClient('supervised');
+      connection.capabilities = { tools: {} };
+
+      expect(connection.supervision).toMatchObject({ state: 'connected', attempt: 0, currentPid: 111 });
+
+      connection.client.onclose?.();
+
+      expect(clientManager.getClient('supervised')).toMatchObject({
+        status: ClientStatus.Restarting,
+        capabilities: undefined,
+        supervision: { state: 'restarting', attempt: 1, limit: 2 },
+      });
+      expect(recreate).not.toHaveBeenCalled();
+
+      await vi.advanceTimersByTimeAsync(25);
+
+      expect(recreate).toHaveBeenCalledTimes(1);
+      expect(replacementClient.connect).toHaveBeenCalledTimes(1);
+      expect(clientManager.getClient('supervised')).toMatchObject({
+        client: replacementClient,
+        transport: replacementTransport,
+        status: ClientStatus.Connected,
+        supervision: { state: 'connected', attempt: 1, currentPid: 222 },
+      });
+    });
+
+    it('uses the same lifecycle operation for an immediate manual restart', async () => {
+      const initialClient = {
+        ...mockClient,
+        connect: vi.fn().mockResolvedValue(undefined),
+        getServerVersion: vi.fn().mockResolvedValue({ name: 'fixture', version: '1.0.0' }),
+        close: vi.fn().mockResolvedValue(undefined),
+      } as Partial<Client>;
+      const replacementClient = {
+        ...mockClient,
+        connect: vi.fn().mockResolvedValue(undefined),
+        getServerVersion: vi.fn().mockResolvedValue({ name: 'fixture', version: '1.0.0' }),
+      } as Partial<Client>;
+      (Client as unknown as MockInstance)
+        .mockImplementationOnce(function () {
+          return initialClient;
+        })
+        .mockImplementationOnce(function () {
+          return replacementClient;
+        });
+
+      const replacementTransport = {
+        start: vi.fn(),
+        send: vi.fn(),
+        close: vi.fn(),
+        pid: 333,
+      } as unknown as AuthProviderTransport;
+      const supervisedTransport = {
+        start: vi.fn(),
+        send: vi.fn(),
+        close: vi.fn(),
+        pid: 111,
+        stdioSupervision: {
+          policy: { restartOnExit: true as const },
+          recreate: () => replacementTransport,
+          getLastExit: () => null,
+        },
+      } as unknown as AuthProviderTransport;
+      replacementTransport.stdioSupervision = supervisedTransport.stdioSupervision;
+
+      await clientManager.createSingleClient('supervised', supervisedTransport);
+      const result = await clientManager.restartBackend('supervised');
+
+      expect(initialClient.close).toHaveBeenCalledTimes(1);
+      expect(result).toMatchObject({ state: 'connected', attempt: 0, currentPid: 333 });
+      expect(clientManager.getClient('supervised').client).toBe(replacementClient);
+    });
+
+    it('stops scheduled recovery and closes supervised clients during shutdown', async () => {
+      const initialClient = {
+        ...mockClient,
+        connect: vi.fn().mockResolvedValue(undefined),
+        getServerVersion: vi.fn().mockResolvedValue({ name: 'fixture', version: '1.0.0' }),
+        close: vi.fn().mockResolvedValue(undefined),
+      } as Partial<Client>;
+      (Client as unknown as MockInstance).mockImplementationOnce(function () {
+        return initialClient;
+      });
+
+      const recreate = vi.fn();
+      const supervisedTransport = {
+        start: vi.fn(),
+        send: vi.fn(),
+        close: vi.fn(),
+        pid: 111,
+        stdioSupervision: {
+          policy: { restartOnExit: true as const, restartDelay: 25 },
+          recreate,
+          getLastExit: () => ({ code: 9, signal: null, pid: 111, at: new Date() }),
+        },
+      } as unknown as AuthProviderTransport;
+
+      await clientManager.createSingleClient('supervised', supervisedTransport);
+      clientManager.getClient('supervised').client.onclose?.();
+      expect(clientManager.getBackendSupervision('supervised')?.state).toBe('restarting');
+
+      await clientManager.shutdown();
+      await vi.advanceTimersByTimeAsync(100);
+
+      expect(recreate).not.toHaveBeenCalled();
+      expect(initialClient.close).toHaveBeenCalledTimes(1);
+      expect(clientManager.getClients()).toHaveLength(0);
+      await expect(clientManager.createSingleClient('late', mockTransport as AuthProviderTransport)).rejects.toThrow(
+        'ClientManager is shutting down',
+      );
+    });
+
+    it('disposes a replacement that connects after shutdown cancels recovery', async () => {
+      let finishReplacementConnect!: () => void;
+      const replacementConnect = new Promise<void>((resolve) => {
+        finishReplacementConnect = resolve;
+      });
+      let finishReplacementDisposal!: () => void;
+      const replacementDisposal = new Promise<void>((resolve) => {
+        finishReplacementDisposal = resolve;
+      });
+      const initialClient = {
+        ...mockClient,
+        connect: vi.fn().mockResolvedValue(undefined),
+        getServerVersion: vi.fn().mockResolvedValue({ name: 'fixture', version: '1.0.0' }),
+        close: vi.fn().mockResolvedValue(undefined),
+      } as Partial<Client>;
+      const replacementClient = {
+        ...mockClient,
+        connect: vi.fn(() => replacementConnect),
+        getServerVersion: vi.fn().mockResolvedValue({ name: 'fixture', version: '1.0.0' }),
+        close: vi.fn(() => replacementDisposal),
+      } as Partial<Client>;
+      (Client as unknown as MockInstance)
+        .mockImplementationOnce(function () {
+          return initialClient;
+        })
+        .mockImplementationOnce(function () {
+          return replacementClient;
+        });
+
+      const replacementTransport = {
+        start: vi.fn(),
+        send: vi.fn(),
+        close: vi.fn(),
+        pid: 222,
+      } as unknown as AuthProviderTransport;
+      const supervisedTransport = {
+        start: vi.fn(),
+        send: vi.fn(),
+        close: vi.fn(),
+        pid: 111,
+        stdioSupervision: {
+          policy: { restartOnExit: true as const, restartDelay: 25 },
+          recreate: () => replacementTransport,
+          getLastExit: () => ({ code: 9, signal: null, pid: 111, at: new Date() }),
+        },
+      } as unknown as AuthProviderTransport;
+      replacementTransport.stdioSupervision = supervisedTransport.stdioSupervision;
+
+      await clientManager.createSingleClient('supervised', supervisedTransport);
+      clientManager.getClient('supervised').client.onclose?.();
+      vi.advanceTimersByTime(25);
+      await vi.waitFor(() => expect(replacementClient.connect).toHaveBeenCalledTimes(1));
+
+      let shutdownResolved = false;
+      const shutdownPromise = clientManager.shutdown().then(() => {
+        shutdownResolved = true;
+      });
+      await Promise.resolve();
+
+      expect(shutdownResolved).toBe(false);
+
+      finishReplacementConnect();
+      await vi.waitFor(() => expect(replacementClient.close).toHaveBeenCalledTimes(1));
+
+      expect(shutdownResolved).toBe(false);
+
+      finishReplacementDisposal();
+      await shutdownPromise;
+
+      expect(replacementClient.close).toHaveBeenCalledTimes(1);
+      expect(shutdownResolved).toBe(true);
+      expect(clientManager.getClients()).toHaveLength(0);
+    });
+
+    it('waits for bulk client creation to dispose a late connection before shutdown resolves', async () => {
+      let finishConnect!: () => void;
+      const connectGate = new Promise<void>((resolve) => {
+        finishConnect = resolve;
+      });
+      const lateClient = {
+        ...mockClient,
+        connect: vi.fn(() => connectGate),
+        getServerVersion: vi.fn().mockResolvedValue({ name: 'fixture', version: '1.0.0' }),
+        close: vi.fn().mockResolvedValue(undefined),
+      } as Partial<Client>;
+      (Client as unknown as MockInstance).mockImplementationOnce(function () {
+        return lateClient;
+      });
+
+      const bulkTransport = {
+        start: vi.fn(),
+        send: vi.fn(),
+        close: vi.fn(),
+      } as unknown as AuthProviderTransport;
+      const createPromise = clientManager.createClients({ bulk: bulkTransport });
+      await vi.waitFor(() => expect(lateClient.connect).toHaveBeenCalledTimes(1));
+
+      let shutdownResolved = false;
+      const shutdownPromise = clientManager.shutdown().then(() => {
+        shutdownResolved = true;
+      });
+      await Promise.resolve();
+
+      expect(shutdownResolved).toBe(false);
+
+      finishConnect();
+      await Promise.all([createPromise, shutdownPromise]);
+
+      expect(lateClient.close).toHaveBeenCalledTimes(1);
+      expect(shutdownResolved).toBe(true);
+      expect(clientManager.getClients()).toHaveLength(0);
+    });
+  });
+
   describe('client instance creation', () => {
     it('should create client instance', () => {
       const client = clientManager.createClientInstance();

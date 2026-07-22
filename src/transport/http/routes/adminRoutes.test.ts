@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
+import type { AdminBackendRestartOperations } from '@src/domains/admin/adminBackendRestartService.js';
 import {
   AdminConfiguredServerNotFoundError,
   type AdminConfiguredServerOperations,
@@ -50,6 +51,9 @@ describe('admin routes', () => {
     disableConfiguredServer: ReturnType<typeof vi.fn<AdminConfiguredServerOperations['disableConfiguredServer']>>;
     getRecentAuditFacts: ReturnType<typeof vi.fn<(options?: { limit?: number }) => AdminAuditFact[]>>;
   };
+  let backendRestartService: {
+    restartBackend: ReturnType<typeof vi.fn<AdminBackendRestartOperations['restartBackend']>>;
+  };
 
   beforeEach(() => {
     storageDir = `/tmp/admin-routes-${Date.now()}-${Math.random()}`;
@@ -68,6 +72,9 @@ describe('admin routes', () => {
       disableConfiguredServer: vi.fn<AdminConfiguredServerOperations['disableConfiguredServer']>(),
       getRecentAuditFacts: vi.fn<(options?: { limit?: number }) => AdminAuditFact[]>(() => []),
     };
+    backendRestartService = {
+      restartBackend: vi.fn<AdminBackendRestartOperations['restartBackend']>(),
+    };
   });
 
   afterEach(() => {
@@ -78,6 +85,7 @@ describe('admin routes', () => {
     options: {
       externalUrl?: string;
       configuredServerService?: AdminConfiguredServerOperations | null;
+      backendRestartService?: AdminBackendRestartOperations | null;
       adminConsoleAssetsDir?: string;
       adminMutationAvailability?: { available: boolean; reason?: 'writer_lock_unavailable' };
     } = {},
@@ -91,6 +99,8 @@ describe('admin routes', () => {
         options.configuredServerService === null
           ? undefined
           : (options.configuredServerService ?? configuredServerService),
+      backendRestartService:
+        options.backendRestartService === null ? undefined : (options.backendRestartService ?? backendRestartService),
       getRuntimeIdentity: () => ({
         ...runtimeIdentity,
         externalUrl: options.externalUrl ?? runtimeIdentity.externalUrl,
@@ -194,7 +204,14 @@ describe('admin routes', () => {
       warnings: [],
       result: {
         runtime: cliRuntimeIdentity,
-        supportedOperations: ['admin.login', 'admin.status', 'admin.logout', 'mcp.enable', 'mcp.disable'],
+        supportedOperations: [
+          'admin.login',
+          'admin.status',
+          'admin.logout',
+          'mcp.enable',
+          'mcp.disable',
+          'mcp.restart',
+        ],
         adminSurface: {
           enabled: true,
           status: 'loginRequired',
@@ -203,7 +220,7 @@ describe('admin routes', () => {
           mcp: {
             enabled: true,
             status: 'ready',
-            operations: ['enable', 'disable'],
+            operations: ['enable', 'disable', 'restart'],
           },
         },
         adminMutationsAvailable: true,
@@ -212,6 +229,7 @@ describe('admin routes', () => {
           bearerSessionAuth: true,
           csrfTokens: true,
           mcpEnableDisable: true,
+          mcpRestart: true,
         },
       },
     });
@@ -270,6 +288,7 @@ describe('admin routes', () => {
           bearerSessionAuth: true,
           csrfTokens: true,
           mcpEnableDisable: false,
+          mcpRestart: false,
         },
       },
     });
@@ -819,6 +838,130 @@ describe('admin routes', () => {
     });
   });
 
+  it('restarts a selected backend instance through the CLI adapter and maps ambiguous prefixes', async () => {
+    await adminService.bootstrapFirstAdmin({ username: 'operator', password: 'correct horse battery staple' });
+    backendRestartService.restartBackend
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 'completed',
+        operationId: 'op_cli_restart',
+        operationName: 'restartBackend',
+        replayed: false,
+        result: {
+          targetName: 'github',
+          targetType: 'template',
+          outcome: 'restarted',
+          restartedInstanceIds: ['abcdef0123456789'],
+        },
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 'completed',
+        operationId: 'op_cli_restart_ambiguous',
+        operationName: 'restartBackend',
+        replayed: false,
+        result: {
+          targetName: 'github',
+          targetType: 'template',
+          outcome: 'instance_ambiguous',
+          restartedInstanceIds: [],
+          candidateInstanceIds: ['abcdef0123456789', 'abcdef9999999999'],
+        },
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 'completed',
+        operationId: 'op_cli_restart_healthy',
+        operationName: 'restartBackend',
+        replayed: false,
+        result: {
+          targetName: 'github',
+          targetType: 'template',
+          outcome: 'no_unhealthy_instances',
+          restartedInstanceIds: [],
+        },
+      });
+    const app = mountAdminRoutes();
+    const loginResponse = await request(app)
+      .post('/admin/cli/v1/session/login')
+      .send({ username: 'operator', password: 'correct horse battery staple' });
+    const sessionToken = loginResponse.body.result.sessionToken as string;
+
+    const restarted = await request(app)
+      .post('/admin/cli/v1/operations/restart-server')
+      .set('Authorization', `Bearer ${sessionToken}`)
+      .set('X-Request-Id', 'req_cli_restart')
+      .set('Idempotency-Key', 'restart-key')
+      .send({ targetName: 'github', instance: 'abcdef012345' });
+    const ambiguous = await request(app)
+      .post('/admin/cli/v1/operations/restart-server')
+      .set('Authorization', `Bearer ${sessionToken}`)
+      .set('X-Request-Id', 'req_cli_restart_ambiguous')
+      .set('Idempotency-Key', 'restart-key-ambiguous')
+      .send({ targetName: 'github', instance: 'abcdef' });
+    const healthy = await request(app)
+      .post('/admin/cli/v1/operations/restart-server')
+      .set('Authorization', `Bearer ${sessionToken}`)
+      .set('X-Request-Id', 'req_cli_restart_healthy')
+      .set('Idempotency-Key', 'restart-key-healthy')
+      .send({ targetName: 'github' });
+
+    expect(restarted.status).toBe(200);
+    expect(restarted.body).toMatchObject({
+      ok: true,
+      result: {
+        operationName: 'restartBackend',
+        targetName: 'github',
+        outcome: 'restarted',
+        restartedInstanceIds: ['abcdef0123456789'],
+      },
+    });
+    expect(ambiguous.status).toBe(409);
+    expect(ambiguous.body).toMatchObject({
+      ok: false,
+      error: {
+        code: 'backend_instance_ambiguous',
+        details: { candidateInstanceIds: ['abcdef0123456789', 'abcdef9999999999'] },
+      },
+    });
+    expect(healthy.status).toBe(409);
+    expect(healthy.body).toMatchObject({
+      ok: false,
+      error: {
+        code: 'backend_no_unhealthy_instances',
+        details: { targetName: 'github' },
+      },
+    });
+    expect(backendRestartService.restartBackend).toHaveBeenNthCalledWith(1, {
+      context: expect.objectContaining({
+        origin: 'cli',
+        idempotencyKey: 'restart-key',
+        target: { type: 'backend', id: 'github' },
+        requestFingerprint: expect.any(String),
+      }),
+      targetName: 'github',
+      selection: { mode: 'instance', instanceIdOrPrefix: 'abcdef012345' },
+      confirmationRequirements: expect.any(Array),
+    });
+  });
+
+  it('rejects conflicting backend restart selectors before invoking the domain operation', async () => {
+    await adminService.bootstrapFirstAdmin({ username: 'operator', password: 'correct horse battery staple' });
+    const app = mountAdminRoutes();
+    const loginResponse = await request(app)
+      .post('/admin/cli/v1/session/login')
+      .send({ username: 'operator', password: 'correct horse battery staple' });
+
+    const response = await request(app)
+      .post('/admin/cli/v1/operations/restart-server')
+      .set('Authorization', `Bearer ${loginResponse.body.result.sessionToken}`)
+      .send({ targetName: 'github', instance: 'abcdef', allInstances: true });
+
+    expect(response.status).toBe(400);
+    expect(response.body.error.code).toBe('validation_request_invalid');
+    expect(backendRestartService.restartBackend).not.toHaveBeenCalled();
+  });
+
   it('passes CLI dry-run and confirmation facts into configured-server mutation input', async () => {
     await adminService.bootstrapFirstAdmin({ username: 'operator', password: 'correct horse battery staple' });
     configuredServerService.enableConfiguredServer.mockResolvedValue({
@@ -1162,15 +1305,21 @@ describe('admin routes', () => {
       .send({ targetName: 'filesystem' });
 
     expect(capabilities.status).toBe(200);
-    expect(capabilities.body.result.supportedOperations).toEqual(['admin.login', 'admin.status', 'admin.logout']);
+    expect(capabilities.body.result.supportedOperations).toEqual([
+      'admin.login',
+      'admin.status',
+      'admin.logout',
+      'mcp.restart',
+    ]);
     expect(capabilities.body.result.mutationReadiness.mcp).toEqual({
-      enabled: false,
-      status: 'unavailable',
-      operations: [],
+      enabled: true,
+      status: 'ready',
+      operations: ['restart'],
     });
-    expect(capabilities.body.result.adminMutationsAvailable).toBe(false);
-    expect(capabilities.body.result.adminMutationsUnavailableReason).toBe('mutation_service_unavailable');
+    expect(capabilities.body.result.adminMutationsAvailable).toBe(true);
+    expect(capabilities.body.result.adminMutationsUnavailableReason).toBeUndefined();
     expect(capabilities.body.result.features.mcpEnableDisable).toBe(false);
+    expect(capabilities.body.result.features.mcpRestart).toBe(true);
     expect(mutation.status).toBe(404);
     expect(mutation.body).toEqual({
       ok: false,

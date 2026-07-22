@@ -5,6 +5,7 @@ import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 
 import { ConfigManager } from '@src/config/configManager.js';
 import { getDefaultInstructionsTemplatePath, HOST, PORT } from '@src/constants.js';
+import { ClientManager } from '@src/core/client/clientManager.js';
 import { InstructionAggregator } from '@src/core/instructions/instructionAggregator.js';
 import { formatValidationError, validateTemplateContent } from '@src/core/instructions/templateValidator.js';
 import { LoadingSummary } from '@src/core/loading/loadingStateTracker.js';
@@ -176,7 +177,7 @@ function loadInstructionsTemplate(templatePath?: string, configDir?: string): st
 /**
  * Set up graceful shutdown handling
  */
-function setupGracefulShutdown(
+export function setupGracefulShutdown(
   serverManager: ServerManager,
   loadingManager?: McpLoadingManager,
   expressServer?: ExpressServer,
@@ -184,80 +185,107 @@ function setupGracefulShutdown(
   configDir?: string,
   runtimeOwnership?: RuntimeScopeOwnership,
 ): void {
+  let shutdownPromise: Promise<void> | undefined;
   const shutdown = async () => {
-    logger.info('Shutting down server...');
+    if (shutdownPromise) {
+      return shutdownPromise;
+    }
 
-    // Stop the configuration reload service
-    // Config reload handled by ConfigManager singleton
+    shutdownPromise = (async () => {
+      logger.info('Shutting down server...');
 
-    // Shutdown loading manager if it exists
-    if (loadingManager && typeof loadingManager.shutdown === 'function') {
+      // Stop the configuration reload service
+      // Config reload handled by ConfigManager singleton
+
+      // Shutdown loading manager if it exists
+      if (loadingManager && typeof loadingManager.shutdown === 'function') {
+        try {
+          loadingManager.shutdown();
+          logger.info('Loading manager shutdown complete');
+        } catch (error) {
+          logger.error(
+            `Error shutting down loading manager: ${error instanceof Error ? error.message : String(error)}`,
+          );
+        }
+      }
+
       try {
-        loadingManager.shutdown();
-        logger.info('Loading manager shutdown complete');
+        await ClientManager.shutdownCurrent();
+        logger.info('ClientManager shutdown complete');
       } catch (error) {
-        logger.error(`Error shutting down loading manager: ${error instanceof Error ? error.message : String(error)}`);
+        logger.error(`Error shutting down ClientManager: ${error instanceof Error ? error.message : String(error)}`);
       }
-    }
 
-    // Shutdown ExpressServer if it exists
-    if (expressServer) {
       try {
-        expressServer.shutdown();
-        logger.info('ExpressServer shutdown complete');
+        await serverManager.cleanup();
+        logger.info('ServerManager cleanup complete');
       } catch (error) {
-        logger.error(`Error shutting down ExpressServer: ${error instanceof Error ? error.message : String(error)}`);
+        logger.error(`Error cleaning up ServerManager: ${error instanceof Error ? error.message : String(error)}`);
       }
-    }
 
-    // Close all transports
-    for (const [sessionId, transport] of serverManager.getTransports().entries()) {
+      // Shutdown ExpressServer if it exists
+      if (expressServer) {
+        try {
+          expressServer.shutdown();
+          logger.info('ExpressServer shutdown complete');
+        } catch (error) {
+          logger.error(`Error shutting down ExpressServer: ${error instanceof Error ? error.message : String(error)}`);
+        }
+      }
+
+      // Close all transports
+      for (const [sessionId, transport] of serverManager.getTransports().entries()) {
+        try {
+          transport?.close();
+          logger.info(`Closed transport: ${sessionId}`);
+        } catch (error) {
+          logger.error(
+            `Error closing transport ${sessionId}: ${error instanceof Error ? error.message : String(error)}`,
+          );
+        }
+      }
+
+      // Cleanup InstructionAggregator if it exists
+      if (instructionAggregator && typeof instructionAggregator.cleanup === 'function') {
+        try {
+          instructionAggregator.cleanup();
+          logger.info('InstructionAggregator cleanup complete');
+        } catch (error) {
+          logger.error(
+            `Error cleaning up InstructionAggregator: ${error instanceof Error ? error.message : String(error)}`,
+          );
+        }
+      }
+
+      // Cleanup PresetManager if it exists
       try {
-        transport?.close();
-        logger.info(`Closed transport: ${sessionId}`);
+        const PresetManager = (await import('@src/domains/preset/manager/presetManager.js')).PresetManager;
+        const presetManager = PresetManager.getInstance();
+        if (presetManager && typeof presetManager.cleanup === 'function') {
+          await presetManager.cleanup();
+          logger.info('PresetManager cleanup complete');
+        }
       } catch (error) {
-        logger.error(`Error closing transport ${sessionId}: ${error instanceof Error ? error.message : String(error)}`);
+        logger.error(`Error cleaning up PresetManager: ${error instanceof Error ? error.message : String(error)}`);
       }
-    }
 
-    // Cleanup InstructionAggregator if it exists
-    if (instructionAggregator && typeof instructionAggregator.cleanup === 'function') {
-      try {
-        instructionAggregator.cleanup();
-        logger.info('InstructionAggregator cleanup complete');
-      } catch (error) {
-        logger.error(
-          `Error cleaning up InstructionAggregator: ${error instanceof Error ? error.message : String(error)}`,
-        );
+      // Cleanup PID file if configDir is available
+      if (configDir) {
+        try {
+          cleanupPidFileOnExit(configDir);
+          logger.info('PID file cleanup complete');
+        } catch (error) {
+          logger.error(`Error cleaning up PID file: ${error instanceof Error ? error.message : String(error)}`);
+        }
       }
-    }
 
-    // Cleanup PresetManager if it exists
-    try {
-      const PresetManager = (await import('@src/domains/preset/manager/presetManager.js')).PresetManager;
-      const presetManager = PresetManager.getInstance();
-      if (presetManager && typeof presetManager.cleanup === 'function') {
-        await presetManager.cleanup();
-        logger.info('PresetManager cleanup complete');
-      }
-    } catch (error) {
-      logger.error(`Error cleaning up PresetManager: ${error instanceof Error ? error.message : String(error)}`);
-    }
+      runtimeOwnership?.release();
 
-    // Cleanup PID file if configDir is available
-    if (configDir) {
-      try {
-        cleanupPidFileOnExit(configDir);
-        logger.info('PID file cleanup complete');
-      } catch (error) {
-        logger.error(`Error cleaning up PID file: ${error instanceof Error ? error.message : String(error)}`);
-      }
-    }
+      logger.info('Server shutdown complete');
+      process.exit(0);
+    })();
 
-    runtimeOwnership?.release();
-
-    logger.info('Server shutdown complete');
-    process.exit(0);
+    return shutdownPromise;
   };
 
   // Handle various signals for graceful shutdown

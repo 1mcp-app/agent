@@ -1,3 +1,4 @@
+import type { EventEmitter } from 'node:events';
 import path from 'path';
 
 import { SSEClientTransport, SSEClientTransportOptions } from '@modelcontextprotocol/sdk/client/sse.js';
@@ -19,7 +20,6 @@ import type { ContextData } from '@src/types/context.js';
 import { z, ZodError } from 'zod';
 
 import { ManagedStdioStderr } from './managedStdioStderr.js';
-import { RestartableStdioTransport } from './restartableStdioTransport.js';
 
 type ValidatedTransport = z.infer<typeof transportConfigSchema>;
 
@@ -234,26 +234,20 @@ function createStdioTransport(name: string, validatedTransport: ValidatedTranspo
     env: envResult.processedEnv,
   };
 
-  // Create transport with restart capability if enabled
-  if (validatedTransport.restartOnExit) {
-    logger.info(`Creating restartable stdio transport for: ${name}`);
-    const restartableTransport = new RestartableStdioTransport(
-      stdioParams,
-      {
-        restartOnExit: true,
-        maxRestarts: validatedTransport.maxRestarts, // Use config value or undefined for unlimited
-        restartDelay: validatedTransport.restartDelay ?? 1000, // Use config value or default to 1 second
-      },
-      managedStderr,
-    );
-
-    // Add AuthProviderTransport properties
-    return restartableTransport as unknown as AuthProviderTransport;
-  }
-
-  // Create standard stdio transport
-  debugIf(`Creating standard stdio transport for: ${name}`);
+  // The Aggregated Runtime owns restart policy above the raw transport so every
+  // replacement completes a fresh MCP initialization before becoming routable.
+  debugIf(`Creating stdio transport for: ${name}`);
   const transport = new StdioClientTransport(stdioParams);
+  let lastExit: ReturnType<NonNullable<AuthProviderTransport['stdioSupervision']>['getLastExit']> = null;
+  const startTransport = transport.start.bind(transport);
+  transport.start = async (): Promise<void> => {
+    await startTransport();
+    const child = (transport as unknown as { _process?: EventEmitter & { pid?: number } })._process;
+    const pid = child?.pid ?? transport.pid;
+    child?.prependOnceListener('exit', (code: number | null, signal: string | null) => {
+      lastExit = { code, signal, pid, at: new Date() };
+    });
+  };
   if (managedStderr) {
     managedStderr.attach(transport.stderr);
     const closeTransport = transport.close.bind(transport);
@@ -265,7 +259,20 @@ function createStdioTransport(name: string, validatedTransport: ValidatedTranspo
       }
     };
   }
-  return transport as AuthProviderTransport;
+  const authTransport = transport as AuthProviderTransport;
+  if (validatedTransport.restartOnExit) {
+    logger.info(`Enabling runtime-owned stdio supervision for: ${name}`);
+    authTransport.stdioSupervision = {
+      policy: {
+        restartOnExit: true,
+        maxRestarts: validatedTransport.maxRestarts,
+        restartDelay: validatedTransport.restartDelay,
+      },
+      recreate: () => createStdioTransport(name, validatedTransport),
+      getLastExit: () => lastExit,
+    };
+  }
+  return authTransport;
 }
 
 /**

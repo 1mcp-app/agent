@@ -235,12 +235,14 @@ export async function handleMcpStatus(args: McpStatusToolArgs): Promise<McpStatu
 
     const adapter = AdapterFactory.getManagementAdapter();
     const result = await adapter.getServerStatus(args.name);
+    const runtimeServers = result.servers ?? [];
 
     // Transform to match expected output schema
-    const transformedServers = (result.servers || []).map((server) => ({
+    const transformedServers = runtimeServers.map((server) => ({
       name: server.name,
-      status: server.status as 'running' | 'stopped' | 'error' | 'unknown',
-      transport: server.transport as 'stdio' | 'sse' | 'http',
+      targetType: server.targetType ?? 'static',
+      status: server.status,
+      transport: runtimeTransport(server),
       uptime: undefined, // Not available in ServerStatusInfo
       lastConnected: server.lastChecked,
       pid: undefined, // Not available in ServerStatusInfo
@@ -251,22 +253,27 @@ export async function handleMcpStatus(args: McpStatusToolArgs): Promise<McpStatu
         prompts: undefined, // Not available in ServerStatusInfo
       },
       health: {
-        status: server.healthStatus as 'healthy' | 'unhealthy' | 'unknown',
-        lastCheck: server.lastChecked,
+        status: normalizeRuntimeHealthStatus(server.healthStatus, server.status),
+        lastCheck: server.lastChecked ?? new Date().toISOString(),
         responseTime: undefined, // Not available in ServerStatusInfo
       },
+      supervision: serializeInternalSupervision(server.supervision),
+      instances: server.instances?.map((instance) => ({
+        ...instance,
+        supervision: serializeInternalSupervision(instance.supervision),
+      })),
     }));
 
     const overall = {
       total: transformedServers.length,
-      running: transformedServers.filter((s) => s.status === 'running').length,
-      stopped: transformedServers.filter((s) => s.status === 'stopped').length,
-      errors: transformedServers.filter((s) => s.status === 'error').length,
+      running: transformedServers.filter((s) => s.status === 'connected').length,
+      stopped: transformedServers.filter((s) => s.status === 'disconnected' || s.status === 'disabled').length,
+      errors: transformedServers.filter((s) => s.status === 'error' || s.status === 'crash-loop').length,
     };
 
     const schemaResult = {
       servers: transformedServers,
-      timestamp: result.timestamp || new Date().toISOString(),
+      timestamp: new Date().toISOString(),
       overall,
     };
 
@@ -326,10 +333,13 @@ export async function handleMcpReload(args: McpReloadToolArgs): Promise<McpReloa
       target: result.target,
       action: result.action,
       status: result.success ? ('success' as const) : ('failed' as const),
-      message: `Reload ${result.success ? 'completed' : 'failed'} ${result.success ? 'successfully' : ''} for ${result.target}`,
+      message: result.success
+        ? `Reload completed successfully for ${result.target}`
+        : result.errors?.[0] || 'Reload operation failed',
       timestamp: result.timestamp,
       reloadedServers: result.reloadedServers,
       error: result.success ? undefined : result.errors?.[0] || 'Reload operation failed',
+      outcome: result.outcome,
     };
 
     return McpReloadOutputSchema.parse(structuredResult);
@@ -347,6 +357,56 @@ export async function handleMcpReload(args: McpReloadToolArgs): Promise<McpReloa
 
     return McpReloadOutputSchema.parse(result);
   }
+}
+
+function runtimeTransport(server: {
+  type?: string;
+  transport?: string;
+  url?: string;
+}): 'stdio' | 'sse' | 'http' | 'streamableHttp' {
+  if (
+    server.transport === 'sse' ||
+    server.transport === 'http' ||
+    server.transport === 'streamableHttp' ||
+    server.transport === 'stdio'
+  ) {
+    return server.transport;
+  }
+  if (server.type === 'sse' || server.type === 'http' || server.type === 'streamableHttp') return server.type;
+  if (server.url) return server.url.includes('/sse') ? 'sse' : 'http';
+  return 'stdio';
+}
+
+function normalizeRuntimeHealthStatus(
+  healthStatus: string | undefined,
+  status: string,
+): 'healthy' | 'unhealthy' | 'unknown' {
+  if (healthStatus === 'healthy' || healthStatus === 'unhealthy' || healthStatus === 'unknown') return healthStatus;
+  if (status === 'connected') return 'healthy';
+  if (status === 'restarting' || status === 'crash-loop' || status === 'error') return 'unhealthy';
+  return 'unknown';
+}
+
+function serializeInternalSupervision(
+  supervision:
+    | {
+        backendId: string;
+        state: 'connected' | 'restarting' | 'crash-loop' | 'stopped';
+        attempt: number;
+        limit: number | null;
+        nextRetryAt: Date | null;
+        lastExit: { code: number | null; signal: string | null; pid: number | null; at: Date } | null;
+        lastError: string | null;
+        currentPid: number | null;
+      }
+    | undefined,
+) {
+  if (!supervision) return undefined;
+  return {
+    ...supervision,
+    nextRetryAt: supervision.nextRetryAt?.toISOString() ?? null,
+    lastExit: supervision.lastExit ? { ...supervision.lastExit, at: supervision.lastExit.at.toISOString() } : null,
+  };
 }
 
 /**

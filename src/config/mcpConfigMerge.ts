@@ -25,7 +25,7 @@ function mergeEnvFilters(globalFilter: string[] | undefined, serverFilter: strin
   return Array.from(new Set([...globalFilter, ...serverFilter]));
 }
 
-function shouldApplyGlobalEnvFilter(serverConfig: MCPServerParams): boolean {
+function isStdioServerConfig(serverConfig: MCPServerParams): boolean {
   return serverConfig.type === 'stdio' || (serverConfig.type === undefined && serverConfig.command !== undefined);
 }
 
@@ -67,7 +67,18 @@ export function mergeGlobalAndServerConfig(
   if (merged.inheritParentEnv === undefined && globalConfig.inheritParentEnv !== undefined) {
     merged.inheritParentEnv = globalConfig.inheritParentEnv;
   }
-  merged.envFilter = shouldApplyGlobalEnvFilter(serverConfig)
+  if (isStdioServerConfig(serverConfig)) {
+    if (merged.restartOnExit === undefined && globalConfig.restartOnExit !== undefined) {
+      merged.restartOnExit = globalConfig.restartOnExit;
+    }
+    if (merged.maxRestarts === undefined && globalConfig.maxRestarts !== undefined) {
+      merged.maxRestarts = globalConfig.maxRestarts;
+    }
+    if (merged.restartDelay === undefined && globalConfig.restartDelay !== undefined) {
+      merged.restartDelay = globalConfig.restartDelay;
+    }
+  }
+  merged.envFilter = isStdioServerConfig(serverConfig)
     ? mergeEnvFilters(globalConfig.envFilter, serverConfig.envFilter)
     : serverConfig.envFilter;
 

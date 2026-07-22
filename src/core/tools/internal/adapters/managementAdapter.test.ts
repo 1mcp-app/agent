@@ -13,6 +13,11 @@ vi.mock('@src/commands/mcp/utils/mcpServerConfig.js', () => ({
   getInstallationMetadata: vi.fn(),
 }));
 
+vi.mock('@src/core/tools/handlers/serverManagementHandler.js', () => ({
+  handleReloadOperation: vi.fn(),
+  handleServerStatus: vi.fn(),
+}));
+
 vi.mock('@src/utils/validation/urlDetection.js', () => ({
   getServer1mcpUrl: vi.fn(() => 'http://localhost:3051/mcp'),
   validateServer1mcpUrl: vi.fn(() => ({ isValid: true, error: null })),
@@ -111,36 +116,36 @@ describe('Management Adapter', () => {
 
   describe('getServerStatus', () => {
     it('should get server status successfully', async () => {
-      const mockServers = {
-        'test-server': {
+      const { handleServerStatus } = await import('@src/core/tools/handlers/serverManagementHandler.js');
+      vi.mocked(handleServerStatus).mockResolvedValue({
+        server: {
           name: 'test-server',
-          command: 'node',
-          args: ['server.js'],
-          disabled: false,
+          type: 'stdio',
+          targetType: 'static',
+          status: 'connected',
+          configured: true,
         },
-      };
-
-      const { getAllServers } = await import('@src/commands/mcp/utils/mcpServerConfig.js');
-      (getAllServers as any).mockReturnValue(mockServers);
+      } as any);
 
       const result = await adapter.getServerStatus('test-server');
 
       expect(result.servers).toHaveLength(1);
       expect(result.servers[0].name).toBe('test-server');
-      expect(result.servers[0].status).toBe('enabled');
+      expect(result.servers[0].status).toBe('connected');
       expect(result.totalServers).toBe(1);
       expect(result.enabledServers).toBe(1);
       expect(result.disabledServers).toBe(0);
     });
 
     it('should get all servers status when no name provided', async () => {
-      const mockServers = {
-        server1: { name: 'server1', disabled: false },
-        server2: { name: 'server2', disabled: true },
-      };
-
-      const { getAllServers } = await import('@src/commands/mcp/utils/mcpServerConfig.js');
-      (getAllServers as any).mockReturnValue(mockServers);
+      const { handleServerStatus } = await import('@src/core/tools/handlers/serverManagementHandler.js');
+      vi.mocked(handleServerStatus).mockResolvedValue({
+        servers: [
+          { name: 'server1', type: 'stdio', targetType: 'static', status: 'connected', configured: true },
+          { name: 'server2', type: 'stdio', targetType: 'static', status: 'disabled', configured: true },
+        ],
+        summary: { total: 2, enabled: 1, disabled: 1, connected: 1, restarting: 0, crashLoop: 0 },
+      } as any);
 
       const result = await adapter.getServerStatus();
 
@@ -151,10 +156,8 @@ describe('Management Adapter', () => {
     });
 
     it('should handle status errors', async () => {
-      const { getAllServers } = await import('@src/commands/mcp/utils/mcpServerConfig.js');
-      (getAllServers as any).mockImplementation(() => {
-        throw new Error('Status check failed');
-      });
+      const { handleServerStatus } = await import('@src/core/tools/handlers/serverManagementHandler.js');
+      vi.mocked(handleServerStatus).mockRejectedValue(new Error('Status check failed'));
 
       await expect(adapter.getServerStatus()).rejects.toThrow('Server status check failed: Status check failed');
     });
@@ -269,15 +272,29 @@ describe('Management Adapter', () => {
     });
 
     it('should reload specific server', async () => {
+      const { handleReloadOperation } = await import('@src/core/tools/handlers/serverManagementHandler.js');
+      vi.mocked(handleReloadOperation).mockResolvedValue({
+        target: 'server',
+        serverName: 'test-server',
+        action: 'reloaded',
+        timestamp: new Date().toISOString(),
+        success: true,
+        outcome: {
+          targetName: 'test-server',
+          targetType: 'static',
+          outcome: 'restarted',
+          restartedInstanceIds: [],
+        },
+      } as any);
+
       const result = await adapter.reloadConfiguration({ server: 'test-server' });
 
       expect(result.success).toBe(true);
-      expect(result.target).toBe('test-server');
-      expect(result.action).toBe('full-reload');
+      expect(result.target).toBe('server');
+      expect(result.action).toBe('reloaded');
       expect(result.reloadedServers).toEqual(['test-server']);
-
-      const { reloadMcpConfig } = await import('@src/commands/mcp/utils/mcpServerConfig.js');
-      expect(reloadMcpConfig).toHaveBeenCalled();
+      expect(result.outcome).toMatchObject({ outcome: 'restarted' });
+      expect(handleReloadOperation).toHaveBeenCalled();
     });
 
     it('should handle config-only reload', async () => {

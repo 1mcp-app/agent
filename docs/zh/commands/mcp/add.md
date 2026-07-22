@@ -76,10 +76,10 @@ npx -y @1mcp/agent mcp add <name> [options] -- <command> [args...]
   - 为 `stdio` 服务器启用进程退出时自动重启（仅限 stdio）。
 
 - **`--max-restarts <number>`**
-  - 最大重启尝试次数（仅限 stdio，如果未指定则无限制）。
+  - 连续自动重启的最大尝试次数（仅限 stdio）。省略时为 `5`，设为 `0` 表示不限制次数。
 
 - **`--restart-delay <ms>`**
-  - 重启尝试之间的延迟（以毫秒为单位）（仅限 stdio，默认：1000）。
+  - 自动重启的初始延迟（毫秒，仅限 stdio）。默认为 `1000`；连续失败采用指数退避，最大为该值的 16 倍。
 
 ## 示例
 

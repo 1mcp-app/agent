@@ -413,7 +413,7 @@ describe('TransportFactory', () => {
       expect(debugIf).toHaveBeenCalledWith('Created transport: test-server');
     });
 
-    it('should create restartable transport with custom maxRestarts and restartDelay', () => {
+    it('should attach runtime-owned supervision with custom maxRestarts and restartDelay', () => {
       const config: Record<string, MCPServerParams> = {
         'restartable-server': {
           type: 'stdio',
@@ -431,7 +431,12 @@ describe('TransportFactory', () => {
       const transports = createTransports(config);
 
       expect(Object.keys(transports)).toEqual(['restartable-server']);
-      expect(logger.info).toHaveBeenCalledWith('Creating restartable stdio transport for: restartable-server');
+      expect(transports['restartable-server'].stdioSupervision?.policy).toEqual({
+        restartOnExit: true,
+        maxRestarts: 5,
+        restartDelay: 2000,
+      });
+      expect(logger.info).toHaveBeenCalledWith('Enabling runtime-owned stdio supervision for: restartable-server');
     });
 
     it('should use default restartDelay when not specified', () => {
@@ -452,10 +457,14 @@ describe('TransportFactory', () => {
       const transports = createTransports(config);
 
       expect(Object.keys(transports)).toEqual(['restartable-server-default']);
-      expect(logger.info).toHaveBeenCalledWith('Creating restartable stdio transport for: restartable-server-default');
+      expect(transports['restartable-server-default'].stdioSupervision?.policy).toEqual({
+        restartOnExit: true,
+        maxRestarts: 3,
+        restartDelay: undefined,
+      });
     });
 
-    it('should use unlimited restarts when maxRestarts not specified', () => {
+    it('leaves an omitted maxRestarts for the runtime policy to default to five', () => {
       const config: Record<string, MCPServerParams> = {
         'unlimited-restarts': {
           type: 'stdio',
@@ -463,7 +472,7 @@ describe('TransportFactory', () => {
           args: ['server.js'],
           restartOnExit: true,
           restartDelay: 500,
-          // maxRestarts not specified, should be undefined (unlimited)
+          // maxRestarts not specified; the runtime supervisor resolves the default.
         },
       };
 
@@ -473,7 +482,8 @@ describe('TransportFactory', () => {
       const transports = createTransports(config);
 
       expect(Object.keys(transports)).toEqual(['unlimited-restarts']);
-      expect(logger.info).toHaveBeenCalledWith('Creating restartable stdio transport for: unlimited-restarts');
+      expect(transports['unlimited-restarts'].stdioSupervision?.policy.maxRestarts).toBeUndefined();
+      expect(logger.info).toHaveBeenCalledWith('Enabling runtime-owned stdio supervision for: unlimited-restarts');
     });
   });
 });

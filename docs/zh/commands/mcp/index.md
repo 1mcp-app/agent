@@ -73,6 +73,16 @@ npx -y @1mcp/agent mcp tools list filesystem --disabled
 npx -y @1mcp/agent mcp tools disable filesystem write_file
 ```
 
+## 运行时操作
+
+### [restart](./restart)
+
+在正在运行的聚合运行时中重启静态后端，或重启模板后端的一个或多个活动实例。
+
+```bash
+npx -y @1mcp/agent mcp restart my-server
+```
+
 ## 另请参阅
 
 - **[服务器管理指南](../../guide/essentials/server-management)**

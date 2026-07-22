@@ -120,6 +120,16 @@ npx -y @1mcp/agent mcp tools list filesystem --disabled
 npx -y @1mcp/agent mcp tools disable filesystem write_file
 ```
 
+## Runtime Operations
+
+### [restart](./restart)
+
+Restart a static backend or one or more active instances of a template backend in the running aggregated runtime.
+
+```bash
+npx -y @1mcp/agent mcp restart my-server
+```
+
 ## See Also
 
 - **[Server Management Guide](../../guide/essentials/server-management)**

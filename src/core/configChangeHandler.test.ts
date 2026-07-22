@@ -17,6 +17,9 @@ vi.mock('@src/core/server/serverManager.js', () => ({
       isMcpServerRunning: vi.fn().mockReturnValue(true), // Assume server is running for metadata update tests
       getInboundConnections: vi.fn().mockReturnValue(new Map()),
       getClients: vi.fn().mockReturnValue(new Map()),
+      getTemplateServerManager: vi.fn().mockReturnValue({
+        rebuildTemplateIndex: vi.fn(),
+      }),
     },
   },
 }));
@@ -73,6 +76,37 @@ describe('ConfigChangeHandler', () => {
 
     it('should register listener for config changes', () => {
       expect(mockConfigManager.on).toHaveBeenCalledWith('configChanged', expect.any(Function));
+    });
+
+    it('reconciles declared templates even when the static config diff is empty', async () => {
+      const templateServers = { worker: { type: 'stdio', command: 'node', args: ['worker.js'] } };
+      mockConfigManager.loadDeclaredServerConfigs = vi.fn(() => ({
+        staticServers: {},
+        templateServers,
+        errors: [],
+      }));
+      const changeHandler = (mockConfigManager.on as any).mock.calls[0][1];
+
+      await changeHandler([]);
+
+      const { ServerManager } = await import('@src/core/server/serverManager.js');
+      expect(ServerManager.current.getTemplateServerManager().rebuildTemplateIndex).toHaveBeenCalledWith({
+        mcpTemplates: templateServers,
+      });
+    });
+
+    it('preserves running template instances when declared config validation fails', async () => {
+      mockConfigManager.loadDeclaredServerConfigs = vi.fn(() => ({
+        staticServers: {},
+        templateServers: {},
+        errors: ['Configuration parsing failed: invalid template'],
+      }));
+      const changeHandler = (mockConfigManager.on as any).mock.calls[0][1];
+
+      await changeHandler([]);
+
+      const { ServerManager } = await import('@src/core/server/serverManager.js');
+      expect(ServerManager.current.getTemplateServerManager().rebuildTemplateIndex).not.toHaveBeenCalled();
     });
   });
 

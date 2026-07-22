@@ -342,6 +342,25 @@ export class ServerManager {
     return this.serverRegistry;
   }
 
+  /** Notify attached callers that backend capability lists may have changed. */
+  public async notifyBackendCapabilityListsChanged(): Promise<void> {
+    if (this.lazyLoadingOrchestrator) {
+      await this.lazyLoadingOrchestrator.refreshCapabilities();
+    }
+
+    const notifications = [
+      'notifications/tools/list_changed',
+      'notifications/resources/list_changed',
+      'notifications/prompts/list_changed',
+    ] as const;
+    for (const inbound of this.connectionManager.getInboundConnections().values()) {
+      if (!inbound.server.transport) continue;
+      for (const method of notifications) {
+        await inbound.server.notification({ method, params: {} });
+      }
+    }
+  }
+
   public updateClientsAndTransports(newClients: OutboundConnections, newTransports: Record<string, Transport>): void {
     this.outboundConns = newClients;
     this.transports = newTransports;

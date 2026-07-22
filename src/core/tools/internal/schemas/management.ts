@@ -144,8 +144,11 @@ export const McpStatusOutputSchema = z.object({
     .array(
       z.object({
         name: z.string().describe('Server name'),
-        status: z.enum(['running', 'stopped', 'error', 'unknown']).describe('Current status'),
-        transport: z.enum(['stdio', 'sse', 'http']).describe('Transport type'),
+        targetType: z.enum(['static', 'template']).describe('Configured target type'),
+        status: z
+          .enum(['enabled', 'disabled', 'connected', 'disconnected', 'restarting', 'crash-loop', 'error', 'unknown'])
+          .describe('Current configured target status'),
+        transport: z.enum(['stdio', 'sse', 'http', 'streamableHttp']).describe('Transport type'),
         uptime: z.string().optional().describe('Server uptime'),
         lastConnected: z.string().optional().describe('Last connection timestamp'),
         pid: z.number().optional().describe('Process ID'),
@@ -173,6 +176,54 @@ export const McpStatusOutputSchema = z.object({
           })
           .optional()
           .describe('Health information'),
+        supervision: z
+          .object({
+            backendId: z.string(),
+            state: z.enum(['connected', 'restarting', 'crash-loop', 'stopped']),
+            attempt: z.number(),
+            limit: z.number().nullable(),
+            nextRetryAt: z.string().nullable(),
+            lastExit: z
+              .object({
+                code: z.number().nullable(),
+                signal: z.string().nullable(),
+                pid: z.number().nullable(),
+                at: z.string(),
+              })
+              .nullable(),
+            lastError: z.string().nullable(),
+            currentPid: z.number().nullable(),
+          })
+          .optional()
+          .describe('Runtime stdio supervision facts for a static backend'),
+        instances: z
+          .array(
+            z.object({
+              instanceId: z.string().describe('Short template instance ID'),
+              status: z.string().describe('Current template instance status'),
+              supervision: z
+                .object({
+                  backendId: z.string(),
+                  state: z.enum(['connected', 'restarting', 'crash-loop', 'stopped']),
+                  attempt: z.number(),
+                  limit: z.number().nullable(),
+                  nextRetryAt: z.string().nullable(),
+                  lastExit: z
+                    .object({
+                      code: z.number().nullable(),
+                      signal: z.string().nullable(),
+                      pid: z.number().nullable(),
+                      at: z.string(),
+                    })
+                    .nullable(),
+                  lastError: z.string().nullable(),
+                  currentPid: z.number().nullable(),
+                })
+                .optional(),
+            }),
+          )
+          .optional()
+          .describe('Active runtime instances for a template target'),
       }),
     )
     .describe('Server status information'),
@@ -200,6 +251,23 @@ export const McpReloadOutputSchema = z.object({
   affectedServers: z.array(z.string()).optional().describe('List of affected server names'),
   duration: z.number().optional().describe('Reload duration in milliseconds'),
   error: z.string().optional().describe('Error message if failed'),
+  outcome: z
+    .object({
+      targetName: z.string(),
+      targetType: z.enum(['static', 'template']).optional(),
+      outcome: z.enum([
+        'restarted',
+        'target_not_found',
+        'instance_not_found',
+        'instance_ambiguous',
+        'no_active_instances',
+        'no_unhealthy_instances',
+      ]),
+      restartedInstanceIds: z.array(z.string()),
+      candidateInstanceIds: z.array(z.string()).optional(),
+    })
+    .optional()
+    .describe('Structured runtime restart outcome for a named server reload'),
 });
 
 // ==================== TYPE EXPORTS ====================

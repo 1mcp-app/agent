@@ -79,10 +79,10 @@ This command supports all global options:
   - Enable automatic restart when the process exits (for `stdio` servers only).
 
 - **`--max-restarts <number>`**
-  - Maximum number of restart attempts (for `stdio` servers only). If not specified, unlimited restarts are allowed.
+  - Maximum consecutive automatic restart attempts (for `stdio` servers only). Omitted means `5`; `0` means unlimited.
 
 - **`--restart-delay <ms>`**
-  - Delay in milliseconds between restart attempts (for `stdio` servers only). Default: 1000ms.
+  - Initial restart delay in milliseconds (for `stdio` servers only). Defaults to `1000`; consecutive failures use exponential backoff capped at 16 times this value.
 
 ## Examples
 
