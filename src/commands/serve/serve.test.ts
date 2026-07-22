@@ -70,6 +70,10 @@ vi.mock('@src/core/server/pidFileManager.js', () => ({
   registerPidFileCleanup: vi.fn(),
   cleanupPidFileOnExit: vi.fn(),
 }));
+vi.mock('@src/core/server/runtimeScopeOwnership.js', () => ({
+  claimRuntimeScope: vi.fn(() => ({ record: { claimId: 'test-claim' }, release: vi.fn() })),
+  verifyRuntimeScopeOwnership: vi.fn(),
+}));
 vi.mock('@src/transport/http/server.js', () => ({
   ExpressServer: vi.fn(),
 }));

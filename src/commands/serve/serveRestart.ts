@@ -11,7 +11,7 @@ import { runServeStop } from './serveStop.js';
  * clean no-op and a background runtime is still started, so a successful restart
  * always ends in a running runtime. This is a thin composition of the existing
  * `--stop` and `--background` handlers; staleness handling, signal escalation,
- * detached spawn, readiness wait, and idempotency all come from them unchanged.
+ * detached spawn, readiness wait, and exclusive startup all come from them unchanged.
  *
  * Both handlers communicate via `process.exitCode` (the established lifecycle
  * pattern), so this routine inspects it between the two phases: if the stop
@@ -41,7 +41,7 @@ export async function runServeRestart(parsedArgv: ServeOptions, deps: RunRestart
   }
 
   // Phase 2: start a fresh detached background runtime. The stop cleaned up the
-  // PID file, so the background idempotency probe sees an empty scope.
+  // lifecycle metadata, so the background startup sees an empty scope.
   process.exitCode = undefined;
   await runBackground(parsedArgv);
 }

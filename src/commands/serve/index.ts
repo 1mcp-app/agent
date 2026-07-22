@@ -38,6 +38,18 @@ export const serverOptions = {
     default: false,
     hidden: true,
   },
+  // Internal authorization passed by the Background Runtime Supervisor to its
+  // worker. The worker verifies this claim instead of competing for ownership.
+  'runtime-owner-claim-id': {
+    type: 'string' as const,
+    hidden: true,
+  },
+  // Private validated app-config snapshot used by supervised workers so a
+  // replacement cannot drift when config.toml changes after supervisor start.
+  'background-launch-config': {
+    type: 'string' as const,
+    hidden: true,
+  },
   transport: {
     alias: 't',
     describe: 'Transport type to use (stdio or http, sse is deprecated)',

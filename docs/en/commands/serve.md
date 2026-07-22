@@ -83,7 +83,7 @@ For runtime-wide configuration details, see the **[Configuration Guide](/guide/e
 
 ### Lifecycle
 
-- **`--background`**: Start the HTTP Aggregated Runtime as a detached background process for the selected **Runtime Scope**, then return once it is ready. HTTP only.
+- **`--background`**: Start a persistent Background Runtime Supervisor and its HTTP Aggregated Runtime for the selected **Runtime Scope**, then return once the runtime is ready. HTTP only.
 - **`--status`**: Report the state of the runtime in the selected **Runtime Scope**, then exit without starting a server.
 - **`--stop`**: Stop the runtime in the selected **Runtime Scope**, then exit.
 - **`--restart`**: Stop the runtime in the selected **Runtime Scope** (if running), then start a fresh detached background runtime. HTTP only.
@@ -92,9 +92,13 @@ For runtime-wide configuration details, see the **[Configuration Guide](/guide/e
 
 A **Runtime Scope** is a configuration directory. Runtime uniqueness is scoped to the config directory, not the whole machine: the default config directory is the default Runtime Scope, and an alternate `--config-dir` is a separate Runtime Scope that can run its own runtime.
 
+Each Runtime Scope has one race-safe lifecycle owner. An ordinary foreground or background `serve` command exits non-zero if that scope is already owned, including while a background runtime is restarting or in `crash-loop`. Use `--restart` when replacement is intentional. Different configuration directories remain independent.
+
+Foreground HTTP and deprecated foreground stdio starts participate in the same ownership rule, but remain unsupervised. Prefer `1mcp proxy` for stdio-compatible clients; background mode is HTTP-only.
+
 ### Start in the background
 
-`1mcp serve --background` starts the runtime as a detached process and returns once it is ready, so scripts can continue:
+`1mcp serve --background` starts a persistent supervisor with one detached runtime worker and returns once the worker is ready, so scripts can continue:
 
 ```bash
 1mcp serve --background
@@ -116,10 +120,14 @@ Behavior:
 - **HTTP only.** `--transport stdio` is rejected (stdio cannot be detached). `sse` is normalized to HTTP, and the runtime records `transport: http`.
 - **Fast detach.** In the default synchronous mode the command returns only after every upstream server connects, so the wait scales with the slowest one. Add `--enable-async-loading` to bind the HTTP endpoint first and return in well under a second, with upstream servers loading in the background.
 - **Deterministic logs.** When no `--log-file` or `logging.file` is configured, background logs default to `<config-dir>/logs/server.log`.
-- **Idempotent.** If a runtime is already running in the Runtime Scope (foreground or background), it is reported and the command exits `0` without starting a second one. A separate `--config-dir` is a separate scope and runs its own runtime.
-- **Occupied but not ready.** If a runtime occupies the scope but has not yet passed `/health/ready`, `--background` refuses to start a second one and exits non-zero. Check `--status` or stop it first.
-- **Orphan recovery.** A PID file pointing to a dead process does not block startup; it is treated as stale and replaced.
-- **Failure.** If the runtime does not reach `/health/ready`, the command prints the log path, terminates the spawned process, and exits non-zero.
+- **Exclusive startup.** If the Runtime Scope is already owned, the command exits non-zero without spawning another runtime worker or binding a port. Simultaneous starts have exactly one winner. A separate `--config-dir` is a separate scope and can run independently.
+- **Crash recovery.** Every unexpected worker exit consumes an attempt. The supervisor retries up to five times after 1, 2, 4, 8, and 16 seconds, reusing the original effective configuration, transport, host, port, logging, and startup options.
+- **Stable reset.** The retry counter resets only after a replacement reaches readiness and stays alive for five minutes.
+- **Health is observational.** A live worker that later fails readiness is reported as unreachable; it is not killed or restarted solely because of health.
+- **Terminal failure.** After retry exhaustion, the supervisor stays resident in `crash-loop` without a worker until `--stop` or `--restart`. The original background command exits non-zero if startup reaches this state.
+- **Orphan handling.** If the supervisor dies while its worker remains alive, the scope is `orphaned`. Ordinary starts continue to fail closed; use `--stop` or `--restart` to recover it.
+- **Stale ownership.** Valid ownership left by a dead process can be reclaimed. Unreadable, malformed, or otherwise ambiguous ownership fails closed.
+- **Lifecycle logs.** Supervisor events append to the background log, including worker exit reason, attempt, delay, replacement PID, recovery, and retry exhaustion.
 
 ### Check runtime status
 
@@ -130,12 +138,16 @@ Behavior:
 1mcp serve --status --config-dir ./config
 ```
 
-It prints the PID, URL, Runtime Scope, start time, log file, process liveness, and `/health/ready` readiness:
+For a supervised background runtime it prints the supervisor and runtime PIDs, restart attempt, last exit, next retry, URL, start time, log file, and readiness:
 
 ```text
 Runtime Scope: /home/me/.config/1mcp
-Status: running (ready)
-PID: 48213
+Status: running
+Supervisor PID: 48190
+Runtime PID: 48213
+Restart attempt: 0
+Last exit: none
+Next retry: none
 URL: http://localhost:3050/mcp
 Started: 2026-06-26T00:00:00.000Z
 Log file: /home/me/.config/1mcp/logs/server.log
@@ -148,8 +160,11 @@ The exit code reflects the state, so scripts can branch on it:
 - `0` — running and ready
 - `3` — not running (the scope is empty, or a stale PID file pointing to a dead process was cleaned up)
 - `4` — alive but not yet ready (the process is up but `/health/ready` is not passing, e.g. mid-startup)
+- `5` — restarting after an unexpected worker exit
+- `6` — `crash-loop` after automatic retries are exhausted
+- `7` — orphaned (the supervisor is dead while its runtime worker remains alive)
 
-`--status` is read-only. A PID file pointing to a dead process is removed; a live-but-not-ready runtime keeps its PID file so a still-starting runtime is never stranded.
+Status does not restart or kill a live process. Stale dead metadata is cleaned up when it can be identified safely; live-but-unreachable and ambiguous ownership remain in place so the scope never appears falsely available.
 
 ### Stop the runtime
 
@@ -160,16 +175,18 @@ The exit code reflects the state, so scripts can branch on it:
 1mcp serve --stop --config-dir ./config
 ```
 
-It discovers the scoped runtime, sends a graceful termination signal to its process, waits briefly for it to exit (escalating if needed), and removes the PID file:
+For a background runtime it first stops the supervisor, which cancels pending retry work, and then ensures the worker exits before releasing lifecycle ownership. This ordering prevents a deliberate stop from spawning a replacement. It also recovers an orphan by stopping the surviving worker directly.
 
 ```text
-Stopped runtime in Runtime Scope /home/me/.config/1mcp (PID 48213).
+Stopped supervised background runtime in Runtime Scope /home/me/.config/1mcp (supervisor PID 48190).
 ```
 
 Behavior:
 
 - **Scope-isolated.** Only the runtime recorded for the selected Runtime Scope is signalled; a runtime in a different `--config-dir` is never touched.
-- **Clean when idle.** If nothing is running it reports so and exits `0`, removing a stale PID file if one is present.
+- **No respawn.** A pending retry is cancelled before the worker is stopped, and ownership is released only after supervisor and worker termination.
+- **Orphan recovery.** A dead supervisor with a live worker is stopped and its stale lifecycle metadata is released.
+- **Clean when idle.** If nothing is running it reports so and exits `0`, removing stale metadata when it is safe to do so.
 
 ### Restart the runtime
 
@@ -185,6 +202,7 @@ It composes `--stop` and `--background`, so it accepts the same HTTP options as 
 Behavior:
 
 - **Always ends running.** Following `systemctl restart` semantics, an empty scope is a clean no-op stop followed by a cold start, so a successful restart always leaves a runtime running and exits `0`.
+- **Resets supervision.** Restart works from running, restarting, `crash-loop`, and orphaned states. It replaces both supervisor and worker and resets the retry counter.
 - **HTTP only.** Like `--background`, `--transport stdio` is rejected.
 - **Safe handoff.** If the existing runtime cannot be stopped (still alive after escalation), the restart aborts before starting and exits non-zero, so two runtimes never contend for the same scope.
 
