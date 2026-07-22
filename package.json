@@ -124,7 +124,7 @@
   },
   "devDependencies": {
     "@braintree/sanitize-url": "^7.1.1",
-    "@eslint/js": "^9.22.0",
+    "@eslint/js": "^10.0.1",
     "@mantine/core": "8.3.14",
     "@mantine/hooks": "8.3.14",
     "@testing-library/jest-dom": "^6.6.3",
