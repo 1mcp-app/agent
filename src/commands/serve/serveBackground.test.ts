@@ -3,7 +3,6 @@ import path from 'path';
 
 import {
   BACKGROUND_GUARD_FLAG,
-  buildBackgroundChildArgs,
   buildBackgroundSupervisorArgs,
   buildBackgroundWorkerArgs,
   defaultBackgroundLogFile,
@@ -39,54 +38,6 @@ describe('serveBackground helpers', () => {
   describe('defaultBackgroundLogFile', () => {
     it('defaults to <configDir>/logs/server.log', () => {
       expect(defaultBackgroundLogFile('/scope')).toBe(path.join('/scope', 'logs', 'server.log'));
-    });
-  });
-
-  describe('buildBackgroundChildArgs', () => {
-    it('strips overridden flags and appends http transport, log file, and guard', () => {
-      const result = buildBackgroundChildArgs(
-        ['--background', '--config-dir', '/x', '--transport', 'sse', '--log-file', '/old.log', '--port', '3050'],
-        { logFile: '/new.log' },
-      );
-
-      expect(result).not.toContain('--background');
-      expect(result).not.toContain('sse');
-      expect(result).not.toContain('/old.log');
-      // Preserved passthrough args.
-      expect(result).toEqual(expect.arrayContaining(['--config-dir', '/x', '--port', '3050']));
-      // Forced overrides at the end.
-      expect(result).toEqual(
-        expect.arrayContaining(['--transport', 'http', '--log-file', '/new.log', `--${BACKGROUND_GUARD_FLAG}`]),
-      );
-    });
-
-    it('handles = forms and short -t', () => {
-      const result = buildBackgroundChildArgs(['--transport=sse', '-t', 'http', '--log-file=/a.log'], {
-        logFile: '/b.log',
-      });
-      expect(result.filter((t) => t === 'http')).toHaveLength(1); // only the appended one
-      expect(result).not.toContain('/a.log');
-      expect(result).toContain('/b.log');
-    });
-
-    it('does not propagate lifecycle actions into the supervisor invocation', () => {
-      const result = buildBackgroundChildArgs(
-        [
-          '--restart',
-          '--restart=true',
-          '--status',
-          '--stop=false',
-          '--background=true',
-          `--${BACKGROUND_GUARD_FLAG}=true`,
-          '--port',
-          '3050',
-        ],
-        { logFile: '/scope/server.log' },
-      );
-
-      expect(result.filter((token) => /^--(?:background|restart|status|stop)(?:=|$)/.test(token))).toEqual([]);
-      expect(result).toContain(`--${BACKGROUND_GUARD_FLAG}`);
-      expect(result).toEqual(expect.arrayContaining(['--port', '3050']));
     });
   });
 
@@ -360,6 +311,36 @@ describe('runServeBackgroundSupervisor', () => {
       }),
     ).rejects.toThrow(/state is unreadable/i);
 
+    expect(release).not.toHaveBeenCalled();
+  });
+
+  it('retains ownership and chains the supervisor failure when guarded cleanup detects replacement state', async () => {
+    const release = vi.fn();
+    const supervisorFailure = new Error('supervisor failed');
+
+    await expect(
+      runServeBackgroundSupervisor({ 'config-dir': scope } as any, {
+        rawArgv: ['serve', '--background-bootstrap', '--config-dir', scope],
+        loadAppConfig: () => ({}),
+        claimScope: () => ({
+          record: {
+            version: 1,
+            pid: 100,
+            claimId: 'claim-123',
+            kind: 'background-supervisor',
+            claimedAt: '2026-07-22T00:00:00.000Z',
+          },
+          release,
+        }),
+        runSupervisor: async () => {
+          writeBackgroundLaunchConfig(scope, 'replacement-claim', {});
+          throw supervisorFailure;
+        },
+      }),
+    ).rejects.toMatchObject({
+      message: 'Background launch configuration changed before supervisor cleanup',
+      cause: supervisorFailure,
+    });
     expect(release).not.toHaveBeenCalled();
   });
 

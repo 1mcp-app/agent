@@ -14,7 +14,8 @@ export const BACKGROUND_STABLE_RESET_MS = 5 * 60 * 1_000;
 
 export interface SupervisedRuntimeWorker {
   readonly pid?: number;
-  once(event: 'exit', listener: (code: number | null, signal: BackgroundRuntimeSignal | null) => void): this | void;
+  on(event: 'error', listener: (error: Error) => void): this | void;
+  once(event: 'close', listener: (code: number | null, signal: BackgroundRuntimeSignal | null) => void): this | void;
   kill(signal?: BackgroundRuntimeSignal): unknown;
 }
 
@@ -150,14 +151,28 @@ export async function runBackgroundRuntimeSupervisor(
 
     for (;;) {
       const worker = spawnWorker(options.workerCommand, workerArgs, { stdio: 'ignore' });
+      let workerErrorMessage: string | undefined;
+      worker.on('error', (error) => {
+        workerErrorMessage = error.message;
+      });
+      // An error does not prove termination; close is the authoritative signal
+      // that it is safe to account for the exit and consider a replacement.
+      const exitPromise = new Promise<WorkerExitOutcome>((resolve) => {
+        worker.once('close', (code, signal) => {
+          resolve({
+            kind: 'exit',
+            exit: {
+              at: now().toISOString(),
+              code,
+              signal,
+              ...(workerErrorMessage ? { error: workerErrorMessage } : {}),
+            },
+          });
+        });
+      });
       if (!worker.pid) {
         throw new Error('Background Runtime Supervisor failed to spawn a runtime worker');
       }
-      const exitPromise = new Promise<WorkerExitOutcome>((resolve) => {
-        worker.once('exit', (code, signal) => {
-          resolve({ kind: 'exit', exit: { at: now().toISOString(), code, signal } });
-        });
-      });
       activeWorker = worker;
       activeExitPromise = exitPromise;
       void exitPromise.then(() => {

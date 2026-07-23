@@ -103,19 +103,6 @@ export function defaultBackgroundLogFile(configDir: string): string {
   return path.join(configDir, 'logs', 'server.log');
 }
 
-/**
- * Build the child's serve arguments: strip flags the parent overrides
- * (lifecycle actions, `--transport`/`-t`, `--log-file`, and the guard —
- * including their `=`-joined forms) and re-append the HTTP transport, the
- * resolved log file, and the guard flag. Background is HTTP-only, so the child
- * is always forced onto `--transport http`.
- */
-export function buildBackgroundChildArgs(serveArgs: string[], opts: { logFile: string }): string[] {
-  const out = stripBackgroundManagedArgs(serveArgs);
-  out.push('--transport', 'http', '--log-file', opts.logFile, `--${BACKGROUND_GUARD_FLAG}`);
-  return out;
-}
-
 /** Materialize parsed CLI, environment, and default values for the supervisor. */
 export function buildBackgroundSupervisorArgs(parsedArgv: ServeOptions, opts: { logFile: string }): string[] {
   const args: string[] = [];
@@ -524,13 +511,26 @@ export async function runServeBackgroundSupervisor(
   }
 
   if (launchConfigFile && !cleanupBackgroundLaunchConfig(configDir, ownership.record.claimId)) {
-    throw new Error('Background launch configuration changed before supervisor cleanup');
+    throw createCleanupMismatchError(
+      'Background launch configuration changed before supervisor cleanup',
+      supervisorFailure,
+    );
   }
   if (!cleanupBackgroundSupervisorState(configDir, ownership.record.pid)) {
-    throw new Error('Background supervisor state changed before supervisor cleanup');
+    throw createCleanupMismatchError(
+      'Background supervisor state changed before supervisor cleanup',
+      supervisorFailure,
+    );
   }
   ownership.release();
   if (supervisorFailure) throw supervisorFailure.error;
+}
+
+function createCleanupMismatchError(message: string, supervisorFailure?: { error: unknown }): Error {
+  if (!supervisorFailure) {
+    return new Error(message);
+  }
+  return new Error(message, { cause: supervisorFailure.error });
 }
 
 function defaultKillChild(pid: number): void {

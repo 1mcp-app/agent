@@ -20,7 +20,6 @@ export {
   createMockClient,
   createMockExpressRequest,
   createMockExpressResponse,
-  MOCK_MODULES,
 } from './MockFactories.js';
 
 export { TestFixtures } from './TestFixtures.js';

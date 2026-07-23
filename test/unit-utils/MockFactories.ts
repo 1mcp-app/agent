@@ -150,40 +150,17 @@ export const createMockExpressResponse = () => {
   return res;
 };
 
-/**
- * Factory for creating mock file system operations
- */
-export const createMockFileSystem = () => ({
-  existsSync: vi.fn().mockReturnValue(true),
-  readFileSync: vi.fn().mockReturnValue('{}'),
-  writeFileSync: vi.fn(),
-  mkdirSync: vi.fn(),
-  rmSync: vi.fn(),
-  readdirSync: vi.fn().mockReturnValue([]),
-  statSync: vi.fn().mockReturnValue({ isDirectory: () => false }),
-});
-
-/**
- * Factory for creating mock process objects
- */
-export const createMockProcess = (overrides?: any) => ({
-  pid: 12345,
-  stdout: {
-    on: vi.fn(),
-    pipe: vi.fn(),
-  },
-  stderr: {
-    on: vi.fn(),
-    pipe: vi.fn(),
-  },
-  stdin: {
-    write: vi.fn(),
-    end: vi.fn(),
-  },
-  on: vi.fn(),
-  kill: vi.fn(),
-  ...overrides,
-});
+/** Factory for the runtime-scope ownership module used by serve command tests. */
+export function createRuntimeScopeOwnershipMock() {
+  return {
+    claimRuntimeScope: vi.fn(() => ({
+      record: { claimId: 'test-claim' },
+      release: vi.fn(),
+    })),
+    verifyRuntimeScopeOwnership: vi.fn(),
+    RuntimeScopeOwnedError: class RuntimeScopeOwnedError extends Error {},
+  };
+}
 
 /**
  * Factory for creating mock configuration objects
@@ -209,30 +186,3 @@ export const createMockConfig = (overrides?: any) => ({
   },
   ...overrides,
 });
-
-/**
- * Collection of commonly used mock modules
- */
-export const MOCK_MODULES = {
-  logger: () =>
-    vi.mock('../../src/logger/logger.js', () => ({
-      default: createMockLogger(),
-    })),
-
-  client: () =>
-    vi.mock('@modelcontextprotocol/sdk/client/index.js', () => ({
-      Client: vi.fn().mockImplementation(() => createMockClient()),
-    })),
-
-  server: () =>
-    vi.mock('@modelcontextprotocol/sdk/server/index.js', () => ({
-      Server: vi.fn().mockImplementation(() => createMockServer()),
-    })),
-
-  fs: () => vi.mock('fs', () => createMockFileSystem()),
-
-  childProcess: () =>
-    vi.mock('child_process', () => ({
-      spawn: vi.fn().mockReturnValue(createMockProcess()),
-    })),
-};

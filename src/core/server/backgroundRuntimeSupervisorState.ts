@@ -13,6 +13,7 @@ export interface BackgroundRuntimeExit {
   at: string;
   code: number | null;
   signal: BackgroundRuntimeSignal | null;
+  error?: string;
 }
 
 export interface BackgroundSupervisorState {
@@ -38,6 +39,7 @@ const stateSchema = z.object({
       at: z.string().datetime(),
       code: z.number().int().nullable(),
       signal: z.string().nullable(),
+      error: z.string().min(1).optional(),
     })
     .nullable(),
   nextRetryAt: z.string().datetime().nullable(),

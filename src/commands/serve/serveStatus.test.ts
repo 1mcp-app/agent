@@ -275,6 +275,27 @@ describe('serveStatus', () => {
       expect(formatRuntimeStatusReport(report)).toContain('Status: unreachable');
     });
 
+    it('includes the discovery error when live supervisor metadata is available', async () => {
+      const state = supervisorState();
+      const report = await getRuntimeStatusReport(testConfigDir, {
+        readSupervisorState: () => state,
+        discoverRuntime: vi.fn().mockResolvedValue({
+          status: 'error',
+          info: null,
+          error: 'runtime PID metadata is unreadable',
+        }),
+        isAlive: (pid) => pid === state.supervisorPid,
+      });
+
+      expect(report).toMatchObject({
+        status: 'error',
+        error: 'runtime PID metadata is unreadable',
+        supervisorState: state,
+      });
+      expect(STATUS_EXIT_CODES[report.status]).toBe(2);
+      expect(formatRuntimeStatusReport(report)).toContain('Error: runtime PID metadata is unreadable');
+    });
+
     it('reports an orphan when a dead supervisor missed runtime PID state publication', async () => {
       const state = supervisorState({
         status: 'starting',

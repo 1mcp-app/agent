@@ -27,8 +27,13 @@ class FakeWorker extends EventEmitter implements SupervisedRuntimeWorker {
     if (this.autoExitOnKill) queueMicrotask(() => this.exit(null, signal));
   });
 
+  fail(error: Error): void {
+    this.emit('error', error);
+  }
+
   exit(code: number | null, signal: BackgroundRuntimeSignal | null = null): void {
     this.emit('exit', code, signal);
+    this.emit('close', code, signal);
   }
 }
 
@@ -75,6 +80,40 @@ describe('background supervisor state store', () => {
 });
 
 describe('runBackgroundRuntimeSupervisor', () => {
+  it('waits for worker close after an error before scheduling a replacement', async () => {
+    const first = new FakeWorker(190);
+    const replacement = new FakeWorker(191);
+    const workers = [first, replacement];
+    const spawnWorker = vi.fn(() => workers.shift()!);
+    const states: BackgroundSupervisorState[] = [];
+    const stop = deferred<void>();
+
+    const running = runBackgroundRuntimeSupervisor(
+      { configDir: '/scope', workerCommand: '1mcp', workerArgs: ['serve'], supervisorPid: 100 },
+      {
+        spawnWorker,
+        waitForReady: async () => true,
+        writeState: (snapshot) => states.push(snapshot),
+        sleep: async () => {},
+        waitForStop: () => stop.promise,
+      },
+    );
+
+    await vi.waitFor(() => expect(states.at(-1)?.runtimePid).toBe(190));
+    first.fail(new Error('worker channel failed'));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(spawnWorker).toHaveBeenCalledOnce();
+
+    first.exit(1);
+    await vi.waitFor(() => expect(states.at(-1)?.runtimePid).toBe(191));
+    expect(states.find((snapshot) => snapshot.lastExit?.code === 1)?.lastExit).toMatchObject({
+      error: 'worker channel failed',
+    });
+
+    stop.resolve(undefined);
+    await running;
+  });
+
   it.each(['state', 'event'] as const)(
     'stops the active worker before propagating a %s persistence failure',
     async (failure) => {

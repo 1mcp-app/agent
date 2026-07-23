@@ -239,6 +239,9 @@ export function formatRuntimeStatusReport(report: RuntimeStatusReport): string {
     lines.push(`Restart attempt: ${state.restartAttempt}`);
     lines.push(`Last exit: ${formatLastExit(state.lastExit)}`);
     lines.push(`Next retry: ${state.nextRetryAt ?? 'none'}`);
+    if (status === 'error') {
+      lines.push(`Error: ${report.error ?? 'PID file could not be read'}`);
+    }
     if (info) {
       lines.push(`URL: ${info.url}`);
       lines.push(`Started: ${info.startedAt}`);
@@ -286,7 +289,8 @@ function formatLastExit(lastExit: BackgroundSupervisorState['lastExit']): string
     return 'none';
   }
   const reason = lastExit.code !== null ? `code ${lastExit.code}` : `signal ${lastExit.signal ?? 'unknown'}`;
-  return `${reason} at ${lastExit.at}`;
+  const errorDetail = lastExit.error ? `; process error: ${lastExit.error}` : '';
+  return `${reason}${errorDetail} at ${lastExit.at}`;
 }
 
 /**

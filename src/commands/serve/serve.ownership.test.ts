@@ -14,17 +14,15 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { serveCommand, type ServeOptions } from './serve.js';
 import { runServeBackgroundSupervisor } from './serveBackground.js';
 
-const ownershipHandle = { record: { claimId: 'claim-1' }, release: vi.fn() };
 const backgroundMocks = vi.hoisted(() => ({
   runServeBackground: vi.fn(),
   runServeBackgroundSupervisor: vi.fn(),
 }));
 
-vi.mock('@src/core/server/runtimeScopeOwnership.js', () => ({
-  claimRuntimeScope: vi.fn(() => ownershipHandle),
-  verifyRuntimeScopeOwnership: vi.fn(),
-  RuntimeScopeOwnedError: class RuntimeScopeOwnedError extends Error {},
-}));
+vi.mock('@src/core/server/runtimeScopeOwnership.js', async () => {
+  const { createRuntimeScopeOwnershipMock } = await import('@test/unit-utils/MockFactories.js');
+  return createRuntimeScopeOwnershipMock();
+});
 vi.mock('@src/config/configManager.js', () => ({
   ConfigManager: {
     getInstance: vi.fn(() => {
@@ -65,7 +63,7 @@ describe('serveCommand Runtime Scope ownership', () => {
     expect(claimRuntimeScope).toHaveBeenCalledWith(scope, { kind });
     expect(ConfigManager.getInstance).toHaveBeenCalledOnce();
     expect(setupServer).not.toHaveBeenCalled();
-    expect(ownershipHandle.release).toHaveBeenCalledOnce();
+    expect(vi.mocked(claimRuntimeScope).mock.results.at(-1)?.value.release).toHaveBeenCalledOnce();
     expect(process.exit).toHaveBeenCalledWith(1);
   });
 
