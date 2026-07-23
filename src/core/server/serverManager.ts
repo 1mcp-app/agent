@@ -345,7 +345,12 @@ export class ServerManager {
   /** Notify attached callers that backend capability lists may have changed. */
   public async notifyBackendCapabilityListsChanged(): Promise<void> {
     if (this.lazyLoadingOrchestrator) {
-      await this.lazyLoadingOrchestrator.refreshCapabilities();
+      try {
+        await this.lazyLoadingOrchestrator.refreshCapabilities();
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        logger.warn(`Failed to refresh lazy backend capabilities: ${message}`);
+      }
     }
 
     const notifications = [
@@ -356,7 +361,12 @@ export class ServerManager {
     for (const inbound of this.connectionManager.getInboundConnections().values()) {
       if (!inbound.server.transport) continue;
       for (const method of notifications) {
-        await inbound.server.notification({ method, params: {} });
+        try {
+          await inbound.server.notification({ method, params: {} });
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          logger.warn(`Failed to send ${method} to an inbound client: ${message}`);
+        }
       }
     }
   }

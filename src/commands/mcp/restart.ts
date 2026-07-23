@@ -274,13 +274,13 @@ function createClient(
 
 async function getEnvelope<T>(client: RuntimeBackedRestartApiClient, path: string): Promise<CliAdminEnvelope<T>> {
   const response = await client.get<CliAdminEnvelope<T>>(path);
-  if (!response.ok || !response.data) {
-    return {
-      ok: false,
-      error: { code: 'request_failed', message: response.error ?? `Request failed with status ${response.status}` },
-    };
+  if (response.data) {
+    return response.data;
   }
-  return response.data;
+  return {
+    ok: false,
+    error: { code: 'request_failed', message: response.error ?? `Request failed with status ${response.status}` },
+  };
 }
 
 async function postEnvelope<T>(
@@ -294,13 +294,13 @@ async function postEnvelope<T>(
     headers: { 'Idempotency-Key': idempotencyKey },
     timeout,
   });
-  if (!response.ok || !response.data) {
-    return {
-      ok: false,
-      error: { code: 'request_failed', message: response.error ?? `Request failed with status ${response.status}` },
-    };
+  if (response.data) {
+    return response.data;
   }
-  return response.data;
+  return {
+    ok: false,
+    error: { code: 'request_failed', message: response.error ?? `Request failed with status ${response.status}` },
+  };
 }
 
 async function postRestartWithBoundedWait(

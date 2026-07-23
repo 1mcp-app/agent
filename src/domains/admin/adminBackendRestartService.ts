@@ -12,6 +12,7 @@ export type BackendRestartSelection =
 export type BackendRestartOutcome =
   | 'restarted'
   | 'target_not_found'
+  | 'target_disabled'
   | 'instance_not_found'
   | 'instance_ambiguous'
   | 'no_active_instances'

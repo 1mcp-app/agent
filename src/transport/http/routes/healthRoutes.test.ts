@@ -32,6 +32,14 @@ vi.mock('@src/application/services/healthService.js', () => {
     getInstance: vi.fn(),
     performHealthCheck: vi.fn(),
     getHttpStatusCode: vi.fn(),
+    serializeBackendSupervision: vi.fn((snapshots: Record<string, any>) =>
+      Object.fromEntries(
+        Object.entries(snapshots).map(([name, snapshot]) => [
+          name,
+          { ...snapshot, lastError: snapshot.lastError?.message ?? null },
+        ]),
+      ),
+    ),
   };
 
   return {
@@ -332,6 +340,47 @@ describe('Health Routes', () => {
       },
     );
 
+    it('keeps readiness behavior while returning minimal aggregate supervision output', async () => {
+      mockHealthService.performHealthCheck.mockResolvedValue({
+        configuration: { loaded: true, serverCount: 0, authEnabled: false, transport: 'http' },
+      });
+      mockRuntimeConnections.set('private-worker', {
+        supervision: {
+          backendId: 'private-worker',
+          state: 'crash-loop',
+          attempt: 5,
+          limit: 5,
+          nextRetryAt: null,
+          lastExit: { code: 1, signal: null, pid: 123, at: new Date() },
+          lastError: new Error('token=secret /private/config.json'),
+          currentPid: null,
+        },
+      });
+      mockHealthService.serializeBackendSupervision.mockReturnValueOnce({
+        total: 1,
+        connected: 0,
+        restarting: 0,
+        crashLoop: 1,
+        stopped: 0,
+      });
+
+      const response = await request(app).get('/health/ready');
+
+      expect(response.status).toBe(503);
+      expect(response.body.backendSupervision).toEqual({
+        total: 1,
+        connected: 0,
+        restarting: 0,
+        crashLoop: 1,
+        stopped: 0,
+      });
+      expect(JSON.stringify(response.body)).not.toContain('private-worker');
+      expect(JSON.stringify(response.body)).not.toContain('secret');
+      expect(mockHealthService.serializeBackendSupervision).toHaveBeenCalledWith({
+        'private-worker': expect.objectContaining({ state: 'crash-loop' }),
+      });
+    });
+
     it('should handle readiness check errors with 503', async () => {
       const error = new Error('Readiness check failed');
       mockHealthService.performHealthCheck.mockRejectedValue(error);
@@ -390,6 +439,45 @@ describe('Health Routes', () => {
           { state: 'crash-loop', lastError: 'failed', currentPid: null },
         ],
       });
+    });
+
+    it('returns aggregate supervision for a template target at minimal detail', async () => {
+      const loadingManager = {
+        getStateTracker: () => ({ getServerState: vi.fn() }),
+      } as any;
+      const templateApp = express();
+      templateApp.use('/health', createHealthRoutes(loadingManager));
+      mockRuntimeConnections.set('worker:first', {
+        supervision: {
+          backendId: `template:worker:${'a'.repeat(64)}`,
+          state: 'connected',
+          attempt: 0,
+          limit: 5,
+          nextRetryAt: null,
+          lastExit: null,
+          lastError: null,
+          currentPid: 101,
+        },
+      });
+      mockHealthService.serializeBackendSupervision.mockReturnValueOnce({
+        total: 1,
+        connected: 1,
+        restarting: 0,
+        crashLoop: 0,
+        stopped: 0,
+      });
+
+      const response = await request(templateApp).get('/health/mcp/worker');
+
+      expect(response.status).toBe(200);
+      expect(response.body).toMatchObject({
+        name: 'worker',
+        state: 'connected',
+        backendSupervision: { total: 1, connected: 1 },
+      });
+      expect(response.body.instances).toBeUndefined();
+      expect(JSON.stringify(response.body)).not.toContain('template:worker');
+      expect(JSON.stringify(response.body)).not.toContain('101');
     });
   });
 

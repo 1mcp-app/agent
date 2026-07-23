@@ -718,7 +718,15 @@ export class ClientManager extends EventEmitter {
       }
     }
     this.emit(ClientManagerEvent.BackendSupervisionStateChanged, name, snapshot);
-    void this.backendAvailabilityHandler?.(name, snapshot);
+    try {
+      void Promise.resolve(this.backendAvailabilityHandler?.(name, snapshot)).catch((error) => {
+        const message = error instanceof Error ? error.message : String(error);
+        logger.warn(`Failed to publish backend availability for ${name}: ${message}`);
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      logger.warn(`Failed to publish backend availability for ${name}: ${message}`);
+    }
   }
 
   private getTransportPid(transport: AuthProviderTransport): number | null {

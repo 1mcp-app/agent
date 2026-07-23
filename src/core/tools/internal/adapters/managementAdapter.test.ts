@@ -127,7 +127,7 @@ describe('Management Adapter', () => {
         },
       } as any);
 
-      const result = await adapter.getServerStatus('test-server');
+      const result = await adapter.getServerStatus('test-server', { details: true, health: false });
 
       expect(result.servers).toHaveLength(1);
       expect(result.servers[0].name).toBe('test-server');
@@ -135,6 +135,11 @@ describe('Management Adapter', () => {
       expect(result.totalServers).toBe(1);
       expect(result.enabledServers).toBe(1);
       expect(result.disabledServers).toBe(0);
+      expect(handleServerStatus).toHaveBeenCalledWith({
+        name: 'test-server',
+        details: true,
+        health: false,
+      });
     });
 
     it('should get all servers status when no name provided', async () => {
@@ -153,6 +158,11 @@ describe('Management Adapter', () => {
       expect(result.totalServers).toBe(2);
       expect(result.enabledServers).toBe(1);
       expect(result.disabledServers).toBe(1);
+      expect(handleServerStatus).toHaveBeenCalledWith({
+        name: undefined,
+        details: false,
+        health: true,
+      });
     });
 
     it('should handle status errors', async () => {

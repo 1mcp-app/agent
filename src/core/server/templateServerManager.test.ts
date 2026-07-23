@@ -381,6 +381,64 @@ describe('TemplateServerManager', () => {
       );
     });
 
+    it('queues another retirement pass when configuration changes again during retirement', async () => {
+      const manager = templateServerManager as any;
+      let finishFirstRetirement!: () => void;
+      const firstRetirement = new Promise<void>((resolve) => {
+        finishFirstRetirement = resolve;
+      });
+      const firstInstance = {
+        id: 'instance-a',
+        instanceKey: 'test-template:rendered-a',
+        templateName: 'test-template',
+        client: {},
+        clientIds: new Set(['client-a']),
+      };
+      const secondInstance = {
+        id: 'instance-b',
+        instanceKey: 'test-template:rendered-b',
+        templateName: 'test-template',
+        client: {},
+        clientIds: new Set(['client-b']),
+      };
+
+      manager.clientInstancePool.getTemplateInstances
+        .mockReturnValueOnce([firstInstance])
+        .mockReturnValueOnce([secondInstance]);
+      manager.clientInstancePool.removeInstance.mockReturnValueOnce(firstRetirement).mockResolvedValueOnce(undefined);
+
+      templateServerManager.rebuildTemplateIndex({
+        mcpTemplates: {
+          'test-template': { command: 'node', args: ['a.js'], template: {} },
+        },
+      });
+      templateServerManager.rebuildTemplateIndex({
+        mcpTemplates: {
+          'test-template': { command: 'node', args: ['b.js'], template: {} },
+        },
+      });
+
+      await vi.waitFor(() => {
+        expect(manager.clientInstancePool.removeInstance).toHaveBeenCalledWith(firstInstance.instanceKey);
+      });
+
+      templateServerManager.rebuildTemplateIndex({
+        mcpTemplates: {
+          'test-template': { command: 'node', args: ['c.js'], template: {} },
+        },
+      });
+
+      expect(manager.clientInstancePool.getTemplateInstances).toHaveBeenCalledTimes(1);
+      finishFirstRetirement();
+
+      await vi.waitFor(() => {
+        expect(manager.clientInstancePool.removeInstance).toHaveBeenCalledWith(secondInstance.instanceKey);
+      });
+      expect(manager.clientInstancePool.getTemplateInstances).toHaveBeenCalledTimes(2);
+      expect(manager.clientInstancePool.removeInstance).toHaveBeenNthCalledWith(1, firstInstance.instanceKey);
+      expect(manager.clientInstancePool.removeInstance).toHaveBeenNthCalledWith(2, secondInstance.instanceKey);
+    });
+
     it('compares declared template hashes without confusing rendered instance values for config changes', async () => {
       const manager = templateServerManager as any;
       const declaredConfig = { command: 'node', args: ['{{entrypoint}}'], template: {} };

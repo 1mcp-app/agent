@@ -361,7 +361,10 @@ describe('managementHandlers', () => {
         stopped: 0,
         errors: 0,
       });
-      expect(mockManagementAdapter.getServerStatus).toHaveBeenCalledWith(args.name);
+      expect(mockManagementAdapter.getServerStatus).toHaveBeenCalledWith(args.name, {
+        details: true,
+        health: true,
+      });
     });
 
     it('should return error when management tools are disabled', async () => {
@@ -451,6 +454,48 @@ describe('managementHandlers', () => {
         running: 1,
         stopped: 0,
         errors: 0,
+      });
+      expect(result.servers[0].capabilities).toBeUndefined();
+      expect(result.servers[0].supervision).toBeUndefined();
+      expect(result.servers[0].instances).toBeUndefined();
+    });
+
+    it('omits health and detailed runtime facts when their flags are false', async () => {
+      mockManagementAdapter.getServerStatus.mockResolvedValue({
+        servers: [
+          {
+            name: 'worker',
+            targetType: 'template',
+            status: 'crash-loop',
+            type: 'stdio',
+            configured: true,
+            healthStatus: 'unhealthy',
+            supervision: {
+              backendId: 'worker',
+              state: 'crash-loop',
+              attempt: 5,
+              limit: 5,
+              nextRetryAt: null,
+              lastExit: null,
+              lastError: 'failed',
+              currentPid: null,
+            },
+            instances: [{ instanceId: 'aaaaaaaaaaaa', status: 'crash-loop' }],
+          },
+        ],
+      });
+
+      const result = await handleMcpStatus({ name: 'worker', details: false, health: false });
+
+      expect(result.servers[0]).toEqual({
+        name: 'worker',
+        targetType: 'template',
+        status: 'crash-loop',
+        transport: 'stdio',
+      });
+      expect(mockManagementAdapter.getServerStatus).toHaveBeenCalledWith('worker', {
+        details: false,
+        health: false,
       });
     });
 

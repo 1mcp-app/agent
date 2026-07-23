@@ -25,6 +25,7 @@ import {
   EnableServerResult,
   ManagementAdapter,
   ManagementListOptions,
+  ManagementStatusOptions,
   ReloadOptions,
   ReloadResult,
   ServerInfo,
@@ -106,7 +107,7 @@ export class ConfigManagementAdapter implements ManagementAdapter {
   /**
    * Get status of servers
    */
-  async getServerStatus(serverName?: string): Promise<ServerStatusInfo> {
+  async getServerStatus(serverName?: string, options: ManagementStatusOptions = {}): Promise<ServerStatusInfo> {
     debugIf(() => ({
       message: 'Adapter: Getting server status',
       meta: { serverName },
@@ -114,7 +115,11 @@ export class ConfigManagementAdapter implements ManagementAdapter {
 
     try {
       const { handleServerStatus } = await import('@src/core/tools/handlers/serverManagementHandler.js');
-      const result = await handleServerStatus({ name: serverName, details: true, health: true });
+      const result = await handleServerStatus({
+        name: serverName,
+        details: options.details ?? false,
+        health: options.health ?? true,
+      });
       const serverStatuses = (result.server ? [result.server] : (result.servers ?? [])).map((server) => ({
         ...server,
         status: normalizeServerRuntimeStatus(server.status),

@@ -214,8 +214,12 @@ export class BackendStdioSupervisor {
       }
 
       this.recoveryController = null;
-      this.lastError = error instanceof Error ? error : new Error(String(error));
+      const recoveryError = error instanceof Error ? error : new Error(String(error));
+      this.lastError = recoveryError;
       this.scheduleNextAttempt(generation);
+      if (manual) {
+        throw recoveryError;
+      }
     }
   }
 

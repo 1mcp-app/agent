@@ -90,7 +90,7 @@ describe('restartCommand', () => {
     });
     apiPost
       .mockResolvedValueOnce({
-        ok: true,
+        ok: false,
         status: 409,
         data: {
           ok: false,
@@ -125,7 +125,7 @@ describe('restartCommand', () => {
       return okResponse({ authenticated: true });
     });
     apiPost.mockResolvedValue({
-      ok: true,
+      ok: false,
       status: 409,
       data: {
         ok: false,
@@ -140,6 +140,37 @@ describe('restartCommand', () => {
     await restartCommand({ name: 'github', context: 'prod', instance: 'abcdef' }, dependencies());
 
     expect(printerMock.info).toHaveBeenCalledWith('Candidate instance IDs: abcdef012345, abcdef999999');
+    expect(process.exitCode).toBe(1);
+  });
+
+  it('preserves a structured session error from a non-success HTTP response', async () => {
+    apiGet.mockImplementation(async (path: string) => {
+      if (path.endsWith('/capabilities')) {
+        return okResponse({
+          runtime: { runtimeScopeId: 'scope_123' },
+          supportedOperations: ['mcp.restart'],
+          adminMutationsAvailable: true,
+          mutationReadiness: { mcp: { enabled: true, operations: ['restart'] } },
+        });
+      }
+      return {
+        ok: false,
+        status: 401,
+        data: {
+          ok: false,
+          cliProtocolVersion: '1',
+          error: { code: 'admin_session_required', message: 'Admin session expired' },
+        },
+      };
+    });
+
+    await restartCommand({ name: 'filesystem', context: 'prod', json: true }, dependencies());
+
+    expect(apiPost).not.toHaveBeenCalled();
+    expect(JSON.parse(String(output.mock.calls.at(-1)?.[0]))).toMatchObject({
+      ok: false,
+      error: { code: 'admin_session_required', message: 'Admin session expired' },
+    });
     expect(process.exitCode).toBe(1);
   });
 

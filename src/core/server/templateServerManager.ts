@@ -500,14 +500,21 @@ export class TemplateServerManager {
 
   private scheduleTemplateRetirement(templateName: string): Promise<void> {
     const pending = this.templateRetirements.get(templateName);
-    if (pending) return pending;
-
-    const retirement = this.retireTemplateInstances(templateName).finally(() => {
-      if (this.templateRetirements.get(templateName) === retirement) {
-        this.templateRetirements.delete(templateName);
-      }
-    });
+    const retirement = pending
+      ? pending.catch(() => undefined).then(() => this.retireTemplateInstances(templateName))
+      : this.retireTemplateInstances(templateName);
     this.templateRetirements.set(templateName, retirement);
+
+    void retirement
+      .finally(() => {
+        if (this.templateRetirements.get(templateName) === retirement) {
+          this.templateRetirements.delete(templateName);
+        }
+      })
+      .catch((error) => {
+        logger.warn(`Failed to retire template instances for ${templateName}:`, error);
+      });
+
     return retirement;
   }
 

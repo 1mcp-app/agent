@@ -234,7 +234,9 @@ export async function handleMcpStatus(args: McpStatusToolArgs): Promise<McpStatu
     }
 
     const adapter = AdapterFactory.getManagementAdapter();
-    const result = await adapter.getServerStatus(args.name);
+    const details = args.details ?? false;
+    const health = args.health ?? true;
+    const result = await adapter.getServerStatus(args.name, { details, health });
     const runtimeServers = result.servers ?? [];
 
     // Transform to match expected output schema
@@ -243,25 +245,33 @@ export async function handleMcpStatus(args: McpStatusToolArgs): Promise<McpStatu
       targetType: server.targetType ?? 'static',
       status: server.status,
       transport: runtimeTransport(server),
-      uptime: undefined, // Not available in ServerStatusInfo
-      lastConnected: server.lastChecked,
-      pid: undefined, // Not available in ServerStatusInfo
-      memoryUsage: undefined, // Not available in ServerStatusInfo
-      capabilities: {
-        tools: undefined, // Not available in ServerStatusInfo
-        resources: undefined, // Not available in ServerStatusInfo
-        prompts: undefined, // Not available in ServerStatusInfo
-      },
-      health: {
-        status: normalizeRuntimeHealthStatus(server.healthStatus, server.status),
-        lastCheck: server.lastChecked ?? new Date().toISOString(),
-        responseTime: undefined, // Not available in ServerStatusInfo
-      },
-      supervision: serializeInternalSupervision(server.supervision),
-      instances: server.instances?.map((instance) => ({
-        ...instance,
-        supervision: serializeInternalSupervision(instance.supervision),
-      })),
+      ...(details
+        ? {
+            uptime: undefined, // Not available in ServerStatusInfo
+            lastConnected: server.lastChecked,
+            pid: undefined, // Not available in ServerStatusInfo
+            memoryUsage: undefined, // Not available in ServerStatusInfo
+            capabilities: {
+              tools: undefined, // Not available in ServerStatusInfo
+              resources: undefined, // Not available in ServerStatusInfo
+              prompts: undefined, // Not available in ServerStatusInfo
+            },
+            supervision: serializeInternalSupervision(server.supervision),
+            instances: server.instances?.map((instance) => ({
+              ...instance,
+              supervision: serializeInternalSupervision(instance.supervision),
+            })),
+          }
+        : {}),
+      ...(health
+        ? {
+            health: {
+              status: normalizeRuntimeHealthStatus(server.healthStatus, server.status),
+              lastCheck: server.lastChecked ?? new Date().toISOString(),
+              responseTime: undefined, // Not available in ServerStatusInfo
+            },
+          }
+        : {}),
     }));
 
     const overall = {

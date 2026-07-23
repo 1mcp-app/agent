@@ -218,6 +218,42 @@ describe('ClientInstancePool', () => {
       vi.useRealTimers();
     });
 
+    it('removes an idle supervised template when its child exits without scheduling recovery', async () => {
+      const { createTransportsWithContext } = await import('@src/transport/transportFactory.js');
+      const initialTransport = {
+        close: vi.fn().mockResolvedValue(undefined),
+        start: vi.fn(),
+        send: vi.fn(),
+        pid: 101,
+        stdioSupervision: {
+          policy: { restartOnExit: true as const, maxRestarts: 2, restartDelay: 25 },
+          recreate: vi.fn(),
+          getLastExit: () => ({ code: 12, signal: null, pid: 101, at: new Date() }),
+        },
+      } as any;
+      vi.mocked(createTransportsWithContext).mockResolvedValue({ testTemplate: initialTransport });
+
+      const instance = await pool.getOrCreateClientInstance(
+        'testTemplate',
+        { ...mockTemplateConfig, restartOnExit: true, restartDelay: 25 },
+        mockContext,
+        'client-a',
+      );
+
+      pool.removeClientFromInstance(instance.instanceKey, 'client-a');
+      expect(instance).toMatchObject({ referenceCount: 0, status: 'idle' });
+
+      instance.client.onclose?.();
+
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      expect(pool.getInstance(instance.instanceKey)).toBeUndefined();
+      expect(instance.supervision).toMatchObject({ state: 'stopped', attempt: 0 });
+      expect(instance.client.close).toHaveBeenCalledTimes(1);
+      expect(initialTransport.close).toHaveBeenCalledTimes(1);
+      expect(createTransportsWithContext).toHaveBeenCalledTimes(1);
+      expect(initialTransport.stdioSupervision.recreate).not.toHaveBeenCalled();
+    });
+
     it('should reuse existing instance for shareable templates with same variables', async () => {
       const { createTransportsWithContext } = await import('@src/transport/transportFactory.js');
       const { ClientManager } = await import('@src/core/client/clientManager.js');

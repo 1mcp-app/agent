@@ -10,7 +10,7 @@ import type { RuntimeBackendRestartResult } from '@src/domains/admin/adminBacken
  */
 export interface ManagementAdapter {
   listServers(options?: ManagementListOptions): Promise<ServerInfo[]>;
-  getServerStatus(serverName?: string): Promise<ServerStatusInfo>;
+  getServerStatus(serverName?: string, options?: ManagementStatusOptions): Promise<ServerStatusInfo>;
   enableServer(serverName: string, options?: EnableServerOptions): Promise<EnableServerResult>;
   disableServer(serverName: string, options?: DisableServerOptions): Promise<DisableServerResult>;
   reloadConfiguration(options?: ReloadOptions): Promise<ReloadResult>;
@@ -23,6 +23,11 @@ export interface ManagementAdapter {
     config: Partial<MCPServerParams & { newName?: string }>,
   ): Promise<ValidationResult>;
   getServerUrl(options?: ServerUrlOptions): Promise<string>;
+}
+
+export interface ManagementStatusOptions {
+  details?: boolean;
+  health?: boolean;
 }
 
 /**

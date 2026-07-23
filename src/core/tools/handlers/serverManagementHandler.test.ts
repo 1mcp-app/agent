@@ -736,6 +736,42 @@ describe('serverManagementHandler', () => {
       });
     });
 
+    it('aggregates template state without returning instance details by default', async () => {
+      (loadConfig as any).mockReturnValue({
+        mcpServers: {},
+        mcpTemplates: { worker: { type: 'stdio', command: 'node' } },
+      });
+      (ServerManager.current.getTemplateServerManager as any).mockReturnValue({
+        getTemplateInstances: vi.fn(() => [
+          {
+            id: 'a'.repeat(64),
+            referenceCount: 1,
+            status: 'crash-loop',
+            supervision: {
+              backendId: `template:worker:${'a'.repeat(64)}`,
+              state: 'crash-loop',
+              attempt: 5,
+              limit: 5,
+              nextRetryAt: null,
+              lastExit: null,
+              lastError: new Error('failed'),
+              currentPid: null,
+            },
+          },
+        ]),
+      });
+
+      const result = await handleServerStatus({ name: 'worker', details: false, health: false });
+
+      expect(result.server).toMatchObject({
+        name: 'worker',
+        targetType: 'template',
+        status: 'crash-loop',
+      });
+      expect(result.server).not.toHaveProperty('instances');
+      expect(result.server).not.toHaveProperty('supervision');
+    });
+
     it('excludes zero-membership pooled instances from template status', async () => {
       (loadConfig as any).mockReturnValue({
         mcpServers: {},

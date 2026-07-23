@@ -880,6 +880,19 @@ describe('admin routes', () => {
           outcome: 'no_unhealthy_instances',
           restartedInstanceIds: [],
         },
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 'completed',
+        operationId: 'op_cli_restart_disabled',
+        operationName: 'restartBackend',
+        replayed: false,
+        result: {
+          targetName: 'github',
+          targetType: 'static',
+          outcome: 'target_disabled',
+          restartedInstanceIds: [],
+        },
       });
     const app = mountAdminRoutes();
     const loginResponse = await request(app)
@@ -905,6 +918,12 @@ describe('admin routes', () => {
       .set('X-Request-Id', 'req_cli_restart_healthy')
       .set('Idempotency-Key', 'restart-key-healthy')
       .send({ targetName: 'github' });
+    const disabled = await request(app)
+      .post('/admin/cli/v1/operations/restart-server')
+      .set('Authorization', `Bearer ${sessionToken}`)
+      .set('X-Request-Id', 'req_cli_restart_disabled')
+      .set('Idempotency-Key', 'restart-key-disabled')
+      .send({ targetName: 'github' });
 
     expect(restarted.status).toBe(200);
     expect(restarted.body).toMatchObject({
@@ -929,6 +948,14 @@ describe('admin routes', () => {
       ok: false,
       error: {
         code: 'backend_no_unhealthy_instances',
+        details: { targetName: 'github' },
+      },
+    });
+    expect(disabled.status).toBe(409);
+    expect(disabled.body).toMatchObject({
+      ok: false,
+      error: {
+        code: 'backend_disabled',
         details: { targetName: 'github' },
       },
     });

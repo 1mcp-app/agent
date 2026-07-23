@@ -708,6 +708,8 @@ function backendRestartFailure(outcome: Exclude<BackendRestartOutcome, 'restarte
   switch (outcome) {
     case 'target_not_found':
       return { status: 404, code: 'backend_not_found', message: 'Backend target was not found' };
+    case 'target_disabled':
+      return { status: 409, code: 'backend_disabled', message: 'Backend target is disabled' };
     case 'instance_not_found':
       return { status: 404, code: 'backend_instance_not_found', message: 'Backend instance was not found' };
     case 'instance_ambiguous':

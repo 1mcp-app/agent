@@ -537,6 +537,13 @@ export class ClientInstancePool {
     const client = instance.client;
     client.onclose = () => {
       if (instance.client !== client || instance.status === 'terminating') return;
+      if (instance.referenceCount === 0) {
+        instance.status = 'terminating';
+        void this.removeInstance(instance.instanceKey).catch((error) => {
+          logger.warn(`Failed to remove idle template instance ${instance.id} after child exit:`, error);
+        });
+        return;
+      }
       supervisor.handleUnexpectedExit(
         instance.transport.stdioSupervision?.getLastExit() ?? {
           code: null,

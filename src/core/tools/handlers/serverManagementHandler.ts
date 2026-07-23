@@ -459,11 +459,11 @@ export async function handleServerStatus(args: McpStatusToolArgs) {
       throw new Error(`Server '${args.name}' not found`);
     }
     return {
-      server: buildRuntimeServerStatus(args.name, target.server, target.targetType),
+      server: buildRuntimeServerStatus(args.name, target.server, target.targetType, args.details ?? false),
     };
   } else {
     const serversWithStatus = Object.entries(targets).map(([name, target]) =>
-      buildRuntimeServerStatus(name, target.server, target.targetType),
+      buildRuntimeServerStatus(name, target.server, target.targetType, args.details ?? false),
     );
 
     return {
@@ -480,7 +480,12 @@ export async function handleServerStatus(args: McpStatusToolArgs) {
   }
 }
 
-function buildRuntimeServerStatus(name: string, server: MCPServerParams, targetType: 'static' | 'template') {
+function buildRuntimeServerStatus(
+  name: string,
+  server: MCPServerParams,
+  targetType: 'static' | 'template',
+  details: boolean,
+) {
   if (targetType === 'template') {
     const instances = ServerManager.current
       .getTemplateServerManager()
@@ -492,7 +497,7 @@ function buildRuntimeServerStatus(name: string, server: MCPServerParams, targetT
       ...server,
       targetType,
       status: server.disabled ? 'disabled' : aggregateTemplateStatus(instanceStatuses),
-      instances: instanceStatuses,
+      ...(details ? { instances: instanceStatuses } : {}),
       configured: true,
     };
   }
@@ -503,7 +508,7 @@ function buildRuntimeServerStatus(name: string, server: MCPServerParams, targetT
     ...server,
     targetType,
     status: server.disabled ? 'disabled' : (connection?.status ?? 'disconnected'),
-    supervision: operationalSupervision(connection?.supervision),
+    ...(details ? { supervision: operationalSupervision(connection?.supervision) } : {}),
     configured: true,
   };
 }
@@ -652,6 +657,8 @@ function reloadOutcomeMessage(outcome: RuntimeBackendRestartResult['outcome'], s
   switch (outcome) {
     case 'target_not_found':
       return `Server '${serverName}' was not found`;
+    case 'target_disabled':
+      return `Server '${serverName}' is disabled`;
     case 'instance_not_found':
       return `Template server '${serverName}' has no matching active instance`;
     case 'instance_ambiguous':

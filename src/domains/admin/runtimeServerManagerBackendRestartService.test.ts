@@ -49,6 +49,49 @@ describe('RuntimeServerManagerBackendRestartService', () => {
     expect(templateManager.restartTemplateInstance).toHaveBeenCalledWith(unhealthy);
   });
 
+  it('restarts every active template instance for all_instances', async () => {
+    const activeHealthy = {
+      id: 'a'.repeat(64),
+      referenceCount: 1,
+      supervision: { state: 'connected' },
+    };
+    const activeCrashLoop = {
+      id: 'b'.repeat(64),
+      referenceCount: 2,
+      supervision: { state: 'crash-loop' },
+    };
+    const idleCrashLoop = {
+      id: 'c'.repeat(64),
+      referenceCount: 0,
+      supervision: { state: 'crash-loop' },
+    };
+    const restartTemplateInstance = vi.fn().mockResolvedValue(undefined);
+    const templateManager = {
+      getTemplateInstances: vi.fn().mockReturnValue([activeHealthy, activeCrashLoop, idleCrashLoop]),
+      resolveTemplateInstance: vi.fn(),
+      restartTemplateInstance,
+    };
+    const service = new RuntimeServerManagerBackendRestartService({
+      serverManager: { getTemplateServerManager: () => templateManager } as any,
+      resolveTarget: () => ({ source: 'mcpTemplates', serverConfig: { command: 'node' } }),
+    });
+
+    await expect(
+      service.restart({
+        targetName: 'demo',
+        selection: { mode: 'all_instances' },
+      }),
+    ).resolves.toEqual({
+      targetName: 'demo',
+      targetType: 'template',
+      outcome: 'restarted',
+      restartedInstanceIds: ['aaaaaaaaaaaa', 'bbbbbbbbbbbb'],
+    });
+    expect(restartTemplateInstance).toHaveBeenCalledTimes(2);
+    expect(restartTemplateInstance).toHaveBeenNthCalledWith(1, activeHealthy);
+    expect(restartTemplateInstance).toHaveBeenNthCalledWith(2, activeCrashLoop);
+  });
+
   it('does not treat a declared template without a template property as a static server', async () => {
     const templateManager = {
       getTemplateInstances: vi.fn().mockReturnValue([]),
@@ -67,6 +110,27 @@ describe('RuntimeServerManagerBackendRestartService', () => {
         outcome: 'no_active_instances',
       },
     );
+    expect(loadMcpServer).not.toHaveBeenCalled();
+  });
+
+  it('does not report a disabled static target as restarted', async () => {
+    const templateManager = {
+      getTemplateInstances: vi.fn().mockReturnValue([]),
+    };
+    const loadMcpServer = vi.fn();
+    const getClient = vi.fn();
+    const service = new RuntimeServerManagerBackendRestartService({
+      serverManager: { getTemplateServerManager: () => templateManager, getClient, loadMcpServer } as any,
+      resolveTarget: () => ({ source: 'mcpServers', serverConfig: { command: 'node', disabled: true } }),
+    });
+
+    await expect(service.restart({ targetName: 'demo', selection: { mode: 'target_default' } })).resolves.toEqual({
+      targetName: 'demo',
+      targetType: 'static',
+      outcome: 'target_disabled',
+      restartedInstanceIds: [],
+    });
+    expect(getClient).not.toHaveBeenCalled();
     expect(loadMcpServer).not.toHaveBeenCalled();
   });
 

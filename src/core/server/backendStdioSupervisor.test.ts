@@ -100,6 +100,29 @@ describe('BackendStdioSupervisor', () => {
     expect(supervisor.snapshot()).toMatchObject({ state: 'connected', attempt: 0, currentPid: 9002 });
   });
 
+  it('rejects an immediate manual recovery failure while preserving the scheduled automatic retry', async () => {
+    const failure = new Error('manual recovery failed');
+    const recover = vi.fn().mockRejectedValueOnce(failure).mockResolvedValueOnce({ pid: 9003 });
+    const supervisor = new BackendStdioSupervisor({
+      backendId: 'static:demo',
+      policy: { restartOnExit: true, maxRestarts: 2, restartDelay: 25 },
+      recover,
+    });
+
+    await expect(supervisor.restartNow()).rejects.toBe(failure);
+    expect(supervisor.snapshot()).toMatchObject({
+      state: 'restarting',
+      attempt: 1,
+      nextRetryAt: new Date('2026-07-23T00:00:00.025Z'),
+      lastError: failure,
+    });
+
+    await vi.advanceTimersByTimeAsync(25);
+
+    expect(recover).toHaveBeenCalledTimes(2);
+    expect(supervisor.snapshot()).toMatchObject({ state: 'connected', attempt: 1, currentPid: 9003 });
+  });
+
   it('cancels pending and in-progress recovery without allowing stale completion', async () => {
     let completeDisposal!: () => void;
     const disposal = new Promise<void>((resolve) => {

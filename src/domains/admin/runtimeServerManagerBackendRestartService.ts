@@ -46,6 +46,9 @@ export class RuntimeServerManagerBackendRestartService implements RuntimeBackend
     if (input.selection.mode !== 'target_default') {
       return this.result(input.targetName, 'instance_not_found', 'static');
     }
+    if (target.serverConfig.disabled) {
+      return this.result(input.targetName, 'target_disabled', 'static');
+    }
 
     const connection = this.options.serverManager.getClient(input.targetName);
     if (connection?.transport.stdioSupervision) {

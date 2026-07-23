@@ -4,6 +4,7 @@ import { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
 
 import { CONNECTION_RETRY, MCP_SERVER_NAME } from '@src/constants.js';
 import { AuthProviderTransport, ClientStatus } from '@src/core/types/index.js';
+import logger from '@src/logger/logger.js';
 
 import { afterEach, beforeEach, describe, expect, it, MockInstance, vi } from 'vitest';
 
@@ -580,6 +581,29 @@ describe('ClientManager (Integration)', () => {
   });
 
   describe('runtime-owned stdio supervision', () => {
+    it('contains rejected backend availability updates', async () => {
+      const availabilityHandler = vi.fn().mockRejectedValue(new Error('notification failed'));
+      clientManager.setBackendAvailabilityHandler(availabilityHandler);
+
+      clientManager.publishBackendSupervisionState('supervised', {
+        backendId: 'static:supervised',
+        state: 'restarting',
+        attempt: 1,
+        limit: 5,
+        nextRetryAt: new Date(),
+        lastExit: null,
+        lastError: null,
+        currentPid: null,
+      });
+      await Promise.resolve();
+      await Promise.resolve();
+
+      expect(availabilityHandler).toHaveBeenCalledTimes(1);
+      expect(logger.warn).toHaveBeenCalledWith(
+        'Failed to publish backend availability for supervised: notification failed',
+      );
+    });
+
     it('withdraws an exited backend and reconnects a fresh MCP client after the configured delay', async () => {
       const initialClient = {
         ...mockClient,
