@@ -10,7 +10,13 @@ import { formatValidationError, validateTemplateContent } from '@src/core/instru
 import { LoadingSummary } from '@src/core/loading/loadingStateTracker.js';
 import { McpLoadingManager } from '@src/core/loading/mcpLoadingManager.js';
 import { AgentConfigManager } from '@src/core/server/agentConfig.js';
+import { getBackgroundLaunchConfigPath, readBackgroundLaunchConfig } from '@src/core/server/backgroundLaunchConfig.js';
 import { cleanupPidFileOnExit, registerPidFileCleanup, writePidFile } from '@src/core/server/pidFileManager.js';
+import {
+  claimRuntimeScope,
+  type RuntimeScopeOwnership,
+  verifyRuntimeScopeOwnership,
+} from '@src/core/server/runtimeScopeOwnership.js';
 import { ServerManager } from '@src/core/server/serverManager.js';
 import { GlobalOptions } from '@src/globalOptions.js';
 import { configureGlobalLogger } from '@src/logger/configureGlobalLogger.js';
@@ -36,6 +42,10 @@ export interface ServeOptions {
   restart?: boolean;
   /** Internal guard set on the detached child to prevent recursive spawning. */
   'background-bootstrap'?: boolean;
+  /** Internal authorization proving that a supervised worker belongs to the scoped supervisor. */
+  'runtime-owner-claim-id'?: string;
+  /** Internal validated app-config snapshot used by supervised workers. */
+  'background-launch-config'?: string;
   'log-level'?: 'debug' | 'info' | 'warn' | 'error';
   'log-file'?: string;
   transport?: string;
@@ -172,6 +182,7 @@ function setupGracefulShutdown(
   expressServer?: ExpressServer,
   instructionAggregator?: InstructionAggregator,
   configDir?: string,
+  runtimeOwnership?: RuntimeScopeOwnership,
 ): void {
   const shutdown = async () => {
     logger.info('Shutting down server...');
@@ -243,6 +254,8 @@ function setupGracefulShutdown(
       }
     }
 
+    runtimeOwnership?.release();
+
     logger.info('Server shutdown complete');
     process.exit(0);
   };
@@ -257,6 +270,7 @@ function setupGracefulShutdown(
  * Start the server using the specified transport.
  */
 export async function serveCommand(parsedArgv: ServeOptions): Promise<void> {
+  let runtimeOwnership: RuntimeScopeOwnership | undefined;
   try {
     const { configFilePath, runtimeScope } = resolveServeConfigPaths(parsedArgv);
 
@@ -283,20 +297,46 @@ export async function serveCommand(parsedArgv: ServeOptions): Promise<void> {
       return;
     }
 
-    // Background parent: spawn a detached child and wait for readiness. The
-    // detached child carries the guard flag, so it falls through to the normal
-    // serve path below instead of recursively spawning another background.
+    // Background parent: spawn a detached supervisor and wait for its worker's
+    // readiness. The supervisor carries the guard flag so it cannot recurse.
     if (parsedArgv.background && !parsedArgv['background-bootstrap']) {
       const { runServeBackground } = await import('./serveBackground.js');
       await runServeBackground(parsedArgv);
       return;
     }
 
+    const supervisorClaimId = parsedArgv['runtime-owner-claim-id'];
+    const launchConfigFile = parsedArgv['background-launch-config'];
+    if (launchConfigFile && !supervisorClaimId) {
+      throw new Error('Background launch configuration is only valid for an authorized supervised worker');
+    }
+    if (parsedArgv['background-bootstrap'] && !supervisorClaimId) {
+      const { runServeBackgroundSupervisor } = await import('./serveBackground.js');
+      await runServeBackgroundSupervisor(parsedArgv);
+      return;
+    }
+    if (supervisorClaimId) {
+      verifyRuntimeScopeOwnership(runtimeScope, supervisorClaimId, 'background-supervisor');
+      const expectedLaunchConfigFile = getBackgroundLaunchConfigPath(runtimeScope);
+      if (!launchConfigFile || path.resolve(launchConfigFile) !== path.resolve(expectedLaunchConfigFile)) {
+        throw new Error('Authorized supervised workers must use the Runtime Scope background launch configuration');
+      }
+    } else {
+      runtimeOwnership = claimRuntimeScope(runtimeScope, {
+        kind: parsedArgv.transport === 'stdio' ? 'foreground-stdio' : 'foreground-http',
+      });
+      process.once('exit', runtimeOwnership.release);
+    }
+
     // Initialize MCP config manager using resolved config path
     const mcpConfigManager = ConfigManager.getInstance(configFilePath);
 
     // Load app-level config from config.toml (CLI args take precedence)
-    const appConfig = mcpConfigManager.getAppConfig();
+    const launchConfig = launchConfigFile ? readBackgroundLaunchConfig(launchConfigFile) : null;
+    if (launchConfig && launchConfig.claimId !== supervisorClaimId) {
+      throw new Error('Background launch configuration does not match the active supervisor claim');
+    }
+    const appConfig = launchConfig?.appConfig ?? mcpConfigManager.getAppConfig();
 
     // Get server count for logo display
     const transportConfig = mcpConfigManager.getTransportConfig();
@@ -477,6 +517,7 @@ export async function serveCommand(parsedArgv: ServeOptions): Promise<void> {
         const transport = new StdioServerTransport();
         const filterConfig = await resolveStdioFilterConfig(parsedArgv);
         if (!filterConfig) {
+          runtimeOwnership?.release();
           return;
         }
 
@@ -535,7 +576,14 @@ export async function serveCommand(parsedArgv: ServeOptions): Promise<void> {
     }
 
     // Set up graceful shutdown handling
-    setupGracefulShutdown(serverManager, loadingManager, expressServer, instructionAggregator, runtimeScope);
+    setupGracefulShutdown(
+      serverManager,
+      loadingManager,
+      expressServer,
+      instructionAggregator,
+      runtimeScope,
+      runtimeOwnership,
+    );
 
     // Log MCP loading progress (non-blocking)
     loadingManager.on('loading-progress', (summary: LoadingSummary) => {
@@ -550,6 +598,7 @@ export async function serveCommand(parsedArgv: ServeOptions): Promise<void> {
       );
     });
   } catch (error) {
+    runtimeOwnership?.release();
     logger.error(`Server error: ${error instanceof Error ? error.message : String(error)}`);
     process.exit(1);
   }

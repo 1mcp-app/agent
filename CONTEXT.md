@@ -16,6 +16,10 @@ _Avoid_: auto-started proxy, implicit inspect server
 A local CLI command, such as `1mcp serve` or `1mcp serve --background`, that starts or manages an **Aggregated Runtime** for a local **Runtime Scope**. It does not select remote runtime targets.
 _Avoid_: Runtime-Backed Command, remote serve command
 
+**Background Runtime Supervisor**:
+The long-lived control process for one **Runtime Scope** that owns at most one **Background Aggregated Runtime** and can replace it after unexpected termination. It does not expose **Client Surfaces** and is not itself an **Aggregated Runtime**.
+_Avoid_: second runtime, background runtime, watchdog
+
 **Runtime Scope**:
 The configuration directory that defines which local **Aggregated Runtime** instance a command should discover, start, or manage. `--config-dir` selects local scope only.
 _Avoid_: global lock, machine singleton, remote config directory
@@ -176,6 +180,9 @@ _Avoid_: install command, installation adapter, registry install
 - An **Admin Account** exists independently of any OAuth client identity and is created outside the **Admin Console** (CLI or environment bootstrap), never by an unauthenticated web request.
 - A **Background Aggregated Runtime** is an **Aggregated Runtime**.
 - A **Runtime Scope** allows at most one active **Aggregated Runtime**.
+- A **Runtime Scope** allows at most one **Background Runtime Supervisor**.
+- A **Background Runtime Supervisor** owns at most one active **Background Aggregated Runtime**.
+- A deliberate stop ends both the **Background Runtime Supervisor** and its **Background Aggregated Runtime** so the runtime is not replaced.
 - `1mcp serve` owns **Aggregated Runtime** lifecycle operations for a **Runtime Scope**.
 - **Runtime Lifecycle Commands** operate on local **Runtime Scope**, not the current **Runtime Target Context**.
 - A **Runtime Target Context** selects the target for runtime-attaching CLI commands.

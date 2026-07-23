@@ -70,6 +70,10 @@ vi.mock('@src/core/server/pidFileManager.js', () => ({
   registerPidFileCleanup: vi.fn(),
   cleanupPidFileOnExit: vi.fn(),
 }));
+vi.mock('@src/core/server/runtimeScopeOwnership.js', async () => {
+  const { createRuntimeScopeOwnershipMock } = await import('@test/unit-utils/MockFactories.js');
+  return createRuntimeScopeOwnershipMock();
+});
 vi.mock('@src/transport/http/server.js', () => ({
   ExpressServer: vi.fn(),
 }));

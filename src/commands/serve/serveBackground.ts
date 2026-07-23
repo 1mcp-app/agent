@@ -3,7 +3,19 @@ import fs from 'fs';
 import path from 'path';
 
 import { ConfigManager } from '@src/config/configManager.js';
-import { readPidFile, ServerPidInfo } from '@src/core/server/pidFileManager.js';
+import { cleanupBackgroundLaunchConfig, writeBackgroundLaunchConfig } from '@src/core/server/backgroundLaunchConfig.js';
+import {
+  type BackgroundSupervisorDependencies,
+  type BackgroundSupervisorEvent,
+  type BackgroundSupervisorOptions,
+  cleanupBackgroundSupervisorState,
+  runBackgroundRuntimeSupervisor,
+} from '@src/core/server/backgroundRuntimeSupervisor.js';
+import {
+  type BackgroundSupervisorState,
+  readBackgroundSupervisorState,
+} from '@src/core/server/backgroundRuntimeSupervisorState.js';
+import { isProcessAlive, readPidFile, ServerPidInfo } from '@src/core/server/pidFileManager.js';
 import {
   discoverScopedRuntime,
   type LoadingSummarySnapshot,
@@ -11,6 +23,8 @@ import {
   probeReadiness,
   ReadinessProbe,
 } from '@src/core/server/runtimeLifecycle.js';
+import { claimRuntimeScope, type RuntimeScopeOwnership } from '@src/core/server/runtimeScopeOwnership.js';
+import type { ApplicationConfig } from '@src/core/types/transport.js';
 import logger from '@src/logger/logger.js';
 import { resolveLoggingConfig } from '@src/logger/loggingConfig.js';
 import { normalizedArgv } from '@src/utils/cli/normalizedArgv.js';
@@ -19,41 +33,121 @@ import { resolveServeConfigPaths } from './runtimeScope.js';
 import type { ServeOptions } from './serve.js';
 
 /**
- * `serve --background`: start the HTTP Aggregated Runtime as a detached child
- * for the selected Runtime Scope, then return once it is ready.
+ * `serve --background`: start a detached persistent supervisor for the selected
+ * Runtime Scope, then return once its current worker is ready.
  *
- * The parent never serves; it spawns a detached copy of this executable running
- * the normal serve path (marked with an internal guard flag so it does not
- * recursively background itself), waits for the child's PID file and
- * `/health/ready`, and reports the result.
+ * The launcher never serves. The supervisor owns the Runtime Scope, starts
+ * authorized workers, and remains resident across retries and crash-loop state.
  */
 
 /** Internal guard flag name; mirrors the hidden yargs option in `index.ts`. */
 export const BACKGROUND_GUARD_FLAG = 'background-bootstrap';
+export const RUNTIME_OWNER_CLAIM_ID_FLAG = 'runtime-owner-claim-id';
+export const BACKGROUND_LAUNCH_CONFIG_FLAG = 'background-launch-config';
+
+const BACKGROUND_STARTUP_OPTION_KEYS = [
+  'config',
+  'config-dir',
+  'log-level',
+  'log-file',
+  'transport',
+  'port',
+  'host',
+  'external-url',
+  'preset',
+  'filter',
+  'pagination',
+  'auth',
+  'enable-auth',
+  'enable-scope-validation',
+  'enable-enhanced-security',
+  'session-ttl',
+  'session-storage-path',
+  'rate-limit-window',
+  'rate-limit-max',
+  'trust-proxy',
+  'health-info-level',
+  'enable-async-loading',
+  'async-min-servers',
+  'async-timeout',
+  'async-batch-notifications',
+  'async-batch-delay',
+  'async-notify-on-ready',
+  'enable-lazy-loading',
+  'lazy-mode',
+  'lazy-inline-catalog',
+  'lazy-catalog-format',
+  'lazy-direct-expose',
+  'lazy-cache-max-entries',
+  'lazy-cache-ttl',
+  'lazy-preload',
+  'lazy-preload-keywords',
+  'lazy-fallback-on-error',
+  'lazy-fallback-timeout',
+  'enable-config-reload',
+  'config-reload-debounce',
+  'enable-env-substitution',
+  'enable-session-persistence',
+  'session-persist-requests',
+  'session-persist-interval',
+  'session-background-flush',
+  'enable-client-notifications',
+  'enable-jsonrpc-error-logging',
+  'enable-internal-tools',
+  'internal-tools',
+  'instructions-template',
+] as const satisfies readonly (keyof ServeOptions)[];
 
 /** Default log file for a background runtime when none is configured. */
 export function defaultBackgroundLogFile(configDir: string): string {
   return path.join(configDir, 'logs', 'server.log');
 }
 
-/**
- * Build the child's serve arguments: strip flags the parent overrides
- * (`--background`, `--transport`/`-t`, `--log-file`, and the guard — including
- * their `=`-joined forms) and re-append the HTTP transport, the resolved log
- * file, and the guard flag. Background is HTTP-only, so the child is always
- * forced onto `--transport http`.
- */
-export function buildBackgroundChildArgs(serveArgs: string[], opts: { logFile: string }): string[] {
-  const stripWithValue = new Set(['--transport', '-t', '--log-file']);
+/** Materialize parsed CLI, environment, and default values for the supervisor. */
+export function buildBackgroundSupervisorArgs(parsedArgv: ServeOptions, opts: { logFile: string }): string[] {
+  const args: string[] = [];
+  for (const key of BACKGROUND_STARTUP_OPTION_KEYS) {
+    if (key === 'transport' || key === 'log-file') continue;
+    const value = parsedArgv[key];
+    if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
+      args.push(`--${key}=${String(value)}`);
+    }
+  }
+  args.push('--transport=http', `--log-file=${opts.logFile}`, `--${BACKGROUND_GUARD_FLAG}`);
+  return args;
+}
+
+/** Build the immutable effective invocation used for every supervised worker. */
+export function buildBackgroundWorkerArgs(
+  serveArgs: string[],
+  opts: { logFile: string; claimId: string; launchConfigFile?: string },
+): string[] {
+  const out = stripBackgroundManagedArgs(serveArgs);
+  out.push('--transport', 'http', '--log-file', opts.logFile, `--${RUNTIME_OWNER_CLAIM_ID_FLAG}`, opts.claimId);
+  if (opts.launchConfigFile) out.push(`--${BACKGROUND_LAUNCH_CONFIG_FLAG}`, opts.launchConfigFile);
+  return out;
+}
+
+function stripBackgroundManagedArgs(serveArgs: string[]): string[] {
+  const stripWithValue = new Set([
+    '--transport',
+    '-t',
+    '--log-file',
+    `--${RUNTIME_OWNER_CLAIM_ID_FLAG}`,
+    `--${BACKGROUND_LAUNCH_CONFIG_FLAG}`,
+  ]);
   const out: string[] = [];
 
   for (let i = 0; i < serveArgs.length; i++) {
     const token = serveArgs[i];
 
-    if (token === '--background' || token === `--${BACKGROUND_GUARD_FLAG}`) {
+    if (
+      /^--(?:background|restart|status|stop)(?:=.*)?$/.test(token) ||
+      /^--background-bootstrap(?:=.*)?$/.test(token)
+    ) {
       continue;
     }
-    if (/^--(transport|log-file)=/.test(token) || /^-t=/.test(token)) {
+    if (/^--(transport|log-file|runtime-owner-claim-id|background-launch-config)=/.test(token) || /^-t=/.test(token)) {
       continue;
     }
     if (stripWithValue.has(token)) {
@@ -63,7 +157,6 @@ export function buildBackgroundChildArgs(serveArgs: string[], opts: { logFile: s
     out.push(token);
   }
 
-  out.push('--transport', 'http', '--log-file', opts.logFile, `--${BACKGROUND_GUARD_FLAG}`);
   return out;
 }
 
@@ -93,7 +186,7 @@ function stripServeToken(args: string[]): string[] {
 export interface BackgroundProgress {
   /** Milliseconds elapsed since the wait began. */
   elapsedMs: number;
-  /** The child's PID record once it appears; undefined while still spawning. */
+  /** The current worker's PID record once it appears; undefined while still spawning. */
   info?: ServerPidInfo;
 }
 
@@ -112,11 +205,13 @@ export interface WaitForReadyResult {
   ready: boolean;
   info?: ServerPidInfo;
   reason?: string;
+  /** True when the resident supervisor has exhausted automatic retries. */
+  terminal?: boolean;
 }
 
 /**
  * Wait until the child's PID file identifies the spawned child AND
- * `/health/ready` succeeds, or until timeout / child death.
+ * `/health/ready` succeeds, or until timeout / worker exit.
  */
 export async function waitForBackgroundReady(
   configDir: string,
@@ -147,31 +242,95 @@ export async function waitForBackgroundReady(
   return { ready: false, reason: `timed out after ${timeoutMs}ms waiting for readiness` };
 }
 
-/** Minimal shape of the spawned child the orchestration depends on. */
-export interface SpawnedChild {
+export interface WaitForSupervisorReadyOptions {
+  intervalMs?: number;
+  readinessProbe?: ReadinessProbe;
+  isSupervisorAlive?: (pid: number) => boolean;
+  readState?: (configDir: string) => BackgroundSupervisorState | null;
+  readRuntimeInfo?: (configDir: string) => ServerPidInfo | null;
+  sleep?: (ms: number) => Promise<void>;
+  onProgress?: (progress: BackgroundProgress) => void;
+}
+
+/** Wait through worker replacement until readiness or terminal crash-loop. */
+export async function waitForBackgroundSupervisorReady(
+  configDir: string,
+  supervisorPid: number,
+  options: WaitForSupervisorReadyOptions = {},
+): Promise<WaitForReadyResult> {
+  const intervalMs = options.intervalMs ?? 250;
+  const probe = options.readinessProbe ?? probeReadiness;
+  const processAlive = options.isSupervisorAlive ?? isProcessAlive;
+  const readState = options.readState ?? readBackgroundSupervisorState;
+  const readRuntimeInfo = options.readRuntimeInfo ?? readPidFile;
+  const sleep = options.sleep ?? ((ms: number) => new Promise((resolve) => setTimeout(resolve, ms)));
+  const startedAt = Date.now();
+
+  for (;;) {
+    if (!processAlive(supervisorPid)) {
+      return { ready: false, reason: 'background supervisor exited before the runtime became ready' };
+    }
+    const state = readState(configDir);
+    if (state?.supervisorPid === supervisorPid) {
+      if (state.status === 'crash-loop') {
+        return { ready: false, terminal: true, reason: 'background runtime entered crash-loop' };
+      }
+      if (state.runtimePid !== null) {
+        const info = readRuntimeInfo(configDir);
+        options.onProgress?.({ elapsedMs: Date.now() - startedAt, info: info ?? undefined });
+        if (info?.pid === state.runtimePid && (await probe(info))) {
+          return { ready: true, info };
+        }
+      } else {
+        options.onProgress?.({ elapsedMs: Date.now() - startedAt });
+      }
+    }
+    await sleep(intervalMs);
+  }
+}
+
+/** Minimal shape of the detached supervisor the launcher depends on. */
+export interface SpawnedSupervisor {
   pid?: number;
   unref(): void;
   once(event: 'exit', listener: () => void): void;
   killed?: boolean;
 }
 
+/** @deprecated Compatibility alias; background launch now spawns a supervisor. */
+export type SpawnedChild = SpawnedSupervisor;
+
 export interface RunBackgroundDeps {
   /** Raw CLI argv (after node/cli), defaults to the process's normalized argv. */
   rawArgv?: string[];
-  spawnChild?: (command: string, args: string[], options: SpawnOptions) => SpawnedChild;
-  waitForReady?: typeof waitForBackgroundReady;
+  spawnChild?: (command: string, args: string[], options: SpawnOptions) => SpawnedSupervisor;
+  waitForReady?: (
+    configDir: string,
+    supervisorPid: number,
+    options: WaitForSupervisorReadyOptions,
+  ) => Promise<WaitForReadyResult>;
   killChild?: (pid: number) => void;
-  loadAppConfig?: (parsedArgv: ServeOptions) => {
-    transport?: string;
-    logLevel?: string;
-    logFile?: string;
-    logging?: unknown;
-  };
+  loadAppConfig?: (parsedArgv: ServeOptions) => ApplicationConfig;
 }
 
-function defaultLoadAppConfig(parsedArgv: ServeOptions) {
+export interface RunBackgroundSupervisorDeps {
+  rawArgv?: string[];
+  loadAppConfig?: RunBackgroundDeps['loadAppConfig'];
+  claimScope?: (configDir: string) => RuntimeScopeOwnership;
+  runSupervisor?: (
+    options: BackgroundSupervisorOptions,
+    dependencies: BackgroundSupervisorDependencies,
+  ) => Promise<void>;
+}
+
+function defaultLoadAppConfig(parsedArgv: ServeOptions): ApplicationConfig {
   const { configFilePath } = resolveServeConfigPaths(parsedArgv);
   return ConfigManager.getInstance(configFilePath).getAppConfig();
+}
+
+function failBackgroundStart(message: string): void {
+  process.stderr.write(`${message}\n`);
+  process.exitCode = 1;
 }
 
 /**
@@ -181,13 +340,7 @@ function defaultLoadAppConfig(parsedArgv: ServeOptions) {
 export async function runServeBackground(parsedArgv: ServeOptions, deps: RunBackgroundDeps = {}): Promise<void> {
   const { runtimeScope: configDir } = resolveServeConfigPaths(parsedArgv);
   const loadAppConfig = deps.loadAppConfig ?? defaultLoadAppConfig;
-  const appConfig = loadAppConfig(parsedArgv) as {
-    transport?: string;
-    logLevel?: string;
-    logFile?: string;
-    logging?: { level?: string; file?: string; maxSize?: number | string; maxFiles?: number };
-    asyncLoading?: { enabled?: boolean };
-  };
+  const appConfig = loadAppConfig(parsedArgv);
 
   // Mirror the async-loading precedence from serve.ts so the started report can
   // hint at the fast-detach path when the runtime is in the (default) sync mode.
@@ -196,38 +349,34 @@ export async function runServeBackground(parsedArgv: ServeOptions, deps: RunBack
   // HTTP-only: reject stdio; sse normalizes to http.
   const effectiveTransport = parsedArgv.transport ?? appConfig.transport ?? 'http';
   if (effectiveTransport === 'stdio') {
-    process.stderr.write(
+    failBackgroundStart(
       'Error: `serve --background --transport stdio` is not supported.\n' +
-        'stdio uses the invoking process stdin/stdout and cannot be detached. Use HTTP transport.\n',
+        'stdio uses the invoking process stdin/stdout and cannot be detached. Use HTTP transport.',
     );
-    process.exitCode = 1;
     return;
   }
 
-  // Idempotency: do not start a second runtime if the scope is already occupied.
+  // Fail closed when discovery already proves that this scope is occupied.
   const existing = await discoverScopedRuntime(configDir);
   if (existing.status === 'running' && existing.info) {
-    process.stdout.write(
-      `A runtime is already running in this Runtime Scope; not starting another.\n` +
-        formatStartedReport(existing.info),
+    failBackgroundStart(
+      `A runtime already owns this Runtime Scope (PID ${existing.info.pid}).\n` +
+        `Refusing to start another runtime. Stop it first.`,
     );
-    process.exitCode = 0;
     return;
   }
   if (existing.status === 'unreachable' && existing.info) {
-    process.stderr.write(
+    failBackgroundStart(
       `A runtime already occupies this Runtime Scope (PID ${existing.info.pid}) but is not ready yet.\n` +
-        `Refusing to start a second runtime. Check 'serve --status' or stop it first.\n`,
+        `Refusing to start a second runtime. Check 'serve --status' or stop it first.`,
     );
-    process.exitCode = 1;
     return;
   }
   if (existing.status === 'error') {
-    process.stderr.write(
+    failBackgroundStart(
       `Cannot inspect Runtime Scope ${configDir}: ${existing.error ?? 'PID file could not be read'}.\n` +
-        `Refusing to start a second runtime until the PID file problem is fixed.\n`,
+        `Refusing to start a second runtime until the PID file problem is fixed.`,
     );
-    process.exitCode = 1;
     return;
   }
 
@@ -243,40 +392,38 @@ export async function runServeBackground(parsedArgv: ServeOptions, deps: RunBack
   const logFile = resolved.file ?? defaultBackgroundLogFile(configDir);
   fs.mkdirSync(path.dirname(logFile), { recursive: true });
 
-  // Build the detached child invocation.
-  const rawArgv = deps.rawArgv ?? normalizedArgv;
-  const childServeArgs = buildBackgroundChildArgs(stripServeToken(rawArgv), { logFile });
+  // Materialize parsed CLI/env/default precedence into the detached supervisor.
+  const supervisorServeArgs = buildBackgroundSupervisorArgs(parsedArgv, { logFile });
   const { command, baseArgs } = resolveSelfInvocation();
-  const spawnArgs = [...baseArgs, 'serve', ...childServeArgs];
+  const supervisorArgs = [...baseArgs, 'serve', ...supervisorServeArgs];
 
   const spawnChild =
     deps.spawnChild ??
-    ((cmd: string, args: string[], options: SpawnOptions) => spawn(cmd, args, options) as unknown as SpawnedChild);
+    ((cmd: string, args: string[], options: SpawnOptions) => spawn(cmd, args, options) as unknown as SpawnedSupervisor);
 
-  const child = spawnChild(command, spawnArgs, { detached: true, stdio: 'ignore' });
+  const supervisor = spawnChild(command, supervisorArgs, { detached: true, stdio: 'ignore' });
 
-  if (!child.pid) {
-    process.stderr.write('Error: failed to spawn background runtime process.\n');
-    process.exitCode = 1;
+  if (!supervisor.pid) {
+    failBackgroundStart('Error: failed to spawn background runtime process.');
     return;
   }
   // Allow the parent to exit independently of the child.
-  child.unref();
+  supervisor.unref();
 
   // Acknowledge the spawn immediately so the wait is never silent.
-  process.stderr.write(`Starting background runtime (PID ${child.pid})…\n`);
+  process.stderr.write(`Starting background runtime supervisor (PID ${supervisor.pid})…\n`);
   process.stderr.write(`Log file: ${logFile}\n`);
 
-  let childExited = false;
-  child.once('exit', () => {
-    childExited = true;
+  let supervisorExited = false;
+  supervisor.once('exit', () => {
+    supervisorExited = true;
   });
 
   const renderer = createProgressRenderer(logFile);
 
-  const waitForReady = deps.waitForReady ?? waitForBackgroundReady;
-  const result = await waitForReady(configDir, child.pid, {
-    isChildAlive: () => !childExited,
+  const waitForReady = deps.waitForReady ?? waitForBackgroundSupervisorReady;
+  const result = await waitForReady(configDir, supervisor.pid, {
+    isSupervisorAlive: () => !supervisorExited,
     onProgress: renderer.render,
   });
 
@@ -290,23 +437,101 @@ export async function runServeBackground(parsedArgv: ServeOptions, deps: RunBack
     return;
   }
 
-  // Failure: report log path, terminate the child, exit non-zero.
-  process.stderr.write(
+  // Startup failure is non-zero. A terminal crash-loop supervisor deliberately
+  // remains resident for status/stop/restart; other bootstrap failures are
+  // terminated because they never established the persistent lifecycle owner.
+  failBackgroundStart(
     `Error: background runtime did not become ready (${result.reason ?? 'unknown error'}).\n` +
-      `See the log for details: ${logFile}\n`,
+      `See the log for details: ${logFile}`,
   );
   const killChild = deps.killChild ?? defaultKillChild;
-  if (!childExited && child.pid) {
-    killChild(child.pid);
+  if (!result.terminal && !supervisorExited && supervisor.pid) {
+    killChild(supervisor.pid);
   }
-  process.exitCode = 1;
+}
+
+/** Persistent child routine selected by the internal background-bootstrap flag. */
+export async function runServeBackgroundSupervisor(
+  parsedArgv: ServeOptions,
+  deps: RunBackgroundSupervisorDeps = {},
+): Promise<void> {
+  const { runtimeScope: configDir } = resolveServeConfigPaths(parsedArgv);
+  const ownership = (deps.claimScope ?? ((scope) => claimRuntimeScope(scope, { kind: 'background-supervisor' })))(
+    configDir,
+  );
+  let launchConfigFile: string | undefined;
+  let supervisorFailure: { error: unknown } | undefined;
+
+  try {
+    const loadAppConfig = deps.loadAppConfig ?? defaultLoadAppConfig;
+    const appConfig = loadAppConfig(parsedArgv);
+    const { resolved } = resolveLoggingConfig({
+      cli: { level: parsedArgv['log-level'], file: parsedArgv['log-file'] },
+      structured: appConfig.logging,
+      flat: { level: appConfig.logLevel, file: appConfig.logFile },
+    });
+    const logFile = resolved.file ?? defaultBackgroundLogFile(configDir);
+    fs.mkdirSync(path.dirname(logFile), { recursive: true });
+    launchConfigFile = writeBackgroundLaunchConfig(configDir, ownership.record.claimId, appConfig);
+    const rawArgv = deps.rawArgv ?? normalizedArgv;
+    const workerServeArgs = buildBackgroundWorkerArgs(stripServeToken(rawArgv), {
+      logFile,
+      claimId: ownership.record.claimId,
+      launchConfigFile,
+    });
+    const { command, baseArgs } = resolveSelfInvocation();
+    const workerArgs = [...baseArgs, 'serve', ...workerServeArgs];
+    const runSupervisor = deps.runSupervisor ?? runBackgroundRuntimeSupervisor;
+    const appendEvent = (event: BackgroundSupervisorEvent): void => {
+      fs.appendFileSync(logFile, `${JSON.stringify(event)}\n`, 'utf8');
+    };
+
+    await runSupervisor(
+      { configDir, workerCommand: command, workerArgs },
+      {
+        waitForReady: async (worker) => {
+          const workerPid = worker.pid;
+          if (!workerPid) return false;
+          const result = await waitForBackgroundReady(configDir, workerPid, {
+            isChildAlive: () => isProcessAlive(workerPid),
+          });
+          return result.ready;
+        },
+        appendEvent,
+      },
+    );
+  } catch (error) {
+    supervisorFailure = { error };
+  }
+
+  if (launchConfigFile && !cleanupBackgroundLaunchConfig(configDir, ownership.record.claimId)) {
+    throw createCleanupMismatchError(
+      'Background launch configuration changed before supervisor cleanup',
+      supervisorFailure,
+    );
+  }
+  if (!cleanupBackgroundSupervisorState(configDir, ownership.record.pid)) {
+    throw createCleanupMismatchError(
+      'Background supervisor state changed before supervisor cleanup',
+      supervisorFailure,
+    );
+  }
+  ownership.release();
+  if (supervisorFailure) throw supervisorFailure.error;
+}
+
+function createCleanupMismatchError(message: string, supervisorFailure?: { error: unknown }): Error {
+  if (!supervisorFailure) {
+    return new Error(message);
+  }
+  return new Error(message, { cause: supervisorFailure.error });
 }
 
 function defaultKillChild(pid: number): void {
   try {
     process.kill(pid, 'SIGTERM');
   } catch (error) {
-    logger.warn(`Failed to terminate background child (PID: ${pid}): ${error}`);
+    logger.warn(`Failed to terminate background supervisor (PID: ${pid}): ${error}`);
   }
 }
 
@@ -314,17 +539,17 @@ function formatStartedReport(
   info: ServerPidInfo,
   opts: { summary?: LoadingSummarySnapshot | null; asyncEnabled?: boolean } = {},
 ): string {
-  let report = `PID: ${info.pid}\n` + `URL: ${info.url}\n` + `Log file: ${info.logFile ?? '(console only)'}\n`;
+  const lines = [`PID: ${info.pid}`, `URL: ${info.url}`, `Log file: ${info.logFile ?? '(console only)'}`];
   if (opts.summary) {
-    report += `Servers: ${opts.summary.ready}/${opts.summary.total} ready\n`;
+    lines.push(`Servers: ${opts.summary.ready}/${opts.summary.total} ready`);
   }
   // In the default sync mode the wait is bounded by upstream connection time;
   // point users at the fast-detach path. Omitted when async is already on, or
-  // when the caller does not supply the flag (e.g. the idempotency report).
+  // when the caller does not supply the flag.
   if (opts.asyncEnabled === false) {
-    report += `Tip: run with --enable-async-loading for near-instant background detach.\n`;
+    lines.push('Tip: run with --enable-async-loading for near-instant background detach.');
   }
-  return report;
+  return `${lines.join('\n')}\n`;
 }
 
 /** Truncate a single line so progress output stays on one terminal row. */
