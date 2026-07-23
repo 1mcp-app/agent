@@ -24,6 +24,7 @@ npx -y @1mcp/agent mcp restart <name> [options]
 ## Backend Selectors
 
 - With no backend selector, a static server is restarted. For a template, the command restarts all unhealthy active instances. `backend_no_active_instances` means the template has no live instances; `backend_no_unhealthy_instances` means every active instance is currently healthy, so the default policy performs no restart.
+- A disabled static target returns `backend_disabled`; enable it before requesting a runtime restart.
 - **`--instance <id-or-prefix>`** - Restart one active template instance by its full 64-character instance ID or an unambiguous prefix. Status output uses the first 12 characters as the short display ID. An ambiguous prefix is rejected and reports the matching candidates.
 - **`--all-instances`** - Restart all active instances of the named template.
 

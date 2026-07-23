@@ -15,6 +15,7 @@ npx -y @1mcp/agent mcp restart <name> [options]
 ## 后端选择器
 
 - 不指定后端选择器时，命令会重启静态服务器。对于模板，命令会重启全部异常活动实例。`backend_no_active_instances` 表示模板当前没有活动实例；`backend_no_unhealthy_instances` 表示所有活动实例均健康，因此默认策略不会执行重启。
+- 对已禁用的静态目标执行重启会返回 `backend_disabled`；请先启用该目标。
 - **`--instance <id-or-prefix>`** - 通过完整的 64 位实例 ID 或无歧义前缀重启一个活动模板实例。状态输出使用前 12 位作为短显示 ID。若前缀对应多个实例，命令会拒绝执行并报告候选实例。
 - **`--all-instances`** - 重启指定模板的全部活动实例。
 
