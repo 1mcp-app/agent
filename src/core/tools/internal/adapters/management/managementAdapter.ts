@@ -25,6 +25,7 @@ import {
   EnableServerResult,
   ManagementAdapter,
   ManagementListOptions,
+  ManagementStatusOptions,
   ReloadOptions,
   ReloadResult,
   ServerInfo,
@@ -106,44 +107,30 @@ export class ConfigManagementAdapter implements ManagementAdapter {
   /**
    * Get status of servers
    */
-  async getServerStatus(serverName?: string): Promise<ServerStatusInfo> {
+  async getServerStatus(serverName?: string, options: ManagementStatusOptions = {}): Promise<ServerStatusInfo> {
     debugIf(() => ({
       message: 'Adapter: Getting server status',
       meta: { serverName },
     }));
 
     try {
-      const allServers = getAllServers();
-      let targetServers = serverName ? { [serverName]: allServers[serverName] } : allServers;
-
-      // Filter out undefined entries if serverName was provided but not found
-      if (serverName && !targetServers[serverName]) {
-        return {
-          timestamp: new Date().toISOString(),
-          servers: [],
-          totalServers: 0,
-          enabledServers: 0,
-          disabledServers: 0,
-          unhealthyServers: 0,
-        };
-      }
-
-      const serverStatuses = Object.entries(targetServers)
-        .filter(([_, config]) => config !== undefined)
-        .map(([name, config]) => ({
-          name,
-          status: config!.disabled ? 'disabled' : ('enabled' as 'enabled' | 'disabled' | 'unknown'),
-          transport: config!.url ? (config!.url.includes('/sse') ? 'sse' : 'http') : 'stdio',
-          url: config!.url,
-          healthStatus: 'unknown', // Would require actual health checking
-          lastChecked: new Date().toISOString(),
-          errors: config!.disabled ? [] : [], // Would require actual error checking
-        }));
+      const { handleServerStatus } = await import('@src/core/tools/handlers/serverManagementHandler.js');
+      const result = await handleServerStatus({
+        name: serverName,
+        details: options.details ?? false,
+        health: options.health ?? true,
+      });
+      const serverStatuses = (result.server ? [result.server] : (result.servers ?? [])).map((server) => ({
+        ...server,
+        status: normalizeServerRuntimeStatus(server.status),
+      }));
 
       const totalServers = serverStatuses.length;
-      const enabledServers = serverStatuses.filter((s) => s.status === 'enabled').length;
+      const enabledServers = serverStatuses.filter((s) => s.status !== 'disabled').length;
       const disabledServers = serverStatuses.filter((s) => s.status === 'disabled').length;
-      const unhealthyServers = 0; // Would require actual health checking
+      const unhealthyServers = serverStatuses.filter(
+        (server) => server.status === 'restarting' || server.status === 'crash-loop' || server.status === 'error',
+      ).length;
 
       return {
         timestamp: new Date().toISOString(),
@@ -270,6 +257,26 @@ export class ConfigManagementAdapter implements ManagementAdapter {
     }));
 
     try {
+      if (options.server) {
+        const { handleReloadOperation } = await import('@src/core/tools/handlers/serverManagementHandler.js');
+        const result = await handleReloadOperation({
+          server: options.server,
+          configOnly: options.configOnly ?? true,
+          graceful: true,
+          timeout: options.timeout ?? 30000,
+          force: options.force ?? false,
+        });
+        return {
+          success: result.success,
+          target: result.target,
+          action: result.action,
+          timestamp: result.timestamp,
+          reloadedServers: result.success ? [options.server] : [],
+          errors: 'error' in result && result.error ? [result.error] : undefined,
+          outcome: 'outcome' in result ? result.outcome : undefined,
+        };
+      }
+
       const target = options.server || 'all-servers';
       const action = options.configOnly ? 'config-reload' : 'full-reload';
       const timestamp = new Date().toISOString();
@@ -464,6 +471,21 @@ export class ConfigManagementAdapter implements ManagementAdapter {
       logger.error('Failed to get server URL', { error: errorMessage });
       throw new Error(`Failed to get server URL: ${errorMessage}`);
     }
+  }
+}
+
+function normalizeServerRuntimeStatus(status: string): ServerStatusInfo['servers'][number]['status'] {
+  switch (status) {
+    case 'enabled':
+    case 'disabled':
+    case 'connected':
+    case 'disconnected':
+    case 'restarting':
+    case 'crash-loop':
+    case 'error':
+      return status;
+    default:
+      return 'unknown';
   }
 }
 

@@ -6,7 +6,9 @@ vi.mock('@modelcontextprotocol/sdk/client/stdio.js', () => ({
   StdioClientTransport: vi.fn().mockImplementation(function () {
     return {
       type: 'stdio',
+      start: vi.fn(),
       close: vi.fn(),
+      pid: null,
     };
   }),
   getDefaultEnvironment: vi.fn().mockReturnValue({

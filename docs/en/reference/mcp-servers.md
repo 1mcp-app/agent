@@ -106,21 +106,25 @@ Optional shared defaults inherited by all servers. Allowed keys:
 - `headers`
 - `inheritParentEnv`
 - `envFilter`
+- `restartOnExit`
+- `maxRestarts`
+- `restartDelay`
 
 Merge behavior:
 
 - `env` object values merge with per-server env values (server keys override serverDefaults keys).
 - `envFilter` arrays merge with per-server entries appended after `serverDefaults` entries; duplicate patterns are kept only once.
 - `oauth` and `headers` are replaced by per-server values (not merged).
-- Primitive values (`timeout`, `connectionTimeout`, `requestTimeout`, `inheritParentEnv`) are inherited only when missing on the server.
+- Primitive values (`timeout`, `connectionTimeout`, `requestTimeout`, `inheritParentEnv`, `restartOnExit`, `maxRestarts`, and `restartDelay`) are inherited only when missing on the server.
 - Transport-specific exclusions apply: global `headers` are ignored for `stdio` transports, and global `inheritParentEnv` and `envFilter` are ignored for `http`, `sse`, and `streamableHttp` transports.
+- Restart settings from `serverDefaults` apply only to `stdio` servers. They are ignored for `http`, `sse`, and `streamableHttp` transports.
 - When both `serverDefaults.env` and `mcpServers.<name>.env` use array format, the server-specific array wins instead of merging element-by-element.
 
 ### Migration Guide (Per-Server to Shared Defaults)
 
 You can move repeated settings from each server into `serverDefaults` without changing server behavior:
 
-1. Identify repeated keys across servers (`env`, `connectionTimeout`, `requestTimeout`, `oauth`, `headers`, `inheritParentEnv`).
+1. Identify repeated keys across servers (`env`, `connectionTimeout`, `requestTimeout`, `oauth`, `headers`, `inheritParentEnv`, `restartOnExit`, `maxRestarts`, `restartDelay`).
 2. Move shared values to `serverDefaults`.
 3. Keep server-specific overrides inside each server definition.
 4. Run `1mcp mcp status --verbose` to confirm each server’s effective merged configuration.
@@ -166,9 +170,9 @@ This is a dictionary of all the backend MCP servers the agent will manage.
 - `inheritParentEnv` (boolean, optional): Inherit environment variables from parent process. Defaults to `false`.
 - `envFilter` (array of strings, optional): Patterns for filtering inherited environment variables. Supports `*` wildcards and `!` for exclusion.
 - `stderr` (string or integer, optional): Controls the child process stderr target. Omitted, `"pipe"`, or `"overlapped"` captures stderr in the 1MCP logger with bounded output (8 KiB per line, 20 unique lines per 10 seconds, and repeated-line summaries every 5 seconds). On Windows, `"overlapped"` uses overlapped I/O handles. Use `"inherit"` for direct terminal output, `"ignore"` to discard it, or a non-negative file descriptor to pass it through to the child process.
-- `restartOnExit` (boolean, optional): Automatically restart the process when it exits. Defaults to `false`.
-- `maxRestarts` (number, optional): Maximum number of restart attempts. If not specified, unlimited restarts are allowed.
-- `restartDelay` (number, optional): Delay in milliseconds between restart attempts. Defaults to `1000` (1 second).
+- `restartOnExit` (boolean, optional): Supervise the complete backend MCP connection and restart it when the child process exits. Applies only to `stdio` transports and defaults to `false`.
+- `maxRestarts` (number, optional): Maximum consecutive automatic restart attempts. Omitted means `5`, `0` means unlimited, and a positive value sets that limit. The counter resets after five stable minutes.
+- `restartDelay` (number, optional): Initial automatic restart delay in milliseconds. Defaults to `1000` (1 second); consecutive failures wait 1x, 2x, 4x, 8x, then at most 16x this value.
 
 ### Configuration Examples
 
@@ -368,9 +372,17 @@ Enable automatic process restart when the server exits unexpectedly:
 
 **Restart Configuration Options:**
 
-- `restartOnExit`: Enable automatic restart functionality
-- `maxRestarts`: Limit restart attempts (omit for unlimited restarts)
-- `restartDelay`: Milliseconds to wait between restart attempts (default: 1000ms)
+- `restartOnExit`: Enable supervision for a `stdio` backend. Non-stdio transports ignore this setting.
+- `maxRestarts`: Limit consecutive automatic restart attempts. Omit it for the default limit of `5`, set it to `0` for unlimited attempts, or use a positive value for an explicit limit.
+- `restartDelay`: Set the initial delay in milliseconds (default: `1000`). Consecutive failures use bounded exponential backoff: 1x, 2x, 4x, 8x, and then 16x for every later attempt.
+
+After the replacement MCP connection remains healthy for five minutes, its consecutive-attempt counter and backoff return to their initial values. Reaching a positive `maxRestarts` limit places that backend in `crash-loop` until an operator restarts it, configuration reload replaces it, or the runtime shuts down.
+
+`serverDefaults` can provide these three settings for static servers and templates, but an explicit value on a server or template wins. Template supervision runs independently for each rendered instance. Recovery keeps that logical instance's identity, rendered configuration, and client memberships; removing or replacing the instance cancels pending recovery.
+
+Automatic recovery creates a fresh process, transport, and MCP client connection. While recovery is in progress, the backend is unavailable and its capabilities and instructions are withdrawn; they are published again only after the replacement completes MCP initialization. In-flight requests fail normally and are not replayed.
+
+For an immediate operator-initiated restart of a running backend, use [`mcp restart`](/commands/mcp/restart).
 
 ### Working Directory
 

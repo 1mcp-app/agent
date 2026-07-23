@@ -85,21 +85,25 @@ npx -y @1mcp/agent --config-dir ./project-config
 - `headers`
 - `inheritParentEnv`
 - `envFilter`
+- `restartOnExit`
+- `maxRestarts`
+- `restartDelay`
 
 合并行为：
 
 - `env` 对象会与各服务器的 `env` 合并，若键冲突则以服务器自身的值为准。
 - `envFilter` 数组会合并；服务器条目追加在 `serverDefaults` 条目之后，重复模式只保留第一次出现的项。
 - `oauth` 和 `headers` 会被服务器上的值整体替换，不会做深度合并。
-- 基本类型值（`timeout`、`connectionTimeout`、`requestTimeout`、`inheritParentEnv`）仅在服务器未显式设置时继承。
+- 基本类型值（`timeout`、`connectionTimeout`、`requestTimeout`、`inheritParentEnv`、`restartOnExit`、`maxRestarts` 和 `restartDelay`）仅在服务器未显式设置时继承。
 - 还存在与传输类型相关的排除规则：全局 `headers` 会对 `stdio` 传输忽略，而全局 `inheritParentEnv` 和 `envFilter` 会对 `http`、`sse` 和 `streamableHttp` 传输忽略。
+- `serverDefaults` 中的重启设置仅适用于 `stdio` 服务器；`http`、`sse` 和 `streamableHttp` 传输会忽略这些设置。
 - 当 `serverDefaults.env` 与 `mcpServers.<name>.env` 都使用数组格式时，不会逐项合并，而是以服务器自己的数组为准。
 
 ### 迁移指南（从每服务器配置迁移到共享默认值）
 
 您可以把各服务器中重复出现的设置提取到 `serverDefaults`，而不改变实际行为：
 
-1. 找出多个服务器重复使用的键（`env`、`connectionTimeout`、`requestTimeout`、`oauth`、`headers`、`inheritParentEnv`）。
+1. 找出多个服务器重复使用的键（`env`、`connectionTimeout`、`requestTimeout`、`oauth`、`headers`、`inheritParentEnv`、`restartOnExit`、`maxRestarts`、`restartDelay`）。
 2. 将共享值移动到 `serverDefaults`。
 3. 将服务器特有的覆盖项保留在各自的服务器定义中。
 4. 运行 `1mcp mcp status --verbose`，确认每个服务器的最终合并配置符合预期。
@@ -145,9 +149,9 @@ npx -y @1mcp/agent --config-dir ./project-config
 - `inheritParentEnv` (布尔值, 可选): 从父进程继承环境变量。默认为 `false`。
 - `envFilter` (字符串数组, 可选): 用于过滤继承的环境变量的模式。支持 `*` 通配符和 `!` 排除。
 - `stderr` (字符串或整数, 可选): 控制子进程的标准错误输出目标。省略此项或设为 `"pipe"`、`"overlapped"` 时，标准错误输出会由 1MCP 日志系统捕获并限制输出量（每行最多 8 KiB、每 10 秒最多 20 条不同内容，并每 5 秒汇总重复行）。在 Windows 上，`"overlapped"` 会使用重叠 I/O 句柄。设为 `"inherit"` 可直接输出到终端，设为 `"ignore"` 可丢弃输出，也可以使用非负文件描述符将其传递给子进程。
-- `restartOnExit` (布尔值, 可选): 进程退出时自动重启。默认为 `false`。
-- `maxRestarts` (数字, 可选): 最大重启尝试次数。如果未指定，则允许无限重启。
-- `restartDelay` (数字, 可选): 重启尝试之间的延迟（毫秒）。默认为 `1000`（1秒）。
+- `restartOnExit` (布尔值, 可选): 子进程退出时监督并重建完整的后端 MCP 连接。仅适用于 `stdio` 传输，默认为 `false`。
+- `maxRestarts` (数字, 可选): 连续自动重启的最大尝试次数。省略时为 `5`，设为 `0` 表示不限制次数，正数表示明确的次数上限。后端稳定运行 5 分钟后，计数会重置。
+- `restartDelay` (数字, 可选): 自动重启的初始延迟（毫秒）。默认为 `1000`（1 秒）；连续失败会依次等待该值的 1、2、4、8 倍，之后最多保持 16 倍。
 
 ### 配置示例
 
@@ -347,9 +351,17 @@ npx -y @1mcp/agent mcp tools list filesystem --disabled
 
 **重启配置选项：**
 
-- `restartOnExit`: 启用自动重启功能
-- `maxRestarts`: 限制重启尝试次数（省略则允许无限重启）
-- `restartDelay`: 重启尝试之间等待的毫秒数（默认：1000ms）
+- `restartOnExit`: 为 `stdio` 后端启用监督；非 stdio 传输会忽略此设置。
+- `maxRestarts`: 限制连续自动重启次数。省略时使用默认上限 `5`，设为 `0` 表示不限制次数，正数表示明确的次数上限。
+- `restartDelay`: 设置初始延迟（毫秒，默认 `1000`）。连续失败采用有上限的指数退避：1、2、4、8 倍，之后每次均为 16 倍。
+
+替代连接连续健康运行五分钟后，连续尝试计数和退避延迟会恢复到初始值。达到正数 `maxRestarts` 上限后，该后端进入 `crash-loop` 状态，直到运维人员主动重启、配置重载替换它，或运行时关闭。
+
+`serverDefaults` 可以为静态服务器和模板提供这三个设置，但服务器或模板上的显式值优先。模板按每个渲染实例独立监督；恢复时保留该逻辑实例的身份、渲染后配置和客户端成员关系。移除或替换实例会取消待执行的恢复。
+
+自动恢复会创建全新的进程、传输和 MCP 客户端连接。恢复期间后端不可用，其能力和 instructions 会被撤回；只有替代连接完成 MCP 初始化后才会重新发布。进行中的请求会正常失败，不会自动重放。
+
+如需立即主动重启正在运行的后端，请使用 [`mcp restart`](/zh/commands/mcp/restart)。
 
 ### 工作目录
 

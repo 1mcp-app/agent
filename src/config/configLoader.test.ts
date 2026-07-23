@@ -367,6 +367,43 @@ describe('ConfigLoader', () => {
       });
     });
 
+    it('should apply restart settings from serverDefaults to stdio servers', async () => {
+      const configWithGlobal = {
+        serverDefaults: {
+          restartOnExit: true,
+          maxRestarts: 5,
+          restartDelay: 1000,
+        },
+        mcpServers: {
+          inherited: {
+            type: 'stdio',
+            command: 'node',
+          },
+          overridden: {
+            type: 'stdio',
+            command: 'node',
+            restartOnExit: false,
+            maxRestarts: 0,
+            restartDelay: 0,
+          },
+        },
+      };
+      await fsPromises.writeFile(configFilePath, JSON.stringify(configWithGlobal, null, 2));
+
+      const config = loader.loadConfigWithEnvSubstitution();
+
+      expect(config.inherited).toMatchObject({
+        restartOnExit: true,
+        maxRestarts: 5,
+        restartDelay: 1000,
+      });
+      expect(config.overridden).toMatchObject({
+        restartOnExit: false,
+        maxRestarts: 0,
+        restartDelay: 0,
+      });
+    });
+
     it('should merge serverDefaults envFilter with server envFilter for stdio servers', async () => {
       const configWithGlobal = {
         serverDefaults: {

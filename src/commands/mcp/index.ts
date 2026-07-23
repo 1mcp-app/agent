@@ -10,6 +10,7 @@ import { buildDisableCommand, buildEnableCommand } from './enable.js';
 import { buildInstallCommand } from './install.js';
 import { buildListCommand } from './list.js';
 import { buildRemoveCommand } from './remove.js';
+import { buildRestartCommand } from './restart.js';
 import { buildStatusCommand } from './status.js';
 import { buildTokensCommand } from './tokens.js';
 import { setupMcpToolsCommands } from './tools.js';
@@ -115,6 +116,15 @@ export function setupMcpCommands(yargs: Argv): Argv {
           handler: async (argv) => {
             const { disableCommand } = await import('./enable.js');
             await disableCommand(argv);
+          },
+        })
+        .command({
+          command: 'restart <name>',
+          describe: 'Restart a supervised stdio backend',
+          builder: buildRestartCommand,
+          handler: async (argv) => {
+            const { restartCommand } = await import('./restart.js');
+            await restartCommand(argv);
           },
         })
         .command({

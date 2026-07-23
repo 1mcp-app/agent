@@ -1,19 +1,22 @@
+import { ApiClient } from '@src/commands/shared/apiClient.js';
+import { type ResolvableServeTargetOptions, resolveServeTarget } from '@src/commands/shared/serveTargetResolver.js';
 import { GlobalTransportConfig, MCPServerParams } from '@src/core/types/index.js';
+import { RuntimeTargetStore } from '@src/domains/runtime-targets/runtimeTargetStore.js';
 import { GlobalOptions } from '@src/globalOptions.js';
 import { sanitizeForLogging } from '@src/logger/secureLogger.js';
 import { inferTransportType } from '@src/transport/transportFactory.js';
 import printer from '@src/utils/ui/printer.js';
+import { stripMcpSuffix } from '@src/utils/urlUtils.js';
 
 import type { Argv } from 'yargs';
 
 import {
-  getAllEffectiveServers,
-  getAllServers,
-  getEffectiveServerConfig,
+  getAllServerTargets,
+  getEffectiveServerTargetConfig,
   getGlobalConfig,
   getInheritedKeys,
-  getServer,
   initializeConfigContext,
+  resolveServerTarget,
   validateConfigPath,
 } from './utils/mcpServerConfig.js';
 import { validateServerName } from './utils/validation.js';
@@ -21,6 +24,39 @@ import { validateServerName } from './utils/validation.js';
 export interface StatusCommandArgs extends GlobalOptions {
   name?: string;
   verbose?: boolean;
+}
+
+interface RuntimeStatusApiClient {
+  get(path: string): Promise<{ ok: boolean; status: number; data?: unknown; error?: string }>;
+}
+
+export interface StatusCommandDependencies {
+  runtimeTargetStore?: { current(): { name: string } };
+  resolveTarget?: (options: ResolvableServeTargetOptions & { context: string }) => Promise<{ discoveredUrl: string }>;
+  createApiClient?: (baseUrl: string) => RuntimeStatusApiClient;
+}
+
+interface RuntimeSupervisionStatus {
+  backendId?: string;
+  name?: string;
+  state: string;
+  attempt?: number;
+  limit?: number | null;
+  nextRetryAt?: string | number | Date | null;
+  lastExit?: {
+    code?: number | null;
+    signal?: string | null;
+    pid?: number | null;
+    at?: string | number | Date | null;
+  } | null;
+  lastError?: string | { message?: string } | null;
+  error?: string | { message?: string } | null;
+  currentPid?: number | null;
+  instances?: RuntimeSupervisionStatus[];
+}
+
+interface AggregateRuntimeStatus {
+  backendSupervision?: Record<string, RuntimeSupervisionStatus>;
 }
 
 /**
@@ -48,7 +84,10 @@ export function buildStatusCommand(yargs: Argv) {
 /**
  * Show status and details of MCP servers
  */
-export async function statusCommand(argv: StatusCommandArgs): Promise<void> {
+export async function statusCommand(
+  argv: StatusCommandArgs,
+  dependencies: StatusCommandDependencies = {},
+): Promise<void> {
   try {
     const { name, config: configPath, 'config-dir': configDir, verbose = false } = argv;
 
@@ -60,10 +99,10 @@ export async function statusCommand(argv: StatusCommandArgs): Promise<void> {
 
     if (name) {
       // Show status for specific server
-      await showServerStatus(name, verbose);
+      await showServerStatus(name, verbose, argv, dependencies);
     } else {
       // Show status for all servers
-      await showAllServersStatus(verbose);
+      await showAllServersStatus(verbose, argv, dependencies);
     }
   } catch (error) {
     printer.error(`Failed to get server status: ${error instanceof Error ? error.message : error}`);
@@ -74,13 +113,18 @@ export async function statusCommand(argv: StatusCommandArgs): Promise<void> {
 /**
  * Show status for a specific server
  */
-async function showServerStatus(serverName: string, verbose: boolean = false): Promise<void> {
+async function showServerStatus(
+  serverName: string,
+  verbose: boolean,
+  argv: StatusCommandArgs,
+  dependencies: StatusCommandDependencies,
+): Promise<void> {
   // Validate server name
   validateServerName(serverName);
 
   // Get server configuration
-  const rawServerConfig = getServer(serverName);
-  const effectiveServerConfig = getEffectiveServerConfig(serverName);
+  const rawServerConfig = resolveServerTarget(serverName)?.serverConfig;
+  const effectiveServerConfig = getEffectiveServerTargetConfig(serverName);
   if (!rawServerConfig || !effectiveServerConfig) {
     throw new Error(`Server '${serverName}' does not exist.`);
   }
@@ -89,15 +133,32 @@ async function showServerStatus(serverName: string, verbose: boolean = false): P
   printer.title(`Server Status: ${serverName}`);
   printer.blank();
 
-  displayDetailedServerStatus(serverName, rawServerConfig, effectiveServerConfig, getGlobalConfig(), verbose);
+  const runtimeStatus = await fetchRuntimeStatus(argv, dependencies, serverName);
+  displayDetailedServerStatus(
+    serverName,
+    rawServerConfig,
+    effectiveServerConfig,
+    getGlobalConfig(),
+    verbose,
+    runtimeStatus,
+  );
 }
 
 /**
  * Show status for all servers
  */
-async function showAllServersStatus(verbose: boolean = false): Promise<void> {
-  const allServers = getAllServers();
-  const allEffectiveServers = getAllEffectiveServers();
+async function showAllServersStatus(
+  verbose: boolean,
+  argv: StatusCommandArgs,
+  dependencies: StatusCommandDependencies,
+): Promise<void> {
+  const allServers = getAllServerTargets();
+  const allEffectiveServers = Object.fromEntries(
+    Object.keys(allServers).flatMap((serverName) => {
+      const config = getEffectiveServerTargetConfig(serverName);
+      return config ? [[serverName, config] as const] : [];
+    }),
+  );
   const globalConfig = getGlobalConfig();
 
   if (Object.keys(allEffectiveServers).length === 0) {
@@ -126,10 +187,13 @@ async function showAllServersStatus(verbose: boolean = false): Promise<void> {
 
   // Sort servers by name for consistent output
   const sortedServerNames = Object.keys(allEffectiveServers).sort();
+  const aggregateRuntimeStatus = await fetchAggregateRuntimeStatus(argv, dependencies);
 
   for (const serverName of sortedServerNames) {
     const effectiveConfig = allEffectiveServers[serverName];
     displayServerStatusSummary(serverName, effectiveConfig);
+    const target = resolveServerTarget(serverName);
+    displayRuntimeSupervision(runtimeStatusForTarget(aggregateRuntimeStatus, serverName, target?.source), verbose);
     if (verbose && allServers[serverName]) {
       const inherited = getInheritedKeys(allServers[serverName], effectiveConfig, globalConfig);
       if (inherited.length > 0) {
@@ -220,6 +284,7 @@ function displayDetailedServerStatus(
   effectiveConfig: MCPServerParams,
   globalConfig: GlobalTransportConfig,
   verbose: boolean,
+  runtimeStatus?: RuntimeSupervisionStatus,
 ): void {
   const statusIcon = effectiveConfig.disabled ? '🔴' : '🟢';
   const statusText = effectiveConfig.disabled ? 'Disabled' : 'Enabled';
@@ -303,12 +368,13 @@ function displayDetailedServerStatus(
     printer.keyValue({ Inherited: inherited.join(', ') });
   }
 
-  // Runtime status (this would require integration with ServerManager to get actual runtime status)
   printer.blank();
   printer.subtitle('Runtime Information:');
   printer.keyValue({ 'Effective Configuration': JSON.stringify(sanitizeForLogging(effectiveConfig)) });
 
-  if (effectiveConfig.disabled) {
+  if (runtimeStatus) {
+    displayRuntimeSupervision(runtimeStatus, verbose);
+  } else if (effectiveConfig.disabled) {
     printer.keyValue({ 'Runtime Status': '⏹️  Not running (disabled)' });
     printer.info(`Use 'mcp enable ${name}' to enable this server.`);
   } else {
@@ -337,6 +403,171 @@ function displayDetailedServerStatus(
   }
   printer.info(`   • Update: mcp update ${name} [options]`);
   printer.info(`   • Remove: server remove ${name}`);
+}
+
+async function fetchRuntimeStatus(
+  argv: StatusCommandArgs,
+  dependencies: StatusCommandDependencies,
+  serverName: string,
+): Promise<RuntimeSupervisionStatus | undefined> {
+  const status = await fetchRuntimeHealth<unknown>(argv, dependencies, `/health/mcp/${encodeURIComponent(serverName)}`);
+  return isRuntimeSupervisionStatus(status) ? status : undefined;
+}
+
+async function fetchAggregateRuntimeStatus(
+  argv: StatusCommandArgs,
+  dependencies: StatusCommandDependencies,
+): Promise<AggregateRuntimeStatus | undefined> {
+  const status = await fetchRuntimeHealth<unknown>(argv, dependencies, '/health/mcp');
+  return isAggregateRuntimeStatus(status) ? status : undefined;
+}
+
+async function fetchRuntimeHealth<T>(
+  argv: StatusCommandArgs,
+  dependencies: StatusCommandDependencies,
+  path: string,
+): Promise<T | undefined> {
+  try {
+    const store = dependencies.runtimeTargetStore ?? new RuntimeTargetStore();
+    const context = store.current().name;
+    const resolver = dependencies.resolveTarget ?? ((options) => resolveServeTarget(options));
+    const target = await resolver({ ...argv, context });
+    const baseUrl = stripMcpSuffix(target.discoveredUrl);
+    const client = dependencies.createApiClient?.(baseUrl) ?? new ApiClient({ baseUrl, timeout: 2_000 });
+    const response = await client.get(path);
+    // Degraded backend health intentionally returns 503 with structured state facts.
+    return response.data as T | undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function isRuntimeSupervisionStatus(value: unknown): value is RuntimeSupervisionStatus {
+  return typeof value === 'object' && value !== null && typeof (value as { state?: unknown }).state === 'string';
+}
+
+function isAggregateRuntimeStatus(value: unknown): value is AggregateRuntimeStatus {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    typeof (value as { backendSupervision?: unknown }).backendSupervision === 'object' &&
+    (value as { backendSupervision?: unknown }).backendSupervision !== null
+  );
+}
+
+function displayRuntimeSupervision(status?: RuntimeSupervisionStatus, showInstances = false): void {
+  if (!status) {
+    return;
+  }
+
+  printer.keyValue({ 'Runtime Status': status.state });
+  if (status.instances?.length) {
+    const stateCounts = countInstanceStates(status.instances);
+    printer.keyValue({
+      'Active Instances': status.instances.length,
+      'Instance States': Object.entries(stateCounts)
+        .map(([state, count]) => `${state}=${count}`)
+        .join(', '),
+    });
+    if (!showInstances) {
+      return;
+    }
+    for (const instance of status.instances) {
+      const instanceId = instance.backendId?.split(':').at(-1);
+      printer.subtitle(`Instance ${instanceId?.slice(0, 12) || 'unknown'}:`);
+      displayRuntimeSupervision({ ...instance, instances: undefined });
+    }
+    return;
+  }
+  if (status.attempt !== undefined) {
+    printer.keyValue({
+      'Restart Attempt':
+        status.limit === null ? `${status.attempt} / unlimited` : `${status.attempt} / ${status.limit ?? '?'}`,
+    });
+  }
+  if (status.nextRetryAt) {
+    printer.keyValue({ 'Next Retry': formatRuntimeTimestamp(status.nextRetryAt) });
+  }
+  if (status.lastExit) {
+    const exitFacts = [
+      `code=${status.lastExit.code ?? 'none'}`,
+      `signal=${status.lastExit.signal ?? 'none'}`,
+      status.lastExit.pid != null ? `pid=${status.lastExit.pid}` : undefined,
+      status.lastExit.at ? `at=${formatRuntimeTimestamp(status.lastExit.at)}` : undefined,
+    ].filter((value): value is string => value !== undefined);
+    printer.keyValue({ 'Last Exit': exitFacts.join(', ') });
+  }
+  const error = runtimeErrorMessage(status.lastError ?? status.error);
+  if (error) {
+    printer.keyValue({ 'Last Error': error });
+  }
+  if (status.currentPid != null) {
+    printer.keyValue({ 'Current PID': status.currentPid });
+  }
+}
+
+function runtimeStatusForTarget(
+  aggregate: AggregateRuntimeStatus | undefined,
+  serverName: string,
+  source: 'mcpServers' | 'mcpTemplates' | undefined,
+): RuntimeSupervisionStatus | undefined {
+  const snapshots = aggregate?.backendSupervision;
+  if (!snapshots) {
+    return undefined;
+  }
+
+  const direct = snapshots[serverName];
+  if (source !== 'mcpTemplates') {
+    return direct;
+  }
+  if (direct?.instances) {
+    return direct;
+  }
+
+  const instances = Object.values(snapshots).filter((snapshot) =>
+    snapshot.backendId?.startsWith(`template:${serverName}:`),
+  );
+  if (instances.length === 0) {
+    return direct;
+  }
+
+  return {
+    name: serverName,
+    state: aggregateInstanceState(instances),
+    instances,
+  };
+}
+
+function aggregateInstanceState(instances: RuntimeSupervisionStatus[]): string {
+  if (instances.some((instance) => instance.state === 'crash-loop')) {
+    return 'crash-loop';
+  }
+  if (instances.some((instance) => instance.state === 'restarting')) {
+    return 'restarting';
+  }
+  if (instances.every((instance) => instance.state === 'connected')) {
+    return 'connected';
+  }
+  return 'stopped';
+}
+
+function countInstanceStates(instances: RuntimeSupervisionStatus[]): Record<string, number> {
+  return instances.reduce<Record<string, number>>((counts, instance) => {
+    counts[instance.state] = (counts[instance.state] ?? 0) + 1;
+    return counts;
+  }, {});
+}
+
+function formatRuntimeTimestamp(value: string | number | Date): string {
+  const date = value instanceof Date ? value : new Date(value);
+  return Number.isNaN(date.getTime()) ? String(value) : date.toISOString();
+}
+
+function runtimeErrorMessage(value: RuntimeSupervisionStatus['lastError']): string | undefined {
+  if (typeof value === 'string') {
+    return value;
+  }
+  return value?.message;
 }
 
 /**

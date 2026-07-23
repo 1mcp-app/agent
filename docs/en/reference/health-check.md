@@ -192,15 +192,28 @@ X-Uptime-Seconds: 3600
     "disabledCount": 1,
     "authEnabled": true,
     "transport": "http"
+  },
+  "backendSupervision": {
+    "total": 2,
+    "connected": 2,
+    "restarting": 0,
+    "crashLoop": 0,
+    "stopped": 0
   }
 }
 ```
+
+Readiness returns `503` while any supervised stdio backend is `restarting` or in `crash-loop`. The `backendSupervision` shape follows the configured health detail level: aggregate counts for `minimal`, sanitized per-backend facts without PIDs for `basic`, and detailed sanitized facts for `full`.
 
 **Use Cases**:
 
 - Kubernetes readiness probes
 - Load balancer ready checks
 - Deployment validation
+
+### `GET /health/mcp` and `GET /health/mcp/:serverName`
+
+These endpoints report MCP loading progress and supervised backend state when the loading manager is available. The collection endpoint includes loading summaries plus `backendSupervision`; the server-specific endpoint returns `503` for a supervised backend that is restarting or in crash-loop. Supervision output follows the same `minimal`, `basic`, and `full` disclosure policy described above.
 
 ## Health Status Logic
 
@@ -328,16 +341,12 @@ fi
   "status": "unhealthy",
   "timestamp": "2025-01-30T12:00:00.000Z",
   "version": "0.15.0",
-  "system": {
-    /* system info */
-  },
+  "system": {/* system info */},
   "servers": {
     "total": 3,
     "healthy": 0,
     "unhealthy": 3,
-    "details": [
-      /* server details */
-    ]
+    "details": [/* server details */]
   },
   "configuration": {
     "loaded": false,
@@ -392,11 +401,11 @@ npx -y @1mcp/agent --config mcp.json
 
 ### Detail Level Impact
 
-| Level     | System Info | Server Details       | Error Messages | Use Case              |
-| --------- | ----------- | -------------------- | -------------- | --------------------- |
-| `full`    | Complete    | Complete + sanitized | Sanitized      | Internal monitoring   |
-| `basic`   | Limited     | Status + sanitized   | Sanitized      | Restricted monitoring |
-| `minimal` | Basic only  | Counts only          | None           | Public/Load balancer  |
+| Level     | System Info | Server Details       | Backend Supervision         | Error Messages | Use Case              |
+| --------- | ----------- | -------------------- | --------------------------- | -------------- | --------------------- |
+| `full`    | Complete    | Complete + sanitized | Detailed, including PIDs    | Sanitized      | Internal monitoring   |
+| `basic`   | Limited     | Status + sanitized   | Per-backend, no PIDs        | Sanitized      | Restricted monitoring |
+| `minimal` | Basic only  | Counts only          | Aggregate state counts only | None           | Public/Load balancer  |
 
 ## Best Practices
 

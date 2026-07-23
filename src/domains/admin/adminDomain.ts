@@ -3,6 +3,11 @@ import type { ConfigChangeService } from '@src/domains/config-change/configChang
 import type { PresetManager } from '@src/domains/preset/manager/presetManager.js';
 
 import {
+  type AdminBackendRestartOperations,
+  AdminBackendRestartService,
+  type RuntimeBackendRestartService,
+} from './adminBackendRestartService.js';
+import {
   type AdminConfiguredServerOperations,
   AdminConfiguredServerService,
   type ConfiguredServerConfigDocument,
@@ -25,6 +30,7 @@ export interface AdminDomainOptions {
   createOperationId?: () => string;
   presetManager?: PresetManager;
   readServerTargets?: () => Record<string, MCPServerParams>;
+  runtimeBackendRestartService?: RuntimeBackendRestartService;
 }
 
 export interface AdminDomain {
@@ -32,6 +38,7 @@ export interface AdminDomain {
   operationService: AdminOperationService;
   configuredServerService: AdminConfiguredServerOperations;
   presetService?: AdminPresetOperations;
+  backendRestartService?: AdminBackendRestartOperations;
 }
 
 export function createAdminDomain(options: AdminDomainOptions): AdminDomain {
@@ -54,6 +61,12 @@ export function createAdminDomain(options: AdminDomainOptions): AdminDomain {
     readConfigDocument: options.readConfigDocument,
     ...(options.checkConnectivity ? { checkConnectivity: options.checkConnectivity } : {}),
   });
+  const backendRestartService = options.runtimeBackendRestartService
+    ? new AdminBackendRestartService({
+        operationService,
+        runtimeRestartService: options.runtimeBackendRestartService,
+      })
+    : undefined;
   const presetService =
     options.presetManager && options.readServerTargets
       ? new AdminPresetService({
@@ -67,6 +80,7 @@ export function createAdminDomain(options: AdminDomainOptions): AdminDomain {
     adminService,
     operationService,
     configuredServerService,
+    backendRestartService,
     presetService,
   };
 }

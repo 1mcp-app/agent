@@ -1,10 +1,21 @@
-import { HealthService, HealthStatus } from '@src/application/services/healthService.js';
+import {
+  type BackendSupervisionHealth,
+  type BackendSupervisionSummary,
+  HealthService,
+  HealthStatus,
+} from '@src/application/services/healthService.js';
+import { ClientManager } from '@src/core/client/clientManager.js';
 import { LoadingState } from '@src/core/loading/loadingStateTracker.js';
 import { McpLoadingManager } from '@src/core/loading/mcpLoadingManager.js';
+import type { BackendSupervisionSnapshot } from '@src/core/server/backendStdioSupervisor.js';
 import logger from '@src/logger/logger.js';
 
 import { Request, RequestHandler, Response, Router } from 'express';
 import rateLimit from 'express-rate-limit';
+
+function isBackendSupervisionSummary(value: BackendSupervisionHealth): value is BackendSupervisionSummary {
+  return typeof (value as BackendSupervisionSummary).total === 'number';
+}
 
 /**
  * Creates health check routes
@@ -12,6 +23,15 @@ import rateLimit from 'express-rate-limit';
 export function createHealthRoutes(loadingManager?: McpLoadingManager): Router {
   const router: Router = Router();
   const healthService = HealthService.getInstance();
+  const getBackendSupervision = (): Record<string, BackendSupervisionSnapshot> => {
+    const connections = ClientManager.current?.getClients?.();
+    if (!connections) return {};
+    return Object.fromEntries(
+      Array.from(connections.entries())
+        .filter(([, connection]) => connection.supervision)
+        .map(([name, connection]) => [name, connection.supervision!] as const),
+    );
+  };
 
   // Rate limiter for health endpoints - more permissive than OAuth endpoints
   const createHealthLimiter = () => {
@@ -104,7 +124,11 @@ export function createHealthRoutes(loadingManager?: McpLoadingManager): Router {
       const healthData = await healthService.performHealthCheck();
 
       // Service is ready if configuration is loaded
-      const isReady = healthData.configuration.loaded;
+      const backendSupervision = getBackendSupervision();
+      const unavailableBackends = Object.values(backendSupervision).filter(
+        (snapshot) => snapshot?.state === 'restarting' || snapshot?.state === 'crash-loop',
+      );
+      const isReady = healthData.configuration.loaded && unavailableBackends.length === 0;
       const statusCode = isReady ? 200 : 503;
 
       res.setHeader('Content-Type', 'application/json');
@@ -114,6 +138,7 @@ export function createHealthRoutes(loadingManager?: McpLoadingManager): Router {
         status: isReady ? 'ready' : 'not_ready',
         timestamp: new Date().toISOString(),
         configuration: healthData.configuration,
+        backendSupervision: healthService.serializeBackendSupervision(backendSupervision),
       });
     } catch (error) {
       logger.error('Readiness check failed:', error);
@@ -146,6 +171,7 @@ export function createHealthRoutes(loadingManager?: McpLoadingManager): Router {
 
       const summary = loadingManager.getSummary();
       const allStates = loadingManager.getStateTracker().getAllServerStates();
+      const backendSupervision = getBackendSupervision();
 
       // Group servers by state for better organization
       const serversByState = {
@@ -231,6 +257,10 @@ export function createHealthRoutes(loadingManager?: McpLoadingManager): Router {
           byState: serversByState,
           details: serverDetails,
         },
+        backendSupervision: healthService.serializeBackendSupervision(backendSupervision),
+        degraded: Object.values(backendSupervision).some(
+          (snapshot) => snapshot?.state === 'restarting' || snapshot?.state === 'crash-loop',
+        ),
         timestamp: new Date().toISOString(),
       };
 
@@ -265,6 +295,62 @@ export function createHealthRoutes(loadingManager?: McpLoadingManager): Router {
       }
 
       const serverName = req.params.serverName;
+      const backendSupervision = getBackendSupervision();
+      const supervision = backendSupervision[serverName];
+      if (supervision) {
+        const serialized = healthService.serializeBackendSupervision({ [serverName]: supervision });
+        res.setHeader('Content-Type', 'application/json');
+        res.setHeader('Cache-Control', 'no-cache');
+        res.setHeader('X-Server-State', supervision.state);
+        res.status(supervision.state === 'connected' ? 200 : 503).json(
+          isBackendSupervisionSummary(serialized)
+            ? {
+                name: serverName,
+                state: supervision.state,
+                backendSupervision: serialized,
+                timestamp: new Date().toISOString(),
+              }
+            : {
+                name: serverName,
+                ...serialized[serverName],
+                timestamp: new Date().toISOString(),
+              },
+        );
+        return;
+      }
+      const templateInstances = Object.fromEntries(
+        Object.entries(backendSupervision).filter(([, snapshot]) =>
+          snapshot.backendId.startsWith(`template:${serverName}:`),
+        ),
+      );
+      const templateSnapshots = Object.values(templateInstances);
+      if (templateSnapshots.length > 0) {
+        const state = templateSnapshots.some((snapshot) => snapshot.state === 'crash-loop')
+          ? 'crash-loop'
+          : templateSnapshots.some((snapshot) => snapshot.state === 'restarting')
+            ? 'restarting'
+            : 'connected';
+        const serialized = healthService.serializeBackendSupervision(templateInstances);
+        res.setHeader('Content-Type', 'application/json');
+        res.setHeader('Cache-Control', 'no-cache');
+        res.setHeader('X-Server-State', state);
+        res.status(state === 'connected' ? 200 : 503).json(
+          isBackendSupervisionSummary(serialized)
+            ? {
+                name: serverName,
+                state,
+                backendSupervision: serialized,
+                timestamp: new Date().toISOString(),
+              }
+            : {
+                name: serverName,
+                state,
+                instances: Object.values(serialized),
+                timestamp: new Date().toISOString(),
+              },
+        );
+        return;
+      }
       const serverInfo = loadingManager.getStateTracker().getServerState(serverName);
 
       if (!serverInfo) {

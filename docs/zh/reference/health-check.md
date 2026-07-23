@@ -177,15 +177,28 @@ X-Uptime-Seconds: 3600
     "disabledCount": 1,
     "authEnabled": true,
     "transport": "http"
+  },
+  "backendSupervision": {
+    "total": 2,
+    "connected": 2,
+    "restarting": 0,
+    "crashLoop": 0,
+    "stopped": 0
   }
 }
 ```
+
+任何受监督的 stdio 后端处于 `restarting` 或 `crash-loop` 状态时，就绪检查都会返回 `503`。`backendSupervision` 的结构遵循健康信息详细级别：`minimal` 返回聚合计数，`basic` 返回不含 PID 且错误已清理的逐后端信息，`full` 返回经过清理的完整信息。
 
 **用例**：
 
 - Kubernetes 就绪性探针
 - 负载均衡器就绪性检查
 - 部署验证
+
+### `GET /health/mcp` 和 `GET /health/mcp/:serverName`
+
+加载管理器可用时，这些端点会报告 MCP 加载进度和受监督后端状态。集合端点包含加载摘要和 `backendSupervision`；受监督后端正在重启或进入 crash-loop 时，服务器专用端点返回 `503`。监督输出遵循上述 `minimal`、`basic` 和 `full` 信息披露策略。
 
 ## 健康状态逻辑
 
@@ -313,16 +326,12 @@ fi
   "status": "unhealthy",
   "timestamp": "2025-01-30T12:00:00.000Z",
   "version": "0.15.0",
-  "system": {
-    /* system info */
-  },
+  "system": {/* system info */},
   "servers": {
     "total": 3,
     "healthy": 0,
     "unhealthy": 3,
-    "details": [
-      /* server details */
-    ]
+    "details": [/* server details */]
   },
   "configuration": {
     "loaded": false,
@@ -377,11 +386,11 @@ npx -y @1mcp/agent --config mcp.json
 
 ### 详细级别影响
 
-| 级别      | 系统信息   | 服务器详细信息 | 错误消息 | 用例            |
-| --------- | ---------- | -------------- | -------- | --------------- |
-| `full`    | 完整       | 完整 + 已清理  | 已清理   | 内部监控        |
-| `basic`   | 有限       | 状态 + 已清理  | 已清理   | 受限监控        |
-| `minimal` | 仅基本信息 | 仅计数         | 无       | 公共/负载均衡器 |
+| 级别      | 系统信息   | 服务器详细信息 | 后端监督信息     | 错误消息 | 用例            |
+| --------- | ---------- | -------------- | ---------------- | -------- | --------------- |
+| `full`    | 完整       | 完整 + 已清理  | 完整，包括 PID   | 已清理   | 内部监控        |
+| `basic`   | 有限       | 状态 + 已清理  | 逐后端，不含 PID | 已清理   | 受限监控        |
+| `minimal` | 仅基本信息 | 仅计数         | 仅聚合状态计数   | 无       | 公共/负载均衡器 |
 
 ## 最佳实践
 

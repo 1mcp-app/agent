@@ -342,6 +342,35 @@ export class ServerManager {
     return this.serverRegistry;
   }
 
+  /** Notify attached callers that backend capability lists may have changed. */
+  public async notifyBackendCapabilityListsChanged(): Promise<void> {
+    if (this.lazyLoadingOrchestrator) {
+      try {
+        await this.lazyLoadingOrchestrator.refreshCapabilities();
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        logger.warn(`Failed to refresh lazy backend capabilities: ${message}`);
+      }
+    }
+
+    const notifications = [
+      'notifications/tools/list_changed',
+      'notifications/resources/list_changed',
+      'notifications/prompts/list_changed',
+    ] as const;
+    for (const inbound of this.connectionManager.getInboundConnections().values()) {
+      if (!inbound.server.transport) continue;
+      for (const method of notifications) {
+        try {
+          await inbound.server.notification({ method, params: {} });
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          logger.warn(`Failed to send ${method} to an inbound client: ${message}`);
+        }
+      }
+    }
+  }
+
   public updateClientsAndTransports(newClients: OutboundConnections, newTransports: Record<string, Transport>): void {
     this.outboundConns = newClients;
     this.transports = newTransports;

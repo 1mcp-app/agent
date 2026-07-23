@@ -7,6 +7,7 @@ import {
 } from '@src/commands/mcp/utils/mcpServerConfig.js';
 import { ConfigManager } from '@src/config/configManager.js';
 import { McpConfigManager } from '@src/config/mcpConfigManager.js';
+import { ServerManager } from '@src/core/server/serverManager.js';
 import { debugIf } from '@src/logger/logger.js';
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -31,6 +32,17 @@ vi.mock('@src/commands/mcp/utils/mcpServerConfig.js', () => ({
   initializeConfigContext: vi.fn(),
 }));
 
+vi.mock('@src/commands/shared/baseConfigUtils.js', () => ({
+  getAllServerTargets: vi.fn(() => ({
+    'test-server': { type: 'stdio', command: 'node', args: ['test-server.js'] },
+  })),
+  resolveServerTarget: vi.fn(() => ({
+    serverName: 'test-server',
+    source: 'mcpServers',
+    serverConfig: { type: 'stdio', command: 'node', args: ['test-server.js'] },
+  })),
+}));
+
 // Mock logger
 vi.mock('@src/logger/logger.js', () => ({
   default: {
@@ -46,6 +58,7 @@ vi.mock('@src/logger/logger.js', () => ({
 vi.mock('@src/core/client/clientManager.js', () => ({
   ClientManager: {
     current: {
+      getClients: vi.fn(() => new Map()),
       removeClient: vi.fn().mockResolvedValue(undefined),
       createClient: vi.fn().mockResolvedValue(undefined),
       createSingleClient: vi.fn().mockResolvedValue(undefined),
@@ -131,9 +144,11 @@ vi.mock('@src/core/reload/selectiveReloadManager.js', () => {
 vi.mock('@src/core/server/serverManager.js', () => ({
   ServerManager: {
     current: {
-      restart: vi.fn().mockResolvedValue(undefined),
-      stop: vi.fn().mockResolvedValue(undefined),
-      start: vi.fn().mockResolvedValue(undefined),
+      getTemplateServerManager: vi.fn(() => ({
+        getTemplateInstances: vi.fn(() => []),
+      })),
+      getClient: vi.fn(() => undefined),
+      loadMcpServer: vi.fn().mockResolvedValue(undefined),
     },
   },
 }));
@@ -651,7 +666,7 @@ describe('serverManagementHandler', () => {
       expect(result.server).toBeDefined();
       expect(result.server!.name).toBe('test-server');
       expect(result.server!.configured).toBe(true);
-      expect(result.server!.status).toMatch(/^(enabled|disabled)$/);
+      expect(result.server!.status).toBe('disconnected');
       expect(result.server!.type).toBeDefined();
     });
 
@@ -675,8 +690,105 @@ describe('serverManagementHandler', () => {
       result.servers!.forEach((server) => {
         expect(server.name).toBeDefined();
         expect(server.configured).toBe(true);
-        expect(server.status).toMatch(/^(enabled|disabled)$/);
+        expect(server.status).toMatch(/^(disabled|disconnected)$/);
         expect(server.type).toBeDefined();
+      });
+    });
+
+    it('includes declared templates and their supervision facts', async () => {
+      (loadConfig as any).mockReturnValue({
+        mcpServers: {},
+        mcpTemplates: { worker: { type: 'stdio', command: 'node' } },
+      });
+      (ServerManager.current.getTemplateServerManager as any).mockReturnValue({
+        getTemplateInstances: vi.fn(() => [
+          {
+            id: 'a'.repeat(64),
+            referenceCount: 1,
+            status: 'crash-loop',
+            supervision: {
+              backendId: `template:worker:${'a'.repeat(64)}`,
+              state: 'crash-loop',
+              attempt: 5,
+              limit: 5,
+              nextRetryAt: null,
+              lastExit: null,
+              lastError: new Error('failed'),
+              currentPid: null,
+            },
+          },
+        ]),
+      });
+
+      const result = await handleServerStatus({ name: 'worker', details: true, health: true });
+
+      expect(result.server).toMatchObject({
+        name: 'worker',
+        targetType: 'template',
+        status: 'crash-loop',
+        instances: [
+          {
+            instanceId: 'aaaaaaaaaaaa',
+            status: 'crash-loop',
+            supervision: { attempt: 5, limit: 5, lastError: 'failed' },
+          },
+        ],
+      });
+    });
+
+    it('aggregates template state without returning instance details by default', async () => {
+      (loadConfig as any).mockReturnValue({
+        mcpServers: {},
+        mcpTemplates: { worker: { type: 'stdio', command: 'node' } },
+      });
+      (ServerManager.current.getTemplateServerManager as any).mockReturnValue({
+        getTemplateInstances: vi.fn(() => [
+          {
+            id: 'a'.repeat(64),
+            referenceCount: 1,
+            status: 'crash-loop',
+            supervision: {
+              backendId: `template:worker:${'a'.repeat(64)}`,
+              state: 'crash-loop',
+              attempt: 5,
+              limit: 5,
+              nextRetryAt: null,
+              lastExit: null,
+              lastError: new Error('failed'),
+              currentPid: null,
+            },
+          },
+        ]),
+      });
+
+      const result = await handleServerStatus({ name: 'worker', details: false, health: false });
+
+      expect(result.server).toMatchObject({
+        name: 'worker',
+        targetType: 'template',
+        status: 'crash-loop',
+      });
+      expect(result.server).not.toHaveProperty('instances');
+      expect(result.server).not.toHaveProperty('supervision');
+    });
+
+    it('excludes zero-membership pooled instances from template status', async () => {
+      (loadConfig as any).mockReturnValue({
+        mcpServers: {},
+        mcpTemplates: { worker: { type: 'stdio', command: 'node' } },
+      });
+      (ServerManager.current.getTemplateServerManager as any).mockReturnValue({
+        getTemplateInstances: vi.fn(() => [
+          { id: 'a'.repeat(64), referenceCount: 1, status: 'active' },
+          { id: 'b'.repeat(64), referenceCount: 0, status: 'idle' },
+        ]),
+      });
+
+      const result = await handleServerStatus({ name: 'worker', details: true, health: true });
+
+      expect(result.server).toMatchObject({
+        status: 'connected',
+        instances: [{ instanceId: 'aaaaaaaaaaaa' }],
       });
     });
 
@@ -705,6 +817,9 @@ describe('serverManagementHandler', () => {
         total: 0,
         enabled: 0,
         disabled: 0,
+        connected: 0,
+        restarting: 0,
+        crashLoop: 0,
       });
     });
   });
@@ -793,6 +908,41 @@ describe('serverManagementHandler', () => {
         action: 'reloaded',
         timestamp: expect.any(String),
         success: true,
+        outcome: {
+          targetName: 'test-server',
+          targetType: 'static',
+          outcome: 'restarted',
+          restartedInstanceIds: [],
+        },
+      });
+    });
+
+    it('preserves a distinct structured outcome when a template has no unhealthy instances', async () => {
+      (ServerManager.current.getTemplateServerManager as any).mockReturnValue({
+        getTemplateInstances: vi.fn(() => [
+          { id: 'a'.repeat(64), referenceCount: 1, supervision: { state: 'connected' } },
+        ]),
+      });
+      const { resolveServerTarget } = await import('@src/commands/shared/baseConfigUtils.js');
+      vi.mocked(resolveServerTarget).mockReturnValue({
+        serverName: 'worker',
+        source: 'mcpTemplates',
+        serverConfig: { type: 'stdio', command: 'node' },
+      });
+
+      const result = await handleReloadOperation({
+        server: 'worker',
+        configOnly: false,
+        graceful: true,
+        timeout: 30000,
+        force: false,
+      });
+
+      expect(result).toMatchObject({
+        success: false,
+        action: 'not_reloaded',
+        error: "Template server 'worker' has no unhealthy active instances",
+        outcome: { targetType: 'template', outcome: 'no_unhealthy_instances' },
       });
     });
 

@@ -1,4 +1,19 @@
+import { randomBytes } from 'node:crypto';
+
 import { createHash } from '@src/utils/crypto.js';
+
+export const TEMPLATE_INSTANCE_ID_LENGTH = 64;
+export const TEMPLATE_INSTANCE_ID_DISPLAY_LENGTH = 12;
+
+export class AmbiguousTemplateInstanceIdError extends Error {
+  constructor(
+    public readonly prefix: string,
+    public readonly matchingShortIds: string[],
+  ) {
+    super(`Template instance ID prefix '${prefix}' is ambiguous; matches: ${matchingShortIds.join(', ')}`);
+    this.name = 'AmbiguousTemplateInstanceIdError';
+  }
+}
 
 export type TemplateIdentityMode = 'rendered' | 'session';
 
@@ -56,6 +71,32 @@ function stableStringify(value: unknown): string {
   }
 
   return JSON.stringify(value);
+}
+
+export function createTemplateInstanceId(): string {
+  return randomBytes(TEMPLATE_INSTANCE_ID_LENGTH / 2).toString('hex');
+}
+
+export function formatTemplateInstanceId(instanceId: string): string {
+  return instanceId.slice(0, TEMPLATE_INSTANCE_ID_DISPLAY_LENGTH);
+}
+
+export function resolveTemplateInstanceId(prefix: string, instanceIds: Iterable<string>): string | undefined {
+  if (!new RegExp(`^[0-9a-f]{1,${TEMPLATE_INSTANCE_ID_LENGTH}}$`).test(prefix)) {
+    return undefined;
+  }
+
+  const matches = Array.from(instanceIds).filter((instanceId) => instanceId.startsWith(prefix));
+  if (matches.length === 0) {
+    return undefined;
+  }
+
+  if (matches.length === 1) {
+    return matches[0];
+  }
+
+  const matchingShortIds = matches.map(formatTemplateInstanceId).sort();
+  throw new AmbiguousTemplateInstanceIdError(prefix, matchingShortIds);
 }
 
 export function templateRenderedHash(renderedConfig: unknown): string {

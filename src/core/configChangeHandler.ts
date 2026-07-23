@@ -54,6 +54,7 @@ export class ConfigChangeHandler {
    * Handle configuration changes with business logic
    */
   private async handleConfigChanges(changes: ConfigChange[]): Promise<void> {
+    this.reconcileDeclaredTemplates();
     if (changes.length === 0) {
       return;
     }
@@ -76,6 +77,19 @@ export class ConfigChangeHandler {
 
     // Notify clients if capabilities changed
     await this.notifyClientsIfNeeded(appliedChanges, newConfig);
+  }
+
+  private reconcileDeclaredTemplates(): void {
+    if (typeof this.configManager.loadDeclaredServerConfigs !== 'function') return;
+    const serverManager = this.getServerManager();
+    if (typeof serverManager?.getTemplateServerManager !== 'function') return;
+
+    const { templateServers, errors } = this.configManager.loadDeclaredServerConfigs();
+    if (errors.length > 0) {
+      logger.warn('Skipping template reconciliation because the declared configuration is invalid', { errors });
+      return;
+    }
+    serverManager.getTemplateServerManager().rebuildTemplateIndex({ mcpTemplates: templateServers });
   }
 
   /**
