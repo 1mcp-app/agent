@@ -6,7 +6,9 @@ import {
   getRuntimeStatusReport,
   STATUS_EXIT_CODES,
 } from '@src/commands/serve/serveStatus.js';
+import type { BackgroundSupervisorState } from '@src/core/server/backgroundRuntimeSupervisorState.js';
 import { getPidFilePath, ServerPidInfo, writePidFile } from '@src/core/server/pidFileManager.js';
+import type { RuntimeScopeOwnershipRecord } from '@src/core/server/runtimeScopeOwnership.js';
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -26,16 +28,18 @@ describe('serveStatus', () => {
   const testConfigDir = path.join(process.cwd(), '.tmp-test-status');
   const testPidFilePath = getPidFilePath(testConfigDir);
 
-  const baseInfo = (overrides: Partial<ServerPidInfo> = {}): ServerPidInfo => ({
-    pid: process.pid,
-    url: 'http://localhost:3050/mcp',
-    port: 3050,
-    host: 'localhost',
-    transport: 'http',
-    startedAt: '2026-06-26T00:00:00.000Z',
-    configDir: testConfigDir,
-    ...overrides,
-  });
+  function baseInfo(overrides: Partial<ServerPidInfo> = {}): ServerPidInfo {
+    return {
+      pid: process.pid,
+      url: 'http://localhost:3050/mcp',
+      port: 3050,
+      host: 'localhost',
+      transport: 'http',
+      startedAt: '2026-06-26T00:00:00.000Z',
+      configDir: testConfigDir,
+      ...overrides,
+    };
+  }
 
   beforeEach(() => {
     if (!fs.existsSync(testConfigDir)) {
@@ -54,26 +58,31 @@ describe('serveStatus', () => {
   });
 
   describe('getRuntimeStatusReport', () => {
-    const supervisorState = (overrides: Record<string, unknown> = {}) => ({
-      version: 1 as const,
-      status: 'running' as const,
-      supervisorPid: 8100,
-      runtimePid: process.pid,
-      restartAttempt: 0,
-      lastExit: null,
-      nextRetryAt: null,
-      readyAt: '2026-06-26T00:00:01.000Z',
-      updatedAt: '2026-06-26T00:00:01.000Z',
-      ...overrides,
-    });
-    const ownership = (overrides: Record<string, unknown> = {}) => ({
-      version: 1 as const,
-      pid: 8200,
-      claimId: 'foreground-owner',
-      kind: 'foreground-http' as const,
-      claimedAt: '2026-06-26T00:00:00.000Z',
-      ...overrides,
-    });
+    function supervisorState(overrides: Partial<BackgroundSupervisorState> = {}): BackgroundSupervisorState {
+      return {
+        version: 1,
+        status: 'running',
+        supervisorPid: 8100,
+        runtimePid: process.pid,
+        restartAttempt: 0,
+        lastExit: null,
+        nextRetryAt: null,
+        readyAt: '2026-06-26T00:00:01.000Z',
+        updatedAt: '2026-06-26T00:00:01.000Z',
+        ...overrides,
+      };
+    }
+
+    function ownership(overrides: Partial<RuntimeScopeOwnershipRecord> = {}): RuntimeScopeOwnershipRecord {
+      return {
+        version: 1,
+        pid: 8200,
+        claimId: 'foreground-owner',
+        kind: 'foreground-http',
+        claimedAt: '2026-06-26T00:00:00.000Z',
+        ...overrides,
+      };
+    }
 
     it('reports running with full details when alive and ready', async () => {
       writePidFile(testConfigDir, baseInfo({ logFile: '/tmp/server.log' }));

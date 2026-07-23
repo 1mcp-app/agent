@@ -99,6 +99,29 @@ function cloneState(state: BackgroundSupervisorState): BackgroundSupervisorState
   };
 }
 
+function waitForWorkerExit(worker: SupervisedRuntimeWorker, now: () => Date): Promise<WorkerExitOutcome> {
+  let workerErrorMessage: string | undefined;
+  worker.on('error', (error) => {
+    workerErrorMessage = error.message;
+  });
+
+  // An error does not prove termination; close is the authoritative signal
+  // that it is safe to account for the exit and consider a replacement.
+  return new Promise((resolve) => {
+    worker.once('close', (code, signal) => {
+      resolve({
+        kind: 'exit',
+        exit: {
+          at: now().toISOString(),
+          code,
+          signal,
+          ...(workerErrorMessage ? { error: workerErrorMessage } : {}),
+        },
+      });
+    });
+  });
+}
+
 /**
  * Run one persistent Background Runtime Supervisor until deliberate stop.
  * The worker is never restarted because of readiness alone; only an observed
@@ -151,25 +174,7 @@ export async function runBackgroundRuntimeSupervisor(
 
     for (;;) {
       const worker = spawnWorker(options.workerCommand, workerArgs, { stdio: 'ignore' });
-      let workerErrorMessage: string | undefined;
-      worker.on('error', (error) => {
-        workerErrorMessage = error.message;
-      });
-      // An error does not prove termination; close is the authoritative signal
-      // that it is safe to account for the exit and consider a replacement.
-      const exitPromise = new Promise<WorkerExitOutcome>((resolve) => {
-        worker.once('close', (code, signal) => {
-          resolve({
-            kind: 'exit',
-            exit: {
-              at: now().toISOString(),
-              code,
-              signal,
-              ...(workerErrorMessage ? { error: workerErrorMessage } : {}),
-            },
-          });
-        });
-      });
+      const exitPromise = waitForWorkerExit(worker, now);
       if (!worker.pid) {
         throw new Error('Background Runtime Supervisor failed to spawn a runtime worker');
       }

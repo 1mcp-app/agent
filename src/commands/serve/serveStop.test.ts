@@ -4,9 +4,16 @@ import path from 'node:path';
 import { runServeStop, waitForProcessExit } from '@src/commands/serve/serveStop.js';
 import { getBackgroundLaunchConfigPath, writeBackgroundLaunchConfig } from '@src/core/server/backgroundLaunchConfig.js';
 import { PidFileReadError, type ServerPidInfo } from '@src/core/server/pidFileManager.js';
-import { claimRuntimeScope, getRuntimeScopeOwnershipPath } from '@src/core/server/runtimeScopeOwnership.js';
+import {
+  claimRuntimeScope,
+  getRuntimeScopeOwnershipPath,
+  type RuntimeScopeOwnershipRecord,
+  type RuntimeScopeStopLock,
+} from '@src/core/server/runtimeScopeOwnership.js';
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
+type StreamChunk = Parameters<typeof process.stdout.write>[0];
 
 describe('waitForProcessExit', () => {
   it('returns true once the process is gone', async () => {
@@ -42,33 +49,41 @@ describe('runServeStop', () => {
   let stdoutSpy: ReturnType<typeof vi.spyOn>;
   let stderrSpy: ReturnType<typeof vi.spyOn>;
 
-  const info = (overrides: Partial<ServerPidInfo> = {}): ServerPidInfo => ({
-    pid: 4321,
-    url: 'http://localhost:3050/mcp',
-    port: 3050,
-    host: 'localhost',
-    transport: 'http',
-    startedAt: '2026-06-26T00:00:00.000Z',
-    configDir: '/scope',
-    ...overrides,
-  });
-  const backgroundOwner = (supervisorPid: number) => ({
-    version: 1 as const,
-    pid: supervisorPid,
-    claimId: `claim-${supervisorPid}`,
-    kind: 'background-supervisor' as const,
-    claimedAt: '2026-06-26T00:00:00.000Z',
-  });
-  const acquireStopLock = () => ({ release: vi.fn() });
+  function info(overrides: Partial<ServerPidInfo> = {}): ServerPidInfo {
+    return {
+      pid: 4321,
+      url: 'http://localhost:3050/mcp',
+      port: 3050,
+      host: 'localhost',
+      transport: 'http',
+      startedAt: '2026-06-26T00:00:00.000Z',
+      configDir: '/scope',
+      ...overrides,
+    };
+  }
+
+  function backgroundOwner(supervisorPid: number): RuntimeScopeOwnershipRecord {
+    return {
+      version: 1,
+      pid: supervisorPid,
+      claimId: `claim-${supervisorPid}`,
+      kind: 'background-supervisor',
+      claimedAt: '2026-06-26T00:00:00.000Z',
+    };
+  }
+
+  function acquireStopLock(): RuntimeScopeStopLock {
+    return { release: vi.fn() };
+  }
 
   beforeEach(() => {
     stdout = '';
     stderr = '';
-    stdoutSpy = vi.spyOn(process.stdout, 'write').mockImplementation((chunk: any) => {
+    stdoutSpy = vi.spyOn(process.stdout, 'write').mockImplementation((chunk: StreamChunk) => {
       stdout += String(chunk);
       return true;
     });
-    stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation((chunk: any) => {
+    stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation((chunk: StreamChunk) => {
       stderr += String(chunk);
       return true;
     });

@@ -45,7 +45,7 @@ const stateSchema = z.object({
   nextRetryAt: z.string().datetime().nullable(),
   readyAt: z.string().datetime().nullable(),
   updatedAt: z.string().datetime(),
-});
+}) satisfies z.ZodType<BackgroundSupervisorState>;
 
 export class BackgroundSupervisorStateReadError extends Error {
   constructor(
@@ -77,7 +77,7 @@ export function readBackgroundSupervisorState(configDir: string): BackgroundSupe
   }
 
   try {
-    return stateSchema.parse(JSON.parse(content)) as BackgroundSupervisorState;
+    return stateSchema.parse(JSON.parse(content));
   } catch (error) {
     throw new BackgroundSupervisorStateReadError(stateFilePath, error);
   }

@@ -37,20 +37,22 @@ class FakeWorker extends EventEmitter implements SupervisedRuntimeWorker {
   }
 }
 
-const state = (overrides: Partial<BackgroundSupervisorState> = {}): BackgroundSupervisorState => ({
-  version: 1,
-  status: 'running',
-  supervisorPid: 100,
-  runtimePid: 101,
-  restartAttempt: 0,
-  lastExit: null,
-  nextRetryAt: null,
-  readyAt: '2026-07-22T00:00:00.000Z',
-  updatedAt: '2026-07-22T00:00:00.000Z',
-  ...overrides,
-});
+function createSupervisorState(overrides: Partial<BackgroundSupervisorState> = {}): BackgroundSupervisorState {
+  return {
+    version: 1,
+    status: 'running',
+    supervisorPid: 100,
+    runtimePid: 101,
+    restartAttempt: 0,
+    lastExit: null,
+    nextRetryAt: null,
+    readyAt: '2026-07-22T00:00:00.000Z',
+    updatedAt: '2026-07-22T00:00:00.000Z',
+    ...overrides,
+  };
+}
 
-function deferred<T>() {
+function deferred<T>(): { promise: Promise<T>; resolve: (value: T | PromiseLike<T>) => void } {
   let resolve!: (value: T | PromiseLike<T>) => void;
   const promise = new Promise<T>((resolver) => {
     resolve = resolver;
@@ -64,9 +66,9 @@ describe('background supervisor state store', () => {
   afterEach(() => fs.rmSync(scope, { recursive: true, force: true }));
 
   it('round-trips an atomic structured lifecycle snapshot', () => {
-    writeBackgroundSupervisorState(scope, state());
+    writeBackgroundSupervisorState(scope, createSupervisorState());
 
-    expect(readBackgroundSupervisorState(scope)).toEqual(state());
+    expect(readBackgroundSupervisorState(scope)).toEqual(createSupervisorState());
     expect(fs.existsSync(path.join(scope, BACKGROUND_SUPERVISOR_STATE_FILE))).toBe(true);
   });
 

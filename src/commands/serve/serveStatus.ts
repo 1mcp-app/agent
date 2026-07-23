@@ -35,12 +35,7 @@ export interface RuntimeStatusReport {
   error?: string;
 }
 
-/**
- * Process exit codes per runtime state, so scripts can branch on `serve --status`:
- * - running (alive and ready) → 0
- * - not-running (empty scope or stale dead PID) → 3
- * - unreachable (alive but `/health/ready` failing) → 4
- */
+/** Process exit codes per runtime state, allowing scripts to branch on status. */
 export const STATUS_EXIT_CODES: Record<ServeRuntimeStatus, number> = {
   running: 0,
   'not-running': 3,
@@ -81,12 +76,7 @@ export async function getRuntimeStatusReport(
   try {
     supervisorState = readSupervisorState(configDir);
   } catch (error) {
-    return {
-      status: 'error',
-      configDir,
-      info: null,
-      error: error instanceof Error ? error.message : String(error),
-    };
+    return statusError(configDir, error);
   }
 
   if (supervisorState) {
@@ -140,12 +130,7 @@ export async function getRuntimeStatusReport(
           };
         }
       } catch (error) {
-        return {
-          status: 'error',
-          configDir,
-          info: null,
-          error: error instanceof Error ? error.message : String(error),
-        };
+        return statusError(configDir, error);
       }
       return discovered;
     }
@@ -243,21 +228,18 @@ export function formatRuntimeStatusReport(report: RuntimeStatusReport): string {
       lines.push(`Error: ${report.error ?? 'PID file could not be read'}`);
     }
     if (info) {
-      lines.push(`URL: ${info.url}`);
-      lines.push(`Started: ${info.startedAt}`);
-      lines.push(`Log file: ${info.logFile ?? '(console only)'}`);
-      lines.push('Process: alive');
-      lines.push(`Readiness (/health/ready): ${status === 'running' ? 'ready' : 'not ready'}`);
+      appendRuntimeDetails(lines, info, status === 'running');
     }
     return `${lines.join('\n')}\n`;
   }
 
+  if (status === 'error') {
+    lines.push('Status: error');
+    lines.push(`Error: ${report.error ?? 'PID file could not be read'}`);
+    return `${lines.join('\n')}\n`;
+  }
+
   if (status === 'not-running' || !info) {
-    if (status === 'error') {
-      lines.push('Status: error');
-      lines.push(`Error: ${report.error ?? 'PID file could not be read'}`);
-      return `${lines.join('\n')}\n`;
-    }
     lines.push('Status: not running');
     return `${lines.join('\n')}\n`;
   }
@@ -265,12 +247,16 @@ export function formatRuntimeStatusReport(report: RuntimeStatusReport): string {
   const ready = status === 'running';
   lines.push(`Status: ${ready ? 'running (ready)' : 'starting (not ready)'}`);
   lines.push(`PID: ${info.pid}`);
+  appendRuntimeDetails(lines, info, ready);
+  return `${lines.join('\n')}\n`;
+}
+
+function appendRuntimeDetails(lines: string[], info: ServerPidInfo, ready: boolean): void {
   lines.push(`URL: ${info.url}`);
   lines.push(`Started: ${info.startedAt}`);
   lines.push(`Log file: ${info.logFile ?? '(console only)'}`);
   lines.push('Process: alive');
   lines.push(`Readiness (/health/ready): ${ready ? 'ready' : 'not ready'}`);
-  return `${lines.join('\n')}\n`;
 }
 
 function formatOwnershipKind(kind: RuntimeScopeOwnershipRecord['kind']): string {

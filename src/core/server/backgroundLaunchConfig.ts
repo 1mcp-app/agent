@@ -17,7 +17,7 @@ const backgroundLaunchConfigSchema = z.object({
   version: z.literal(1),
   claimId: z.string().min(1),
   appConfig: applicationConfigSchema,
-});
+}) satisfies z.ZodType<BackgroundLaunchConfig>;
 
 export function getBackgroundLaunchConfigPath(configDir: string): string {
   return path.join(configDir, BACKGROUND_LAUNCH_CONFIG_FILE);

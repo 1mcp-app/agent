@@ -1,6 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 
+import type { ServeOptions } from '@src/commands/serve/serve.js';
 import {
   BACKGROUND_GUARD_FLAG,
   buildBackgroundSupervisorArgs,
@@ -19,12 +20,38 @@ import {
   readBackgroundLaunchConfig,
   writeBackgroundLaunchConfig,
 } from '@src/core/server/backgroundLaunchConfig.js';
-import { BACKGROUND_SUPERVISOR_STATE_FILE } from '@src/core/server/backgroundRuntimeSupervisorState.js';
+import type {
+  BackgroundSupervisorDependencies,
+  BackgroundSupervisorOptions,
+} from '@src/core/server/backgroundRuntimeSupervisor.js';
+import {
+  BACKGROUND_SUPERVISOR_STATE_FILE,
+  type BackgroundSupervisorState,
+} from '@src/core/server/backgroundRuntimeSupervisorState.js';
 import { getPidFilePath, ServerPidInfo, writePidFile } from '@src/core/server/pidFileManager.js';
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const discoverScopedRuntimeMock = vi.fn();
+type StreamChunk = Parameters<typeof process.stdout.write>[0];
+
+function serveOptions(overrides: Partial<ServeOptions> = {}): ServeOptions {
+  return {
+    pagination: false,
+    'health-info-level': 'minimal',
+    'async-notify-on-ready': true,
+    'lazy-catalog-format': 'grouped',
+    'enable-env-substitution': true,
+    'enable-session-persistence': true,
+    'session-persist-requests': 100,
+    'session-persist-interval': 5,
+    'session-background-flush': 60,
+    'enable-client-notifications': true,
+    'enable-jsonrpc-error-logging': true,
+    'enable-internal-tools': false,
+    ...overrides,
+  };
+}
 
 vi.mock('@src/core/server/runtimeLifecycle.js', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@src/core/server/runtimeLifecycle.js')>();
@@ -89,14 +116,14 @@ describe('serveBackground helpers', () => {
   describe('buildBackgroundSupervisorArgs', () => {
     it('materializes effective parsed startup options without lifecycle recursion', () => {
       const args = buildBackgroundSupervisorArgs(
-        {
+        serveOptions({
           background: true,
           'config-dir': '/scope',
           port: 4050,
           host: '127.0.0.2',
           'enable-auth': false,
           'async-min-servers': 3,
-        } as any,
+        }),
         { logFile: '/scope/server.log' },
       );
 
@@ -134,16 +161,18 @@ describe('waitForBackgroundReady', () => {
   const testConfigDir = path.join(process.cwd(), '.tmp-test-bg-wait');
   const testPidFilePath = getPidFilePath(testConfigDir);
 
-  const info = (overrides: Partial<ServerPidInfo> = {}): ServerPidInfo => ({
-    pid: 4321,
-    url: 'http://localhost:3050/mcp',
-    port: 3050,
-    host: 'localhost',
-    transport: 'http',
-    startedAt: '2026-06-26T00:00:00.000Z',
-    configDir: testConfigDir,
-    ...overrides,
-  });
+  function info(overrides: Partial<ServerPidInfo> = {}): ServerPidInfo {
+    return {
+      pid: 4321,
+      url: 'http://localhost:3050/mcp',
+      port: 3050,
+      host: 'localhost',
+      transport: 'http',
+      startedAt: '2026-06-26T00:00:00.000Z',
+      configDir: testConfigDir,
+      ...overrides,
+    };
+  }
 
   beforeEach(() => fs.mkdirSync(testConfigDir, { recursive: true }));
   afterEach(() => {
@@ -217,13 +246,22 @@ describe('waitForBackgroundReady', () => {
 
 describe('waitForBackgroundSupervisorReady', () => {
   it('waits through replacement and succeeds only when the current worker is ready', async () => {
-    const snapshots = [
-      { status: 'restarting' as const, supervisorPid: 100, runtimePid: null },
-      { status: 'running' as const, supervisorPid: 100, runtimePid: 202 },
+    const snapshots: BackgroundSupervisorState[] = [
+      createSupervisorState({ status: 'restarting', runtimePid: null }),
+      createSupervisorState({ status: 'running', runtimePid: 202 }),
     ];
+    const runtimeInfo: ServerPidInfo = {
+      pid: 202,
+      url: 'http://localhost:4050/mcp',
+      port: 4050,
+      host: 'localhost',
+      transport: 'http',
+      startedAt: '2026-07-22T00:00:00.000Z',
+      configDir: '/scope',
+    };
     const result = await waitForBackgroundSupervisorReady('/scope', 100, {
-      readState: () => snapshots.shift() as any,
-      readRuntimeInfo: () => ({ pid: 202, url: 'http://localhost:4050/mcp' }) as ServerPidInfo,
+      readState: () => snapshots.shift() ?? null,
+      readRuntimeInfo: () => runtimeInfo,
       readinessProbe: async () => true,
       isSupervisorAlive: () => true,
       sleep: async () => {},
@@ -234,7 +272,7 @@ describe('waitForBackgroundSupervisorReady', () => {
 
   it('returns terminal failure without stopping a resident crash-loop supervisor', async () => {
     const result = await waitForBackgroundSupervisorReady('/scope', 100, {
-      readState: () => ({ status: 'crash-loop', supervisorPid: 100, runtimePid: null }) as any,
+      readState: () => createSupervisorState({ status: 'crash-loop', runtimePid: null }),
       isSupervisorAlive: () => true,
       sleep: async () => {},
     });
@@ -243,6 +281,21 @@ describe('waitForBackgroundSupervisorReady', () => {
   });
 });
 
+function createSupervisorState(overrides: Partial<BackgroundSupervisorState> = {}): BackgroundSupervisorState {
+  return {
+    version: 1,
+    status: 'running',
+    supervisorPid: 100,
+    runtimePid: 101,
+    restartAttempt: 0,
+    lastExit: null,
+    nextRetryAt: null,
+    readyAt: '2026-07-22T00:00:00.000Z',
+    updatedAt: '2026-07-22T00:00:00.000Z',
+    ...overrides,
+  };
+}
+
 describe('runServeBackgroundSupervisor', () => {
   const scope = path.join(process.cwd(), '.tmp-background-supervisor-bootstrap');
 
@@ -250,24 +303,30 @@ describe('runServeBackgroundSupervisor', () => {
 
   it('holds one scope claim while running workers authorized with the original effective args', async () => {
     const release = vi.fn();
-    const runSupervisor = vi.fn(async (options: any, dependencies: any) => {
-      expect(options.configDir).toBe(scope);
-      expect(options.workerArgs).toEqual(
-        expect.arrayContaining([
-          'serve',
-          '--config-dir',
-          scope,
-          '--port',
-          '4050',
-          '--runtime-owner-claim-id',
-          'claim-123',
-        ]),
-      );
-      expect(options.workerArgs).not.toContain(`--${BACKGROUND_GUARD_FLAG}`);
-      dependencies.appendEvent({ at: '2026-07-22T00:00:00.000Z', event: 'runtime-ready', supervisorPid: 100 });
-    });
+    const runSupervisor = vi.fn(
+      async (options: BackgroundSupervisorOptions, dependencies: BackgroundSupervisorDependencies) => {
+        expect(options.configDir).toBe(scope);
+        expect(options.workerArgs).toEqual(
+          expect.arrayContaining([
+            'serve',
+            '--config-dir',
+            scope,
+            '--port',
+            '4050',
+            '--runtime-owner-claim-id',
+            'claim-123',
+          ]),
+        );
+        expect(options.workerArgs).not.toContain(`--${BACKGROUND_GUARD_FLAG}`);
+        dependencies.appendEvent?.({
+          at: '2026-07-22T00:00:00.000Z',
+          event: 'runtime-ready',
+          supervisorPid: 100,
+        });
+      },
+    );
 
-    await runServeBackgroundSupervisor({ 'config-dir': scope } as any, {
+    await runServeBackgroundSupervisor(serveOptions({ 'config-dir': scope }), {
       rawArgv: ['serve', '--background-bootstrap', '--config-dir', scope, '--port', '4050'],
       loadAppConfig: () => ({}),
       claimScope: () => ({
@@ -292,7 +351,7 @@ describe('runServeBackgroundSupervisor', () => {
     const release = vi.fn();
 
     await expect(
-      runServeBackgroundSupervisor({ 'config-dir': scope } as any, {
+      runServeBackgroundSupervisor(serveOptions({ 'config-dir': scope }), {
         rawArgv: ['serve', '--background-bootstrap', '--config-dir', scope],
         loadAppConfig: () => ({}),
         claimScope: () => ({
@@ -319,7 +378,7 @@ describe('runServeBackgroundSupervisor', () => {
     const supervisorFailure = new Error('supervisor failed');
 
     await expect(
-      runServeBackgroundSupervisor({ 'config-dir': scope } as any, {
+      runServeBackgroundSupervisor(serveOptions({ 'config-dir': scope }), {
         rawArgv: ['serve', '--background-bootstrap', '--config-dir', scope],
         loadAppConfig: () => ({}),
         claimScope: () => ({
@@ -353,7 +412,7 @@ describe('runServeBackgroundSupervisor', () => {
       asyncLoading: { enabled: true, minServers: 2 },
     };
 
-    await runServeBackgroundSupervisor({ 'config-dir': scope } as any, {
+    await runServeBackgroundSupervisor(serveOptions({ 'config-dir': scope }), {
       rawArgv: ['serve', '--background-bootstrap', '--config-dir', scope],
       loadAppConfig: () => appConfig,
       claimScope: () => ({
@@ -411,11 +470,11 @@ describe('runServeBackground orchestration', () => {
   beforeEach(() => {
     stdout = '';
     stderr = '';
-    stdoutSpy = vi.spyOn(process.stdout, 'write').mockImplementation((chunk: any) => {
+    stdoutSpy = vi.spyOn(process.stdout, 'write').mockImplementation((chunk: StreamChunk) => {
       stdout += String(chunk);
       return true;
     });
-    stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation((chunk: any) => {
+    stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation((chunk: StreamChunk) => {
       stderr += String(chunk);
       return true;
     });
@@ -431,15 +490,17 @@ describe('runServeBackground orchestration', () => {
     fs.rmSync(tmpDir, { recursive: true, force: true });
   });
 
-  const fakeChild = (pid: number | undefined): SpawnedChild => ({
-    pid,
-    unref: vi.fn(),
-    once: vi.fn(),
-  });
+  function fakeChild(pid: number | undefined): SpawnedChild {
+    return {
+      pid,
+      unref: vi.fn(),
+      once: vi.fn(),
+    };
+  }
 
   it('rejects stdio transport without spawning', async () => {
     const spawnChild = vi.fn();
-    await runServeBackground({ transport: 'stdio' } as any, {
+    await runServeBackground(serveOptions({ transport: 'stdio' }), {
       loadAppConfig: () => ({}),
       spawnChild,
     });
@@ -457,7 +518,7 @@ describe('runServeBackground orchestration', () => {
     });
     const spawnChild = vi.fn();
 
-    await runServeBackground({ 'config-dir': tmpDir } as any, {
+    await runServeBackground(serveOptions({ 'config-dir': tmpDir }), {
       loadAppConfig: () => ({}),
       spawnChild,
     });
@@ -475,7 +536,7 @@ describe('runServeBackground orchestration', () => {
     });
     const spawnChild = vi.fn();
 
-    await runServeBackground({ 'config-dir': tmpDir } as any, {
+    await runServeBackground(serveOptions({ 'config-dir': tmpDir }), {
       loadAppConfig: () => ({}),
       spawnChild,
     });
@@ -494,7 +555,7 @@ describe('runServeBackground orchestration', () => {
     });
     const spawnChild = vi.fn();
 
-    await runServeBackground({ 'config-dir': tmpDir } as any, {
+    await runServeBackground(serveOptions({ 'config-dir': tmpDir }), {
       loadAppConfig: () => ({}),
       spawnChild,
     });
@@ -509,7 +570,7 @@ describe('runServeBackground orchestration', () => {
     const spawnChild = vi.fn().mockReturnValue(fakeChild(undefined));
     const waitForReady = vi.fn();
 
-    await runServeBackground({ 'config-dir': tmpDir } as any, {
+    await runServeBackground(serveOptions({ 'config-dir': tmpDir }), {
       loadAppConfig: () => ({}),
       rawArgv: ['serve', '--background', '--config-dir', tmpDir],
       spawnChild,
@@ -530,7 +591,7 @@ describe('runServeBackground orchestration', () => {
       info: { pid: 7777, url: 'http://localhost:3050/mcp', logFile: path.join(tmpDir, 'logs', 'server.log') },
     });
 
-    await runServeBackground({ 'config-dir': tmpDir } as any, {
+    await runServeBackground(serveOptions({ 'config-dir': tmpDir }), {
       loadAppConfig: () => ({}),
       rawArgv: ['serve', '--background', '--config-dir', tmpDir],
       spawnChild,
@@ -555,7 +616,7 @@ describe('runServeBackground orchestration', () => {
     });
     const configPath = path.join(tmpDir, 'custom-config.json');
 
-    await runServeBackground({ config: configPath } as any, {
+    await runServeBackground(serveOptions({ config: configPath }), {
       loadAppConfig: () => ({}),
       rawArgv: ['serve', '--background', '--config', configPath],
       spawnChild,
@@ -573,7 +634,7 @@ describe('runServeBackground orchestration', () => {
     const waitForReady = vi.fn().mockResolvedValue({ ready: false, reason: 'timed out' });
     const killChild = vi.fn();
 
-    await runServeBackground({ 'config-dir': tmpDir } as any, {
+    await runServeBackground(serveOptions({ 'config-dir': tmpDir }), {
       loadAppConfig: () => ({}),
       rawArgv: ['serve', '--background', '--config-dir', tmpDir],
       spawnChild,
@@ -597,7 +658,7 @@ describe('runServeBackground orchestration', () => {
     });
     const killChild = vi.fn();
 
-    await runServeBackground({ 'config-dir': tmpDir } as any, {
+    await runServeBackground(serveOptions({ 'config-dir': tmpDir }), {
       loadAppConfig: () => ({}),
       rawArgv: ['serve', '--background', '--config-dir', tmpDir],
       spawnChild,

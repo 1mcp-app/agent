@@ -306,7 +306,8 @@ export async function serveCommand(parsedArgv: ServeOptions): Promise<void> {
     }
 
     const supervisorClaimId = parsedArgv['runtime-owner-claim-id'];
-    if (parsedArgv['background-launch-config'] && !supervisorClaimId) {
+    const launchConfigFile = parsedArgv['background-launch-config'];
+    if (launchConfigFile && !supervisorClaimId) {
       throw new Error('Background launch configuration is only valid for an authorized supervised worker');
     }
     if (parsedArgv['background-bootstrap'] && !supervisorClaimId) {
@@ -316,7 +317,6 @@ export async function serveCommand(parsedArgv: ServeOptions): Promise<void> {
     }
     if (supervisorClaimId) {
       verifyRuntimeScopeOwnership(runtimeScope, supervisorClaimId, 'background-supervisor');
-      const launchConfigFile = parsedArgv['background-launch-config'];
       const expectedLaunchConfigFile = getBackgroundLaunchConfigPath(runtimeScope);
       if (!launchConfigFile || path.resolve(launchConfigFile) !== path.resolve(expectedLaunchConfigFile)) {
         throw new Error('Authorized supervised workers must use the Runtime Scope background launch configuration');
@@ -332,7 +332,6 @@ export async function serveCommand(parsedArgv: ServeOptions): Promise<void> {
     const mcpConfigManager = ConfigManager.getInstance(configFilePath);
 
     // Load app-level config from config.toml (CLI args take precedence)
-    const launchConfigFile = parsedArgv['background-launch-config'];
     const launchConfig = launchConfigFile ? readBackgroundLaunchConfig(launchConfigFile) : null;
     if (launchConfig && launchConfig.claimId !== supervisorClaimId) {
       throw new Error('Background launch configuration does not match the active supervisor claim');

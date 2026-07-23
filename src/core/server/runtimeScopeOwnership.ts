@@ -40,6 +40,8 @@ export interface RuntimeScopeClaimant {
 
 export type RuntimeScopeOwnershipFailureReason = 'owned' | 'ambiguous';
 
+type RuntimeScopeOwnershipIdentity = Pick<RuntimeScopeOwnershipRecord, 'claimId' | 'pid'>;
+
 export class RuntimeScopeOwnedError extends Error {
   constructor(
     public readonly ownerPath: string,
@@ -109,17 +111,19 @@ export function claimRuntimeScope(
 ): RuntimeScopeOwnership {
   const ownerDir = getRuntimeScopeOwnershipPath(configDir);
   const processAlive = dependencies.processAlive ?? isProcessAlive;
+  const createClaimId = dependencies.createClaimId ?? randomUUID;
+  const now = dependencies.now ?? currentDate;
   const record: RuntimeScopeOwnershipRecord = {
     version: 1,
     pid: claimant.pid ?? process.pid,
-    claimId: (dependencies.createClaimId ?? randomUUID)(),
+    claimId: createClaimId(),
     kind: claimant.kind,
-    claimedAt: (dependencies.now ?? (() => new Date()))().toISOString(),
+    claimedAt: now().toISOString(),
   };
 
   fs.mkdirSync(configDir, { recursive: true });
   const candidateDir = `${ownerDir}.${record.claimId}.candidate`;
-  writeOwnershipCandidate(candidateDir, record);
+  writeCandidate(candidateDir, OWNER_RECORD_NAME, record);
 
   try {
     for (let attempt = 0; attempt < CLAIM_ATTEMPTS; attempt += 1) {
@@ -138,9 +142,7 @@ export function claimRuntimeScope(
         if (processAlive(existing.record.pid)) {
           throw new RuntimeScopeOwnedError(ownerDir, 'owned', existing.record);
         }
-        if (!reclaimObservedOwnership(configDir, existing, processAlive)) {
-          continue;
-        }
+        reclaimObservedOwnership(configDir, existing, processAlive);
         continue;
       }
 
@@ -177,18 +179,20 @@ export function acquireRuntimeScopeStopLock(
   dependencies: OwnershipDependencies = {},
 ): RuntimeScopeStopLock {
   const processAlive = dependencies.processAlive ?? isProcessAlive;
+  const createOperationId = dependencies.createClaimId ?? randomUUID;
+  const now = dependencies.now ?? currentDate;
   const stopLockPath = getRuntimeScopeStopLockPath(configDir);
   const lockRecord = {
     version: 1 as const,
-    operationId: (dependencies.createClaimId ?? randomUUID)(),
+    operationId: createOperationId(),
     ownerClaimId: expectedOwner.claimId,
     pid: process.pid,
-    acquiredAt: (dependencies.now ?? (() => new Date()))().toISOString(),
+    acquiredAt: now().toISOString(),
   };
 
   fs.mkdirSync(configDir, { recursive: true });
   const candidateDir = `${stopLockPath}.${lockRecord.operationId}.candidate`;
-  writeStopLockCandidate(candidateDir, lockRecord);
+  writeCandidate(candidateDir, STOP_LOCK_RECORD_NAME, lockRecord);
 
   try {
     for (let attempt = 0; attempt < CLAIM_ATTEMPTS; attempt += 1) {
@@ -203,7 +207,7 @@ export function acquireRuntimeScopeStopLock(
       let observed: ObservedOwnership;
       try {
         const current = inspectRuntimeScopeOwnership(configDir);
-        if (current?.record.claimId !== expectedOwner.claimId || current.record.pid !== expectedOwner.pid) {
+        if (!current || !ownershipMatches(current.record, expectedOwner)) {
           throw new RuntimeScopeOwnedError(
             stopLockPath,
             'ambiguous',
@@ -244,16 +248,11 @@ export function acquireRuntimeScopeStopLock(
  */
 export function reclaimStaleRuntimeScopeOwnership(
   configDir: string,
-  expected: Pick<RuntimeScopeOwnershipRecord, 'claimId' | 'pid'>,
+  expected: RuntimeScopeOwnershipIdentity,
   processAlive: (pid: number) => boolean = isProcessAlive,
 ): boolean {
   const observed = inspectRuntimeScopeOwnership(configDir);
-  if (
-    !observed ||
-    observed.record.claimId !== expected.claimId ||
-    observed.record.pid !== expected.pid ||
-    processAlive(observed.record.pid)
-  ) {
+  if (!observed || !ownershipMatches(observed.record, expected) || processAlive(observed.record.pid)) {
     return false;
   }
   return reclaimObservedOwnership(configDir, observed, processAlive);
@@ -268,12 +267,7 @@ function reclaimObservedOwnership(
   const stopLock = acquireRuntimeScopeStopLock(configDir, observed.record, { processAlive });
   try {
     const current = inspectRuntimeScopeOwnership(configDir);
-    if (
-      !current ||
-      current.record.claimId !== observed.record.claimId ||
-      current.record.pid !== observed.record.pid ||
-      processAlive(current.record.pid)
-    ) {
+    if (!current || !ownershipMatches(current.record, observed.record) || processAlive(current.record.pid)) {
       return false;
     }
     assertDeadSupervisorIsReclaimable(configDir, ownerDir, current.record, processAlive);
@@ -353,20 +347,6 @@ function assertDeadSupervisorIsReclaimable(
       owner,
       `orphaned runtime PID ${runtimeInfo.pid} is still alive`,
     );
-  }
-}
-
-function writeOwnershipCandidate(candidateDir: string, record: RuntimeScopeOwnershipRecord): void {
-  try {
-    fs.mkdirSync(candidateDir, { mode: 0o700 });
-    fs.writeFileSync(path.join(candidateDir, OWNER_RECORD_NAME), `${JSON.stringify(record)}\n`, {
-      encoding: 'utf8',
-      flag: 'wx',
-      mode: 0o600,
-    });
-  } catch (error) {
-    removeCandidateDirectoryIfPresent(candidateDir);
-    throw error;
   }
 }
 
@@ -529,20 +509,6 @@ function removeObservedStopLock(configDir: string, observed: ObservedStopLock): 
   }
 }
 
-function writeStopLockCandidate(candidateDir: string, record: RuntimeScopeStopLockRecord): void {
-  try {
-    fs.mkdirSync(candidateDir, { mode: 0o700 });
-    fs.writeFileSync(path.join(candidateDir, STOP_LOCK_RECORD_NAME), `${JSON.stringify(record)}\n`, {
-      encoding: 'utf8',
-      flag: 'wx',
-      mode: 0o600,
-    });
-  } catch (error) {
-    removeCandidateDirectoryIfPresent(candidateDir);
-    throw error;
-  }
-}
-
 function rollbackPublishedStopLock(configDir: string, operationId: string, originalError: unknown): never {
   try {
     if (!removeStopLockIfMatches(configDir, operationId)) {
@@ -573,12 +539,9 @@ export function readRuntimeScopeOwnership(configDir: string): RuntimeScopeOwners
  * Releases only the owner observed by a lifecycle recovery command. Both PID
  * and claim ID must still match so a replacement owner is never removed.
  */
-export function releaseRuntimeScopeOwnership(
-  configDir: string,
-  expected: Pick<RuntimeScopeOwnershipRecord, 'claimId' | 'pid'>,
-): boolean {
+export function releaseRuntimeScopeOwnership(configDir: string, expected: RuntimeScopeOwnershipIdentity): boolean {
   const observed = inspectRuntimeScopeOwnership(configDir);
-  if (!observed || observed.record.claimId !== expected.claimId || observed.record.pid !== expected.pid) {
+  if (!observed || !ownershipMatches(observed.record, expected)) {
     return false;
   }
   return removeObservedOwnership(configDir, observed);
@@ -729,6 +692,28 @@ function removeObservedOwnership(configDir: string, observed: ObservedOwnership)
 function reclaimTombstoneName(claimId: string): string {
   const generation = createHash('sha256').update(claimId).digest('hex');
   return `owner.${generation}.reclaiming.json`;
+}
+
+function writeCandidate(candidateDir: string, recordName: string, record: object): void {
+  try {
+    fs.mkdirSync(candidateDir, { mode: 0o700 });
+    fs.writeFileSync(path.join(candidateDir, recordName), `${JSON.stringify(record)}\n`, {
+      encoding: 'utf8',
+      flag: 'wx',
+      mode: 0o600,
+    });
+  } catch (error) {
+    removeCandidateDirectoryIfPresent(candidateDir);
+    throw error;
+  }
+}
+
+function ownershipMatches(record: RuntimeScopeOwnershipIdentity, expected: RuntimeScopeOwnershipIdentity): boolean {
+  return record.claimId === expected.claimId && record.pid === expected.pid;
+}
+
+function currentDate(): Date {
+  return new Date();
 }
 
 function removeCandidateDirectoryIfPresent(candidateDir: string): void {

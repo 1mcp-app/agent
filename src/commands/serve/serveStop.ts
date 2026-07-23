@@ -18,6 +18,7 @@ import {
   acquireRuntimeScopeStopLock,
   readRuntimeScopeOwnership,
   releaseRuntimeScopeOwnership,
+  type RuntimeScopeOwnershipRecord,
   type RuntimeScopeStopLock,
 } from '@src/core/server/runtimeScopeOwnership.js';
 import logger from '@src/logger/logger.js';
@@ -25,10 +26,9 @@ import logger from '@src/logger/logger.js';
 /**
  * `serve --stop`: stop only the runtime in the selected Runtime Scope.
  *
- * Discovery uses the pure PID reader plus a liveness check (not the readiness
- * probe — stopping should work even for an alive-but-not-ready runtime). The
- * signal targets exactly the PID recorded for this scope, so runtimes in other
- * config directories are never affected.
+ * Supervised scopes stop the supervisor before its worker so no replacement can
+ * race with deliberate shutdown. Foreground scopes stop the PID recorded for
+ * this scope. Readiness is irrelevant to both paths.
  */
 
 export interface WaitForExitOptions {
@@ -81,6 +81,15 @@ export interface RunStopDeps {
 
 function defaultKill(pid: number, signal: StopSignal): void {
   process.kill(pid, signal);
+}
+
+function failStop(message: string): void {
+  process.stderr.write(`Error: ${message}\n`);
+  process.exitCode = 1;
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }
 
 function cleanupSupervisorOwnership(configDir: string, expectedSupervisorPid: number): boolean {
@@ -138,27 +147,19 @@ export async function runServeStop(configDirOption?: string, deps: RunStopDeps =
   const waitForExit = deps.waitForExit ?? waitForProcessExit;
   const gracefulTimeoutMs = deps.gracefulTimeoutMs ?? 10000;
 
-  let supervisorState;
+  let supervisorState: BackgroundSupervisorState | null;
   try {
     supervisorState = readSupervisorState(configDir);
   } catch (error) {
-    process.stderr.write(
-      `Error: cannot inspect Background Runtime Supervisor in Runtime Scope ${configDir}: ` +
-        `${error instanceof Error ? error.message : String(error)}\n`,
-    );
-    process.exitCode = 1;
+    failStop(`cannot inspect Background Runtime Supervisor in Runtime Scope ${configDir}: ${errorMessage(error)}`);
     return;
   }
 
-  let owner;
+  let owner: RuntimeScopeOwnershipRecord | null;
   try {
     owner = readOwnership(configDir);
   } catch (error) {
-    process.stderr.write(
-      `Error: cannot verify lifecycle ownership in Runtime Scope ${configDir}: ` +
-        `${error instanceof Error ? error.message : String(error)}\n`,
-    );
-    process.exitCode = 1;
+    failStop(`cannot verify lifecycle ownership in Runtime Scope ${configDir}: ${errorMessage(error)}`);
     return;
   }
 
@@ -173,24 +174,16 @@ export async function runServeStop(configDirOption?: string, deps: RunStopDeps =
         isAlive(supervisorState.supervisorPid) ||
         (supervisorState.runtimePid !== null && isAlive(supervisorState.runtimePid));
       if (staleProcessStillAlive) {
-        process.stderr.write(
-          `Error: supervisor state does not match Runtime Scope ownership in ${configDir}; refusing ambiguous stop.\n`,
-        );
-        process.exitCode = 1;
+        failStop(`supervisor state does not match Runtime Scope ownership in ${configDir}; refusing ambiguous stop.`);
         return;
       }
       try {
         if (!cleanupSupervisorState(configDir, supervisorState.supervisorPid)) {
-          process.stderr.write(`Error: stale supervisor state changed before cleanup in Runtime Scope ${configDir}.\n`);
-          process.exitCode = 1;
+          failStop(`stale supervisor state changed before cleanup in Runtime Scope ${configDir}.`);
           return;
         }
       } catch (error) {
-        process.stderr.write(
-          `Error: stale supervisor state could not be removed in Runtime Scope ${configDir}: ` +
-            `${error instanceof Error ? error.message : String(error)}\n`,
-        );
-        process.exitCode = 1;
+        failStop(`stale supervisor state could not be removed in Runtime Scope ${configDir}: ${errorMessage(error)}`);
         return;
       }
       supervisorState = owner?.kind === 'background-supervisor' ? bootstrapSupervisorState(owner.pid) : null;
@@ -198,36 +191,31 @@ export async function runServeStop(configDirOption?: string, deps: RunStopDeps =
   }
 
   if (supervisorState) {
+    if (owner?.kind !== 'background-supervisor' || owner.pid !== supervisorState.supervisorPid) {
+      failStop(`supervisor state does not match Runtime Scope ownership in ${configDir}; refusing ambiguous stop.`);
+      return;
+    }
+
     let stopLock: RuntimeScopeStopLock;
     try {
-      stopLock = acquireStopLock(configDir, owner!);
+      stopLock = acquireStopLock(configDir, owner);
     } catch (error) {
-      process.stderr.write(
-        `Error: cannot lock lifecycle cleanup in Runtime Scope ${configDir}: ` +
-          `${error instanceof Error ? error.message : String(error)}\n`,
-      );
-      process.exitCode = 1;
+      failStop(`cannot lock lifecycle cleanup in Runtime Scope ${configDir}: ${errorMessage(error)}`);
       return;
     }
 
     try {
       const supervisorWasAlive = isAlive(supervisorState.supervisorPid);
       const runtimeWasAlive = supervisorState.runtimePid !== null && isAlive(supervisorState.runtimePid);
+      const terminateOptions = { kill, waitForExit, isAlive, gracefulTimeoutMs };
 
       if (
         supervisorWasAlive &&
-        !(await terminateProcess(supervisorState.supervisorPid, 'supervisor', {
-          kill,
-          waitForExit,
-          isAlive,
-          gracefulTimeoutMs,
-        }))
+        !(await terminateProcess(supervisorState.supervisorPid, 'supervisor', terminateOptions))
       ) {
-        process.stderr.write(
-          `Error: failed to stop Background Runtime Supervisor (PID ${supervisorState.supervisorPid}) in ` +
-            `Runtime Scope ${configDir}.\n`,
+        failStop(
+          `failed to stop Background Runtime Supervisor (PID ${supervisorState.supervisorPid}) in Runtime Scope ${configDir}.`,
         );
-        process.exitCode = 1;
         return;
       }
 
@@ -239,11 +227,9 @@ export async function runServeStop(configDirOption?: string, deps: RunStopDeps =
             runtimePid = finalState.runtimePid ?? runtimePid;
           }
         } catch (error) {
-          process.stderr.write(
-            `Error: supervisor stopped, but its final runtime state could not be read in Runtime Scope ${configDir}: ` +
-              `${error instanceof Error ? error.message : String(error)}\n`,
+          failStop(
+            `supervisor stopped, but its final runtime state could not be read in Runtime Scope ${configDir}: ${errorMessage(error)}`,
           );
-          process.exitCode = 1;
           return;
         }
       }
@@ -254,11 +240,9 @@ export async function runServeStop(configDirOption?: string, deps: RunStopDeps =
         try {
           runtimePid = readInfo(configDir)?.pid ?? null;
         } catch (error) {
-          process.stderr.write(
-            `Error: supervisor stopped, but its runtime PID could not be recovered in Runtime Scope ${configDir}: ` +
-              `${error instanceof Error ? error.message : String(error)}\n`,
+          failStop(
+            `supervisor stopped, but its runtime PID could not be recovered in Runtime Scope ${configDir}: ${errorMessage(error)}`,
           );
-          process.exitCode = 1;
           return;
         }
       }
@@ -269,17 +253,9 @@ export async function runServeStop(configDirOption?: string, deps: RunStopDeps =
       if (
         runtimePid !== null &&
         isAlive(runtimePid) &&
-        !(await terminateProcess(runtimePid, 'runtime', {
-          kill,
-          waitForExit,
-          isAlive,
-          gracefulTimeoutMs,
-        }))
+        !(await terminateProcess(runtimePid, 'runtime', terminateOptions))
       ) {
-        process.stderr.write(
-          `Error: failed to stop supervised runtime (PID ${runtimePid}) in Runtime Scope ${configDir}.\n`,
-        );
-        process.exitCode = 1;
+        failStop(`failed to stop supervised runtime (PID ${runtimePid}) in Runtime Scope ${configDir}.`);
         return;
       }
 
@@ -289,35 +265,24 @@ export async function runServeStop(configDirOption?: string, deps: RunStopDeps =
 
       try {
         if (!cleanupLaunchConfig(configDir, supervisorState.supervisorPid)) {
-          process.stderr.write(
-            `Error: runtime stopped, but launch configuration changed before cleanup in Runtime Scope ${configDir}.\n`,
-          );
-          process.exitCode = 1;
+          failStop(`runtime stopped, but launch configuration changed before cleanup in Runtime Scope ${configDir}.`);
           return;
         }
         if (
           !cleanupSupervisorState(configDir, supervisorState.supervisorPid) &&
           readSupervisorState(configDir) !== null
         ) {
-          process.stderr.write(
-            `Error: runtime stopped, but supervisor state changed before cleanup in Runtime Scope ${configDir}.\n`,
-          );
-          process.exitCode = 1;
+          failStop(`runtime stopped, but supervisor state changed before cleanup in Runtime Scope ${configDir}.`);
           return;
         }
         if (!cleanupOwnership(configDir, supervisorState.supervisorPid)) {
-          process.stderr.write(
-            `Error: runtime stopped, but lifecycle ownership changed before cleanup in Runtime Scope ${configDir}.\n`,
-          );
-          process.exitCode = 1;
+          failStop(`runtime stopped, but lifecycle ownership changed before cleanup in Runtime Scope ${configDir}.`);
           return;
         }
       } catch (error) {
-        process.stderr.write(
-          `Error: runtime stopped, but lifecycle ownership could not be released in Runtime Scope ${configDir}: ` +
-            `${error instanceof Error ? error.message : String(error)}\n`,
+        failStop(
+          `runtime stopped, but lifecycle ownership could not be released in Runtime Scope ${configDir}: ${errorMessage(error)}`,
         );
-        process.exitCode = 1;
         return;
       }
 
@@ -340,8 +305,7 @@ export async function runServeStop(configDirOption?: string, deps: RunStopDeps =
     info = readInfo(configDir);
   } catch (error) {
     if (error instanceof PidFileReadError) {
-      process.stderr.write(`Error: cannot inspect Runtime Scope ${configDir}: ${error.message}\n`);
-      process.exitCode = 1;
+      failStop(`cannot inspect Runtime Scope ${configDir}: ${error.message}`);
       return;
     }
     throw error;
@@ -362,7 +326,7 @@ export async function runServeStop(configDirOption?: string, deps: RunStopDeps =
     } else {
       process.stderr.write(
         `No running runtime in this Runtime Scope, but the stale PID file could not be removed ` +
-          `(${getConfigDir(configDirOption)}). Remove it manually.\n`,
+          `(${configDir}). Remove it manually.\n`,
       );
     }
     process.exitCode = 0;
@@ -386,8 +350,7 @@ export async function runServeStop(configDirOption?: string, deps: RunStopDeps =
     return;
   }
 
-  process.stderr.write(`Error: failed to stop runtime (PID ${info.pid}) in Runtime Scope ${configDir}.\n`);
-  process.exitCode = 1;
+  failStop(`failed to stop runtime (PID ${info.pid}) in Runtime Scope ${configDir}.`);
 }
 
 interface TerminateProcessOptions {

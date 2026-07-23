@@ -328,6 +328,11 @@ function defaultLoadAppConfig(parsedArgv: ServeOptions): ApplicationConfig {
   return ConfigManager.getInstance(configFilePath).getAppConfig();
 }
 
+function failBackgroundStart(message: string): void {
+  process.stderr.write(`${message}\n`);
+  process.exitCode = 1;
+}
+
 /**
  * Parent routine for `serve --background`. Sets `process.exitCode` and returns;
  * never starts a server in-process.
@@ -335,13 +340,7 @@ function defaultLoadAppConfig(parsedArgv: ServeOptions): ApplicationConfig {
 export async function runServeBackground(parsedArgv: ServeOptions, deps: RunBackgroundDeps = {}): Promise<void> {
   const { runtimeScope: configDir } = resolveServeConfigPaths(parsedArgv);
   const loadAppConfig = deps.loadAppConfig ?? defaultLoadAppConfig;
-  const appConfig = loadAppConfig(parsedArgv) as {
-    transport?: string;
-    logLevel?: string;
-    logFile?: string;
-    logging?: { level?: string; file?: string; maxSize?: number | string; maxFiles?: number };
-    asyncLoading?: { enabled?: boolean };
-  };
+  const appConfig = loadAppConfig(parsedArgv);
 
   // Mirror the async-loading precedence from serve.ts so the started report can
   // hint at the fast-detach path when the runtime is in the (default) sync mode.
@@ -350,38 +349,34 @@ export async function runServeBackground(parsedArgv: ServeOptions, deps: RunBack
   // HTTP-only: reject stdio; sse normalizes to http.
   const effectiveTransport = parsedArgv.transport ?? appConfig.transport ?? 'http';
   if (effectiveTransport === 'stdio') {
-    process.stderr.write(
+    failBackgroundStart(
       'Error: `serve --background --transport stdio` is not supported.\n' +
-        'stdio uses the invoking process stdin/stdout and cannot be detached. Use HTTP transport.\n',
+        'stdio uses the invoking process stdin/stdout and cannot be detached. Use HTTP transport.',
     );
-    process.exitCode = 1;
     return;
   }
 
   // Fail closed when discovery already proves that this scope is occupied.
   const existing = await discoverScopedRuntime(configDir);
   if (existing.status === 'running' && existing.info) {
-    process.stderr.write(
+    failBackgroundStart(
       `A runtime already owns this Runtime Scope (PID ${existing.info.pid}).\n` +
-        `Refusing to start another runtime. Stop it first.\n`,
+        `Refusing to start another runtime. Stop it first.`,
     );
-    process.exitCode = 1;
     return;
   }
   if (existing.status === 'unreachable' && existing.info) {
-    process.stderr.write(
+    failBackgroundStart(
       `A runtime already occupies this Runtime Scope (PID ${existing.info.pid}) but is not ready yet.\n` +
-        `Refusing to start a second runtime. Check 'serve --status' or stop it first.\n`,
+        `Refusing to start a second runtime. Check 'serve --status' or stop it first.`,
     );
-    process.exitCode = 1;
     return;
   }
   if (existing.status === 'error') {
-    process.stderr.write(
+    failBackgroundStart(
       `Cannot inspect Runtime Scope ${configDir}: ${existing.error ?? 'PID file could not be read'}.\n` +
-        `Refusing to start a second runtime until the PID file problem is fixed.\n`,
+        `Refusing to start a second runtime until the PID file problem is fixed.`,
     );
-    process.exitCode = 1;
     return;
   }
 
@@ -409,8 +404,7 @@ export async function runServeBackground(parsedArgv: ServeOptions, deps: RunBack
   const supervisor = spawnChild(command, supervisorArgs, { detached: true, stdio: 'ignore' });
 
   if (!supervisor.pid) {
-    process.stderr.write('Error: failed to spawn background runtime process.\n');
-    process.exitCode = 1;
+    failBackgroundStart('Error: failed to spawn background runtime process.');
     return;
   }
   // Allow the parent to exit independently of the child.
@@ -446,15 +440,14 @@ export async function runServeBackground(parsedArgv: ServeOptions, deps: RunBack
   // Startup failure is non-zero. A terminal crash-loop supervisor deliberately
   // remains resident for status/stop/restart; other bootstrap failures are
   // terminated because they never established the persistent lifecycle owner.
-  process.stderr.write(
+  failBackgroundStart(
     `Error: background runtime did not become ready (${result.reason ?? 'unknown error'}).\n` +
-      `See the log for details: ${logFile}\n`,
+      `See the log for details: ${logFile}`,
   );
   const killChild = deps.killChild ?? defaultKillChild;
   if (!result.terminal && !supervisorExited && supervisor.pid) {
     killChild(supervisor.pid);
   }
-  process.exitCode = 1;
 }
 
 /** Persistent child routine selected by the internal background-bootstrap flag. */
@@ -497,9 +490,10 @@ export async function runServeBackgroundSupervisor(
       { configDir, workerCommand: command, workerArgs },
       {
         waitForReady: async (worker) => {
-          if (!worker.pid) return false;
-          const result = await waitForBackgroundReady(configDir, worker.pid, {
-            isChildAlive: () => isProcessAlive(worker.pid!),
+          const workerPid = worker.pid;
+          if (!workerPid) return false;
+          const result = await waitForBackgroundReady(configDir, workerPid, {
+            isChildAlive: () => isProcessAlive(workerPid),
           });
           return result.ready;
         },
@@ -545,17 +539,17 @@ function formatStartedReport(
   info: ServerPidInfo,
   opts: { summary?: LoadingSummarySnapshot | null; asyncEnabled?: boolean } = {},
 ): string {
-  let report = `PID: ${info.pid}\n` + `URL: ${info.url}\n` + `Log file: ${info.logFile ?? '(console only)'}\n`;
+  const lines = [`PID: ${info.pid}`, `URL: ${info.url}`, `Log file: ${info.logFile ?? '(console only)'}`];
   if (opts.summary) {
-    report += `Servers: ${opts.summary.ready}/${opts.summary.total} ready\n`;
+    lines.push(`Servers: ${opts.summary.ready}/${opts.summary.total} ready`);
   }
   // In the default sync mode the wait is bounded by upstream connection time;
   // point users at the fast-detach path. Omitted when async is already on, or
   // when the caller does not supply the flag.
   if (opts.asyncEnabled === false) {
-    report += `Tip: run with --enable-async-loading for near-instant background detach.\n`;
+    lines.push('Tip: run with --enable-async-loading for near-instant background detach.');
   }
-  return report;
+  return `${lines.join('\n')}\n`;
 }
 
 /** Truncate a single line so progress output stays on one terminal row. */

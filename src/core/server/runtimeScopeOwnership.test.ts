@@ -24,10 +24,10 @@ describe('Runtime Scope ownership', () => {
   const ownerRecordPath = path.join(ownerPath, 'owner.json');
   const stopLockPath = getRuntimeScopeStopLockPath(configDir);
 
-  const writeOwnerRecord = (content: string): void => {
+  function writeOwnerRecord(content: string): void {
     fs.mkdirSync(ownerPath, { recursive: true });
     fs.writeFileSync(ownerRecordPath, content, 'utf8');
-  };
+  }
 
   beforeEach(() => {
     fs.mkdirSync(configDir, { recursive: true });
