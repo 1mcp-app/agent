@@ -1,3 +1,12 @@
+---
+title: MCP Restart 命令 - 重启运行时后端
+description: 在正在运行的 1MCP 聚合运行时中重启静态后端或活动模板实例。
+head:
+  - ['meta', { name: 'keywords', content: 'mcp restart,runtime backend,stdio supervision,template instance' }]
+  - ['meta', { property: 'og:title', content: '1MCP Restart 命令参考' }]
+  - ['meta', { property: 'og:description', content: '在正在运行的 1MCP 运行时中重启受监督的 MCP 后端。' }]
+---
+
 # mcp restart
 
 重启由正在运行的 1MCP 聚合运行时负责管理的后端。

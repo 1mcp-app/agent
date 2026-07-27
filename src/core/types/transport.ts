@@ -273,6 +273,7 @@ export const transportConfigSchema = z.object({
     .describe('Enable runtime-owned automatic restart after an unexpected stdio backend exit'),
   maxRestarts: z
     .number()
+    .int()
     .min(0)
     .optional()
     .describe('Maximum consecutive restart attempts (omitted = 5, 0 = unlimited; resets after 5 stable minutes)'),

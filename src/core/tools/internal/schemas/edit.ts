@@ -32,7 +32,7 @@ export const McpEditToolSchema = z.object({
   inheritParentEnv: z.boolean().optional().describe('Inherit parent environment for stdio transport'),
   envFilter: z.array(z.string()).optional().describe('Environment variable filter for stdio transport'),
   restartOnExit: z.boolean().optional().describe('Restart server on exit for stdio transport'),
-  maxRestarts: z.number().min(0).optional().describe('Maximum restart attempts for stdio transport'),
+  maxRestarts: z.number().int().min(0).optional().describe('Maximum restart attempts for stdio transport'),
   restartDelay: z.number().min(0).optional().describe('Delay between restarts in milliseconds for stdio transport'),
 
   // HTTP/SSE transport properties

@@ -329,7 +329,9 @@ export function createHealthRoutes(loadingManager?: McpLoadingManager): Router {
           ? 'crash-loop'
           : templateSnapshots.some((snapshot) => snapshot.state === 'restarting')
             ? 'restarting'
-            : 'connected';
+            : templateSnapshots.every((snapshot) => snapshot.state === 'connected')
+              ? 'connected'
+              : 'stopped';
         const serialized = healthService.serializeBackendSupervision(templateInstances);
         res.setHeader('Content-Type', 'application/json');
         res.setHeader('Cache-Control', 'no-cache');

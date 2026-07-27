@@ -403,9 +403,6 @@ export class McpLoadingManager extends EventEmitter {
         }
 
         lastError = error instanceof Error ? error : new Error(String(error));
-        retryCount++;
-        this.stateTracker.incrementRetryCount(name);
-
         // Handle OAuth case specially
         if (lastError.name === 'OAuthRequiredError') {
           logger.info(`OAuth required for ${name}`);
@@ -421,6 +418,9 @@ export class McpLoadingManager extends EventEmitter {
           logger.warn(`Failed to load ${name}: ${lastError.message} (non-retryable)`);
           break;
         }
+
+        retryCount++;
+        this.stateTracker.incrementRetryCount(name);
 
         // Handle other errors
         logger.warn(`Failed to load ${name} (attempt ${retryCount}): ${lastError.message}`);

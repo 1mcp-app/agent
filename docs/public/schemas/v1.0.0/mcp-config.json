@@ -106,8 +106,9 @@
         },
         "maxRestarts": {
           "description": "Maximum consecutive restart attempts (omitted = 5, 0 = unlimited; resets after 5 stable minutes)",
-          "type": "number",
-          "minimum": 0
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
         },
         "restartDelay": {
           "description": "Initial restart delay in milliseconds (omitted = 1000; backoff is 1x, 2x, 4x, 8x, then 16x)",
@@ -277,8 +278,9 @@
           },
           "maxRestarts": {
             "description": "Maximum consecutive restart attempts (omitted = 5, 0 = unlimited; resets after 5 stable minutes)",
-            "type": "number",
-            "minimum": 0
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
           },
           "restartDelay": {
             "description": "Initial restart delay in milliseconds (omitted = 1000; backoff is 1x, 2x, 4x, 8x, then 16x)",
@@ -489,8 +491,9 @@
           },
           "maxRestarts": {
             "description": "Maximum consecutive restart attempts (omitted = 5, 0 = unlimited; resets after 5 stable minutes)",
-            "type": "number",
-            "minimum": 0
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
           },
           "restartDelay": {
             "description": "Initial restart delay in milliseconds (omitted = 1000; backoff is 1x, 2x, 4x, 8x, then 16x)",

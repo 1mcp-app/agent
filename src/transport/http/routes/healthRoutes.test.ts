@@ -479,6 +479,36 @@ describe('Health Routes', () => {
       expect(JSON.stringify(response.body)).not.toContain('template:worker');
       expect(JSON.stringify(response.body)).not.toContain('101');
     });
+
+    it('reports a stopped template target as unavailable', async () => {
+      const loadingManager = {
+        getStateTracker: () => ({ getServerState: vi.fn() }),
+      } as any;
+      const templateApp = express();
+      templateApp.use('/health', createHealthRoutes(loadingManager));
+      mockRuntimeConnections.set('worker:first', {
+        supervision: {
+          backendId: `template:worker:${'a'.repeat(64)}`,
+          state: 'stopped',
+          attempt: 0,
+          limit: 5,
+          nextRetryAt: null,
+          lastExit: null,
+          lastError: null,
+          currentPid: null,
+        },
+      });
+
+      const response = await request(templateApp).get('/health/mcp/worker');
+
+      expect(response.status).toBe(503);
+      expect(response.headers['x-server-state']).toBe('stopped');
+      expect(response.body).toMatchObject({
+        name: 'worker',
+        state: 'stopped',
+        instances: [{ state: 'stopped', currentPid: null }],
+      });
+    });
   });
 
   describe('Rate limiting', () => {

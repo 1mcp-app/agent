@@ -15,3 +15,9 @@ describe('transportConfigSchema stderr', () => {
     expect(() => transportConfigSchema.parse({ type: 'stdio', command: 'node', stderr: 'verbose' })).toThrow();
   });
 });
+
+describe('transportConfigSchema restart policy', () => {
+  it('rejects a fractional maxRestarts value', () => {
+    expect(() => transportConfigSchema.parse({ type: 'stdio', command: 'node', maxRestarts: 1.5 })).toThrow();
+  });
+});

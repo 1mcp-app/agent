@@ -179,7 +179,7 @@ X-Uptime-Seconds: 3600
 - `200` - Service is ready (configuration loaded)
 - `503` - Service is not ready
 
-**Response Schema**:
+**Response Schema (`minimal` detail)**:
 
 ```json
 {

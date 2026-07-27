@@ -115,6 +115,15 @@ describe('McpEditToolSchema', () => {
     expect(result.success).toBe(false);
   });
 
+  it('should reject fractional maxRestarts values', () => {
+    const result = McpEditToolSchema.safeParse({
+      name: 'test-server',
+      maxRestarts: 1.5,
+    });
+
+    expect(result.success).toBe(false);
+  });
+
   it('should reject restartDelay negative values', () => {
     const input = {
       name: 'test-server',
