@@ -4,6 +4,7 @@ node_modules/
 .tmp-test/
 .pnpm-store/
 .npm-cache/
+.worktrees/
 build/
 logs/
 *.log
