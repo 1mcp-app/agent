@@ -76,13 +76,23 @@ async function setupServer(configFilePath?: string, context?: ContextData): Prom
       `Created ${Object.keys(transports).length} static transports (template servers will be created per-client)`,
     );
 
+    const setupResult = asyncLoadingEnabled
+      ? await setupServerAsync(transports, context)
+      : await setupServerSync(transports, context);
+
+    const { templateServers, errors } = configManager.loadDeclaredServerConfigs();
+    if (errors.length === 0) {
+      setupResult.serverManager.getTemplateServerManager().rebuildTemplateIndex({ mcpTemplates: templateServers });
+    } else {
+      logger.warn('Skipping initial template index because the declared configuration is invalid', { errors });
+    }
+
     if (asyncLoadingEnabled) {
       logger.info('Using async loading mode - HTTP server will start immediately, MCP servers load in background');
-      return setupServerAsync(transports, context);
     } else {
       logger.info('Using legacy synchronous loading mode - waiting for all MCP servers before starting HTTP server');
-      return setupServerSync(transports, context);
     }
+    return setupResult;
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
     logger.error(`Failed to set up server: ${errorMessage}`);
@@ -143,6 +153,13 @@ async function setupServerAsync(
 
     logger.info('Lazy loading orchestrator initialized');
   }
+
+  clientManager.setBackendAvailabilityHandler(async () => {
+    await asyncOrchestrator.refreshCapabilities();
+    if (lazyLoadingOrchestrator) {
+      await lazyLoadingOrchestrator.refreshCapabilities();
+    }
+  });
 
   // Start async loading (non-blocking)
   const loadingPromise = loadingManager
@@ -218,6 +235,7 @@ async function setupServerSync(
   // Create a dummy loading manager for compatibility
   const loadingManager = new McpLoadingManager(clientManager);
   const loadingPromise = Promise.resolve(); // Already loaded
+  clientManager.setBackendAvailabilityHandler(() => serverManager.notifyBackendCapabilityListsChanged());
 
   logger.info('Synchronous server setup completed - all MCP servers connected');
 

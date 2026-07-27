@@ -5,6 +5,7 @@ import { ClientManager } from '@src/core/client/clientManager.js';
 import { AuthProviderTransport, MCPServerParams, OutboundConnections } from '@src/core/types/index.js';
 import logger, { debugIf } from '@src/logger/logger.js';
 import { createTransports } from '@src/transport/transportFactory.js';
+import { NonRetryableClientConnectionError } from '@src/utils/core/errorTypes.js';
 
 import {
   LoadingState,
@@ -402,9 +403,6 @@ export class McpLoadingManager extends EventEmitter {
         }
 
         lastError = error instanceof Error ? error : new Error(String(error));
-        retryCount++;
-        this.stateTracker.incrementRetryCount(name);
-
         // Handle OAuth case specially
         if (lastError.name === 'OAuthRequiredError') {
           logger.info(`OAuth required for ${name}`);
@@ -415,6 +413,14 @@ export class McpLoadingManager extends EventEmitter {
           });
           return; // Don't retry OAuth errors
         }
+
+        if (lastError instanceof NonRetryableClientConnectionError) {
+          logger.warn(`Failed to load ${name}: ${lastError.message} (non-retryable)`);
+          break;
+        }
+
+        retryCount++;
+        this.stateTracker.incrementRetryCount(name);
 
         // Handle other errors
         logger.warn(`Failed to load ${name} (attempt ${retryCount}): ${lastError.message}`);
@@ -443,7 +449,11 @@ export class McpLoadingManager extends EventEmitter {
     });
 
     if (this.config.continueOnFailure) {
-      logger.error(`Failed to load ${name} after ${this.config.maxRetries} retries, continuing with other servers`);
+      if (lastError instanceof NonRetryableClientConnectionError) {
+        logger.error(`Failed to load ${name} with a non-retryable error, continuing with other servers`);
+      } else {
+        logger.error(`Failed to load ${name} after ${this.config.maxRetries} retries, continuing with other servers`);
+      }
     } else {
       logger.error(`Failed to load ${name}, stopping loading process`);
       throw lastError;
@@ -523,7 +533,9 @@ export class McpLoadingManager extends EventEmitter {
   private async performBackgroundRetry(): Promise<void> {
     if (this.isShuttingDown) return;
 
-    const failedServers = this.stateTracker.getServersByState(LoadingState.Failed);
+    const failedServers = this.stateTracker
+      .getServersByState(LoadingState.Failed)
+      .filter((server) => !(server.error instanceof NonRetryableClientConnectionError));
 
     if (failedServers.length === 0) {
       return;

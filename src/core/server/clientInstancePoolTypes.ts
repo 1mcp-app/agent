@@ -1,5 +1,6 @@
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 
+import type { BackendStdioSupervisor, BackendSupervisionSnapshot } from '@src/core/server/backendStdioSupervisor.js';
 import { AuthProviderTransport } from '@src/core/types/index.js';
 import type { MCPServerParams } from '@src/core/types/transport.js';
 
@@ -52,7 +53,12 @@ export interface PooledClientInstance {
   /** Timestamp of last client activity */
   lastUsedAt: Date;
   /** Current status of the instance */
-  status: 'active' | 'idle' | 'terminating';
+  status: 'active' | 'idle' | 'restarting' | 'crash-loop' | 'terminating';
+  /** Runtime-owned stdio supervision state for this logical instance. */
+  supervisor?: BackendStdioSupervisor;
+  supervision?: BackendSupervisionSnapshot;
+  /** Routable outbound connection keys currently backed by this logical instance. */
+  outboundKeys: Set<string>;
   /** Set of client IDs connected to this instance */
   clientIds: Set<string>;
   /** Template-specific idle timeout */

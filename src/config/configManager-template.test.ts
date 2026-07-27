@@ -186,6 +186,87 @@ describe('ConfigManager Template Integration', () => {
       expect(result.errors).toEqual([]);
     });
 
+    it('should apply restart settings from serverDefaults to rendered stdio templates', async () => {
+      const config = {
+        serverDefaults: {
+          restartOnExit: true,
+          maxRestarts: 5,
+          restartDelay: 1000,
+        },
+        mcpServers: {},
+        mcpTemplates: {
+          inherited: {
+            type: 'stdio',
+            command: 'node',
+            args: ['{{project.path}}/server.js'],
+          },
+          overridden: {
+            type: 'stdio',
+            command: 'node',
+            args: ['{{project.path}}/server.js'],
+            restartOnExit: false,
+            maxRestarts: 0,
+            restartDelay: 0,
+          },
+        },
+      };
+      await fsPromises.writeFile(configFilePath, JSON.stringify(config, null, 2));
+      await initializeConfigManager();
+
+      const result = await configManager.loadConfigWithTemplates(mockContext);
+
+      expect(result.templateServers.inherited).toMatchObject({
+        restartOnExit: true,
+        maxRestarts: 5,
+        restartDelay: 1000,
+      });
+      expect(result.templateServers.overridden).toMatchObject({
+        restartOnExit: false,
+        maxRestarts: 0,
+        restartDelay: 0,
+      });
+      expect(configManager.loadDeclaredServerConfigs().templateServers.inherited).toMatchObject({
+        restartOnExit: true,
+        maxRestarts: 5,
+        restartDelay: 1000,
+      });
+    });
+
+    it('keeps the last valid declared templates when a reload is invalid', async () => {
+      const validConfig = {
+        mcpServers: {},
+        mcpTemplates: {
+          worker: {
+            type: 'stdio',
+            command: 'node',
+            args: ['{{project.path}}/worker.js'],
+          },
+        },
+      };
+      await fsPromises.writeFile(configFilePath, JSON.stringify(validConfig, null, 2));
+      await initializeConfigManager();
+
+      expect(configManager.loadDeclaredServerConfigs()).toMatchObject({
+        templateServers: { worker: { command: 'node' } },
+        errors: [],
+      });
+
+      await fsPromises.writeFile(configFilePath, '{"mcpServers": {}, "mcpTemplates":');
+      const invalidResult = configManager.loadDeclaredServerConfigs();
+
+      expect(invalidResult.templateServers).toMatchObject({ worker: { command: 'node' } });
+      expect(invalidResult.errors).toHaveLength(1);
+
+      await fsPromises.writeFile(
+        configFilePath,
+        JSON.stringify({ mcpServers: {}, mcpTemplates: { worker: { type: 'stdio', command: 123 } } }),
+      );
+      const validationResult = configManager.loadDeclaredServerConfigs();
+
+      expect(validationResult.templateServers).toMatchObject({ worker: { command: 'node' } });
+      expect(validationResult.errors).toHaveLength(1);
+    });
+
     it('should substitute client information template variables', async () => {
       const config = {
         mcpServers: {

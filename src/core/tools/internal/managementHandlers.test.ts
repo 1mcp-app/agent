@@ -326,13 +326,12 @@ describe('managementHandlers', () => {
         servers: [
           {
             name: 'test-server',
-            status: 'running',
-            transport: 'stdio',
-            healthStatus: 'healthy',
-            lastChecked: new Date().toISOString(),
+            targetType: 'static',
+            status: 'connected',
+            type: 'stdio',
+            configured: true,
           },
         ],
-        timestamp: new Date().toISOString(),
       };
       mockManagementAdapter.getServerStatus.mockResolvedValue(mockResult);
 
@@ -348,7 +347,8 @@ describe('managementHandlers', () => {
       expect(result.servers).toHaveLength(1);
       expect(result.servers[0]).toMatchObject({
         name: 'test-server',
-        status: 'running',
+        targetType: 'static',
+        status: 'connected',
         transport: 'stdio',
         health: {
           status: 'healthy',
@@ -361,7 +361,10 @@ describe('managementHandlers', () => {
         stopped: 0,
         errors: 0,
       });
-      expect(mockManagementAdapter.getServerStatus).toHaveBeenCalledWith(args.name);
+      expect(mockManagementAdapter.getServerStatus).toHaveBeenCalledWith(args.name, {
+        details: true,
+        health: true,
+      });
     });
 
     it('should return error when management tools are disabled', async () => {
@@ -416,13 +419,12 @@ describe('managementHandlers', () => {
         servers: [
           {
             name: 'test-server',
-            status: 'running',
-            transport: 'stdio',
-            healthStatus: 'healthy',
-            lastChecked: new Date().toISOString(),
+            targetType: 'static',
+            status: 'connected',
+            type: 'stdio',
+            configured: true,
           },
         ],
-        timestamp: new Date().toISOString(),
       };
       mockManagementAdapter.getServerStatus.mockResolvedValue(mockResult);
 
@@ -438,7 +440,8 @@ describe('managementHandlers', () => {
       expect(result.servers).toHaveLength(1);
       expect(result.servers[0]).toMatchObject({
         name: 'test-server',
-        status: 'running',
+        targetType: 'static',
+        status: 'connected',
         transport: 'stdio',
         health: {
           status: 'healthy',
@@ -452,6 +455,87 @@ describe('managementHandlers', () => {
         stopped: 0,
         errors: 0,
       });
+      expect(result.servers[0].capabilities).toBeUndefined();
+      expect(result.servers[0].supervision).toBeUndefined();
+      expect(result.servers[0].instances).toBeUndefined();
+    });
+
+    it('omits health and detailed runtime facts when their flags are false', async () => {
+      mockManagementAdapter.getServerStatus.mockResolvedValue({
+        servers: [
+          {
+            name: 'worker',
+            targetType: 'template',
+            status: 'crash-loop',
+            type: 'stdio',
+            configured: true,
+            healthStatus: 'unhealthy',
+            supervision: {
+              backendId: 'worker',
+              state: 'crash-loop',
+              attempt: 5,
+              limit: 5,
+              nextRetryAt: null,
+              lastExit: null,
+              lastError: 'failed',
+              currentPid: null,
+            },
+            instances: [{ instanceId: 'aaaaaaaaaaaa', status: 'crash-loop' }],
+          },
+        ],
+      });
+
+      const result = await handleMcpStatus({ name: 'worker', details: false, health: false });
+
+      expect(result.servers[0]).toEqual({
+        name: 'worker',
+        targetType: 'template',
+        status: 'crash-loop',
+        transport: 'stdio',
+      });
+      expect(mockManagementAdapter.getServerStatus).toHaveBeenCalledWith('worker', {
+        details: false,
+        health: false,
+      });
+    });
+
+    it('preserves template instance supervision facts in the status schema', async () => {
+      mockManagementAdapter.getServerStatus.mockResolvedValue({
+        servers: [
+          {
+            name: 'worker',
+            targetType: 'template',
+            status: 'crash-loop',
+            type: 'stdio',
+            configured: true,
+            instances: [
+              {
+                instanceId: 'aaaaaaaaaaaa',
+                status: 'crash-loop',
+                supervision: {
+                  backendId: `template:worker:${'a'.repeat(64)}`,
+                  state: 'crash-loop',
+                  attempt: 5,
+                  limit: 5,
+                  nextRetryAt: null,
+                  lastExit: null,
+                  lastError: 'failed',
+                  currentPid: null,
+                },
+              },
+            ],
+          },
+        ],
+      });
+
+      const result = await handleMcpStatus({ name: 'worker', details: true, health: true });
+
+      expect(result.servers[0]).toMatchObject({
+        targetType: 'template',
+        status: 'crash-loop',
+        instances: [{ instanceId: 'aaaaaaaaaaaa', supervision: { attempt: 5, lastError: 'failed' } }],
+      });
+      expect(result.overall.errors).toBe(1);
     });
   });
 
@@ -511,6 +595,36 @@ describe('managementHandlers', () => {
         timestamp: expect.any(String),
       });
       expect(flagManager.isToolEnabled).toHaveBeenCalledWith('internalTools', 'management', 'reload');
+    });
+
+    it('preserves the structured named restart outcome', async () => {
+      mockManagementAdapter.reloadConfiguration.mockResolvedValue({
+        target: 'server',
+        serverName: 'worker',
+        action: 'not_reloaded',
+        success: false,
+        timestamp: new Date().toISOString(),
+        error: "Template server 'worker' has no active instances",
+        outcome: {
+          targetName: 'worker',
+          targetType: 'template',
+          outcome: 'no_active_instances',
+          restartedInstanceIds: [],
+        },
+      });
+
+      const result = await handleMcpReload({
+        server: 'worker',
+        configOnly: false,
+        graceful: true,
+        timeout: 30000,
+        force: false,
+      });
+
+      expect(result).toMatchObject({
+        status: 'failed',
+        outcome: { targetType: 'template', outcome: 'no_active_instances' },
+      });
     });
 
     it('should handle reload errors', async () => {

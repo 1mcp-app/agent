@@ -1,3 +1,8 @@
+import { ClientManager } from '@src/core/client/clientManager.js';
+import { TemplateFilteringService } from '@src/core/filtering/index.js';
+import type { BackendSupervisionSnapshot } from '@src/core/server/backendStdioSupervisor.js';
+import { ClientStatus } from '@src/core/types/client.js';
+
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { TemplateServerManager } from './templateServerManager.js';
@@ -53,6 +58,8 @@ vi.mock('@src/core/server/clientInstancePool.js', () => ({
         client: {
           connect: vi.fn().mockResolvedValue(undefined),
           close: vi.fn().mockResolvedValue(undefined),
+          getInstructions: vi.fn(),
+          getServerCapabilities: vi.fn(),
         },
         transport: {
           close: vi.fn().mockResolvedValue(undefined),
@@ -65,12 +72,14 @@ vi.mock('@src/core/server/clientInstancePool.js', () => ({
         createdAt: new Date(),
         lastUsedAt: new Date(),
         status: 'active' as const,
+        outboundKeys: new Set<string>(),
         clientIds: new Set(['test-client']),
         idleTimeout: 300000,
       }),
       removeClientFromInstance: vi.fn(),
       getInstance: vi.fn(),
       getTemplateInstances: vi.fn(() => []),
+      resolveTemplateInstance: vi.fn(),
       getAllInstances: vi.fn(() => []),
       removeInstance: vi.fn().mockResolvedValue(undefined),
       cleanupIdleInstances: vi.fn().mockResolvedValue(undefined),
@@ -83,6 +92,7 @@ vi.mock('@src/core/server/clientInstancePool.js', () => ({
         templateCount: 0,
         totalClients: 0,
       })),
+      setSupervisionPublisher: vi.fn(),
     };
   }),
 }));
@@ -99,6 +109,21 @@ describe('TemplateServerManager', () => {
     if (templateServerManager) {
       templateServerManager.cleanup();
     }
+    ClientManager.resetInstance();
+  });
+
+  const snapshot = (
+    state: BackendSupervisionSnapshot['state'],
+    currentPid: number | null,
+  ): BackendSupervisionSnapshot => ({
+    backendId: 'template:test-template:test-instance-id',
+    state,
+    attempt: state === 'connected' ? 0 : 1,
+    limit: 5,
+    nextRetryAt: null,
+    lastExit: null,
+    lastError: null,
+    currentPid,
   });
 
   describe('getRenderedHashForSession', () => {
@@ -220,6 +245,15 @@ describe('TemplateServerManager', () => {
   });
 
   describe('helper methods', () => {
+    it('resolves an operational instance ID within its template', () => {
+      const manager = templateServerManager as any;
+      const instance = { id: '0123456789abcdef' };
+      manager.clientInstancePool.resolveTemplateInstance.mockReturnValue(instance);
+
+      expect(templateServerManager.resolveTemplateInstance('test-template', '0123456789ab')).toBe(instance);
+      expect(manager.clientInstancePool.resolveTemplateInstance).toHaveBeenCalledWith('test-template', '0123456789ab');
+    });
+
     it('getIdleTemplateInstances should return empty array initially', () => {
       const idleInstances = templateServerManager.getIdleTemplateInstances();
       expect(idleInstances).toEqual([]);
@@ -319,6 +353,141 @@ describe('TemplateServerManager', () => {
       ).not.toThrow();
     });
 
+    it('retires active instances when a template configuration is replaced', async () => {
+      const manager = templateServerManager as any;
+      const instance = {
+        id: 'instance-id',
+        instanceKey: 'test-template:rendered',
+        templateName: 'test-template',
+        client: {},
+        clientIds: new Set(['client-a']),
+      };
+      manager.clientInstancePool.getTemplateInstances.mockReturnValue([instance]);
+
+      templateServerManager.rebuildTemplateIndex({
+        mcpTemplates: { 'test-template': { command: 'node', args: ['old.js'], template: {} } },
+      });
+      templateServerManager.rebuildTemplateIndex({
+        mcpTemplates: { 'test-template': { command: 'node', args: ['new.js'], template: {} } },
+      });
+
+      await vi.waitFor(() =>
+        expect(manager.clientInstancePool.removeInstance).toHaveBeenCalledWith('test-template:rendered'),
+      );
+      expect(manager.clientTemplateTracker.removeClientFromInstance).toHaveBeenCalledWith(
+        'client-a',
+        'test-template',
+        'instance-id',
+      );
+    });
+
+    it('queues another retirement pass when configuration changes again during retirement', async () => {
+      const manager = templateServerManager as any;
+      let finishFirstRetirement!: () => void;
+      const firstRetirement = new Promise<void>((resolve) => {
+        finishFirstRetirement = resolve;
+      });
+      const firstInstance = {
+        id: 'instance-a',
+        instanceKey: 'test-template:rendered-a',
+        templateName: 'test-template',
+        client: {},
+        clientIds: new Set(['client-a']),
+      };
+      const secondInstance = {
+        id: 'instance-b',
+        instanceKey: 'test-template:rendered-b',
+        templateName: 'test-template',
+        client: {},
+        clientIds: new Set(['client-b']),
+      };
+
+      manager.clientInstancePool.getTemplateInstances
+        .mockReturnValueOnce([firstInstance])
+        .mockReturnValueOnce([secondInstance]);
+      manager.clientInstancePool.removeInstance.mockReturnValueOnce(firstRetirement).mockResolvedValueOnce(undefined);
+
+      templateServerManager.rebuildTemplateIndex({
+        mcpTemplates: {
+          'test-template': { command: 'node', args: ['a.js'], template: {} },
+        },
+      });
+      templateServerManager.rebuildTemplateIndex({
+        mcpTemplates: {
+          'test-template': { command: 'node', args: ['b.js'], template: {} },
+        },
+      });
+
+      await vi.waitFor(() => {
+        expect(manager.clientInstancePool.removeInstance).toHaveBeenCalledWith(firstInstance.instanceKey);
+      });
+
+      templateServerManager.rebuildTemplateIndex({
+        mcpTemplates: {
+          'test-template': { command: 'node', args: ['c.js'], template: {} },
+        },
+      });
+
+      expect(manager.clientInstancePool.getTemplateInstances).toHaveBeenCalledTimes(1);
+      finishFirstRetirement();
+
+      await vi.waitFor(() => {
+        expect(manager.clientInstancePool.removeInstance).toHaveBeenCalledWith(secondInstance.instanceKey);
+      });
+      expect(manager.clientInstancePool.getTemplateInstances).toHaveBeenCalledTimes(2);
+      expect(manager.clientInstancePool.removeInstance).toHaveBeenNthCalledWith(1, firstInstance.instanceKey);
+      expect(manager.clientInstancePool.removeInstance).toHaveBeenNthCalledWith(2, secondInstance.instanceKey);
+    });
+
+    it('compares declared template hashes without confusing rendered instance values for config changes', async () => {
+      const manager = templateServerManager as any;
+      const declaredConfig = { command: 'node', args: ['{{entrypoint}}'], template: {} };
+      const renderedConfig = { command: 'node', args: ['old.js'], template: {} };
+      const instance = {
+        id: 'instance-id',
+        instanceKey: 'test-template:rendered',
+        templateName: 'test-template',
+        client: { getInstructions: vi.fn() },
+        transport: {},
+        renderedHash: 'rendered',
+        processedConfig: renderedConfig,
+        referenceCount: 1,
+        status: 'active',
+        outboundKeys: new Set<string>(),
+        clientIds: new Set(['client-a']),
+      };
+      templateServerManager.rebuildTemplateIndex({
+        mcpTemplates: { 'test-template': declaredConfig },
+      });
+      manager.clientInstancePool.getOrCreateClientInstance.mockResolvedValueOnce(instance);
+      vi.mocked(TemplateFilteringService.getMatchingTemplates).mockReturnValueOnce([
+        ['test-template', renderedConfig],
+      ] as any);
+
+      await templateServerManager.createTemplateBasedServers(
+        'client-a',
+        {} as any,
+        {} as any,
+        { mcpTemplates: { 'test-template': renderedConfig } },
+        new Map(),
+        {},
+      );
+      manager.clientInstancePool.getTemplateInstances.mockReturnValue([instance]);
+
+      templateServerManager.rebuildTemplateIndex({
+        mcpTemplates: { 'test-template': declaredConfig },
+      });
+      expect(manager.clientInstancePool.removeInstance).not.toHaveBeenCalled();
+
+      templateServerManager.rebuildTemplateIndex({
+        mcpTemplates: { 'test-template': { ...declaredConfig, args: ['{{newEntrypoint}}'] } },
+      });
+
+      await vi.waitFor(() =>
+        expect(manager.clientInstancePool.removeInstance).toHaveBeenCalledWith('test-template:rendered'),
+      );
+    });
+
     it('getFilteringStats should return stats', () => {
       const stats = templateServerManager.getFilteringStats();
       expect(stats).toHaveProperty('tracker');
@@ -335,6 +504,129 @@ describe('TemplateServerManager', () => {
     it('getClientInstancePool should return pool', () => {
       const pool = templateServerManager.getClientInstancePool();
       expect(pool).toBeDefined();
+    });
+  });
+
+  describe('supervised template publication', () => {
+    const templateConfig = {
+      command: 'node',
+      args: ['server.js'],
+      template: { perClient: true },
+    };
+
+    function createInstance(sessionId: string, instructions: string, pid: number) {
+      const client = {
+        close: vi.fn().mockResolvedValue(undefined),
+        getInstructions: vi.fn(() => instructions),
+        getServerCapabilities: vi.fn(() => ({ tools: {} })),
+        callTool: vi.fn().mockResolvedValue({ content: [{ type: 'text', text: `from-${pid}` }] }),
+      };
+      return {
+        id: `${sessionId}-instance`,
+        instanceKey: `test-template:rendered-${sessionId}:${sessionId}`,
+        templateName: 'test-template',
+        client,
+        transport: { close: vi.fn().mockResolvedValue(undefined), pid },
+        renderedHash: `rendered-${sessionId}`,
+        processedConfig: templateConfig,
+        referenceCount: 1,
+        createdAt: new Date(),
+        lastUsedAt: new Date(),
+        status: 'active' as const,
+        supervision: snapshot('connected', pid),
+        outboundKeys: new Set<string>(),
+        clientIds: new Set([sessionId]),
+        idleTimeout: 300000,
+      };
+    }
+
+    async function registerInstance(instance: ReturnType<typeof createInstance>, outboundConns: Map<string, any>) {
+      const manager = templateServerManager as any;
+      manager.clientInstancePool.getOrCreateClientInstance.mockResolvedValueOnce(instance);
+      vi.mocked(TemplateFilteringService.getMatchingTemplates).mockReturnValueOnce([
+        ['test-template', templateConfig],
+      ] as any);
+      await templateServerManager.createTemplateBasedServers(
+        instance.clientIds.values().next().value!,
+        {} as any,
+        {} as any,
+        { mcpTemplates: { 'test-template': templateConfig } },
+        outboundConns,
+        {},
+      );
+    }
+
+    it('publishes initial state and recovery through the routable per-client key', async () => {
+      const instance = createInstance('client-a', 'initial instructions', 101);
+      const outboundConns = new Map<string, any>();
+      const clientManager = ClientManager.getOrCreateInstance();
+      const publishState = vi.spyOn(clientManager, 'publishBackendSupervisionState');
+
+      await registerInstance(instance, outboundConns);
+
+      const outboundKey = 'test-template:client-a';
+      expect(instance.outboundKeys).toEqual(new Set([outboundKey]));
+      expect(outboundConns.get(outboundKey)).toMatchObject({
+        status: ClientStatus.Connected,
+        supervision: { state: 'connected', currentPid: 101 },
+        capabilities: { tools: {} },
+      });
+      expect(publishState).toHaveBeenCalledWith(outboundKey, instance.supervision);
+      expect(outboundConns.has(instance.instanceKey)).toBe(false);
+
+      const manager = templateServerManager as any;
+      const publisher = manager.clientInstancePool.setSupervisionPublisher.mock.calls[0][0];
+      publisher(instance, snapshot('restarting', null));
+      expect(outboundConns.get(outboundKey)).toMatchObject({ status: ClientStatus.Restarting });
+      expect(outboundConns.get(outboundKey).capabilities).toBeUndefined();
+      expect(outboundConns.get(outboundKey).instructions).toBeUndefined();
+
+      const replacementClient = {
+        close: vi.fn().mockResolvedValue(undefined),
+        getInstructions: vi.fn(() => 'recovered instructions'),
+        getServerCapabilities: vi.fn(() => ({ tools: { listChanged: true } })),
+        callTool: vi.fn().mockResolvedValue({ content: [{ type: 'text', text: 'recovered invocation' }] }),
+      };
+      instance.client = replacementClient as any;
+      instance.transport = { close: vi.fn().mockResolvedValue(undefined), pid: 202 } as any;
+      publisher(instance, snapshot('connected', 202));
+
+      const recoveredRoute = outboundConns.get(outboundKey);
+      expect(recoveredRoute).toMatchObject({
+        client: replacementClient,
+        transport: instance.transport,
+        status: ClientStatus.Connected,
+        supervision: { state: 'connected', currentPid: 202 },
+        capabilities: { tools: { listChanged: true } },
+        instructions: 'recovered instructions',
+      });
+      await expect(recoveredRoute.client.callTool({ name: 'echo', arguments: {} })).resolves.toEqual({
+        content: [{ type: 'text', text: 'recovered invocation' }],
+      });
+      expect(instance.clientIds).toEqual(new Set(['client-a']));
+      expect(instance.outboundKeys).toEqual(new Set([outboundKey]));
+    });
+
+    it('withdraws only the unavailable instance instruction contribution', async () => {
+      const first = createInstance('client-a', 'instructions-a', 101);
+      const second = createInstance('client-b', 'instructions-b', 102);
+      const outboundConns = new Map<string, any>();
+      const aggregator = { setInstructions: vi.fn(), removeServer: vi.fn() };
+      templateServerManager.setInstructionAggregator(aggregator as any);
+      await registerInstance(first, outboundConns);
+      await registerInstance(second, outboundConns);
+
+      aggregator.setInstructions.mockClear();
+      const manager = templateServerManager as any;
+      const publisher = manager.clientInstancePool.setSupervisionPublisher.mock.calls[0][0];
+      publisher(first, snapshot('restarting', null));
+      expect(aggregator.setInstructions).toHaveBeenLastCalledWith('test-template', 'instructions-b');
+
+      publisher(second, snapshot('crash-loop', null));
+      expect(aggregator.setInstructions).toHaveBeenLastCalledWith('test-template', undefined);
+
+      publisher(first, snapshot('connected', 201));
+      expect(aggregator.setInstructions).toHaveBeenLastCalledWith('test-template', 'instructions-a');
     });
   });
 

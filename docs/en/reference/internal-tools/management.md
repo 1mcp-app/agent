@@ -32,6 +32,9 @@ List all configured MCP servers, supporting filtering by status, tags, and funct
 
 Get detailed status information for specific servers, including health metrics, performance statistics, and diagnostic information. Supports historical status tracking and trend analysis.
 
+- `details` defaults to `false`; set it to `true` to include per-instance and supervision details.
+- `health` defaults to `true`; set it to `false` to omit health results.
+
 ### mcp_reload
 
 Reload server configurations or restart servers, supporting hot reload and zero-downtime updates. Includes rollback mechanisms and configuration validation.

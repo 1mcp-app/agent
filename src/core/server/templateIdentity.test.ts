@@ -1,19 +1,53 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  AmbiguousTemplateInstanceIdError,
   createRenderedIdentity,
   createSessionIdentity,
   createStaticIdentity,
+  createTemplateInstanceId,
   createTemplateLookupCandidates,
+  formatTemplateInstanceId,
   parsePoolIdentity,
   parseTemplateConnectionKey,
   resolveTemplateIdentityMode,
+  resolveTemplateInstanceId,
   serializePoolIdentity,
   serializeTemplateIdentity,
   templateRenderedHash,
 } from './templateIdentity.js';
 
+const FIRST_INSTANCE_ID = '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef';
+const SECOND_INSTANCE_ID = '0fedcba9876543210fedcba9876543210fedcba9876543210fedcba987654321';
+
 describe('templateIdentity', () => {
+  it('creates opaque canonical template instance IDs with 12-character display IDs', () => {
+    const first = createTemplateInstanceId();
+    const second = createTemplateInstanceId();
+
+    expect(first).toMatch(/^[0-9a-f]{64}$/);
+    expect(second).toMatch(/^[0-9a-f]{64}$/);
+    expect(second).not.toBe(first);
+    expect(formatTemplateInstanceId(FIRST_INSTANCE_ID)).toBe('0123456789ab');
+  });
+
+  it('resolves full template instance IDs and unique prefixes', () => {
+    const instanceIds = [FIRST_INSTANCE_ID, SECOND_INSTANCE_ID];
+
+    expect(resolveTemplateInstanceId(FIRST_INSTANCE_ID, instanceIds)).toBe(FIRST_INSTANCE_ID);
+    expect(resolveTemplateInstanceId('0123456789ab', instanceIds)).toBe(FIRST_INSTANCE_ID);
+    expect(resolveTemplateInstanceId('f', instanceIds)).toBeUndefined();
+  });
+
+  it('rejects ambiguous prefixes with the matching short display IDs', () => {
+    const first = `0a${FIRST_INSTANCE_ID.slice(2)}`;
+    const second = `0b${SECOND_INSTANCE_ID.slice(2)}`;
+
+    expect(() => resolveTemplateInstanceId('0', [second, first])).toThrow(
+      new AmbiguousTemplateInstanceIdError('0', [formatTemplateInstanceId(first), formatTemplateInstanceId(second)]),
+    );
+  });
+
   it('serializes static, rendered, session-bound, and pool identities', () => {
     expect(serializeTemplateIdentity(createStaticIdentity('filesystem'))).toBe('filesystem');
     expect(serializeTemplateIdentity(createRenderedIdentity('contextual', 'hash123'))).toBe('contextual:hash123');

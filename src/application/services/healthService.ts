@@ -1,6 +1,7 @@
 import { McpConfigManager } from '@src/config/mcpConfigManager.js';
 import { MCP_SERVER_VERSION } from '@src/constants.js';
 import { AgentConfigManager } from '@src/core/server/agentConfig.js';
+import type { BackendSupervisionSnapshot, BackendSupervisionState } from '@src/core/server/backendStdioSupervisor.js';
 import { ServerManager } from '@src/core/server/serverManager.js';
 import { ClientStatus } from '@src/core/types/index.js';
 import logger from '@src/logger/logger.js';
@@ -68,6 +69,36 @@ export interface HealthCheckResponse {
   };
 }
 
+export interface BackendSupervisionSummary {
+  total: number;
+  connected: number;
+  restarting: number;
+  crashLoop: number;
+  stopped: number;
+}
+
+interface BasicBackendSupervisionSnapshot {
+  backendId: string;
+  state: BackendSupervisionState;
+  attempt: number;
+  limit: number | null;
+  nextRetryAt: Date | null;
+  lastExit: {
+    code: number | null;
+    signal: string | null;
+    at: Date;
+  } | null;
+  lastError: string | null;
+}
+
+interface FullBackendSupervisionSnapshot extends BasicBackendSupervisionSnapshot {
+  lastExit: (NonNullable<BackendSupervisionSnapshot['lastExit']> & { pid: number | null }) | null;
+  currentPid: number | null;
+}
+
+export type BackendSupervisionHealth =
+  BackendSupervisionSummary | Record<string, BasicBackendSupervisionSnapshot | FullBackendSupervisionSnapshot>;
+
 /**
  * Health service for monitoring system and MCP server status
  */
@@ -117,6 +148,61 @@ export class HealthService {
       logger.error('Health check failed:', error);
       throw error;
     }
+  }
+
+  /**
+   * Apply the configured health disclosure level to backend supervision facts.
+   */
+  public serializeBackendSupervision(snapshots: Record<string, BackendSupervisionSnapshot>): BackendSupervisionHealth {
+    const detailLevel = this.agentConfig.get('health').detailLevel;
+
+    if (detailLevel === 'minimal') {
+      const summary: BackendSupervisionSummary = {
+        total: 0,
+        connected: 0,
+        restarting: 0,
+        crashLoop: 0,
+        stopped: 0,
+      };
+
+      for (const snapshot of Object.values(snapshots)) {
+        summary.total += 1;
+        if (snapshot.state === 'crash-loop') {
+          summary.crashLoop += 1;
+        } else {
+          summary[snapshot.state] += 1;
+        }
+      }
+      return summary;
+    }
+
+    return Object.fromEntries(
+      Object.entries(snapshots).map(([name, snapshot]) => {
+        const lastError = this.sanitizeErrorMessage(snapshot.lastError?.message) ?? null;
+        if (detailLevel === 'basic') {
+          return [
+            name,
+            {
+              backendId: snapshot.backendId,
+              state: snapshot.state,
+              attempt: snapshot.attempt,
+              limit: snapshot.limit,
+              nextRetryAt: snapshot.nextRetryAt,
+              lastExit: snapshot.lastExit
+                ? {
+                    code: snapshot.lastExit.code,
+                    signal: snapshot.lastExit.signal,
+                    at: snapshot.lastExit.at,
+                  }
+                : null,
+              lastError,
+            },
+          ];
+        }
+
+        return [name, { ...snapshot, lastError }];
+      }),
+    );
   }
 
   /**

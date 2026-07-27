@@ -5,7 +5,7 @@ import { mcpAuthRouter } from '@modelcontextprotocol/sdk/server/auth/router.js';
 
 import { SDKOAuthServerProvider } from '@src/auth/sdkOAuthServerProvider.js';
 import { FileStorageService } from '@src/auth/storage/fileStorageService.js';
-import { getAllServerTargets } from '@src/commands/shared/baseConfigUtils.js';
+import { getAllServerTargets, resolveServerTarget } from '@src/commands/shared/baseConfigUtils.js';
 import ConfigContext from '@src/config/configContext.js';
 import { McpConfigManager } from '@src/config/mcpConfigManager.js';
 import { getGlobalConfigDir, MCP_SERVER_VERSION, RATE_LIMIT_CONFIG, STORAGE_SUBDIRS } from '@src/constants.js';
@@ -22,6 +22,7 @@ import {
   type RuntimeScopeAdminLockHandle,
   tryAcquireRuntimeScopeAdminLock,
 } from '@src/domains/admin/runtimeScopeAdminLock.js';
+import { RuntimeServerManagerBackendRestartService } from '@src/domains/admin/runtimeServerManagerBackendRestartService.js';
 import { createConfigChangeService } from '@src/domains/config-change/configChange.js';
 import { PresetManager } from '@src/domains/preset/manager/presetManager.js';
 import logger from '@src/logger/logger.js';
@@ -409,12 +410,17 @@ export class ExpressServer {
       checkConnectivity: createAdminConnectivityChecker(),
       presetManager: PresetManager.getInstance(path.dirname(adminConfigPath)),
       readServerTargets: getAllServerTargets,
+      runtimeBackendRestartService: new RuntimeServerManagerBackendRestartService({
+        serverManager: this.serverManager,
+        resolveTarget: resolveServerTarget,
+      }),
     });
     const adminRoutes = createAdminRoutes({
       adminEnabled,
       adminService: adminDomain.adminService,
       configuredServerService: adminDomain.configuredServerService,
       presetService: adminDomain.presetService,
+      backendRestartService: adminDomain.backendRestartService,
       adminMutationAvailability,
       getRuntimeIdentity,
       getOAuthDashboard,

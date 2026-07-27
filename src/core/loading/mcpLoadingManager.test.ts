@@ -22,10 +22,12 @@
  *   transport by default, can be overridden per-test.
  * • LoadingStateTracker — NOT mocked; we verify through manager.getStateTracker()
  *   so the real state-transition logic is exercised.
- * • No fake timers — sleep / timeout are made fast by setting very low config values.
+ * • Real timers by default — sleep / timeout are made fast by setting very low config values.
+ *   The background retry policy test uses fake timers for deterministic interval coverage.
  */
 // ── Helpers ───────────────────────────────────────────────────────────────────
 import { createTransports } from '@src/transport/transportFactory.js';
+import { NonRetryableClientConnectionError } from '@src/utils/core/errorTypes.js';
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -197,6 +199,18 @@ describe('McpLoadingManager', () => {
       const state = manager.getStateTracker().getServerState('srv');
       expect(state?.state).toBe(LoadingState.Failed);
       expect(state?.error?.message).toMatch('bad config');
+    });
+
+    it('stops the load retry loop after a non-retryable connection failure', async () => {
+      const terminalError = new NonRetryableClientConnectionError('srv', new Error('OAuth client registration denied'));
+      clientManager.createSingleClient.mockRejectedValue(terminalError);
+
+      await manager.loadServer('srv', makeServerConfig());
+
+      const state = manager.getStateTracker().getServerState('srv');
+      expect(clientManager.createSingleClient).toHaveBeenCalledTimes(1);
+      expect(state?.state).toBe(LoadingState.Failed);
+      expect(state?.error).toBe(terminalError);
     });
 
     it('copies OAuth authorization URL into loading tracker when authorization is required', async () => {
@@ -469,6 +483,35 @@ describe('McpLoadingManager', () => {
   });
 
   // ── shutdown cancels all operations ─────────────────────────────────────────
+
+  describe('background retry policy', () => {
+    it('does not requeue a non-retryable connection failure', async () => {
+      const terminalError = new NonRetryableClientConnectionError('srv', new Error('OAuth client registration denied'));
+      const terminalClientManager = makeClientManagerMock(() => Promise.reject(terminalError));
+      terminalClientManager.getTransport.mockReturnValue(makeFakeTransport());
+
+      const mgr = new McpLoadingManager(terminalClientManager as never, {
+        ...FAST_CONFIG,
+        enableBackgroundRetry: true,
+        backgroundRetryIntervalMs: 10,
+      });
+      const backgroundRetry = vi.fn();
+      mgr.on(McpLoadingEvent.BackgroundRetry, backgroundRetry);
+
+      vi.useFakeTimers();
+      try {
+        await mgr.loadServer('srv', makeServerConfig());
+        await vi.advanceTimersByTimeAsync(30);
+
+        expect(backgroundRetry).not.toHaveBeenCalled();
+        expect(terminalClientManager.createSingleClient).toHaveBeenCalledTimes(1);
+        expect(mgr.getStateTracker().getServerState('srv')?.retryCount).toBe(0);
+      } finally {
+        mgr.shutdown();
+        vi.useRealTimers();
+      }
+    });
+  });
 
   describe('shutdown', () => {
     it('aborts all in-flight server op controllers', async () => {
