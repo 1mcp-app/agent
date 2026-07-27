@@ -1,5 +1,7 @@
 # 1MCP
 
+[![MCP Toplist](https://mcptoplist.com/badge/smithery%2F1mcp-app%2Fagent.svg)](https://mcptoplist.com/server/smithery%2F1mcp-app%2Fagent)
+
 [![NPM Version](https://img.shields.io/npm/v/@1mcp/agent)](https://www.npmjs.com/package/@1mcp/agent)
 [![NPM Downloads](https://img.shields.io/npm/dm/%401mcp%252Fagent)](https://www.npmjs.com/package/@1mcp/agent)
 [![CodeQl](https://github.com/1mcp-app/agent/actions/workflows/github-code-scanning/codeql/badge.svg)](https://github.com/1mcp-app/agent/actions/workflows/github-code-scanning/codeql)
