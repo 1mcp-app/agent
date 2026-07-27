@@ -2,6 +2,11 @@ import { UnauthorizedError } from '@modelcontextprotocol/sdk/client/auth.js';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { SSEClientTransport } from '@modelcontextprotocol/sdk/client/sse.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
+import {
+  InvalidClientMetadataError,
+  ServerError,
+  TooManyRequestsError,
+} from '@modelcontextprotocol/sdk/server/auth/errors.js';
 import { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
 
 import { CONNECTION_RETRY, MCP_SERVER_NAME } from '@src/constants.js';
@@ -130,6 +135,49 @@ describe('ConnectionHandler', () => {
 
       await expect(connectPromise).rejects.toThrow();
       expect(mockClient.connect).toHaveBeenCalledTimes(CONNECTION_RETRY.MAX_ATTEMPTS);
+    });
+
+    it('should not retry a permanent OAuth HTTP error', async () => {
+      const error = new ServerError(
+        'HTTP 403: Invalid OAuth error response: SyntaxError: Unexpected token F. Raw body: Forbidden',
+      );
+      (mockClient.connect as unknown as MockInstance).mockRejectedValue(error);
+
+      const connectPromise = connectionHandler.connectWithRetry(mockClient as Client, mockTransport, 'test-client');
+      connectPromise.catch(() => {});
+      await vi.runAllTimersAsync();
+
+      await expect(connectPromise).rejects.toMatchObject({ name: 'NonRetryableClientConnectionError' });
+      expect(mockClient.connect).toHaveBeenCalledTimes(1);
+      expect(mockTransport.close).not.toHaveBeenCalled();
+    });
+
+    it('should not retry invalid dynamic client registration metadata', async () => {
+      const error = new InvalidClientMetadataError('Redirect URI is not allowed');
+      (mockClient.connect as unknown as MockInstance).mockRejectedValue(error);
+
+      const connectPromise = connectionHandler.connectWithRetry(mockClient as Client, mockTransport, 'test-client');
+      connectPromise.catch(() => {});
+      await vi.runAllTimersAsync();
+
+      await expect(connectPromise).rejects.toMatchObject({ name: 'NonRetryableClientConnectionError' });
+      expect(mockClient.connect).toHaveBeenCalledTimes(1);
+    });
+
+    it('should retry a rate-limited OAuth request', async () => {
+      (mockClient.connect as unknown as MockInstance)
+        .mockRejectedValueOnce(new TooManyRequestsError('Rate limit exceeded'))
+        .mockResolvedValueOnce(undefined);
+      (mockClient.getServerVersion as unknown as MockInstance).mockResolvedValue({
+        name: 'test-server',
+        version: '1.0.0',
+      });
+
+      const connectPromise = connectionHandler.connectWithRetry(mockClient as Client, mockTransport, 'test-client');
+      await vi.runAllTimersAsync();
+
+      await expect(connectPromise).resolves.toEqual({ client: mockClient, transport: mockTransport });
+      expect(mockClient.connect).toHaveBeenCalledTimes(2);
     });
 
     it('should prevent circular dependency with MCP server', async () => {
