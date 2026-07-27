@@ -26,9 +26,12 @@ const consentBodySchema = z.object({
 /**
  * Creates OAuth routes with the provided OAuth provider
  */
-export function createOAuthRoutes(oauthProvider: SDKOAuthServerProvider, loadingManager?: McpLoadingManager): Router {
+export function createOAuthRoutes(
+  oauthProvider: SDKOAuthServerProvider,
+  loadingManager?: McpLoadingManager,
+  oauthFlow: OAuthAuthorizationFlow = createBackendOAuthAuthorizationFlow(oauthProvider, loadingManager),
+): Router {
   const router: Router = Router();
-  const oauthFlow = getOAuthFlow(oauthProvider, loadingManager);
 
   // Rate limiter for OAuth endpoints
   const createOAuthLimiter = () => {
@@ -48,7 +51,7 @@ export function createOAuthRoutes(oauthProvider: SDKOAuthServerProvider, loading
    * OAuth Dashboard - Shows all services and their OAuth status
    */
   router.get('/', (_req: Request, res: Response) => {
-    res.redirect('/admin');
+    res.redirect('/admin/oauth');
   });
 
   /**
@@ -95,14 +98,14 @@ export function createOAuthRoutes(oauthProvider: SDKOAuthServerProvider, loading
       if (result.status !== 'completed') {
         logger.error(`OAuth callback failed for ${serverName}:`, result.errorDescription);
         const errorCode = result.status === 'provider_error' ? result.errorDescription : result.status;
-        return res.redirect(`/oauth?error=${encodeURIComponent(errorCode)}`);
+        return res.redirect(`/admin/oauth?error=${encodeURIComponent(errorCode)}`);
       }
 
       // Redirect back to dashboard with success
-      res.redirect('/oauth?success=1');
+      res.redirect('/admin/oauth?success=1');
     } catch (error) {
       logger.error(`Error handling OAuth callback for ${serverName}:`, error);
-      res.redirect(`/oauth?error=callback_failed`);
+      res.redirect('/admin/oauth?error=callback_failed');
     }
   });
 
@@ -182,8 +185,16 @@ export function createOAuthRoutes(oauthProvider: SDKOAuthServerProvider, loading
 export function createBackendOAuthDashboardProvider(
   oauthProvider: SDKOAuthServerProvider & OAuthAuthorizationFlowProvider,
   loadingManager?: McpLoadingManager,
+  oauthFlow: OAuthAuthorizationFlow = createBackendOAuthAuthorizationFlow(oauthProvider, loadingManager),
 ): () => ReturnType<OAuthAuthorizationFlow['getBackendOAuthDashboard']> {
-  return () => getOAuthFlow(oauthProvider, loadingManager).getBackendOAuthDashboard();
+  return () => oauthFlow.getBackendOAuthDashboard();
+}
+
+export function createBackendOAuthAuthorizationFlow(
+  oauthProvider: SDKOAuthServerProvider & OAuthAuthorizationFlowProvider,
+  loadingManager?: McpLoadingManager,
+): OAuthAuthorizationFlow {
+  return getOAuthFlow(oauthProvider, loadingManager);
 }
 
 function getOAuthFlow(

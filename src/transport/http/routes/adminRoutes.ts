@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url';
 
 import type { BackendOAuthDashboardResult } from '@src/auth/oauthAuthorizationFlow.js';
 import { RuntimeIdentity } from '@src/core/runtime/runtimeIdentityService.js';
+import { parseTemplateConnectionKey } from '@src/core/server/templateIdentity.js';
 import type {
   AdminBackendRestartOperations,
   BackendRestartOutcome,
@@ -22,6 +23,7 @@ import {
   AdminIdentityError,
   AdminIdentityService,
 } from '@src/domains/admin/adminIdentityService.js';
+import type { AdminOAuthOperations } from '@src/domains/admin/adminOAuthService.js';
 import type {
   AdminConfirmationRequirement,
   AdminOperationContext,
@@ -51,6 +53,7 @@ const CLI_ADMIN_RESPONSE_TOO_LARGE_MESSAGE =
   'CLI Admin response exceeded the maximum supported size; use a narrower or paginated request.';
 const CLI_SESSION_OPERATIONS = ['admin.login', 'admin.status', 'admin.logout'] as const;
 const ADMIN_API_PROTOCOL_VERSION = '1';
+const TEMPLATE_INSTANCE_ID_DISPLAY_LENGTH = 12;
 const packageMetadata = createRequire(import.meta.url)('../../../../package.json') as {
   name: string;
   version: string;
@@ -65,6 +68,9 @@ const CLI_BACKEND_RESTART_OPERATION = 'mcp.restart' as const;
 const adminLoginBodySchema = z.object({
   username: z.string().trim().min(1).max(ADMIN_USERNAME_MAX_LENGTH),
   password: z.string().min(1).max(ADMIN_PASSWORD_MAX_LENGTH),
+});
+const adminOAuthServiceParamsSchema = z.object({
+  serviceId: z.string().trim().min(1).max(256),
 });
 const cliConfiguredServerMutationBodySchema = z.object({
   targetName: z.string().trim().min(1).max(256),
@@ -94,6 +100,7 @@ interface AdminRoutesOptions {
   configuredServerService?: AdminConfiguredServerOperations;
   backendRestartService?: AdminBackendRestartOperations;
   presetService?: AdminPresetOperations;
+  oauthService?: AdminOAuthOperations;
   adminMutationAvailability?: AdminMutationAvailability;
   getRuntimeIdentity: () => RuntimeIdentity;
   getOAuthDashboard?: () => BackendOAuthDashboardResult;
@@ -340,6 +347,36 @@ export function createAdminRoutes(options: AdminRoutesOptions): Router | null {
     });
   });
 
+  router.post('/api/oauth/:serviceId/authorize', async (req, res) => {
+    if (!options.oauthService) {
+      res.status(503).json({ error: 'backend_oauth_runtime_unavailable' });
+      return;
+    }
+
+    const serviceId = parseAdminOAuthServiceId(req, res);
+    if (!serviceId) return;
+    const result = await options.oauthService.authorizeService({
+      context: buildAdminOperationContext(req, options, { type: 'backend_oauth_service', id: serviceId }),
+      serviceId,
+    });
+    sendAdminOAuthOperationResult(res, result);
+  });
+
+  router.post('/api/oauth/:serviceId/restart', async (req, res) => {
+    if (!options.oauthService) {
+      res.status(503).json({ error: 'backend_oauth_runtime_unavailable' });
+      return;
+    }
+
+    const serviceId = parseAdminOAuthServiceId(req, res);
+    if (!serviceId) return;
+    const result = await options.oauthService.restartService({
+      context: buildAdminOperationContext(req, options, { type: 'backend_oauth_service', id: serviceId }),
+      serviceId,
+    });
+    sendAdminOAuthOperationResult(res, result);
+  });
+
   router.get('/api/presets', async (req, res) => {
     if (!options.presetService) return void res.status(404).json({ error: 'admin_presets_unavailable' });
     const result = await options.presetService.listPresets({
@@ -512,7 +549,7 @@ function sendAdminConsoleIndex(res: Response, indexPath: string): void {
     return;
   }
 
-  res.status(200).sendFile(indexPath);
+  res.status(200).sendFile(indexPath, { dotfiles: 'allow' });
 }
 
 function unauthenticatedAdminApiResponse(options: AdminRoutesOptions): {
@@ -1206,6 +1243,30 @@ function sendAdminOperationResult<T>(res: Response, result: AdminOperationResult
   res.status(status).json(result);
 }
 
+function sendAdminOAuthOperationResult<T>(res: Response, result: AdminOperationResult<T>): void {
+  if (!result.ok && result.status === 'mutation_failed') {
+    const status =
+      result.error === 'backend_oauth_service_not_found'
+        ? 404
+        : result.error === 'backend_oauth_runtime_unavailable'
+          ? 503
+          : 502;
+    res.status(status).json({ ok: false, error: result.error });
+    return;
+  }
+
+  sendAdminOperationResult(res, result);
+}
+
+function parseAdminOAuthServiceId(req: Request, res: Response): string | null {
+  const parsed = adminOAuthServiceParamsSchema.safeParse(req.params);
+  if (!parsed.success) {
+    res.status(400).json({ error: 'backend_oauth_service_id_invalid' });
+    return null;
+  }
+  return parsed.data.serviceId;
+}
+
 async function handlePresetMutation(
   req: Request,
   res: Response,
@@ -1330,7 +1391,10 @@ function buildAdminOperationContext(
       jsonMode: true,
     },
     idempotencyKey: req.header('Idempotency-Key'),
-    requestFingerprint: configuredServerRequestFingerprint(operationName, target.id, req.body),
+    requestFingerprint:
+      target.type === 'backend_oauth_service'
+        ? backendOAuthRequestFingerprint(operationName, target.id)
+        : configuredServerRequestFingerprint(operationName, target.id, req.body),
     confirmationFacts: getBodyRecord(req.body, 'confirmationFacts'),
   };
 }
@@ -1461,6 +1525,17 @@ function configuredServerRequestFingerprint(
   return operationName === 'applyConfiguredServerEdit'
     ? `configured_server_apply_${createHash('sha256').update(normalized).digest('hex')}`
     : normalized;
+}
+
+function backendOAuthRequestFingerprint(operationName: string, serviceId: string | undefined): string {
+  return stableJsonStringify({
+    schemaVersion: 1,
+    operationName,
+    target: {
+      type: 'backend_oauth_service',
+      id: serviceId ?? '',
+    },
+  });
 }
 
 function stableJsonStringify(value: unknown): string {
@@ -1598,9 +1673,20 @@ function sanitizeOAuthDashboard(dashboard: BackendOAuthDashboardResult): Backend
     ...dashboard,
     services: dashboard.services.map((service) => ({
       ...service,
+      id: service.name,
+      displayName: backendOAuthServiceDisplayName(service.name),
       lastError: service.lastError ? sanitizeErrorMessage(service.lastError) : undefined,
     })),
   };
+}
+
+function backendOAuthServiceDisplayName(serviceId: string): string {
+  const identity = parseTemplateConnectionKey(serviceId);
+  if (identity.kind !== 'rendered' || identity.renderedHash.length <= TEMPLATE_INSTANCE_ID_DISPLAY_LENGTH) {
+    return serviceId;
+  }
+
+  return `${identity.templateName}:${identity.renderedHash.slice(0, TEMPLATE_INSTANCE_ID_DISPLAY_LENGTH)}`;
 }
 
 function getBodyValue(body: unknown, key: string): unknown {

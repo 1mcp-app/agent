@@ -77,6 +77,67 @@ describe('admin API client', () => {
     });
   });
 
+  it('authorizes and restarts full OAuth service ids with CSRF, unique idempotency, and redirect results', async () => {
+    const calls: Array<{ input: RequestInfo | URL; init?: RequestInit }> = [];
+    const api = createAdminApi({
+      idempotencyKey: ({ action, targetName }) => `key-${action}-${targetName}`,
+      fetch: async (input, init) => {
+        calls.push({ input, init });
+        return jsonResponse({
+          ok: true,
+          operationId: actionOperationId(String(input)),
+          result: {
+            serviceId: 'context7:0123456789abcdef',
+            redirectUrl: String(input).endsWith('/authorize')
+              ? 'https://provider.example/authorize'
+              : 'https://provider.example/restart',
+          },
+        });
+      },
+    });
+
+    const authorized = await api.authorizeOAuthService({
+      serviceId: 'context7:0123456789abcdef',
+      csrfToken: 'csrf_authorize',
+    });
+    const restarted = await api.restartOAuthService({
+      serviceId: 'context7:0123456789abcdef',
+      csrfToken: 'csrf_restart',
+    });
+
+    expect(calls).toMatchObject([
+      {
+        input: '/admin/api/oauth/context7%3A0123456789abcdef/authorize',
+        init: {
+          method: 'POST',
+          headers: {
+            'X-CSRF-Token': 'csrf_authorize',
+            'Idempotency-Key': 'key-oauth-authorize-context7:0123456789abcdef',
+          },
+        },
+      },
+      {
+        input: '/admin/api/oauth/context7%3A0123456789abcdef/restart',
+        init: {
+          method: 'POST',
+          headers: {
+            'X-CSRF-Token': 'csrf_restart',
+            'Idempotency-Key': 'key-oauth-restart-context7:0123456789abcdef',
+          },
+        },
+      },
+    ]);
+    expect(calls[0].init?.headers).not.toEqual(calls[1].init?.headers);
+    expect(authorized).toEqual({
+      serviceId: 'context7:0123456789abcdef',
+      redirectUrl: 'https://provider.example/authorize',
+    });
+    expect(restarted).toEqual({
+      serviceId: 'context7:0123456789abcdef',
+      redirectUrl: 'https://provider.example/restart',
+    });
+  });
+
   it('loads configured-server detail with an encoded target id', async () => {
     const calls: Array<{ input: RequestInfo | URL; init?: RequestInit }> = [];
     const api = createAdminApi({
@@ -354,3 +415,7 @@ describe('admin API client', () => {
     });
   });
 });
+
+function actionOperationId(input: string): string {
+  return input.endsWith('/authorize') ? 'op_authorize' : 'op_restart';
+}

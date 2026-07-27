@@ -26,6 +26,8 @@ export interface RuntimeIdentity {
 
 export interface OAuthServiceStatus {
   name: string;
+  id: string;
+  displayName: string;
   status: string;
   requiresOAuth?: boolean;
   lastError?: string;
@@ -319,7 +321,15 @@ export interface ConfiguredServerApplyResponse {
 
 export interface AdminApiOptions {
   fetch?: typeof fetch;
-  idempotencyKey?: (input: { action: 'enable' | 'disable'; targetName: string }) => string;
+  idempotencyKey?: (input: {
+    action: 'enable' | 'disable' | 'oauth-authorize' | 'oauth-restart';
+    targetName: string;
+  }) => string;
+}
+
+export interface OAuthAuthorizationRedirectResult {
+  serviceId: string;
+  redirectUrl: string;
 }
 
 export class AdminApiError extends Error {
@@ -414,6 +424,42 @@ export function createAdminApi(options: AdminApiOptions = {}) {
 
     getStatus(): Promise<AdminStatus> {
       return request('/admin/api/status');
+    },
+
+    async authorizeOAuthService(input: {
+      serviceId: string;
+      csrfToken: string;
+    }): Promise<OAuthAuthorizationRedirectResult> {
+      const response = await request<{ result: OAuthAuthorizationRedirectResult }>(
+        `/admin/api/oauth/${encodeURIComponent(input.serviceId)}/authorize`,
+        {
+          method: 'POST',
+          headers: {
+            'X-CSRF-Token': input.csrfToken,
+            'Idempotency-Key': idempotencyKey({ action: 'oauth-authorize', targetName: input.serviceId }),
+          },
+          body: '{}',
+        },
+      );
+      return response.result;
+    },
+
+    async restartOAuthService(input: {
+      serviceId: string;
+      csrfToken: string;
+    }): Promise<OAuthAuthorizationRedirectResult> {
+      const response = await request<{ result: OAuthAuthorizationRedirectResult }>(
+        `/admin/api/oauth/${encodeURIComponent(input.serviceId)}/restart`,
+        {
+          method: 'POST',
+          headers: {
+            'X-CSRF-Token': input.csrfToken,
+            'Idempotency-Key': idempotencyKey({ action: 'oauth-restart', targetName: input.serviceId }),
+          },
+          body: '{}',
+        },
+      );
+      return response.result;
     },
 
     async listPresets(): Promise<{ revision: string; presets: AdminPresetListItem[]; targets: AdminPresetTarget[] }> {
@@ -692,6 +738,12 @@ function friendlyAdminError(error: AdminApiError, code: string): string {
       return 'Refresh the console and retry the action with a new request.';
     case 'admin_configured_servers_unavailable':
       return 'Configured-server operations are not available on this runtime.';
+    case 'backend_oauth_service_not_found':
+      return 'The OAuth service is no longer available. Refresh the OAuth status and try again.';
+    case 'backend_oauth_runtime_unavailable':
+      return 'Backend OAuth operations are not available on this runtime.';
+    case 'backend_oauth_authorization_start_failed':
+      return 'The runtime could not start backend OAuth authorization. Refresh the OAuth status and try again.';
     case 'mutation_failed':
       return 'The runtime could not apply the server change. Refresh the console and inspect the current state.';
     case 'configured_server_stale_preview':
@@ -738,7 +790,10 @@ function readBodyMessage(body: unknown): string | null {
   return typeof message === 'string' && message.trim().length > 0 ? message.trim() : null;
 }
 
-function defaultIdempotencyKey(input: { action: 'enable' | 'disable'; targetName: string }): string {
+function defaultIdempotencyKey(input: {
+  action: 'enable' | 'disable' | 'oauth-authorize' | 'oauth-restart';
+  targetName: string;
+}): string {
   const random = crypto.getRandomValues(new Uint32Array(2)).join('-');
   return `admin-console-${input.action}-${encodeIdempotencyKeyPart(input.targetName)}-${Date.now()}-${random}`;
 }
