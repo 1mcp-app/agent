@@ -146,6 +146,25 @@ sequenceDiagram
 
 The `async-min-servers` setting is a startup readiness gate. During each loading cycle, 1MCP keeps the previous Capability Snapshot visible until every configured backend is connected or marked unavailable, then publishes the completed snapshot atomically. Inspection endpoints such as `/api/tools` query the Capability Catalog without forcing all servers to reconnect or refresh.
 
+### Async loading options
+
+| CLI option                           | Default | Purpose                                                                                                                                      |
+| ------------------------------------ | ------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
+| `--async-min-servers <number>`       | `1`     | Minimum number of connected servers before the HTTP listener starts accepting requests.                                                      |
+| `--async-timeout <milliseconds>`     | `30000` | Maximum time to wait for the minimum server count before startup continues.                                                                  |
+| `--async-batch-notifications`        | Enabled | Groups capability changes into fewer `listChanged` notifications. Use `--no-async-batch-notifications` to send each change immediately.      |
+| `--async-batch-delay <milliseconds>` | `100`   | Collection window used when notification batching is enabled.                                                                                |
+| `--async-notify-on-ready`            | Enabled | Sends capability notifications as servers become ready. Use `--no-async-notify-on-ready` only when clients refresh capabilities another way. |
+
+For a small fleet, the defaults are usually sufficient. For a larger fleet, raise `--async-min-servers` if clients need a useful initial set of capabilities and increase `--async-timeout` to accommodate slower backends. A longer batch delay reduces notification bursts at the cost of making newly available capabilities visible slightly later.
+
+```bash
+npx -y @1mcp/agent --config mcp.json --enable-async-loading \
+  --async-min-servers 5 \
+  --async-timeout 60000 \
+  --async-batch-delay 250
+```
+
 ## Configuration
 
 You can customize the async loading behavior, such as timeouts and retry logic, in the `loading` section of your JSON configuration file.

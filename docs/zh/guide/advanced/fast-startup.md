@@ -140,6 +140,25 @@ sequenceDiagram
 
 `async-min-servers` 设置是启动就绪门槛。在每个加载周期中，1MCP 会继续提供上一个能力快照 (Capability Snapshot)，直到所有已配置的后端均已连接或标记为不可用，再以原子方式发布完整快照。`/api/tools` 等检查端点会查询能力目录 (Capability Catalog)，而不会强制所有服务器重新连接或刷新。
 
+### 异步加载选项
+
+| CLI 选项                      | 默认值  | 用途                                                                                                  |
+| ----------------------------- | ------- | ----------------------------------------------------------------------------------------------------- |
+| `--async-min-servers <数量>`  | `1`     | HTTP 监听器开始接受请求前所需的最少已连接服务器数量。                                                 |
+| `--async-timeout <毫秒>`      | `30000` | 等待达到最少服务器数量的最长时间，超时后启动会继续。                                                  |
+| `--async-batch-notifications` | 启用    | 将能力变更合并为较少的 `listChanged` 通知。使用 `--no-async-batch-notifications` 可立即发送每项变更。 |
+| `--async-batch-delay <毫秒>`  | `100`   | 启用通知批处理时的收集窗口。                                                                          |
+| `--async-notify-on-ready`     | 启用    | 在服务器就绪时发送能力通知。仅当客户端通过其他方式刷新能力时，才使用 `--no-async-notify-on-ready`。   |
+
+对于小型服务器组，默认值通常已经足够。对于较大的服务器组，如果客户端需要一组实用的初始能力，可以提高 `--async-min-servers`；如果后端启动较慢，可以增加 `--async-timeout`。较长的批处理延迟可以减少通知突发，但新能力的显示时间也会稍晚。
+
+```bash
+npx -y @1mcp/agent --config mcp.json --enable-async-loading \
+  --async-min-servers 5 \
+  --async-timeout 60000 \
+  --async-batch-delay 250
+```
+
 ## 配置
 
 您可以在 JSON 配置文件的 `loading` 部分自定义异步加载行为，例如超时和重试逻辑。
