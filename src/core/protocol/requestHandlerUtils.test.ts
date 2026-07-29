@@ -10,9 +10,9 @@ vi.mock('@src/core/server/serverManager.js', () => ({
   },
 }));
 
-import { resolveLazyAllowedServers } from './requestHandlerUtils.js';
+import { resolveLazyCapabilityVisibility } from './requestHandlerUtils.js';
 
-describe('resolveLazyAllowedServers', () => {
+describe('resolveLazyCapabilityVisibility', () => {
   it('re-evaluates template scope, tags, connection state, and tool capability for each request', () => {
     const connections = new Map([
       ['visible', { name: 'visible', status: ClientStatus.Connected, capabilities: { tools: {} }, transport: { tags: ['safe'] } }],
@@ -24,17 +24,28 @@ describe('resolveLazyAllowedServers', () => {
     ]) as OutboundConnections;
     const inbound = { tags: ['safe'], tagFilterMode: 'simple-or' } as InboundConnection;
 
-    expect(Array.from(resolveLazyAllowedServers(connections, inbound, 'session-1')).sort()).toEqual([
-      'template',
-      'visible',
+    const initialVisibility = resolveLazyCapabilityVisibility(connections, inbound, 'session-1');
+    expect(Array.from(initialVisibility.serverCandidates.entries()).sort()).toEqual([
+      ['template:session-1', 'template'],
+      ['visible', 'visible'],
     ]);
+    expect(initialVisibility.sessionId).toBe('session-1');
 
     connections.get('late')!.status = ClientStatus.Connected;
 
-    expect(Array.from(resolveLazyAllowedServers(connections, inbound, 'session-1')).sort()).toEqual([
-      'late',
-      'template',
-      'visible',
+    expect(
+      Array.from(resolveLazyCapabilityVisibility(connections, inbound, 'session-1').serverCandidates.entries()).sort(),
+    ).toEqual([
+      ['late', 'late'],
+      ['template:session-1', 'template'],
+      ['visible', 'visible'],
     ]);
+
+    connections.get('late')!.status = ClientStatus.Disconnected;
+    connections.delete('visible');
+
+    expect(
+      Array.from(resolveLazyCapabilityVisibility(connections, inbound, 'session-1').serverCandidates.entries()),
+    ).toEqual([['template:session-1', 'template']]);
   });
 });

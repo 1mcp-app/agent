@@ -2,11 +2,16 @@ import type { Tool } from '@modelcontextprotocol/sdk/types.js';
 
 import { McpConfigManager } from '@src/config/mcpConfigManager.js';
 import { CapabilityCatalog } from '@src/core/capabilities/capabilityCatalog.js';
+import {
+  createCapabilityVisibility,
+  getCapabilityVisibleServerNames,
+  type CapabilityVisibility,
+} from '@src/core/capabilities/capabilityVisibility.js';
 import { ToolInvokeOutput, ToolListOutput } from '@src/core/capabilities/schemas/metaToolSchemas.js';
 import { ToolRegistry } from '@src/core/capabilities/toolRegistry.js';
 import { FilteringService } from '@src/core/filtering/filteringService.js';
 import { type ServerAdapter, ServerType } from '@src/core/server/adapters/types.js';
-import type { TemplateHashProvider } from '@src/core/server/connectionResolver.js';
+import { createConnectionResolver, type TemplateHashProvider } from '@src/core/server/connectionResolver.js';
 import { getDisabledToolError } from '@src/core/server/disabledTools.js';
 import { ServerManager } from '@src/core/server/serverManager.js';
 import { ClientStatus } from '@src/core/types/client.js';
@@ -26,20 +31,34 @@ function getServerConfigs() {
   return McpConfigManager.getInstance().getTransportConfig();
 }
 
-function getAllowedServersFromRequest(serverManager: ServerManager, res: Response): Set<string> | undefined {
+function getCapabilityVisibilityFromRequest(
+  serverManager: ServerManager,
+  res: Response,
+  sessionId?: string,
+): CapabilityVisibility | undefined {
   const filterConfig = buildFilterConfig(res);
-  if (filterConfig.tagFilterMode === 'none' && (!filterConfig.tags || filterConfig.tags.length === 0)) {
+  const hasFilterSelection =
+    filterConfig.tagFilterMode !== 'none' || (filterConfig.tags !== undefined && filterConfig.tags.length > 0);
+  if (!hasFilterSelection && !sessionId) {
     return undefined;
   }
-  const allConnections = serverManager.getClients();
-  const filteredConnections = FilteringService.getFilteredConnections(allConnections, filterConfig);
-  return new Set(
-    Array.from(filteredConnections.entries()).flatMap(([key, connection]) => {
-      const logicalName = key.includes(':') ? key.split(':')[0] : key;
-      return connection.name && connection.name !== logicalName
-        ? [key, logicalName, connection.name]
-        : [key, logicalName];
+  const getClients = (serverManager as { getClients?: () => ReturnType<ServerManager['getClients']> }).getClients;
+  if (typeof getClients !== 'function') {
+    return sessionId ? createCapabilityVisibility([], sessionId) : undefined;
+  }
+  const allConnections = getClients.call(serverManager);
+  const sessionScoped = createConnectionResolver(allConnections, getTemplateHashProvider(serverManager)).filterForSession(
+    sessionId,
+  );
+  const filteredConnections = hasFilterSelection
+    ? FilteringService.getFilteredConnections(sessionScoped, filterConfig)
+    : sessionScoped;
+  return createCapabilityVisibility(
+    Array.from(filteredConnections.entries(), ([connectionKey, connection]) => {
+      const publicServerName = connection.name || connectionKey.split(':')[0];
+      return [connectionKey, publicServerName] as const;
     }),
+    sessionId,
   );
 }
 
@@ -70,8 +89,7 @@ async function createFallbackCapabilityCatalog(
   serverManager: ServerManager,
 ): Promise<{ catalog: CapabilityCatalog; degradedServers: string[] }> {
   const clients = serverManager.getClients();
-  const toolsByServer = new Map<string, Tool[]>();
-  const serverTags = new Map<string, string[]>();
+  const registryTools: Array<{ tool: Tool; server: string; connectionKey: string; tags: string[] }> = [];
   const degradedServers: string[] = [];
 
   for (const [connectionKey, conn] of clients) {
@@ -80,13 +98,15 @@ async function createFallbackCapabilityCatalog(
       const logicalServerName =
         conn.name || (connectionKey.includes(':') ? connectionKey.split(':')[0] : connectionKey);
       const result = await conn.client.listTools();
-      toolsByServer.set(logicalServerName, result.tools ?? []);
-      const tags = Array.isArray((conn.transport as { tags?: unknown }).tags)
-        ? ((conn.transport as { tags?: unknown }).tags as unknown[]).filter(
+      const transportTags = (conn.transport as { tags?: unknown } | undefined)?.tags;
+      const tags = Array.isArray(transportTags)
+        ? transportTags.filter(
             (tag): tag is string => typeof tag === 'string',
           )
         : [];
-      serverTags.set(logicalServerName, tags);
+      registryTools.push(
+        ...(result.tools ?? []).map((tool) => ({ tool, server: logicalServerName, connectionKey, tags })),
+      );
     } catch (err) {
       logger.error(`Failed to list tools for ${connectionKey}:`, err);
       degradedServers.push(connectionKey);
@@ -94,7 +114,7 @@ async function createFallbackCapabilityCatalog(
   }
 
   const catalog = new CapabilityCatalog({
-    getToolRegistry: () => ToolRegistry.fromToolsMap(toolsByServer, serverTags),
+    getToolRegistry: () => ToolRegistry.fromToolsWithServer(registryTools),
     schemaCache: {
       getIfCached: () => null,
       getOrLoad: async (_server: string, _toolName: string) => {
@@ -129,7 +149,7 @@ export function createToolsHandler(serverManager: ServerManager): RequestHandler
       const limit = limitParam !== undefined && Number.isFinite(limitParam) && limitParam > 0 ? limitParam : undefined;
 
       const requestSessionId = await initializeRequestContextForApi(serverManager, req, res);
-      const allowedServers = getAllowedServersFromRequest(serverManager, res);
+      const visibility = getCapabilityVisibilityFromRequest(serverManager, res, requestSessionId);
       const lazyOrchestrator = serverManager.getLazyLoadingOrchestrator();
 
       if (!lazyOrchestrator) {
@@ -142,8 +162,7 @@ export function createToolsHandler(serverManager: ServerManager): RequestHandler
             limit,
             cursor,
           },
-          requestSessionId,
-          allowedServers,
+          visibility,
         );
 
         res.json({
@@ -173,8 +192,7 @@ export function createToolsHandler(serverManager: ServerManager): RequestHandler
             limit,
             cursor,
           },
-          requestSessionId,
-          allowedServers,
+          visibility,
         );
         if (catalogResult.tools.length > 0 || catalogResult.totalCount > 0) {
           res.json({
@@ -196,8 +214,7 @@ export function createToolsHandler(serverManager: ServerManager): RequestHandler
           limit,
           cursor,
         },
-        requestSessionId,
-        allowedServers,
+        visibility,
       )) as ToolListOutput;
 
       if (result.error) {
@@ -240,12 +257,16 @@ export function createToolInvocationsHandler(serverManager: ServerManager): Requ
         return;
       }
 
-      const allowedServers = getAllowedServersFromRequest(serverManager, res);
+      const visibility = getCapabilityVisibilityFromRequest(serverManager, res, requestSessionId);
+      const visibleServerNames = visibility ? getCapabilityVisibleServerNames(visibility) : undefined;
+      const filterConfig = buildFilterConfig(res);
+      const hasFilterSelection =
+        filterConfig.tagFilterMode !== 'none' || (filterConfig.tags !== undefined && filterConfig.tags.length > 0);
 
       const lazyOrchestrator = serverManager.getLazyLoadingOrchestrator();
 
       if (!lazyOrchestrator) {
-        if (allowedServers && !allowedServers.has(target.serverName)) {
+        if (hasFilterSelection && visibleServerNames && !visibleServerNames.has(target.serverName)) {
           res.status(404).json({ error: `Server not found: ${target.serverName}` });
           return;
         }
@@ -255,10 +276,7 @@ export function createToolInvocationsHandler(serverManager: ServerManager): Requ
           return;
         }
         const allConnections = serverManager.getClients();
-        const filteredConnections =
-          allowedServers === undefined
-            ? allConnections
-            : FilteringService.getFilteredConnections(allConnections, buildFilterConfig(res));
+        const filteredConnections = FilteringService.getFilteredConnections(allConnections, buildFilterConfig(res));
         const serverRegistry = getServerRegistry(serverManager);
         const sessionConnection = requestSessionId
           ? serverRegistry?.resolveConnection?.(target.serverName, { sessionId: requestSessionId })
@@ -287,7 +305,7 @@ export function createToolInvocationsHandler(serverManager: ServerManager): Requ
         return;
       }
 
-      if (!allowedServers || allowedServers.has(target.serverName)) {
+      if (!hasFilterSelection || !visibleServerNames || visibleServerNames.has(target.serverName)) {
         const disabledToolError = getDisabledToolInvocationError(target.serverName, target.toolName);
         if (disabledToolError) {
           res.status(404).json({ error: disabledToolError });
@@ -305,8 +323,7 @@ export function createToolInvocationsHandler(serverManager: ServerManager): Requ
         });
         const catalogResult = await catalog.invokeVisibleTool(
           { server: target.serverName, toolName: target.toolName, args: toolArgs },
-          requestSessionId,
-          allowedServers,
+          visibility,
         );
         if (!catalogResult.error) {
           res.json({ result: catalogResult.result, server: catalogResult.server, tool: catalogResult.tool });
@@ -325,8 +342,7 @@ export function createToolInvocationsHandler(serverManager: ServerManager): Requ
           toolName: target.toolName,
           args: toolArgs,
         },
-        requestSessionId,
-        allowedServers,
+        visibility,
       )) as ToolInvokeOutput;
 
       if (result.error) {

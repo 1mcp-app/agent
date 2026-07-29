@@ -142,14 +142,17 @@ flowchart LR
     H --> B
 ```
 
-1MCP runs as an aggregated runtime behind `1mcp serve`. Static servers are prepared from startup configuration, template servers are materialized when client context is known, and the runtime can use async loading and lazy loading to reduce startup blocking and tool-surface noise. Instruction aggregation, presets, and notifications sit alongside that runtime rather than outside it.
+1MCP runs as an aggregated runtime behind `1mcp serve`. Static servers are prepared from startup configuration, template servers are materialized when client context is known, and async loading can reduce startup blocking. Instruction aggregation, presets, and notifications sit alongside that runtime rather than outside it.
+
+Lazy loading is an opt-in stable tool-surface compatibility mode. It keeps the backend discovery and invocation surface at `tool_list`, `tool_schema`, and `tool_invoke` so capable agents can discover tools progressively without replacing their MCP tool table. Any explicitly enabled internal management tools remain directly exposed. Lazy loading reduces the initial schema payload, but it does not reduce backend connections or processes, make synchronous startup bind earlier, or repair orphaned proxy processes. See [#392](https://github.com/1mcp-app/agent/issues/392) for the async late-server visibility contract.
 
 ## Core Capabilities
 
 - Unified runtime for many MCP servers behind one `serve` process
 - CLI mode for progressive discovery with `1mcp instructions`, `1mcp inspect <server>`, `1mcp inspect <server>/<tool>`, and `1mcp run <server>/<tool> --args '<json>'`
 - Template servers for per-client or per-session resolution
-- Async loading and lazy loading for faster startup and narrower exposure
+- Async loading for earlier HTTP availability while static servers load
+- Opt-in lazy loading for a stable progressive-discovery tool surface and smaller initial schemas
 - Opt-in automatic recovery for owned stdio backends, with health/status visibility and operator restart controls
 - Instruction aggregation across static and template-backed servers
 - Presets, filters, and preset change notifications

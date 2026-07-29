@@ -421,7 +421,7 @@ describe('ConnectionManager', () => {
   it('does not materialize lazy allowed-server state when a transport connects', async () => {
     const mockOrchestrator = {
       isEnabled: vi.fn().mockReturnValue(true),
-      getCapabilitiesForFilteredServers: vi.fn(),
+      getCapabilitiesForVisibility: vi.fn(),
     };
     connectionManager.setLazyLoadingOrchestrator(mockOrchestrator as any);
 
@@ -430,7 +430,7 @@ describe('ConnectionManager', () => {
       enablePagination: false,
     });
 
-    expect(mockOrchestrator.getCapabilitiesForFilteredServers).not.toHaveBeenCalled();
+    expect(mockOrchestrator.getCapabilitiesForVisibility).not.toHaveBeenCalled();
   });
 
   describe('getInboundConnections', () => {

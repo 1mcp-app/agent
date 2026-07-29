@@ -4,6 +4,7 @@ import { ClientStatus, OutboundConnections } from '@src/core/types/index.js';
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { capabilityVisibilityFromServerNames } from './capabilityVisibility.js';
 import { LazyLoadingOrchestrator } from './lazyLoadingOrchestrator.js';
 
 describe('LazyLoadingOrchestrator', () => {
@@ -460,7 +461,11 @@ describe('LazyLoadingOrchestrator', () => {
     });
 
     it('should call tool_list', async () => {
-      const result = await orchestrator.callMetaTool('tool_list', {}, undefined, new Set(['filesystem', 'database']));
+      const result = await orchestrator.callMetaTool(
+        'tool_list',
+        {},
+        capabilityVisibilityFromServerNames(['filesystem', 'database']),
+      );
 
       expect(result).toBeDefined();
       expect((result as any).isError).toBeFalsy();
@@ -478,7 +483,7 @@ describe('LazyLoadingOrchestrator', () => {
       const result = await orchestrator.callMetaTool('tool_schema', {
         server: 'filesystem',
         toolName: 'read_file',
-      }, undefined, new Set(['filesystem']));
+      }, capabilityVisibilityFromServerNames(['filesystem']));
 
       expect(result).toBeDefined();
     });
@@ -502,7 +507,9 @@ describe('LazyLoadingOrchestrator', () => {
       const fullOrchestrator = new LazyLoadingOrchestrator(mockOutboundConnections, mockAgentConfig);
       await fullOrchestrator.initialize();
 
-      await expect(fullOrchestrator.callMetaTool('tool_list', {}, undefined, new Set())).rejects.toThrow(
+      await expect(
+        fullOrchestrator.callMetaTool('tool_list', {}, capabilityVisibilityFromServerNames([])),
+      ).rejects.toThrow(
         'Meta-tool provider not initialized',
       );
     });
@@ -1037,7 +1044,7 @@ describe('LazyLoadingOrchestrator', () => {
     });
 
     it('should filter capabilities with the set resolved for the current request', async () => {
-      const allowedServers = new Set(['filesystem']);
+      const visibility = capabilityVisibilityFromServerNames(['filesystem']);
 
       // Mock base capabilities with multiple servers
       const mockCapabilities = {
@@ -1056,7 +1063,7 @@ describe('LazyLoadingOrchestrator', () => {
 
       vi.spyOn(orchestrator['capabilityAggregator'], 'getCurrentCapabilities').mockReturnValue(mockCapabilities);
 
-      const filteredCaps = await orchestrator.getCapabilitiesForFilteredServers(allowedServers);
+      const filteredCaps = await orchestrator.getCapabilitiesForVisibility(visibility);
 
       // Should only include filesystem resources/prompts/servers
       expect(filteredCaps.resources.length).toBe(1);
@@ -1076,19 +1083,17 @@ describe('LazyLoadingOrchestrator', () => {
     });
 
     it('should apply the explicitly supplied filter to every meta-tool request', async () => {
-      const allowedServers = new Set(['filesystem']);
-      const listed = await orchestrator.callMetaTool('tool_list', {}, undefined, allowedServers);
+      const visibility = capabilityVisibilityFromServerNames(['filesystem']);
+      const listed = await orchestrator.callMetaTool('tool_list', {}, visibility);
       const hiddenSchema = await orchestrator.callMetaTool(
         'tool_schema',
         { server: 'database', toolName: 'read_file' },
-        undefined,
-        allowedServers,
+        visibility,
       );
       const hiddenInvoke = await orchestrator.callMetaTool(
         'tool_invoke',
         { server: 'database', toolName: 'read_file', args: {} },
-        undefined,
-        allowedServers,
+        visibility,
       );
 
       expect((listed as { servers?: string[] }).servers).toEqual(['filesystem']);
@@ -1111,13 +1116,12 @@ describe('LazyLoadingOrchestrator', () => {
       } as any);
 
       await orchestrator.refreshCapabilities();
-      const allowedServers = new Set(['late-ready']);
-      const listed = await orchestrator.callMetaTool('tool_list', {}, undefined, allowedServers);
+      const visibility = capabilityVisibilityFromServerNames(['late-ready']);
+      const listed = await orchestrator.callMetaTool('tool_list', {}, visibility);
       const invoked = await orchestrator.callMetaTool(
         'tool_invoke',
         { server: 'late-ready', toolName: 'read_file', args: { path: '/tmp/example' } },
-        undefined,
-        allowedServers,
+        visibility,
       );
 
       expect((listed as { servers?: string[] }).servers).toEqual(['late-ready']);
@@ -1129,7 +1133,7 @@ describe('LazyLoadingOrchestrator', () => {
     });
 
     it('should handle empty filter set', async () => {
-      const emptyServers = new Set<string>();
+      const visibility = capabilityVisibilityFromServerNames([]);
 
       const mockCapabilities = {
         tools: [],
@@ -1141,7 +1145,7 @@ describe('LazyLoadingOrchestrator', () => {
 
       vi.spyOn(orchestrator['capabilityAggregator'], 'getCurrentCapabilities').mockReturnValue(mockCapabilities);
 
-      const filteredCaps = await orchestrator.getCapabilitiesForFilteredServers(emptyServers);
+      const filteredCaps = await orchestrator.getCapabilitiesForVisibility(visibility);
 
       // All resources/prompts/servers should be filtered out
       expect(filteredCaps.resources.length).toBe(0);
@@ -1172,7 +1176,7 @@ describe('LazyLoadingOrchestrator', () => {
       const disabledOrchestrator = new LazyLoadingOrchestrator(mockOutboundConnections, mockAgentConfig);
       await disabledOrchestrator.initialize();
 
-      const allowedServers = new Set(['filesystem']);
+      const visibility = capabilityVisibilityFromServerNames(['filesystem']);
 
       const mockCapabilities = {
         tools: [
@@ -1195,7 +1199,7 @@ describe('LazyLoadingOrchestrator', () => {
         mockCapabilities,
       );
 
-      const caps = await disabledOrchestrator.getCapabilitiesForFilteredServers(allowedServers);
+      const caps = await disabledOrchestrator.getCapabilitiesForVisibility(visibility);
 
       // When disabled, should return all capabilities without filtering
       expect(caps.resources.length).toBe(2);
@@ -1203,7 +1207,7 @@ describe('LazyLoadingOrchestrator', () => {
     });
 
     it('should filter resources with complex server names correctly', async () => {
-      const allowedServers = new Set(['server-with-dashes', 'server_with_underscores']);
+      const visibility = capabilityVisibilityFromServerNames(['server-with-dashes', 'server_with_underscores']);
 
       const mockCapabilities = {
         tools: [],
@@ -1219,7 +1223,7 @@ describe('LazyLoadingOrchestrator', () => {
 
       vi.spyOn(orchestrator['capabilityAggregator'], 'getCurrentCapabilities').mockReturnValue(mockCapabilities);
 
-      const filteredCaps = await orchestrator.getCapabilitiesForFilteredServers(allowedServers);
+      const filteredCaps = await orchestrator.getCapabilitiesForVisibility(visibility);
 
       expect(filteredCaps.resources.length).toBe(2);
       expect(filteredCaps.resources.map((r) => r.name)).toContain('server-with-dashes_1mcp_resource1');

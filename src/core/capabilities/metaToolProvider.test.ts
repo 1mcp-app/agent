@@ -4,11 +4,13 @@ import { ClientStatus, OutboundConnections } from '@src/core/types/index.js';
 
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { capabilityVisibilityFromServerNames, createCapabilityVisibility } from './capabilityVisibility.js';
 import { MetaToolProvider } from './metaToolProvider.js';
 import { SchemaCache } from './schemaCache.js';
 import { ToolRegistry } from './toolRegistry.js';
 
 const mockGetTransportConfig = vi.fn().mockReturnValue({});
+const visibility = (...serverNames: string[]) => capabilityVisibilityFromServerNames(serverNames);
 
 vi.mock('@src/config/mcpConfigManager.js', () => ({
   McpConfigManager: {
@@ -675,8 +677,20 @@ describe('MetaToolProvider', () => {
       ]) as OutboundConnections;
 
       const sessionSchemaCache = new SchemaCache({ maxEntries: 100 });
+      const sessionRegistry = ToolRegistry.fromToolsWithServer([
+        {
+          tool: { name: 'read_file', description: 'session-a', inputSchema: { type: 'object' } },
+          server: 'filesystem',
+          connectionKey: 'filesystem:session-a',
+        },
+        {
+          tool: { name: 'read_file', description: 'session-b', inputSchema: { type: 'object' } },
+          server: 'filesystem',
+          connectionKey: 'filesystem:session-b',
+        },
+      ]);
       const sessionProvider = new MetaToolProvider(
-        () => toolRegistry,
+        () => sessionRegistry,
         sessionSchemaCache,
         sessionScopedConnections,
         mockSchemaLoader,
@@ -692,7 +706,7 @@ describe('MetaToolProvider', () => {
           server: 'filesystem',
           toolName: 'read_file',
         },
-        'session-a',
+        createCapabilityVisibility([['filesystem:session-a', 'filesystem']], 'session-a'),
       );
       await sessionProvider.callMetaTool(
         'tool_schema',
@@ -700,7 +714,7 @@ describe('MetaToolProvider', () => {
           server: 'filesystem',
           toolName: 'read_file',
         },
-        'session-b',
+        createCapabilityVisibility([['filesystem:session-b', 'filesystem']], 'session-b'),
       );
 
       expect(mockSchemaLoader).toHaveBeenNthCalledWith(1, 'filesystem:session-a', 'read_file');
@@ -922,9 +936,9 @@ describe('MetaToolProvider', () => {
       multiServerProvider = new MetaToolProvider(() => multiServerRegistry, schemaCache, multiServerConnections);
     });
 
-    it('should filter tool_list results when allowedServers is set', async () => {
-      // Set allowed servers to only filesystem and search
-      multiServerProvider.setAllowedServers(new Set(['filesystem', 'search']));
+    it('should filter tool_list results when Capability Visibility is set', async () => {
+      // Set Server Candidate Set to only filesystem and search
+      multiServerProvider.setCapabilityVisibility(visibility('filesystem', 'search'));
 
       const result = await multiServerProvider.callMetaTool('tool_list', {});
 
@@ -954,9 +968,9 @@ describe('MetaToolProvider', () => {
       }
     });
 
-    it('should return all tools when allowedServers is undefined', async () => {
+    it('should return all tools when Capability Visibility is undefined', async () => {
       // Clear any filtering
-      multiServerProvider.setAllowedServers(undefined);
+      multiServerProvider.setCapabilityVisibility(undefined);
 
       const result = await multiServerProvider.callMetaTool('tool_list', {});
 
@@ -980,9 +994,9 @@ describe('MetaToolProvider', () => {
       }
     });
 
-    it('should return empty list when allowedServers is empty set', async () => {
-      // Set allowed servers to empty set
-      multiServerProvider.setAllowedServers(new Set([]));
+    it('should return empty list when Capability Visibility is empty set', async () => {
+      // Set Server Candidate Set to empty set
+      multiServerProvider.setCapabilityVisibility(visibility());
 
       const result = await multiServerProvider.callMetaTool('tool_list', {});
 
@@ -1001,9 +1015,9 @@ describe('MetaToolProvider', () => {
       }
     });
 
-    it('should filter tool_schema access to allowed servers only', async () => {
-      // Set allowed servers to only filesystem
-      multiServerProvider.setAllowedServers(new Set(['filesystem']));
+    it('should filter tool_schema access to Server Candidate Set only', async () => {
+      // Set Server Candidate Set to only filesystem
+      multiServerProvider.setCapabilityVisibility(visibility('filesystem'));
 
       // Cache a tool from filesystem server
       const filesystemTool: Tool = {
@@ -1050,9 +1064,9 @@ describe('MetaToolProvider', () => {
       }
     });
 
-    it('should filter tool_invoke access to allowed servers only', async () => {
-      // Set allowed servers to only search
-      multiServerProvider.setAllowedServers(new Set(['search']));
+    it('should filter tool_invoke access to Server Candidate Set only', async () => {
+      // Set Server Candidate Set to only search
+      multiServerProvider.setCapabilityVisibility(visibility('search'));
 
       const searchClient = multiServerConnections.get('search')?.client;
       const filesystemClient = multiServerConnections.get('filesystem')?.client;
@@ -1105,8 +1119,8 @@ describe('MetaToolProvider', () => {
     });
 
     it('should return not_found error for filtered servers', async () => {
-      // Set allowed servers to only database
-      multiServerProvider.setAllowedServers(new Set(['database']));
+      // Set Server Candidate Set to only database
+      multiServerProvider.setCapabilityVisibility(visibility('database'));
 
       // Try to access a tool from filtered-out filesystem server
       const result = await multiServerProvider.callMetaTool('tool_invoke', {
@@ -1131,9 +1145,9 @@ describe('MetaToolProvider', () => {
       }
     });
 
-    it('should dynamically update filtering when setAllowedServers is called multiple times', async () => {
+    it('should dynamically update filtering when setCapabilityVisibility is called multiple times', async () => {
       // Start with all servers allowed
-      multiServerProvider.setAllowedServers(undefined);
+      multiServerProvider.setCapabilityVisibility(undefined);
 
       let result = await multiServerProvider.callMetaTool('tool_list', {});
       if ('tools' in result && 'totalCount' in result) {
@@ -1141,7 +1155,7 @@ describe('MetaToolProvider', () => {
       }
 
       // Filter to only filesystem
-      multiServerProvider.setAllowedServers(new Set(['filesystem']));
+      multiServerProvider.setCapabilityVisibility(visibility('filesystem'));
 
       result = await multiServerProvider.callMetaTool('tool_list', {});
       if ('tools' in result && 'totalCount' in result) {
@@ -1149,7 +1163,7 @@ describe('MetaToolProvider', () => {
       }
 
       // Filter to filesystem and database
-      multiServerProvider.setAllowedServers(new Set(['filesystem', 'database']));
+      multiServerProvider.setCapabilityVisibility(visibility('filesystem', 'database'));
 
       result = await multiServerProvider.callMetaTool('tool_list', {});
       if ('tools' in result && 'totalCount' in result) {
@@ -1157,7 +1171,7 @@ describe('MetaToolProvider', () => {
       }
 
       // Clear filter again
-      multiServerProvider.setAllowedServers(undefined);
+      multiServerProvider.setCapabilityVisibility(undefined);
 
       result = await multiServerProvider.callMetaTool('tool_list', {});
       if ('tools' in result && 'totalCount' in result) {
@@ -1165,10 +1179,10 @@ describe('MetaToolProvider', () => {
       }
     });
 
-    it('should prefer per-call allowedServers over shared provider state', async () => {
-      multiServerProvider.setAllowedServers(new Set(['database']));
+    it('should prefer per-call Capability Visibility over shared provider state', async () => {
+      multiServerProvider.setCapabilityVisibility(visibility('database'));
 
-      const result = await multiServerProvider.callMetaTool('tool_list', {}, undefined, new Set(['filesystem']));
+      const result = await multiServerProvider.callMetaTool('tool_list', {}, visibility('filesystem'));
 
       if ('error' in result && result.error) {
         throw new Error(result.error.message);
@@ -1190,7 +1204,7 @@ describe('MetaToolProvider', () => {
           throw new Error('Registry corrupted');
         }),
         getServers: vi.fn(() => []),
-        filterByServers: vi.fn(function (this: any) {
+        filterByConnectionKeys: vi.fn(function (this: any) {
           return this;
         }),
         hasTool: vi.fn(),
@@ -1210,7 +1224,7 @@ describe('MetaToolProvider', () => {
       const failingRegistry: any = {
         listTools: vi.fn(() => ({ tools: [] })),
         getServers: vi.fn(() => []),
-        filterByServers: vi.fn(function (this: any) {
+        filterByConnectionKeys: vi.fn(function (this: any) {
           return this;
         }),
         hasTool: vi.fn(() => true), // Tool exists
@@ -1250,7 +1264,7 @@ describe('MetaToolProvider', () => {
           throw new Error('Internal failure');
         }),
         getServers: vi.fn(() => []),
-        filterByServers: vi.fn(function (this: any) {
+        filterByConnectionKeys: vi.fn(function (this: any) {
           return this;
         }),
         hasTool: vi.fn(),

@@ -431,7 +431,6 @@ describe('apiRoutes /api/tool-invocations', () => {
       'tool_invoke',
       { server: 'alpha', toolName: 'mytool', args: { x: 1 } },
       undefined,
-      undefined,
     );
     expect(res.body).toEqual(mockResult);
   });
@@ -468,8 +467,7 @@ describe('apiRoutes /api/tool-invocations', () => {
     expect(callMetaTool).toHaveBeenCalledWith(
       'tool_invoke',
       { server: 'alpha', toolName: 'mytool', args: { x: 1 } },
-      'rest-session-123',
-      undefined,
+      expect.objectContaining({ sessionId: 'rest-session-123', serverCandidates: expect.any(Map) }),
     );
   });
 });

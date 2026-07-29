@@ -4,6 +4,7 @@ import type { TemplateHashProvider } from '@src/core/server/connectionResolver.j
 import { ClientStatus, type OutboundConnections } from '@src/core/types/client.js';
 
 import { CapabilityCatalog } from './capabilityCatalog.js';
+import { capabilityVisibilityFromServerNames, createCapabilityVisibility } from './capabilityVisibility.js';
 import { SchemaCache } from './schemaCache.js';
 import { ToolRegistry } from './toolRegistry.js';
 
@@ -112,7 +113,7 @@ describe('CapabilityCatalog', () => {
       getAllRenderedHashesForSession: () => undefined,
     }).invokeVisibleTool(
       { server: 'template-server', toolName: 'template_tool', args: { message: 'hi' } },
-      'session-1',
+      createCapabilityVisibility([['template-server', 'template-server']], 'session-1'),
     );
 
     expect(result.error).toBeUndefined();
@@ -130,7 +131,7 @@ describe('CapabilityCatalog', () => {
       getAllRenderedHashesForSession: () => undefined,
     }).invokeVisibleTool(
       { server: 'template-server', toolName: 'template_tool', args: { message: 'hi' } },
-      'missing-session',
+      createCapabilityVisibility([['template-server', 'template-server']], 'missing-session'),
     );
 
     expect(result.error).toMatchObject({
@@ -140,8 +141,8 @@ describe('CapabilityCatalog', () => {
     expect(mockClient.callTool).not.toHaveBeenCalled();
   });
 
-  it('filters visibility by allowed server set', async () => {
-    const result = await createCatalog().listVisibleTools({}, undefined, new Set(['filesystem']));
+  it('filters capability visibility by Server Candidate Set', async () => {
+    const result = await createCatalog().listVisibleTools({}, capabilityVisibilityFromServerNames(['filesystem']));
 
     expect(result.tools.map((tool) => tool.server)).toEqual(['filesystem']);
     expect(result.routes.map((route) => route.connectionKey)).toEqual(['filesystem']);
@@ -150,8 +151,7 @@ describe('CapabilityCatalog', () => {
   it('does not reveal disabled tool details for hidden servers', async () => {
     const result = await createCatalog().describeVisibleTool(
       { server: 'filesystem', toolName: 'write_file' },
-      undefined,
-      new Set(['template-server']),
+      capabilityVisibilityFromServerNames(['template-server']),
     );
 
     expect(result.error).toMatchObject({
@@ -170,9 +170,11 @@ describe('CapabilityCatalog', () => {
       return { changed: true, shouldNotifyListChanged: true };
     });
 
-    const result = await createCatalog(undefined, { refreshCapabilities }).listVisibleTools({}, undefined, undefined, {
-      refreshIntent: 'force',
-    });
+    const result = await createCatalog(undefined, { refreshCapabilities }).listVisibleTools(
+      {},
+      undefined,
+      { refreshIntent: 'force' },
+    );
 
     expect(refreshCapabilities).toHaveBeenCalledWith({ intent: 'force', reason: 'list' });
     expect(result.tools.map((tool) => `${tool.server}/${tool.name}`)).toEqual(['filesystem/read_file']);

@@ -23,7 +23,7 @@ import {
   createCapabilityCatalogFromConnections,
   filterConnectionsForSession,
   getRequestSession,
-  resolveLazyAllowedServers,
+  resolveLazyCapabilityVisibility,
   resolveOutboundConnection,
 } from './requestHandlerUtils.js';
 
@@ -40,14 +40,15 @@ export function registerToolHandlers(
     ListToolsRequestSchema,
     withErrorHandling(async (request: ListToolsRequest) => {
       if (lazyLoadingEnabled && lazyLoadingOrchestrator) {
-        const filteredServerNames = resolveLazyAllowedServers(outboundConns, inboundConn, sessionId);
+        const visibility = resolveLazyCapabilityVisibility(outboundConns, inboundConn, sessionId);
+        const visibleServerNames = Array.from(new Set(visibility.serverCandidates.values()));
 
         infoIf(() => ({
           message: 'Lazy loading: filtered servers',
           meta: {
             totalOutbound: outboundConns.size,
-            finalFiltered: filteredServerNames.size,
-            filteredServerNames: Array.from(filteredServerNames),
+            finalFiltered: visibility.serverCandidates.size,
+            visibleServerNames,
             inboundConfig: {
               tagFilterMode: inboundConn.tagFilterMode,
               tags: inboundConn.tags,
@@ -56,7 +57,7 @@ export function registerToolHandlers(
           },
         }));
 
-        const capabilities = await lazyLoadingOrchestrator.getCapabilitiesForFilteredServers(filteredServerNames);
+        const capabilities = await lazyLoadingOrchestrator.getCapabilitiesForVisibility(visibility);
 
         const internalProvider = InternalCapabilitiesProvider.getInstance();
         await internalProvider.initialize();
@@ -79,7 +80,7 @@ export function registerToolHandlers(
       const filteredClients = FilteringService.getFilteredConnections(capabilityFilteredClients, inboundConn);
 
       const catalog = await createCapabilityCatalogFromConnections(filteredClients, getServerConfigs);
-      const result = await catalog.listVisibleTools(request.params || {}, sessionId);
+      const result = await catalog.listVisibleTools(request.params || {});
 
       const internalProvider = InternalCapabilitiesProvider.getInstance();
       await internalProvider.initialize();
@@ -113,13 +114,8 @@ export function registerToolHandlers(
       if (isUnprefixedMetaTool && lazyLoadingOrchestrator) {
         let result;
         try {
-          const allowedServers = resolveLazyAllowedServers(outboundConns, inboundConn, sessionId);
-          result = await lazyLoadingOrchestrator.callMetaTool(
-            toolName,
-            request.params.arguments,
-            sessionId,
-            allowedServers,
-          );
+          const visibility = resolveLazyCapabilityVisibility(outboundConns, inboundConn, sessionId);
+          result = await lazyLoadingOrchestrator.callMetaTool(toolName, request.params.arguments, visibility);
         } catch (metaToolError) {
           logger.error(`Meta-tool ${toolName} execution failed: ${metaToolError}`);
           throw new Error(
@@ -144,14 +140,13 @@ export function registerToolHandlers(
       if (clientName === '1mcp') {
         const internalProvider = InternalCapabilitiesProvider.getInstance();
         await internalProvider.initialize();
-        const allowedServers = lazyLoadingEnabled
-          ? resolveLazyAllowedServers(outboundConns, inboundConn, sessionId)
+        const visibility = lazyLoadingEnabled
+          ? resolveLazyCapabilityVisibility(outboundConns, inboundConn, sessionId)
           : undefined;
         const result = await internalProvider.executeTool(
           extractedToolName,
           request.params.arguments,
-          sessionId,
-          allowedServers,
+          visibility,
         );
         return structuredToolResult(result);
       }

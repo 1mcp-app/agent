@@ -138,6 +138,14 @@ export class ConnectionResolver {
         sessionHashes.get(identity.templateName) === suffix
       ) {
         filtered.set(key, conn);
+        continue;
+      }
+
+      if (
+        sessionId &&
+        this.templateHashProvider?.getRenderedHashForSession(sessionId, identity.templateName) === suffix
+      ) {
+        filtered.set(key, conn);
       }
     }
 
@@ -153,7 +161,7 @@ export class ConnectionResolver {
     if (!sessionId || !this.templateHashProvider) {
       return undefined;
     }
-    return this.templateHashProvider.getAllRenderedHashesForSession(sessionId);
+    return this.templateHashProvider.getAllRenderedHashesForSession?.(sessionId);
   }
 
   /**

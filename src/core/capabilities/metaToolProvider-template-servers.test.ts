@@ -12,6 +12,7 @@ import { ClientStatus, OutboundConnections } from '@src/core/types/client.js';
 
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { createCapabilityVisibility } from './capabilityVisibility.js';
 import { MetaToolProvider } from './metaToolProvider.js';
 import { SchemaCache } from './schemaCache.js';
 import { ToolRegistry } from './toolRegistry.js';
@@ -162,7 +163,27 @@ describe('MetaToolProvider - Template Server Support', () => {
 
     it('should resolve list routes through the caller session for shareable templates', async () => {
       const sessionAwareProvider = new MetaToolProvider(
-        () => toolRegistry,
+        () =>
+          ToolRegistry.fromToolsWithServer([
+            {
+              tool: {
+                name: 'template_tool',
+                description: 'A tool from the session server',
+                inputSchema: { type: 'object', properties: {} },
+              },
+              server: 'template-server',
+              connectionKey: 'template-server:session-123',
+            },
+            {
+              tool: {
+                name: 'template_tool',
+                description: 'A tool from the shareable server',
+                inputSchema: { type: 'object', properties: {} },
+              },
+              server: 'template-server',
+              connectionKey: 'template-server:abc123',
+            },
+          ]),
         schemaCache,
         outboundConnections,
         undefined,
@@ -174,10 +195,103 @@ describe('MetaToolProvider - Template Server Support', () => {
       );
       const listVisibleTools = vi.spyOn((sessionAwareProvider as any).capabilityCatalog, 'listVisibleTools');
 
-      const result = await sessionAwareProvider.callMetaTool('tool_list', {}, 'session-123');
+      const visibility = createCapabilityVisibility(
+        [['template-server:abc123', 'template-server']],
+        'session-123',
+      );
+      const result = await sessionAwareProvider.callMetaTool('tool_list', {}, visibility);
 
       expect((result as any).error).toBeUndefined();
-      expect(listVisibleTools).toHaveBeenCalledWith({}, 'session-123', undefined);
+      expect(listVisibleTools).toHaveBeenCalledWith({}, visibility);
+    });
+
+    it('keeps differing per-session tool surfaces, schemas, and invocation routes isolated', async () => {
+      const sessionAClient = {
+        listTools: vi.fn().mockResolvedValue({
+          tools: [{ name: 'tool_a', description: 'session A', inputSchema: { type: 'object', title: 'A' } }],
+        }),
+        callTool: vi.fn().mockResolvedValue({ content: [{ type: 'text', text: 'A' }] }),
+      } as unknown as Client;
+      const sessionBClient = {
+        listTools: vi.fn().mockResolvedValue({
+          tools: [{ name: 'tool_b', description: 'session B', inputSchema: { type: 'object', title: 'B' } }],
+        }),
+        callTool: vi.fn().mockResolvedValue({ content: [{ type: 'text', text: 'B' }] }),
+      } as unknown as Client;
+      const connections: OutboundConnections = new Map([
+        [
+          'template-server:session-a',
+          {
+            name: 'template-server',
+            client: sessionAClient,
+            status: ClientStatus.Connected,
+            capabilities: { tools: {} },
+            transport: 'stdio' as any,
+          },
+        ],
+        [
+          'template-server:session-b',
+          {
+            name: 'template-server',
+            client: sessionBClient,
+            status: ClientStatus.Connected,
+            capabilities: { tools: {} },
+            transport: 'stdio' as any,
+          },
+        ],
+      ]);
+      const registry = ToolRegistry.fromToolsWithServer([
+        {
+          tool: { name: 'tool_a', description: 'session A', inputSchema: { type: 'object', title: 'A' } },
+          server: 'template-server',
+          connectionKey: 'template-server:session-a',
+        },
+        {
+          tool: { name: 'tool_b', description: 'session B', inputSchema: { type: 'object', title: 'B' } },
+          server: 'template-server',
+          connectionKey: 'template-server:session-b',
+        },
+      ]);
+      const provider = new MetaToolProvider(
+        () => registry,
+        schemaCache,
+        connections,
+        async (connectionKey, toolName) => {
+          const result = await connections.get(connectionKey)!.client.listTools();
+          return result.tools.find((tool) => tool.name === toolName)!;
+        },
+      );
+      const sessionAVisibility = createCapabilityVisibility(
+        [['template-server:session-a', 'template-server']],
+        'session-a',
+      );
+      const sessionBVisibility = createCapabilityVisibility(
+        [['template-server:session-b', 'template-server']],
+        'session-b',
+      );
+
+      const listedA = await provider.callMetaTool('tool_list', {}, sessionAVisibility);
+      const listedB = await provider.callMetaTool('tool_list', {}, sessionBVisibility);
+      expect((listedA as any).tools.map((tool: Tool) => tool.name)).toEqual(['tool_a']);
+      expect((listedB as any).tools.map((tool: Tool) => tool.name)).toEqual(['tool_b']);
+      expect((listedA as any).tools[0].server).toBe('template-server');
+
+      const schemaA = await provider.callMetaTool(
+        'tool_schema',
+        { server: 'template-server', toolName: 'tool_a' },
+        sessionAVisibility,
+      );
+      const invokeB = await provider.callMetaTool(
+        'tool_invoke',
+        { server: 'template-server', toolName: 'tool_b', args: {} },
+        sessionBVisibility,
+      );
+
+      expect((schemaA as any).schema.inputSchema.title).toBe('A');
+      expect(schemaCache.getIfCached('template-server:session-a', 'tool_a')).not.toBeNull();
+      expect((invokeB as any).error).toBeUndefined();
+      expect(sessionBClient.callTool).toHaveBeenCalledOnce();
+      expect(sessionAClient.callTool).not.toHaveBeenCalled();
     });
   });
 
@@ -316,7 +430,27 @@ describe('MetaToolProvider - Template Server Support', () => {
       ]);
 
       const sessionAwareProvider = new MetaToolProvider(
-        () => toolRegistry,
+        () =>
+          ToolRegistry.fromToolsWithServer([
+            {
+              tool: {
+                name: 'template_tool',
+                description: 'A tool from the session server',
+                inputSchema: { type: 'object', properties: {} },
+              },
+              server: 'template-server',
+              connectionKey: 'template-server:session-123',
+            },
+            {
+              tool: {
+                name: 'template_tool',
+                description: 'A tool from the shareable server',
+                inputSchema: { type: 'object', properties: {} },
+              },
+              server: 'template-server',
+              connectionKey: 'template-server:abc123',
+            },
+          ]),
         schemaCache,
         multiConnections,
         undefined,
@@ -334,7 +468,7 @@ describe('MetaToolProvider - Template Server Support', () => {
           toolName: 'template_tool',
           args: { message: 'test' },
         },
-        'session-123',
+        createCapabilityVisibility([['template-server:session-123', 'template-server']], 'session-123'),
       );
 
       expect((result as any).error).toBeUndefined();

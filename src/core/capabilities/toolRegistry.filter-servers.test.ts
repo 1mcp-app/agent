@@ -23,10 +23,10 @@ describe('ToolRegistry', () => {
     }
   });
 
-  describe('filterByServers', () => {
+  describe('filterByConnectionKeys', () => {
     it('should return new registry with only tools from specified servers', () => {
-      const serverNames = new Set(['filesystem', 'database']);
-      const filtered = registry.filterByServers(serverNames);
+      const connectionKeys = new Set(['filesystem', 'database']);
+      const filtered = registry.filterByConnectionKeys(connectionKeys);
 
       expect(filtered.size()).toBe(4);
       expect(filtered.hasTool('filesystem', 'read_file')).toBe(true);
@@ -38,24 +38,24 @@ describe('ToolRegistry', () => {
     });
 
     it('should return empty registry when no servers match', () => {
-      const serverNames = new Set(['nonexistent', 'another_nonexistent']);
-      const filtered = registry.filterByServers(serverNames);
+      const connectionKeys = new Set(['nonexistent', 'another_nonexistent']);
+      const filtered = registry.filterByConnectionKeys(connectionKeys);
 
       expect(filtered.size()).toBe(0);
       expect(filtered.getAllTools()).toHaveLength(0);
     });
 
     it('should handle empty server set', () => {
-      const serverNames = new Set<string>();
-      const filtered = registry.filterByServers(serverNames);
+      const connectionKeys = new Set<string>();
+      const filtered = registry.filterByConnectionKeys(connectionKeys);
 
       expect(filtered.size()).toBe(0);
       expect(filtered.getAllTools()).toHaveLength(0);
     });
 
     it('should preserve tool metadata in filtered registry', () => {
-      const serverNames = new Set(['filesystem']);
-      const filtered = registry.filterByServers(serverNames);
+      const connectionKeys = new Set(['filesystem']);
+      const filtered = registry.filterByConnectionKeys(connectionKeys);
 
       const readFileTool = filtered.getTool('filesystem', 'read_file');
       expect(readFileTool).toEqual({
@@ -75,8 +75,8 @@ describe('ToolRegistry', () => {
     });
 
     it('should work correctly with getAllTools() after filtering', () => {
-      const serverNames = new Set(['database', 'git']);
-      const filtered = registry.filterByServers(serverNames);
+      const connectionKeys = new Set(['database', 'git']);
+      const filtered = registry.filterByConnectionKeys(connectionKeys);
 
       const allTools = filtered.getAllTools();
       expect(allTools).toHaveLength(3);
@@ -87,8 +87,8 @@ describe('ToolRegistry', () => {
     });
 
     it('should work correctly with listTools() after filtering', () => {
-      const serverNames = new Set(['filesystem']);
-      const filtered = registry.filterByServers(serverNames);
+      const connectionKeys = new Set(['filesystem']);
+      const filtered = registry.filterByConnectionKeys(connectionKeys);
 
       const result = filtered.listTools({});
       expect(result.tools).toHaveLength(2);
@@ -98,8 +98,8 @@ describe('ToolRegistry', () => {
     });
 
     it('should work correctly with getServers() after filtering', () => {
-      const serverNames = new Set(['filesystem', 'database']);
-      const filtered = registry.filterByServers(serverNames);
+      const connectionKeys = new Set(['filesystem', 'database']);
+      const filtered = registry.filterByConnectionKeys(connectionKeys);
 
       const servers = filtered.getServers();
       expect(servers).toEqual(['database', 'filesystem']);
@@ -108,8 +108,8 @@ describe('ToolRegistry', () => {
     });
 
     it('should work correctly with getTags() after filtering', () => {
-      const serverNames = new Set(['filesystem']);
-      const filtered = registry.filterByServers(serverNames);
+      const connectionKeys = new Set(['filesystem']);
+      const filtered = registry.filterByConnectionKeys(connectionKeys);
 
       const tags = filtered.getTags();
       expect(tags).toContain('fs');
@@ -119,8 +119,8 @@ describe('ToolRegistry', () => {
     });
 
     it('should work correctly with getToolCountByServer() after filtering', () => {
-      const serverNames = new Set(['filesystem', 'search']);
-      const filtered = registry.filterByServers(serverNames);
+      const connectionKeys = new Set(['filesystem', 'search']);
+      const filtered = registry.filterByConnectionKeys(connectionKeys);
 
       const counts = filtered.getToolCountByServer();
       expect(counts).toEqual({
@@ -132,12 +132,12 @@ describe('ToolRegistry', () => {
     });
 
     it('should support chaining multiple filters', () => {
-      const serverNames1 = new Set(['filesystem', 'database', 'git']);
-      const filtered1 = registry.filterByServers(serverNames1);
+      const connectionKeys1 = new Set(['filesystem', 'database', 'git']);
+      const filtered1 = registry.filterByConnectionKeys(connectionKeys1);
       expect(filtered1.size()).toBe(5);
 
-      const serverNames2 = new Set(['filesystem', 'git']);
-      const filtered2 = filtered1.filterByServers(serverNames2);
+      const connectionKeys2 = new Set(['filesystem', 'git']);
+      const filtered2 = filtered1.filterByConnectionKeys(connectionKeys2);
       expect(filtered2.size()).toBe(3);
       expect(filtered2.hasTool('filesystem', 'read_file')).toBe(true);
       expect(filtered2.hasTool('git', 'git_status')).toBe(true);
@@ -145,8 +145,8 @@ describe('ToolRegistry', () => {
     });
 
     it('should create independent registry instance', () => {
-      const serverNames = new Set(['filesystem']);
-      const filtered = registry.filterByServers(serverNames);
+      const connectionKeys = new Set(['filesystem']);
+      const filtered = registry.filterByConnectionKeys(connectionKeys);
 
       // Original registry should remain unchanged
       expect(registry.size()).toBe(6);
@@ -158,8 +158,8 @@ describe('ToolRegistry', () => {
     });
 
     it('should filter single server correctly', () => {
-      const serverNames = new Set(['search']);
-      const filtered = registry.filterByServers(serverNames);
+      const connectionKeys = new Set(['search']);
+      const filtered = registry.filterByConnectionKeys(connectionKeys);
 
       expect(filtered.size()).toBe(1);
       expect(filtered.hasTool('search', 'search')).toBe(true);

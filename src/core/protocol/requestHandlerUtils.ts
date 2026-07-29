@@ -1,5 +1,6 @@
 import { McpConfigManager } from '@src/config/mcpConfigManager.js';
 import { CapabilityCatalog } from '@src/core/capabilities/capabilityCatalog.js';
+import { createCapabilityVisibility, type CapabilityVisibility } from '@src/core/capabilities/capabilityVisibility.js';
 import { SchemaCache } from '@src/core/capabilities/schemaCache.js';
 import { ToolRegistry } from '@src/core/capabilities/toolRegistry.js';
 import { byCapabilities } from '@src/core/filtering/clientFiltering.js';
@@ -71,16 +72,19 @@ export function filterConnectionsForSession(
   return resolver.filterForSession(sessionId);
 }
 
-/** Resolve the servers a lazy meta-tool request may access at request time. */
-export function resolveLazyAllowedServers(
+/** Resolve request-time Filter Selection into a Server Candidate Set. */
+export function resolveLazyCapabilityVisibility(
   outboundConns: OutboundConnections,
   inboundConn: InboundConnection,
   sessionId: string | undefined,
-): Set<string> {
+): CapabilityVisibility {
   // Scope template instances before applying client filters and availability.
   const sessionScoped = filterConnectionsForSession(outboundConns, sessionId);
   const tagAndPresetScoped = FilteringService.getFilteredConnections(sessionScoped, inboundConn);
   const toolCapable = byCapabilities({ tools: {} })(tagAndPresetScoped);
 
-  return new Set(Array.from(toolCapable.values()).map((connection) => connection.name));
+  return createCapabilityVisibility(
+    Array.from(toolCapable.entries(), ([connectionKey, connection]) => [connectionKey, connection.name] as const),
+    sessionId,
+  );
 }

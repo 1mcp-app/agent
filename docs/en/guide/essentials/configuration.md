@@ -358,9 +358,9 @@ npx -y @1mcp/agent
 
 ### Lazy Loading
 
-Lazy loading is opt-in stable tool-surface compatibility for clients that support progressive discovery. With it disabled (the default), 1MCP exposes every tool directly. With it enabled, 1MCP exposes `tool_list`, `tool_schema`, and `tool_invoke`; clients discover schemas and invoke backend tools through those meta-tools.
+Lazy loading is opt-in stable tool-surface compatibility for clients that support progressive discovery. With it disabled (the default), 1MCP exposes every backend tool directly. With it enabled, the backend tool surface is `tool_list`, `tool_schema`, and `tool_invoke`; clients discover schemas and invoke backend tools through those meta-tools. Internal management tools explicitly enabled by the operator remain directly exposed with the `1mcp` namespace.
 
-This reduces the initial tool-schema payload. It does not reduce backend connections or processes, make synchronous startup bind earlier, or repair orphaned proxy processes. Do not enable it together with async loading by default: choose each setting for its own runtime behavior.
+This reduces the initial tool-schema payload. It does not reduce backend connections or processes, make synchronous startup bind earlier, or repair orphaned proxy processes. Do not enable it together with async loading by default: choose each setting for its own runtime behavior. See [#392](https://github.com/1mcp-app/agent/issues/392) for the request-time visibility contract that lets a matching late-ready server appear after async capability publication without reconnecting.
 
 Enable it for one launch:
 
