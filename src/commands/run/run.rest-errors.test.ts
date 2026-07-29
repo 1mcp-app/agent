@@ -225,6 +225,10 @@ describe('runCommand REST-first path', () => {
     };
   }
 
+  function makeConnectedServerResponse() {
+    return makeRestResponse(200, { kind: 'server', server: 'runner', status: 'connected', available: true });
+  }
+
   it('does not persist hasRestEndpoint=false for transient 503 REST failures', async () => {
     await writeCliSessionCache(cachePath, {
       sessionId: 'cached-session',
@@ -234,6 +238,7 @@ describe('runCommand REST-first path', () => {
       hasRestEndpoint: true,
     });
 
+    mockFetch.mockResolvedValueOnce(makeConnectedServerResponse());
     mockFetch.mockResolvedValueOnce(makeTextResponse(404, 'Not Found'));
     mockFetch.mockResolvedValueOnce(makeRestResponse(503, { error: 'temporarily unavailable' }));
 
@@ -280,6 +285,7 @@ describe('runCommand REST-first path', () => {
 
   it('uses HTTP inspect schema for raw stdin mapping and skips MCP', async () => {
     mockFetch
+      .mockResolvedValueOnce(makeConnectedServerResponse())
       .mockResolvedValueOnce(
         makeRestResponse(200, {
           kind: 'tool',
@@ -341,7 +347,7 @@ describe('runCommand REST-first path', () => {
     expect(output.join('')).toContain('rest-stdin-result');
   });
 
-  it('skips REST entirely when hasRestEndpoint is false', async () => {
+  it('checks status even when hasRestEndpoint is false, then preserves MCP fallback', async () => {
     await writeCliSessionCache(cachePath, {
       sessionId: 'cached-session',
       serverUrl: 'http://127.0.0.1:3050/mcp',
@@ -351,6 +357,8 @@ describe('runCommand REST-first path', () => {
     });
 
     vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
+    mockFetch.mockResolvedValueOnce(makeConnectedServerResponse());
+    mockFetch.mockResolvedValueOnce(makeTextResponse(404, 'Not Found'));
 
     const { runCommand } = await import('./run.js');
     await runCommand({
@@ -360,14 +368,21 @@ describe('runCommand REST-first path', () => {
       'cli-session-cache-path': join(cacheDir, '.cli-session.{pid}'),
     } as never);
 
-    vi.clearAllMocks();
-
-    // fetch should not have been called for /api/tool-invocations
-    const toolInvocationCalls = mockFetch.mock.calls.filter(
-      ([url]) => typeof url === 'string' && url.includes('tool-invocations'),
+    const inspectCalls = mockFetch.mock.calls.filter(
+      ([url]) => String(url).includes('/api/v1/inspect'),
     );
-    expect(toolInvocationCalls).toHaveLength(0);
+    expect(inspectCalls).toHaveLength(2);
+    expect(String(mockFetch.mock.calls[0][0])).toContain('target=runner');
+
+    // The cached compatibility hint does not suppress status checking. A
+    // missing invocation endpoint still falls back to MCP normally.
+    const toolInvocationCalls = mockFetch.mock.calls.filter(
+      ([url]) => String(url).includes('tool-invocations'),
+    );
+    expect(toolInvocationCalls).toHaveLength(1);
     // MCP was used
     expect(transportState.instances.length).toBeGreaterThan(0);
+
+    vi.clearAllMocks();
   });
 });

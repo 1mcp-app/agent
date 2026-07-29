@@ -5,6 +5,7 @@ export interface InstructionsServerSummary {
   type?: string;
   status?: string;
   available?: boolean;
+  loadTracked?: boolean;
   toolCount: number;
   hasInstructions: boolean;
 }
@@ -14,6 +15,7 @@ export interface InstructionsServerDetail {
   type?: string;
   status?: string;
   available?: boolean;
+  loadTracked?: boolean;
   toolCount: number;
   hasInstructions: boolean;
   instructions?: string | null;
@@ -50,6 +52,10 @@ function formatMetadataLines(item: InstructionsServerSummary | InstructionsServe
     lines.push(`available: ${item.available ? 'yes' : 'no'}`);
   }
 
+  if (item.loadTracked !== undefined) {
+    lines.push(`load_tracked: ${item.loadTracked ? 'yes' : 'no'}`);
+  }
+
   lines.push(`tools: ${item.toolCount}`);
   lines.push(`instructions: ${item.hasInstructions ? 'yes' : 'no'}`);
 
@@ -65,9 +71,10 @@ export function formatInstructionsOutput(output: InstructionsOutput): string {
       '2. Review the available servers below and choose the server that matches the task.',
       "3. Run `1mcp inspect <server>` to list that server's tools.",
       '4. Run `1mcp inspect <server>/<tool>` to inspect the tool schema and arguments.',
-      "5. Run `1mcp run <server>/<tool> --args '<json>'` only after inspecting the tool.",
-      '6. Use `--preset`, `--tags`, or `--tag-filter` to narrow the server set when needed.',
-      '7. If authentication is required, run `1mcp auth login --context <name> --token <token>` and retry.',
+      '5. Run `1mcp wait <server>` when a configured static server is still loading.',
+      "6. Run `1mcp run <server>/<tool> --args '<json>'` only after inspecting the tool.",
+      '7. Use `--preset`, `--tags`, or `--tag-filter` to narrow the server set when needed.',
+      '8. If authentication is required, run `1mcp auth login --context <name> --token <token>` and retry.',
     ].join('\n'),
   ];
 

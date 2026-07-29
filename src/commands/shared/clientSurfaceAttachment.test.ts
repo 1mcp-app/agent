@@ -191,6 +191,34 @@ describe('attachReusableClientSurface', () => {
     );
   });
 
+  it('can require a fresh REST status check despite a negative cache hint', async () => {
+    const ports = makePorts({
+      cachedSession: {
+        sessionId: 'cached-session',
+        serverUrl: 'http://127.0.0.1:3050/mcp',
+        contextHash: 'hash-from-port',
+        savedAt: 1000,
+        hasRestEndpoint: false,
+      },
+    });
+    const rest = vi.fn(async () => ({ status: 'success' as const, value: 'rest-value' }));
+    const mcp = unusedAdapter();
+
+    const result = await attachReusableClientSurface({
+      clientSurface: 'wait',
+      version: 'wait',
+      options: {},
+      alwaysTryRest: true,
+      ports,
+      rest,
+      mcp,
+    });
+
+    expect(result).toMatchObject({ status: 'success', protocol: 'rest', value: 'rest-value' });
+    expect(rest).toHaveBeenCalled();
+    expect(mcp).not.toHaveBeenCalled();
+  });
+
   it('falls back to MCP and persists unsupported REST on endpoint-missing responses', async () => {
     const ports = makePorts({
       cachedSession: {

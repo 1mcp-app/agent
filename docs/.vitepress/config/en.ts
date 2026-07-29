@@ -194,6 +194,7 @@ function sidebar(): DefaultTheme.Sidebar {
           { text: 'instructions', link: '/commands/instructions' },
           { text: 'inspect', link: '/commands/inspect' },
           { text: 'run', link: '/commands/run' },
+          { text: 'wait', link: '/commands/wait' },
           { text: 'cli-setup', link: '/commands/cli-setup' },
           { text: 'auth', link: '/commands/auth' },
         ],

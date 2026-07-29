@@ -5,6 +5,8 @@ import { McpConfigManager } from '@src/config/mcpConfigManager.js';
 import { CapabilityAggregator } from '@src/core/capabilities/capabilityAggregator.js';
 import { ToolRegistry } from '@src/core/capabilities/toolRegistry.js';
 import { FilteringService } from '@src/core/filtering/filteringService.js';
+import { LoadingState, type ServerLoadingInfo } from '@src/core/loading/loadingStateTracker.js';
+import { McpLoadingManager } from '@src/core/loading/mcpLoadingManager.js';
 import { ServerRegistry } from '@src/core/server/adapters/ServerRegistry.js';
 import {
   filterDisabledTools,
@@ -81,6 +83,20 @@ function getServerTargetConfigs(declaredServers: DeclaredServers): ServerConfigM
     ...getServerConfigs(),
     ...declaredServers.templateServers,
   };
+}
+
+function getLoadingInfo(serverName: string): ServerLoadingInfo | undefined {
+  try {
+    return McpLoadingManager.current.getStateTracker().getServerState(serverName);
+  } catch {
+    // Inspect is also used by lightweight unit and compatibility runtimes that
+    // have no loading manager. Their connection/adapter state remains valid.
+    return undefined;
+  }
+}
+
+function isLoadTrackedStaticServer(declaredServers: DeclaredServers, serverName: string): boolean {
+  return Boolean(declaredServers.staticServers[serverName] && !declaredServers.staticServers[serverName].disabled);
 }
 
 function hasDisabledTools(serverConfigs: ServerConfigMap, serverName: string): boolean {
@@ -217,7 +233,8 @@ async function buildServerSummaries(
   for (const [cleanName, info] of serverMap) {
     const adapter = serverRegistry.get(cleanName);
     const connection = resolveConnectionByServerName(summaryConnections, cleanName);
-    const state = deriveServerState(adapter?.getStatus(), adapter?.isAvailable(), connection);
+    const loadingInfo = getLoadingInfo(cleanName);
+    const state = deriveServerState(adapter?.getStatus(), adapter?.isAvailable(), connection, loadingInfo);
     const type = adapter?.type ?? (declaredServers.templateServers[cleanName] ? 'template' : 'external');
 
     servers.push({
@@ -225,6 +242,7 @@ async function buildServerSummaries(
       type: String(type),
       status: state.status,
       available: state.available,
+      loadTracked: isLoadTrackedStaticServer(declaredServers, cleanName),
       toolCount: info.toolCount,
       hasInstructions: info.hasInstructions,
     });
@@ -397,14 +415,10 @@ export function createInspectHandler(serverManager: ServerManager): RequestHandl
       const connection = sessionConnection ?? resolveConnectionByServerName(filteredConnections, serverName);
       const declaredTemplateConfig = declaredServers.templateServers[serverName];
       const declaredStaticConfig = declaredServers.staticServers[serverName];
+      const loadingInfo = getLoadingInfo(serverName);
 
       if (!adapter && !connection && !declaredTemplateConfig && !declaredStaticConfig) {
         res.status(404).json({ error: `Server not found: ${serverName}` });
-        return;
-      }
-
-      if (!connection) {
-        res.status(503).json({ error: `Server '${serverName}' is not currently connected` });
         return;
       }
 
@@ -412,9 +426,38 @@ export function createInspectHandler(serverManager: ServerManager): RequestHandl
         adapter?.getStatus(requestSessionId ? { sessionId: requestSessionId } : undefined),
         adapter?.isAvailable(requestSessionId ? { sessionId: requestSessionId } : undefined),
         connection,
+        loadingInfo,
       );
       const type = adapter?.type ?? (declaredTemplateConfig ? 'template' : 'external');
       const instructions = instructionAggregator?.getServerInstructions(serverName) ?? null;
+      const loadTracked = isLoadTrackedStaticServer(declaredServers, serverName);
+
+      // Static startup targets remain inspectable before the first atomic
+      // capability snapshot. Do not force a direct tools/list call while the
+      // loading tracker says the backend is not ready.
+      if (declaredStaticConfig && (!connection || loadingInfo?.state !== LoadingState.Ready)) {
+        const payload: InspectServerPayload = {
+          kind: 'server',
+          server: serverName,
+          type: String(type),
+          status: state.status,
+          available: state.available,
+          loadTracked,
+          instructions,
+          ...(loadingInfo?.authorizationUrl ? { authorizationUrl: loadingInfo.authorizationUrl } : {}),
+          ...(loadingInfo?.error ? { error: loadingInfo.error.message } : {}),
+          tools: [],
+          totalTools: 0,
+          hasMore: false,
+        };
+        res.json(payload);
+        return;
+      }
+
+      if (!connection) {
+        res.status(503).json({ error: `Server '${serverName}' is not currently connected` });
+        return;
+      }
 
       let toolsResult: { tools: ToolSummary[]; totalTools: number; hasMore: boolean; nextCursor?: string };
 
@@ -458,7 +501,10 @@ export function createInspectHandler(serverManager: ServerManager): RequestHandl
         type: String(type),
         status: state.status,
         available: state.available,
+        loadTracked,
         instructions,
+        ...(loadingInfo?.authorizationUrl ? { authorizationUrl: loadingInfo.authorizationUrl } : {}),
+        ...(loadingInfo?.error ? { error: loadingInfo.error.message } : {}),
         tools: toolsResult.tools,
         totalTools: toolsResult.totalTools,
         hasMore: toolsResult.hasMore,

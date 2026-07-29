@@ -20,7 +20,7 @@ import type { ContextData } from '@src/types/context.js';
 import { resolveCanonicalSessionId, withCanonicalSessionId } from '@src/utils/context/sessionIdentity.js';
 import { stripMcpSuffix } from '@src/utils/urlUtils.js';
 
-export type ReusableClientSurface = 'run' | 'inspect' | 'instructions';
+export type ReusableClientSurface = 'run' | 'inspect' | 'instructions' | 'wait';
 export type FreshClientSurface = 'stdio-proxy';
 export type RestFallbackReason = 'endpoint_missing' | 'transient_failure' | 'mcp_required';
 
@@ -167,6 +167,7 @@ export interface AttachReusableClientSurfaceOptions<TOptions extends ResolvableS
   clientSurface: ReusableClientSurface;
   version: string;
   options: TOptions;
+  alwaysTryRest?: boolean;
   ports?: Partial<ClientSurfaceAttachmentPorts<TOptions>>;
   rest: (context: ClientSurfaceAttachmentContext<TOptions>) => Promise<ClientSurfaceRestResponse<TValue>>;
   mcp: (
@@ -268,7 +269,7 @@ export async function attachReusableClientSurface<TOptions extends ResolvableSer
     restSupport,
   };
 
-  if (cachedSession?.hasRestEndpoint !== false) {
+  if (input.alwaysTryRest || cachedSession?.hasRestEndpoint !== false) {
     const restResponse = await input.rest(attachmentContext);
 
     if (restResponse.status === 'success') {

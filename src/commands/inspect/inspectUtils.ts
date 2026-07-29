@@ -58,7 +58,10 @@ export interface InspectServerInfo {
   type?: string;
   status?: string;
   available?: boolean;
+  loadTracked?: boolean;
   instructions?: string | null;
+  authorizationUrl?: string;
+  error?: string;
   tools: InspectServerToolSummary[];
   totalTools?: number;
   hasMore?: boolean;
@@ -71,6 +74,7 @@ export interface InspectServerSummary {
   type?: string;
   status?: string;
   available?: boolean;
+  loadTracked?: boolean;
   toolCount: number;
   hasInstructions: boolean;
 }
@@ -236,6 +240,9 @@ function formatServersOutput(info: InspectServersInfo): string {
     if (s.available !== undefined) {
       serverLines.push(`  available: ${s.available ? 'yes' : 'no'}`);
     }
+    if (s.loadTracked !== undefined) {
+      serverLines.push(`  load_tracked: ${s.loadTracked ? 'yes' : 'no'}`);
+    }
     serverLines.push(`  tools: ${s.toolCount}`);
     serverLines.push(`  instructions: ${s.hasInstructions ? 'yes' : 'no'}`);
   }
@@ -295,6 +302,15 @@ function formatServerOutput(serverInfo: InspectServerInfo): string {
 
   if (serverInfo.available !== undefined) {
     summaryLines.push(`available: ${serverInfo.available ? 'yes' : 'no'}`);
+  }
+  if (serverInfo.loadTracked !== undefined) {
+    summaryLines.push(`load_tracked: ${serverInfo.loadTracked ? 'yes' : 'no'}`);
+  }
+  if (serverInfo.error) {
+    summaryLines.push(`error: ${serverInfo.error}`);
+  }
+  if (serverInfo.authorizationUrl) {
+    summaryLines.push(`authorization_url: ${serverInfo.authorizationUrl}`);
   }
 
   const sections: string[] = [chalk.bold.cyan('Inspect: Server'), summaryLines.join('\n')];

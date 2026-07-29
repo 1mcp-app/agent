@@ -490,4 +490,34 @@ describe('apiRoutes inspect', () => {
       },
     });
   });
+
+  it('returns an inspectable empty result for an unavailable configured static server', async () => {
+    mockedLoadDeclaredServerConfigs.mockReturnValue({
+      staticServers: {
+        slow: { type: 'stdio', command: 'node', args: ['slow-server.js'], tags: ['slow'] },
+      },
+      templateServers: {},
+      errors: [],
+    });
+    const serverManager = {
+      getClients: vi.fn(() => new Map()),
+      getInstructionAggregator: vi.fn(() => undefined),
+      getLazyLoadingOrchestrator: vi.fn(() => undefined),
+      getServerRegistry: vi.fn(() => ({ getServerNames: vi.fn(() => []), get: vi.fn(() => undefined) })),
+    };
+    const handler = createInspectHandler(serverManager as never);
+    const res = createMockResponse();
+
+    await invokeInspectRoute(scopeAuthMiddleware, { query: { target: 'slow' } }, res);
+    await invokeInspectRoute(handler, { query: { target: 'slow' } }, res);
+
+    expect(res.statusCode).toBe(200);
+    expect(res.body).toMatchObject({
+      kind: 'server',
+      server: 'slow',
+      available: false,
+      loadTracked: true,
+      tools: [],
+    });
+  });
 });

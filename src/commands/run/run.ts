@@ -54,6 +54,15 @@ interface ApiInspectToolResult {
   outputSchema?: Record<string, unknown>;
 }
 
+interface ApiInspectServerResult {
+  kind: 'server';
+  server: string;
+  status: string;
+  available: boolean;
+  authorizationUrl?: string;
+  error?: string;
+}
+
 export {
   buildServerUrl,
   deleteCliSessionCache,
@@ -77,6 +86,7 @@ export async function runCommand(options: RunCommandOptions): Promise<void> {
     clientSurface: 'run',
     version: 'run',
     options,
+    alwaysTryRest: true,
     rest: async (context) => tryRunRest(context, options, toolReference, await stdinPromise),
     mcp: async (context) => {
       const stdinText = await stdinPromise;
@@ -144,6 +154,13 @@ async function tryRunRest(
       : stdinText !== undefined
         ? parseJsonObject(stdinText)
         : {};
+
+  // Parse explicit input before any network activity so invalid command input
+  // remains a local validation error even while a backend is starting.
+  const statusResponse = await checkServerStatus(apiClient, toolReference.serverName);
+  if (statusResponse) {
+    return statusResponse;
+  }
 
   const toolInfo =
     (needsSchemaForStdin && restArgs === null) || needsSchemaForValidation
@@ -234,6 +251,87 @@ async function tryRunRest(
       response: {
         rawResponse,
         sessionId: apiResponse.sessionId ?? context.requestSessionId,
+        retryWithFreshSession: false,
+      },
+    },
+  };
+}
+
+async function checkServerStatus(
+  apiClient: ApiClient,
+  serverName: string,
+): Promise<ClientSurfaceRestResponse<RunAttachmentValue> | undefined> {
+  const apiResponse = await apiClient.get<ApiInspectServerResult>(API_INSPECT_ENDPOINT, { target: serverName });
+
+  if (apiResponse.ok && apiResponse.data?.kind === 'server') {
+    const server = apiResponse.data;
+    if (server.status === 'connected' && server.available) {
+      return undefined;
+    }
+
+    if (server.status === 'pending' || server.status === 'loading') {
+      return statusErrorResponse(
+        'server_loading',
+        `Server '${serverName}' is ${server.status}. Wait for it to become connected.`,
+        `1mcp wait ${serverName}`,
+        server,
+      );
+    }
+
+    if (server.status === 'awaiting_oauth') {
+      const guidance = server.authorizationUrl
+        ? `Complete OAuth authorization at ${server.authorizationUrl}.`
+        : `Complete OAuth authorization for '${serverName}'.`;
+      return statusErrorResponse('server_awaiting_oauth', guidance, `1mcp inspect ${serverName}`, server);
+    }
+
+    return statusErrorResponse(
+      'server_unavailable',
+      `Server '${serverName}' is ${server.status}${server.error ? `: ${server.error}` : ''}.`,
+      `1mcp mcp restart ${serverName}`,
+      server,
+    );
+  }
+
+  if (apiResponse.status === 401 || apiResponse.status === 403) {
+    return {
+      status: 'auth_required',
+      message: 'Authentication required before checking server status.',
+    };
+  }
+
+  // A text-only 404 identifies pre-status runtimes. Retain the established
+  // REST-to-MCP compatibility fallback only when no status endpoint exists.
+  if (isEndpointNotFoundResponse(apiResponse.status, apiResponse.error)) {
+    return { status: 'fallback', reason: 'endpoint_missing' };
+  }
+
+  return {
+    status: 'error',
+    message: apiResponse.error ?? `Unable to check status for server '${serverName}'.`,
+  };
+}
+
+function statusErrorResponse(
+  code: 'server_loading' | 'server_unavailable' | 'server_awaiting_oauth',
+  message: string,
+  recoveryCommand: string,
+  details: ApiInspectServerResult,
+): ClientSurfaceRestResponse<RunAttachmentValue> {
+  const formattedMessage = `${code}: ${message} Recovery: ${recoveryCommand}`;
+  return {
+    status: 'success',
+    value: {
+      response: {
+        rawResponse: {
+          jsonrpc: '2.0',
+          id: 0,
+          error: {
+            code: -32010,
+            message: formattedMessage,
+            data: { code, recoveryCommand, details },
+          },
+        },
         retryWithFreshSession: false,
       },
     },

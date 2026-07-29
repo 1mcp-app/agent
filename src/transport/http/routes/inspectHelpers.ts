@@ -1,6 +1,7 @@
 import type { Tool } from '@modelcontextprotocol/sdk/types.js';
 
 import { MCP_URI_SEPARATOR } from '@src/constants.js';
+import { LoadingState, type ServerLoadingInfo } from '@src/core/loading/loadingStateTracker.js';
 import { FilteringService } from '@src/core/filtering/filteringService.js';
 import { ClientStatus, type OutboundConnection } from '@src/core/types/client.js';
 import { InboundConnectionConfig } from '@src/core/types/index.js';
@@ -25,6 +26,8 @@ export interface ServerSummary {
   type: string;
   status: string;
   available: boolean;
+  /** True only for enabled, configured static servers tracked during startup. */
+  loadTracked: boolean;
   toolCount: number;
   hasInstructions: boolean;
 }
@@ -41,7 +44,10 @@ export interface InspectServerPayload {
   type: string;
   status: string;
   available: boolean;
+  loadTracked: boolean;
   instructions: string | null;
+  authorizationUrl?: string;
+  error?: string;
   tools: Array<{
     tool: string;
     qualifiedName: string;
@@ -185,7 +191,15 @@ export function deriveServerState(
   adapterStatus: string | undefined,
   adapterAvailable: boolean | undefined,
   connection?: OutboundConnection,
+  loadingInfo?: ServerLoadingInfo,
 ): { status: string; available: boolean } {
+  // During async startup, the loading tracker is the authoritative source until
+  // a server has reached Ready. A stale connection must not make a loading or
+  // terminal backend look callable.
+  if (loadingInfo && loadingInfo.state !== LoadingState.Ready) {
+    return { status: loadingInfo.state, available: false };
+  }
+
   if (connection) {
     switch (connection.status) {
       case ClientStatus.Connected:
