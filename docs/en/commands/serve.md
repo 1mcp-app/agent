@@ -77,7 +77,7 @@ For runtime-wide configuration details, see the **[Configuration Guide](/guide/e
 ### Runtime behavior
 
 - **`--enable-async-loading`**: Start HTTP availability before all static servers finish loading.
-- **`--enable-lazy-loading`**: Enable lazy loading behavior for exposed server capabilities.
+- **`--enable-lazy-loading`**: Opt into meta-tool exposure for progressive tool discovery. Omit it for full direct exposure.
 - **`--enable-config-reload`**: Enable config reload handling.
 - **`--enable-session-persistence`**: Enable HTTP session persistence.
 
@@ -234,10 +234,10 @@ Behavior:
 1mcp serve --config-dir ./config
 ```
 
-### Start with async and lazy loading
+### Start with lazy loading
 
 ```bash
-1mcp serve --enable-async-loading --enable-lazy-loading
+1mcp serve --enable-lazy-loading
 ```
 
 ### Start with filtered server exposure

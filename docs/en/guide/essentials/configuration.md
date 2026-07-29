@@ -356,6 +356,27 @@ ONE_MCP_PAGINATION=true \
 npx -y @1mcp/agent
 ```
 
+### Lazy Loading
+
+Lazy loading is opt-in stable tool-surface compatibility for clients that support progressive discovery. With it disabled (the default), 1MCP exposes every tool directly. With it enabled, 1MCP exposes `tool_list`, `tool_schema`, and `tool_invoke`; clients discover schemas and invoke backend tools through those meta-tools.
+
+This reduces the initial tool-schema payload. It does not reduce backend connections or processes, make synchronous startup bind earlier, or repair orphaned proxy processes. Do not enable it together with async loading by default: choose each setting for its own runtime behavior.
+
+Enable it for one launch:
+
+```bash
+1mcp serve --enable-lazy-loading
+```
+
+Or make it persistent in `config.toml` and restart the process:
+
+```toml
+[lazyLoading]
+enabled = true
+```
+
+The CLI flag takes precedence over `config.toml`. Legacy `--lazy-mode`, `[lazyLoading].mode`, and `--lazy-direct-expose` inputs are accepted temporarily but ignored with a deprecation warning; `enabled` is the only working switch.
+
 ### Configuration Reload
 
 Control configuration file hot-reload behavior for seamless updates.

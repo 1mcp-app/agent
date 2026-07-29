@@ -2,6 +2,7 @@ import { McpConfigManager } from '@src/config/mcpConfigManager.js';
 import { CapabilityCatalog } from '@src/core/capabilities/capabilityCatalog.js';
 import { SchemaCache } from '@src/core/capabilities/schemaCache.js';
 import { ToolRegistry } from '@src/core/capabilities/toolRegistry.js';
+import { byCapabilities } from '@src/core/filtering/clientFiltering.js';
 import { FilteringService } from '@src/core/filtering/filteringService.js';
 import { createConnectionResolver } from '@src/core/server/connectionResolver.js';
 import { ServerManager } from '@src/core/server/serverManager.js';
@@ -68,4 +69,18 @@ export function filterConnectionsForSession(
   const templateServerManager = ServerManager.current.getTemplateServerManager();
   const resolver = createConnectionResolver(outboundConns, templateServerManager);
   return resolver.filterForSession(sessionId);
+}
+
+/** Resolve the servers a lazy meta-tool request may access at request time. */
+export function resolveLazyAllowedServers(
+  outboundConns: OutboundConnections,
+  inboundConn: InboundConnection,
+  sessionId: string | undefined,
+): Set<string> {
+  // Scope template instances before applying client filters and availability.
+  const sessionScoped = filterConnectionsForSession(outboundConns, sessionId);
+  const tagAndPresetScoped = FilteringService.getFilteredConnections(sessionScoped, inboundConn);
+  const toolCapable = byCapabilities({ tools: {} })(tagAndPresetScoped);
+
+  return new Set(Array.from(toolCapable.values()).map((connection) => connection.name));
 }

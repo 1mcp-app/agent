@@ -350,6 +350,27 @@ ONE_MCP_PAGINATION=true \
 npx -y @1mcp/agent
 ```
 
+### 懒加载
+
+懒加载是一种可选的稳定工具表面兼容模式，适用于支持逐步发现工具的客户端。默认关闭时，1MCP 会直接暴露全部工具；启用后，1MCP 仅暴露 `tool_list`、`tool_schema` 和 `tool_invoke`，客户端通过这些元工具发现 Schema 并调用后端工具。
+
+它可以减少初始工具 Schema 的负载，但不会减少后端连接或进程、让同步启动更早绑定端口，也不会修复遗留的代理进程。不要默认将它与异步加载同时启用；应根据各自的运行时行为分别选择。
+
+仅为本次启动启用：
+
+```bash
+1mcp serve --enable-lazy-loading
+```
+
+也可以在 `config.toml` 中持久启用，并重启进程：
+
+```toml
+[lazyLoading]
+enabled = true
+```
+
+CLI 参数优先于 `config.toml`。旧的 `--lazy-mode`、`[lazyLoading].mode` 和 `--lazy-direct-expose` 输入会在一个兼容周期内继续接受，但将被忽略并产生弃用警告；`enabled` 是唯一有效的开关。
+
 ### 配置重载
 
 控制配置文件热重载行为以实现无缝更新。

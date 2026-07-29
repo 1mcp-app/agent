@@ -340,7 +340,7 @@ export const applicationConfigSchema = z.object({
   lazyLoading: z
     .object({
       enabled: z.boolean().optional().describe('Enable lazy loading for tools'),
-      mode: z.enum(['full', 'metatool', 'hybrid']).optional().describe('Lazy loading mode'),
+      mode: z.enum(['full', 'metatool', 'hybrid']).optional().describe('Deprecated and ignored lazy loading mode'),
       cacheMaxEntries: z.number().int().min(0).optional().describe('Maximum tool schemas to cache'),
       inlineCatalog: z.boolean().optional().describe('Include full tool catalog in initialize template'),
     })

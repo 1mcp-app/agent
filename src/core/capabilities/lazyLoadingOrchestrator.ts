@@ -62,8 +62,6 @@ export class LazyLoadingOrchestrator extends EventEmitter {
   private capabilityAggregator: CapabilityAggregator;
   private isInitialized: boolean = false;
   private asyncOrchestrator?: AsyncLoadingOrchestrator;
-  // Session-specific filters for allowed servers (keyed by sessionId)
-  private sessionAllowedServers: Map<string | undefined, Set<string>> = new Map();
   private connectionResolver: ConnectionResolver;
 
   constructor(
@@ -340,22 +338,10 @@ export class LazyLoadingOrchestrator extends EventEmitter {
   /**
    * Get aggregated capabilities for a filtered set of servers
    *
-   * This method stores session-specific server filters that will be used by:
-   * - callMetaTool() to filter tool listings via MetaToolProvider
-   *
-   * The filter persists for the session and can be cleared by calling clearSessionFilter().
-   *
    * @param filteredServerNames - Set of server names to include in capabilities
-   * @param sessionId - Optional session ID to associate the filter with
    * @returns Aggregated capabilities filtered to only include specified servers
    */
-  public async getCapabilitiesForFilteredServers(
-    filteredServerNames: Set<string>,
-    sessionId?: string,
-  ): Promise<AggregatedCapabilities> {
-    // Store the session-specific filter
-    this.sessionAllowedServers.set(sessionId, filteredServerNames);
-
+  public async getCapabilitiesForFilteredServers(filteredServerNames: Set<string>): Promise<AggregatedCapabilities> {
     // Get the base capabilities
     const lazyConfig = this.config.get('lazyLoading');
     const baseCapabilities = this.capabilityAggregator.getCurrentCapabilities();
@@ -400,23 +386,6 @@ export class LazyLoadingOrchestrator extends EventEmitter {
       readyServers: filteredReadyServers,
       timestamp: new Date(),
     };
-  }
-
-  /**
-   * Clear the session-specific filter
-   * @param sessionId - Optional session ID whose filter should be cleared
-   */
-  public clearSessionFilter(sessionId?: string): void {
-    this.sessionAllowedServers.delete(sessionId);
-  }
-
-  /**
-   * Get the allowed servers for a specific session
-   * @param sessionId - Optional session ID
-   * @returns Set of allowed server names, or undefined if no filter is set
-   */
-  public getSessionAllowedServers(sessionId?: string): Set<string> | undefined {
-    return this.sessionAllowedServers.get(sessionId);
   }
 
   /**
@@ -522,8 +491,8 @@ export class LazyLoadingOrchestrator extends EventEmitter {
    * Call a meta-tool if in meta-tool mode
    * @param name - Meta-tool name
    * @param args - Meta-tool arguments
-   * @param sessionId - Optional session ID to retrieve filter for
-   * @param allowedServers - Optional explicit allowed servers set (takes precedence over session filter)
+   * @param sessionId - Optional session ID for template connection resolution
+   * @param allowedServers - Server names resolved by the current request
    */
   public async callMetaTool(
     name: string,
@@ -535,11 +504,7 @@ export class LazyLoadingOrchestrator extends EventEmitter {
       throw new Error('Meta-tool provider not initialized');
     }
 
-    // Use explicitly provided allowedServers, or fall back to session-specific filter
-    const effectiveAllowedServers =
-      allowedServers !== undefined ? allowedServers : this.sessionAllowedServers.get(sessionId);
-
-    return this.metaToolProvider.callMetaTool(name, args, sessionId, effectiveAllowedServers);
+    return this.metaToolProvider.callMetaTool(name, args, sessionId, allowedServers);
   }
 
   /**
