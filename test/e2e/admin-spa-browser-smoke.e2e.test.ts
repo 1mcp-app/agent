@@ -114,13 +114,29 @@ describe('admin SPA browser smoke', () => {
 
       await expectText(page, 'Runtime operations');
       await expectVisible(page.getByRole('navigation', { name: 'Operations navigation' }));
-      await expectText(page, 'Operations overview');
+      await expectText(page, 'Operations dashboard');
       await expectText(page, 'Runtime online');
-      await expectText(page, 'Server inventory');
       await expectText(page, 'Enabled servers');
       await expectText(page, 'Disabled servers');
       await expectText(page, 'OAuth attention');
       await expectText(page, 'Failed audits');
+      expect(await page.getByRole('heading', { name: 'Server inventory' }).count()).toBe(0);
+
+      await page.goto(`${baseUrl}/admin/audit`);
+      await expectVisible(page.getByRole('heading', { name: 'Audit trail' }));
+
+      await page.getByRole('link', { name: 'Server inventory' }).click();
+      await page.waitForURL(`${baseUrl}/admin/servers`);
+      await expectVisible(page.getByRole('heading', { name: 'Server inventory' }));
+
+      await page.goBack();
+      await page.waitForURL(`${baseUrl}/admin/audit`);
+      await expectVisible(page.getByRole('heading', { name: 'Audit trail' }));
+      await page.goForward();
+      await page.waitForURL(`${baseUrl}/admin/servers`);
+      await expectVisible(page.getByRole('heading', { name: 'Server inventory' }));
+      await page.reload();
+      await expectVisible(page.getByRole('heading', { name: 'Server inventory' }));
 
       await page.getByLabel('Search servers').fill('github');
       await waitForRowCount(page, 1);
@@ -144,14 +160,26 @@ describe('admin SPA browser smoke', () => {
     try {
       await expectCenteredLoginGate(page);
       await login(page, { skipNavigation: true });
+      await page.getByRole('link', { name: 'Server inventory' }).click();
+      await page.waitForURL(`${baseUrl}/admin/servers`);
 
       await page.getByRole('button', { name: 'Edit github server' }).click();
+      await page.waitForURL(`${baseUrl}/admin/servers/github`);
       await expectVisible(page.getByRole('heading', { name: 'github', exact: true }));
 
       const tags = page.getByRole('textbox', { name: 'Tags' });
       await tags.fill('verified');
       await tags.press('Enter');
       await expectText(page, 'Unsaved changes');
+
+      await page.getByRole('link', { name: 'OAuth services' }).click();
+      const leaveDialog = page.getByRole('dialog');
+      await expectVisible(leaveDialog);
+      await expectVisible(leaveDialog.getByText('Discard unsaved changes?'));
+      await leaveDialog.getByRole('button', { name: 'Cancel' }).click();
+      await page.waitForURL(`${baseUrl}/admin/servers/github`);
+      await expectText(page, 'Unsaved changes');
+
       await page.getByRole('button', { name: 'Preview change' }).click();
 
       await expectText(page, 'Preview result');
@@ -165,7 +193,8 @@ describe('admin SPA browser smoke', () => {
       await expectVisible(dialog.getByText('This writes the validated configuration and reloads the Runtime Scope.'));
       await page.keyboard.press('Escape');
       await dialog.waitFor({ state: 'hidden' });
-      expect(await applyButton.evaluate((element) => element === globalThis.document.activeElement)).toBe(true);
+      const applyButtonHandle = await applyButton.elementHandle();
+      await page.waitForFunction((element) => element === globalThis.document.activeElement, applyButtonHandle);
       expect(await page.getByText('Changes applied to github.').count()).toBe(0);
 
       const applyResponsePromise = page.waitForResponse((response) =>
@@ -201,10 +230,17 @@ describe('admin SPA browser smoke', () => {
         await login(page, { skipNavigation: true });
 
         await expectText(page, 'Runtime operations');
-        await expectText(page, 'Operations overview');
+        await expectText(page, 'Operations dashboard');
         await expectVisible(page.getByRole('button', { name: 'Refresh' }));
         await expectVisible(page.getByRole('button', { name: 'Log out' }));
         await expectNoPageOverflow(page);
+
+        const navigationToggle = page.getByRole('button', { name: 'Open operations navigation' });
+        await expectVisible(navigationToggle);
+        await navigationToggle.click();
+        await expectVisible(page.getByRole('navigation', { name: 'Operations navigation' }));
+        await page.getByRole('link', { name: 'Server inventory' }).click();
+        await page.waitForURL(`${baseUrl}/admin/servers`);
 
         if (compactInventory) {
           await expectVisible(page.locator('.server-mobile-card').first());
@@ -214,13 +250,11 @@ describe('admin SPA browser smoke', () => {
           expect(await page.locator('.server-mobile-card').count()).toBe(0);
         }
 
-        const navigationToggle = page.getByRole('button', { name: 'Open operations navigation' });
-        await expectVisible(navigationToggle);
-        await navigationToggle.click();
+        await page.getByRole('button', { name: 'Open operations navigation' }).click();
         await expectVisible(page.getByRole('navigation', { name: 'Operations navigation' }));
-        await page.getByRole('button', { name: 'OAuth services' }).click();
-        await page.waitForFunction(() => globalThis.location.hash === '#oauth');
-        await page.waitForFunction(() => globalThis.document.activeElement?.id === 'oauth');
+        await page.getByRole('link', { name: 'OAuth services' }).click();
+        await page.waitForURL(`${baseUrl}/admin/oauth`);
+        await expectVisible(page.getByRole('heading', { name: 'OAuth services' }));
         await expectVisible(page.getByRole('button', { name: 'Open operations navigation' }));
         await expectNoPageOverflow(page);
       } finally {
@@ -235,6 +269,8 @@ describe('admin SPA browser smoke', () => {
     try {
       await expectCenteredLoginGate(page);
       await login(page, { skipNavigation: true });
+      await page.getByRole('link', { name: 'Server inventory' }).click();
+      await page.waitForURL(`${baseUrl}/admin/servers`);
       await expectNoPageOverflow(page);
 
       const layout = await page.locator('.workspace-grid').evaluate((element) => {
@@ -267,8 +303,20 @@ describe('admin SPA browser smoke', () => {
   }
 
   async function expectCenteredLoginGate(page: Page): Promise<void> {
-    await page.goto(`${baseUrl}/admin`);
-    await expectVisible(page.getByRole('heading', { name: 'Operator login' }));
+    const browserErrors: string[] = [];
+    page.on('console', (message) => {
+      if (message.type() === 'error') browserErrors.push(message.text());
+    });
+    page.on('pageerror', (error) => browserErrors.push(error.message));
+    const response = await page.goto(`${baseUrl}/admin`);
+    try {
+      await expectVisible(page.getByRole('heading', { name: 'Operator login' }));
+    } catch (error) {
+      throw new Error(
+        `Admin login gate did not render (HTTP ${response?.status() ?? 'unknown'}). Browser errors: ${browserErrors.join(' | ') || 'none'}. Body: ${await page.locator('body').innerText()}`,
+        { cause: error },
+      );
+    }
     expect(await page.locator('.admin-app-header').count()).toBe(0);
     expect(await page.locator('.status-strip').count()).toBe(0);
 

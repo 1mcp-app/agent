@@ -2,6 +2,13 @@ import type { AdminPresetDraft, AdminPresetListItem, AdminPresetPreview, AdminPr
 import type { ConfiguredServerEditModel } from '../configuredServerEdit/useConfiguredServerEdit';
 import type { AdminConsoleState } from '../state/adminConsoleState';
 
+export type AdminConsoleRoute = 'dashboard' | 'servers' | 'oauth' | 'audit' | 'presets' | 'about';
+export type OAuthAdminAction = 'authorize' | 'restart';
+export interface OAuthFeedback {
+  kind: 'success' | 'error';
+  message: string;
+}
+
 export interface AdminConsoleSessionModel {
   state: AdminConsoleState;
   loginBusy: boolean;
@@ -9,17 +16,19 @@ export interface AdminConsoleSessionModel {
   logout(): void | Promise<void>;
   refresh(): void | Promise<void>;
   navigation: {
-    route: 'overview' | 'presets' | 'about';
-    section: 'inventory' | 'oauth' | 'audit' | null;
-    navigate(
-      route: 'overview' | 'presets' | 'about',
-      section?: 'inventory' | 'oauth' | 'audit' | null,
-    ): void | Promise<void>;
+    route: AdminConsoleRoute;
+    navigate(route: AdminConsoleRoute): void | Promise<void>;
   };
   configuredServers: {
     edit: ConfiguredServerEditModel;
     mutate(serverId: string, action: 'enable' | 'disable'): void | Promise<void>;
     copy(label: string, value: string): void | Promise<void>;
+  };
+  oauth: {
+    busy: { serviceId: string; action: OAuthAdminAction } | null;
+    callbackFeedback: OAuthFeedback | null;
+    operationFeedback: OAuthFeedback | null;
+    operate(serviceId: string, action: OAuthAdminAction): void | Promise<void>;
   };
   presets: {
     items: AdminPresetListItem[];
@@ -37,7 +46,7 @@ export interface AdminConsoleSessionModel {
   };
 }
 
-export type RuntimeOperationsModel = Pick<AdminConsoleSessionModel, 'state' | 'logout' | 'refresh'> & {
+export type OperatorWorkspaceModel = Pick<AdminConsoleSessionModel, 'state' | 'logout' | 'refresh'> & {
   configuredServers: AdminConsoleSessionModel['configuredServers'];
 };
 
