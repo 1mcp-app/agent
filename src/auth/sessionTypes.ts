@@ -1,5 +1,6 @@
 // Shared session types for server and client session managers
 import { OAuthClientInformationFull } from '@modelcontextprotocol/sdk/shared/auth.js';
+import { z } from 'zod';
 
 import { ContextNamespace, EnvironmentContext, UserContext } from '@src/types/context.js';
 
@@ -11,25 +12,45 @@ export interface ExpirableData {
   createdAt: number;
 }
 
-export interface SessionData extends ExpirableData {
-  clientId: string;
-  resource: string;
-  scopes: string[];
-  refreshFamilyId?: string;
-}
+const ExpirableDataShape = {
+  expires: z.number().finite(),
+  createdAt: z.number().finite(),
+};
 
-export interface RefreshTokenFamilyData extends ExpirableData {
-  familyId: string;
-  runtimeScopeId: string;
-  clientId: string;
-  scopeCeiling: string[];
-  resource: string;
-  currentTokenDigest: string;
-  consumedTokenDigests: string[];
-  accessTokenIds: string[];
-  status: 'active' | 'revoked';
-  revokedAt?: number;
-}
+export const SessionDataSchema = z.object({
+  ...ExpirableDataShape,
+  clientId: z.string().min(1),
+  resource: z.string(),
+  scopes: z.array(z.string()),
+  refreshFamilyId: z.string().optional(),
+});
+export type SessionData = z.infer<typeof SessionDataSchema>;
+
+const RefreshTokenDigestSchema = z.string().regex(/^[a-f0-9]{64}$/);
+
+export const RefreshTokenFamilyDataSchema = z.object({
+  ...ExpirableDataShape,
+  familyId: z.string().min(1),
+  runtimeScopeId: z.string().min(1),
+  clientId: z.string().min(1),
+  scopeCeiling: z.array(z.string()),
+  resource: z.string(),
+  currentTokenDigest: RefreshTokenDigestSchema,
+  consumedTokenDigests: z.array(RefreshTokenDigestSchema),
+  accessTokenIds: z.array(z.string().uuid()),
+  status: z.enum(['active', 'revoked']),
+  revokedAt: z.number().finite().optional(),
+});
+export type RefreshTokenFamilyData = z.infer<typeof RefreshTokenFamilyDataSchema>;
+
+export const RefreshTokenLookupDataSchema = z.object({
+  ...ExpirableDataShape,
+  familyId: z.string().min(1),
+  runtimeScopeId: z.string().min(1),
+  tokenDigest: RefreshTokenDigestSchema,
+  state: z.enum(['current', 'consumed']),
+});
+export type RefreshTokenLookupData = z.infer<typeof RefreshTokenLookupDataSchema>;
 
 export interface ClientData extends ExpirableData, OAuthClientInformationFull {}
 

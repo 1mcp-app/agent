@@ -38,6 +38,7 @@ describe('FileStorageService', () => {
 
   afterEach(() => {
     service.shutdown();
+    vi.restoreAllMocks();
     // Clean up temp directory
     if (fs.existsSync(tempDir)) {
       fs.rmSync(tempDir, { recursive: true, force: true });
@@ -84,6 +85,25 @@ describe('FileStorageService', () => {
       expect(retrieved).toEqual(testData);
     });
 
+    it('preserves the previous record when a replacement write fails after truncation', () => {
+      service.writeData(testPrefix, testId, testData);
+      const targetPath = service.getFilePath(testPrefix, testId);
+      const originalWriteFileSync = fs.writeFileSync;
+      vi.spyOn(fs, 'writeFileSync').mockImplementation((file, data, options) => {
+        originalWriteFileSync(file, '', options);
+        throw new Error(`simulated crash while writing ${String(file)}`);
+      });
+
+      expect(() =>
+        service.writeDataDurable(testPrefix, testId, {
+          ...testData,
+          value: 'replacement value',
+        }),
+      ).toThrow('simulated crash');
+
+      expect(JSON.parse(fs.readFileSync(targetPath, 'utf8'))).toEqual(testData);
+    });
+
     it('should return null for non-existent data', () => {
       const result = service.readData<TestData>(testPrefix, 'nonexistent');
       expect(result).toBeNull();
@@ -107,6 +127,20 @@ describe('FileStorageService', () => {
       const filePath = service.getFilePath(testPrefix, testId);
       const expectedPath = path.join(tempDir, 'sessions', `${testPrefix}${testId}.json`);
       expect(filePath).toBe(expectedPath);
+    });
+  });
+
+  describe('Exclusive storage locks', () => {
+    it('reclaims a lock left by a crashed process', async () => {
+      const lockPath = path.join(service.getStorageDir(), '.refresh-test.lock');
+      fs.mkdirSync(lockPath);
+      fs.writeFileSync(
+        path.join(lockPath, 'owner.json'),
+        JSON.stringify({ operationId: 'abandoned-operation', pid: 2_147_483_647, createdAt: Date.now() }),
+      );
+
+      await expect(service.withExclusiveLock('refresh-test', () => 'acquired')).resolves.toBe('acquired');
+      expect(fs.existsSync(lockPath)).toBe(false);
     });
   });
 

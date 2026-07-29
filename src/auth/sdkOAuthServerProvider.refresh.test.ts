@@ -13,6 +13,8 @@ import { AUTH_CONFIG } from '@src/constants.js';
 import { AgentConfigManager } from '@src/core/server/agentConfig.js';
 import logger from '@src/logger/logger.js';
 
+import { FileStorageService } from './storage/fileStorageService.js';
+
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { SDKOAuthServerProvider } from './sdkOAuthServerProvider.js';
@@ -91,6 +93,64 @@ describe('SDKOAuthServerProvider refresh token families', () => {
     expect(after.consumedTokenDigests).toHaveLength(1);
   });
 
+  it('fails closed and cleans persisted family state after the fixed expiry', async () => {
+    const initial = await exchangeAuthorizationCode(provider, CLIENT);
+    for (const filePath of [...listFamilyFiles(tempDir), ...listLookupFiles(tempDir)]) {
+      const record = JSON.parse(fs.readFileSync(filePath, 'utf8')) as Record<string, unknown>;
+      fs.writeFileSync(filePath, JSON.stringify({ ...record, expires: Date.now() - 1 }));
+    }
+
+    await expect(provider.exchangeRefreshToken(CLIENT, initial.refresh_token!)).rejects.toBeInstanceOf(
+      InvalidGrantError,
+    );
+    await expect(provider.verifyAccessToken(initial.access_token)).rejects.toThrow('Invalid or expired access token');
+    expect(listFamilyFiles(tempDir)).toHaveLength(0);
+    expect(listLookupFiles(tempDir)).toHaveLength(0);
+  });
+
+  it('does not consume the current refresh token when access-session persistence fails', async () => {
+    const initial = await exchangeAuthorizationCode(provider, CLIENT);
+    const createSession = vi
+      .spyOn(provider.oauthStorage.sessionRepository, 'createRefreshFamilyAccessSession')
+      .mockImplementationOnce(() => {
+        throw new Error('session persistence failed');
+      });
+
+    await expect(provider.exchangeRefreshToken(CLIENT, initial.refresh_token!)).rejects.toThrow(
+      'session persistence failed',
+    );
+
+    createSession.mockRestore();
+    await expect(provider.exchangeRefreshToken(CLIENT, initial.refresh_token!)).resolves.toMatchObject({
+      refresh_token: expect.stringMatching(/^rt-/),
+    });
+  });
+
+  it('does not consume the current refresh token when the family commit fails', async () => {
+    const initial = await exchangeAuthorizationCode(provider, CLIENT);
+    const originalWriteData = FileStorageService.prototype.writeDataDurable;
+    let failedFamilyCommit = false;
+    const writeData = vi.spyOn(FileStorageService.prototype, 'writeDataDurable').mockImplementation(function (
+      this: FileStorageService,
+      filePrefix: string,
+      id: string,
+      data: Parameters<FileStorageService['writeDataDurable']>[2],
+    ) {
+      if (filePrefix === AUTH_CONFIG.SERVER.REFRESH_FAMILY.FILE_PREFIX && !failedFamilyCommit) {
+        failedFamilyCommit = true;
+        throw new Error('family commit failed');
+      }
+      return originalWriteData.call(this, filePrefix, id, data);
+    });
+
+    await expect(provider.exchangeRefreshToken(CLIENT, initial.refresh_token!)).rejects.toThrow('family commit failed');
+    writeData.mockRestore();
+
+    await expect(provider.exchangeRefreshToken(CLIENT, initial.refresh_token!)).resolves.toMatchObject({
+      refresh_token: expect.stringMatching(/^rt-/),
+    });
+  });
+
   it('preserves the original scope ceiling and resource while allowing equal or narrower access', async () => {
     const initial = await exchangeAuthorizationCode(provider, CLIENT);
 
@@ -136,6 +196,53 @@ describe('SDKOAuthServerProvider refresh token families', () => {
     await expect(provider.exchangeRefreshToken(CLIENT, successful.refresh_token!)).rejects.toBeInstanceOf(
       InvalidGrantError,
     );
+  });
+
+  it('keeps family state bounded while older consumed-token lookups retain replay containment', async () => {
+    const initial = await exchangeAuthorizationCode(provider, CLIENT);
+    const first = await provider.exchangeRefreshToken(CLIENT, initial.refresh_token!);
+    const second = await provider.exchangeRefreshToken(CLIENT, first.refresh_token!);
+    await provider.exchangeRefreshToken(CLIENT, second.refresh_token!);
+
+    expect(readOnlyFamily(tempDir).consumedTokenDigests).toHaveLength(1);
+    await expect(provider.exchangeRefreshToken(CLIENT, initial.refresh_token!)).rejects.toBeInstanceOf(
+      InvalidGrantError,
+    );
+    expect(readOnlyFamily(tempDir).status).toBe('revoked');
+  });
+
+  it('isolates refresh families by Runtime Scope even when storage is shared', async () => {
+    const initial = await exchangeAuthorizationCode(provider, CLIENT);
+    const otherScopeProvider = new SDKOAuthServerProvider(tempDir, 'runtime-scope-b');
+    try {
+      await expect(
+        otherScopeProvider.exchangeRefreshToken(CLIENT, initial.refresh_token!),
+      ).rejects.toBeInstanceOf(InvalidGrantError);
+      await expect(provider.exchangeRefreshToken(CLIENT, initial.refresh_token!)).resolves.toMatchObject({
+        refresh_token: expect.stringMatching(/^rt-/),
+      });
+    } finally {
+      otherScopeProvider.shutdown();
+    }
+  });
+
+  it('propagates replay-cascade deletion failures while revoked family state blocks residual sessions', async () => {
+    const initial = await exchangeAuthorizationCode(provider, CLIENT);
+    const rotated = await provider.exchangeRefreshToken(CLIENT, initial.refresh_token!);
+    const originalUnlinkSync = fs.unlinkSync;
+    const unlink = vi.spyOn(fs, 'unlinkSync').mockImplementation((filePath) => {
+      if (String(filePath).includes(AUTH_CONFIG.SERVER.SESSION.FILE_PREFIX)) {
+        throw new Error('session deletion failed');
+      }
+      return originalUnlinkSync(filePath);
+    });
+
+    await expect(provider.exchangeRefreshToken(CLIENT, initial.refresh_token!)).rejects.toThrow(
+      'Failed to revoke access sessions for refresh token family',
+    );
+    unlink.mockRestore();
+    await expect(provider.verifyAccessToken(initial.access_token)).rejects.toThrow('Invalid or expired access token');
+    await expect(provider.verifyAccessToken(rotated.access_token)).rejects.toThrow('Invalid or expired access token');
   });
 
   it('does not mutate a rightful family when another client presents its refresh token', async () => {
@@ -205,6 +312,14 @@ function listFamilyFiles(tempDir: string): string[] {
   return fs
     .readdirSync(serverDir)
     .filter((fileName) => fileName.startsWith(AUTH_CONFIG.SERVER.REFRESH_FAMILY.FILE_PREFIX))
+    .map((fileName) => path.join(serverDir, fileName));
+}
+
+function listLookupFiles(tempDir: string): string[] {
+  const serverDir = path.join(tempDir, AUTH_CONFIG.SERVER.STORAGE.DIR, AUTH_CONFIG.SERVER.SESSION.SUBDIR);
+  return fs
+    .readdirSync(serverDir)
+    .filter((fileName) => fileName.startsWith(AUTH_CONFIG.SERVER.REFRESH_FAMILY.LOOKUP_FILE_PREFIX))
     .map((fileName) => path.join(serverDir, fileName));
 }
 

@@ -1,10 +1,19 @@
 import { randomUUID } from 'node:crypto';
 
-import { SessionData } from '@src/auth/sessionTypes.js';
+import { SessionData, SessionDataSchema } from '@src/auth/sessionTypes.js';
 import { AUTH_CONFIG } from '@src/constants.js';
 import logger from '@src/logger/logger.js';
 
 import { FileStorageService } from './fileStorageService.js';
+
+export interface RefreshFamilyAccessSessionInput {
+  tokenId: string;
+  clientId: string;
+  resource: string;
+  scopes: string[];
+  ttlMs: number;
+  familyId: string;
+}
 
 /**
  * Repository for session operations
@@ -44,18 +53,53 @@ export class SessionRepository {
     ttlMs: number,
     refreshFamilyId?: string,
   ): string {
-    const sessionId = AUTH_CONFIG.SERVER.SESSION.ID_PREFIX + tokenId;
+    return this.persistWithId({ tokenId, clientId, resource, scopes, ttlMs, refreshFamilyId }, false);
+  }
+
+  /**
+   * Persists a refresh-family access session before the family commit point.
+   */
+  createRefreshFamilyAccessSession(input: RefreshFamilyAccessSessionInput): string {
+    return this.persistWithId(
+      {
+        tokenId: input.tokenId,
+        clientId: input.clientId,
+        resource: input.resource,
+        scopes: input.scopes,
+        ttlMs: input.ttlMs,
+        refreshFamilyId: input.familyId,
+      },
+      true,
+    );
+  }
+
+  private persistWithId(
+    input: {
+      tokenId: string;
+      clientId: string;
+      resource: string;
+      scopes: string[];
+      ttlMs: number;
+      refreshFamilyId?: string;
+    },
+    durable: boolean,
+  ): string {
+    const sessionId = AUTH_CONFIG.SERVER.SESSION.ID_PREFIX + input.tokenId;
     const sessionData: SessionData = {
-      clientId,
-      resource,
-      scopes,
-      refreshFamilyId,
-      expires: Date.now() + ttlMs,
+      clientId: input.clientId,
+      resource: input.resource,
+      scopes: input.scopes,
+      refreshFamilyId: input.refreshFamilyId,
+      expires: Date.now() + input.ttlMs,
       createdAt: Date.now(),
     };
 
-    this.storage.writeData(AUTH_CONFIG.SERVER.SESSION.FILE_PREFIX, sessionId, sessionData);
-    logger.info(`Created session with ID: ${sessionId} for client: ${clientId}`);
+    if (durable) {
+      this.storage.writeDataDurable(AUTH_CONFIG.SERVER.SESSION.FILE_PREFIX, sessionId, sessionData);
+    } else {
+      this.storage.writeData(AUTH_CONFIG.SERVER.SESSION.FILE_PREFIX, sessionId, sessionData);
+    }
+    logger.info(`Created session with ID: ${sessionId} for client: ${input.clientId}`);
     return sessionId;
   }
 
@@ -63,7 +107,7 @@ export class SessionRepository {
    * Retrieves a session by ID
    */
   get(sessionId: string): SessionData | null {
-    return this.storage.readData<SessionData>(AUTH_CONFIG.SERVER.SESSION.FILE_PREFIX, sessionId);
+    return this.storage.readData<SessionData>(AUTH_CONFIG.SERVER.SESSION.FILE_PREFIX, sessionId, SessionDataSchema);
   }
 
   /**

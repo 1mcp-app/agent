@@ -394,23 +394,32 @@ export class SDKOAuthServerProvider implements OAuthServerProvider {
     const ttlMs = this.configManager.get('auth').oauthTokenTtlMs;
 
     const refreshFamily = client.grant_types?.includes('refresh_token')
-      ? this.oauthStorage.refreshTokenFamilyRepository.create(
+      ? await this.oauthStorage.refreshTokenFamilyRepository.create(
           client.client_id,
           codeData.scopes,
           codeData.resource || '',
           tokenId,
+          (familyId) =>
+            this.oauthStorage.sessionRepository.createRefreshFamilyAccessSession({
+              tokenId,
+              clientId: client.client_id,
+              resource: codeData.resource || '',
+              scopes: codeData.scopes,
+              ttlMs,
+              familyId,
+            }),
         )
       : undefined;
 
-    // Store session for token validation
-    this.oauthStorage.sessionRepository.createWithId(
-      tokenId,
-      client.client_id,
-      codeData.resource || '',
-      codeData.scopes,
-      ttlMs,
-      refreshFamily?.family.familyId,
-    );
+    if (!refreshFamily) {
+      this.oauthStorage.sessionRepository.createWithId(
+        tokenId,
+        client.client_id,
+        codeData.resource || '',
+        codeData.scopes,
+        ttlMs,
+      );
+    }
 
     const tokens: OAuthTokens = {
       access_token: accessToken,
@@ -446,7 +455,7 @@ export class SDKOAuthServerProvider implements OAuthServerProvider {
 
     const tokenState = repository.getTokenState(family, refreshToken);
     if (tokenState === 'consumed') {
-      const replay = repository.consume(refreshToken, client.client_id, randomUUID());
+      const replay = await repository.consume(refreshToken, client.client_id, randomUUID(), () => undefined);
       if (replay.status === 'replay') {
         this.revokeFamilyAccessTokens(replay.family.accessTokenIds);
       }
@@ -466,7 +475,17 @@ export class SDKOAuthServerProvider implements OAuthServerProvider {
     }
 
     const tokenId = randomUUID();
-    const rotation = repository.consume(refreshToken, client.client_id, tokenId);
+    const ttlMs = this.configManager.get('auth').oauthTokenTtlMs;
+    const rotation = await repository.consume(refreshToken, client.client_id, tokenId, (familyId) =>
+      this.oauthStorage.sessionRepository.createRefreshFamilyAccessSession({
+        tokenId,
+        clientId: client.client_id,
+        resource: family.resource,
+        scopes: requestedScopes,
+        ttlMs,
+        familyId,
+      }),
+    );
     if (rotation.status === 'replay') {
       this.revokeFamilyAccessTokens(rotation.family.accessTokenIds);
       throw new InvalidGrantError('Refresh token replay detected');
@@ -474,16 +493,6 @@ export class SDKOAuthServerProvider implements OAuthServerProvider {
     if (rotation.status !== 'rotated') {
       throw new InvalidGrantError('Invalid refresh token');
     }
-
-    const ttlMs = this.configManager.get('auth').oauthTokenTtlMs;
-    this.oauthStorage.sessionRepository.createWithId(
-      tokenId,
-      client.client_id,
-      family.resource,
-      requestedScopes,
-      ttlMs,
-      family.familyId,
-    );
 
     return {
       access_token: AUTH_CONFIG.SERVER.TOKEN.ID_PREFIX + tokenId,
@@ -524,6 +533,13 @@ export class SDKOAuthServerProvider implements OAuthServerProvider {
       throw new Error('Invalid or expired access token');
     }
 
+    if (sessionData.refreshFamilyId) {
+      const family = this.oauthStorage.refreshTokenFamilyRepository.findById(sessionData.refreshFamilyId);
+      if (!family || family.status !== 'active' || !family.accessTokenIds.includes(tokenId)) {
+        throw new Error('Invalid or expired access token');
+      }
+    }
+
     return {
       token,
       clientId: sessionData.clientId,
@@ -543,7 +559,7 @@ export class SDKOAuthServerProvider implements OAuthServerProvider {
 
     const refreshFamily = this.oauthStorage.refreshTokenFamilyRepository.findByToken(token);
     if (refreshFamily) {
-      const revokedFamily = this.oauthStorage.refreshTokenFamilyRepository.revokeForClient(
+      const revokedFamily = await this.oauthStorage.refreshTokenFamilyRepository.revokeForClient(
         refreshFamily,
         client.client_id,
       );
@@ -570,8 +586,16 @@ export class SDKOAuthServerProvider implements OAuthServerProvider {
   }
 
   private revokeFamilyAccessTokens(accessTokenIds: string[]): void {
+    const failures: unknown[] = [];
     for (const accessTokenId of accessTokenIds) {
-      this.oauthStorage.sessionRepository.delete(AUTH_CONFIG.SERVER.SESSION.ID_PREFIX + accessTokenId);
+      try {
+        this.oauthStorage.sessionRepository.delete(AUTH_CONFIG.SERVER.SESSION.ID_PREFIX + accessTokenId);
+      } catch (error) {
+        failures.push(error);
+      }
+    }
+    if (failures.length > 0) {
+      throw new AggregateError(failures, 'Failed to revoke access sessions for refresh token family');
     }
   }
 

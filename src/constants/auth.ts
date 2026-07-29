@@ -49,6 +49,8 @@ export const AUTH_CONFIG = {
       TTL_MS: 30 * 24 * 60 * 60 * 1000, // 30 days, fixed at family creation
       ID_PREFIX: 'rf-',
       FILE_PREFIX: 'refresh_family_',
+      LOOKUP_ID_PREFIX: 'rtl-',
+      LOOKUP_FILE_PREFIX: 'refresh_lookup_',
       TOKEN_PREFIX: 'rt-',
       SUBDIR: 'server',
     },
@@ -110,7 +112,7 @@ export const STORAGE_SUBDIRS = {
 
 // File prefix mapping for migration logic
 export const FILE_PREFIX_MAPPING = {
-  SERVER: ['session_', 'auth_code_', 'auth_request_', 'refresh_family_'],
+  SERVER: ['session_', 'auth_code_', 'auth_request_', 'refresh_family_', 'refresh_lookup_'],
   CLIENT: ['oauth_', 'cli_', 'tok_', 'ver_', 'sta_'],
   TRANSPORT: ['streamable_session_'],
 } as const;

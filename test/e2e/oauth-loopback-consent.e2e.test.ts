@@ -8,11 +8,14 @@ import { mcpAuthRouter } from '@modelcontextprotocol/sdk/server/auth/router.js';
 
 import { SDKOAuthServerProvider } from '@src/auth/sdkOAuthServerProvider.js';
 import { McpConfigManager } from '@src/config/mcpConfigManager.js';
+import { AgentConfigManager } from '@src/core/server/agentConfig.js';
 import { createOAuthRoutes } from '@src/transport/http/routes/oauthRoutes.js';
 
 import express from 'express';
 import { type Browser, chromium } from 'playwright';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+
+let resolveCallback: ((url: URL) => void) | undefined;
 
 describe('OAuth loopback consent browser flow', () => {
   let authServer: Server;
@@ -22,20 +25,19 @@ describe('OAuth loopback consent browser flow', () => {
   let browser: Browser;
   let provider: SDKOAuthServerProvider;
   let storageDir: string;
-  let callbackReceived: Promise<URL>;
+  let originalAuthEnabled: boolean;
 
   beforeAll(async () => {
     storageDir = fs.mkdtempSync(path.join(os.tmpdir(), '1mcp-oauth-browser-'));
+    originalAuthEnabled = AgentConfigManager.getInstance().get('features').auth;
+    AgentConfigManager.getInstance().get('features').auth = true;
     vi.spyOn(McpConfigManager, 'getInstance').mockReturnValue({
-      getAvailableTags: () => ['test'],
+      getAvailableTags: () => ['test', 'other'],
     } as unknown as McpConfigManager);
 
-    let resolveCallback!: (url: URL) => void;
-    callbackReceived = new Promise<URL>((resolve) => {
-      resolveCallback = resolve;
-    });
     callbackServer = createServer((request, response) => {
-      resolveCallback(new URL(request.url ?? '/', callbackUrl));
+      resolveCallback?.(new URL(request.url ?? '/', callbackUrl));
+      resolveCallback = undefined;
       response.writeHead(200, { 'Content-Type': 'text/plain' });
       response.end('Authorization complete');
     });
@@ -52,7 +54,7 @@ describe('OAuth loopback consent browser flow', () => {
         provider,
         issuerUrl,
         baseUrl: issuerUrl,
-        scopesSupported: ['tag:test'],
+        scopesSupported: ['tag:test', 'tag:other'],
         authorizationOptions: { rateLimit: false },
         tokenOptions: { rateLimit: false },
         revocationOptions: { rateLimit: false },
@@ -69,6 +71,7 @@ describe('OAuth loopback consent browser flow', () => {
     await closeServer(authServer);
     await closeServer(callbackServer);
     fs.rmSync(storageDir, { recursive: true, force: true });
+    AgentConfigManager.getInstance().get('features').auth = originalAuthEnabled;
     vi.restoreAllMocks();
   });
 
@@ -95,7 +98,7 @@ describe('OAuth loopback consent browser flow', () => {
       response_type: 'code',
       client_id: client.client_id,
       redirect_uri: callbackUrl,
-      scope: 'tag:test',
+      scope: 'tag:test tag:other',
       state: 'browser-state',
       code_challenge: codeChallenge,
       code_challenge_method: 'S256',
@@ -112,6 +115,7 @@ describe('OAuth loopback consent browser flow', () => {
       );
       await page.getByText('renew this access for up to 30 days').waitFor({ state: 'visible' });
 
+      const callbackReceived = waitForCallback();
       await page.getByRole('button', { name: 'Approve' }).click();
       const callback = await callbackReceived;
       expect(callback.searchParams.get('state')).toBe('browser-state');
@@ -131,10 +135,30 @@ describe('OAuth loopback consent browser flow', () => {
       expect(tokens.access_token).toMatch(/^tk-/);
       expect(tokens.refresh_token).toMatch(/^rt-[A-Za-z0-9_-]{43}$/);
 
+      const expandedScopeResponse = await postForm(`${authBaseUrl}/token`, {
+        grant_type: 'refresh_token',
+        client_id: client.client_id,
+        refresh_token: tokens.refresh_token,
+        scope: 'tag:test tag:outside',
+        resource,
+      });
+      expect(expandedScopeResponse.status).toBe(400);
+      await expect(expandedScopeResponse.json()).resolves.toMatchObject({ error: 'invalid_scope' });
+
+      const wrongResourceResponse = await postForm(`${authBaseUrl}/token`, {
+        grant_type: 'refresh_token',
+        client_id: client.client_id,
+        refresh_token: tokens.refresh_token,
+        resource: `${authBaseUrl}/other`,
+      });
+      expect(wrongResourceResponse.status).toBe(400);
+      await expect(wrongResourceResponse.json()).resolves.toMatchObject({ error: 'invalid_target' });
+
       const refreshResponse = await postForm(`${authBaseUrl}/token`, {
         grant_type: 'refresh_token',
         client_id: client.client_id,
         refresh_token: tokens.refresh_token,
+        scope: 'tag:test',
         resource,
       });
       expect(refreshResponse.status, await refreshResponse.clone().text()).toBe(200);
@@ -143,11 +167,76 @@ describe('OAuth loopback consent browser flow', () => {
       expect(rotated.refresh_token).toMatch(/^rt-/);
       expect(rotated.refresh_token).not.toBe(tokens.refresh_token);
       expect(rotated.scope).toBe('tag:test');
+
+      const replayResponse = await postForm(`${authBaseUrl}/token`, {
+        grant_type: 'refresh_token',
+        client_id: client.client_id,
+        refresh_token: tokens.refresh_token,
+        resource,
+      });
+      expect(replayResponse.status).toBe(400);
+      await expect(replayResponse.json()).resolves.toMatchObject({ error: 'invalid_grant' });
+      await expect(provider.verifyAccessToken(tokens.access_token)).rejects.toThrow('Invalid or expired access token');
+      await expect(provider.verifyAccessToken(rotated.access_token)).rejects.toThrow(
+        'Invalid or expired access token',
+      );
+
+      const secondVerifier = randomBytes(48).toString('base64url');
+      const secondChallenge = createHash('sha256').update(secondVerifier).digest('base64url');
+      const secondAuthorizationUrl = new URL(`${authBaseUrl}/authorize`);
+      secondAuthorizationUrl.search = new URLSearchParams({
+        response_type: 'code',
+        client_id: client.client_id,
+        redirect_uri: callbackUrl,
+        scope: 'tag:test',
+        state: 'revocation-state',
+        code_challenge: secondChallenge,
+        code_challenge_method: 'S256',
+        resource,
+      }).toString();
+
+      await page.goto(secondAuthorizationUrl.toString());
+      const secondCallbackReceived = waitForCallback();
+      await page.getByRole('button', { name: 'Approve' }).click();
+      const secondCallback = await secondCallbackReceived;
+      const secondTokenResponse = await postForm(`${authBaseUrl}/token`, {
+        grant_type: 'authorization_code',
+        client_id: client.client_id,
+        code: secondCallback.searchParams.get('code')!,
+        redirect_uri: callbackUrl,
+        code_verifier: secondVerifier,
+        resource,
+      });
+      expect(secondTokenResponse.status).toBe(200);
+      const secondTokens = (await secondTokenResponse.json()) as { access_token: string; refresh_token: string };
+
+      const revocationResponse = await postForm(`${authBaseUrl}/revoke`, {
+        token: secondTokens.refresh_token,
+        client_id: client.client_id,
+      });
+      expect(revocationResponse.status, await revocationResponse.clone().text()).toBe(200);
+      await expect(provider.verifyAccessToken(secondTokens.access_token)).rejects.toThrow(
+        'Invalid or expired access token',
+      );
+      const revokedRefreshResponse = await postForm(`${authBaseUrl}/token`, {
+        grant_type: 'refresh_token',
+        client_id: client.client_id,
+        refresh_token: secondTokens.refresh_token,
+        resource,
+      });
+      expect(revokedRefreshResponse.status).toBe(400);
+      await expect(revokedRefreshResponse.json()).resolves.toMatchObject({ error: 'invalid_grant' });
     } finally {
       await context.close();
     }
   }, 30_000);
 });
+
+function waitForCallback(): Promise<URL> {
+  return new Promise<URL>((resolve) => {
+    resolveCallback = resolve;
+  });
+}
 
 async function listenOnLoopback(server: Server): Promise<string> {
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));

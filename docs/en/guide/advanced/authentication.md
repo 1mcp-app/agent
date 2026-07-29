@@ -27,6 +27,12 @@ npx -y @1mcp/agent --config mcp.json --enable-auth
 
 This will activate the OAuth 2.1 endpoints and require authentication for all incoming requests.
 
+## Refresh Token Rotation
+
+Registered clients receive a refresh token only when they request the `refresh_token` grant. Refresh tokens are single-use and rotate on every successful exchange. Each family has a fixed 30-day lifetime, remains bound to its original client and resource, and permits only equal or narrower scopes.
+
+Reusing any consumed refresh token revokes the entire family and every access token issued from it. Concurrent refreshes therefore allow exactly one successful rotation; clients must reauthorize after a replay response or a lost response that causes a retry.
+
 ## OAuth Management Dashboard
 
 Once authentication is enabled, you can use the OAuth Management Dashboard to manage the authorization flow with your backend services. The dashboard is available at the `/oauth` endpoint of your agent's URL (e.g., `http://localhost:3050/oauth`).
