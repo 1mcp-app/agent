@@ -16,6 +16,7 @@ import {
 } from '@src/transport/http/middlewares/scopeAuthMiddleware.js';
 import { buildUri, parseUri } from '@src/utils/core/parsing.js';
 import { normalizeTag } from '@src/utils/validation/sanitization.js';
+import type { ClientServerStatus } from '@src/types/serverStatus.js';
 
 import { Response } from 'express';
 
@@ -24,7 +25,7 @@ import { Response } from 'express';
 export interface ServerSummary {
   server: string;
   type: string;
-  status: string;
+  status: ClientServerStatus;
   available: boolean;
   /** True only for enabled, configured static servers tracked during startup. */
   loadTracked: boolean;
@@ -42,7 +43,7 @@ export interface InspectServerPayload {
   kind: 'server';
   server: string;
   type: string;
-  status: string;
+  status: ClientServerStatus;
   available: boolean;
   loadTracked: boolean;
   instructions: string | null;
@@ -192,7 +193,7 @@ export function deriveServerState(
   adapterAvailable: boolean | undefined,
   connection?: OutboundConnection,
   loadingInfo?: ServerLoadingInfo,
-): { status: string; available: boolean } {
+): { status: ClientServerStatus; available: boolean } {
   // During async startup, the loading tracker is the authoritative source until
   // a server has reached Ready. A stale connection must not make a loading or
   // terminal backend look callable.
@@ -216,9 +217,22 @@ export function deriveServerState(
   }
 
   return {
-    status: adapterStatus ?? 'unknown',
+    status: normalizeAdapterStatus(adapterStatus),
     available: adapterAvailable ?? false,
   };
+}
+
+function normalizeAdapterStatus(status: string | undefined): ClientServerStatus {
+  switch (status) {
+    case 'connected':
+    case 'initializing':
+    case 'disconnected':
+    case 'error':
+    case 'awaiting_oauth':
+      return status;
+    default:
+      return 'unknown';
+  }
 }
 
 export function matchesFilterConfig(tags: string[] | undefined, filterConfig: InboundConnectionConfig): boolean {

@@ -1,6 +1,6 @@
 import type { GlobalOptions } from '@src/globalOptions.js';
 
-export async function runCliCommand<T extends GlobalOptions & { json?: boolean }>(
+export async function runCliCommand<T extends GlobalOptions & { json?: boolean; format?: string }>(
   argv: T,
   fn: (argv: T) => Promise<void>,
 ): Promise<void> {
@@ -21,8 +21,8 @@ export async function runCliCommand<T extends GlobalOptions & { json?: boolean }
   }
 }
 
-function hasJsonOutput(argv: GlobalOptions & { json?: boolean }): boolean {
-  return argv.json === true;
+function hasJsonOutput(argv: GlobalOptions & { json?: boolean; format?: string }): boolean {
+  return argv.json === true || argv.format === 'json';
 }
 
 function jsonFailureEnvelope(error: unknown, message: string) {

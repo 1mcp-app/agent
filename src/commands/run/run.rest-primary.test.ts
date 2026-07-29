@@ -406,6 +406,35 @@ describe('runCommand REST-first path', () => {
     expect(stderr.join('')).toContain('1mcp wait runner');
   });
 
+  it('checks status with the same preset used by the invocation surface', async () => {
+    mockFetch.mockResolvedValueOnce(makeConnectedServerResponse());
+    mockFetch.mockResolvedValueOnce(makeTextResponse(404, 'Not Found'));
+    mockFetch.mockResolvedValueOnce(
+      makeRestResponse(200, {
+        result: { content: [{ type: 'text', text: 'ok' }], isError: false },
+        server: 'runner',
+        tool: 'echo_args',
+      }),
+    );
+    vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
+
+    const { runCommand } = await import('./run.js');
+    await runCommand({
+      tool: 'runner/echo_args',
+      args: '{"message":"hi"}',
+      preset: 'development',
+      'config-dir': cacheDir,
+      'cli-session-cache-path': join(cacheDir, '.cli-session.{pid}'),
+    } as never);
+
+    const statusUrl = new URL(String(mockFetch.mock.calls[0][0]));
+    const schemaUrl = new URL(String(mockFetch.mock.calls[1][0]));
+    expect(statusUrl.searchParams.get('target')).toBe('runner');
+    expect(statusUrl.searchParams.get('preset')).toBe('development');
+    expect(schemaUrl.searchParams.get('target')).toBe('runner/echo_args');
+    expect(schemaUrl.searchParams.get('preset')).toBe('development');
+  });
+
   it('initializes a fresh MCP transport while preserving the logical context session id', async () => {
     mockFetch.mockResolvedValueOnce(makeConnectedServerResponse());
     mockFetch.mockResolvedValueOnce(makeTextResponse(404, 'Not Found'));

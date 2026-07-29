@@ -81,3 +81,5 @@ curl http://localhost:3050/health/mcp
 ## 配置说明
 
 异步加载仍为显式启用。本页描述运行时契约，不重复旧选项的清理；请以当前命令帮助和配置参考中的受支持选项为准。
+
+相关工作：[#393](https://github.com/1mcp-app/agent/issues/393) 跟踪废弃异步选项的清理，[#405](https://github.com/1mcp-app/agent/issues/405) 定义 CLI 状态与等待工作流。

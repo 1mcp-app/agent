@@ -435,7 +435,7 @@ export function createInspectHandler(serverManager: ServerManager): RequestHandl
       // Static startup targets remain inspectable before the first atomic
       // capability snapshot. Do not force a direct tools/list call while the
       // loading tracker says the backend is not ready.
-      if (declaredStaticConfig && (!connection || loadingInfo?.state !== LoadingState.Ready)) {
+      if (declaredStaticConfig && (!connection || (loadingInfo && loadingInfo.state !== LoadingState.Ready))) {
         const payload: InspectServerPayload = {
           kind: 'server',
           server: serverName,

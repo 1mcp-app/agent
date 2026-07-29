@@ -14,6 +14,12 @@ import {
   validateToolArgs,
 } from '@src/commands/run/runUtils.js';
 import { ApiClient } from '@src/commands/shared/apiClient.js';
+import { buildFilterSelectionQuery } from '@src/commands/shared/filterSelectionQuery.js';
+import {
+  type ApiInspectServerResult,
+  inspectServerResultSchema,
+  inspectToolResultSchema,
+} from '@src/commands/shared/inspectApiSchemas.js';
 import {
   attachReusableClientSurface,
   type ClientSurfaceAttachmentContext,
@@ -42,25 +48,6 @@ export interface RunCommandOptions extends GlobalOptions {
   'max-chars'?: number;
   args?: string;
   tool: string;
-}
-
-interface ApiInspectToolResult {
-  kind: 'tool';
-  server: string;
-  tool: string;
-  qualifiedName: string;
-  description?: string;
-  inputSchema: Record<string, unknown>;
-  outputSchema?: Record<string, unknown>;
-}
-
-interface ApiInspectServerResult {
-  kind: 'server';
-  server: string;
-  status: string;
-  available: boolean;
-  authorizationUrl?: string;
-  error?: string;
 }
 
 export {
@@ -157,14 +144,14 @@ async function tryRunRest(
 
   // Parse explicit input before any network activity so invalid command input
   // remains a local validation error even while a backend is starting.
-  const statusResponse = await checkServerStatus(apiClient, toolReference.serverName);
+  const statusResponse = await checkServerStatus(apiClient, toolReference.serverName, context.options);
   if (statusResponse) {
     return statusResponse;
   }
 
   const toolInfo =
     (needsSchemaForStdin && restArgs === null) || needsSchemaForValidation
-      ? await fetchToolInfoFromApi(apiClient, toolReference, options.tool)
+      ? await fetchToolInfoFromApi(apiClient, toolReference, options.tool, context.options)
       : null;
 
   if (restArgs === null && !toolInfo) {
@@ -260,11 +247,19 @@ async function tryRunRest(
 async function checkServerStatus(
   apiClient: ApiClient,
   serverName: string,
+  options: RunCommandOptions,
 ): Promise<ClientSurfaceRestResponse<RunAttachmentValue> | undefined> {
-  const apiResponse = await apiClient.get<ApiInspectServerResult>(API_INSPECT_ENDPOINT, { target: serverName });
+  const apiResponse = await apiClient.get<unknown>(API_INSPECT_ENDPOINT, {
+    ...buildFilterSelectionQuery(options),
+    target: serverName,
+  });
 
-  if (apiResponse.ok && apiResponse.data?.kind === 'server') {
-    const server = apiResponse.data;
+  if (apiResponse.ok) {
+    const parsed = inspectServerResultSchema.safeParse(apiResponse.data);
+    if (!parsed.success) {
+      return { status: 'error', message: `Invalid response from ${API_INSPECT_ENDPOINT}.` };
+    }
+    const server = parsed.data;
     if (server.status === 'connected' && server.available) {
       return undefined;
     }
@@ -354,24 +349,31 @@ async function fetchToolInfoFromApi(
   apiClient: ApiClient,
   toolReference: ReturnType<typeof parseToolReference>,
   displayToolName: string,
+  options: RunCommandOptions,
 ): Promise<InspectToolInfo | null> {
-  const apiResponse = await apiClient.get<ApiInspectToolResult>(API_INSPECT_ENDPOINT, {
+  const apiResponse = await apiClient.get<unknown>(API_INSPECT_ENDPOINT, {
+    ...buildFilterSelectionQuery(options),
     target: displayToolName,
   });
 
-  if (!apiResponse.ok || !apiResponse.data || apiResponse.data.kind !== 'tool') {
+  if (!apiResponse.ok) {
     if (!apiResponse.ok && apiResponse.status !== 404) {
       logger.debug('fetchToolInfoFromApi: unexpected response status', { status: apiResponse.status });
     }
     return null;
   }
+  const parsed = inspectToolResultSchema.safeParse(apiResponse.data);
+  if (!parsed.success) {
+    logger.debug('fetchToolInfoFromApi: invalid inspect response');
+    return null;
+  }
 
   return extractInspectToolInfo(
     {
-      name: apiResponse.data.qualifiedName,
-      description: apiResponse.data.description,
-      inputSchema: apiResponse.data.inputSchema,
-      outputSchema: apiResponse.data.outputSchema,
+      name: parsed.data.qualifiedName,
+      description: parsed.data.description,
+      inputSchema: parsed.data.inputSchema,
+      outputSchema: parsed.data.outputSchema,
     } as Tool,
     toolReference,
   );

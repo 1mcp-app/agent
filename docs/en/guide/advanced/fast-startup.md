@@ -81,3 +81,5 @@ Use the inspect API or CLI for an authenticated caller deciding whether to invok
 ## Configuration Notes
 
 Async loading remains opt-in. This page describes the runtime contract rather than deprecated-option cleanup; use current command help and the configuration reference for supported options.
+
+Related work: [#393](https://github.com/1mcp-app/agent/issues/393) tracks obsolete async option cleanup, and [#405](https://github.com/1mcp-app/agent/issues/405) defines the CLI status and wait workflow.

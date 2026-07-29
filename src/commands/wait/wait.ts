@@ -1,6 +1,11 @@
 import { encode } from '@toon-format/toon';
 
 import { ApiClient } from '@src/commands/shared/apiClient.js';
+import { buildFilterSelectionQuery } from '@src/commands/shared/filterSelectionQuery.js';
+import {
+  type InspectServerSummary,
+  inspectServersResultSchema,
+} from '@src/commands/shared/inspectApiSchemas.js';
 import {
   attachReusableClientSurface,
   type ClientSurfaceAttachmentContext,
@@ -19,19 +24,6 @@ export interface WaitCommandOptions extends GlobalOptions {
   'tag-filter'?: string;
   timeout?: number;
   format?: 'toon' | 'text' | 'json';
-}
-
-interface InspectServerSummary {
-  server: string;
-  type: string;
-  status: string;
-  available: boolean;
-  loadTracked: boolean;
-}
-
-interface InspectServersResult {
-  kind: 'servers';
-  servers: InspectServerSummary[];
 }
 
 interface WaitResult {
@@ -99,18 +91,34 @@ export async function waitForServers(
     context: context.context,
   });
   const startedAt = Date.now();
+  const deadline = startedAt + timeout;
   let lastServers: InspectServerSummary[] = [];
 
   while (true) {
-    const response = await apiClient.get<InspectServersResult>(API_INSPECT_ENDPOINT, buildWaitQuery(context.options));
+    const remaining = deadline - Date.now();
+    if (remaining <= 0) {
+      throwWaitTimeout(timeout, context.options.server, lastServers);
+    }
+    const response = await apiClient.get<unknown>(
+      API_INSPECT_ENDPOINT,
+      buildFilterSelectionQuery(context.options),
+      { timeout: remaining },
+    );
     if (response.status === 401 || response.status === 403) {
       return { status: 'auth_required', message: formatClientSurfaceAuthRequiredMessage(context) };
     }
-    if (!response.ok || response.data?.kind !== 'servers') {
+    if (Date.now() >= deadline) {
+      throwWaitTimeout(timeout, context.options.server, lastServers);
+    }
+    if (!response.ok) {
       return { status: 'error', message: response.error ?? 'Invalid response from /api/v1/inspect.' };
     }
+    const parsed = inspectServersResultSchema.safeParse(response.data);
+    if (!parsed.success) {
+      return { status: 'error', message: 'Invalid response from /api/v1/inspect.' };
+    }
 
-    const selected = selectWaitServers(response.data.servers, context.options.server);
+    const selected = selectWaitServers(parsed.data.servers, context.options.server);
     lastServers = selected;
     throwForTerminalState(selected, context.options.server);
 
@@ -121,27 +129,18 @@ export async function waitForServers(
       };
     }
 
-    if (Date.now() - startedAt >= timeout) {
-      const target = context.options.server ?? 'all configured servers';
-      throw new WaitCommandError(
-        'server_wait_timeout',
-        `Timed out after ${timeout}ms waiting for ${target}.`,
-        context.options.server ? `1mcp wait ${context.options.server}` : '1mcp wait',
-        { servers: lastServers },
-      );
-    }
-
-    await delay(Math.min(250, Math.max(timeout - (Date.now() - startedAt), 1)));
+    await delay(Math.min(250, Math.max(deadline - Date.now(), 1)));
   }
 }
 
-function buildWaitQuery(options: WaitCommandOptions): Record<string, string> {
-  const query: Record<string, string> = {};
-  if (options.preset) query.preset = options.preset;
-  else if (options['tag-filter']) query['tag-filter'] = options['tag-filter'];
-  else if (options.filter) query.filter = options.filter;
-  else if (options.tags?.length) query.tags = options.tags.join(',');
-  return query;
+function throwWaitTimeout(timeout: number, server: string | undefined, servers: InspectServerSummary[]): never {
+  const target = server ?? 'all configured servers';
+  throw new WaitCommandError(
+    'server_wait_timeout',
+    `Timed out after ${timeout}ms waiting for ${target}.`,
+    server ? `1mcp wait ${server}` : '1mcp wait',
+    { status: 'timeout', servers },
+  );
 }
 
 export function selectWaitServers(servers: InspectServerSummary[], target?: string): InspectServerSummary[] {

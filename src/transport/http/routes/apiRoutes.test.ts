@@ -520,4 +520,28 @@ describe('apiRoutes inspect', () => {
       tools: [],
     });
   });
+
+  it('lists tools for a connected configured static server without a loading tracker', async () => {
+    mockedLoadDeclaredServerConfigs.mockReturnValue({
+      staticServers: {
+        context7: { type: 'stdio', command: 'node', args: ['context7.js'], tags: ['context7'] },
+      },
+      templateServers: {},
+      errors: [],
+    });
+    const res = createMockResponse();
+
+    await invokeInspectRoute(scopeAuthMiddleware, { query: { target: 'context7' } }, res);
+    await invokeInspectRoute(inspectHandler, { query: { target: 'context7' } }, res);
+
+    expect(res.statusCode).toBe(200);
+    expect(res.body).toMatchObject({
+      kind: 'server',
+      server: 'context7',
+      status: 'connected',
+      available: true,
+      totalTools: 1,
+      tools: [{ tool: 'query-docs' }],
+    });
+  });
 });
