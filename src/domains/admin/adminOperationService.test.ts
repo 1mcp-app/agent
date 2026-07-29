@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -85,6 +86,80 @@ describe('AdminOperationService', () => {
         expect.objectContaining({ type: 'audit', operationName: 'enableConfiguredServer' }),
       ]),
     );
+  });
+
+  it('replays a retained journal entry written with legacy idempotency hashes', async () => {
+    const seedService = createService();
+    await seedService.executeMutation({
+      context: context({ idempotencyKey: 'seed', requestFingerprint: 'seed' }),
+      operationName: 'seedJournal',
+      run: async () => ({ seeded: true }),
+    });
+
+    const operationContext = context();
+    const operationName = 'enableConfiguredServer';
+    const scopedKeyHash = legacyHash(
+      JSON.stringify({
+        runtimeScopeId: 'scope_a',
+        actorType: operationContext.actor.type,
+        accountId: operationContext.actor.accountId,
+        sessionId: operationContext.actor.sessionId,
+        operationName,
+        idempotencyKey: operationContext.idempotencyKey,
+      }),
+    );
+    const fingerprintHash = legacyHash(operationContext.requestFingerprint!);
+    const legacyRecords = [
+      {
+        schemaVersion: 1,
+        type: 'reserved',
+        runtimeScopeId: 'scope_a',
+        timestamp: currentTime.toISOString(),
+        operationId: 'op_legacy',
+        operationName,
+        scopedKeyHash,
+        fingerprintHash,
+        target: operationContext.target,
+        actor: { type: 'admin_session', accountIdHash: 'legacy_account', sessionIdHash: 'legacy_session' },
+        origin: operationContext.origin,
+        request: operationContext.request,
+        runtimeIdentity: operationContext.runtimeIdentity,
+      },
+      {
+        schemaVersion: 1,
+        type: 'completed',
+        runtimeScopeId: 'scope_a',
+        timestamp: currentTime.toISOString(),
+        operationId: 'op_legacy',
+        operationName,
+        scopedKeyHash,
+        fingerprintHash,
+        result: { enabled: true, source: 'legacy' },
+      },
+    ];
+    fs.writeFileSync(journalPath(), `${legacyRecords.map((record) => JSON.stringify(record)).join('\n')}\n`, {
+      mode: 0o600,
+    });
+
+    const restarted = createService();
+    let executionCount = 0;
+    const replay = await restarted.executeMutation({
+      context: operationContext,
+      operationName,
+      run: async () => {
+        executionCount += 1;
+        return { enabled: false };
+      },
+    });
+
+    expect(replay).toMatchObject({
+      ok: true,
+      status: 'completed',
+      operationId: 'op_legacy',
+      replayed: true,
+      result: { enabled: true, source: 'legacy' },
+    });
+    expect(executionCount).toBe(0);
   });
 
   it('conflicts when the same idempotency key is reused with a different fingerprint', async () => {
@@ -1065,4 +1140,8 @@ async function waitUntil(predicate: () => boolean): Promise<void> {
 
 function wait(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function legacyHash(secret: string): string {
+  return createHash('sha256').update(secret).digest('base64url');
 }

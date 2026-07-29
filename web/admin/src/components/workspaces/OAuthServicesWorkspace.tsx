@@ -127,11 +127,9 @@ function OAuthServiceRow({
             >
               {actionLabel}
             </Button>
-            {busy ? (
-              <Text size="xs" c="dimmed" aria-live="polite">
-                {busy === 'authorize' ? 'Starting authorization...' : 'Restarting authorization...'}
-              </Text>
-            ) : null}
+            <Text size="xs" c="dimmed" aria-live="polite">
+              {busy ? (busy === 'authorize' ? 'Starting authorization...' : 'Restarting authorization...') : ''}
+            </Text>
           </Stack>
         ) : null}
       </Group>

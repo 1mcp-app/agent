@@ -233,11 +233,15 @@ function SummaryLink({
 }
 
 function CopyFeedback({ message }: { message: string | null }) {
-  return message ? (
-    <Alert aria-live="polite" color={message.startsWith('Could not') ? 'red' : 'teal'} mt="sm">
-      {message}
-    </Alert>
-  ) : null;
+  return (
+    <div aria-live="polite">
+      {message ? (
+        <Alert color={message.startsWith('Could not') ? 'red' : 'teal'} mt="sm">
+          {message}
+        </Alert>
+      ) : null}
+    </div>
+  );
 }
 
 function isSamePageNavigation(event: MouseEvent<HTMLAnchorElement>): boolean {

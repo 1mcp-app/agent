@@ -350,6 +350,7 @@ describe('AdminConsoleRoot', () => {
     renderRoot(api, { windowRef: routeWindow });
 
     expect(await screen.findByRole('status')).toHaveTextContent('OAuth authorization completed.');
+    expect(routeWindow.history.replaceState).toHaveBeenCalledWith(null, '', '/admin/oauth');
     const authorizeButton = screen.getByRole('button', { name: /authorize context7:0123456789ab/i });
     await user.click(authorizeButton);
     expect(authorizeOAuthService).toHaveBeenCalledWith({
@@ -436,7 +437,26 @@ describe('AdminConsoleRoot', () => {
     await user.click(screen.getByRole('button', { name: /log in/i }));
 
     expect(await screen.findByRole('button', { name: /authorize github/i })).toBeEnabled();
-    authorization.resolve({ serviceId: 'github', redirectUrl: 'https://provider.example/authorize' });
+    await act(async () => {
+      authorization.resolve({ serviceId: 'github', redirectUrl: 'https://provider.example/authorize' });
+      await authorization.promise;
+    });
+    expect(routeWindow.location.assign).not.toHaveBeenCalled();
+  });
+
+  it('uses fallback feedback for OAuth callback keys inherited from Object.prototype', async () => {
+    const routeWindow = createRouteWindow('/admin/oauth');
+    routeWindow.location.search = '?error=constructor';
+    const api = apiClient({
+      getSession: vi.fn(async () => session),
+      getStatus: vi.fn(async () => status),
+      listConfiguredServers: vi.fn(async () => []),
+    });
+
+    renderRoot(api, { windowRef: routeWindow });
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('OAuth authorization did not complete.');
+    expect(routeWindow.history.replaceState).toHaveBeenCalledWith(null, '', '/admin/oauth');
   });
 
   it('prevents reentrant preset save from queueing duplicate dialogs or mutations', async () => {

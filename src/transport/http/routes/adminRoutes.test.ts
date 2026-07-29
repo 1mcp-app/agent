@@ -617,6 +617,14 @@ describe('admin routes', () => {
       .get('/admin/cli/v1/session/status')
       .set('Authorization', 'Bearer admin_sess_missing')
       .set('X-Request-Id', 'req_cli_status_missing');
+    const spacedResponse = await request(app)
+      .get('/admin/cli/v1/session/status')
+      .set('Authorization', `Bearer${' '.repeat(2048)}${sessionToken}`)
+      .set('X-Request-Id', 'req_cli_status_spaced');
+    const malformedResponse = await request(app)
+      .get('/admin/cli/v1/session/status')
+      .set('Authorization', `Bearer\t${sessionToken}`)
+      .set('X-Request-Id', 'req_cli_status_malformed');
 
     expect(validateSpy).toHaveBeenCalledWith(sessionToken);
     expect(authenticatedResponse.status).toBe(200);
@@ -646,6 +654,17 @@ describe('admin routes', () => {
         runtime: cliRuntimeIdentity,
       },
     });
+    expect(spacedResponse.body).toMatchObject({
+      ok: true,
+      requestId: 'req_cli_status_spaced',
+      result: { authenticated: true },
+    });
+    expect(malformedResponse.body).toMatchObject({
+      ok: true,
+      requestId: 'req_cli_status_malformed',
+      result: { authenticated: false },
+    });
+    expect(validateSpy).toHaveBeenCalledWith(undefined);
   });
 
   it('logs out through the CLI adapter by revoking the bearer session server-side', async () => {

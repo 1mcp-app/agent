@@ -21,6 +21,13 @@ import type {
   OAuthFeedback,
 } from './AdminConsoleSessionModel';
 
+const OAUTH_CALLBACK_MESSAGES: Readonly<Record<string, string>> = {
+  access_denied: 'OAuth authorization was denied.',
+  missing_code: 'The OAuth provider callback did not include an authorization code.',
+  callback_failed: 'The runtime could not complete the OAuth provider callback.',
+  runtime_unavailable: 'The OAuth runtime became unavailable during the callback.',
+};
+
 function failureMessage(error: unknown): string {
   if (error instanceof AdminApiError) return error.failure.message;
   throw error;
@@ -82,9 +89,11 @@ export function useAdminConsoleSession({
   const [loginBusy, setLoginBusy] = useState(false);
   const [route, setRoute] = useState(() => adminRoute(windowRef.location?.pathname ?? '/admin'));
   const [oauthBusy, setOAuthBusy] = useState<{ serviceId: string; action: OAuthAdminAction } | null>(null);
-  const [oauthCallbackFeedback] = useState<OAuthFeedback | null>(() =>
-    oauthCallbackOutcome(windowRef.location?.search ?? ''),
-  );
+  const [oauthCallbackFeedback] = useState<OAuthFeedback | null>(() => {
+    const feedback = oauthCallbackOutcome(windowRef.location?.search ?? '');
+    if (feedback) windowRef.history?.replaceState(null, '', '/admin/oauth');
+    return feedback;
+  });
   const [oauthOperationFeedback, setOAuthOperationFeedback] = useState<OAuthFeedback | null>(null);
   const [presets, setPresets] = useState<AdminPresetListItem[]>([]);
   const [presetTargets, setPresetTargets] = useState<AdminPresetTarget[]>([]);
@@ -521,12 +530,8 @@ function oauthCallbackOutcome(search: string): OAuthFeedback | null {
   }
   const error = query.get('error');
   if (!error) return null;
-  const message =
-    {
-      access_denied: 'OAuth authorization was denied.',
-      missing_code: 'The OAuth provider callback did not include an authorization code.',
-      callback_failed: 'The runtime could not complete the OAuth provider callback.',
-      runtime_unavailable: 'The OAuth runtime became unavailable during the callback.',
-    }[error] ?? 'OAuth authorization did not complete.';
+  const message = Object.hasOwn(OAUTH_CALLBACK_MESSAGES, error)
+    ? OAUTH_CALLBACK_MESSAGES[error]
+    : 'OAuth authorization did not complete.';
   return { kind: 'error', message };
 }

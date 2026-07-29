@@ -1,4 +1,4 @@
-import { createHash } from 'node:crypto';
+import { createHmac } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -36,15 +36,21 @@ import {
   type AdminPresetOperations,
 } from '@src/domains/admin/adminPresetService.js';
 import type { AdminMutationAvailability } from '@src/domains/admin/runtimeScopeAdminLock.js';
+import { sensitiveOperationLimiter } from '@src/transport/http/middlewares/securityMiddleware.js';
 import { sanitizeErrorMessage } from '@src/utils/validation/sanitization.js';
 
 import express, { Request, Response, Router } from 'express';
+import rateLimit from 'express-rate-limit';
 import { createRequire } from 'node:module';
 import { z } from 'zod';
 
 const FAILED_LOGIN_LIMIT = 5;
 const FAILED_LOGIN_WINDOW_MS = 15 * 60 * 1000;
 const FAILED_LOGIN_MAX_ACTIVE_KEYS = 10_000;
+const ADMIN_AUTH_RATE_LIMIT = 30;
+const ADMIN_AUTH_RATE_LIMIT_WINDOW_MS = 15 * 60 * 1000;
+const ADMIN_STATUS_RATE_LIMIT = 120;
+const ADMIN_STATUS_RATE_LIMIT_WINDOW_MS = 60 * 1000;
 const ADMIN_USERNAME_MAX_LENGTH = 256;
 const ADMIN_PASSWORD_MAX_LENGTH = 4096;
 const CLI_ADMIN_PROTOCOL_VERSION = '1';
@@ -115,6 +121,18 @@ export function createAdminRoutes(options: AdminRoutesOptions): Router | null {
 
   const router = Router();
   const failedLoginLimiter = new FailedLoginLimiter();
+  const authenticationLimiter = rateLimit({
+    windowMs: ADMIN_AUTH_RATE_LIMIT_WINDOW_MS,
+    max: ADMIN_AUTH_RATE_LIMIT,
+    standardHeaders: true,
+    legacyHeaders: false,
+  });
+  const statusLimiter = rateLimit({
+    windowMs: ADMIN_STATUS_RATE_LIMIT_WINDOW_MS,
+    max: ADMIN_STATUS_RATE_LIMIT,
+    standardHeaders: true,
+    legacyHeaders: false,
+  });
   const adminConsoleAssets = resolveAdminConsoleAssets(options.adminConsoleAssetsDir);
   options.adminService.bootstrapFirstAdminFromEnvironment();
 
@@ -164,7 +182,7 @@ export function createAdminRoutes(options: AdminRoutesOptions): Router | null {
     });
   });
 
-  router.post('/cli/v1/session/login', async (req, res) => {
+  router.post('/cli/v1/session/login', authenticationLimiter, async (req, res) => {
     const parsedBody = adminLoginBodySchema.safeParse(req.body);
     if (!parsedBody.success) {
       sendCliError(req, res, {
@@ -248,7 +266,7 @@ export function createAdminRoutes(options: AdminRoutesOptions): Router | null {
     await handleCliBackendRestart(req, res, options);
   });
 
-  router.post('/api/session/login', async (req, res) => {
+  router.post('/api/session/login', authenticationLimiter, async (req, res) => {
     const parsedBody = adminLoginBodySchema.safeParse(req.body);
     if (!parsedBody.success) {
       res.status(400).json({ error: 'admin_login_request_invalid' });
@@ -318,7 +336,7 @@ export function createAdminRoutes(options: AdminRoutesOptions): Router | null {
     res.status(200).json({ ok: true });
   });
 
-  router.get('/api/status', (req, res) => {
+  router.get('/api/status', statusLimiter, (req, res) => {
     const session = options.adminService.validateSession(getAdminSessionCookie(req));
     if (!session) {
       res.status(401).json({ authenticated: false });
@@ -347,7 +365,7 @@ export function createAdminRoutes(options: AdminRoutesOptions): Router | null {
     });
   });
 
-  router.post('/api/oauth/:serviceId/authorize', async (req, res) => {
+  router.post('/api/oauth/:serviceId/authorize', sensitiveOperationLimiter, async (req, res) => {
     if (!options.oauthService) {
       res.status(503).json({ error: 'backend_oauth_runtime_unavailable' });
       return;
@@ -362,7 +380,7 @@ export function createAdminRoutes(options: AdminRoutesOptions): Router | null {
     sendAdminOAuthOperationResult(res, result);
   });
 
-  router.post('/api/oauth/:serviceId/restart', async (req, res) => {
+  router.post('/api/oauth/:serviceId/restart', sensitiveOperationLimiter, async (req, res) => {
     if (!options.oauthService) {
       res.status(503).json({ error: 'backend_oauth_runtime_unavailable' });
       return;
@@ -1099,9 +1117,24 @@ function getBearerSessionToken(req: Request): string | undefined {
     return undefined;
   }
 
-  const match = authorization.match(/^Bearer\s+(.+)$/i);
-  const token = match?.[1]?.trim();
-  return token || undefined;
+  const bearerScheme = 'Bearer';
+  if (
+    authorization.length <= bearerScheme.length ||
+    authorization.slice(0, bearerScheme.length).toLowerCase() !== bearerScheme.toLowerCase()
+  ) {
+    return undefined;
+  }
+
+  let tokenStart = bearerScheme.length;
+  if (authorization.charCodeAt(tokenStart) !== 0x20) {
+    return undefined;
+  }
+  while (authorization.charCodeAt(tokenStart) === 0x20) {
+    tokenStart += 1;
+  }
+
+  const token = authorization.slice(tokenStart);
+  return token && !/\s/u.test(token) ? token : undefined;
 }
 
 function isHttpsRuntime(externalUrl: string): boolean {
@@ -1498,6 +1531,7 @@ function configuredServerRequestFingerprint(
   targetName: string | undefined,
   body?: unknown,
 ): string {
+  const previewFingerprint = getBodyString(body, 'previewFingerprint');
   const normalized = stableJsonStringify({
     schemaVersion: 1,
     operationName,
@@ -1507,10 +1541,12 @@ function configuredServerRequestFingerprint(
     },
     ...(operationName === 'applyConfiguredServerEdit'
       ? {
-          previewFingerprint: getBodyString(body, 'previewFingerprint'),
-          editDigest: createHash('sha256')
-            .update(stableJsonStringify(getBodyValue(body, 'edit') ?? {}))
-            .digest('hex'),
+          previewFingerprint,
+          editDigest: keyedRequestFingerprint(
+            previewFingerprint,
+            'configured-server-edit',
+            stableJsonStringify(getBodyValue(body, 'edit') ?? {}),
+          ),
         }
       : {}),
     ...(operationName === 'restartBackend'
@@ -1523,8 +1559,12 @@ function configuredServerRequestFingerprint(
       : {}),
   });
   return operationName === 'applyConfiguredServerEdit'
-    ? `configured_server_apply_${createHash('sha256').update(normalized).digest('hex')}`
+    ? `configured_server_apply_${keyedRequestFingerprint(previewFingerprint, 'configured-server-apply', normalized)}`
     : normalized;
+}
+
+function keyedRequestFingerprint(key: string, domain: string, value: string): string {
+  return createHmac('sha256', key).update(domain).update('\0').update(value).digest('hex');
 }
 
 function backendOAuthRequestFingerprint(operationName: string, serviceId: string | undefined): string {
@@ -1613,6 +1653,9 @@ function cliOperationErrorDetails(result: AdminOperationFailure): Record<string,
 }
 
 function operationNameForRequest(req: Request): string {
+  if (req.path.startsWith('/api/oauth/')) {
+    return req.path.endsWith('/restart') ? 'restartBackendOAuth' : 'authorizeBackendOAuth';
+  }
   if (req.path.endsWith('/restart-server')) {
     return 'restartBackend';
   }

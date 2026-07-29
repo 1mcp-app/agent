@@ -68,6 +68,7 @@ vi.mock('./middlewares/errorHandler.js', () => ({
 }));
 
 vi.mock('./middlewares/securityMiddleware.js', () => ({
+  sensitiveOperationLimiter: vi.fn((_req, _res, next) => next()),
   setupSecurityMiddleware: vi.fn(() => [vi.fn()]),
 }));
 
