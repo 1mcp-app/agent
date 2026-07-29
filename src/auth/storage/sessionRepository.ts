@@ -36,12 +36,20 @@ export class SessionRepository {
   /**
    * Creates a session with a specific token ID (for access tokens)
    */
-  createWithId(tokenId: string, clientId: string, resource: string, scopes: string[], ttlMs: number): string {
+  createWithId(
+    tokenId: string,
+    clientId: string,
+    resource: string,
+    scopes: string[],
+    ttlMs: number,
+    refreshFamilyId?: string,
+  ): string {
     const sessionId = AUTH_CONFIG.SERVER.SESSION.ID_PREFIX + tokenId;
     const sessionData: SessionData = {
       clientId,
       resource,
       scopes,
+      refreshFamilyId,
       expires: Date.now() + ttlMs,
       createdAt: Date.now(),
     };

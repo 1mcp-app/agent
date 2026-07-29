@@ -15,6 +15,20 @@ export interface SessionData extends ExpirableData {
   clientId: string;
   resource: string;
   scopes: string[];
+  refreshFamilyId?: string;
+}
+
+export interface RefreshTokenFamilyData extends ExpirableData {
+  familyId: string;
+  runtimeScopeId: string;
+  clientId: string;
+  scopeCeiling: string[];
+  resource: string;
+  currentTokenDigest: string;
+  consumedTokenDigests: string[];
+  accessTokenIds: string[];
+  status: 'active' | 'revoked';
+  revokedAt?: number;
 }
 
 export interface ClientData extends ExpirableData, OAuthClientInformationFull {}

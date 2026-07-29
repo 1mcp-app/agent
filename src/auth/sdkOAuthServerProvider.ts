@@ -1,6 +1,11 @@
 import { randomUUID } from 'node:crypto';
 
 import type { OAuthRegisteredClientsStore } from '@modelcontextprotocol/sdk/server/auth/clients.js';
+import {
+  InvalidGrantError,
+  InvalidScopeError,
+  InvalidTargetError,
+} from '@modelcontextprotocol/sdk/server/auth/errors.js';
 import type { AuthorizationParams, OAuthServerProvider } from '@modelcontextprotocol/sdk/server/auth/provider.js';
 import type { AuthInfo } from '@modelcontextprotocol/sdk/server/auth/types.js';
 import type {
@@ -11,6 +16,7 @@ import type {
 
 import { McpConfigManager } from '@src/config/mcpConfigManager.js';
 import { AUTH_CONFIG } from '@src/constants.js';
+import { RuntimeIdentityService } from '@src/core/runtime/runtimeIdentityService.js';
 import { AgentConfigManager } from '@src/core/server/agentConfig.js';
 import logger from '@src/logger/logger.js';
 import { escapeHtml } from '@src/utils/validation/sanitization.js';
@@ -25,8 +31,9 @@ import type { Response } from 'express';
 
 import { OAuthStorageService } from './storage/oauthStorageService.js';
 
-const OAUTH_CONSENT_PAGE_CSP =
-  "default-src 'none'; form-action 'self'; style-src 'unsafe-inline'; img-src 'self' data:; base-uri 'none'; frame-ancestors 'none';";
+const OAUTH_CONSENT_PAGE_CSP_SUFFIX =
+  "style-src 'unsafe-inline'; img-src 'self' data:; base-uri 'none'; frame-ancestors 'none';";
+const LOOPBACK_HOSTS = new Set(['localhost', '127.0.0.1', '[::1]']);
 
 /**
  * File-based OAuth clients store implementation using the new repository architecture
@@ -84,8 +91,10 @@ export class SDKOAuthServerProvider implements OAuthServerProvider {
   private configManager: AgentConfigManager;
   private _clientsStore: OAuthRegisteredClientsStore;
 
-  constructor(sessionStoragePath?: string) {
-    this.oauthStorage = new OAuthStorageService(sessionStoragePath);
+  constructor(sessionStoragePath?: string, runtimeScopeId?: string) {
+    const scopeId =
+      runtimeScopeId ?? new RuntimeIdentityService({ storageDir: sessionStoragePath }).getRuntimeScopeId();
+    this.oauthStorage = new OAuthStorageService(sessionStoragePath, scopeId);
     this.configManager = AgentConfigManager.getInstance();
     this._clientsStore = new FileBasedClientsStore(this.oauthStorage);
   }
@@ -180,7 +189,7 @@ export class SDKOAuthServerProvider implements OAuthServerProvider {
     const scopeTags = scopesToTags(requestedScopes);
     const consentPageHtml = this.generateConsentPageHtml(client, authRequestId, scopeTags, availableTags);
 
-    res.set('Content-Security-Policy', OAUTH_CONSENT_PAGE_CSP);
+    res.set('Content-Security-Policy', createConsentPageCsp(client, params.redirectUri));
     res.set('Content-Type', 'text/html');
     res.send(consentPageHtml);
   }
@@ -240,6 +249,9 @@ export class SDKOAuthServerProvider implements OAuthServerProvider {
   ): string {
     const clientName = escapeHtml(client.client_name || client.client_id);
     const escapedAuthRequestId = escapeHtml(authRequestId);
+    const renewableAccessNotice = client.grant_types?.includes('refresh_token')
+      ? '<p>This application can renew this access for up to 30 days.</p>'
+      : '';
 
     return `
 <!DOCTYPE html>
@@ -276,6 +288,7 @@ export class SDKOAuthServerProvider implements OAuthServerProvider {
 
         <div class="security-notice">
             <strong>Security Notice:</strong> Only grant access to server groups that this application needs.
+            ${renewableAccessNotice}
         </div>
 
         <form method="POST" action="/oauth/consent">
@@ -327,7 +340,7 @@ export class SDKOAuthServerProvider implements OAuthServerProvider {
 
     const codeData = this.oauthStorage.authCodeRepository.get(authorizationCode);
     if (!codeData || codeData.clientId !== client.client_id) {
-      throw new Error('Invalid authorization code');
+      throw new InvalidGrantError('Invalid authorization code');
     }
 
     return codeData.codeChallenge || '';
@@ -354,22 +367,22 @@ export class SDKOAuthServerProvider implements OAuthServerProvider {
 
     const codeData = this.oauthStorage.authCodeRepository.get(authorizationCode);
     if (!codeData) {
-      throw new Error('Invalid or expired authorization code');
+      throw new InvalidGrantError('Invalid or expired authorization code');
     }
 
     // Validate client ID
     if (codeData.clientId !== client.client_id) {
-      throw new Error('Client ID mismatch');
+      throw new InvalidGrantError('Invalid or expired authorization code');
     }
 
     // Validate redirect URI if provided
     if (redirectUri && codeData.redirectUri !== redirectUri) {
-      throw new Error('Redirect URI mismatch');
+      throw new InvalidGrantError('Redirect URI mismatch');
     }
 
     // Validate resource if provided
     if (resource && codeData.resource && codeData.resource !== resource.toString()) {
-      throw new Error('Resource mismatch');
+      throw new InvalidTargetError('Resource mismatch');
     }
 
     // Delete the authorization code (one-time use)
@@ -380,6 +393,15 @@ export class SDKOAuthServerProvider implements OAuthServerProvider {
     const accessToken = AUTH_CONFIG.SERVER.TOKEN.ID_PREFIX + tokenId;
     const ttlMs = this.configManager.get('auth').oauthTokenTtlMs;
 
+    const refreshFamily = client.grant_types?.includes('refresh_token')
+      ? this.oauthStorage.refreshTokenFamilyRepository.create(
+          client.client_id,
+          codeData.scopes,
+          codeData.resource || '',
+          tokenId,
+        )
+      : undefined;
+
     // Store session for token validation
     this.oauthStorage.sessionRepository.createWithId(
       tokenId,
@@ -387,6 +409,7 @@ export class SDKOAuthServerProvider implements OAuthServerProvider {
       codeData.resource || '',
       codeData.scopes,
       ttlMs,
+      refreshFamily?.family.familyId,
     );
 
     const tokens: OAuthTokens = {
@@ -394,6 +417,7 @@ export class SDKOAuthServerProvider implements OAuthServerProvider {
       token_type: 'Bearer',
       expires_in: Math.floor(ttlMs / 1000),
       scope: codeData.scopes ? codeData.scopes.join(' ') : '',
+      ...(refreshFamily ? { refresh_token: refreshFamily.refreshToken } : {}),
     };
 
     logger.info(`Exchanged authorization code for access token`, {
@@ -406,22 +430,75 @@ export class SDKOAuthServerProvider implements OAuthServerProvider {
   }
 
   /**
-   * Exchanges refresh token for new access token (not implemented)
+   * Atomically rotates a single-use refresh token and issues a new access token.
    */
   async exchangeRefreshToken(
-    _client: OAuthClientInformationFull,
-    _refreshToken: string,
-    _scopes?: string[],
-    _resource?: URL,
+    client: OAuthClientInformationFull,
+    refreshToken: string,
+    scopes?: string[],
+    resource?: URL,
   ): Promise<OAuthTokens> {
-    throw new Error('Refresh tokens not supported');
+    const repository = this.oauthStorage.refreshTokenFamilyRepository;
+    const family = repository.findByToken(refreshToken);
+    if (!family || family.clientId !== client.client_id) {
+      throw new InvalidGrantError('Invalid refresh token');
+    }
+
+    const tokenState = repository.getTokenState(family, refreshToken);
+    if (tokenState === 'consumed') {
+      const replay = repository.consume(refreshToken, client.client_id, randomUUID());
+      if (replay.status === 'replay') {
+        this.revokeFamilyAccessTokens(replay.family.accessTokenIds);
+      }
+      throw new InvalidGrantError('Refresh token replay detected');
+    }
+    if (tokenState !== 'current' || family.status !== 'active') {
+      throw new InvalidGrantError('Invalid refresh token');
+    }
+
+    const requestedScopes = scopes ?? family.scopeCeiling;
+    if (requestedScopes.some((scope) => !family.scopeCeiling.includes(scope))) {
+      throw new InvalidScopeError('Requested scope exceeds the originally consented scope');
+    }
+
+    if (resource && resource.toString() !== family.resource) {
+      throw new InvalidTargetError('Requested resource does not match the original resource');
+    }
+
+    const tokenId = randomUUID();
+    const rotation = repository.consume(refreshToken, client.client_id, tokenId);
+    if (rotation.status === 'replay') {
+      this.revokeFamilyAccessTokens(rotation.family.accessTokenIds);
+      throw new InvalidGrantError('Refresh token replay detected');
+    }
+    if (rotation.status !== 'rotated') {
+      throw new InvalidGrantError('Invalid refresh token');
+    }
+
+    const ttlMs = this.configManager.get('auth').oauthTokenTtlMs;
+    this.oauthStorage.sessionRepository.createWithId(
+      tokenId,
+      client.client_id,
+      family.resource,
+      requestedScopes,
+      ttlMs,
+      family.familyId,
+    );
+
+    return {
+      access_token: AUTH_CONFIG.SERVER.TOKEN.ID_PREFIX + tokenId,
+      token_type: 'Bearer',
+      expires_in: Math.floor(ttlMs / 1000),
+      scope: requestedScopes.join(' '),
+      refresh_token: rotation.refreshToken,
+    };
   }
 
   /**
    * Verifies access token and returns auth info with granted scopes
    */
   async verifyAccessToken(token: string): Promise<AuthInfo> {
-    logger.debug('Verifying access token', { token });
+    logger.debug('Verifying access token');
 
     if (!this.configManager.get('features').auth) {
       // Auth disabled, return minimal auth info with all available tags as scopes
@@ -460,9 +537,21 @@ export class SDKOAuthServerProvider implements OAuthServerProvider {
    * Revokes a token
    */
   async revokeToken(client: OAuthClientInformationFull, request: OAuthTokenRevocationRequest): Promise<void> {
-    logger.debug('Revoking token', { clientId: client.client_id, request });
+    logger.debug('Revoking OAuth token', { clientId: client.client_id });
 
     const token = request.token;
+
+    const refreshFamily = this.oauthStorage.refreshTokenFamilyRepository.findByToken(token);
+    if (refreshFamily) {
+      const revokedFamily = this.oauthStorage.refreshTokenFamilyRepository.revokeForClient(
+        refreshFamily,
+        client.client_id,
+      );
+      if (revokedFamily) {
+        this.revokeFamilyAccessTokens(revokedFamily.accessTokenIds);
+      }
+      return;
+    }
 
     // Strip prefix if present
     const tokenId = token.startsWith(AUTH_CONFIG.SERVER.TOKEN.ID_PREFIX)
@@ -470,12 +559,19 @@ export class SDKOAuthServerProvider implements OAuthServerProvider {
       : token;
 
     const sessionId = AUTH_CONFIG.SERVER.SESSION.ID_PREFIX + tokenId;
-    const success = this.oauthStorage.sessionRepository.delete(sessionId);
+    const session = this.oauthStorage.sessionRepository.get(sessionId);
+    const success = session?.clientId === client.client_id && this.oauthStorage.sessionRepository.delete(sessionId);
 
     if (success) {
       logger.info(`Revoked access token for client ${client.client_id}`, {
         tokenId: tokenId.substring(0, 8) + '...',
       });
+    }
+  }
+
+  private revokeFamilyAccessTokens(accessTokenIds: string[]): void {
+    for (const accessTokenId of accessTokenIds) {
+      this.oauthStorage.sessionRepository.delete(AUTH_CONFIG.SERVER.SESSION.ID_PREFIX + accessTokenId);
     }
   }
 
@@ -485,4 +581,43 @@ export class SDKOAuthServerProvider implements OAuthServerProvider {
   shutdown(): void {
     this.oauthStorage.shutdown();
   }
+}
+
+function createConsentPageCsp(client: OAuthClientInformationFull, requestedRedirectUri: string): string {
+  const callbackOrigin = getValidatedLoopbackCallbackOrigin(client.redirect_uris, requestedRedirectUri);
+  const formAction = callbackOrigin ? `form-action 'self' ${callbackOrigin};` : "form-action 'self';";
+  return `default-src 'none'; ${formAction} ${OAUTH_CONSENT_PAGE_CSP_SUFFIX}`;
+}
+
+function getValidatedLoopbackCallbackOrigin(
+  registeredRedirectUris: string[],
+  requestedRedirectUri: string,
+): string | null {
+  let requested: URL;
+  try {
+    requested = new URL(requestedRedirectUri);
+  } catch {
+    return null;
+  }
+
+  if (!LOOPBACK_HOSTS.has(requested.hostname)) {
+    return null;
+  }
+
+  const matchesRegistered = registeredRedirectUris.some((registeredRedirectUri) => {
+    try {
+      const registered = new URL(registeredRedirectUri);
+      return (
+        LOOPBACK_HOSTS.has(registered.hostname) &&
+        requested.protocol === registered.protocol &&
+        requested.hostname === registered.hostname &&
+        requested.pathname === registered.pathname &&
+        requested.search === registered.search
+      );
+    } catch {
+      return false;
+    }
+  });
+
+  return matchesRegistered ? requested.origin : null;
 }
