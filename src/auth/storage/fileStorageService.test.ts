@@ -143,16 +143,19 @@ describe('FileStorageService', () => {
       expect(fs.existsSync(lockPath)).toBe(false);
     });
 
-    it('preserves the operation result when lock cleanup fails', async () => {
+    it('recovers from a release rename failure without blocking the next acquisition', async () => {
       const originalRenameSync = fs.renameSync;
+      let failedReleaseRename = false;
       vi.spyOn(fs, 'renameSync').mockImplementation((oldPath, newPath) => {
-        if (String(newPath).endsWith('.releasing')) {
+        if (!failedReleaseRename && String(newPath).endsWith('.releasing')) {
+          failedReleaseRename = true;
           throw new Error('simulated lock cleanup failure');
         }
         return originalRenameSync(oldPath, newPath);
       });
 
       await expect(service.withExclusiveLock('refresh-test', () => 'committed')).resolves.toBe('committed');
+      await expect(service.withExclusiveLock('refresh-test', () => 'acquired-again')).resolves.toBe('acquired-again');
     });
   });
 

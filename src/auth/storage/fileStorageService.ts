@@ -628,6 +628,36 @@ export class FileStorageService {
     const tombstonePath = `${lockPath}.${operationId}.releasing`;
     try {
       fs.renameSync(lockPath, tombstonePath);
+    } catch (renameError) {
+      const currentOwner = this.readLockOwner(lockPath);
+      if (!currentOwner && !fs.existsSync(lockPath)) {
+        logger.warn(`Storage lock disappeared during release: ${lockPath}`);
+        return;
+      }
+      if (currentOwner?.operationId !== operationId) {
+        logger.error(`Storage lock ownership changed during release: ${lockPath}`);
+        throw renameError;
+      }
+
+      try {
+        removeLockDirectory(lockPath);
+      } catch (cleanupError) {
+        throw new AggregateError(
+          [renameError, cleanupError],
+          `Failed to release storage lock after rename failure: ${lockPath}`,
+        );
+      }
+
+      try {
+        this.flushStorageDirectory();
+      } catch (flushError) {
+        logger.error(`Failed to flush storage directory after lock release ${lockPath}: ${flushError}`);
+      }
+      logger.warn(`Released storage lock without rename after rename failure: ${lockPath}`);
+      return;
+    }
+
+    try {
       removeLockDirectory(tombstonePath);
       this.flushStorageDirectory();
     } catch (error) {
