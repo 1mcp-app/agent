@@ -155,6 +155,7 @@ describe('FileStorageService', () => {
       });
 
       await expect(service.withExclusiveLock('refresh-test', () => 'committed')).resolves.toBe('committed');
+      expect(failedReleaseRename).toBe(true);
       await expect(service.withExclusiveLock('refresh-test', () => 'acquired-again')).resolves.toBe('acquired-again');
     });
   });
