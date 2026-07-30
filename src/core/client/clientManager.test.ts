@@ -332,6 +332,105 @@ describe('ClientManager (Integration)', () => {
     });
   });
 
+  describe('session loss recovery', () => {
+    it('reconnects with a fresh (session-less) transport when the backend reports a lost session', async () => {
+      vi.useRealTimers();
+
+      const originalTransport = {
+        _url: new URL('https://example.com/mcp'),
+        close: vi.fn().mockResolvedValue(undefined),
+      } as unknown as AuthProviderTransport;
+      Object.setPrototypeOf(originalTransport, StreamableHTTPClientTransport.prototype);
+
+      const freshTransport = {
+        _url: new URL('https://example.com/mcp'),
+        close: vi.fn().mockResolvedValue(undefined),
+      } as unknown as AuthProviderTransport;
+      Object.setPrototypeOf(freshTransport, StreamableHTTPClientTransport.prototype);
+
+      (mockClient.connect as unknown as MockInstance).mockResolvedValue(undefined);
+      (mockClient.getServerVersion as unknown as MockInstance).mockResolvedValue({
+        name: 'test-server',
+        version: '1.0.0',
+      });
+
+      const recreateForSessionLoss = vi
+        .spyOn((clientManager as any).transportRecreator, 'recreateForSessionLoss')
+        .mockReturnValue(freshTransport);
+
+      await clientManager.createSingleClient('session-loss-client', originalTransport);
+      expect(clientManager.getTransport('session-loss-client')).toBe(originalTransport);
+
+      const registeredClient = clientManager.getClient('session-loss-client').client;
+      registeredClient.onerror?.(
+        new Error(
+          'Streamable HTTP error: Error POSTing to endpoint: ' +
+            '{"jsonrpc":"2.0","id":"server-error","error":{"code":-32600,"message":"Session not found"}}',
+        ),
+      );
+
+      // onerror kicks off recovery fire-and-forget — wait for it to settle
+      await vi.waitFor(() => {
+        expect(clientManager.getTransport('session-loss-client')).toBe(freshTransport);
+      });
+
+      expect(recreateForSessionLoss).toHaveBeenCalledWith(originalTransport, 'session-loss-client');
+      expect(clientManager.getClient('session-loss-client').status).toBe(ClientStatus.Connected);
+    });
+
+    it('also recovers the "Could not find session ID" wording used by SSE-transport backends', async () => {
+      vi.useRealTimers();
+
+      const originalTransport = {
+        _url: new URL('https://example.com/sse'),
+        close: vi.fn().mockResolvedValue(undefined),
+      } as unknown as AuthProviderTransport;
+      Object.setPrototypeOf(originalTransport, StreamableHTTPClientTransport.prototype);
+
+      (mockClient.connect as unknown as MockInstance).mockResolvedValue(undefined);
+      (mockClient.getServerVersion as unknown as MockInstance).mockResolvedValue({
+        name: 'test-server',
+        version: '1.0.0',
+      });
+
+      const recreateForSessionLoss = vi.spyOn((clientManager as any).transportRecreator, 'recreateForSessionLoss');
+
+      await clientManager.createSingleClient('sse-session-loss-client', originalTransport);
+      const registeredClient = clientManager.getClient('sse-session-loss-client').client;
+      registeredClient.onerror?.(new Error("Error POSTing to endpoint (HTTP 404): Could not find session ID 'abc'"));
+
+      await vi.waitFor(() => {
+        expect(recreateForSessionLoss).toHaveBeenCalledWith(originalTransport, 'sse-session-loss-client');
+      });
+    });
+
+    it('ignores unrelated client errors', async () => {
+      vi.useRealTimers();
+
+      const originalTransport = {
+        _url: new URL('https://example.com/mcp'),
+        close: vi.fn().mockResolvedValue(undefined),
+      } as unknown as AuthProviderTransport;
+      Object.setPrototypeOf(originalTransport, StreamableHTTPClientTransport.prototype);
+
+      (mockClient.connect as unknown as MockInstance).mockResolvedValue(undefined);
+      (mockClient.getServerVersion as unknown as MockInstance).mockResolvedValue({
+        name: 'test-server',
+        version: '1.0.0',
+      });
+
+      const recreateForSessionLoss = vi.spyOn((clientManager as any).transportRecreator, 'recreateForSessionLoss');
+
+      await clientManager.createSingleClient('unrelated-error-client', originalTransport);
+      const registeredClient = clientManager.getClient('unrelated-error-client').client;
+      registeredClient.onerror?.(new Error('ECONNRESET'));
+
+      await Promise.resolve();
+      expect(recreateForSessionLoss).not.toHaveBeenCalled();
+      expect(clientManager.getTransport('unrelated-error-client')).toBe(originalTransport);
+    });
+  });
+
   describe('getClient and getClients', () => {
     beforeEach(async () => {
       (mockClient.connect as unknown as MockInstance).mockResolvedValue(undefined);

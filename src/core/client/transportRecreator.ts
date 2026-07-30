@@ -5,6 +5,20 @@ import { AuthProviderTransport } from '@src/core/types/index.js';
 
 import type { TransportRecreationState } from './transportRecreationState.js';
 
+export interface RecreateHttpTransportOptions {
+  /**
+   * Whether to carry the existing `sessionId` over to the new transport.
+   *
+   * Defaults to `true`, which is correct for OAuth retries (the session itself
+   * is still valid; only auth needs refreshing). Callers recovering from a
+   * server-invalidated session (e.g. the backend restarted and lost its
+   * in-memory session store) must pass `false` so the new transport performs
+   * a full `initialize` handshake and is issued a fresh session ID, instead of
+   * immediately failing again with the same stale one.
+   */
+  preserveSessionId?: boolean;
+}
+
 export class TransportRecreator {
   public recreateForRetry(transport: AuthProviderTransport, serverName?: string): AuthProviderTransport {
     if (this.isHttpTransport(transport)) {
@@ -14,12 +28,26 @@ export class TransportRecreator {
     return transport;
   }
 
-  public recreateHttpTransport(transport: AuthProviderTransport, serverName?: string): AuthProviderTransport {
+  /**
+   * Recreates a transport whose backend session was lost (server restarted or
+   * otherwise invalidated the session ID). Unlike {@link recreateForRetry},
+   * this never carries the old session ID forward.
+   */
+  public recreateForSessionLoss(transport: AuthProviderTransport, serverName?: string): AuthProviderTransport {
+    return this.recreateHttpTransport(transport, serverName, { preserveSessionId: false });
+  }
+
+  public recreateHttpTransport(
+    transport: AuthProviderTransport,
+    serverName?: string,
+    options?: RecreateHttpTransportOptions,
+  ): AuthProviderTransport {
     if (!this.isHttpTransport(transport)) {
       const name = serverName ? `Transport for ${serverName}` : 'Transport';
       throw new Error(`${name} does not support OAuth (requires HTTP or SSE transport)`);
     }
 
+    const preserveSessionId = options?.preserveSessionId ?? true;
     const state = transport as unknown as TransportRecreationState;
     const authTransport = transport as AuthProviderTransport;
     const oauthProvider = authTransport.oauthProvider;
@@ -31,7 +59,7 @@ export class TransportRecreator {
             requestInit: state._requestInit,
             fetch: state._fetch,
             reconnectionOptions: state._reconnectionOptions,
-            sessionId: state._sessionId,
+            sessionId: preserveSessionId ? state._sessionId : undefined,
           }) as AuthProviderTransport)
         : (new SSEClientTransport(state._url, {
             authProvider: oauthProvider,

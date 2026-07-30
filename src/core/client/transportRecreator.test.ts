@@ -60,6 +60,35 @@ describe('TransportRecreator', () => {
         expect((newTransport as any)._sessionId).toBe('existing-session');
       });
 
+      it('should drop the session ID when preserveSessionId is false', () => {
+        const originalTransport = {
+          _url: new URL('https://example.com/mcp'),
+          _sessionId: 'stale-session',
+          oauthProvider: { token: 'test-token' },
+        } as unknown as AuthProviderTransport;
+        Object.setPrototypeOf(originalTransport, StreamableHTTPClientTransport.prototype);
+
+        const newTransport = transportRecreator.recreateHttpTransport(originalTransport, 'test-server', {
+          preserveSessionId: false,
+        });
+
+        expect((newTransport as any)._sessionId).toBeUndefined();
+      });
+
+      it('recreateForSessionLoss should drop the session ID', () => {
+        const originalTransport = {
+          _url: new URL('https://example.com/mcp'),
+          _sessionId: 'stale-session',
+          oauthProvider: { token: 'test-token' },
+        } as unknown as AuthProviderTransport;
+        Object.setPrototypeOf(originalTransport, StreamableHTTPClientTransport.prototype);
+
+        const newTransport = transportRecreator.recreateForSessionLoss(originalTransport, 'test-server');
+
+        expect(newTransport).not.toBe(originalTransport);
+        expect((newTransport as any)._sessionId).toBeUndefined();
+      });
+
       it('should preserve oauthProvider configuration', () => {
         const oauthProvider = {
           token: 'oauth-token-123',

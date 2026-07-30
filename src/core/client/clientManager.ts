@@ -33,6 +33,20 @@ export const enum ClientManagerEvent {
   BackendSupervisionStateChanged = 'backend-supervision-state-changed',
 }
 
+// Matches the two message shapes downstream servers are observed to send back
+// when a Streamable HTTP / SSE session ID they issued no longer exists on
+// their side (e.g. the backend process restarted and its in-memory session
+// store was wiped): the MCP spec's own "Session not found" wording, and the
+// free-form "Could not find session ID '...'" text some server SDKs use.
+const SESSION_LOST_PATTERN = /session (?:id )?not found|could not find session/i;
+
+function isSessionLostError(error: unknown): boolean {
+  if (!(error instanceof Error)) {
+    return false;
+  }
+  return SESSION_LOST_PATTERN.test(error.message);
+}
+
 type StdioSupervisionMetadata = NonNullable<AuthProviderTransport['stdioSupervision']>;
 
 export class ClientManager extends EventEmitter {
@@ -159,7 +173,43 @@ export class ClientManager extends EventEmitter {
 
     client.onerror = (error) => {
       logger.error(`Client ${name} error: ${error}`);
+
+      if (isSessionLostError(error)) {
+        this.recoverFromSessionLoss(name, client);
+      }
     };
+  }
+
+  /**
+   * Reconnects a backend whose Streamable HTTP / SSE session was invalidated
+   * server-side (typically because the backend process restarted and lost its
+   * in-memory session store). Without this, the client keeps reusing the dead
+   * session ID on every subsequent request and the backend never recovers
+   * until the whole 1MCP process is restarted.
+   */
+  private recoverFromSessionLoss(name: string, erroredClient: Client): void {
+    if (this.isShuttingDown) {
+      return;
+    }
+
+    // The client that errored may already have been superseded by a newer
+    // connection attempt (e.g. a concurrent recovery, or the server coming
+    // back mid-retry) — only recover if it's still the one on record.
+    const clientInfo = this.outboundConns.get(name);
+    if (!clientInfo || clientInfo.client !== erroredClient) {
+      return;
+    }
+
+    logger.warn(`Session for ${name} was lost (backend likely restarted) — reconnecting with a fresh session`);
+
+    const staleTransport = this.transports[name] ?? clientInfo.transport;
+    const freshTransport = this.transportRecreator.recreateForSessionLoss(staleTransport, name);
+
+    void this.createSingleClient(name, freshTransport).catch((error) => {
+      logger.error(
+        `Failed to recover ${name} after session loss: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    });
   }
 
   /**
