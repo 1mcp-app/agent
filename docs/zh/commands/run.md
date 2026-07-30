@@ -1,3 +1,8 @@
+---
+title: Run 命令 - 通过 1MCP 调用工具
+description: 使用 run 命令针对运行中的 1MCP serve 实例调用 MCP 工具，并了解参数、stdin 映射和输出格式。
+---
+
 # Run 命令
 
 通过运行中的 1MCP `serve` 实例调用 MCP 工具。

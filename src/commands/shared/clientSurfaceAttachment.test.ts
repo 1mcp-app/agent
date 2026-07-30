@@ -1,3 +1,5 @@
+import { createMockCliSessionCache } from '@test/unit-utils/MockFactories.js';
+
 import type { ProjectConfig } from '@src/config/projectConfigTypes.js';
 import type { ContextData } from '@src/types/context.js';
 
@@ -193,13 +195,7 @@ describe('attachReusableClientSurface', () => {
 
   it('can require a fresh REST status check despite a negative cache hint', async () => {
     const ports = makePorts({
-      cachedSession: {
-        sessionId: 'cached-session',
-        serverUrl: 'http://127.0.0.1:3050/mcp',
-        contextHash: 'hash-from-port',
-        savedAt: 1000,
-        hasRestEndpoint: false,
-      },
+      cachedSession: createMockCliSessionCache({ hasRestEndpoint: false }),
     });
     const rest = vi.fn(async () => ({ status: 'success' as const, value: 'rest-value' }));
     const mcp = unusedAdapter();

@@ -1,18 +1,18 @@
 import { encode } from '@toon-format/toon';
 
 import { ApiClient } from '@src/commands/shared/apiClient.js';
-import { buildFilterSelectionQuery } from '@src/commands/shared/filterSelectionQuery.js';
-import {
-  type InspectServerSummary,
-  inspectServersResultSchema,
-} from '@src/commands/shared/inspectApiSchemas.js';
 import {
   attachReusableClientSurface,
   type ClientSurfaceAttachmentContext,
   formatClientSurfaceAuthRequiredMessage,
+  getClientSurfaceAuthRecoveryCommand,
 } from '@src/commands/shared/clientSurfaceAttachment.js';
+import { buildFilterSelectionQuery } from '@src/commands/shared/filterSelectionQuery.js';
+import { inspectServersResultSchema, type InspectServerSummary } from '@src/commands/shared/inspectApiSchemas.js';
 import { API_INSPECT_ENDPOINT } from '@src/constants/api.js';
 import type { GlobalOptions } from '@src/globalOptions.js';
+
+import { z } from 'zod';
 
 export interface WaitCommandOptions extends GlobalOptions {
   server?: string;
@@ -25,6 +25,25 @@ export interface WaitCommandOptions extends GlobalOptions {
   timeout?: number;
   format?: 'toon' | 'text' | 'json';
 }
+
+const waitCommandOptionsSchema = z
+  .object({
+    server: z.string().optional(),
+    url: z.string().optional(),
+    context: z.string().optional(),
+    preset: z.string().optional(),
+    filter: z.string().optional(),
+    tags: z.array(z.string()).optional(),
+    'tag-filter': z.string().optional(),
+    timeout: z.number().finite().optional(),
+    format: z.enum(['toon', 'text', 'json']).optional(),
+    config: z.string().optional(),
+    'config-dir': z.string().optional(),
+    'cli-session-cache-path': z.string().optional(),
+    'log-level': z.enum(['debug', 'info', 'warn', 'error']).optional(),
+    'log-file': z.string().optional(),
+  })
+  .passthrough();
 
 interface WaitResult {
   kind: 'wait';
@@ -45,19 +64,29 @@ export class WaitCommandError extends Error {
 }
 
 export async function waitCommand(options: WaitCommandOptions): Promise<void> {
-  const timeout = options.timeout ?? 30_000;
-  if (!Number.isFinite(timeout) || timeout <= 0) {
+  const parsedOptions = waitCommandOptionsSchema.safeParse(options);
+  if (!parsedOptions.success) {
+    if (parsedOptions.error.issues.some((issue) => issue.path[0] === 'timeout')) {
+      throwInvalidTimeout();
+    }
     throw new WaitCommandError(
-      'validation_timeout',
-      '--timeout must be a positive number of milliseconds.',
+      'validation_options',
+      `Invalid wait options: ${parsedOptions.error.issues[0]?.message ?? 'validation failed'}`,
       '1mcp wait',
+      { issues: parsedOptions.error.issues },
     );
+  }
+
+  const normalizedOptions = parsedOptions.data;
+  const timeout = normalizedOptions.timeout ?? 30_000;
+  if (!Number.isFinite(timeout) || timeout <= 0) {
+    throwInvalidTimeout();
   }
 
   const attachment = await attachReusableClientSurface<WaitCommandOptions, WaitResult>({
     clientSurface: 'wait',
     version: 'wait',
-    options,
+    options: normalizedOptions,
     alwaysTryRest: true,
     rest: (context) => waitForServers(context, timeout),
     // `wait` deliberately has no MCP fallback: /api/v1/inspect is the
@@ -66,14 +95,29 @@ export async function waitCommand(options: WaitCommandOptions): Promise<void> {
     mcp: async () => ({ status: 'error', message: 'The running 1MCP server does not support /api/v1/inspect.' }),
   });
 
+  if (attachment.status === 'auth_required') {
+    throw new WaitCommandError(
+      'auth_required',
+      attachment.message,
+      getClientSurfaceAuthRecoveryCommand({
+        baseUrl: attachment.baseUrl,
+        options: normalizedOptions,
+        target: attachment.target,
+      }),
+    );
+  }
   if (attachment.status !== 'success') {
     throw new WaitCommandError('server_status_unavailable', attachment.message, '1mcp inspect');
   }
 
-  const output = formatWaitOutput(attachment.value, options.format ?? 'toon');
+  const output = formatWaitOutput(attachment.value, normalizedOptions.format ?? 'toon');
   if (output.length > 0) {
     process.stdout.write(`${output}\n`);
   }
+}
+
+function throwInvalidTimeout(): never {
+  throw new WaitCommandError('validation_timeout', '--timeout must be a positive number of milliseconds.', '1mcp wait');
 }
 
 export async function waitForServers(
@@ -99,11 +143,9 @@ export async function waitForServers(
     if (remaining <= 0) {
       throwWaitTimeout(timeout, context.options.server, lastServers);
     }
-    const response = await apiClient.get<unknown>(
-      API_INSPECT_ENDPOINT,
-      buildFilterSelectionQuery(context.options),
-      { timeout: remaining },
-    );
+    const response = await apiClient.get<unknown>(API_INSPECT_ENDPOINT, buildFilterSelectionQuery(context.options), {
+      timeout: remaining,
+    });
     if (response.status === 401 || response.status === 403) {
       return { status: 'auth_required', message: formatClientSurfaceAuthRequiredMessage(context) };
     }

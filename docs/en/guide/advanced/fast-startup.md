@@ -11,12 +11,12 @@ Async loading makes the HTTP listener available before configured static MCP ser
 
 Synchronous startup is the default. It waits to publish a complete initial catalog and is the safe choice unless client behavior is known.
 
-| Client behavior | Recommended startup | Reason |
-| --- | --- | --- |
-| Reads the catalog once and never refreshes | Synchronous (default) | It requires the complete initial catalog. |
-| Handles capability-list change notifications and retries discovery | Async is suitable | It can reconcile after a new snapshot is published. |
-| Is gated from using the catalog until loading completes | Async is suitable | The deployment gate protects its first catalog read. |
-| Unknown or mixed compatibility | Synchronous (default) | Notification support is unverified. |
+| Client behavior                                                    | Recommended startup   | Reason                                               |
+| ------------------------------------------------------------------ | --------------------- | ---------------------------------------------------- |
+| Reads the catalog once and never refreshes                         | Synchronous (default) | It requires the complete initial catalog.            |
+| Handles capability-list change notifications and retries discovery | Async is suitable     | It can reconcile after a new snapshot is published.  |
+| Is gated from using the catalog until loading completes            | Async is suitable     | The deployment gate protects its first catalog read. |
+| Unknown or mixed compatibility                                     | Synchronous (default) | Notification support is unverified.                  |
 
 Enable async loading only when early HTTP availability is worth this contract:
 
@@ -57,12 +57,12 @@ Use the authenticated `/api/v1/inspect` endpoint or its CLI equivalent for clien
 
 `wait` only tracks enabled configured static servers. It excludes templates and disabled servers, never cancels background loading, and stops immediately for `failed`, `cancelled`, or `awaiting_oauth` states. `run` checks this client-facing status before falling back to MCP, so it returns a recovery command while a backend is loading instead of attempting an unsafe early invocation.
 
-| State | Meaning | Action |
-| --- | --- | --- |
-| `pending` / `loading` | Startup is still in progress | `1mcp wait <server>` |
-| `failed` / `cancelled` | No usable backend is available | Check configuration or restart the backend |
-| `awaiting_oauth` | Provider authorization is required | Complete the OAuth flow shown by inspect |
-| `connected` | The backend is callable | Inspect or run tools |
+| State                  | Meaning                                                                           | Action                                               |
+| ---------------------- | --------------------------------------------------------------------------------- | ---------------------------------------------------- |
+| `pending` / `loading`  | Startup is still in progress                                                      | `1mcp wait <server>`                                 |
+| `failed` / `cancelled` | No usable backend is available                                                    | Check configuration or restart the backend           |
+| `awaiting_oauth`       | Provider authorization is required                                                | Complete the OAuth flow shown by inspect             |
+| `connected`            | The backend connection is established; invocation also requires `available: true` | Inspect or run tools after availability is confirmed |
 
 ## Health Endpoints
 

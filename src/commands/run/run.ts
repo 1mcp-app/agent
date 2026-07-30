@@ -14,18 +14,18 @@ import {
   validateToolArgs,
 } from '@src/commands/run/runUtils.js';
 import { ApiClient } from '@src/commands/shared/apiClient.js';
-import { buildFilterSelectionQuery } from '@src/commands/shared/filterSelectionQuery.js';
-import {
-  type ApiInspectServerResult,
-  inspectServerResultSchema,
-  inspectToolResultSchema,
-} from '@src/commands/shared/inspectApiSchemas.js';
 import {
   attachReusableClientSurface,
   type ClientSurfaceAttachmentContext,
   type ClientSurfaceRestResponse,
   formatClientSurfaceAuthRequiredMessage,
 } from '@src/commands/shared/clientSurfaceAttachment.js';
+import { buildFilterSelectionQuery } from '@src/commands/shared/filterSelectionQuery.js';
+import {
+  type ApiInspectServerResult,
+  inspectServerResultSchema,
+  inspectToolResultSchema,
+} from '@src/commands/shared/inspectApiSchemas.js';
 import {
   type JsonRpcErrorEnvelope,
   type JsonRpcResponse,
@@ -268,6 +268,15 @@ async function checkServerStatus(
       return statusErrorResponse(
         'server_loading',
         `Server '${serverName}' is ${server.status}. Wait for it to become connected.`,
+        `1mcp wait ${serverName}`,
+        server,
+      );
+    }
+
+    if (server.status === 'connected' && !server.available) {
+      return statusErrorResponse(
+        'server_loading',
+        `Server '${serverName}' is connected but not yet available. Wait for it to finish loading.`,
         `1mcp wait ${serverName}`,
         server,
       );

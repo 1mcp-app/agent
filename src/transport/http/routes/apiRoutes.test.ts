@@ -408,6 +408,30 @@ describe('apiRoutes inspect', () => {
     expect(res.body).toMatchObject({ error: 'Tool not found: hidden/secret' });
   });
 
+  it('does not expose loading metadata for filtered-out static servers', async () => {
+    mockedLoadDeclaredServerConfigs.mockReturnValue({
+      staticServers: {
+        hidden: {
+          type: 'stdio',
+          command: 'node',
+          args: ['hidden.js'],
+          tags: ['hidden'],
+        },
+      },
+      templateServers: {},
+      errors: [],
+    });
+
+    const req = { query: { preset: 'dev-backend', target: 'hidden' } };
+    const res = createMockResponse();
+
+    await invokeInspectRoute(scopeAuthMiddleware, req, res);
+    await invokeInspectRoute(inspectHandler, req, res);
+
+    expect(res.statusCode).toBe(404);
+    expect(res.body).toEqual({ error: 'Server not found: hidden' });
+  });
+
   it('preserves pagination metadata when inspecting a server through direct listTools', async () => {
     const pagedConnections = new Map(outboundConnections) as OutboundConnections;
     pagedConnections.set('context7', {

@@ -1,11 +1,11 @@
 ---
 title: Wait Command - Wait for Static MCP Servers
-description: Wait for configured static MCP servers to become connected before invoking tools.
+description: Wait for configured static MCP servers to become connected and available before invoking tools.
 ---
 
 # Wait Command
 
-Wait for enabled configured static MCP servers to become connected through the authenticated `/api/v1/inspect` status contract.
+Wait for enabled configured static MCP servers to become connected and available through the authenticated `/api/v1/inspect` status contract.
 
 ```bash
 npx -y @1mcp/agent wait [server] [options]

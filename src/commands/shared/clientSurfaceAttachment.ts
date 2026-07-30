@@ -427,15 +427,28 @@ async function loadBearerToken<TOptions extends ResolvableServeTargetOptions>(
 export function formatClientSurfaceAuthRequiredMessage<TOptions extends ResolvableServeTargetOptions>(
   context: ClientSurfaceAuthRequiredContext<TOptions>,
 ): string {
+  const recoveryCommand = getClientSurfaceAuthRecoveryCommand(context);
   if (context.target.runtimeTargetContext) {
-    return `Authentication required for target context "${context.target.runtimeTargetContext.name}". Run: 1mcp auth login --context ${context.target.runtimeTargetContext.name} --token <your-token>`;
+    return `Authentication required for target context "${context.target.runtimeTargetContext.name}". Run: ${recoveryCommand}`;
   }
 
   if (context.options.url) {
-    return `Authentication required for ephemeral URL target. Ephemeral URLs are credentialless; run: 1mcp target add <name> ${context.baseUrl} and retry with --context <name> after context-scoped credentials are available.`;
+    return `Authentication required for ephemeral URL target. Ephemeral URLs are credentialless; run: ${recoveryCommand} and retry with --context <name> after context-scoped credentials are available.`;
   }
 
-  return 'Authentication required. Run: 1mcp auth login --context local --token <your-token>';
+  return `Authentication required. Run: ${recoveryCommand}`;
+}
+
+export function getClientSurfaceAuthRecoveryCommand<TOptions extends ResolvableServeTargetOptions>(
+  context: ClientSurfaceAuthRequiredContext<TOptions>,
+): string {
+  if (context.target.runtimeTargetContext) {
+    return `1mcp auth login --context ${context.target.runtimeTargetContext.name} --token <your-token>`;
+  }
+  if (context.options.url) {
+    return `1mcp target add <name> ${context.baseUrl}`;
+  }
+  return '1mcp auth login --context local --token <your-token>';
 }
 
 function toOAuthTokenReference(value: unknown): { token: string } | undefined {

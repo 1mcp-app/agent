@@ -1,33 +1,25 @@
+import {
+  createMockClientSurfaceAttachmentContext,
+  createMockInspectServerSummary,
+} from '@test/unit-utils/MockFactories.js';
+
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import type { ClientSurfaceAttachmentContext } from '@src/commands/shared/clientSurfaceAttachment.js';
+import { selectWaitServers, waitCommand, WaitCommandError, type WaitCommandOptions, waitForServers } from './wait.js';
 
-import { selectWaitServers, waitForServers, WaitCommandError, type WaitCommandOptions } from './wait.js';
+const mockedAttachReusableClientSurface = vi.hoisted(() => vi.fn());
 
-const baseContext: ClientSurfaceAttachmentContext<WaitCommandOptions> = {
-  target: {
-    cwd: '/tmp/project',
-    projectRoot: '/tmp/project',
-    projectConfig: null,
-    mergedOptions: {},
-    discoveredUrl: 'http://127.0.0.1:3050/mcp',
-    serverUrl: new URL('http://127.0.0.1:3050/mcp'),
-    source: 'user',
-  },
-  options: {},
-  baseUrl: 'http://127.0.0.1:3050',
-  serverUrl: new URL('http://127.0.0.1:3050/mcp'),
-  context: {
-    project: { path: '/tmp/project', cwd: '/tmp/project', name: 'project' },
-    user: {},
-    environment: {},
-  },
+vi.mock('@src/commands/shared/clientSurfaceAttachment.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@src/commands/shared/clientSurfaceAttachment.js')>()),
+  attachReusableClientSurface: mockedAttachReusableClientSurface,
+}));
+
+const baseContext = createMockClientSurfaceAttachmentContext<WaitCommandOptions>({
   contextHash: 'wait-test',
   cachePath: '/tmp/wait-test',
-  cachedSession: null,
   requestSessionId: 'wait-session',
   sessionId: 'wait-session',
-};
+});
 
 function jsonResponse(body: unknown, status = 200) {
   return {
@@ -39,17 +31,53 @@ function jsonResponse(body: unknown, status = 200) {
 }
 
 describe('wait status workflow', () => {
-  afterEach(() => vi.unstubAllGlobals());
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+    mockedAttachReusableClientSurface.mockReset();
+  });
 
-  it('waits only for enabled configured static servers and succeeds when connected', async () => {
+  it('validates the complete wait option boundary before attachment', async () => {
+    await expect(waitCommand({ format: 'xml' } as never)).rejects.toMatchObject({
+      code: 'validation_options',
+      recoveryCommand: '1mcp wait',
+    });
+    expect(mockedAttachReusableClientSurface).not.toHaveBeenCalled();
+  });
+
+  it.each([0, Number.NaN, Number.POSITIVE_INFINITY])(
+    'preserves the positive finite timeout validation contract for %s',
+    async (timeout) => {
+      await expect(waitCommand({ timeout })).rejects.toMatchObject({ code: 'validation_timeout' });
+      expect(mockedAttachReusableClientSurface).not.toHaveBeenCalled();
+    },
+  );
+
+  it('preserves context-aware authentication recovery', async () => {
+    mockedAttachReusableClientSurface.mockResolvedValue({
+      status: 'auth_required',
+      message:
+        'Authentication required for target context "prod". Run: 1mcp auth login --context prod --token <your-token>',
+      target: { runtimeTargetContext: { name: 'prod', kind: 'remote', runtimeScopeId: 'scope-prod' } },
+      options: { context: 'prod' },
+      baseUrl: 'https://prod.example.com',
+    });
+
+    await expect(waitCommand({ context: 'prod' })).rejects.toMatchObject({
+      code: 'auth_required',
+      recoveryCommand: '1mcp auth login --context prod --token <your-token>',
+    });
+  });
+
+  it('waits only for enabled configured static servers and succeeds when connected and available', async () => {
     vi.stubGlobal(
       'fetch',
       vi.fn().mockResolvedValue(
         jsonResponse({
           kind: 'servers',
           servers: [
-            { server: 'static', type: 'external', status: 'connected', available: true, loadTracked: true },
-            { server: 'template', type: 'template', status: 'connected', available: true, loadTracked: false },
+            createMockInspectServerSummary({ server: 'static' }),
+            createMockInspectServerSummary({ server: 'template', type: 'template', loadTracked: false }),
           ],
         }),
       ),
@@ -66,7 +94,7 @@ describe('wait status workflow', () => {
   it('rejects a template target without waiting', () => {
     try {
       selectWaitServers(
-        [{ server: 'template', type: 'template', status: 'connected', available: true, loadTracked: false }],
+        [createMockInspectServerSummary({ server: 'template', type: 'template', loadTracked: false })],
         'template',
       );
       throw new Error('Expected template target to be rejected');
@@ -82,7 +110,7 @@ describe('wait status workflow', () => {
       vi.fn().mockResolvedValue(
         jsonResponse({
           kind: 'servers',
-          servers: [{ server: 'static', type: 'external', status: 'failed', available: false, loadTracked: true }],
+          servers: [createMockInspectServerSummary({ server: 'static', status: 'failed', available: false })],
         }),
       ),
     );
@@ -99,13 +127,13 @@ describe('wait status workflow', () => {
       .mockResolvedValueOnce(
         jsonResponse({
           kind: 'servers',
-          servers: [{ server: 'static', type: 'external', status: 'pending', available: false, loadTracked: true }],
+          servers: [createMockInspectServerSummary({ server: 'static', status: 'pending', available: false })],
         }),
       )
       .mockResolvedValueOnce(
         jsonResponse({
           kind: 'servers',
-          servers: [{ server: 'static', type: 'external', status: 'connected', available: true, loadTracked: true }],
+          servers: [createMockInspectServerSummary({ server: 'static' })],
         }),
       );
     vi.stubGlobal('fetch', fetchMock);
@@ -120,7 +148,7 @@ describe('wait status workflow', () => {
       vi.fn().mockResolvedValue(
         jsonResponse({
           kind: 'servers',
-          servers: [{ server: 'static', type: 'external', status, available: false, loadTracked: true }],
+          servers: [createMockInspectServerSummary({ server: 'static', status, available: false })],
         }),
       ),
     );
@@ -134,7 +162,7 @@ describe('wait status workflow', () => {
     const fetchMock = vi.fn().mockResolvedValue(
       jsonResponse({
         kind: 'servers',
-        servers: [{ server: 'static', type: 'external', status: 'connected', available: true, loadTracked: true }],
+        servers: [createMockInspectServerSummary({ server: 'static' })],
       }),
     );
     vi.stubGlobal('fetch', fetchMock);
@@ -156,10 +184,13 @@ describe('wait status workflow', () => {
   it('aborts an inspect request at the CLI deadline and preserves timeout state', async () => {
     vi.stubGlobal(
       'fetch',
-      vi.fn((_url: string, init: RequestInit) =>
-        new Promise((_resolve, reject) => {
-          init.signal?.addEventListener('abort', () => reject(Object.assign(new Error('aborted'), { name: 'AbortError' })));
-        }),
+      vi.fn(
+        (_url: string, init: RequestInit) =>
+          new Promise((_resolve, reject) => {
+            init.signal?.addEventListener('abort', () =>
+              reject(Object.assign(new Error('aborted'), { name: 'AbortError' })),
+            );
+          }),
       ),
     );
 

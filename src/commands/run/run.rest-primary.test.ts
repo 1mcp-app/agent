@@ -406,6 +406,31 @@ describe('runCommand REST-first path', () => {
     expect(stderr.join('')).toContain('1mcp wait runner');
   });
 
+  it('waits instead of restarting when a connected server is not yet available', async () => {
+    mockFetch.mockResolvedValueOnce(
+      makeRestResponse(200, { kind: 'server', server: 'runner', status: 'connected', available: false }),
+    );
+    const stderr: string[] = [];
+    vi.spyOn(process.stderr, 'write').mockImplementation((chunk) => {
+      stderr.push(String(chunk));
+      return true;
+    });
+
+    const { runCommand } = await import('./run.js');
+    await runCommand({
+      tool: 'runner/echo_args',
+      args: '{"message":"hi"}',
+      'config-dir': cacheDir,
+      'cli-session-cache-path': join(cacheDir, '.cli-session.{pid}'),
+    } as never);
+
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    expect(transportState.instances).toHaveLength(0);
+    expect(stderr.join('')).toContain("Server 'runner' is connected but not yet available");
+    expect(stderr.join('')).toContain('1mcp wait runner');
+    expect(stderr.join('')).not.toContain('1mcp mcp restart runner');
+  });
+
   it('checks status with the same preset used by the invocation surface', async () => {
     mockFetch.mockResolvedValueOnce(makeConnectedServerResponse());
     mockFetch.mockResolvedValueOnce(makeTextResponse(404, 'Not Found'));

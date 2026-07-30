@@ -33,7 +33,7 @@ Depending on the target, `inspect` can:
 - List the exposed tools for a server when the target is `<server>`
 - Show a readable tool schema summary when the target is `<server>/<tool>`
 
-When supported, `inspect` uses the authenticated `/api/v1/inspect` endpoint first and falls back to the MCP protocol when needed. It reports startup states for configured static servers before the first capability snapshot; use [`wait`](./wait.md) when a script must wait for `connected`.
+When supported, `inspect` uses the authenticated `/api/v1/inspect` endpoint first and falls back to the MCP protocol when needed. It reports startup states for configured static servers before the first capability snapshot; use [`wait`](/commands/wait) when a script must wait for `connected` with `available: true`.
 
 This is the command that turns the broad inventory from `instructions` into a scoped view. First inspect one server, then inspect one tool, and only then move to execution.
 

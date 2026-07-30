@@ -1,11 +1,11 @@
 ---
 title: Wait 命令 - 等待静态 MCP 服务器
-description: 在调用工具前等待已配置的静态 MCP 服务器连接完成。
+description: 在调用工具前等待已配置的静态 MCP 服务器连接完成且可用。
 ---
 
 # Wait 命令
 
-通过已认证的 `/api/v1/inspect` 状态契约，等待已启用的已配置静态 MCP 服务器变为 connected。
+通过已认证的 `/api/v1/inspect` 状态契约，等待已启用的已配置静态 MCP 服务器变为 `connected` 且 `available: true`。
 
 ```bash
 npx -y @1mcp/agent wait [server] [options]

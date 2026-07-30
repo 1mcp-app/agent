@@ -6,7 +6,7 @@ import type { Argv } from 'yargs';
 export function setupWaitCommand(yargs: Argv): Argv {
   return yargs.command(
     'wait [server]',
-    'Wait for configured static MCP servers to become connected',
+    'Wait for configured static MCP servers to become connected and available',
     (commandYargs) =>
       commandYargs
         .options(globalOptions || {})

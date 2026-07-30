@@ -415,13 +415,23 @@ export function createInspectHandler(serverManager: ServerManager): RequestHandl
       const connection = sessionConnection ?? resolveConnectionByServerName(filteredConnections, serverName);
       const declaredTemplateConfig = declaredServers.templateServers[serverName];
       const declaredStaticConfig = declaredServers.staticServers[serverName];
-      const loadingInfo = getLoadingInfo(serverName);
 
       if (!adapter && !connection && !declaredTemplateConfig && !declaredStaticConfig) {
         res.status(404).json({ error: `Server not found: ${serverName}` });
         return;
       }
 
+      const declaredConfig = declaredTemplateConfig ?? declaredStaticConfig;
+      const targetAllowed =
+        !!connection ||
+        matchesFilterConfig(adapter?.config.tags, filterConfig) ||
+        matchesFilterConfig(declaredConfig?.tags, filterConfig);
+      if (!targetAllowed) {
+        res.status(404).json({ error: `Server not found: ${serverName}` });
+        return;
+      }
+
+      const loadingInfo = getLoadingInfo(serverName);
       const state = deriveServerState(
         adapter?.getStatus(requestSessionId ? { sessionId: requestSessionId } : undefined),
         adapter?.isAvailable(requestSessionId ? { sessionId: requestSessionId } : undefined),
