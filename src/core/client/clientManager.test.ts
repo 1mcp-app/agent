@@ -1,4 +1,5 @@
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
+import { SSEClientTransport } from '@modelcontextprotocol/sdk/client/sse.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
 
@@ -385,7 +386,7 @@ describe('ClientManager (Integration)', () => {
         _url: new URL('https://example.com/sse'),
         close: vi.fn().mockResolvedValue(undefined),
       } as unknown as AuthProviderTransport;
-      Object.setPrototypeOf(originalTransport, StreamableHTTPClientTransport.prototype);
+      Object.setPrototypeOf(originalTransport, SSEClientTransport.prototype);
 
       (mockClient.connect as unknown as MockInstance).mockResolvedValue(undefined);
       (mockClient.getServerVersion as unknown as MockInstance).mockResolvedValue({
@@ -393,6 +394,7 @@ describe('ClientManager (Integration)', () => {
         version: '1.0.0',
       });
 
+      // Not mocked — exercises the real SSEClientTransport recreation path.
       const recreateForSessionLoss = vi.spyOn((clientManager as any).transportRecreator, 'recreateForSessionLoss');
 
       await clientManager.createSingleClient('sse-session-loss-client', originalTransport);
@@ -400,8 +402,13 @@ describe('ClientManager (Integration)', () => {
       registeredClient.onerror?.(new Error("Error POSTing to endpoint (HTTP 404): Could not find session ID 'abc'"));
 
       await vi.waitFor(() => {
-        expect(recreateForSessionLoss).toHaveBeenCalledWith(originalTransport, 'sse-session-loss-client');
+        expect(clientManager.getClient('sse-session-loss-client').status).toBe(ClientStatus.Connected);
       });
+
+      expect(recreateForSessionLoss).toHaveBeenCalledWith(originalTransport, 'sse-session-loss-client');
+      const recreatedTransport = clientManager.getTransport('sse-session-loss-client');
+      expect(recreatedTransport).not.toBe(originalTransport);
+      expect(recreatedTransport).toBeInstanceOf(SSEClientTransport);
     });
 
     it('ignores unrelated client errors', async () => {
@@ -428,6 +435,35 @@ describe('ClientManager (Integration)', () => {
       await Promise.resolve();
       expect(recreateForSessionLoss).not.toHaveBeenCalled();
       expect(clientManager.getTransport('unrelated-error-client')).toBe(originalTransport);
+    });
+
+    it('does not let a recreation failure escape onerror for a non-HTTP/SSE transport', async () => {
+      vi.useRealTimers();
+
+      // A stdio-style transport: TransportRecreator only supports HTTP/SSE, so
+      // recreateForSessionLoss throws for this one — that throw must be caught,
+      // not propagated out of the onerror callback.
+      const stdioTransport = {
+        name: 'stdio',
+        start: vi.fn(),
+        send: vi.fn(),
+        close: vi.fn(),
+      } as unknown as AuthProviderTransport;
+
+      (mockClient.connect as unknown as MockInstance).mockResolvedValue(undefined);
+      (mockClient.getServerVersion as unknown as MockInstance).mockResolvedValue({
+        name: 'test-server',
+        version: '1.0.0',
+      });
+
+      await clientManager.createSingleClient('stdio-client', stdioTransport);
+      const registeredClient = clientManager.getClient('stdio-client').client;
+
+      expect(() => registeredClient.onerror?.(new Error('Session not found'))).not.toThrow();
+
+      await Promise.resolve();
+      expect(logger.error).toHaveBeenCalledWith(expect.stringContaining('Cannot recover stdio-client'));
+      expect(clientManager.getTransport('stdio-client')).toBe(stdioTransport);
     });
   });
 

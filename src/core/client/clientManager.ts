@@ -203,7 +203,17 @@ export class ClientManager extends EventEmitter {
     logger.warn(`Session for ${name} was lost (backend likely restarted) — reconnecting with a fresh session`);
 
     const staleTransport = this.transports[name] ?? clientInfo.transport;
-    const freshTransport = this.transportRecreator.recreateForSessionLoss(staleTransport, name);
+    let freshTransport: AuthProviderTransport;
+    try {
+      freshTransport = this.transportRecreator.recreateForSessionLoss(staleTransport, name);
+    } catch (error) {
+      // recreateForSessionLoss only supports HTTP/SSE transports; a session-loss-shaped
+      // error message from some other transport kind must not escape client.onerror.
+      logger.error(
+        `Cannot recover ${name} from session loss: ${error instanceof Error ? error.message : String(error)}`,
+      );
+      return;
+    }
 
     void this.createSingleClient(name, freshTransport).catch((error) => {
       logger.error(
