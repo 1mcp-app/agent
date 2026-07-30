@@ -396,8 +396,8 @@ export function createOAuthAuthorizationFlowFromStorage(
       processConsentApproval: (authRequestId, selectedScopes) =>
         storage.processConsentApproval(authRequestId, selectedScopes),
       processConsentDenial: (authRequestId) => storage.processConsentDenial(authRequestId),
-      createSessionWithId: (tokenId, clientId, resource, scopes, ttlMs) =>
-        storage.sessionRepository.createWithId(tokenId, clientId, resource, scopes, ttlMs),
+      createSessionWithId: (tokenId, clientId, resource, scopes, ttlMs, refreshFamilyId) =>
+        storage.sessionRepository.createWithId(tokenId, clientId, resource, scopes, ttlMs, refreshFamilyId),
     },
   });
 }

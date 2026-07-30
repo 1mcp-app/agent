@@ -74,19 +74,6 @@ export class RefreshTokenFamilyRepository {
     return family?.runtimeScopeId === this.runtimeScopeId ? family : null;
   }
 
-  getTokenState(family: RefreshTokenFamilyData, refreshToken: string): 'current' | 'consumed' | 'unknown' {
-    const digest = digestRefreshToken(refreshToken);
-    if (safeDigestEqual(family.currentTokenDigest, digest)) {
-      return 'current';
-    }
-    if (family.consumedTokenDigests.some((consumed) => safeDigestEqual(consumed, digest))) {
-      return 'consumed';
-    }
-
-    const lookup = this.readLookup(digest);
-    return lookup?.familyId === family.familyId ? lookup.state : 'unknown';
-  }
-
   async consume(
     refreshToken: string,
     clientId: string,
@@ -166,9 +153,7 @@ export class RefreshTokenFamilyRepository {
     return revokedFamily;
   }
 
-  private locateByDigest(
-    digest: string,
-  ): { family: RefreshTokenFamilyData; lookup?: RefreshTokenLookupData } | null {
+  private locateByDigest(digest: string): { family: RefreshTokenFamilyData; lookup?: RefreshTokenLookupData } | null {
     const lookup = this.readLookup(digest);
     if (lookup?.runtimeScopeId === this.runtimeScopeId) {
       const family = this.findById(lookup.familyId);
@@ -221,10 +206,11 @@ export class RefreshTokenFamilyRepository {
       .listFiles(FILE_PREFIX)
       .map((fileName) => fileName.slice(FILE_PREFIX.length, -extension.length))
       .filter((familyId) => familyId.startsWith(ID_PREFIX))
-      .map((familyId) => this.storage.readData<RefreshTokenFamilyData>(FILE_PREFIX, familyId, RefreshTokenFamilyDataSchema))
+      .map((familyId) =>
+        this.storage.readData<RefreshTokenFamilyData>(FILE_PREFIX, familyId, RefreshTokenFamilyDataSchema),
+      )
       .filter(
-        (family): family is RefreshTokenFamilyData =>
-          family !== null && family.runtimeScopeId === this.runtimeScopeId,
+        (family): family is RefreshTokenFamilyData => family !== null && family.runtimeScopeId === this.runtimeScopeId,
       );
   }
 

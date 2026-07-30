@@ -453,18 +453,6 @@ export class SDKOAuthServerProvider implements OAuthServerProvider {
       throw new InvalidGrantError('Invalid refresh token');
     }
 
-    const tokenState = repository.getTokenState(family, refreshToken);
-    if (tokenState === 'consumed') {
-      const replay = await repository.consume(refreshToken, client.client_id, randomUUID(), () => undefined);
-      if (replay.status === 'replay') {
-        this.revokeFamilyAccessTokens(replay.family.accessTokenIds);
-      }
-      throw new InvalidGrantError('Refresh token replay detected');
-    }
-    if (tokenState !== 'current' || family.status !== 'active') {
-      throw new InvalidGrantError('Invalid refresh token');
-    }
-
     const requestedScopes = scopes ?? family.scopeCeiling;
     if (requestedScopes.some((scope) => !family.scopeCeiling.includes(scope))) {
       throw new InvalidScopeError('Requested scope exceeds the originally consented scope');

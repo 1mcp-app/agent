@@ -1,8 +1,9 @@
 // Shared session types for server and client session managers
 import { OAuthClientInformationFull } from '@modelcontextprotocol/sdk/shared/auth.js';
-import { z } from 'zod';
 
 import { ContextNamespace, EnvironmentContext, UserContext } from '@src/types/context.js';
+
+import { z } from 'zod';
 
 /**
  * Base interface for all data that can expire
@@ -37,7 +38,7 @@ export const RefreshTokenFamilyDataSchema = z.object({
   resource: z.string(),
   currentTokenDigest: RefreshTokenDigestSchema,
   consumedTokenDigests: z.array(RefreshTokenDigestSchema),
-  accessTokenIds: z.array(z.string().uuid()),
+  accessTokenIds: z.array(z.uuid()),
   status: z.enum(['active', 'revoked']),
   revokedAt: z.number().finite().optional(),
 });

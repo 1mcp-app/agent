@@ -1,10 +1,11 @@
 import fs from 'fs';
-import path from 'path';
 import { randomUUID } from 'node:crypto';
+import path from 'path';
 
 import { ExpirableData } from '@src/auth/sessionTypes.js';
 import { AUTH_CONFIG, FILE_PREFIX_MAPPING, getGlobalConfigDir, STORAGE_SUBDIRS } from '@src/constants.js';
 import logger from '@src/logger/logger.js';
+
 import { z, type ZodType } from 'zod';
 
 const StorageLockOwnerSchema = z.object({
@@ -543,7 +544,7 @@ export class FileStorageService {
         process.platform === 'win32' &&
         error instanceof Error &&
         'code' in error &&
-        ['EINVAL', 'ENOTSUP', 'EPERM'].includes(String(error.code))
+        ['EACCES', 'EISDIR', 'EINVAL', 'ENOTSUP', 'EPERM'].includes(String(error.code))
       ) {
         return;
       }
@@ -631,7 +632,6 @@ export class FileStorageService {
       this.flushStorageDirectory();
     } catch (error) {
       logger.error(`Failed to release storage lock ${lockPath}: ${error}`);
-      throw error;
     }
   }
 

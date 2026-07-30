@@ -177,9 +177,7 @@ describe('OAuth loopback consent browser flow', () => {
       expect(replayResponse.status).toBe(400);
       await expect(replayResponse.json()).resolves.toMatchObject({ error: 'invalid_grant' });
       await expect(provider.verifyAccessToken(tokens.access_token)).rejects.toThrow('Invalid or expired access token');
-      await expect(provider.verifyAccessToken(rotated.access_token)).rejects.toThrow(
-        'Invalid or expired access token',
-      );
+      await expect(provider.verifyAccessToken(rotated.access_token)).rejects.toThrow('Invalid or expired access token');
 
       const secondVerifier = randomBytes(48).toString('base64url');
       const secondChallenge = createHash('sha256').update(secondVerifier).digest('base64url');
@@ -232,9 +230,16 @@ describe('OAuth loopback consent browser flow', () => {
   }, 30_000);
 });
 
-function waitForCallback(): Promise<URL> {
-  return new Promise<URL>((resolve) => {
-    resolveCallback = resolve;
+function waitForCallback(timeoutMs = 10_000): Promise<URL> {
+  return new Promise<URL>((resolve, reject) => {
+    const timer = setTimeout(() => {
+      resolveCallback = undefined;
+      reject(new Error('Timed out waiting for the loopback callback'));
+    }, timeoutMs);
+    resolveCallback = (url) => {
+      clearTimeout(timer);
+      resolve(url);
+    };
   });
 }
 

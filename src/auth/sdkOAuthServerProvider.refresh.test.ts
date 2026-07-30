@@ -9,15 +9,15 @@ import {
 } from '@modelcontextprotocol/sdk/server/auth/errors.js';
 import type { OAuthClientInformationFull, OAuthTokens } from '@modelcontextprotocol/sdk/shared/auth.js';
 
+import { RefreshTokenFamilyDataSchema } from '@src/auth/sessionTypes.js';
 import { AUTH_CONFIG } from '@src/constants.js';
 import { AgentConfigManager } from '@src/core/server/agentConfig.js';
 import logger from '@src/logger/logger.js';
 
-import { FileStorageService } from './storage/fileStorageService.js';
-
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { SDKOAuthServerProvider } from './sdkOAuthServerProvider.js';
+import { FileStorageService } from './storage/fileStorageService.js';
 
 const CLIENT: OAuthClientInformationFull = {
   client_id: 'refresh-client',
@@ -78,12 +78,12 @@ describe('SDKOAuthServerProvider refresh token families', () => {
 
   it('persists families across provider restarts and rotation does not extend their fixed expiry', async () => {
     const initial = await exchangeAuthorizationCode(provider, CLIENT);
-    const before = readOnlyFamily(tempDir);
+    const before = readSoleFamily(tempDir);
     provider.shutdown();
     provider = new SDKOAuthServerProvider(tempDir, 'runtime-scope-a');
 
     const rotated = await provider.exchangeRefreshToken(CLIENT, initial.refresh_token!);
-    const after = readOnlyFamily(tempDir);
+    const after = readSoleFamily(tempDir);
 
     expect(rotated.refresh_token).toMatch(/^rt-/);
     expect(rotated.refresh_token).not.toBe(initial.refresh_token);
@@ -112,7 +112,7 @@ describe('SDKOAuthServerProvider refresh token families', () => {
     const initial = await exchangeAuthorizationCode(provider, CLIENT);
     const createSession = vi
       .spyOn(provider.oauthStorage.sessionRepository, 'createRefreshFamilyAccessSession')
-      .mockImplementationOnce(() => {
+      .mockImplementation(() => {
         throw new Error('session persistence failed');
       });
 
@@ -171,7 +171,7 @@ describe('SDKOAuthServerProvider refresh token families', () => {
 
     const restored = await provider.exchangeRefreshToken(CLIENT, narrowed.refresh_token!);
     expect(restored.scope).toBe(SCOPES.join(' '));
-    expect(readOnlyFamily(tempDir).scopeCeiling).toEqual(SCOPES);
+    expect(readSoleFamily(tempDir).scopeCeiling).toEqual(SCOPES);
   });
 
   it('allows exactly one concurrent rotation and replay revokes the family and every associated access token', async () => {
@@ -184,7 +184,7 @@ describe('SDKOAuthServerProvider refresh token families', () => {
     expect(attempts.filter((attempt) => attempt.status === 'fulfilled')).toHaveLength(1);
     const rejection = attempts.find((attempt) => attempt.status === 'rejected') as PromiseRejectedResult;
     expect(rejection.reason).toBeInstanceOf(InvalidGrantError);
-    expect(readOnlyFamily(tempDir).status).toBe('revoked');
+    expect(readSoleFamily(tempDir).status).toBe('revoked');
 
     const successful = (
       attempts.find((attempt) => attempt.status === 'fulfilled') as PromiseFulfilledResult<OAuthTokens>
@@ -204,20 +204,20 @@ describe('SDKOAuthServerProvider refresh token families', () => {
     const second = await provider.exchangeRefreshToken(CLIENT, first.refresh_token!);
     await provider.exchangeRefreshToken(CLIENT, second.refresh_token!);
 
-    expect(readOnlyFamily(tempDir).consumedTokenDigests).toHaveLength(1);
+    expect(readSoleFamily(tempDir).consumedTokenDigests).toHaveLength(1);
     await expect(provider.exchangeRefreshToken(CLIENT, initial.refresh_token!)).rejects.toBeInstanceOf(
       InvalidGrantError,
     );
-    expect(readOnlyFamily(tempDir).status).toBe('revoked');
+    expect(readSoleFamily(tempDir).status).toBe('revoked');
   });
 
   it('isolates refresh families by Runtime Scope even when storage is shared', async () => {
     const initial = await exchangeAuthorizationCode(provider, CLIENT);
     const otherScopeProvider = new SDKOAuthServerProvider(tempDir, 'runtime-scope-b');
     try {
-      await expect(
-        otherScopeProvider.exchangeRefreshToken(CLIENT, initial.refresh_token!),
-      ).rejects.toBeInstanceOf(InvalidGrantError);
+      await expect(otherScopeProvider.exchangeRefreshToken(CLIENT, initial.refresh_token!)).rejects.toBeInstanceOf(
+        InvalidGrantError,
+      );
       await expect(provider.exchangeRefreshToken(CLIENT, initial.refresh_token!)).resolves.toMatchObject({
         refresh_token: expect.stringMatching(/^rt-/),
       });
@@ -323,8 +323,8 @@ function listLookupFiles(tempDir: string): string[] {
     .map((fileName) => path.join(serverDir, fileName));
 }
 
-function readOnlyFamily(tempDir: string): Record<string, any> {
+function readSoleFamily(tempDir: string) {
   const familyFiles = listFamilyFiles(tempDir);
   expect(familyFiles).toHaveLength(1);
-  return JSON.parse(fs.readFileSync(familyFiles[0], 'utf8'));
+  return RefreshTokenFamilyDataSchema.parse(JSON.parse(fs.readFileSync(familyFiles[0], 'utf8')));
 }

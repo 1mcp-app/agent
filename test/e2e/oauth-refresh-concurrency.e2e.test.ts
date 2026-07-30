@@ -23,8 +23,16 @@ const WORKER_PATH = fileURLToPath(new URL('./fixtures/oauth-refresh-worker.mjs',
 
 describe('refresh token family cross-process persistence', () => {
   let tempDir: string | undefined;
+  const children = new Set<ReturnType<typeof spawn>>();
 
-  afterEach(() => {
+  afterEach(async () => {
+    const activeChildren = [...children].filter((child) => child.exitCode === null && child.signalCode === null);
+    for (const child of activeChildren) {
+      child.kill('SIGKILL');
+    }
+    await Promise.all(activeChildren.map(waitForExit));
+    children.clear();
+
     if (tempDir) {
       fs.rmSync(tempDir, { recursive: true, force: true });
     }
@@ -33,31 +41,36 @@ describe('refresh token family cross-process persistence', () => {
   it('allows exactly one process to commit a refresh-token rotation', async () => {
     tempDir = fs.mkdtempSync(path.join(os.tmpdir(), '1mcp-refresh-process-'));
     const provider = new SDKOAuthServerProvider(tempDir, RUNTIME_SCOPE_ID);
-    const code = provider.oauthStorage.authCodeRepository.create(
-      CLIENT.client_id,
-      CLIENT.redirect_uris[0],
-      RESOURCE,
-      ['tag:alpha'],
-      60_000,
-      'challenge',
-    );
-    const initial = await provider.exchangeAuthorizationCode(
-      CLIENT,
-      code,
-      undefined,
-      CLIENT.redirect_uris[0],
-      new URL(RESOURCE),
-    );
-    provider.shutdown();
+    const initial = await (async () => {
+      try {
+        const code = provider.oauthStorage.authCodeRepository.create(
+          CLIENT.client_id,
+          CLIENT.redirect_uris[0],
+          RESOURCE,
+          ['tag:alpha'],
+          60_000,
+          'challenge',
+        );
+        return await provider.exchangeAuthorizationCode(
+          CLIENT,
+          code,
+          undefined,
+          CLIENT.redirect_uris[0],
+          new URL(RESOURCE),
+        );
+      } finally {
+        provider.shutdown();
+      }
+    })();
 
     const firstMarker = path.join(tempDir, 'first.entered');
     const secondMarker = path.join(tempDir, 'second.entered');
     const releasePath = path.join(tempDir, 'release-first');
-    const first = runWorker(tempDir, initial.refresh_token!, firstMarker, releasePath);
+    const first = runWorker(tempDir, initial.refresh_token!, firstMarker, children, releasePath);
     await waitForFile(firstMarker);
 
-    const second = runWorker(tempDir, initial.refresh_token!, secondMarker);
-    await delay(150);
+    const second = runWorker(tempDir, initial.refresh_token!, secondMarker, children);
+    await second.started;
     expect(fs.existsSync(secondMarker)).toBe(false);
 
     fs.writeFileSync(releasePath, 'release');
@@ -70,8 +83,10 @@ function runWorker(
   storageDir: string,
   refreshToken: string,
   markerPath: string,
+  children: Set<ReturnType<typeof spawn>>,
   releasePath?: string,
-): { result: Promise<{ status: string }> } {
+): { started: Promise<void>; result: Promise<{ status: string }> } {
+  const startedPath = `${markerPath}.started`;
   const child = spawn(
     process.execPath,
     [
@@ -80,11 +95,13 @@ function runWorker(
       RUNTIME_SCOPE_ID,
       refreshToken,
       CLIENT.client_id,
+      startedPath,
       markerPath,
       releasePath ?? '',
     ],
     { cwd: process.cwd(), stdio: ['ignore', 'pipe', 'pipe'] },
   );
+  children.add(child);
 
   const result = new Promise<{ status: string }>((resolve, reject) => {
     let stdout = '';
@@ -97,9 +114,7 @@ function runWorker(
     });
     child.once('error', reject);
     child.once('exit', (code) => {
-      const line = stdout
-        .split('\n')
-        .find((candidate) => candidate.startsWith('RESULT '));
+      const line = stdout.split('\n').find((candidate) => candidate.startsWith('RESULT '));
       if (!line) {
         reject(new Error(`Refresh worker exited ${code}: ${stderr || stdout}`));
         return;
@@ -108,7 +123,14 @@ function runWorker(
     });
   });
 
-  return { result };
+  return { started: waitForFile(startedPath), result };
+}
+
+async function waitForExit(child: ReturnType<typeof spawn>): Promise<void> {
+  if (child.exitCode !== null || child.signalCode !== null) {
+    return;
+  }
+  await new Promise<void>((resolve) => child.once('exit', () => resolve()));
 }
 
 async function waitForFile(filePath: string): Promise<void> {
