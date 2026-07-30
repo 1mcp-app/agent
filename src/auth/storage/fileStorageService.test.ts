@@ -158,6 +158,58 @@ describe('FileStorageService', () => {
       expect(failedReleaseRename).toBe(true);
       await expect(service.withExclusiveLock('refresh-test', () => 'acquired-again')).resolves.toBe('acquired-again');
     });
+
+    it('does not overwrite a newer owner created during owner-less lock reclamation', async () => {
+      const lockPath = path.join(service.getStorageDir(), '.owner-race-test.lock');
+      const ownerPath = path.join(lockPath, 'owner.json');
+      const replacementOperationId = 'replacement-operation';
+      const originalMkdirSync = fs.mkdirSync;
+      const originalWriteFileSync = fs.writeFileSync;
+      let injectedReplacementOwner = false;
+      let exclusiveWriteRejected = false;
+      let replacementOwnerPreserved = false;
+      let releaseReplacementOwner = Promise.resolve();
+
+      vi.spyOn(fs, 'writeFileSync').mockImplementation((file, data, options) => {
+        if (String(file) === ownerPath && !injectedReplacementOwner) {
+          injectedReplacementOwner = true;
+          fs.rmSync(lockPath, { recursive: true, force: true });
+          originalMkdirSync(lockPath, { mode: 0o700 });
+          originalWriteFileSync(
+            ownerPath,
+            JSON.stringify({ operationId: replacementOperationId, pid: process.pid, createdAt: Date.now() }),
+            { mode: 0o600, flag: 'wx' },
+          );
+          releaseReplacementOwner = new Promise<void>((resolve) => {
+            queueMicrotask(() => {
+              try {
+                const owner = JSON.parse(fs.readFileSync(ownerPath, 'utf8')) as { operationId?: string };
+                replacementOwnerPreserved = owner.operationId === replacementOperationId;
+              } catch {
+                replacementOwnerPreserved = false;
+              }
+              fs.rmSync(lockPath, { recursive: true, force: true });
+              resolve();
+            });
+          });
+        }
+
+        try {
+          return originalWriteFileSync(file, data, options);
+        } catch (error) {
+          if (String(file) === ownerPath) {
+            exclusiveWriteRejected = true;
+          }
+          throw error;
+        }
+      });
+
+      await expect(service.withExclusiveLock('owner-race-test', () => 'acquired')).resolves.toBe('acquired');
+      await releaseReplacementOwner;
+      expect(injectedReplacementOwner).toBe(true);
+      expect(exclusiveWriteRejected).toBe(true);
+      expect(replacementOwnerPreserved).toBe(true);
+    });
   });
 
   describe('Path Security', () => {

@@ -567,15 +567,21 @@ export class FileStorageService {
       fs.writeFileSync(
         path.join(lockPath, 'owner.json'),
         JSON.stringify({ operationId, pid: process.pid, createdAt: Date.now() }),
-        { mode: 0o600 },
+        { mode: 0o600, flag: 'wx' },
       );
       this.flushStorageDirectory();
       return true;
     } catch (error) {
-      try {
-        removeLockDirectory(lockPath);
-      } catch (cleanupError) {
-        throw new AggregateError([error, cleanupError], `Failed to initialize storage lock: ${lockPath}`);
+      const owner = this.readLockOwner(lockPath);
+      if (owner?.operationId === operationId) {
+        try {
+          removeLockDirectory(lockPath);
+        } catch (cleanupError) {
+          throw new AggregateError([error, cleanupError], `Failed to initialize storage lock: ${lockPath}`);
+        }
+      }
+      if (isFileExistsError(error)) {
+        return false;
       }
       throw error;
     }
