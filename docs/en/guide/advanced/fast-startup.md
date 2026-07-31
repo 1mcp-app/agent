@@ -152,7 +152,7 @@ The HTTP listener starts accepting requests immediately. During each loading cyc
 | CLI option                               | Default | Purpose                                                                                                                                                                                                 |
 | ---------------------------------------- | ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `--async-batch-notifications`            | Enabled | Coalesces capability-change events into fewer `listChanged` notifications. Use `--no-async-batch-notifications` to send each published change immediately.                                              |
-| `--async-batch-delay <milliseconds>`     | `100`   | Coalescing window used when notification batching is enabled.                                                                                                                                           |
+| `--async-batch-delay <milliseconds>`     | `1000`  | Coalescing window used when notification batching is enabled.                                                                                                                                           |
 | `--async-notify-on-snapshot`             | Enabled | Sends notifications when a completed loading cycle publishes a changed capability snapshot. Global `--enable-client-notifications` must also remain enabled.                                            |
 | `--async-notify-on-ready`                | —       | Deprecated compatibility alias for `--async-notify-on-snapshot`. If both are supplied, `--async-notify-on-snapshot` wins.                                                                               |
 | `--async-min-servers`, `--async-timeout` | —       | Deprecated compatibility no-ops. Their `ONE_MCP_*` environment variables and `asyncLoading.minServers` / `asyncLoading.timeout` TOML keys warn when explicitly supplied and will be removed next major. |
@@ -175,7 +175,7 @@ For a complete list of options, see the **[Configuration Deep Dive](/guide/essen
 
 Check the status of your MCP servers through simple HTTP endpoints.
 
-`/health/ready` reports configuration readiness; it does not wait for a minimum number of connected backends. Use `/health/mcp` for backend loading progress and terminal states.
+`/health/ready` reports configuration and supervised-backend readiness, returning `503` while any supervised stdio backend is restarting or in a crash loop. It does not wait for a minimum number of connected backends. Use `/health/mcp` for backend loading progress and terminal states.
 
 ### Overall Status: `/health/mcp`
 

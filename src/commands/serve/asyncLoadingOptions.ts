@@ -52,6 +52,11 @@ export function resolveAsyncLoadingOptions(
     );
   }
 
+  const batchDelayMs = cliOptions['async-batch-delay'] ?? appOptions?.batchDelay ?? 1000;
+  if (!Number.isInteger(batchDelayMs) || batchDelayMs < 0) {
+    throw new Error('Async notification batch delay must be a non-negative integer number of milliseconds.');
+  }
+
   return {
     enabled: cliOptions['enable-async-loading'] ?? appOptions?.enabled ?? false,
     // The canonical spelling wins when both it and the compatibility alias are explicit.
@@ -60,6 +65,6 @@ export function resolveAsyncLoadingOptions(
     waitForMinimumServers: 0,
     initialLoadTimeoutMs: 30000,
     batchNotifications: cliOptions['async-batch-notifications'] ?? appOptions?.batchNotifications ?? true,
-    batchDelayMs: cliOptions['async-batch-delay'] ?? appOptions?.batchDelay ?? 100,
+    batchDelayMs,
   };
 }

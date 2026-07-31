@@ -146,7 +146,7 @@ HTTP 监听器会立即开始接受请求。在每个加载周期中，1MCP 会�
 | CLI 选项                                 | 默认值 | 用途                                                                                                                                                     |
 | ---------------------------------------- | ------ | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `--async-batch-notifications`            | 启用   | 在批处理延迟窗口内合并能力变更事件，减少 `listChanged` 通知。使用 `--no-async-batch-notifications` 可立即发送每个已发布的变更。                          |
-| `--async-batch-delay <毫秒>`             | `100`  | 启用通知批处理时的合并窗口。                                                                                                                             |
+| `--async-batch-delay <毫秒>`             | `1000` | 启用通知批处理时的合并窗口。                                                                                                                             |
 | `--async-notify-on-snapshot`             | 启用   | 完成的加载周期发布有变化的能力快照时发送通知；全局 `--enable-client-notifications` 也必须保持启用。                                                      |
 | `--async-notify-on-ready`                | —      | `--async-notify-on-snapshot` 的弃用兼容别名。若同时提供，以 `--async-notify-on-snapshot` 为准。                                                          |
 | `--async-min-servers`、`--async-timeout` | —      | 弃用的兼容空操作。显式使用对应的 `ONE_MCP_*` 环境变量或 `asyncLoading.minServers` / `asyncLoading.timeout` TOML 键时会发出警告，并将在下一主版本中移除。 |
@@ -169,7 +169,7 @@ npx -y @1mcp/agent --config mcp.json --enable-async-loading \
 
 通过简单的 HTTP 端点检查您的 MCP 服务器的状态。
 
-`/health/ready` 表示配置是否就绪，不会等待达到最少后端连接数。后端加载进度和终态请查看 `/health/mcp`。
+`/health/ready` 表示配置和受监管后端是否就绪；任何受监管的 stdio 后端正在重启或进入崩溃循环时会返回 `503`。它不会等待达到最少后端连接数。后端加载进度和终态请查看 `/health/mcp`。
 
 ### 整体状态：`/health/mcp`
 

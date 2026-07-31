@@ -17,6 +17,7 @@ vi.mock('@src/logger/configureGlobalLogger.js', () => ({
 describe('setupServeCommand', () => {
   afterEach(() => {
     vi.clearAllMocks();
+    vi.unstubAllEnvs();
   });
 
   it('does not inject an HTTP transport when no CLI transport flag is passed', async () => {
@@ -63,17 +64,12 @@ describe('setupServeCommand', () => {
   });
 
   it('passes deprecated async environment inputs through for warning handling', async () => {
-    const previousValue = process.env.ONE_MCP_ASYNC_MIN_SERVERS;
-    process.env.ONE_MCP_ASYNC_MIN_SERVERS = '7';
-    try {
-      await setupServeCommand(yargs([]).env('ONE_MCP').exitProcess(false).help(false).version(false)).parseAsync([
-        'serve',
-      ]);
+    vi.stubEnv('ONE_MCP_ASYNC_MIN_SERVERS', '7');
 
-      expect(serveCommandMock).toHaveBeenCalledWith(expect.objectContaining({ 'async-min-servers': 7 }));
-    } finally {
-      if (previousValue === undefined) delete process.env.ONE_MCP_ASYNC_MIN_SERVERS;
-      else process.env.ONE_MCP_ASYNC_MIN_SERVERS = previousValue;
-    }
+    await setupServeCommand(yargs([]).env('ONE_MCP').exitProcess(false).help(false).version(false)).parseAsync([
+      'serve',
+    ]);
+
+    expect(serveCommandMock).toHaveBeenCalledWith(expect.objectContaining({ 'async-min-servers': 7 }));
   });
 });

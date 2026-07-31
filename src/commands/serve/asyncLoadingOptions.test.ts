@@ -13,8 +13,15 @@ describe('resolveAsyncLoadingOptions', () => {
       notifyOnServerReady: true,
       waitForMinimumServers: 0,
       initialLoadTimeoutMs: 30000,
+      batchDelayMs: 1000,
     });
     expect(warn).not.toHaveBeenCalled();
+  });
+
+  it.each([-1, 1.5, Number.NaN])('rejects an invalid notification batch delay of %s', (batchDelay) => {
+    expect(() => resolveAsyncLoadingOptions({ 'async-batch-delay': batchDelay }, undefined, vi.fn())).toThrow(
+      'Async notification batch delay must be a non-negative integer',
+    );
   });
 
   it('treats deprecated CLI or environment thresholds as warning-only no-ops', () => {
