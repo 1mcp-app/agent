@@ -52,4 +52,28 @@ describe('setupServeCommand', () => {
 
     expect(serveCommandMock).toHaveBeenCalledWith(expect.objectContaining({ preset: 'production' }));
   });
+
+  it('passes the canonical async snapshot notification flag through', async () => {
+    await setupServeCommand(yargs([]).exitProcess(false).help(false).version(false)).parseAsync([
+      'serve',
+      '--no-async-notify-on-snapshot',
+    ]);
+
+    expect(serveCommandMock).toHaveBeenCalledWith(expect.objectContaining({ 'async-notify-on-snapshot': false }));
+  });
+
+  it('passes deprecated async environment inputs through for warning handling', async () => {
+    const previousValue = process.env.ONE_MCP_ASYNC_MIN_SERVERS;
+    process.env.ONE_MCP_ASYNC_MIN_SERVERS = '7';
+    try {
+      await setupServeCommand(yargs([]).env('ONE_MCP').exitProcess(false).help(false).version(false)).parseAsync([
+        'serve',
+      ]);
+
+      expect(serveCommandMock).toHaveBeenCalledWith(expect.objectContaining({ 'async-min-servers': 7 }));
+    } finally {
+      if (previousValue === undefined) delete process.env.ONE_MCP_ASYNC_MIN_SERVERS;
+      else process.env.ONE_MCP_ASYNC_MIN_SERVERS = previousValue;
+    }
+  });
 });

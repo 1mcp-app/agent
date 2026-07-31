@@ -72,6 +72,7 @@ const BACKGROUND_STARTUP_OPTION_KEYS = [
   'async-timeout',
   'async-batch-notifications',
   'async-batch-delay',
+  'async-notify-on-snapshot',
   'async-notify-on-ready',
   'enable-lazy-loading',
   'lazy-mode',
