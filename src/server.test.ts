@@ -55,6 +55,7 @@ describe('server', () => {
   let mockConfigManager: any;
   let mockClientManager: any;
   let mockConfigChangeHandler: any;
+  let mockTemplateServerManager: any;
 
   beforeEach(async () => {
     vi.resetAllMocks();
@@ -75,22 +76,28 @@ describe('server', () => {
       createClients: vi.fn().mockResolvedValue(mockClients),
       initializeClientsAsync: vi.fn().mockReturnValue(mockClients),
       setInstructionAggregator: vi.fn(),
+      setBackendAvailabilityHandler: vi.fn(),
     };
     vi.mocked(ClientManager.getOrCreateInstance).mockReturnValue(mockClientManager);
 
     // Setup mock server manager
+    mockTemplateServerManager = {
+      rebuildTemplateIndex: vi.fn(),
+    };
     mockServerManager = {
       start: vi.fn(),
       stop: vi.fn(),
       getStatus: vi.fn().mockReturnValue('running'),
       setInstructionAggregator: vi.fn(),
       syncMcpServerLifecycleFromConnectedClients: vi.fn(),
+      getTemplateServerManager: vi.fn().mockReturnValue(mockTemplateServerManager),
     };
     vi.mocked(ServerManager.getOrCreateInstance).mockReturnValue(mockServerManager);
 
     // Setup mock config manager
     mockConfigManager = {
       getTransportConfig: vi.fn().mockReturnValue({}),
+      loadDeclaredServerConfigs: vi.fn().mockReturnValue({ staticServers: {}, templateServers: {}, errors: [] }),
       initialize: vi.fn().mockResolvedValue(undefined),
     };
     vi.mocked(ConfigManager.getInstance).mockReturnValue(mockConfigManager);
@@ -177,6 +184,19 @@ describe('server', () => {
       const { ConfigChangeHandler } = await import('./core/configChangeHandler.js');
       expect(ConfigChangeHandler.getInstance).toHaveBeenCalled();
       expect(mockConfigChangeHandler.initialize).toHaveBeenCalled();
+    });
+
+    it('seeds the template index from declared configuration before returning', async () => {
+      const templateServers = { worker: { command: 'node', args: ['{{workspace}}'] } };
+      mockConfigManager.loadDeclaredServerConfigs.mockReturnValue({
+        staticServers: {},
+        templateServers,
+        errors: [],
+      });
+
+      await setupServer();
+
+      expect(mockTemplateServerManager.rebuildTemplateIndex).toHaveBeenCalledWith({ mcpTemplates: templateServers });
     });
 
     it('should log successful setup completion', async () => {

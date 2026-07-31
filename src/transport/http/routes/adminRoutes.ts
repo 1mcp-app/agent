@@ -1,10 +1,17 @@
-import { createHash } from 'node:crypto';
+import { createHmac } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import type { BackendOAuthDashboardResult } from '@src/auth/oauthAuthorizationFlow.js';
 import { RuntimeIdentity } from '@src/core/runtime/runtimeIdentityService.js';
+import { parseTemplateConnectionKey } from '@src/core/server/templateIdentity.js';
+import type {
+  AdminBackendRestartOperations,
+  BackendRestartOutcome,
+  BackendRestartSelection,
+  RuntimeBackendRestartResult,
+} from '@src/domains/admin/adminBackendRestartService.js';
 import {
   AdminConfiguredServerApplyError,
   AdminConfiguredServerNotFoundError,
@@ -16,6 +23,7 @@ import {
   AdminIdentityError,
   AdminIdentityService,
 } from '@src/domains/admin/adminIdentityService.js';
+import type { AdminOAuthOperations } from '@src/domains/admin/adminOAuthService.js';
 import type {
   AdminConfirmationRequirement,
   AdminOperationContext,
@@ -28,15 +36,21 @@ import {
   type AdminPresetOperations,
 } from '@src/domains/admin/adminPresetService.js';
 import type { AdminMutationAvailability } from '@src/domains/admin/runtimeScopeAdminLock.js';
+import { sensitiveOperationLimiter } from '@src/transport/http/middlewares/securityMiddleware.js';
 import { sanitizeErrorMessage } from '@src/utils/validation/sanitization.js';
 
 import express, { Request, Response, Router } from 'express';
+import rateLimit from 'express-rate-limit';
 import { createRequire } from 'node:module';
 import { z } from 'zod';
 
 const FAILED_LOGIN_LIMIT = 5;
 const FAILED_LOGIN_WINDOW_MS = 15 * 60 * 1000;
 const FAILED_LOGIN_MAX_ACTIVE_KEYS = 10_000;
+const ADMIN_AUTH_RATE_LIMIT = 30;
+const ADMIN_AUTH_RATE_LIMIT_WINDOW_MS = 15 * 60 * 1000;
+const ADMIN_STATUS_RATE_LIMIT = 120;
+const ADMIN_STATUS_RATE_LIMIT_WINDOW_MS = 60 * 1000;
 const ADMIN_USERNAME_MAX_LENGTH = 256;
 const ADMIN_PASSWORD_MAX_LENGTH = 4096;
 const CLI_ADMIN_PROTOCOL_VERSION = '1';
@@ -45,6 +59,7 @@ const CLI_ADMIN_RESPONSE_TOO_LARGE_MESSAGE =
   'CLI Admin response exceeded the maximum supported size; use a narrower or paginated request.';
 const CLI_SESSION_OPERATIONS = ['admin.login', 'admin.status', 'admin.logout'] as const;
 const ADMIN_API_PROTOCOL_VERSION = '1';
+const TEMPLATE_INSTANCE_ID_DISPLAY_LENGTH = 12;
 const packageMetadata = createRequire(import.meta.url)('../../../../package.json') as {
   name: string;
   version: string;
@@ -54,15 +69,28 @@ const packageMetadata = createRequire(import.meta.url)('../../../../package.json
   license?: string;
   repository?: { url?: string };
 };
-const CLI_MCP_OPERATIONS = ['mcp.enable', 'mcp.disable'] as const;
+const CLI_CONFIGURED_SERVER_OPERATIONS = ['mcp.enable', 'mcp.disable'] as const;
+const CLI_BACKEND_RESTART_OPERATION = 'mcp.restart' as const;
 const adminLoginBodySchema = z.object({
   username: z.string().trim().min(1).max(ADMIN_USERNAME_MAX_LENGTH),
   password: z.string().min(1).max(ADMIN_PASSWORD_MAX_LENGTH),
+});
+const adminOAuthServiceParamsSchema = z.object({
+  serviceId: z.string().trim().min(1).max(256),
 });
 const cliConfiguredServerMutationBodySchema = z.object({
   targetName: z.string().trim().min(1).max(256),
   dryRun: z.boolean().optional(),
 });
+const cliBackendRestartBodySchema = z
+  .object({
+    targetName: z.string().trim().min(1).max(256),
+    instance: z.string().trim().min(1).max(64).optional(),
+    allInstances: z.boolean().optional(),
+  })
+  .refine((value) => !(value.instance !== undefined && value.allInstances === true), {
+    message: 'instance and allInstances are mutually exclusive',
+  });
 type AdminOperationFailure = Extract<AdminOperationResult, { ok: false }>;
 interface CliAdminEnvelope {
   ok: boolean;
@@ -76,7 +104,9 @@ interface AdminRoutesOptions {
   adminEnabled: boolean;
   adminService: AdminIdentityService;
   configuredServerService?: AdminConfiguredServerOperations;
+  backendRestartService?: AdminBackendRestartOperations;
   presetService?: AdminPresetOperations;
+  oauthService?: AdminOAuthOperations;
   adminMutationAvailability?: AdminMutationAvailability;
   getRuntimeIdentity: () => RuntimeIdentity;
   getOAuthDashboard?: () => BackendOAuthDashboardResult;
@@ -91,6 +121,18 @@ export function createAdminRoutes(options: AdminRoutesOptions): Router | null {
 
   const router = Router();
   const failedLoginLimiter = new FailedLoginLimiter();
+  const authenticationLimiter = rateLimit({
+    windowMs: ADMIN_AUTH_RATE_LIMIT_WINDOW_MS,
+    max: ADMIN_AUTH_RATE_LIMIT,
+    standardHeaders: true,
+    legacyHeaders: false,
+  });
+  const statusLimiter = rateLimit({
+    windowMs: ADMIN_STATUS_RATE_LIMIT_WINDOW_MS,
+    max: ADMIN_STATUS_RATE_LIMIT,
+    standardHeaders: true,
+    legacyHeaders: false,
+  });
   const adminConsoleAssets = resolveAdminConsoleAssets(options.adminConsoleAssetsDir);
   options.adminService.bootstrapFirstAdminFromEnvironment();
 
@@ -99,9 +141,19 @@ export function createAdminRoutes(options: AdminRoutesOptions): Router | null {
     const setupRequired = !options.adminService.hasAdminAccount();
     const mutationAvailability = cliMutationAvailability(options, setupRequired);
     const configuredServerOperationsSupported = Boolean(options.configuredServerService);
-    const mcpMutationsReady = configuredServerOperationsSupported && mutationAvailability.available;
-    const mcpOperations = configuredServerOperationsSupported ? [...CLI_MCP_OPERATIONS] : [];
-    const mcpMutationOperations = mcpMutationsReady ? ['enable', 'disable'] : [];
+    const backendRestartSupported = Boolean(options.backendRestartService);
+    const mcpMutationsReady =
+      (configuredServerOperationsSupported || backendRestartSupported) && mutationAvailability.available;
+    const mcpOperations = [
+      ...(configuredServerOperationsSupported ? [...CLI_CONFIGURED_SERVER_OPERATIONS] : []),
+      ...(backendRestartSupported ? [CLI_BACKEND_RESTART_OPERATION] : []),
+    ];
+    const mcpMutationOperations = mutationAvailability.available
+      ? [
+          ...(configuredServerOperationsSupported ? ['enable', 'disable'] : []),
+          ...(backendRestartSupported ? ['restart'] : []),
+        ]
+      : [];
     const mcpReadinessStatus = cliMcpReadinessStatus(mutationAvailability);
 
     sendCliSuccess(req, res, {
@@ -124,12 +176,13 @@ export function createAdminRoutes(options: AdminRoutesOptions): Router | null {
         adminSessions: true,
         bearerSessionAuth: true,
         csrfTokens: true,
-        mcpEnableDisable: mcpMutationsReady,
+        mcpEnableDisable: configuredServerOperationsSupported && mutationAvailability.available,
+        mcpRestart: backendRestartSupported && mutationAvailability.available,
       },
     });
   });
 
-  router.post('/cli/v1/session/login', async (req, res) => {
+  router.post('/cli/v1/session/login', authenticationLimiter, async (req, res) => {
     const parsedBody = adminLoginBodySchema.safeParse(req.body);
     if (!parsedBody.success) {
       sendCliError(req, res, {
@@ -209,7 +262,11 @@ export function createAdminRoutes(options: AdminRoutesOptions): Router | null {
     await handleCliConfiguredServerMutation(req, res, options, 'disableConfiguredServer');
   });
 
-  router.post('/api/session/login', async (req, res) => {
+  router.post('/cli/v1/operations/restart-server', async (req, res) => {
+    await handleCliBackendRestart(req, res, options);
+  });
+
+  router.post('/api/session/login', authenticationLimiter, async (req, res) => {
     const parsedBody = adminLoginBodySchema.safeParse(req.body);
     if (!parsedBody.success) {
       res.status(400).json({ error: 'admin_login_request_invalid' });
@@ -279,7 +336,7 @@ export function createAdminRoutes(options: AdminRoutesOptions): Router | null {
     res.status(200).json({ ok: true });
   });
 
-  router.get('/api/status', (req, res) => {
+  router.get('/api/status', statusLimiter, (req, res) => {
     const session = options.adminService.validateSession(getAdminSessionCookie(req));
     if (!session) {
       res.status(401).json({ authenticated: false });
@@ -306,6 +363,36 @@ export function createAdminRoutes(options: AdminRoutesOptions): Router | null {
         protocolVersion: req.header('X-Admin-UI-Protocol-Version'),
       }),
     });
+  });
+
+  router.post('/api/oauth/:serviceId/authorize', sensitiveOperationLimiter, async (req, res) => {
+    if (!options.oauthService) {
+      res.status(503).json({ error: 'backend_oauth_runtime_unavailable' });
+      return;
+    }
+
+    const serviceId = parseAdminOAuthServiceId(req, res);
+    if (!serviceId) return;
+    const result = await options.oauthService.authorizeService({
+      context: buildAdminOperationContext(req, options, { type: 'backend_oauth_service', id: serviceId }),
+      serviceId,
+    });
+    sendAdminOAuthOperationResult(res, result);
+  });
+
+  router.post('/api/oauth/:serviceId/restart', sensitiveOperationLimiter, async (req, res) => {
+    if (!options.oauthService) {
+      res.status(503).json({ error: 'backend_oauth_runtime_unavailable' });
+      return;
+    }
+
+    const serviceId = parseAdminOAuthServiceId(req, res);
+    if (!serviceId) return;
+    const result = await options.oauthService.restartService({
+      context: buildAdminOperationContext(req, options, { type: 'backend_oauth_service', id: serviceId }),
+      serviceId,
+    });
+    sendAdminOAuthOperationResult(res, result);
   });
 
   router.get('/api/presets', async (req, res) => {
@@ -480,7 +567,7 @@ function sendAdminConsoleIndex(res: Response, indexPath: string): void {
     return;
   }
 
-  res.status(200).sendFile(indexPath);
+  res.status(200).sendFile(indexPath, { dotfiles: 'allow' });
 }
 
 function unauthenticatedAdminApiResponse(options: AdminRoutesOptions): {
@@ -573,6 +660,128 @@ async function handleCliConfiguredServerMutation(
       : await options.configuredServerService.disableConfiguredServer(input);
 
   sendCliAdminOperationResult(req, res, result);
+}
+
+async function handleCliBackendRestart(req: Request, res: Response, options: AdminRoutesOptions): Promise<void> {
+  if (!options.backendRestartService) {
+    sendCliError(req, res, {
+      status: 404,
+      code: 'backend_restart_unavailable',
+      message: 'Backend restart administration is unavailable',
+      retryable: false,
+    });
+    return;
+  }
+
+  if (isMutationLocked(options)) {
+    sendCliError(req, res, {
+      status: 409,
+      code: 'runtime_scope_locked',
+      message: 'Runtime scope admin mutations are locked by another writer',
+      retryable: true,
+      details: { operationName: 'restartBackend', reason: 'writer_lock_unavailable' },
+    });
+    return;
+  }
+
+  const sessionToken = getBearerSessionToken(req);
+  const session = sessionToken ? options.adminService.validateSession(sessionToken) : null;
+  if (!sessionToken || !session) {
+    sendCliError(req, res, {
+      status: 401,
+      code: 'admin_session_required',
+      message: 'A valid admin session bearer token is required',
+      retryable: false,
+    });
+    return;
+  }
+
+  const parsedBody = cliBackendRestartBodySchema.safeParse(req.body);
+  if (!parsedBody.success) {
+    sendCliError(req, res, {
+      status: 400,
+      code: 'validation_request_invalid',
+      message: 'Backend targetName and restart selectors must have valid, mutually exclusive values',
+      retryable: false,
+    });
+    return;
+  }
+
+  const { targetName, instance, allInstances = false } = parsedBody.data;
+  const selection: BackendRestartSelection = instance
+    ? { mode: 'instance', instanceIdOrPrefix: instance }
+    : allInstances
+      ? { mode: 'all_instances' }
+      : { mode: 'target_default' };
+  const context = buildCliAdminOperationContext(req, options, session.account, sessionToken, {
+    type: 'backend',
+    id: targetName,
+  });
+  const result = await options.backendRestartService.restartBackend({
+    context,
+    targetName,
+    selection,
+    confirmationRequirements: cliBackendRestartConfirmationRequirements(options, targetName),
+  });
+
+  if (result.ok && isBackendRestartFailureResult(result.result)) {
+    sendCliBackendRestartOutcome(req, res, result.result);
+    return;
+  }
+  sendCliAdminOperationResult(req, res, result);
+}
+
+function sendCliBackendRestartOutcome(
+  req: Request,
+  res: Response,
+  result: RuntimeBackendRestartResult & { outcome: Exclude<BackendRestartOutcome, 'restarted'> },
+): void {
+  const response = backendRestartFailure(result.outcome);
+  sendCliError(req, res, {
+    status: response.status,
+    code: response.code,
+    message: response.message,
+    retryable: false,
+    details: {
+      targetName: result.targetName,
+      ...(result.candidateInstanceIds ? { candidateInstanceIds: result.candidateInstanceIds } : {}),
+    },
+  });
+}
+
+function isBackendRestartFailureResult(
+  result: RuntimeBackendRestartResult,
+): result is RuntimeBackendRestartResult & { outcome: Exclude<BackendRestartOutcome, 'restarted'> } {
+  return result.outcome !== 'restarted';
+}
+
+function backendRestartFailure(outcome: Exclude<BackendRestartOutcome, 'restarted'>): {
+  status: number;
+  code: string;
+  message: string;
+} {
+  switch (outcome) {
+    case 'target_not_found':
+      return { status: 404, code: 'backend_not_found', message: 'Backend target was not found' };
+    case 'target_disabled':
+      return { status: 409, code: 'backend_disabled', message: 'Backend target is disabled' };
+    case 'instance_not_found':
+      return { status: 404, code: 'backend_instance_not_found', message: 'Backend instance was not found' };
+    case 'instance_ambiguous':
+      return { status: 409, code: 'backend_instance_ambiguous', message: 'Backend instance prefix is ambiguous' };
+    case 'no_active_instances':
+      return {
+        status: 409,
+        code: 'backend_no_active_instances',
+        message: 'Backend has no active instances to restart',
+      };
+    case 'no_unhealthy_instances':
+      return {
+        status: 409,
+        code: 'backend_no_unhealthy_instances',
+        message: 'Backend has no unhealthy active instances to restart by default',
+      };
+  }
 }
 
 async function handleConfiguredServerDetail(req: Request, res: Response, options: AdminRoutesOptions): Promise<void> {
@@ -764,7 +973,7 @@ async function handleConfiguredServerMutation(
 }
 
 function cliMutationAvailability(options: AdminRoutesOptions, setupRequired: boolean): AdminMutationAvailability {
-  if (!options.configuredServerService) {
+  if (!options.configuredServerService && !options.backendRestartService) {
     return {
       available: false,
       reason: 'mutation_service_unavailable',
@@ -908,9 +1117,24 @@ function getBearerSessionToken(req: Request): string | undefined {
     return undefined;
   }
 
-  const match = authorization.match(/^Bearer\s+(.+)$/i);
-  const token = match?.[1]?.trim();
-  return token || undefined;
+  const bearerScheme = 'Bearer';
+  if (
+    authorization.length <= bearerScheme.length ||
+    authorization.slice(0, bearerScheme.length).toLowerCase() !== bearerScheme.toLowerCase()
+  ) {
+    return undefined;
+  }
+
+  let tokenStart = bearerScheme.length;
+  if (authorization.charCodeAt(tokenStart) !== 0x20) {
+    return undefined;
+  }
+  while (authorization.charCodeAt(tokenStart) === 0x20) {
+    tokenStart += 1;
+  }
+
+  const token = authorization.slice(tokenStart);
+  return token && !/\s/u.test(token) ? token : undefined;
 }
 
 function isHttpsRuntime(externalUrl: string): boolean {
@@ -1052,6 +1276,30 @@ function sendAdminOperationResult<T>(res: Response, result: AdminOperationResult
   res.status(status).json(result);
 }
 
+function sendAdminOAuthOperationResult<T>(res: Response, result: AdminOperationResult<T>): void {
+  if (!result.ok && result.status === 'mutation_failed') {
+    const status =
+      result.error === 'backend_oauth_service_not_found'
+        ? 404
+        : result.error === 'backend_oauth_runtime_unavailable'
+          ? 503
+          : 502;
+    res.status(status).json({ ok: false, error: result.error });
+    return;
+  }
+
+  sendAdminOperationResult(res, result);
+}
+
+function parseAdminOAuthServiceId(req: Request, res: Response): string | null {
+  const parsed = adminOAuthServiceParamsSchema.safeParse(req.params);
+  if (!parsed.success) {
+    res.status(400).json({ error: 'backend_oauth_service_id_invalid' });
+    return null;
+  }
+  return parsed.data.serviceId;
+}
+
 async function handlePresetMutation(
   req: Request,
   res: Response,
@@ -1176,7 +1424,10 @@ function buildAdminOperationContext(
       jsonMode: true,
     },
     idempotencyKey: req.header('Idempotency-Key'),
-    requestFingerprint: configuredServerRequestFingerprint(operationName, target.id, req.body),
+    requestFingerprint:
+      target.type === 'backend_oauth_service'
+        ? backendOAuthRequestFingerprint(operationName, target.id)
+        : configuredServerRequestFingerprint(operationName, target.id, req.body),
     confirmationFacts: getBodyRecord(req.body, 'confirmationFacts'),
   };
 }
@@ -1227,6 +1478,23 @@ function cliConfiguredServerConfirmationRequirements(
   ];
 }
 
+function cliBackendRestartConfirmationRequirements(
+  options: AdminRoutesOptions,
+  targetName: string,
+): AdminConfirmationRequirement[] {
+  const identity = options.getRuntimeIdentity();
+  if (isLoopbackRuntimeUrl(identity.externalUrl)) {
+    return [];
+  }
+  const target = { type: 'backend', id: targetName };
+  return [
+    { code: 'confirm_non_loopback_runtime', expected: true, target },
+    { code: 'confirmedOperation', expected: 'mcp.restart', target },
+    { code: 'confirmedRuntimeScopeId', expected: identity.runtimeScopeId, target },
+    { code: 'confirmationSource', expected: 'cli_flag', target },
+  ];
+}
+
 function buildCliAdminOperationContext(
   req: Request,
   options: AdminRoutesOptions,
@@ -1253,7 +1521,7 @@ function buildCliAdminOperationContext(
       jsonMode: true,
     },
     idempotencyKey: req.header('Idempotency-Key'),
-    requestFingerprint: configuredServerRequestFingerprint(operationName, target.id),
+    requestFingerprint: configuredServerRequestFingerprint(operationName, target.id, req.body),
     confirmationFacts: getBodyRecord(req.body, 'confirmationFacts'),
   };
 }
@@ -1263,25 +1531,51 @@ function configuredServerRequestFingerprint(
   targetName: string | undefined,
   body?: unknown,
 ): string {
+  const previewFingerprint = getBodyString(body, 'previewFingerprint');
   const normalized = stableJsonStringify({
     schemaVersion: 1,
     operationName,
     target: {
-      type: 'configured_server',
+      type: operationName === 'restartBackend' ? 'backend' : 'configured_server',
       id: targetName ?? '',
     },
     ...(operationName === 'applyConfiguredServerEdit'
       ? {
-          previewFingerprint: getBodyString(body, 'previewFingerprint'),
-          editDigest: createHash('sha256')
-            .update(stableJsonStringify(getBodyValue(body, 'edit') ?? {}))
-            .digest('hex'),
+          previewFingerprint,
+          editDigest: keyedRequestFingerprint(
+            previewFingerprint,
+            'configured-server-edit',
+            stableJsonStringify(getBodyValue(body, 'edit') ?? {}),
+          ),
+        }
+      : {}),
+    ...(operationName === 'restartBackend'
+      ? {
+          restartSelection: {
+            instance: getBodyString(body, 'instance'),
+            allInstances: getBodyValue(body, 'allInstances') === true,
+          },
         }
       : {}),
   });
   return operationName === 'applyConfiguredServerEdit'
-    ? `configured_server_apply_${createHash('sha256').update(normalized).digest('hex')}`
+    ? `configured_server_apply_${keyedRequestFingerprint(previewFingerprint, 'configured-server-apply', normalized)}`
     : normalized;
+}
+
+function keyedRequestFingerprint(key: string, domain: string, value: string): string {
+  return createHmac('sha256', key).update(domain).update('\0').update(value).digest('hex');
+}
+
+function backendOAuthRequestFingerprint(operationName: string, serviceId: string | undefined): string {
+  return stableJsonStringify({
+    schemaVersion: 1,
+    operationName,
+    target: {
+      type: 'backend_oauth_service',
+      id: serviceId ?? '',
+    },
+  });
 }
 
 function stableJsonStringify(value: unknown): string {
@@ -1359,6 +1653,12 @@ function cliOperationErrorDetails(result: AdminOperationFailure): Record<string,
 }
 
 function operationNameForRequest(req: Request): string {
+  if (req.path.startsWith('/api/oauth/')) {
+    return req.path.endsWith('/restart') ? 'restartBackendOAuth' : 'authorizeBackendOAuth';
+  }
+  if (req.path.endsWith('/restart-server')) {
+    return 'restartBackend';
+  }
   if (req.path.endsWith('/enable') || req.path.endsWith('/enable-server')) {
     return 'enableConfiguredServer';
   }
@@ -1416,9 +1716,20 @@ function sanitizeOAuthDashboard(dashboard: BackendOAuthDashboardResult): Backend
     ...dashboard,
     services: dashboard.services.map((service) => ({
       ...service,
+      id: service.name,
+      displayName: backendOAuthServiceDisplayName(service.name),
       lastError: service.lastError ? sanitizeErrorMessage(service.lastError) : undefined,
     })),
   };
+}
+
+function backendOAuthServiceDisplayName(serviceId: string): string {
+  const identity = parseTemplateConnectionKey(serviceId);
+  if (identity.kind !== 'rendered' || identity.renderedHash.length <= TEMPLATE_INSTANCE_ID_DISPLAY_LENGTH) {
+    return serviceId;
+  }
+
+  return `${identity.templateName}:${identity.renderedHash.slice(0, TEMPLATE_INSTANCE_ID_DISPLAY_LENGTH)}`;
 }
 
 function getBodyValue(body: unknown, key: string): unknown {

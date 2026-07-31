@@ -1,4 +1,11 @@
-import { serializePoolIdentity, templateRenderedHash } from '@src/core/server/templateIdentity.js';
+import { BackendStdioSupervisor, type BackendSupervisionSnapshot } from '@src/core/server/backendStdioSupervisor.js';
+import {
+  createTemplateInstanceId,
+  resolveTemplateInstanceId,
+  serializePoolIdentity,
+  templateRenderedHash,
+} from '@src/core/server/templateIdentity.js';
+import type { AuthProviderTransport } from '@src/core/types/client.js';
 import type { MCPServerParams } from '@src/core/types/transport.js';
 import logger, { debugIf, infoIf } from '@src/logger/logger.js';
 import { HandlebarsTemplateRenderer } from '@src/template/handlebarsTemplateRenderer.js';
@@ -23,8 +30,11 @@ export class ClientInstancePool {
   private templateToInstances = new Map<string, Set<string>>();
   private options: ClientPoolOptions;
   private cleanupTimer?: ReturnType<typeof setInterval>;
-  private instanceCounter = 0;
   private pendingCreations = new Map<string, Promise<PooledClientInstance>>();
+  private removalOperations = new Map<string, Promise<void>>();
+  private supervisionPublisher?: (instance: PooledClientInstance, snapshot: BackendSupervisionSnapshot) => void;
+  private isShuttingDown = false;
+  private shutdownPromise?: Promise<void>;
 
   constructor(options: Partial<ClientPoolOptions> = {}) {
     this.options = { ...DEFAULT_POOL_OPTIONS, ...options };
@@ -34,6 +44,12 @@ export class ClientInstancePool {
       message: 'ClientInstancePool initialized',
       meta: { options: this.options },
     }));
+  }
+
+  setSupervisionPublisher(
+    publisher: (instance: PooledClientInstance, snapshot: BackendSupervisionSnapshot) => void,
+  ): void {
+    this.supervisionPublisher = publisher;
   }
 
   /**
@@ -50,6 +66,8 @@ export class ClientInstancePool {
       idleTimeout?: number;
     },
   ): Promise<PooledClientInstance> {
+    this.assertActive();
+
     // Render template with context data
     const renderer = new HandlebarsTemplateRenderer();
     const renderedConfig = renderer.renderTemplate(templateConfig, context);
@@ -111,7 +129,7 @@ export class ClientInstancePool {
 
       // Create new client instance
       const instance: PooledClientInstance = await createPooledClientInstance({
-        instanceId: this.generateInstanceId(),
+        instanceId: createTemplateInstanceId(),
         instanceKey,
         templateName,
         processedConfig: renderedConfig,
@@ -119,6 +137,11 @@ export class ClientInstancePool {
         clientId,
         idleTimeout: templateSettings.idleTimeout,
       });
+      if (this.isShuttingDown) {
+        await this.disposeInstance(instance);
+        throw new Error('ClientInstancePool is shutting down');
+      }
+      this.configureInstanceSupervision(instance);
 
       this.instances.set(instanceKey, instance);
       this.addToTemplateIndex(templateName, instanceKey);
@@ -141,7 +164,9 @@ export class ClientInstancePool {
     try {
       return await instancePromise;
     } finally {
-      this.pendingCreations.delete(instanceKey);
+      if (this.pendingCreations.get(instanceKey) === instancePromise) {
+        this.pendingCreations.delete(instanceKey);
+      }
     }
   }
 
@@ -191,6 +216,12 @@ export class ClientInstancePool {
 
     // Mark as idle if no more clients
     if (instance.referenceCount === 0) {
+      const supervisionState = instance.supervisor?.snapshot().state;
+      if (supervisionState === 'restarting' || supervisionState === 'crash-loop') {
+        instance.status = 'terminating';
+        void this.removeInstance(instance.instanceKey);
+        return;
+      }
       instance.status = 'idle';
       instance.lastUsedAt = idleSince; // Set lastUsedAt to when it became idle
 
@@ -215,8 +246,16 @@ export class ClientInstancePool {
    * Gets an instance key by its generated instance ID
    */
   getInstanceKeyById(instanceId: string): string | undefined {
+    const resolvedId = resolveTemplateInstanceId(
+      instanceId,
+      Array.from(this.instances.values(), (instance) => instance.id),
+    );
+    if (!resolvedId) {
+      return undefined;
+    }
+
     for (const [instanceKey, instance] of this.instances) {
-      if (instance.id === instanceId) {
+      if (instance.id === resolvedId) {
         return instanceKey;
       }
     }
@@ -239,6 +278,18 @@ export class ClientInstancePool {
   }
 
   /**
+   * Resolves a full or unambiguous-prefix instance ID within one template.
+   */
+  resolveTemplateInstance(templateName: string, instanceIdOrPrefix: string): PooledClientInstance | undefined {
+    const instances = this.getTemplateInstances(templateName);
+    const resolvedId = resolveTemplateInstanceId(
+      instanceIdOrPrefix,
+      instances.map((instance) => instance.id),
+    );
+    return resolvedId ? instances.find((instance) => instance.id === resolvedId) : undefined;
+  }
+
+  /**
    * Gets all active instances in the pool
    */
   getAllInstances(): PooledClientInstance[] {
@@ -254,18 +305,47 @@ export class ClientInstancePool {
       return;
     }
 
+    // Make the removal visible before yielding so concurrent lookups cannot
+    // attach new memberships to an instance that is already being closed.
     instance.status = 'terminating';
+    return this.scheduleRemoval(instanceKey, instance);
+  }
 
-    try {
-      // Close transport and client connection
-      await instance.client.close();
-      await instance.transport.close();
-    } catch (error) {
-      logger.warn(`Error closing client instance ${instance.id}:`, error);
+  private scheduleRemoval(instanceKey: string, instance: PooledClientInstance): Promise<void> {
+    const previousRemoval = this.removalOperations.get(instanceKey) ?? Promise.resolve();
+    const removal = previousRemoval
+      .catch(() => undefined)
+      .then(() => this.removeCapturedInstance(instanceKey, instance));
+    this.removalOperations.set(instanceKey, removal);
+    void removal.then(
+      () => {
+        if (this.removalOperations.get(instanceKey) === removal) {
+          this.removalOperations.delete(instanceKey);
+        }
+      },
+      () => {
+        if (this.removalOperations.get(instanceKey) === removal) {
+          this.removalOperations.delete(instanceKey);
+        }
+      },
+    );
+    return removal;
+  }
+
+  private async removeCapturedInstance(instanceKey: string, instance: PooledClientInstance): Promise<void> {
+    if (this.instances.get(instanceKey) !== instance) {
+      return;
     }
 
-    this.instances.delete(instanceKey);
-    this.removeFromTemplateIndex(instance.templateName, instanceKey);
+    instance.status = 'terminating';
+    await instance.supervisor?.stop();
+
+    await this.disposeInstance(instance);
+
+    if (this.instances.get(instanceKey) === instance) {
+      this.instances.delete(instanceKey);
+      this.removeFromTemplateIndex(instance.templateName, instanceKey);
+    }
 
     infoIf(() => ({
       message: 'Removed client instance from pool',
@@ -319,33 +399,34 @@ export class ClientInstancePool {
    * Shuts down the instance pool and cleans up all resources
    */
   async shutdown(): Promise<void> {
+    if (this.shutdownPromise) {
+      return this.shutdownPromise;
+    }
+
+    this.isShuttingDown = true;
+    this.shutdownPromise = this.performShutdown();
+    return this.shutdownPromise;
+  }
+
+  private async performShutdown(): Promise<void> {
     if (this.cleanupTimer) {
       clearInterval(this.cleanupTimer);
       this.cleanupTimer = undefined;
     }
 
-    // Mark all instances as terminating
-    for (const instance of this.instances.values()) {
-      instance.status = 'terminating';
-    }
+    await Promise.allSettled(Array.from(this.pendingCreations.values()));
 
     const instanceCount = this.instances.size;
 
-    // Close all client connections and transports
-    await Promise.all(
-      Array.from(this.instances.values()).map(async (instance) => {
-        try {
-          await instance.client.close();
-          await instance.transport.close();
-        } catch (error) {
-          logger.warn(`Error shutting down client instance ${instance.id}:`, error);
-        }
-      }),
+    await Promise.allSettled(
+      Array.from(this.instances, ([instanceKey, instance]) => this.scheduleRemoval(instanceKey, instance)),
     );
+    await Promise.allSettled(Array.from(this.removalOperations.values()));
 
     this.instances.clear();
     this.templateToInstances.clear();
     this.pendingCreations.clear();
+    this.removalOperations.clear();
 
     debugIf(() => ({
       message: 'ClientInstancePool shutdown complete',
@@ -353,6 +434,125 @@ export class ClientInstancePool {
         instancesRemoved: instanceCount,
       },
     }));
+  }
+
+  private assertActive(): void {
+    if (this.isShuttingDown) {
+      throw new Error('ClientInstancePool is shutting down');
+    }
+  }
+
+  private async disposeInstance(instance: PooledClientInstance): Promise<void> {
+    try {
+      await instance.client.close();
+    } catch (error) {
+      logger.warn(`Error closing client for instance ${instance.id}:`, error);
+    }
+    try {
+      await instance.transport.close();
+    } catch (error) {
+      logger.warn(`Error closing transport for instance ${instance.id}:`, error);
+    }
+  }
+
+  async restartInstance(instance: PooledClientInstance): Promise<BackendSupervisionSnapshot> {
+    if (!instance.supervisor) {
+      throw new Error(`Template instance ${instance.id} does not have stdio supervision enabled`);
+    }
+    await instance.supervisor.restartNow();
+    return instance.supervisor.snapshot();
+  }
+
+  private configureInstanceSupervision(instance: PooledClientInstance): void {
+    const metadata = instance.transport.stdioSupervision;
+    if (!metadata) return;
+
+    const supervisor =
+      instance.supervisor ??
+      new BackendStdioSupervisor({
+        backendId: `template:${instance.templateName}:${instance.id}`,
+        policy: metadata.policy,
+        initialPid: (instance.transport as AuthProviderTransport & { pid?: number }).pid ?? null,
+        recover: async (signal) => {
+          const currentClient = instance.client;
+          currentClient.onclose = undefined;
+          try {
+            await currentClient.close();
+          } catch (error) {
+            debugIf(() => ({ message: `Could not close template instance ${instance.id}: ${error}` }));
+          }
+          if (signal.aborted || instance.status === 'terminating') {
+            throw new Error(`Template recovery cancelled for ${instance.id}`);
+          }
+
+          const clientId = instance.clientIds.values().next().value as string | undefined;
+          if (!clientId) {
+            throw new Error(`Template instance ${instance.id} has no active memberships`);
+          }
+          const candidate = await createPooledClientInstance({
+            instanceId: instance.id,
+            instanceKey: instance.instanceKey,
+            templateName: instance.templateName,
+            processedConfig: instance.processedConfig,
+            renderedHash: instance.renderedHash,
+            clientId,
+            idleTimeout: instance.idleTimeout,
+          });
+          const dispose = async (): Promise<void> => {
+            candidate.client.onclose = undefined;
+            await candidate.client.close().catch(() => candidate.transport.close().catch(() => undefined));
+          };
+          return {
+            pid: (candidate.transport as AuthProviderTransport & { pid?: number | null }).pid ?? null,
+            activate: () => {
+              instance.client = candidate.client;
+              instance.transport = candidate.transport;
+              this.configureInstanceSupervision(instance);
+            },
+            dispose,
+          };
+        },
+        onStateChange: (snapshot) => {
+          instance.supervision = snapshot;
+          if (snapshot.state === 'restarting') instance.status = 'restarting';
+          if (snapshot.state === 'crash-loop') instance.status = 'crash-loop';
+          if (snapshot.state === 'connected') instance.status = instance.referenceCount > 0 ? 'active' : 'idle';
+          if (snapshot.state === 'stopped') instance.status = 'terminating';
+          logger.info(`Template backend stdio supervision state changed for ${instance.templateName}`, {
+            instanceId: instance.id,
+            state: snapshot.state,
+            attempt: snapshot.attempt,
+            limit: snapshot.limit,
+            nextRetryAt: snapshot.nextRetryAt,
+            lastExit: snapshot.lastExit,
+            currentPid: snapshot.currentPid,
+            error: snapshot.lastError?.message,
+          });
+          this.supervisionPublisher?.(instance, snapshot);
+        },
+      });
+    instance.supervisor = supervisor;
+    instance.supervision = supervisor.snapshot();
+
+    const client = instance.client;
+    client.onclose = () => {
+      if (instance.client !== client || instance.status === 'terminating') return;
+      if (instance.referenceCount === 0) {
+        instance.status = 'terminating';
+        void this.removeInstance(instance.instanceKey).catch((error) => {
+          logger.warn(`Failed to remove idle template instance ${instance.id} after child exit:`, error);
+        });
+        return;
+      }
+      supervisor.handleUnexpectedExit(
+        instance.transport.stdioSupervision?.getLastExit() ?? {
+          code: null,
+          signal: null,
+          pid: (instance.transport as AuthProviderTransport & { pid?: number | null }).pid ?? null,
+          at: new Date(),
+        },
+      );
+    };
   }
 
   /**
@@ -418,13 +618,6 @@ export class ClientInstancePool {
    */
   private createInstanceKey(templateName: string, variableHash: string, clientId?: string): string {
     return serializePoolIdentity({ templateName, renderedHash: variableHash, sessionId: clientId });
-  }
-
-  /**
-   * Generates a unique instance ID
-   */
-  private generateInstanceId(): string {
-    return `client-instance-${++this.instanceCounter}-${Date.now()}`;
   }
 
   /**

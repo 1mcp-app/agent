@@ -45,6 +45,55 @@ describe('mcpConfigMerge', () => {
     expect(merged.envFilter).toEqual(['PATH', 'NODE_*']);
   });
 
+  it('inherits global restart settings for stdio while preserving explicit server values', () => {
+    const globalConfig: GlobalTransportConfig = {
+      restartOnExit: true,
+      maxRestarts: 5,
+      restartDelay: 1000,
+    };
+    const serverConfig: MCPServerParams = {
+      type: 'stdio',
+      command: 'node',
+      restartOnExit: false,
+      maxRestarts: 0,
+      restartDelay: 0,
+    };
+
+    const merged = mergeGlobalAndServerConfig(globalConfig, serverConfig);
+
+    expect(merged.restartOnExit).toBe(false);
+    expect(merged.maxRestarts).toBe(0);
+    expect(merged.restartDelay).toBe(0);
+  });
+
+  it('leaves an omitted maxRestarts value for the runtime supervision policy to resolve', () => {
+    const globalConfig: GlobalTransportConfig = { restartOnExit: true };
+    const serverConfig: MCPServerParams = { type: 'stdio', command: 'node' };
+
+    const merged = mergeGlobalAndServerConfig(globalConfig, serverConfig);
+
+    expect(merged.restartOnExit).toBe(true);
+    expect(merged.maxRestarts).toBeUndefined();
+  });
+
+  it.each(['http', 'sse', 'streamableHttp'] as const)('ignores global restart settings for %s transports', (type) => {
+    const globalConfig = {
+      restartOnExit: true,
+      maxRestarts: 5,
+      restartDelay: 1000,
+    } as GlobalTransportConfig;
+    const serverConfig: MCPServerParams = {
+      type,
+      url: 'https://example.com/mcp',
+    };
+
+    const merged = mergeGlobalAndServerConfig(globalConfig, serverConfig);
+
+    expect(merged.restartOnExit).toBeUndefined();
+    expect(merged.maxRestarts).toBeUndefined();
+    expect(merged.restartDelay).toBeUndefined();
+  });
+
   it('merges global and server envFilter values with stable deduplication', () => {
     const globalConfig: GlobalTransportConfig = {
       envFilter: ['UV_*', 'https_proxy', 'HTTP_PROXY', 'no_proxy', 'PATH'],

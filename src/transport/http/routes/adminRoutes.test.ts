@@ -1,6 +1,8 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
+import type { BackendOAuthDashboardResult, OAuthAuthorizationFlow } from '@src/auth/oauthAuthorizationFlow.js';
+import type { AdminBackendRestartOperations } from '@src/domains/admin/adminBackendRestartService.js';
 import {
   AdminConfiguredServerNotFoundError,
   type AdminConfiguredServerOperations,
@@ -8,6 +10,7 @@ import {
   type ConfiguredServerConfigDocument,
 } from '@src/domains/admin/adminConfiguredServerService.js';
 import { AdminIdentityService } from '@src/domains/admin/adminIdentityService.js';
+import { AdminOAuthService } from '@src/domains/admin/adminOAuthService.js';
 import { type AdminAuditFact, AdminOperationService } from '@src/domains/admin/adminOperationService.js';
 import { createConfigChangeService } from '@src/domains/config-change/configChange.js';
 
@@ -38,6 +41,7 @@ function cookieValue(setCookieHeader: string): string {
 
 describe('admin routes', () => {
   let adminService: AdminIdentityService;
+  let oauthFlow: OAuthAuthorizationFlow;
   let storageDir: string;
   let configuredServerService: {
     listConfiguredServers: ReturnType<typeof vi.fn<AdminConfiguredServerOperations['listConfiguredServers']>>;
@@ -50,6 +54,9 @@ describe('admin routes', () => {
     disableConfiguredServer: ReturnType<typeof vi.fn<AdminConfiguredServerOperations['disableConfiguredServer']>>;
     getRecentAuditFacts: ReturnType<typeof vi.fn<(options?: { limit?: number }) => AdminAuditFact[]>>;
   };
+  let backendRestartService: {
+    restartBackend: ReturnType<typeof vi.fn<AdminBackendRestartOperations['restartBackend']>>;
+  };
 
   beforeEach(() => {
     storageDir = `/tmp/admin-routes-${Date.now()}-${Math.random()}`;
@@ -59,6 +66,7 @@ describe('admin routes', () => {
       now: () => new Date('2026-07-06T00:00:00.000Z'),
       sessionTtlMs: 60 * 60 * 1000,
     });
+    oauthFlow = createOAuthFlow();
     configuredServerService = {
       listConfiguredServers: vi.fn<AdminConfiguredServerOperations['listConfiguredServers']>(),
       getConfiguredServerDetail: vi.fn<AdminConfiguredServerOperations['getConfiguredServerDetail']>(),
@@ -67,6 +75,9 @@ describe('admin routes', () => {
       enableConfiguredServer: vi.fn<AdminConfiguredServerOperations['enableConfiguredServer']>(),
       disableConfiguredServer: vi.fn<AdminConfiguredServerOperations['disableConfiguredServer']>(),
       getRecentAuditFacts: vi.fn<(options?: { limit?: number }) => AdminAuditFact[]>(() => []),
+    };
+    backendRestartService = {
+      restartBackend: vi.fn<AdminBackendRestartOperations['restartBackend']>(),
     };
   });
 
@@ -78,8 +89,10 @@ describe('admin routes', () => {
     options: {
       externalUrl?: string;
       configuredServerService?: AdminConfiguredServerOperations | null;
+      backendRestartService?: AdminBackendRestartOperations | null;
       adminConsoleAssetsDir?: string;
       adminMutationAvailability?: { available: boolean; reason?: 'writer_lock_unavailable' };
+      oauthDashboard?: BackendOAuthDashboardResult;
     } = {},
   ) {
     const app = express();
@@ -91,22 +104,33 @@ describe('admin routes', () => {
         options.configuredServerService === null
           ? undefined
           : (options.configuredServerService ?? configuredServerService),
+      backendRestartService:
+        options.backendRestartService === null ? undefined : (options.backendRestartService ?? backendRestartService),
       getRuntimeIdentity: () => ({
         ...runtimeIdentity,
         externalUrl: options.externalUrl ?? runtimeIdentity.externalUrl,
       }),
       adminMutationAvailability: options.adminMutationAvailability,
-      getOAuthDashboard: () => ({
-        status: 'ready',
-        services: [
-          {
-            name: 'github',
-            status: 'awaiting_oauth',
-            requiresOAuth: true,
-            lastError: 'token: [REDACTED]',
-          },
-        ],
+      oauthService: new AdminOAuthService({
+        operationService: new AdminOperationService({
+          runtimeScopeId: 'scope_123',
+          storageDir,
+          now: () => new Date('2026-07-06T00:00:00.000Z'),
+        }),
+        oauthFlow,
       }),
+      getOAuthDashboard: () =>
+        options.oauthDashboard ?? {
+          status: 'ready',
+          services: [
+            {
+              name: 'github',
+              status: 'awaiting_oauth',
+              requiresOAuth: true,
+              lastError: 'token: [REDACTED]',
+            },
+          ],
+        },
       adminConsoleAssetsDir: options.adminConsoleAssetsDir,
     });
 
@@ -132,8 +156,8 @@ describe('admin routes', () => {
     });
   }
 
-  function createAdminAssetFixture(): string {
-    const assetsRoot = `${storageDir}/admin-assets`;
+  function createAdminAssetFixture(parentDir = storageDir): string {
+    const assetsRoot = `${parentDir}/admin-assets`;
     fs.mkdirSync(`${assetsRoot}/assets`, { recursive: true });
     fs.writeFileSync(
       `${assetsRoot}/index.html`,
@@ -194,7 +218,14 @@ describe('admin routes', () => {
       warnings: [],
       result: {
         runtime: cliRuntimeIdentity,
-        supportedOperations: ['admin.login', 'admin.status', 'admin.logout', 'mcp.enable', 'mcp.disable'],
+        supportedOperations: [
+          'admin.login',
+          'admin.status',
+          'admin.logout',
+          'mcp.enable',
+          'mcp.disable',
+          'mcp.restart',
+        ],
         adminSurface: {
           enabled: true,
           status: 'loginRequired',
@@ -203,7 +234,7 @@ describe('admin routes', () => {
           mcp: {
             enabled: true,
             status: 'ready',
-            operations: ['enable', 'disable'],
+            operations: ['enable', 'disable', 'restart'],
           },
         },
         adminMutationsAvailable: true,
@@ -212,6 +243,7 @@ describe('admin routes', () => {
           bearerSessionAuth: true,
           csrfTokens: true,
           mcpEnableDisable: true,
+          mcpRestart: true,
         },
       },
     });
@@ -270,6 +302,7 @@ describe('admin routes', () => {
           bearerSessionAuth: true,
           csrfTokens: true,
           mcpEnableDisable: false,
+          mcpRestart: false,
         },
       },
     });
@@ -292,6 +325,17 @@ describe('admin routes', () => {
     expect(response.text).not.toMatch(/<script(?![^>]*\bsrc=)[^>]*>/i);
     expect(response.text).not.toMatch(/<style[\s>]/i);
     expect(response.text).not.toMatch(/account create|disable account|delete account|password reset/i);
+  });
+
+  it('serves the packaged entrypoint when its absolute path includes a dot-directory', async () => {
+    await adminService.bootstrapFirstAdmin({ username: 'operator', password: 'correct horse battery staple' });
+    const app = mountAdminRoutes({ adminConsoleAssetsDir: createAdminAssetFixture(`${storageDir}/.worktrees`) });
+
+    const response = await request(app).get('/admin');
+
+    expect(response.status).toBe(200);
+    expect(response.headers['content-type']).toContain('text/html');
+    expect(response.text).toContain('<div id="admin-root"></div>');
   });
 
   it('falls browser admin subroutes back to the SPA entrypoint', async () => {
@@ -573,6 +617,14 @@ describe('admin routes', () => {
       .get('/admin/cli/v1/session/status')
       .set('Authorization', 'Bearer admin_sess_missing')
       .set('X-Request-Id', 'req_cli_status_missing');
+    const spacedResponse = await request(app)
+      .get('/admin/cli/v1/session/status')
+      .set('Authorization', `Bearer${' '.repeat(2048)}${sessionToken}`)
+      .set('X-Request-Id', 'req_cli_status_spaced');
+    const malformedResponse = await request(app)
+      .get('/admin/cli/v1/session/status')
+      .set('Authorization', `Bearer\t${sessionToken}`)
+      .set('X-Request-Id', 'req_cli_status_malformed');
 
     expect(validateSpy).toHaveBeenCalledWith(sessionToken);
     expect(authenticatedResponse.status).toBe(200);
@@ -602,6 +654,17 @@ describe('admin routes', () => {
         runtime: cliRuntimeIdentity,
       },
     });
+    expect(spacedResponse.body).toMatchObject({
+      ok: true,
+      requestId: 'req_cli_status_spaced',
+      result: { authenticated: true },
+    });
+    expect(malformedResponse.body).toMatchObject({
+      ok: true,
+      requestId: 'req_cli_status_malformed',
+      result: { authenticated: false },
+    });
+    expect(validateSpy).toHaveBeenCalledWith(undefined);
   });
 
   it('logs out through the CLI adapter by revoking the bearer session server-side', async () => {
@@ -817,6 +880,157 @@ describe('admin routes', () => {
         },
       ],
     });
+  });
+
+  it('restarts a selected backend instance through the CLI adapter and maps ambiguous prefixes', async () => {
+    await adminService.bootstrapFirstAdmin({ username: 'operator', password: 'correct horse battery staple' });
+    backendRestartService.restartBackend
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 'completed',
+        operationId: 'op_cli_restart',
+        operationName: 'restartBackend',
+        replayed: false,
+        result: {
+          targetName: 'github',
+          targetType: 'template',
+          outcome: 'restarted',
+          restartedInstanceIds: ['abcdef0123456789'],
+        },
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 'completed',
+        operationId: 'op_cli_restart_ambiguous',
+        operationName: 'restartBackend',
+        replayed: false,
+        result: {
+          targetName: 'github',
+          targetType: 'template',
+          outcome: 'instance_ambiguous',
+          restartedInstanceIds: [],
+          candidateInstanceIds: ['abcdef0123456789', 'abcdef9999999999'],
+        },
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 'completed',
+        operationId: 'op_cli_restart_healthy',
+        operationName: 'restartBackend',
+        replayed: false,
+        result: {
+          targetName: 'github',
+          targetType: 'template',
+          outcome: 'no_unhealthy_instances',
+          restartedInstanceIds: [],
+        },
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 'completed',
+        operationId: 'op_cli_restart_disabled',
+        operationName: 'restartBackend',
+        replayed: false,
+        result: {
+          targetName: 'github',
+          targetType: 'static',
+          outcome: 'target_disabled',
+          restartedInstanceIds: [],
+        },
+      });
+    const app = mountAdminRoutes();
+    const loginResponse = await request(app)
+      .post('/admin/cli/v1/session/login')
+      .send({ username: 'operator', password: 'correct horse battery staple' });
+    const sessionToken = loginResponse.body.result.sessionToken as string;
+
+    const restarted = await request(app)
+      .post('/admin/cli/v1/operations/restart-server')
+      .set('Authorization', `Bearer ${sessionToken}`)
+      .set('X-Request-Id', 'req_cli_restart')
+      .set('Idempotency-Key', 'restart-key')
+      .send({ targetName: 'github', instance: 'abcdef012345' });
+    const ambiguous = await request(app)
+      .post('/admin/cli/v1/operations/restart-server')
+      .set('Authorization', `Bearer ${sessionToken}`)
+      .set('X-Request-Id', 'req_cli_restart_ambiguous')
+      .set('Idempotency-Key', 'restart-key-ambiguous')
+      .send({ targetName: 'github', instance: 'abcdef' });
+    const healthy = await request(app)
+      .post('/admin/cli/v1/operations/restart-server')
+      .set('Authorization', `Bearer ${sessionToken}`)
+      .set('X-Request-Id', 'req_cli_restart_healthy')
+      .set('Idempotency-Key', 'restart-key-healthy')
+      .send({ targetName: 'github' });
+    const disabled = await request(app)
+      .post('/admin/cli/v1/operations/restart-server')
+      .set('Authorization', `Bearer ${sessionToken}`)
+      .set('X-Request-Id', 'req_cli_restart_disabled')
+      .set('Idempotency-Key', 'restart-key-disabled')
+      .send({ targetName: 'github' });
+
+    expect(restarted.status).toBe(200);
+    expect(restarted.body).toMatchObject({
+      ok: true,
+      result: {
+        operationName: 'restartBackend',
+        targetName: 'github',
+        outcome: 'restarted',
+        restartedInstanceIds: ['abcdef0123456789'],
+      },
+    });
+    expect(ambiguous.status).toBe(409);
+    expect(ambiguous.body).toMatchObject({
+      ok: false,
+      error: {
+        code: 'backend_instance_ambiguous',
+        details: { candidateInstanceIds: ['abcdef0123456789', 'abcdef9999999999'] },
+      },
+    });
+    expect(healthy.status).toBe(409);
+    expect(healthy.body).toMatchObject({
+      ok: false,
+      error: {
+        code: 'backend_no_unhealthy_instances',
+        details: { targetName: 'github' },
+      },
+    });
+    expect(disabled.status).toBe(409);
+    expect(disabled.body).toMatchObject({
+      ok: false,
+      error: {
+        code: 'backend_disabled',
+        details: { targetName: 'github' },
+      },
+    });
+    expect(backendRestartService.restartBackend).toHaveBeenNthCalledWith(1, {
+      context: expect.objectContaining({
+        origin: 'cli',
+        idempotencyKey: 'restart-key',
+        target: { type: 'backend', id: 'github' },
+        requestFingerprint: expect.any(String),
+      }),
+      targetName: 'github',
+      selection: { mode: 'instance', instanceIdOrPrefix: 'abcdef012345' },
+      confirmationRequirements: expect.any(Array),
+    });
+  });
+
+  it('rejects conflicting backend restart selectors before invoking the domain operation', async () => {
+    await adminService.bootstrapFirstAdmin({ username: 'operator', password: 'correct horse battery staple' });
+    const app = mountAdminRoutes();
+    const loginResponse = await request(app)
+      .post('/admin/cli/v1/session/login')
+      .send({ username: 'operator', password: 'correct horse battery staple' });
+
+    const response = await request(app)
+      .post('/admin/cli/v1/operations/restart-server')
+      .set('Authorization', `Bearer ${loginResponse.body.result.sessionToken}`)
+      .send({ targetName: 'github', instance: 'abcdef', allInstances: true });
+
+    expect(response.status).toBe(400);
+    expect(response.body.error.code).toBe('validation_request_invalid');
+    expect(backendRestartService.restartBackend).not.toHaveBeenCalled();
   });
 
   it('passes CLI dry-run and confirmation facts into configured-server mutation input', async () => {
@@ -1162,15 +1376,21 @@ describe('admin routes', () => {
       .send({ targetName: 'filesystem' });
 
     expect(capabilities.status).toBe(200);
-    expect(capabilities.body.result.supportedOperations).toEqual(['admin.login', 'admin.status', 'admin.logout']);
+    expect(capabilities.body.result.supportedOperations).toEqual([
+      'admin.login',
+      'admin.status',
+      'admin.logout',
+      'mcp.restart',
+    ]);
     expect(capabilities.body.result.mutationReadiness.mcp).toEqual({
-      enabled: false,
-      status: 'unavailable',
-      operations: [],
+      enabled: true,
+      status: 'ready',
+      operations: ['restart'],
     });
-    expect(capabilities.body.result.adminMutationsAvailable).toBe(false);
-    expect(capabilities.body.result.adminMutationsUnavailableReason).toBe('mutation_service_unavailable');
+    expect(capabilities.body.result.adminMutationsAvailable).toBe(true);
+    expect(capabilities.body.result.adminMutationsUnavailableReason).toBeUndefined();
     expect(capabilities.body.result.features.mcpEnableDisable).toBe(false);
+    expect(capabilities.body.result.features.mcpRestart).toBe(true);
     expect(mutation.status).toBe(404);
     expect(mutation.body).toEqual({
       ok: false,
@@ -1915,6 +2135,8 @@ describe('admin routes', () => {
         services: [
           {
             name: 'github',
+            id: 'github',
+            displayName: 'github',
             status: 'awaiting_oauth',
             requiresOAuth: true,
             lastError: 'token: [REDACTED]',
@@ -1988,6 +2210,222 @@ describe('admin routes', () => {
     expect(response.status).toBe(200);
     expect(JSON.stringify(response.body)).not.toContain('raw-secret');
     expect(response.body.oauth.services[0].lastError).toBe('token: [REDACTED]');
+  });
+
+  it('projects full OAuth service ids separately from compact operator display names', async () => {
+    await adminService.bootstrapFirstAdmin({ username: 'operator', password: 'correct horse battery staple' });
+    const app = mountAdminRoutes({
+      oauthDashboard: {
+        status: 'ready',
+        services: [
+          {
+            name: 'context7:0123456789abcdef',
+            status: 'awaiting_oauth',
+            requiresOAuth: true,
+          },
+          {
+            name: 'github',
+            status: 'connected',
+            requiresOAuth: false,
+          },
+          {
+            name: 'context7:short',
+            status: 'awaiting_oauth',
+            requiresOAuth: true,
+          },
+          {
+            name: 'invalid:template:identity',
+            status: 'awaiting_oauth',
+            requiresOAuth: true,
+          },
+        ],
+      },
+    });
+    const loginResponse = await request(app)
+      .post('/admin/api/session/login')
+      .send({ username: 'operator', password: 'correct horse battery staple' });
+    const cookie = loginResponse.headers['set-cookie']?.[0] as string;
+
+    const response = await request(app).get('/admin/api/status').set('Cookie', cookie);
+
+    expect(response.status).toBe(200);
+    expect(response.body.oauth.services).toMatchObject([
+      {
+        id: 'context7:0123456789abcdef',
+        displayName: 'context7:0123456789ab',
+      },
+      {
+        id: 'github',
+        displayName: 'github',
+      },
+      {
+        id: 'context7:short',
+        displayName: 'context7:short',
+      },
+      {
+        id: 'invalid:template:identity',
+        displayName: 'invalid:template:identity',
+      },
+    ]);
+  });
+
+  it('authorizes the exact backend OAuth service through authenticated, CSRF-protected Admin Operations', async () => {
+    await adminService.bootstrapFirstAdmin({ username: 'operator', password: 'correct horse battery staple' });
+    vi.mocked(oauthFlow.startBackendOAuth).mockResolvedValue({
+      status: 'redirect',
+      redirectUrl: 'https://provider.example/authorize',
+    });
+    const app = mountAdminRoutes();
+
+    const unauthenticatedResponse = await request(app)
+      .post('/admin/api/oauth/context7%3A0123456789abcdef/authorize')
+      .set('X-CSRF-Token', 'csrf_invalid')
+      .set('Idempotency-Key', 'oauth-authorize-unauthenticated');
+
+    expect(unauthenticatedResponse.status).toBe(401);
+    expect(oauthFlow.startBackendOAuth).not.toHaveBeenCalled();
+
+    const loginResponse = await request(app)
+      .post('/admin/api/session/login')
+      .send({ username: 'operator', password: 'correct horse battery staple' });
+    const cookie = loginResponse.headers['set-cookie']?.[0] as string;
+    const csrfToken = loginResponse.body.csrfToken as string;
+
+    const missingCsrfResponse = await request(app)
+      .post('/admin/api/oauth/context7%3A0123456789abcdef/authorize')
+      .set('Cookie', cookie)
+      .set('Idempotency-Key', 'oauth-authorize-no-csrf');
+
+    expect(missingCsrfResponse.status).toBe(403);
+    expect(oauthFlow.startBackendOAuth).not.toHaveBeenCalled();
+
+    const response = await request(app)
+      .post('/admin/api/oauth/context7%3A0123456789abcdef/authorize')
+      .set('Cookie', cookie)
+      .set('X-CSRF-Token', csrfToken)
+      .set('Idempotency-Key', 'oauth-authorize-success');
+
+    expect(response.status).toBe(200);
+    expect(response.body).toMatchObject({
+      ok: true,
+      replayed: false,
+      result: {
+        serviceId: 'context7:0123456789abcdef',
+        redirectUrl: 'https://provider.example/authorize',
+      },
+    });
+    expect(oauthFlow.startBackendOAuth).toHaveBeenCalledWith({ serverName: 'context7:0123456789abcdef' });
+  });
+
+  it('restarts the exact backend OAuth service through authenticated, CSRF-protected Admin Operations', async () => {
+    await adminService.bootstrapFirstAdmin({ username: 'operator', password: 'correct horse battery staple' });
+    vi.mocked(oauthFlow.restartBackendOAuth).mockResolvedValue({
+      status: 'restarted',
+      redirectUrl: 'https://provider.example/restart',
+    });
+    const app = mountAdminRoutes();
+
+    const unauthenticatedResponse = await request(app)
+      .post('/admin/api/oauth/context7%3A0123456789abcdef/restart')
+      .set('X-CSRF-Token', 'csrf_invalid')
+      .set('Idempotency-Key', 'oauth-restart-unauthenticated');
+    expect(unauthenticatedResponse.status).toBe(401);
+
+    const loginResponse = await request(app)
+      .post('/admin/api/session/login')
+      .send({ username: 'operator', password: 'correct horse battery staple' });
+    const cookie = loginResponse.headers['set-cookie']?.[0] as string;
+    const csrfToken = loginResponse.body.csrfToken as string;
+    const missingCsrfResponse = await request(app)
+      .post('/admin/api/oauth/context7%3A0123456789abcdef/restart')
+      .set('Cookie', cookie)
+      .set('Idempotency-Key', 'oauth-restart-no-csrf');
+    expect(missingCsrfResponse.status).toBe(403);
+    expect(oauthFlow.restartBackendOAuth).not.toHaveBeenCalled();
+
+    const response = await request(app)
+      .post('/admin/api/oauth/context7%3A0123456789abcdef/restart')
+      .set('Cookie', cookie)
+      .set('X-CSRF-Token', csrfToken)
+      .set('Idempotency-Key', 'oauth-restart-success');
+
+    expect(response.status).toBe(200);
+    expect(response.body).toMatchObject({
+      ok: true,
+      result: {
+        serviceId: 'context7:0123456789abcdef',
+        redirectUrl: 'https://provider.example/restart',
+      },
+    });
+    expect(oauthFlow.restartBackendOAuth).toHaveBeenCalledWith({ serverName: 'context7:0123456789abcdef' });
+  });
+
+  it.each(['authorize', 'restart'] as const)(
+    'rejects invalid OAuth service IDs before %s operations',
+    async (action) => {
+      await adminService.bootstrapFirstAdmin({ username: 'operator', password: 'correct horse battery staple' });
+      const app = mountAdminRoutes();
+      const loginResponse = await request(app)
+        .post('/admin/api/session/login')
+        .send({ username: 'operator', password: 'correct horse battery staple' });
+      const serviceId = 'a'.repeat(257);
+
+      const response = await request(app)
+        .post(`/admin/api/oauth/${serviceId}/${action}`)
+        .set('Cookie', loginResponse.headers['set-cookie']?.[0] as string)
+        .set('X-CSRF-Token', loginResponse.body.csrfToken as string)
+        .set('Idempotency-Key', `oauth-${action}-invalid-service`);
+
+      expect(response.status).toBe(400);
+      expect(response.body).toEqual({ error: 'backend_oauth_service_id_invalid' });
+      expect(oauthFlow.startBackendOAuth).not.toHaveBeenCalled();
+      expect(oauthFlow.restartBackendOAuth).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each([
+    {
+      flowResult: {
+        status: 'service_not_found' as const,
+        errorDescription: 'Missing service internal detail',
+      },
+      expectedStatus: 404,
+      expectedError: 'backend_oauth_service_not_found',
+    },
+    {
+      flowResult: {
+        status: 'runtime_unavailable' as const,
+        errorDescription: 'Runtime internal detail',
+      },
+      expectedStatus: 503,
+      expectedError: 'backend_oauth_runtime_unavailable',
+    },
+    {
+      flowResult: {
+        status: 'oauth_url_unavailable' as const,
+        errorDescription: 'provider_secret=do-not-expose',
+      },
+      expectedStatus: 502,
+      expectedError: 'backend_oauth_authorization_start_failed',
+    },
+  ])('maps backend OAuth failures to $expectedError without exposing details', async (testCase) => {
+    await adminService.bootstrapFirstAdmin({ username: 'operator', password: 'correct horse battery staple' });
+    vi.mocked(oauthFlow.startBackendOAuth).mockResolvedValue(testCase.flowResult);
+    const app = mountAdminRoutes();
+    const loginResponse = await request(app)
+      .post('/admin/api/session/login')
+      .send({ username: 'operator', password: 'correct horse battery staple' });
+    const cookie = loginResponse.headers['set-cookie']?.[0] as string;
+
+    const response = await request(app)
+      .post('/admin/api/oauth/github/authorize')
+      .set('Cookie', cookie)
+      .set('X-CSRF-Token', loginResponse.body.csrfToken as string)
+      .set('Idempotency-Key', `oauth-error-${testCase.expectedError}`);
+
+    expect(response.status).toBe(testCase.expectedStatus);
+    expect(response.body).toEqual({ ok: false, error: testCase.expectedError });
+    expect(JSON.stringify(response.body)).not.toContain(testCase.flowResult.errorDescription);
   });
 
   it('enables and disables configured servers through CSRF-protected admin API mutations', async () => {
@@ -2097,6 +2535,17 @@ describe('admin routes', () => {
     expect(bootstrapSpy).toHaveBeenCalled();
   });
 });
+
+function createOAuthFlow(): OAuthAuthorizationFlow {
+  return {
+    submitConsent: vi.fn(),
+    createLocalhostCliToken: vi.fn(),
+    startBackendOAuth: vi.fn(),
+    restartBackendOAuth: vi.fn(),
+    completeBackendOAuthCallback: vi.fn(),
+    getBackendOAuthDashboard: vi.fn(),
+  };
+}
 
 describe('FailedLoginLimiter', () => {
   it('bounds active keys, fails closed at capacity, and prunes expired entries globally', () => {

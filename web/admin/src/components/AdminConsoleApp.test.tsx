@@ -47,18 +47,15 @@ describe('AdminConsoleApp', () => {
     expect(screen.getByLabelText(/username/i)).toBeDisabled();
   });
 
-  it('shows runtime, OAuth, audit, counters, search, and enabled filtering', async () => {
+  it('renders a summary-only dashboard with direct workspace links', async () => {
     const user = userEvent.setup();
-    const onServerAction = vi.fn();
     const onCopyText = vi.fn();
 
-    renderApp(consoleState(), { configuredServers: { mutate: onServerAction, copy: onCopyText } });
+    renderApp(consoleState(), { configuredServers: { copy: onCopyText } });
 
-    expect(screen.getByRole('navigation', { name: /operations navigation/i })).toBeInTheDocument();
+    const navigation = screen.getByRole('navigation', { name: /operations navigation/i });
     expect(screen.getByRole('banner', { name: /admin console/i })).toHaveTextContent(/runtime online/i);
-    expect(screen.getByRole('heading', { name: /operations overview/i })).toBeInTheDocument();
-    expect(screen.getByText(/runtime health/i)).toBeInTheDocument();
-    expect(screen.getByRole('heading', { name: /server inventory/i })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: /operations dashboard/i })).toBeInTheDocument();
     expect(screen.getByText('Enabled servers')).toBeInTheDocument();
     expect(screen.getAllByText('1').length).toBeGreaterThanOrEqual(4);
     expect(screen.getByText('Disabled servers')).toBeInTheDocument();
@@ -66,16 +63,40 @@ describe('AdminConsoleApp', () => {
     expect(screen.getByText('Failed audits')).toBeInTheDocument();
     expect(screen.getAllByText('https://runtime.example.com').length).toBeGreaterThanOrEqual(1);
     expect(screen.getAllByText('1.2.3').length).toBeGreaterThanOrEqual(1);
-    expect(screen.getByText(/Identity details/i)).toBeInTheDocument();
     expect(screen.getAllByText('scope_123').length).toBeGreaterThanOrEqual(1);
-    expect(screen.getAllByText('github').length).toBeGreaterThanOrEqual(2);
-    expect(screen.getByText('local / storage')).toBeInTheDocument();
-    expect(screen.getByText('npx -y @modelcontextprotocol/server-filesystem /tmp/project')).toBeInTheDocument();
-    expect(screen.getByText('awaiting_oauth')).toBeInTheDocument();
-    expect(screen.getByText('enableConfiguredServer')).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: /server inventory/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: /oauth services/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: /audit trail/i })).not.toBeInTheDocument();
+    expect(screen.queryByText('npx -y @modelcontextprotocol/server-filesystem /tmp/project')).not.toBeInTheDocument();
+    expect(screen.queryByText('awaiting_oauth')).not.toBeInTheDocument();
+    expect(screen.queryByText('enableConfiguredServer')).not.toBeInTheDocument();
+
+    expect(within(navigation).getByRole('link', { name: 'Dashboard' })).toHaveAttribute('href', '/admin');
+    expect(within(navigation).getByRole('link', { name: 'Server inventory' })).toHaveAttribute(
+      'href',
+      '/admin/servers',
+    );
+    expect(within(navigation).getByRole('link', { name: 'OAuth services' })).toHaveAttribute('href', '/admin/oauth');
+    expect(within(navigation).getByRole('link', { name: 'Audit trail' })).toHaveAttribute('href', '/admin/audit');
+    expect(within(navigation).getByRole('link', { name: 'Presets' })).toHaveAttribute('href', '/admin/presets');
+    expect(within(navigation).getByRole('link', { name: 'About' })).toHaveAttribute('href', '/admin/about');
 
     await user.click(screen.getByRole('button', { name: /copy runtime scope/i }));
     expect(onCopyText).toHaveBeenCalledWith('runtimeScopeId', 'scope_123');
+  });
+
+  it('renders the full inventory and editor only in the servers workspace', async () => {
+    const user = userEvent.setup();
+    const onServerAction = vi.fn();
+
+    renderApp(consoleState(), {
+      navigation: { route: 'servers' },
+      configuredServers: { mutate: onServerAction },
+    });
+
+    expect(screen.getByRole('heading', { name: /server inventory/i })).toBeInTheDocument();
+    expect(screen.getByText('local / storage')).toBeInTheDocument();
+    expect(screen.getByText('npx -y @modelcontextprotocol/server-filesystem /tmp/project')).toBeInTheDocument();
 
     await user.type(screen.getByRole('searchbox', { name: /search servers/i }), 'git');
     expect(within(screen.getByRole('table')).queryByText('filesystem')).not.toBeInTheDocument();
@@ -89,33 +110,97 @@ describe('AdminConsoleApp', () => {
     expect(onServerAction).toHaveBeenCalledWith('github', 'enable');
   });
 
-  it('navigates to Presets and About as final top-level items', async () => {
+  it('navigates with real links and keeps Presets and About as final top-level items', async () => {
     const user = userEvent.setup();
     const onNavigate = vi.fn();
     renderApp(consoleState(), { navigation: { navigate: onNavigate } });
 
     const navigation = screen.getByRole('navigation', { name: /operations navigation/i });
-    const buttons = within(navigation).getAllByRole('button');
-    expect(buttons.at(-1)).toHaveTextContent('About');
-    await user.click(screen.getByRole('button', { name: 'Presets' }));
-    await user.click(screen.getByRole('button', { name: 'About' }));
+    const links = within(navigation).getAllByRole('link');
+    expect(links.at(-1)).toHaveTextContent('About');
+    await user.click(screen.getByRole('link', { name: 'Presets' }));
+    await user.click(screen.getByRole('link', { name: 'About' }));
     expect(onNavigate).toHaveBeenNthCalledWith(1, 'presets');
     expect(onNavigate).toHaveBeenNthCalledWith(2, 'about');
   });
 
-  it('navigates to overview sections and exposes the current section', async () => {
+  it('exposes the current direct workspace and navigates without hash sections', async () => {
     const user = userEvent.setup();
     const onNavigate = vi.fn();
-    renderApp(consoleState(), { navigation: { section: 'oauth', navigate: onNavigate } });
+    renderApp(consoleState(), { navigation: { route: 'oauth', navigate: onNavigate } });
 
-    expect(screen.getByRole('button', { name: 'OAuth services' })).toHaveAttribute('aria-current', 'page');
-    expect(document.querySelector('#oauth')).toHaveFocus();
+    expect(screen.getByRole('link', { name: 'OAuth services' })).toHaveAttribute('aria-current', 'page');
 
-    await user.click(screen.getByRole('button', { name: 'Server inventory' }));
-    await user.click(screen.getByRole('button', { name: 'Audit trail' }));
+    await user.click(screen.getByRole('link', { name: 'Server inventory' }));
+    await user.click(screen.getByRole('link', { name: 'Audit trail' }));
 
-    expect(onNavigate).toHaveBeenNthCalledWith(1, 'overview', 'inventory');
-    expect(onNavigate).toHaveBeenNthCalledWith(2, 'overview', 'audit');
+    expect(onNavigate).toHaveBeenNthCalledWith(1, 'servers');
+    expect(onNavigate).toHaveBeenNthCalledWith(2, 'audit');
+  });
+
+  it('operates OAuth services by full identity while keeping template labels compact', async () => {
+    const user = userEvent.setup();
+    const state = consoleState();
+    const onCopyText = vi.fn();
+    const onOperate = vi.fn();
+    state.status!.oauth.services = [
+      {
+        name: 'context7:0123456789abcdef',
+        id: 'context7:0123456789abcdef',
+        displayName: 'context7:0123456789ab',
+        status: 'awaiting_oauth',
+        requiresOAuth: true,
+      },
+      {
+        name: 'github',
+        id: 'github',
+        displayName: 'github',
+        status: 'connected',
+        requiresOAuth: true,
+      },
+    ];
+
+    renderApp(state, {
+      navigation: { route: 'oauth' },
+      configuredServers: { copy: onCopyText },
+      oauth: { operate: onOperate },
+    });
+
+    expect(screen.getByRole('heading', { name: /^oauth services$/i })).toBeInTheDocument();
+    expect(screen.getByText('context7:0123456789ab')).toBeInTheDocument();
+    expect(screen.getByText('context7:0123456789abcdef')).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: /copy full service id for context7:0123456789ab/i }));
+    expect(onCopyText).toHaveBeenCalledWith('serviceId', 'context7:0123456789abcdef');
+
+    await user.click(screen.getByRole('button', { name: /authorize context7:0123456789ab/i }));
+    await user.click(screen.getByRole('button', { name: /restart github/i }));
+    expect(onOperate).toHaveBeenNthCalledWith(1, 'context7:0123456789abcdef', 'authorize');
+    expect(onOperate).toHaveBeenNthCalledWith(2, 'github', 'restart');
+  });
+
+  it('shows OAuth callback, busy, and operation feedback in the OAuth workspace', () => {
+    const state = consoleState();
+    state.status!.oauth.services.push({
+      name: 'gitlab',
+      id: 'gitlab',
+      displayName: 'gitlab',
+      status: 'connected',
+      requiresOAuth: true,
+    });
+    renderApp(state, {
+      navigation: { route: 'oauth' },
+      oauth: {
+        busy: { serviceId: 'github', action: 'authorize' },
+        callbackFeedback: { kind: 'success', message: 'OAuth authorization completed.' },
+        operationFeedback: { kind: 'error', message: 'Authorization could not be started.' },
+      },
+    });
+
+    expect(screen.getByRole('status')).toHaveTextContent('OAuth authorization completed.');
+    expect(screen.getByRole('alert')).toHaveTextContent('Authorization could not be started.');
+    expect(screen.getByRole('button', { name: /authorize github/i })).toBeDisabled();
+    expect(screen.getByRole('button', { name: /restart gitlab/i })).toBeDisabled();
+    expect(screen.getByText('Starting authorization...')).toBeInTheDocument();
   });
 
   it('opens and closes the accessible mobile navigation control', async () => {
@@ -325,7 +410,10 @@ describe('AdminConsoleApp', () => {
     const user = userEvent.setup();
     const onOpenServerDetail = vi.fn();
 
-    renderApp(consoleState(), { configuredServers: { open: onOpenServerDetail } });
+    renderApp(consoleState(), {
+      navigation: { route: 'servers' },
+      configuredServers: { open: onOpenServerDetail },
+    });
 
     await user.click(screen.getByRole('button', { name: /edit github server/i }));
 
@@ -337,6 +425,7 @@ describe('AdminConsoleApp', () => {
     const onPreviewServerEdit = vi.fn();
 
     renderApp(consoleState(), {
+      navigation: { route: 'servers' },
       configuredServers: { editor: configuredServerDetailState(), preview: onPreviewServerEdit },
     });
 
@@ -363,7 +452,7 @@ describe('AdminConsoleApp', () => {
   });
 
   it('explains how to start editing when no configured server is selected', () => {
-    renderApp(consoleState());
+    renderApp(consoleState(), { navigation: { route: 'servers' } });
 
     expect(screen.getByText(/Select Edit server to change target settings/i)).toBeInTheDocument();
     expect(screen.getByText(/Edit fields -> Preview change -> Review result/i)).toBeInTheDocument();
@@ -374,6 +463,7 @@ describe('AdminConsoleApp', () => {
     const onPreviewServerEdit = vi.fn();
 
     renderApp(consoleState(), {
+      navigation: { route: 'servers' },
       configuredServers: {
         editor: configuredServerDetailState({
           fieldGroups: [
@@ -475,6 +565,7 @@ describe('AdminConsoleApp', () => {
   it('switches configured-server fields with the selected transport type', async () => {
     const user = userEvent.setup();
     renderApp(consoleState(), {
+      navigation: { route: 'servers' },
       configuredServers: {
         editor: configuredServerDetailState({
           schemaVersion: 2,
@@ -578,6 +669,7 @@ describe('AdminConsoleApp', () => {
     const onCloseServerDetail = vi.fn();
 
     renderApp(consoleState(), {
+      navigation: { route: 'servers' },
       configuredServers: { editor: configuredServerDetailState(), close: onCloseServerDetail },
     });
 
@@ -593,6 +685,7 @@ describe('AdminConsoleApp', () => {
     const onPreviewServerEdit = vi.fn();
 
     renderApp(consoleState(), {
+      navigation: { route: 'servers' },
       configuredServers: {
         editor: {
           ...configuredServerDetailState(),
@@ -626,6 +719,7 @@ describe('AdminConsoleApp', () => {
 
   it('renders preview validation, diff, config-change, and connectivity facts', () => {
     renderApp(consoleState(), {
+      navigation: { route: 'servers' },
       configuredServers: {
         editor: {
           ...configuredServerDetailState(),
@@ -690,7 +784,7 @@ describe('AdminConsoleApp', () => {
           } as any,
         ],
       },
-      { configuredServers: { mutate: onServerAction } },
+      { navigation: { route: 'servers' }, configuredServers: { mutate: onServerAction } },
     );
 
     expect(screen.getByText('node')).toBeInTheDocument();
@@ -723,7 +817,7 @@ describe('AdminConsoleApp', () => {
           },
         ],
       },
-      { configuredServers: { mutate: onServerAction } },
+      { navigation: { route: 'servers' }, configuredServers: { mutate: onServerAction } },
     );
 
     const button = screen.getByRole('button', { name: /enable locked/i });
@@ -756,6 +850,7 @@ describe('AdminConsoleApp', () => {
             login: onLogin,
             logout: onLogout,
             refresh: onRefresh,
+            navigation: { route: 'servers' },
             configuredServers: { mutate: onServerAction },
           })}
         />

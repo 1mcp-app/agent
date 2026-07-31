@@ -37,6 +37,10 @@ export class ConfigManager extends EventEmitter {
   private processedTemplates: Record<string, MCPServerParams> = {};
   private lastContextHash?: string;
   private templateRenderer?: HandlebarsTemplateRenderer;
+  private lastValidDeclaredServerConfigs: {
+    staticServers: Record<string, MCPServerParams>;
+    templateServers: Record<string, MCPServerParams>;
+  } = { staticServers: {}, templateServers: {} };
 
   /**
    * Private constructor to enforce singleton pattern
@@ -229,20 +233,20 @@ export class ConfigManager extends EventEmitter {
       const errorMessage = error instanceof Error ? error.message : String(error);
       logger.error(`Failed to parse configuration: ${errorMessage}`);
       return {
-        staticServers: {},
-        templateServers: {},
+        ...this.copyLastValidDeclaredServerConfigs(),
         errors: [`Configuration parsing failed: ${errorMessage}`],
       };
     }
 
     const staticServers: Record<string, MCPServerParams> = {};
+    const errors: string[] = [];
     for (const [serverName, serverConfig] of Object.entries(config.mcpServers)) {
       try {
         staticServers[serverName] = this.validateServerConfig(serverName, serverConfig);
       } catch (error) {
-        logger.error(
-          `Static server validation failed for ${serverName}: ${error instanceof Error ? error.message : String(error)}`,
-        );
+        const message = error instanceof Error ? error.message : String(error);
+        logger.error(`Static server validation failed for ${serverName}: ${message}`);
+        errors.push(`${serverName}: ${message}`);
       }
     }
 
@@ -250,11 +254,14 @@ export class ConfigManager extends EventEmitter {
     if (config.mcpTemplates) {
       for (const [serverName, serverConfig] of Object.entries(config.mcpTemplates)) {
         try {
-          templateServers[serverName] = this.validateServerConfig(serverName, serverConfig);
-        } catch (error) {
-          logger.error(
-            `Template server validation failed for ${serverName}: ${error instanceof Error ? error.message : String(error)}`,
+          templateServers[serverName] = this.validateServerConfig(
+            serverName,
+            mergeGlobalAndServerConfig(config.serverDefaults, serverConfig),
           );
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          logger.error(`Template server validation failed for ${serverName}: ${message}`);
+          errors.push(`${serverName}: ${message}`);
         }
       }
     }
@@ -265,10 +272,21 @@ export class ConfigManager extends EventEmitter {
       }
     }
 
+    if (errors.length > 0) {
+      return { ...this.copyLastValidDeclaredServerConfigs(), errors };
+    }
+
+    this.lastValidDeclaredServerConfigs = { staticServers, templateServers };
+    return { ...this.copyLastValidDeclaredServerConfigs(), errors: [] };
+  }
+
+  private copyLastValidDeclaredServerConfigs(): {
+    staticServers: Record<string, MCPServerParams>;
+    templateServers: Record<string, MCPServerParams>;
+  } {
     return {
-      staticServers,
-      templateServers,
-      errors: [],
+      staticServers: { ...this.lastValidDeclaredServerConfigs.staticServers },
+      templateServers: { ...this.lastValidDeclaredServerConfigs.templateServers },
     };
   }
 

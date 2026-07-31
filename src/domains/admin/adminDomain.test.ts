@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
+import type { OAuthAuthorizationFlow } from '@src/auth/oauthAuthorizationFlow.js';
 import type { ConfigChangeService } from '@src/domains/config-change/configChange.js';
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -127,6 +128,33 @@ describe('createAdminDomain', () => {
     });
   });
 
+  it('wires backend OAuth Admin Operations from the runtime authorization flow', async () => {
+    const oauthFlow = createOAuthFlow();
+    vi.mocked(oauthFlow.startBackendOAuth).mockResolvedValue({
+      status: 'redirect',
+      redirectUrl: 'https://provider.example/authorize',
+    });
+    const domain = createAdminDomain({
+      runtimeScopeId: 'scope_123',
+      storageDir,
+      sessionTtlMs: 60_000,
+      configChangeService: fakeConfigChangeService(),
+      readConfigDocument: () => ({ mcpServers: {} }),
+      oauthFlow,
+    });
+
+    const result = await domain.oauthService?.authorizeService({
+      context: context({ target: { type: 'backend_oauth_service', id: 'github' } }),
+      serviceId: 'github',
+    });
+
+    expect(result).toMatchObject({
+      ok: true,
+      operationName: 'authorizeBackendOAuth',
+      result: { serviceId: 'github', redirectUrl: 'https://provider.example/authorize' },
+    });
+  });
+
   function context(overrides: Partial<AdminOperationContext> = {}): AdminOperationContext {
     return {
       actor: { type: 'admin_session', accountId: 'acct_1', sessionId: 'sess_1' },
@@ -150,3 +178,14 @@ describe('createAdminDomain', () => {
     } as unknown as ConfigChangeService;
   }
 });
+
+function createOAuthFlow(): OAuthAuthorizationFlow {
+  return {
+    submitConsent: vi.fn(),
+    createLocalhostCliToken: vi.fn(),
+    startBackendOAuth: vi.fn(),
+    restartBackendOAuth: vi.fn(),
+    completeBackendOAuthCallback: vi.fn(),
+    getBackendOAuthDashboard: vi.fn(),
+  };
+}

@@ -20,6 +20,18 @@ _Avoid_: Runtime-Backed Command, remote serve command
 The long-lived control process for one **Runtime Scope** that owns at most one **Background Aggregated Runtime** and can replace it after unexpected termination. It does not expose **Client Surfaces** and is not itself an **Aggregated Runtime**.
 _Avoid_: second runtime, background runtime, watchdog
 
+**Backend Stdio Supervision**:
+The lifecycle policy by which an **Aggregated Runtime** owns a backend MCP server connected through child-process stdin/stdout, including crash recovery. It is distinct from supervision of the **Aggregated Runtime** itself.
+_Avoid_: process manager, Background Runtime Supervisor
+
+**Backend Restarting**:
+The temporary **Backend Stdio Supervision** state in which a replacement process has not yet completed MCP initialization and the backend is unavailable for routing.
+_Avoid_: connected, loading
+
+**Backend Crash Loop**:
+The terminal **Backend Stdio Supervision** state reached after the configured consecutive restart budget is exhausted. It requires explicit recovery while the rest of the **Aggregated Runtime** remains available.
+_Avoid_: disconnected, runtime crash-loop
+
 **Runtime Scope**:
 The configuration directory that defines which local **Aggregated Runtime** instance a command should discover, start, or manage. `--config-dir` selects local scope only.
 _Avoid_: global lock, machine singleton, remote config directory
@@ -99,6 +111,10 @@ _Avoid_: spawned template, dynamic connection
 **Template Server Identity**:
 The canonical runtime identity of a **Template Server** or **Template Server Instance** across lookup, routing, pooling, and cleanup.
 _Avoid_: server key, connection key, instance key
+
+**Template Instance ID**:
+The opaque random identity assigned to one logical **Template Server Instance** for operational display and targeting. Its short form is an unambiguous prefix, and it contains no template, session, configuration, process, or timing meaning.
+_Avoid_: rendered hash, session ID, process PID
 
 **Configured Server Target**:
 A static server definition or **Template Server** definition addressed by a **Config Change** before runtime rendering.
@@ -182,6 +198,10 @@ _Avoid_: install command, installation adapter, registry install
 - A **Runtime Scope** allows at most one active **Aggregated Runtime**.
 - A **Runtime Scope** allows at most one **Background Runtime Supervisor**.
 - A **Background Runtime Supervisor** owns at most one active **Background Aggregated Runtime**.
+- **Backend Stdio Supervision** is an **Aggregated Runtime** responsibility, not a **Background Runtime Supervisor** responsibility.
+- A **Runtime Scope** can opt its stdio backends into **Backend Stdio Supervision**, while a **Configured Server Target** can override that scope policy.
+- An unexpected supervised backend exit moves it to **Backend Restarting** and removes its capabilities from routing until MCP initialization succeeds.
+- Exhausting the consecutive restart budget moves a backend to **Backend Crash Loop** without terminating the **Aggregated Runtime** or other backends.
 - A deliberate stop ends both the **Background Runtime Supervisor** and its **Background Aggregated Runtime** so the runtime is not replaced.
 - `1mcp serve` owns **Aggregated Runtime** lifecycle operations for a **Runtime Scope**.
 - **Runtime Lifecycle Commands** operate on local **Runtime Scope**, not the current **Runtime Target Context**.
@@ -213,6 +233,10 @@ _Avoid_: install command, installation adapter, registry install
 - A **Template Server** can produce one or more **Template Server Instances**.
 - A **Template Server Identity** can identify a **Template Server** or a **Template Server Instance** depending on runtime phase.
 - A **Template Server Instance** belongs to one or more **Request Sessions** when it is shareable, and exactly one **Request Session** when it is per-client.
+- A **Template Server Instance** has exactly one **Template Instance ID** that remains stable across supervised child replacement and is retired when the logical instance is removed.
+- **Backend Stdio Supervision** applies independently to each stdio **Template Server Instance** using its canonical **Template Server Identity**.
+- A shareable **Template Server Instance** has one supervision lifecycle for all member **Request Sessions**; a per-client instance has a session-bound lifecycle.
+- Replacing a crashed **Template Server Instance** preserves its rendered configuration and **Request Session** memberships, while instance cleanup or loss of all memberships cancels pending recovery.
 - A **Streamable Transport Session** can hold one or more **Template Server Instance** memberships through its associated **Request Session**.
 - **Request Context Preparation** happens before template-aware REST inspection or tool invocation.
 - An **Aggregated Runtime** maintains a **Capability Snapshot**.

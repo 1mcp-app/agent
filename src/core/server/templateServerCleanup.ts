@@ -51,10 +51,9 @@ export async function cleanupTemplateServersForSession(
         outboundConns,
       );
 
-      context.clientInstancePool.removeClientFromInstance(
-        getPoolInstanceKey(context.clientInstancePool, instanceKey),
-        sessionId,
-      );
+      const poolInstanceKey = getPoolInstanceKey(context.clientInstancePool, instanceKey);
+      const instance = context.clientInstancePool.getInstance(poolInstanceKey);
+      context.clientInstancePool.removeClientFromInstance(poolInstanceKey, sessionId);
 
       if (sessionHashes) {
         sessionHashes.delete(templateName);
@@ -78,6 +77,9 @@ export async function cleanupTemplateServersForSession(
 
       const remainingClients = context.clientTemplateTracker.getClientCount(templateName, instanceId);
       cleanupOutboundConnection(outboundConns, outboundKey, isShareable, remainingClients);
+      if (!isShareable || remainingClients === 0) {
+        instance?.outboundKeys?.delete(outboundKey);
+      }
       cleanupTransportIfUnused(transports, instanceId, remainingClients);
       logInstanceRetention(templateName, instanceId, outboundKey, remainingClients);
     } catch (error) {
@@ -136,6 +138,7 @@ export async function cleanupExpiredEphemeralClients(
       const remainingClients = context.clientTemplateTracker.getClientCount(templateName, trackedClient.instanceId);
       if (shouldCleanup || remainingClients === 0) {
         outboundConns.delete(trackedClient.outboundKey);
+        instance?.outboundKeys?.delete(trackedClient.outboundKey);
         delete transports[trackedClient.instanceId];
         context.clientTemplateTracker.cleanupInstance(templateName, trackedClient.instanceId);
       }

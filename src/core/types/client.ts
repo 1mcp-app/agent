@@ -2,6 +2,7 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { ServerCapabilities } from '@modelcontextprotocol/sdk/types.js';
 
 import { SDKOAuthClientProvider } from '@src/auth/sdkOAuthClientProvider.js';
+import type { BackendSupervisionSnapshot } from '@src/core/server/backendStdioSupervisor.js';
 
 import { EnhancedTransport } from './transport.js';
 
@@ -17,6 +18,10 @@ export enum ClientStatus {
   Error = 'error',
   /** Client is waiting for OAuth authorization */
   AwaitingOAuth = 'awaiting_oauth',
+  /** Supervised backend is waiting for or initializing a replacement. */
+  Restarting = 'restarting',
+  /** Supervised backend exhausted its consecutive restart budget. */
+  CrashLoop = 'crash-loop',
 }
 
 /**
@@ -31,7 +36,7 @@ export interface AuthProviderTransport extends EnhancedTransport {
  */
 export interface OutboundConnection {
   readonly name: string;
-  readonly transport: AuthProviderTransport;
+  transport: AuthProviderTransport;
   client: Client;
   lastError?: Error;
   lastConnected?: Date;
@@ -43,6 +48,8 @@ export interface OutboundConnection {
   authorizationUrl?: string;
   /** When OAuth authorization was initiated */
   oauthStartTime?: Date;
+  /** Runtime-owned stdio supervision facts, when enabled for this backend. */
+  supervision?: BackendSupervisionSnapshot;
 }
 
 /**

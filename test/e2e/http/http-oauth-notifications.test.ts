@@ -88,7 +88,7 @@ describe('HTTP OAuth Notifications E2E', () => {
 
     // Assert
     expect(mockCompleteOAuthAndReconnect).toHaveBeenCalledWith('test-oauth-server', 'auth-code-123');
-    expect(mockResponse.redirect).toHaveBeenCalledWith('/oauth?success=1');
+    expect(mockResponse.redirect).toHaveBeenCalledWith('/admin/oauth?success=1');
     expect(mockLoadingManager.getStateTracker).toHaveBeenCalled();
     expect(mockUpdateServerState).toHaveBeenCalledWith('test-oauth-server', LoadingState.Ready);
   });
@@ -107,7 +107,7 @@ describe('HTTP OAuth Notifications E2E', () => {
     await callbackRoute.route.stack[0].handle(mockRequest, mockResponse, mockNext);
 
     // Assert
-    expect(mockResponse.redirect).toHaveBeenCalledWith('/oauth?error=access_denied');
+    expect(mockResponse.redirect).toHaveBeenCalledWith('/admin/oauth?error=access_denied');
     expect(mockUpdateServerState).not.toHaveBeenCalled();
   });
 
@@ -126,7 +126,7 @@ describe('HTTP OAuth Notifications E2E', () => {
 
     // Assert
     expect(mockCompleteOAuthAndReconnect).toHaveBeenCalledWith('test-oauth-server', 'auth-code-123');
-    expect(mockResponse.redirect).toHaveBeenCalledWith('/oauth?success=1');
+    expect(mockResponse.redirect).toHaveBeenCalledWith('/admin/oauth?success=1');
     expect(mockLoadingManager.getStateTracker).not.toHaveBeenCalled();
   });
 });

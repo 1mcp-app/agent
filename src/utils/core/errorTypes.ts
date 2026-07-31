@@ -23,6 +23,14 @@ export class ClientConnectionError extends MCPError {
   }
 }
 
+export class NonRetryableClientConnectionError extends ClientConnectionError {
+  constructor(clientName: string, cause: Error) {
+    super(clientName, cause);
+    this.name = 'NonRetryableClientConnectionError';
+    Object.setPrototypeOf(this, NonRetryableClientConnectionError.prototype);
+  }
+}
+
 export class ClientNotFoundError extends MCPError {
   constructor(clientName: string) {
     super(`Client '${clientName}' not found`, ErrorCode.MethodNotFound, { clientName });

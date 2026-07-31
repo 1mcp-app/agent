@@ -182,7 +182,7 @@ describe('OAuth Routes', () => {
       const response = await request(app).get('/oauth');
 
       expect(response.status).toBe(302);
-      expect(response.headers.location).toBe('/admin');
+      expect(response.headers.location).toBe('/admin/oauth');
       expect(mockOAuthProvider.oauthFlow.getBackendOAuthDashboard).not.toHaveBeenCalled();
     });
 
@@ -482,7 +482,7 @@ describe('OAuth Routes', () => {
         serverName: 'test-server',
         code: 'auth-code-123',
       });
-      expect(mockResponse.redirect).toHaveBeenCalledWith('/oauth?success=1');
+      expect(mockResponse.redirect).toHaveBeenCalledWith('/admin/oauth?success=1');
     });
 
     it('should delegate loading-ready callback handling to the OAuth flow', async () => {
@@ -511,7 +511,7 @@ describe('OAuth Routes', () => {
         code: 'auth-code-123',
       });
       expect(mockStateTracker.updateServerState).not.toHaveBeenCalled();
-      expect(mockResponse.redirect).toHaveBeenCalledWith('/oauth?success=1');
+      expect(mockResponse.redirect).toHaveBeenCalledWith('/admin/oauth?success=1');
     });
 
     it('should handle OAuth error', async () => {
@@ -533,7 +533,7 @@ describe('OAuth Routes', () => {
         serverName: 'test-server',
         error: 'access_denied',
       });
-      expect(mockResponse.redirect).toHaveBeenCalledWith('/oauth?error=access_denied');
+      expect(mockResponse.redirect).toHaveBeenCalledWith('/admin/oauth?error=access_denied');
     });
   });
 });

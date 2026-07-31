@@ -32,6 +32,7 @@ interface SessionOverrides {
   refresh?: AdminConsoleSessionModel['refresh'];
   navigation?: Partial<AdminConsoleSessionModel['navigation']>;
   configuredServers?: ConfiguredServerOverrides;
+  oauth?: Partial<AdminConsoleSessionModel['oauth']>;
   presets?: Partial<AdminConsoleSessionModel['presets']>;
 }
 
@@ -75,14 +76,19 @@ export function fixtureSession(
     logout: overrides.logout ?? (() => undefined),
     refresh: overrides.refresh ?? (() => undefined),
     navigation: {
-      route: overrides.navigation?.route ?? 'overview',
-      section: overrides.navigation?.section ?? null,
+      route: overrides.navigation?.route ?? 'dashboard',
       navigate: overrides.navigation?.navigate ?? (() => undefined),
     },
     configuredServers: {
       edit,
       mutate: overrides.configuredServers?.mutate ?? (() => undefined),
       copy: overrides.configuredServers?.copy ?? (() => undefined),
+    },
+    oauth: {
+      busy: overrides.oauth?.busy ?? null,
+      callbackFeedback: overrides.oauth?.callbackFeedback ?? null,
+      operationFeedback: overrides.oauth?.operationFeedback ?? null,
+      operate: overrides.oauth?.operate ?? (() => undefined),
     },
     presets: {
       items: overrides.presets?.items ?? [],
@@ -146,6 +152,8 @@ export function consoleState(): AdminConsoleState {
         services: [
           {
             name: 'github',
+            id: 'github',
+            displayName: 'github',
             status: 'awaiting_oauth',
             requiresOAuth: true,
             lastError: 'token: [REDACTED]',

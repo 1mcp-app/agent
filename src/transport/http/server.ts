@@ -5,7 +5,7 @@ import { mcpAuthRouter } from '@modelcontextprotocol/sdk/server/auth/router.js';
 
 import { SDKOAuthServerProvider } from '@src/auth/sdkOAuthServerProvider.js';
 import { FileStorageService } from '@src/auth/storage/fileStorageService.js';
-import { getAllServerTargets } from '@src/commands/shared/baseConfigUtils.js';
+import { getAllServerTargets, resolveServerTarget } from '@src/commands/shared/baseConfigUtils.js';
 import ConfigContext from '@src/config/configContext.js';
 import { McpConfigManager } from '@src/config/mcpConfigManager.js';
 import { getGlobalConfigDir, MCP_SERVER_VERSION, RATE_LIMIT_CONFIG, STORAGE_SUBDIRS } from '@src/constants.js';
@@ -22,6 +22,7 @@ import {
   type RuntimeScopeAdminLockHandle,
   tryAcquireRuntimeScopeAdminLock,
 } from '@src/domains/admin/runtimeScopeAdminLock.js';
+import { RuntimeServerManagerBackendRestartService } from '@src/domains/admin/runtimeServerManagerBackendRestartService.js';
 import { createConfigChangeService } from '@src/domains/config-change/configChange.js';
 import { PresetManager } from '@src/domains/preset/manager/presetManager.js';
 import logger from '@src/logger/logger.js';
@@ -39,7 +40,10 @@ import { setupSecurityMiddleware } from './middlewares/securityMiddleware.js';
 import { createAdminRoutes } from './routes/adminRoutes.js';
 import { createApiRoutes, createCliTokenRoute, rejectBrowserOriginRequests } from './routes/apiRoutes.js';
 import createHealthRoutes from './routes/healthRoutes.js';
-import createOAuthRoutes, { createBackendOAuthDashboardProvider } from './routes/oauthRoutes.js';
+import createOAuthRoutes, {
+  createBackendOAuthAuthorizationFlow,
+  createBackendOAuthDashboardProvider,
+} from './routes/oauthRoutes.js';
 import { createRuntimeIdentityRoutes } from './routes/runtimeIdentityRoutes.js';
 import { setupSseRoutes } from './routes/sseRoutes.js';
 import { setupStreamableHttpRoutes } from './routes/streamableHttpRoutes.js';
@@ -380,8 +384,9 @@ export class ExpressServer {
     this.app.use(authRouter);
 
     // Setup OAuth management routes (no auth required)
-    this.app.use('/oauth', createOAuthRoutes(this.oauthProvider, this.loadingManager));
-    const getOAuthDashboard = createBackendOAuthDashboardProvider(this.oauthProvider, this.loadingManager);
+    const oauthFlow = createBackendOAuthAuthorizationFlow(this.oauthProvider, this.loadingManager);
+    this.app.use('/oauth', createOAuthRoutes(this.oauthProvider, this.loadingManager, oauthFlow));
+    const getOAuthDashboard = createBackendOAuthDashboardProvider(this.oauthProvider, this.loadingManager, oauthFlow);
 
     // Setup health check routes (no auth required for monitoring)
     this.app.use('/health', createHealthRoutes(this.loadingManager));
@@ -409,12 +414,19 @@ export class ExpressServer {
       checkConnectivity: createAdminConnectivityChecker(),
       presetManager: PresetManager.getInstance(path.dirname(adminConfigPath)),
       readServerTargets: getAllServerTargets,
+      runtimeBackendRestartService: new RuntimeServerManagerBackendRestartService({
+        serverManager: this.serverManager,
+        resolveTarget: resolveServerTarget,
+      }),
+      oauthFlow,
     });
     const adminRoutes = createAdminRoutes({
       adminEnabled,
       adminService: adminDomain.adminService,
       configuredServerService: adminDomain.configuredServerService,
       presetService: adminDomain.presetService,
+      backendRestartService: adminDomain.backendRestartService,
+      oauthService: adminDomain.oauthService,
       adminMutationAvailability,
       getRuntimeIdentity,
       getOAuthDashboard,

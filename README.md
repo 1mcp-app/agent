@@ -150,6 +150,7 @@ flowchart LR
 - CLI mode for progressive discovery with `1mcp instructions`, `1mcp inspect <server>`, `1mcp inspect <server>/<tool>`, and `1mcp run <server>/<tool> --args '<json>'`
 - Template servers for per-client or per-session resolution
 - Async loading and lazy loading for faster startup and narrower exposure
+- Opt-in automatic recovery for owned stdio backends, with health/status visibility and operator restart controls
 - Instruction aggregation across static and template-backed servers
 - Presets, filters, and preset change notifications
 - `proxy` for maximum compatibility with project context and template-server support

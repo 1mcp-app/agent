@@ -1,3 +1,4 @@
+import type { BackendSupervisionSnapshot } from '@src/core/server/backendStdioSupervisor.js';
 import { ClientStatus } from '@src/core/types/index.js';
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -377,6 +378,92 @@ describe('HealthService', () => {
     it('should return 500 for unknown status', () => {
       const code = healthService.getHttpStatusCode('unknown' as HealthStatus);
       expect(code).toBe(500);
+    });
+  });
+
+  describe('serializeBackendSupervision', () => {
+    const snapshots = {
+      worker: {
+        backendId: 'worker',
+        state: 'crash-loop',
+        attempt: 5,
+        limit: 5,
+        nextRetryAt: null,
+        lastExit: {
+          code: 1,
+          signal: null,
+          pid: 4321,
+          at: new Date('2026-07-23T12:00:00.000Z'),
+        },
+        lastError: new Error('token=secret /private/config.json'),
+        currentPid: null,
+      },
+      healthy: {
+        backendId: 'healthy',
+        state: 'connected',
+        attempt: 0,
+        limit: null,
+        nextRetryAt: null,
+        lastExit: null,
+        lastError: null,
+        currentPid: 9876,
+      },
+    } satisfies Record<string, BackendSupervisionSnapshot>;
+
+    it('returns bounded aggregate counts at minimal detail', () => {
+      mockAgentConfig.get.mockImplementation((key: string) =>
+        key === 'health' ? { detailLevel: 'minimal' } : undefined,
+      );
+
+      const result = healthService.serializeBackendSupervision(snapshots);
+
+      expect(result).toEqual({
+        total: 2,
+        connected: 1,
+        restarting: 0,
+        crashLoop: 1,
+        stopped: 0,
+      });
+      expect(JSON.stringify(result)).not.toContain('worker');
+      expect(JSON.stringify(result)).not.toContain('secret');
+      expect(JSON.stringify(result)).not.toContain('4321');
+    });
+
+    it('sanitizes errors and removes process IDs at basic detail', () => {
+      mockAgentConfig.get.mockImplementation((key: string) =>
+        key === 'health' ? { detailLevel: 'basic' } : undefined,
+      );
+
+      const result = healthService.serializeBackendSupervision(snapshots) as Record<string, any>;
+
+      expect(result.worker).toMatchObject({
+        backendId: 'worker',
+        state: 'crash-loop',
+        attempt: 5,
+        lastExit: {
+          code: 1,
+          signal: null,
+          at: new Date('2026-07-23T12:00:00.000Z'),
+        },
+        lastError: '[REDACTED_CREDENTIAL] [REDACTED_PATH]',
+      });
+      expect(result.worker.currentPid).toBeUndefined();
+      expect(result.worker.lastExit.pid).toBeUndefined();
+    });
+
+    it('preserves process facts but still sanitizes errors at full detail', () => {
+      mockAgentConfig.get.mockImplementation((key: string) => (key === 'health' ? { detailLevel: 'full' } : undefined));
+
+      const result = healthService.serializeBackendSupervision(snapshots) as Record<string, any>;
+
+      expect(result.worker).toMatchObject({
+        backendId: 'worker',
+        state: 'crash-loop',
+        currentPid: null,
+        lastExit: { pid: 4321 },
+        lastError: '[REDACTED_CREDENTIAL] [REDACTED_PATH]',
+      });
+      expect(result.healthy.currentPid).toBe(9876);
     });
   });
 

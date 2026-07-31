@@ -51,9 +51,9 @@ describe('AdminConsoleRoot', () => {
       logout: vi.fn(async () => ({ ok: true })),
     });
 
-    renderRoot(api);
+    renderRoot(api, { windowRef: createRouteWindow('/admin/servers') });
 
-    expect(await screen.findByRole('heading', { name: /runtime operations/i })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: /server inventory/i })).toBeInTheDocument();
     await waitFor(() => expect(api.getStatus).toHaveBeenCalledTimes(1));
     await waitFor(() => expect(api.listConfiguredServers).toHaveBeenCalledTimes(1));
     expect(await screen.findByText('filesystem')).toBeInTheDocument();
@@ -112,6 +112,7 @@ describe('AdminConsoleRoot', () => {
 
   it('loads console read models after a successful login from the login screen', async () => {
     const user = userEvent.setup();
+    const routeWindow = createRouteWindow('/admin/servers');
     const api = apiClient({
       getSession: vi.fn(async () => {
         throw new AdminApiError(401, { authenticated: false, adminStatus: 'loginRequired' }, 'Unauthorized');
@@ -129,14 +130,14 @@ describe('AdminConsoleRoot', () => {
       ]),
     });
 
-    renderRoot(api);
+    renderRoot(api, { windowRef: routeWindow });
 
     expect(await screen.findByRole('heading', { name: /operator login/i })).toBeInTheDocument();
     await user.type(screen.getByLabelText(/username/i), 'operator');
     await user.type(screen.getByLabelText(/password/i), 'correct horse battery staple');
     await user.click(screen.getByRole('button', { name: /log in/i }));
 
-    expect(await screen.findByRole('heading', { name: /runtime operations/i })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: /server inventory/i })).toBeInTheDocument();
     expect(screen.getByText('github')).toBeInTheDocument();
     expect(api.getStatus).toHaveBeenCalledTimes(1);
     expect(api.listConfiguredServers).toHaveBeenCalledTimes(1);
@@ -144,7 +145,7 @@ describe('AdminConsoleRoot', () => {
 
   it('opens a configured-server detail route and previews an environment secret replacement', async () => {
     const user = userEvent.setup();
-    const routeWindow = createRouteWindow('/admin');
+    const routeWindow = createRouteWindow('/admin/servers');
     const api = apiClient({
       getSession: vi.fn(async () => session),
       getStatus: vi.fn(async () => status),
@@ -189,7 +190,7 @@ describe('AdminConsoleRoot', () => {
 
     renderRoot(api, { windowRef: routeWindow });
 
-    expect(await screen.findByRole('heading', { name: /runtime operations/i })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: /server inventory/i })).toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: /edit github\/api server/i }));
 
     expect(routeWindow.history.pushState).toHaveBeenCalledWith(null, '', '/admin/servers/github%2Fapi');
@@ -260,7 +261,7 @@ describe('AdminConsoleRoot', () => {
   });
 
   it('follows browser back and forward navigation for configured-server detail routes', async () => {
-    const routeWindow = createRouteWindow('/admin');
+    const routeWindow = createRouteWindow('/admin/servers');
     const api = apiClient({
       getSession: vi.fn(async () => session),
       getStatus: vi.fn(async () => status),
@@ -270,7 +271,7 @@ describe('AdminConsoleRoot', () => {
 
     renderRoot(api, { windowRef: routeWindow });
 
-    expect(await screen.findByRole('heading', { name: /runtime operations/i })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: /server inventory/i })).toBeInTheDocument();
     expect(api.getConfiguredServerDetail).not.toHaveBeenCalled();
 
     routeWindow.location.pathname = '/admin/servers/github%2Fapi';
@@ -281,7 +282,7 @@ describe('AdminConsoleRoot', () => {
     expect(await screen.findByRole('heading', { name: /github\/api/i })).toBeInTheDocument();
     expect(api.getConfiguredServerDetail).toHaveBeenCalledWith('github/api');
 
-    routeWindow.location.pathname = '/admin';
+    routeWindow.location.pathname = '/admin/servers';
     await act(async () => {
       routeWindow.emitPopState();
     });
@@ -300,10 +301,162 @@ describe('AdminConsoleRoot', () => {
     renderRoot(api, { windowRef: routeWindow });
     expect(await screen.findByRole('heading', { name: /runtime operations/i })).toBeInTheDocument();
 
+    routeWindow.location.pathname = '/admin/servers';
+    await act(async () => routeWindow.emitPopState());
+    expect(await screen.findByRole('heading', { name: /server inventory/i })).toBeInTheDocument();
+
+    routeWindow.location.pathname = '/admin/oauth';
+    await act(async () => routeWindow.emitPopState());
+    expect(await screen.findByRole('heading', { name: /^oauth services$/i })).toBeInTheDocument();
+
+    routeWindow.location.pathname = '/admin/audit';
+    await act(async () => routeWindow.emitPopState());
+    expect(await screen.findByRole('heading', { name: /^audit trail$/i })).toBeInTheDocument();
+
     routeWindow.location.pathname = '/admin/about';
     await act(async () => routeWindow.emitPopState());
 
     expect(await screen.findByText('About metadata is unavailable.')).toBeInTheDocument();
+  });
+
+  it('starts OAuth authorization with the full service ID and redirects only after success', async () => {
+    const user = userEvent.setup();
+    const routeWindow = createRouteWindow('/admin/oauth');
+    routeWindow.location.search = '?success=1';
+    routeWindow.location.assign = vi.fn();
+    const authorization = deferred<{ serviceId: string; redirectUrl: string }>();
+    const authorizeOAuthService = vi.fn(() => authorization.promise);
+    const api = apiClient({
+      getSession: vi.fn(async () => session),
+      getStatus: vi.fn(async () => ({
+        ...status,
+        oauth: {
+          status: 'ready',
+          services: [
+            {
+              name: 'context7:0123456789abcdef',
+              id: 'context7:0123456789abcdef',
+              displayName: 'context7:0123456789ab',
+              status: 'awaiting_oauth',
+              requiresOAuth: true,
+            },
+          ],
+        },
+      })),
+      listConfiguredServers: vi.fn(async () => []),
+      authorizeOAuthService,
+    });
+
+    renderRoot(api, { windowRef: routeWindow });
+
+    expect(await screen.findByRole('status')).toHaveTextContent('OAuth authorization completed.');
+    expect(routeWindow.history.replaceState).toHaveBeenCalledWith(null, '', '/admin/oauth');
+    const authorizeButton = screen.getByRole('button', { name: /authorize context7:0123456789ab/i });
+    await user.click(authorizeButton);
+    expect(authorizeOAuthService).toHaveBeenCalledWith({
+      serviceId: 'context7:0123456789abcdef',
+      csrfToken: 'csrf_123',
+    });
+    expect(authorizeButton).toBeDisabled();
+    expect(screen.getByText('Starting authorization...')).toBeInTheDocument();
+    expect(routeWindow.location.assign).not.toHaveBeenCalled();
+
+    authorization.resolve({
+      serviceId: 'context7:0123456789abcdef',
+      redirectUrl: 'https://provider.example/authorize',
+    });
+    await waitFor(() => expect(routeWindow.location.assign).toHaveBeenCalledWith('https://provider.example/authorize'));
+  });
+
+  it('keeps the OAuth workspace open and reports a failed authorization start', async () => {
+    const user = userEvent.setup();
+    const routeWindow = createRouteWindow('/admin/oauth');
+    routeWindow.location.assign = vi.fn();
+    const api = apiClient({
+      getSession: vi.fn(async () => session),
+      getStatus: vi.fn(async () => ({
+        ...status,
+        oauth: {
+          status: 'ready',
+          services: [
+            { name: 'github', id: 'github', displayName: 'github', status: 'awaiting_oauth', requiresOAuth: true },
+          ],
+        },
+      })),
+      listConfiguredServers: vi.fn(async () => []),
+      authorizeOAuthService: vi.fn(async () => {
+        throw new AdminApiError(
+          503,
+          { error: { code: 'backend_oauth_runtime_unavailable' } },
+          'backend_oauth_runtime_unavailable',
+        );
+      }),
+    });
+
+    renderRoot(api, { windowRef: routeWindow });
+    await user.click(await screen.findByRole('button', { name: /authorize github/i }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Backend OAuth operations are not available on this runtime.',
+    );
+    expect(routeWindow.location.assign).not.toHaveBeenCalled();
+    expect(routeWindow.location.pathname).toBe('/admin/oauth');
+  });
+
+  it('clears an in-flight OAuth busy state when the Admin Session changes', async () => {
+    const user = userEvent.setup();
+    const routeWindow = createRouteWindow('/admin/oauth');
+    routeWindow.location.assign = vi.fn();
+    const authorization = deferred<{ serviceId: string; redirectUrl: string }>();
+    const nextSession = { ...session, csrfToken: 'csrf_456' };
+    const oauthStatus = {
+      ...status,
+      oauth: {
+        status: 'ready',
+        services: [
+          { name: 'github', id: 'github', displayName: 'github', status: 'awaiting_oauth', requiresOAuth: true },
+        ],
+      },
+    };
+    const api = apiClient({
+      getSession: vi.fn(async () => session),
+      login: vi.fn(async () => nextSession),
+      logout: vi.fn(async () => ({ ok: true })),
+      getStatus: vi.fn(async () => oauthStatus),
+      listConfiguredServers: vi.fn(async () => []),
+      authorizeOAuthService: vi.fn(() => authorization.promise),
+    });
+
+    renderRoot(api, { windowRef: routeWindow });
+    await user.click(await screen.findByRole('button', { name: /authorize github/i }));
+    expect(screen.getByRole('button', { name: /authorize github/i })).toBeDisabled();
+
+    await user.click(screen.getByRole('button', { name: /log out/i }));
+    await user.type(await screen.findByLabelText(/username/i), 'operator');
+    await user.type(screen.getByLabelText(/password/i), 'password');
+    await user.click(screen.getByRole('button', { name: /log in/i }));
+
+    expect(await screen.findByRole('button', { name: /authorize github/i })).toBeEnabled();
+    await act(async () => {
+      authorization.resolve({ serviceId: 'github', redirectUrl: 'https://provider.example/authorize' });
+      await authorization.promise;
+    });
+    expect(routeWindow.location.assign).not.toHaveBeenCalled();
+  });
+
+  it('uses fallback feedback for OAuth callback keys inherited from Object.prototype', async () => {
+    const routeWindow = createRouteWindow('/admin/oauth');
+    routeWindow.location.search = '?error=constructor';
+    const api = apiClient({
+      getSession: vi.fn(async () => session),
+      getStatus: vi.fn(async () => status),
+      listConfiguredServers: vi.fn(async () => []),
+    });
+
+    renderRoot(api, { windowRef: routeWindow });
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('OAuth authorization did not complete.');
+    expect(routeWindow.history.replaceState).toHaveBeenCalledWith(null, '', '/admin/oauth');
   });
 
   it('prevents reentrant preset save from queueing duplicate dialogs or mutations', async () => {
@@ -386,7 +539,7 @@ describe('AdminConsoleRoot', () => {
 
   it('keeps the current detail route when the operator cancels dirty draft discard', async () => {
     const user = userEvent.setup();
-    const routeWindow = createRouteWindow('/admin');
+    const routeWindow = createRouteWindow('/admin/servers');
     const api = apiClient({
       getSession: vi.fn(async () => session),
       getStatus: vi.fn(async () => status),
@@ -396,7 +549,7 @@ describe('AdminConsoleRoot', () => {
 
     renderRoot(api, { windowRef: routeWindow });
 
-    expect(await screen.findByRole('heading', { name: /runtime operations/i })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: /server inventory/i })).toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: /edit github\/api server/i }));
     expect(await screen.findByRole('heading', { name: /github\/api/i })).toBeInTheDocument();
     await user.clear(screen.getByLabelText('URL'));
@@ -415,7 +568,7 @@ describe('AdminConsoleRoot', () => {
 
   it('keeps the current detail route when switching servers would discard dirty draft edits', async () => {
     const user = userEvent.setup();
-    const routeWindow = createRouteWindow('/admin');
+    const routeWindow = createRouteWindow('/admin/servers');
     const api = apiClient({
       getSession: vi.fn(async () => session),
       getStatus: vi.fn(async () => status),
@@ -428,7 +581,7 @@ describe('AdminConsoleRoot', () => {
 
     renderRoot(api, { windowRef: routeWindow });
 
-    expect(await screen.findByRole('heading', { name: /runtime operations/i })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: /server inventory/i })).toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: /edit github\/api server/i }));
     expect(await screen.findByRole('heading', { name: /github\/api/i })).toBeInTheDocument();
     await user.clear(screen.getByLabelText('URL'));
@@ -444,7 +597,7 @@ describe('AdminConsoleRoot', () => {
   });
 
   it('ignores stale configured-server detail responses after navigating to another target', async () => {
-    const routeWindow = createRouteWindow('/admin');
+    const routeWindow = createRouteWindow('/admin/servers');
     const githubDetail = deferred<ReturnType<typeof configuredServerDetail>>();
     const filesystemDetail = deferred<ReturnType<typeof configuredServerDetail>>();
     const api = apiClient({
@@ -464,7 +617,7 @@ describe('AdminConsoleRoot', () => {
 
     renderRoot(api, { windowRef: routeWindow });
 
-    expect(await screen.findByRole('heading', { name: /runtime operations/i })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: /server inventory/i })).toBeInTheDocument();
     routeWindow.location.pathname = '/admin/servers/github%2Fapi';
     await act(async () => {
       routeWindow.emitPopState();
@@ -488,7 +641,7 @@ describe('AdminConsoleRoot', () => {
 
   it('ignores stale configured-server preview responses after navigating to another target', async () => {
     const user = userEvent.setup();
-    const routeWindow = createRouteWindow('/admin');
+    const routeWindow = createRouteWindow('/admin/servers');
     const stalePreview = deferred<Awaited<ReturnType<AdminApiClient['previewConfiguredServerEdit']>>>();
     const api = apiClient({
       getSession: vi.fn(async () => session),
@@ -503,7 +656,7 @@ describe('AdminConsoleRoot', () => {
 
     renderRoot(api, { windowRef: routeWindow });
 
-    expect(await screen.findByRole('heading', { name: /runtime operations/i })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: /server inventory/i })).toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: /edit github\/api server/i }));
     expect(await screen.findByRole('heading', { name: /github\/api/i })).toBeInTheDocument();
     await user.click(screen.getByRole('radio', { name: /replace url\.query\.token/i }));
@@ -546,9 +699,9 @@ describe('AdminConsoleRoot', () => {
       }),
     });
 
-    renderRoot(api);
+    renderRoot(api, { windowRef: createRouteWindow('/admin/servers') });
 
-    expect(await screen.findByRole('heading', { name: /runtime operations/i })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: /server inventory/i })).toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: /disable filesystem/i }));
 
     expect(await screen.findByRole('alert')).toHaveTextContent(
@@ -626,6 +779,8 @@ function apiClient(overrides: Partial<AdminApiClient>): AdminApiClient {
     previewConfiguredServerEdit: vi.fn(),
     applyConfiguredServerEdit: vi.fn(),
     setConfiguredServerEnabled: vi.fn(),
+    authorizeOAuthService: vi.fn(),
+    restartOAuthService: vi.fn(),
     ...overrides,
   };
 }
