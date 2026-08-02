@@ -68,8 +68,60 @@ else
 fi
 echo "✅ Tiktoken functionality working"
 
-# Test 4: System installation simulation
-echo "4️⃣ Testing system installation simulation..."
+# Test 4: Admin Console assets from the standalone binary
+echo "4️⃣ Testing embedded Admin Console assets..."
+ADMIN_SMOKE_DIR=$(mktemp -d)
+ADMIN_SMOKE_PORT=$(node -e 'const server=require("node:net").createServer(); server.listen(0,"127.0.0.1",()=>{console.log(server.address().port);server.close()})')
+ADMIN_SMOKE_URL="http://127.0.0.1:$ADMIN_SMOKE_PORT"
+ADMIN_SMOKE_LOG="$ADMIN_SMOKE_DIR/runtime.log"
+mkdir -p "$ADMIN_SMOKE_DIR/config"
+printf '{"mcpServers":{}}\n' > "$ADMIN_SMOKE_DIR/config/mcp.json"
+"$BINARY_PATH" serve --transport http --host 127.0.0.1 --port "$ADMIN_SMOKE_PORT" --external-url "$ADMIN_SMOKE_URL" --config-dir "$ADMIN_SMOKE_DIR/config" > "$ADMIN_SMOKE_LOG" 2>&1 &
+ADMIN_SMOKE_PID=$!
+cleanup_admin_smoke() {
+  kill "$ADMIN_SMOKE_PID" 2>/dev/null || true
+  wait "$ADMIN_SMOKE_PID" 2>/dev/null || true
+  rm -rf "$ADMIN_SMOKE_DIR"
+}
+trap cleanup_admin_smoke EXIT
+
+for attempt in $(seq 1 50); do
+  if curl -fsS "$ADMIN_SMOKE_URL/health/ready" > /dev/null 2>&1; then
+    break
+  fi
+  if ! kill -0 "$ADMIN_SMOKE_PID" 2>/dev/null; then
+    cat "$ADMIN_SMOKE_LOG"
+    exit 1
+  fi
+  sleep 0.1
+done
+
+if ! curl -fsS "$ADMIN_SMOKE_URL/health/ready" > /dev/null 2>&1; then
+  cat "$ADMIN_SMOKE_LOG"
+  echo "❌ Standalone binary did not become ready"
+  exit 1
+fi
+
+ADMIN_HTML=$(curl -fsS "$ADMIN_SMOKE_URL/admin/")
+ADMIN_JS_ASSET=$(printf '%s' "$ADMIN_HTML" | sed -nE 's|.*src="/admin/(assets/[^"]+\.js)".*|\1|p' | head -n 1)
+ADMIN_CSS_ASSET=$(printf '%s' "$ADMIN_HTML" | sed -nE 's|.*href="/admin/(assets/[^"]+\.css)".*|\1|p' | head -n 1)
+if [[ -z "$ADMIN_JS_ASSET" || -z "$ADMIN_CSS_ASSET" ]]; then
+  echo "❌ Admin Console HTML did not reference JavaScript and CSS assets"
+  exit 1
+fi
+
+curl -fsS "$ADMIN_SMOKE_URL/admin/$ADMIN_JS_ASSET" -o "$ADMIN_SMOKE_DIR/admin-console.js"
+curl -fsS "$ADMIN_SMOKE_URL/admin/$ADMIN_CSS_ASSET" -o "$ADMIN_SMOKE_DIR/admin-console.css"
+if [[ ! -s "$ADMIN_SMOKE_DIR/admin-console.js" || ! -s "$ADMIN_SMOKE_DIR/admin-console.css" ]]; then
+  echo "❌ Embedded Admin Console assets were empty"
+  exit 1
+fi
+trap - EXIT
+cleanup_admin_smoke
+echo "✅ Embedded Admin Console assets working"
+
+# Test 5: System installation simulation
+echo "5️⃣ Testing system installation simulation..."
 mkdir -p test-bin
 cp "$BINARY_PATH" test-bin/
 cd test-bin
