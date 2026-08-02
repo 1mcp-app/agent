@@ -1,4 +1,5 @@
 import type { MCPServerParams } from '@src/core/types/transport.js';
+import { templateBackendLogSource } from '@src/domains/backend-logs/backendLogSource.js';
 import { createTransportsWithContext } from '@src/transport/transportFactory.js';
 import { getConnectionTimeout } from '@src/utils/core/timeoutUtils.js';
 
@@ -28,6 +29,11 @@ export async function createPooledClientInstance({
       [templateName]: processedConfig,
     },
     undefined,
+    {
+      backendLogSources: {
+        [templateName]: templateBackendLogSource({ templateName, instanceId }),
+      },
+    },
   );
 
   const transport = transports[templateName];

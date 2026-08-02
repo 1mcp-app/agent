@@ -6,6 +6,7 @@ import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js'
 
 import { SDKOAuthClientProvider } from '@src/auth/sdkOAuthClientProvider.js';
 import { MCPServerParams } from '@src/core/types/index.js';
+import { getBackendLogBroker, resetBackendLogBroker } from '@src/domains/backend-logs/backendLogRuntime.js';
 // Import the mocked types
 import { transportConfigSchema } from '@src/core/types/index.js';
 import logger, { debugIf } from '@src/logger/logger.js';
@@ -19,6 +20,7 @@ import { ManagedStdioStderr } from './managedStdioStderr.js';
 describe('TransportFactory', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    resetBackendLogBroker();
   });
 
   describe('createTransports', () => {
@@ -136,6 +138,23 @@ describe('TransportFactory', () => {
 
       expect(Object.keys(transports)).toEqual(['enabled-server']);
       expect(debugIf).toHaveBeenCalledWith('Skipping disabled transport: disabled-server');
+      expect(getBackendLogBroker().snapshot().sources).toContainEqual(
+        expect.objectContaining({ id: 'static:disabled-server', lifecycle: 'ended', capture: 'managed' }),
+      );
+    });
+
+    it('registers unmanaged stdio as unavailable without registering HTTP backends', () => {
+      const config: Record<string, MCPServerParams> = {
+        unmanaged: { type: 'stdio', command: 'node', stderr: 'inherit' },
+        remote: { type: 'http', url: 'http://localhost:3002/mcp' },
+      };
+      (transportConfigSchema.parse as any).mockReturnValueOnce(config.unmanaged).mockReturnValueOnce(config.remote);
+
+      createTransports(config);
+
+      expect(getBackendLogBroker().snapshot().sources).toEqual([
+        expect.objectContaining({ id: 'static:unmanaged', capture: 'not-captured' }),
+      ]);
     });
 
     it('should infer transport type when missing', () => {

@@ -13,6 +13,10 @@ import { processEnvironment, substituteEnvVars } from '@src/config/envProcessor.
 import { AUTH_CONFIG, MCP_SERVER_VERSION } from '@src/constants.js';
 import { AgentConfigManager } from '@src/core/server/agentConfig.js';
 import { AuthProviderTransport, MCPServerParams, transportConfigSchema } from '@src/core/types/index.js';
+import { createBackendLogProjection } from '@src/domains/backend-logs/backendLogProjection.js';
+import { getBackendLogBroker } from '@src/domains/backend-logs/backendLogRuntime.js';
+import { staticBackendLogSource } from '@src/domains/backend-logs/backendLogSource.js';
+import type { BackendLogSource } from '@src/domains/backend-logs/backendLogTypes.js';
 import logger, { debugIf } from '@src/logger/logger.js';
 import { HandlebarsTemplateRenderer } from '@src/template/handlebarsTemplateRenderer.js';
 import type { ContextData } from '@src/types/context.js';
@@ -22,6 +26,10 @@ import { z, ZodError } from 'zod';
 import { ManagedStdioStderr } from './managedStdioStderr.js';
 
 type ValidatedTransport = z.infer<typeof transportConfigSchema>;
+
+export interface TransportCreationOptions {
+  readonly backendLogSources?: Readonly<Record<string, BackendLogSource>>;
+}
 
 /**
  * Infers transport type from configuration parameters
@@ -182,7 +190,11 @@ function createHTTPTransport(name: string, validatedTransport: ValidatedTranspor
 /**
  * Creates stdio transport with enhanced environment processing and optional restart capability
  */
-function createStdioTransport(name: string, validatedTransport: ValidatedTransport): AuthProviderTransport {
+function createStdioTransport(
+  name: string,
+  validatedTransport: ValidatedTransport,
+  backendLogSource = staticBackendLogSource(name),
+): AuthProviderTransport {
   if (!validatedTransport.command) {
     throw new Error(`Command is required for stdio transport: ${name}`);
   }
@@ -223,7 +235,12 @@ function createStdioTransport(name: string, validatedTransport: ValidatedTranspo
     validatedTransport.stderr === undefined ||
     validatedTransport.stderr === 'pipe' ||
     validatedTransport.stderr === 'overlapped';
-  const managedStderr = shouldManageStderr ? new ManagedStdioStderr(name) : undefined;
+  const broker = getBackendLogBroker();
+  const source = { ...backendLogSource, capture: shouldManageStderr ? ('managed' as const) : ('not-captured' as const) };
+  broker.registerSource(source);
+  const managedStderr = shouldManageStderr
+    ? new ManagedStdioStderr(name, { emit: createBackendLogProjection({ broker, source }) })
+    : undefined;
 
   // Create SDK-compatible parameters with processed environment
   const stdioParams: StdioServerParameters = {
@@ -256,6 +273,7 @@ function createStdioTransport(name: string, validatedTransport: ValidatedTranspo
         await closeTransport();
       } finally {
         managedStderr.close();
+        broker.updateSource(source.id, { lifecycle: 'ended' });
       }
     };
   }
@@ -268,7 +286,7 @@ function createStdioTransport(name: string, validatedTransport: ValidatedTranspo
         maxRestarts: validatedTransport.maxRestarts,
         restartDelay: validatedTransport.restartDelay,
       },
-      recreate: () => createStdioTransport(name, validatedTransport),
+      recreate: () => createStdioTransport(name, validatedTransport, source),
       getLastExit: () => lastExit,
     };
   }
@@ -278,7 +296,11 @@ function createStdioTransport(name: string, validatedTransport: ValidatedTranspo
 /**
  * Creates a single transport instance
  */
-function createSingleTransport(name: string, validatedTransport: ValidatedTransport): AuthProviderTransport {
+function createSingleTransport(
+  name: string,
+  validatedTransport: ValidatedTransport,
+  backendLogSource?: BackendLogSource,
+): AuthProviderTransport {
   switch (validatedTransport.type) {
     case 'sse':
       return createSSETransport(name, validatedTransport);
@@ -286,7 +308,7 @@ function createSingleTransport(name: string, validatedTransport: ValidatedTransp
     case 'streamableHttp':
       return createHTTPTransport(name, validatedTransport);
     case 'stdio':
-      return createStdioTransport(name, validatedTransport);
+      return createStdioTransport(name, validatedTransport, backendLogSource);
     default:
       throw new Error(`Invalid transport type: ${validatedTransport.type}`);
   }
@@ -313,10 +335,14 @@ function assignTransport(
  * @param config - Configuration object with server parameters
  * @returns Record of transport instances
  */
-export function createTransports(config: Record<string, MCPServerParams>): Record<string, AuthProviderTransport> {
+export function createTransports(
+  config: Record<string, MCPServerParams>,
+  options: TransportCreationOptions = {},
+): Record<string, AuthProviderTransport> {
   const transports: Record<string, AuthProviderTransport> = {};
 
   for (const [name, params] of Object.entries(config)) {
+    registerInactiveStdioSource(name, params, options);
     if (params.disabled) {
       debugIf(`Skipping disabled transport: ${name}`);
       continue;
@@ -325,7 +351,7 @@ export function createTransports(config: Record<string, MCPServerParams>): Recor
     try {
       const inferredParams = inferTransportType(params, name);
       const validatedTransport = transportConfigSchema.parse(inferredParams);
-      const transport = createSingleTransport(name, validatedTransport);
+      const transport = createSingleTransport(name, validatedTransport, options.backendLogSources?.[name]);
 
       assignTransport(transports, name, transport, validatedTransport);
       debugIf(`Created transport: ${name}`);
@@ -351,6 +377,7 @@ export function createTransports(config: Record<string, MCPServerParams>): Recor
 export async function createTransportsWithContext(
   config: Record<string, MCPServerParams>,
   context?: ContextData,
+  options: TransportCreationOptions = {},
 ): Promise<Record<string, AuthProviderTransport>> {
   const transports: Record<string, AuthProviderTransport> = {};
 
@@ -358,6 +385,7 @@ export async function createTransportsWithContext(
   const templateRenderer = context ? new HandlebarsTemplateRenderer() : null;
 
   for (const [name, params] of Object.entries(config)) {
+    registerInactiveStdioSource(name, params, options);
     if (params.disabled) {
       debugIf(`Skipping disabled transport: ${name}`);
       continue;
@@ -382,7 +410,7 @@ export async function createTransportsWithContext(
       }
 
       const validatedTransport = transportConfigSchema.parse(processedParams);
-      const transport = createSingleTransport(name, validatedTransport);
+      const transport = createSingleTransport(name, validatedTransport, options.backendLogSources?.[name]);
 
       assignTransport(transports, name, transport, validatedTransport);
       debugIf(`Created transport: ${name}`);
@@ -397,4 +425,20 @@ export async function createTransportsWithContext(
   }
 
   return transports;
+}
+
+function registerInactiveStdioSource(
+  name: string,
+  params: MCPServerParams,
+  options: TransportCreationOptions,
+): void {
+  const transportType = params.type ?? (params.command ? 'stdio' : undefined);
+  if (transportType !== 'stdio') return;
+  const managed = params.stderr === undefined || params.stderr === 'pipe' || params.stderr === 'overlapped';
+  const source = options.backendLogSources?.[name] ?? staticBackendLogSource(name);
+  getBackendLogBroker().registerSource({
+    ...source,
+    capture: managed ? 'managed' : 'not-captured',
+    lifecycle: params.disabled ? 'ended' : source.lifecycle,
+  });
 }
