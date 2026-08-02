@@ -2,6 +2,24 @@
 
 const { execSync } = require('child_process');
 const fs = require('fs');
+const path = require('path');
+
+function readAdminConsoleAssets(rootDir, relativeDir = '') {
+  const assets = {};
+
+  for (const entry of fs.readdirSync(path.join(rootDir, relativeDir), { withFileTypes: true })) {
+    const relativePath = path.posix.join(relativeDir, entry.name);
+    if (entry.isDirectory()) {
+      Object.assign(assets, readAdminConsoleAssets(rootDir, relativePath));
+      continue;
+    }
+    if (entry.isFile()) {
+      assets[relativePath] = fs.readFileSync(path.join(rootDir, relativePath)).toString('base64');
+    }
+  }
+
+  return assets;
+}
 
 /**
  * Build Single Executable Application (SEA) components
@@ -10,17 +28,28 @@ function buildSEA() {
   console.log('🔨 Building SEA components...');
 
   try {
-    // 1. Build TypeScript
+    // 1. Build the Admin Console before collecting it for the SEA bundle.
+    console.log('🖥️ Building Admin Console SPA...');
+    execSync('pnpm exec vite build --config web/admin/vite.config.ts', { stdio: 'inherit' });
+
+    const adminConsoleAssetsDir = path.join('build', 'admin');
+    const adminConsoleAssets = readAdminConsoleAssets(adminConsoleAssetsDir);
+    if (!adminConsoleAssets['index.html']) {
+      throw new Error('Admin Console build did not produce build/admin/index.html');
+    }
+    console.log(`✅ Prepared ${Object.keys(adminConsoleAssets).length} Admin Console assets for embedding`);
+
+    // 2. Build TypeScript
     console.log('📦 Building TypeScript...');
     execSync('tsc --project tsconfig.build.json', { stdio: 'inherit' });
 
-    // 2. Set execute permissions on main file
+    // 3. Set execute permissions on main file
     const mainFile = 'build/index.js';
     if (fs.existsSync(mainFile)) {
       fs.chmodSync(mainFile, '755');
     }
 
-    // 3. Bundle with esbuild (optimized)
+    // 4. Bundle with esbuild (optimized)
     console.log('📦 Bundling with esbuild...');
     execSync(
       [
@@ -38,7 +67,7 @@ function buildSEA() {
       { stdio: 'inherit' },
     );
 
-    // 3.5. Prepare tiktoken WASM files for inlining
+    // 4.5. Prepare tiktoken WASM files for inlining
     console.log('📦 Preparing tiktoken WASM files for inlining...');
     const tiktokenPath = require.resolve('tiktoken');
     const tiktokenDir = require('path').dirname(tiktokenPath);
@@ -79,6 +108,9 @@ const __TIKTOKEN_WASM_DATA__ = ${JSON.stringify(wasmData)};
 
 // Inlined version data for SEA compatibility
 const __PACKAGE_VERSION__ = ${JSON.stringify(packageJson.version)};
+
+// Inlined Admin Console assets for SEA compatibility
+globalThis.__1MCP_SEA_ADMIN_CONSOLE_ASSETS__ = ${JSON.stringify(adminConsoleAssets)};
 `;
 
     // Find the shebang line and insert WASM data after it
@@ -113,7 +145,7 @@ const __PACKAGE_VERSION__ = ${JSON.stringify(packageJson.version)};
 
     fs.writeFileSync('build/bundled.cjs', bundledCode);
 
-    // 4. Create SEA preparation blob
+    // 5. Create SEA preparation blob
     console.log('🔧 Creating SEA blob...');
     execSync('node --experimental-sea-config sea-config.json', { stdio: 'inherit' });
 

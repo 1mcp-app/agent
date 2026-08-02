@@ -33,6 +33,7 @@ const cliRuntimeIdentity = {
   runtimeScopeId: 'scope_123',
   runtimeVersion: '1.2.3',
 } as const;
+const SEA_ADMIN_CONSOLE_ASSETS_KEY = '__1MCP_SEA_ADMIN_CONSOLE_ASSETS__';
 
 function cookieValue(setCookieHeader: string): string {
   const [nameValue] = setCookieHeader.split(';');
@@ -83,6 +84,7 @@ describe('admin routes', () => {
 
   afterEach(() => {
     fs.rmSync(storageDir, { recursive: true, force: true });
+    delete (globalThis as Record<string, unknown>)[SEA_ADMIN_CONSOLE_ASSETS_KEY];
   });
 
   function mountAdminRoutes(
@@ -360,6 +362,31 @@ describe('admin routes', () => {
     expect(response.headers['cache-control']).toContain('public');
     expect(response.headers['cache-control']).toContain('max-age=31536000');
     expect(response.text).toBe('window.__adminConsoleSmoke = true;');
+  });
+
+  it('serves embedded Admin Console assets when the SEA asset manifest is available', async () => {
+    await adminService.bootstrapFirstAdmin({ username: 'operator', password: 'correct horse battery staple' });
+    (globalThis as Record<string, unknown>)[SEA_ADMIN_CONSOLE_ASSETS_KEY] = {
+      'index.html': Buffer.from(
+        '<!doctype html><script type="module" src="/admin/assets/admin-console.js"></script><link rel="stylesheet" href="/admin/assets/admin-console.css">',
+      ).toString('base64'),
+      'assets/admin-console.js': Buffer.from('window.__embeddedAdminConsole = true;').toString('base64'),
+      'assets/admin-console.css': Buffer.from('.admin-console { display: block; }').toString('base64'),
+    };
+    const app = mountAdminRoutes();
+
+    const indexResponse = await request(app).get('/admin/');
+    const jsResponse = await request(app).get('/admin/assets/admin-console.js');
+    const cssResponse = await request(app).get('/admin/assets/admin-console.css');
+
+    expect(indexResponse.status).toBe(200);
+    expect(indexResponse.text).toContain('/admin/assets/admin-console.js');
+    expect(jsResponse.status).toBe(200);
+    expect(jsResponse.headers['content-type']).toContain('javascript');
+    expect(jsResponse.text).toBe('window.__embeddedAdminConsole = true;');
+    expect(cssResponse.status).toBe(200);
+    expect(cssResponse.headers['content-type']).toContain('text/css');
+    expect(cssResponse.text).toBe('.admin-console { display: block; }');
   });
 
   it('resolves the default admin console asset directory as a decoded filesystem path', () => {

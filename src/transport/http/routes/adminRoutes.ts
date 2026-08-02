@@ -62,6 +62,7 @@ const ADMIN_API_PROTOCOL_VERSION = '1';
 const TEMPLATE_INSTANCE_ID_DISPLAY_LENGTH = 12;
 const CLI_CONFIGURED_SERVER_OPERATIONS = ['mcp.enable', 'mcp.disable'] as const;
 const CLI_BACKEND_RESTART_OPERATION = 'mcp.restart' as const;
+const SEA_ADMIN_CONSOLE_ASSETS_KEY = '__1MCP_SEA_ADMIN_CONSOLE_ASSETS__';
 const adminLoginBodySchema = z.object({
   username: z.string().trim().min(1).max(ADMIN_USERNAME_MAX_LENGTH),
   password: z.string().min(1).max(ADMIN_PASSWORD_MAX_LENGTH),
@@ -510,13 +511,31 @@ export function createAdminRoutes(options: AdminRoutesOptions): Router | null {
     await handleConfiguredServerMutation(req, res, options, 'disableConfiguredServer');
   });
 
-  router.use(
-    '/assets',
-    express.static(path.join(adminConsoleAssets.rootDir, 'assets'), {
-      immutable: true,
-      maxAge: '1y',
-    }),
-  );
+  if (adminConsoleAssets.kind === 'filesystem') {
+    router.use(
+      '/assets',
+      express.static(path.join(adminConsoleAssets.rootDir, 'assets'), {
+        immutable: true,
+        maxAge: '1y',
+      }),
+    );
+  } else {
+    router.use('/assets', (req, res, next) => {
+      if (req.method !== 'GET' && req.method !== 'HEAD') {
+        next();
+        return;
+      }
+
+      const asset = adminConsoleAssets.assets.get(`assets/${req.path.replace(/^\//u, '')}`);
+      if (!asset) {
+        next();
+        return;
+      }
+
+      res.set('Cache-Control', 'public, max-age=31536000, immutable');
+      res.status(200).type(path.extname(req.path)).send(asset);
+    });
+  }
 
   router.use('/assets', (_req, res) => {
     res.status(404).type('text/plain').send('Admin Console asset not found');
@@ -528,18 +547,45 @@ export function createAdminRoutes(options: AdminRoutesOptions): Router | null {
       return;
     }
 
-    sendAdminConsoleIndex(res, adminConsoleAssets.indexPath);
+    sendAdminConsoleIndex(res, adminConsoleAssets);
   });
 
   return router;
 }
 
-function resolveAdminConsoleAssets(configuredDir?: string): { rootDir: string; indexPath: string } {
+type AdminConsoleAssets =
+  { kind: 'embedded'; assets: Map<string, Buffer> } | { kind: 'filesystem'; rootDir: string; indexPath: string };
+
+function resolveAdminConsoleAssets(configuredDir?: string): AdminConsoleAssets {
+  if (!configuredDir) {
+    const embeddedAssets = readEmbeddedAdminConsoleAssets();
+    if (embeddedAssets) {
+      return { kind: 'embedded', assets: embeddedAssets };
+    }
+  }
+
   const rootDir = configuredDir ?? resolveDefaultAdminConsoleAssetsDir();
   return {
+    kind: 'filesystem',
     rootDir,
     indexPath: path.join(rootDir, 'index.html'),
   };
+}
+
+function readEmbeddedAdminConsoleAssets(): Map<string, Buffer> | undefined {
+  const rawAssets = (globalThis as Record<string, unknown>)[SEA_ADMIN_CONSOLE_ASSETS_KEY];
+  if (!rawAssets || typeof rawAssets !== 'object' || Array.isArray(rawAssets)) {
+    return undefined;
+  }
+
+  const assets = new Map<string, Buffer>();
+  for (const [assetPath, encodedAsset] of Object.entries(rawAssets)) {
+    if (typeof encodedAsset === 'string') {
+      assets.set(assetPath, Buffer.from(encodedAsset, 'base64'));
+    }
+  }
+
+  return assets.has('index.html') ? assets : undefined;
 }
 
 export function resolveDefaultAdminConsoleAssetsDir(): string {
@@ -552,13 +598,18 @@ function isAdminApiPath(pathname: string): boolean {
   );
 }
 
-function sendAdminConsoleIndex(res: Response, indexPath: string): void {
-  if (!fs.existsSync(indexPath)) {
+function sendAdminConsoleIndex(res: Response, adminConsoleAssets: AdminConsoleAssets): void {
+  if (adminConsoleAssets.kind === 'embedded') {
+    res.status(200).type('html').send(adminConsoleAssets.assets.get('index.html'));
+    return;
+  }
+
+  if (!fs.existsSync(adminConsoleAssets.indexPath)) {
     res.status(503).type('text/plain').send('Admin Console assets are not available. Run the package build first.');
     return;
   }
 
-  res.status(200).sendFile(indexPath, { dotfiles: 'allow' });
+  res.status(200).sendFile(adminConsoleAssets.indexPath, { dotfiles: 'allow' });
 }
 
 function unauthenticatedAdminApiResponse(options: AdminRoutesOptions): {
