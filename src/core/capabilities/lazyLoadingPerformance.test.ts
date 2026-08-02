@@ -330,20 +330,17 @@ describe('Lazy Loading Performance Tests', () => {
     });
   });
 
-  describe('Mode Comparison', () => {
-    it('should compare metatool vs hybrid vs full modes', async () => {
-      const modes = ['metatool', 'hybrid', 'full'] as const;
+  describe('Boolean lazy-loading contract', () => {
+    it('uses only enabled to select meta-tool or direct exposure', async () => {
+      const states = [true, false] as const;
+      const results: boolean[] = [];
 
-      const results: Array<{ mode: string; enabled: boolean }> = [];
-
-      for (const mode of modes) {
+      for (const enabled of states) {
         mockAgentConfig.get.mockImplementation((key: string) => {
           if (key === 'lazyLoading') {
             return {
-              enabled: mode !== 'full',
-              mode,
+              enabled,
               metaTools: { enabled: true, inlineCatalog: false, catalogFormat: 'grouped' },
-              directExpose: mode === 'hybrid' ? ['filesystem_*'] : [],
               cache: { maxEntries: 1000, strategy: 'lru' },
               preload: { patterns: [], keywords: [] },
               fallback: { onError: 'skip', timeoutMs: 5000 },
@@ -357,22 +354,10 @@ describe('Lazy Loading Performance Tests', () => {
 
         const stats = orchestrator.getStatistics();
 
-        results.push({
-          mode,
-          enabled: stats.enabled,
-        });
+        results.push(stats.enabled);
       }
 
-      // Metatool and hybrid should be enabled
-      const metatoolResult = results.find((r) => r.mode === 'metatool');
-      expect(metatoolResult?.enabled).toBe(true);
-
-      const hybridResult = results.find((r) => r.mode === 'hybrid');
-      expect(hybridResult?.enabled).toBe(true);
-
-      // Full mode should be disabled
-      const fullResult = results.find((r) => r.mode === 'full');
-      expect(fullResult?.enabled).toBe(false);
+      expect(results).toEqual([true, false]);
     });
   });
 });

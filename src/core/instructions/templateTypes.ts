@@ -88,7 +88,7 @@ export interface LazyLoadingState {
   enabled: boolean;
 
   /** Lazy loading mode */
-  mode: 'metatool' | 'hybrid' | 'full';
+  mode: 'metatool' | 'full';
 
   /** Total number of tools available across all servers */
   availableToolsCount: number;
@@ -96,7 +96,7 @@ export interface LazyLoadingState {
   /** Number of tools exposed via tools/list (varies by mode) */
   exposedToolsCount: number;
 
-  /** Number of tools in directExpose list (hybrid mode only) */
+  /** Number of directly exposed tools (always zero when lazy loading is enabled) */
   directExposeCount: number;
 
   /** Number of tools currently cached with schemas */

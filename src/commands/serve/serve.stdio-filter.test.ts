@@ -102,7 +102,6 @@ function makeStdioOptions(overrides: Partial<ServeOptions> = {}): ServeOptions {
     'async-batch-delay': 100,
     'async-notify-on-ready': true,
     'enable-lazy-loading': false,
-    'lazy-mode': 'full',
     'lazy-inline-catalog': false,
     'lazy-catalog-format': 'grouped',
     'lazy-cache-max-entries': 1000,

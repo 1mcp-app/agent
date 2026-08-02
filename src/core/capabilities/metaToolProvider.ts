@@ -1,13 +1,13 @@
 import { Tool } from '@modelcontextprotocol/sdk/types.js';
 
 import { McpConfigManager } from '@src/config/mcpConfigManager.js';
-import { ConnectionResolver, TemplateHashProvider } from '@src/core/server/connectionResolver.js';
-import { getDisabledToolError } from '@src/core/server/disabledTools.js';
+import { TemplateHashProvider } from '@src/core/server/connectionResolver.js';
 import { OutboundConnections } from '@src/core/types/index.js';
 import logger, { errorIf } from '@src/logger/logger.js';
 import { zodToInputSchema, zodToOutputSchema } from '@src/utils/schemaUtils.js';
 
 import { CapabilityCatalog } from './capabilityCatalog.js';
+import type { CapabilityVisibility } from './capabilityVisibility.js';
 import { SchemaCache } from './schemaCache.js';
 import {
   ToolInvokeInputSchema,
@@ -20,7 +20,7 @@ import {
   ToolSchemaOutput,
   ToolSchemaOutputSchema,
 } from './schemas/metaToolSchemas.js';
-import { ToolMetadata, ToolRegistry } from './toolRegistry.js';
+import { type ToolMetadata, ToolRegistry } from './toolRegistry.js';
 
 /**
  * Result types for meta-tools
@@ -86,8 +86,7 @@ export class MetaToolProvider {
   private schemaCache: SchemaCache;
   private outboundConnections: OutboundConnections;
   private loadSchema?: SchemaLoader;
-  private allowedServers?: Set<string>;
-  private connectionResolver: ConnectionResolver;
+  private defaultVisibility?: CapabilityVisibility;
   private capabilityCatalog: CapabilityCatalog;
   private templateHashProvider?: TemplateHashProvider;
 
@@ -96,99 +95,40 @@ export class MetaToolProvider {
     schemaCache: SchemaCache,
     outboundConnections: OutboundConnections,
     loadSchema?: SchemaLoader,
-    allowedServers?: Set<string>,
+    defaultVisibility?: CapabilityVisibility,
     templateHashProvider?: TemplateHashProvider,
   ) {
     this.getToolRegistry = getToolRegistry;
     this.schemaCache = schemaCache;
     this.outboundConnections = outboundConnections;
     this.loadSchema = loadSchema;
-    this.allowedServers = allowedServers;
+    this.defaultVisibility = defaultVisibility;
     this.templateHashProvider = templateHashProvider;
-    this.connectionResolver = new ConnectionResolver(outboundConnections, templateHashProvider);
     this.capabilityCatalog = new CapabilityCatalog({
       getToolRegistry,
       schemaCache,
       outboundConnections,
       loadSchema,
-      defaultAllowedServers: allowedServers,
+      defaultVisibility,
       templateHashProvider,
       getServerConfigs: () => McpConfigManager.getInstance().getTransportConfig(),
     });
   }
 
   /**
-   * Resolve a clean server name to the actual connection key.
-   * Delegates to ConnectionResolver.findByServerName for unified resolution logic.
-   *
-   * @param cleanServerName - The clean server name (without hash suffix)
-   * @returns The actual connection key, or the original name if not found
+   * Set the default capability visibility for callers without request context.
    */
-  private resolveConnectionKey(cleanServerName: string, sessionId?: string): string {
-    const result =
-      this.connectionResolver.resolveWithKey(cleanServerName, sessionId) ??
-      this.connectionResolver.findByServerName(cleanServerName);
-    return result?.key ?? cleanServerName;
-  }
-
-  /**
-   * Set the allowed servers filter
-   * @param serverNames - Set of server names to allow, or undefined to allow all
-   */
-  public setAllowedServers(serverNames?: Set<string>): void {
-    this.allowedServers = serverNames;
+  public setCapabilityVisibility(visibility?: CapabilityVisibility): void {
+    this.defaultVisibility = visibility;
     this.capabilityCatalog = new CapabilityCatalog({
       getToolRegistry: this.getToolRegistry,
       schemaCache: this.schemaCache,
       outboundConnections: this.outboundConnections,
       loadSchema: this.loadSchema,
-      defaultAllowedServers: serverNames,
+      defaultVisibility: visibility,
       templateHashProvider: this.templateHashProvider,
       getServerConfigs: () => McpConfigManager.getInstance().getTransportConfig(),
     });
-  }
-
-  private getDisabledError(logicalServerName: string, toolName: string) {
-    return getDisabledToolError(McpConfigManager.getInstance().getTransportConfig(), logicalServerName, toolName);
-  }
-
-  private validateResolvedToolAccess(
-    args: DescribeToolArgs | CallToolArgs,
-    allowedServers?: Set<string>,
-  ): { error?: DescribeToolResult['error'] | CallToolResult['error'] } {
-    if (!args.server || !args.toolName) {
-      return {
-        error: {
-          type: 'validation',
-          message: 'Validation Error: "server" and "toolName" are required parameters',
-        },
-      };
-    }
-
-    if (!this.toolRegistry(allowedServers).hasTool(args.server, args.toolName)) {
-      return {
-        error: {
-          type: 'not_found',
-          message: `Tool not found: ${args.server}:${args.toolName}. Call tool_list to see available tools.`,
-        },
-      };
-    }
-
-    return {
-      error: this.getDisabledError(args.server, args.toolName),
-    };
-  }
-
-  /**
-   * Get the current tool registry, optionally filtered by allowed servers
-   */
-  private toolRegistry(allowedServers?: Set<string>): ToolRegistry {
-    const registry = this.getToolRegistry();
-    const effectiveAllowedServers = allowedServers ?? this.allowedServers;
-    if (effectiveAllowedServers !== undefined) {
-      return registry.filterByServers(effectiveAllowedServers);
-    }
-    return registry;
   }
 
   /**
@@ -204,8 +144,7 @@ export class MetaToolProvider {
   public async callMetaTool(
     name: string,
     args: unknown,
-    sessionId?: string,
-    allowedServers?: Set<string>,
+    visibility?: CapabilityVisibility,
   ): Promise<ListToolsResult | DescribeToolResult | CallToolResult> {
     switch (name) {
       case 'tool_list': {
@@ -222,7 +161,7 @@ export class MetaToolProvider {
             },
           } as ListToolsResult;
         }
-        return this.listAvailableTools(parsed.data, sessionId, allowedServers);
+        return this.listAvailableTools(parsed.data, visibility);
       }
       case 'tool_schema': {
         const parsed = ToolSchemaInputSchema.safeParse(args);
@@ -235,7 +174,7 @@ export class MetaToolProvider {
             },
           } as DescribeToolResult;
         }
-        return this.describeTool(parsed.data, sessionId, allowedServers);
+        return this.describeTool(parsed.data, visibility);
       }
       case 'tool_invoke': {
         const parsed = ToolInvokeInputSchema.safeParse(args);
@@ -250,7 +189,7 @@ export class MetaToolProvider {
             },
           } as CallToolResult;
         }
-        return this.callTool(parsed.data, sessionId, allowedServers);
+        return this.callTool(parsed.data, visibility);
       }
       default:
         return {
@@ -283,11 +222,10 @@ export class MetaToolProvider {
    */
   private async listAvailableTools(
     args: ListAvailableToolsArgs,
-    sessionId?: string,
-    allowedServers?: Set<string>,
+    visibility?: CapabilityVisibility,
   ): Promise<ListToolsResult> {
     try {
-      const result = await this.capabilityCatalog.listVisibleTools(args, sessionId, allowedServers);
+      const result = await this.capabilityCatalog.listVisibleTools(args, visibility);
 
       // Format tools for response
       const tools = result.tools.map((tool: ToolMetadata) => ({
@@ -347,11 +285,10 @@ export class MetaToolProvider {
    */
   private async describeTool(
     args: DescribeToolArgs,
-    sessionId?: string,
-    allowedServers?: Set<string>,
+    visibility?: CapabilityVisibility,
   ): Promise<DescribeToolResult> {
     try {
-      const result = await this.capabilityCatalog.describeVisibleTool(args, sessionId, allowedServers);
+      const result = await this.capabilityCatalog.describeVisibleTool(args, visibility);
       if (result.error) {
         return {
           schema: {},
@@ -397,11 +334,10 @@ export class MetaToolProvider {
    */
   private async callTool(
     args: CallToolArgs,
-    sessionId?: string,
-    allowedServers?: Set<string>,
+    visibility?: CapabilityVisibility,
   ): Promise<CallToolResult> {
     try {
-      const result = await this.capabilityCatalog.invokeVisibleTool(args, sessionId, allowedServers);
+      const result = await this.capabilityCatalog.invokeVisibleTool(args, visibility);
       if (result.error) {
         return {
           result: {},

@@ -4,6 +4,7 @@ import { tmpdir } from 'os';
 import { join } from 'path';
 
 import { ConfigLoader } from '@src/config/configLoader.js';
+import logger from '@src/logger/logger.js';
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -63,6 +64,7 @@ describe('ConfigLoader', () => {
       // Ignore cleanup errors
     }
     vi.clearAllMocks();
+    vi.restoreAllMocks();
     resetMockAgentConfig();
   });
 
@@ -415,6 +417,30 @@ minServers = 2
       expect(result.auth?.sessionTtl).toBe(720);
       expect(result.asyncLoading?.enabled).toBe(true);
       expect(result.asyncLoading?.minServers).toBe(2);
+    });
+
+    it('accepts the legacy lazy mode while warning that enabled controls runtime behavior', async () => {
+      const warnSpy = vi.spyOn(logger, 'warn').mockImplementation(() => logger);
+      await fsPromises.writeFile(
+        join(tempConfigDir, 'config.toml'),
+        '[lazyLoading]\nenabled = false\nmode = "hybrid"\n',
+      );
+
+      const result = loader.loadAppConfigFromToml();
+
+      expect(result.lazyLoading).toEqual({ enabled: false, mode: 'hybrid' });
+      expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('[lazyLoading].mode'));
+      expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('enabled = true'));
+    });
+
+    it('does not warn when lazy loading uses only the enabled switch', async () => {
+      const warnSpy = vi.spyOn(logger, 'warn').mockImplementation(() => logger);
+      await fsPromises.writeFile(join(tempConfigDir, 'config.toml'), '[lazyLoading]\nenabled = true\n');
+
+      const result = loader.loadAppConfigFromToml();
+
+      expect(result.lazyLoading).toEqual({ enabled: true });
+      expect(warnSpy).not.toHaveBeenCalled();
     });
 
     it('should return empty object and warn on invalid TOML', async () => {

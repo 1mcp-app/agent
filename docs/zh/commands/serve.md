@@ -67,7 +67,7 @@ CLI 模式依赖一个正在运行的 `serve` 实例。
 ### 运行时行为
 
 - **`--enable-async-loading`**：让 HTTP 可用性先启动，再等待静态服务器完成加载。
-- **`--enable-lazy-loading`**：为服务能力启用懒加载行为。
+- **`--enable-lazy-loading`**：选择使用元工具逐步发现工具；省略该选项则直接暴露全部工具。
 - **`--enable-config-reload`**：启用配置重载处理。
 - **`--enable-session-persistence`**：启用 HTTP 会话持久化。
 
@@ -224,10 +224,10 @@ Stopped supervised background runtime in Runtime Scope /home/me/.config/1mcp (su
 1mcp serve --config-dir ./config
 ```
 
-### 启用异步加载与懒加载
+### 启用懒加载
 
 ```bash
-1mcp serve --enable-async-loading --enable-lazy-loading
+1mcp serve --enable-lazy-loading
 ```
 
 ### 启动时筛选服务器暴露面

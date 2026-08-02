@@ -4,6 +4,7 @@ import { ClientStatus, OutboundConnections } from '@src/core/types/index.js';
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { capabilityVisibilityFromServerNames } from './capabilityVisibility.js';
 import { LazyLoadingOrchestrator } from './lazyLoadingOrchestrator.js';
 
 describe('LazyLoadingOrchestrator', () => {
@@ -199,7 +200,7 @@ describe('LazyLoadingOrchestrator', () => {
       expect(orchestrator.isEnabled()).toBe(false);
     });
 
-    it('should initialize successfully in hybrid mode', async () => {
+    it('treats legacy hybrid configuration as enabled meta-tool exposure', async () => {
       mockAgentConfig.get.mockImplementation((key: string) => {
         if (key === 'lazyLoading') {
           return {
@@ -219,7 +220,6 @@ describe('LazyLoadingOrchestrator', () => {
 
       await orchestrator.initialize();
 
-      // getMode() removed - hybrid mode replaced with metatool mode
       expect(orchestrator.isEnabled()).toBe(true);
     });
 
@@ -304,7 +304,7 @@ describe('LazyLoadingOrchestrator', () => {
       expect(capabilities.timestamp).toBeDefined();
     });
 
-    it('should return meta-tools + direct exposed tools in hybrid mode', async () => {
+    it('ignores legacy direct exposure settings when lazy loading is enabled', async () => {
       mockAgentConfig.get.mockImplementation((key: string) => {
         if (key === 'lazyLoading') {
           return {
@@ -325,8 +325,7 @@ describe('LazyLoadingOrchestrator', () => {
 
       const capabilities = await orchestrator.getCapabilities();
 
-      // Should have 3 meta-tools + direct exposed tools
-      expect(capabilities.tools.length).toBeGreaterThanOrEqual(3);
+      expect(capabilities.tools).toHaveLength(3);
       expect(capabilities.tools.map((t) => t.name)).toContain('tool_list');
       expect(capabilities.tools.map((t) => t.name)).toContain('tool_schema');
       expect(capabilities.tools.map((t) => t.name)).toContain('tool_invoke');
@@ -390,7 +389,7 @@ describe('LazyLoadingOrchestrator', () => {
       expect(orchestrator.shouldNotifyListChanged()).toBe(true);
     });
 
-    it('should return false in hybrid mode when no direct tools', async () => {
+    it('does not notify tool-list changes for legacy hybrid configuration', async () => {
       mockAgentConfig.get.mockImplementation((key: string) => {
         if (key === 'lazyLoading') {
           return {
@@ -462,7 +461,11 @@ describe('LazyLoadingOrchestrator', () => {
     });
 
     it('should call tool_list', async () => {
-      const result = await orchestrator.callMetaTool('tool_list', {});
+      const result = await orchestrator.callMetaTool(
+        'tool_list',
+        {},
+        capabilityVisibilityFromServerNames(['filesystem', 'database']),
+      );
 
       expect(result).toBeDefined();
       expect((result as any).isError).toBeFalsy();
@@ -480,7 +483,7 @@ describe('LazyLoadingOrchestrator', () => {
       const result = await orchestrator.callMetaTool('tool_schema', {
         server: 'filesystem',
         toolName: 'read_file',
-      });
+      }, capabilityVisibilityFromServerNames(['filesystem']));
 
       expect(result).toBeDefined();
     });
@@ -504,7 +507,9 @@ describe('LazyLoadingOrchestrator', () => {
       const fullOrchestrator = new LazyLoadingOrchestrator(mockOutboundConnections, mockAgentConfig);
       await fullOrchestrator.initialize();
 
-      await expect(fullOrchestrator.callMetaTool('tool_list', {})).rejects.toThrow(
+      await expect(
+        fullOrchestrator.callMetaTool('tool_list', {}, capabilityVisibilityFromServerNames([])),
+      ).rejects.toThrow(
         'Meta-tool provider not initialized',
       );
     });
@@ -1038,27 +1043,8 @@ describe('LazyLoadingOrchestrator', () => {
       await orchestrator.initialize();
     });
 
-    it('should store and retrieve session-specific allowed servers', async () => {
-      const sessionId = 'session-123';
-      const allowedServers = new Set(['filesystem', 'database']);
-
-      // Initially no filter
-      expect(orchestrator.getSessionAllowedServers(sessionId)).toBeUndefined();
-
-      // Store filter via getCapabilitiesForFilteredServers
-      await orchestrator.getCapabilitiesForFilteredServers(allowedServers, sessionId);
-
-      // Should retrieve the same filter
-      const retrieved = orchestrator.getSessionAllowedServers(sessionId);
-      expect(retrieved).toBeDefined();
-      expect(retrieved?.size).toBe(2);
-      expect(retrieved?.has('filesystem')).toBe(true);
-      expect(retrieved?.has('database')).toBe(true);
-    });
-
-    it('should filter capabilities by session when calling getCapabilitiesForFilteredServers', async () => {
-      const sessionId = 'session-456';
-      const allowedServers = new Set(['filesystem']);
+    it('should filter capabilities with the set resolved for the current request', async () => {
+      const visibility = capabilityVisibilityFromServerNames(['filesystem']);
 
       // Mock base capabilities with multiple servers
       const mockCapabilities = {
@@ -1077,7 +1063,7 @@ describe('LazyLoadingOrchestrator', () => {
 
       vi.spyOn(orchestrator['capabilityAggregator'], 'getCurrentCapabilities').mockReturnValue(mockCapabilities);
 
-      const filteredCaps = await orchestrator.getCapabilitiesForFilteredServers(allowedServers, sessionId);
+      const filteredCaps = await orchestrator.getCapabilitiesForVisibility(visibility);
 
       // Should only include filesystem resources/prompts/servers
       expect(filteredCaps.resources.length).toBe(1);
@@ -1096,84 +1082,58 @@ describe('LazyLoadingOrchestrator', () => {
       expect(filteredCaps.tools.map((t) => t.name)).toContain('tool_invoke');
     });
 
-    it('should clear session filter correctly', async () => {
-      const sessionId = 'session-789';
-      const allowedServers = new Set(['filesystem']);
+    it('should apply the explicitly supplied filter to every meta-tool request', async () => {
+      const visibility = capabilityVisibilityFromServerNames(['filesystem']);
+      const listed = await orchestrator.callMetaTool('tool_list', {}, visibility);
+      const hiddenSchema = await orchestrator.callMetaTool(
+        'tool_schema',
+        { server: 'database', toolName: 'read_file' },
+        visibility,
+      );
+      const hiddenInvoke = await orchestrator.callMetaTool(
+        'tool_invoke',
+        { server: 'database', toolName: 'read_file', args: {} },
+        visibility,
+      );
 
-      // Set filter
-      await orchestrator.getCapabilitiesForFilteredServers(allowedServers, sessionId);
-      expect(orchestrator.getSessionAllowedServers(sessionId)).toBeDefined();
-
-      // Clear filter
-      orchestrator.clearSessionFilter(sessionId);
-      expect(orchestrator.getSessionAllowedServers(sessionId)).toBeUndefined();
+      expect((listed as { servers?: string[] }).servers).toEqual(['filesystem']);
+      expect((hiddenSchema as { error?: { type?: string } }).error?.type).toBe('not_found');
+      expect((hiddenInvoke as { error?: { type?: string } }).error?.type).toBe('not_found');
     });
 
-    it('should isolate filters between different sessions', async () => {
-      const session1 = 'session-aaa';
-      const session2 = 'session-bbb';
-      const allowedServers1 = new Set(['filesystem']);
-      const allowedServers2 = new Set(['database']);
+    it('discovers and invokes a late-ready server after its capability snapshot refresh', async () => {
+      mockOutboundConnections.set('late-ready', {
+        name: 'late-ready',
+        client: mockClient,
+        status: ClientStatus.Connected,
+        transport: {
+          tags: ['fs'],
+          start: async () => {},
+          send: async () => undefined,
+          close: async () => {},
+        },
+        capabilities: { tools: {} },
+      } as any);
 
-      // Set different filters for different sessions
-      await orchestrator.getCapabilitiesForFilteredServers(allowedServers1, session1);
-      await orchestrator.getCapabilitiesForFilteredServers(allowedServers2, session2);
+      await orchestrator.refreshCapabilities();
+      const visibility = capabilityVisibilityFromServerNames(['late-ready']);
+      const listed = await orchestrator.callMetaTool('tool_list', {}, visibility);
+      const invoked = await orchestrator.callMetaTool(
+        'tool_invoke',
+        { server: 'late-ready', toolName: 'read_file', args: { path: '/tmp/example' } },
+        visibility,
+      );
 
-      // Verify isolation
-      const filter1 = orchestrator.getSessionAllowedServers(session1);
-      const filter2 = orchestrator.getSessionAllowedServers(session2);
-
-      expect(filter1?.has('filesystem')).toBe(true);
-      expect(filter1?.has('database')).toBe(false);
-
-      expect(filter2?.has('database')).toBe(true);
-      expect(filter2?.has('filesystem')).toBe(false);
-
-      // Clear one session shouldn't affect the other
-      orchestrator.clearSessionFilter(session1);
-      expect(orchestrator.getSessionAllowedServers(session1)).toBeUndefined();
-      expect(orchestrator.getSessionAllowedServers(session2)).toBeDefined();
-    });
-
-    it('should apply session filter when calling callMetaTool with sessionId', async () => {
-      const sessionId = 'session-ccc';
-      const allowedServers = new Set(['filesystem']);
-
-      // Set session filter
-      await orchestrator.getCapabilitiesForFilteredServers(allowedServers, sessionId);
-
-      // Call tool_list meta-tool with sessionId
-      const result = await orchestrator.callMetaTool('tool_list', {}, sessionId);
-
-      expect(result).toBeDefined();
-      expect((result as any).isError).toBeFalsy();
-
-      // The result should respect the session filter
-      // (actual filtering logic is in MetaToolProvider, we just verify it receives sessionId)
-      const sessionFilter = orchestrator.getSessionAllowedServers(sessionId);
-      expect(sessionFilter).toBeDefined();
-      expect(sessionFilter?.has('filesystem')).toBe(true);
-    });
-
-    it('should handle undefined sessionId gracefully', async () => {
-      const allowedServers = new Set(['filesystem', 'database']);
-
-      // Set filter with undefined sessionId
-      await orchestrator.getCapabilitiesForFilteredServers(allowedServers, undefined);
-
-      // Should store under undefined key
-      const retrieved = orchestrator.getSessionAllowedServers(undefined);
-      expect(retrieved).toBeDefined();
-      expect(retrieved?.size).toBe(2);
-
-      // Clear undefined session
-      orchestrator.clearSessionFilter(undefined);
-      expect(orchestrator.getSessionAllowedServers(undefined)).toBeUndefined();
+      expect((listed as { servers?: string[] }).servers).toEqual(['late-ready']);
+      expect((invoked as { error?: unknown }).error).toBeUndefined();
+      expect(mockClient.callTool).toHaveBeenCalledWith({
+        name: 'read_file',
+        arguments: { path: '/tmp/example' },
+      });
     });
 
     it('should handle empty filter set', async () => {
-      const sessionId = 'session-empty';
-      const emptyServers = new Set<string>();
+      const visibility = capabilityVisibilityFromServerNames([]);
 
       const mockCapabilities = {
         tools: [],
@@ -1185,7 +1145,7 @@ describe('LazyLoadingOrchestrator', () => {
 
       vi.spyOn(orchestrator['capabilityAggregator'], 'getCurrentCapabilities').mockReturnValue(mockCapabilities);
 
-      const filteredCaps = await orchestrator.getCapabilitiesForFilteredServers(emptyServers, sessionId);
+      const filteredCaps = await orchestrator.getCapabilitiesForVisibility(visibility);
 
       // All resources/prompts/servers should be filtered out
       expect(filteredCaps.resources.length).toBe(0);
@@ -1216,8 +1176,7 @@ describe('LazyLoadingOrchestrator', () => {
       const disabledOrchestrator = new LazyLoadingOrchestrator(mockOutboundConnections, mockAgentConfig);
       await disabledOrchestrator.initialize();
 
-      const sessionId = 'session-disabled';
-      const allowedServers = new Set(['filesystem']);
+      const visibility = capabilityVisibilityFromServerNames(['filesystem']);
 
       const mockCapabilities = {
         tools: [
@@ -1240,7 +1199,7 @@ describe('LazyLoadingOrchestrator', () => {
         mockCapabilities,
       );
 
-      const caps = await disabledOrchestrator.getCapabilitiesForFilteredServers(allowedServers, sessionId);
+      const caps = await disabledOrchestrator.getCapabilitiesForVisibility(visibility);
 
       // When disabled, should return all capabilities without filtering
       expect(caps.resources.length).toBe(2);
@@ -1248,8 +1207,7 @@ describe('LazyLoadingOrchestrator', () => {
     });
 
     it('should filter resources with complex server names correctly', async () => {
-      const sessionId = 'session-complex';
-      const allowedServers = new Set(['server-with-dashes', 'server_with_underscores']);
+      const visibility = capabilityVisibilityFromServerNames(['server-with-dashes', 'server_with_underscores']);
 
       const mockCapabilities = {
         tools: [],
@@ -1265,7 +1223,7 @@ describe('LazyLoadingOrchestrator', () => {
 
       vi.spyOn(orchestrator['capabilityAggregator'], 'getCurrentCapabilities').mockReturnValue(mockCapabilities);
 
-      const filteredCaps = await orchestrator.getCapabilitiesForFilteredServers(allowedServers, sessionId);
+      const filteredCaps = await orchestrator.getCapabilitiesForVisibility(visibility);
 
       expect(filteredCaps.resources.length).toBe(2);
       expect(filteredCaps.resources.map((r) => r.name)).toContain('server-with-dashes_1mcp_resource1');

@@ -12,6 +12,7 @@ import logger, { debugIf, errorIf } from '@src/logger/logger.js';
 
 import { AsyncLoadingOrchestrator } from './asyncLoadingOrchestrator.js';
 import { AsyncLoadingOrchestratorEvent } from './asyncLoadingOrchestratorEvent.js';
+import { type CapabilityVisibility, getCapabilityVisibleServerNames } from './capabilityVisibility.js';
 import { AggregatedCapabilities, CapabilityAggregator } from './capabilityAggregator.js';
 import { MetaToolProvider } from './metaToolProvider.js';
 import { SchemaCache, SchemaCacheConfig } from './schemaCache.js';
@@ -62,8 +63,6 @@ export class LazyLoadingOrchestrator extends EventEmitter {
   private capabilityAggregator: CapabilityAggregator;
   private isInitialized: boolean = false;
   private asyncOrchestrator?: AsyncLoadingOrchestrator;
-  // Session-specific filters for allowed servers (keyed by sessionId)
-  private sessionAllowedServers: Map<string | undefined, Set<string>> = new Map();
   private connectionResolver: ConnectionResolver;
 
   constructor(
@@ -161,8 +160,7 @@ export class LazyLoadingOrchestrator extends EventEmitter {
    */
   private async buildToolRegistry(): Promise<void> {
     // Build tools map for registry by fetching tools directly from each connection
-    const toolsMap = new Map<string, Tool[]>();
-    const serverTags = new Map<string, string[]>();
+    const registryTools: Array<{ tool: Tool; server: string; connectionKey: string; tags: string[] }> = [];
     const failedServers: Array<{ server: string; error: string }> = [];
     const serverConfigs = McpConfigManager.getInstance().getTransportConfig();
 
@@ -182,11 +180,15 @@ export class LazyLoadingOrchestrator extends EventEmitter {
           // Map keys for template servers include hash suffix (e.g., "template-server:abc123")
           // but connection.name is the clean name (e.g., "template-server")
           // This ensures tool registry uses consistent server names
-          toolsMap.set(effectiveServerName, serverTools);
-
-          // Get tags from transport
           const tags = connection.transport.tags || [];
-          serverTags.set(effectiveServerName, tags);
+          registryTools.push(
+            ...serverTools.map((tool) => ({
+              tool,
+              server: effectiveServerName,
+              connectionKey: serverName,
+              tags,
+            })),
+          );
         }
       } catch (error) {
         const errorMessage = error instanceof Error ? error.message : String(error);
@@ -209,7 +211,7 @@ export class LazyLoadingOrchestrator extends EventEmitter {
       }
     }
 
-    this.toolRegistry = ToolRegistry.fromToolsMap(toolsMap, serverTags);
+    this.toolRegistry = ToolRegistry.fromToolsWithServer(registryTools);
   }
 
   /**
@@ -340,22 +342,10 @@ export class LazyLoadingOrchestrator extends EventEmitter {
   /**
    * Get aggregated capabilities for a filtered set of servers
    *
-   * This method stores session-specific server filters that will be used by:
-   * - callMetaTool() to filter tool listings via MetaToolProvider
-   *
-   * The filter persists for the session and can be cleared by calling clearSessionFilter().
-   *
-   * @param filteredServerNames - Set of server names to include in capabilities
-   * @param sessionId - Optional session ID to associate the filter with
+   * @param visibility - Request-scoped capability visibility
    * @returns Aggregated capabilities filtered to only include specified servers
    */
-  public async getCapabilitiesForFilteredServers(
-    filteredServerNames: Set<string>,
-    sessionId?: string,
-  ): Promise<AggregatedCapabilities> {
-    // Store the session-specific filter
-    this.sessionAllowedServers.set(sessionId, filteredServerNames);
-
+  public async getCapabilitiesForVisibility(visibility: CapabilityVisibility): Promise<AggregatedCapabilities> {
     // Get the base capabilities
     const lazyConfig = this.config.get('lazyLoading');
     const baseCapabilities = this.capabilityAggregator.getCurrentCapabilities();
@@ -368,6 +358,7 @@ export class LazyLoadingOrchestrator extends EventEmitter {
     // Meta-tools are always included (they're gateway tools)
     // The filter will be applied when tools are listed via meta-tools
     const metaTools = this.metaToolProvider?.getMetaTools() || [];
+    const visibleServerNames = getCapabilityVisibleServerNames(visibility);
 
     // Filter resources to only include those from filtered servers
     const filteredResources = baseCapabilities.resources.filter((resource) => {
@@ -376,7 +367,7 @@ export class LazyLoadingOrchestrator extends EventEmitter {
       // Extract server name from resource URI
       const parts = resourceName.split(MCP_URI_SEPARATOR);
       const serverName = parts[0];
-      return filteredServerNames.has(serverName);
+      return visibleServerNames.has(serverName);
     });
 
     // Filter prompts to only include those from filtered servers
@@ -385,12 +376,12 @@ export class LazyLoadingOrchestrator extends EventEmitter {
       // Prompts are namespaced with server prefix (e.g., "server_1mcp_prompt")
       const parts = promptName.split(MCP_URI_SEPARATOR);
       const serverName = parts[0];
-      return filteredServerNames.has(serverName);
+      return visibleServerNames.has(serverName);
     });
 
     // Filter ready servers
     const filteredReadyServers = baseCapabilities.readyServers.filter((serverName) =>
-      filteredServerNames.has(serverName),
+      visibleServerNames.has(serverName),
     );
 
     return {
@@ -400,23 +391,6 @@ export class LazyLoadingOrchestrator extends EventEmitter {
       readyServers: filteredReadyServers,
       timestamp: new Date(),
     };
-  }
-
-  /**
-   * Clear the session-specific filter
-   * @param sessionId - Optional session ID whose filter should be cleared
-   */
-  public clearSessionFilter(sessionId?: string): void {
-    this.sessionAllowedServers.delete(sessionId);
-  }
-
-  /**
-   * Get the allowed servers for a specific session
-   * @param sessionId - Optional session ID
-   * @returns Set of allowed server names, or undefined if no filter is set
-   */
-  public getSessionAllowedServers(sessionId?: string): Set<string> | undefined {
-    return this.sessionAllowedServers.get(sessionId);
   }
 
   /**
@@ -522,24 +496,18 @@ export class LazyLoadingOrchestrator extends EventEmitter {
    * Call a meta-tool if in meta-tool mode
    * @param name - Meta-tool name
    * @param args - Meta-tool arguments
-   * @param sessionId - Optional session ID to retrieve filter for
-   * @param allowedServers - Optional explicit allowed servers set (takes precedence over session filter)
+   * @param visibility - Request-scoped Filter Selection and Server Candidate Set
    */
   public async callMetaTool(
     name: string,
     args: unknown,
-    sessionId?: string,
-    allowedServers?: Set<string>,
+    visibility?: CapabilityVisibility,
   ): Promise<unknown> {
     if (!this.metaToolProvider) {
       throw new Error('Meta-tool provider not initialized');
     }
 
-    // Use explicitly provided allowedServers, or fall back to session-specific filter
-    const effectiveAllowedServers =
-      allowedServers !== undefined ? allowedServers : this.sessionAllowedServers.get(sessionId);
-
-    return this.metaToolProvider.callMetaTool(name, args, sessionId, effectiveAllowedServers);
+    return this.metaToolProvider.callMetaTool(name, args, visibility);
   }
 
   /**

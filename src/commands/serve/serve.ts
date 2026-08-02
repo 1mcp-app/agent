@@ -176,6 +176,22 @@ function loadInstructionsTemplate(templatePath?: string, configDir?: string): st
   }
 }
 
+function warnForLegacyLazyLoadingOptions(parsedArgv: ServeOptions): void {
+  if (parsedArgv['lazy-mode'] !== undefined) {
+    logger.warn(
+      'DEPRECATION WARNING: --lazy-mode is ignored. Lazy loading is controlled only by --enable-lazy-loading; ' +
+        'for a persistent setting, use [lazyLoading] enabled = true in config.toml. Remove --lazy-mode because it does not change runtime behavior.',
+    );
+  }
+
+  if (parsedArgv['lazy-direct-expose'] !== undefined) {
+    logger.warn(
+      'DEPRECATION WARNING: --lazy-direct-expose is ignored. Lazy loading exposes only meta-tools when enabled; ' +
+        'for a persistent setting, use [lazyLoading] enabled = true in config.toml. Remove --lazy-direct-expose because it does not change runtime behavior.',
+    );
+  }
+}
+
 /**
  * Set up graceful shutdown handling
  */
@@ -438,6 +454,7 @@ export async function serveCommand(parsedArgv: ServeOptions): Promise<void> {
     }
 
     const internalToolsList = parseInternalToolsList(parsedArgv['internal-tools']);
+    warnForLegacyLazyLoadingOptions(parsedArgv);
     const directExpose = parseCommaSeparatedList(parsedArgv['lazy-direct-expose']);
     const preloadPatterns = parseCommaSeparatedList(parsedArgv['lazy-preload']);
     const preloadKeywords = parseCommaSeparatedList(parsedArgv['lazy-preload-keywords']);
