@@ -3,6 +3,7 @@ import type { Tool } from '@modelcontextprotocol/sdk/types.js';
 
 import { findToolByQualifiedName } from '@src/commands/run/runUtils.js';
 import { ApiClient } from '@src/commands/shared/apiClient.js';
+import { buildFilterSelectionQuery } from '@src/commands/shared/filterSelectionQuery.js';
 import {
   attachReusableClientSurface,
   type ClientSurfaceAttachmentContext,
@@ -67,12 +68,8 @@ function buildInspectQuery(
   options: Pick<InspectCommandOptions, 'preset' | 'filter' | 'tags' | 'tag-filter' | 'all' | 'limit' | 'cursor'>,
   target?: string,
 ): Record<string, string> {
-  const query: Record<string, string> = {};
+  const query: Record<string, string> = buildFilterSelectionQuery(options);
   if (target) query.target = target;
-  if (options.preset) query.preset = options.preset;
-  else if (options['tag-filter']) query['tag-filter'] = options['tag-filter'];
-  else if (options.filter) query.filter = options.filter;
-  else if (options.tags && options.tags.length > 0) query.tags = options.tags.join(',');
   if (options.all) query.all = 'true';
   else if (options.limit && options.limit !== 20) query.limit = String(options.limit);
   if (options.cursor) query.cursor = options.cursor;

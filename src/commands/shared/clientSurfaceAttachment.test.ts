@@ -1,3 +1,5 @@
+import { createMockCliSessionCache } from '@test/unit-utils/MockFactories.js';
+
 import type { ProjectConfig } from '@src/config/projectConfigTypes.js';
 import type { ContextData } from '@src/types/context.js';
 
@@ -189,6 +191,28 @@ describe('attachReusableClientSurface', () => {
       '/tmp/cache/.cli-session.4242',
       expect.objectContaining({ sessionId: 'cached-session', hasRestEndpoint: false }),
     );
+  });
+
+  it('can require a fresh REST status check despite a negative cache hint', async () => {
+    const ports = makePorts({
+      cachedSession: createMockCliSessionCache({ hasRestEndpoint: false }),
+    });
+    const rest = vi.fn(async () => ({ status: 'success' as const, value: 'rest-value' }));
+    const mcp = unusedAdapter();
+
+    const result = await attachReusableClientSurface({
+      clientSurface: 'wait',
+      version: 'wait',
+      options: {},
+      alwaysTryRest: true,
+      ports,
+      rest,
+      mcp,
+    });
+
+    expect(result).toMatchObject({ status: 'success', protocol: 'rest', value: 'rest-value' });
+    expect(rest).toHaveBeenCalled();
+    expect(mcp).not.toHaveBeenCalled();
   });
 
   it('falls back to MCP and persists unsupported REST on endpoint-missing responses', async () => {

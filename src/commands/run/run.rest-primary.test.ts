@@ -225,6 +225,10 @@ describe('runCommand REST-first path', () => {
     };
   }
 
+  function makeConnectedServerResponse() {
+    return makeRestResponse(200, { kind: 'server', server: 'runner', status: 'connected', available: true });
+  }
+
   it('uses REST when hasRestEndpoint is true in cache and skips MCP', async () => {
     await writeCliSessionCache(cachePath, {
       sessionId: 'cached-session',
@@ -239,6 +243,7 @@ describe('runCommand REST-first path', () => {
       server: 'runner',
       tool: 'echo_args',
     };
+    mockFetch.mockResolvedValueOnce(makeConnectedServerResponse());
     mockFetch.mockResolvedValueOnce(makeTextResponse(404, 'Not Found')); // schema GET
     mockFetch.mockResolvedValueOnce(makeRestResponse(200, restResult));
 
@@ -257,7 +262,7 @@ describe('runCommand REST-first path', () => {
       'cli-session-cache-path': join(cacheDir, '.cli-session.{pid}'),
     } as never);
 
-    const [, requestInit] = mockFetch.mock.calls[1] as [string, RequestInit];
+    const [, requestInit] = mockFetch.mock.calls[2] as [string, RequestInit];
     expect((requestInit.headers as Record<string, string>)['mcp-session-id']).toBe('cached-session');
     expect(JSON.parse(String(requestInit.body))).toMatchObject({
       tool: 'runner/echo_args',
@@ -290,6 +295,7 @@ describe('runCommand REST-first path', () => {
       server: 'runner',
       tool: 'echo_args',
     };
+    mockFetch.mockResolvedValueOnce(makeConnectedServerResponse());
     mockFetch.mockResolvedValueOnce(makeTextResponse(404, 'Not Found'));
     mockFetch.mockResolvedValueOnce(makeRestResponse(200, restResult));
 
@@ -303,7 +309,7 @@ describe('runCommand REST-first path', () => {
       'cli-session-cache-path': join(cacheDir, '.cli-session.{pid}'),
     } as never);
 
-    const [, requestInit] = mockFetch.mock.calls[1] as [string, RequestInit];
+    const [, requestInit] = mockFetch.mock.calls[2] as [string, RequestInit];
     const headers = requestInit.headers as Record<string, string>;
     const body = JSON.parse(String(requestInit.body)) as { _meta: { context: { sessionId: string } } };
 
@@ -319,6 +325,7 @@ describe('runCommand REST-first path', () => {
       server: 'runner',
       tool: 'echo_args',
     };
+    mockFetch.mockResolvedValueOnce(makeConnectedServerResponse());
     mockFetch.mockResolvedValueOnce(makeTextResponse(404, 'Not Found'));
     mockFetch.mockResolvedValueOnce(makeRestResponse(200, restResult, { sessionId: 'rest-session-123' }));
 
@@ -349,6 +356,7 @@ describe('runCommand REST-first path', () => {
       server: 'runner',
       tool: 'echo_args',
     };
+    mockFetch.mockResolvedValueOnce(makeConnectedServerResponse());
     mockFetch.mockResolvedValueOnce(makeTextResponse(404, 'Not Found'));
     mockFetch.mockResolvedValueOnce(makeRestResponse(200, restResult));
 
@@ -374,7 +382,86 @@ describe('runCommand REST-first path', () => {
     expect(cache?.hasRestEndpoint).toBe(true);
   });
 
+  it('returns server_loading before attempting a REST or MCP tool invocation', async () => {
+    mockFetch.mockResolvedValueOnce(
+      makeRestResponse(200, { kind: 'server', server: 'runner', status: 'loading', available: false }),
+    );
+    const stderr: string[] = [];
+    vi.spyOn(process.stderr, 'write').mockImplementation((chunk) => {
+      stderr.push(String(chunk));
+      return true;
+    });
+
+    const { runCommand } = await import('./run.js');
+    await runCommand({
+      tool: 'runner/echo_args',
+      args: '{"message":"hi"}',
+      'config-dir': cacheDir,
+      'cli-session-cache-path': join(cacheDir, '.cli-session.{pid}'),
+    } as never);
+
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    expect(transportState.instances).toHaveLength(0);
+    expect(stderr.join('')).toContain('server_loading');
+    expect(stderr.join('')).toContain('1mcp wait runner');
+  });
+
+  it('waits instead of restarting when a connected server is not yet available', async () => {
+    mockFetch.mockResolvedValueOnce(
+      makeRestResponse(200, { kind: 'server', server: 'runner', status: 'connected', available: false }),
+    );
+    const stderr: string[] = [];
+    vi.spyOn(process.stderr, 'write').mockImplementation((chunk) => {
+      stderr.push(String(chunk));
+      return true;
+    });
+
+    const { runCommand } = await import('./run.js');
+    await runCommand({
+      tool: 'runner/echo_args',
+      args: '{"message":"hi"}',
+      'config-dir': cacheDir,
+      'cli-session-cache-path': join(cacheDir, '.cli-session.{pid}'),
+    } as never);
+
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    expect(transportState.instances).toHaveLength(0);
+    expect(stderr.join('')).toContain("Server 'runner' is connected but not yet available");
+    expect(stderr.join('')).toContain('1mcp wait runner');
+    expect(stderr.join('')).not.toContain('1mcp mcp restart runner');
+  });
+
+  it('checks status with the same preset used by the invocation surface', async () => {
+    mockFetch.mockResolvedValueOnce(makeConnectedServerResponse());
+    mockFetch.mockResolvedValueOnce(makeTextResponse(404, 'Not Found'));
+    mockFetch.mockResolvedValueOnce(
+      makeRestResponse(200, {
+        result: { content: [{ type: 'text', text: 'ok' }], isError: false },
+        server: 'runner',
+        tool: 'echo_args',
+      }),
+    );
+    vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
+
+    const { runCommand } = await import('./run.js');
+    await runCommand({
+      tool: 'runner/echo_args',
+      args: '{"message":"hi"}',
+      preset: 'development',
+      'config-dir': cacheDir,
+      'cli-session-cache-path': join(cacheDir, '.cli-session.{pid}'),
+    } as never);
+
+    const statusUrl = new URL(String(mockFetch.mock.calls[0][0]));
+    const schemaUrl = new URL(String(mockFetch.mock.calls[1][0]));
+    expect(statusUrl.searchParams.get('target')).toBe('runner');
+    expect(statusUrl.searchParams.get('preset')).toBe('development');
+    expect(schemaUrl.searchParams.get('target')).toBe('runner/echo_args');
+    expect(schemaUrl.searchParams.get('preset')).toBe('development');
+  });
+
   it('initializes a fresh MCP transport while preserving the logical context session id', async () => {
+    mockFetch.mockResolvedValueOnce(makeConnectedServerResponse());
     mockFetch.mockResolvedValueOnce(makeTextResponse(404, 'Not Found'));
     mockFetch.mockResolvedValueOnce(makeTextResponse(404, 'Cannot POST /api/v1/tool-invocations'));
 

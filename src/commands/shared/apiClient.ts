@@ -38,7 +38,11 @@ export class ApiClient {
     this.context = options.context;
   }
 
-  async get<T>(path: string, query?: Record<string, string>): Promise<ApiResponse<T>> {
+  async get<T>(
+    path: string,
+    query?: Record<string, string>,
+    options: ApiRequestOptions = {},
+  ): Promise<ApiResponse<T>> {
     const url = new URL(`${this.baseUrl}${path}`);
     if (query) {
       for (const [key, value] of Object.entries(query)) {
@@ -50,7 +54,7 @@ export class ApiClient {
     if (this.context) {
       url.searchParams.set('context', encodeContextValue(this.context));
     }
-    return this.request<T>(url.toString(), 'GET');
+    return this.request<T>(url.toString(), 'GET', undefined, options);
   }
 
   async post<T>(path: string, body: unknown, options: ApiRequestOptions = {}): Promise<ApiResponse<T>> {

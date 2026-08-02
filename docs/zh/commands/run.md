@@ -1,3 +1,8 @@
+---
+title: Run 命令 - 通过 1MCP 调用工具
+description: 使用 run 命令针对运行中的 1MCP serve 实例调用 MCP 工具，并了解参数、stdin 映射和输出格式。
+---
+
 # Run 命令
 
 通过运行中的 1MCP `serve` 实例调用 MCP 工具。
@@ -19,6 +24,8 @@ npx -y @1mcp/agent run <server>/<tool> [选项]
 `run` 会连接到运行中的 `1mcp serve` 实例，透传 preset 和标签过滤，并把工具输出写入 stdout。错误只写入 stderr，因此适合脚本和管道。
 
 `run` 被刻意设计成最后一步。推荐顺序是先用 `instructions` 做总览，再用 `inspect` 缩小到单个 server 和单个 tool，确认 schema 之后才真正执行。
+
+在 REST-to-MCP 回退前，`run` 会检查面向客户端的 inspect 状态。仍在加载的后端会返回 `server_loading` 和 `1mcp wait <server>`，而不会收到提前 MCP 调用。失败或取消的后端返回 `server_unavailable`；OAuth 门控后端会返回授权指引。
 
 ## 选项
 

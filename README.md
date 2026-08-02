@@ -142,14 +142,14 @@ flowchart LR
     H --> B
 ```
 
-1MCP runs as an aggregated runtime behind `1mcp serve`. Static servers are prepared from startup configuration, template servers are materialized when client context is known, and the runtime can use async loading and lazy loading to reduce startup blocking and tool-surface noise. Instruction aggregation, presets, and notifications sit alongside that runtime rather than outside it.
+1MCP runs as an aggregated runtime behind `1mcp serve`. Static servers are prepared from startup configuration, template servers are materialized when client context is known, and the runtime can use async loading for early HTTP listener availability and lazy loading for a stable tool surface. Instruction aggregation, presets, and notifications sit alongside that runtime rather than outside it.
 
 ## Core Capabilities
 
 - Unified runtime for many MCP servers behind one `serve` process
 - CLI mode for progressive discovery with `1mcp instructions`, `1mcp inspect <server>`, `1mcp inspect <server>/<tool>`, and `1mcp run <server>/<tool> --args '<json>'`
 - Template servers for per-client or per-session resolution
-- Async loading and lazy loading for faster startup and narrower exposure
+- Opt-in async loading for early HTTP listener availability when clients can reconcile capability changes
 - Opt-in automatic recovery for owned stdio backends, with health/status visibility and operator restart controls
 - Instruction aggregation across static and template-backed servers
 - Presets, filters, and preset change notifications
