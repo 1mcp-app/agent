@@ -8,6 +8,7 @@ import logger, { debugIf, errorIf } from '@src/logger/logger.js';
 export interface ToolMetadata {
   name: string;
   server: string;
+  connectionKey?: string;
   description: string;
   inputSchema?: Tool['inputSchema'];
   tags?: string[];
@@ -112,11 +113,12 @@ export class ToolRegistry {
    * @returns A new ToolRegistry instance
    */
   public static fromToolsWithServer(
-    toolsWithServer: Array<{ tool: Tool; server: string; tags?: string[] }>,
+    toolsWithServer: Array<{ tool: Tool; server: string; connectionKey?: string; tags?: string[] }>,
   ): ToolRegistry {
-    const tools: ToolMetadata[] = toolsWithServer.map(({ tool, server, tags }) => ({
+    const tools: ToolMetadata[] = toolsWithServer.map(({ tool, server, connectionKey, tags }) => ({
       name: tool.name,
       server,
+      connectionKey: connectionKey ?? server,
       description: tool.description || '',
       inputSchema: tool.inputSchema,
       tags: tags || [],
@@ -305,8 +307,18 @@ export class ToolRegistry {
    * @param serverNames - Set of server names to include
    * @returns A new ToolRegistry instance with filtered tools
    */
-  public filterByServers(serverNames: Set<string>): ToolRegistry {
-    const filteredTools = this.tools.filter((tool) => serverNames.has(tool.server));
+  public filterByConnectionKeys(connectionKeys: ReadonlySet<string>): ToolRegistry {
+    const filteredTools = this.tools.filter((tool) => connectionKeys.has(tool.connectionKey ?? tool.server));
+    return new ToolRegistry(filteredTools);
+  }
+
+  /** Filter by exact connection identity, with clean-name fallback for legacy metadata only. */
+  public filterByServerCandidates(serverCandidates: ReadonlyMap<string, string>): ToolRegistry {
+    const connectionKeys = new Set(serverCandidates.keys());
+    const publicServerNames = new Set(serverCandidates.values());
+    const filteredTools = this.tools.filter((tool) =>
+      tool.connectionKey ? connectionKeys.has(tool.connectionKey) : publicServerNames.has(tool.server),
+    );
     return new ToolRegistry(filteredTools);
   }
 

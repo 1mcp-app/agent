@@ -86,6 +86,22 @@ function warnIfLegacyAppConfig(rawConfig: unknown, configFilePath: string): void
   );
 }
 
+function warnForLegacyLazyLoadingConfig(rawConfig: unknown, tomlPath: string): void {
+  if (!rawConfig || typeof rawConfig !== 'object') {
+    return;
+  }
+
+  const lazyLoading = (rawConfig as Record<string, unknown>).lazyLoading;
+  if (!lazyLoading || typeof lazyLoading !== 'object' || !('mode' in lazyLoading)) {
+    return;
+  }
+
+  logger.warn(
+    `The [lazyLoading].mode setting in ${tomlPath} is deprecated and ignored. ` +
+      'Lazy loading is controlled only by [lazyLoading] enabled = true. Remove mode because it does not change runtime behavior.',
+  );
+}
+
 function warnForUnknownGlobalConfigKeys(rawGlobal: unknown): void {
   const unknownGlobalKeys = getUnknownGlobalConfigKeys(rawGlobal);
   if (unknownGlobalKeys.length === 0) {
@@ -118,6 +134,7 @@ export function loadAppConfigFromTomlPath(tomlPath: string): ApplicationConfig {
     }
     const raw = fs.readFileSync(tomlPath, 'utf8');
     const parsed = parseToml(raw);
+    warnForLegacyLazyLoadingConfig(parsed, tomlPath);
     return applicationConfigSchema.parse(parsed);
   } catch (error) {
     if (error instanceof ZodError) {

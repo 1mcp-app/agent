@@ -1,5 +1,6 @@
 import { AgentConfigManager } from '@src/core/server/agentConfig.js';
 import { configureGlobalLogger } from '@src/logger/configureGlobalLogger.js';
+import logger from '@src/logger/logger.js';
 import { displayLogo } from '@src/utils/ui/logo.js';
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -110,7 +111,6 @@ describe('serveCommand - config-dir session isolation', () => {
       'async-batch-delay': 100,
       'async-notify-on-ready': true,
       'enable-lazy-loading': false,
-      'lazy-mode': 'full',
       'lazy-inline-catalog': false,
       'lazy-catalog-format': 'grouped',
       'lazy-cache-max-entries': 1000,
@@ -193,6 +193,30 @@ describe('serveCommand - config-dir session isolation', () => {
           port: 3050,
           host: '127.0.0.1',
         }),
+      );
+    });
+
+    it('warns for legacy lazy selectors without changing the enabled switch', async () => {
+      const configManager = AgentConfigManager.getInstance();
+      const updateConfigSpy = vi.mocked(configManager.updateConfig);
+
+      try {
+        await serveCommand({
+          ...baseOptions,
+          transport: 'http',
+          port: 3050,
+          host: '127.0.0.1',
+          'lazy-mode': 'hybrid',
+          'lazy-direct-expose': 'filesystem_*',
+        });
+      } catch {
+        // Ignore errors from mocked dependencies.
+      }
+
+      expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining('--lazy-mode is ignored'));
+      expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining('--lazy-direct-expose is ignored'));
+      expect(updateConfigSpy).toHaveBeenCalledWith(
+        expect.objectContaining({ lazyLoading: expect.objectContaining({ enabled: false }) }),
       );
     });
 

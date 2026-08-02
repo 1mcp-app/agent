@@ -166,7 +166,7 @@ export const serverOptions = {
     type: 'boolean' as const,
   },
   'lazy-mode': {
-    describe: 'Lazy loading mode (metatool: 3 meta-tools only, hybrid: direct + meta-tools, full: disabled)',
+    describe: 'Deprecated and ignored. Use --enable-lazy-loading to expose meta-tools, or omit it for full direct exposure.',
     type: 'string' as const,
     choices: ['metatool', 'hybrid', 'full'] as const,
   },
@@ -195,7 +195,7 @@ export const serverOptions = {
     default: 'grouped',
   },
   'lazy-direct-expose': {
-    describe: 'Comma-separated glob patterns for tools to expose directly in hybrid mode',
+    describe: 'Deprecated and ignored. Lazy loading does not support direct tool exposure.',
     type: 'string' as const,
     default: undefined,
   },
@@ -341,15 +341,11 @@ INTERNAL TOOLS:
   • Examples: "safe" (read-only), "discovery,management" (no installation)
 
 LAZY LOADING:
-  Use --enable-lazy-loading to enable lazy tool loading for token optimization.
-  Lazy loading reduces initial token usage by ~95% by loading tools on-demand.
-  Modes:
-  • metatool: Expose only 3 meta-tools (list/describe/call) - maximum savings
-  • hybrid: Common tools direct + meta-tools for rest - balanced approach
-  • full: Disabled, load all tools normally (default, backward compatible)
+  Use --enable-lazy-loading to opt into stable meta-tool exposure for progressive discovery.
+  Omit it (the default) for full direct tool exposure. Legacy --lazy-mode and
+  --lazy-direct-expose inputs are accepted temporarily but ignored with a warning.
   Examples:
-  • --enable-lazy-loading --lazy-mode=metatool
-  • --enable-lazy-loading --lazy-mode=hybrid --lazy-preload=filesystem,search
+  • --enable-lazy-loading
   • --enable-lazy-loading --lazy-cache-max-entries=2000
 
 For more information: https://github.com/1mcp-app/agent

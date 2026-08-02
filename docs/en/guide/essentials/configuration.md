@@ -53,6 +53,7 @@ All available command-line options and their corresponding environment variables
 | `--rate-limit-window`           | `ONE_MCP_RATE_LIMIT_WINDOW`           | OAuth rate limit window in minutes (number)                                                     |     15     |
 | `--rate-limit-max`              | `ONE_MCP_RATE_LIMIT_MAX`              | Maximum requests per OAuth rate limit window (number)                                           |    100     |
 | `--enable-async-loading`        | `ONE_MCP_ENABLE_ASYNC_LOADING`        | Enable asynchronous MCP server loading(boolean)                                                 |   false    |
+| `--enable-lazy-loading`         | `ONE_MCP_ENABLE_LAZY_LOADING`         | Enable meta-tool exposure for progressive tool discovery (boolean)                              |   false    |
 | `--enable-config-reload`        | `ONE_MCP_ENABLE_CONFIG_RELOAD`        | Enable configuration file hot-reload (boolean)                                                  |    true    |
 | `--config-reload-debounce`      | `ONE_MCP_CONFIG_RELOAD_DEBOUNCE`      | Configuration reload debounce time in milliseconds (number)                                     |    500     |
 | `--enable-env-substitution`     | `ONE_MCP_ENABLE_ENV_SUBSTITUTION`     | Enable environment variable substitution in config files (boolean)                              |    true    |
@@ -355,6 +356,27 @@ ONE_MCP_ENABLE_ASYNC_LOADING=true \
 ONE_MCP_PAGINATION=true \
 npx -y @1mcp/agent
 ```
+
+### Lazy Loading
+
+Lazy loading is opt-in stable tool-surface compatibility for clients that support progressive discovery. With it disabled (the default), 1MCP exposes every backend tool directly. With it enabled, the backend tool surface is `tool_list`, `tool_schema`, and `tool_invoke`; clients discover schemas and invoke backend tools through those meta-tools. Internal management tools explicitly enabled by the operator remain directly exposed with the `1mcp` namespace.
+
+This reduces the initial tool-schema payload. It does not reduce backend connections or processes, make synchronous startup bind earlier, or repair orphaned proxy processes. Do not enable it together with async loading by default: choose each setting for its own runtime behavior. See [#392](https://github.com/1mcp-app/agent/issues/392) for the request-time visibility contract that lets a matching late-ready server appear after async capability publication without reconnecting.
+
+Enable it for one launch:
+
+```bash
+1mcp serve --enable-lazy-loading
+```
+
+Or make it persistent in `config.toml` and restart the process:
+
+```toml
+[lazyLoading]
+enabled = true
+```
+
+The CLI flag takes precedence over `config.toml`. Legacy `--lazy-mode`, `[lazyLoading].mode`, and `--lazy-direct-expose` inputs are accepted temporarily but ignored with a deprecation warning; `enabled` is the only working switch.
 
 ### Configuration Reload
 

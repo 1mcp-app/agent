@@ -57,11 +57,9 @@ timeout = 30000
 # batchDelay = 100
 
 [lazyLoading]
-# Enable lazy loading for tools
+# Opt in to stable meta-tool exposure for progressive discovery. When false
+# (the default), all tools are exposed directly.
 enabled = false
-
-# Lazy loading mode: "full" | "metatool" | "hybrid"
-mode = "full"
 
 # Maximum tool schemas to cache
 # cacheMaxEntries = 1000

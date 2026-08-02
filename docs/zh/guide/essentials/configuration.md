@@ -47,6 +47,7 @@ Agent 支持三种配置方法，按以下优先级顺序应用：
 | `--rate-limit-window`           | `ONE_MCP_RATE_LIMIT_WINDOW`           | OAuth 速率限制窗口（分钟）（数字）                                |     15     |
 | `--rate-limit-max`              | `ONE_MCP_RATE_LIMIT_MAX`              | 每个 OAuth 速率限制窗口的最大请求数（数字）                       |    100     |
 | `--enable-async-loading`        | `ONE_MCP_ENABLE_ASYNC_LOADING`        | 启用异步 MCP 服务器加载（布尔值）                                 |   false    |
+| `--enable-lazy-loading`         | `ONE_MCP_ENABLE_LAZY_LOADING`         | 启用元工具暴露以逐步发现工具（布尔值）                            |   false    |
 | `--enable-config-reload`        | `ONE_MCP_ENABLE_CONFIG_RELOAD`        | 启用配置文件热重载（布尔值）                                      |    true    |
 | `--config-reload-debounce`      | `ONE_MCP_CONFIG_RELOAD_DEBOUNCE`      | 配置重载防抖时间（毫秒）（数字）                                  |    500     |
 | `--enable-env-substitution`     | `ONE_MCP_ENABLE_ENV_SUBSTITUTION`     | 在配置文件中启用环境变量替换（布尔值）                            |    true    |
@@ -349,6 +350,27 @@ ONE_MCP_ENABLE_ASYNC_LOADING=true \
 ONE_MCP_PAGINATION=true \
 npx -y @1mcp/agent
 ```
+
+### 懒加载
+
+懒加载是一种可选的稳定工具表面兼容模式，适用于支持逐步发现工具的客户端。默认关闭时，1MCP 会直接暴露全部后端工具；启用后，后端工具表面为 `tool_list`、`tool_schema` 和 `tool_invoke`，客户端通过这些元工具发现 Schema 并调用后端工具。由运维人员显式启用的内部管理工具仍会以 `1mcp` 命名空间直接暴露。
+
+它可以减少初始工具 Schema 的负载，但不会减少后端连接或进程、让同步启动更早绑定端口，也不会修复遗留的代理进程。不要默认将它与异步加载同时启用；应根据各自的运行时行为分别选择。异步能力发布后，符合条件的后就绪服务器无需重连即可在下一次请求中可见；该请求时可见性契约见 [#392](https://github.com/1mcp-app/agent/issues/392)。
+
+仅为本次启动启用：
+
+```bash
+1mcp serve --enable-lazy-loading
+```
+
+也可以在 `config.toml` 中持久启用，并重启进程：
+
+```toml
+[lazyLoading]
+enabled = true
+```
+
+CLI 参数优先于 `config.toml`。旧的 `--lazy-mode`、`[lazyLoading].mode` 和 `--lazy-direct-expose` 输入会在一个兼容周期内继续接受，但将被忽略并产生弃用警告；`enabled` 是唯一有效的开关。
 
 ### 配置重载
 

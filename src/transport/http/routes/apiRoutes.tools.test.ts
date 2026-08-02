@@ -173,6 +173,60 @@ describe('apiRoutes /api/tools', () => {
     expect(secondBody.nextCursor).toBeUndefined();
   });
 
+  it('keeps same-name fallback template instances isolated by the selected connection key', async () => {
+    const filteredScopeMiddleware: RequestHandler = (_req, res, next) => {
+      res.locals.validatedTags = ['session-one'];
+      res.locals.tagFilterMode = 'simple-or';
+      next();
+    };
+    const serverManager = {
+      getLazyLoadingOrchestrator: vi.fn(() => undefined),
+      getClients: vi.fn(
+        () =>
+          new Map([
+            [
+              'instance-one',
+              {
+                name: 'template',
+                status: 'connected',
+                transport: { tags: ['session-one'] },
+                client: {
+                  listTools: vi.fn().mockResolvedValue({
+                    tools: [{ name: 'first_tool', description: 'First instance', inputSchema: {} }],
+                  }),
+                },
+              },
+            ],
+            [
+              'instance-two',
+              {
+                name: 'template',
+                status: 'connected',
+                transport: { tags: ['session-two'] },
+                client: {
+                  listTools: vi.fn().mockResolvedValue({
+                    tools: [{ name: 'second_tool', description: 'Second instance', inputSchema: {} }],
+                  }),
+                },
+              },
+            ],
+          ]),
+      ),
+    };
+    const handler = createToolsHandler(serverManager as never);
+    const res = createMockResponse();
+
+    await invokeInspectRoute(filteredScopeMiddleware, { query: {} }, res);
+    await invokeInspectRoute(handler, { query: {} }, res);
+
+    expect(res.statusCode).toBe(200);
+    expect(res.body).toMatchObject({
+      totalCount: 1,
+      servers: ['template'],
+      tools: [{ name: 'first_tool', server: 'template', description: 'First instance' }],
+    });
+  });
+
   it('reports only servers with matching tools in fallback mode', async () => {
     const serverManager = {
       getLazyLoadingOrchestrator: vi.fn(() => undefined),
@@ -285,7 +339,6 @@ describe('apiRoutes /api/tools', () => {
         cursor: 'abc',
       },
       undefined,
-      undefined,
     );
     expect(res.body).toEqual(mockResult);
   });
@@ -380,7 +433,11 @@ describe('apiRoutes /api/tools', () => {
       {},
       'ephemeral',
     );
-    expect(callMetaTool).toHaveBeenCalledWith('tool_list', expect.any(Object), 'header-session', undefined);
+    expect(callMetaTool).toHaveBeenCalledWith(
+      'tool_list',
+      expect.any(Object),
+      expect.objectContaining({ sessionId: 'header-session', serverCandidates: expect.any(Map) }),
+    );
     expect(res.setHeader).toHaveBeenCalledWith('mcp-session-id', 'header-session');
     expect(context.sessionId).toBe('context-session');
   });
@@ -440,7 +497,11 @@ describe('apiRoutes /api/tools', () => {
     );
     expect(registerTemplate).toHaveBeenCalledWith('serena', templateConfig);
     expect(refreshCapabilities).toHaveBeenCalledOnce();
-    expect(callMetaTool).toHaveBeenCalledWith('tool_list', expect.any(Object), 'derived-session-id', undefined);
+    expect(callMetaTool).toHaveBeenCalledWith(
+      'tool_list',
+      expect.any(Object),
+      expect.objectContaining({ sessionId: 'derived-session-id', serverCandidates: expect.any(Map) }),
+    );
     expect(res.setHeader).toHaveBeenCalledWith('mcp-session-id', 'derived-session-id');
   });
 

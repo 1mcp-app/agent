@@ -61,6 +61,26 @@ describe('runCliCommand', () => {
     expect(envelope.requestId).toEqual(expect.any(String));
   });
 
+  it('writes structured JSON failure envelopes when format json is requested', async () => {
+    await runCliCommand({ format: 'json' }, async () => {
+      throw Object.assign(new Error('Timed out waiting for filesystem'), {
+        code: 'server_wait_timeout',
+        details: { status: 'timeout', servers: [] },
+        recoveryCommand: '1mcp wait filesystem',
+      });
+    });
+
+    expect(stderr).not.toHaveBeenCalled();
+    expect(exit).not.toHaveBeenCalled();
+    const envelope = JSON.parse(stdout.mock.calls.map((call: unknown[]) => String(call[0])).join('')) as {
+      error: { code: string; details: { status: string } };
+    };
+    expect(envelope.error).toMatchObject({
+      code: 'server_wait_timeout',
+      details: { status: 'timeout' },
+    });
+  });
+
   it('uses target safety exit code for JSON recovery failures', async () => {
     await runCliCommand({ json: true }, async () => {
       throw Object.assign(new Error('Runtime target uses imported insecure TLS metadata and requires confirmation'), {

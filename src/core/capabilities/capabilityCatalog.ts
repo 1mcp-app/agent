@@ -2,9 +2,10 @@ import type { Tool } from '@modelcontextprotocol/sdk/types.js';
 
 import { ConnectionResolver, type TemplateHashProvider } from '@src/core/server/connectionResolver.js';
 import { getDisabledToolError, isToolDisabled } from '@src/core/server/disabledTools.js';
-import type { MCPServerParams, OutboundConnections } from '@src/core/types/index.js';
+import { ClientStatus, type MCPServerParams, type OutboundConnections } from '@src/core/types/index.js';
 import logger from '@src/logger/logger.js';
 
+import { type CapabilityVisibility, getCapabilityVisibleServerNames } from './capabilityVisibility.js';
 import { SchemaCache } from './schemaCache.js';
 import type { ListToolsOptions, ListToolsResult as RegistryListToolsResult, ToolMetadata } from './toolRegistry.js';
 import { ToolRegistry } from './toolRegistry.js';
@@ -60,7 +61,7 @@ export interface CapabilityCatalogDependencies {
   getServerConfigs: () => Record<string, MCPServerParams>;
   loadSchema?: (server: string, toolName: string) => Promise<Tool>;
   refreshCapabilities?: (input: CapabilityRefreshInput) => Promise<CapabilityRefreshResult | void>;
-  defaultAllowedServers?: Set<string>;
+  defaultVisibility?: CapabilityVisibility;
   templateHashProvider?: TemplateHashProvider;
 }
 
@@ -97,17 +98,16 @@ export class CapabilityCatalog {
 
   public async listVisibleTools(
     options: ListToolsOptions = {},
-    sessionId?: string,
-    allowedServers?: Set<string>,
+    visibility?: CapabilityVisibility,
     queryOptions: CapabilityCatalogQueryOptions = {},
   ): Promise<VisibleToolListResult> {
     const refresh = await this.resolveRefreshFacts(queryOptions.refreshIntent ?? 'never', 'list');
-    const registry = this.visibleToolRegistry(allowedServers);
+    const registry = this.visibleToolRegistry(visibility);
     const result = registry.listTools(options);
     const tools = result.tools;
     const servers = Array.from(new Set(tools.map((tool) => tool.server))).sort();
     const routes = tools
-      .map((tool) => this.resolveRoute(tool.server, tool.name, sessionId))
+      .map((tool) => this.resolveRoute(tool, visibility))
       .filter((route): route is CapabilityRoute => route !== undefined);
 
     return {
@@ -121,12 +121,11 @@ export class CapabilityCatalog {
 
   public async describeVisibleTool(
     args: { server?: string; toolName?: string },
-    sessionId?: string,
-    allowedServers?: Set<string>,
+    visibility?: CapabilityVisibility,
     queryOptions: CapabilityCatalogQueryOptions = {},
   ): Promise<DescribeVisibleToolResult> {
     const refresh = await this.resolveRefreshFacts(queryOptions.refreshIntent ?? 'never', 'describe');
-    const access = this.resolveVisibleToolAccess(args, sessionId, allowedServers);
+    const access = this.resolveVisibleToolAccess(args, visibility);
     if (access.error) {
       return { schema: {}, error: access.error, refresh };
     }
@@ -167,12 +166,11 @@ export class CapabilityCatalog {
 
   public async invokeVisibleTool(
     args: { server?: string; toolName?: string; args: unknown },
-    sessionId?: string,
-    allowedServers?: Set<string>,
+    visibility?: CapabilityVisibility,
     queryOptions: CapabilityCatalogQueryOptions = {},
   ): Promise<InvokeVisibleToolResult> {
     const refresh = await this.resolveRefreshFacts(queryOptions.refreshIntent ?? 'never', 'invoke');
-    const access = this.resolveVisibleToolAccess(args, sessionId, allowedServers);
+    const access = this.resolveVisibleToolAccess(args, visibility);
     if (access.error) {
       return {
         result: {},
@@ -261,11 +259,16 @@ export class CapabilityCatalog {
     };
   }
 
-  private visibleToolRegistry(allowedServers?: Set<string>): ToolRegistry {
+  private visibleToolRegistry(visibility?: CapabilityVisibility): ToolRegistry {
     let registry = this.deps.getToolRegistry();
-    const effectiveAllowedServers = allowedServers ?? this.deps.defaultAllowedServers;
-    if (effectiveAllowedServers !== undefined) {
-      registry = registry.filterByServers(effectiveAllowedServers);
+    const effectiveVisibility = visibility ?? this.deps.defaultVisibility;
+    if (effectiveVisibility !== undefined) {
+      const connectedCandidates = new Map(
+        Array.from(effectiveVisibility.serverCandidates).filter(
+          ([connectionKey]) => this.deps.outboundConnections.get(connectionKey)?.status === ClientStatus.Connected,
+        ),
+      );
+      registry = registry.filterByServerCandidates(connectedCandidates);
     }
 
     if (typeof registry.getAllTools !== 'function') {
@@ -284,6 +287,7 @@ export class CapabilityCatalog {
             inputSchema: tool.inputSchema ?? { type: 'object' },
           },
           server: tool.server,
+          connectionKey: tool.connectionKey,
           tags: tool.tags,
         })),
     );
@@ -291,8 +295,7 @@ export class CapabilityCatalog {
 
   private resolveVisibleToolAccess(
     args: { server?: string; toolName?: string },
-    sessionId?: string,
-    allowedServers?: Set<string>,
+    visibility?: CapabilityVisibility,
   ):
     | { route: CapabilityRoute; tool: ToolMetadata; error?: never }
     | { route?: never; tool?: never; error: CapabilityAccessError } {
@@ -305,7 +308,7 @@ export class CapabilityCatalog {
       };
     }
 
-    const visibleRegistry = this.visibleToolRegistry(allowedServers);
+    const visibleRegistry = this.visibleToolRegistry(visibility);
     if (typeof visibleRegistry.getTool !== 'function') {
       return {
         error: {
@@ -318,7 +321,7 @@ export class CapabilityCatalog {
 
     const tool = visibleRegistry.getTool(args.server, args.toolName);
     if (!tool) {
-      const disabledError = this.isServerVisible(args.server, allowedServers)
+      const disabledError = this.isServerVisible(args.server, visibility)
         ? getDisabledToolError(this.deps.getServerConfigs(), args.server, args.toolName)
         : undefined;
       return {
@@ -329,7 +332,7 @@ export class CapabilityCatalog {
       };
     }
 
-    const route = this.resolveRoute(args.server, args.toolName, sessionId);
+    const route = this.resolveRoute(tool, visibility);
     if (!route) {
       return {
         error: {
@@ -342,21 +345,31 @@ export class CapabilityCatalog {
     return { route, tool };
   }
 
-  private isServerVisible(server: string, allowedServers?: Set<string>): boolean {
-    const effectiveAllowedServers = allowedServers ?? this.deps.defaultAllowedServers;
-    return effectiveAllowedServers === undefined || effectiveAllowedServers.has(server);
+  private isServerVisible(server: string, visibility?: CapabilityVisibility): boolean {
+    const effectiveVisibility = visibility ?? this.deps.defaultVisibility;
+    return effectiveVisibility === undefined || getCapabilityVisibleServerNames(effectiveVisibility).has(server);
   }
 
-  private resolveRoute(server: string, toolName: string, sessionId?: string): CapabilityRoute | undefined {
-    const sessionResult = sessionId ? this.connectionResolver.resolveWithKey(server, sessionId) : undefined;
-    const result = sessionResult ?? (!sessionId ? this.connectionResolver.findByServerName(server) : undefined);
+  private resolveRoute(tool: ToolMetadata, visibility?: CapabilityVisibility): CapabilityRoute | undefined {
+    const registryConnectionKey = tool.connectionKey ?? tool.server;
+    if (this.deps.outboundConnections.has(registryConnectionKey)) {
+      return {
+        server: tool.server,
+        toolName: tool.name,
+        connectionKey: registryConnectionKey,
+      };
+    }
+
+    const sessionId = visibility?.sessionId ?? this.deps.defaultVisibility?.sessionId;
+    const sessionResult = sessionId ? this.connectionResolver.resolveWithKey(tool.server, sessionId) : undefined;
+    const result = sessionResult ?? (!sessionId ? this.connectionResolver.findByServerName(tool.server) : undefined);
     if (!result) {
       return undefined;
     }
 
     return {
-      server,
-      toolName,
+      server: tool.server,
+      toolName: tool.name,
       connectionKey: result.key,
     };
   }

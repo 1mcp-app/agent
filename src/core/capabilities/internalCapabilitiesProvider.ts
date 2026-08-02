@@ -34,6 +34,7 @@ import {
   createStatusTool,
 } from '@src/core/capabilities/internal/managementTools.js';
 import { LazyLoadingOrchestrator } from '@src/core/capabilities/lazyLoadingOrchestrator.js';
+import type { CapabilityVisibility } from '@src/core/capabilities/capabilityVisibility.js';
 import { FlagManager } from '@src/core/flags/flagManager.js';
 import { AgentConfigManager } from '@src/core/server/agentConfig.js';
 import {
@@ -259,7 +260,11 @@ export class InternalCapabilitiesProvider extends EventEmitter {
   /**
    * Execute an internal tool
    */
-  public async executeTool(toolName: string, args: unknown, sessionId?: string): Promise<unknown> {
+  public async executeTool(
+    toolName: string,
+    args: unknown,
+    visibility?: CapabilityVisibility,
+  ): Promise<unknown> {
     if (!this.isInitialized) {
       throw new Error('Internal capabilities provider not initialized');
     }
@@ -274,7 +279,7 @@ export class InternalCapabilitiesProvider extends EventEmitter {
         if (!this.lazyLoadingOrchestrator) {
           throw new Error('Lazy loading not available');
         }
-        const result = await this.lazyLoadingOrchestrator.callMetaTool(toolName, args, sessionId);
+        const result = await this.lazyLoadingOrchestrator.callMetaTool(toolName, args, visibility);
 
         // Check for error field in structured result
         if (typeof result === 'object' && result !== null && 'error' in result && result.error) {

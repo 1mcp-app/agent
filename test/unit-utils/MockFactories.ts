@@ -10,6 +10,10 @@ import {
   ServerStatus,
 } from '@src/../src/core/types/index.js';
 import { ClientSessionData } from '@src/auth/sessionTypes.js';
+import type { ClientSurfaceAttachmentContext } from '@src/commands/shared/clientSurfaceAttachment.js';
+import type { InspectServerSummary } from '@src/commands/shared/inspectApiSchemas.js';
+import type { CliSessionCache } from '@src/commands/shared/serveClient.js';
+import type { ResolvableServeTargetOptions } from '@src/commands/shared/serveTargetResolver.js';
 
 import { vi } from 'vitest';
 
@@ -132,6 +136,59 @@ export const createMockClientSessionData = (overrides?: Partial<ClientSessionDat
   expires: Date.now() + 3600000,
   ...overrides,
 });
+
+export function createMockCliSessionCache(overrides?: Partial<CliSessionCache>): CliSessionCache {
+  return {
+    sessionId: 'cached-session',
+    serverUrl: 'http://127.0.0.1:3050/mcp',
+    contextHash: 'hash-from-port',
+    savedAt: 1000,
+    hasRestEndpoint: true,
+    ...overrides,
+  };
+}
+
+export function createMockClientSurfaceAttachmentContext<TOptions extends ResolvableServeTargetOptions>(
+  overrides: Partial<ClientSurfaceAttachmentContext<TOptions>> = {},
+): ClientSurfaceAttachmentContext<TOptions> {
+  const options = (overrides.options ?? {}) as TOptions;
+  return {
+    target: {
+      cwd: '/tmp/project',
+      projectRoot: '/tmp/project',
+      projectConfig: null,
+      mergedOptions: options,
+      discoveredUrl: 'http://127.0.0.1:3050/mcp',
+      serverUrl: new URL('http://127.0.0.1:3050/mcp'),
+      source: 'user',
+    },
+    options,
+    baseUrl: 'http://127.0.0.1:3050',
+    serverUrl: new URL('http://127.0.0.1:3050/mcp'),
+    context: {
+      project: { path: '/tmp/project', cwd: '/tmp/project', name: 'project' },
+      user: {},
+      environment: {},
+    },
+    contextHash: 'attachment-test',
+    cachePath: '/tmp/attachment-test',
+    cachedSession: null,
+    requestSessionId: 'attachment-session',
+    sessionId: 'attachment-session',
+    ...overrides,
+  };
+}
+
+export function createMockInspectServerSummary(overrides?: Partial<InspectServerSummary>): InspectServerSummary {
+  return {
+    server: 'test-server',
+    type: 'external',
+    status: 'connected',
+    available: true,
+    loadTracked: true,
+    ...overrides,
+  };
+}
 
 /**
  * Factory for creating mock Express request objects
