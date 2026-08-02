@@ -4,6 +4,7 @@ import { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
 
 import {
   InboundConnection,
+  ClientStatus,
   OutboundConnection,
   OutboundConnections,
   ServerStatus,
@@ -87,6 +88,18 @@ export const createMockOutboundConnections = (
   }
   return map;
 };
+
+/**
+ * Factory for creating a mock outbound connection
+ */
+export const createMockOutboundConnection = (overrides?: Partial<OutboundConnection>): OutboundConnection => ({
+  name: 'test-server',
+  transport: createMockTransport(),
+  client: createMockClient() as Client,
+  status: ClientStatus.Connected,
+  lastConnected: new Date(),
+  ...overrides,
+});
 
 /**
  * Factory for creating mock inbound connections

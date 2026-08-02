@@ -1,5 +1,6 @@
 import { EventEmitter } from 'events';
 
+import type { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import {
   ListPromptsResult,
   ListResourcesResult,
@@ -13,7 +14,9 @@ import { McpConfigManager } from '@src/config/mcpConfigManager.js';
 import { InternalCapabilitiesProvider } from '@src/core/capabilities/internalCapabilitiesProvider.js';
 import { filterDisabledTools } from '@src/core/server/disabledTools.js';
 import { ClientStatus, OutboundConnections } from '@src/core/types/index.js';
+import type { EnhancedTransport } from '@src/core/types/transport.js';
 import logger, { debugIf } from '@src/logger/logger.js';
+import { getRequestTimeout } from '@src/utils/core/timeoutUtils.js';
 
 /**
  * Represents a snapshot of aggregated capabilities from all ready servers
@@ -175,13 +178,15 @@ export class CapabilityAggregator extends EventEmitter {
         const serverCapabilities = connection.client.getServerCapabilities() || {};
 
         // Build promises array based on actual capabilities
-        const promises: Promise<unknown>[] = [this.safeListTools(serverName, connection.client)];
+        const promises: Promise<unknown>[] = [
+          this.safeListTools(serverName, connection.client, connection.transport),
+        ];
 
         if (serverCapabilities.resources) {
-          promises.push(this.safeListResources(serverName, connection.client));
+          promises.push(this.safeListResources(serverName, connection.client, connection.transport));
         }
         if (serverCapabilities.prompts) {
-          promises.push(this.safeListPrompts(serverName, connection.client));
+          promises.push(this.safeListPrompts(serverName, connection.client, connection.transport));
         }
 
         // Fetch capabilities in parallel (only those supported)
@@ -240,10 +245,11 @@ export class CapabilityAggregator extends EventEmitter {
    */
   private async safeListTools(
     serverName: string,
-    client: { listTools(): Promise<ListToolsResult> },
+    client: Pick<Client, 'listTools'>,
+    transport: EnhancedTransport,
   ): Promise<ListToolsResult> {
     try {
-      return await client.listTools();
+      return await client.listTools(undefined, { timeout: getRequestTimeout(transport) });
     } catch (error) {
       logger.warn(`Failed to list tools from ${serverName}`, { error: String(error) });
       return { tools: [] };
@@ -255,10 +261,11 @@ export class CapabilityAggregator extends EventEmitter {
    */
   private async safeListResources(
     serverName: string,
-    client: { listResources(): Promise<ListResourcesResult> },
+    client: Pick<Client, 'listResources'>,
+    transport: EnhancedTransport,
   ): Promise<ListResourcesResult> {
     try {
-      return await client.listResources();
+      return await client.listResources(undefined, { timeout: getRequestTimeout(transport) });
     } catch (error) {
       logger.warn(`Failed to list resources from ${serverName}`, { error: String(error) });
       return { resources: [] };
@@ -270,10 +277,11 @@ export class CapabilityAggregator extends EventEmitter {
    */
   private async safeListPrompts(
     serverName: string,
-    client: { listPrompts(): Promise<ListPromptsResult> },
+    client: Pick<Client, 'listPrompts'>,
+    transport: EnhancedTransport,
   ): Promise<ListPromptsResult> {
     try {
-      return await client.listPrompts();
+      return await client.listPrompts(undefined, { timeout: getRequestTimeout(transport) });
     } catch (error) {
       logger.warn(`Failed to list prompts from ${serverName}`, { error: String(error) });
       return { prompts: [] };

@@ -6,6 +6,7 @@ import { FilteringService } from '@src/core/filtering/filteringService.js';
 import { createConnectionResolver } from '@src/core/server/connectionResolver.js';
 import { ServerManager } from '@src/core/server/serverManager.js';
 import { ClientStatus, InboundConnection, OutboundConnection, OutboundConnections } from '@src/core/types/index.js';
+import logger from '@src/logger/logger.js';
 import type { MCPServerParams } from '@src/core/types/transport.js';
 import { getRequestTimeout } from '@src/utils/core/timeoutUtils.js';
 
@@ -24,18 +25,22 @@ export async function createCapabilityCatalogFromConnections(
     Array.from(connections.entries()).map(async ([connectionKey, connection]) => {
       if (connection.status !== ClientStatus.Connected) return;
       const serverName = connection.name || (connectionKey.includes(':') ? connectionKey.split(':')[0] : connectionKey);
-      const result = await connection.client.listTools(undefined, {
-        timeout: getRequestTimeout(connection.transport),
-      });
-      toolsByServer.set(serverName, result.tools ?? []);
-      tagsByServer.set(
-        serverName,
-        Array.isArray((connection.transport as { tags?: unknown }).tags)
-          ? ((connection.transport as { tags?: unknown }).tags as unknown[]).filter(
-              (tag): tag is string => typeof tag === 'string',
-            )
-          : [],
-      );
+      try {
+        const result = await connection.client.listTools(undefined, {
+          timeout: getRequestTimeout(connection.transport),
+        });
+        toolsByServer.set(serverName, result.tools ?? []);
+        tagsByServer.set(
+          serverName,
+          Array.isArray((connection.transport as { tags?: unknown }).tags)
+            ? ((connection.transport as { tags?: unknown }).tags as unknown[]).filter(
+                (tag): tag is string => typeof tag === 'string',
+              )
+            : [],
+        );
+      } catch (error) {
+        logger.warn(`Failed to list tools from ${serverName}`, { error: String(error) });
+      }
     }),
   );
 

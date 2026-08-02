@@ -1,6 +1,12 @@
+import type { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { Prompt, Resource, Tool } from '@modelcontextprotocol/sdk/types.js';
 
 import { ClientStatus, OutboundConnections } from '@src/core/types/index.js';
+import {
+  createMockClient,
+  createMockOutboundConnection,
+  createMockTransport,
+} from '@test/unit-utils/MockFactories.js';
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -66,6 +72,78 @@ describe('CapabilityAggregator', () => {
   });
 
   describe('updateCapabilities', () => {
+    it('should apply the effective backend request timeout to every capability list call', async () => {
+      const listTools = vi.fn().mockResolvedValue({ tools: [mockTool] });
+      const listResources = vi.fn().mockResolvedValue({ resources: [mockResource] });
+      const listPrompts = vi.fn().mockResolvedValue({ prompts: [mockPrompt] });
+      const mockClient = createMockClient({
+        listTools,
+        listResources,
+        listPrompts,
+        getServerCapabilities: vi.fn().mockReturnValue({ resources: true, prompts: true }),
+      }) as Client;
+      Object.defineProperty(mockClient, 'transport', { value: createMockTransport() });
+
+      mockConnections.set('slow-server', createMockOutboundConnection({
+        name: 'slow-server',
+        client: mockClient,
+        transport: {
+          requestTimeout: 300_000,
+          timeout: 5_000,
+          start: vi.fn(),
+          send: vi.fn(),
+          close: vi.fn(),
+        },
+      }));
+
+      await aggregator.updateCapabilities();
+
+      const requestOptions = { timeout: 300_000 };
+      expect(listTools).toHaveBeenCalledWith(undefined, requestOptions);
+      expect(listResources).toHaveBeenCalledWith(undefined, requestOptions);
+      expect(listPrompts).toHaveBeenCalledWith(undefined, requestOptions);
+    });
+
+    it('should preserve partial capabilities after a timeout and recover on a later refresh', async () => {
+      const recoveredTool = { ...mockTool, name: 'recovered-tool' };
+      const healthyTool = { ...mockTool, name: 'healthy-tool' };
+      const slowListTools = vi
+        .fn()
+        .mockRejectedValueOnce(new Error('Request timed out'))
+        .mockResolvedValueOnce({ tools: [recoveredTool] });
+
+      const createConnection = (name: string, listTools: Client['listTools']) => {
+        const client = createMockClient({
+          listTools,
+          getServerCapabilities: vi.fn().mockReturnValue({}),
+        }) as Client;
+        Object.defineProperty(client, 'transport', { value: createMockTransport() });
+        return createMockOutboundConnection({
+          name,
+          client,
+          transport: {
+            requestTimeout: 50,
+            start: vi.fn(),
+            send: vi.fn(),
+            close: vi.fn(),
+          },
+        });
+      };
+
+      mockConnections.set('slow-server', createConnection('slow-server', slowListTools));
+      mockConnections.set(
+        'healthy-server',
+        createConnection('healthy-server', vi.fn().mockResolvedValue({ tools: [healthyTool] })),
+      );
+
+      const partial = await aggregator.refreshCapabilities();
+      expect(partial.tools.map((tool) => tool.name)).toEqual(['healthy-tool']);
+
+      const recovered = await aggregator.refreshCapabilities();
+      expect(recovered.tools.map((tool) => tool.name).sort()).toEqual(['healthy-tool', 'recovered-tool']);
+      expect(slowListTools).toHaveBeenCalledTimes(2);
+    });
+
     it('should return no changes when no servers are connected', async () => {
       const changes = await aggregator.updateCapabilities();
 

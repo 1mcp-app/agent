@@ -158,6 +158,10 @@ export class ClientManager extends EventEmitter {
     };
 
     client.onerror = (error) => {
+      if (isUnknownMessageIdError(error)) {
+        logger.error(`Client ${name} received a response for an unknown message ID`);
+        return;
+      }
       logger.error(`Client ${name} error: ${error}`);
     };
   }
@@ -747,6 +751,10 @@ export class ClientManager extends EventEmitter {
       await connected.transport.close().catch(() => undefined);
     }
   }
+}
+
+function isUnknownMessageIdError(error: Error): boolean {
+  return error.message.startsWith('Received a response for an unknown message ID:');
 }
 
 export default ClientManager;
