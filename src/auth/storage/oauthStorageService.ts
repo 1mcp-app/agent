@@ -1,4 +1,5 @@
 import { AUTH_CONFIG } from '@src/constants.js';
+import { RuntimeIdentityService } from '@src/core/runtime/runtimeIdentityService.js';
 import logger from '@src/logger/logger.js';
 import { auditScopeOperation } from '@src/utils/validation/scopeValidation.js';
 
@@ -6,6 +7,7 @@ import { AuthCodeRepository } from './authCodeRepository.js';
 import { AuthRequestRepository } from './authRequestRepository.js';
 import { ClientDataRepository } from './clientDataRepository.js';
 import { FileStorageService } from './fileStorageService.js';
+import { RefreshTokenFamilyRepository } from './refreshTokenFamilyRepository.js';
 import { SessionRepository } from './sessionRepository.js';
 
 /**
@@ -22,13 +24,15 @@ export class OAuthStorageService {
   private authCodes: AuthCodeRepository;
   private authRequests: AuthRequestRepository;
   private clientData: ClientDataRepository;
+  private refreshTokenFamilies: RefreshTokenFamilyRepository;
 
-  constructor(storageDir?: string) {
+  constructor(storageDir?: string, runtimeScopeId = new RuntimeIdentityService({ storageDir }).getRuntimeScopeId()) {
     this.storage = new FileStorageService(storageDir, AUTH_CONFIG.SERVER.SESSION.SUBDIR);
     this.sessions = new SessionRepository(this.storage);
     this.authCodes = new AuthCodeRepository(this.storage);
     this.authRequests = new AuthRequestRepository(this.storage);
     this.clientData = new ClientDataRepository(this.storage);
+    this.refreshTokenFamilies = new RefreshTokenFamilyRepository(this.storage, runtimeScopeId);
   }
 
   /**
@@ -153,6 +157,10 @@ export class OAuthStorageService {
 
   get clientDataRepository(): ClientDataRepository {
     return this.clientData;
+  }
+
+  get refreshTokenFamilyRepository(): RefreshTokenFamilyRepository {
+    return this.refreshTokenFamilies;
   }
 
   /**

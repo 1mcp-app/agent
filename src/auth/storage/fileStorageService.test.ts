@@ -38,6 +38,7 @@ describe('FileStorageService', () => {
 
   afterEach(() => {
     service.shutdown();
+    vi.restoreAllMocks();
     // Clean up temp directory
     if (fs.existsSync(tempDir)) {
       fs.rmSync(tempDir, { recursive: true, force: true });
@@ -84,6 +85,25 @@ describe('FileStorageService', () => {
       expect(retrieved).toEqual(testData);
     });
 
+    it('preserves the previous record when a replacement write fails after truncation', () => {
+      service.writeData(testPrefix, testId, testData);
+      const targetPath = service.getFilePath(testPrefix, testId);
+      const originalWriteFileSync = fs.writeFileSync;
+      vi.spyOn(fs, 'writeFileSync').mockImplementation((file, data, options) => {
+        originalWriteFileSync(file, '', options);
+        throw new Error(`simulated crash while writing ${String(file)}`);
+      });
+
+      expect(() =>
+        service.writeDataDurable(testPrefix, testId, {
+          ...testData,
+          value: 'replacement value',
+        }),
+      ).toThrow('simulated crash');
+
+      expect(JSON.parse(fs.readFileSync(targetPath, 'utf8'))).toEqual(testData);
+    });
+
     it('should return null for non-existent data', () => {
       const result = service.readData<TestData>(testPrefix, 'nonexistent');
       expect(result).toBeNull();
@@ -107,6 +127,88 @@ describe('FileStorageService', () => {
       const filePath = service.getFilePath(testPrefix, testId);
       const expectedPath = path.join(tempDir, 'sessions', `${testPrefix}${testId}.json`);
       expect(filePath).toBe(expectedPath);
+    });
+  });
+
+  describe('Exclusive storage locks', () => {
+    it('reclaims a lock left by a crashed process', async () => {
+      const lockPath = path.join(service.getStorageDir(), '.refresh-test.lock');
+      fs.mkdirSync(lockPath);
+      fs.writeFileSync(
+        path.join(lockPath, 'owner.json'),
+        JSON.stringify({ operationId: 'abandoned-operation', pid: 2_147_483_647, createdAt: Date.now() }),
+      );
+
+      await expect(service.withExclusiveLock('refresh-test', () => 'acquired')).resolves.toBe('acquired');
+      expect(fs.existsSync(lockPath)).toBe(false);
+    });
+
+    it('recovers from a release rename failure without blocking the next acquisition', async () => {
+      const originalRenameSync = fs.renameSync;
+      let failedReleaseRename = false;
+      vi.spyOn(fs, 'renameSync').mockImplementation((oldPath, newPath) => {
+        if (!failedReleaseRename && String(newPath).endsWith('.releasing')) {
+          failedReleaseRename = true;
+          throw new Error('simulated lock cleanup failure');
+        }
+        return originalRenameSync(oldPath, newPath);
+      });
+
+      await expect(service.withExclusiveLock('refresh-test', () => 'committed')).resolves.toBe('committed');
+      expect(failedReleaseRename).toBe(true);
+      await expect(service.withExclusiveLock('refresh-test', () => 'acquired-again')).resolves.toBe('acquired-again');
+    });
+
+    it('does not overwrite a newer owner created during owner-less lock reclamation', async () => {
+      const lockPath = path.join(service.getStorageDir(), '.owner-race-test.lock');
+      const ownerPath = path.join(lockPath, 'owner.json');
+      const replacementOperationId = 'replacement-operation';
+      const originalMkdirSync = fs.mkdirSync;
+      const originalWriteFileSync = fs.writeFileSync;
+      let injectedReplacementOwner = false;
+      let exclusiveWriteRejected = false;
+      let replacementOwnerPreserved = false;
+      let releaseReplacementOwner = Promise.resolve();
+
+      vi.spyOn(fs, 'writeFileSync').mockImplementation((file, data, options) => {
+        if (String(file) === ownerPath && !injectedReplacementOwner) {
+          injectedReplacementOwner = true;
+          fs.rmSync(lockPath, { recursive: true, force: true });
+          originalMkdirSync(lockPath, { mode: 0o700 });
+          originalWriteFileSync(
+            ownerPath,
+            JSON.stringify({ operationId: replacementOperationId, pid: process.pid, createdAt: Date.now() }),
+            { mode: 0o600, flag: 'wx' },
+          );
+          releaseReplacementOwner = new Promise<void>((resolve) => {
+            queueMicrotask(() => {
+              try {
+                const owner = JSON.parse(fs.readFileSync(ownerPath, 'utf8')) as { operationId?: string };
+                replacementOwnerPreserved = owner.operationId === replacementOperationId;
+              } catch {
+                replacementOwnerPreserved = false;
+              }
+              fs.rmSync(lockPath, { recursive: true, force: true });
+              resolve();
+            });
+          });
+        }
+
+        try {
+          return originalWriteFileSync(file, data, options);
+        } catch (error) {
+          if (String(file) === ownerPath) {
+            exclusiveWriteRejected = true;
+          }
+          throw error;
+        }
+      });
+
+      await expect(service.withExclusiveLock('owner-race-test', () => 'acquired')).resolves.toBe('acquired');
+      await releaseReplacementOwner;
+      expect(injectedReplacementOwner).toBe(true);
+      expect(exclusiveWriteRejected).toBe(true);
+      expect(replacementOwnerPreserved).toBe(true);
     });
   });
 

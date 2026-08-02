@@ -269,7 +269,10 @@ export class ExpressServer {
 
     // Initialize OAuth provider with custom session storage path if configured
     const sessionStoragePath = this.configManager.get('auth').sessionStoragePath;
-    this.oauthProvider = new SDKOAuthServerProvider(sessionStoragePath);
+    this.oauthProvider = new SDKOAuthServerProvider(
+      sessionStoragePath,
+      this.runtimeIdentityService.getRuntimeScopeId(),
+    );
 
     // Initialize streamable session repository with 'transport' subdirectory
     const fileStorageService = new FileStorageService(sessionStoragePath, STORAGE_SUBDIRS.TRANSPORT);

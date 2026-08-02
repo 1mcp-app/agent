@@ -15,7 +15,14 @@ export interface OAuthAuthorizationFlowStorage {
   getClient(clientId: string): unknown | null | undefined;
   processConsentApproval(authRequestId: string, selectedScopes: string[]): Promise<{ redirectUrl: URL }>;
   processConsentDenial(authRequestId: string): Promise<URL>;
-  createSessionWithId(tokenId: string, clientId: string, resource: string, scopes: string[], ttlMs: number): string;
+  createSessionWithId(
+    tokenId: string,
+    clientId: string,
+    resource: string,
+    scopes: string[],
+    ttlMs: number,
+    refreshFamilyId?: string,
+  ): string;
 }
 
 export interface OAuthAuthorizationFlowStorageService {
@@ -26,7 +33,14 @@ export interface OAuthAuthorizationFlowStorageService {
   processConsentApproval(authRequestId: string, selectedScopes: string[]): Promise<{ redirectUrl: URL }>;
   processConsentDenial(authRequestId: string): Promise<URL>;
   sessionRepository: {
-    createWithId(tokenId: string, clientId: string, resource: string, scopes: string[], ttlMs: number): string;
+    createWithId(
+      tokenId: string,
+      clientId: string,
+      resource: string,
+      scopes: string[],
+      ttlMs: number,
+      refreshFamilyId?: string,
+    ): string;
   };
 }
 
@@ -382,8 +396,8 @@ export function createOAuthAuthorizationFlowFromStorage(
       processConsentApproval: (authRequestId, selectedScopes) =>
         storage.processConsentApproval(authRequestId, selectedScopes),
       processConsentDenial: (authRequestId) => storage.processConsentDenial(authRequestId),
-      createSessionWithId: (tokenId, clientId, resource, scopes, ttlMs) =>
-        storage.sessionRepository.createWithId(tokenId, clientId, resource, scopes, ttlMs),
+      createSessionWithId: (tokenId, clientId, resource, scopes, ttlMs, refreshFamilyId) =>
+        storage.sessionRepository.createWithId(tokenId, clientId, resource, scopes, ttlMs, refreshFamilyId),
     },
   });
 }
