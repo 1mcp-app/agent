@@ -138,25 +138,28 @@ export const serverOptions = {
     type: 'boolean' as const,
   },
   'async-min-servers': {
-    describe: 'Minimum number of servers to wait for before accepting requests (when async loading enabled)',
+    describe: 'Deprecated compatibility no-op; the listener does not wait for a server-count threshold',
     type: 'number' as const,
   },
   'async-timeout': {
-    describe: 'Initial load timeout in milliseconds (when async loading enabled)',
+    describe: 'Deprecated compatibility no-op; async loading does not create a startup readiness timeout',
     type: 'number' as const,
   },
   'async-batch-notifications': {
-    describe: 'Batch capability change notifications (when async loading enabled)',
+    describe: 'Coalesce capability-change notifications within the async batch delay window',
     type: 'boolean' as const,
   },
   'async-batch-delay': {
     describe: 'Batch delay in milliseconds for notifications (when async loading enabled)',
     type: 'number' as const,
   },
-  'async-notify-on-ready': {
-    describe: 'Notify clients when servers become ready (when async loading enabled)',
+  'async-notify-on-snapshot': {
+    describe: 'Notify clients when a completed loading cycle publishes a changed capability snapshot',
     type: 'boolean' as const,
-    default: true,
+  },
+  'async-notify-on-ready': {
+    describe: 'Deprecated alias for --async-notify-on-snapshot',
+    type: 'boolean' as const,
   },
   'enable-lazy-loading': {
     describe: 'Enable lazy loading for tools (tools loaded on-demand, reduces token usage by ~95%)',

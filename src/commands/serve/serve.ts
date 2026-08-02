@@ -27,6 +27,7 @@ import { setupServer } from '@src/server.js';
 import { ExpressServer } from '@src/transport/http/server.js';
 import { displayLogo } from '@src/utils/ui/logo.js';
 
+import { resolveAsyncLoadingOptions } from './asyncLoadingOptions.js';
 import { resolveServeConfigPaths } from './runtimeScope.js';
 import { parseCommaSeparatedList, parseInternalToolsList, resolveStdioFilterConfig } from './serveOptions.js';
 
@@ -71,7 +72,8 @@ export interface ServeOptions {
   'async-timeout'?: number;
   'async-batch-notifications'?: boolean;
   'async-batch-delay'?: number;
-  'async-notify-on-ready': boolean;
+  'async-notify-on-snapshot'?: boolean;
+  'async-notify-on-ready'?: boolean;
   'enable-lazy-loading'?: boolean;
   'lazy-mode'?: string;
   'lazy-inline-catalog'?: boolean;
@@ -440,6 +442,9 @@ export async function serveCommand(parsedArgv: ServeOptions): Promise<void> {
     const preloadPatterns = parseCommaSeparatedList(parsedArgv['lazy-preload']);
     const preloadKeywords = parseCommaSeparatedList(parsedArgv['lazy-preload-keywords']);
     const sessionTtlMinutes = parsedArgv['session-ttl'] ?? appConfig.auth?.sessionTtl ?? 1440;
+    const asyncLoading = resolveAsyncLoadingOptions(parsedArgv, appConfig.asyncLoading, (warning) =>
+      logger.warn(warning),
+    );
 
     serverConfigManager.updateConfig({
       host: effectiveHost,
@@ -477,15 +482,7 @@ export async function serveCommand(parsedArgv: ServeOptions): Promise<void> {
       health: {
         detailLevel: parsedArgv['health-info-level'] as 'full' | 'basic' | 'minimal',
       },
-      asyncLoading: {
-        enabled: parsedArgv['enable-async-loading'] ?? appConfig.asyncLoading?.enabled ?? false,
-        notifyOnServerReady: parsedArgv['async-notify-on-ready'],
-        waitForMinimumServers: parsedArgv['async-min-servers'] ?? appConfig.asyncLoading?.minServers ?? 1,
-        initialLoadTimeoutMs: parsedArgv['async-timeout'] ?? appConfig.asyncLoading?.timeout ?? 30000,
-        batchNotifications:
-          parsedArgv['async-batch-notifications'] ?? appConfig.asyncLoading?.batchNotifications ?? true,
-        batchDelayMs: parsedArgv['async-batch-delay'] ?? appConfig.asyncLoading?.batchDelay ?? 100,
-      },
+      asyncLoading,
       lazyLoading: {
         enabled: parsedArgv['enable-lazy-loading'] ?? appConfig.lazyLoading?.enabled ?? false,
         inlineCatalog: parsedArgv['lazy-inline-catalog'] ?? appConfig.lazyLoading?.inlineCatalog ?? false,

@@ -139,7 +139,9 @@ export interface ApplicationConfig {
   };
   readonly asyncLoading?: {
     readonly enabled?: boolean;
+    /** @deprecated Compatibility no-op; remove before the next breaking release. */
     readonly minServers?: number;
+    /** @deprecated Compatibility no-op; remove before the next breaking release. */
     readonly timeout?: number;
     readonly batchNotifications?: boolean;
     readonly batchDelay?: number;
@@ -331,10 +333,23 @@ export const applicationConfigSchema = z.object({
   asyncLoading: z
     .object({
       enabled: z.boolean().optional().describe('Enable asynchronous MCP server loading'),
-      minServers: z.number().int().min(0).optional().describe('Minimum servers to wait for before accepting requests'),
-      timeout: z.number().int().min(0).optional().describe('Initial load timeout in milliseconds'),
-      batchNotifications: z.boolean().optional().describe('Batch capability change notifications'),
-      batchDelay: z.number().int().min(0).optional().describe('Batch delay in milliseconds'),
+      minServers: z
+        .number()
+        .int()
+        .min(0)
+        .optional()
+        .describe('Deprecated compatibility no-op; does not gate listener or request readiness'),
+      timeout: z
+        .number()
+        .int()
+        .min(0)
+        .optional()
+        .describe('Deprecated compatibility no-op; does not delay async startup'),
+      batchNotifications: z
+        .boolean()
+        .optional()
+        .describe('Coalesce capability-change notifications within the batch delay window'),
+      batchDelay: z.number().int().min(0).optional().describe('Notification coalescing window in milliseconds'),
     })
     .optional(),
   lazyLoading: z

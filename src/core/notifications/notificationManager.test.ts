@@ -1,4 +1,5 @@
 import { AggregatedCapabilities, CapabilityChanges } from '@src/core/capabilities/capabilityAggregator.js';
+import { AgentConfigManager } from '@src/core/server/agentConfig.js';
 import { InboundConnection, ServerStatus } from '@src/core/types/index.js';
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -84,6 +85,28 @@ describe('NotificationManager', () => {
     it('should not send notifications when disabled', () => {
       const manager = new NotificationManager(mockInboundConnection, { notifyOnServerReady: false });
 
+      const changes: CapabilityChanges = {
+        hasChanges: true,
+        toolsChanged: true,
+        resourcesChanged: false,
+        promptsChanged: false,
+        addedServers: [],
+        removedServers: [],
+        previous: createMockCapabilities(0, 0, 0),
+        current: createMockCapabilities(1, 0, 0),
+      };
+
+      manager.handleCapabilityChanges(changes);
+
+      expect(mockServer.notification).not.toHaveBeenCalled();
+      manager.shutdown();
+    });
+
+    it('should honor the global client notification gate', () => {
+      vi.spyOn(AgentConfigManager, 'getInstance').mockReturnValue({
+        get: vi.fn().mockReturnValue({ clientNotifications: false }),
+      } as unknown as AgentConfigManager);
+      const manager = new NotificationManager(mockInboundConnection, { batchNotifications: false });
       const changes: CapabilityChanges = {
         hasChanges: true,
         toolsChanged: true,
