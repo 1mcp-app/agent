@@ -130,21 +130,40 @@ sequenceDiagram
     par Background Loading
         1MCP->>Server1: Start server
         Server1-->>1MCP: Ready with tools
-        1MCP-->>Client: listChanged notification (tools)
     and
         1MCP->>Server2: Start server
         Server2-->>1MCP: Ready with resources
-        1MCP-->>Client: listChanged notification (resources)
     end
+    1MCP->>1MCP: Publish one completed capability snapshot
+    1MCP-->>Client: Coalesced listChanged notifications
 ```
 
 **Benefits:**
 
-- **Progressive Discovery**: New capabilities appear in real-time
-- **Batched Notifications**: Multiple changes grouped to prevent spam
+- **Immediate Listener**: HTTP requests can reach 1MCP while backends load
+- **Atomic Discovery**: A loading cycle publishes one snapshot after every backend reaches a terminal state
+- **Batched Notifications**: Capability-change events are coalesced to prevent spam
 - **Better UX**: No need to manually refresh or reconnect
 
-The `async-min-servers` setting is a startup readiness gate. During each loading cycle, 1MCP keeps the previous Capability Snapshot visible until every configured backend is connected or marked unavailable, then publishes the completed snapshot atomically. Inspection endpoints such as `/api/tools` query the Capability Catalog without forcing all servers to reconnect or refresh.
+The HTTP listener starts accepting requests immediately. During each loading cycle, 1MCP keeps the previous Capability Snapshot visible until every configured backend is connected or marked unavailable, then publishes the completed snapshot atomically. Inspection endpoints such as `/api/tools` query the Capability Catalog without forcing all servers to reconnect or refresh.
+
+### Async loading options
+
+| CLI option                               | Default | Purpose                                                                                                                                                                                                 |
+| ---------------------------------------- | ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `--async-batch-notifications`            | Enabled | Coalesces capability-change events into fewer `listChanged` notifications. Use `--no-async-batch-notifications` to send each published change immediately.                                              |
+| `--async-batch-delay <milliseconds>`     | `1000`  | Coalescing window used when notification batching is enabled.                                                                                                                                           |
+| `--async-notify-on-snapshot`             | Enabled | Sends notifications when a completed loading cycle publishes a changed capability snapshot. Global `--enable-client-notifications` must also remain enabled.                                            |
+| `--async-notify-on-ready`                | —       | Deprecated compatibility alias for `--async-notify-on-snapshot`. If both are supplied, `--async-notify-on-snapshot` wins.                                                                               |
+| `--async-min-servers`, `--async-timeout` | —       | Deprecated compatibility no-ops. Their `ONE_MCP_*` environment variables and `asyncLoading.minServers` / `asyncLoading.timeout` TOML keys warn when explicitly supplied and will be removed next major. |
+
+A longer batch delay reduces notification bursts at the cost of delaying notifications after a changed snapshot is published. It does not delay listener availability or create a readiness gate.
+
+```bash
+npx -y @1mcp/agent --config mcp.json --enable-async-loading \
+  --async-notify-on-snapshot \
+  --async-batch-delay 250
+```
 
 ## Configuration
 
@@ -155,6 +174,8 @@ For a complete list of options, see the **[Configuration Deep Dive](/guide/essen
 ## Health Check API
 
 Check the status of your MCP servers through simple HTTP endpoints.
+
+`/health/ready` reports configuration and supervised-backend readiness, returning `503` while any supervised stdio backend is restarting or in a crash loop. It does not wait for a minimum number of connected backends. Use `/health/mcp` for backend loading progress and terminal states.
 
 ### Overall Status: `/health/mcp`
 

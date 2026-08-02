@@ -40,7 +40,10 @@ import { setupSecurityMiddleware } from './middlewares/securityMiddleware.js';
 import { createAdminRoutes } from './routes/adminRoutes.js';
 import { createApiRoutes, createCliTokenRoute, rejectBrowserOriginRequests } from './routes/apiRoutes.js';
 import createHealthRoutes from './routes/healthRoutes.js';
-import createOAuthRoutes, { createBackendOAuthDashboardProvider } from './routes/oauthRoutes.js';
+import createOAuthRoutes, {
+  createBackendOAuthAuthorizationFlow,
+  createBackendOAuthDashboardProvider,
+} from './routes/oauthRoutes.js';
 import { createRuntimeIdentityRoutes } from './routes/runtimeIdentityRoutes.js';
 import { setupSseRoutes } from './routes/sseRoutes.js';
 import { setupStreamableHttpRoutes } from './routes/streamableHttpRoutes.js';
@@ -266,7 +269,10 @@ export class ExpressServer {
 
     // Initialize OAuth provider with custom session storage path if configured
     const sessionStoragePath = this.configManager.get('auth').sessionStoragePath;
-    this.oauthProvider = new SDKOAuthServerProvider(sessionStoragePath);
+    this.oauthProvider = new SDKOAuthServerProvider(
+      sessionStoragePath,
+      this.runtimeIdentityService.getRuntimeScopeId(),
+    );
 
     // Initialize streamable session repository with 'transport' subdirectory
     const fileStorageService = new FileStorageService(sessionStoragePath, STORAGE_SUBDIRS.TRANSPORT);
@@ -381,8 +387,9 @@ export class ExpressServer {
     this.app.use(authRouter);
 
     // Setup OAuth management routes (no auth required)
-    this.app.use('/oauth', createOAuthRoutes(this.oauthProvider, this.loadingManager));
-    const getOAuthDashboard = createBackendOAuthDashboardProvider(this.oauthProvider, this.loadingManager);
+    const oauthFlow = createBackendOAuthAuthorizationFlow(this.oauthProvider, this.loadingManager);
+    this.app.use('/oauth', createOAuthRoutes(this.oauthProvider, this.loadingManager, oauthFlow));
+    const getOAuthDashboard = createBackendOAuthDashboardProvider(this.oauthProvider, this.loadingManager, oauthFlow);
 
     // Setup health check routes (no auth required for monitoring)
     this.app.use('/health', createHealthRoutes(this.loadingManager));
@@ -414,6 +421,7 @@ export class ExpressServer {
         serverManager: this.serverManager,
         resolveTarget: resolveServerTarget,
       }),
+      oauthFlow,
     });
     const adminRoutes = createAdminRoutes({
       adminEnabled,
@@ -421,6 +429,7 @@ export class ExpressServer {
       configuredServerService: adminDomain.configuredServerService,
       presetService: adminDomain.presetService,
       backendRestartService: adminDomain.backendRestartService,
+      oauthService: adminDomain.oauthService,
       adminMutationAvailability,
       getRuntimeIdentity,
       getOAuthDashboard,

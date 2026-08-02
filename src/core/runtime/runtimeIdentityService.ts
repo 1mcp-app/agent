@@ -42,7 +42,7 @@ export class RuntimeIdentityService {
   }
 
   getRuntimeIdentity(input: RuntimeIdentityInput): RuntimeIdentity {
-    const runtimeScopeId = this.getOrCreateRuntimeScopeId();
+    const runtimeScopeId = this.getRuntimeScopeId();
     const identity: RuntimeIdentity = {
       identityProtocolVersion: '1',
       runtimeScopeId,
@@ -55,6 +55,10 @@ export class RuntimeIdentityService {
     }
 
     return identity;
+  }
+
+  getRuntimeScopeId(): string {
+    return this.getOrCreateRuntimeScopeId();
   }
 
   private getOrCreateRuntimeScopeId(): string {

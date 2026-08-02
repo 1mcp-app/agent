@@ -1,9 +1,18 @@
 import fs from 'fs';
+import { randomUUID } from 'node:crypto';
 import path from 'path';
 
 import { ExpirableData } from '@src/auth/sessionTypes.js';
 import { AUTH_CONFIG, FILE_PREFIX_MAPPING, getGlobalConfigDir, STORAGE_SUBDIRS } from '@src/constants.js';
 import logger from '@src/logger/logger.js';
+
+import { z, type ZodType } from 'zod';
+
+const StorageLockOwnerSchema = z.object({
+  operationId: z.string().min(1),
+  pid: z.number().int().positive(),
+  createdAt: z.number().finite(),
+});
 
 /**
  * Generic file storage service with unified cleanup for all expirable data types.
@@ -216,11 +225,17 @@ export class FileStorageService {
       return false;
     }
 
+    if (filePrefix === AUTH_CONFIG.SERVER.REFRESH_FAMILY.LOOKUP_FILE_PREFIX) {
+      const { LOOKUP_ID_PREFIX } = AUTH_CONFIG.SERVER.REFRESH_FAMILY;
+      return id.startsWith(LOOKUP_ID_PREFIX) && /^[a-f0-9]{64}$/.test(id.slice(LOOKUP_ID_PREFIX.length));
+    }
+
     // Check for valid server-side prefix
     const serverPrefixes = [
       AUTH_CONFIG.SERVER.SESSION.ID_PREFIX,
       AUTH_CONFIG.SERVER.AUTH_CODE.ID_PREFIX,
       AUTH_CONFIG.SERVER.AUTH_REQUEST.ID_PREFIX,
+      AUTH_CONFIG.SERVER.REFRESH_FAMILY.ID_PREFIX,
       AUTH_CONFIG.SERVER.STREAMABLE_SESSION.ID_PREFIX,
     ];
 
@@ -281,10 +296,42 @@ export class FileStorageService {
   }
 
   /**
+   * Atomically replaces a record and flushes it before returning.
+   */
+  writeDataDurable<T extends ExpirableData>(filePrefix: string, id: string, data: T): void {
+    let temporaryPath: string | undefined;
+    try {
+      const filePath = this.getFilePath(filePrefix, id);
+      temporaryPath = `${filePath}.${process.pid}.${randomUUID()}.tmp`;
+      const fileDescriptor = fs.openSync(temporaryPath, 'wx', 0o600);
+      try {
+        fs.writeFileSync(fileDescriptor, JSON.stringify(data, null, 2));
+        fs.fsyncSync(fileDescriptor);
+      } finally {
+        fs.closeSync(fileDescriptor);
+      }
+      fs.renameSync(temporaryPath, filePath);
+      temporaryPath = undefined;
+      this.flushStorageDirectory();
+      logger.debug(`Wrote data to ${filePath}`);
+    } catch (error) {
+      if (temporaryPath) {
+        try {
+          fs.unlinkSync(temporaryPath);
+        } catch {
+          // A later startup cleanup removes abandoned temporary files.
+        }
+      }
+      logger.error(`Failed to write data for ${id}: ${error}`);
+      throw error;
+    }
+  }
+
+  /**
    * Reads data from a file with the specified prefix and ID
    * Returns null if file doesn't exist or data is expired
    */
-  readData<T extends ExpirableData>(filePrefix: string, id: string): T | null {
+  readData<T extends ExpirableData>(filePrefix: string, id: string, schema?: ZodType<T>): T | null {
     if (!this.isValidId(id, filePrefix)) {
       logger.warn(`Rejected readData with invalid ID: ${id}`);
       return null;
@@ -297,7 +344,8 @@ export class FileStorageService {
       }
 
       const data = fs.readFileSync(filePath, 'utf8');
-      const parsedData: T = JSON.parse(data) as T;
+      const parsed: unknown = JSON.parse(data);
+      const parsedData = schema ? schema.parse(parsed) : (parsed as T);
 
       // Check if data is expired
       if (parsedData.expires < Date.now()) {
@@ -331,7 +379,36 @@ export class FileStorageService {
       return false;
     } catch (error) {
       logger.error(`Failed to delete data for ${id}: ${error}`);
-      return false;
+      throw error;
+    }
+  }
+
+  /**
+   * Runs a storage transition under an inter-process lock.
+   *
+   * Lock ownership is recorded so a process that dies while holding the lock
+   * cannot block the Runtime Scope permanently.
+   */
+  async withExclusiveLock<T>(lockName: string, operation: () => Promise<T> | T): Promise<T> {
+    if (!/^[a-z0-9-]+$/.test(lockName)) {
+      throw new Error(`Invalid storage lock name: ${lockName}`);
+    }
+
+    const lockPath = path.join(this.storageDir, `.${lockName}.lock`);
+    const operationId = randomUUID();
+    const deadline = Date.now() + 10_000;
+
+    while (!this.tryAcquireLock(lockPath, operationId)) {
+      if (Date.now() >= deadline) {
+        throw new Error(`Timed out acquiring storage lock: ${lockName}`);
+      }
+      await new Promise((resolve) => setTimeout(resolve, 5 + Math.floor(Math.random() * 10)));
+    }
+
+    try {
+      return await operation();
+    } finally {
+      this.releaseLock(lockPath, operationId);
     }
   }
 
@@ -357,6 +434,20 @@ export class FileStorageService {
       let cleanedCount = 0;
 
       for (const file of files) {
+        if (file.includes('.json.') && file.endsWith('.tmp')) {
+          const temporaryPath = path.join(this.storageDir, file);
+          try {
+            const ageMs = Date.now() - fs.statSync(temporaryPath).mtimeMs;
+            if (ageMs >= 60_000) {
+              fs.unlinkSync(temporaryPath);
+              cleanedCount++;
+            }
+          } catch (error) {
+            logger.warn(`Failed to clean temporary file ${file}: ${error}`);
+          }
+          continue;
+        }
+
         if (file.endsWith(AUTH_CONFIG.SERVER.STORAGE.FILE_EXTENSION)) {
           const filePath = path.join(this.storageDir, file);
           try {
@@ -439,4 +530,178 @@ export class FileStorageService {
       logger.info('FileStorageService cleanup interval stopped');
     }
   }
+
+  private flushStorageDirectory(): void {
+    try {
+      const directoryDescriptor = fs.openSync(this.storageDir, 'r');
+      try {
+        fs.fsyncSync(directoryDescriptor);
+      } finally {
+        fs.closeSync(directoryDescriptor);
+      }
+    } catch (error) {
+      if (
+        process.platform === 'win32' &&
+        error instanceof Error &&
+        'code' in error &&
+        ['EACCES', 'EISDIR', 'EINVAL', 'ENOTSUP', 'EPERM'].includes(String(error.code))
+      ) {
+        return;
+      }
+      throw error;
+    }
+  }
+
+  private tryAcquireLock(lockPath: string, operationId: string): boolean {
+    try {
+      fs.mkdirSync(lockPath, { mode: 0o700 });
+    } catch (error) {
+      if (!isFileExistsError(error)) {
+        throw error;
+      }
+      this.reclaimAbandonedLock(lockPath);
+      return false;
+    }
+
+    try {
+      fs.writeFileSync(
+        path.join(lockPath, 'owner.json'),
+        JSON.stringify({ operationId, pid: process.pid, createdAt: Date.now() }),
+        { mode: 0o600, flag: 'wx' },
+      );
+      this.flushStorageDirectory();
+      return true;
+    } catch (error) {
+      const owner = this.readLockOwner(lockPath);
+      if (owner?.operationId === operationId) {
+        try {
+          removeLockDirectory(lockPath);
+        } catch (cleanupError) {
+          throw new AggregateError([error, cleanupError], `Failed to initialize storage lock: ${lockPath}`);
+        }
+      }
+      if (isFileExistsError(error)) {
+        return false;
+      }
+      throw error;
+    }
+  }
+
+  private reclaimAbandonedLock(lockPath: string): void {
+    const owner = this.readLockOwner(lockPath);
+    if (owner && isProcessAlive(owner.pid)) {
+      return;
+    }
+
+    if (!owner) {
+      try {
+        if (Date.now() - fs.statSync(lockPath).mtimeMs < 1_000) {
+          return;
+        }
+      } catch {
+        return;
+      }
+    }
+
+    const observedOperationId = owner?.operationId;
+    const tombstonePath = `${lockPath}.${randomUUID()}.stale`;
+    try {
+      fs.renameSync(lockPath, tombstonePath);
+    } catch {
+      return;
+    }
+
+    const movedOwner = this.readLockOwner(tombstonePath);
+    if (observedOperationId && movedOwner?.operationId !== observedOperationId) {
+      try {
+        fs.renameSync(tombstonePath, lockPath);
+      } catch {
+        // Another contender will reconcile the surviving generation.
+      }
+      return;
+    }
+
+    removeLockDirectory(tombstonePath);
+  }
+
+  private releaseLock(lockPath: string, operationId: string): void {
+    const owner = this.readLockOwner(lockPath);
+    if (owner?.operationId !== operationId) {
+      logger.error(`Storage lock ownership changed before release: ${lockPath}`);
+      return;
+    }
+
+    const tombstonePath = `${lockPath}.${operationId}.releasing`;
+    try {
+      fs.renameSync(lockPath, tombstonePath);
+    } catch (renameError) {
+      const currentOwner = this.readLockOwner(lockPath);
+      if (!currentOwner && !fs.existsSync(lockPath)) {
+        logger.warn(`Storage lock disappeared during release: ${lockPath}`);
+        return;
+      }
+      if (currentOwner?.operationId !== operationId) {
+        logger.error(`Storage lock ownership changed during release: ${lockPath}`);
+        throw renameError;
+      }
+
+      try {
+        removeLockDirectory(lockPath);
+      } catch (cleanupError) {
+        throw new AggregateError(
+          [renameError, cleanupError],
+          `Failed to release storage lock after rename failure: ${lockPath}`,
+        );
+      }
+
+      try {
+        this.flushStorageDirectory();
+      } catch (flushError) {
+        logger.error(`Failed to flush storage directory after lock release ${lockPath}: ${flushError}`);
+      }
+      logger.warn(`Released storage lock without rename after rename failure: ${lockPath}`);
+      return;
+    }
+
+    try {
+      removeLockDirectory(tombstonePath);
+      this.flushStorageDirectory();
+    } catch (error) {
+      logger.error(`Failed to release storage lock ${lockPath}: ${error}`);
+    }
+  }
+
+  private readLockOwner(lockPath: string): { operationId: string; pid: number } | null {
+    try {
+      const value: unknown = JSON.parse(fs.readFileSync(path.join(lockPath, 'owner.json'), 'utf8'));
+      const result = StorageLockOwnerSchema.safeParse(value);
+      return result.success ? { operationId: result.data.operationId, pid: result.data.pid } : null;
+    } catch {
+      return null;
+    }
+  }
+}
+
+function isFileExistsError(error: unknown): error is Error & { code: string } {
+  return error instanceof Error && 'code' in error && error.code === 'EEXIST';
+}
+
+function isProcessAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return error instanceof Error && 'code' in error && error.code === 'EPERM';
+  }
+}
+
+function removeLockDirectory(lockPath: string): void {
+  try {
+    fs.unlinkSync(path.join(lockPath, 'owner.json'));
+  } catch (error) {
+    if (!(error instanceof Error && 'code' in error && error.code === 'ENOENT')) {
+      throw error;
+    }
+  }
+  fs.rmdirSync(lockPath);
 }

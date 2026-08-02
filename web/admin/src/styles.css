@@ -146,6 +146,7 @@ input {
   background: transparent;
   color: #aeb8b4;
   cursor: pointer;
+  text-decoration: none;
   text-align: left;
 }
 
@@ -252,6 +253,64 @@ input {
 .operations-panel {
   padding: 16px;
   box-shadow: 0 1px 0 rgba(23, 32, 29, 0.03);
+}
+
+.dashboard-runtime-panel {
+  margin-top: 16px;
+}
+
+.summary-link {
+  color: inherit;
+  text-decoration: none;
+  transition:
+    border-color 120ms ease,
+    transform 120ms ease;
+}
+
+.summary-link:hover {
+  border-color: var(--admin-teal);
+  transform: translateY(-1px);
+}
+
+.summary-link:focus-visible {
+  outline: 2px solid var(--admin-teal);
+  outline-offset: 3px;
+}
+
+.oauth-service-row {
+  min-width: 0;
+  padding: 16px;
+  border-color: var(--admin-line);
+  border-radius: 8px;
+  background: var(--admin-panel);
+}
+
+.oauth-service-main {
+  min-width: 0;
+}
+
+.oauth-service-identity {
+  margin-top: 10px;
+  color: var(--admin-muted);
+  font-size: 12px;
+}
+
+.oauth-service-identity summary {
+  width: fit-content;
+  cursor: pointer;
+  font-weight: 700;
+}
+
+.oauth-service-id {
+  display: block;
+  max-width: min(520px, 60vw);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.oauth-service-action {
+  flex: none;
 }
 
 .login-panel {

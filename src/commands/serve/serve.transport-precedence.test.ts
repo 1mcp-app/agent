@@ -314,8 +314,8 @@ describe('serveCommand - config-dir session isolation', () => {
           }),
           asyncLoading: expect.objectContaining({
             enabled: true,
-            waitForMinimumServers: 3,
-            initialLoadTimeoutMs: 1234,
+            waitForMinimumServers: 0,
+            initialLoadTimeoutMs: 30000,
             batchNotifications: false,
             batchDelayMs: 55,
           }),

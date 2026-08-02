@@ -1,3 +1,4 @@
+import type { OAuthAuthorizationFlow } from '@src/auth/oauthAuthorizationFlow.js';
 import type { MCPServerParams } from '@src/core/types/index.js';
 import type { ConfigChangeService } from '@src/domains/config-change/configChange.js';
 import type { PresetManager } from '@src/domains/preset/manager/presetManager.js';
@@ -14,6 +15,7 @@ import {
   type ConfiguredServerConnectivityChecker,
 } from './adminConfiguredServerService.js';
 import { AdminIdentityService } from './adminIdentityService.js';
+import { type AdminOAuthOperations, AdminOAuthService } from './adminOAuthService.js';
 import { AdminOperationService } from './adminOperationService.js';
 import { type AdminPresetOperations, AdminPresetService } from './adminPresetService.js';
 import type { AdminMutationAvailability } from './runtimeScopeAdminLock.js';
@@ -31,6 +33,7 @@ export interface AdminDomainOptions {
   presetManager?: PresetManager;
   readServerTargets?: () => Record<string, MCPServerParams>;
   runtimeBackendRestartService?: RuntimeBackendRestartService;
+  oauthFlow?: OAuthAuthorizationFlow;
 }
 
 export interface AdminDomain {
@@ -39,6 +42,7 @@ export interface AdminDomain {
   configuredServerService: AdminConfiguredServerOperations;
   presetService?: AdminPresetOperations;
   backendRestartService?: AdminBackendRestartOperations;
+  oauthService?: AdminOAuthOperations;
 }
 
 export function createAdminDomain(options: AdminDomainOptions): AdminDomain {
@@ -75,6 +79,9 @@ export function createAdminDomain(options: AdminDomainOptions): AdminDomain {
           readServerTargets: options.readServerTargets,
         })
       : undefined;
+  const oauthService = options.oauthFlow
+    ? new AdminOAuthService({ operationService, oauthFlow: options.oauthFlow })
+    : undefined;
 
   return {
     adminService,
@@ -82,5 +89,6 @@ export function createAdminDomain(options: AdminDomainOptions): AdminDomain {
     configuredServerService,
     backendRestartService,
     presetService,
+    oauthService,
   };
 }

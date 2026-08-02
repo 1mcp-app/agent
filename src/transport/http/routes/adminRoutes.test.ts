@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
+import type { BackendOAuthDashboardResult, OAuthAuthorizationFlow } from '@src/auth/oauthAuthorizationFlow.js';
 import type { AdminBackendRestartOperations } from '@src/domains/admin/adminBackendRestartService.js';
 import {
   AdminConfiguredServerNotFoundError,
@@ -9,6 +10,7 @@ import {
   type ConfiguredServerConfigDocument,
 } from '@src/domains/admin/adminConfiguredServerService.js';
 import { AdminIdentityService } from '@src/domains/admin/adminIdentityService.js';
+import { AdminOAuthService } from '@src/domains/admin/adminOAuthService.js';
 import { type AdminAuditFact, AdminOperationService } from '@src/domains/admin/adminOperationService.js';
 import { createConfigChangeService } from '@src/domains/config-change/configChange.js';
 
@@ -31,6 +33,7 @@ const cliRuntimeIdentity = {
   runtimeScopeId: 'scope_123',
   runtimeVersion: '1.2.3',
 } as const;
+const SEA_ADMIN_CONSOLE_ASSETS_KEY = '__1MCP_SEA_ADMIN_CONSOLE_ASSETS__';
 
 function cookieValue(setCookieHeader: string): string {
   const [nameValue] = setCookieHeader.split(';');
@@ -39,6 +42,7 @@ function cookieValue(setCookieHeader: string): string {
 
 describe('admin routes', () => {
   let adminService: AdminIdentityService;
+  let oauthFlow: OAuthAuthorizationFlow;
   let storageDir: string;
   let configuredServerService: {
     listConfiguredServers: ReturnType<typeof vi.fn<AdminConfiguredServerOperations['listConfiguredServers']>>;
@@ -63,6 +67,7 @@ describe('admin routes', () => {
       now: () => new Date('2026-07-06T00:00:00.000Z'),
       sessionTtlMs: 60 * 60 * 1000,
     });
+    oauthFlow = createOAuthFlow();
     configuredServerService = {
       listConfiguredServers: vi.fn<AdminConfiguredServerOperations['listConfiguredServers']>(),
       getConfiguredServerDetail: vi.fn<AdminConfiguredServerOperations['getConfiguredServerDetail']>(),
@@ -79,6 +84,7 @@ describe('admin routes', () => {
 
   afterEach(() => {
     fs.rmSync(storageDir, { recursive: true, force: true });
+    delete (globalThis as Record<string, unknown>)[SEA_ADMIN_CONSOLE_ASSETS_KEY];
   });
 
   function mountAdminRoutes(
@@ -88,6 +94,7 @@ describe('admin routes', () => {
       backendRestartService?: AdminBackendRestartOperations | null;
       adminConsoleAssetsDir?: string;
       adminMutationAvailability?: { available: boolean; reason?: 'writer_lock_unavailable' };
+      oauthDashboard?: BackendOAuthDashboardResult;
     } = {},
   ) {
     const app = express();
@@ -106,17 +113,26 @@ describe('admin routes', () => {
         externalUrl: options.externalUrl ?? runtimeIdentity.externalUrl,
       }),
       adminMutationAvailability: options.adminMutationAvailability,
-      getOAuthDashboard: () => ({
-        status: 'ready',
-        services: [
-          {
-            name: 'github',
-            status: 'awaiting_oauth',
-            requiresOAuth: true,
-            lastError: 'token: [REDACTED]',
-          },
-        ],
+      oauthService: new AdminOAuthService({
+        operationService: new AdminOperationService({
+          runtimeScopeId: 'scope_123',
+          storageDir,
+          now: () => new Date('2026-07-06T00:00:00.000Z'),
+        }),
+        oauthFlow,
       }),
+      getOAuthDashboard: () =>
+        options.oauthDashboard ?? {
+          status: 'ready',
+          services: [
+            {
+              name: 'github',
+              status: 'awaiting_oauth',
+              requiresOAuth: true,
+              lastError: 'token: [REDACTED]',
+            },
+          ],
+        },
       adminConsoleAssetsDir: options.adminConsoleAssetsDir,
     });
 
@@ -142,8 +158,8 @@ describe('admin routes', () => {
     });
   }
 
-  function createAdminAssetFixture(): string {
-    const assetsRoot = `${storageDir}/admin-assets`;
+  function createAdminAssetFixture(parentDir = storageDir): string {
+    const assetsRoot = `${parentDir}/admin-assets`;
     fs.mkdirSync(`${assetsRoot}/assets`, { recursive: true });
     fs.writeFileSync(
       `${assetsRoot}/index.html`,
@@ -313,6 +329,17 @@ describe('admin routes', () => {
     expect(response.text).not.toMatch(/account create|disable account|delete account|password reset/i);
   });
 
+  it('serves the packaged entrypoint when its absolute path includes a dot-directory', async () => {
+    await adminService.bootstrapFirstAdmin({ username: 'operator', password: 'correct horse battery staple' });
+    const app = mountAdminRoutes({ adminConsoleAssetsDir: createAdminAssetFixture(`${storageDir}/.worktrees`) });
+
+    const response = await request(app).get('/admin');
+
+    expect(response.status).toBe(200);
+    expect(response.headers['content-type']).toContain('text/html');
+    expect(response.text).toContain('<div id="admin-root"></div>');
+  });
+
   it('falls browser admin subroutes back to the SPA entrypoint', async () => {
     await adminService.bootstrapFirstAdmin({ username: 'operator', password: 'correct horse battery staple' });
     const app = mountAdminRoutes({ adminConsoleAssetsDir: createAdminAssetFixture() });
@@ -335,6 +362,31 @@ describe('admin routes', () => {
     expect(response.headers['cache-control']).toContain('public');
     expect(response.headers['cache-control']).toContain('max-age=31536000');
     expect(response.text).toBe('window.__adminConsoleSmoke = true;');
+  });
+
+  it('serves embedded Admin Console assets when the SEA asset manifest is available', async () => {
+    await adminService.bootstrapFirstAdmin({ username: 'operator', password: 'correct horse battery staple' });
+    (globalThis as Record<string, unknown>)[SEA_ADMIN_CONSOLE_ASSETS_KEY] = {
+      'index.html': Buffer.from(
+        '<!doctype html><script type="module" src="/admin/assets/admin-console.js"></script><link rel="stylesheet" href="/admin/assets/admin-console.css">',
+      ).toString('base64'),
+      'assets/admin-console.js': Buffer.from('window.__embeddedAdminConsole = true;').toString('base64'),
+      'assets/admin-console.css': Buffer.from('.admin-console { display: block; }').toString('base64'),
+    };
+    const app = mountAdminRoutes();
+
+    const indexResponse = await request(app).get('/admin/');
+    const jsResponse = await request(app).get('/admin/assets/admin-console.js');
+    const cssResponse = await request(app).get('/admin/assets/admin-console.css');
+
+    expect(indexResponse.status).toBe(200);
+    expect(indexResponse.text).toContain('/admin/assets/admin-console.js');
+    expect(jsResponse.status).toBe(200);
+    expect(jsResponse.headers['content-type']).toContain('javascript');
+    expect(jsResponse.text).toBe('window.__embeddedAdminConsole = true;');
+    expect(cssResponse.status).toBe(200);
+    expect(cssResponse.headers['content-type']).toContain('text/css');
+    expect(cssResponse.text).toBe('.admin-console { display: block; }');
   });
 
   it('resolves the default admin console asset directory as a decoded filesystem path', () => {
@@ -592,6 +644,14 @@ describe('admin routes', () => {
       .get('/admin/cli/v1/session/status')
       .set('Authorization', 'Bearer admin_sess_missing')
       .set('X-Request-Id', 'req_cli_status_missing');
+    const spacedResponse = await request(app)
+      .get('/admin/cli/v1/session/status')
+      .set('Authorization', `Bearer${' '.repeat(2048)}${sessionToken}`)
+      .set('X-Request-Id', 'req_cli_status_spaced');
+    const malformedResponse = await request(app)
+      .get('/admin/cli/v1/session/status')
+      .set('Authorization', `Bearer\t${sessionToken}`)
+      .set('X-Request-Id', 'req_cli_status_malformed');
 
     expect(validateSpy).toHaveBeenCalledWith(sessionToken);
     expect(authenticatedResponse.status).toBe(200);
@@ -621,6 +681,17 @@ describe('admin routes', () => {
         runtime: cliRuntimeIdentity,
       },
     });
+    expect(spacedResponse.body).toMatchObject({
+      ok: true,
+      requestId: 'req_cli_status_spaced',
+      result: { authenticated: true },
+    });
+    expect(malformedResponse.body).toMatchObject({
+      ok: true,
+      requestId: 'req_cli_status_malformed',
+      result: { authenticated: false },
+    });
+    expect(validateSpy).toHaveBeenCalledWith(undefined);
   });
 
   it('logs out through the CLI adapter by revoking the bearer session server-side', async () => {
@@ -2091,6 +2162,8 @@ describe('admin routes', () => {
         services: [
           {
             name: 'github',
+            id: 'github',
+            displayName: 'github',
             status: 'awaiting_oauth',
             requiresOAuth: true,
             lastError: 'token: [REDACTED]',
@@ -2164,6 +2237,222 @@ describe('admin routes', () => {
     expect(response.status).toBe(200);
     expect(JSON.stringify(response.body)).not.toContain('raw-secret');
     expect(response.body.oauth.services[0].lastError).toBe('token: [REDACTED]');
+  });
+
+  it('projects full OAuth service ids separately from compact operator display names', async () => {
+    await adminService.bootstrapFirstAdmin({ username: 'operator', password: 'correct horse battery staple' });
+    const app = mountAdminRoutes({
+      oauthDashboard: {
+        status: 'ready',
+        services: [
+          {
+            name: 'context7:0123456789abcdef',
+            status: 'awaiting_oauth',
+            requiresOAuth: true,
+          },
+          {
+            name: 'github',
+            status: 'connected',
+            requiresOAuth: false,
+          },
+          {
+            name: 'context7:short',
+            status: 'awaiting_oauth',
+            requiresOAuth: true,
+          },
+          {
+            name: 'invalid:template:identity',
+            status: 'awaiting_oauth',
+            requiresOAuth: true,
+          },
+        ],
+      },
+    });
+    const loginResponse = await request(app)
+      .post('/admin/api/session/login')
+      .send({ username: 'operator', password: 'correct horse battery staple' });
+    const cookie = loginResponse.headers['set-cookie']?.[0] as string;
+
+    const response = await request(app).get('/admin/api/status').set('Cookie', cookie);
+
+    expect(response.status).toBe(200);
+    expect(response.body.oauth.services).toMatchObject([
+      {
+        id: 'context7:0123456789abcdef',
+        displayName: 'context7:0123456789ab',
+      },
+      {
+        id: 'github',
+        displayName: 'github',
+      },
+      {
+        id: 'context7:short',
+        displayName: 'context7:short',
+      },
+      {
+        id: 'invalid:template:identity',
+        displayName: 'invalid:template:identity',
+      },
+    ]);
+  });
+
+  it('authorizes the exact backend OAuth service through authenticated, CSRF-protected Admin Operations', async () => {
+    await adminService.bootstrapFirstAdmin({ username: 'operator', password: 'correct horse battery staple' });
+    vi.mocked(oauthFlow.startBackendOAuth).mockResolvedValue({
+      status: 'redirect',
+      redirectUrl: 'https://provider.example/authorize',
+    });
+    const app = mountAdminRoutes();
+
+    const unauthenticatedResponse = await request(app)
+      .post('/admin/api/oauth/context7%3A0123456789abcdef/authorize')
+      .set('X-CSRF-Token', 'csrf_invalid')
+      .set('Idempotency-Key', 'oauth-authorize-unauthenticated');
+
+    expect(unauthenticatedResponse.status).toBe(401);
+    expect(oauthFlow.startBackendOAuth).not.toHaveBeenCalled();
+
+    const loginResponse = await request(app)
+      .post('/admin/api/session/login')
+      .send({ username: 'operator', password: 'correct horse battery staple' });
+    const cookie = loginResponse.headers['set-cookie']?.[0] as string;
+    const csrfToken = loginResponse.body.csrfToken as string;
+
+    const missingCsrfResponse = await request(app)
+      .post('/admin/api/oauth/context7%3A0123456789abcdef/authorize')
+      .set('Cookie', cookie)
+      .set('Idempotency-Key', 'oauth-authorize-no-csrf');
+
+    expect(missingCsrfResponse.status).toBe(403);
+    expect(oauthFlow.startBackendOAuth).not.toHaveBeenCalled();
+
+    const response = await request(app)
+      .post('/admin/api/oauth/context7%3A0123456789abcdef/authorize')
+      .set('Cookie', cookie)
+      .set('X-CSRF-Token', csrfToken)
+      .set('Idempotency-Key', 'oauth-authorize-success');
+
+    expect(response.status).toBe(200);
+    expect(response.body).toMatchObject({
+      ok: true,
+      replayed: false,
+      result: {
+        serviceId: 'context7:0123456789abcdef',
+        redirectUrl: 'https://provider.example/authorize',
+      },
+    });
+    expect(oauthFlow.startBackendOAuth).toHaveBeenCalledWith({ serverName: 'context7:0123456789abcdef' });
+  });
+
+  it('restarts the exact backend OAuth service through authenticated, CSRF-protected Admin Operations', async () => {
+    await adminService.bootstrapFirstAdmin({ username: 'operator', password: 'correct horse battery staple' });
+    vi.mocked(oauthFlow.restartBackendOAuth).mockResolvedValue({
+      status: 'restarted',
+      redirectUrl: 'https://provider.example/restart',
+    });
+    const app = mountAdminRoutes();
+
+    const unauthenticatedResponse = await request(app)
+      .post('/admin/api/oauth/context7%3A0123456789abcdef/restart')
+      .set('X-CSRF-Token', 'csrf_invalid')
+      .set('Idempotency-Key', 'oauth-restart-unauthenticated');
+    expect(unauthenticatedResponse.status).toBe(401);
+
+    const loginResponse = await request(app)
+      .post('/admin/api/session/login')
+      .send({ username: 'operator', password: 'correct horse battery staple' });
+    const cookie = loginResponse.headers['set-cookie']?.[0] as string;
+    const csrfToken = loginResponse.body.csrfToken as string;
+    const missingCsrfResponse = await request(app)
+      .post('/admin/api/oauth/context7%3A0123456789abcdef/restart')
+      .set('Cookie', cookie)
+      .set('Idempotency-Key', 'oauth-restart-no-csrf');
+    expect(missingCsrfResponse.status).toBe(403);
+    expect(oauthFlow.restartBackendOAuth).not.toHaveBeenCalled();
+
+    const response = await request(app)
+      .post('/admin/api/oauth/context7%3A0123456789abcdef/restart')
+      .set('Cookie', cookie)
+      .set('X-CSRF-Token', csrfToken)
+      .set('Idempotency-Key', 'oauth-restart-success');
+
+    expect(response.status).toBe(200);
+    expect(response.body).toMatchObject({
+      ok: true,
+      result: {
+        serviceId: 'context7:0123456789abcdef',
+        redirectUrl: 'https://provider.example/restart',
+      },
+    });
+    expect(oauthFlow.restartBackendOAuth).toHaveBeenCalledWith({ serverName: 'context7:0123456789abcdef' });
+  });
+
+  it.each(['authorize', 'restart'] as const)(
+    'rejects invalid OAuth service IDs before %s operations',
+    async (action) => {
+      await adminService.bootstrapFirstAdmin({ username: 'operator', password: 'correct horse battery staple' });
+      const app = mountAdminRoutes();
+      const loginResponse = await request(app)
+        .post('/admin/api/session/login')
+        .send({ username: 'operator', password: 'correct horse battery staple' });
+      const serviceId = 'a'.repeat(257);
+
+      const response = await request(app)
+        .post(`/admin/api/oauth/${serviceId}/${action}`)
+        .set('Cookie', loginResponse.headers['set-cookie']?.[0] as string)
+        .set('X-CSRF-Token', loginResponse.body.csrfToken as string)
+        .set('Idempotency-Key', `oauth-${action}-invalid-service`);
+
+      expect(response.status).toBe(400);
+      expect(response.body).toEqual({ error: 'backend_oauth_service_id_invalid' });
+      expect(oauthFlow.startBackendOAuth).not.toHaveBeenCalled();
+      expect(oauthFlow.restartBackendOAuth).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each([
+    {
+      flowResult: {
+        status: 'service_not_found' as const,
+        errorDescription: 'Missing service internal detail',
+      },
+      expectedStatus: 404,
+      expectedError: 'backend_oauth_service_not_found',
+    },
+    {
+      flowResult: {
+        status: 'runtime_unavailable' as const,
+        errorDescription: 'Runtime internal detail',
+      },
+      expectedStatus: 503,
+      expectedError: 'backend_oauth_runtime_unavailable',
+    },
+    {
+      flowResult: {
+        status: 'oauth_url_unavailable' as const,
+        errorDescription: 'provider_secret=do-not-expose',
+      },
+      expectedStatus: 502,
+      expectedError: 'backend_oauth_authorization_start_failed',
+    },
+  ])('maps backend OAuth failures to $expectedError without exposing details', async (testCase) => {
+    await adminService.bootstrapFirstAdmin({ username: 'operator', password: 'correct horse battery staple' });
+    vi.mocked(oauthFlow.startBackendOAuth).mockResolvedValue(testCase.flowResult);
+    const app = mountAdminRoutes();
+    const loginResponse = await request(app)
+      .post('/admin/api/session/login')
+      .send({ username: 'operator', password: 'correct horse battery staple' });
+    const cookie = loginResponse.headers['set-cookie']?.[0] as string;
+
+    const response = await request(app)
+      .post('/admin/api/oauth/github/authorize')
+      .set('Cookie', cookie)
+      .set('X-CSRF-Token', loginResponse.body.csrfToken as string)
+      .set('Idempotency-Key', `oauth-error-${testCase.expectedError}`);
+
+    expect(response.status).toBe(testCase.expectedStatus);
+    expect(response.body).toEqual({ ok: false, error: testCase.expectedError });
+    expect(JSON.stringify(response.body)).not.toContain(testCase.flowResult.errorDescription);
   });
 
   it('enables and disables configured servers through CSRF-protected admin API mutations', async () => {
@@ -2273,6 +2562,17 @@ describe('admin routes', () => {
     expect(bootstrapSpy).toHaveBeenCalled();
   });
 });
+
+function createOAuthFlow(): OAuthAuthorizationFlow {
+  return {
+    submitConsent: vi.fn(),
+    createLocalhostCliToken: vi.fn(),
+    startBackendOAuth: vi.fn(),
+    restartBackendOAuth: vi.fn(),
+    completeBackendOAuthCallback: vi.fn(),
+    getBackendOAuthDashboard: vi.fn(),
+  };
+}
 
 describe('FailedLoginLimiter', () => {
   it('bounds active keys, fails closed at capacity, and prunes expired entries globally', () => {

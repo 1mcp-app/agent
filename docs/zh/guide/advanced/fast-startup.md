@@ -124,21 +124,40 @@ sequenceDiagram
     par 后台加载
         1MCP->>服务器1: 启动服务器
         服务器1-->>1MCP: 服务器就绪，提供工具
-        1MCP-->>客户端: listChanged 通知（工具）
     and
         1MCP->>服务器2: 启动服务器
         服务器2-->>1MCP: 服务器就绪，提供资源
-        1MCP-->>客户端: listChanged 通知（资源）
     end
+    1MCP->>1MCP: 发布一个完整的能力快照
+    1MCP-->>客户端: 合并后的 listChanged 通知
 ```
 
 **好处：**
 
-- **渐进式发现**：新功能实时出现
-- **批量通知**：将多个更改分组以防止垃圾邮件
+- **监听器立即可用**：后端加载期间，HTTP 请求仍可到达 1MCP
+- **原子发现**：每个加载周期会在所有后端达到终态后发布一个能力快照
+- **批量通知**：合并能力变更事件，避免通知突发
 - **更好的用户体验**：无需手动刷新或重新连接
 
-`async-min-servers` 设置是启动就绪门槛。在每个加载周期中，1MCP 会继续提供上一个能力快照 (Capability Snapshot)，直到所有已配置的后端均已连接或标记为不可用，再以原子方式发布完整快照。`/api/tools` 等检查端点会查询能力目录 (Capability Catalog)，而不会强制所有服务器重新连接或刷新。
+HTTP 监听器会立即开始接受请求。在每个加载周期中，1MCP 会继续提供上一个能力快照 (Capability Snapshot)，直到所有已配置的后端均已连接或标记为不可用，再以原子方式发布完整快照。`/api/tools` 等检查端点会查询能力目录 (Capability Catalog)，而不会强制所有服务器重新连接或刷新。
+
+### 异步加载选项
+
+| CLI 选项                                 | 默认值 | 用途                                                                                                                                                     |
+| ---------------------------------------- | ------ | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `--async-batch-notifications`            | 启用   | 在批处理延迟窗口内合并能力变更事件，减少 `listChanged` 通知。使用 `--no-async-batch-notifications` 可立即发送每个已发布的变更。                          |
+| `--async-batch-delay <毫秒>`             | `1000` | 启用通知批处理时的合并窗口。                                                                                                                             |
+| `--async-notify-on-snapshot`             | 启用   | 完成的加载周期发布有变化的能力快照时发送通知；全局 `--enable-client-notifications` 也必须保持启用。                                                      |
+| `--async-notify-on-ready`                | —      | `--async-notify-on-snapshot` 的弃用兼容别名。若同时提供，以 `--async-notify-on-snapshot` 为准。                                                          |
+| `--async-min-servers`、`--async-timeout` | —      | 弃用的兼容空操作。显式使用对应的 `ONE_MCP_*` 环境变量或 `asyncLoading.minServers` / `asyncLoading.timeout` TOML 键时会发出警告，并将在下一主版本中移除。 |
+
+较长的批处理延迟可以减少通知突发，但会推迟能力快照发布后的通知；它不会延迟监听器可用性，也不会创建就绪门槛。
+
+```bash
+npx -y @1mcp/agent --config mcp.json --enable-async-loading \
+  --async-notify-on-snapshot \
+  --async-batch-delay 250
+```
 
 ## 配置
 
@@ -149,6 +168,8 @@ sequenceDiagram
 ## 健康检查 API
 
 通过简单的 HTTP 端点检查您的 MCP 服务器的状态。
+
+`/health/ready` 表示配置和受监管后端是否就绪；任何受监管的 stdio 后端正在重启或进入崩溃循环时会返回 `503`。它不会等待达到最少后端连接数。后端加载进度和终态请查看 `/health/mcp`。
 
 ### 整体状态：`/health/mcp`
 

@@ -8,7 +8,16 @@ export const MCP_CONFIG_FILE = 'mcp.json';
 export const APP_CONFIG_FILE = 'config.toml';
 export const MCP_INSTRUCTIONS_TEMPLATE_FILE = 'instructions-template.md';
 export const MCP_SERVER_NAME = '1mcp';
-export const MCP_SERVER_VERSION = '0.35.0-beta.1';
+export const MCP_SERVER_VERSION = '0.35.0-beta.2';
+
+// Compiled with every artifact so Admin Console metadata does not depend on
+// package.json being adjacent to the runtime entrypoint.
+export const MCP_PROJECT_METADATA = {
+  repository: 'https://github.com/1mcp-app/agent',
+  documentation: 'https://docs.1mcp.app',
+  issues: 'https://github.com/1mcp-app/agent/issues',
+  license: 'Apache-2.0',
+} as const;
 
 export const MCP_URI_SEPARATOR = '_1mcp_';
 

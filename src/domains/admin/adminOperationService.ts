@@ -1,4 +1,4 @@
-import { createHash, randomUUID } from 'node:crypto';
+import { createHash, createHmac, randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 
@@ -393,15 +393,26 @@ export class AdminOperationService {
     }
 
     const scopedKeyHash = this.scopedKeyHash(input.context, input.operationName, idempotencyKey);
-    const fingerprintHash = hashSecret(requestFingerprint);
-    let existing = this.idempotency.get(scopedKeyHash);
+    const legacyScopedKeyHash = this.legacyScopedKeyHash(input.context, input.operationName, idempotencyKey);
+    const fingerprintHash = keyedSecretFingerprint(idempotencyKey, 'request', requestFingerprint);
+    const legacyFingerprintHash = legacySecretHash(requestFingerprint);
+    let existingKeyHash = scopedKeyHash;
+    let existing = this.idempotency.get(existingKeyHash);
+    if (!existing) {
+      existingKeyHash = legacyScopedKeyHash;
+      existing = this.idempotency.get(existingKeyHash);
+    }
 
     if (existing && this.isExpiredTerminal(existing)) {
-      this.idempotency.delete(scopedKeyHash);
+      this.idempotency.delete(existingKeyHash);
       existing = undefined;
     }
 
-    if (existing && existing.fingerprintHash !== fingerprintHash) {
+    if (
+      existing &&
+      existing.fingerprintHash !== fingerprintHash &&
+      existing.fingerprintHash !== legacyFingerprintHash
+    ) {
       return {
         ok: false,
         status: 'idempotency_conflict',
@@ -438,7 +449,7 @@ export class AdminOperationService {
     }
 
     if (existing?.state === 'in_flight') {
-      return (await this.waitForActiveMutation(scopedKeyHash, input.operationName)) as AdminOperationResult<T>;
+      return (await this.waitForActiveMutation(existingKeyHash, input.operationName)) as AdminOperationResult<T>;
     }
 
     const activePreparation = this.mutationState.activePreparations.get(scopedKeyHash);
@@ -905,7 +916,7 @@ export class AdminOperationService {
       scopedKeyHash: entry.scopedKeyHash,
       fingerprintHash: entry.fingerprintHash,
       target: entry.target,
-      actor: sanitizeActor(context.actor),
+      actor: sanitizeActor(context.actor, this.runtimeScopeId),
       origin: context.origin,
       request: sanitizeRequest(context.request),
       runtimeIdentity: sanitizeRuntimeIdentity(context.runtimeIdentity),
@@ -922,7 +933,7 @@ export class AdminOperationService {
       operationId: entry.operationId,
       operationName: entry.operationName,
       result,
-      actor: sanitizeActor(context.actor),
+      actor: sanitizeActor(context.actor, this.runtimeScopeId),
       origin: context.origin,
       target: entry.target,
       request: { requestId: context.request.requestId },
@@ -961,7 +972,21 @@ export class AdminOperationService {
   }
 
   private scopedKeyHash(context: AdminOperationContext, operationName: string, idempotencyKey: string): string {
-    return hashSecret(
+    return keyedSecretFingerprint(
+      idempotencyKey,
+      'idempotency-scope',
+      JSON.stringify({
+        runtimeScopeId: this.runtimeScopeId,
+        actorType: context.actor.type,
+        accountId: context.actor.accountId,
+        sessionId: context.actor.sessionId,
+        operationName,
+      }),
+    );
+  }
+
+  private legacyScopedKeyHash(context: AdminOperationContext, operationName: string, idempotencyKey: string): string {
+    return legacySecretHash(
       JSON.stringify({
         runtimeScopeId: this.runtimeScopeId,
         actorType: context.actor.type,
@@ -1030,17 +1055,21 @@ export class AdminOperationService {
   }
 
   private journalFilePath(): string {
-    return path.join(this.storageDir, `admin-operations-${hashSecret(this.runtimeScopeId).slice(0, 24)}.jsonl`);
+    return path.join(
+      this.storageDir,
+      `admin-operations-${stableIdentifierHash(this.runtimeScopeId).slice(0, 24)}.jsonl`,
+    );
   }
 }
 
 function sanitizeActor(
   actor: AdminOperationContext['actor'],
+  runtimeScopeId: string,
 ): Extract<JournalRecord, { type: 'reserved' | 'audit' }>['actor'] {
   return {
     type: actor.type,
-    accountIdHash: hashSecret(actor.accountId),
-    sessionIdHash: actor.sessionId ? hashSecret(actor.sessionId) : undefined,
+    accountIdHash: keyedSecretFingerprint(runtimeScopeId, 'account-id', actor.accountId),
+    sessionIdHash: actor.sessionId ? keyedSecretFingerprint(runtimeScopeId, 'session-id', actor.sessionId) : undefined,
   };
 }
 
@@ -1077,8 +1106,17 @@ function sanitizeConfirmationFacts(facts: Record<string, unknown> | undefined): 
   );
 }
 
-function hashSecret(secret: string): string {
+function stableIdentifierHash(identifier: string): string {
+  return createHash('sha256').update(identifier).digest('base64url');
+}
+
+// Retained v1 journal entries use unkeyed SHA-256. Keep this only for bounded replay compatibility.
+function legacySecretHash(secret: string): string {
   return createHash('sha256').update(secret).digest('base64url');
+}
+
+function keyedSecretFingerprint(key: string, domain: string, secret: string): string {
+  return createHmac('sha256', key).update(domain).update('\0').update(secret).digest('base64url');
 }
 
 function auditFactFromRecord(record: Extract<JournalRecord, { type: 'audit' }>): AdminAuditFact {

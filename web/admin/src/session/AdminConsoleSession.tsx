@@ -14,7 +14,19 @@ import { ConfirmationDialogProvider, useConfirmationDialog } from '../components
 import { useConfiguredServerEdit } from '../configuredServerEdit/useConfiguredServerEdit';
 import { type AdminConsoleAction, createInitialState, reduceAdminConsoleState } from '../state/adminConsoleState';
 import { pollingDelayForVisibility, shouldPollConsole } from '../state/polling';
-import type { AdminConsoleSessionModel } from './AdminConsoleSessionModel';
+import type {
+  AdminConsoleRoute,
+  AdminConsoleSessionModel,
+  OAuthAdminAction,
+  OAuthFeedback,
+} from './AdminConsoleSessionModel';
+
+const OAUTH_CALLBACK_MESSAGES: Readonly<Record<string, string>> = {
+  access_denied: 'OAuth authorization was denied.',
+  missing_code: 'The OAuth provider callback did not include an authorization code.',
+  callback_failed: 'The runtime could not complete the OAuth provider callback.',
+  runtime_unavailable: 'The OAuth runtime became unavailable during the callback.',
+};
 
 function failureMessage(error: unknown): string {
   if (error instanceof AdminApiError) return error.failure.message;
@@ -30,7 +42,7 @@ interface AdminConsoleDocument {
 interface AdminConsoleWindow {
   setTimeout: Window['setTimeout'];
   clearTimeout: Window['clearTimeout'];
-  location?: Pick<Location, 'pathname' | 'hash'>;
+  location?: Pick<Location, 'pathname' | 'search' | 'assign'>;
   history?: Pick<History, 'pushState' | 'replaceState'>;
   addEventListener?: Window['addEventListener'];
   removeEventListener?: Window['removeEventListener'];
@@ -76,7 +88,13 @@ export function useAdminConsoleSession({
   const [state, setState] = useState(createInitialState);
   const [loginBusy, setLoginBusy] = useState(false);
   const [route, setRoute] = useState(() => adminRoute(windowRef.location?.pathname ?? '/admin'));
-  const [section, setSection] = useState(() => adminSection(windowRef.location?.hash ?? ''));
+  const [oauthBusy, setOAuthBusy] = useState<{ serviceId: string; action: OAuthAdminAction } | null>(null);
+  const [oauthCallbackFeedback] = useState<OAuthFeedback | null>(() => {
+    const feedback = oauthCallbackOutcome(windowRef.location?.search ?? '');
+    if (feedback) windowRef.history?.replaceState(null, '', '/admin/oauth');
+    return feedback;
+  });
+  const [oauthOperationFeedback, setOAuthOperationFeedback] = useState<OAuthFeedback | null>(null);
   const [presets, setPresets] = useState<AdminPresetListItem[]>([]);
   const [presetTargets, setPresetTargets] = useState<AdminPresetTarget[]>([]);
   const [presetRevision, setPresetRevision] = useState('');
@@ -86,6 +104,8 @@ export function useAdminConsoleSession({
   const configuredServerAppliedRef = useRef<() => void | Promise<void>>();
   const presetSaveBusyRef = useRef(false);
   const presetDeleteBusyRef = useRef(false);
+  const oauthOperationBusyRef = useRef(false);
+  const oauthOperationRequestRef = useRef(0);
   const formatNow = useCallback(() => nowLabel?.() ?? new Date().toLocaleTimeString(), [nowLabel]);
 
   const dispatch = useCallback((action: AdminConsoleAction) => {
@@ -105,12 +125,20 @@ export function useAdminConsoleSession({
     }
   }, [windowRef]);
 
+  const resetOAuthOperation = useCallback(() => {
+    oauthOperationRequestRef.current += 1;
+    oauthOperationBusyRef.current = false;
+    setOAuthBusy(null);
+    setOAuthOperationFeedback(null);
+  }, []);
+
   const invalidateAdminSession = useCallback(
     (adminStatus: 'setupRequired' | 'loginRequired') => {
       clearPoll();
+      resetOAuthOperation();
       dispatch({ type: 'sessionUnauthenticated', adminStatus });
     },
-    [clearPoll, dispatch],
+    [clearPoll, dispatch, resetOAuthOperation],
   );
 
   const handleUnauthenticated = useCallback(
@@ -125,7 +153,7 @@ export function useAdminConsoleSession({
 
   const configuredServerEditBrowser = useMemo(
     () => ({
-      pathname: () => `${windowRef.location?.pathname ?? '/admin'}${windowRef.location?.hash ?? ''}`,
+      pathname: () => windowRef.location?.pathname ?? '/admin',
       push: (pathname: string) => windowRef.history?.pushState(null, '', pathname),
       replace: (pathname: string) => windowRef.history?.replaceState(null, '', pathname),
       confirm,
@@ -138,10 +166,7 @@ export function useAdminConsoleSession({
   );
 
   const commitBrowserPath = useCallback((path: string) => {
-    const [pathname, hash = ''] = path.split('#');
-    const nextRoute = adminRoute(pathname);
-    setRoute(nextRoute);
-    setSection(nextRoute === 'overview' ? adminSection(hash) : null);
+    setRoute(adminRoute(path));
   }, []);
 
   const configuredServerEdit = useConfiguredServerEdit({
@@ -258,12 +283,10 @@ export function useAdminConsoleSession({
   );
 
   const navigate = useCallback(
-    async (nextRoute: 'overview' | 'presets' | 'about', nextSection: 'inventory' | 'oauth' | 'audit' | null = null) => {
-      const hash = nextRoute === 'overview' && nextSection ? `#${nextSection}` : '';
-      const pathname = `${nextRoute === 'overview' ? '/admin' : `/admin/${nextRoute}`}${hash}`;
+    async (nextRoute: AdminConsoleRoute) => {
+      const pathname = adminRoutePath(nextRoute);
       if (!(await configuredServerEdit.close(pathname))) return;
       setRoute(nextRoute);
-      setSection(nextRoute === 'overview' ? nextSection : null);
     },
     [configuredServerEdit],
   );
@@ -382,6 +405,43 @@ export function useAdminConsoleSession({
     [api, dispatch, handleUnauthenticated, isCurrentSession, refreshConsole],
   );
 
+  const operateOAuth = useCallback(
+    async (serviceId: string, action: OAuthAdminAction) => {
+      if (oauthOperationBusyRef.current) return;
+      const activeSession = stateRef.current.session;
+      if (!activeSession) return;
+      oauthOperationBusyRef.current = true;
+      const requestId = oauthOperationRequestRef.current + 1;
+      oauthOperationRequestRef.current = requestId;
+      const sessionKey = activeSession.csrfToken;
+      setOAuthBusy({ serviceId, action });
+      setOAuthOperationFeedback(null);
+      try {
+        const result =
+          action === 'authorize'
+            ? await api.authorizeOAuthService({ serviceId, csrfToken: sessionKey })
+            : await api.restartOAuthService({ serviceId, csrfToken: sessionKey });
+        if (!isCurrentSession(sessionKey)) return;
+        setOAuthOperationFeedback({
+          kind: 'success',
+          message: `${action === 'authorize' ? 'Authorization' : 'Authorization restart'} started. Opening the provider.`,
+        });
+        windowRef.location?.assign(result.redirectUrl);
+      } catch (error) {
+        if (!isCurrentSession(sessionKey)) return;
+        if (!handleUnauthenticated(error)) {
+          setOAuthOperationFeedback({ kind: 'error', message: failureMessage(error) });
+        }
+      } finally {
+        if (oauthOperationRequestRef.current === requestId) {
+          oauthOperationBusyRef.current = false;
+          if (isCurrentSession(sessionKey)) setOAuthBusy(null);
+        }
+      }
+    },
+    [api, handleUnauthenticated, isCurrentSession, windowRef],
+  );
+
   const logout = useCallback(async () => {
     const csrfToken = stateRef.current.session?.csrfToken;
     try {
@@ -390,9 +450,10 @@ export function useAdminConsoleSession({
       }
     } finally {
       clearPoll();
+      resetOAuthOperation();
       dispatch({ type: 'logoutSucceeded' });
     }
-  }, [api, clearPoll, dispatch]);
+  }, [api, clearPoll, dispatch, resetOAuthOperation]);
 
   const copyText = useCallback(async (_label: string, value: string) => {
     if (!navigator.clipboard?.writeText) {
@@ -418,11 +479,17 @@ export function useAdminConsoleSession({
     login,
     logout,
     refresh: () => refreshConsole('Manual refresh failed: '),
-    navigation: { route, section, navigate },
+    navigation: { route, navigate },
     configuredServers: {
       edit: configuredServerEdit,
       mutate: mutateServer,
       copy: copyText,
+    },
+    oauth: {
+      busy: oauthBusy,
+      callbackFeedback: oauthCallbackFeedback,
+      operationFeedback: oauthOperationFeedback,
+      operate: operateOAuth,
     },
     presets: {
       items: presets,
@@ -437,19 +504,34 @@ export function useAdminConsoleSession({
   };
 }
 
-function adminSection(hash: string): 'inventory' | 'oauth' | 'audit' | null {
-  const section = hash.replace(/^#/, '');
-  return section === 'inventory' || section === 'oauth' || section === 'audit' ? section : null;
-}
-
 function presetActionLabel(action: 'create' | 'update' | 'duplicate'): string {
   if (action === 'create') return 'Create';
   if (action === 'duplicate') return 'Duplicate';
   return 'Update';
 }
 
-function adminRoute(pathname: string): 'overview' | 'presets' | 'about' {
+function adminRoute(pathname: string): AdminConsoleRoute {
+  if (pathname === '/admin/servers' || pathname.startsWith('/admin/servers/')) return 'servers';
+  if (pathname === '/admin/oauth' || pathname.startsWith('/admin/oauth/')) return 'oauth';
+  if (pathname === '/admin/audit' || pathname.startsWith('/admin/audit/')) return 'audit';
   if (pathname.startsWith('/admin/presets')) return 'presets';
   if (pathname.startsWith('/admin/about')) return 'about';
-  return 'overview';
+  return 'dashboard';
+}
+
+function adminRoutePath(route: AdminConsoleRoute): string {
+  return route === 'dashboard' ? '/admin' : `/admin/${route}`;
+}
+
+function oauthCallbackOutcome(search: string): OAuthFeedback | null {
+  const query = new URLSearchParams(search);
+  if (query.get('success') === '1') {
+    return { kind: 'success', message: 'OAuth authorization completed.' };
+  }
+  const error = query.get('error');
+  if (!error) return null;
+  const message = Object.hasOwn(OAUTH_CALLBACK_MESSAGES, error)
+    ? OAUTH_CALLBACK_MESSAGES[error]
+    : 'OAuth authorization did not complete.';
+  return { kind: 'error', message };
 }
