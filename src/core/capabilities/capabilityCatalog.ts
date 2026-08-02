@@ -2,13 +2,10 @@ import type { Tool } from '@modelcontextprotocol/sdk/types.js';
 
 import { ConnectionResolver, type TemplateHashProvider } from '@src/core/server/connectionResolver.js';
 import { getDisabledToolError, isToolDisabled } from '@src/core/server/disabledTools.js';
-import type { MCPServerParams, OutboundConnections } from '@src/core/types/index.js';
+import { ClientStatus, type MCPServerParams, type OutboundConnections } from '@src/core/types/index.js';
 import logger from '@src/logger/logger.js';
 
-import {
-  type CapabilityVisibility,
-  getCapabilityVisibleServerNames,
-} from './capabilityVisibility.js';
+import { type CapabilityVisibility, getCapabilityVisibleServerNames } from './capabilityVisibility.js';
 import { SchemaCache } from './schemaCache.js';
 import type { ListToolsOptions, ListToolsResult as RegistryListToolsResult, ToolMetadata } from './toolRegistry.js';
 import { ToolRegistry } from './toolRegistry.js';
@@ -266,7 +263,12 @@ export class CapabilityCatalog {
     let registry = this.deps.getToolRegistry();
     const effectiveVisibility = visibility ?? this.deps.defaultVisibility;
     if (effectiveVisibility !== undefined) {
-      registry = registry.filterByServerCandidates(effectiveVisibility.serverCandidates);
+      const connectedCandidates = new Map(
+        Array.from(effectiveVisibility.serverCandidates).filter(
+          ([connectionKey]) => this.deps.outboundConnections.get(connectionKey)?.status === ClientStatus.Connected,
+        ),
+      );
+      registry = registry.filterByServerCandidates(connectedCandidates);
     }
 
     if (typeof registry.getAllTools !== 'function') {
@@ -345,9 +347,7 @@ export class CapabilityCatalog {
 
   private isServerVisible(server: string, visibility?: CapabilityVisibility): boolean {
     const effectiveVisibility = visibility ?? this.deps.defaultVisibility;
-    return (
-      effectiveVisibility === undefined || getCapabilityVisibleServerNames(effectiveVisibility).has(server)
-    );
+    return effectiveVisibility === undefined || getCapabilityVisibleServerNames(effectiveVisibility).has(server);
   }
 
   private resolveRoute(tool: ToolMetadata, visibility?: CapabilityVisibility): CapabilityRoute | undefined {

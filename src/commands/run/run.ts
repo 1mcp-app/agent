@@ -20,6 +20,12 @@ import {
   type ClientSurfaceRestResponse,
   formatClientSurfaceAuthRequiredMessage,
 } from '@src/commands/shared/clientSurfaceAttachment.js';
+import { buildFilterSelectionQuery } from '@src/commands/shared/filterSelectionQuery.js';
+import {
+  type ApiInspectServerResult,
+  inspectServerResultSchema,
+  inspectToolResultSchema,
+} from '@src/commands/shared/inspectApiSchemas.js';
 import {
   type JsonRpcErrorEnvelope,
   type JsonRpcResponse,
@@ -42,16 +48,6 @@ export interface RunCommandOptions extends GlobalOptions {
   'max-chars'?: number;
   args?: string;
   tool: string;
-}
-
-interface ApiInspectToolResult {
-  kind: 'tool';
-  server: string;
-  tool: string;
-  qualifiedName: string;
-  description?: string;
-  inputSchema: Record<string, unknown>;
-  outputSchema?: Record<string, unknown>;
 }
 
 export {
@@ -77,6 +73,7 @@ export async function runCommand(options: RunCommandOptions): Promise<void> {
     clientSurface: 'run',
     version: 'run',
     options,
+    alwaysTryRest: true,
     rest: async (context) => tryRunRest(context, options, toolReference, await stdinPromise),
     mcp: async (context) => {
       const stdinText = await stdinPromise;
@@ -145,9 +142,16 @@ async function tryRunRest(
         ? parseJsonObject(stdinText)
         : {};
 
+  // Parse explicit input before any network activity so invalid command input
+  // remains a local validation error even while a backend is starting.
+  const statusResponse = await checkServerStatus(apiClient, toolReference.serverName, context.options);
+  if (statusResponse) {
+    return statusResponse;
+  }
+
   const toolInfo =
     (needsSchemaForStdin && restArgs === null) || needsSchemaForValidation
-      ? await fetchToolInfoFromApi(apiClient, toolReference, options.tool)
+      ? await fetchToolInfoFromApi(apiClient, toolReference, options.tool, context.options)
       : null;
 
   if (restArgs === null && !toolInfo) {
@@ -240,6 +244,104 @@ async function tryRunRest(
   };
 }
 
+async function checkServerStatus(
+  apiClient: ApiClient,
+  serverName: string,
+  options: RunCommandOptions,
+): Promise<ClientSurfaceRestResponse<RunAttachmentValue> | undefined> {
+  const apiResponse = await apiClient.get<unknown>(API_INSPECT_ENDPOINT, {
+    ...buildFilterSelectionQuery(options),
+    target: serverName,
+  });
+
+  if (apiResponse.ok) {
+    const parsed = inspectServerResultSchema.safeParse(apiResponse.data);
+    if (!parsed.success) {
+      return { status: 'error', message: `Invalid response from ${API_INSPECT_ENDPOINT}.` };
+    }
+    const server = parsed.data;
+    if (server.status === 'connected' && server.available) {
+      return undefined;
+    }
+
+    if (server.status === 'pending' || server.status === 'loading') {
+      return statusErrorResponse(
+        'server_loading',
+        `Server '${serverName}' is ${server.status}. Wait for it to become connected.`,
+        `1mcp wait ${serverName}`,
+        server,
+      );
+    }
+
+    if (server.status === 'connected' && !server.available) {
+      return statusErrorResponse(
+        'server_loading',
+        `Server '${serverName}' is connected but not yet available. Wait for it to finish loading.`,
+        `1mcp wait ${serverName}`,
+        server,
+      );
+    }
+
+    if (server.status === 'awaiting_oauth') {
+      const guidance = server.authorizationUrl
+        ? `Complete OAuth authorization at ${server.authorizationUrl}.`
+        : `Complete OAuth authorization for '${serverName}'.`;
+      return statusErrorResponse('server_awaiting_oauth', guidance, `1mcp inspect ${serverName}`, server);
+    }
+
+    return statusErrorResponse(
+      'server_unavailable',
+      `Server '${serverName}' is ${server.status}${server.error ? `: ${server.error}` : ''}.`,
+      `1mcp mcp restart ${serverName}`,
+      server,
+    );
+  }
+
+  if (apiResponse.status === 401 || apiResponse.status === 403) {
+    return {
+      status: 'auth_required',
+      message: 'Authentication required before checking server status.',
+    };
+  }
+
+  // A text-only 404 identifies pre-status runtimes. Retain the established
+  // REST-to-MCP compatibility fallback only when no status endpoint exists.
+  if (isEndpointNotFoundResponse(apiResponse.status, apiResponse.error)) {
+    return { status: 'fallback', reason: 'endpoint_missing' };
+  }
+
+  return {
+    status: 'error',
+    message: apiResponse.error ?? `Unable to check status for server '${serverName}'.`,
+  };
+}
+
+function statusErrorResponse(
+  code: 'server_loading' | 'server_unavailable' | 'server_awaiting_oauth',
+  message: string,
+  recoveryCommand: string,
+  details: ApiInspectServerResult,
+): ClientSurfaceRestResponse<RunAttachmentValue> {
+  const formattedMessage = `${code}: ${message} Recovery: ${recoveryCommand}`;
+  return {
+    status: 'success',
+    value: {
+      response: {
+        rawResponse: {
+          jsonrpc: '2.0',
+          id: 0,
+          error: {
+            code: -32010,
+            message: formattedMessage,
+            data: { code, recoveryCommand, details },
+          },
+        },
+        retryWithFreshSession: false,
+      },
+    },
+  };
+}
+
 function isEndpointNotFoundResponse(status: number, error?: string): boolean {
   return status === 404 && /^HTTP 404\b/u.test(error ?? '');
 }
@@ -256,24 +358,31 @@ async function fetchToolInfoFromApi(
   apiClient: ApiClient,
   toolReference: ReturnType<typeof parseToolReference>,
   displayToolName: string,
+  options: RunCommandOptions,
 ): Promise<InspectToolInfo | null> {
-  const apiResponse = await apiClient.get<ApiInspectToolResult>(API_INSPECT_ENDPOINT, {
+  const apiResponse = await apiClient.get<unknown>(API_INSPECT_ENDPOINT, {
+    ...buildFilterSelectionQuery(options),
     target: displayToolName,
   });
 
-  if (!apiResponse.ok || !apiResponse.data || apiResponse.data.kind !== 'tool') {
+  if (!apiResponse.ok) {
     if (!apiResponse.ok && apiResponse.status !== 404) {
       logger.debug('fetchToolInfoFromApi: unexpected response status', { status: apiResponse.status });
     }
     return null;
   }
+  const parsed = inspectToolResultSchema.safeParse(apiResponse.data);
+  if (!parsed.success) {
+    logger.debug('fetchToolInfoFromApi: invalid inspect response');
+    return null;
+  }
 
   return extractInspectToolInfo(
     {
-      name: apiResponse.data.qualifiedName,
-      description: apiResponse.data.description,
-      inputSchema: apiResponse.data.inputSchema,
-      outputSchema: apiResponse.data.outputSchema,
+      name: parsed.data.qualifiedName,
+      description: parsed.data.description,
+      inputSchema: parsed.data.inputSchema,
+      outputSchema: parsed.data.outputSchema,
     } as Tool,
     toolReference,
   );

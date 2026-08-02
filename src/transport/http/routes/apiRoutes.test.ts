@@ -408,6 +408,30 @@ describe('apiRoutes inspect', () => {
     expect(res.body).toMatchObject({ error: 'Tool not found: hidden/secret' });
   });
 
+  it('does not expose loading metadata for filtered-out static servers', async () => {
+    mockedLoadDeclaredServerConfigs.mockReturnValue({
+      staticServers: {
+        hidden: {
+          type: 'stdio',
+          command: 'node',
+          args: ['hidden.js'],
+          tags: ['hidden'],
+        },
+      },
+      templateServers: {},
+      errors: [],
+    });
+
+    const req = { query: { preset: 'dev-backend', target: 'hidden' } };
+    const res = createMockResponse();
+
+    await invokeInspectRoute(scopeAuthMiddleware, req, res);
+    await invokeInspectRoute(inspectHandler, req, res);
+
+    expect(res.statusCode).toBe(404);
+    expect(res.body).toEqual({ error: 'Server not found: hidden' });
+  });
+
   it('preserves pagination metadata when inspecting a server through direct listTools', async () => {
     const pagedConnections = new Map(outboundConnections) as OutboundConnections;
     pagedConnections.set('context7', {
@@ -488,6 +512,60 @@ describe('apiRoutes inspect', () => {
       serverInstructions: {
         context7: '# Context7 Instructions',
       },
+    });
+  });
+
+  it('returns an inspectable empty result for an unavailable configured static server', async () => {
+    mockedLoadDeclaredServerConfigs.mockReturnValue({
+      staticServers: {
+        slow: { type: 'stdio', command: 'node', args: ['slow-server.js'], tags: ['slow'] },
+      },
+      templateServers: {},
+      errors: [],
+    });
+    const serverManager = {
+      getClients: vi.fn(() => new Map()),
+      getInstructionAggregator: vi.fn(() => undefined),
+      getLazyLoadingOrchestrator: vi.fn(() => undefined),
+      getServerRegistry: vi.fn(() => ({ getServerNames: vi.fn(() => []), get: vi.fn(() => undefined) })),
+    };
+    const handler = createInspectHandler(serverManager as never);
+    const res = createMockResponse();
+
+    await invokeInspectRoute(scopeAuthMiddleware, { query: { target: 'slow' } }, res);
+    await invokeInspectRoute(handler, { query: { target: 'slow' } }, res);
+
+    expect(res.statusCode).toBe(200);
+    expect(res.body).toMatchObject({
+      kind: 'server',
+      server: 'slow',
+      available: false,
+      loadTracked: true,
+      tools: [],
+    });
+  });
+
+  it('lists tools for a connected configured static server without a loading tracker', async () => {
+    mockedLoadDeclaredServerConfigs.mockReturnValue({
+      staticServers: {
+        context7: { type: 'stdio', command: 'node', args: ['context7.js'], tags: ['context7'] },
+      },
+      templateServers: {},
+      errors: [],
+    });
+    const res = createMockResponse();
+
+    await invokeInspectRoute(scopeAuthMiddleware, { query: { target: 'context7' } }, res);
+    await invokeInspectRoute(inspectHandler, { query: { target: 'context7' } }, res);
+
+    expect(res.statusCode).toBe(200);
+    expect(res.body).toMatchObject({
+      kind: 'server',
+      server: 'context7',
+      status: 'connected',
+      available: true,
+      totalTools: 1,
+      tools: [{ tool: 'query-docs' }],
     });
   });
 });

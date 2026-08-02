@@ -103,6 +103,7 @@ export class ConnectionResolver {
    */
   filterForSession(sessionId?: string): OutboundConnections {
     const filtered = new Map<string, OutboundConnection>();
+    const renderedHashCache = new Map<string, string | undefined>();
 
     // Get rendered hashes for this session
     const sessionHashes = this.getSessionRenderedHashes(sessionId);
@@ -141,10 +142,31 @@ export class ConnectionResolver {
         continue;
       }
 
-      if (
-        sessionId &&
-        this.templateHashProvider?.getRenderedHashForSession(sessionId, identity.templateName) === suffix
-      ) {
+      if (!sessionId || !this.templateHashProvider) {
+        continue;
+      }
+
+      if (!renderedHashCache.has(identity.templateName)) {
+        try {
+          renderedHashCache.set(
+            identity.templateName,
+            this.templateHashProvider.getRenderedHashForSession(sessionId, identity.templateName),
+          );
+        } catch (error) {
+          errorIf(() => ({
+            message: 'Failed to get rendered hash while filtering connections for session',
+            meta: {
+              key,
+              sessionId,
+              templateName: identity.templateName,
+              error: error instanceof Error ? error.message : String(error),
+            },
+          }));
+          renderedHashCache.set(identity.templateName, undefined);
+        }
+      }
+
+      if (renderedHashCache.get(identity.templateName) === suffix) {
         filtered.set(key, conn);
       }
     }
@@ -161,7 +183,15 @@ export class ConnectionResolver {
     if (!sessionId || !this.templateHashProvider) {
       return undefined;
     }
-    return this.templateHashProvider.getAllRenderedHashesForSession?.(sessionId);
+    try {
+      return this.templateHashProvider.getAllRenderedHashesForSession?.(sessionId);
+    } catch (error) {
+      errorIf(() => ({
+        message: 'Failed to get rendered hashes while filtering connections for session',
+        meta: { sessionId, error: error instanceof Error ? error.message : String(error) },
+      }));
+      return undefined;
+    }
   }
 
   /**

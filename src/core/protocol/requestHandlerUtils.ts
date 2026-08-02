@@ -1,6 +1,6 @@
 import { McpConfigManager } from '@src/config/mcpConfigManager.js';
 import { CapabilityCatalog } from '@src/core/capabilities/capabilityCatalog.js';
-import { createCapabilityVisibility, type CapabilityVisibility } from '@src/core/capabilities/capabilityVisibility.js';
+import { type CapabilityVisibility, createCapabilityVisibility } from '@src/core/capabilities/capabilityVisibility.js';
 import { SchemaCache } from '@src/core/capabilities/schemaCache.js';
 import { ToolRegistry } from '@src/core/capabilities/toolRegistry.js';
 import { byCapabilities } from '@src/core/filtering/clientFiltering.js';
@@ -84,7 +84,10 @@ export function resolveLazyCapabilityVisibility(
   const toolCapable = byCapabilities({ tools: {} })(tagAndPresetScoped);
 
   return createCapabilityVisibility(
-    Array.from(toolCapable.entries(), ([connectionKey, connection]) => [connectionKey, connection.name] as const),
+    Array.from(
+      toolCapable.entries(),
+      ([connectionKey, connection]) => [connectionKey, connection.name || connectionKey.split(':')[0]] as const,
+    ),
     sessionId,
   );
 }

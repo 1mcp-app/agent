@@ -1,6 +1,6 @@
 import { ClientStatus, OutboundConnection, OutboundConnections } from '@src/core/types/client.js';
 
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { ConnectionResolver, createConnectionResolver, TemplateHashProvider } from './connectionResolver.js';
 
@@ -211,6 +211,50 @@ describe('ConnectionResolver', () => {
 
       // Should have: static1, static2, template1:session1, template1:hash1, template2:hash2
       expect(filtered.size).toBe(5);
+    });
+
+    it('should resolve each template hash at most once when the bulk mapping is unavailable', () => {
+      const getRenderedHashForSession = vi.fn(() => 'hash1');
+      const provider: TemplateHashProvider = {
+        getRenderedHashForSession,
+        getAllRenderedHashesForSession: () => undefined,
+      };
+      const repeatedConnections = new Map([
+        ['repeated:hash1', createMockConnection('repeated')],
+        ['repeated:hash2', createMockConnection('repeated')],
+      ]) as OutboundConnections;
+
+      const filtered = new ConnectionResolver(repeatedConnections, provider).filterForSession('session1');
+
+      expect(filtered.has('repeated:hash1')).toBe(true);
+      expect(filtered.has('repeated:hash2')).toBe(false);
+      expect(getRenderedHashForSession).toHaveBeenCalledTimes(1);
+    });
+
+    it('should retain matched connections when the template hash provider throws', () => {
+      const getRenderedHashForSession = vi.fn(() => {
+        throw new Error('rendered hash unavailable');
+      });
+      const provider: TemplateHashProvider = {
+        getRenderedHashForSession,
+        getAllRenderedHashesForSession: () => {
+          throw new Error('rendered hashes unavailable');
+        },
+      };
+      const failingConnections = new Map([
+        ['static', createMockConnection('static')],
+        ['owned:session1', createMockConnection('owned')],
+        ['repeated:hash1', createMockConnection('repeated')],
+        ['repeated:hash2', createMockConnection('repeated')],
+      ]) as OutboundConnections;
+
+      const filtered = new ConnectionResolver(failingConnections, provider).filterForSession('session1');
+
+      expect(filtered.has('static')).toBe(true);
+      expect(filtered.has('owned:session1')).toBe(true);
+      expect(filtered.has('repeated:hash1')).toBe(false);
+      expect(filtered.has('repeated:hash2')).toBe(false);
+      expect(getRenderedHashForSession).toHaveBeenCalledTimes(1);
     });
   });
 

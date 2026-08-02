@@ -267,8 +267,11 @@ describeInspectE2E('inspect command E2E', () => {
 
     runner.assertSuccess(listResult);
     expect(listResult.stdout).toContain('kind: servers');
-    expect(listResult.stdout).toContain('servers[2]{server,type,status,available,toolCount,hasInstructions}:');
-    expect(listResult.stdout).toContain('serena,template,disconnected,false,0,true');
+    expect(listResult.stdout).toContain(
+      'servers[2]{server,type,status,available,loadTracked,toolCount,hasInstructions}:',
+    );
+    expect(listResult.stdout).toContain('runner,external,connected,true,true,4,false');
+    expect(listResult.stdout).toContain('serena,template,disconnected,false,false,0,true');
     expect(listResult.stdout).not.toContain('# 1MCP - Model Context Protocol Proxy');
 
     const serverResult = await runner.runInspectCommand('serena', {

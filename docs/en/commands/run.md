@@ -35,6 +35,8 @@ The `run` command is the execution step in the CLI workflow:
 
 `run` is intentionally the last step. The recommended flow is to discover broadly with `instructions`, narrow with `inspect`, confirm the exact tool schema with `inspect <server>/<tool>`, and only then invoke the tool.
 
+Before a REST-to-MCP fallback, `run` checks the client-facing inspect status. A loading backend returns `server_loading` and `1mcp wait <server>` rather than receiving an early MCP invocation. Failed or cancelled backends return `server_unavailable`; an OAuth-gated backend returns authorization guidance.
+
 ## Options
 
 ### Target and Discovery

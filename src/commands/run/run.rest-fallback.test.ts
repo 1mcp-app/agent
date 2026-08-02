@@ -225,6 +225,10 @@ describe('runCommand REST-first path', () => {
     };
   }
 
+  function makeConnectedServerResponse() {
+    return makeRestResponse(200, { kind: 'server', server: 'runner', status: 'connected', available: true });
+  }
+
   it('falls back to MCP for endpoint 404 variants and persists hasRestEndpoint=false', async () => {
     await writeCliSessionCache(cachePath, {
       sessionId: 'cached-session',
@@ -266,6 +270,7 @@ describe('runCommand REST-first path', () => {
       hasRestEndpoint: true,
     });
 
+    mockFetch.mockResolvedValueOnce(makeConnectedServerResponse());
     mockFetch.mockResolvedValueOnce(makeTextResponse(404, 'Not Found')); // schema GET
     mockFetch.mockResolvedValueOnce(makeRestResponse(502, { error: 'upstream failed' }));
 

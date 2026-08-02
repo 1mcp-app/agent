@@ -113,7 +113,7 @@ describe('CapabilityCatalog', () => {
       getAllRenderedHashesForSession: () => undefined,
     }).invokeVisibleTool(
       { server: 'template-server', toolName: 'template_tool', args: { message: 'hi' } },
-      createCapabilityVisibility([['template-server', 'template-server']], 'session-1'),
+      createCapabilityVisibility([['template-server:rendered123', 'template-server']], 'session-1'),
     );
 
     expect(result.error).toBeUndefined();
@@ -131,7 +131,7 @@ describe('CapabilityCatalog', () => {
       getAllRenderedHashesForSession: () => undefined,
     }).invokeVisibleTool(
       { server: 'template-server', toolName: 'template_tool', args: { message: 'hi' } },
-      createCapabilityVisibility([['template-server', 'template-server']], 'missing-session'),
+      createCapabilityVisibility([['template-server:rendered123', 'template-server']], 'missing-session'),
     );
 
     expect(result.error).toMatchObject({
@@ -146,6 +146,15 @@ describe('CapabilityCatalog', () => {
 
     expect(result.tools.map((tool) => tool.server)).toEqual(['filesystem']);
     expect(result.routes.map((route) => route.connectionKey)).toEqual(['filesystem']);
+  });
+
+  it('excludes disconnected candidates from capability visibility', async () => {
+    outboundConnections.get('filesystem')!.status = ClientStatus.Disconnected;
+
+    const result = await createCatalog().listVisibleTools({}, capabilityVisibilityFromServerNames(['filesystem']));
+
+    expect(result.tools).toEqual([]);
+    expect(result.routes).toEqual([]);
   });
 
   it('does not reveal disabled tool details for hidden servers', async () => {
@@ -170,11 +179,9 @@ describe('CapabilityCatalog', () => {
       return { changed: true, shouldNotifyListChanged: true };
     });
 
-    const result = await createCatalog(undefined, { refreshCapabilities }).listVisibleTools(
-      {},
-      undefined,
-      { refreshIntent: 'force' },
-    );
+    const result = await createCatalog(undefined, { refreshCapabilities }).listVisibleTools({}, undefined, {
+      refreshIntent: 'force',
+    });
 
     expect(refreshCapabilities).toHaveBeenCalledWith({ intent: 'force', reason: 'list' });
     expect(result.tools.map((tool) => `${tool.server}/${tool.name}`)).toEqual(['filesystem/read_file']);

@@ -1,6 +1,7 @@
 import type { Tool } from '@modelcontextprotocol/sdk/types.js';
 
 import { MCP_URI_SEPARATOR } from '@src/constants.js';
+import { LoadingState, type ServerLoadingInfo } from '@src/core/loading/loadingStateTracker.js';
 import { FilteringService } from '@src/core/filtering/filteringService.js';
 import { ClientStatus, type OutboundConnection } from '@src/core/types/client.js';
 import { InboundConnectionConfig } from '@src/core/types/index.js';
@@ -15,6 +16,7 @@ import {
 } from '@src/transport/http/middlewares/scopeAuthMiddleware.js';
 import { buildUri, parseUri } from '@src/utils/core/parsing.js';
 import { normalizeTag } from '@src/utils/validation/sanitization.js';
+import type { ClientServerStatus } from '@src/types/serverStatus.js';
 
 import { Response } from 'express';
 
@@ -23,8 +25,10 @@ import { Response } from 'express';
 export interface ServerSummary {
   server: string;
   type: string;
-  status: string;
+  status: ClientServerStatus;
   available: boolean;
+  /** True only for enabled, configured static servers tracked during startup. */
+  loadTracked: boolean;
   toolCount: number;
   hasInstructions: boolean;
 }
@@ -39,9 +43,12 @@ export interface InspectServerPayload {
   kind: 'server';
   server: string;
   type: string;
-  status: string;
+  status: ClientServerStatus;
   available: boolean;
+  loadTracked: boolean;
   instructions: string | null;
+  authorizationUrl?: string;
+  error?: string;
   tools: Array<{
     tool: string;
     qualifiedName: string;
@@ -185,7 +192,15 @@ export function deriveServerState(
   adapterStatus: string | undefined,
   adapterAvailable: boolean | undefined,
   connection?: OutboundConnection,
-): { status: string; available: boolean } {
+  loadingInfo?: ServerLoadingInfo,
+): { status: ClientServerStatus; available: boolean } {
+  // During async startup, the loading tracker is the authoritative source until
+  // a server has reached Ready. A stale connection must not make a loading or
+  // terminal backend look callable.
+  if (loadingInfo && loadingInfo.state !== LoadingState.Ready) {
+    return { status: loadingInfo.state, available: false };
+  }
+
   if (connection) {
     switch (connection.status) {
       case ClientStatus.Connected:
@@ -202,9 +217,22 @@ export function deriveServerState(
   }
 
   return {
-    status: adapterStatus ?? 'unknown',
+    status: normalizeAdapterStatus(adapterStatus),
     available: adapterAvailable ?? false,
   };
+}
+
+function normalizeAdapterStatus(status: string | undefined): ClientServerStatus {
+  switch (status) {
+    case 'connected':
+    case 'initializing':
+    case 'disconnected':
+    case 'error':
+    case 'awaiting_oauth':
+      return status;
+    default:
+      return 'unknown';
+  }
 }
 
 export function matchesFilterConfig(tags: string[] | undefined, filterConfig: InboundConnectionConfig): boolean {

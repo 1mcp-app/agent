@@ -53,6 +53,7 @@ All available command-line options and their corresponding environment variables
 | `--rate-limit-window`           | `ONE_MCP_RATE_LIMIT_WINDOW`           | OAuth rate limit window in minutes (number)                                                     |     15     |
 | `--rate-limit-max`              | `ONE_MCP_RATE_LIMIT_MAX`              | Maximum requests per OAuth rate limit window (number)                                           |    100     |
 | `--enable-async-loading`        | `ONE_MCP_ENABLE_ASYNC_LOADING`        | Enable asynchronous MCP server loading(boolean)                                                 |   false    |
+| `--enable-lazy-loading`         | `ONE_MCP_ENABLE_LAZY_LOADING`         | Enable meta-tool exposure for progressive tool discovery (boolean)                              |   false    |
 | `--enable-config-reload`        | `ONE_MCP_ENABLE_CONFIG_RELOAD`        | Enable configuration file hot-reload (boolean)                                                  |    true    |
 | `--config-reload-debounce`      | `ONE_MCP_CONFIG_RELOAD_DEBOUNCE`      | Configuration reload debounce time in milliseconds (number)                                     |    500     |
 | `--enable-env-substitution`     | `ONE_MCP_ENABLE_ENV_SUBSTITUTION`     | Enable environment variable substitution in config files (boolean)                              |    true    |
