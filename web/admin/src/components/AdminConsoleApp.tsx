@@ -15,21 +15,22 @@ import {
 } from '@mantine/core';
 
 import { Boxes, FileClock, Gauge, Info, ShieldCheck, SlidersHorizontal } from 'lucide-react';
-import { type ReactNode, useState } from 'react';
+import { type MouseEvent, type ReactNode, useState } from 'react';
 
-import type { AdminConsoleSessionModel } from '../session/AdminConsoleSessionModel';
+import type { AdminConsoleRoute, AdminConsoleSessionModel } from '../session/AdminConsoleSessionModel';
 import type { AdminConsoleState } from '../state/adminConsoleState';
 import { runtimeEndpointSummary, runtimeSummary, viewBadgeColor, viewLabel } from './adminConsoleUtils';
 import { AboutRuntimeWorkspace } from './workspaces/AboutRuntimeWorkspace';
+import { OAuthServicesWorkspace } from './workspaces/OAuthServicesWorkspace';
 import { PresetAuthoringWorkspace } from './workspaces/PresetAuthoringWorkspace';
-import { RuntimeOperationsWorkspace } from './workspaces/RuntimeOperationsWorkspace';
+import { AuditTrailWorkspace, DashboardWorkspace, ServersWorkspace } from './workspaces/RuntimeOperationsWorkspace';
 
 export interface AdminConsoleAppProps {
   session: AdminConsoleSessionModel;
 }
 
 export function AdminConsoleApp({ session }: AdminConsoleAppProps) {
-  const { state, loginBusy, navigation, configuredServers, presets } = session;
+  const { state, loginBusy, navigation } = session;
   const route = navigation.route;
   const [mobileNavigationOpened, setMobileNavigationOpened] = useState(false);
   if (state.view !== 'console') {
@@ -91,39 +92,45 @@ export function AdminConsoleApp({ session }: AdminConsoleAppProps) {
           <Text className="nav-section-label">Workspace</Text>
           <NavItem
             icon={<Gauge size={17} />}
-            label="Overview"
-            active={route === 'overview' && !navigation.section}
-            onClick={() => navigate('overview')}
+            label="Dashboard"
+            href="/admin"
+            active={route === 'dashboard'}
+            onNavigate={() => navigate('dashboard')}
           />
           <NavItem
             icon={<Boxes size={17} />}
             label="Server inventory"
-            active={route === 'overview' && navigation.section === 'inventory'}
-            onClick={() => navigate('overview', 'inventory')}
+            href="/admin/servers"
+            active={route === 'servers'}
+            onNavigate={() => navigate('servers')}
           />
           <NavItem
             icon={<ShieldCheck size={17} />}
             label="OAuth services"
-            active={route === 'overview' && navigation.section === 'oauth'}
-            onClick={() => navigate('overview', 'oauth')}
+            href="/admin/oauth"
+            active={route === 'oauth'}
+            onNavigate={() => navigate('oauth')}
           />
           <NavItem
             icon={<FileClock size={17} />}
             label="Audit trail"
-            active={route === 'overview' && navigation.section === 'audit'}
-            onClick={() => navigate('overview', 'audit')}
+            href="/admin/audit"
+            active={route === 'audit'}
+            onNavigate={() => navigate('audit')}
           />
           <NavItem
             icon={<SlidersHorizontal size={17} />}
             label="Presets"
+            href="/admin/presets"
             active={route === 'presets'}
-            onClick={() => navigate('presets')}
+            onNavigate={() => navigate('presets')}
           />
           <NavItem
             icon={<Info size={17} />}
             label="About"
+            href="/admin/about"
             active={route === 'about'}
-            onClick={() => navigate('about')}
+            onNavigate={() => navigate('about')}
           />
         </Stack>
         <Stack gap="xs" className="nav-runtime-card">
@@ -142,68 +149,87 @@ export function AdminConsoleApp({ session }: AdminConsoleAppProps) {
       <AppShell.Main className="admin-shell-main">
         <Stack gap="md" className="admin-console">
           <Banner state={state} />
-          {route === 'presets' ? (
-            <PresetAuthoringWorkspace
-              model={{
-                ...presets,
-                targets:
-                  presets.targets.length > 0
-                    ? presets.targets
-                    : state.configuredServers.map((server) => ({
-                        name: server.id,
-                        tags: server.tags,
-                        enabled: server.enabled,
-                      })),
-              }}
-              runtimeScopeId={state.status?.runtime.runtimeScopeId}
-            />
-          ) : route === 'about' ? (
-            <AboutRuntimeWorkspace state={state} />
-          ) : (
-            <RuntimeOperationsWorkspace
-              model={{ state, logout: session.logout, refresh: session.refresh, configuredServers }}
-              activeSection={navigation.section}
-            />
-          )}
+          <ConsoleWorkspace session={session} />
         </Stack>
       </AppShell.Main>
     </AppShell>
   );
 
-  function navigate(route: 'overview' | 'presets' | 'about', section?: 'inventory' | 'oauth' | 'audit') {
-    if (section) {
-      void navigation.navigate(route, section);
-    } else {
-      void navigation.navigate(route);
-    }
+  function navigate(route: AdminConsoleRoute) {
+    void navigation.navigate(route);
     setMobileNavigationOpened(false);
+  }
+}
+
+function ConsoleWorkspace({ session }: { session: AdminConsoleSessionModel }) {
+  const { state, navigation, configuredServers, presets } = session;
+  const operatorModel = { state, logout: session.logout, refresh: session.refresh, configuredServers };
+
+  switch (navigation.route) {
+    case 'servers':
+      return <ServersWorkspace model={operatorModel} />;
+    case 'oauth':
+      return <OAuthServicesWorkspace model={operatorModel} oauth={session.oauth} />;
+    case 'audit':
+      return <AuditTrailWorkspace model={operatorModel} />;
+    case 'presets':
+      return (
+        <PresetAuthoringWorkspace
+          model={{
+            ...presets,
+            targets:
+              presets.targets.length > 0
+                ? presets.targets
+                : state.configuredServers.map((server) => ({
+                    name: server.id,
+                    tags: server.tags,
+                    enabled: server.enabled,
+                  })),
+          }}
+          runtimeScopeId={state.status?.runtime.runtimeScopeId}
+        />
+      );
+    case 'about':
+      return <AboutRuntimeWorkspace state={state} />;
+    case 'dashboard':
+      return <DashboardWorkspace model={operatorModel} navigate={navigation.navigate} />;
   }
 }
 
 function NavItem({
   icon,
   label,
+  href,
   active = false,
-  onClick,
+  onNavigate,
 }: {
   icon: ReactNode;
   label: string;
+  href: string;
   active?: boolean;
-  onClick?: () => void;
+  onNavigate?: () => void;
 }) {
   return (
-    <button
-      type="button"
+    <a
+      href={href}
       aria-current={active ? 'page' : undefined}
       className={`nav-item${active ? ' nav-item-active' : ''}`}
-      onClick={onClick}
+      onClick={(event) => {
+        if (!isSamePageNavigation(event)) return;
+        event.preventDefault();
+        onNavigate?.();
+      }}
     >
       {icon}
       <Text size="sm" fw={700}>
         {label}
       </Text>
-    </button>
+    </a>
   );
+}
+
+function isSamePageNavigation(event: MouseEvent<HTMLAnchorElement>): boolean {
+  return event.button === 0 && !event.metaKey && !event.ctrlKey && !event.shiftKey && !event.altKey;
 }
 
 function AuthShell({ state, children }: { state: AdminConsoleState; children: ReactNode }) {

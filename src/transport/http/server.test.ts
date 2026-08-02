@@ -68,6 +68,7 @@ vi.mock('./middlewares/errorHandler.js', () => ({
 }));
 
 vi.mock('./middlewares/securityMiddleware.js', () => ({
+  sensitiveOperationLimiter: vi.fn((_req, _res, next) => next()),
   setupSecurityMiddleware: vi.fn(() => [vi.fn()]),
 }));
 
@@ -89,6 +90,9 @@ vi.mock('./routes/sseRoutes.js', () => ({
 
 vi.mock('./routes/oauthRoutes.js', () => ({
   default: vi.fn(() => 'oauth-routes'),
+  createBackendOAuthAuthorizationFlow: vi.fn(() => ({
+    getBackendOAuthDashboard: vi.fn(() => ({ status: 'ready', services: [] })),
+  })),
   createBackendOAuthDashboardProvider: vi.fn(() => vi.fn(() => ({ status: 'ready', services: [] }))),
 }));
 
@@ -367,6 +371,24 @@ describe('ExpressServer', () => {
       ).resolves.toMatchObject({
         target: { name: 'initial' },
       });
+    });
+
+    it('constructs one backend OAuth flow for protocol routes, status, and Admin Operations', async () => {
+      expressServer = new ExpressServer(mockServerManager);
+
+      const oauthRoutesModule = await import('./routes/oauthRoutes.js');
+      const { createAdminDomain } = await import('@src/domains/admin/adminDomain.js');
+      const createFlow = vi.mocked(oauthRoutesModule.createBackendOAuthAuthorizationFlow);
+      const oauthFlow = createFlow.mock.results[0]?.value;
+
+      expect(createFlow).toHaveBeenCalledTimes(1);
+      expect(vi.mocked(oauthRoutesModule.default)).toHaveBeenCalledWith(expect.any(Object), undefined, oauthFlow);
+      expect(vi.mocked(oauthRoutesModule.createBackendOAuthDashboardProvider)).toHaveBeenCalledWith(
+        expect.any(Object),
+        undefined,
+        oauthFlow,
+      );
+      expect(vi.mocked(createAdminDomain)).toHaveBeenCalledWith(expect.objectContaining({ oauthFlow }));
     });
 
     it('should redirect the server root to admin when admin surfaces are enabled', async () => {

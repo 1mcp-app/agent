@@ -1,43 +1,27 @@
-import { Alert, Button, Group, Paper, SimpleGrid, Text, Title } from '@mantine/core';
+import { Alert, Button, Group, Paper, SimpleGrid, Stack, Text, Title } from '@mantine/core';
 
-import { LogOut, RefreshCw } from 'lucide-react';
-import { useEffect, useRef, useState } from 'react';
+import { ArrowRight, LogOut, RefreshCw } from 'lucide-react';
+import { type MouseEvent, useState } from 'react';
 
-import type { RuntimeOperationsModel } from '../../session/AdminConsoleSessionModel';
+import type { AdminConsoleRoute, OperatorWorkspaceModel } from '../../session/AdminConsoleSessionModel';
+import { DetailRow, Panel } from '../AdminConsoleShared';
 import { disabledServers, enabledServers, humanize, isOAuthAttention } from '../adminConsoleUtils';
 import { ConfiguredServerEditor } from '../configuredServerEditor';
 import { ConfiguredServersPanel } from '../ConfiguredServersPanel';
-import { AuditPanel, OAuthPanel, RuntimePanel } from '../OperationsStatusPanels';
+import { AuditPanel } from '../OperationsStatusPanels';
 
-type OverviewSection = 'inventory' | 'oauth' | 'audit';
-
-export function RuntimeOperationsWorkspace({
+export function DashboardWorkspace({
   model,
-  activeSection,
+  navigate,
 }: {
-  model: RuntimeOperationsModel;
-  activeSection?: OverviewSection | null;
+  model: OperatorWorkspaceModel;
+  navigate(route: AdminConsoleRoute): void | Promise<void>;
 }) {
-  const { state, logout, refresh, configuredServers } = model;
+  const { state, configuredServers } = model;
   const failedAudits = (state.status?.audit.facts ?? []).filter((fact) => fact.result === 'failed').length;
   const oauthAttention = (state.status?.oauth.services ?? []).filter(isOAuthAttention).length;
   const [copyFeedback, setCopyFeedback] = useState<string | null>(null);
-  const inventorySectionRef = useRef<HTMLDivElement>(null);
-  const oauthSectionRef = useRef<HTMLDivElement>(null);
-  const auditSectionRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    if (!activeSection) {
-      return;
-    }
-    const section = {
-      inventory: inventorySectionRef,
-      oauth: oauthSectionRef,
-      audit: auditSectionRef,
-    }[activeSection].current;
-    section?.scrollIntoView?.({ behavior: 'auto', block: 'start' });
-    section?.focus({ preventScroll: true });
-  }, [activeSection]);
+  const runtime = state.status?.runtime;
 
   async function copyText(label: string, value: string): Promise<void> {
     try {
@@ -53,85 +37,185 @@ export function RuntimeOperationsWorkspace({
       <Title id="runtime-operations-title" order={2} className="sr-only">
         Runtime operations
       </Title>
-      <Group justify="space-between" align="flex-start" className="workspace-heading">
-        <div>
-          <Text className="eyebrow" size="xs">
-            Operator workspace / live
-          </Text>
-          <Title order={2}>Operations overview</Title>
-          <Text c="dimmed" size="sm">
-            Runtime operations for {state.session?.account.username ?? 'operator'} · {state.configuredServers.length}{' '}
-            configured targets · updated {state.lastUpdatedAt ?? 'never'}
-          </Text>
-        </div>
-        <Group gap="xs">
-          <Button variant="default" leftSection={<RefreshCw size={16} />} onClick={() => void refresh()}>
-            Refresh
-          </Button>
-          <Button color="red" variant="light" leftSection={<LogOut size={16} />} onClick={() => void logout()}>
-            Log out
-          </Button>
-        </Group>
-      </Group>
+      <WorkspaceHeading
+        title="Operations dashboard"
+        description={`Runtime summaries for ${state.session?.account.username ?? 'operator'} · updated ${state.lastUpdatedAt ?? 'never'}`}
+        model={model}
+      />
       <SimpleGrid cols={{ base: 2, sm: 4 }} spacing="sm" className="summary-grid">
-        <SummaryCounter label="Enabled servers" value={enabledServers(state.configuredServers)} tone="good" icon="01" />
-        <SummaryCounter
+        <SummaryLink
+          label="Enabled servers"
+          value={enabledServers(state.configuredServers)}
+          tone="good"
+          icon="01"
+          href="/admin/servers"
+          onNavigate={() => navigate('servers')}
+        />
+        <SummaryLink
           label="Disabled servers"
           value={disabledServers(state.configuredServers)}
           tone="warn"
           icon="02"
+          href="/admin/servers"
+          onNavigate={() => navigate('servers')}
         />
-        <SummaryCounter
+        <SummaryLink
           label="OAuth attention"
           value={oauthAttention}
           tone={oauthAttention > 0 ? 'warn' : 'good'}
           icon="03"
+          href="/admin/oauth"
+          onNavigate={() => navigate('oauth')}
         />
-        <SummaryCounter label="Failed audits" value={failedAudits} tone={failedAudits > 0 ? 'bad' : 'good'} icon="04" />
+        <SummaryLink
+          label="Failed audits"
+          value={failedAudits}
+          tone={failedAudits > 0 ? 'bad' : 'good'}
+          icon="04"
+          href="/admin/audit"
+          onNavigate={() => navigate('audit')}
+        />
       </SimpleGrid>
-      <div className="workspace-grid">
-        <div className="inventory-column">
-          <div id="inventory" className="overview-section-target" ref={inventorySectionRef} tabIndex={-1}>
-            <ConfiguredServersPanel
-              state={state}
-              onServerAction={configuredServers.mutate}
-              onOpenServerDetail={configuredServers.edit.open}
-            />
-          </div>
-          <div id="audit" className="overview-section-target" ref={auditSectionRef} tabIndex={-1}>
-            <AuditPanel facts={state.status?.audit.facts ?? []} onCopyText={copyText} />
-          </div>
-        </div>
-        <div className="inspector-column">
-          <ConfiguredServerEditor model={configuredServers.edit} />
-          <RuntimePanel runtime={state.status?.runtime} onCopyText={copyText} />
-          <div id="oauth" className="overview-section-target" ref={oauthSectionRef} tabIndex={-1}>
-            <OAuthPanel services={state.status?.oauth.services ?? []} />
-          </div>
-        </div>
+      <div className="dashboard-runtime-panel">
+        <Panel title="Runtime identity" utility="current target" icon={<span className="runtime-live-dot" />}>
+          {runtime ? (
+            <SimpleGrid cols={{ base: 1, sm: 3 }} spacing="sm">
+              <DetailRow label="Version" value={runtime.runtimeVersion} />
+              <DetailRow label="External URL" value={runtime.externalUrl ?? '-'} />
+              <DetailRow
+                label="Runtime scope"
+                value={runtime.runtimeScopeId}
+                copyLabel="runtimeScopeId"
+                onCopyText={copyText}
+              />
+            </SimpleGrid>
+          ) : (
+            <Text c="dimmed">Runtime status has not loaded.</Text>
+          )}
+        </Panel>
       </div>
-      {copyFeedback ? (
-        <Alert aria-live="polite" color={copyFeedback.startsWith('Could not') ? 'red' : 'teal'} mt="sm">
-          {copyFeedback}
-        </Alert>
-      ) : null}
+      <CopyFeedback message={copyFeedback} />
     </section>
   );
 }
 
-function SummaryCounter({
+export function ServersWorkspace({ model }: { model: OperatorWorkspaceModel }) {
+  const { state, configuredServers } = model;
+
+  return (
+    <section aria-labelledby="servers-workspace-title" className="operations-workspace">
+      <WorkspaceHeading
+        title="Configured servers"
+        titleId="servers-workspace-title"
+        description={`${state.configuredServers.length} configured targets · updated ${state.lastUpdatedAt ?? 'never'}`}
+        model={model}
+      />
+      <div className="workspace-grid">
+        <div className="inventory-column">
+          <ConfiguredServersPanel
+            state={state}
+            onServerAction={configuredServers.mutate}
+            onOpenServerDetail={configuredServers.edit.open}
+          />
+        </div>
+        <div className="inspector-column">
+          <ConfiguredServerEditor model={configuredServers.edit} />
+        </div>
+      </div>
+    </section>
+  );
+}
+
+export function AuditTrailWorkspace({ model }: { model: OperatorWorkspaceModel }) {
+  const { state, configuredServers } = model;
+  const [copyFeedback, setCopyFeedback] = useState<string | null>(null);
+
+  async function copyText(label: string, value: string): Promise<void> {
+    try {
+      await configuredServers.copy(label, value);
+      setCopyFeedback(`${humanize(label)} copied.`);
+    } catch {
+      setCopyFeedback(`Could not copy ${humanize(label)}. Select the value manually.`);
+    }
+  }
+
+  return (
+    <section aria-labelledby="audit-workspace-title" className="operations-workspace">
+      <WorkspaceHeading
+        title="Audit trail"
+        titleId="audit-workspace-title"
+        description={`Recent redacted Admin Operations · updated ${state.lastUpdatedAt ?? 'never'}`}
+        model={model}
+      />
+      <AuditPanel facts={state.status?.audit.facts ?? []} onCopyText={copyText} />
+      <CopyFeedback message={copyFeedback} />
+    </section>
+  );
+}
+
+export function WorkspaceHeading({
+  title,
+  titleId,
+  description,
+  model,
+}: {
+  title: string;
+  titleId?: string;
+  description: string;
+  model: Pick<OperatorWorkspaceModel, 'refresh' | 'logout'>;
+}) {
+  return (
+    <Group justify="space-between" align="flex-start" className="workspace-heading">
+      <div>
+        <Text className="eyebrow" size="xs">
+          Operator workspace / live
+        </Text>
+        <Title id={titleId} order={2}>
+          {title}
+        </Title>
+        <Text c="dimmed" size="sm">
+          {description}
+        </Text>
+      </div>
+      <Group gap="xs">
+        <Button variant="default" leftSection={<RefreshCw size={16} />} onClick={() => void model.refresh()}>
+          Refresh
+        </Button>
+        <Button color="red" variant="light" leftSection={<LogOut size={16} />} onClick={() => void model.logout()}>
+          Log out
+        </Button>
+      </Group>
+    </Group>
+  );
+}
+
+function SummaryLink({
   label,
   value,
   tone,
   icon,
+  href,
+  onNavigate,
 }: {
   label: string;
   value: number;
   tone: 'good' | 'warn' | 'bad';
   icon: string;
+  href: string;
+  onNavigate(): void;
 }) {
   return (
-    <Paper className={`summary-counter summary-${tone}`} withBorder>
+    <Paper
+      component="a"
+      href={href}
+      className={`summary-counter summary-link summary-${tone}`}
+      withBorder
+      onClick={(event: MouseEvent<HTMLAnchorElement>) => {
+        if (!isSamePageNavigation(event)) return;
+        event.preventDefault();
+        onNavigate();
+      }}
+    >
       <Group justify="space-between" align="flex-start" wrap="nowrap">
         <div>
           <Text size="xs" c="dimmed" fw={800} tt="uppercase">
@@ -139,8 +223,27 @@ function SummaryCounter({
           </Text>
           <Text className="summary-value">{value}</Text>
         </div>
-        <Text className="summary-index">{icon}</Text>
+        <Stack gap={4} align="flex-end">
+          <Text className="summary-index">{icon}</Text>
+          <ArrowRight size={15} aria-hidden="true" />
+        </Stack>
       </Group>
     </Paper>
   );
+}
+
+function CopyFeedback({ message }: { message: string | null }) {
+  return (
+    <div aria-live="polite">
+      {message ? (
+        <Alert color={message.startsWith('Could not') ? 'red' : 'teal'} mt="sm">
+          {message}
+        </Alert>
+      ) : null}
+    </div>
+  );
+}
+
+function isSamePageNavigation(event: MouseEvent<HTMLAnchorElement>): boolean {
+  return event.button === 0 && !event.metaKey && !event.ctrlKey && !event.shiftKey && !event.altKey;
 }

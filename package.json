@@ -1,6 +1,6 @@
 {
   "name": "@1mcp/agent",
-  "version": "0.35.0-beta.1",
+  "version": "0.35.0-beta.2",
   "description": "One MCP server to aggregate them all - A unified Model Context Protocol server implementation",
   "keywords": [
     "mcp",
@@ -169,6 +169,7 @@
     "react": "18.3.1",
     "react-dom": "18.3.1",
     "supertest": "^7.1.4",
+    "tar": "^7.5.22",
     "ts-node": "^10.9.2",
     "tsc-alias": "^1.8.16",
     "tsc-watch": "^7.1.1",

@@ -170,7 +170,7 @@ X-Uptime-Seconds: 3600
 
 ### `GET /health/ready`
 
-**Description**: Readiness probe to determine if the service is ready to accept requests.
+**Description**: Configuration and supervised-backend readiness probe. It returns `503` while any supervised stdio backend is restarting or in a crash loop. It does not wait for backend loading or a server-count threshold; use `/health/mcp` to inspect backend loading progress.
 
 **Authentication**: None required
 

@@ -189,11 +189,61 @@ describe('SDKOAuthProvider', () => {
 
       expect(response.set).toHaveBeenCalledWith(
         'Content-Security-Policy',
-        "default-src 'none'; form-action 'self'; style-src 'unsafe-inline'; img-src 'self' data:; base-uri 'none'; frame-ancestors 'none';",
+        "default-src 'none'; form-action 'self' http://localhost:3000; style-src 'unsafe-inline'; img-src 'self' data:; base-uri 'none'; frame-ancestors 'none';",
       );
       expect(response.set).toHaveBeenCalledWith('Content-Type', 'text/html');
       expect(response.send).toHaveBeenCalledTimes(1);
       expect(response.removeHeader).not.toHaveBeenCalledWith('Content-Security-Policy');
+    });
+
+    it('discloses renewable access only for clients registered for refresh tokens', () => {
+      const refreshClient: OAuthClientInformationFull = {
+        client_id: 'refresh-client',
+        redirect_uris: ['http://127.0.0.1:3000/callback'],
+        grant_types: ['authorization_code', 'refresh_token'],
+        response_types: ['code'],
+        token_endpoint_auth_method: 'none',
+      };
+      const accessOnlyClient: OAuthClientInformationFull = {
+        ...refreshClient,
+        client_id: 'access-only-client',
+        grant_types: ['authorization_code'],
+      };
+
+      expect(provider['generateConsentPageHtml'](refreshClient, 'request-id', [], [])).toContain(
+        'renew this access for up to 30 days',
+      );
+      expect(provider['generateConsentPageHtml'](accessOnlyClient, 'request-id', [], [])).not.toContain(
+        'renew this access',
+      );
+    });
+
+    it('does not add non-loopback redirect origins to form-action', async () => {
+      const client: OAuthClientInformationFull = {
+        client_id: 'web-client',
+        redirect_uris: ['https://client.example/callback'],
+        grant_types: ['authorization_code'],
+        response_types: ['code'],
+        token_endpoint_auth_method: 'none',
+      };
+      const response = { set: vi.fn(), send: vi.fn() } as any;
+
+      await provider['renderConsentPage'](
+        client,
+        {
+          redirectUri: 'https://client.example/callback',
+          codeChallenge: 'challenge',
+          scopes: [],
+        },
+        [],
+        [],
+        response,
+      );
+
+      expect(response.set).toHaveBeenCalledWith(
+        'Content-Security-Policy',
+        "default-src 'none'; form-action 'self'; style-src 'unsafe-inline'; img-src 'self' data:; base-uri 'none'; frame-ancestors 'none';",
+      );
     });
   });
 });

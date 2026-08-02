@@ -40,13 +40,37 @@ sequenceDiagram
     1MCP-->>Client: Initial catalog (possibly empty)
     1MCP->>Backends: Connect configured static servers
     Backends-->>1MCP: Loading cycle completes
-    1MCP-->>Client: Publish atomic catalog and list-change notification
+    1MCP-->>Client: Publish atomic catalog and coalesced list-change notification
     Client->>1MCP: Retry discovery
 ```
 
 ## Client-Facing Status
 
 Use the authenticated `/api/v1/inspect` endpoint or its CLI equivalent for client-facing status. It lists configured static servers before the first atomic capability snapshot. Known unavailable static servers return a normal inspect result with no tools; unknown names remain not found.
+
+### Async loading options
+
+| CLI option                               | Default | Purpose                                                                                                                                                                                                 |
+| ---------------------------------------- | ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `--async-batch-notifications`            | Enabled | Coalesces capability-change events into fewer `listChanged` notifications. Use `--no-async-batch-notifications` to send each published change immediately.                                              |
+| `--async-batch-delay <milliseconds>`     | `1000`  | Coalescing window used when notification batching is enabled.                                                                                                                                           |
+| `--async-notify-on-snapshot`             | Enabled | Sends notifications when a completed loading cycle publishes a changed capability snapshot. Global `--enable-client-notifications` must also remain enabled.                                            |
+| `--async-notify-on-ready`                | —       | Deprecated compatibility alias for `--async-notify-on-snapshot`. If both are supplied, `--async-notify-on-snapshot` wins.                                                                               |
+| `--async-min-servers`, `--async-timeout` | —       | Deprecated compatibility no-ops. Their `ONE_MCP_*` environment variables and `asyncLoading.minServers` / `asyncLoading.timeout` TOML keys warn when explicitly supplied and will be removed next major. |
+
+A longer batch delay reduces notification bursts at the cost of delaying notifications after a changed snapshot is published. It does not delay listener availability or create a readiness gate.
+
+```bash
+npx -y @1mcp/agent --config mcp.json --enable-async-loading \
+  --async-notify-on-snapshot \
+  --async-batch-delay 250
+```
+
+## Configuration
+
+You can customize the async loading behavior, such as timeouts and retry logic, in the `loading` section of your JSON configuration file.
+
+For a complete list of options, see the **[Configuration Deep Dive](/guide/essentials/configuration#loading-section-async-loading)**.
 
 ```bash
 1mcp inspect
