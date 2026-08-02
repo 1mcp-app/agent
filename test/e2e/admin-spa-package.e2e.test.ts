@@ -1,11 +1,13 @@
-import { execFileSync } from 'node:child_process';
-import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { execFileSync, spawn } from 'node:child_process';
+import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { createServer } from 'node:net';
 import path from 'node:path';
 
 import { describe, expect, it } from 'vitest';
 
 const ADMIN_BUILD_DIR = path.join(process.cwd(), 'build', 'admin');
 const PACK_DESTINATION = path.join(process.cwd(), '.tmp-test', 'admin-spa-package');
+const DOCKER_LAYOUT_DESTINATION = path.join(PACK_DESTINATION, 'docker-layout');
 const TYPECHECK_PROBE = path.join(process.cwd(), 'web', 'admin', 'src', '__node-type-probe.ts');
 const LEGACY_ADMIN_CONSOLE_HTML_BUILD = path.join(
   process.cwd(),
@@ -40,6 +42,46 @@ function runExpectFailure(command: string, args: string[]): string {
 function findBuiltAsset(extension: string): string {
   const assetsDir = path.join(ADMIN_BUILD_DIR, 'assets');
   return readdirSync(assetsDir).find((name) => name.endsWith(extension)) ?? '';
+}
+
+function getFreePort(): Promise<number> {
+  return new Promise((resolve, reject) => {
+    const server = createServer();
+    server.listen(0, '127.0.0.1', () => {
+      const address = server.address();
+      if (!address || typeof address === 'string') {
+        server.close(() => reject(new Error('Could not allocate a local port')));
+        return;
+      }
+      server.close(() => resolve(address.port));
+    });
+    server.on('error', reject);
+  });
+}
+
+async function waitForServer(url: string, output: () => string): Promise<void> {
+  for (let attempt = 0; attempt < 50; attempt += 1) {
+    try {
+      const response = await fetch(url, { signal: AbortSignal.timeout(1_000) });
+      if (response.ok) return;
+    } catch {
+      // The runtime may still be initializing.
+    }
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+  throw new Error(`Flattened Docker layout did not start: ${output()}`);
+}
+
+async function stopProcess(process: ReturnType<typeof spawn>): Promise<void> {
+  if (process.exitCode !== null || process.signalCode !== null) return;
+  await new Promise<void>((resolve) => {
+    const timeout = setTimeout(resolve, 5_000);
+    process.once('exit', () => {
+      clearTimeout(timeout);
+      resolve();
+    });
+    process.kill('SIGTERM');
+  });
 }
 
 describe('admin SPA package build', () => {
@@ -96,4 +138,59 @@ describe('admin SPA package build', () => {
     expect(tarballListing).not.toContain('package/build/.tmp/');
     expect(tarballListing).not.toContain('package/build/transport/http/routes/adminConsoleHtml.js');
   }, 120000);
+
+  it('starts from the flattened production Docker layout and serves Admin Console assets', async () => {
+    rmSync(PACK_DESTINATION, { recursive: true, force: true });
+    mkdirSync(PACK_DESTINATION, { recursive: true });
+    cpSync(path.join(process.cwd(), 'build'), DOCKER_LAYOUT_DESTINATION, { recursive: true });
+    cpSync(path.join(process.cwd(), 'package.json'), path.join(DOCKER_LAYOUT_DESTINATION, 'package.json'));
+
+    const configDir = path.join(DOCKER_LAYOUT_DESTINATION, 'config');
+    mkdirSync(configDir, { recursive: true });
+    writeFileSync(path.join(configDir, 'mcp.json'), JSON.stringify({ mcpServers: {} }));
+
+    const port = await getFreePort();
+    let output = '';
+    const runtime = spawn(
+      process.execPath,
+      [
+        'index.js',
+        'serve',
+        '--transport',
+        'http',
+        '--host',
+        '127.0.0.1',
+        '--port',
+        String(port),
+        '--config-dir',
+        configDir,
+      ],
+      {
+        cwd: DOCKER_LAYOUT_DESTINATION,
+        env: { ...process.env, NODE_ENV: 'test', ONE_MCP_LOG_LEVEL: 'error' },
+        stdio: ['ignore', 'pipe', 'pipe'],
+      },
+    );
+    runtime.stdout?.on('data', (data: Buffer) => {
+      output += data.toString();
+    });
+    runtime.stderr?.on('data', (data: Buffer) => {
+      output += data.toString();
+    });
+
+    try {
+      const baseUrl = `http://127.0.0.1:${port}`;
+      await waitForServer(`${baseUrl}/health/ready`, () => output);
+
+      const adminHtml = await (await fetch(`${baseUrl}/admin`)).text();
+      const jsAsset = findBuiltAsset('.js');
+      const cssAsset = findBuiltAsset('.css');
+      expect(adminHtml).toContain(`/admin/assets/${jsAsset}`);
+      expect(adminHtml).toContain(`/admin/assets/${cssAsset}`);
+      expect((await fetch(`${baseUrl}/admin/assets/${jsAsset}`)).status).toBe(200);
+      expect((await fetch(`${baseUrl}/admin/assets/${cssAsset}`)).status).toBe(200);
+    } finally {
+      await stopProcess(runtime);
+    }
+  }, 15000);
 });

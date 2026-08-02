@@ -4,6 +4,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import type { BackendOAuthDashboardResult } from '@src/auth/oauthAuthorizationFlow.js';
+import { MCP_PROJECT_METADATA } from '@src/constants.js';
 import { RuntimeIdentity } from '@src/core/runtime/runtimeIdentityService.js';
 import { parseTemplateConnectionKey } from '@src/core/server/templateIdentity.js';
 import type {
@@ -41,7 +42,6 @@ import { sanitizeErrorMessage } from '@src/utils/validation/sanitization.js';
 
 import express, { Request, Response, Router } from 'express';
 import rateLimit from 'express-rate-limit';
-import { createRequire } from 'node:module';
 import { z } from 'zod';
 
 const FAILED_LOGIN_LIMIT = 5;
@@ -60,15 +60,6 @@ const CLI_ADMIN_RESPONSE_TOO_LARGE_MESSAGE =
 const CLI_SESSION_OPERATIONS = ['admin.login', 'admin.status', 'admin.logout'] as const;
 const ADMIN_API_PROTOCOL_VERSION = '1';
 const TEMPLATE_INSTANCE_ID_DISPLAY_LENGTH = 12;
-const packageMetadata = createRequire(import.meta.url)('../../../../package.json') as {
-  name: string;
-  version: string;
-  homepage?: string;
-  documentation?: string;
-  bugs?: { url?: string };
-  license?: string;
-  repository?: { url?: string };
-};
 const CLI_CONFIGURED_SERVER_OPERATIONS = ['mcp.enable', 'mcp.disable'] as const;
 const CLI_BACKEND_RESTART_OPERATION = 'mcp.restart' as const;
 const adminLoginBodySchema = z.object({
@@ -1382,16 +1373,9 @@ function buildAboutMetadata(runtime: RuntimeIdentity, ui: { buildVersion?: strin
       timestamp: process.env.ADMIN_UI_BUILD_TIMESTAMP || undefined,
     },
     project: {
-      repository: normalizeRepositoryUrl(packageMetadata.repository?.url) ?? packageMetadata.homepage,
-      documentation: packageMetadata.documentation,
-      issues: packageMetadata.bugs?.url,
-      license: packageMetadata.license,
+      ...MCP_PROJECT_METADATA,
     },
   };
-}
-
-function normalizeRepositoryUrl(value?: string): string | undefined {
-  return value?.replace(/^git\+/u, '').replace(/\.git$/u, '');
 }
 
 function buildAdminOperationContext(
