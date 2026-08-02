@@ -1,13 +1,13 @@
 import { execFileSync, spawn } from 'node:child_process';
-import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:net';
+import { tmpdir } from 'node:os';
 import path from 'node:path';
 
 import { describe, expect, it } from 'vitest';
 
 const ADMIN_BUILD_DIR = path.join(process.cwd(), 'build', 'admin');
 const PACK_DESTINATION = path.join(process.cwd(), '.tmp-test', 'admin-spa-package');
-const DOCKER_LAYOUT_DESTINATION = path.join(PACK_DESTINATION, 'docker-layout');
 const TYPECHECK_PROBE = path.join(process.cwd(), 'web', 'admin', 'src', '__node-type-probe.ts');
 const LEGACY_ADMIN_CONSOLE_HTML_BUILD = path.join(
   process.cwd(),
@@ -18,15 +18,35 @@ const LEGACY_ADMIN_CONSOLE_HTML_BUILD = path.join(
   'adminConsoleHtml.js',
 );
 
-function run(command: string, args: string[]): string {
+function run(command: string, args: string[], cwd = process.cwd()): string {
   return execFileSync(command, args, {
-    cwd: process.cwd(),
+    cwd,
     encoding: 'utf8',
     env: {
       ...process.env,
       NODE_ENV: 'test',
     },
   });
+}
+
+function createIsolatedDockerLayout(): { rootDir: string; configDir: string } {
+  const rootDir = mkdtempSync(path.join(tmpdir(), '1mcp-admin-docker-layout-'));
+  const configDir = path.join(rootDir, 'config');
+
+  try {
+    cpSync(path.join(process.cwd(), 'build'), rootDir, { recursive: true });
+    for (const file of ['package.json', 'pnpm-lock.yaml', 'pnpm-workspace.yaml']) {
+      cpSync(path.join(process.cwd(), file), path.join(rootDir, file));
+    }
+    run('pnpm', ['install', '--frozen-lockfile', '--prefer-offline', '--prod'], rootDir);
+
+    mkdirSync(configDir, { recursive: true });
+    writeFileSync(path.join(configDir, 'mcp.json'), JSON.stringify({ mcpServers: {} }));
+    return { rootDir, configDir };
+  } catch (error) {
+    rmSync(rootDir, { recursive: true, force: true });
+    throw error;
+  }
 }
 
 function runExpectFailure(command: string, args: string[]): string {
@@ -139,38 +159,24 @@ describe('admin SPA package build', () => {
     expect(tarballListing).not.toContain('package/build/transport/http/routes/adminConsoleHtml.js');
   }, 120000);
 
-  it('starts from the flattened production Docker layout and serves Admin Console assets', async () => {
-    rmSync(PACK_DESTINATION, { recursive: true, force: true });
-    mkdirSync(PACK_DESTINATION, { recursive: true });
-    cpSync(path.join(process.cwd(), 'build'), DOCKER_LAYOUT_DESTINATION, { recursive: true });
-    cpSync(path.join(process.cwd(), 'package.json'), path.join(DOCKER_LAYOUT_DESTINATION, 'package.json'));
-
-    const configDir = path.join(DOCKER_LAYOUT_DESTINATION, 'config');
-    mkdirSync(configDir, { recursive: true });
-    writeFileSync(path.join(configDir, 'mcp.json'), JSON.stringify({ mcpServers: {} }));
-
+  it('starts the flattened production Docker layout through its default command and serves Admin Console assets', async () => {
+    const { rootDir, configDir } = createIsolatedDockerLayout();
     const port = await getFreePort();
     let output = '';
-    const runtime = spawn(
-      process.execPath,
-      [
-        'index.js',
-        'serve',
-        '--transport',
-        'http',
-        '--host',
-        '127.0.0.1',
-        '--port',
-        String(port),
-        '--config-dir',
-        configDir,
-      ],
-      {
-        cwd: DOCKER_LAYOUT_DESTINATION,
-        env: { ...process.env, NODE_ENV: 'test', ONE_MCP_LOG_LEVEL: 'error' },
-        stdio: ['ignore', 'pipe', 'pipe'],
+    const runtime = spawn(process.execPath, ['index.js'], {
+      cwd: rootDir,
+      env: {
+        ...process.env,
+        NODE_ENV: 'test',
+        ONE_MCP_LOG_LEVEL: 'error',
+        ONE_MCP_TRANSPORT: 'http',
+        ONE_MCP_HOST: '127.0.0.1',
+        ONE_MCP_PORT: String(port),
+        ONE_MCP_EXTERNAL_URL: `http://127.0.0.1:${port}`,
+        ONE_MCP_CONFIG_DIR: configDir,
       },
-    );
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
     runtime.stdout?.on('data', (data: Buffer) => {
       output += data.toString();
     });
@@ -191,6 +197,7 @@ describe('admin SPA package build', () => {
       expect((await fetch(`${baseUrl}/admin/assets/${cssAsset}`)).status).toBe(200);
     } finally {
       await stopProcess(runtime);
+      rmSync(rootDir, { recursive: true, force: true });
     }
-  }, 15000);
+  }, 120000);
 });
