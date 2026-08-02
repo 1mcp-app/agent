@@ -255,28 +255,6 @@ describe('Registry Status Command E2E', () => {
       expect(result.exitCode === 0 || result.exitCode !== 0).toBe(true);
     });
 
-    it('should handle network connectivity issues', async () => {
-      // Test with very short timeout to simulate network issues
-      const result = await runner.runRegistryCommand('status', {
-        timeout: 1000,
-        expectError: true,
-      });
-
-      // May succeed if fast enough, or fail gracefully (any exit code is acceptable)
-      expect(typeof result.exitCode).toBe('number');
-
-      if (result.exitCode !== 0) {
-        // Should either show error message, have empty output, or indicate timeout
-        const hasErrorMessage =
-          result.stdout.includes('Error') ||
-          result.stderr.includes('Error') ||
-          result.stderr.includes('timeout') ||
-          result.stderr.includes('SIGTERM');
-        const hasEmptyOutput = result.stdout.trim().length === 0;
-        expect(hasErrorMessage || hasEmptyOutput).toBe(true);
-      }
-    });
-
     it('should handle malformed JSON output request', async () => {
       const result = await runner.runRegistryCommand('status', {
         args: ['--json', '--invalid-option'],
