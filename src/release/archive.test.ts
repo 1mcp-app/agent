@@ -1,9 +1,9 @@
-import { execFileSync } from 'child_process';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
 
 import { createRequire } from 'module';
+import { list } from 'tar';
 import { afterEach, describe, expect, it } from 'vitest';
 
 const require = createRequire(import.meta.url);
@@ -37,8 +37,17 @@ describe('archive release artifacts', () => {
     expect(path.basename(archivePath)).toBe('1mcp-linux-x64.tar.gz');
     expect(fs.statSync(archivePath).size).toBeGreaterThan(0);
 
-    const listing = execFileSync('tar', ['-tzf', archivePath], { encoding: 'utf8' });
-    expect(listing.trim()).toBe('1mcp-linux-x64');
+    // 使用 npm tar 包读取归档，避免依赖系统 tar 命令
+    const files: string[] = [];
+
+    await list({
+      file: archivePath,
+      onReadEntry: (entry) => {
+        files.push(entry.path);
+      },
+    });
+
+    expect(files).toEqual(['1mcp-linux-x64']);
   });
 
   it('fails instead of succeeding with no archived binaries', async () => {
