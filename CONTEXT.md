@@ -32,6 +32,18 @@ _Avoid_: connected, loading
 The terminal **Backend Stdio Supervision** state reached after the configured consecutive restart budget is exhausted. It requires explicit recovery while the rest of the **Aggregated Runtime** remains available.
 _Avoid_: disconnected, runtime crash-loop
 
+**Backend Log Source**:
+The canonical runtime identity that groups **Managed Backend Logs** for one static stdio server or logical **Template Server Instance** across child-process replacement.
+_Avoid_: log tab, process ID, stderr stream
+
+**Managed Backend Log**:
+A sanitized, runtime-local diagnostic record derived from captured stdio backend stderr and attributed to one **Backend Log Source**. It is not durable audit evidence and never includes MCP stdout.
+_Avoid_: raw stderr, server output, audit log
+
+**Backend Log History**:
+The bounded current-runtime collection of **Managed Backend Logs** retained for operator diagnosis.
+_Avoid_: log file, audit trail, durable log archive
+
 **Runtime Scope**:
 The configuration directory that defines which local **Aggregated Runtime** instance a command should discover, start, or manage. `--config-dir` selects local scope only.
 _Avoid_: global lock, machine singleton, remote config directory
@@ -144,6 +156,22 @@ _Avoid_: current capabilities, aggregate cache
 The queryable runtime view that returns capabilities visible to a **Client Surface** for a **Request Session** and filter context.
 _Avoid_: tool registry, registry cache, meta-tool list
 
+**Capability Pagination Walk**:
+The sequence of capability-list pages bound to one **Capability Pagination Generation**. A generation change makes the current walk stale and requires a new walk.
+_Avoid_: page scan, offset sequence
+
+**Capability Pagination Generation**:
+The runtime version for observed changes that may affect the visible membership of one capability kind. It advances conservatively when a provider reports a list change without identifying the exact delta.
+_Avoid_: membership hash, page version
+
+**Capability Pagination Cursor**:
+The opaque, stateless, versioned position used to continue one **Capability Pagination Walk**, bound to its capability kind, generation, provider position, and filter selection.
+_Avoid_: page number, stored cursor session
+
+**Partial Capability Walk**:
+A **Capability Pagination Walk** that continues past one or more provider listing failures and returns healthy capabilities with structured completeness and recovery facts.
+_Avoid_: successful fallback, silent skip
+
 **Capability Refresh**:
 The runtime act of rebuilding the **Capability Snapshot** after backend server availability, configuration, or template-instance changes.
 _Avoid_: registry rebuild, manual refresh, recache
@@ -156,6 +184,24 @@ _Avoid_: connection key, hash key, registry entry
 The runtime rule that determines whether a capability is visible and callable for a **Client Surface**, **Request Session**, and filter context.
 _Avoid_: disabled-tool filter, allowed servers, tool allowlist
 
+**Configured Tool Selection**:
+An operator's per-**Configured Server Target** choice of which tools should be available through the **Aggregated Runtime**. It is configuration intent consumed by **Capability Visibility**, not authorization and not the current contents of a **Capability Snapshot**.
+_Avoid_: tool permission, tool policy, UI toggle state
+
+**Tool Description Override**:
+Optional non-empty operator-authored metadata owned by a **Configured Server Target** for one backend tool, replacing that tool's upstream description without changing its identity or behavior.
+_Avoid_: edited upstream tool, tool rename, custom tool schema
+
+- A **Tool Description Override** on a **Template Server** definition is inherited by every **Template Server Instance** rendered from it.
+- Removing a **Tool Description Override** restores the upstream description; an unavailable backend tool leaves its override preserved as unresolved configuration.
+- A **Tool Description Override** does not change **Capability Visibility** or make an unavailable tool callable.
+
+**Effective Tool Description**:
+The description exposed for a tool through the **Capability Catalog**, resolved from its **Tool Description Override** when present and its upstream description otherwise.
+_Avoid_: raw tool description, editor label, display-only description
+
+- Changing an **Effective Tool Description** affects subsequent discovery and inspection, notifies supporting clients that the tool list changed, and does not affect in-flight tool calls.
+
 **Filter Selection**:
 The process that resolves filtering inputs from a **Client Surface** into one validated filtering intent for runtime visibility and routing.
 _Avoid_: tag parsing, query parsing, selector precedence
@@ -165,12 +211,59 @@ The static servers and session-available **Template Server Instances** that can 
 _Avoid_: static server list, template server list, filtered server type
 
 **OAuth Authorization Flow**:
-The security-sensitive process that turns authorization requests, consent decisions, and localhost CLI token requests into OAuth redirects, authorization codes, and access tokens.
+The security-sensitive process that turns authorization requests, consent decisions, and localhost CLI token requests into OAuth redirects, authorization codes, access tokens, and explicitly requested refresh tokens.
 _Avoid_: OAuth route logic, storage mutation, token helper
+
+**Refresh Token Family**:
+The sequence of rotating refresh tokens descended from one approved OAuth authorization, with at most one active member.
+_Avoid_: refresh session, independent refresh tokens
 
 **Instructions Distribution**:
 The policy that decides how server instructions and managed agent bootstrap content are collected and delivered to a **Client Surface**.
 _Avoid_: instruction formatting, template rendering, setup file writing
+
+**Instruction Template**:
+A named definition with distinct MCP initialization and direct CLI variants that renders the complete instruction document, including any user-authored guidance, for a **Client Surface**.
+_Avoid_: server instructions, one shared output for every client surface
+
+**Active Instruction Template**:
+The one **Instruction Template** selected by a **Runtime Scope** for all of its **Client Surfaces**. Filtering changes the template inputs, not which template is selected.
+_Avoid_: per-client template, preset template
+
+- Changing the **Active Instruction Template** or a **Server Instruction Override** affects direct CLI rendering immediately and MCP initialization for new sessions; an already initialized MCP session retains the **Rendered Instructions** from its initialization.
+- An **Active Instruction Template** cannot be deleted; the operator must first activate another managed template or the **Built-in Instruction Template**.
+
+**Built-in Instruction Template**:
+The protected `default` **Instruction Template** available in every **Runtime Scope** and used when no managed template is active. It cannot be edited or deleted, but can be cloned into a managed template.
+_Avoid_: editable default, missing-template fallback
+
+**Draft Instruction Template**:
+A managed **Instruction Template** that can be saved while either surface variant is incomplete or invalid, but cannot become the **Active Instruction Template** until both variants validate.
+_Avoid_: active invalid template, unsaved editor state
+
+**Instruction Template Preview**:
+A non-activating render of either variant of an **Instruction Template** against the current live state of its **Runtime Scope**, including **Effective Server Instructions**.
+_Avoid_: sample-data preview, template activation
+
+- An **Instruction Template Preview** defaults to all server candidates and can apply the same **Filter Selection** used by a client.
+- An **Instruction Template Preview** resolves a contextual **Template Server** only when the operator supplies an explicit **Request Target Context**; otherwise it represents the template server as unresolved without creating an instance.
+
+**Server Instruction Override**:
+Optional user-authored instruction content owned by a **Configured Server Target** that replaces the instructions supplied by its backend MCP server for every **Instruction Template** and **Client Surface**.
+_Avoid_: template-specific override, appended instructions, editing upstream server instructions
+
+- A **Server Instruction Override** owned by a **Template Server** definition applies to every **Template Server Instance** rendered from that definition.
+- An absent **Server Instruction Override** uses upstream instructions, a present non-empty override replaces them, and a present empty override intentionally suppresses them. Removing the override restores upstream instructions.
+
+**Effective Server Instructions**:
+The instructions supplied by a backend MCP server, or its **Server Instruction Override** when present, used as input when an **Instruction Template** is rendered.
+_Avoid_: raw server instructions, rendered instruction document
+
+**Rendered Instructions**:
+The complete instruction document produced by an **Instruction Template** for one **Client Surface**.
+_Avoid_: server instructions, instruction template
+
+- If rendering an **Active Instruction Template** fails, **Instructions Distribution** uses the matching variant of the **Built-in Instruction Template** for that request, preserves the active selection, and exposes the failure to operators.
 
 **Config Change**:
 A persisted change to a **Runtime Scope** configuration together with the observable reload outcome for the affected **Aggregated Runtime**.
@@ -202,6 +295,10 @@ _Avoid_: install command, installation adapter, registry install
 - A **Runtime Scope** can opt its stdio backends into **Backend Stdio Supervision**, while a **Configured Server Target** can override that scope policy.
 - An unexpected supervised backend exit moves it to **Backend Restarting** and removes its capabilities from routing until MCP initialization succeeds.
 - Exhausting the consecutive restart budget moves a backend to **Backend Crash Loop** without terminating the **Aggregated Runtime** or other backends.
+- An **Aggregated Runtime** owns **Managed Backend Log** capture and **Backend Log History** for its **Runtime Scope**.
+- Every **Managed Backend Log** belongs to one **Backend Log Source** and is sanitized before retention or presentation.
+- A static server's **Backend Log Source** survives child replacement, while a template instance's source follows its **Template Server Identity** and **Template Instance ID**.
+- The **Admin Console** observes **Backend Log History**; it never receives raw backend stderr or MCP stdout.
 - A deliberate stop ends both the **Background Runtime Supervisor** and its **Background Aggregated Runtime** so the runtime is not replaced.
 - `1mcp serve` owns **Aggregated Runtime** lifecycle operations for a **Runtime Scope**.
 - **Runtime Lifecycle Commands** operate on local **Runtime Scope**, not the current **Runtime Target Context**.
@@ -215,6 +312,8 @@ _Avoid_: install command, installation adapter, registry install
 - A **Config Change** can add, update, or remove one **Configured Server Target**.
 - A **Configured Server Target** is either a static server definition or a **Template Server** definition.
 - The **Admin Console** presents **Configured Server Targets** for configuration changes and **Template Server Instances** for runtime observation.
+- A **Configured Tool Selection** belongs to one **Configured Server Target** and may retain tool names absent from the current **Capability Snapshot**.
+- A **Configured Tool Selection** on a **Template Server** definition is inherited by every **Template Server Instance** rendered from it.
 - A **Config Change** may create one **Config Backup** before persisting the change.
 - A **Config Backup** belongs to exactly one **Runtime Scope**.
 - A **Config Change** may affect the **Aggregated Runtime** for that **Runtime Scope**.
@@ -245,10 +344,37 @@ _Avoid_: install command, installation adapter, registry install
 - A **Capability Catalog** owns **Capability Refresh** policy.
 - A **Capability Catalog** returns internal **Capability Routes** with visible capabilities.
 - A **Capability Catalog** enforces **Capability Visibility** for listing, schema lookup, and invocation.
+- A **Capability Pagination Walk** reads visible capabilities through a **Capability Catalog**.
+- A **Capability Pagination Walk** belongs to one **Client Surface** and one capability kind; cursors are not interchangeable across tools, resources, resource templates, or prompts.
+- A **Capability Pagination Walk** advances through visible capability providers in deterministic order and returns at most one provider page per aggregate page.
+- A **Capability Pagination Walk** orders providers by locale-independent canonical identity, using hidden runtime identity only as an internal tie-breaker.
+- A provider with no capabilities and no continuation does not consume an aggregate page; a provider-issued continuation remains part of the walk even when its current page is empty.
+- A **Capability Pagination Walk** paginates all capabilities visible on its **Client Surface** as one sequence, including capabilities provided by the **Aggregated Runtime** itself.
+- A **Capability Pagination Cursor** grants no additional visibility; the **Capability Catalog** reapplies **Capability Visibility** whenever a walk continues.
+- A **Capability Pagination Generation** advances when the runtime observes a provider list change or a provider availability, configuration, or visibility change that may affect the walk.
+- A **Capability Pagination Walk** becomes stale when its **Capability Pagination Generation** changes.
+- A provider listing failure makes the current **Capability Pagination Walk** a **Partial Capability Walk** and advances traversal without discarding healthy results.
+- A **Partial Capability Walk** describes its incompleteness and provides recovery instructions without treating provider-supplied error text as trusted guidance.
+- A **Partial Capability Walk** remains partial through its final page even when later providers succeed.
+- A **Client Surface** with pagination disabled completes its **Capability Pagination Walk** in one response; with pagination enabled, it receives one aggregate page at a time.
 - **Filter Selection** provides filtering intent consumed by **Capability Visibility**.
 - Filtering applies to a **Server Candidate Set** for one **Request Session**.
 - A **Server Candidate Set** can include static servers and session-available **Template Server Instances**.
 - An **OAuth Authorization Flow** can create authorization codes or access tokens.
+- An **OAuth Authorization Flow** issues a refresh token only when the registered client requests the `refresh_token` grant.
+- A **Refresh Token Family** belongs to the registered client that received it.
+- Each approved authorization that issues a refresh token creates an independent **Refresh Token Family**.
+- An **OAuth Authorization Flow** rotates the refresh token after every successful refresh within one **Refresh Token Family** and invalidates its predecessor.
+- Each refresh token allows exactly one successful exchange and has no retry grace period.
+- Concurrent exchanges of one refresh token permit at most one success; every later use is replay.
+- Reuse of an invalidated member revokes its **Refresh Token Family** and every access token issued from that family.
+- A **Refresh Token Family** expires 30 days after its original authorization; rotation does not extend that lifetime.
+- A refresh can issue an access token with equal or narrower scopes, while its **Refresh Token Family** remains bound to the original consented scope set.
+- A **Refresh Token Family** remains bound to the resource approved by its original authorization.
+- A **Refresh Token Family** belongs to one **Runtime Scope** and persists across normal **Aggregated Runtime** restarts.
+- A successful refresh can leave earlier access tokens from the same **Refresh Token Family** valid until their own expiry.
+- Revoking a refresh token revokes its entire **Refresh Token Family** and the access tokens issued from that family.
+- Revoking one access token does not revoke its **Refresh Token Family**.
 - **Instructions Distribution** delivers instruction content to a **Client Surface**.
 - A **Capability Route** can resolve to a static server or a **Template Server Identity**.
 - **Request Context Preparation** can cause the **Capability Snapshot** to change when new **Template Server Instances** become available.
@@ -271,6 +397,7 @@ _Avoid_: install command, installation adapter, registry install
 - If both transport session identity and contextual session data are supplied, they must not create competing **Request Sessions**; the transport session identity is authoritative.
 - "context initialization" and "request setup" both referred to the same behavior in route code. Use **Request Context Preparation** for the full prepare-and-register step.
 - "global runtime" means the default **Runtime Scope**, not a machine-wide singleton; an alternate configuration directory creates a separate **Runtime Scope**.
+- "server log" can mean the Aggregated Runtime log, backend stderr, or admin audit facts. Use **Managed Backend Log** for the sanitized stdio-backend diagnostic record.
 - "proxy" is a **Client Surface**, not a separate runtime path; when it talks to the **Aggregated Runtime**, it uses MCP over Streamable HTTP and carries **Request Context** in `_meta`.
 - "config mutation" and "reload" were discussed separately in implementation code, but architecture discussions should use **Config Change** when the caller needs both persisted mutation facts and reload outcome facts.
 - "reload recommended" is weaker than **Config Change** language; a **Config Change** should distinguish observed reload, unavailable runtime, and disabled reload.
