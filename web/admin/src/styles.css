@@ -530,6 +530,131 @@ input {
   white-space: nowrap;
 }
 
+.backend-log-layout {
+  display: grid;
+  grid-template-columns: minmax(210px, 260px) minmax(0, 1fr);
+  min-height: min(650px, calc(100dvh - 190px));
+  overflow: hidden;
+  border: 1px solid var(--admin-line);
+  border-radius: 8px;
+  background: var(--admin-panel);
+}
+
+.backend-log-sources {
+  overflow-y: auto;
+  border-right: 1px solid var(--admin-line);
+  background: #f7f9f7;
+}
+
+.backend-log-source {
+  display: flex;
+  width: 100%;
+  min-height: 58px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 9px 11px;
+  border-bottom: 1px solid #e5e8e3;
+  color: var(--admin-ink);
+  text-align: left;
+}
+
+.backend-log-source:hover {
+  background: #edf3ef;
+}
+
+.backend-log-source:focus-visible {
+  position: relative;
+  z-index: 1;
+  outline: 2px solid var(--admin-teal);
+  outline-offset: -2px;
+}
+
+.backend-log-source-active {
+  background: var(--admin-teal-soft);
+  box-shadow: inset 3px 0 0 var(--admin-teal);
+}
+
+.backend-log-source-copy {
+  display: grid;
+  min-width: 0;
+  gap: 1px;
+}
+
+.backend-log-source-copy > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.backend-log-inspector {
+  display: grid;
+  min-width: 0;
+  grid-template-rows: auto minmax(0, 1fr);
+  background: #151719;
+}
+
+.backend-log-source-header {
+  min-height: 64px;
+  padding: 11px 15px;
+  border-bottom: 1px solid #343a38;
+  background: #f8faf8;
+}
+
+.backend-log-canonical {
+  color: #68736f;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+.backend-log-well {
+  min-width: 0;
+  overflow: auto;
+  color: #e7ece9;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.backend-log-row {
+  display: grid;
+  grid-template-columns: 154px minmax(0, 1fr);
+  min-height: 30px;
+  border-bottom: 1px solid #242927;
+}
+
+.backend-log-row-repeated,
+.backend-log-row-suppressed {
+  color: #f1cf83;
+}
+
+.backend-log-rail {
+  display: grid;
+  grid-template-columns: 58px 1fr;
+  gap: 8px;
+  padding: 5px 9px;
+  border-right: 1px solid #343a38;
+  background: #1d211f;
+  color: #8fa099;
+  white-space: nowrap;
+}
+
+.backend-log-content {
+  min-width: 0;
+  padding: 5px 11px;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+.backend-log-empty {
+  display: grid;
+  min-height: 180px;
+  place-items: center;
+  padding: 24px;
+  background: var(--admin-panel);
+  color: var(--admin-muted);
+  text-align: center;
+}
+
 @media (max-width: 1500px) {
   .workspace-grid {
     grid-template-columns: 1fr;
@@ -603,6 +728,36 @@ input {
   .operations-panel {
     min-width: 0;
     padding: 13px;
+  }
+
+  .backend-log-layout {
+    grid-template-columns: 1fr;
+    grid-template-rows: auto minmax(420px, 1fr);
+    min-height: 560px;
+  }
+
+  .backend-log-sources {
+    display: flex;
+    max-width: 100%;
+    overflow-x: auto;
+    border-right: 0;
+    border-bottom: 1px solid var(--admin-line);
+  }
+
+  .backend-log-source {
+    width: min(210px, 72vw);
+    min-width: min(210px, 72vw);
+    border-right: 1px solid #e5e8e3;
+    border-bottom: 0;
+  }
+
+  .backend-log-row {
+    grid-template-columns: 122px minmax(0, 1fr);
+  }
+
+  .backend-log-rail {
+    grid-template-columns: 42px 1fr;
+    padding-inline: 7px;
   }
 }
 

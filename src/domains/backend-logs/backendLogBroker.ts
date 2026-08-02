@@ -5,6 +5,7 @@ import type {
   BackendLogReplay,
   BackendLogSnapshot,
   BackendLogSource,
+  BackendLogSourceUpdate,
 } from './backendLogTypes.js';
 
 const DEFAULT_PER_SOURCE_BYTES = 1024 * 1024;
@@ -19,8 +20,12 @@ interface RetainedEntry {
 
 interface Subscriber {
   readonly onEvent: (entry: BackendLogEntry) => void;
+  readonly onSourceUpdate?: (update: BackendLogSourceUpdate) => void;
   readonly onDisconnect?: (reason: 'slow-subscriber') => void;
-  queue: RetainedEntry[];
+  queue: Array<
+    | { readonly kind: 'entry'; readonly retained: RetainedEntry; readonly bytes: number }
+    | { readonly kind: 'source'; readonly update: BackendLogSourceUpdate; readonly bytes: number }
+  >;
   queuedBytes: number;
   immediate: ReturnType<typeof setImmediate> | null;
   closed: boolean;
@@ -59,12 +64,14 @@ export class BackendLogBroker {
   registerSource(source: BackendLogSource): void {
     const current = this.sources.get(source.id);
     this.sources.set(source.id, current ? { ...current, ...source } : source);
+    this.enqueueSourceUpdate({ sourceId: source.id, source: this.sources.get(source.id), removed: false });
   }
 
   updateSource(sourceId: string, update: Partial<Pick<BackendLogSource, 'capture' | 'lifecycle'>>): void {
     const source = this.sources.get(sourceId);
     if (!source) return;
     this.sources.set(sourceId, { ...source, ...update });
+    this.enqueueSourceUpdate({ sourceId, source: this.sources.get(sourceId), removed: false });
     this.removeEndedSourceWithoutHistory(sourceId);
   }
 
@@ -114,11 +121,15 @@ export class BackendLogBroker {
     ) {
       return { kind: 'gap', snapshot: this.snapshot() };
     }
-    return { kind: 'replay', entries: entries.filter(({ entry }) => entry.sequence > sequence).map(({ entry }) => entry) };
+    return {
+      kind: 'replay',
+      entries: entries.filter(({ entry }) => entry.sequence > sequence).map(({ entry }) => entry),
+    };
   }
 
   subscribe(input: {
     onEvent: (entry: BackendLogEntry) => void;
+    onSourceUpdate?: (update: BackendLogSourceUpdate) => void;
     onDisconnect?: (reason: 'slow-subscriber') => void;
   }): () => void {
     const subscriber: Subscriber = { ...input, queue: [], queuedBytes: 0, immediate: null, closed: false };
@@ -178,28 +189,41 @@ export class BackendLogBroker {
   }
 
   private removeEndedSourceWithoutHistory(sourceId: string): void {
-    if (this.sources.get(sourceId)?.lifecycle === 'ended' && !this.retainedBySource.has(sourceId)) {
+    const source = this.sources.get(sourceId);
+    if (source?.kind === 'template' && source.lifecycle === 'ended' && !this.retainedBySource.has(sourceId)) {
       this.sources.delete(sourceId);
+      this.enqueueSourceUpdate({ sourceId, removed: true });
     }
   }
 
   private enqueueForSubscribers(retained: RetainedEntry): void {
     for (const subscriber of [...this.subscribers]) {
-      subscriber.queue.push(retained);
-      subscriber.queuedBytes += retained.bytes;
-      if (subscriber.queuedBytes > this.subscriberQueueBytes) {
-        this.closeSubscriber(subscriber);
-        if (subscriber.onDisconnect) {
-          const notify = subscriber.onDisconnect;
-          const immediate = setImmediate(() => notify('slow-subscriber'));
-          immediate.unref?.();
-        }
-        continue;
-      }
-      if (subscriber.immediate) continue;
-      subscriber.immediate = setImmediate(() => this.flushSubscriber(subscriber));
-      subscriber.immediate.unref?.();
+      this.enqueueSubscriberEvent(subscriber, { kind: 'entry', retained, bytes: retained.bytes });
     }
+  }
+
+  private enqueueSourceUpdate(update: BackendLogSourceUpdate): void {
+    const bytes = Buffer.byteLength(JSON.stringify(update));
+    for (const subscriber of [...this.subscribers]) {
+      this.enqueueSubscriberEvent(subscriber, { kind: 'source', update, bytes });
+    }
+  }
+
+  private enqueueSubscriberEvent(subscriber: Subscriber, event: Subscriber['queue'][number]): void {
+    subscriber.queue.push(event);
+    subscriber.queuedBytes += event.bytes;
+    if (subscriber.queuedBytes > this.subscriberQueueBytes) {
+      this.closeSubscriber(subscriber);
+      if (subscriber.onDisconnect) {
+        const notify = subscriber.onDisconnect;
+        const immediate = setImmediate(() => notify('slow-subscriber'));
+        immediate.unref?.();
+      }
+      return;
+    }
+    if (subscriber.immediate) return;
+    subscriber.immediate = setImmediate(() => this.flushSubscriber(subscriber));
+    subscriber.immediate.unref?.();
   }
 
   private flushSubscriber(subscriber: Subscriber): void {
@@ -208,7 +232,10 @@ export class BackendLogBroker {
     const queued = subscriber.queue;
     subscriber.queue = [];
     subscriber.queuedBytes = 0;
-    for (const retained of queued) subscriber.onEvent(retained.entry);
+    for (const event of queued) {
+      if (event.kind === 'entry') subscriber.onEvent(event.retained.entry);
+      else subscriber.onSourceUpdate?.(event.update);
+    }
   }
 
   private closeSubscriber(subscriber: Subscriber): void {

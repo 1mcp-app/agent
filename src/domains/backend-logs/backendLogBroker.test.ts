@@ -12,6 +12,15 @@ const staticSource = {
   lifecycle: 'active' as const,
 };
 
+const templateSource = {
+  id: 'template:0123456789abcdef',
+  canonicalName: '0123456789abcdef',
+  displayName: 'search (0123456789ab)',
+  kind: 'template' as const,
+  capture: 'managed' as const,
+  lifecycle: 'active' as const,
+};
+
 describe('BackendLogBroker', () => {
   it('sanitizes secrets and terminal controls before retaining or publishing content', () => {
     const broker = new BackendLogBroker();
@@ -51,23 +60,29 @@ describe('BackendLogBroker', () => {
 
   it('keeps static and template lifecycle identities separate and removes ended sources after eviction', () => {
     const broker = new BackendLogBroker({ perSourceBytes: 2, globalBytes: 1, measureEntry: () => 1 });
-    const templateSource = {
-      id: 'template:0123456789abcdef',
-      canonicalName: 'template:0123456789abcdef',
-      displayName: 'search (0123456789ab)',
-      kind: 'template' as const,
-      capture: 'managed' as const,
-      lifecycle: 'active' as const,
-    };
     broker.registerSource(staticSource);
     broker.registerSource(templateSource);
     broker.publish({ sourceId: templateSource.id, kind: 'line', content: 'template ended' });
     broker.updateSource(templateSource.id, { lifecycle: 'ended' });
 
-    expect(broker.snapshot().sources).toContainEqual(expect.objectContaining({ id: templateSource.id, lifecycle: 'ended' }));
+    expect(broker.snapshot().sources).toContainEqual(
+      expect.objectContaining({ id: templateSource.id, lifecycle: 'ended' }),
+    );
 
     broker.publish({ sourceId: staticSource.id, kind: 'line', content: 'x'.repeat(260) });
     expect(broker.snapshot().sources.map((source) => source.id)).not.toContain(templateSource.id);
+  });
+
+  it('keeps an ended static source after its retained history is evicted', () => {
+    const broker = new BackendLogBroker({ perSourceBytes: 0, globalBytes: 0, measureEntry: () => 1 });
+    broker.registerSource(staticSource);
+    broker.publish({ sourceId: staticSource.id, kind: 'line', content: 'gone' });
+
+    broker.updateSource(staticSource.id, { lifecycle: 'ended' });
+
+    expect(broker.snapshot().sources).toContainEqual(
+      expect.objectContaining({ id: staticSource.id, lifecycle: 'ended' }),
+    );
   });
 
   it('replays retained entries and reports a gap for an evicted cursor', () => {
@@ -104,13 +119,35 @@ describe('BackendLogBroker', () => {
       expect.objectContaining({ kind: 'gap', snapshot: expect.objectContaining({ entries: [] }) }),
     );
   });
+
+  it('publishes source lifecycle and removal updates to active subscribers', async () => {
+    const broker = new BackendLogBroker({ perSourceBytes: 0, globalBytes: 0, measureEntry: () => 1 });
+    const updates = vi.fn();
+    broker.subscribe({ onEvent: vi.fn(), onSourceUpdate: updates });
+
+    broker.registerSource(templateSource);
+    broker.publish({ sourceId: templateSource.id, kind: 'line', content: 'gone' });
+    broker.updateSource(templateSource.id, { lifecycle: 'ended' });
+    await new Promise<void>((resolve) => setImmediate(resolve));
+
+    expect(updates).toHaveBeenCalledWith(expect.objectContaining({ sourceId: templateSource.id, removed: false }));
+    expect(updates).toHaveBeenCalledWith({ sourceId: templateSource.id, removed: true });
+  });
 });
 
 describe('sanitizeBackendLogContent', () => {
   it.each([
     ['password=hunter2', 'password=[REDACTED]'],
-    ['https://user:secret@example.com/path?code=oauth-code', 'https://user:[REDACTED]@example.com/path?code=[REDACTED]'],
+    [
+      'https://user:secret@example.com/path?code=oauth-code',
+      'https://user:[REDACTED]@example.com/path?code=[REDACTED]',
+    ],
     ['client_secret: abc123', 'client_secret: [REDACTED]'],
+    ['Bearer standalone-secret', 'Bearer [REDACTED]'],
+    [
+      'https://example.test/callback?token=url-secret&safe=yes',
+      'https://example.test/callback?token=[REDACTED]&safe=yes',
+    ],
   ])('redacts %s', (input, expected) => {
     expect(sanitizeBackendLogContent(input)).toBe(expected);
   });

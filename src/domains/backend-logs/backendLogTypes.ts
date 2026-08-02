@@ -31,6 +31,12 @@ export interface BackendLogSnapshot {
   readonly entries: BackendLogEntry[];
 }
 
+export interface BackendLogSourceUpdate {
+  readonly sourceId: string;
+  readonly source?: BackendLogSource;
+  readonly removed: boolean;
+}
+
 export interface BackendLogPublishInput {
   readonly sourceId: string;
   readonly kind: BackendLogEventKind;
@@ -42,4 +48,3 @@ export interface BackendLogPublishInput {
 export type BackendLogReplay =
   | { readonly kind: 'replay'; readonly entries: BackendLogEntry[] }
   | { readonly kind: 'gap'; readonly snapshot: BackendLogSnapshot };
-

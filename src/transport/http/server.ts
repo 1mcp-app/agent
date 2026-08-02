@@ -23,6 +23,7 @@ import {
   tryAcquireRuntimeScopeAdminLock,
 } from '@src/domains/admin/runtimeScopeAdminLock.js';
 import { RuntimeServerManagerBackendRestartService } from '@src/domains/admin/runtimeServerManagerBackendRestartService.js';
+import { getBackendLogBroker } from '@src/domains/backend-logs/backendLogRuntime.js';
 import { createConfigChangeService } from '@src/domains/config-change/configChange.js';
 import { PresetManager } from '@src/domains/preset/manager/presetManager.js';
 import logger from '@src/logger/logger.js';
@@ -433,6 +434,7 @@ export class ExpressServer {
       adminMutationAvailability,
       getRuntimeIdentity,
       getOAuthDashboard,
+      backendLogBroker: getBackendLogBroker(),
     });
     if (adminRoutes) {
       this.app.use('/admin', adminRoutes);

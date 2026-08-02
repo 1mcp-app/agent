@@ -1,8 +1,9 @@
 import type { AdminPresetDraft, AdminPresetListItem, AdminPresetPreview, AdminPresetTarget } from '../api/adminApi';
 import type { ConfiguredServerEditModel } from '../configuredServerEdit/useConfiguredServerEdit';
 import type { AdminConsoleState } from '../state/adminConsoleState';
+import type { BackendLogsModel } from './useBackendLogs';
 
-export type AdminConsoleRoute = 'dashboard' | 'servers' | 'oauth' | 'audit' | 'presets' | 'about';
+export type AdminConsoleRoute = 'dashboard' | 'servers' | 'oauth' | 'audit' | 'presets' | 'logs' | 'about';
 export type OAuthAdminAction = 'authorize' | 'restart';
 export interface OAuthFeedback {
   kind: 'success' | 'error';
@@ -30,6 +31,7 @@ export interface AdminConsoleSessionModel {
     operationFeedback: OAuthFeedback | null;
     operate(serviceId: string, action: OAuthAdminAction): void | Promise<void>;
   };
+  logs: BackendLogsModel;
   presets: {
     items: AdminPresetListItem[];
     targets: AdminPresetTarget[];

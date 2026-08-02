@@ -7,6 +7,7 @@ import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js'
 import { SDKOAuthClientProvider } from '@src/auth/sdkOAuthClientProvider.js';
 import { MCPServerParams } from '@src/core/types/index.js';
 import { getBackendLogBroker, resetBackendLogBroker } from '@src/domains/backend-logs/backendLogRuntime.js';
+import { templateBackendLogSource } from '@src/domains/backend-logs/backendLogSource.js';
 // Import the mocked types
 import { transportConfigSchema } from '@src/core/types/index.js';
 import logger, { debugIf } from '@src/logger/logger.js';
@@ -155,6 +156,19 @@ describe('TransportFactory', () => {
       expect(getBackendLogBroker().snapshot().sources).toEqual([
         expect.objectContaining({ id: 'static:unmanaged', capture: 'not-captured' }),
       ]);
+    });
+
+    it('removes an unmanaged template log source when its transport closes', async () => {
+      const config: Record<string, MCPServerParams> = {
+        template: { type: 'stdio', command: 'node', stderr: 'inherit' },
+      };
+      const source = templateBackendLogSource({ templateName: 'template', instanceId: 'a'.repeat(64) });
+      (transportConfigSchema.parse as any).mockReturnValueOnce(config.template);
+
+      const transports = createTransports(config, { backendLogSources: { template: source } });
+      await transports.template.close();
+
+      expect(getBackendLogBroker().snapshot().sources).not.toContainEqual(expect.objectContaining({ id: source.id }));
     });
 
     it('should infer transport type when missing', () => {

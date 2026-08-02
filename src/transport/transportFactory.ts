@@ -236,7 +236,10 @@ function createStdioTransport(
     validatedTransport.stderr === 'pipe' ||
     validatedTransport.stderr === 'overlapped';
   const broker = getBackendLogBroker();
-  const source = { ...backendLogSource, capture: shouldManageStderr ? ('managed' as const) : ('not-captured' as const) };
+  const source = {
+    ...backendLogSource,
+    capture: shouldManageStderr ? ('managed' as const) : ('not-captured' as const),
+  };
   broker.registerSource(source);
   const managedStderr = shouldManageStderr
     ? new ManagedStdioStderr(name, { emit: createBackendLogProjection({ broker, source }) })
@@ -265,14 +268,14 @@ function createStdioTransport(
       lastExit = { code, signal, pid, at: new Date() };
     });
   };
-  if (managedStderr) {
-    managedStderr.attach(transport.stderr);
+  managedStderr?.attach(transport.stderr);
+  if (managedStderr || source.kind === 'template') {
     const closeTransport = transport.close.bind(transport);
     transport.close = async (): Promise<void> => {
       try {
         await closeTransport();
       } finally {
-        managedStderr.close();
+        managedStderr?.close();
         broker.updateSource(source.id, { lifecycle: 'ended' });
       }
     };
@@ -427,11 +430,7 @@ export async function createTransportsWithContext(
   return transports;
 }
 
-function registerInactiveStdioSource(
-  name: string,
-  params: MCPServerParams,
-  options: TransportCreationOptions,
-): void {
+function registerInactiveStdioSource(name: string, params: MCPServerParams, options: TransportCreationOptions): void {
   const transportType = params.type ?? (params.command ? 'stdio' : undefined);
   if (transportType !== 'stdio') return;
   const managed = params.stderr === undefined || params.stderr === 'pipe' || params.stderr === 'overlapped';

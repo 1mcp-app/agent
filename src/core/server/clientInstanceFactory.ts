@@ -24,17 +24,18 @@ export async function createPooledClientInstance({
   clientId,
   idleTimeout,
 }: CreatePooledInstanceParams): Promise<PooledClientInstance> {
-  const transports = await createTransportsWithContext(
-    {
-      [templateName]: processedConfig,
-    },
-    undefined,
-    {
-      backendLogSources: {
-        [templateName]: templateBackendLogSource({ templateName, instanceId }),
-      },
-    },
-  );
+  const backendLogOptions =
+    processedConfig.type === 'stdio' || (!processedConfig.type && Boolean(processedConfig.command))
+      ? {
+          backendLogSources: {
+            [templateName]: templateBackendLogSource({ templateName, instanceId }),
+          },
+        }
+      : undefined;
+  const configs = { [templateName]: processedConfig };
+  const transports = backendLogOptions
+    ? await createTransportsWithContext(configs, undefined, backendLogOptions)
+    : await createTransportsWithContext(configs, undefined);
 
   const transport = transports[templateName];
   if (!transport) {

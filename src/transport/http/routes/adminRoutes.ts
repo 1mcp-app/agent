@@ -37,6 +37,13 @@ import {
   type AdminPresetOperations,
 } from '@src/domains/admin/adminPresetService.js';
 import type { AdminMutationAvailability } from '@src/domains/admin/runtimeScopeAdminLock.js';
+import type { BackendLogBroker } from '@src/domains/backend-logs/backendLogBroker.js';
+import type {
+  BackendLogEntry,
+  BackendLogSnapshot,
+  BackendLogSource,
+  BackendLogSourceUpdate,
+} from '@src/domains/backend-logs/backendLogTypes.js';
 import { sensitiveOperationLimiter } from '@src/transport/http/middlewares/securityMiddleware.js';
 import { sanitizeErrorMessage } from '@src/utils/validation/sanitization.js';
 
@@ -103,6 +110,7 @@ interface AdminRoutesOptions {
   getRuntimeIdentity: () => RuntimeIdentity;
   getOAuthDashboard?: () => BackendOAuthDashboardResult;
   adminConsoleAssetsDir?: string;
+  backendLogBroker?: BackendLogBroker;
 }
 
 export function createAdminRoutes(options: AdminRoutesOptions): Router | null {
@@ -357,6 +365,22 @@ export function createAdminRoutes(options: AdminRoutesOptions): Router | null {
     });
   });
 
+  router.get('/api/logs/snapshot', (_req, res) => {
+    if (!options.backendLogBroker) {
+      res.status(404).json({ error: 'admin_backend_logs_unavailable' });
+      return;
+    }
+    res.status(200).json(options.backendLogBroker.snapshot());
+  });
+
+  router.get('/api/logs/stream', (req, res) => {
+    if (!options.backendLogBroker) {
+      res.status(404).json({ error: 'admin_backend_logs_unavailable' });
+      return;
+    }
+    streamBackendLogs(req, res, options);
+  });
+
   router.post('/api/oauth/:serviceId/authorize', sensitiveOperationLimiter, async (req, res) => {
     if (!options.oauthService) {
       res.status(503).json({ error: 'backend_oauth_runtime_unavailable' });
@@ -551,6 +575,78 @@ export function createAdminRoutes(options: AdminRoutesOptions): Router | null {
   });
 
   return router;
+}
+
+function streamBackendLogs(req: Request, res: Response, options: AdminRoutesOptions): void {
+  const broker = options.backendLogBroker!;
+  const sessionToken = getAdminSessionCookie(req);
+  let closed = false;
+  let unsubscribe: () => void = () => undefined;
+  let sessionTimer: ReturnType<typeof setInterval> | null = null;
+  const close = () => {
+    if (closed) return;
+    closed = true;
+    if (sessionTimer) clearInterval(sessionTimer);
+    unsubscribe();
+    if (!res.writableEnded) res.end();
+  };
+  const write = (
+    event: string,
+    data: BackendLogEntry | BackendLogSnapshot | BackendLogSource[] | BackendLogSourceUpdate,
+    id?: number,
+  ): boolean => {
+    if (closed || res.writableEnded) return false;
+    const frame = `${id === undefined ? '' : `id: ${id}\n`}event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
+    if (!res.write(frame)) {
+      close();
+      return false;
+    }
+    return true;
+  };
+
+  res.status(200);
+  res.set({
+    'Content-Type': 'text/event-stream; charset=utf-8',
+    'Cache-Control': 'no-cache, no-transform',
+    Connection: 'keep-alive',
+    'X-Accel-Buffering': 'no',
+  });
+  res.flushHeaders?.();
+
+  const requestedSequence = parseBackendLogSequence(req.header('Last-Event-ID'));
+  if (requestedSequence === undefined) {
+    const snapshot = broker.snapshot();
+    if (!write('snapshot', snapshot, snapshot.sequence)) return;
+  } else {
+    const snapshot = broker.snapshot();
+    if (!write('sources', snapshot.sources)) return;
+    const replay = broker.replayAfter(requestedSequence);
+    if (replay.kind === 'gap') {
+      if (!write('gap', replay.snapshot, replay.snapshot.sequence)) return;
+    } else {
+      for (const entry of replay.entries) {
+        if (!write('entry', entry, entry.sequence)) return;
+      }
+    }
+  }
+
+  unsubscribe = broker.subscribe({
+    onEvent: (entry) => void write('entry', entry, entry.sequence),
+    onSourceUpdate: (update) => void write('source', update),
+    onDisconnect: close,
+  });
+  sessionTimer = setInterval(() => {
+    if (!options.adminService.validateSession(sessionToken)) close();
+  }, 1_000);
+  sessionTimer.unref?.();
+  req.on('close', close);
+  res.on('close', close);
+}
+
+function parseBackendLogSequence(value: string | undefined): number | undefined {
+  if (!value || !/^\d+$/.test(value)) return undefined;
+  const sequence = Number(value);
+  return Number.isSafeInteger(sequence) ? sequence : undefined;
 }
 
 type AdminConsoleAssets =
