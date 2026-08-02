@@ -225,7 +225,7 @@ export class RestartableStdioTransport implements Transport {
       this._currentTransport = null;
     }
 
-    this.managedStderr?.close();
+    await this.managedStderr?.close();
 
     debugIf('RestartableStdioTransport closed');
   }
