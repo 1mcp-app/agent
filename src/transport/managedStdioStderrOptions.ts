@@ -7,4 +7,6 @@ export interface ManagedStdioStderrOptions {
   readonly maxLinesPerWindow?: number;
   readonly windowMs?: number;
   readonly repeatSummaryIntervalMs?: number;
+  readonly maxBytesPerTurn?: number;
+  readonly maxBufferedBytes?: number;
 }

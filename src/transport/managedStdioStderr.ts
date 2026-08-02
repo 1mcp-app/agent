@@ -9,6 +9,15 @@ const DEFAULT_MAX_LINE_BYTES = 8 * 1024;
 const DEFAULT_MAX_LINES_PER_WINDOW = 20;
 const DEFAULT_WINDOW_MS = 10_000;
 const DEFAULT_REPEAT_SUMMARY_INTERVAL_MS = 5_000;
+const DEFAULT_MAX_BYTES_PER_TURN = 16 * 1024;
+const DEFAULT_MAX_BUFFERED_BYTES = 64 * 1024;
+
+interface QueuedChunk {
+  readonly buffer: Buffer;
+  offset: number;
+}
+
+type QueueEntry = QueuedChunk | 'line-boundary' | 'stream-end';
 
 /**
  * Drains one backend's stderr without allowing it to grow parent logs without bound.
@@ -19,7 +28,15 @@ export class ManagedStdioStderr {
   private readonly maxLinesPerWindow: number;
   private readonly windowMs: number;
   private readonly repeatSummaryIntervalMs: number;
+  private readonly maxBytesPerTurn: number;
+  private readonly maxBufferedBytes: number;
   private stream: Stream | null = null;
+  private pausedStream: Stream | null = null;
+  private streamEnded = false;
+  private queue: QueueEntry[] = [];
+  private queuedBytes = 0;
+  private drainImmediate: ReturnType<typeof setImmediate> | null = null;
+  private closed = false;
   private lineBuffer = Buffer.alloc(0);
   private lineTruncated = false;
   private lastLine: string | undefined;
@@ -31,12 +48,27 @@ export class ManagedStdioStderr {
   private windowTimer: ReturnType<typeof setTimeout> | null = null;
 
   private readonly handleData = (chunk: unknown): void => {
-    this.consumeChunk(Buffer.isBuffer(chunk) ? chunk : Buffer.from(String(chunk)));
+    if (this.closed) {
+      return;
+    }
+
+    const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(String(chunk));
+    if (buffer.length > 0) {
+      this.queue.push({ buffer, offset: 0 });
+      this.queuedBytes += buffer.length;
+      this.applyBackpressure();
+      this.scheduleDrain();
+    }
   };
 
   private readonly handleStreamEnd = (): void => {
-    this.flushPendingLine();
-    this.flushRepeatSummary();
+    if (this.closed || this.streamEnded) {
+      return;
+    }
+
+    this.streamEnded = true;
+    this.queue.push('stream-end');
+    this.scheduleDrain();
   };
 
   constructor(
@@ -52,28 +84,119 @@ export class ManagedStdioStderr {
     this.maxLinesPerWindow = options.maxLinesPerWindow ?? DEFAULT_MAX_LINES_PER_WINDOW;
     this.windowMs = options.windowMs ?? DEFAULT_WINDOW_MS;
     this.repeatSummaryIntervalMs = options.repeatSummaryIntervalMs ?? DEFAULT_REPEAT_SUMMARY_INTERVAL_MS;
+    this.maxBytesPerTurn =
+      options.maxBytesPerTurn !== undefined && options.maxBytesPerTurn > 0
+        ? options.maxBytesPerTurn
+        : DEFAULT_MAX_BYTES_PER_TURN;
+    this.maxBufferedBytes =
+      options.maxBufferedBytes !== undefined && options.maxBufferedBytes > 0
+        ? options.maxBufferedBytes
+        : DEFAULT_MAX_BUFFERED_BYTES;
   }
 
   public attach(stream: Stream | null | undefined): void {
-    if (stream === this.stream) {
+    if (this.closed || stream === this.stream) {
       return;
     }
 
+    const shouldFinishPreviousLine = this.stream !== null && !this.streamEnded;
     this.detachStream();
-    this.flushPendingLine();
+    if (shouldFinishPreviousLine) {
+      this.queue.push('line-boundary');
+    }
     this.stream = stream ?? null;
+    this.streamEnded = false;
     this.stream?.on('data', this.handleData);
     this.stream?.on('end', this.handleStreamEnd);
     this.stream?.on('close', this.handleStreamEnd);
+    this.applyBackpressure();
+    if (this.queue.length > 0) {
+      this.scheduleDrain();
+    }
   }
 
   public close(): void {
+    if (this.closed) {
+      return;
+    }
+
+    this.closed = true;
     this.detachStream();
+    if (this.drainImmediate) {
+      clearImmediate(this.drainImmediate);
+      this.drainImmediate = null;
+    }
+    this.queue = [];
+    this.queuedBytes = 0;
     this.flushPendingLine();
     this.flushRepeatSummary();
     this.flushSuppressionSummary();
     this.clearTimer('repeat');
     this.clearTimer('window');
+  }
+
+  private scheduleDrain(): void {
+    if (this.closed || this.drainImmediate || this.queue.length === 0) {
+      return;
+    }
+
+    this.drainImmediate = setImmediate(() => {
+      this.drainImmediate = null;
+      this.drainTurn();
+    });
+    this.unrefTimer(this.drainImmediate);
+  }
+
+  private drainTurn(): void {
+    let remainingBudget = this.maxBytesPerTurn;
+
+    while (remainingBudget > 0 && this.queue.length > 0) {
+      const entry = this.queue[0];
+      if (typeof entry === 'string') {
+        this.queue.shift();
+        this.flushPendingLine();
+        if (entry === 'stream-end') {
+          this.flushRepeatSummary();
+        }
+        remainingBudget--;
+        continue;
+      }
+
+      const available = entry.buffer.length - entry.offset;
+      const consumed = Math.min(available, remainingBudget);
+      this.consumeChunk(entry.buffer.subarray(entry.offset, entry.offset + consumed));
+      entry.offset += consumed;
+      this.queuedBytes -= consumed;
+      remainingBudget -= consumed;
+      if (entry.offset === entry.buffer.length) {
+        this.queue.shift();
+      }
+    }
+
+    this.releaseBackpressure();
+    this.scheduleDrain();
+  }
+
+  private applyBackpressure(): void {
+    if (this.queuedBytes < this.maxBufferedBytes || this.pausedStream === this.stream) {
+      return;
+    }
+
+    const pausable = this.stream as (Stream & { pause?: () => unknown }) | null;
+    if (pausable?.pause) {
+      pausable.pause();
+      this.pausedStream = this.stream;
+    }
+  }
+
+  private releaseBackpressure(): void {
+    if (!this.pausedStream || this.queuedBytes >= this.maxBufferedBytes) {
+      return;
+    }
+
+    const resumable = this.pausedStream as Stream & { resume?: () => unknown };
+    this.pausedStream = null;
+    resumable.resume?.();
   }
 
   private consumeChunk(chunk: Buffer): void {
@@ -209,6 +332,11 @@ export class ManagedStdioStderr {
     this.stream?.off('data', this.handleData);
     this.stream?.off('end', this.handleStreamEnd);
     this.stream?.off('close', this.handleStreamEnd);
+    if (this.pausedStream && this.pausedStream === this.stream) {
+      const resumable = this.pausedStream as Stream & { resume?: () => unknown };
+      this.pausedStream = null;
+      resumable.resume?.();
+    }
     this.stream = null;
   }
 
@@ -224,7 +352,7 @@ export class ManagedStdioStderr {
     }
   }
 
-  private unrefTimer(timer: ReturnType<typeof setTimeout>): void {
+  private unrefTimer(timer: ReturnType<typeof setTimeout> | ReturnType<typeof setImmediate>): void {
     if (typeof timer === 'object' && 'unref' in timer) {
       timer.unref();
     }
