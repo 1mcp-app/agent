@@ -79,7 +79,7 @@ describe('admin SPA browser smoke', () => {
           },
         ],
       }),
-      backendLogBroker,
+      getBackendLogBroker: () => backendLogBroker,
       adminConsoleAssetsDir: ADMIN_BUILD_DIR,
     });
 

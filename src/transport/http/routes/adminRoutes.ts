@@ -77,6 +77,9 @@ const adminLoginBodySchema = z.object({
 const adminOAuthServiceParamsSchema = z.object({
   serviceId: z.string().trim().min(1).max(256),
 });
+const backendLogSnapshotQuerySchema = z.object({
+  sourceId: z.string().trim().min(1).max(256).optional(),
+});
 const cliConfiguredServerMutationBodySchema = z.object({
   targetName: z.string().trim().min(1).max(256),
   dryRun: z.boolean().optional(),
@@ -110,7 +113,7 @@ interface AdminRoutesOptions {
   getRuntimeIdentity: () => RuntimeIdentity;
   getOAuthDashboard?: () => BackendOAuthDashboardResult;
   adminConsoleAssetsDir?: string;
-  backendLogBroker?: BackendLogBroker;
+  getBackendLogBroker?: () => BackendLogBroker;
 }
 
 export function createAdminRoutes(options: AdminRoutesOptions): Router | null {
@@ -365,20 +368,27 @@ export function createAdminRoutes(options: AdminRoutesOptions): Router | null {
     });
   });
 
-  router.get('/api/logs/snapshot', (_req, res) => {
-    if (!options.backendLogBroker) {
+  router.get('/api/logs/snapshot', statusLimiter, (req, res) => {
+    const broker = options.getBackendLogBroker?.();
+    if (!broker) {
       res.status(404).json({ error: 'admin_backend_logs_unavailable' });
       return;
     }
-    res.status(200).json(options.backendLogBroker.snapshot());
+    const parsedQuery = backendLogSnapshotQuerySchema.safeParse(req.query);
+    if (!parsedQuery.success) {
+      res.status(400).json({ error: 'admin_backend_logs_query_invalid' });
+      return;
+    }
+    res.status(200).json(broker.snapshot(parsedQuery.data.sourceId));
   });
 
   router.get('/api/logs/stream', (req, res) => {
-    if (!options.backendLogBroker) {
+    const broker = options.getBackendLogBroker?.();
+    if (!broker) {
       res.status(404).json({ error: 'admin_backend_logs_unavailable' });
       return;
     }
-    streamBackendLogs(req, res, options);
+    streamBackendLogs(req, res, broker, options.adminService);
   });
 
   router.post('/api/oauth/:serviceId/authorize', sensitiveOperationLimiter, async (req, res) => {
@@ -577,8 +587,12 @@ export function createAdminRoutes(options: AdminRoutesOptions): Router | null {
   return router;
 }
 
-function streamBackendLogs(req: Request, res: Response, options: AdminRoutesOptions): void {
-  const broker = options.backendLogBroker!;
+function streamBackendLogs(
+  req: Request,
+  res: Response,
+  broker: BackendLogBroker,
+  adminService: AdminIdentityService,
+): void {
   const sessionToken = getAdminSessionCookie(req);
   let closed = false;
   let unsubscribe: () => void = () => undefined;
@@ -590,18 +604,23 @@ function streamBackendLogs(req: Request, res: Response, options: AdminRoutesOpti
     unsubscribe();
     if (!res.writableEnded) res.end();
   };
+  const writeFrame = (frame: string): boolean => {
+    if (closed || res.writableEnded) return false;
+    try {
+      res.write(frame);
+      return true;
+    } catch {
+      close();
+      return false;
+    }
+  };
   const write = (
     event: string,
     data: BackendLogEntry | BackendLogSnapshot | BackendLogSource[] | BackendLogSourceUpdate,
     id?: number,
   ): boolean => {
-    if (closed || res.writableEnded) return false;
     const frame = `${id === undefined ? '' : `id: ${id}\n`}event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
-    if (!res.write(frame)) {
-      close();
-      return false;
-    }
-    return true;
+    return writeFrame(frame);
   };
 
   res.status(200);
@@ -636,8 +655,12 @@ function streamBackendLogs(req: Request, res: Response, options: AdminRoutesOpti
     onDisconnect: close,
   });
   sessionTimer = setInterval(() => {
-    if (!options.adminService.validateSession(sessionToken)) close();
-  }, 1_000);
+    if (!adminService.validateSession(sessionToken)) {
+      close();
+      return;
+    }
+    void writeFrame(': keep-alive\n\n');
+  }, 10_000);
   sessionTimer.unref?.();
   req.on('close', close);
   res.on('close', close);

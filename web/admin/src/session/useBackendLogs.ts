@@ -1,12 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { AdminApiError } from '../api/adminApi';
-import type {
-  AdminApiClient,
-  BackendLogEntry,
-  BackendLogSnapshot,
-  BackendLogSource,
-} from '../api/adminApi';
+import type { AdminApiClient, BackendLogEntry, BackendLogSnapshot, BackendLogSource } from '../api/adminApi';
 
 const MAX_SELECTED_ENTRIES = 5_000;
 const MAX_SELECTED_CONTENT_UNITS = 512 * 1024;
@@ -47,8 +42,14 @@ export function useBackendLogs(input: {
   const sourcesRef = useRef<BackendLogSource[]>([]);
   const onUnauthenticatedRef = useRef(input.onUnauthenticated);
   const selectionRequest = useRef(0);
-  stateRef.current = state;
-  onUnauthenticatedRef.current = input.onUnauthenticated;
+
+  useEffect(() => {
+    stateRef.current = state;
+  }, [state]);
+
+  useEffect(() => {
+    onUnauthenticatedRef.current = input.onUnauthenticated;
+  }, [input.onUnauthenticated]);
 
   const applySnapshot = useCallback((snapshot: BackendLogSnapshot) => {
     sourcesRef.current = snapshot.sources;
@@ -83,7 +84,7 @@ export function useBackendLogs(input: {
         selectionError: null,
       }));
       try {
-        const snapshot = await input.api.getBackendLogSnapshot();
+        const snapshot = await input.api.getBackendLogSnapshot(sourceId);
         if (selectionRequest.current !== requestId) return;
         setState((current) => {
           if (current.selectedSourceId !== sourceId) return current;
@@ -148,8 +149,8 @@ export function useBackendLogs(input: {
         const current = stateRef.current;
         const sources = update.removed
           ? sourcesRef.current.filter((source) => source.id !== update.sourceId)
-          : [...sourcesRef.current.filter((source) => source.id !== update.sourceId), update.source!].sort((left, right) =>
-              left.id.localeCompare(right.id),
+          : [...sourcesRef.current.filter((source) => source.id !== update.sourceId), update.source!].sort(
+              (left, right) => left.id.localeCompare(right.id),
             );
         sourcesRef.current = sources;
         const nextSelectedSourceId = sources.some((source) => source.id === current.selectedSourceId)
@@ -166,10 +167,7 @@ export function useBackendLogs(input: {
     return close;
   }, [applySnapshot, input.active, input.api, input.authenticated, loadSource]);
 
-  const select = useCallback(
-    (sourceId: string) => loadSource(sourceId),
-    [loadSource],
-  );
+  const select = useCallback((sourceId: string) => loadSource(sourceId), [loadSource]);
 
   return { ...state, select };
 }
@@ -245,8 +243,14 @@ function reconcileSources(
   };
 }
 
-function retainSourceState<T>(values: Readonly<Record<string, T>>, retainedIds: ReadonlySet<string>): Record<string, T> {
-  return Object.fromEntries(Object.entries(values).filter(([sourceId]) => retainedIds.has(sourceId))) as Record<string, T>;
+function retainSourceState<T>(
+  values: Readonly<Record<string, T>>,
+  retainedIds: ReadonlySet<string>,
+): Record<string, T> {
+  return Object.fromEntries(Object.entries(values).filter(([sourceId]) => retainedIds.has(sourceId))) as Record<
+    string,
+    T
+  >;
 }
 
 function unreadFromSnapshot(snapshot: BackendLogSnapshot, selectedSourceId: string | null): Record<string, number> {

@@ -8,12 +8,46 @@ import { useBackendLogs } from './useBackendLogs';
 const snapshot: BackendLogSnapshot = {
   sequence: 2,
   sources: [
-    { id: 'static:filesystem', canonicalName: 'filesystem', displayName: 'filesystem', kind: 'static', capture: 'managed', lifecycle: 'active' },
-    { id: 'static:search', canonicalName: 'search', displayName: 'search', kind: 'static', capture: 'managed', lifecycle: 'active' },
+    {
+      id: 'static:filesystem',
+      canonicalName: 'filesystem',
+      displayName: 'filesystem',
+      kind: 'static',
+      capture: 'managed',
+      lifecycle: 'active',
+    },
+    {
+      id: 'static:search',
+      canonicalName: 'search',
+      displayName: 'search',
+      kind: 'static',
+      capture: 'managed',
+      lifecycle: 'active',
+    },
   ],
   entries: [
-    { sequence: 1, timestamp: '2026-08-02T00:00:00.000Z', sourceId: 'static:filesystem', canonicalName: 'filesystem', displayName: 'filesystem', sourceKind: 'static', kind: 'line', content: 'ready', truncated: false },
-    { sequence: 2, timestamp: '2026-08-02T00:00:01.000Z', sourceId: 'static:search', canonicalName: 'search', displayName: 'search', sourceKind: 'static', kind: 'line', content: 'indexed', truncated: false },
+    {
+      sequence: 1,
+      timestamp: '2026-08-02T00:00:00.000Z',
+      sourceId: 'static:filesystem',
+      canonicalName: 'filesystem',
+      displayName: 'filesystem',
+      sourceKind: 'static',
+      kind: 'line',
+      content: 'ready',
+      truncated: false,
+    },
+    {
+      sequence: 2,
+      timestamp: '2026-08-02T00:00:01.000Z',
+      sourceId: 'static:search',
+      canonicalName: 'search',
+      displayName: 'search',
+      sourceKind: 'static',
+      kind: 'line',
+      content: 'indexed',
+      truncated: false,
+    },
   ],
 };
 
@@ -44,6 +78,7 @@ describe('useBackendLogs', () => {
 
     await act(async () => result.current.select('static:search'));
     expect(result.current.entries.map((entry) => entry.content)).toEqual(['indexed']);
+    expect(api.getBackendLogSnapshot).toHaveBeenCalledWith('static:search');
     expect(api.openBackendLogStream).toHaveBeenCalledOnce();
 
     act(() => handlers!.onGap({ sequence: 3, sources: [snapshot.sources[1]], entries: [] }));

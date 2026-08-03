@@ -472,6 +472,30 @@ describe('TransportFactory', () => {
       expect(logger.info).toHaveBeenCalledWith('Enabling runtime-owned stdio supervision for: restartable-server');
     });
 
+    it('marks a supervised stdio source active again when recreating the transport', async () => {
+      const config: Record<string, MCPServerParams> = {
+        'restartable-server': {
+          type: 'stdio',
+          command: 'node',
+          restartOnExit: true,
+        },
+      };
+      (transportConfigSchema.parse as any).mockReturnValueOnce(config['restartable-server']);
+
+      const transports = createTransports(config);
+      const transport = transports['restartable-server'];
+      await transport.close();
+      expect(getBackendLogBroker().snapshot().sources).toContainEqual(
+        expect.objectContaining({ id: 'static:restartable-server', lifecycle: 'ended' }),
+      );
+
+      transport.stdioSupervision?.recreate();
+
+      expect(getBackendLogBroker().snapshot().sources).toContainEqual(
+        expect.objectContaining({ id: 'static:restartable-server', lifecycle: 'active' }),
+      );
+    });
+
     it('should use default restartDelay when not specified', () => {
       const config: Record<string, MCPServerParams> = {
         'restartable-server-default': {

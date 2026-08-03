@@ -434,7 +434,7 @@ export class ExpressServer {
       adminMutationAvailability,
       getRuntimeIdentity,
       getOAuthDashboard,
-      backendLogBroker: getBackendLogBroker(),
+      getBackendLogBroker,
     });
     if (adminRoutes) {
       this.app.use('/admin', adminRoutes);

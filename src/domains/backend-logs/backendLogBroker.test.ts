@@ -2,24 +2,10 @@ import { describe, expect, it, vi } from 'vitest';
 
 import { BackendLogBroker } from './backendLogBroker.js';
 import { sanitizeBackendLogContent } from './backendLogSanitizer.js';
+import { staticBackendLogSource, templateBackendLogSource } from './backendLogSource.js';
 
-const staticSource = {
-  id: 'static:filesystem',
-  canonicalName: 'filesystem',
-  displayName: 'filesystem',
-  kind: 'static' as const,
-  capture: 'managed' as const,
-  lifecycle: 'active' as const,
-};
-
-const templateSource = {
-  id: 'template:0123456789abcdef',
-  canonicalName: '0123456789abcdef',
-  displayName: 'search (0123456789ab)',
-  kind: 'template' as const,
-  capture: 'managed' as const,
-  lifecycle: 'active' as const,
-};
+const staticSource = staticBackendLogSource('filesystem');
+const templateSource = templateBackendLogSource({ templateName: 'search', instanceId: '0123456789abcdef' });
 
 describe('BackendLogBroker', () => {
   it('sanitizes secrets and terminal controls before retaining or publishing content', () => {
@@ -97,6 +83,29 @@ describe('BackendLogBroker', () => {
     );
   });
 
+  it('reports a gap when a cursor is ahead of the current broker generation', () => {
+    const broker = new BackendLogBroker();
+    broker.registerSource(staticSource);
+    const entry = broker.publish({ sourceId: staticSource.id, kind: 'line', content: 'current generation' });
+
+    expect(broker.replayAfter(entry.sequence + 10)).toEqual({ kind: 'gap', snapshot: broker.snapshot() });
+  });
+
+  it('filters snapshot entries by source without dropping the source catalog', () => {
+    const broker = new BackendLogBroker();
+    const secondSource = staticBackendLogSource('search');
+    broker.registerSource(staticSource);
+    broker.registerSource(secondSource);
+    const filesystemEntry = broker.publish({ sourceId: staticSource.id, kind: 'line', content: 'filesystem' });
+    broker.publish({ sourceId: secondSource.id, kind: 'line', content: 'search' });
+
+    expect(broker.snapshot(staticSource.id)).toEqual({
+      sequence: 2,
+      sources: [staticSource, secondSource],
+      entries: [filesystemEntry],
+    });
+  });
+
   it('disconnects a slow subscriber without delaying publication', async () => {
     const broker = new BackendLogBroker({ subscriberQueueBytes: 180 });
     const disconnected = vi.fn();
@@ -108,6 +117,28 @@ describe('BackendLogBroker', () => {
     expect(disconnected).not.toHaveBeenCalled();
     await new Promise<void>((resolve) => setImmediate(resolve));
     expect(disconnected).toHaveBeenCalledWith('slow-subscriber');
+  });
+
+  it('isolates subscriber callback failures and disconnects subscribers when cleared', async () => {
+    const broker = new BackendLogBroker();
+    const failed = vi.fn(() => {
+      throw new Error('subscriber failed');
+    });
+    const failedAfter = vi.fn();
+    const disconnected = vi.fn();
+    broker.registerSource(staticSource);
+    broker.subscribe({ onEvent: failed });
+    broker.subscribe({ onEvent: failedAfter, onDisconnect: disconnected });
+
+    broker.publish({ sourceId: staticSource.id, kind: 'line', content: 'first' });
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    broker.publish({ sourceId: staticSource.id, kind: 'line', content: 'second' });
+    await new Promise<void>((resolve) => setImmediate(resolve));
+
+    expect(failed).toHaveBeenCalledOnce();
+    expect(failedAfter).toHaveBeenCalledTimes(2);
+    broker.clear();
+    expect(disconnected).toHaveBeenCalledWith('broker-reset');
   });
 
   it('reports a gap when all entries after a cursor have been evicted', () => {
@@ -140,7 +171,7 @@ describe('sanitizeBackendLogContent', () => {
     ['password=hunter2', 'password=[REDACTED]'],
     [
       'https://user:secret@example.com/path?code=oauth-code',
-      'https://user:[REDACTED]@example.com/path?code=[REDACTED]',
+      'https://user:[REDACTED]@example.com/path?code=oauth-code',
     ],
     ['client_secret: abc123', 'client_secret: [REDACTED]'],
     ['Bearer standalone-secret', 'Bearer [REDACTED]'],
@@ -148,6 +179,7 @@ describe('sanitizeBackendLogContent', () => {
       'https://example.test/callback?token=url-secret&safe=yes',
       'https://example.test/callback?token=[REDACTED]&safe=yes',
     ],
+    ['process exited with code=2 and status code: 500', 'process exited with code=2 and status code: 500'],
   ])('redacts %s', (input, expected) => {
     expect(sanitizeBackendLogContent(input)).toBe(expected);
   });

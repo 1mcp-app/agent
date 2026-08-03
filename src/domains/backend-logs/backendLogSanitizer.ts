@@ -1,6 +1,6 @@
 const BEARER_TOKEN = /\b(bearer\s+)([^\s,;]+)/giu;
 const SECRET_ASSIGNMENT =
-  /\b(api[_-]?key|password|passwd|client[_-]?secret|access[_-]?token|refresh[_-]?token|id[_-]?token|token|oauth[_-]?code|code)(\s*[:=]\s*)([^\s&,;]+)/giu;
+  /\b(api[_-]?key|password|passwd|client[_-]?secret|access[_-]?token|refresh[_-]?token|id[_-]?token|token|oauth[_-]?code)(\s*[:=]\s*)([^\s&,;]+)/giu;
 const URL_PASSWORD = /(https?:\/\/[^\s/:@]+:)([^\s/@]+)(@)/giu;
 
 export function sanitizeBackendLogContent(content: string): string {

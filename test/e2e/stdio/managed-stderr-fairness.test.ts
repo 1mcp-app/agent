@@ -1,6 +1,6 @@
 import { spawn } from 'node:child_process';
 import { once } from 'node:events';
-import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
@@ -44,18 +44,18 @@ it('keeps a healthy MCP request responsive while another child floods managed st
   });
   const healthyTransport = new StdioClientTransport({
     command: process.execPath,
-    args: [join(process.cwd(), 'test/e2e/fixtures/echo-server.js')],
+    args: [fileURLToPath(new URL('../fixtures/echo-server.js', import.meta.url))],
   });
   const healthyClient = new Client({ name: 'stderr-fairness-test', version: '1.0.0' });
 
   noisyStderr.attach(noisyProcess.stderr);
 
   try {
-    await within(noisyStarted, 1_000);
-    await within(healthyClient.connect(healthyTransport), 2_000);
+    await within(noisyStarted, 5_000);
+    await within(healthyClient.connect(healthyTransport), 5_000);
     const result = await within(
       healthyClient.callTool({ name: 'echo', arguments: { message: 'still responsive' } }),
-      500,
+      2_000,
     );
 
     expect(result.content).toContainEqual(

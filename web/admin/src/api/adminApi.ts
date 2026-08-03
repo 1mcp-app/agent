@@ -469,8 +469,9 @@ export function createAdminApi(options: AdminApiOptions = {}) {
       return request('/admin/api/status');
     },
 
-    getBackendLogSnapshot(): Promise<BackendLogSnapshot> {
-      return request('/admin/api/logs/snapshot');
+    getBackendLogSnapshot(sourceId?: string): Promise<BackendLogSnapshot> {
+      const query = sourceId ? `?sourceId=${encodeURIComponent(sourceId)}` : '';
+      return request(`/admin/api/logs/snapshot${query}`);
     },
 
     openBackendLogStream(handlers: {
@@ -482,16 +483,35 @@ export function createAdminApi(options: AdminApiOptions = {}) {
       onOpen(): void;
       onError(): void;
     }): () => void {
+      const parseEvent = <T>(event: MessageEvent<string>): T | undefined => {
+        try {
+          return JSON.parse(event.data) as T;
+        } catch {
+          handlers.onError();
+          return undefined;
+        }
+      };
       const source = createEventSource('/admin/api/logs/stream');
-      source.addEventListener('snapshot', (event) => handlers.onSnapshot(JSON.parse(event.data) as BackendLogSnapshot));
-      source.addEventListener('gap', (event) => handlers.onGap(JSON.parse(event.data) as BackendLogSnapshot));
-      source.addEventListener('entry', (event) => handlers.onEntry(JSON.parse(event.data) as BackendLogEntry));
-      source.addEventListener('sources', (event) =>
-        handlers.onSources(JSON.parse(event.data) as BackendLogSource[]),
-      );
-      source.addEventListener('source', (event) =>
-        handlers.onSourceUpdate(JSON.parse(event.data) as BackendLogSourceUpdate),
-      );
+      source.addEventListener('snapshot', (event) => {
+        const snapshot = parseEvent<BackendLogSnapshot>(event);
+        if (snapshot) handlers.onSnapshot(snapshot);
+      });
+      source.addEventListener('gap', (event) => {
+        const snapshot = parseEvent<BackendLogSnapshot>(event);
+        if (snapshot) handlers.onGap(snapshot);
+      });
+      source.addEventListener('entry', (event) => {
+        const entry = parseEvent<BackendLogEntry>(event);
+        if (entry) handlers.onEntry(entry);
+      });
+      source.addEventListener('sources', (event) => {
+        const sources = parseEvent<BackendLogSource[]>(event);
+        if (sources) handlers.onSources(sources);
+      });
+      source.addEventListener('source', (event) => {
+        const update = parseEvent<BackendLogSourceUpdate>(event);
+        if (update) handlers.onSourceUpdate(update);
+      });
       source.onopen = () => handlers.onOpen();
       source.onerror = () => handlers.onError();
       return () => source.close();

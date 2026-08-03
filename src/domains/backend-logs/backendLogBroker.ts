@@ -21,7 +21,7 @@ interface RetainedEntry {
 interface Subscriber {
   readonly onEvent: (entry: BackendLogEntry) => void;
   readonly onSourceUpdate?: (update: BackendLogSourceUpdate) => void;
-  readonly onDisconnect?: (reason: 'slow-subscriber') => void;
+  readonly onDisconnect?: (reason: 'slow-subscriber' | 'broker-reset') => void;
   queue: Array<
     | { readonly kind: 'entry'; readonly retained: RetainedEntry; readonly bytes: number }
     | { readonly kind: 'source'; readonly update: BackendLogSourceUpdate; readonly bytes: number }
@@ -47,6 +47,7 @@ export class BackendLogBroker {
   private readonly measureEntry: (entry: BackendLogEntry) => number;
   private readonly sources = new Map<string, BackendLogSource>();
   private readonly retainedBySource = new Map<string, RetainedEntry[]>();
+  private readonly bytesBySource = new Map<string, number>();
   private readonly retainedGlobal: RetainedEntry[] = [];
   private retainedGlobalHead = 0;
   private readonly subscribers = new Set<Subscriber>();
@@ -96,6 +97,7 @@ export class BackendLogBroker {
     const sourceEntries = this.retainedBySource.get(source.id) ?? [];
     sourceEntries.push(retained);
     this.retainedBySource.set(source.id, sourceEntries);
+    this.bytesBySource.set(source.id, (this.bytesBySource.get(source.id) ?? 0) + retained.bytes);
     this.retainedGlobal.push(retained);
     this.globalBytes += retained.bytes;
     this.evictSource(source.id);
@@ -104,11 +106,15 @@ export class BackendLogBroker {
     return entry;
   }
 
-  snapshot(): BackendLogSnapshot {
+  snapshot(sourceId?: string): BackendLogSnapshot {
+    const retained =
+      sourceId === undefined
+        ? this.retainedEntries()
+        : (this.retainedBySource.get(sourceId) ?? []).filter((entry) => !entry.evicted);
     return {
       sequence: this.nextSequence - 1,
       sources: [...this.sources.values()].sort((left, right) => left.id.localeCompare(right.id)),
-      entries: this.retainedEntries().map(({ entry }) => entry),
+      entries: retained.map(({ entry }) => entry),
     };
   }
 
@@ -116,6 +122,7 @@ export class BackendLogBroker {
     const entries = this.retainedEntries();
     const oldestSequence = entries[0]?.entry.sequence;
     if (
+      sequence > this.nextSequence - 1 ||
       (oldestSequence !== undefined && sequence < oldestSequence - 1) ||
       (oldestSequence === undefined && sequence < this.nextSequence - 1)
     ) {
@@ -130,7 +137,7 @@ export class BackendLogBroker {
   subscribe(input: {
     onEvent: (entry: BackendLogEntry) => void;
     onSourceUpdate?: (update: BackendLogSourceUpdate) => void;
-    onDisconnect?: (reason: 'slow-subscriber') => void;
+    onDisconnect?: (reason: 'slow-subscriber' | 'broker-reset') => void;
   }): () => void {
     const subscriber: Subscriber = { ...input, queue: [], queuedBytes: 0, immediate: null, closed: false };
     this.subscribers.add(subscriber);
@@ -138,9 +145,10 @@ export class BackendLogBroker {
   }
 
   clear(): void {
-    for (const subscriber of this.subscribers) this.closeSubscriber(subscriber);
+    for (const subscriber of [...this.subscribers]) this.disconnectSubscriber(subscriber, 'broker-reset');
     this.sources.clear();
     this.retainedBySource.clear();
+    this.bytesBySource.clear();
     this.retainedGlobal.length = 0;
     this.retainedGlobalHead = 0;
     this.globalBytes = 0;
@@ -154,14 +162,19 @@ export class BackendLogBroker {
   private evictSource(sourceId: string): void {
     const entries = this.retainedBySource.get(sourceId);
     if (!entries) return;
-    let bytes = entries.reduce((total, retained) => total + retained.bytes, 0);
+    let bytes = this.bytesBySource.get(sourceId) ?? 0;
     while (entries.length > 0 && bytes > this.perSourceBytes) {
       const evicted = entries.shift()!;
       evicted.evicted = true;
       bytes -= evicted.bytes;
       this.globalBytes -= evicted.bytes;
     }
-    if (entries.length === 0) this.retainedBySource.delete(sourceId);
+    if (entries.length === 0) {
+      this.retainedBySource.delete(sourceId);
+      this.bytesBySource.delete(sourceId);
+    } else {
+      this.bytesBySource.set(sourceId, bytes);
+    }
     this.removeEndedSourceWithoutHistory(sourceId);
   }
 
@@ -170,13 +183,22 @@ export class BackendLogBroker {
     while (this.globalBytes > this.globalBytesLimit) {
       const oldest = this.retainedGlobal[this.retainedGlobalHead++];
       if (!oldest) break;
-      const entries = this.retainedBySource.get(oldest.entry.sourceId)!;
-      if (entries[0] === oldest) entries.shift();
-      else entries.splice(entries.indexOf(oldest), 1);
+      const sourceId = oldest.entry.sourceId;
+      const entries = this.retainedBySource.get(sourceId);
+      if (entries) {
+        const entryIndex = entries.indexOf(oldest);
+        if (entryIndex >= 0) entries.splice(entryIndex, 1);
+      }
       oldest.evicted = true;
       this.globalBytes -= oldest.bytes;
-      if (entries.length === 0) this.retainedBySource.delete(oldest.entry.sourceId);
-      this.removeEndedSourceWithoutHistory(oldest.entry.sourceId);
+      const sourceBytes = Math.max(0, (this.bytesBySource.get(sourceId) ?? 0) - oldest.bytes);
+      if (!entries || entries.length === 0) {
+        this.retainedBySource.delete(sourceId);
+        this.bytesBySource.delete(sourceId);
+      } else {
+        this.bytesBySource.set(sourceId, sourceBytes);
+      }
+      this.removeEndedSourceWithoutHistory(sourceId);
       while (this.retainedGlobal[this.retainedGlobalHead]?.evicted) this.retainedGlobalHead++;
     }
     this.compactGlobalQueue();
@@ -216,7 +238,13 @@ export class BackendLogBroker {
       this.closeSubscriber(subscriber);
       if (subscriber.onDisconnect) {
         const notify = subscriber.onDisconnect;
-        const immediate = setImmediate(() => notify('slow-subscriber'));
+        const immediate = setImmediate(() => {
+          try {
+            notify('slow-subscriber');
+          } catch {
+            // Subscriber failures must not escape the scheduled callback.
+          }
+        });
         immediate.unref?.();
       }
       return;
@@ -232,9 +260,22 @@ export class BackendLogBroker {
     const queued = subscriber.queue;
     subscriber.queue = [];
     subscriber.queuedBytes = 0;
-    for (const event of queued) {
-      if (event.kind === 'entry') subscriber.onEvent(event.retained.entry);
-      else subscriber.onSourceUpdate?.(event.update);
+    try {
+      for (const event of queued) {
+        if (event.kind === 'entry') subscriber.onEvent(event.retained.entry);
+        else subscriber.onSourceUpdate?.(event.update);
+      }
+    } catch {
+      this.closeSubscriber(subscriber);
+    }
+  }
+
+  private disconnectSubscriber(subscriber: Subscriber, reason: 'slow-subscriber' | 'broker-reset'): void {
+    this.closeSubscriber(subscriber);
+    try {
+      subscriber.onDisconnect?.(reason);
+    } catch {
+      // Subscriber failures must not escape broker lifecycle operations.
     }
   }
 

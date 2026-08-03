@@ -231,14 +231,12 @@ function createStdioTransport(
       ? substituteEnvVars(validatedTransport.cwd, envResult.processedEnv)
       : validatedTransport.cwd;
 
-  const shouldManageStderr =
-    validatedTransport.stderr === undefined ||
-    validatedTransport.stderr === 'pipe' ||
-    validatedTransport.stderr === 'overlapped';
+  const shouldManageStderr = isManagedStderr(validatedTransport.stderr);
   const broker = getBackendLogBroker();
   const source = {
     ...backendLogSource,
     capture: shouldManageStderr ? ('managed' as const) : ('not-captured' as const),
+    lifecycle: 'active' as const,
   };
   broker.registerSource(source);
   const managedStderr = shouldManageStderr
@@ -345,7 +343,7 @@ export function createTransports(
   const transports: Record<string, AuthProviderTransport> = {};
 
   for (const [name, params] of Object.entries(config)) {
-    registerInactiveStdioSource(name, params, options);
+    registerConfiguredStdioSource(name, params, options);
     if (params.disabled) {
       debugIf(`Skipping disabled transport: ${name}`);
       continue;
@@ -388,7 +386,7 @@ export async function createTransportsWithContext(
   const templateRenderer = context ? new HandlebarsTemplateRenderer() : null;
 
   for (const [name, params] of Object.entries(config)) {
-    registerInactiveStdioSource(name, params, options);
+    registerConfiguredStdioSource(name, params, options);
     if (params.disabled) {
       debugIf(`Skipping disabled transport: ${name}`);
       continue;
@@ -430,14 +428,18 @@ export async function createTransportsWithContext(
   return transports;
 }
 
-function registerInactiveStdioSource(name: string, params: MCPServerParams, options: TransportCreationOptions): void {
+function registerConfiguredStdioSource(name: string, params: MCPServerParams, options: TransportCreationOptions): void {
   const transportType = params.type ?? (params.command ? 'stdio' : undefined);
   if (transportType !== 'stdio') return;
-  const managed = params.stderr === undefined || params.stderr === 'pipe' || params.stderr === 'overlapped';
+  const managed = isManagedStderr(params.stderr);
   const source = options.backendLogSources?.[name] ?? staticBackendLogSource(name);
   getBackendLogBroker().registerSource({
     ...source,
     capture: managed ? 'managed' : 'not-captured',
     lifecycle: params.disabled ? 'ended' : source.lifecycle,
   });
+}
+
+function isManagedStderr(stderr: MCPServerParams['stderr']): boolean {
+  return stderr === undefined || stderr === 'pipe' || stderr === 'overlapped';
 }
