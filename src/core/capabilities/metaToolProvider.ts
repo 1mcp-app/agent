@@ -283,10 +283,7 @@ export class MetaToolProvider {
   /**
    * Implement tool_schema
    */
-  private async describeTool(
-    args: DescribeToolArgs,
-    visibility?: CapabilityVisibility,
-  ): Promise<DescribeToolResult> {
+  private async describeTool(args: DescribeToolArgs, visibility?: CapabilityVisibility): Promise<DescribeToolResult> {
     try {
       const result = await this.capabilityCatalog.describeVisibleTool(args, visibility);
       if (result.error) {
@@ -332,10 +329,7 @@ export class MetaToolProvider {
   /**
    * Implement tool_invoke
    */
-  private async callTool(
-    args: CallToolArgs,
-    visibility?: CapabilityVisibility,
-  ): Promise<CallToolResult> {
+  private async callTool(args: CallToolArgs, visibility?: CapabilityVisibility): Promise<CallToolResult> {
     try {
       const result = await this.capabilityCatalog.invokeVisibleTool(args, visibility);
       if (result.error) {

@@ -18,9 +18,9 @@ import { setupPresetCommands } from './commands/preset/index.js';
 import { setupProxyCommand } from './commands/proxy/index.js';
 import { setupRegistryCommands } from './commands/registry/index.js';
 import { setupRunCommand } from './commands/run/index.js';
-import { setupWaitCommand } from './commands/wait/index.js';
 import { serverOptions, setupServeCommand } from './commands/serve/index.js';
 import { setupTargetCommands } from './commands/target/index.js';
+import { setupWaitCommand } from './commands/wait/index.js';
 import { configureGlobalLogger } from './logger/configureGlobalLogger.js';
 
 export { normalizeCliArgv, normalizedArgv };

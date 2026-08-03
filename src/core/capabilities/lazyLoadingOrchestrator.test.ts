@@ -480,10 +480,14 @@ describe('LazyLoadingOrchestrator', () => {
       };
       orchestrator.getSchemaCache().set('filesystem', 'read_file', tool);
 
-      const result = await orchestrator.callMetaTool('tool_schema', {
-        server: 'filesystem',
-        toolName: 'read_file',
-      }, capabilityVisibilityFromServerNames(['filesystem']));
+      const result = await orchestrator.callMetaTool(
+        'tool_schema',
+        {
+          server: 'filesystem',
+          toolName: 'read_file',
+        },
+        capabilityVisibilityFromServerNames(['filesystem']),
+      );
 
       expect(result).toBeDefined();
     });
@@ -509,9 +513,7 @@ describe('LazyLoadingOrchestrator', () => {
 
       await expect(
         fullOrchestrator.callMetaTool('tool_list', {}, capabilityVisibilityFromServerNames([])),
-      ).rejects.toThrow(
-        'Meta-tool provider not initialized',
-      );
+      ).rejects.toThrow('Meta-tool provider not initialized');
     });
   });
 

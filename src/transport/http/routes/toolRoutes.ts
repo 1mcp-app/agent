@@ -3,9 +3,9 @@ import type { Tool } from '@modelcontextprotocol/sdk/types.js';
 import { McpConfigManager } from '@src/config/mcpConfigManager.js';
 import { CapabilityCatalog } from '@src/core/capabilities/capabilityCatalog.js';
 import {
+  type CapabilityVisibility,
   createCapabilityVisibility,
   getCapabilityVisibleServerNames,
-  type CapabilityVisibility,
 } from '@src/core/capabilities/capabilityVisibility.js';
 import { ToolInvokeOutput, ToolListOutput } from '@src/core/capabilities/schemas/metaToolSchemas.js';
 import { ToolRegistry } from '@src/core/capabilities/toolRegistry.js';
@@ -47,9 +47,10 @@ function getCapabilityVisibilityFromRequest(
     return sessionId ? createCapabilityVisibility([], sessionId) : undefined;
   }
   const allConnections = getClients.call(serverManager);
-  const sessionScoped = createConnectionResolver(allConnections, getTemplateHashProvider(serverManager)).filterForSession(
-    sessionId,
-  );
+  const sessionScoped = createConnectionResolver(
+    allConnections,
+    getTemplateHashProvider(serverManager),
+  ).filterForSession(sessionId);
   const filteredConnections = hasFilterSelection
     ? FilteringService.getFilteredConnections(sessionScoped, filterConfig)
     : sessionScoped;
@@ -100,9 +101,7 @@ async function createFallbackCapabilityCatalog(
       const result = await conn.client.listTools();
       const transportTags = (conn.transport as { tags?: unknown } | undefined)?.tags;
       const tags = Array.isArray(transportTags)
-        ? transportTags.filter(
-            (tag): tag is string => typeof tag === 'string',
-          )
+        ? transportTags.filter((tag): tag is string => typeof tag === 'string')
         : [];
       registryTools.push(
         ...(result.tools ?? []).map((tool) => ({ tool, server: logicalServerName, connectionKey, tags })),

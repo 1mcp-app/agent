@@ -8,6 +8,7 @@ import { EventEmitter } from 'events';
 
 import { Prompt, Resource, Tool } from '@modelcontextprotocol/sdk/types.js';
 
+import type { CapabilityVisibility } from '@src/core/capabilities/capabilityVisibility.js';
 import {
   createInfoTool,
   createRegistryInfoTool,
@@ -34,7 +35,6 @@ import {
   createStatusTool,
 } from '@src/core/capabilities/internal/managementTools.js';
 import { LazyLoadingOrchestrator } from '@src/core/capabilities/lazyLoadingOrchestrator.js';
-import type { CapabilityVisibility } from '@src/core/capabilities/capabilityVisibility.js';
 import { FlagManager } from '@src/core/flags/flagManager.js';
 import { AgentConfigManager } from '@src/core/server/agentConfig.js';
 import {
@@ -260,11 +260,7 @@ export class InternalCapabilitiesProvider extends EventEmitter {
   /**
    * Execute an internal tool
    */
-  public async executeTool(
-    toolName: string,
-    args: unknown,
-    visibility?: CapabilityVisibility,
-  ): Promise<unknown> {
+  public async executeTool(toolName: string, args: unknown, visibility?: CapabilityVisibility): Promise<unknown> {
     if (!this.isInitialized) {
       throw new Error('Internal capabilities provider not initialized');
     }

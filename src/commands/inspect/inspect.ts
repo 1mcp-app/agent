@@ -3,7 +3,6 @@ import type { Tool } from '@modelcontextprotocol/sdk/types.js';
 
 import { findToolByQualifiedName } from '@src/commands/run/runUtils.js';
 import { ApiClient } from '@src/commands/shared/apiClient.js';
-import { buildFilterSelectionQuery } from '@src/commands/shared/filterSelectionQuery.js';
 import {
   attachReusableClientSurface,
   type ClientSurfaceAttachmentContext,
@@ -11,6 +10,7 @@ import {
   formatClientSurfaceAuthRequiredMessage,
   type ReusableClientSurface,
 } from '@src/commands/shared/clientSurfaceAttachment.js';
+import { buildFilterSelectionQuery } from '@src/commands/shared/filterSelectionQuery.js';
 import {
   type JsonRpcErrorEnvelope,
   type JsonRpcResponse,

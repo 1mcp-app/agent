@@ -368,17 +368,13 @@ describe('runCommand REST-first path', () => {
       'cli-session-cache-path': join(cacheDir, '.cli-session.{pid}'),
     } as never);
 
-    const inspectCalls = mockFetch.mock.calls.filter(
-      ([url]) => String(url).includes('/api/v1/inspect'),
-    );
+    const inspectCalls = mockFetch.mock.calls.filter(([url]) => String(url).includes('/api/v1/inspect'));
     expect(inspectCalls).toHaveLength(2);
     expect(String(mockFetch.mock.calls[0][0])).toContain('target=runner');
 
     // The cached compatibility hint does not suppress status checking. A
     // missing invocation endpoint still falls back to MCP normally.
-    const toolInvocationCalls = mockFetch.mock.calls.filter(
-      ([url]) => String(url).includes('tool-invocations'),
-    );
+    const toolInvocationCalls = mockFetch.mock.calls.filter(([url]) => String(url).includes('tool-invocations'));
     expect(toolInvocationCalls).toHaveLength(1);
     // MCP was used
     expect(transportState.instances.length).toBeGreaterThan(0);

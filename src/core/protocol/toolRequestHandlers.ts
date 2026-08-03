@@ -143,11 +143,7 @@ export function registerToolHandlers(
         const visibility = lazyLoadingEnabled
           ? resolveLazyCapabilityVisibility(outboundConns, inboundConn, sessionId)
           : undefined;
-        const result = await internalProvider.executeTool(
-          extractedToolName,
-          request.params.arguments,
-          visibility,
-        );
+        const result = await internalProvider.executeTool(extractedToolName, request.params.arguments, visibility);
         return structuredToolResult(result);
       }
 

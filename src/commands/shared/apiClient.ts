@@ -38,11 +38,7 @@ export class ApiClient {
     this.context = options.context;
   }
 
-  async get<T>(
-    path: string,
-    query?: Record<string, string>,
-    options: ApiRequestOptions = {},
-  ): Promise<ApiResponse<T>> {
+  async get<T>(path: string, query?: Record<string, string>, options: ApiRequestOptions = {}): Promise<ApiResponse<T>> {
     const url = new URL(`${this.baseUrl}${path}`);
     if (query) {
       for (const [key, value] of Object.entries(query)) {
