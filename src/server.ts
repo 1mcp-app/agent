@@ -143,7 +143,12 @@ async function setupServerAsync(
   const lazyLoadingEnabled = agentConfig.get('lazyLoading').enabled;
   let lazyLoadingOrchestrator: LazyLoadingOrchestrator | undefined;
   if (lazyLoadingEnabled) {
-    lazyLoadingOrchestrator = new LazyLoadingOrchestrator(clients, agentConfig, asyncOrchestrator);
+    lazyLoadingOrchestrator = new LazyLoadingOrchestrator(
+      clients,
+      agentConfig,
+      asyncOrchestrator,
+      serverManager.getTemplateServerManager(),
+    );
     await lazyLoadingOrchestrator.initialize();
     serverManager.setLazyLoadingOrchestrator(lazyLoadingOrchestrator);
 
@@ -221,7 +226,12 @@ async function setupServerSync(
   const lazyLoadingEnabled = agentConfig.get('lazyLoading').enabled;
   let lazyLoadingOrchestrator: LazyLoadingOrchestrator | undefined;
   if (lazyLoadingEnabled) {
-    lazyLoadingOrchestrator = new LazyLoadingOrchestrator(clients, agentConfig, undefined);
+    lazyLoadingOrchestrator = new LazyLoadingOrchestrator(
+      clients,
+      agentConfig,
+      undefined,
+      serverManager.getTemplateServerManager(),
+    );
     await lazyLoadingOrchestrator.initialize();
     serverManager.setLazyLoadingOrchestrator(lazyLoadingOrchestrator);
 

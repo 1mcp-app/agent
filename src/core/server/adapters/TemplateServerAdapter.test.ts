@@ -12,12 +12,27 @@ describe('TemplateServerAdapter', () => {
   let serverConfig: MCPServerParams;
   let mockTemplateManager: TemplateServerManager;
 
-  const createMockConnection = (name: string, status: ClientStatus = ClientStatus.Connected): OutboundConnection => ({
+  const createMockConnection = (
+    name: string,
+    status: ClientStatus = ClientStatus.Connected,
+    templateIdentity?: OutboundConnection['templateIdentity'],
+  ): OutboundConnection => ({
     name,
     transport: {} as any,
     client: {} as any,
     status,
+    templateIdentity,
   });
+
+  const createSessionConnection = (status?: ClientStatus): OutboundConnection =>
+    createMockConnection('template1', status, {
+      mode: 'session',
+      ownerSessionId: 'session1',
+      renderedHash: 'session1-rendered',
+    });
+
+  const createRenderedConnection = (renderedHash: string, status?: ClientStatus): OutboundConnection =>
+    createMockConnection('template1', status, { mode: 'rendered', renderedHash });
 
   beforeEach(() => {
     outboundConns = new Map();
@@ -55,7 +70,7 @@ describe('TemplateServerAdapter', () => {
 
   describe('resolveConnection', () => {
     it('should resolve per-client template server (session key)', () => {
-      const conn = createMockConnection('template1');
+      const conn = createSessionConnection();
       outboundConns.set('template1:session1', conn);
       const adapter = new TemplateServerAdapter('template1', serverConfig, outboundConns, mockTemplateManager);
 
@@ -65,7 +80,7 @@ describe('TemplateServerAdapter', () => {
     });
 
     it('should resolve shareable template server (hash key)', () => {
-      const conn = createMockConnection('template1');
+      const conn = createRenderedConnection('hash1');
       outboundConns.set('template1:hash1', conn);
       const adapter = new TemplateServerAdapter('template1', serverConfig, outboundConns, mockTemplateManager);
 
@@ -75,8 +90,8 @@ describe('TemplateServerAdapter', () => {
     });
 
     it('should prioritize session key over hash key', () => {
-      const sessionConn = createMockConnection('template1-session');
-      const hashConn = createMockConnection('template1-hash');
+      const sessionConn = createSessionConnection();
+      const hashConn = createRenderedConnection('hash1');
       outboundConns.set('template1:session1', sessionConn);
       outboundConns.set('template1:hash1', hashConn);
       const adapter = new TemplateServerAdapter('template1', serverConfig, outboundConns, mockTemplateManager);
@@ -103,8 +118,8 @@ describe('TemplateServerAdapter', () => {
     });
 
     it('should handle different sessions with different hashes', () => {
-      const conn1 = createMockConnection('template1-hash1');
-      const conn2 = createMockConnection('template1-hash2');
+      const conn1 = createRenderedConnection('hash1');
+      const conn2 = createRenderedConnection('hash2');
       outboundConns.set('template1:hash1', conn1);
       outboundConns.set('template1:hash2', conn2);
       const adapter = new TemplateServerAdapter('template1', serverConfig, outboundConns, mockTemplateManager);
@@ -119,7 +134,7 @@ describe('TemplateServerAdapter', () => {
 
   describe('getStatus', () => {
     it('should return Connected status for connected template server', () => {
-      const conn = createMockConnection('template1', ClientStatus.Connected);
+      const conn = createSessionConnection(ClientStatus.Connected);
       outboundConns.set('template1:session1', conn);
       const adapter = new TemplateServerAdapter('template1', serverConfig, outboundConns, mockTemplateManager);
 
@@ -129,7 +144,7 @@ describe('TemplateServerAdapter', () => {
     });
 
     it('should return Disconnected status for disconnected template server', () => {
-      const conn = createMockConnection('template1', ClientStatus.Disconnected);
+      const conn = createSessionConnection(ClientStatus.Disconnected);
       outboundConns.set('template1:session1', conn);
       const adapter = new TemplateServerAdapter('template1', serverConfig, outboundConns, mockTemplateManager);
 
@@ -157,7 +172,7 @@ describe('TemplateServerAdapter', () => {
 
   describe('isAvailable', () => {
     it('should return true for connected template server', () => {
-      const conn = createMockConnection('template1', ClientStatus.Connected);
+      const conn = createSessionConnection(ClientStatus.Connected);
       outboundConns.set('template1:session1', conn);
       const adapter = new TemplateServerAdapter('template1', serverConfig, outboundConns, mockTemplateManager);
 
@@ -167,7 +182,7 @@ describe('TemplateServerAdapter', () => {
     });
 
     it('should return false for disconnected template server', () => {
-      const conn = createMockConnection('template1', ClientStatus.Disconnected);
+      const conn = createSessionConnection(ClientStatus.Disconnected);
       outboundConns.set('template1:session1', conn);
       const adapter = new TemplateServerAdapter('template1', serverConfig, outboundConns, mockTemplateManager);
 
@@ -187,7 +202,7 @@ describe('TemplateServerAdapter', () => {
 
   describe('getConnectionKey', () => {
     it('should return session key for per-client server', () => {
-      outboundConns.set('template1:session1', createMockConnection('template1'));
+      outboundConns.set('template1:session1', createSessionConnection());
       const adapter = new TemplateServerAdapter('template1', serverConfig, outboundConns, mockTemplateManager);
 
       const key = adapter.getConnectionKey({ sessionId: 'session1' });
@@ -196,7 +211,7 @@ describe('TemplateServerAdapter', () => {
     });
 
     it('should return hash key for shareable server', () => {
-      outboundConns.set('template1:hash1', createMockConnection('template1'));
+      outboundConns.set('template1:hash1', createRenderedConnection('hash1'));
       const adapter = new TemplateServerAdapter('template1', serverConfig, outboundConns, mockTemplateManager);
 
       const key = adapter.getConnectionKey({ sessionId: 'session1' });
@@ -205,8 +220,8 @@ describe('TemplateServerAdapter', () => {
     });
 
     it('should prioritize session key over hash key', () => {
-      outboundConns.set('template1:session1', createMockConnection('template1'));
-      outboundConns.set('template1:hash1', createMockConnection('template1'));
+      outboundConns.set('template1:session1', createSessionConnection());
+      outboundConns.set('template1:hash1', createRenderedConnection('hash1'));
       const adapter = new TemplateServerAdapter('template1', serverConfig, outboundConns, mockTemplateManager);
 
       const key = adapter.getConnectionKey({ sessionId: 'session1' });
@@ -251,13 +266,13 @@ describe('TemplateServerAdapter', () => {
       const errorThrowingManager = {
         getRenderedHashForSession: vi.fn(() => undefined),
       } as any;
-      const conn = createMockConnection('template1');
+      const conn = createSessionConnection();
       outboundConns.set('template1:session1', conn);
 
       const adapter = new TemplateServerAdapter('template1', serverConfig, outboundConns, errorThrowingManager);
 
       expect(adapter.resolveConnection({ sessionId: 'session1' })).toBe(conn);
-      expect(errorThrowingManager.getRenderedHashForSession).toHaveBeenCalledOnce();
+      expect(errorThrowingManager.getRenderedHashForSession).not.toHaveBeenCalled();
     });
   });
 

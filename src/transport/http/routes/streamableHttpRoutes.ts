@@ -12,7 +12,6 @@ import {
 import tagsExtractor from '@src/transport/http/middlewares/tagsExtractor.js';
 import { StreamableSessionRepository } from '@src/transport/http/storage/streamableSessionRepository.js';
 import { StreamableSessionLifecycle, StreamableSessionStatus } from '@src/transport/http/streamableSessionLifecycle.js';
-import { extractContextFromMeta } from '@src/transport/http/utils/contextExtractor.js';
 import { sendBadRequest, sendInternalError, sendNotFound } from '@src/transport/http/utils/httpErrorHandler.js';
 import { logError, logWarn } from '@src/transport/http/utils/unifiedLogger.js';
 
@@ -196,7 +195,6 @@ export function setupStreamableHttpRoutes(
         isInitializeRequest: isInitialize,
         createSessionData: () => ({
           config: buildConfigFromRequest(res, req, customTemplate),
-          context: extractContextFromMeta(req) || undefined,
         }),
       });
 

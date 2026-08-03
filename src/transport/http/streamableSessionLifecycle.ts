@@ -11,8 +11,12 @@ import logger from '@src/logger/logger.js';
 import { RestorableStreamableHTTPServerTransport } from '@src/transport/http/restorableStreamableTransport.js';
 import { StreamableSessionRepository } from '@src/transport/http/storage/streamableSessionRepository.js';
 import { logError } from '@src/transport/http/utils/unifiedLogger.js';
-import type { ContextData } from '@src/types/context.js';
 import { withCanonicalSessionId } from '@src/utils/context/sessionIdentity.js';
+import {
+  createTrustedTemplateContext,
+  isTrustedTemplateContext,
+  type TrustedTemplateContext,
+} from '@src/utils/context/templateContextTrust.js';
 
 type StreamableTransport = StreamableHTTPServerTransport | RestorableStreamableHTTPServerTransport;
 
@@ -78,7 +82,7 @@ export type StreamablePostSessionResult = StreamableSessionLookupResult | Stream
 
 export interface StreamableSessionCreateData {
   config: InboundConnectionConfig;
-  context?: Partial<ContextData>;
+  context?: TrustedTemplateContext;
 }
 
 export interface ResolvePostSessionInput {
@@ -112,21 +116,9 @@ function defaultIsStreamableTransport(transport: unknown): transport is Streamab
   );
 }
 
-function buildContextData(config: InboundConnectionConfig, sessionId: string): ContextData | undefined {
-  const context = config.context as Partial<ContextData> | undefined;
-  if (!context) {
-    return undefined;
-  }
-
-  return {
-    project: context.project || { name: 'unknown' },
-    user: context.user || {},
-    environment: context.environment || {},
-    timestamp: context.timestamp || new Date().toISOString(),
-    sessionId: context.sessionId || sessionId,
-    version: context.version || 'unknown',
-    transport: context.transport || { type: 'unknown' },
-  };
+function withoutPersistedContext(config: InboundConnectionConfig): Omit<InboundConnectionConfig, 'context'> {
+  const { context: _context, ...configWithoutContext } = config;
+  return configWithoutContext;
 }
 
 export class StreamableSessionLifecycle {
@@ -256,8 +248,8 @@ export class StreamableSessionLifecycle {
         };
       }
 
-      const config = this.sessionRepository.get(sessionId);
-      if (!config) {
+      const persistedConfig = this.sessionRepository.get(sessionId);
+      if (!persistedConfig) {
         logger.error(`Failed to parse session config for ${sessionId}`);
         return {
           transport: null,
@@ -268,10 +260,13 @@ export class StreamableSessionLifecycle {
 
       logger.info(`Restoring streamable session: ${sessionId}`);
       const transport = this.createRestorableTransportImpl(sessionId);
-      const contextData = buildContextData(config, sessionId);
+      const restoredConfig = withoutPersistedContext(persistedConfig);
 
       try {
-        await this.serverManager.connectTransport(transport, sessionId, config, contextData);
+        // Persisted HTTP context is untrusted after deserialization. A restored
+        // session reconnects its static servers and waits for a new trusted
+        // in-process context before template rendering.
+        await this.serverManager.connectTransport(transport, sessionId, restoredConfig, undefined);
       } catch (connectError) {
         const errorMessage = connectError instanceof Error ? connectError.message : String(connectError);
         logger.error(`Failed to connect transport ${sessionId}:`, connectError);
@@ -311,7 +306,7 @@ export class StreamableSessionLifecycle {
 
   async createSession(
     config: InboundConnectionConfig,
-    context?: Partial<ContextData>,
+    context?: TrustedTemplateContext,
     providedSessionId?: string,
     status: StreamableSessionCreateResult['status'] = StreamableSessionStatus.Created,
   ): Promise<StreamableSessionCreateResult> {
@@ -326,11 +321,11 @@ export class StreamableSessionLifecycle {
       throw new Error(`Session creation failed: transport initialization error - ${errorMessage}`);
     }
 
-    const validContext =
-      context && context.project && context.user && context.environment
-        ? withCanonicalSessionId(context as ContextData, sessionId)
-        : undefined;
-    const canonicalContext = validContext ?? (context ? { ...context, sessionId } : undefined);
+    const persistedConfig = withoutPersistedContext(config);
+    const trustedContext = isTrustedTemplateContext(context) ? context : undefined;
+    const canonicalContext = trustedContext
+      ? createTrustedTemplateContext(withCanonicalSessionId(trustedContext, sessionId))
+      : undefined;
 
     if (canonicalContext && canonicalContext.project?.name && canonicalContext.sessionId) {
       logger.info(
@@ -338,13 +333,12 @@ export class StreamableSessionLifecycle {
       );
     }
 
-    const configWithContext: InboundConnectionConfig & { context?: Partial<ContextData> } = {
-      ...config,
-      context: canonicalContext,
-    };
+    const configWithContext: InboundConnectionConfig & { context?: TrustedTemplateContext } = canonicalContext
+      ? { ...persistedConfig, context: canonicalContext }
+      : persistedConfig;
 
     try {
-      await this.serverManager.connectTransport(transport, sessionId, configWithContext, validContext);
+      await this.serverManager.connectTransport(transport, sessionId, configWithContext, canonicalContext);
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
       logger.error(`Failed to connect transport ${sessionId}:`, error);
@@ -354,7 +348,7 @@ export class StreamableSessionLifecycle {
     let persisted = false;
     let persistenceError: string | undefined;
     try {
-      this.sessionRepository.create(sessionId, configWithContext);
+      this.sessionRepository.create(sessionId, persistedConfig);
       persisted = true;
     } catch (error) {
       persistenceError = error instanceof Error ? error.message : String(error);

@@ -8,7 +8,6 @@ import { createInspectHandler } from './apiRoutes.js';
 
 const mockedLoadDeclaredServerConfigs = vi.hoisted(() => vi.fn());
 const mockedLoadConfigWithTemplates = vi.hoisted(() => vi.fn());
-const mockedExtractRequestContext = vi.hoisted(() => vi.fn());
 const mockedGetTransportConfig = vi.hoisted(() => vi.fn());
 
 vi.mock('@src/config/configManager.js', () => ({
@@ -33,7 +32,6 @@ vi.mock('@src/transport/http/utils/contextExtractor.js', () => ({
     SESSION_ID: 'mcp-session-id',
   },
   deriveContextSessionId: vi.fn(() => 'derived-session-id'),
-  extractRequestContext: mockedExtractRequestContext,
 }));
 
 vi.mock('@src/logger/logger.js', () => ({
@@ -106,7 +104,6 @@ describe('apiRoutes inspect', () => {
   beforeEach(() => {
     mockedLoadDeclaredServerConfigs.mockReset();
     mockedLoadConfigWithTemplates.mockReset();
-    mockedExtractRequestContext.mockReset();
     mockedLoadDeclaredServerConfigs.mockReturnValue({
       staticServers: {},
       templateServers: {},
@@ -119,7 +116,6 @@ describe('apiRoutes inspect', () => {
       templateServers: {},
       errors: [],
     });
-    mockedExtractRequestContext.mockReturnValue(undefined);
 
     outboundConnections = new Map([
       [
@@ -198,7 +194,7 @@ describe('apiRoutes inspect', () => {
     inspectHandler = createInspectHandler(serverManager as never);
   });
 
-  it('touches an existing REST template session instead of creating another template instance', async () => {
+  it('does not touch template sessions from HTTP context', async () => {
     mockedLoadConfigWithTemplates.mockResolvedValue({
       staticServers: {},
       templateServers: {
@@ -211,13 +207,6 @@ describe('apiRoutes inspect', () => {
       },
       errors: [],
     });
-    mockedExtractRequestContext.mockReturnValue({
-      sessionId: 'context-session',
-      project: {
-        path: '/tmp/project',
-      },
-    });
-
     const createTemplateBasedServers = vi.fn();
     const touchEphemeralClient = vi.fn();
     const registerTemplate = vi.fn();
@@ -231,7 +220,10 @@ describe('apiRoutes inspect', () => {
       getLazyLoadingOrchestrator: vi.fn(() => undefined),
       getServerRegistry: vi.fn(() => ({
         getServerNames: vi.fn(() => ['serena']),
-        get: vi.fn(() => makeAdapter('serena', ['serena'], ServerStatus.Disconnected)),
+        get: vi.fn(() => ({
+          ...makeAdapter('serena', ['serena'], ServerStatus.Disconnected),
+          type: ServerType.Template,
+        })),
         has: vi.fn(() => true),
         registerTemplate,
       })),
@@ -249,8 +241,10 @@ describe('apiRoutes inspect', () => {
     await invokeInspectRoute(scopeAuthMiddleware, { query: { target: 'serena' } }, res);
     await invokeInspectRoute(handler, { query: { target: 'serena' } }, res);
 
+    expect(res.statusCode).toBe(404);
+    expect(mockedLoadConfigWithTemplates).not.toHaveBeenCalled();
     expect(createTemplateBasedServers).not.toHaveBeenCalled();
-    expect(touchEphemeralClient).toHaveBeenCalledWith('derived-session-id');
+    expect(touchEphemeralClient).not.toHaveBeenCalled();
     expect(registerTemplate).not.toHaveBeenCalled();
   });
 
@@ -263,12 +257,16 @@ describe('apiRoutes inspect', () => {
       transport: { tags: ['serena'] } as never,
       client: { listTools } as never,
       status: ClientStatus.Connected,
+      templateIdentity: {
+        mode: 'session',
+        ownerSessionId: 'header-session',
+        renderedHash: 'header-rendered',
+      },
     };
-    const resolveConnection = vi.fn(() => connection);
     const createTemplateBasedServers = vi.fn();
     const registerTemplate = vi.fn();
     const serverManager = {
-      getClients: vi.fn(() => new Map()),
+      getClients: vi.fn(() => new Map([['serena:header-session', connection]])),
       getInstructionAggregator: vi.fn(() => ({
         hasInstructions: () => false,
         getServerInstructions: () => undefined,
@@ -279,11 +277,9 @@ describe('apiRoutes inspect', () => {
         get: vi.fn(() => ({
           ...makeAdapter('serena', ['serena']),
           type: ServerType.Template,
-          resolveConnection,
         })),
         has: vi.fn(() => false),
         registerTemplate,
-        resolveConnection,
       })),
       getClient: vi.fn(() => undefined),
       getTemplateServerManager: vi.fn(() => ({
@@ -307,7 +303,7 @@ describe('apiRoutes inspect', () => {
     );
 
     expect(res.statusCode, JSON.stringify(res.body)).toBe(200);
-    expect(resolveConnection).toHaveBeenCalledWith('serena', { sessionId: 'header-session' });
+    expect(listTools).toHaveBeenCalledTimes(1);
     expect(createTemplateBasedServers).not.toHaveBeenCalled();
     expect(registerTemplate).not.toHaveBeenCalled();
     expect(mockedLoadConfigWithTemplates).not.toHaveBeenCalled();
@@ -338,37 +334,40 @@ describe('apiRoutes inspect', () => {
     });
   });
 
-  it('resolves template-backed server targets by clean server name', async () => {
+  it('resolves template-backed server targets only for the owning session', async () => {
+    const listTools = vi.fn().mockResolvedValue({
+      tools: [
+        {
+          name: 'find_symbol',
+          description: 'Find symbol',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              name_path_pattern: { type: 'string' },
+              relative_path: { type: 'string' },
+            },
+            required: ['name_path_pattern'],
+          },
+        },
+      ],
+    });
     outboundConnections = new Map([
       [
         'serena:template-hash',
         {
           name: 'serena',
           transport: { tags: ['serena'] } as never,
-          client: {
-            listTools: vi.fn().mockResolvedValue({
-              tools: [
-                {
-                  name: 'find_symbol',
-                  description: 'Find symbol',
-                  inputSchema: {
-                    type: 'object',
-                    properties: {
-                      name_path_pattern: { type: 'string' },
-                      relative_path: { type: 'string' },
-                    },
-                    required: ['name_path_pattern'],
-                  },
-                },
-              ],
-            }),
-          } as never,
+          instructions: '# Owner Serena Instructions',
+          client: { listTools } as never,
           status: ClientStatus.Connected,
+          templateIdentity: { mode: 'rendered', renderedHash: 'template-hash' },
         },
       ],
     ]) as unknown as OutboundConnections;
 
-    const adapters = new Map<string, ServerAdapter>([['serena', makeAdapter('serena', ['serena'])]]);
+    const adapters = new Map<string, ServerAdapter>([
+      ['serena', { ...makeAdapter('serena', ['serena']), type: ServerType.Template }],
+    ]);
 
     const serverRegistry = {
       getServerNames: vi.fn(() => Array.from(adapters.keys())),
@@ -384,13 +383,38 @@ describe('apiRoutes inspect', () => {
       getLazyLoadingOrchestrator: vi.fn(() => undefined),
       getServerRegistry: vi.fn(() => serverRegistry),
       getClient: vi.fn((name: string) => outboundConnections.get(name)),
+      getTemplateServerManager: vi.fn(() => ({
+        getRenderedHashForSession: vi.fn((sessionId: string, templateName: string) =>
+          sessionId === 'owner-session' && templateName === 'serena' ? 'template-hash' : undefined,
+        ),
+        getAllRenderedHashesForSession: vi.fn(() => undefined),
+      })),
     };
 
     inspectHandler = createInspectHandler(serverManager as never);
 
-    const req = { query: { target: 'serena' } };
-    const res = createMockResponse();
+    const noSessionRes = createMockResponse();
+    await invokeInspectRoute(scopeAuthMiddleware, { query: { target: 'serena' } }, noSessionRes);
+    await invokeInspectRoute(inspectHandler, { query: { target: 'serena' } }, noSessionRes);
+    expect(noSessionRes.statusCode).toBe(404);
+    expect(listTools).not.toHaveBeenCalled();
 
+    const otherSessionRes = createMockResponse();
+    await invokeInspectRoute(
+      scopeAuthMiddleware,
+      { query: { target: 'serena' }, headers: { 'mcp-session-id': 'other-session' } },
+      otherSessionRes,
+    );
+    await invokeInspectRoute(
+      inspectHandler,
+      { query: { target: 'serena' }, headers: { 'mcp-session-id': 'other-session' } },
+      otherSessionRes,
+    );
+    expect(otherSessionRes.statusCode).toBe(404);
+    expect(listTools).not.toHaveBeenCalled();
+
+    const res = createMockResponse();
+    const req = { query: { target: 'serena' }, headers: { 'mcp-session-id': 'owner-session' } };
     await invokeInspectRoute(scopeAuthMiddleware, req, res);
     await invokeInspectRoute(inspectHandler, req, res);
 
@@ -398,7 +422,7 @@ describe('apiRoutes inspect', () => {
     expect(res.body).toMatchObject({
       kind: 'server',
       server: 'serena',
-      instructions: '# Serena Instructions',
+      instructions: '# Owner Serena Instructions',
       totalTools: 1,
       hasMore: false,
       tools: [
@@ -413,7 +437,7 @@ describe('apiRoutes inspect', () => {
     });
   });
 
-  it('treats declared template servers as known server targets even before a live connection exists', async () => {
+  it('does not disclose declared template servers before a session-owned connection exists', async () => {
     mockedLoadDeclaredServerConfigs.mockReturnValue({
       staticServers: {},
       templateServers: {
@@ -451,7 +475,7 @@ describe('apiRoutes inspect', () => {
     await invokeInspectRoute(scopeAuthMiddleware, req, res);
     await invokeInspectRoute(inspectHandler, req, res);
 
-    expect(res.statusCode, JSON.stringify(res.body)).toBe(503);
-    expect(res.body).toMatchObject({ error: "Server 'serena' is not currently connected" });
+    expect(res.statusCode, JSON.stringify(res.body)).toBe(404);
+    expect(res.body).toMatchObject({ error: 'Server not found: serena' });
   });
 });

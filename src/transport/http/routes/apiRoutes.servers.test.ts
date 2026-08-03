@@ -114,30 +114,32 @@ describe('apiRoutes /api/servers', () => {
         },
       ],
       [
-        'beta:hash1',
+        'beta:owner-session',
         {
           name: 'beta',
           transport: { tags: ['beta'] } as never,
           client: { listTools: vi.fn().mockResolvedValue({ tools: [] }) } as never,
           status: ClientStatus.Connected,
+          templateIdentity: { mode: 'session', ownerSessionId: 'owner-session', renderedHash: 'owner-rendered' },
         },
       ],
       [
-        'beta:hash2',
+        'beta:other-session',
         {
           name: 'beta',
           transport: { tags: ['beta'] } as never,
           client: { listTools: vi.fn().mockResolvedValue({ tools: [] }) } as never,
           status: ClientStatus.Connected,
+          templateIdentity: { mode: 'session', ownerSessionId: 'other-session', renderedHash: 'other-rendered' },
         },
       ],
     ]) as unknown as OutboundConnections;
   });
 
-  it('returns all connected servers sorted alphabetically', async () => {
+  it('returns only static servers without a session', async () => {
     const adapters = new Map<string, ServerAdapter>([
       ['alpha', makeAdapter('alpha', ['alpha'])],
-      ['beta', makeAdapter('beta', ['beta'])],
+      ['beta', { ...makeAdapter('beta', ['beta']), type: ServerType.Template }],
     ]);
     const serverManager = {
       getClients: vi.fn(() => outboundConnections),
@@ -157,11 +159,13 @@ describe('apiRoutes /api/servers', () => {
     expect(res.statusCode).toBe(200);
     const body = res.body as { kind: string; servers: Array<{ server: string }> };
     expect(body.kind).toBe('servers');
-    expect(body.servers.map((s) => s.server)).toEqual(['alpha', 'beta']);
+    expect(body.servers.map((s) => s.server)).toEqual(['alpha']);
   });
 
-  it('deduplicates template instances into a single server entry', async () => {
-    const adapters = new Map<string, ServerAdapter>([['beta', makeAdapter('beta', ['beta'])]]);
+  it('lists only the owning template instance once', async () => {
+    const adapters = new Map<string, ServerAdapter>([
+      ['beta', { ...makeAdapter('beta', ['beta']), type: ServerType.Template }],
+    ]);
     const serverManager = {
       getClients: vi.fn(() => outboundConnections),
       getInstructionAggregator: vi.fn(() => ({ hasInstructions: () => false })),
@@ -174,8 +178,9 @@ describe('apiRoutes /api/servers', () => {
 
     const handler = createServersHandler(serverManager as never);
     const res = createMockResponse();
-    await invokeInspectRoute(scopeAuthMiddleware, {}, res);
-    await invokeInspectRoute(handler, {}, res);
+    const request = { headers: { 'mcp-session-id': 'owner-session' } };
+    await invokeInspectRoute(scopeAuthMiddleware, request, res);
+    await invokeInspectRoute(handler, request, res);
 
     const body = res.body as { servers: Array<{ server: string }> };
     const betaEntries = body.servers.filter((s) => s.server === 'beta');
@@ -206,7 +211,7 @@ describe('apiRoutes /api/servers', () => {
     expect(body.servers.map((s) => s.server)).toContain('offline');
   });
 
-  it('includes declared template servers even when no adapter has been registered yet', async () => {
+  it('does not disclose declared template servers without a session-owned connection', async () => {
     mockedLoadDeclaredServerConfigs.mockReturnValue({
       staticServers: {},
       templateServers: {
@@ -236,9 +241,6 @@ describe('apiRoutes /api/servers', () => {
     await invokeInspectRoute(handler, {}, res);
 
     expect(res.statusCode).toBe(200);
-    expect(res.body).toMatchObject({
-      kind: 'servers',
-      servers: [{ server: 'serena', type: 'template', available: false, hasInstructions: true }],
-    });
+    expect(res.body).toMatchObject({ kind: 'servers', servers: [] });
   });
 });

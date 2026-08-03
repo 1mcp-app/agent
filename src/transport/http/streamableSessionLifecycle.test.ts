@@ -5,6 +5,7 @@ import {
   StreamableSessionRestoreErrorType,
   StreamableSessionStatus,
 } from '@src/transport/http/streamableSessionLifecycle.js';
+import { createTrustedTemplateContext } from '@src/utils/context/templateContextTrust.js';
 
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -98,7 +99,16 @@ describe('StreamableSessionLifecycle', () => {
         serverInfo: { name: 'test', version: '1.0' },
       },
     });
-    sessionRepository.get.mockReturnValue({ tags: ['restored'], enablePagination: false });
+    sessionRepository.get.mockReturnValue({
+      tags: ['restored'],
+      enablePagination: false,
+      context: {
+        project: { path: '/tmp/attacker', custom: { command: 'sh' } },
+        user: {},
+        environment: { variables: { ATTACKER_CONTROLLED: 'true' } },
+        sessionId: 'another-template-session',
+      },
+    });
     serverManager.getServer.mockReturnValue({});
 
     const result = await lifecycle.resolveExistingSession('restored-session');
@@ -110,6 +120,7 @@ describe('StreamableSessionLifecycle', () => {
       expect.objectContaining({ tags: ['restored'] }),
       undefined,
     );
+    expect(serverManager.connectTransport.mock.calls[0][2]).not.toHaveProperty('context');
     expect(sessionRepository.updateAccess).toHaveBeenCalledWith('restored-session');
   });
 
@@ -237,7 +248,11 @@ describe('StreamableSessionLifecycle', () => {
       transport: { type: 'run' },
     };
 
-    await lifecycle.createSession({ tags: ['new'], enablePagination: false }, context, 'transport-session');
+    await lifecycle.createSession(
+      { tags: ['new'], enablePagination: false },
+      createTrustedTemplateContext(context),
+      'transport-session',
+    );
 
     expect(serverManager.connectTransport).toHaveBeenCalledWith(
       expect.objectContaining({ sessionId: 'transport-session' }),
@@ -251,11 +266,37 @@ describe('StreamableSessionLifecycle', () => {
     );
     expect(sessionRepository.create).toHaveBeenCalledWith(
       'transport-session',
-      expect.objectContaining({
-        context: expect.objectContaining({ sessionId: 'transport-session' }),
-      }),
+      expect.not.objectContaining({ context: expect.anything() }),
     );
+    expect(sessionRepository.create.mock.calls[0][1]).not.toHaveProperty('context');
     expect(context.sessionId).toBe('context-session');
+  });
+
+  it('does not mint an untrusted context as a template capability', async () => {
+    const untrustedContext = {
+      project: { path: '/tmp/attacker', custom: { command: 'sh' } },
+      user: {},
+      environment: { variables: { ATTACKER_CONTROLLED: 'true' } },
+    };
+
+    await lifecycle.createSession(
+      { tags: ['new'], enablePagination: false },
+      untrustedContext as never,
+      'untrusted-session',
+    );
+
+    expect(serverManager.connectTransport).toHaveBeenCalledWith(
+      expect.objectContaining({ sessionId: 'untrusted-session' }),
+      'untrusted-session',
+      expect.not.objectContaining({ context: expect.anything() }),
+      undefined,
+    );
+    expect(sessionRepository.create).toHaveBeenCalledWith(
+      'untrusted-session',
+      expect.not.objectContaining({ context: expect.anything() }),
+    );
+    expect(serverManager.connectTransport.mock.calls[0][2]).not.toHaveProperty('context');
+    expect(sessionRepository.create.mock.calls[0][1]).not.toHaveProperty('context');
   });
 
   it('reports persistence warnings without failing the connected session', async () => {

@@ -54,11 +54,17 @@ describe('createCapabilityCatalogFromConnections', () => {
 });
 
 describe('resolveLazyCapabilityVisibility', () => {
-  it('derives a public server name when the connection name is empty', () => {
+  it('uses the public template name from an explicitly scoped connection', () => {
     const connections = new Map([
       [
         'unnamed:session-1',
-        { name: '', status: ClientStatus.Connected, capabilities: { tools: {} }, transport: { tags: ['safe'] } },
+        {
+          name: 'unnamed',
+          status: ClientStatus.Connected,
+          capabilities: { tools: {} },
+          transport: { tags: ['safe'] },
+          templateIdentity: { mode: 'session', ownerSessionId: 'session-1', renderedHash: 'session-rendered' },
+        },
       ],
     ]) as OutboundConnections;
     const inbound = { tags: ['safe'], tagFilterMode: 'simple-or' } as InboundConnection;
@@ -98,6 +104,7 @@ describe('resolveLazyCapabilityVisibility', () => {
           status: ClientStatus.Connected,
           capabilities: { tools: {} },
           transport: { tags: ['safe'] },
+          templateIdentity: { mode: 'session', ownerSessionId: 'other-session', renderedHash: 'other-rendered' },
         },
       ],
       [
@@ -107,6 +114,7 @@ describe('resolveLazyCapabilityVisibility', () => {
           status: ClientStatus.Connected,
           capabilities: { tools: {} },
           transport: { tags: ['safe'] },
+          templateIdentity: { mode: 'session', ownerSessionId: 'session-1', renderedHash: 'session-rendered' },
         },
       ],
     ]) as OutboundConnections;

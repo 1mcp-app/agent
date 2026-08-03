@@ -12,7 +12,7 @@ head:
 
 # MCP Server Templates
 
-MCP Server Templates enable dynamic, context-aware server configuration. Instead of hardcoding server settings, you can define template configurations that automatically adapt based on runtime context like the current project, user, environment, or client connection.
+MCP Server Templates enable dynamic, context-aware server configuration. Instead of hardcoding server settings, a server-owned integration can define template configurations that adapt to trusted runtime context such as the current project, user, environment, or connection.
 
 ## Overview
 
@@ -23,6 +23,14 @@ Templates allow you to:
 - **Context enrichment**: Inject project-specific metadata into server configurations
 - **Conditional enablement**: Enable/disable servers based on runtime conditions
 
+::: warning HTTP context is not trusted
+
+Public HTTP, SSE, and streamable HTTP MCP endpoints, plus REST routes such as `instructions`, `inspect`, and `run`, never use client-supplied context to render `mcpTemplates` or create processes. This includes `_meta.context`, the `context` query parameter, and client metadata. Those values cannot influence a template process's `command`, `args`, `cwd`, or `env`. Only a server-owned integration can create and mark an in-process context as trusted before rendering template server settings.
+
+A session ID can route a request to connections already scoped to that session. Treat it as a protected bearer routing capability, not as user identity, authentication, or evidence that client context is trusted; it cannot cause a template to render. HTTP and proxy clients therefore receive static inventory plus any already-created, server-owned session-scoped connections; context-aware template creation through public HTTP, SSE, streamable HTTP, proxy, `run`, or `inspect` is intentionally unavailable until a server-verifiable client-context capability exists.
+
+:::
+
 ### Templates vs. Static Servers
 
 1MCP supports two types of server configurations:
@@ -30,9 +38,9 @@ Templates allow you to:
 | Feature            | Static Servers (`mcpServers`) | Template Servers (`mcpTemplates`) |
 | ------------------ | ----------------------------- | --------------------------------- |
 | Configuration      | Fixed values at startup       | Dynamic values based on context   |
-| Context awareness  | None                          | Project, user, transport, client  |
-| Multiple instances | Single instance per config    | Multiple instances per context    |
-| Lifecycle          | Always running                | Created on-demand per connection  |
+| Context awareness  | None                          | Trusted server-owned context      |
+| Multiple instances | Single instance per config    | Multiple instances per trusted context |
+| Lifecycle          | Always running                | Created on demand by a trusted integration |
 | Use case           | Stable infrastructure         | Dynamic, context-specific tools   |
 
 ### Key Difference from Instruction Templates
@@ -69,7 +77,7 @@ Add a template to your `mcp.json`:
 
 :::
 
-When a client connects, 1MCP:
+When a server-owned integration creates a trusted template context, 1MCP:
 
 1. Collects context (project path, user, environment)
 2. Renders the template with actual values
@@ -222,7 +230,9 @@ Combine conditions with `and`/`or`:
 
 ## Context Enrichment (.1mcprc)
 
-Project-level context enrichment allows you to inject custom metadata into templates. Create a `.1mcprc` file in your project root:
+Project-level context enrichment lets a server-owned integration inject custom metadata into templates. Create a `.1mcprc` file in your project root:
+
+This file does not make public client, proxy, or HTTP request data trusted. A public request cannot use `.1mcprc` data to trigger template rendering.
 
 ```json
 {
@@ -607,7 +617,7 @@ Use static tags to enable proper filtering with presets:
 **Solutions**:
 
 1. Ensure templates are in `mcpTemplates`, not `mcpServers`
-2. Check that context is being collected (enable debug logging)
+2. Confirm that a server-owned integration is creating trusted context; public HTTP, SSE, streamable HTTP, proxy, and REST requests intentionally do not render templates
 3. Verify variable names match the context structure
 
 ### Custom Context Missing

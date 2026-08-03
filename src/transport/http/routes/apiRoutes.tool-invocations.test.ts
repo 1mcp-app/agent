@@ -145,14 +145,10 @@ describe('apiRoutes /api/tool-invocations', () => {
   });
 
   it('returns a safe upstream error message for direct invocation failures', async () => {
+    const callTool = vi.fn().mockRejectedValue({ detail: 'boom' });
     const serverManager = {
       getLazyLoadingOrchestrator: vi.fn(() => undefined),
-      getClients: vi.fn(() => new Map()),
-      getClient: vi.fn(() => ({
-        client: {
-          callTool: vi.fn().mockRejectedValue({ detail: 'boom' }),
-        },
-      })),
+      getClients: vi.fn(() => new Map([['server', { name: 'server', status: ClientStatus.Connected, client: { callTool } }]])),
     };
     const handler = createToolInvocationsHandler(serverManager as never);
     const res = createMockResponse();
@@ -176,10 +172,7 @@ describe('apiRoutes /api/tool-invocations', () => {
     const callTool = vi.fn();
     const serverManager = {
       getLazyLoadingOrchestrator: vi.fn(() => undefined),
-      getClients: vi.fn(() => new Map()),
-      getClient: vi.fn(() => ({
-        client: { callTool },
-      })),
+      getClients: vi.fn(() => new Map([['server', { name: 'server', status: ClientStatus.Connected, client: { callTool } }]])),
     };
     const handler = createToolInvocationsHandler(serverManager as never);
     const res = createMockResponse();
@@ -290,43 +283,91 @@ describe('apiRoutes /api/tool-invocations', () => {
     expect(callMetaTool).not.toHaveBeenCalled();
   });
 
-  it('resolves dynamic template connection keys for direct invocation', async () => {
+  it('requires the owning session for direct template invocation', async () => {
     const callTool = vi.fn().mockResolvedValue({
       content: [{ type: 'text', text: 'done' }],
       isError: false,
     });
     const filteredConnections = new Map([
       [
-        'serena:abc123',
+        'serena:owner-session',
         {
           name: 'serena',
           transport: { tags: ['serena'] } as never,
           client: { callTool } as never,
           status: ClientStatus.Connected,
+          templateIdentity: { mode: 'session', ownerSessionId: 'owner-session', renderedHash: 'owner-rendered' },
         },
       ],
     ]);
     const serverManager = {
       getLazyLoadingOrchestrator: vi.fn(() => undefined),
       getClients: vi.fn(() => filteredConnections),
-      getClient: vi.fn(() => undefined),
     };
     const handler = createToolInvocationsHandler(serverManager as never);
-    const res = createMockResponse();
+    const body = { tool: 'serena/list_memories', args: { limit: 1 } };
 
-    await invokeInspectRoute(scopeAuthMiddleware, { body: { tool: 'serena/list_memories', args: { limit: 1 } } }, res);
-    await invokeInspectRoute(handler, { body: { tool: 'serena/list_memories', args: { limit: 1 } } }, res);
+    const noSessionRes = createMockResponse();
+    await invokeInspectRoute(scopeAuthMiddleware, { body }, noSessionRes);
+    await invokeInspectRoute(handler, { body }, noSessionRes);
+    expect(noSessionRes.statusCode).toBe(503);
+    expect(callTool).not.toHaveBeenCalled();
 
-    expect(res.statusCode).toBe(200);
+    const otherSessionRes = createMockResponse();
+    await invokeInspectRoute(scopeAuthMiddleware, { headers: { 'mcp-session-id': 'other-session' }, body }, otherSessionRes);
+    await invokeInspectRoute(handler, { headers: { 'mcp-session-id': 'other-session' }, body }, otherSessionRes);
+    expect(otherSessionRes.statusCode).toBe(503);
+    expect(callTool).not.toHaveBeenCalled();
+
+    const ownerSessionRes = createMockResponse();
+    await invokeInspectRoute(scopeAuthMiddleware, { headers: { 'mcp-session-id': 'owner-session' }, body }, ownerSessionRes);
+    await invokeInspectRoute(handler, { headers: { 'mcp-session-id': 'owner-session' }, body }, ownerSessionRes);
+
+    expect(ownerSessionRes.statusCode).toBe(200);
     expect(callTool).toHaveBeenCalledWith({
       name: 'list_memories',
       arguments: { limit: 1 },
     });
-    expect(res.body).toEqual({
+    expect(ownerSessionRes.body).toEqual({
       result: { content: [{ type: 'text', text: 'done' }], isError: false },
       server: 'serena',
       tool: 'list_memories',
     });
+  });
+
+  it('does not treat a rendered template hash as an owning request session', async () => {
+    const callTool = vi.fn();
+    const renderedHash = 'foreign-rendered-hash';
+    const connections = new Map([
+      [
+        `serena:${renderedHash}`,
+        {
+          name: 'serena',
+          transport: { tags: ['serena'] } as never,
+          client: { callTool } as never,
+          status: ClientStatus.Connected,
+          templateIdentity: { mode: 'rendered', renderedHash },
+        },
+      ],
+    ]) as unknown as OutboundConnections;
+    const serverManager = {
+      getLazyLoadingOrchestrator: vi.fn(() => undefined),
+      getClients: vi.fn(() => connections),
+      getTemplateServerManager: vi.fn(() => ({
+        getRenderedHashForSession: vi.fn(() => undefined),
+        getAllRenderedHashesForSession: vi.fn(() => undefined),
+      })),
+    };
+    const handler = createToolInvocationsHandler(serverManager as never);
+    const res = createMockResponse();
+    const req = { headers: { 'mcp-session-id': renderedHash }, body: { tool: 'serena/list_memories' } };
+
+    await invokeInspectRoute(scopeAuthMiddleware, req, res);
+    await invokeInspectRoute(handler, req, res);
+
+    expect(res.statusCode).toBe(503);
+    expect(res.body).toEqual({ error: 'Server not connected: serena' });
+    expect(callTool).not.toHaveBeenCalled();
   });
 
   it('routes lazy template invocations through the request session rendered hash only', async () => {
@@ -346,6 +387,7 @@ describe('apiRoutes /api/tool-invocations', () => {
           transport: { tags: ['serena'] } as never,
           client: { callTool: firstCallTool } as never,
           status: ClientStatus.Connected,
+          templateIdentity: { mode: 'rendered', renderedHash: 'first' },
         },
       ],
       [
@@ -355,12 +397,19 @@ describe('apiRoutes /api/tool-invocations', () => {
           transport: { tags: ['serena'] } as never,
           client: { callTool: secondCallTool } as never,
           status: ClientStatus.Connected,
+          templateIdentity: { mode: 'rendered', renderedHash: 'second' },
         },
       ],
     ]) as unknown as OutboundConnections;
     const lazyOrchestrator = {
       getToolRegistry: vi.fn(() =>
-        ToolRegistry.fromToolsMap(new Map([['serena', [{ name: 'list_memories', inputSchema: {} } as Tool]]])),
+        ToolRegistry.fromToolsWithServer([
+          {
+            server: 'serena',
+            connectionKey: 'serena:second',
+            tool: { name: 'list_memories', inputSchema: {} } as Tool,
+          },
+        ]),
       ),
       getSchemaCache: vi.fn(() => ({
         getIfCached: () => null,
@@ -430,7 +479,7 @@ describe('apiRoutes /api/tool-invocations', () => {
     expect(callMetaTool).toHaveBeenCalledWith(
       'tool_invoke',
       { server: 'alpha', toolName: 'mytool', args: { x: 1 } },
-      undefined,
+      expect.objectContaining({ sessionId: undefined, serverCandidates: expect.any(Map) }),
     );
     expect(res.body).toEqual(mockResult);
   });

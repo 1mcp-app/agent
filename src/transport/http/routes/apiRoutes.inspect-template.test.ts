@@ -314,9 +314,10 @@ describe('apiRoutes inspect', () => {
     const serenaEntry = (res.body as { servers: Array<{ server: string }> }).servers.find((server) => {
       return server.server === 'serena';
     });
-    expect(serenaEntry).toMatchObject({ server: 'serena', type: 'template', available: false, toolCount: 0 });
+    expect(serenaEntry).toBeUndefined();
     expect(createTemplateBasedServers).not.toHaveBeenCalled();
     expect(registerTemplate).not.toHaveBeenCalled();
     expect(getRenderedHashForSession).not.toHaveBeenCalled();
+    expect(mockedExtractRequestContext).not.toHaveBeenCalled();
   });
 });

@@ -319,6 +319,7 @@ describe('Health Routes', () => {
           configuration: { loaded: true, serverCount: 1, authEnabled: false, transport: 'http' },
         });
         mockRuntimeConnections.set('worker', {
+          name: 'worker',
           supervision: {
             backendId: 'worker',
             state,
@@ -345,6 +346,7 @@ describe('Health Routes', () => {
         configuration: { loaded: true, serverCount: 0, authEnabled: false, transport: 'http' },
       });
       mockRuntimeConnections.set('private-worker', {
+        name: 'private-worker',
         supervision: {
           backendId: 'private-worker',
           state: 'crash-loop',
@@ -381,6 +383,34 @@ describe('Health Routes', () => {
       });
     });
 
+    it('does not let a template crash loop affect readiness or disclose its rendered hash', async () => {
+      mockHealthService.performHealthCheck.mockResolvedValue({
+        configuration: { loaded: true, serverCount: 0, authEnabled: false, transport: 'http' },
+      });
+      mockRuntimeConnections.set('worker:foreign-rendered-hash', {
+        name: 'worker',
+        templateIdentity: { mode: 'rendered', renderedHash: 'foreign-rendered-hash' },
+        supervision: {
+          backendId: `template:worker:${'a'.repeat(64)}`,
+          state: 'crash-loop',
+          attempt: 5,
+          limit: 5,
+          nextRetryAt: null,
+          lastExit: null,
+          lastError: null,
+          currentPid: 101,
+        },
+      });
+
+      const response = await request(app).get('/health/ready');
+
+      expect(response.status).toBe(200);
+      expect(response.body.backendSupervision).toEqual({});
+      expect(JSON.stringify(response.body)).not.toContain('foreign-rendered-hash');
+      expect(JSON.stringify(response.body)).not.toContain('101');
+      expect(mockHealthService.serializeBackendSupervision).toHaveBeenCalledWith({});
+    });
+
     it('should handle readiness check errors with 503', async () => {
       const error = new Error('Readiness check failed');
       mockHealthService.performHealthCheck.mockRejectedValue(error);
@@ -396,33 +426,68 @@ describe('Health Routes', () => {
     });
   });
 
+  describe('GET /health/mcp', () => {
+    it('omits template supervision from aggregate loading output', async () => {
+      const loadingManager = {
+        getSummary: () => ({
+          isComplete: true,
+          startTime: new Date('2026-08-03T00:00:00.000Z'),
+          successRate: 100,
+          averageLoadTime: 0,
+          totalServers: 0,
+          pending: 0,
+          loading: 0,
+          ready: 0,
+          failed: 0,
+          awaitingOAuth: 0,
+          cancelled: 0,
+        }),
+        getStateTracker: () => ({ getAllServerStates: () => new Map() }),
+      } as any;
+      const templateApp = express();
+      templateApp.use('/health', createHealthRoutes(loadingManager));
+      mockRuntimeConnections.set('worker:foreign-rendered-hash', {
+        name: 'worker',
+        templateIdentity: { mode: 'rendered', renderedHash: 'foreign-rendered-hash' },
+        supervision: {
+          backendId: `template:worker:${'a'.repeat(64)}`,
+          state: 'crash-loop',
+          attempt: 5,
+          limit: 5,
+          nextRetryAt: null,
+          lastExit: { code: 1, signal: null, pid: 101, at: new Date() },
+          lastError: new Error('failed'),
+          currentPid: null,
+        },
+      });
+
+      const response = await request(templateApp).get('/health/mcp');
+
+      expect(response.status).toBe(200);
+      expect(response.body.backendSupervision).toEqual({});
+      expect(response.body.degraded).toBe(false);
+      expect(JSON.stringify(response.body)).not.toContain('foreign-rendered-hash');
+      expect(JSON.stringify(response.body)).not.toContain('101');
+    });
+  });
+
   describe('GET /health/mcp/:serverName', () => {
-    it('groups operational facts for all instances of a template target', async () => {
+    it('does not enumerate template instances by their clean name', async () => {
       const loadingManager = {
         getStateTracker: () => ({ getServerState: vi.fn() }),
       } as any;
       const templateApp = express();
       templateApp.use('/health', createHealthRoutes(loadingManager));
-      mockRuntimeConnections.set('worker:first', {
+      mockRuntimeConnections.set('worker:foreign-rendered-hash', {
+        name: 'worker',
+        templateIdentity: { mode: 'rendered', renderedHash: 'foreign-rendered-hash' },
         supervision: {
           backendId: `template:worker:${'a'.repeat(64)}`,
-          state: 'connected',
-          attempt: 0,
-          limit: 5,
-          nextRetryAt: null,
-          lastExit: null,
-          lastError: null,
-          currentPid: 101,
-        },
-      });
-      mockRuntimeConnections.set('worker:second', {
-        supervision: {
-          backendId: `template:worker:${'b'.repeat(64)}`,
           state: 'crash-loop',
           attempt: 5,
           limit: 5,
           nextRetryAt: null,
-          lastExit: { code: 1, signal: null, pid: 102, at: new Date() },
+          lastExit: { code: 1, signal: null, pid: 101, at: new Date() },
           lastError: new Error('failed'),
           currentPid: null,
         },
@@ -430,84 +495,10 @@ describe('Health Routes', () => {
 
       const response = await request(templateApp).get('/health/mcp/worker');
 
-      expect(response.status).toBe(503);
-      expect(response.body).toMatchObject({
-        name: 'worker',
-        state: 'crash-loop',
-        instances: [
-          { state: 'connected', currentPid: 101 },
-          { state: 'crash-loop', lastError: 'failed', currentPid: null },
-        ],
-      });
-    });
-
-    it('returns aggregate supervision for a template target at minimal detail', async () => {
-      const loadingManager = {
-        getStateTracker: () => ({ getServerState: vi.fn() }),
-      } as any;
-      const templateApp = express();
-      templateApp.use('/health', createHealthRoutes(loadingManager));
-      mockRuntimeConnections.set('worker:first', {
-        supervision: {
-          backendId: `template:worker:${'a'.repeat(64)}`,
-          state: 'connected',
-          attempt: 0,
-          limit: 5,
-          nextRetryAt: null,
-          lastExit: null,
-          lastError: null,
-          currentPid: 101,
-        },
-      });
-      mockHealthService.serializeBackendSupervision.mockReturnValueOnce({
-        total: 1,
-        connected: 1,
-        restarting: 0,
-        crashLoop: 0,
-        stopped: 0,
-      });
-
-      const response = await request(templateApp).get('/health/mcp/worker');
-
-      expect(response.status).toBe(200);
-      expect(response.body).toMatchObject({
-        name: 'worker',
-        state: 'connected',
-        backendSupervision: { total: 1, connected: 1 },
-      });
-      expect(response.body.instances).toBeUndefined();
-      expect(JSON.stringify(response.body)).not.toContain('template:worker');
+      expect(response.status).toBe(404);
+      expect(JSON.stringify(response.body)).not.toContain('foreign-rendered-hash');
       expect(JSON.stringify(response.body)).not.toContain('101');
-    });
-
-    it('reports a stopped template target as unavailable', async () => {
-      const loadingManager = {
-        getStateTracker: () => ({ getServerState: vi.fn() }),
-      } as any;
-      const templateApp = express();
-      templateApp.use('/health', createHealthRoutes(loadingManager));
-      mockRuntimeConnections.set('worker:first', {
-        supervision: {
-          backendId: `template:worker:${'a'.repeat(64)}`,
-          state: 'stopped',
-          attempt: 0,
-          limit: 5,
-          nextRetryAt: null,
-          lastExit: null,
-          lastError: null,
-          currentPid: null,
-        },
-      });
-
-      const response = await request(templateApp).get('/health/mcp/worker');
-
-      expect(response.status).toBe(503);
-      expect(response.headers['x-server-state']).toBe('stopped');
-      expect(response.body).toMatchObject({
-        name: 'worker',
-        state: 'stopped',
-        instances: [{ state: 'stopped', currentPid: null }],
-      });
+      expect(mockHealthService.serializeBackendSupervision).not.toHaveBeenCalled();
     });
   });
 

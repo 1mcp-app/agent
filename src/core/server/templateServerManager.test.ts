@@ -570,6 +570,7 @@ describe('TemplateServerManager', () => {
         status: ClientStatus.Connected,
         supervision: { state: 'connected', currentPid: 101 },
         capabilities: { tools: {} },
+        templateIdentity: { mode: 'session', ownerSessionId: 'client-a', renderedHash: 'rendered-client-a' },
       });
       expect(publishState).toHaveBeenCalledWith(outboundKey, instance.supervision);
       expect(outboundConns.has(instance.instanceKey)).toBe(false);

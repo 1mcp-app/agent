@@ -112,13 +112,13 @@ For agent sessions, CLI mode is the narrowest path to a working setup:
 
 Use this if you want the broadest client compatibility after CLI mode.
 
-`proxy` is usually the better fallback than direct streamable HTTP because it keeps project context through `.1mcprc`, supports template MCP servers, and is easier to standardize with one-time global setup.
+`proxy` is usually the better fallback than direct streamable HTTP because it supports more stdio clients and can apply `.1mcprc` preset, filter, and tag selection. Its project or client context is not trusted template input, so it cannot create template MCP servers from public requests.
 
 - [Proxy command](/commands/proxy)
 
 ### Direct MCP attachment
 
-Use this if your client already speaks MCP natively over streamable HTTP and you do not need project context.
+Use this if your client already speaks MCP natively over streamable HTTP. Public HTTP exposes static inventory and can route existing session-scoped connections, but it does not use client context to create templates.
 
 - [Serve command](/commands/serve)
 - [Architecture](/reference/architecture)

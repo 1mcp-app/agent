@@ -348,19 +348,25 @@ interface ContextData {
 
 1MCP processes templates through a five-step workflow:
 
+::: warning Trusted context required
+
+Public HTTP, SSE, streamable HTTP, and REST request context is metadata only. Values from `_meta.context` and the `context` query parameter never reach template rendering or process creation. The workflow below applies only when a server-owned, in-process context has been explicitly marked trusted. A session ID can route an existing session-scoped connection, but it is not user identity or trusted context and cannot start this workflow.
+
+:::
+
 ### Step 1: Context Collection
 
-When a client connects, 1MCP collects context from:
+When a server-owned integration creates a trusted template context, 1MCP can collect context from:
 
 - Current working directory (project path, name)
 - Git repository (branch, commit, remote)
 - `.1mcprc` file (custom context, environment)
 - System information (user details)
-- Connection details (transport, client info)
+- Verified connection details (transport, client info)
 
 ### Step 2: Template Lookup
 
-1MCP looks up templates from `mcpTemplates` in `mcp.json` that match the client's filter criteria (tags, preset).
+1MCP looks up templates from `mcpTemplates` in `mcp.json` that match the trusted integration's filter criteria (tags, preset).
 
 ### Step 3: Variable Substitution
 
@@ -380,7 +386,7 @@ Each template configuration is rendered by substituting:
 
 ### Step 5: Server Creation
 
-A server instance is created using the rendered configuration and connected to the client.
+A server instance is created using the rendered configuration and scoped to the trusted integration's session. Public routes can only route to an already-created scoped instance; they cannot create one from request data.
 
 ### Caching
 

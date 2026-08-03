@@ -1,5 +1,6 @@
 import type { MCPServerParams } from '@src/core/types/index.js';
 import type { ContextData } from '@src/types/context.js';
+import { createTrustedTemplateContext } from '@src/utils/context/templateContextTrust.js';
 
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -55,10 +56,23 @@ describe('requestContextPreparation', () => {
     expect(deps.createTemplateBasedServers).not.toHaveBeenCalled();
   });
 
-  it('prefers transport session over context session and derived session', async () => {
+  it('does not render templates for an untrusted context', async () => {
     const result = await prepareRequestContext({
       deps,
-      context,
+      context: context as never,
+      filterConfig: {},
+    });
+
+    expect(result).toEqual({ status: 'no_context' });
+    expect(deps.loadRenderedTemplates).not.toHaveBeenCalled();
+    expect(deps.createTemplateBasedServers).not.toHaveBeenCalled();
+  });
+
+  it('prefers transport session over context session and derived session', async () => {
+    const trustedContext = createTrustedTemplateContext(context);
+    const result = await prepareRequestContext({
+      deps,
+      context: trustedContext,
       transportSessionId: 'header-session',
       filterConfig: { tags: ['dev'] },
     });
@@ -88,10 +102,11 @@ describe('requestContextPreparation', () => {
   });
 
   it('derives a canonical session id instead of trusting context session id', async () => {
-    const result = await prepareRequestContext({ deps, context, filterConfig: {} });
+    const trustedContext = createTrustedTemplateContext(context);
+    const result = await prepareRequestContext({ deps, context: trustedContext, filterConfig: {} });
 
     expect(result).toMatchObject({ status: 'prepared', sessionId: 'derived-session' });
-    expect(deps.deriveSessionId).toHaveBeenCalledWith(context);
+    expect(deps.deriveSessionId).toHaveBeenCalledWith(trustedContext);
     expect(deps.loadRenderedTemplates).toHaveBeenCalledWith({
       ...context,
       sessionId: 'derived-session',
@@ -101,11 +116,12 @@ describe('requestContextPreparation', () => {
 
   it('derives a session id when context has no session id', async () => {
     const contextWithoutSession = { ...context, sessionId: undefined };
+    const trustedContext = createTrustedTemplateContext(contextWithoutSession);
 
-    const result = await prepareRequestContext({ deps, context: contextWithoutSession, filterConfig: {} });
+    const result = await prepareRequestContext({ deps, context: trustedContext, filterConfig: {} });
 
     expect(result).toMatchObject({ status: 'prepared', sessionId: 'derived-session' });
-    expect(deps.deriveSessionId).toHaveBeenCalledWith(contextWithoutSession);
+    expect(deps.deriveSessionId).toHaveBeenCalledWith(trustedContext);
     expect(deps.loadRenderedTemplates).toHaveBeenCalledWith({
       ...contextWithoutSession,
       sessionId: 'derived-session',
@@ -124,8 +140,9 @@ describe('requestContextPreparation', () => {
 
   it('registers missing adapters even when all template instances are already prepared', async () => {
     deps.getRenderedHashForSession = vi.fn(() => 'hash123');
+    const trustedContext = createTrustedTemplateContext(context);
 
-    const result = await prepareRequestContext({ deps, context, filterConfig: {} });
+    const result = await prepareRequestContext({ deps, context: trustedContext, filterConfig: {} });
 
     expect(result).toEqual({
       status: 'already_prepared',
@@ -141,8 +158,9 @@ describe('requestContextPreparation', () => {
 
   it('does not register duplicate adapters', async () => {
     deps.hasTemplateAdapter = vi.fn(() => true);
+    const trustedContext = createTrustedTemplateContext(context);
 
-    await prepareRequestContext({ deps, context, filterConfig: {} });
+    await prepareRequestContext({ deps, context: trustedContext, filterConfig: {} });
 
     expect(deps.registerTemplateAdapter).not.toHaveBeenCalled();
   });

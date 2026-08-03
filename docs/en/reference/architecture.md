@@ -38,6 +38,10 @@ flowchart TB
         A3[stdio-compatible client]
     end
 
+    subgraph Trusted["Server-owned integration"]
+        T1[Trusted in-process template context]
+    end
+
     subgraph Runtime["1mcp serve aggregated runtime"]
         B1[HTTP MCP routes]
         B2[Instruction aggregation]
@@ -57,13 +61,12 @@ flowchart TB
     B1 --> B2
     B1 --> B3
     B1 --> B4
-    B1 --> B5
+    T1 --> B5
     B5 --> C2
     B4 --> C1
-    B4 --> C2
 ```
 
-The runtime centralizes server lifecycle, transport routing, filtering, instruction collection, and session-aware template handling. The important shift in the current architecture is that 1MCP is no longer best described as only a proxy surface. It is a runtime that can expose different client interfaces over the same aggregated server inventory.
+The runtime centralizes server lifecycle, transport routing, filtering, instruction collection, and template handling for server-owned trusted integrations. The important shift in the current architecture is that 1MCP is no longer best described as only a proxy surface. It is a runtime that can expose different client interfaces over the same aggregated server inventory.
 
 ## Main Runtime Flows
 
@@ -72,7 +75,7 @@ The runtime centralizes server lifecycle, transport routing, filtering, instruct
 1. `serve` loads configuration and initializes config-change handling.
 2. Preset management is initialized, including preset change notifications.
 3. Static server transports are created from startup configuration.
-4. Template servers are not fully materialized at startup. They are created later from client or session context.
+4. Template servers are not fully materialized at startup. They are created later only when a server-owned integration creates trusted in-process context.
 5. The runtime starts in either synchronous or async loading mode.
 
 ### Agent CLI flow
@@ -86,12 +89,13 @@ The runtime centralizes server lifecycle, transport routing, filtering, instruct
 1. An MCP-native client connects to the HTTP endpoint exposed by `serve`.
 2. The runtime resolves filters, presets, auth, and available connections.
 3. Tool listing and tool calls are served from the aggregated inventory.
+4. Client request context cannot render templates. A session ID can route an already-created session-scoped connection, but is not user identity or trusted context.
 
 ### stdio proxy flow
 
 1. A stdio-compatible client starts `1mcp proxy`.
 2. `proxy` discovers a running `serve` instance and forwards stdio traffic to the HTTP runtime.
-3. Presets, `.1mcprc`, and template-aware context can still be applied, which makes `proxy` the recommended fallback after CLI mode.
+3. Presets and filters can still be applied. Project or client context carried by `proxy`, including `.1mcprc` data, is not trusted template input and cannot instantiate template servers.
 
 ## Key Components
 
@@ -109,7 +113,7 @@ Instruction aggregation is a first-class system concern. Static and template-bac
 
 ### Template server manager
 
-Template servers are created from contextual configuration rather than treated as static startup inventory. They can be shareable or session-scoped, and the runtime tracks rendered hashes and session mappings for correct routing and cleanup.
+Template servers are created from trusted contextual configuration rather than treated as static startup inventory. They can be shareable or session-scoped, and the runtime tracks rendered hashes and session mappings for correct routing and cleanup. A session ID selects a scoped connection; it is a routing capability, not user identity or a way to turn client input into trusted context.
 
 ### Preset manager and notifications
 
@@ -122,7 +126,7 @@ The runtime supports both startup-time loading and progressive loading behavior.
 ### Static versus template loading
 
 - Static servers are created from startup configuration.
-- Template servers are created per client or session after context is known.
+- Template servers are created for a trusted server-owned context and may then be scoped to a session. Public HTTP, SSE, streamable HTTP, and REST routes do not create them from client context.
 
 ### Async loading
 
@@ -141,12 +145,12 @@ Instruction aggregation is initialized before the full backend inventory is nece
 Configuration is no longer best summarized as “one JSON file.” The current system combines several configuration concerns:
 
 - startup configuration for static servers
-- template definitions that render from context
+- template definitions that render only from server-owned trusted context
 - preset definitions and selection
 - CLI and project-level options such as filters or `.1mcprc`
 - runtime feature flags such as async loading, lazy loading, and session persistence
 
-Template server resolution is session-aware where needed. Inspect and tool routes can initialize template servers using request context and session IDs so a client sees the right contextual inventory.
+Template server visibility is session-aware where needed. Inspect and tool routes can route only to template servers that a server-owned integration has already created for that session; request context and session IDs cannot initialize a template server.
 
 ## Client Interfaces
 
@@ -167,16 +171,17 @@ CLI mode is a progressive agent interface, not a replacement wire protocol.
 
 ### Direct HTTP MCP attachment
 
-This is the right fit for MCP-native clients that want to connect directly to the aggregated runtime over streamable HTTP and do not need project context.
+This is the right fit for MCP-native clients that want to connect directly to the aggregated runtime over streamable HTTP. Public transport exposes static inventory and can route to existing scoped connections; it does not accept project or client context for template rendering.
 
 ### `proxy`
 
-`1mcp proxy` is the maximum-compatibility client surface after CLI mode. It bridges local stdio clients to a running HTTP runtime while preserving project context through `.1mcprc` and supporting template-aware runtime behavior.
+`1mcp proxy` is the maximum-compatibility client surface after CLI mode. It bridges local stdio clients to a running HTTP runtime and can apply preset or filter selection from `.1mcprc`. It does not turn project or client context into trusted template input.
 
 ## Security and Operational Boundaries
 
 - `serve` is the runtime boundary where auth, rate limits, request handling, and health endpoints live.
-- Template resolution happens inside the runtime and is constrained by provided client or session context.
+- Only a server-owned integration can create trusted context for template resolution. Public HTTP, SSE, streamable HTTP, proxy, and REST routes cannot do so from client input.
+- A session ID routes to an existing session-scoped view; it is not user identity, authentication, or proof that context is trusted. Deploy transport authentication where user identity or authorization is required.
 - `proxy` does not add OAuth capability to stdio clients; if a client cannot authenticate, that limitation remains.
 - Presets and filters can narrow exposure, but they do not replace transport-level auth or server-side operational controls.
 

@@ -32,6 +32,22 @@ export interface AuthProviderTransport extends EnhancedTransport {
 }
 
 /**
+ * Runtime metadata for a template connection. The map key alone cannot
+ * distinguish a rendered hash from a session identifier, so session-scoped
+ * routing must use this explicit identity rather than parsing the suffix.
+ */
+export type TemplateConnectionIdentity =
+  | {
+      readonly mode: 'rendered';
+      readonly renderedHash: string;
+    }
+  | {
+      readonly mode: 'session';
+      readonly ownerSessionId: string;
+      readonly renderedHash: string;
+    };
+
+/**
  * Complete outbound connection information including transport, status and history
  */
 export interface OutboundConnection {
@@ -48,6 +64,8 @@ export interface OutboundConnection {
   authorizationUrl?: string;
   /** When OAuth authorization was initiated */
   oauthStartTime?: Date;
+  /** Explicit template ownership metadata for session-scoped routing. */
+  templateIdentity?: TemplateConnectionIdentity;
   /** Runtime-owned stdio supervision facts, when enabled for this backend. */
   supervision?: BackendSupervisionSnapshot;
 }

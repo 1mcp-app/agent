@@ -54,7 +54,7 @@ features:
     details: '`1mcp serve` aggregates static and template-backed MCP servers behind one runtime.'
   - icon: 🪄
     title: Context-Aware Templates
-    details: Template servers can be created per client or session instead of being fixed at startup.
+    details: Server-owned integrations can create template servers from trusted in-process context and scope them to sessions.
   - icon: ⚡
     title: Async and Lazy Loading
     details: Start faster, load in the background, and expose less until a client or agent actually needs it.
@@ -63,7 +63,7 @@ features:
     details: Reuse server sets across projects, clients, and compatibility bridges without duplicating config.
   - icon: 🔐
     title: Compatibility and Direct Paths
-    details: 'Use `proxy` for maximum client compatibility with project context, or direct streamable HTTP when native HTTP transport is enough.'
+    details: 'Use `proxy` for maximum client compatibility with presets and filters, or direct streamable HTTP when native HTTP transport is enough.'
 ---
 
 ## Why 1MCP?
@@ -77,8 +77,8 @@ The current product model is:
 
 - `1mcp serve` is the unified runtime.
 - CLI mode is the preferred agent-facing workflow on the unified runtime.
-- `proxy` is the preferred non-CLI path because it keeps project context and works with the widest set of AI clients.
-- Direct streamable HTTP remains supported for MCP-native clients that do not need project context.
+- `proxy` is the preferred non-CLI path for broad static-server compatibility and preset or filter selection. It does not turn project context into trusted template input.
+- Direct streamable HTTP remains supported for MCP-native clients. It does not use client context to create templates.
 
 Use this page to choose a path. If you already know you want a working setup, go straight to [Quick Start](/guide/quick-start).
 
@@ -90,7 +90,7 @@ This page is for Codex, Claude, Cursor, and similar agent workflows. The default
 
 - Want the fastest first success for an agent workflow? Go to [Quick Start](/guide/quick-start).
 - Want the mental model for `instructions`, `inspect`, and `run`? Go to [CLI Mode](/guide/integrations/cli-mode).
-- Want the broadest non-CLI client compatibility with project context? Go to [proxy](/commands/proxy).
+- Want the broadest non-CLI client compatibility with preset or filter selection? Go to [proxy](/commands/proxy).
 - Want to connect an MCP-native client directly to the runtime over streamable HTTP? Go to [serve](/commands/serve).
 - Want runtime details, loading behavior, or templates? Go to [Architecture](/reference/architecture).
 
@@ -142,12 +142,12 @@ This is only the preview path. For prerequisites, success checks, and troublesho
 
   <a href="/commands/serve" class="vp-feature-box">
     <h3>Proxy Compatibility Path</h3>
-    <p>Best non-CLI path when you want project context, `.1mcprc`, template servers, and the widest client compatibility.</p>
+    <p>Best non-CLI path for `.1mcprc` preset or filter selection and the widest static-server client compatibility.</p>
   </a>
 
   <a href="/commands/serve" class="vp-feature-box">
     <h3>Direct Runtime Usage</h3>
-    <p>Best for MCP-native HTTP clients that can use streamable HTTP directly and do not need project context.</p>
+    <p>Best for MCP-native HTTP clients that can use streamable HTTP directly; public client context does not create templates.</p>
   </a>
 </div>
 

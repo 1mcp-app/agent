@@ -7,7 +7,7 @@ import { ClientStatus, OutboundConnections } from '@src/core/types/index.js';
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { capabilityVisibilityFromServerNames } from './capabilityVisibility.js';
+import { capabilityVisibilityFromServerNames, createCapabilityVisibility } from './capabilityVisibility.js';
 import { LazyLoadingOrchestrator } from './lazyLoadingOrchestrator.js';
 
 describe('LazyLoadingOrchestrator', () => {
@@ -1167,6 +1167,80 @@ describe('LazyLoadingOrchestrator', () => {
       expect((listed as { servers?: string[] }).servers).toEqual(['filesystem']);
       expect((hiddenSchema as { error?: { type?: string } }).error?.type).toBe('not_found');
       expect((hiddenInvoke as { error?: { type?: string } }).error?.type).toBe('not_found');
+    });
+
+    it('serves a rendered template server through lazy schema and invocation tools for its owning session', async () => {
+      const sessionId = 'session-rendered-template';
+      const renderedHash = 'rendered-template-hash';
+      const templateName = 'template-server';
+      const connectionKey = `${templateName}:${renderedHash}`;
+      const renderedTemplateClient = {
+        listTools: vi.fn().mockResolvedValue({
+          tools: [
+            {
+              name: 'template_tool',
+              description: 'A tool from the rendered template server',
+              inputSchema: { type: 'object', properties: { query: { type: 'string' } } },
+            },
+          ],
+        }),
+        callTool: vi.fn().mockResolvedValue({
+          content: [{ type: 'text', text: 'rendered template result' }],
+        }),
+        getServerCapabilities: vi.fn().mockResolvedValue({ tools: {} }),
+      };
+      const renderedTemplateConnections = new Map([
+        [
+          connectionKey,
+          {
+            name: templateName,
+            client: renderedTemplateClient,
+            status: ClientStatus.Connected,
+            transport: {
+              tags: [],
+              start: async () => {},
+              send: async () => undefined,
+              close: async () => {},
+            },
+            capabilities: { tools: {} },
+            templateIdentity: { mode: 'rendered' as const, renderedHash },
+          },
+        ],
+      ]) as unknown as OutboundConnections;
+      const templateHashProvider = {
+        getRenderedHashForSession: vi.fn((requestedSessionId: string, requestedTemplateName: string) =>
+          requestedSessionId === sessionId && requestedTemplateName === templateName ? renderedHash : undefined,
+        ),
+        getAllRenderedHashesForSession: vi.fn(() => new Map([[templateName, renderedHash]])),
+      };
+      const templateOrchestrator = new LazyLoadingOrchestrator(
+        renderedTemplateConnections,
+        mockAgentConfig,
+        undefined,
+        templateHashProvider,
+      );
+      await templateOrchestrator.initialize();
+
+      const visibility = createCapabilityVisibility([[connectionKey, templateName]], sessionId);
+      const schema = await templateOrchestrator.callMetaTool(
+        'tool_schema',
+        { server: templateName, toolName: 'template_tool' },
+        visibility,
+      );
+      const invocation = await templateOrchestrator.callMetaTool(
+        'tool_invoke',
+        { server: templateName, toolName: 'template_tool', args: { query: 'hello' } },
+        visibility,
+      );
+
+      expect(templateHashProvider.getRenderedHashForSession).toHaveBeenCalledWith(sessionId, templateName);
+      expect((schema as { error?: unknown; schema?: { name?: string } }).error).toBeUndefined();
+      expect((schema as { schema?: { name?: string } }).schema?.name).toBe('template_tool');
+      expect((invocation as { error?: unknown }).error).toBeUndefined();
+      expect(renderedTemplateClient.callTool).toHaveBeenCalledWith({
+        name: 'template_tool',
+        arguments: { query: 'hello' },
+      });
     });
 
     it('discovers and invokes a late-ready server after its capability snapshot refresh', async () => {

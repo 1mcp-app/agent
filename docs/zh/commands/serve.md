@@ -1,13 +1,13 @@
 ---
 title: Serve 命令
-description: 启动 1MCP 主运行时，并将其用于 CLI 模式、原生 HTTP MCP 客户端以及模板感知的运行时行为。
+description: 启动 1MCP 主运行时，用于 CLI 模式、原生 HTTP MCP 客户端以及受信任服务器拥有的模板支持。
 ---
 
 # Serve 命令
 
 `1mcp serve` 用于启动 1MCP 的主运行时。
 
-它负责聚合你配置好的 MCP 服务器、暴露 HTTP MCP 入口、初始化预设与指令聚合，并在获得客户端或会话上下文后解析模板服务器。
+它负责聚合你配置好的 MCP 服务器、暴露 HTTP MCP 入口、初始化预设与指令聚合，并且只会为服务器拥有、进程内受信任的上下文解析模板服务器。
 
 ## 概要
 
@@ -25,7 +25,7 @@ description: 启动 1MCP 主运行时，并将其用于 CLI 模式、原生 HTTP
 - 运行聚合式 1MCP 运行时
 - 为 agent 提供 CLI 模式所依赖的后端
 - 为原生 HTTP MCP 客户端暴露直接接入点
-- 为 `1mcp proxy` 提供带项目上下文的 stdio 兼容桥接目标
+- 为 `1mcp proxy` 提供带预设与过滤选择的 stdio 兼容桥接目标
 
 CLI 模式依赖一个正在运行的 `serve` 实例。
 
@@ -34,10 +34,16 @@ CLI 模式依赖一个正在运行的 `serve` 实例。
 `serve` 不只是切换传输类型的命令，它就是主运行时。
 
 - 静态服务器从启动配置创建。
-- 模板服务器会在后续按客户端或会话上下文创建。
+- 模板服务器只会在后续为受信任的服务器拥有上下文创建，随后可作用域化到会话。
 - 异步加载允许 HTTP 入口先启动，再让静态服务器在后台继续加载。
 - 懒加载允许在真正需要前保持更窄的暴露面。
 - 指令聚合与预设通知都在这个运行时内部初始化。
+
+::: warning 公共传输不会创建模板
+
+公共 HTTP、旧版 SSE、streamable HTTP MCP 与 REST 路由不会接受客户端上下文来渲染 `mcpTemplates` 或创建进程。这包括 `_meta.context`、`context` 查询参数、proxy 携带的项目数据，以及 REST 的 `instructions`、`inspect` 与 `run` 调用。会话 ID 只能路由到已有的会话作用域连接；它不是用户身份、认证或受信任上下文。
+
+:::
 
 关于完整的运行时配置，请参阅 **[配置指南](/zh/guide/essentials/configuration)**。
 
@@ -69,7 +75,7 @@ CLI 模式依赖一个正在运行的 `serve` 实例。
 - **`--enable-async-loading`**：让 HTTP 可用性先启动，再等待静态服务器完成加载。
 - **`--enable-lazy-loading`**：选择使用元工具逐步发现工具；省略该选项则直接暴露全部工具。
 - **`--enable-config-reload`**：启用配置重载处理。
-- **`--enable-session-persistence`**：启用 HTTP 会话持久化。
+- **`--enable-session-persistence`**：启用 HTTP 会话持久化。持久化会话不会将客户端提供的上下文保留为受信任模板输入。
 
 ### 生命周期
 

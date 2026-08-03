@@ -10,6 +10,7 @@ import { LoadingState } from '@src/core/loading/loadingStateTracker.js';
 import { McpLoadingManager } from '@src/core/loading/mcpLoadingManager.js';
 import { AgentConfigManager } from '@src/core/server/agentConfig.js';
 import { ServerManager } from '@src/core/server/serverManager.js';
+import type { OutboundConnection, OutboundConnections } from '@src/core/types/index.js';
 import logger from '@src/logger/logger.js';
 import { sensitiveOperationLimiter } from '@src/transport/http/middlewares/securityMiddleware.js';
 
@@ -204,13 +205,18 @@ function getOAuthFlow(
   const agentConfig = AgentConfigManager.getInstance();
   return getOAuthAuthorizationFlow(oauthProvider, {
     serverRuntime: {
-      getClient: (serverName) => ServerManager.current.getClient(serverName),
-      getClients: () => ServerManager.current.getClients(),
+      getClient: getStaticOAuthConnection,
+      getClients: getStaticOAuthConnections,
     },
     clientRuntime: {
       createClientInstance: () => ClientManager.getOrCreateInstance().createClientInstance(),
-      completeOAuthAndReconnect: (serverName, authorizationCode) =>
-        ClientManager.getOrCreateInstance().completeOAuthAndReconnect(serverName, authorizationCode),
+      completeOAuthAndReconnect: (serverName, authorizationCode) => {
+        if (!getStaticOAuthConnection(serverName)) {
+          throw new Error(`OAuth is unavailable for dynamic template server: ${serverName}`);
+        }
+
+        return ClientManager.getOrCreateInstance().completeOAuthAndReconnect(serverName, authorizationCode);
+      },
     },
     loadingRuntime: loadingManager
       ? {
@@ -231,6 +237,23 @@ function getOAuthFlow(
     }),
     getAvailableTags: () => [],
   });
+}
+
+function getStaticOAuthConnection(serverName: string): OutboundConnection | undefined {
+  const connection = ServerManager.current.getClient(serverName);
+  return connection && isStaticOAuthConnection(serverName, connection) ? connection : undefined;
+}
+
+function getStaticOAuthConnections(): OutboundConnections {
+  return new Map(
+    Array.from(ServerManager.current.getClients()).filter(([serverName, connection]) =>
+      isStaticOAuthConnection(serverName, connection),
+    ),
+  );
+}
+
+function isStaticOAuthConnection(serverName: string, connection: OutboundConnection): boolean {
+  return !connection.templateIdentity && connection.name === serverName && !serverName.includes(':');
 }
 
 // Export the factory function as default

@@ -34,7 +34,20 @@ describe('CapabilityCatalog', () => {
       ['template-server', ['project']],
     ]);
 
-    registry = ToolRegistry.fromToolsMap(toolsByServer, tagsByServer);
+    registry = ToolRegistry.fromToolsWithServer([
+      ...toolsByServer.get('filesystem')!.map((tool) => ({
+        tool,
+        server: 'filesystem',
+        connectionKey: 'filesystem',
+        tags: tagsByServer.get('filesystem'),
+      })),
+      ...toolsByServer.get('template-server')!.map((tool) => ({
+        tool,
+        server: 'template-server',
+        connectionKey: 'template-server:rendered123',
+        tags: tagsByServer.get('template-server'),
+      })),
+    ]);
     schemaCache = new SchemaCache({ maxEntries: 100 });
     mockClient = {
       callTool: vi.fn().mockResolvedValue({ content: [{ type: 'text', text: 'ok' }] }),
@@ -57,6 +70,7 @@ describe('CapabilityCatalog', () => {
           client: mockClient as any,
           status: ClientStatus.Connected,
           transport: {} as any,
+          templateIdentity: { mode: 'rendered', renderedHash: 'rendered123' },
         },
       ],
     ]);
@@ -125,13 +139,13 @@ describe('CapabilityCatalog', () => {
     });
   });
 
-  it('does not fall back to another template instance when a request session has no mapping', async () => {
+  it('does not treat a rendered hash as a session owner when no mapping exists', async () => {
     const result = await createCatalog({
       getRenderedHashForSession: () => undefined,
       getAllRenderedHashesForSession: () => undefined,
     }).invokeVisibleTool(
       { server: 'template-server', toolName: 'template_tool', args: { message: 'hi' } },
-      createCapabilityVisibility([['template-server:rendered123', 'template-server']], 'missing-session'),
+      createCapabilityVisibility([['template-server:rendered123', 'template-server']], 'rendered123'),
     );
 
     expect(result.error).toMatchObject({
@@ -139,6 +153,25 @@ describe('CapabilityCatalog', () => {
       message: 'Server not connected: template-server',
     });
     expect(mockClient.callTool).not.toHaveBeenCalled();
+  });
+
+  it('does not expose legacy clean-name template metadata through a session scope', async () => {
+    registry = ToolRegistry.fromToolsMap(
+      new Map([
+        [
+          'template-server',
+          [{ name: 'template_tool', description: 'Template tool', inputSchema: { type: 'object' } }],
+        ],
+      ]),
+    );
+
+    const result = await createCatalog({
+      getRenderedHashForSession: () => 'rendered123',
+      getAllRenderedHashesForSession: () => undefined,
+    }).listVisibleTools({}, createCapabilityVisibility([['template-server:rendered123', 'template-server']], 'session-1'));
+
+    expect(result.tools).toEqual([]);
+    expect(result.routes).toEqual([]);
   });
 
   it('filters capability visibility by Server Candidate Set', async () => {

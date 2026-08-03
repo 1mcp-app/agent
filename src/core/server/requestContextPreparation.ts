@@ -5,6 +5,11 @@ import type { MCPServerParams } from '@src/core/types/index.js';
 import type { InboundConnectionConfig } from '@src/core/types/server.js';
 import type { ContextData } from '@src/types/context.js';
 import { resolveCanonicalSessionId, withCanonicalSessionId } from '@src/utils/context/sessionIdentity.js';
+import {
+  createTrustedTemplateContext,
+  isTrustedTemplateContext,
+  type TrustedTemplateContext,
+} from '@src/utils/context/templateContextTrust.js';
 
 export type RequestContextPreparationResult =
   | { status: 'no_context' }
@@ -40,7 +45,7 @@ export interface RequestContextPreparationDependencies {
 export interface PrepareRequestContextInput {
   deps: RequestContextPreparationDependencies;
   filterConfig: InboundConnectionConfig;
-  context?: ContextData | null;
+  context?: TrustedTemplateContext | null;
   transportSessionId?: string;
 }
 
@@ -48,17 +53,18 @@ export async function prepareRequestContext(
   input: PrepareRequestContextInput,
 ): Promise<RequestContextPreparationResult> {
   const { deps, context, filterConfig, transportSessionId } = input;
+  const trustedContext = isTrustedTemplateContext(context) ? context : undefined;
 
-  if (!context) {
+  if (!trustedContext) {
     return transportSessionId ? { status: 'routing_only', sessionId: transportSessionId } : { status: 'no_context' };
   }
 
   const sessionId = resolveCanonicalSessionId({
-    context,
+    context: trustedContext,
     transportSessionId,
     deriveSessionId: deps.deriveSessionId,
   });
-  const canonicalContext = withCanonicalSessionId(context, sessionId);
+  const canonicalContext = createTrustedTemplateContext(withCanonicalSessionId(trustedContext, sessionId));
   const renderedTemplates = await deps.loadRenderedTemplates(canonicalContext);
   const templateEntries = Object.entries(renderedTemplates);
   const templateNames = templateEntries.map(([templateName]) => templateName);

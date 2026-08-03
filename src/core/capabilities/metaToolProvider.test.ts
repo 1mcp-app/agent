@@ -650,6 +650,11 @@ describe('MetaToolProvider', () => {
             name: 'filesystem',
             client: { callTool: vi.fn() },
             status: ClientStatus.Connected,
+            templateIdentity: {
+              mode: 'session',
+              ownerSessionId: 'session-a',
+              renderedHash: 'filesystem-session-a',
+            },
             transport: {
               tags: ['fs'],
               start: vi.fn(),
@@ -665,6 +670,11 @@ describe('MetaToolProvider', () => {
             name: 'filesystem',
             client: { callTool: vi.fn() },
             status: ClientStatus.Connected,
+            templateIdentity: {
+              mode: 'session',
+              ownerSessionId: 'session-b',
+              renderedHash: 'filesystem-session-b',
+            },
             transport: {
               tags: ['fs'],
               start: vi.fn(),

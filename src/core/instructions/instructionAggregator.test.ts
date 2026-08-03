@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { ClientStatus } from '@src/core/types/client.js';
+
 import { InstructionAggregator } from './instructionAggregator.js';
 
 describe('InstructionAggregator', () => {
@@ -513,6 +515,42 @@ describe('InstructionAggregator', () => {
 
         // Verify hash-suffixed key doesn't work
         expect(aggregator.getServerInstructions('serena:abc123')).toBeUndefined();
+      });
+
+      it('isolates template instructions by connection and never falls back to a clean-name cache', () => {
+        aggregator.setInstructions('serena', 'instructions from another session');
+        const config = { tagFilterMode: 'none' as const, customTemplate: '{{instructions}}' };
+
+        const ownerAResult = aggregator.getFilteredInstructions(
+          config,
+          new Map([
+            [
+            'serena:owner-a',
+            { name: 'serena', instructions: 'owner A instructions', status: ClientStatus.Connected } as any,
+            ],
+          ]),
+        );
+        const ownerBResult = aggregator.getFilteredInstructions(
+          config,
+          new Map([
+            [
+              'serena:owner-b',
+              { name: 'serena', instructions: 'owner B instructions', status: ClientStatus.Connected } as any,
+            ],
+          ]),
+        );
+        const missingResult = aggregator.getFilteredInstructions(
+          config,
+          new Map([['serena:owner-session', { name: 'serena', status: ClientStatus.Connected } as any]]),
+        );
+
+        expect(ownerAResult).toContain('owner A instructions');
+        expect(ownerAResult).not.toContain('owner B instructions');
+        expect(ownerAResult).not.toContain('instructions from another session');
+        expect(ownerBResult).toContain('owner B instructions');
+        expect(ownerBResult).not.toContain('owner A instructions');
+        expect(ownerBResult).not.toContain('instructions from another session');
+        expect(missingResult).toBe('');
       });
     });
   });

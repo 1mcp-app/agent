@@ -24,10 +24,10 @@ It connects a local stdio transport to a running `1mcp serve` HTTP runtime. In p
 1MCP supports three different paths:
 
 1. **CLI mode for agent loops**: recommended for Codex, Claude, and similar agent sessions.
-2. **`proxy`**: recommended when you want the broadest client compatibility while keeping project context.
-3. **Direct streamable HTTP MCP attachment**: use when the client can connect directly and you do not need project context.
+2. **`proxy`**: recommended when you want the broadest client compatibility with preset and filter selection.
+3. **Direct streamable HTTP MCP attachment**: use when the client can connect directly to the public static inventory.
 
-`proxy` is not the main product experience. CLI mode remains the first choice for agent loops. `proxy` exists as the best non-CLI path when you want stdio compatibility plus `.1mcprc` and template-server support.
+`proxy` is not the main product experience. CLI mode remains the first choice for agent loops. `proxy` exists as the best non-CLI path when you want stdio compatibility plus `.1mcprc` preset and filter selection. It does not create template servers from project or client context.
 
 ## Synopsis
 
@@ -51,11 +51,11 @@ The runtime still lives in `serve`. `proxy` does not replace it.
 2. PID-file-based discovery
 3. localhost port scan fallback
 
-If project config is present, `proxy` can also merge settings from `.1mcprc`.
+If project config is present, `proxy` can also merge preset, filter, and tag settings from `.1mcprc`.
 
 ## Project Configuration with `.1mcprc`
 
-`.1mcprc` is useful when you repeatedly bridge the same project or client to the same preset or filtered runtime view.
+`.1mcprc` is useful when you repeatedly bridge the same project or client to the same preset or filtered runtime view. Its context fields are not trusted template input on this public transport.
 
 Example:
 
@@ -132,9 +132,9 @@ Then let the agent use:
 1mcp run <server>/<tool> --args '<json>'
 ```
 
-### Use direct HTTP only when project context is unnecessary
+### Use direct HTTP for the public static inventory
 
-If the client can talk to streamable HTTP MCP directly and you do not need project context, point it at the runtime endpoint:
+If the client can talk to streamable HTTP MCP directly, point it at the runtime endpoint. It sees static servers and any connections already scoped to its session; it cannot create templates from request context:
 
 ```text
 http://127.0.0.1:3050/mcp?app=cursor
@@ -151,9 +151,15 @@ This is the most important limitation on this page:
 In practice:
 
 - use CLI mode for agent loops whenever possible
-- use direct HTTP for clients that can authenticate and do not need project context
+- use direct HTTP for clients that can authenticate and speak streamable HTTP
 - use `proxy` only with runtimes that do not require auth
 - run a separate unauthenticated `serve` instance if a stdio client still needs compatibility access
+
+## Template Trust Boundary
+
+`proxy` forwards public HTTP requests to `serve`. It cannot make project or client data trusted for `mcpTemplates`, including `_meta.context`, query `context`, or `.1mcprc` context fields. Only a server-owned integration can create trusted in-process context and render a template.
+
+An MCP session ID can route a request to a connection already scoped to that session. It is a routing capability, not user identity, authentication, or proof that a client context is trusted.
 
 ## See Also
 

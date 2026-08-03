@@ -5,7 +5,6 @@ import { createToolInvocationsHandler } from './apiRoutes.js';
 
 const mockedLoadDeclaredServerConfigs = vi.hoisted(() => vi.fn());
 const mockedLoadConfigWithTemplates = vi.hoisted(() => vi.fn());
-const mockedExtractRequestContext = vi.hoisted(() => vi.fn());
 const mockedGetTransportConfig = vi.hoisted(() => vi.fn());
 
 vi.mock('@src/config/configManager.js', () => ({
@@ -23,14 +22,6 @@ vi.mock('@src/config/mcpConfigManager.js', () => ({
       getTransportConfig: mockedGetTransportConfig,
     })),
   },
-}));
-
-vi.mock('@src/transport/http/utils/contextExtractor.js', () => ({
-  CONTEXT_HEADERS: {
-    SESSION_ID: 'mcp-session-id',
-  },
-  deriveContextSessionId: vi.fn(() => 'derived-session-id'),
-  extractRequestContext: mockedExtractRequestContext,
 }));
 
 vi.mock('@src/logger/logger.js', () => ({
@@ -81,25 +72,25 @@ describe('apiRoutes /api/tool-invocations', () => {
 
   beforeEach(() => {
     mockedGetTransportConfig.mockReturnValue({});
-    mockedExtractRequestContext.mockReset();
-    mockedExtractRequestContext.mockReturnValue(undefined);
+    mockedLoadConfigWithTemplates.mockReset();
   });
 
-  it('prepares request context before direct tool invocation', async () => {
+  it('does not prepare or invoke template servers from HTTP request context', async () => {
     const context = {
       sessionId: 'context-session',
-      project: { path: '/tmp/project' },
-      user: {},
-      environment: {},
+      project: { name: 'attacker', path: '/tmp/attacker' },
+      user: { username: 'attacker' },
+      environment: { variables: { ATTACKER_CONTROLLED: 'true' } },
     };
     const templateConfig = {
       type: 'stdio',
-      command: 'uvx',
-      args: ['serena', '{{project.path}}'],
+      command: '{{project.custom.command}}',
+      args: ['{{project.custom.argument}}'],
+      cwd: '{{project.path}}',
+      env: { ATTACKER_CONTROLLED: '{{environment.variables.ATTACKER_CONTROLLED}}' },
       tags: ['serena'],
     };
     const callTool = vi.fn().mockResolvedValue({ content: [{ type: 'text', text: 'done' }], isError: false });
-    mockedExtractRequestContext.mockReturnValue(context);
     mockedLoadConfigWithTemplates.mockResolvedValue({
       staticServers: {},
       templateServers: { serena: templateConfig },
@@ -110,9 +101,9 @@ describe('apiRoutes /api/tool-invocations', () => {
     const registerTemplate = vi.fn();
     const serverManager = {
       getLazyLoadingOrchestrator: vi.fn(() => undefined),
-      getClients: vi.fn(() => new Map()),
+      getClients: vi.fn(() => new Map([['serena:owner-session', { status: 'connected', client: { callTool } }]])),
       getClientTransports: vi.fn(() => ({})),
-      getClient: vi.fn(() => undefined),
+      getClient: vi.fn(() => ({ client: { callTool } })),
       getTemplateServerManager: vi.fn(() => ({
         getRenderedHashForSession: vi.fn(() => undefined),
         createTemplateBasedServers,
@@ -126,21 +117,29 @@ describe('apiRoutes /api/tool-invocations', () => {
     const handler = createToolInvocationsHandler(serverManager as never);
     const res = createMockResponse();
 
-    await invokeInspectRoute(scopeAuthMiddleware, { body: { tool: 'serena/list_memories' } }, res);
-    await invokeInspectRoute(handler, { body: { tool: 'serena/list_memories' } }, res);
+    const body = {
+      tool: 'serena/list_memories',
+      _meta: {
+        context: {
+          ...context,
+          project: {
+            ...context.project,
+            custom: { command: 'sh', argument: '-c' },
+          },
+        },
+      },
+    };
+    const query = {
+      context: Buffer.from(JSON.stringify(context)).toString('base64'),
+    };
+    await invokeInspectRoute(scopeAuthMiddleware, { body, query }, res);
+    await invokeInspectRoute(handler, { body, query }, res);
 
-    expect(res.statusCode).toBe(200);
-    expect(createTemplateBasedServers).toHaveBeenCalledWith(
-      'derived-session-id',
-      { ...context, sessionId: 'derived-session-id' },
-      expect.any(Object),
-      { mcpTemplates: { serena: templateConfig } },
-      expect.any(Map),
-      {},
-      'ephemeral',
-    );
-    expect(registerTemplate).toHaveBeenCalledWith('serena', templateConfig);
-    expect(callTool).toHaveBeenCalledWith({ name: 'list_memories', arguments: {} });
+    expect(res.statusCode).toBe(503);
+    expect(mockedLoadConfigWithTemplates).not.toHaveBeenCalled();
+    expect(createTemplateBasedServers).not.toHaveBeenCalled();
+    expect(registerTemplate).not.toHaveBeenCalled();
+    expect(callTool).not.toHaveBeenCalled();
   });
 
   it('returns 200 even when result.isError is true', async () => {

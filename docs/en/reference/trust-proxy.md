@@ -44,6 +44,8 @@ The trust proxy setting determines which incoming proxy servers are trusted.
 
 **⚠️ Important**: Incorrectly configuring this setting can create an IP spoofing vulnerability. Only trust proxies that you control.
 
+> **Template context boundary:** `--trust-proxy` affects only forwarded IP and protocol header handling. Even when a request comes through a trusted proxy, `_meta.context`, the `context` query parameter, and client metadata remain untrusted: they cannot render templates or influence process settings. An `mcp-session-id` is still a routing capability, not user identity, authentication, or authorization.
+
 ## How Trust Proxy Works
 
 When trust proxy is enabled, the underlying Express.js server will:

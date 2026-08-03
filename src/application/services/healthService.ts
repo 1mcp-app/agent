@@ -342,6 +342,13 @@ export class HealthService {
       let unhealthyCount = 0;
 
       for (const [name, clientInfo] of clients.entries()) {
+        // Template keys contain a rendered hash or session owner. Health is a
+        // public monitoring surface, so dynamic template instances stay out
+        // of both its aggregate status and per-server details.
+        if (clientInfo.templateIdentity || name !== clientInfo.name || name.includes(':')) {
+          continue;
+        }
+
         const isHealthy = clientInfo.status === ClientStatus.Connected;
 
         if (isHealthy) {
@@ -361,7 +368,7 @@ export class HealthService {
       }
 
       return {
-        total: clients.size,
+        total: serverDetails.length,
         healthy: healthyCount,
         unhealthy: unhealthyCount,
         details: serverDetails,

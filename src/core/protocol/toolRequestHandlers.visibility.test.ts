@@ -1,4 +1,5 @@
 import type { LazyLoadingOrchestrator } from '@src/core/capabilities/lazyLoadingOrchestrator.js';
+import { createSessionScopedConnections } from '@src/core/server/connectionResolver.js';
 import { ClientStatus, type InboundConnection, type OutboundConnections } from '@src/core/types/index.js';
 
 import { describe, expect, it, vi } from 'vitest';
@@ -75,5 +76,73 @@ describe('registerToolHandlers capability visibility', () => {
       ['late', 'late'],
     ]);
     expect(callMetaTool.mock.calls[1][2].sessionId).toBe('session-1');
+  });
+
+  it('keeps a captured session-scoped view live without exposing another session template', async () => {
+    type CapturedHandler = (request: { params: { name: string; arguments: unknown } }) => Promise<unknown>;
+    const handlers: CapturedHandler[] = [];
+    const inbound = {
+      context: { sessionId: 'owner-session' },
+      tags: ['safe'],
+      tagFilterMode: 'simple-or',
+      server: {
+        setRequestHandler: vi.fn((_schema, handler) => handlers.push(handler)),
+      },
+    } as unknown as InboundConnection;
+    const outboundConnections = new Map([
+      [
+        'static',
+        {
+          name: 'static',
+          status: ClientStatus.Connected,
+          capabilities: { tools: {} },
+          transport: { tags: ['safe'] },
+        },
+      ],
+      [
+        'template:other-session',
+        {
+          name: 'template',
+          status: ClientStatus.Connected,
+          capabilities: { tools: {} },
+          transport: { tags: ['safe'] },
+          templateIdentity: { mode: 'session', ownerSessionId: 'other-session', renderedHash: 'other-rendered' },
+        },
+      ],
+    ]) as OutboundConnections;
+    const scopedConnections = createSessionScopedConnections(outboundConnections, 'owner-session');
+    const callMetaTool = vi.fn().mockResolvedValue({ tools: [] });
+    const orchestrator = {
+      isEnabled: () => true,
+      isMetaTool: () => true,
+      callMetaTool,
+    } as unknown as LazyLoadingOrchestrator;
+
+    registerToolHandlers(scopedConnections, inbound, orchestrator);
+    const callHandler = handlers[1];
+
+    await callHandler({ params: { name: 'tool_list', arguments: {} } });
+    expect(Array.from(callMetaTool.mock.calls[0][2].serverCandidates.entries())).toEqual([['static', 'static']]);
+
+    outboundConnections.set('template:owner-session', {
+      name: 'template',
+      status: ClientStatus.Connected,
+      capabilities: { tools: {} },
+      transport: { tags: ['safe'] },
+      templateIdentity: { mode: 'session', ownerSessionId: 'owner-session', renderedHash: 'owner-rendered' },
+    } as never);
+    outboundConnections.set('late-static', {
+      name: 'late-static',
+      status: ClientStatus.Connected,
+      capabilities: { tools: {} },
+      transport: { tags: ['safe'] },
+    } as never);
+
+    await callHandler({ params: { name: 'tool_list', arguments: {} } });
+    expect(Array.from(callMetaTool.mock.calls[1][2].serverCandidates.entries())).toEqual([
+      ['static', 'static'],
+      ['template:owner-session', 'template'],
+      ['late-static', 'late-static'],
+    ]);
   });
 });

@@ -175,7 +175,13 @@ describe('apiRoutes inspect', () => {
     const adapters = new Map<string, ServerAdapter>([
       ['context7', makeAdapter('context7', ['context7'])],
       ['filesystem', makeAdapter('filesystem', ['filesystem'])],
-      ['serena', makeAdapter('serena', ['serena'], ServerStatus.Disconnected)],
+      [
+        'serena',
+        {
+          ...makeAdapter('serena', ['serena'], ServerStatus.Disconnected),
+          type: ServerType.Template,
+        },
+      ],
       ['hidden', makeAdapter('hidden', ['hidden'])],
     ]);
 
@@ -193,6 +199,12 @@ describe('apiRoutes inspect', () => {
       getLazyLoadingOrchestrator: vi.fn(() => undefined),
       getServerRegistry: vi.fn(() => serverRegistry),
       getClient: vi.fn((name: string) => outboundConnections.get(name)),
+      getTemplateServerManager: vi.fn(() => ({
+        getAllRenderedHashesForSession: (sessionId: string) =>
+          sessionId === 'owner-session' ? new Map([['serena', 'template-hash']]) : undefined,
+        getRenderedHashForSession: (sessionId: string, templateName: string) =>
+          sessionId === 'owner-session' && templateName === 'serena' ? 'template-hash' : undefined,
+      })),
     };
 
     inspectHandler = createInspectHandler(serverManager as never);
@@ -207,9 +219,9 @@ describe('apiRoutes inspect', () => {
     expect(res.statusCode, JSON.stringify(res.body)).toBe(200);
     expect(res.body).toMatchObject({
       kind: 'servers',
-      servers: [{ server: 'context7' }, { server: 'filesystem' }, { server: 'serena' }],
+      servers: [{ server: 'context7' }, { server: 'filesystem' }],
     });
-    expect((res.body as { servers: Array<{ server: string }> }).servers).toHaveLength(3);
+    expect((res.body as { servers: Array<{ server: string }> }).servers).toHaveLength(2);
   });
 
   it('hides disabled tools from direct server inspect results', async () => {
@@ -283,9 +295,10 @@ describe('apiRoutes inspect', () => {
         }),
       } as never,
       status: ClientStatus.Connected,
+      templateIdentity: { mode: 'rendered', renderedHash: 'template-hash' },
     } as never);
 
-    const req = { query: { target: 'serena' } };
+    const req = { headers: { 'mcp-session-id': 'owner-session' }, query: { target: 'serena' } };
     const res = createMockResponse();
 
     await invokeInspectRoute(scopeAuthMiddleware, req, res);
@@ -314,8 +327,15 @@ describe('apiRoutes inspect', () => {
       },
       errors: [],
     });
+    outboundConnections.set('serena:template-hash', {
+      name: 'serena',
+      transport: { tags: ['serena'] } as never,
+      client: { listTools: vi.fn() } as never,
+      status: ClientStatus.Connected,
+      templateIdentity: { mode: 'rendered', renderedHash: 'template-hash' },
+    } as never);
 
-    const req = { query: { target: 'serena/find_symbol' } };
+    const req = { headers: { 'mcp-session-id': 'owner-session' }, query: { target: 'serena/find_symbol' } };
     const res = createMockResponse();
 
     await invokeInspectRoute(scopeAuthMiddleware, req, res);
@@ -327,7 +347,7 @@ describe('apiRoutes inspect', () => {
     });
   });
 
-  it('includes declared template servers before any session has registered an adapter', async () => {
+  it('does not include declared template servers without an owning session', async () => {
     mockedLoadDeclaredServerConfigs.mockReturnValue({
       staticServers: {},
       templateServers: {
@@ -377,7 +397,6 @@ describe('apiRoutes inspect', () => {
       servers: [
         { server: 'context7' },
         { server: 'filesystem' },
-        { server: 'serena', type: 'template', available: false },
       ],
     });
   });

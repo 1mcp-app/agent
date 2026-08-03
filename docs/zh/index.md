@@ -51,7 +51,7 @@ features:
     details: '`1mcp serve` 在一个运行时后面聚合静态与模板化 MCP 服务器。'
   - icon: 🪄
     title: 上下文感知模板
-    details: 模板服务器可以按客户端或会话创建，而不是在启动时固定死。
+    details: 服务器拥有的集成可从受信任的进程内上下文创建模板服务器，并将其作用域化到会话。
   - icon: ⚡
     title: 异步加载与懒加载
     details: 更快启动、后台加载，并在真正需要前保持更窄的暴露面。
@@ -60,7 +60,7 @@ features:
     details: 在项目、客户端和兼容桥之间复用同一套服务集合，而无需复制配置。
   - icon: 🔐
     title: 兼容路径与直连路径
-    details: '可用 `proxy` 获得带项目上下文的最大兼容性，也可在原生 HTTP 传输足够时直接使用 streamable HTTP。'
+    details: '可用 `proxy` 获得带预设与过滤选择的最大兼容性，也可在原生 HTTP 传输足够时直接使用 streamable HTTP。'
 ---
 
 ## 为什么选择 1MCP？
@@ -74,8 +74,8 @@ features:
 
 - `1mcp serve` 是统一运行时。
 - CLI 模式是这个运行时之上的、推荐给 agent 的工作流。
-- `proxy` 是推荐的非 CLI 路径，因为它既保留项目上下文，又兼容最广泛的 AI 客户端。
-- 直接 streamable HTTP 仍然为不需要项目上下文的原生 MCP 客户端保留。
+- `proxy` 是推荐的非 CLI 路径，适合广泛的静态服务器兼容性以及预设或过滤选择；它不会将项目上下文变为受信任模板输入。
+- 直接 streamable HTTP 仍为原生 MCP 客户端保留；它不会使用客户端上下文创建模板。
 
 把这个首页当成分流页。如果你已经确定要先跑通一个可工作的流程，直接去看[快速入门](/zh/guide/quick-start)。
 
@@ -87,7 +87,7 @@ features:
 
 - 想最快跑通一个 agent 工作流？看[快速入门](/zh/guide/quick-start)。
 - 想理解 `instructions`、`inspect`、`run` 的工作方式？看 [CLI 模式](/zh/guide/integrations/cli-mode)。
-- 想在非 CLI 情况下获得最广泛兼容性并保留项目上下文？看 [proxy](/zh/commands/proxy)。
+- 想在非 CLI 情况下获得最广泛兼容性并使用预设或过滤选择？看 [proxy](/zh/commands/proxy)。
 - 想让原生 MCP 客户端通过 streamable HTTP 直接连运行时？看 [serve](/zh/commands/serve)。
 - 想了解运行时、模板与加载行为？看[架构](/zh/reference/architecture)。
 
@@ -139,12 +139,12 @@ npm install -g @1mcp/agent
 
   <a href="/zh/commands/proxy" class="vp-feature-box">
     <h3>Proxy 兼容路径</h3>
-    <p>适合想保留项目上下文、使用 `.1mcprc`、支持模板服务器，并获得最广客户端兼容性的非 CLI 场景。</p>
+    <p>适合使用 `.1mcprc` 的预设或过滤选择，并获得最广静态服务器客户端兼容性的非 CLI 场景。</p>
   </a>
 
   <a href="/zh/commands/serve" class="vp-feature-box">
     <h3>直接使用运行时</h3>
-    <p>适合原生支持 HTTP 的 MCP 客户端，且可以接受没有项目上下文时直接通过 streamable HTTP 连接。</p>
+    <p>适合原生支持 HTTP 的 MCP 客户端直接通过 streamable HTTP 连接；公共客户端上下文不会创建模板。</p>
   </a>
 </div>
 

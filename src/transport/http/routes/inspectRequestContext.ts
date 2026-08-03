@@ -4,11 +4,7 @@ import {
   type RequestContextPreparationDependencies,
 } from '@src/core/server/requestContextPreparation.js';
 import { ServerManager } from '@src/core/server/serverManager.js';
-import {
-  CONTEXT_HEADERS,
-  deriveContextSessionId,
-  extractRequestContext,
-} from '@src/transport/http/utils/contextExtractor.js';
+import { CONTEXT_HEADERS, deriveContextSessionId } from '@src/transport/http/utils/contextExtractor.js';
 
 import { Request, Response } from 'express';
 
@@ -74,23 +70,17 @@ function createPreparationDependencies(serverManager: ServerManager): RequestCon
 export async function ensureRequestContextInitialized(
   serverManager: ServerManager,
   req: Request,
-  res: Response,
+  _res: Response,
   filterConfig: ReturnType<typeof buildFilterConfig>,
 ): Promise<string | undefined> {
-  const context = extractRequestContext(req);
   const result = await prepareRequestContext({
     deps: createPreparationDependencies(serverManager),
-    context,
     transportSessionId: getHeaderSessionId(req),
     filterConfig,
   });
 
   if (result.status === 'no_context') {
     return undefined;
-  }
-
-  if (context) {
-    res.setHeader?.(CONTEXT_HEADERS.SESSION_ID, result.sessionId);
   }
 
   return result.sessionId;

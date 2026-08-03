@@ -21,16 +21,22 @@ head:
 
 [Serena](https://github.com/oraios/serena) is a semantic code analysis toolkit that provides LSP-powered understanding of your codebase. It offers symbol-level operations, cross-reference analysis, and intelligent code navigation across 30+ programming languages.
 
+::: warning Template setup requires server-owned trusted context
+
+The static configuration below is the supported public HTTP, SSE, streamable HTTP, REST, and proxy setup. The template examples on this page apply only when a server-owned integration creates an explicitly trusted in-process context. Public `_meta.context`, query `context`, client metadata, and `.1mcprc` context fields cannot render `mcpTemplates` or influence Serena's command, project path, or environment. An `mcp-session-id` only routes an already-created session-scoped connection; it is not user identity or trusted context.
+
+:::
+
 ### Why Use Serena with 1MCP Templates?
 
 <ClientOnly>
 
-Combining Serena with 1MCP's template system enables:
+Combining Serena with 1MCP's template system in a server-owned trusted integration enables:
 
 - **Automatic Project Detection**: Templates inject project paths dynamically via <span v-pre>`{{project.path}}`</span>
-- **Context-Aware Configuration**: Different tool sets based on client type (IDE vs CLI)
+- **Context-Aware Configuration**: Different tool sets based on verified client type (IDE vs CLI)
 - **Environment-Based Control**: Enable semantic analysis in development, disable in production
-- **Zero Manual Configuration**: Project context flows automatically from 1MCP to Serena
+- **Zero Manual Configuration**: Trusted server-owned project context flows automatically to Serena
 
 </ClientOnly>
 
@@ -73,9 +79,9 @@ Add Serena to your `mcp.json` with a fixed project path:
 
 :::
 
-### Template-Based Configuration (Recommended)
+### Template-Based Configuration (Server-Owned Trusted Integrations Only)
 
-Use templates for automatic project detection:
+Use templates for automatic project detection only from a server-owned trusted integration:
 
 ::: v-pre
 
@@ -102,7 +108,7 @@ Use templates for automatic project detection:
 
 :::
 
-**How it works**: When a client connects, 1MCP automatically:
+**How it works**: When a server-owned integration creates trusted context, 1MCP can:
 
 1. Detects the current project directory
 2. Renders <span v-pre>`{{project.path}}`</span> with the actual path
@@ -115,7 +121,7 @@ Use templates for automatic project detection:
 
 <ClientOnly>
 
-Serena requires a project root directory for analysis. Use <span v-pre>`{{project.path}}`</span> to inject this automatically:
+Serena requires a project root directory for analysis. A server-owned trusted integration can use <span v-pre>`{{project.path}}`</span> to inject it automatically:
 
 ::: v-pre
 
@@ -143,13 +149,13 @@ Serena requires a project root directory for analysis. Use <span v-pre>`{{projec
 
 ### Instance Sharing
 
-**Important**: 1MCP automatically shares the same Serena instance when the rendered template configuration is identical. This means:
+**Important**: Within a server-owned trusted integration, 1MCP can share the same Serena instance when the rendered template configuration is identical. This means:
 
-- Multiple AI clients/sessions **on the same machine** working on the **same project** with the **same context** share one Serena instance
+- Sessions attached to the same trusted integration **on the same machine** and working on the **same project** with the **same context** can share one Serena instance
 - Each unique project path gets its own dedicated Serena instance
 - Different contexts (e.g., `claude-code` vs `ide`) get separate instances
 
-**Example**: If you open multiple terminal windows on your development machine running Claude Code CLI, all connected to the same project, they share one Serena instance with the `claude-code` context. If you then open Cursor (also on the same machine) for the same project, it gets a separate instance with `ide` context.
+**Example**: A server-owned integration can scope one trusted `claude-code` template instance to sessions using the same project context, while a separately trusted `ide` context receives another instance. Public CLI, proxy, and HTTP client metadata cannot create or select these instances by rendering a template.
 
 **Note**: Serena requires local file access to read code, configuration, and cache files. Each developer on their own machine will have their own Serena instance, even when working on the same project.
 
@@ -161,7 +167,7 @@ Serena requires a project root directory for analysis. Use <span v-pre>`{{projec
 
 ## Context-Aware Configuration
 
-Serena's `--context` parameter controls which tools are available based on the client type. Use template conditionals to select the appropriate context:
+Serena's `--context` parameter controls which tools are available based on the client type. Within a server-owned trusted integration, use template conditionals to select the appropriate context:
 
 ### Available Context Types
 
@@ -174,7 +180,7 @@ Serena's `--context` parameter controls which tools are available based on the c
 
 ### Client-Aware Context Selection
 
-Automatically choose context based on the connecting client:
+Within a trusted integration, choose context based on verified connection information:
 
 ::: v-pre
 
@@ -239,7 +245,7 @@ Handle multiple IDE clients with complex conditionals:
 
 ### Using .1mcprc for Custom Context
 
-Define custom metadata in `.1mcprc` and reference it in templates:
+Within a server-owned trusted integration, define custom metadata in `.1mcprc` and reference it in templates. A public request cannot use this file to trigger rendering:
 
 **.1mcprc in your project root:**
 
@@ -661,7 +667,7 @@ Create custom contexts via `~/.serena/serena_config.yml`.
 
 **Symptom**: Serena starts with literal `{{project.path}}` instead of actual path
 
-**Solution**: Ensure you're using `mcpTemplates`, not `mcpServers`:
+**Solution**: First confirm that a server-owned integration is creating trusted context. Public HTTP, SSE, streamable HTTP, REST, and proxy requests intentionally do not render Serena templates. In a trusted integration, ensure you're using `mcpTemplates`, not `mcpServers`:
 
 ::: v-pre
 

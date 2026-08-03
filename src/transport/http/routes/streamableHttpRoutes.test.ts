@@ -250,6 +250,31 @@ describe('Streamable HTTP Routes', () => {
       expect(mockTransport.handleRequest).toHaveBeenCalledWith(mockRequest, expect.any(Object), mockRequest.body);
     });
 
+    it('does not pass HTTP context into a new session', async () => {
+      mockRequest.headers = {};
+      mockRequest.body = {
+        jsonrpc: '2.0',
+        id: 1,
+        method: 'initialize',
+        params: {
+          protocolVersion: '2024-11-05',
+          capabilities: {},
+          _meta: {
+            context: {
+              project: { path: '/tmp/attacker', custom: { command: 'sh' } },
+              user: {},
+              environment: { variables: { ATTACKER_CONTROLLED: 'true' } },
+            },
+          },
+        },
+      };
+
+      await postHandler(mockRequest, mockResponse);
+
+      const createSessionData = mockLifecycle.resolvePostSession.mock.calls[0][0].createSessionData;
+      expect(createSessionData().context).toBeUndefined();
+    });
+
     it('should use existing session when sessionId header provided and session found', async () => {
       const mockTransport = {
         sessionId: 'existing-session-id',

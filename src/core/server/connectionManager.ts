@@ -55,6 +55,7 @@ export class ConnectionManager {
     opts: InboundConnectionConfig,
     context?: ContextData,
     filteredInstructions?: string,
+    sessionConnections: OutboundConnections = this.outboundConns,
   ): Promise<void> {
     // Check if a connection is already in progress for this session
     const existingConnection = this.connectionSemaphore.get(sessionId);
@@ -71,7 +72,14 @@ export class ConnectionManager {
     }
 
     // Create connection promise to prevent race conditions
-    const connectionPromise = this.performConnection(transport, sessionId, opts, context, filteredInstructions);
+    const connectionPromise = this.performConnection(
+      transport,
+      sessionId,
+      opts,
+      context,
+      filteredInstructions,
+      sessionConnections,
+    );
     this.connectionSemaphore.set(sessionId, connectionPromise);
 
     try {
@@ -187,6 +195,7 @@ export class ConnectionManager {
     opts: InboundConnectionConfig,
     context?: ContextData,
     filteredInstructions?: string,
+    sessionConnections: OutboundConnections = this.outboundConns,
   ): Promise<void> {
     // Set connection timeout
     const connectionTimeoutMs = 30000; // 30 seconds
@@ -196,7 +205,10 @@ export class ConnectionManager {
     });
 
     try {
-      await Promise.race([this.doConnect(transport, sessionId, opts, context, filteredInstructions), timeoutPromise]);
+      await Promise.race([
+        this.doConnect(transport, sessionId, opts, context, filteredInstructions, sessionConnections),
+        timeoutPromise,
+      ]);
     } catch (error) {
       // Update status to Error if connection exists
       const connection = this.inboundConns.get(sessionId);
@@ -219,6 +231,7 @@ export class ConnectionManager {
     opts: InboundConnectionConfig,
     context?: ContextData,
     filteredInstructions?: string,
+    sessionConnections: OutboundConnections = this.outboundConns,
   ): Promise<void> {
     // Create server capabilities with filtered instructions
     const serverOptionsWithInstructions = {
@@ -229,15 +242,13 @@ export class ConnectionManager {
     // Create a new server instance for this transport
     const server = new Server(this.serverConfig, serverOptionsWithInstructions);
 
-    // Create server info object, merging context if provided
-    // CRITICAL: Ensure sessionId is always set in context for session-scoped filtering
-    // This is needed for lazy loading to store and retrieve session filters correctly
-    // Priority: opts.context.sessionId > context.sessionId > transport sessionId (fallback)
+    // The transport session ID is the routing authority. Context may supply
+    // metadata, but it must not retarget an inbound connection to another
+    // session's template instances.
     const mergedContext = {
       ...(context || {}),
       ...(opts.context || {}),
-      // Use opts.context.sessionId if provided, otherwise fall back to transport sessionId
-      sessionId: opts.context?.sessionId || context?.sessionId || sessionId,
+      sessionId,
     };
 
     const serverInfo: InboundConnection = {
@@ -252,7 +263,7 @@ export class ConnectionManager {
     enhanceServerWithLogging(server);
 
     // Set up capabilities for this server instance
-    await setupCapabilities(this.outboundConns, serverInfo, this.lazyLoadingOrchestrator);
+    await setupCapabilities(sessionConnections, serverInfo, this.lazyLoadingOrchestrator);
 
     // Store the server instance
     this.inboundConns.set(sessionId, serverInfo);

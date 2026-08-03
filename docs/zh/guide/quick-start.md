@@ -112,13 +112,13 @@ npm install -g @1mcp/agent
 
 如果你在 CLI 之外还想获得最广泛的客户端兼容性，请走这条路径。
 
-`proxy` 往往比直接 streamable HTTP 更适合作为回退方案，因为它通过 `.1mcprc` 保留项目上下文，支持模板 MCP 服务器，也更容易通过一次全局配置加项目级配置来统一落地。
+`proxy` 往往比直接 streamable HTTP 更适合作为回退方案，因为它支持更多 stdio 客户端，并可应用 `.1mcprc` 的预设、过滤与 tags 选择。它携带的项目或客户端上下文不是受信任模板输入，不能从公共请求创建模板 MCP 服务器。
 
 - [Proxy 命令](/zh/commands/proxy)
 
 ### 直接 MCP 接入
 
-如果你的客户端已经原生支持 streamable HTTP 的 MCP，而且你不需要项目上下文，请走这条路径。
+如果你的客户端已经原生支持 streamable HTTP 的 MCP，请走这条路径。公共 HTTP 暴露静态服务目录，并可路由到已有的会话作用域连接，但不会使用客户端上下文创建模板。
 
 - [Serve 命令](/zh/commands/serve)
 - [架构说明](/zh/reference/architecture)

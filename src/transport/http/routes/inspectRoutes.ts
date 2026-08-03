@@ -8,12 +8,15 @@ import { FilteringService } from '@src/core/filtering/filteringService.js';
 import { LoadingState, type ServerLoadingInfo } from '@src/core/loading/loadingStateTracker.js';
 import { McpLoadingManager } from '@src/core/loading/mcpLoadingManager.js';
 import { ServerRegistry } from '@src/core/server/adapters/ServerRegistry.js';
+import { ServerType } from '@src/core/server/adapters/types.js';
+import type { TemplateHashProvider } from '@src/core/server/connectionResolver.js';
 import {
   filterDisabledTools,
   getDisabledToolError,
   getDisabledToolsForServer,
 } from '@src/core/server/disabledTools.js';
 import { ServerManager } from '@src/core/server/serverManager.js';
+import type { OutboundConnection } from '@src/core/types/client.js';
 import logger from '@src/logger/logger.js';
 
 import { Request, RequestHandler, Response } from 'express';
@@ -30,6 +33,7 @@ import {
   parseTarget,
   qualifyToolName,
   resolveConnectionByServerName,
+  scopeConnectionsToSession,
   type ServerSummary,
   summarizeDirectServerTool,
   summarizeToolSchema,
@@ -43,10 +47,12 @@ export {
   matchesFilterConfig,
   parseTarget,
   resolveConnectionByServerName,
+  scopeConnectionsToSession,
 };
 export type { InspectServerPayload, InspectServersPayload, InspectToolPayload, ServerSummary, ToolSummary };
 
 type FilteredConnections = ReturnType<typeof FilteringService.getFilteredConnections>;
+type FilteredConnection = NonNullable<FilteredConnections extends Map<unknown, infer TValue> ? TValue : never>;
 
 interface DirectListToolsResult {
   tools?: Tool[];
@@ -60,7 +66,7 @@ type ServerConfigMap =
   ReturnType<typeof McpConfigManager.getInstance> extends { getTransportConfig(): infer TResult } ? TResult : never;
 
 async function listDirectServerTools(
-  connection: NonNullable<FilteredConnections extends Map<unknown, infer TValue> ? TValue : never>,
+  connection: FilteredConnection,
   options: { limit: number; cursor?: string },
 ): Promise<DirectListToolsResult> {
   const client = connection.client as {
@@ -75,6 +81,61 @@ async function listDirectServerTools(
 
 function getServerConfigs() {
   return McpConfigManager.getInstance().getTransportConfig();
+}
+
+function getTemplateHashProvider(serverManager: ServerManager): TemplateHashProvider | undefined {
+  return (
+    serverManager as unknown as { getTemplateServerManager?: () => TemplateHashProvider }
+  ).getTemplateServerManager?.();
+}
+
+function getScopedConnections(
+  serverManager: ServerManager,
+  filterConfig: ReturnType<typeof buildFilterConfig>,
+  sessionId?: string,
+): FilteredConnections {
+  const getClients = (serverManager as { getClients?: () => ReturnType<ServerManager['getClients']> }).getClients;
+  const sessionScoped = scopeConnectionsToSession(
+    typeof getClients === 'function' ? getClients.call(serverManager) : new Map<string, OutboundConnection>(),
+    sessionId,
+    getTemplateHashProvider(serverManager),
+  );
+  return FilteringService.getFilteredConnections(sessionScoped, filterConfig);
+}
+
+function isTemplateConnection(connectionKey: string): boolean {
+  return connectionKey.includes(':');
+}
+
+function findConnectionEntry(
+  connections: FilteredConnections,
+  serverName: string,
+): [string, FilteredConnection] | undefined {
+  const direct = connections.get(serverName);
+  if (direct) return [serverName, direct];
+
+  for (const [connectionKey, connection] of connections) {
+    if (connectionKey.split(':')[0] === serverName || connection.name === serverName) {
+      return [connectionKey, connection];
+    }
+  }
+
+  return undefined;
+}
+
+function getScopedInstructions(
+  serverName: string,
+  connectionKey: string | undefined,
+  connection: FilteredConnection | undefined,
+  instructionAggregator: ReturnType<ServerManager['getInstructionAggregator']>,
+): string | null {
+  if (connection?.instructions?.trim()) {
+    return connection.instructions;
+  }
+
+  return connectionKey && isTemplateConnection(connectionKey)
+    ? null
+    : instructionAggregator?.getServerInstructions(serverName) ?? null;
 }
 
 function getServerTargetConfigs(declaredServers: DeclaredServers): ServerConfigMap {
@@ -163,21 +224,41 @@ async function buildServerSummaries(
   const summaryConnections = new Map(
     Array.from(filteredConnections.entries()).filter(([name]) => includeTemplateInstances || !name.includes(':')),
   );
+  const visibleConnectionKeys = new Set(summaryConnections.keys());
+  const visibleServerNames = new Set(
+    Array.from(summaryConnections.entries(), ([connectionKey, connection]) => connection.name || connectionKey.split(':')[0]),
+  );
+  const visibleTemplateServerNames = new Set(
+    Array.from(summaryConnections.entries())
+      .filter(([connectionKey]) => isTemplateConnection(connectionKey))
+      .map(([connectionKey, connection]) => connection.name || connectionKey.split(':')[0]),
+  );
   let toolCountByServer: Record<string, number> = {};
 
   if (toolRegistry) {
     for (const [serverName, tools] of Object.entries(toolRegistry.groupByServer())) {
-      toolCountByServer[serverName] = filterDisabledTools(tools, serverConfigs, serverName).length;
+      if (visibleTemplateServerNames.has(serverName)) continue;
+      const visibleTools = tools.filter(
+        (tool) =>
+          (tool.connectionKey ? visibleConnectionKeys.has(tool.connectionKey) : visibleServerNames.has(serverName)),
+      );
+      toolCountByServer[serverName] = filterDisabledTools(visibleTools, serverConfigs, serverName).length;
     }
   } else if (capabilityAggregator) {
     for (const tool of capabilityAggregator.getCurrentCapabilities().tools) {
       const sn = getServerName(tool.name);
+      if (sn && visibleTemplateServerNames.has(sn)) continue;
       if (sn && !filterDisabledTools([tool], serverConfigs, sn).length) continue;
       if (sn) toolCountByServer[sn] = (toolCountByServer[sn] ?? 0) + 1;
     }
-  } else {
+  }
+
+  if (!toolRegistry && !capabilityAggregator || visibleTemplateServerNames.size > 0) {
+    const directConnections = Array.from(summaryConnections.entries()).filter(
+      ([connectionKey]) => !toolRegistry && !capabilityAggregator || isTemplateConnection(connectionKey),
+    );
     await Promise.all(
-      Array.from(summaryConnections.entries()).map(async ([name, connection]) => {
+      directConnections.map(async ([name, connection]) => {
         if (!connection.client) return;
         try {
           const result = await connection.client.listTools();
@@ -194,10 +275,11 @@ async function buildServerSummaries(
   }
 
   const serverMap = new Map<string, { toolCount: number; hasInstructions: boolean }>();
-  for (const [name] of summaryConnections) {
+  for (const [name, connection] of summaryConnections) {
     const cleanName = name.includes(':') ? name.split(':')[0] : name;
     const toolCount = toolCountByServer[cleanName] ?? toolCountByServer[name] ?? 0;
-    const hasInstructions = instructionAggregator?.hasInstructions(cleanName) ?? false;
+    const hasInstructions = Boolean(connection.instructions?.trim()) ||
+      (!isTemplateConnection(name) && (instructionAggregator?.hasInstructions(cleanName) ?? false));
     const existing = serverMap.get(cleanName);
     if (existing) {
       existing.toolCount = Math.max(existing.toolCount, toolCount);
@@ -209,6 +291,7 @@ async function buildServerSummaries(
 
   for (const registeredName of serverRegistry.getServerNames()) {
     const adapter = serverRegistry.get(registeredName);
+    if (adapter?.type === ServerType.Template && !visibleServerNames.has(registeredName)) continue;
     if (!serverMap.has(registeredName) && matchesFilterConfig(adapter?.config.tags, filterConfig)) {
       serverMap.set(registeredName, {
         toolCount: 0,
@@ -221,6 +304,7 @@ async function buildServerSummaries(
     ...declaredServers.staticServers,
     ...declaredServers.templateServers,
   })) {
+    if (declaredServers.templateServers[name] && !visibleServerNames.has(name)) continue;
     if (!serverMap.has(name) && matchesFilterConfig(config.tags, filterConfig)) {
       serverMap.set(name, {
         toolCount: 0,
@@ -256,8 +340,8 @@ export function createServersHandler(serverManager: ServerManager): RequestHandl
   return async (_req: Request, res: Response): Promise<void> => {
     try {
       const filterConfig = buildFilterConfig(res);
-      await ensureRequestContextInitialized(serverManager, _req, res, filterConfig);
-      const filteredConnections = FilteringService.getFilteredConnections(serverManager.getClients(), filterConfig);
+      const requestSessionId = await ensureRequestContextInitialized(serverManager, _req, res, filterConfig);
+      const filteredConnections = getScopedConnections(serverManager, filterConfig, requestSessionId);
       const lazyOrchestrator = serverManager.getLazyLoadingOrchestrator();
       const declaredServers = ConfigManager.getInstance().loadDeclaredServerConfigs();
 
@@ -294,10 +378,11 @@ export function createInspectHandler(serverManager: ServerManager): RequestHandl
       const instructionAggregator = serverManager.getInstructionAggregator();
       const declaredServers = ConfigManager.getInstance().loadDeclaredServerConfigs();
       const serverConfigs = getServerTargetConfigs(declaredServers);
+      const requestSessionId = await ensureRequestContextInitialized(serverManager, req, res, filterConfig);
+      const filteredConnections = getScopedConnections(serverManager, filterConfig, requestSessionId);
 
       // No target: list all filtered servers
       if (!targetRaw) {
-        const filteredConnections = FilteringService.getFilteredConnections(serverManager.getClients(), filterConfig);
         const lazyOrchestrator = serverManager.getLazyLoadingOrchestrator();
 
         const servers = await buildServerSummaries(
@@ -313,7 +398,13 @@ export function createInspectHandler(serverManager: ServerManager): RequestHandl
 
         const serverInstructions = Object.fromEntries(
           servers.flatMap((server) => {
-            const instructions = instructionAggregator?.getServerInstructions(server.server);
+            const connectionEntry = findConnectionEntry(filteredConnections, server.server);
+            const instructions = getScopedInstructions(
+              server.server,
+              connectionEntry?.[0],
+              connectionEntry?.[1],
+              instructionAggregator,
+            );
             return instructions ? [[server.server, instructions]] : [];
           }),
         );
@@ -327,8 +418,6 @@ export function createInspectHandler(serverManager: ServerManager): RequestHandl
         return;
       }
 
-      const requestSessionId = await ensureRequestContextInitialized(serverManager, req, res, filterConfig);
-      const filteredConnections = FilteringService.getFilteredConnections(serverManager.getClients(), filterConfig);
       const lazyOrchestrator = serverManager.getLazyLoadingOrchestrator();
       const toolRegistry: ToolRegistry | undefined = lazyOrchestrator?.getToolRegistry();
       const capabilityAggregator: CapabilityAggregator | undefined = lazyOrchestrator?.getCapabilityAggregator();
@@ -342,39 +431,45 @@ export function createInspectHandler(serverManager: ServerManager): RequestHandl
       // Tool target
       if (target.kind === 'tool') {
         const { serverName, toolName, qualifiedName } = target;
-        const disabledError = getDisabledToolError(serverConfigs, serverName, toolName);
-        if (disabledError) {
-          res.status(404).json({ error: disabledError.message });
+        const connectionEntry = findConnectionEntry(filteredConnections, serverName);
+        const connection = connectionEntry?.[1];
+        const adapter = serverRegistry.get(serverName);
+        const declaredTemplateConfig = declaredServers.templateServers[serverName];
+        const declaredConfig = declaredTemplateConfig ?? declaredServers.staticServers[serverName];
+        const templateTarget = adapter?.type === ServerType.Template || Boolean(declaredTemplateConfig);
+
+        // Template metadata is owned by a session. Do this check before any
+        // global capability snapshot or instruction lookup can reveal it.
+        if (templateTarget && !connection) {
+          res.status(404).json({ error: `Tool not found: ${targetRaw}` });
           return;
         }
 
-        const filteredConnection = resolveConnectionByServerName(filteredConnections, serverName);
-        const sessionConnection = requestSessionId
-          ? serverRegistry.resolveConnection(serverName, { sessionId: requestSessionId })
-          : undefined;
-        const adapter = serverRegistry.get(serverName);
-        const declaredConfig = declaredServers.templateServers[serverName] ?? declaredServers.staticServers[serverName];
         const targetAllowed =
-          !!filteredConnection ||
-          !!sessionConnection ||
-          matchesFilterConfig(adapter?.config.tags, filterConfig) ||
-          matchesFilterConfig(declaredConfig?.tags, filterConfig);
+          !!connection ||
+          (!templateTarget &&
+            (matchesFilterConfig(adapter?.config.tags, filterConfig) || matchesFilterConfig(declaredConfig?.tags, filterConfig)));
 
         if (!targetAllowed) {
           res.status(404).json({ error: `Tool not found: ${targetRaw}` });
           return;
         }
 
+        const disabledError = getDisabledToolError(serverConfigs, serverName, toolName);
+        if (disabledError) {
+          res.status(404).json({ error: disabledError.message });
+          return;
+        }
+
         let found: import('@modelcontextprotocol/sdk/types.js').Tool | undefined;
 
-        if (capabilityAggregator) {
+        if (capabilityAggregator && !templateTarget) {
           found = capabilityAggregator
             .getCurrentCapabilities()
             .tools.find((t) => t.name === qualifiedName && getServerName(t.name) === serverName);
         }
 
         if (!found) {
-          const connection = sessionConnection ?? filteredConnection;
           if (connection?.client) {
             try {
               const result = await connection.client.listTools();
@@ -409,12 +504,17 @@ export function createInspectHandler(serverManager: ServerManager): RequestHandl
       const { serverName } = target;
 
       const adapter = serverRegistry.get(serverName);
-      const sessionConnection = requestSessionId
-        ? serverRegistry.resolveConnection(serverName, { sessionId: requestSessionId })
-        : undefined;
-      const connection = sessionConnection ?? resolveConnectionByServerName(filteredConnections, serverName);
+      const connectionEntry = findConnectionEntry(filteredConnections, serverName);
+      const connectionKey = connectionEntry?.[0];
+      const connection = connectionEntry?.[1];
       const declaredTemplateConfig = declaredServers.templateServers[serverName];
       const declaredStaticConfig = declaredServers.staticServers[serverName];
+      const templateTarget = adapter?.type === ServerType.Template || Boolean(declaredTemplateConfig);
+
+      if (templateTarget && !connection) {
+        res.status(404).json({ error: `Server not found: ${serverName}` });
+        return;
+      }
 
       if (!adapter && !connection && !declaredTemplateConfig && !declaredStaticConfig) {
         res.status(404).json({ error: `Server not found: ${serverName}` });
@@ -424,8 +524,8 @@ export function createInspectHandler(serverManager: ServerManager): RequestHandl
       const declaredConfig = declaredTemplateConfig ?? declaredStaticConfig;
       const targetAllowed =
         !!connection ||
-        matchesFilterConfig(adapter?.config.tags, filterConfig) ||
-        matchesFilterConfig(declaredConfig?.tags, filterConfig);
+        (!templateTarget &&
+          (matchesFilterConfig(adapter?.config.tags, filterConfig) || matchesFilterConfig(declaredConfig?.tags, filterConfig)));
       if (!targetAllowed) {
         res.status(404).json({ error: `Server not found: ${serverName}` });
         return;
@@ -439,7 +539,7 @@ export function createInspectHandler(serverManager: ServerManager): RequestHandl
         loadingInfo,
       );
       const type = adapter?.type ?? (declaredTemplateConfig ? 'template' : 'external');
-      const instructions = instructionAggregator?.getServerInstructions(serverName) ?? null;
+      const instructions = getScopedInstructions(serverName, connectionKey, connection, instructionAggregator);
       const loadTracked = isLoadTrackedStaticServer(declaredServers, serverName);
 
       // Static startup targets remain inspectable before the first atomic
@@ -472,29 +572,38 @@ export function createInspectHandler(serverManager: ServerManager): RequestHandl
       let toolsResult: { tools: ToolSummary[]; totalTools: number; hasMore: boolean; nextCursor?: string };
 
       if (toolRegistry) {
-        if (connection?.client) {
-          try {
-            const directResult = await listDirectServerTools(connection, { limit, cursor: cursorParam });
-            toolsResult = buildDirectToolsResult(serverName, directResult, serverConfigs);
-          } catch {
-            const result = toolRegistry.listTools({ server: serverName, limit, cursor: cursorParam });
-            toolsResult = buildRegistryToolsResult(serverName, result, serverConfigs);
+        try {
+          const directResult = await listDirectServerTools(connection, { limit, cursor: cursorParam });
+          toolsResult = buildDirectToolsResult(serverName, directResult, serverConfigs);
+        } catch {
+          if (templateTarget) {
+            res.status(503).json({ error: 'Tool inventory not available for this server' });
+            return;
           }
-        } else {
           const result = toolRegistry.listTools({ server: serverName, limit, cursor: cursorParam });
           toolsResult = buildRegistryToolsResult(serverName, result, serverConfigs);
         }
       } else if (capabilityAggregator) {
-        const capTools = filterDisabledTools(
-          capabilityAggregator.getCurrentCapabilities().tools.filter((t) => getServerName(t.name) === serverName),
-          serverConfigs,
-          serverName,
-        );
-        toolsResult = {
-          tools: capTools.map(summarizeToolSchema),
-          totalTools: capTools.length,
-          hasMore: false,
-        };
+        if (templateTarget) {
+          try {
+            const directResult = await listDirectServerTools(connection, { limit, cursor: cursorParam });
+            toolsResult = buildDirectToolsResult(serverName, directResult, serverConfigs);
+          } catch {
+            res.status(503).json({ error: 'Tool inventory not available for this server' });
+            return;
+          }
+        } else {
+          const capTools = filterDisabledTools(
+            capabilityAggregator.getCurrentCapabilities().tools.filter((t) => getServerName(t.name) === serverName),
+            serverConfigs,
+            serverName,
+          );
+          toolsResult = {
+            tools: capTools.map(summarizeToolSchema),
+            totalTools: capTools.length,
+            hasMore: false,
+          };
+        }
       } else {
         try {
           const directResult = await listDirectServerTools(connection, { limit, cursor: cursorParam });

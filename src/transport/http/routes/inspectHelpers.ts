@@ -3,7 +3,8 @@ import type { Tool } from '@modelcontextprotocol/sdk/types.js';
 import { MCP_URI_SEPARATOR } from '@src/constants.js';
 import { FilteringService } from '@src/core/filtering/filteringService.js';
 import { LoadingState, type ServerLoadingInfo } from '@src/core/loading/loadingStateTracker.js';
-import { ClientStatus, type OutboundConnection } from '@src/core/types/client.js';
+import { createConnectionResolver, type TemplateHashProvider } from '@src/core/server/connectionResolver.js';
+import { ClientStatus, type OutboundConnection, type OutboundConnections } from '@src/core/types/client.js';
 import { InboundConnectionConfig } from '@src/core/types/index.js';
 import { TagQueryEvaluator } from '@src/domains/preset/parsers/tagQueryEvaluator.js';
 import { TagQueryParser } from '@src/domains/preset/parsers/tagQueryParser.js';
@@ -186,6 +187,15 @@ export function resolveConnectionByServerName(
   }
 
   return undefined;
+}
+
+/** Scope template instances to a session before applying route-specific filters. */
+export function scopeConnectionsToSession(
+  connections: OutboundConnections,
+  sessionId?: string,
+  templateHashProvider?: TemplateHashProvider,
+): OutboundConnections {
+  return createConnectionResolver(connections, templateHashProvider).filterForSession(sessionId);
 }
 
 export function deriveServerState(
