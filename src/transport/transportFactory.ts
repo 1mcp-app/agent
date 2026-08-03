@@ -255,7 +255,7 @@ function createStdioTransport(name: string, validatedTransport: ValidatedTranspo
       try {
         await closeTransport();
       } finally {
-        managedStderr.close();
+        await managedStderr.close();
       }
     };
   }
