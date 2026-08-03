@@ -171,7 +171,12 @@ describeRunE2E('run command E2E', () => {
 
     runner.assertFailure(result, 1);
     expect(result.stdout).toBe('');
-    expect(result.stderr).toContain('Cannot connect');
+    expect(result.stderr).toContain('runtime_probe_failed:');
+    expect(result.stderr).toContain('Reason: Connection refused (ECONNREFUSED)');
+    expect(result.stderr).toContain(
+      'Next action: Verify target reachability and configuration, then retry the original command.',
+    );
+    expect(result.stderr).not.toContain('local_runtime_unavailable');
   });
 
   it('writes a session cache with hasRestEndpoint field after first run', async () => {

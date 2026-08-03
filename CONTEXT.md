@@ -88,6 +88,14 @@ _Avoid_: Runtime Scope config, project config, remote state
 The low-disclosure identity facts a runtime exposes so a CLI can verify it is still talking to the same trust boundary. The key stable value is `runtimeScopeId`.
 _Avoid_: host identity, URL identity, process identity
 
+**Runtime Absence**:
+The conclusion that no **Aggregated Runtime** occupies the selected local **Runtime Scope** or remote **Runtime Target**. It must not describe an identified runtime that rejected or failed an attachment probe.
+_Avoid_: unreachable runtime, probe error, connection failure
+
+**Runtime Probe Failure**:
+Evidence that an identified **Runtime Target** exists but rejected or could not satisfy the probe used for **Client Surface Attachment**. It takes precedence over **Runtime Absence** for an authoritative target.
+_Avoid_: no running server, Runtime Absence, generic discovery failure
+
 **Runtime-Backed Command**:
 A CLI command that attaches to a local or remote **Runtime Target** to perform runtime-aware reads or admin-authorized mutations instead of operating only on local files.
 _Avoid_: lifecycle command, direct file edit command

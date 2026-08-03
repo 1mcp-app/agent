@@ -7,6 +7,11 @@ import {
   verifyRuntimeIdentityForTarget,
 } from '@src/domains/runtime-targets/runtimeIdentityVerification.js';
 import {
+  localRuntimeStatusCommand,
+  RuntimeProbeError,
+  runtimeTargetVerifyCommand,
+} from '@src/domains/runtime-targets/runtimeProbe.js';
+import {
   assertRuntimeTargetConfigDirAllowed,
   normalizeRuntimeTargetUrl,
   type RuntimeTargetListEntry,
@@ -14,7 +19,11 @@ import {
   RuntimeTargetStoreError,
 } from '@src/domains/runtime-targets/runtimeTargetStore.js';
 import type { GlobalOptions } from '@src/globalOptions.js';
-import { discoverServerWithPidFile, validateServer1mcpUrl } from '@src/utils/validation/urlDetection.js';
+import {
+  discoverServerWithPidFile,
+  toRuntimeProbeFailure,
+  validateServer1mcpUrl,
+} from '@src/utils/validation/urlDetection.js';
 
 export interface ResolvableServeTargetOptions extends GlobalOptions, ServeUrlOptions {
   url?: string;
@@ -132,7 +141,11 @@ export async function resolveServeTarget<TOptions extends ResolvableServeTargetO
       : await validateServer1mcpUrl(discoveredUrl);
 
     if (!validation.valid) {
-      throw new Error(validation.error || 'Cannot connect to the running 1MCP server.');
+      throw new RuntimeProbeError(toRuntimeProbeFailure(validation, discoveredUrl), {
+        targetKind: 'remote',
+        targetName: remoteTarget.name,
+        recoveryCommand: runtimeTargetVerifyCommand(remoteTarget.name),
+      });
     }
 
     return {
@@ -154,17 +167,22 @@ export async function resolveServeTarget<TOptions extends ResolvableServeTargetO
     };
   }
 
-  const localDiscovery =
-    mergedOptions.context === 'local'
-      ? await discoverServerWithPidFile(mergedOptions['config-dir'], mergedOptions.url, {
-          failOnOwnedRuntimeUnavailable: true,
-        })
-      : await discoverServerWithPidFile(mergedOptions['config-dir'], mergedOptions.url);
+  const localDiscovery = await discoverServerWithPidFile(mergedOptions['config-dir'], mergedOptions.url);
   const { url: discoveredUrl, pid: serverPid, source } = localDiscovery;
   const validation = await validateServer1mcpUrl(discoveredUrl);
 
   if (!validation.valid) {
-    throw new Error(validation.error || 'Cannot connect to the running 1MCP server.');
+    const isEphemeral = Boolean(mergedOptions.url);
+    throw new RuntimeProbeError(toRuntimeProbeFailure(validation, discoveredUrl), {
+      targetKind: isEphemeral ? 'ephemeral' : 'local',
+      ...(!isEphemeral && serverPid !== undefined ? { pid: serverPid } : {}),
+      ...(!isEphemeral
+        ? {
+            configDir: mergedOptions['config-dir'],
+            recoveryCommand: localRuntimeStatusCommand(mergedOptions['config-dir']),
+          }
+        : {}),
+    });
   }
 
   let localRuntimeIdentity: Awaited<ReturnType<typeof verifyRuntimeIdentityForTarget>> | undefined;

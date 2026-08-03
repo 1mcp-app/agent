@@ -24,10 +24,16 @@ vi.mock('@src/config/projectConfigLoader.js', async () => {
   };
 });
 
-vi.mock('@src/utils/validation/urlDetection.js', () => ({
-  discoverServerWithPidFile: mockedDiscoverServerWithPidFile,
-  validateServer1mcpUrl: mockedValidateServer1mcpUrl,
-}));
+vi.mock('@src/utils/validation/urlDetection.js', async () => {
+  const actual = await vi.importActual<typeof import('@src/utils/validation/urlDetection.js')>(
+    '@src/utils/validation/urlDetection.js',
+  );
+  return {
+    ...actual,
+    discoverServerWithPidFile: mockedDiscoverServerWithPidFile,
+    validateServer1mcpUrl: mockedValidateServer1mcpUrl,
+  };
+});
 
 describe('mergeServeTargetOptions', () => {
   it('prefers explicit CLI selector source over project config selectors', () => {
@@ -150,7 +156,10 @@ describe('resolveServeTarget', () => {
       error: 'Cannot connect',
     });
 
-    await expect(resolveServeTarget({})).rejects.toThrow('Cannot connect');
+    await expect(resolveServeTarget({})).rejects.toMatchObject({
+      code: 'runtime_probe_failed',
+      details: expect.objectContaining({ reason: 'Cannot connect' }),
+    });
   });
 
   it('rejects mutually exclusive explicit url and context selectors', async () => {
@@ -207,9 +216,7 @@ describe('resolveServeTarget', () => {
       },
     );
 
-    expect(mockedDiscoverServerWithPidFile).toHaveBeenCalledWith('/tmp/local-scope', undefined, {
-      failOnOwnedRuntimeUnavailable: true,
-    });
+    expect(mockedDiscoverServerWithPidFile).toHaveBeenCalledWith('/tmp/local-scope', undefined);
     expect(verifyRuntimeIdentity).toHaveBeenCalledWith({
       target: expect.objectContaining({
         name: 'local',
