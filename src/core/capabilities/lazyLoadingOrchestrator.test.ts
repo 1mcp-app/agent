@@ -1,8 +1,9 @@
+import { createMockClient, createMockOutboundConnection } from '@test/unit-utils/MockFactories.js';
+
 import type { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { Tool } from '@modelcontextprotocol/sdk/types.js';
 
 import { ClientStatus, OutboundConnections } from '@src/core/types/index.js';
-import { createMockClient, createMockOutboundConnection } from '@test/unit-utils/MockFactories.js';
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 

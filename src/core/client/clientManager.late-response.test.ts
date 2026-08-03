@@ -72,7 +72,10 @@ describe('ClientManager late responses', () => {
     await vi.waitFor(() => {
       expect(logger.error).toHaveBeenCalledWith('Client slow-server received a response for an unknown message ID');
     });
-    const diagnostics = vi.mocked(logger.error).mock.calls.map(([message]) => String(message)).join('\n');
+    const diagnostics = vi
+      .mocked(logger.error)
+      .mock.calls.map(([message]) => String(message))
+      .join('\n');
     expect(diagnostics).not.toContain('sensitive-schema-content');
     expect(diagnostics.length).toBeLessThan(500);
 

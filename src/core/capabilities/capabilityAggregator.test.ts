@@ -1,12 +1,9 @@
+import { createMockClient, createMockOutboundConnection, createMockTransport } from '@test/unit-utils/MockFactories.js';
+
 import type { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { Prompt, Resource, Tool } from '@modelcontextprotocol/sdk/types.js';
 
 import { ClientStatus, OutboundConnections } from '@src/core/types/index.js';
-import {
-  createMockClient,
-  createMockOutboundConnection,
-  createMockTransport,
-} from '@test/unit-utils/MockFactories.js';
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -84,17 +81,20 @@ describe('CapabilityAggregator', () => {
       }) as Client;
       Object.defineProperty(mockClient, 'transport', { value: createMockTransport() });
 
-      mockConnections.set('slow-server', createMockOutboundConnection({
-        name: 'slow-server',
-        client: mockClient,
-        transport: {
-          requestTimeout: 300_000,
-          timeout: 5_000,
-          start: vi.fn(),
-          send: vi.fn(),
-          close: vi.fn(),
-        },
-      }));
+      mockConnections.set(
+        'slow-server',
+        createMockOutboundConnection({
+          name: 'slow-server',
+          client: mockClient,
+          transport: {
+            requestTimeout: 300_000,
+            timeout: 5_000,
+            start: vi.fn(),
+            send: vi.fn(),
+            close: vi.fn(),
+          },
+        }),
+      );
 
       await aggregator.updateCapabilities();
 

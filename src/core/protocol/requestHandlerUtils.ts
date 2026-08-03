@@ -8,8 +8,8 @@ import { FilteringService } from '@src/core/filtering/filteringService.js';
 import { createConnectionResolver } from '@src/core/server/connectionResolver.js';
 import { ServerManager } from '@src/core/server/serverManager.js';
 import { ClientStatus, InboundConnection, OutboundConnection, OutboundConnections } from '@src/core/types/index.js';
-import logger from '@src/logger/logger.js';
 import type { MCPServerParams } from '@src/core/types/transport.js';
+import logger from '@src/logger/logger.js';
 import { getRequestTimeout } from '@src/utils/core/timeoutUtils.js';
 
 export function getRequestSession(inboundConn: InboundConnection): string | undefined {

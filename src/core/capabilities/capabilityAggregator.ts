@@ -178,9 +178,7 @@ export class CapabilityAggregator extends EventEmitter {
         const serverCapabilities = connection.client.getServerCapabilities() || {};
 
         // Build promises array based on actual capabilities
-        const promises: Promise<unknown>[] = [
-          this.safeListTools(serverName, connection.client, connection.transport),
-        ];
+        const promises: Promise<unknown>[] = [this.safeListTools(serverName, connection.client, connection.transport)];
 
         if (serverCapabilities.resources) {
           promises.push(this.safeListResources(serverName, connection.client, connection.transport));

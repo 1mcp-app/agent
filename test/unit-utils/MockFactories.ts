@@ -3,8 +3,8 @@ import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
 
 import {
-  InboundConnection,
   ClientStatus,
+  InboundConnection,
   OutboundConnection,
   OutboundConnections,
   ServerStatus,
