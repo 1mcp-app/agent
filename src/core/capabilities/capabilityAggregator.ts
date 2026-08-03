@@ -1,6 +1,6 @@
 import { EventEmitter } from 'events';
 
-import type { Client } from '@modelcontextprotocol/sdk/client/index.js';
+import { StreamableHTTPError } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import {
   ListPromptsResult,
   ListResourcesResult,
@@ -12,8 +12,9 @@ import {
 
 import { McpConfigManager } from '@src/config/mcpConfigManager.js';
 import { InternalCapabilitiesProvider } from '@src/core/capabilities/internalCapabilitiesProvider.js';
+import { TransportRecreator } from '@src/core/client/transportRecreator.js';
 import { filterDisabledTools } from '@src/core/server/disabledTools.js';
-import { ClientStatus, OutboundConnections } from '@src/core/types/index.js';
+import { ClientStatus, OutboundConnection, OutboundConnections } from '@src/core/types/index.js';
 import type { EnhancedTransport } from '@src/core/types/transport.js';
 import logger, { debugIf } from '@src/logger/logger.js';
 import { getRequestTimeout } from '@src/utils/core/timeoutUtils.js';
@@ -73,6 +74,8 @@ export class CapabilityAggregator extends EventEmitter {
   private currentCapabilities: AggregatedCapabilities;
   private isInitialized: boolean = false;
   private internalProvider: InternalCapabilitiesProvider;
+  private oauthRecoveryPromises = new Map<string, Promise<void>>();
+  private transportRecreator = new TransportRecreator();
 
   constructor(outboundConnections: OutboundConnections) {
     super();
@@ -178,17 +181,22 @@ export class CapabilityAggregator extends EventEmitter {
         const serverCapabilities = connection.client.getServerCapabilities() || {};
 
         // Build promises array based on actual capabilities
-        const promises: Promise<unknown>[] = [this.safeListTools(serverName, connection.client, connection.transport)];
+        const promises: Promise<unknown>[] = [this.safeListTools(serverName, connection)];
 
         if (serverCapabilities.resources) {
-          promises.push(this.safeListResources(serverName, connection.client, connection.transport));
+          promises.push(this.safeListResources(serverName, connection));
         }
         if (serverCapabilities.prompts) {
-          promises.push(this.safeListPrompts(serverName, connection.client, connection.transport));
+          promises.push(this.safeListPrompts(serverName, connection));
         }
 
         // Fetch capabilities in parallel (only those supported)
         const results = await Promise.allSettled(promises);
+
+        if (connection.status !== ClientStatus.Connected) {
+          readyServers.splice(readyServers.indexOf(serverName), 1);
+          continue;
+        }
 
         // Process tools (always first in promises array)
         if (results[0]?.status === 'fulfilled') {
@@ -241,14 +249,13 @@ export class CapabilityAggregator extends EventEmitter {
   /**
    * Safely list tools from a server
    */
-  private async safeListTools(
-    serverName: string,
-    client: Pick<Client, 'listTools'>,
-    transport: EnhancedTransport,
-  ): Promise<ListToolsResult> {
+  private async safeListTools(serverName: string, connection: OutboundConnection): Promise<ListToolsResult> {
     try {
-      return await client.listTools(undefined, { timeout: getRequestTimeout(transport) });
+      return await connection.client.listTools(undefined, {
+        timeout: getRequestTimeout(connection.transport as EnhancedTransport),
+      });
     } catch (error) {
+      await this.handlePostAuthUnauthorized(serverName, connection, error);
       logger.warn(`Failed to list tools from ${serverName}`, { error: String(error) });
       return { tools: [] };
     }
@@ -257,14 +264,13 @@ export class CapabilityAggregator extends EventEmitter {
   /**
    * Safely list resources from a server
    */
-  private async safeListResources(
-    serverName: string,
-    client: Pick<Client, 'listResources'>,
-    transport: EnhancedTransport,
-  ): Promise<ListResourcesResult> {
+  private async safeListResources(serverName: string, connection: OutboundConnection): Promise<ListResourcesResult> {
     try {
-      return await client.listResources(undefined, { timeout: getRequestTimeout(transport) });
+      return await connection.client.listResources(undefined, {
+        timeout: getRequestTimeout(connection.transport as EnhancedTransport),
+      });
     } catch (error) {
+      await this.handlePostAuthUnauthorized(serverName, connection, error);
       logger.warn(`Failed to list resources from ${serverName}`, { error: String(error) });
       return { resources: [] };
     }
@@ -273,16 +279,58 @@ export class CapabilityAggregator extends EventEmitter {
   /**
    * Safely list prompts from a server
    */
-  private async safeListPrompts(
-    serverName: string,
-    client: Pick<Client, 'listPrompts'>,
-    transport: EnhancedTransport,
-  ): Promise<ListPromptsResult> {
+  private async safeListPrompts(serverName: string, connection: OutboundConnection): Promise<ListPromptsResult> {
     try {
-      return await client.listPrompts(undefined, { timeout: getRequestTimeout(transport) });
+      return await connection.client.listPrompts(undefined, {
+        timeout: getRequestTimeout(connection.transport as EnhancedTransport),
+      });
     } catch (error) {
+      await this.handlePostAuthUnauthorized(serverName, connection, error);
       logger.warn(`Failed to list prompts from ${serverName}`, { error: String(error) });
       return { prompts: [] };
+    }
+  }
+
+  private async handlePostAuthUnauthorized(
+    serverName: string,
+    connection: OutboundConnection,
+    error: unknown,
+  ): Promise<void> {
+    if (
+      !(error instanceof StreamableHTTPError) ||
+      error.code !== 401 ||
+      !error.message.includes('Server returned 401 after successful authentication')
+    ) {
+      return;
+    }
+
+    const activeRecovery = this.oauthRecoveryPromises.get(serverName);
+    if (activeRecovery) {
+      return activeRecovery;
+    }
+
+    const recovery = (async () => {
+      connection.status = ClientStatus.AwaitingOAuth;
+      connection.authorizationUrl = undefined;
+      connection.oauthStartTime = undefined;
+      connection.lastError = error;
+
+      await connection.transport.oauthProvider?.invalidateCredentials('tokens');
+      connection.client.onclose = undefined;
+      await connection.client.close().catch((closeError) => {
+        logger.warn(`Failed to close unauthorized client ${serverName}`, { error: String(closeError) });
+      });
+
+      connection.transport = this.transportRecreator.recreateHttpTransport(connection.transport, serverName);
+
+      logger.warn(`OAuth reauthorization required for ${serverName} after authenticated request returned 401`);
+    })();
+
+    this.oauthRecoveryPromises.set(serverName, recovery);
+    try {
+      await recovery;
+    } finally {
+      this.oauthRecoveryPromises.delete(serverName);
     }
   }
 

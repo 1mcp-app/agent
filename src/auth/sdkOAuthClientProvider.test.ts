@@ -289,6 +289,24 @@ describe('SDKOAuthClientProvider', () => {
       expect(provider.tokens()).toBeUndefined();
     });
 
+    it('should invalidate only tokens while retaining client registration', async () => {
+      provider.saveClientInformation(mockClientInfo);
+      provider.saveTokens(mockTokens);
+
+      await provider.invalidateCredentials?.('tokens');
+
+      expect(provider.tokens()).toBeUndefined();
+      expect(provider.clientInformation()).toEqual(mockClientInfo);
+      expect(mockClientSessionRepository.save).toHaveBeenLastCalledWith(
+        'test-server',
+        expect.objectContaining({
+          clientInfo: JSON.stringify(mockClientInfo),
+          tokens: undefined,
+        }),
+        expect.any(Number),
+      );
+    });
+
     it('should handle token expiration during loading', () => {
       const expiredTokens = { ...mockTokens, expires_in: 3600 };
       const mockSessionData: ClientSessionData = {

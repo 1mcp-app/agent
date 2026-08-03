@@ -121,6 +121,36 @@ export class SDKOAuthClientProvider implements OAuthClientProvider {
   }
 
   /**
+   * Invalidates persisted OAuth credentials as requested by the MCP SDK.
+   */
+  invalidateCredentials(scope: 'all' | 'client' | 'tokens' | 'verifier' | 'discovery'): void {
+    switch (scope) {
+      case 'all':
+        this._clientInfo = undefined;
+        this._tokens = undefined;
+        this._codeVerifier = undefined;
+        this._state = undefined;
+        this._authorizationUrl = undefined;
+        break;
+      case 'client':
+        this._clientInfo = undefined;
+        break;
+      case 'tokens':
+        this._tokens = undefined;
+        this._authorizationUrl = undefined;
+        break;
+      case 'verifier':
+        this._codeVerifier = undefined;
+        break;
+      case 'discovery':
+        return;
+    }
+
+    this.persistAllData();
+    logger.info(`OAuth credentials invalidated for ${this.serverName}: ${scope}`);
+  }
+
+  /**
    * Stores authorization URL instead of prompting user in console
    */
   redirectToAuthorization(authorizationUrl: URL): void {
