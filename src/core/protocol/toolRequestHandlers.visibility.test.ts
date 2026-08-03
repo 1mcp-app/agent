@@ -1,7 +1,9 @@
-import { ClientStatus, type InboundConnection, type OutboundConnections } from '@src/core/types/index.js';
 import type { LazyLoadingOrchestrator } from '@src/core/capabilities/lazyLoadingOrchestrator.js';
+import { ClientStatus, type InboundConnection, type OutboundConnections } from '@src/core/types/index.js';
 
 import { describe, expect, it, vi } from 'vitest';
+
+import { registerToolHandlers } from './toolRequestHandlers.js';
 
 vi.mock('@src/core/server/serverManager.js', () => ({
   ServerManager: {
@@ -10,8 +12,6 @@ vi.mock('@src/core/server/serverManager.js', () => ({
     },
   },
 }));
-
-import { registerToolHandlers } from './toolRequestHandlers.js';
 
 describe('registerToolHandlers capability visibility', () => {
   it('re-resolves the Server Candidate Set for each meta-tool request', async () => {

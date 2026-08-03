@@ -1,8 +1,8 @@
 import type { Tool } from '@modelcontextprotocol/sdk/types.js';
 
 import { MCP_URI_SEPARATOR } from '@src/constants.js';
-import { LoadingState, type ServerLoadingInfo } from '@src/core/loading/loadingStateTracker.js';
 import { FilteringService } from '@src/core/filtering/filteringService.js';
+import { LoadingState, type ServerLoadingInfo } from '@src/core/loading/loadingStateTracker.js';
 import { ClientStatus, type OutboundConnection } from '@src/core/types/client.js';
 import { InboundConnectionConfig } from '@src/core/types/index.js';
 import { TagQueryEvaluator } from '@src/domains/preset/parsers/tagQueryEvaluator.js';
@@ -14,9 +14,9 @@ import {
   getTagQuery,
   getValidatedTags,
 } from '@src/transport/http/middlewares/scopeAuthMiddleware.js';
+import type { ClientServerStatus } from '@src/types/serverStatus.js';
 import { buildUri, parseUri } from '@src/utils/core/parsing.js';
 import { normalizeTag } from '@src/utils/validation/sanitization.js';
-import type { ClientServerStatus } from '@src/types/serverStatus.js';
 
 import { Response } from 'express';
 

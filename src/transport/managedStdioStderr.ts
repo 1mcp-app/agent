@@ -13,11 +13,16 @@ const DEFAULT_MAX_BYTES_PER_TURN = 16 * 1024;
 const DEFAULT_MAX_BUFFERED_BYTES = 64 * 1024;
 
 interface QueuedChunk {
+  readonly kind: 'chunk';
   readonly buffer: Buffer;
   offset: number;
 }
 
-type QueueEntry = QueuedChunk | 'line-boundary' | 'stream-end';
+interface QueueMarker {
+  readonly kind: 'line-boundary' | 'stream-end';
+}
+
+type QueueEntry = QueuedChunk | QueueMarker;
 
 /**
  * Drains one backend's stderr without allowing it to grow parent logs without bound.
@@ -36,7 +41,10 @@ export class ManagedStdioStderr {
   private queue: QueueEntry[] = [];
   private queuedBytes = 0;
   private drainImmediate: ReturnType<typeof setImmediate> | null = null;
+  private closing = false;
   private closed = false;
+  private closePromise: Promise<void> | null = null;
+  private resolveClose: (() => void) | null = null;
   private lineBuffer = Buffer.alloc(0);
   private lineTruncated = false;
   private lastLine: string | undefined;
@@ -48,13 +56,13 @@ export class ManagedStdioStderr {
   private windowTimer: ReturnType<typeof setTimeout> | null = null;
 
   private readonly handleData = (chunk: unknown): void => {
-    if (this.closed) {
+    if (this.closing || this.closed) {
       return;
     }
 
     const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(String(chunk));
     if (buffer.length > 0) {
-      this.queue.push({ buffer, offset: 0 });
+      this.queue.push({ kind: 'chunk', buffer, offset: 0 });
       this.queuedBytes += buffer.length;
       this.applyBackpressure();
       this.scheduleDrain();
@@ -67,7 +75,7 @@ export class ManagedStdioStderr {
     }
 
     this.streamEnded = true;
-    this.queue.push('stream-end');
+    this.queue.push({ kind: 'stream-end' });
     this.scheduleDrain();
   };
 
@@ -95,14 +103,14 @@ export class ManagedStdioStderr {
   }
 
   public attach(stream: Stream | null | undefined): void {
-    if (this.closed || stream === this.stream) {
+    if (this.closing || this.closed || stream === this.stream) {
       return;
     }
 
     const shouldFinishPreviousLine = this.stream !== null && !this.streamEnded;
     this.detachStream();
     if (shouldFinishPreviousLine) {
-      this.queue.push('line-boundary');
+      this.queue.push({ kind: 'line-boundary' });
     }
     this.stream = stream ?? null;
     this.streamEnded = false;
@@ -115,24 +123,35 @@ export class ManagedStdioStderr {
     }
   }
 
-  public close(): void {
-    if (this.closed) {
-      return;
+  public close(): Promise<void> {
+    if (this.closePromise) {
+      return this.closePromise;
     }
 
-    this.closed = true;
+    this.closing = true;
     this.detachStream();
-    if (this.drainImmediate) {
-      clearImmediate(this.drainImmediate);
-      this.drainImmediate = null;
+    this.closePromise = new Promise<void>((resolve) => {
+      this.resolveClose = resolve;
+    });
+
+    if (this.queue.length > 0) {
+      this.scheduleDrain();
+    } else {
+      this.completeClose();
     }
-    this.queue = [];
-    this.queuedBytes = 0;
+
+    return this.closePromise;
+  }
+
+  private completeClose(): void {
+    this.closed = true;
     this.flushPendingLine();
     this.flushRepeatSummary();
     this.flushSuppressionSummary();
     this.clearTimer('repeat');
     this.clearTimer('window');
+    this.resolveClose?.();
+    this.resolveClose = null;
   }
 
   private scheduleDrain(): void {
@@ -144,7 +163,6 @@ export class ManagedStdioStderr {
       this.drainImmediate = null;
       this.drainTurn();
     });
-    this.unrefTimer(this.drainImmediate);
   }
 
   private drainTurn(): void {
@@ -152,10 +170,10 @@ export class ManagedStdioStderr {
 
     while (remainingBudget > 0 && this.queue.length > 0) {
       const entry = this.queue[0];
-      if (typeof entry === 'string') {
+      if (entry.kind !== 'chunk') {
         this.queue.shift();
         this.flushPendingLine();
-        if (entry === 'stream-end') {
+        if (entry.kind === 'stream-end') {
           this.flushRepeatSummary();
         }
         remainingBudget--;
@@ -174,7 +192,11 @@ export class ManagedStdioStderr {
     }
 
     this.releaseBackpressure();
-    this.scheduleDrain();
+    if (this.queue.length > 0) {
+      this.scheduleDrain();
+    } else if (this.closing) {
+      this.completeClose();
+    }
   }
 
   private applyBackpressure(): void {
@@ -352,7 +374,7 @@ export class ManagedStdioStderr {
     }
   }
 
-  private unrefTimer(timer: ReturnType<typeof setTimeout> | ReturnType<typeof setImmediate>): void {
+  private unrefTimer(timer: ReturnType<typeof setTimeout>): void {
     if (typeof timer === 'object' && 'unref' in timer) {
       timer.unref();
     }

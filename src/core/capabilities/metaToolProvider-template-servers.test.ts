@@ -195,10 +195,7 @@ describe('MetaToolProvider - Template Server Support', () => {
       );
       const listVisibleTools = vi.spyOn((sessionAwareProvider as any).capabilityCatalog, 'listVisibleTools');
 
-      const visibility = createCapabilityVisibility(
-        [['template-server:abc123', 'template-server']],
-        'session-123',
-      );
+      const visibility = createCapabilityVisibility([['template-server:abc123', 'template-server']], 'session-123');
       const result = await sessionAwareProvider.callMetaTool('tool_list', {}, visibility);
 
       expect((result as any).error).toBeUndefined();

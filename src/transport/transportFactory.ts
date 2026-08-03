@@ -275,7 +275,7 @@ function createStdioTransport(
       try {
         await closeTransport();
       } finally {
-        managedStderr?.close();
+        await managedStderr?.close();
         broker.updateSource(source.id, { lifecycle: 'ended' });
       }
     };

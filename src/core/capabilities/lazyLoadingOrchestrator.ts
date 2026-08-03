@@ -12,8 +12,8 @@ import logger, { debugIf, errorIf } from '@src/logger/logger.js';
 
 import { AsyncLoadingOrchestrator } from './asyncLoadingOrchestrator.js';
 import { AsyncLoadingOrchestratorEvent } from './asyncLoadingOrchestratorEvent.js';
-import { type CapabilityVisibility, getCapabilityVisibleServerNames } from './capabilityVisibility.js';
 import { AggregatedCapabilities, CapabilityAggregator } from './capabilityAggregator.js';
+import { type CapabilityVisibility, getCapabilityVisibleServerNames } from './capabilityVisibility.js';
 import { MetaToolProvider } from './metaToolProvider.js';
 import { SchemaCache, SchemaCacheConfig } from './schemaCache.js';
 import { ToolRegistry } from './toolRegistry.js';
@@ -498,11 +498,7 @@ export class LazyLoadingOrchestrator extends EventEmitter {
    * @param args - Meta-tool arguments
    * @param visibility - Request-scoped Filter Selection and Server Candidate Set
    */
-  public async callMetaTool(
-    name: string,
-    args: unknown,
-    visibility?: CapabilityVisibility,
-  ): Promise<unknown> {
+  public async callMetaTool(name: string, args: unknown, visibility?: CapabilityVisibility): Promise<unknown> {
     if (!this.metaToolProvider) {
       throw new Error('Meta-tool provider not initialized');
     }

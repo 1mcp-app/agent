@@ -166,7 +166,8 @@ export const serverOptions = {
     type: 'boolean' as const,
   },
   'lazy-mode': {
-    describe: 'Deprecated and ignored. Use --enable-lazy-loading to expose meta-tools, or omit it for full direct exposure.',
+    describe:
+      'Deprecated and ignored. Use --enable-lazy-loading to expose meta-tools, or omit it for full direct exposure.',
     type: 'string' as const,
     choices: ['metatool', 'hybrid', 'full'] as const,
   },
