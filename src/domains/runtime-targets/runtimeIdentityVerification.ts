@@ -2,6 +2,8 @@ import fs from 'node:fs';
 import http from 'node:http';
 import https from 'node:https';
 
+import { sanitizeForLogging } from '@src/logger/secureLogger.js';
+
 import type { RuntimeTargetObservedIdentity, StoredRuntimeTarget } from './runtimeTargetStore.js';
 
 const RUNTIME_IDENTITY_PATH = '/.well-known/1mcp/runtime-identity';
@@ -46,11 +48,19 @@ export interface VerifiedRuntimeIdentity {
   warnings: RuntimeIdentityWarning[];
 }
 
+export interface RuntimeTargetIdentityErrorDetails {
+  endpoint?: string;
+  httpStatus?: number;
+  reason?: string;
+  retryAfterSeconds?: number;
+}
+
 export class RuntimeTargetIdentityError extends Error {
   constructor(
     public readonly code: string,
     message: string,
     public readonly recoveryCommand?: string,
+    public readonly details?: RuntimeTargetIdentityErrorDetails,
   ) {
     super(message);
     this.name = 'RuntimeTargetIdentityError';
@@ -63,7 +73,8 @@ export async function fetchRuntimeIdentity(
 ): Promise<RuntimeTargetObservedIdentity> {
   const fetchImpl = options.fetch ?? fetchRuntimeTargetUrl;
   const tls = normalizeTlsOptions(options);
-  const response = await fetchImpl(new URL(RUNTIME_IDENTITY_PATH, baseUrl).toString(), {
+  const identityUrl = new URL(RUNTIME_IDENTITY_PATH, baseUrl).toString();
+  const response = await fetchImpl(identityUrl, {
     method: 'GET',
     headers: { Accept: 'application/json' },
     credentials: 'omit',
@@ -73,9 +84,19 @@ export async function fetchRuntimeIdentity(
   });
 
   if (!response.ok) {
+    const reason = await readSafeHttpErrorReason(response);
+    const retryAfterSeconds =
+      response.status === 429 ? parseRetryAfterSeconds(response.headers?.get('retry-after')) : undefined;
     throw new RuntimeTargetIdentityError(
       'identity_unreachable',
       `Runtime identity endpoint returned HTTP ${response.status}`,
+      undefined,
+      {
+        endpoint: new URL(identityUrl).pathname,
+        httpStatus: response.status,
+        ...(reason ? { reason } : {}),
+        ...(retryAfterSeconds !== undefined ? { retryAfterSeconds } : {}),
+      },
     );
   }
 
@@ -317,6 +338,57 @@ function createRuntimeIdentityTimeoutSignal(): AbortSignal | undefined {
   return typeof AbortSignal.timeout === 'function'
     ? AbortSignal.timeout(DEFAULT_RUNTIME_IDENTITY_TIMEOUT_MS)
     : undefined;
+}
+
+async function readSafeHttpErrorReason(response: RuntimeIdentityFetchResponse): Promise<string | undefined> {
+  try {
+    const body = await response.json();
+    if (!isRecord(body)) {
+      return undefined;
+    }
+    const nestedError = isRecord(body.error) ? body.error.message : undefined;
+    const candidate =
+      typeof body.error === 'string'
+        ? body.error
+        : typeof nestedError === 'string'
+          ? nestedError
+          : typeof body.message === 'string'
+            ? body.message
+            : typeof body.error_description === 'string'
+              ? body.error_description
+              : undefined;
+    if (!candidate) {
+      return undefined;
+    }
+    const sanitized = sanitizeForLogging(candidate);
+    return typeof sanitized === 'string'
+      ? stripControlCharacters(sanitized).trim().slice(0, 300) || undefined
+      : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function parseRetryAfterSeconds(value: string | null | undefined): number | undefined {
+  if (!value) {
+    return undefined;
+  }
+  const deltaSeconds = Number(value);
+  if (Number.isFinite(deltaSeconds) && deltaSeconds >= 0) {
+    return Math.ceil(deltaSeconds);
+  }
+  const retryAt = Date.parse(value);
+  if (!Number.isFinite(retryAt)) {
+    return undefined;
+  }
+  return Math.max(0, Math.ceil((retryAt - Date.now()) / 1000));
+}
+
+function stripControlCharacters(value: string): string {
+  return Array.from(value, (character) => {
+    const code = character.charCodeAt(0);
+    return code <= 31 || (code >= 127 && code <= 159) ? ' ' : character;
+  }).join('');
 }
 
 function parseRuntimeIdentity(body: unknown): RuntimeTargetObservedIdentity {

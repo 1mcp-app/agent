@@ -1,8 +1,19 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { detectRunningServerUrl, validateServer1mcpUrl } from './urlDetection.js';
+import { detectRunningServerUrl, discoverServerWithPidFile, validateServer1mcpUrl } from './urlDetection.js';
 
 const mockedFetchRuntimeTargetUrl = vi.hoisted(() => vi.fn());
+const mockedDiscoverScopedRuntime = vi.hoisted(() => vi.fn());
+
+vi.mock('@src/core/server/runtimeLifecycle.js', async () => {
+  const actual = await vi.importActual<typeof import('@src/core/server/runtimeLifecycle.js')>(
+    '@src/core/server/runtimeLifecycle.js',
+  );
+  return {
+    ...actual,
+    discoverScopedRuntime: mockedDiscoverScopedRuntime,
+  };
+});
 
 vi.mock('@src/domains/runtime-targets/runtimeIdentityVerification.js', async () => {
   const actual = await vi.importActual<typeof import('@src/domains/runtime-targets/runtimeIdentityVerification.js')>(
@@ -17,6 +28,7 @@ vi.mock('@src/domains/runtime-targets/runtimeIdentityVerification.js', async () 
 describe('validateServer1mcpUrl', () => {
   beforeEach(() => {
     mockedFetchRuntimeTargetUrl.mockReset();
+    mockedDiscoverScopedRuntime.mockReset();
   });
 
   afterEach(() => {
@@ -66,11 +78,96 @@ describe('validateServer1mcpUrl', () => {
   });
 
   it('keeps non-redirect client errors invalid', async () => {
+    mockedFetchRuntimeTargetUrl.mockResolvedValueOnce(response({ status: 404 })).mockResolvedValueOnce(
+      response({
+        status: 429,
+        retryAfter: '720',
+        body: { error: 'Too many requests, please try again later.' },
+      }),
+    );
+
+    await expect(validateServer1mcpUrl('http://127.0.0.1:3050/mcp')).resolves.toMatchObject({
+      valid: false,
+      error: 'HTTP 429: Too many requests, please try again later.',
+      failure: {
+        failureKind: 'http_rejection',
+        endpoint: '/oauth/',
+        reason: 'Too many requests, please try again later.',
+        retryable: true,
+        httpStatus: 429,
+        retryAfterSeconds: 720,
+      },
+    });
+  });
+
+  it('does not use legacy OAuth fallback for non-404 identity failures', async () => {
+    mockedFetchRuntimeTargetUrl.mockResolvedValueOnce(
+      response({ status: 503, retryAfter: '30', body: { message: 'Runtime identity is temporarily unavailable' } }),
+    );
+
+    const result = await validateServer1mcpUrl('http://127.0.0.1:3050/mcp');
+    expect(result).toMatchObject({
+      valid: false,
+      failure: {
+        endpoint: '/.well-known/1mcp/runtime-identity',
+        httpStatus: 503,
+        reason: 'Runtime identity is temporarily unavailable',
+      },
+    });
+    expect(result.failure?.retryAfterSeconds).toBeUndefined();
+    expect(mockedFetchRuntimeTargetUrl).toHaveBeenCalledTimes(1);
+  });
+
+  it('preserves connection refusal as a retryable transport failure', async () => {
+    const cause = Object.assign(new Error('connect ECONNREFUSED 127.0.0.1:3050'), { code: 'ECONNREFUSED' });
+    mockedFetchRuntimeTargetUrl.mockRejectedValueOnce(Object.assign(new TypeError('fetch failed'), { cause }));
+
+    await expect(validateServer1mcpUrl('http://127.0.0.1:3050/mcp')).resolves.toMatchObject({
+      valid: false,
+      failure: {
+        failureKind: 'connection_refused',
+        endpoint: '/.well-known/1mcp/runtime-identity',
+        reason: 'Connection refused (ECONNREFUSED)',
+        retryable: true,
+      },
+    });
+    expect(mockedFetchRuntimeTargetUrl).toHaveBeenCalledTimes(1);
+  });
+
+  it('reports a live PID probe rejection instead of scanning another port', async () => {
+    mockedDiscoverScopedRuntime.mockImplementation(async (_configDir, probe) => {
+      const info = {
+        pid: 4242,
+        url: 'http://127.0.0.1:3050/mcp',
+        port: 3050,
+        host: '127.0.0.1',
+        transport: 'http',
+        startedAt: '2026-08-03T00:00:00.000Z',
+        configDir: '/tmp/runtime-scope',
+      };
+      const reachable = await probe(info);
+      return { status: reachable ? 'running' : 'unreachable', info };
+    });
     mockedFetchRuntimeTargetUrl
       .mockResolvedValueOnce(response({ status: 404 }))
-      .mockResolvedValueOnce(response({ status: 429 }));
+      .mockResolvedValueOnce(
+        response({ status: 429, retryAfter: '60', body: { error: 'Too many requests, please try again later.' } }),
+      );
+    const portScanFetch = vi.fn();
+    vi.stubGlobal('fetch', portScanFetch);
 
-    await expect(validateServer1mcpUrl('http://127.0.0.1:3050/mcp')).resolves.toMatchObject({ valid: false });
+    await expect(discoverServerWithPidFile('/tmp/runtime-scope')).rejects.toMatchObject({
+      code: 'runtime_probe_failed',
+      retryable: true,
+      details: expect.objectContaining({
+        targetKind: 'local',
+        pid: 4242,
+        httpStatus: 429,
+        retryAfterSeconds: 60,
+        nextAction: 'retry_original_command',
+      }),
+    });
+    expect(portScanFetch).not.toHaveBeenCalled();
   });
 });
 
@@ -94,12 +191,16 @@ describe('detectRunningServerUrl', () => {
   });
 });
 
-function response(input: { status: number; location?: string; body?: unknown }) {
+function response(input: { status: number; location?: string; retryAfter?: string; body?: unknown }) {
   return {
     ok: input.status >= 200 && input.status < 300,
     status: input.status,
     headers: {
-      get: (name: string) => (name.toLowerCase() === 'location' ? (input.location ?? null) : null),
+      get: (name: string) => {
+        if (name.toLowerCase() === 'location') return input.location ?? null;
+        if (name.toLowerCase() === 'retry-after') return input.retryAfter ?? null;
+        return null;
+      },
     },
     json: async () => input.body ?? {},
   };

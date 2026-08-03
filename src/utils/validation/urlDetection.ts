@@ -3,11 +3,23 @@ import { discoverScopedRuntime } from '@src/core/server/runtimeLifecycle.js';
 import {
   fetchRuntimeIdentity,
   fetchRuntimeTargetUrl,
+  RuntimeTargetIdentityError,
   type RuntimeTargetTlsOptions,
 } from '@src/domains/runtime-targets/runtimeIdentityVerification.js';
+import {
+  localRuntimeStatusCommand,
+  RuntimeProbeError,
+  type RuntimeProbeFailure,
+} from '@src/domains/runtime-targets/runtimeProbe.js';
 import { debugIf } from '@src/logger/logger.js';
-import { createSafeErrorMessage } from '@src/logger/secureLogger.js';
+import { sanitizeForLogging } from '@src/logger/secureLogger.js';
 import { normalizedArgv } from '@src/utils/cli/normalizedArgv.js';
+
+export interface RuntimeUrlValidationResult {
+  valid: boolean;
+  error?: string;
+  failure?: RuntimeProbeFailure;
+}
 
 /**
  * Multi-method URL detection system for app commands.
@@ -147,7 +159,6 @@ export async function detectServer1mcpUrl(): Promise<string> {
 export async function discoverServerWithPidFile(
   configDir?: string,
   userUrl?: string,
-  options: { failOnOwnedRuntimeUnavailable?: boolean } = {},
 ): Promise<{ url: string; source: 'user' | 'pidfile' | 'portscan'; pid?: number }> {
   // 1. User override (highest priority)
   if (userUrl) {
@@ -155,25 +166,37 @@ export async function discoverServerWithPidFile(
     return { url: normalizedUrl, source: 'user' };
   }
 
-  // 2. Try PID file (lifecycle module owns the two-tier staleness rule:
-  //    dead → delete; alive-but-unreachable → retain and fall through).
+  // 2. Try PID file. A live PID is authoritative for its Runtime Scope, even
+  //    when the endpoint rejects or cannot satisfy the probe.
   const dir = getConfigDir(configDir);
-  const runtime = await discoverScopedRuntime(dir, clientSurfaceProbe);
+  let ownedProbeFailure: RuntimeProbeFailure | undefined;
+  const runtime = await discoverScopedRuntime(dir, async (info) => {
+    const validation = await validateServer1mcpUrl(info.url);
+    if (!validation.valid) {
+      ownedProbeFailure = toRuntimeProbeFailure(validation, info.url);
+    }
+    return validation.valid;
+  });
 
   if (runtime.status === 'running' && runtime.info) {
     return { url: runtime.info.url, source: 'pidfile', pid: runtime.info.pid };
   }
 
-  if (options.failOnOwnedRuntimeUnavailable && runtime.status === 'unreachable' && runtime.info) {
-    throw new LocalRuntimeAttachmentError(
-      'local_runtime_unreachable',
-      `Runtime Scope process ${runtime.info.pid} is alive but its 1MCP endpoint is unreachable`,
+  if (runtime.status === 'unreachable' && runtime.info) {
+    throw new RuntimeProbeError(
+      ownedProbeFailure ?? fallbackProbeFailure(runtime.info.url, 'Runtime endpoint did not respond'),
+      {
+        targetKind: 'local',
+        configDir: dir,
+        pid: runtime.info.pid,
+        recoveryCommand: localRuntimeStatusCommand(dir),
+      },
     );
   }
-  if (options.failOnOwnedRuntimeUnavailable && runtime.status === 'error') {
+  if (runtime.status === 'error') {
     throw new LocalRuntimeAttachmentError(
-      'local_runtime_discovery_failed',
       runtime.error ?? 'Runtime Scope ownership could not be inspected safely',
+      localRuntimeStatusCommand(dir),
     );
   }
 
@@ -203,9 +226,11 @@ export class LocalRuntimeUnavailableError extends Error {
 }
 
 export class LocalRuntimeAttachmentError extends Error {
+  readonly code = 'local_runtime_discovery_failed';
+
   constructor(
-    readonly code: 'local_runtime_unreachable' | 'local_runtime_discovery_failed',
     message: string,
+    readonly recoveryCommand?: string,
   ) {
     super(message);
     this.name = 'LocalRuntimeAttachmentError';
@@ -230,28 +255,28 @@ export async function getServer1mcpUrl(userOverrideUrl?: string): Promise<string
 export async function validateServer1mcpUrl(
   url: string,
   tls?: RuntimeTargetTlsOptions,
-): Promise<{
-  valid: boolean;
-  error?: string;
-}> {
+): Promise<RuntimeUrlValidationResult> {
+  // Remove a trailing /mcp suffix to test base URL. Anchor to the end so a URL
+  // like http://host/mcp-internal/mcp is not mangled by stripping the first match.
+  const baseUrl = url.replace(/\/mcp\/?$/, '');
+
   try {
-    // Remove a trailing /mcp suffix to test base URL. Anchor to the end so a URL
-    // like http://host/mcp-internal/mcp is not mangled by stripping the first match.
-    const baseUrl = url.replace(/\/mcp\/?$/, '');
-
-    try {
-      await fetchRuntimeIdentity(baseUrl, {
-        fetch: fetchRuntimeTargetUrl,
-        ...tls,
-      });
-      return { valid: true };
-    } catch (error) {
-      debugIf(() => ({
-        message: 'Runtime identity probe failed; trying legacy OAuth discovery',
-        meta: { error: error instanceof Error ? error.message : String(error) },
-      }));
+    await fetchRuntimeIdentity(baseUrl, {
+      fetch: fetchRuntimeTargetUrl,
+      ...tls,
+    });
+    return { valid: true };
+  } catch (error) {
+    if (!isMissingRuntimeIdentityEndpoint(error)) {
+      return invalidProbeResult(probeFailureFromError(error, '/.well-known/1mcp/runtime-identity'));
     }
+    debugIf(() => ({
+      message: 'Runtime identity endpoint is unavailable; trying legacy OAuth discovery',
+      meta: { error: error instanceof Error ? error.message : String(error) },
+    }));
+  }
 
+  try {
     // Compatibility fallback for runtimes that predate runtime identity.
     const oauthResponse = await fetchRuntimeTargetUrl(`${baseUrl}/oauth/`, {
       redirect: 'manual',
@@ -260,21 +285,208 @@ export async function validateServer1mcpUrl(
     });
 
     if (!isReachableOAuthProbeResponse(oauthResponse)) {
-      return {
-        valid: false,
-        error: createSafeErrorMessage(`1mcp server not responding (HTTP ${oauthResponse.status})`),
-      };
+      return invalidProbeResult(await probeFailureFromResponse(oauthResponse, '/oauth/'));
     }
 
     return { valid: true };
   } catch (error) {
+    return invalidProbeResult(probeFailureFromError(error, '/oauth/'));
+  }
+}
+
+export function toRuntimeProbeFailure(validation: RuntimeUrlValidationResult, url: string): RuntimeProbeFailure {
+  return validation.failure ?? fallbackProbeFailure(url, validation.error ?? 'Runtime probe failed');
+}
+
+function isMissingRuntimeIdentityEndpoint(error: unknown): boolean {
+  return error instanceof RuntimeTargetIdentityError && error.details?.httpStatus === 404;
+}
+
+function invalidProbeResult(failure: RuntimeProbeFailure): RuntimeUrlValidationResult {
+  const statusPrefix = failure.httpStatus !== undefined ? `HTTP ${failure.httpStatus}: ` : '';
+  return {
+    valid: false,
+    error: `${statusPrefix}${failure.reason}`,
+    failure,
+  };
+}
+
+function probeFailureFromError(error: unknown, endpoint: string): RuntimeProbeFailure {
+  if (error instanceof RuntimeTargetIdentityError) {
+    const status = error.details?.httpStatus;
+    if (status !== undefined) {
+      return {
+        failureKind: 'http_rejection',
+        endpoint: error.details?.endpoint ?? endpoint,
+        reason: error.details?.reason ?? error.message,
+        retryable: isRetryableHttpStatus(status),
+        httpStatus: status,
+        ...(status === 429 && error.details?.retryAfterSeconds !== undefined
+          ? { retryAfterSeconds: error.details.retryAfterSeconds }
+          : {}),
+      };
+    }
+    if (error.code === 'identity_invalid' || error.code === 'identity_response_too_large') {
+      return {
+        failureKind: 'invalid_response',
+        endpoint,
+        reason: safeReason(error.message),
+        retryable: false,
+      };
+    }
+    if (error.code === 'target_ca_file_unreadable' || error.code === 'identity_url_invalid') {
+      return {
+        failureKind: 'tls_failure',
+        endpoint,
+        reason: safeReason(error.message),
+        retryable: false,
+      };
+    }
+  }
+
+  const cause = error instanceof Error && isErrorLike(error.cause) ? error.cause : error;
+  const code = isErrorLike(cause) && typeof cause.code === 'string' ? cause.code : undefined;
+  const message = cause instanceof Error ? cause.message : error instanceof Error ? error.message : String(error);
+  if (code === 'ECONNREFUSED') {
     return {
-      valid: false,
-      error: createSafeErrorMessage(
-        `Cannot connect to 1mcp server: ${error instanceof Error ? error.message : String(error)}`,
-      ),
+      failureKind: 'connection_refused',
+      endpoint,
+      reason: 'Connection refused (ECONNREFUSED)',
+      retryable: true,
     };
   }
+  if (
+    (error instanceof Error && (error.name === 'AbortError' || error.name === 'TimeoutError')) ||
+    /timed?\s*out/i.test(message)
+  ) {
+    return {
+      failureKind: 'timeout',
+      endpoint,
+      reason: 'Request timed out',
+      retryable: true,
+    };
+  }
+  if (isTlsErrorCode(code)) {
+    return {
+      failureKind: 'tls_failure',
+      endpoint,
+      reason: code ? `TLS validation failed (${code})` : 'TLS validation failed',
+      retryable: false,
+    };
+  }
+  return {
+    failureKind: 'network_failure',
+    endpoint,
+    reason: safeReason(message || 'Network request failed'),
+    retryable: true,
+  };
+}
+
+async function probeFailureFromResponse(
+  response: {
+    status: number;
+    headers?: { get: (name: string) => string | null };
+    json: () => Promise<unknown>;
+  },
+  endpoint: string,
+): Promise<RuntimeProbeFailure> {
+  const reason = (await readSafeResponseReason(response)) ?? `Server returned HTTP ${response.status}`;
+  const retryAfterSeconds =
+    response.status === 429 ? parseRetryAfterSeconds(response.headers?.get('retry-after')) : undefined;
+  return {
+    failureKind: 'http_rejection',
+    endpoint,
+    reason,
+    retryable: isRetryableHttpStatus(response.status),
+    httpStatus: response.status,
+    ...(retryAfterSeconds !== undefined ? { retryAfterSeconds } : {}),
+  };
+}
+
+async function readSafeResponseReason(response: { json: () => Promise<unknown> }): Promise<string | undefined> {
+  try {
+    const body = await response.json();
+    if (!isRecord(body)) {
+      return undefined;
+    }
+    const nestedError = isRecord(body.error) ? body.error.message : undefined;
+    const candidate =
+      typeof body.error === 'string'
+        ? body.error
+        : typeof nestedError === 'string'
+          ? nestedError
+          : typeof body.message === 'string'
+            ? body.message
+            : typeof body.error_description === 'string'
+              ? body.error_description
+              : undefined;
+    return candidate ? safeReason(candidate) : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function fallbackProbeFailure(url: string, reason: string): RuntimeProbeFailure {
+  let endpoint = '/';
+  try {
+    endpoint = new URL(url).pathname;
+  } catch {
+    // Keep the bounded default path for malformed URLs.
+  }
+  return {
+    failureKind: 'network_failure',
+    endpoint,
+    reason: safeReason(reason),
+    retryable: true,
+  };
+}
+
+function isRetryableHttpStatus(status: number): boolean {
+  return status === 408 || status === 425 || status === 429 || status >= 500;
+}
+
+function parseRetryAfterSeconds(value: string | null | undefined): number | undefined {
+  if (!value) {
+    return undefined;
+  }
+  const deltaSeconds = Number(value);
+  if (Number.isFinite(deltaSeconds) && deltaSeconds >= 0) {
+    return Math.ceil(deltaSeconds);
+  }
+  const retryAt = Date.parse(value);
+  return Number.isFinite(retryAt) ? Math.max(0, Math.ceil((retryAt - Date.now()) / 1000)) : undefined;
+}
+
+function safeReason(value: string): string {
+  const sanitized = sanitizeForLogging(value);
+  const reason = typeof sanitized === 'string' ? sanitized : String(sanitized);
+  return stripControlCharacters(reason).trim().slice(0, 300) || 'Runtime probe failed';
+}
+
+function stripControlCharacters(value: string): string {
+  return Array.from(value, (character) => {
+    const code = character.charCodeAt(0);
+    return code <= 31 || (code >= 127 && code <= 159) ? ' ' : character;
+  }).join('');
+}
+
+function isTlsErrorCode(code: string | undefined): boolean {
+  return Boolean(
+    code &&
+    (code.startsWith('ERR_TLS') ||
+      code.startsWith('CERT_') ||
+      code === 'DEPTH_ZERO_SELF_SIGNED_CERT' ||
+      code === 'SELF_SIGNED_CERT_IN_CHAIN' ||
+      code === 'UNABLE_TO_VERIFY_LEAF_SIGNATURE'),
+  );
+}
+
+function isErrorLike(value: unknown): value is { code?: unknown } {
+  return typeof value === 'object' && value !== null;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
 function isReachableOAuthProbeResponse(response: {

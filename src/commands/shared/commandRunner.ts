@@ -34,15 +34,21 @@ function jsonFailureEnvelope(error: unknown, message: string) {
     error: {
       code: coded?.code ?? 'command_failed',
       message,
+      ...(coded && typeof coded.retryable === 'boolean' ? { retryable: coded.retryable } : {}),
       ...(coded?.recoveryCommand ? { recoveryCommand: coded.recoveryCommand } : {}),
       ...(coded && 'details' in coded && coded.details !== undefined ? { details: coded.details } : {}),
     },
   };
 }
 
-function isCodedError(
-  error: unknown,
-): error is { code: string; message: string; recoveryCommand?: string; details?: unknown } {
+function isCodedError(error: unknown): error is {
+  code: string;
+  message: string;
+  retryable?: boolean;
+  recoveryCommand?: string;
+  details?: unknown;
+  humanDetails?: unknown;
+} {
   return typeof error === 'object' && error !== null && 'code' in error && typeof error.code === 'string';
 }
 
@@ -50,8 +56,15 @@ function formatErrorForHuman(error: unknown, message: string): string {
   if (!isCodedError(error)) {
     return message;
   }
-  const detailsMessage =
-    'details' in error && error.details !== undefined ? `\nDetails: ${JSON.stringify(error.details)}` : '';
+  const humanDetails =
+    Array.isArray(error.humanDetails) && error.humanDetails.every((line) => typeof line === 'string')
+      ? (error.humanDetails as string[])
+      : [];
+  const detailsMessage = humanDetails.length
+    ? `\n${humanDetails.join('\n')}`
+    : 'details' in error && error.details !== undefined
+      ? `\nDetails: ${JSON.stringify(error.details)}`
+      : '';
   return `${error.code}: ${message}${detailsMessage}${error.recoveryCommand ? `\nRecovery: ${error.recoveryCommand}` : ''}`;
 }
 
