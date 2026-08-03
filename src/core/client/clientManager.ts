@@ -37,8 +37,11 @@ export const enum ClientManagerEvent {
 // when a Streamable HTTP / SSE session ID they issued no longer exists on
 // their side (e.g. the backend process restarted and its in-memory session
 // store was wiped): the MCP spec's own "Session not found" wording, and the
-// free-form "Could not find session ID '...'" text some server SDKs use.
-const SESSION_LOST_PATTERN = /session (?:id )?not found|could not find session/i;
+// free-form "Could not find session ID '...'" text some server SDKs use. The
+// second alternative spells out "session id" (rather than a bare "session")
+// so we don't also match unrelated "could not find session <noun>" wording
+// that isn't the specific session-loss shape this recovery path handles.
+const SESSION_LOST_PATTERN = /session (?:id )?not found|could not find session id/i;
 
 function isSessionLostError(error: unknown): boolean {
   if (!(error instanceof Error)) {
@@ -55,6 +58,11 @@ export class ClientManager extends EventEmitter {
   private transports: Record<string, AuthProviderTransport> = {};
   private connectionSemaphore: Map<string, Promise<void>> = new Map();
   private bulkConnectionOperations = new Set<Promise<unknown>>();
+  // Backends currently running a session-loss recovery (see recoverFromSessionLoss).
+  // Guards against the same dead client's onerror firing more than once — e.g.
+  // several in-flight requests all failing around the same time — from each
+  // kicking off its own redundant recreateForSessionLoss + createSingleClient.
+  private sessionLossRecoveries = new Set<string>();
   private instructionAggregator?: InstructionAggregator;
   private clientFactory: ClientFactory;
   private connectionHandler: ConnectionHandler;
@@ -200,6 +208,15 @@ export class ClientManager extends EventEmitter {
       return;
     }
 
+    // A recovery for this exact dead client is already in flight — e.g. several
+    // requests in flight against the same lost session can each independently
+    // fire onerror around the same time. Let the one already running finish
+    // rather than building a second, redundant replacement transport.
+    if (this.sessionLossRecoveries.has(name)) {
+      return;
+    }
+    this.sessionLossRecoveries.add(name);
+
     logger.warn(`Session for ${name} was lost (backend likely restarted) — reconnecting with a fresh session`);
 
     const staleTransport = this.transports[name] ?? clientInfo.transport;
@@ -212,14 +229,24 @@ export class ClientManager extends EventEmitter {
       logger.error(
         `Cannot recover ${name} from session loss: ${error instanceof Error ? error.message : String(error)}`,
       );
+      this.sessionLossRecoveries.delete(name);
       return;
     }
 
-    void this.createSingleClient(name, freshTransport).catch((error) => {
-      logger.error(
-        `Failed to recover ${name} after session loss: ${error instanceof Error ? error.message : String(error)}`,
-      );
-    });
+    void this.createSingleClient(name, freshTransport)
+      .catch((error) => {
+        logger.error(
+          `Failed to recover ${name} after session loss: ${error instanceof Error ? error.message : String(error)}`,
+        );
+      })
+      .finally(() => {
+        this.sessionLossRecoveries.delete(name);
+        // Whether recovery succeeded or failed, this dead client/transport is no
+        // longer on record for `name` (createSingleClient always replaces it,
+        // even with an error-status placeholder) — close it so its underlying
+        // connection and any pending SSE reconnection timers don't linger.
+        void this.disposeConnectedClient({ client: erroredClient, transport: staleTransport });
+      });
   }
 
   /**

@@ -465,6 +465,110 @@ describe('ClientManager (Integration)', () => {
       expect(logger.error).toHaveBeenCalledWith(expect.stringContaining('Cannot recover stdio-client'));
       expect(clientManager.getTransport('stdio-client')).toBe(stdioTransport);
     });
+
+    it('deduplicates recovery when the same dead client reports session loss more than once', async () => {
+      vi.useRealTimers();
+
+      const originalTransport = {
+        _url: new URL('https://example.com/mcp'),
+        close: vi.fn().mockResolvedValue(undefined),
+      } as unknown as AuthProviderTransport;
+      Object.setPrototypeOf(originalTransport, StreamableHTTPClientTransport.prototype);
+
+      const freshTransport = {
+        _url: new URL('https://example.com/mcp'),
+        close: vi.fn().mockResolvedValue(undefined),
+      } as unknown as AuthProviderTransport;
+      Object.setPrototypeOf(freshTransport, StreamableHTTPClientTransport.prototype);
+
+      (mockClient.connect as unknown as MockInstance).mockResolvedValue(undefined);
+      (mockClient.getServerVersion as unknown as MockInstance).mockResolvedValue({
+        name: 'test-server',
+        version: '1.0.0',
+      });
+
+      const recreateForSessionLoss = vi
+        .spyOn((clientManager as any).transportRecreator, 'recreateForSessionLoss')
+        .mockReturnValue(freshTransport);
+
+      await clientManager.createSingleClient('dup-session-loss-client', originalTransport);
+      const registeredClient = clientManager.getClient('dup-session-loss-client').client;
+
+      // Hold the recovery connection attempt open so a second onerror firing
+      // for the same dead client lands while the first recovery is in flight.
+      let resolveRecoveryConnect: () => void = () => {};
+      (mockClient.connect as unknown as MockInstance).mockReturnValue(
+        new Promise<void>((resolve) => {
+          resolveRecoveryConnect = resolve;
+        }),
+      );
+
+      registeredClient.onerror?.(new Error('Session not found'));
+      registeredClient.onerror?.(new Error('Session not found'));
+
+      resolveRecoveryConnect();
+
+      await vi.waitFor(() => {
+        expect(clientManager.getClient('dup-session-loss-client').status).toBe(ClientStatus.Connected);
+      });
+
+      expect(recreateForSessionLoss).toHaveBeenCalledTimes(1);
+    });
+
+    it('closes the superseded client and transport once session-loss recovery settles', async () => {
+      vi.useRealTimers();
+
+      const originalTransport = {
+        _url: new URL('https://example.com/mcp'),
+        close: vi.fn().mockResolvedValue(undefined),
+      } as unknown as AuthProviderTransport;
+      Object.setPrototypeOf(originalTransport, StreamableHTTPClientTransport.prototype);
+
+      const freshTransport = {
+        _url: new URL('https://example.com/mcp'),
+        close: vi.fn().mockResolvedValue(undefined),
+      } as unknown as AuthProviderTransport;
+      Object.setPrototypeOf(freshTransport, StreamableHTTPClientTransport.prototype);
+
+      const erroredClient: Partial<Client> = {
+        connect: vi.fn().mockResolvedValue(undefined),
+        getServerVersion: vi.fn().mockResolvedValue({ name: 'test-server', version: '1.0.0' }),
+        close: vi.fn().mockResolvedValue(undefined),
+        getInstructions: vi.fn().mockReturnValue('test instructions'),
+      };
+      const recoveredClient: Partial<Client> = {
+        connect: vi.fn().mockResolvedValue(undefined),
+        getServerVersion: vi.fn().mockResolvedValue({ name: 'test-server', version: '1.0.0' }),
+        close: vi.fn().mockResolvedValue(undefined),
+        getInstructions: vi.fn().mockReturnValue('test instructions'),
+      };
+      (Client as unknown as MockInstance)
+        .mockImplementationOnce(function () {
+          return erroredClient;
+        })
+        .mockImplementationOnce(function () {
+          return recoveredClient;
+        });
+
+      vi.spyOn((clientManager as any).transportRecreator, 'recreateForSessionLoss').mockReturnValue(freshTransport);
+
+      await clientManager.createSingleClient('cleanup-client', originalTransport);
+      expect(clientManager.getClient('cleanup-client').client).toBe(erroredClient);
+
+      const registeredClient = clientManager.getClient('cleanup-client').client;
+      registeredClient.onerror?.(new Error('Session not found'));
+
+      await vi.waitFor(() => {
+        expect(clientManager.getClient('cleanup-client').client).toBe(recoveredClient);
+      });
+
+      await vi.waitFor(() => {
+        expect(erroredClient.close).toHaveBeenCalled();
+      });
+
+      expect(originalTransport.close).not.toHaveBeenCalled();
+      expect(recoveredClient.close).not.toHaveBeenCalled();
+    });
   });
 
   describe('getClient and getClients', () => {
