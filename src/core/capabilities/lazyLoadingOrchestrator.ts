@@ -9,6 +9,7 @@ import { ConnectionResolver, TemplateHashProvider } from '@src/core/server/conne
 import { filterDisabledTools } from '@src/core/server/disabledTools.js';
 import { ClientStatus, OutboundConnections } from '@src/core/types/index.js';
 import logger, { debugIf, errorIf } from '@src/logger/logger.js';
+import { getRequestTimeout } from '@src/utils/core/timeoutUtils.js';
 
 import { AsyncLoadingOrchestrator } from './asyncLoadingOrchestrator.js';
 import { AsyncLoadingOrchestratorEvent } from './asyncLoadingOrchestratorEvent.js';
@@ -171,7 +172,9 @@ export class LazyLoadingOrchestrator extends EventEmitter {
 
       try {
         // Get tools directly from this server's client
-        const toolsResult = await connection.client.listTools();
+        const toolsResult = await connection.client.listTools(undefined, {
+          timeout: getRequestTimeout(connection.transport),
+        });
         const effectiveServerName = connection.name || serverName;
         const serverTools = filterDisabledTools(toolsResult.tools || [], serverConfigs, effectiveServerName);
 
@@ -286,7 +289,9 @@ export class LazyLoadingOrchestrator extends EventEmitter {
     }
 
     // Get the tool from server's listTools
-    const toolsResult = await result.connection.client.listTools();
+    const toolsResult = await result.connection.client.listTools(undefined, {
+      timeout: getRequestTimeout(result.connection.transport),
+    });
     const tool = toolsResult.tools.find((t) => t.name === toolName);
 
     if (!tool) {

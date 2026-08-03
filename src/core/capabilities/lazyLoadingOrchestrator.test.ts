@@ -1,6 +1,8 @@
+import type { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { Tool } from '@modelcontextprotocol/sdk/types.js';
 
 import { ClientStatus, OutboundConnections } from '@src/core/types/index.js';
+import { createMockClient, createMockOutboundConnection } from '@test/unit-utils/MockFactories.js';
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -165,6 +167,56 @@ describe('LazyLoadingOrchestrator', () => {
   });
 
   describe('initialize', () => {
+    it('should apply the effective backend request timeout while constructing the lazy registry', async () => {
+      mockOutboundConnections.delete('database');
+      const connection = mockOutboundConnections.get('filesystem')!;
+      connection.transport.requestTimeout = 240_000;
+      connection.transport.timeout = 5_000;
+      orchestrator = new LazyLoadingOrchestrator(mockOutboundConnections, mockAgentConfig);
+
+      await orchestrator.initialize();
+
+      expect(mockClient.listTools).toHaveBeenCalledTimes(1);
+      for (const call of mockClient.listTools.mock.calls) {
+        expect(call).toEqual([undefined, { timeout: 240_000 }]);
+      }
+    });
+
+    it('should keep healthy lazy registry entries and recover a timed-out backend on refresh', async () => {
+      const slowListTools = vi
+        .fn()
+        .mockRejectedValueOnce(new Error('Request timed out'))
+        .mockResolvedValueOnce({
+          tools: [{ name: 'recovered', description: 'Recovered', inputSchema: { type: 'object' } }],
+        });
+      const healthyListTools = vi.fn().mockResolvedValue({
+        tools: [{ name: 'healthy', description: 'Healthy', inputSchema: { type: 'object' } }],
+      });
+      const createConnection = (name: string, listTools: Client['listTools']) =>
+        createMockOutboundConnection({
+          name,
+          client: createMockClient({ listTools, getServerCapabilities: vi.fn().mockReturnValue({}) }) as Client,
+          transport: {
+            requestTimeout: 50,
+            start: async () => {},
+            send: async () => undefined,
+            close: async () => {},
+          },
+        });
+      const connections: OutboundConnections = new Map([
+        ['slow', createConnection('slow', slowListTools)],
+        ['healthy', createConnection('healthy', healthyListTools)],
+      ]);
+      orchestrator = new LazyLoadingOrchestrator(connections, mockAgentConfig);
+
+      await orchestrator.initialize();
+      expect(orchestrator.getToolRegistry().size()).toBe(1);
+
+      await orchestrator.refreshCapabilities();
+      expect(orchestrator.getToolRegistry().size()).toBe(2);
+      expect(slowListTools).toHaveBeenCalledTimes(2);
+    });
+
     it('should initialize successfully in metatool mode', async () => {
       orchestrator = new LazyLoadingOrchestrator(mockOutboundConnections, mockAgentConfig);
 
@@ -490,6 +542,19 @@ describe('LazyLoadingOrchestrator', () => {
       );
 
       expect(result).toBeDefined();
+    });
+
+    it('should apply the effective backend request timeout when loading a tool schema', async () => {
+      mockOutboundConnections.get('filesystem')!.transport.requestTimeout = 180_000;
+      mockClient.listTools.mockClear();
+
+      const result = await orchestrator.callMetaTool('tool_schema', {
+        server: 'filesystem',
+        toolName: 'read_file',
+      });
+
+      expect(result).toBeDefined();
+      expect(mockClient.listTools).toHaveBeenCalledWith(undefined, { timeout: 180_000 });
     });
 
     it('should throw when meta-tool provider not initialized', async () => {
