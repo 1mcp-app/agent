@@ -292,15 +292,19 @@ describe('SDKOAuthClientProvider', () => {
     it('should invalidate only tokens while retaining client registration', async () => {
       provider.saveClientInformation(mockClientInfo);
       provider.saveTokens(mockTokens);
+      mockRandomUUID.mockReturnValueOnce('state-before-invalidation').mockReturnValueOnce('state-after-invalidation');
+      const stateBeforeInvalidation = provider.state();
 
       await provider.invalidateCredentials?.('tokens');
 
       expect(provider.tokens()).toBeUndefined();
       expect(provider.clientInformation()).toEqual(mockClientInfo);
+      expect(provider.state()).not.toBe(stateBeforeInvalidation);
       expect(mockClientSessionRepository.save).toHaveBeenLastCalledWith(
         'test-server',
         expect.objectContaining({
           clientInfo: JSON.stringify(mockClientInfo),
+          state: 'state-after-invalidation',
           tokens: undefined,
         }),
         expect.any(Number),

@@ -137,6 +137,7 @@ export class SDKOAuthClientProvider implements OAuthClientProvider {
         break;
       case 'tokens':
         this._tokens = undefined;
+        this._state = undefined;
         this._authorizationUrl = undefined;
         break;
       case 'verifier':
