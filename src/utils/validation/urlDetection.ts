@@ -1,6 +1,7 @@
 import { getConfigDir } from '@src/constants.js';
 import { discoverScopedRuntime } from '@src/core/server/runtimeLifecycle.js';
 import {
+  fetchRuntimeIdentity,
   fetchRuntimeTargetUrl,
   type RuntimeTargetTlsOptions,
 } from '@src/domains/runtime-targets/runtimeIdentityVerification.js';
@@ -42,17 +43,29 @@ export function detectUrlFromCliArgs(): string {
  * Method 2: Detect running server on common ports
  */
 export async function detectRunningServerUrl(): Promise<string | null> {
-  // Try common ports and check /oauth endpoint (which always exists)
+  // Try common ports against the unthrottled runtime identity endpoint.
   const commonPorts = [3050, 3051, 3052];
 
   for (const port of commonPorts) {
     try {
-      const response = await fetch(`http://localhost:${port}/oauth/`, {
+      const baseUrl = `http://localhost:${port}`;
+      const identityResponse = await fetch(`${baseUrl}/.well-known/1mcp/runtime-identity`, {
         redirect: 'manual',
         signal: AbortSignal.timeout(2000),
       });
-      if (isReachableOAuthProbeResponse(response)) {
+      if (identityResponse.ok) {
         return `http://localhost:${port}/mcp`;
+      }
+
+      // Compatibility fallback for runtimes that predate runtime identity.
+      if (identityResponse.status === 404) {
+        const oauthResponse = await fetch(`${baseUrl}/oauth/`, {
+          redirect: 'manual',
+          signal: AbortSignal.timeout(2000),
+        });
+        if (isReachableOAuthProbeResponse(oauthResponse)) {
+          return `http://localhost:${port}/mcp`;
+        }
       }
     } catch (error) {
       // Connection refused is the expected case while scanning unused ports, but
@@ -82,9 +95,9 @@ export function detectUrlFromEnv(): string | null {
 }
 
 /**
- * Reachability probe for client surfaces. Reuses the existing 1mcp-aware
- * validation (OAuth endpoint check) rather than the readiness gate, preserving
- * the attach semantics these commands already had.
+ * Reachability probe for client surfaces. Runtime identity is intentionally
+ * outside OAuth rate limiting, so repeated CLI attachments cannot exhaust the
+ * OAuth discovery budget and make a healthy runtime appear unavailable.
  */
 const clientSurfaceProbe = async (info: { url: string }): Promise<boolean> =>
   (await validateServer1mcpUrl(info.url)).valid;
@@ -226,7 +239,20 @@ export async function validateServer1mcpUrl(
     // like http://host/mcp-internal/mcp is not mangled by stripping the first match.
     const baseUrl = url.replace(/\/mcp\/?$/, '');
 
-    // Test basic connectivity to OAuth endpoint (which always exists)
+    try {
+      await fetchRuntimeIdentity(baseUrl, {
+        fetch: fetchRuntimeTargetUrl,
+        ...tls,
+      });
+      return { valid: true };
+    } catch (error) {
+      debugIf(() => ({
+        message: 'Runtime identity probe failed; trying legacy OAuth discovery',
+        meta: { error: error instanceof Error ? error.message : String(error) },
+      }));
+    }
+
+    // Compatibility fallback for runtimes that predate runtime identity.
     const oauthResponse = await fetchRuntimeTargetUrl(`${baseUrl}/oauth/`, {
       redirect: 'manual',
       signal: AbortSignal.timeout(5000),
@@ -239,9 +265,6 @@ export async function validateServer1mcpUrl(
         error: createSafeErrorMessage(`1mcp server not responding (HTTP ${oauthResponse.status})`),
       };
     }
-
-    // For MCP endpoint, we just verify OAuth is working since MCP requires POST with specific payload
-    // The OAuth endpoint responding successfully indicates the server is properly running
 
     return { valid: true };
   } catch (error) {
