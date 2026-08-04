@@ -158,24 +158,12 @@ export class TemplateServerManager {
         );
         instance.outboundKeys.add(outboundKey);
 
-        let instructions: string | undefined;
-        try {
-          instructions = instance.client.getInstructions?.();
-        } catch (error) {
-          logger.warn(`Failed to extract instructions from template server ${templateName}: ${error}`);
-        }
-
         outboundConns.set(outboundKey, {
           name: templateName, // Keep clean name for tool namespacing (serena_1mcp_*)
           transport: instance.transport as AuthProviderTransport,
           client: instance.client,
           status: ClientStatus.Connected, // Template servers should be connected
           capabilities: undefined, // Will be populated by setupCapabilities
-          instructions,
-          templateIdentity:
-            identityMode === 'session'
-              ? { mode: 'session', ownerSessionId: sessionId, renderedHash }
-              : { mode: 'rendered', renderedHash },
         });
         if (instance.supervision) {
           this.publishTemplateSupervision(instance, instance.supervision);
@@ -183,14 +171,20 @@ export class TemplateServerManager {
 
         // Extract and cache instructions for template servers
         // This ensures instructions are available on first connection
-        if (this.instructionAggregator && instructions?.trim()) {
-          // This cache is retained for static compatibility. Session-scoped
-          // rendering reads the connection's own instruction value below.
-          this.instructionAggregator.setInstructions(templateName, instructions);
-          debugIf(() => ({
-            message: `Cached instructions for template server: ${templateName}`,
-            meta: { templateName, instructionLength: instructions.length },
-          }));
+        if (this.instructionAggregator) {
+          try {
+            const instructions = instance.client.getInstructions();
+            if (instructions?.trim()) {
+              // Use clean template name (not the hash-suffixed outboundKey)
+              this.instructionAggregator.setInstructions(templateName, instructions);
+              debugIf(() => ({
+                message: `Cached instructions for template server: ${templateName}`,
+                meta: { templateName, instructionLength: instructions.length },
+              }));
+            }
+          } catch (error) {
+            logger.warn(`Failed to extract instructions from template server ${templateName}: ${error}`);
+          }
         }
 
         // Track session -> rendered hash mapping for routing

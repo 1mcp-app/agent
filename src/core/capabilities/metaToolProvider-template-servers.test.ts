@@ -58,10 +58,6 @@ describe('MetaToolProvider - Template Server Support', () => {
       client: mockClient,
       status: ClientStatus.Connected,
       capabilities: { tools: {} },
-      templateIdentity: {
-        mode: 'rendered',
-        renderedHash: 'abc123',
-      },
       transport: 'stdio' as any,
     });
 
@@ -227,11 +223,6 @@ describe('MetaToolProvider - Template Server Support', () => {
             client: sessionAClient,
             status: ClientStatus.Connected,
             capabilities: { tools: {} },
-            templateIdentity: {
-              mode: 'session',
-              ownerSessionId: 'session-a',
-              renderedHash: 'template-session-a',
-            },
             transport: 'stdio' as any,
           },
         ],
@@ -242,11 +233,6 @@ describe('MetaToolProvider - Template Server Support', () => {
             client: sessionBClient,
             status: ClientStatus.Connected,
             capabilities: { tools: {} },
-            templateIdentity: {
-              mode: 'session',
-              ownerSessionId: 'session-b',
-              renderedHash: 'template-session-b',
-            },
             transport: 'stdio' as any,
           },
         ],
@@ -425,11 +411,6 @@ describe('MetaToolProvider - Template Server Support', () => {
             client: sessionScopedClient,
             status: ClientStatus.Connected,
             capabilities: { tools: {} },
-            templateIdentity: {
-              mode: 'session',
-              ownerSessionId: 'session-123',
-              renderedHash: 'abc123',
-            },
             transport: 'stdio' as any,
           },
         ],
@@ -440,10 +421,6 @@ describe('MetaToolProvider - Template Server Support', () => {
             client: globalClient,
             status: ClientStatus.Connected,
             capabilities: { tools: {} },
-            templateIdentity: {
-              mode: 'rendered',
-              renderedHash: 'abc123',
-            },
             transport: 'stdio' as any,
           },
         ],

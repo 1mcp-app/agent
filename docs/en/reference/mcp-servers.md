@@ -524,13 +524,11 @@ The agent supports hot-reloading of the configuration file. If you modify the JS
 
 ## MCP Server Templates
 
-MCP Server Templates enable dynamic, context-aware server configuration. Instead of hardcoding server settings, a server-owned integration can define template configurations that adapt to trusted runtime context such as the current project, user, environment, or connection.
+MCP Server Templates define syntax for dynamic, context-aware server configuration. Public client context cannot currently render or create them; see the [MCP Server Templates security contract](/guide/mcp-server-templates#public-context-cannot-create-template-servers).
 
 ### Template Configuration
 
 Templates are defined in the `mcpTemplates` section of your configuration:
-
-> Security boundary: public HTTP, SSE, streamable HTTP, and REST request context cannot render templates or influence process settings. Template rendering requires server-owned, in-process trusted context. A session ID only routes an already-created session-scoped connection; it is not user identity or trusted context. See the [MCP Server Templates Guide](/guide/mcp-server-templates) for the current HTTP compatibility limits.
 
 ::: v-pre
 
@@ -603,7 +601,7 @@ Templates have access to four namespaces of context variables:
 
 ### Context Enrichment (.1mcprc)
 
-Project-level context can be enriched with a `.1mcprc` file when a server-owned integration creates trusted template context. A public request or proxy cannot use this file to make client context trusted or start template rendering:
+Project-level context can be enriched with a `.1mcprc` file:
 
 ```json
 {

@@ -21,22 +21,20 @@ head:
 
 [Serena](https://github.com/oraios/serena) is a semantic code analysis toolkit that provides LSP-powered understanding of your codebase. It offers symbol-level operations, cross-reference analysis, and intelligent code navigation across 30+ programming languages.
 
-::: warning Template setup requires server-owned trusted context
-
-The static configuration below is the supported public HTTP, SSE, streamable HTTP, REST, and proxy setup. The template examples on this page apply only when a server-owned integration creates an explicitly trusted in-process context. Public `_meta.context`, query `context`, client metadata, and `.1mcprc` context fields cannot render `mcpTemplates` or influence Serena's command, project path, or environment. An `mcp-session-id` only routes an already-created session-scoped connection; it is not user identity or trusted context.
-
+::: warning Use static configuration for now
+The template examples on this page describe an intended workflow, but public HTTP, REST, and `1mcp proxy` context cannot currently create the Serena template instances they show. Use the fixed-path static configuration below; see [MCP Server Templates](/guide/mcp-server-templates#public-context-cannot-create-template-servers) for the security contract.
 :::
 
 ### Why Use Serena with 1MCP Templates?
 
 <ClientOnly>
 
-Combining Serena with 1MCP's template system in a server-owned trusted integration enables:
+With a future authenticated server-side context integration, combining Serena with 1MCP's template system is designed to enable:
 
 - **Automatic Project Detection**: Templates inject project paths dynamically via <span v-pre>`{{project.path}}`</span>
-- **Context-Aware Configuration**: Different tool sets based on verified client type (IDE vs CLI)
+- **Context-Aware Configuration**: Different tool sets based on client type (IDE vs CLI)
 - **Environment-Based Control**: Enable semantic analysis in development, disable in production
-- **Zero Manual Configuration**: Trusted server-owned project context flows automatically to Serena
+- **Zero Manual Configuration**: Trusted project context could flow from 1MCP to Serena
 
 </ClientOnly>
 
@@ -79,9 +77,9 @@ Add Serena to your `mcp.json` with a fixed project path:
 
 :::
 
-### Template-Based Configuration (Server-Owned Trusted Integrations Only)
+### Template-Based Configuration (Currently Unavailable)
 
-Use templates for automatic project detection only from a server-owned trusted integration:
+Use templates for automatic project detection:
 
 ::: v-pre
 
@@ -108,12 +106,12 @@ Use templates for automatic project detection only from a server-owned trusted i
 
 :::
 
-**How it works**: When a server-owned integration creates trusted context, 1MCP can:
+**Intended behavior**: Once an authenticated server-side context integration is available, 1MCP can:
 
-1. Detects the current project directory
-2. Renders <span v-pre>`{{project.path}}`</span> with the actual path
-3. Launches Serena configured for that specific project
-4. Provides project-aware semantic analysis tools
+1. Detect the current project directory
+2. Render <span v-pre>`{{project.path}}`</span> with the actual path
+3. Launch Serena configured for that specific project
+4. Provide project-aware semantic analysis tools
 
 ## Template Variables
 
@@ -121,7 +119,7 @@ Use templates for automatic project detection only from a server-owned trusted i
 
 <ClientOnly>
 
-Serena requires a project root directory for analysis. A server-owned trusted integration can use <span v-pre>`{{project.path}}`</span> to inject it automatically:
+Serena requires a project root directory for analysis. The future trusted-context workflow could use <span v-pre>`{{project.path}}`</span> to inject it:
 
 ::: v-pre
 
@@ -149,13 +147,13 @@ Serena requires a project root directory for analysis. A server-owned trusted in
 
 ### Instance Sharing
 
-**Important**: Within a server-owned trusted integration, 1MCP can share the same Serena instance when the rendered template configuration is identical. This means:
+**Intended behavior**: Once trusted rendering is available, 1MCP can share one Serena instance when the rendered template configuration is identical. The design would mean:
 
-- Sessions attached to the same trusted integration **on the same machine** and working on the **same project** with the **same context** can share one Serena instance
+- Multiple AI clients/sessions **on the same machine** working on the **same project** with the **same context** share one Serena instance
 - Each unique project path gets its own dedicated Serena instance
 - Different contexts (e.g., `claude-code` vs `ide`) get separate instances
 
-**Example**: A server-owned integration can scope one trusted `claude-code` template instance to sessions using the same project context, while a separately trusted `ide` context receives another instance. Public CLI, proxy, and HTTP client metadata cannot create or select these instances by rendering a template.
+**Example**: If you open multiple terminal windows on your development machine running Claude Code CLI, all connected to the same project, they share one Serena instance with the `claude-code` context. If you then open Cursor (also on the same machine) for the same project, it gets a separate instance with `ide` context.
 
 **Note**: Serena requires local file access to read code, configuration, and cache files. Each developer on their own machine will have their own Serena instance, even when working on the same project.
 
@@ -167,7 +165,7 @@ Serena requires a project root directory for analysis. A server-owned trusted in
 
 ## Context-Aware Configuration
 
-Serena's `--context` parameter controls which tools are available based on the client type. Within a server-owned trusted integration, use template conditionals to select the appropriate context:
+Serena's `--context` parameter controls which tools are available based on the client type. A future authenticated server-side integration could use template conditionals to select the appropriate context:
 
 ### Available Context Types
 
@@ -178,9 +176,9 @@ Serena's `--context` parameter controls which tools are available based on the c
 | `codex`       | Codex CLI            | Required for Codex compatibility                     |
 | Custom        | User-defined         | Create via Serena's config system                    |
 
-### Client-Aware Context Selection
+### Future Client-Aware Context Selection Syntax
 
-Within a trusted integration, choose context based on verified connection information:
+A future authenticated server-side context integration could choose a Serena context based on the connecting client:
 
 ::: v-pre
 
@@ -207,14 +205,14 @@ Within a trusted integration, choose context based on verified connection inform
 
 :::
 
-**How it works**:
+**Intended mapping**:
 
 - Cursor or VSCode clients get `ide` context (avoids tool duplication)
 - All other clients get `claude-code` context (full tool set)
 
 ### Multi-Client Context Mapping
 
-Handle multiple IDE clients with complex conditionals:
+A future integration could handle multiple IDE clients with complex conditionals:
 
 ::: v-pre
 
@@ -245,7 +243,7 @@ Handle multiple IDE clients with complex conditionals:
 
 ### Using .1mcprc for Custom Context
 
-Within a server-owned trusted integration, define custom metadata in `.1mcprc` and reference it in templates. A public request cannot use this file to trigger rendering:
+For a future authenticated integration, `.1mcprc` could define custom metadata for templates:
 
 **.1mcprc in your project root:**
 
@@ -316,13 +314,13 @@ serena project create --index
 # This creates .serena/project.yml with project-specific settings
 ```
 
-**Important**: 1MCP templates configure the Serena server instance (CLI arguments), while Serena's config files control analysis behavior (indexing preferences, language settings).
+**Important**: In the intended template design, 1MCP templates would configure the Serena server instance (CLI arguments), while Serena's config files control analysis behavior (indexing preferences, language settings).
 
 ## Complete Examples
 
 ### Example 1: Multi-Environment Setup
 
-Enable semantic analysis in development, disable in production:
+Future example: enable semantic analysis in development and disable it in production:
 
 ::: v-pre
 
@@ -665,21 +663,9 @@ Create custom contexts via `~/.serena/serena_config.yml`.
 
 ### Template Variables Not Rendering
 
-**Symptom**: Serena starts with literal `{{project.path}}` instead of actual path
+**Symptom**: A public HTTP, REST, or `1mcp proxy` client does not create the Serena template, or template fields remain literal.
 
-**Solution**: First confirm that a server-owned integration is creating trusted context. Public HTTP, SSE, streamable HTTP, REST, and proxy requests intentionally do not render Serena templates. In a trusted integration, ensure you're using `mcpTemplates`, not `mcpServers`:
-
-::: v-pre
-
-```json
-{
-  "mcpTemplates": {  // ← Must be templates, not servers
-    "serena": { ... }
-  }
-}
-```
-
-:::
+**Solution**: This is expected fail-closed behavior. Use the [basic static configuration](#basic-static-configuration) with a fixed absolute project path in `mcpServers`. Moving the definition to `mcpTemplates` or debugging <span v-pre>`{{project.path}}`</span> cannot enable public template rendering in this release.
 
 ### Serena Not Finding Project Root
 
@@ -687,7 +673,7 @@ Create custom contexts via `~/.serena/serena_config.yml`.
 
 **Solutions**:
 
-1. Verify <span v-pre>`{{project.path}}`</span> resolves correctly by enabling debug logging
+1. Verify the fixed absolute project path in the static `mcpServers` configuration
 2. Initialize project: `serena project create` in your project root
 
 </ClientOnly>

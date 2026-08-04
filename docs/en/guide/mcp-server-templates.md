@@ -1,6 +1,6 @@
 ---
 title: MCP Server Templates - Dynamic Server Configuration
-description: Learn how to use MCP Server Templates in 1MCP for dynamic, context-aware server configuration with Handlebars variables.
+description: Reference MCP Server Template syntax and the current fail-closed context security contract.
 head:
   - ['meta', { name: 'keywords', content: 'MCP server templates,Handlebars,dynamic configuration,context-aware' }]
   - ['meta', { property: 'og:title', content: '1MCP Server Templates Guide' }]
@@ -12,24 +12,20 @@ head:
 
 # MCP Server Templates
 
-MCP Server Templates enable dynamic, context-aware server configuration. Instead of hardcoding server settings, a server-owned integration can define template configurations that adapt to trusted runtime context such as the current project, user, environment, or connection.
+MCP Server Templates define Handlebars-based, context-aware server configuration syntax. Template definitions can be stored in configuration, but this release has no trusted production context source that can render and create them.
+
+::: warning Public context cannot create template servers
+In this release, public client `_meta.context` (including REST bodies), query `context`, context carried by `1mcp proxy`, and persisted HTTP context are ignored when rendering template `command`, `args`, `cwd`, or `env`. Template creation from these public surfaces is temporarily unavailable pending an authenticated server-side context design.
+:::
 
 ## Overview
 
-Templates allow you to:
+The configuration format is designed to express:
 
-- **Dynamic server creation**: Spawn different servers based on project context
-- **Environment-aware configuration**: Automatically adjust settings per environment
-- **Context enrichment**: Inject project-specific metadata into server configurations
-- **Conditional enablement**: Enable/disable servers based on runtime conditions
-
-::: warning HTTP context is not trusted
-
-Public HTTP, SSE, and streamable HTTP MCP endpoints, plus REST routes such as `instructions`, `inspect`, and `run`, never use client-supplied context to render `mcpTemplates` or create processes. This includes `_meta.context`, the `context` query parameter, and client metadata. Those values cannot influence a template process's `command`, `args`, `cwd`, or `env`. Only a server-owned integration can create and mark an in-process context as trusted before rendering template server settings.
-
-A session ID can route a request to connections already scoped to that session. Treat it as a protected bearer routing capability, not as user identity, authentication, or evidence that client context is trusted; it cannot cause a template to render. HTTP and proxy clients therefore receive static inventory plus any already-created, server-owned session-scoped connections; context-aware template creation through public HTTP, SSE, streamable HTTP, proxy, `run`, or `inspect` is intentionally unavailable until a server-verifiable client-context capability exists.
-
-:::
+- **Dynamic server creation**: Different server definitions based on project context
+- **Environment-aware configuration**: Settings selected per environment
+- **Context enrichment**: Project-specific metadata referenced by server configurations
+- **Conditional enablement**: Servers enabled or disabled by runtime conditions
 
 ### Templates vs. Static Servers
 
@@ -37,11 +33,11 @@ A session ID can route a request to connections already scoped to that session. 
 
 | Feature            | Static Servers (`mcpServers`) | Template Servers (`mcpTemplates`) |
 | ------------------ | ----------------------------- | --------------------------------- |
-| Configuration      | Fixed values at startup       | Dynamic values based on context   |
-| Context awareness  | None                          | Trusted server-owned context      |
-| Multiple instances | Single instance per config    | Multiple instances per trusted context |
-| Lifecycle          | Always running                | Created on demand by a trusted integration |
-| Use case           | Stable infrastructure         | Dynamic, context-specific tools   |
+| Configuration      | Fixed values at startup       | Template values based on context              |
+| Context awareness  | None                          | Project, user, transport, client syntax       |
+| Multiple instances | Single instance per config    | Unavailable from public context in this release |
+| Lifecycle          | Always running                | No public creation path in this release       |
+| Use case           | Stable infrastructure         | Future authenticated server-side integrations |
 
 ### Key Difference from Instruction Templates
 
@@ -55,7 +51,7 @@ A session ID can route a request to connections already scoped to that session. 
 - <span v-pre>`{{serverCount}}`</span> - Number of connected servers
 - <span v-pre>`{{serverNames}}`</span> - List of server names
 
-## Quick Start
+## Syntax Example
 
 ### Basic Template Example
 
@@ -77,12 +73,7 @@ Add a template to your `mcp.json`:
 
 :::
 
-When a server-owned integration creates a trusted template context, 1MCP:
-
-1. Collects context (project path, user, environment)
-2. Renders the template with actual values
-3. Creates a server instance with the rendered configuration
-4. Connects the client to the new instance
+This records the template definition only. A public client connection does not supply rendering authority, render the placeholders, or create a server instance in this release.
 
 ### Environment-Specific Configuration
 
@@ -109,7 +100,7 @@ When a server-owned integration creates a trusted template context, 1MCP:
 
 ## Template Variables
 
-Templates have access to four namespaces of context variables:
+The template syntax defines four namespaces of context variables for a future trusted context source:
 
 ### Project Variables (`project.*`)
 
@@ -230,9 +221,7 @@ Combine conditions with `and`/`or`:
 
 ## Context Enrichment (.1mcprc)
 
-Project-level context enrichment lets a server-owned integration inject custom metadata into templates. Create a `.1mcprc` file in your project root:
-
-This file does not make public client, proxy, or HTTP request data trusted. A public request cannot use `.1mcprc` data to trigger template rendering.
+The syntax can reference project-level metadata. A `.1mcprc` file can record that metadata, but context carried from it through public client surfaces is not used for template rendering in this release:
 
 ```json
 {
@@ -509,9 +498,9 @@ The `disabled` field evaluates the template and converts the result to a boolean
 
 ## Best Practices
 
-### 1. Use .1mcprc for Project Context
+### 1. Do Not Rely on Public .1mcprc Context for Rendering
 
-Store project-specific metadata in `.1mcprc` rather than hardcoding in templates:
+The following shape documents the intended metadata format. It does not make `.1mcprc` context trusted or activate template creation through `proxy` or public HTTP:
 
 **Good** (`.1mcprc`):
 
@@ -610,17 +599,17 @@ Use static tags to enable proper filtering with presets:
 
 ## Troubleshooting
 
-### Template Not Rendering
+### Public Template Context Is Ignored
 
 **Symptom**: Template variables appear as literal <span v-pre>`{{variable}}`</span> strings
 
-**Solutions**:
+**Resolution**: This is the expected fail-closed behavior for public HTTP, REST, and `1mcp proxy` clients. Use a static `mcpServers` definition with fixed `command`, `args`, `cwd`, and `env` values. Moving the definition to `mcpTemplates`, collecting more context, or adding `.1mcprc` data cannot enable public rendering in this release.
 
-1. Ensure templates are in `mcpTemplates`, not `mcpServers`
-2. Confirm that a server-owned integration is creating trusted context; public HTTP, SSE, streamable HTTP, proxy, and REST requests intentionally do not render templates
-3. Verify variable names match the context structure
+### Future/Internal Template Diagnostics
 
-### Custom Context Missing
+The remaining checks apply only to internal trusted tests or a future authenticated server-side context integration. They do not enable rendering from public client context.
+
+#### Custom Context Missing
 
 **Symptom**: <span v-pre>`{{project.custom.*}}`</span> variables are undefined
 
@@ -630,7 +619,7 @@ Use static tags to enable proper filtering with presets:
 2. Validate JSON syntax in `.1mcprc`
 3. Ensure `context.custom` object is properly structured
 
-### Server Not Starting
+#### Server Not Starting
 
 **Symptom**: Template server fails to start
 
@@ -640,7 +629,7 @@ Use static tags to enable proper filtering with presets:
 2. Verify command path after template rendering
 3. Ensure environment variables are properly quoted
 
-### Conditional Logic Not Working
+#### Conditional Logic Not Working
 
 ::: v-pre
 

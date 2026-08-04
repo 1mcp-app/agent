@@ -2,34 +2,19 @@ import { ClientStatus, OutboundConnection, OutboundConnections } from '@src/core
 
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-import {
-  ConnectionResolver,
-  createConnectionResolver,
-  createSessionScopedConnections,
-  TemplateHashProvider,
-} from './connectionResolver.js';
+import { ConnectionResolver, createConnectionResolver, TemplateHashProvider } from './connectionResolver.js';
 
 describe('ConnectionResolver', () => {
   let outboundConns: OutboundConnections;
   let mockTemplateHashProvider: TemplateHashProvider;
 
   // Helper to create a mock OutboundConnection
-  const createMockConnection = (
-    name: string,
-    templateIdentity?: OutboundConnection['templateIdentity'],
-  ): OutboundConnection => ({
+  const createMockConnection = (name: string): OutboundConnection => ({
     name,
     transport: {} as any,
     client: {} as any,
     status: ClientStatus.Connected,
-    templateIdentity,
   });
-
-  const createSessionConnection = (name: string, ownerSessionId: string): OutboundConnection =>
-    createMockConnection(name, { mode: 'session', ownerSessionId, renderedHash: `${ownerSessionId}-rendered` });
-
-  const createRenderedConnection = (name: string, renderedHash: string): OutboundConnection =>
-    createMockConnection(name, { mode: 'rendered', renderedHash });
 
   beforeEach(() => {
     outboundConns = new Map();
@@ -42,9 +27,6 @@ describe('ConnectionResolver', () => {
           return 'hash1';
         }
         if (sessionId === 'session2' && templateName === 'template1') {
-          return 'hash2';
-        }
-        if (sessionId === 'session1' && templateName === 'template2') {
           return 'hash2';
         }
         return undefined;
@@ -77,7 +59,7 @@ describe('ConnectionResolver', () => {
     });
 
     it('should resolve per-client template server (name:sessionId)', () => {
-      outboundConns.set('template:session1', createSessionConnection('template', 'session1'));
+      outboundConns.set('template:session1', createMockConnection('template'));
       const resolver = new ConnectionResolver(outboundConns);
 
       const result = resolver.resolve('template', 'session1');
@@ -88,7 +70,7 @@ describe('ConnectionResolver', () => {
 
     it('should resolve shareable template server (name:renderedHash)', () => {
       // Setup: template1:hash1 in connections, session1 maps to hash1
-      outboundConns.set('template1:hash1', createRenderedConnection('template1', 'hash1'));
+      outboundConns.set('template1:hash1', createMockConnection('template1'));
       const resolver = new ConnectionResolver(outboundConns, mockTemplateHashProvider);
 
       const result = resolver.resolve('template1', 'session1');
@@ -99,16 +81,15 @@ describe('ConnectionResolver', () => {
 
     it('should prioritize per-client over shareable (session key first)', () => {
       // Both keys exist, session key should be tried first
-      outboundConns.set('template1:session1', createSessionConnection('template1', 'session1'));
-      outboundConns.set('template1:hash1', createRenderedConnection('template1', 'hash1'));
+      outboundConns.set('template1:session1', createMockConnection('template1-session'));
+      outboundConns.set('template1:hash1', createMockConnection('template1-hash'));
       const resolver = new ConnectionResolver(outboundConns, mockTemplateHashProvider);
 
-      const result = resolver.resolveWithKey('template1', 'session1');
+      const result = resolver.resolve('template1', 'session1');
 
       // Should get the session-specific one
       expect(result).toBeDefined();
-      expect(result?.key).toBe('template1:session1');
-      expect(result?.connection.name).toBe('template1');
+      expect(result?.name).toBe('template1-session');
     });
 
     it('should fall back to static server if session keys not found', () => {
@@ -157,10 +138,10 @@ describe('ConnectionResolver', () => {
       // Setup mixed connections
       outboundConns.set('static1', createMockConnection('static1'));
       outboundConns.set('static2', createMockConnection('static2'));
-      outboundConns.set('template1:session1', createSessionConnection('template1', 'session1'));
-      outboundConns.set('template1:hash1', createRenderedConnection('template1', 'hash1'));
-      outboundConns.set('template2:hash2', createRenderedConnection('template2', 'hash2'));
-      outboundConns.set('template3:session2', createSessionConnection('template3', 'session2'));
+      outboundConns.set('template1:session1', createMockConnection('template1'));
+      outboundConns.set('template1:hash1', createMockConnection('template1'));
+      outboundConns.set('template2:hash2', createMockConnection('template2'));
+      outboundConns.set('template3:session2', createMockConnection('template3'));
     });
 
     it('should include all static servers (no session filtering)', () => {
@@ -193,7 +174,7 @@ describe('ConnectionResolver', () => {
 
     it('should exclude shareable template servers not used by session', () => {
       // Add another hash-based connection not used by session1
-      outboundConns.set('template4:hash4', createRenderedConnection('template4', 'hash4'));
+      outboundConns.set('template4:hash4', createMockConnection('template4'));
       const resolver = new ConnectionResolver(outboundConns, mockTemplateHashProvider);
 
       const filtered = resolver.filterForSession('session1');
@@ -239,8 +220,8 @@ describe('ConnectionResolver', () => {
         getAllRenderedHashesForSession: () => undefined,
       };
       const repeatedConnections = new Map([
-        ['repeated:hash1', createRenderedConnection('repeated', 'hash1')],
-        ['repeated:hash2', createRenderedConnection('repeated', 'hash2')],
+        ['repeated:hash1', createMockConnection('repeated')],
+        ['repeated:hash2', createMockConnection('repeated')],
       ]) as OutboundConnections;
 
       const filtered = new ConnectionResolver(repeatedConnections, provider).filterForSession('session1');
@@ -262,9 +243,9 @@ describe('ConnectionResolver', () => {
       };
       const failingConnections = new Map([
         ['static', createMockConnection('static')],
-        ['owned:session1', createSessionConnection('owned', 'session1')],
-        ['repeated:hash1', createRenderedConnection('repeated', 'hash1')],
-        ['repeated:hash2', createRenderedConnection('repeated', 'hash2')],
+        ['owned:session1', createMockConnection('owned')],
+        ['repeated:hash1', createMockConnection('repeated')],
+        ['repeated:hash2', createMockConnection('repeated')],
       ]) as OutboundConnections;
 
       const filtered = new ConnectionResolver(failingConnections, provider).filterForSession('session1');
@@ -274,15 +255,6 @@ describe('ConnectionResolver', () => {
       expect(filtered.has('repeated:hash1')).toBe(false);
       expect(filtered.has('repeated:hash2')).toBe(false);
       expect(getRenderedHashForSession).toHaveBeenCalledTimes(1);
-    });
-
-    it('does not treat a rendered hash as a session owner', () => {
-      const renderedHash = 'foreign-rendered-hash';
-      outboundConns.set('template1:foreign-rendered-hash', createRenderedConnection('template1', renderedHash));
-      const resolver = new ConnectionResolver(outboundConns, mockTemplateHashProvider);
-
-      expect(resolver.resolve('template1', renderedHash)).toBeUndefined();
-      expect(resolver.filterForSession(renderedHash).has('template1:foreign-rendered-hash')).toBe(false);
     });
   });
 
@@ -403,7 +375,7 @@ describe('ConnectionResolver', () => {
       const outboundConns = new Map([
         ['valid:key', createMockConnection('valid')],
         ['invalid', createMockConnection('invalid')],
-        ['template1:session1', createSessionConnection('template1', 'session1')],
+        ['template1:session1', createMockConnection('template1')],
       ]) as OutboundConnections;
 
       const resolver = new ConnectionResolver(outboundConns);
@@ -418,25 +390,6 @@ describe('ConnectionResolver', () => {
       expect(filtered.has('template1:session1')).toBe(true);
       // Template server not matching sessionId should be excluded
       expect(filtered.has('valid:key')).toBe(false);
-    });
-  });
-
-  describe('createSessionScopedConnections', () => {
-    it('keeps later static clients live while excluding another session template', () => {
-      outboundConns.set('initial-static', createMockConnection('initial-static'));
-      outboundConns.set('template:session1', createSessionConnection('template', 'session1'));
-      outboundConns.set('template:session2', createSessionConnection('template', 'session2'));
-
-      const scoped = createSessionScopedConnections(outboundConns, 'session1', mockTemplateHashProvider);
-
-      expect(Array.from(scoped.keys())).toEqual(['initial-static', 'template:session1']);
-      expect(scoped.has('template:session2')).toBe(false);
-
-      outboundConns.set('loaded-later', createMockConnection('loaded-later'));
-
-      expect(scoped.get('loaded-later')?.name).toBe('loaded-later');
-      expect(Array.from(scoped.keys())).toEqual(['initial-static', 'template:session1', 'loaded-later']);
-      expect(() => scoped.set('forbidden', createMockConnection('forbidden'))).toThrow('read-only');
     });
   });
 });

@@ -7,6 +7,7 @@ import { createToolsHandler } from './apiRoutes.js';
 
 const mockedLoadDeclaredServerConfigs = vi.hoisted(() => vi.fn());
 const mockedLoadConfigWithTemplates = vi.hoisted(() => vi.fn());
+const mockedExtractRequestContext = vi.hoisted(() => vi.fn());
 const mockedGetTransportConfig = vi.hoisted(() => vi.fn());
 
 vi.mock('@src/config/configManager.js', () => ({
@@ -31,6 +32,7 @@ vi.mock('@src/transport/http/utils/contextExtractor.js', () => ({
     SESSION_ID: 'mcp-session-id',
   },
   deriveContextSessionId: vi.fn(() => 'derived-session-id'),
+  extractRequestContext: mockedExtractRequestContext,
 }));
 
 vi.mock('@src/logger/logger.js', () => ({
@@ -82,7 +84,8 @@ describe('apiRoutes /api/tools', () => {
 
   beforeEach(() => {
     mockedGetTransportConfig.mockReturnValue({});
-    mockedLoadConfigWithTemplates.mockReset();
+    mockedExtractRequestContext.mockReset();
+    mockedExtractRequestContext.mockReturnValue(undefined);
   });
 
   it('returns empty tool list when lazy orchestrator is unavailable', async () => {
@@ -170,36 +173,40 @@ describe('apiRoutes /api/tools', () => {
     expect(secondBody.nextCursor).toBeUndefined();
   });
 
-  it('does not list template tools without the owning session', async () => {
-    const staticListTools = vi.fn().mockResolvedValue({
-      tools: [{ name: 'static_tool', description: 'Static tool', inputSchema: {} }],
-    });
-    const templateListTools = vi.fn().mockResolvedValue({
-      tools: [{ name: 'template_tool', description: 'Template tool', inputSchema: {} }],
-    });
+  it('keeps same-name fallback template instances isolated by the selected connection key', async () => {
+    const filteredScopeMiddleware: RequestHandler = (_req, res, next) => {
+      res.locals.validatedTags = ['session-one'];
+      res.locals.tagFilterMode = 'simple-or';
+      next();
+    };
     const serverManager = {
       getLazyLoadingOrchestrator: vi.fn(() => undefined),
       getClients: vi.fn(
         () =>
           new Map([
             [
-              'static',
-              {
-                name: 'static',
-                status: 'connected',
-                client: { listTools: staticListTools },
-              },
-            ],
-            [
-              'template:owner-session',
+              'instance-one',
               {
                 name: 'template',
                 status: 'connected',
-                client: { listTools: templateListTools },
-                templateIdentity: {
-                  mode: 'session',
-                  ownerSessionId: 'owner-session',
-                  renderedHash: 'owner-rendered',
+                transport: { tags: ['session-one'] },
+                client: {
+                  listTools: vi.fn().mockResolvedValue({
+                    tools: [{ name: 'first_tool', description: 'First instance', inputSchema: {} }],
+                  }),
+                },
+              },
+            ],
+            [
+              'instance-two',
+              {
+                name: 'template',
+                status: 'connected',
+                transport: { tags: ['session-two'] },
+                client: {
+                  listTools: vi.fn().mockResolvedValue({
+                    tools: [{ name: 'second_tool', description: 'Second instance', inputSchema: {} }],
+                  }),
                 },
               },
             ],
@@ -207,29 +214,17 @@ describe('apiRoutes /api/tools', () => {
       ),
     };
     const handler = createToolsHandler(serverManager as never);
-    const anonymousRes = createMockResponse();
+    const res = createMockResponse();
 
-    await invokeInspectRoute(scopeAuthMiddleware, { query: {} }, anonymousRes);
-    await invokeInspectRoute(handler, { query: {} }, anonymousRes);
+    await invokeInspectRoute(filteredScopeMiddleware, { query: {} }, res);
+    await invokeInspectRoute(handler, { query: {} }, res);
 
-    expect(anonymousRes.statusCode).toBe(200);
-    expect(anonymousRes.body).toMatchObject({
+    expect(res.statusCode).toBe(200);
+    expect(res.body).toMatchObject({
       totalCount: 1,
-      servers: ['static'],
-      tools: [{ name: 'static_tool', server: 'static', description: 'Static tool' }],
+      servers: ['template'],
+      tools: [{ name: 'first_tool', server: 'template', description: 'First instance' }],
     });
-    expect(templateListTools).not.toHaveBeenCalled();
-
-    const ownerRes = createMockResponse();
-    await invokeInspectRoute(scopeAuthMiddleware, { headers: { 'mcp-session-id': 'owner-session' }, query: {} }, ownerRes);
-    await invokeInspectRoute(handler, { headers: { 'mcp-session-id': 'owner-session' }, query: {} }, ownerRes);
-
-    expect(ownerRes.statusCode).toBe(200);
-    expect(ownerRes.body).toMatchObject({
-      totalCount: 2,
-      servers: ['static', 'template'],
-    });
-    expect(templateListTools).toHaveBeenCalledTimes(1);
   });
 
   it('reports only servers with matching tools in fallback mode', async () => {
@@ -343,7 +338,7 @@ describe('apiRoutes /api/tools', () => {
         limit: 5,
         cursor: 'abc',
       },
-      expect.objectContaining({ sessionId: undefined, serverCandidates: expect.any(Map) }),
+      undefined,
     );
     expect(res.body).toEqual(mockResult);
   });
@@ -359,12 +354,12 @@ describe('apiRoutes /api/tools', () => {
     ]);
     const serverManager = {
       getLazyLoadingOrchestrator: vi.fn(() => ({
-        callMetaTool: callMetaTool.mockResolvedValue({ tools: [], totalCount: 0, servers: [], hasMore: false }),
+        callMetaTool,
         refreshCapabilities,
         getToolRegistry: () => registry,
         getSchemaCache: () => ({}),
       })),
-      getClients: vi.fn(() => new Map([['alpha', { name: 'alpha', status: 'connected', client: {} }]])),
+      getClients: vi.fn(() => new Map()),
     };
     const handler = createToolsHandler(serverManager as never);
     const res = createMockResponse();
@@ -382,7 +377,26 @@ describe('apiRoutes /api/tools', () => {
     expect(callMetaTool).not.toHaveBeenCalled();
   });
 
-  it('uses header session routing without rendering HTTP context before lazy tool listing', async () => {
+  it('uses the header session only for routing and ignores request context', async () => {
+    const context = {
+      sessionId: 'context-session',
+      project: { path: '/tmp/project' },
+      user: {},
+      environment: {},
+    };
+    const templateConfig = {
+      type: 'stdio',
+      command: 'uvx',
+      args: ['serena', '{{sessionId}}'],
+      tags: ['serena'],
+    };
+    mockedExtractRequestContext.mockReturnValue(context);
+    mockedLoadConfigWithTemplates.mockResolvedValue({
+      staticServers: {},
+      templateServers: { serena: templateConfig },
+      errors: [],
+    });
+
     const callMetaTool = vi.fn().mockResolvedValue({ tools: [], totalCount: 0, servers: [], hasMore: false });
     const refreshCapabilities = vi.fn();
     const createTemplateBasedServers = vi.fn();
@@ -401,26 +415,42 @@ describe('apiRoutes /api/tools', () => {
     };
     const handler = createToolsHandler(serverManager as never);
     const res = createMockResponse();
-    const req = {
-      headers: { 'mcp-session-id': 'header-session' },
-      query: { context: 'eyJwcm9qZWN0Ijp7InBhdGgiOiIvdG1wL2F0dGFja2VyIn19' },
-    };
+    const req = { headers: { 'mcp-session-id': 'header-session' }, query: {} };
 
     await invokeInspectRoute(scopeAuthMiddleware, req, res);
     await invokeInspectRoute(handler, req, res);
 
     expect(mockedLoadConfigWithTemplates).not.toHaveBeenCalled();
     expect(createTemplateBasedServers).not.toHaveBeenCalled();
-    expect(refreshCapabilities).not.toHaveBeenCalled();
     expect(callMetaTool).toHaveBeenCalledWith(
       'tool_list',
       expect.any(Object),
       expect.objectContaining({ sessionId: 'header-session', serverCandidates: expect.any(Map) }),
     );
     expect(res.setHeader).not.toHaveBeenCalled();
+    expect(context.sessionId).toBe('context-session');
   });
 
-  it('does not prepare template context before lazy tool listing', async () => {
+  it('ignores request context before lazy tool listing', async () => {
+    const context = {
+      sessionId: 'context-session',
+      project: { path: '/tmp/project' },
+      user: {},
+      environment: {},
+    };
+    const templateConfig = {
+      type: 'stdio',
+      command: 'uvx',
+      args: ['serena', '{{project.path}}'],
+      tags: ['serena'],
+    };
+    mockedExtractRequestContext.mockReturnValue(context);
+    mockedLoadConfigWithTemplates.mockResolvedValue({
+      staticServers: {},
+      templateServers: { serena: templateConfig },
+      errors: [],
+    });
+
     const callMetaTool = vi.fn().mockResolvedValue({ tools: [], totalCount: 0, servers: [], hasMore: false });
     const refreshCapabilities = vi.fn();
     const createTemplateBasedServers = vi.fn();
@@ -440,21 +470,16 @@ describe('apiRoutes /api/tools', () => {
     };
     const handler = createToolsHandler(serverManager as never);
     const res = createMockResponse();
-    const req = { query: { context: 'eyJwcm9qZWN0Ijp7InBhdGgiOiIvdG1wL2F0dGFja2VyIn19' } };
 
-    await invokeInspectRoute(scopeAuthMiddleware, req, res);
-    await invokeInspectRoute(handler, req, res);
+    await invokeInspectRoute(scopeAuthMiddleware, { query: {} }, res);
+    await invokeInspectRoute(handler, { query: {} }, res);
 
     expect(res.statusCode).toBe(200);
     expect(mockedLoadConfigWithTemplates).not.toHaveBeenCalled();
     expect(createTemplateBasedServers).not.toHaveBeenCalled();
     expect(registerTemplate).not.toHaveBeenCalled();
     expect(refreshCapabilities).not.toHaveBeenCalled();
-    expect(callMetaTool).toHaveBeenCalledWith(
-      'tool_list',
-      expect.any(Object),
-      expect.objectContaining({ sessionId: undefined, serverCandidates: expect.any(Map) }),
-    );
+    expect(callMetaTool).toHaveBeenCalledWith('tool_list', expect.any(Object), undefined);
     expect(res.setHeader).not.toHaveBeenCalled();
   });
 

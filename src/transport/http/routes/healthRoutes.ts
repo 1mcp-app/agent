@@ -28,10 +28,7 @@ export function createHealthRoutes(loadingManager?: McpLoadingManager): Router {
     if (!connections) return {};
     return Object.fromEntries(
       Array.from(connections.entries())
-        .filter(
-          ([name, connection]) =>
-            connection.supervision && !connection.templateIdentity && name === connection.name && !name.includes(':'),
-        )
+        .filter(([, connection]) => connection.supervision)
         .map(([name, connection]) => [name, connection.supervision!] as const),
     );
   };

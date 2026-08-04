@@ -9,10 +9,10 @@
 1MCP 目前有三条不同路径：
 
 1. **Agent loop 的 CLI 模式**：推荐给 Codex、Claude 以及类似的 agent 会话。
-2. **`proxy`**：当你希望通过预设与过滤选择获得最广兼容性时，推荐使用。
-3. **直接 streamable HTTP MCP 接入**：当客户端可以直接连接到公共静态服务目录时使用。
+2. **`proxy`**：当你希望通过 stdio 桥接获得最广兼容性时，推荐使用。
+3. **直接 streamable HTTP MCP 接入**：当客户端可以直接连接时使用。
 
-`proxy` 不是主产品体验。对于 agent loop，CLI 模式仍然是一优先路径。`proxy` 的定位是最好的非 CLI 路径，兼顾 stdio 兼容性与 `.1mcprc` 的预设、过滤选择；它不会根据项目或客户端上下文创建模板服务器。
+`proxy` 不是主产品体验。对于 agent loop，CLI 模式仍然是第一优先路径。`proxy` 的定位是提供 stdio 兼容性的最佳非 CLI 路径。`proxy` 携带的上下文目前不会创建模板服务器；参见 [MCP 服务器模板](/zh/guide/mcp-server-templates#公网上下文不能创建模板服务器)。
 
 ## 概要
 
@@ -36,11 +36,11 @@
 2. 基于 PID 文件发现
 3. 基于 localhost 端口扫描兜底
 
-如果存在项目配置，`proxy` 还会合并 `.1mcprc` 中的预设、过滤与 tags 设置。
+如果存在项目配置，`proxy` 还会合并 `.1mcprc` 中的设置。
 
 ## 使用 `.1mcprc` 做项目级配置
 
-如果你经常把同一个项目或客户端桥接到相同的 preset 或过滤视图，可以使用 `.1mcprc`。其中的 `context` 字段在此公共传输上不是受信任模板输入。
+如果你经常把同一个项目或客户端桥接到相同的 preset 或过滤视图，可以使用 `.1mcprc`。
 
 示例：
 
@@ -117,9 +117,9 @@
 1mcp run <server>/<tool> --args '<json>'
 ```
 
-### 使用直接 HTTP 访问公共静态服务目录
+### 客户端支持时使用直接 HTTP
 
-如果客户端本身支持 streamable HTTP MCP，直接连接运行时端点即可。它可访问静态服务器和已作用域化到当前会话的连接，但不能根据请求上下文创建模板：
+如果客户端本身支持 streamable HTTP MCP，直接连接运行时端点即可：
 
 ```text
 http://127.0.0.1:3050/mcp?app=cursor
@@ -136,15 +136,9 @@ http://127.0.0.1:3050/mcp?app=cursor
 实际建议是：
 
 - 对 agent loop，尽量使用 CLI 模式
-- 对既能认证、又支持 streamable HTTP 的客户端，优先使用直接 HTTP
+- 对能完成认证的客户端，优先使用直接 HTTP
 - 只在运行时不要求认证时使用 `proxy`
 - 如果 stdio 客户端仍然需要兼容接入，请单独运行一个不启用认证的 `serve` 实例
-
-## 模板信任边界
-
-`proxy` 向 `serve` 转发公共 HTTP 请求。它不能使项目或客户端数据成为 `mcpTemplates` 的受信任输入，包括 `_meta.context`、`context` 查询参数或 `.1mcprc` 的 `context` 字段。只有服务器拥有的集成可以创建受信任的进程内上下文并渲染模板。
-
-MCP 会话 ID 可以将请求路由到已作用域化给该会话的连接。它是路由能力，不是用户身份、认证或客户端上下文受信任的证明。
 
 ## 另请参阅
 

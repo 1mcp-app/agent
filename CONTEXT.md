@@ -105,8 +105,12 @@ The process that prepares a **Client Surface** to communicate with an **Aggregat
 _Avoid_: command setup, connection helper, proxy setup
 
 **Request Context**:
-Project, user, environment, and optional transport data supplied by a caller so the **Aggregated Runtime** can resolve contextual behavior.
+Project, user, environment, and optional transport data supplied by a caller. It may inform non-template request behavior, but it is untrusted input and is not template-rendering authority.
 _Avoid_: metadata, payload extras
+
+**Template-Rendering Authority**:
+The security property required before context may render a **Template Server** `command`, `args`, `cwd`, or `env`. Public clients and restored session data do not have this authority, and this release has no production integration that supplies it.
+_Avoid_: trusted client context, session context, context flag
 
 **Request Session**:
 The runtime identity used to associate a request or client connection with template rendering or routing.
@@ -121,7 +125,7 @@ The transport-level process that resolves creation, active use, restoration, ini
 _Avoid_: route session handling, HTTP route logic
 
 **Template Server**:
-An MCP server definition that is rendered from a **Request Context** instead of being fully fixed at startup.
+An MCP server definition whose Handlebars fields are intended to be rendered only from server-owned input with **Template-Rendering Authority**, rather than being fully fixed at startup.
 _Avoid_: dynamic server, generated server
 
 **Template Server Instance**:
@@ -153,7 +157,7 @@ A configuration value that names or references a secret supplied by the runtime 
 _Avoid_: inline secret, copied env value
 
 **Request Context Preparation**:
-The runtime step that resolves a **Request Context** and **Request Session**, renders matching **Template Servers**, registers them for routing, and refreshes lazy capabilities when needed.
+An internal template-preparation step that would require **Template-Rendering Authority** before rendering matching **Template Servers**, registering them for routing, or refreshing lazy capabilities. Caller-supplied **Request Context** alone cannot trigger this step in the current release.
 _Avoid_: request setup, context init
 
 **Capability Snapshot**:
@@ -327,16 +331,17 @@ _Avoid_: install command, installation adapter, registry install
 - A **Config Change** may affect the **Aggregated Runtime** for that **Runtime Scope**.
 - A **Server Installation Workflow** produces or updates one **Configured Server Target** through a **Config Change**.
 - A **Client Surface** can provide a **Request Context**.
+- A **Client Surface** cannot provide **Template-Rendering Authority**.
 - A **Client Surface Attachment** belongs to one **Client Surface**.
 - A **Client Surface Attachment** can reuse an existing **Streamable Transport Session** or create a fresh one depending on the **Client Surface**.
 - A **Client Surface** can provide filtering inputs resolved by **Filter Selection**.
-- The stdio proxy is a **Client Surface** that carries **Request Context** through MCP `_meta` over Streamable HTTP.
+- The stdio proxy is a **Client Surface** that can carry **Request Context** through MCP `_meta` over Streamable HTTP, but the runtime ignores that data for template rendering.
 - Direct HTTP MCP uses a **Streamable Transport Session** for transport continuity.
 - Direct HTTP MCP uses **Streamable Transport Session Lifecycle** before SDK request handling.
-- A **Request Context** resolves to a **Request Session**.
+- A **Request Context** does not by itself resolve or authorize a template-rendering **Request Session**.
 - A **Request Session** can be routing-only when a **Client Surface** supplies session identity without a **Request Context**.
-- When a **Client Surface** supplies both transport session identity and contextual session data, the transport session identity names the **Request Session**.
-- A **Streamable Transport Session** can also name a **Request Session** when contextual template routing uses its `mcp-session-id`.
+- When a **Client Surface** supplies both transport session identity and contextual session data, the transport session identity remains routing-only and does not authorize rendering.
+- A **Streamable Transport Session** can name a routing-only **Request Session** through its `mcp-session-id`.
 - A **Template Server** can produce one or more **Template Server Instances**.
 - A **Template Server Identity** can identify a **Template Server** or a **Template Server Instance** depending on runtime phase.
 - A **Template Server Instance** belongs to one or more **Request Sessions** when it is shareable, and exactly one **Request Session** when it is per-client.
@@ -345,7 +350,7 @@ _Avoid_: install command, installation adapter, registry install
 - A shareable **Template Server Instance** has one supervision lifecycle for all member **Request Sessions**; a per-client instance has a session-bound lifecycle.
 - Replacing a crashed **Template Server Instance** preserves its rendered configuration and **Request Session** memberships, while instance cleanup or loss of all memberships cancels pending recovery.
 - A **Streamable Transport Session** can hold one or more **Template Server Instance** memberships through its associated **Request Session**.
-- **Request Context Preparation** happens before template-aware REST inspection or tool invocation.
+- Public REST inspection and tool invocation do not perform **Request Context Preparation** from caller-supplied context.
 - An **Aggregated Runtime** maintains a **Capability Snapshot**.
 - A **Capability Catalog** reads from a **Capability Snapshot**.
 - A **Capability Catalog** returns **Client Surface**-specific capabilities for a **Request Session**.
@@ -385,12 +390,12 @@ _Avoid_: install command, installation adapter, registry install
 - Revoking one access token does not revoke its **Refresh Token Family**.
 - **Instructions Distribution** delivers instruction content to a **Client Surface**.
 - A **Capability Route** can resolve to a static server or a **Template Server Identity**.
-- **Request Context Preparation** can cause the **Capability Snapshot** to change when new **Template Server Instances** become available.
+- **Request Context Preparation** could change the **Capability Snapshot** only after a future production source supplies **Template-Rendering Authority**.
 
 ## Example dialogue
 
 > **Dev:** "When `/api/tools` receives a context, should it create template servers itself?"
-> **Domain expert:** "No. `/api/tools` is just a **Client Surface**. It should ask **Request Context Preparation** to resolve the **Request Session** and prepare any **Template Server Instances**."
+> **Domain expert:** "No. `/api/tools` receives untrusted **Request Context**, not **Template-Rendering Authority**. It must not render or create **Template Server Instances**."
 > **Dev:** "After that, should `/api/tools` read the registry directly?"
 > **Domain expert:** "No. It should query the **Capability Catalog** for that **Request Session** so visibility rules are applied consistently."
 > **Dev:** "Should the response expose template hash keys?"
@@ -399,14 +404,14 @@ _Avoid_: install command, installation adapter, registry install
 ## Flagged ambiguities
 
 - "session" can mean the standard MCP streamable HTTP session, a contextual runtime identity, or an admin login. Use **Streamable Transport Session**, **Request Session**, and **Admin Session** explicitly.
-- "context" can mean **Request Context** or **Runtime Target Context**. Use **Request Context** for per-request template/filter data, and **Runtime Target Context** for the CLI profile that selects a runtime target.
+- "context" can mean **Request Context** or **Runtime Target Context**. Use **Request Context** for untrusted caller-supplied request/filter data, and **Runtime Target Context** for the CLI profile that selects a runtime target. Neither term implies **Template-Rendering Authority**.
 - "attach-only" does not always mean "reuse an existing session"; short-lived **Client Surfaces** may reuse a cached **Streamable Transport Session**, while long-lived proxy-style surfaces may create a fresh one.
 - A header-only `mcp-session-id` is a routing-only **Request Session** when no **Request Context** is supplied; it does not by itself mean the caller supplied contextual data for rendering **Template Servers**.
-- If both transport session identity and contextual session data are supplied, they must not create competing **Request Sessions**; the transport session identity is authoritative.
+- If both transport session identity and contextual session data are supplied, they must not create competing **Request Sessions**; the transport session identity is authoritative only for routing.
 - "context initialization" and "request setup" both referred to the same behavior in route code. Use **Request Context Preparation** for the full prepare-and-register step.
 - "global runtime" means the default **Runtime Scope**, not a machine-wide singleton; an alternate configuration directory creates a separate **Runtime Scope**.
 - "server log" can mean the Aggregated Runtime log, backend stderr, or admin audit facts. Use **Managed Backend Log** for the sanitized stdio-backend diagnostic record.
-- "proxy" is a **Client Surface**, not a separate runtime path; when it talks to the **Aggregated Runtime**, it uses MCP over Streamable HTTP and carries **Request Context** in `_meta`.
+- "proxy" is a **Client Surface**, not a separate runtime path; when it talks to the **Aggregated Runtime**, it uses MCP over Streamable HTTP, but any **Request Context** in `_meta` remains untrusted and cannot trigger **Request Context Preparation**.
 - "config mutation" and "reload" were discussed separately in implementation code, but architecture discussions should use **Config Change** when the caller needs both persisted mutation facts and reload outcome facts.
 - "reload recommended" is weaker than **Config Change** language; a **Config Change** should distinguish observed reload, unavailable runtime, and disabled reload.
 - "server config" was used for both static servers and template definitions. Use **Configured Server Target** when a **Config Change** may address either, with template-first resolution for existing duplicate names.

@@ -21,8 +21,6 @@ head:
 
 When 1MCP runs behind a proxy, it needs to be configured to trust the proxy in order to correctly identify the client's IP address and the protocol (HTTP/HTTPS). This is essential for security features like rate limiting and for accurate logging.
 
-`--trust-proxy` trusts forwarding headers only. It does not make `_meta.context`, the `context` query parameter, or client metadata trusted template input, and it does not authenticate an MCP session. An `mcp-session-id` remains a routing capability rather than user identity or authorization.
-
 ## Configuration
 
 Trust proxy settings can be configured via the `--trust-proxy` command-line flag or the `ONE_MCP_TRUST_PROXY` environment variable.

@@ -352,26 +352,6 @@ export class CapabilityCatalog {
 
   private resolveRoute(tool: ToolMetadata, visibility?: CapabilityVisibility): CapabilityRoute | undefined {
     const registryConnectionKey = tool.connectionKey ?? tool.server;
-    const effectiveVisibility = visibility ?? this.deps.defaultVisibility;
-    const hasExactConnectionKey = tool.connectionKey !== undefined;
-
-    // A cached registry entry can outlive the request that created a template
-    // instance. Require its exact connection identity when a caller supplied
-    // a visibility scope before consulting the global connection map.
-    if (effectiveVisibility && hasExactConnectionKey && !effectiveVisibility.serverCandidates.has(registryConnectionKey)) {
-      return undefined;
-    }
-
-    const sessionId = effectiveVisibility?.sessionId;
-    const sessionResult = sessionId ? this.connectionResolver.resolveWithKey(tool.server, sessionId) : undefined;
-
-    // Visibility is constructed from a session-scoped map, but preserve that
-    // ownership check here as well. A caller must not be able to route a
-    // template key just by supplying it as a visibility candidate.
-    if (sessionId && registryConnectionKey.includes(':') && sessionResult?.key !== registryConnectionKey) {
-      return undefined;
-    }
-
     if (this.deps.outboundConnections.has(registryConnectionKey)) {
       return {
         server: tool.server,
@@ -380,8 +360,10 @@ export class CapabilityCatalog {
       };
     }
 
+    const sessionId = visibility?.sessionId ?? this.deps.defaultVisibility?.sessionId;
+    const sessionResult = sessionId ? this.connectionResolver.resolveWithKey(tool.server, sessionId) : undefined;
     const result = sessionResult ?? (!sessionId ? this.connectionResolver.findByServerName(tool.server) : undefined);
-    if (!result || (effectiveVisibility && !effectiveVisibility.serverCandidates.has(result.key))) {
+    if (!result) {
       return undefined;
     }
 

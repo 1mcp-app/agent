@@ -1,8 +1,6 @@
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
 
-import { setupCapabilities } from '@src/core/capabilities/capabilityManager.js';
-import { createSessionScopedConnections } from '@src/core/server/connectionResolver.js';
 import { OutboundConnections } from '@src/core/types/client.js';
 import { ServerStatus } from '@src/core/types/server.js';
 import logger from '@src/logger/logger.js';
@@ -138,8 +136,8 @@ describe('ConnectionManager', () => {
 
       const server = connectionManager.getServer(sessionId);
       expect(server).toBeDefined();
-      expect(server?.context).toEqual({ ...context, sessionId });
-      expect(server?.context?.sessionId).toBe(sessionId);
+      expect(server?.context).toEqual(context);
+      expect(server?.context?.sessionId).toBe('context-session-id');
     });
 
     it('should merge context parameter with existing opts.context', async () => {
@@ -181,8 +179,8 @@ describe('ConnectionManager', () => {
 
       const server = connectionManager.getServer(sessionId);
       expect(server).toBeDefined();
-      // Context metadata merges, but the transport owns the routing session.
-      expect(server?.context?.sessionId).toBe(sessionId);
+      // opts.context should override context parameter (later spread wins)
+      expect(server?.context?.sessionId).toBe('context-session-id');
       expect(server?.context?.project?.path).toBe('/opts/project'); // From opts.context
       expect(server?.context?.timestamp).toBe('2024-01-01T00:00:00.000Z'); // From opts.context
     });
@@ -207,8 +205,8 @@ describe('ConnectionManager', () => {
 
       const server = connectionManager.getServer(sessionId);
       expect(server).toBeDefined();
-      expect(server?.context).toEqual({ ...opts.context, sessionId });
-      expect(server?.context?.sessionId).toBe(sessionId);
+      expect(server?.context).toEqual(opts.context);
+      expect(server?.context?.sessionId).toBe('opts-session-id');
     });
 
     it('should handle undefined context parameter and undefined opts.context', async () => {
@@ -262,74 +260,7 @@ describe('ConnectionManager', () => {
       expect(server?.enablePagination).toBe(true);
       expect(server?.presetName).toBe('test-preset');
       expect(server?.tagFilterMode).toBe('preset');
-      expect(server?.context?.sessionId).toBe(sessionId);
-    });
-
-    it('does not let persisted option context retarget the transport session', async () => {
-      const sessionId = 'transport-session';
-      await connectionManager.connectTransport(
-        mockTransport,
-        sessionId,
-        {
-          tags: [],
-          enablePagination: false,
-          context: { project: { path: '/tmp/attacker' }, sessionId: 'another-session' },
-        },
-      );
-
-      expect(connectionManager.getServer(sessionId)?.context).toMatchObject({
-        project: { path: '/tmp/attacker' },
-        sessionId,
-      });
-      expect(connectionManager.getServer('another-session')).toBeUndefined();
-    });
-
-    it('passes a live session-scoped view to capability setup', async () => {
-      const sessionId = 'owner-session';
-      mockOutboundConns.set('static', { name: 'static' } as never);
-      mockOutboundConns.set(
-        'template:owner-session',
-        {
-          name: 'template',
-          templateIdentity: { mode: 'session', ownerSessionId: sessionId, renderedHash: 'owner-rendered' },
-        } as never,
-      );
-      mockOutboundConns.set(
-        'template:other-session',
-        {
-          name: 'template',
-          templateIdentity: { mode: 'session', ownerSessionId: 'other-session', renderedHash: 'other-rendered' },
-        } as never,
-      );
-      const scopedConnections = createSessionScopedConnections(mockOutboundConns, sessionId);
-
-      await connectionManager.connectTransport(
-        mockTransport,
-        sessionId,
-        { tags: [], enablePagination: false },
-        undefined,
-        undefined,
-        scopedConnections,
-      );
-
-      expect(vi.mocked(setupCapabilities)).toHaveBeenCalledWith(
-        scopedConnections,
-        expect.objectContaining({ context: expect.objectContaining({ sessionId }) }),
-        undefined,
-      );
-
-      mockOutboundConns.set(
-        'late-template:owner-session',
-        {
-          name: 'late-template',
-          templateIdentity: { mode: 'session', ownerSessionId: sessionId, renderedHash: 'late-rendered' },
-        } as never,
-      );
-      expect(Array.from(scopedConnections.keys())).toEqual([
-        'static',
-        'template:owner-session',
-        'late-template:owner-session',
-      ]);
+      expect(server?.context?.sessionId).toBe('context-session-id');
     });
   });
 

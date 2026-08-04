@@ -2,7 +2,12 @@ import type { OutboundConnection, OutboundConnections } from '@src/core/types/cl
 import { errorIf } from '@src/logger/logger.js';
 
 import {
+  createRenderedIdentity,
+  createSessionIdentity,
+  createStaticIdentity,
   parseTemplateConnectionKey,
+  serializeTemplateIdentity,
+  type TemplateIdentity,
 } from './templateIdentity.js';
 
 /**
@@ -31,8 +36,8 @@ export interface TemplateHashProvider {
  * - Per-client template servers: name:sessionId
  *
  * Resolution order:
- * 1. Try an explicitly session-owned template connection
- * 2. Try a rendered template connection mapped to the request session
+ * 1. Try session-scoped key (for per-client template servers: name:sessionId)
+ * 2. Try rendered hash-based key (for shareable template servers: name:renderedHash)
  * 3. Fall back to direct name lookup (for static servers: name)
  */
 export class ConnectionResolver {
@@ -42,31 +47,33 @@ export class ConnectionResolver {
   ) {}
 
   resolveWithKey(clientName: string, sessionId?: string): { key: string; connection: OutboundConnection } | undefined {
+    const candidates: TemplateIdentity[] = [];
     if (sessionId) {
-      const sessionKey = `${clientName}:${sessionId}`;
-      const sessionConnection = this.outboundConns.get(sessionKey);
-      if (sessionConnection && this.isSessionConnectionOwnedBy(sessionKey, sessionConnection, clientName, sessionId)) {
-        return { key: sessionKey, connection: sessionConnection };
-      }
+      candidates.push(createSessionIdentity(clientName, sessionId));
     }
 
-    if (sessionId) {
-      const renderedHash = this.getRenderedHashForSession(sessionId, clientName);
-      if (renderedHash) {
-        const renderedKey = `${clientName}:${renderedHash}`;
-        const renderedConnection = this.outboundConns.get(renderedKey);
-        if (
-          renderedConnection &&
-          this.isRenderedConnectionMappedToSession(renderedKey, renderedConnection, clientName, renderedHash)
-        ) {
-          return { key: renderedKey, connection: renderedConnection };
+    if (sessionId && this.templateHashProvider) {
+      try {
+        const renderedHash = this.templateHashProvider.getRenderedHashForSession(sessionId, clientName);
+        if (renderedHash) {
+          candidates.push(createRenderedIdentity(clientName, renderedHash));
         }
+      } catch (error) {
+        errorIf(() => ({
+          message: 'Failed to get rendered hash for template connection lookup',
+          meta: { clientName, sessionId, error: error instanceof Error ? error.message : String(error) },
+        }));
       }
     }
 
-    const staticConnection = this.outboundConns.get(clientName);
-    if (staticConnection && !staticConnection.templateIdentity) {
-      return { key: clientName, connection: staticConnection };
+    candidates.push(createStaticIdentity(clientName));
+
+    for (const identity of candidates) {
+      const key = serializeTemplateIdentity(identity);
+      const conn = this.outboundConns.get(key);
+      if (conn) {
+        return { key, connection: conn };
+      }
     }
 
     return undefined;
@@ -98,6 +105,9 @@ export class ConnectionResolver {
     const filtered = new Map<string, OutboundConnection>();
     const renderedHashCache = new Map<string, string | undefined>();
 
+    // Get rendered hashes for this session
+    const sessionHashes = this.getSessionRenderedHashes(sessionId);
+
     for (const [key, conn] of this.outboundConns.entries()) {
       const identity = parseTemplateConnectionKey(key);
       if (identity.kind === 'invalid') {
@@ -108,32 +118,55 @@ export class ConnectionResolver {
         continue;
       }
 
-      // Static servers (no : in key) are always included.
+      // Static servers (no : in key) - always include
       if (identity.kind === 'static') {
-        if (!conn.templateIdentity) {
-          filtered.set(key, conn);
-        }
-        continue;
-      }
-
-      if (!sessionId) {
-        continue;
-      }
-
-      if (this.isSessionConnectionOwnedBy(key, conn, identity.templateName, sessionId)) {
         filtered.set(key, conn);
         continue;
       }
 
-      if (!renderedHashCache.has(identity.templateName)) {
-        renderedHashCache.set(identity.templateName, this.getRenderedHashForSession(sessionId, identity.templateName));
+      // Per-client (name:sessionId) and rendered (name:renderedHash) servers - include if suffix matches session
+      const suffix = identity.kind === 'session' ? identity.sessionId : identity.renderedHash;
+
+      if (suffix === sessionId) {
+        filtered.set(key, conn);
+        continue;
       }
 
-      const renderedHash = renderedHashCache.get(identity.templateName);
+      // Shareable template servers (format: name:renderedHash) - include if this session uses this hash
       if (
-        renderedHash &&
-        this.isRenderedConnectionMappedToSession(key, conn, identity.templateName, renderedHash)
+        sessionHashes &&
+        sessionHashes.has(identity.templateName) &&
+        sessionHashes.get(identity.templateName) === suffix
       ) {
+        filtered.set(key, conn);
+        continue;
+      }
+
+      if (!sessionId || !this.templateHashProvider) {
+        continue;
+      }
+
+      if (!renderedHashCache.has(identity.templateName)) {
+        try {
+          renderedHashCache.set(
+            identity.templateName,
+            this.templateHashProvider.getRenderedHashForSession(sessionId, identity.templateName),
+          );
+        } catch (error) {
+          errorIf(() => ({
+            message: 'Failed to get rendered hash while filtering connections for session',
+            meta: {
+              key,
+              sessionId,
+              templateName: identity.templateName,
+              error: error instanceof Error ? error.message : String(error),
+            },
+          }));
+          renderedHashCache.set(identity.templateName, undefined);
+        }
+      }
+
+      if (renderedHashCache.get(identity.templateName) === suffix) {
         filtered.set(key, conn);
       }
     }
@@ -141,48 +174,24 @@ export class ConnectionResolver {
     return filtered;
   }
 
-  private getRenderedHashForSession(sessionId: string, templateName: string): string | undefined {
-    if (!this.templateHashProvider) return undefined;
-
+  /**
+   * Get all rendered hashes for a specific session.
+   * @param sessionId The session ID (optional)
+   * @returns Map of templateName to renderedHash, or undefined if no session
+   */
+  private getSessionRenderedHashes(sessionId?: string): Map<string, string> | undefined {
+    if (!sessionId || !this.templateHashProvider) {
+      return undefined;
+    }
     try {
-      return this.templateHashProvider.getRenderedHashForSession(sessionId, templateName);
+      return this.templateHashProvider.getAllRenderedHashesForSession?.(sessionId);
     } catch (error) {
       errorIf(() => ({
-        message: 'Failed to get rendered hash for template connection lookup',
-        meta: { sessionId, templateName, error: error instanceof Error ? error.message : String(error) },
+        message: 'Failed to get rendered hashes while filtering connections for session',
+        meta: { sessionId, error: error instanceof Error ? error.message : String(error) },
       }));
       return undefined;
     }
-  }
-
-  private isSessionConnectionOwnedBy(
-    key: string,
-    connection: OutboundConnection,
-    templateName: string,
-    sessionId: string,
-  ): boolean {
-    const identity = connection.templateIdentity;
-    return (
-      identity?.mode === 'session' &&
-      identity.ownerSessionId === sessionId &&
-      connection.name === templateName &&
-      key === `${templateName}:${identity.ownerSessionId}`
-    );
-  }
-
-  private isRenderedConnectionMappedToSession(
-    key: string,
-    connection: OutboundConnection,
-    templateName: string,
-    renderedHash: string,
-  ): boolean {
-    const identity = connection.templateIdentity;
-    return (
-      identity?.mode === 'rendered' &&
-      identity.renderedHash === renderedHash &&
-      connection.name === templateName &&
-      key === `${templateName}:${identity.renderedHash}`
-    );
   }
 
   /**
@@ -215,72 +224,6 @@ export class ConnectionResolver {
 }
 
 /**
- * A read-only Map facade that resolves the owning session's connections when
- * handlers use it. It keeps request handlers live across async loading and
- * hot reloads without making another session's template instances visible.
- */
-class SessionScopedConnections extends Map<string, OutboundConnection> {
-  constructor(
-    private readonly outboundConns: OutboundConnections,
-    private readonly sessionId: string | undefined,
-    private readonly templateHashProvider?: TemplateHashProvider,
-  ) {
-    super();
-  }
-
-  private current(): OutboundConnections {
-    return createConnectionResolver(this.outboundConns, this.templateHashProvider).filterForSession(this.sessionId);
-  }
-
-  public override get size(): number {
-    return this.current().size;
-  }
-
-  public override get(key: string): OutboundConnection | undefined {
-    return this.current().get(key);
-  }
-
-  public override has(key: string): boolean {
-    return this.current().has(key);
-  }
-
-  public override entries() {
-    return this.current().entries();
-  }
-
-  public override keys() {
-    return this.current().keys();
-  }
-
-  public override values() {
-    return this.current().values();
-  }
-
-  public override [Symbol.iterator]() {
-    return this.entries();
-  }
-
-  public override forEach(
-    callbackfn: (value: OutboundConnection, key: string, map: Map<string, OutboundConnection>) => void,
-    thisArg?: unknown,
-  ): void {
-    this.current().forEach((value, key) => callbackfn.call(thisArg, value, key, this));
-  }
-
-  public override set(_key: string, _value: OutboundConnection): this {
-    throw new TypeError('Session-scoped connections are read-only');
-  }
-
-  public override delete(_key: string): boolean {
-    throw new TypeError('Session-scoped connections are read-only');
-  }
-
-  public override clear(): void {
-    throw new TypeError('Session-scoped connections are read-only');
-  }
-}
-
-/**
  * Factory function to create a ConnectionResolver with optional template hash provider.
  * This provides a simpler API for common use cases.
  */
@@ -289,16 +232,4 @@ export function createConnectionResolver(
   templateHashProvider?: TemplateHashProvider,
 ): ConnectionResolver {
   return new ConnectionResolver(outboundConns, templateHashProvider);
-}
-
-/**
- * Create a live, read-only view of static servers plus template instances
- * owned by the supplied session.
- */
-export function createSessionScopedConnections(
-  outboundConns: OutboundConnections,
-  sessionId: string | undefined,
-  templateHashProvider?: TemplateHashProvider,
-): OutboundConnections {
-  return new SessionScopedConnections(outboundConns, sessionId, templateHashProvider);
 }

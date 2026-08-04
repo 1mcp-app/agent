@@ -118,7 +118,7 @@ export class ToolRegistry {
     const tools: ToolMetadata[] = toolsWithServer.map(({ tool, server, connectionKey, tags }) => ({
       name: tool.name,
       server,
-      connectionKey,
+      connectionKey: connectionKey ?? server,
       description: tool.description || '',
       inputSchema: tool.inputSchema,
       tags: tags || [],
@@ -315,8 +315,9 @@ export class ToolRegistry {
   /** Filter by exact connection identity, with clean-name fallback for legacy metadata only. */
   public filterByServerCandidates(serverCandidates: ReadonlyMap<string, string>): ToolRegistry {
     const connectionKeys = new Set(serverCandidates.keys());
+    const publicServerNames = new Set(serverCandidates.values());
     const filteredTools = this.tools.filter((tool) =>
-      tool.connectionKey ? connectionKeys.has(tool.connectionKey) : connectionKeys.has(tool.server),
+      tool.connectionKey ? connectionKeys.has(tool.connectionKey) : publicServerNames.has(tool.server),
     );
     return new ToolRegistry(filteredTools);
   }

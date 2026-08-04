@@ -11,6 +11,8 @@ head:
 
 Complete reference for Handlebars template syntax in 1MCP server templates.
 
+Public client context cannot currently invoke this rendering syntax; see the [MCP Server Templates security contract](/guide/mcp-server-templates#public-context-cannot-create-template-servers).
+
 ## Syntax Overview
 
 1MCP server templates use [Handlebars](https://handlebarsjs.com/) syntax with double curly braces for variable substitution:
@@ -344,35 +346,29 @@ interface ContextData {
 }
 ```
 
-## Template Rendering Process
+## Intended Template Rendering Process
 
-1MCP processes templates through a five-step workflow:
-
-::: warning Trusted context required
-
-Public HTTP, SSE, streamable HTTP, and REST request context is metadata only. Values from `_meta.context` and the `context` query parameter never reach template rendering or process creation. The workflow below applies only when a server-owned, in-process context has been explicitly marked trusted. A session ID can route an existing session-scoped connection, but it is not user identity or trusted context and cannot start this workflow.
-
-:::
+The internal renderer supports the following five-step workflow, but this release has no authenticated server-side context integration that invokes it:
 
 ### Step 1: Context Collection
 
-When a server-owned integration creates a trusted template context, 1MCP can collect context from:
+An authorized future integration would provide server-owned context such as:
 
 - Current working directory (project path, name)
 - Git repository (branch, commit, remote)
 - `.1mcprc` file (custom context, environment)
 - System information (user details)
-- Verified connection details (transport, client info)
+- Connection details (transport, client info)
 
 ### Step 2: Template Lookup
 
-1MCP looks up templates from `mcpTemplates` in `mcp.json` that match the trusted integration's filter criteria (tags, preset).
+The renderer would look up templates from `mcpTemplates` in `mcp.json` that match the filter criteria (tags, preset).
 
 ### Step 3: Variable Substitution
 
 ::: v-pre
 
-Each template configuration is rendered by substituting:
+The renderer would substitute:
 
 - `{{variable}}` placeholders with actual values
 - `{{#if}}` conditionals are evaluated
@@ -386,11 +382,11 @@ Each template configuration is rendered by substituting:
 
 ### Step 5: Server Creation
 
-A server instance is created using the rendered configuration and scoped to the trusted integration's session. Public routes can only route to an already-created scoped instance; they cannot create one from request data.
+A server instance would be created only after trusted rendering and validation.
 
 ### Caching
 
-When `cacheContext` is enabled (default), rendered templates are cached by context hash to avoid reprocessing identical contexts.
+When trusted rendering is available, `cacheContext` enables caching by context hash to avoid reprocessing identical contexts.
 
 ## Error Handling
 

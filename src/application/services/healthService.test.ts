@@ -104,7 +104,6 @@ describe('HealthService', () => {
         [
           'server1',
           {
-            name: 'server1',
             status: ClientStatus.Connected,
             lastConnected: new Date(),
             transport: { tags: ['test'] },
@@ -113,7 +112,6 @@ describe('HealthService', () => {
         [
           'server2',
           {
-            name: 'server2',
             status: ClientStatus.Connected,
             lastConnected: new Date(),
             transport: { tags: ['network'] },
@@ -151,7 +149,6 @@ describe('HealthService', () => {
         [
           'server1',
           {
-            name: 'server1',
             status: ClientStatus.Connected,
             lastConnected: new Date(),
             transport: { tags: ['test'] },
@@ -160,7 +157,6 @@ describe('HealthService', () => {
         [
           'server2',
           {
-            name: 'server2',
             status: ClientStatus.Error,
             lastError: new Error('Connection failed'),
             transport: { tags: ['network'] },
@@ -169,7 +165,6 @@ describe('HealthService', () => {
         [
           'server3',
           {
-            name: 'server3',
             status: ClientStatus.Connected,
             lastConnected: new Date(),
             transport: { tags: ['filesystem'] },
@@ -207,7 +202,6 @@ describe('HealthService', () => {
         [
           'server1',
           {
-            name: 'server1',
             status: ClientStatus.Error,
             lastError: new Error('Connection failed'),
             transport: { tags: ['test'] },
@@ -216,7 +210,6 @@ describe('HealthService', () => {
         [
           'server2',
           {
-            name: 'server2',
             status: ClientStatus.Disconnected,
             transport: { tags: ['network'] },
           },
@@ -224,7 +217,6 @@ describe('HealthService', () => {
         [
           'server3',
           {
-            name: 'server3',
             status: ClientStatus.Connected,
             lastConnected: new Date(),
             transport: { tags: ['filesystem'] },
@@ -339,7 +331,6 @@ describe('HealthService', () => {
         [
           'server1',
           {
-            name: 'server1',
             status: ClientStatus.Error,
             lastError: new Error('Authentication failed'),
             lastConnected: new Date('2025-01-01'),
@@ -365,44 +356,6 @@ describe('HealthService', () => {
         lastError: 'Authentication failed',
         tags: ['test'],
       });
-    });
-
-    it('excludes dynamic template instances from public health details and totals', async () => {
-      mockAgentConfig.get.mockImplementation((key: string) => {
-        if (key === 'health') return { detailLevel: 'full' };
-        if (key === 'features') return { auth: false };
-        return undefined;
-      });
-      const mockClients = new Map([
-        [
-          'static-server',
-          {
-            name: 'static-server',
-            status: ClientStatus.Connected,
-            transport: { tags: ['public'] },
-          },
-        ],
-        [
-          'worker:foreign-rendered-hash',
-          {
-            name: 'worker',
-            status: ClientStatus.Error,
-            transport: { tags: ['project'] },
-            templateIdentity: { mode: 'rendered' as const, renderedHash: 'foreign-rendered-hash' },
-          },
-        ],
-      ]);
-
-      mockServerManager.getClients.mockReturnValue(mockClients);
-      mockMcpConfig.getTransportConfig.mockReturnValue({ 'static-server': { command: 'test' } });
-
-      const result = await healthService.performHealthCheck();
-
-      expect(result.status).toBe(HealthStatus.HEALTHY);
-      expect(result.servers).toMatchObject({ total: 1, healthy: 1, unhealthy: 0 });
-      expect(result.servers.details.map((server) => server.name)).toEqual(['static-server']);
-      expect(JSON.stringify(result)).not.toContain('foreign-rendered-hash');
-      expect(JSON.stringify(result)).not.toContain('worker:');
     });
   });
 
@@ -520,7 +473,6 @@ describe('HealthService', () => {
         [
           'test-server',
           {
-            name: 'test-server',
             status: ClientStatus.Connected,
             lastConnected: new Date(),
             lastError: new Error('Connection failed with credentials user:password@localhost:5432/database'),
@@ -605,7 +557,6 @@ describe('HealthService', () => {
         [
           'web-server',
           {
-            name: 'web-server',
             status: ClientStatus.Error,
             lastError: new Error('Failed to connect to https://api.example.com/v1/endpoint'),
             transport: { tags: ['web'] },
@@ -631,7 +582,6 @@ describe('HealthService', () => {
         [
           'file-server',
           {
-            name: 'file-server',
             status: ClientStatus.Error,
             lastError: new Error('Cannot read config file /etc/app/config.json'),
             transport: { tags: ['file'] },

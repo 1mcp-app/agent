@@ -1,6 +1,6 @@
 ---
 title: Serve Command
-description: Start the main 1MCP runtime with 1mcp serve for CLI mode and direct HTTP MCP clients, with trusted server-owned template support.
+description: Start the main 1MCP runtime with 1mcp serve and use it for CLI mode and direct HTTP MCP clients.
 head:
   - ['meta', { name: 'keywords', content: '1MCP serve,runtime,CLI mode,direct MCP,async loading,lazy loading' }]
   - ['meta', { property: 'og:title', content: '1MCP Serve Command Reference' }]
@@ -17,7 +17,7 @@ head:
 
 `1mcp serve` starts the main 1MCP runtime.
 
-It is the process that aggregates your configured MCP servers, exposes the HTTP MCP surface, initializes presets and instruction aggregation, and resolves templates only for server-owned, in-process trusted context.
+It is the process that aggregates your configured static MCP servers, exposes the HTTP MCP surface, and initializes presets and instruction aggregation.
 
 ## Synopsis
 
@@ -35,7 +35,7 @@ Use `serve` whenever you want to:
 - run the aggregated 1MCP runtime
 - power CLI mode for agents
 - expose a direct HTTP MCP endpoint to MCP-native clients
-- provide a runtime for `1mcp proxy` to bridge stdio-compatible clients with preset and filter selection
+- provide a runtime for `1mcp proxy` to bridge stdio-compatible clients
 
 CLI mode depends on a running `serve` instance.
 
@@ -44,16 +44,10 @@ CLI mode depends on a running `serve` instance.
 `serve` is not just a transport switch. It is the main runtime process.
 
 - Static servers are created from startup configuration.
-- Template servers are created later only for trusted server-owned context and can then be scoped to a session.
+- Public HTTP and proxy context does not create template servers; see [MCP Server Templates](/guide/mcp-server-templates#public-context-cannot-create-template-servers).
 - Async loading can start HTTP availability before all servers finish loading.
 - Lazy loading can keep server exposure narrower until needed.
 - Instruction aggregation and preset notifications are initialized inside this runtime.
-
-::: warning Public transport does not create templates
-
-Public HTTP, legacy SSE, streamable HTTP MCP, and REST routes do not accept client context to render `mcpTemplates` or create processes. This includes `_meta.context`, the `context` query parameter, proxy-carried project data, and REST `instructions`, `inspect`, and `run` calls. A session ID can route only to an existing session-scoped connection; it is not user identity, authentication, or trusted context.
-
-:::
 
 For runtime-wide configuration details, see the **[Configuration Guide](/guide/essentials/configuration)**.
 
@@ -85,7 +79,7 @@ For runtime-wide configuration details, see the **[Configuration Guide](/guide/e
 - **`--enable-async-loading`**: Start HTTP availability before all static servers finish loading.
 - **`--enable-lazy-loading`**: Opt into meta-tool exposure for progressive tool discovery. Omit it for full direct exposure.
 - **`--enable-config-reload`**: Enable config reload handling.
-- **`--enable-session-persistence`**: Enable HTTP session persistence. Persisted sessions do not preserve client-supplied context as trusted template input.
+- **`--enable-session-persistence`**: Enable HTTP session persistence.
 
 ### Lifecycle
 

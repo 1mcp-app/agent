@@ -9,7 +9,6 @@ import { LoadingState } from '@src/core/loading/loadingStateTracker.js';
 import { McpLoadingManager } from '@src/core/loading/mcpLoadingManager.js';
 import { ServerRegistry } from '@src/core/server/adapters/ServerRegistry.js';
 import { ConnectionManager } from '@src/core/server/connectionManager.js';
-import { createSessionScopedConnections } from '@src/core/server/connectionResolver.js';
 import { MCPServerLifecycleManager } from '@src/core/server/mcpServerLifecycleManager.js';
 import { TemplateConfigurationManager } from '@src/core/server/templateConfigurationManager.js';
 import { TemplateServerManager } from '@src/core/server/templateServerManager.js';
@@ -26,10 +25,6 @@ import type {
 import { MCPServerConfiguration } from '@src/core/types/transport.js';
 import logger, { debugIf } from '@src/logger/logger.js';
 import type { ContextData } from '@src/types/context.js';
-import {
-  isTrustedTemplateContext,
-  type TrustedTemplateContext,
-} from '@src/utils/context/templateContextTrust.js';
 
 /**
  * Event data for context change events
@@ -235,13 +230,10 @@ export class ServerManager {
     transport: Transport,
     sessionId: string,
     opts: InboundConnectionConfig,
-    context?: TrustedTemplateContext,
+    context?: ContextData,
   ): Promise<void> {
-    const templateContext = isTrustedTemplateContext(context) ? context : undefined;
-    const { context: _untrustedContext, ...connectionOptions } = opts;
-
     // Load configuration data
-    // Only a process-minted context can render session-specific templates.
+    // Always process templates when context is available to ensure context-specific rendering
     const configManager = ConfigManager.getInstance();
     if (!this.serverConfigData) {
       // First load - static servers only (templates processed separately per context)
@@ -253,8 +245,8 @@ export class ServerManager {
     }
 
     // Always process templates with current context when context is available
-    if (templateContext) {
-      const { templateServers } = await configManager.loadConfigWithTemplates(templateContext);
+    if (context) {
+      const { templateServers } = await configManager.loadConfigWithTemplates(context);
       this.serverConfigData.mcpTemplates = templateServers;
       // Note: ConfigManager.loadConfigWithTemplates already handles conflict detection
       // by filtering out static servers that conflict with template servers
@@ -269,12 +261,12 @@ export class ServerManager {
       }
     }
 
-    // Create template-based servers only for a trusted context.
-    if (templateContext && this.serverConfigData.mcpTemplates) {
+    // If we have context, create template-based servers
+    if (context && this.serverConfigData.mcpTemplates) {
       await this.templateServerManager.createTemplateBasedServers(
         sessionId,
-        templateContext,
-        connectionOptions,
+        context,
+        opts,
         this.serverConfigData,
         this.outboundConns,
         this.transports,
@@ -294,29 +286,12 @@ export class ServerManager {
       }
     }
 
-    // Template instances are session-owned. Keep a live scoped view so setup
-    // and later request handlers cannot reach another session's instances,
-    // while clients added by async loading remain available to this session.
-    const sessionConnections = createSessionScopedConnections(
-      this.outboundConns,
-      sessionId,
-      this.templateServerManager,
-    );
-    const scopedConnectionOptions = templateContext
-      ? { ...connectionOptions, context: templateContext }
-      : connectionOptions;
-    const filteredInstructions =
-      this.instructionAggregator?.getFilteredInstructions(scopedConnectionOptions, sessionConnections) || '';
+    // IMPORTANT: Get filtered instructions AFTER template servers are created
+    // This ensures template server instructions are included in the initialize response
+    const filteredInstructions = this.instructionAggregator?.getFilteredInstructions(opts, this.outboundConns) || '';
 
     // Connect the transport
-    await this.connectionManager.connectTransport(
-      transport,
-      sessionId,
-      scopedConnectionOptions,
-      templateContext,
-      filteredInstructions,
-      sessionConnections,
-    );
+    await this.connectionManager.connectTransport(transport, sessionId, opts, context, filteredInstructions);
   }
 
   public async disconnectTransport(sessionId: string, forceClose: boolean = false): Promise<void> {

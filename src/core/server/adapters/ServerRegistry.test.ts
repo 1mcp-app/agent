@@ -14,16 +14,11 @@ describe('ServerRegistry', () => {
   let mockTemplateManager: TemplateServerManager;
   let registry: ServerRegistry;
 
-  const createMockConnection = (
-    name: string,
-    status: ClientStatus = ClientStatus.Connected,
-    templateIdentity?: OutboundConnection['templateIdentity'],
-  ): OutboundConnection => ({
+  const createMockConnection = (name: string, status: ClientStatus = ClientStatus.Connected): OutboundConnection => ({
     name,
     transport: {} as any,
     client: {} as any,
     status,
-    ...(templateIdentity ? { templateIdentity } : {}),
   });
 
   const createServerConfig = (): MCPServerParams => ({
@@ -124,10 +119,7 @@ describe('ServerRegistry', () => {
     });
 
     it('should resolve template server connection with session', () => {
-      const conn = createMockConnection('template1', ClientStatus.Connected, {
-        mode: 'rendered',
-        renderedHash: 'hash1',
-      });
+      const conn = createMockConnection('template1');
       outboundConns.set('template1:hash1', conn);
       registry.registerTemplate('template1', createServerConfig());
 

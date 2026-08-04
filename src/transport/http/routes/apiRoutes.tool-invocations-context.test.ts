@@ -5,6 +5,7 @@ import { createToolInvocationsHandler } from './apiRoutes.js';
 
 const mockedLoadDeclaredServerConfigs = vi.hoisted(() => vi.fn());
 const mockedLoadConfigWithTemplates = vi.hoisted(() => vi.fn());
+const mockedExtractRequestContext = vi.hoisted(() => vi.fn());
 const mockedGetTransportConfig = vi.hoisted(() => vi.fn());
 
 vi.mock('@src/config/configManager.js', () => ({
@@ -22,6 +23,14 @@ vi.mock('@src/config/mcpConfigManager.js', () => ({
       getTransportConfig: mockedGetTransportConfig,
     })),
   },
+}));
+
+vi.mock('@src/transport/http/utils/contextExtractor.js', () => ({
+  CONTEXT_HEADERS: {
+    SESSION_ID: 'mcp-session-id',
+  },
+  deriveContextSessionId: vi.fn(() => 'derived-session-id'),
+  extractRequestContext: mockedExtractRequestContext,
 }));
 
 vi.mock('@src/logger/logger.js', () => ({
@@ -72,22 +81,21 @@ describe('apiRoutes /api/tool-invocations', () => {
 
   beforeEach(() => {
     mockedGetTransportConfig.mockReturnValue({});
-    mockedLoadConfigWithTemplates.mockReset();
+    mockedExtractRequestContext.mockReset();
+    mockedExtractRequestContext.mockReturnValue(undefined);
   });
 
-  it('does not prepare or invoke template servers from HTTP request context', async () => {
+  it('ignores body and query context before direct tool invocation', async () => {
     const context = {
       sessionId: 'context-session',
-      project: { name: 'attacker', path: '/tmp/attacker' },
-      user: { username: 'attacker' },
-      environment: { variables: { ATTACKER_CONTROLLED: 'true' } },
+      project: { path: '/tmp/project' },
+      user: {},
+      environment: {},
     };
     const templateConfig = {
       type: 'stdio',
-      command: '{{project.custom.command}}',
-      args: ['{{project.custom.argument}}'],
-      cwd: '{{project.path}}',
-      env: { ATTACKER_CONTROLLED: '{{environment.variables.ATTACKER_CONTROLLED}}' },
+      command: 'uvx',
+      args: ['serena', '{{project.path}}'],
       tags: ['serena'],
     };
     const callTool = vi.fn().mockResolvedValue({ content: [{ type: 'text', text: 'done' }], isError: false });
@@ -101,9 +109,9 @@ describe('apiRoutes /api/tool-invocations', () => {
     const registerTemplate = vi.fn();
     const serverManager = {
       getLazyLoadingOrchestrator: vi.fn(() => undefined),
-      getClients: vi.fn(() => new Map([['serena:owner-session', { status: 'connected', client: { callTool } }]])),
+      getClients: vi.fn(() => new Map()),
       getClientTransports: vi.fn(() => ({})),
-      getClient: vi.fn(() => ({ client: { callTool } })),
+      getClient: vi.fn(() => undefined),
       getTemplateServerManager: vi.fn(() => ({
         getRenderedHashForSession: vi.fn(() => undefined),
         createTemplateBasedServers,
@@ -117,29 +125,18 @@ describe('apiRoutes /api/tool-invocations', () => {
     const handler = createToolInvocationsHandler(serverManager as never);
     const res = createMockResponse();
 
-    const body = {
-      tool: 'serena/list_memories',
-      _meta: {
-        context: {
-          ...context,
-          project: {
-            ...context.project,
-            custom: { command: 'sh', argument: '-c' },
-          },
-        },
-      },
-    };
-    const query = {
-      context: Buffer.from(JSON.stringify(context)).toString('base64'),
-    };
+    const body = { tool: 'serena/list_memories', _meta: { context } };
+    const query = { context: Buffer.from(JSON.stringify(context)).toString('base64url') };
     await invokeInspectRoute(scopeAuthMiddleware, { body, query }, res);
     await invokeInspectRoute(handler, { body, query }, res);
 
     expect(res.statusCode).toBe(503);
+    expect(mockedExtractRequestContext).not.toHaveBeenCalled();
     expect(mockedLoadConfigWithTemplates).not.toHaveBeenCalled();
     expect(createTemplateBasedServers).not.toHaveBeenCalled();
     expect(registerTemplate).not.toHaveBeenCalled();
     expect(callTool).not.toHaveBeenCalled();
+    expect(res.setHeader).not.toHaveBeenCalled();
   });
 
   it('returns 200 even when result.isError is true', async () => {

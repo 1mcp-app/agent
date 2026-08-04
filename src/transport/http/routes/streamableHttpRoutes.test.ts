@@ -250,7 +250,7 @@ describe('Streamable HTTP Routes', () => {
       expect(mockTransport.handleRequest).toHaveBeenCalledWith(mockRequest, expect.any(Object), mockRequest.body);
     });
 
-    it('does not pass HTTP context into a new session', async () => {
+    it('does not pass initialize request context into a new session', async () => {
       mockRequest.headers = {};
       mockRequest.body = {
         jsonrpc: '2.0',
@@ -272,7 +272,7 @@ describe('Streamable HTTP Routes', () => {
       await postHandler(mockRequest, mockResponse);
 
       const createSessionData = mockLifecycle.resolvePostSession.mock.calls[0][0].createSessionData;
-      expect(createSessionData().context).toBeUndefined();
+      expect(createSessionData()).not.toHaveProperty('context');
     });
 
     it('should use existing session when sessionId header provided and session found', async () => {
