@@ -33,6 +33,7 @@ interface SessionOverrides {
   navigation?: Partial<AdminConsoleSessionModel['navigation']>;
   configuredServers?: ConfiguredServerOverrides;
   oauth?: Partial<AdminConsoleSessionModel['oauth']>;
+  logs?: Partial<AdminConsoleSessionModel['logs']>;
   presets?: Partial<AdminConsoleSessionModel['presets']>;
 }
 
@@ -89,6 +90,17 @@ export function fixtureSession(
       callbackFeedback: overrides.oauth?.callbackFeedback ?? null,
       operationFeedback: overrides.oauth?.operationFeedback ?? null,
       operate: overrides.oauth?.operate ?? (() => undefined),
+    },
+    logs: {
+      connection: overrides.logs?.connection ?? 'idle',
+      sources: overrides.logs?.sources ?? [],
+      selectedSourceId: overrides.logs?.selectedSourceId ?? null,
+      entries: overrides.logs?.entries ?? [],
+      unread: overrides.logs?.unread ?? {},
+      cursors: overrides.logs?.cursors ?? {},
+      selectionLoading: overrides.logs?.selectionLoading ?? false,
+      selectionError: overrides.logs?.selectionError ?? null,
+      select: overrides.logs?.select ?? (() => undefined),
     },
     presets: {
       items: overrides.presets?.items ?? [],

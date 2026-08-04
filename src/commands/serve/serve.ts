@@ -19,6 +19,7 @@ import {
   verifyRuntimeScopeOwnership,
 } from '@src/core/server/runtimeScopeOwnership.js';
 import { ServerManager } from '@src/core/server/serverManager.js';
+import { resetBackendLogBroker } from '@src/domains/backend-logs/backendLogRuntime.js';
 import { GlobalOptions } from '@src/globalOptions.js';
 import { configureGlobalLogger } from '@src/logger/configureGlobalLogger.js';
 import logger, { debugIf } from '@src/logger/logger.js';
@@ -533,6 +534,9 @@ export async function serveCommand(parsedArgv: ServeOptions): Promise<void> {
     // This ensures the singleton is created with the correct config directory
     const PresetManager = (await import('@src/domains/preset/manager/presetManager.js')).PresetManager;
     PresetManager.getInstance(runtimeScope);
+
+    // Backend log history is scoped to this Aggregated Runtime invocation.
+    resetBackendLogBroker();
 
     // Initialize server and get server manager with custom config path if provided
     const { serverManager, loadingManager, asyncOrchestrator, instructionAggregator } =

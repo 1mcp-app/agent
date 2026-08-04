@@ -14,13 +14,14 @@ import {
   Title,
 } from '@mantine/core';
 
-import { Boxes, FileClock, Gauge, Info, ShieldCheck, SlidersHorizontal } from 'lucide-react';
+import { Boxes, FileClock, Gauge, Info, ShieldCheck, SlidersHorizontal, SquareTerminal } from 'lucide-react';
 import { type MouseEvent, type ReactNode, useState } from 'react';
 
 import type { AdminConsoleRoute, AdminConsoleSessionModel } from '../session/AdminConsoleSessionModel';
 import type { AdminConsoleState } from '../state/adminConsoleState';
 import { runtimeEndpointSummary, runtimeSummary, viewBadgeColor, viewLabel } from './adminConsoleUtils';
 import { AboutRuntimeWorkspace } from './workspaces/AboutRuntimeWorkspace';
+import { BackendLogsWorkspace } from './workspaces/BackendLogsWorkspace';
 import { OAuthServicesWorkspace } from './workspaces/OAuthServicesWorkspace';
 import { PresetAuthoringWorkspace } from './workspaces/PresetAuthoringWorkspace';
 import { AuditTrailWorkspace, DashboardWorkspace, ServersWorkspace } from './workspaces/RuntimeOperationsWorkspace';
@@ -126,6 +127,13 @@ export function AdminConsoleApp({ session }: AdminConsoleAppProps) {
             onNavigate={() => navigate('presets')}
           />
           <NavItem
+            icon={<SquareTerminal size={17} />}
+            label="Backend logs"
+            href="/admin/logs"
+            active={route === 'logs'}
+            onNavigate={() => navigate('logs')}
+          />
+          <NavItem
             icon={<Info size={17} />}
             label="About"
             href="/admin/about"
@@ -189,6 +197,8 @@ function ConsoleWorkspace({ session }: { session: AdminConsoleSessionModel }) {
           runtimeScopeId={state.status?.runtime.runtimeScopeId}
         />
       );
+    case 'logs':
+      return <BackendLogsWorkspace logs={session.logs} />;
     case 'about':
       return <AboutRuntimeWorkspace state={state} />;
     case 'dashboard':

@@ -12,6 +12,8 @@ import {
 import { AdminIdentityService } from '@src/domains/admin/adminIdentityService.js';
 import { AdminOAuthService } from '@src/domains/admin/adminOAuthService.js';
 import { type AdminAuditFact, AdminOperationService } from '@src/domains/admin/adminOperationService.js';
+import { BackendLogBroker } from '@src/domains/backend-logs/backendLogBroker.js';
+import { staticBackendLogSource } from '@src/domains/backend-logs/backendLogSource.js';
 import { createConfigChangeService } from '@src/domains/config-change/configChange.js';
 
 import express from 'express';
@@ -95,6 +97,8 @@ describe('admin routes', () => {
       adminConsoleAssetsDir?: string;
       adminMutationAvailability?: { available: boolean; reason?: 'writer_lock_unavailable' };
       oauthDashboard?: BackendOAuthDashboardResult;
+      backendLogBroker?: BackendLogBroker;
+      getBackendLogBroker?: () => BackendLogBroker;
     } = {},
   ) {
     const app = express();
@@ -134,6 +138,9 @@ describe('admin routes', () => {
           ],
         },
       adminConsoleAssetsDir: options.adminConsoleAssetsDir,
+      getBackendLogBroker:
+        options.getBackendLogBroker ??
+        (options.backendLogBroker ? () => options.backendLogBroker as BackendLogBroker : undefined),
     });
 
     if (adminRoutes) {
@@ -204,6 +211,182 @@ describe('admin routes', () => {
     expect((await request(app).get('/admin/cli/v1/session/status')).status).toBe(404);
     expect((await request(app).post('/admin/cli/v1/session/logout')).status).toBe(404);
     expect(adminService.validateSession(login.sessionToken)).toBeNull();
+  });
+
+  it('protects backend log snapshots with the Admin Session and returns sanitized retained history', async () => {
+    const broker = new BackendLogBroker({ now: () => new Date('2026-07-06T00:00:00.000Z') });
+    const source = staticBackendLogSource('filesystem');
+    broker.registerSource(source);
+    broker.publish({ sourceId: source.id, kind: 'line', content: 'password=secret' });
+    await adminService.bootstrapFirstAdmin({ username: 'operator', password: 'correct horse battery staple' });
+    const app = mountAdminRoutes({ backendLogBroker: broker });
+
+    expect((await request(app).get('/admin/api/logs/snapshot')).status).toBe(401);
+    const login = await request(app)
+      .post('/admin/api/session/login')
+      .send({ username: 'operator', password: 'correct horse battery staple' });
+    const cookie = login.headers['set-cookie'][0];
+    const snapshot = await request(app).get('/admin/api/logs/snapshot').set('Cookie', cookie);
+
+    expect(snapshot.status).toBe(200);
+    expect(snapshot.body).toEqual({
+      sequence: 1,
+      sources: [expect.objectContaining({ id: 'static:filesystem', capture: 'managed' })],
+      entries: [expect.objectContaining({ sequence: 1, content: 'password=[REDACTED]' })],
+    });
+  });
+
+  it('filters backend log snapshots by a validated source id', async () => {
+    const broker = new BackendLogBroker();
+    const filesystem = staticBackendLogSource('filesystem');
+    const search = staticBackendLogSource('search');
+    broker.registerSource(filesystem);
+    broker.registerSource(search);
+    broker.publish({ sourceId: filesystem.id, kind: 'line', content: 'filesystem entry' });
+    broker.publish({ sourceId: search.id, kind: 'line', content: 'search entry' });
+    await adminService.bootstrapFirstAdmin({ username: 'operator', password: 'correct horse battery staple' });
+    const app = mountAdminRoutes({ backendLogBroker: broker });
+    const login = await request(app)
+      .post('/admin/api/session/login')
+      .send({ username: 'operator', password: 'correct horse battery staple' });
+
+    const filtered = await request(app)
+      .get('/admin/api/logs/snapshot')
+      .query({ sourceId: filesystem.id })
+      .set('Cookie', login.headers['set-cookie'][0]);
+    const invalid = await request(app)
+      .get('/admin/api/logs/snapshot?sourceId=')
+      .set('Cookie', login.headers['set-cookie'][0]);
+
+    expect(filtered.status).toBe(200);
+    expect(filtered.body.sources).toHaveLength(2);
+    expect(filtered.body.entries).toEqual([expect.objectContaining({ sourceId: filesystem.id })]);
+    expect(invalid.status).toBe(400);
+    expect(invalid.body).toEqual({ error: 'admin_backend_logs_query_invalid' });
+  });
+
+  it('returns unavailable for authenticated backend log routes when no broker is configured', async () => {
+    await adminService.bootstrapFirstAdmin({ username: 'operator', password: 'correct horse battery staple' });
+    const app = mountAdminRoutes();
+    const login = await request(app)
+      .post('/admin/api/session/login')
+      .send({ username: 'operator', password: 'correct horse battery staple' });
+    const cookie = login.headers['set-cookie'][0];
+
+    const snapshotResponse = await request(app).get('/admin/api/logs/snapshot').set('Cookie', cookie);
+    const streamResponse = await request(app).get('/admin/api/logs/stream').set('Cookie', cookie);
+
+    expect(snapshotResponse.status).toBe(404);
+    expect(snapshotResponse.body).toEqual({ error: 'admin_backend_logs_unavailable' });
+    expect(streamResponse.status).toBe(404);
+  });
+
+  it('resolves the current backend log broker for each request', async () => {
+    let broker = new BackendLogBroker();
+    await adminService.bootstrapFirstAdmin({ username: 'operator', password: 'correct horse battery staple' });
+    const app = mountAdminRoutes({ getBackendLogBroker: () => broker });
+    const login = await request(app)
+      .post('/admin/api/session/login')
+      .send({ username: 'operator', password: 'correct horse battery staple' });
+    const cookie = login.headers['set-cookie'][0];
+
+    expect((await request(app).get('/admin/api/logs/snapshot').set('Cookie', cookie)).body.sequence).toBe(0);
+    broker = new BackendLogBroker();
+    const source = staticBackendLogSource('replacement');
+    broker.registerSource(source);
+    broker.publish({ sourceId: source.id, kind: 'line', content: 'replacement entry' });
+
+    expect((await request(app).get('/admin/api/logs/snapshot').set('Cookie', cookie)).body).toEqual(
+      expect.objectContaining({ sequence: 1, entries: [expect.objectContaining({ sourceId: source.id })] }),
+    );
+  });
+
+  it('authorizes the backend log stream and restores sources before replaying retained entries', async () => {
+    const broker = new BackendLogBroker({ now: () => new Date('2026-07-06T00:00:00.000Z') });
+    const source = staticBackendLogSource('filesystem');
+    broker.registerSource(source);
+    broker.publish({ sourceId: source.id, kind: 'line', content: 'ready' });
+    broker.updateSource(source.id, { lifecycle: 'ended' });
+    await adminService.bootstrapFirstAdmin({ username: 'operator', password: 'correct horse battery staple' });
+    const app = mountAdminRoutes({ backendLogBroker: broker });
+
+    expect((await request(app).get('/admin/api/logs/stream')).status).toBe(401);
+    const login = await request(app)
+      .post('/admin/api/session/login')
+      .send({ username: 'operator', password: 'correct horse battery staple' });
+    const server = app.listen(0, '127.0.0.1');
+    let reader: ReadableStreamDefaultReader<Uint8Array> | undefined;
+    try {
+      await new Promise<void>((resolve) => server.once('listening', resolve));
+      const address = server.address();
+      if (!address || typeof address === 'string') throw new Error('Admin route test server did not bind');
+      const response = await fetch(`http://127.0.0.1:${address.port}/admin/api/logs/stream`, {
+        headers: { Cookie: login.headers['set-cookie'][0], 'Last-Event-ID': '0' },
+      });
+      expect(response.status).toBe(200);
+      reader = response.body!.getReader();
+      const decoder = new TextDecoder();
+      let frames = '';
+      while (!frames.includes('event: entry')) {
+        const chunk = await reader.read();
+        if (chunk.done) break;
+        frames += decoder.decode(chunk.value, { stream: true });
+      }
+      expect(frames).toContain('event: sources');
+      expect(frames).toContain('"lifecycle":"ended"');
+      expect(frames.match(/event: entry/g)).toHaveLength(1);
+      expect(frames).toContain('id: 1');
+      expect(frames).toContain('"content":"ready"');
+
+      broker.clear();
+      const terminated = await Promise.race([
+        reader.read().then((chunk) => chunk.done),
+        new Promise<false>((resolve) => setTimeout(() => resolve(false), 2_000)),
+      ]);
+      expect(terminated).toBe(true);
+    } finally {
+      await reader?.cancel().catch(() => undefined);
+      server.closeAllConnections?.();
+      await new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
+    }
+  });
+
+  it('sends an explicit gap snapshot when the requested backend log cursor was evicted', async () => {
+    const broker = new BackendLogBroker({ perSourceBytes: 0, globalBytes: 0 });
+    const source = staticBackendLogSource('filesystem');
+    broker.registerSource(source);
+    broker.publish({ sourceId: source.id, kind: 'line', content: 'evicted' });
+    await adminService.bootstrapFirstAdmin({ username: 'operator', password: 'correct horse battery staple' });
+    const app = mountAdminRoutes({ backendLogBroker: broker });
+    const login = await request(app)
+      .post('/admin/api/session/login')
+      .send({ username: 'operator', password: 'correct horse battery staple' });
+    const server = app.listen(0, '127.0.0.1');
+    try {
+      await new Promise<void>((resolve) => server.once('listening', resolve));
+      const address = server.address();
+      if (!address || typeof address === 'string') throw new Error('Admin route test server did not bind');
+      const response = await fetch(`http://127.0.0.1:${address.port}/admin/api/logs/stream`, {
+        headers: { Cookie: login.headers['set-cookie'][0], 'Last-Event-ID': '0' },
+      });
+      const reader = response.body!.getReader();
+      const decoder = new TextDecoder();
+      let frames = '';
+      while (!frames.includes('event: gap')) {
+        const chunk = await reader.read();
+        if (chunk.done) break;
+        frames += decoder.decode(chunk.value, { stream: true });
+      }
+      await reader.cancel();
+
+      expect(frames).toContain('event: sources');
+      expect(frames).toContain('event: gap');
+      expect(frames).toContain('id: 1');
+      expect(frames).toContain('"entries":[]');
+      expect(frames).not.toContain('event: entry');
+    } finally {
+      await new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
+    }
   });
 
   it('returns pre-auth CLI capabilities in a low-disclosure stable envelope', async () => {

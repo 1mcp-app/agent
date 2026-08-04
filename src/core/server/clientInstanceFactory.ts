@@ -1,4 +1,5 @@
 import type { MCPServerParams } from '@src/core/types/transport.js';
+import { templateBackendLogSource } from '@src/domains/backend-logs/backendLogSource.js';
 import { createTransportsWithContext } from '@src/transport/transportFactory.js';
 import { getConnectionTimeout } from '@src/utils/core/timeoutUtils.js';
 
@@ -23,12 +24,18 @@ export async function createPooledClientInstance({
   clientId,
   idleTimeout,
 }: CreatePooledInstanceParams): Promise<PooledClientInstance> {
-  const transports = await createTransportsWithContext(
-    {
-      [templateName]: processedConfig,
-    },
-    undefined,
-  );
+  const backendLogOptions =
+    processedConfig.type === 'stdio' || (!processedConfig.type && Boolean(processedConfig.command))
+      ? {
+          backendLogSources: {
+            [templateName]: templateBackendLogSource({ templateName, instanceId }),
+          },
+        }
+      : undefined;
+  const configs = { [templateName]: processedConfig };
+  const transports = backendLogOptions
+    ? await createTransportsWithContext(configs, undefined, backendLogOptions)
+    : await createTransportsWithContext(configs, undefined);
 
   const transport = transports[templateName];
   if (!transport) {

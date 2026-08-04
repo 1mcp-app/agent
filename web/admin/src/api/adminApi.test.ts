@@ -1,6 +1,6 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
-import { AdminApiError, createAdminApi } from './adminApi';
+import { AdminApiError, type AdminLogEventSource, createAdminApi } from './adminApi';
 
 function jsonResponse(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
@@ -10,6 +10,59 @@ function jsonResponse(body: unknown, status = 200): Response {
 }
 
 describe('admin API client', () => {
+  it('opens one same-origin backend log stream and decodes multiplexed events', () => {
+    const listeners = new Map<string, (event: MessageEvent<string>) => void>();
+    const close = vi.fn();
+    const source: AdminLogEventSource = {
+      addEventListener: (type, listener) => listeners.set(type, listener),
+      close,
+      onerror: null,
+      onopen: null,
+    };
+    const createSource = vi.fn(() => source);
+    const handlers = {
+      onSnapshot: vi.fn(),
+      onGap: vi.fn(),
+      onEntry: vi.fn(),
+      onSources: vi.fn(),
+      onSourceUpdate: vi.fn(),
+      onOpen: vi.fn(),
+      onError: vi.fn(),
+    };
+    const api = createAdminApi({ eventSource: createSource });
+
+    const disconnect = api.openBackendLogStream(handlers);
+    listeners.get('entry')!(new MessageEvent('entry', { data: JSON.stringify({ sequence: 4, content: 'ready' }) }));
+    listeners.get('sources')!(new MessageEvent('sources', { data: JSON.stringify([{ id: 'static:fs' }]) }));
+    listeners.get('source')!(
+      new MessageEvent('source', { data: JSON.stringify({ sourceId: 'static:fs', removed: true }) }),
+    );
+    source.onopen!(new Event('open'));
+
+    expect(createSource).toHaveBeenCalledOnce();
+    expect(createSource).toHaveBeenCalledWith('/admin/api/logs/stream');
+    expect(handlers.onEntry).toHaveBeenCalledWith(expect.objectContaining({ sequence: 4, content: 'ready' }));
+    expect(handlers.onSources).toHaveBeenCalledWith([{ id: 'static:fs' }]);
+    expect(handlers.onSourceUpdate).toHaveBeenCalledWith({ sourceId: 'static:fs', removed: true });
+    expect(handlers.onOpen).toHaveBeenCalledOnce();
+
+    for (const eventName of ['snapshot', 'gap', 'entry', 'sources', 'source']) {
+      listeners.get(eventName)!(new MessageEvent(eventName, { data: '{invalid json' }));
+    }
+    expect(handlers.onError).toHaveBeenCalledTimes(5);
+
+    disconnect();
+    expect(close).toHaveBeenCalledOnce();
+  });
+
+  it('requests retained backend logs for only the selected source', async () => {
+    const fetch = vi.fn(async () => jsonResponse({ sequence: 0, sources: [], entries: [] }));
+    const api = createAdminApi({ fetch });
+
+    await api.getBackendLogSnapshot('static:filesystem');
+
+    expect(fetch).toHaveBeenCalledWith('/admin/api/logs/snapshot?sourceId=static%3Afilesystem', expect.any(Object));
+  });
   it('logs in and loads the current session through same-origin admin endpoints', async () => {
     const calls: Array<{ input: RequestInfo | URL; init?: RequestInit }> = [];
     const api = createAdminApi({

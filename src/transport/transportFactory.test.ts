@@ -6,6 +6,8 @@ import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js'
 
 import { SDKOAuthClientProvider } from '@src/auth/sdkOAuthClientProvider.js';
 import { MCPServerParams } from '@src/core/types/index.js';
+import { getBackendLogBroker, resetBackendLogBroker } from '@src/domains/backend-logs/backendLogRuntime.js';
+import { templateBackendLogSource } from '@src/domains/backend-logs/backendLogSource.js';
 // Import the mocked types
 import { transportConfigSchema } from '@src/core/types/index.js';
 import logger, { debugIf } from '@src/logger/logger.js';
@@ -19,6 +21,7 @@ import { ManagedStdioStderr } from './managedStdioStderr.js';
 describe('TransportFactory', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    resetBackendLogBroker();
   });
 
   describe('createTransports', () => {
@@ -136,6 +139,36 @@ describe('TransportFactory', () => {
 
       expect(Object.keys(transports)).toEqual(['enabled-server']);
       expect(debugIf).toHaveBeenCalledWith('Skipping disabled transport: disabled-server');
+      expect(getBackendLogBroker().snapshot().sources).toContainEqual(
+        expect.objectContaining({ id: 'static:disabled-server', lifecycle: 'ended', capture: 'managed' }),
+      );
+    });
+
+    it('registers unmanaged stdio as unavailable without registering HTTP backends', () => {
+      const config: Record<string, MCPServerParams> = {
+        unmanaged: { type: 'stdio', command: 'node', stderr: 'inherit' },
+        remote: { type: 'http', url: 'http://localhost:3002/mcp' },
+      };
+      (transportConfigSchema.parse as any).mockReturnValueOnce(config.unmanaged).mockReturnValueOnce(config.remote);
+
+      createTransports(config);
+
+      expect(getBackendLogBroker().snapshot().sources).toEqual([
+        expect.objectContaining({ id: 'static:unmanaged', capture: 'not-captured' }),
+      ]);
+    });
+
+    it('removes an unmanaged template log source when its transport closes', async () => {
+      const config: Record<string, MCPServerParams> = {
+        template: { type: 'stdio', command: 'node', stderr: 'inherit' },
+      };
+      const source = templateBackendLogSource({ templateName: 'template', instanceId: 'a'.repeat(64) });
+      (transportConfigSchema.parse as any).mockReturnValueOnce(config.template);
+
+      const transports = createTransports(config, { backendLogSources: { template: source } });
+      await transports.template.close();
+
+      expect(getBackendLogBroker().snapshot().sources).not.toContainEqual(expect.objectContaining({ id: source.id }));
     });
 
     it('should infer transport type when missing', () => {
@@ -437,6 +470,30 @@ describe('TransportFactory', () => {
         restartDelay: 2000,
       });
       expect(logger.info).toHaveBeenCalledWith('Enabling runtime-owned stdio supervision for: restartable-server');
+    });
+
+    it('marks a supervised stdio source active again when recreating the transport', async () => {
+      const config: Record<string, MCPServerParams> = {
+        'restartable-server': {
+          type: 'stdio',
+          command: 'node',
+          restartOnExit: true,
+        },
+      };
+      (transportConfigSchema.parse as any).mockReturnValueOnce(config['restartable-server']);
+
+      const transports = createTransports(config);
+      const transport = transports['restartable-server'];
+      await transport.close();
+      expect(getBackendLogBroker().snapshot().sources).toContainEqual(
+        expect.objectContaining({ id: 'static:restartable-server', lifecycle: 'ended' }),
+      );
+
+      transport.stdioSupervision?.recreate();
+
+      expect(getBackendLogBroker().snapshot().sources).toContainEqual(
+        expect.objectContaining({ id: 'static:restartable-server', lifecycle: 'active' }),
+      );
     });
 
     it('should use default restartDelay when not specified', () => {

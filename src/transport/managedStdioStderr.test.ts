@@ -61,7 +61,7 @@ describe('ManagedStdioStderr', () => {
     await stderr.close();
   });
 
-  it('continues draining when an injected per-turn byte budget is zero', async () => {
+  it('falls back to the default per-turn byte budget when the injected budget is zero', async () => {
     const emit = vi.fn();
     const stderr = new ManagedStdioStderr('noisy-server', { emit, maxBytesPerTurn: 0 });
     const stream = new PassThrough();
@@ -102,7 +102,7 @@ describe('ManagedStdioStderr', () => {
       ManagedStdioStderrEvent.Line,
       expect.objectContaining({ serverName: 'healthy-server', line: 'healthy' }),
     );
-    for (let turn = 0; turn < 200 && noisyResume.mock.calls.length === 0; turn++) {
+    for (let turn = 0; turn < 1_000 && noisyResume.mock.calls.length === 0; turn++) {
       await new Promise<void>((resolve) => setImmediate(resolve));
     }
     expect(noisyResume).toHaveBeenCalledOnce();

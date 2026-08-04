@@ -72,6 +72,47 @@ export interface AdminAboutMetadata {
   project: { repository?: string; documentation?: string; issues?: string; license?: string };
 }
 
+export interface BackendLogSource {
+  id: string;
+  canonicalName: string;
+  displayName: string;
+  kind: 'static' | 'template';
+  capture: 'managed' | 'not-captured';
+  lifecycle: 'active' | 'ended';
+}
+
+export interface BackendLogEntry {
+  sequence: number;
+  timestamp: string;
+  sourceId: string;
+  canonicalName: string;
+  displayName: string;
+  sourceKind: 'static' | 'template';
+  kind: 'line' | 'repeated' | 'suppressed';
+  content: string;
+  count?: number;
+  truncated: boolean;
+}
+
+export interface BackendLogSnapshot {
+  sequence: number;
+  sources: BackendLogSource[];
+  entries: BackendLogEntry[];
+}
+
+export interface BackendLogSourceUpdate {
+  sourceId: string;
+  source?: BackendLogSource;
+  removed: boolean;
+}
+
+export interface AdminLogEventSource {
+  addEventListener(type: string, listener: (event: MessageEvent<string>) => void): void;
+  close(): void;
+  onerror: ((event: Event) => void) | null;
+  onopen: ((event: Event) => void) | null;
+}
+
 export interface AdminPresetDraft {
   name: string;
   description?: string;
@@ -321,6 +362,7 @@ export interface ConfiguredServerApplyResponse {
 
 export interface AdminApiOptions {
   fetch?: typeof fetch;
+  eventSource?: (url: string) => AdminLogEventSource;
   idempotencyKey?: (input: {
     action: 'enable' | 'disable' | 'oauth-authorize' | 'oauth-restart';
     targetName: string;
@@ -400,6 +442,7 @@ function classifyAdminApiError(error: AdminApiError): AdminApiFailure {
 export function createAdminApi(options: AdminApiOptions = {}) {
   const request = createRequest(options.fetch ?? fetch);
   const idempotencyKey = options.idempotencyKey ?? defaultIdempotencyKey;
+  const createEventSource = options.eventSource ?? ((url: string) => new EventSource(url) as AdminLogEventSource);
 
   return {
     login(input: { username: string; password: string }): Promise<AdminSession> {
@@ -424,6 +467,54 @@ export function createAdminApi(options: AdminApiOptions = {}) {
 
     getStatus(): Promise<AdminStatus> {
       return request('/admin/api/status');
+    },
+
+    getBackendLogSnapshot(sourceId?: string): Promise<BackendLogSnapshot> {
+      const query = sourceId ? `?sourceId=${encodeURIComponent(sourceId)}` : '';
+      return request(`/admin/api/logs/snapshot${query}`);
+    },
+
+    openBackendLogStream(handlers: {
+      onSnapshot(snapshot: BackendLogSnapshot): void;
+      onGap(snapshot: BackendLogSnapshot): void;
+      onEntry(entry: BackendLogEntry): void;
+      onSources(sources: BackendLogSource[]): void;
+      onSourceUpdate(update: BackendLogSourceUpdate): void;
+      onOpen(): void;
+      onError(): void;
+    }): () => void {
+      const parseEvent = <T>(event: MessageEvent<string>): T | undefined => {
+        try {
+          return JSON.parse(event.data) as T;
+        } catch {
+          handlers.onError();
+          return undefined;
+        }
+      };
+      const source = createEventSource('/admin/api/logs/stream');
+      source.addEventListener('snapshot', (event) => {
+        const snapshot = parseEvent<BackendLogSnapshot>(event);
+        if (snapshot) handlers.onSnapshot(snapshot);
+      });
+      source.addEventListener('gap', (event) => {
+        const snapshot = parseEvent<BackendLogSnapshot>(event);
+        if (snapshot) handlers.onGap(snapshot);
+      });
+      source.addEventListener('entry', (event) => {
+        const entry = parseEvent<BackendLogEntry>(event);
+        if (entry) handlers.onEntry(entry);
+      });
+      source.addEventListener('sources', (event) => {
+        const sources = parseEvent<BackendLogSource[]>(event);
+        if (sources) handlers.onSources(sources);
+      });
+      source.addEventListener('source', (event) => {
+        const update = parseEvent<BackendLogSourceUpdate>(event);
+        if (update) handlers.onSourceUpdate(update);
+      });
+      source.onopen = () => handlers.onOpen();
+      source.onerror = () => handlers.onError();
+      return () => source.close();
     },
 
     async authorizeOAuthService(input: {

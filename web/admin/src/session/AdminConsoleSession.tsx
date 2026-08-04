@@ -20,6 +20,7 @@ import type {
   OAuthAdminAction,
   OAuthFeedback,
 } from './AdminConsoleSessionModel';
+import { useBackendLogs } from './useBackendLogs';
 
 const OAUTH_CALLBACK_MESSAGES: Readonly<Record<string, string>> = {
   access_denied: 'OAuth authorization was denied.',
@@ -176,6 +177,12 @@ export function useAdminConsoleSession({
     onUnauthenticated: invalidateAdminSession,
     onApplied: () => configuredServerAppliedRef.current?.(),
     onPathCommitted: commitBrowserPath,
+  });
+  const backendLogs = useBackendLogs({
+    api,
+    active: route === 'logs',
+    authenticated: Boolean(state.session),
+    onUnauthenticated: () => invalidateAdminSession('loginRequired'),
   });
 
   const isCurrentSession = useCallback((sessionKey: string) => stateRef.current.session?.csrfToken === sessionKey, []);
@@ -491,6 +498,7 @@ export function useAdminConsoleSession({
       operationFeedback: oauthOperationFeedback,
       operate: operateOAuth,
     },
+    logs: backendLogs,
     presets: {
       items: presets,
       targets: presetTargets,
@@ -515,6 +523,7 @@ function adminRoute(pathname: string): AdminConsoleRoute {
   if (pathname === '/admin/oauth' || pathname.startsWith('/admin/oauth/')) return 'oauth';
   if (pathname === '/admin/audit' || pathname.startsWith('/admin/audit/')) return 'audit';
   if (pathname.startsWith('/admin/presets')) return 'presets';
+  if (pathname.startsWith('/admin/logs')) return 'logs';
   if (pathname.startsWith('/admin/about')) return 'about';
   return 'dashboard';
 }

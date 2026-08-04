@@ -10,6 +10,7 @@ import type {
 } from '@src/domains/admin/adminConfiguredServerService.js';
 import { AdminIdentityService } from '@src/domains/admin/adminIdentityService.js';
 import type { AdminOperationResult } from '@src/domains/admin/adminOperationService.js';
+import { BackendLogBroker } from '@src/domains/backend-logs/backendLogBroker.js';
 import type { ConfigChangeResult } from '@src/domains/config-change/configChange.js';
 import { createAdminRoutes } from '@src/transport/http/routes/adminRoutes.js';
 
@@ -45,6 +46,18 @@ describe('admin SPA browser smoke', () => {
     const app = express();
     app.use(express.json());
     configuredServerFixture = createConfiguredServerFixture();
+    const backendLogBroker = new BackendLogBroker({
+      now: () => new Date('2030-01-01T00:00:00.000Z'),
+    });
+    backendLogBroker.registerSource({
+      id: 'static:github',
+      canonicalName: 'github',
+      displayName: 'github',
+      kind: 'static',
+      capture: 'managed',
+      lifecycle: 'active',
+    });
+    backendLogBroker.publish({ sourceId: 'static:github', kind: 'line', content: 'backend ready' });
     const adminRoutes = createAdminRoutes({
       adminEnabled: true,
       adminService,
@@ -66,6 +79,7 @@ describe('admin SPA browser smoke', () => {
           },
         ],
       }),
+      getBackendLogBroker: () => backendLogBroker,
       adminConsoleAssetsDir: ADMIN_BUILD_DIR,
     });
 
@@ -137,6 +151,15 @@ describe('admin SPA browser smoke', () => {
       await expectVisible(page.getByRole('heading', { name: 'Server inventory' }));
       await page.reload();
       await expectVisible(page.getByRole('heading', { name: 'Server inventory' }));
+
+      await page.getByRole('link', { name: 'Backend logs' }).click();
+      await page.waitForURL(`${baseUrl}/admin/logs`);
+      await expectVisible(page.getByRole('heading', { name: 'Backend logs' }));
+      await expectVisible(page.getByRole('log', { name: 'github retained log entries' }));
+      await expectText(page, 'backend ready');
+
+      await page.getByRole('link', { name: 'Server inventory' }).click();
+      await page.waitForURL(`${baseUrl}/admin/servers`);
 
       await page.getByLabel('Search servers').fill('github');
       await waitForRowCount(page, 1);

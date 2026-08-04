@@ -9,6 +9,54 @@ import { AdminConsoleApp } from './AdminConsoleApp';
 import { configuredServerDetailState, consoleState, fixtureSession, renderApp } from './AdminConsoleApp.fixtures';
 
 describe('AdminConsoleApp', () => {
+  it('renders managed, ended, and unavailable backend log states as text', async () => {
+    const user = userEvent.setup();
+    const select = vi.fn();
+    renderApp(consoleState(), {
+      navigation: { route: 'logs' },
+      logs: {
+        connection: 'active',
+        selectedSourceId: 'static:filesystem',
+        sources: [
+          { id: 'static:filesystem', canonicalName: 'filesystem', displayName: 'filesystem', kind: 'static', capture: 'managed', lifecycle: 'active' },
+          { id: 'static:manual', canonicalName: 'manual', displayName: 'manual', kind: 'static', capture: 'not-captured', lifecycle: 'active' },
+          { id: 'template:0123456789abcdef', canonicalName: '0123456789abcdef', displayName: 'search (0123456789ab)', kind: 'template', capture: 'managed', lifecycle: 'ended' },
+        ],
+        entries: [
+          { sequence: 7, timestamp: '2026-08-02T00:00:00.000Z', sourceId: 'static:filesystem', canonicalName: 'filesystem', displayName: 'filesystem', sourceKind: 'static', kind: 'line', content: '<script>window.injected=true</script>', truncated: false },
+        ],
+        unread: { 'template:0123456789abcdef': 2 },
+        cursors: { 'static:filesystem': 7 },
+        select,
+      },
+    });
+
+    expect(screen.getByRole('heading', { name: 'Backend logs' })).toBeInTheDocument();
+    expect(screen.getByText('<script>window.injected=true</script>')).toBeInTheDocument();
+    expect(document.querySelector('.backend-log-content script')).toBeNull();
+    expect(screen.getByText('Not captured')).toBeInTheDocument();
+    expect(screen.getByText('Ended')).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: /manual, not captured/i }));
+    expect(select).toHaveBeenCalledWith('static:manual');
+  });
+
+  it('distinguishes a retained-history load failure from an empty log', () => {
+    renderApp(consoleState(), {
+      navigation: { route: 'logs' },
+      logs: {
+        connection: 'active',
+        selectedSourceId: 'static:filesystem',
+        sources: [
+          { id: 'static:filesystem', canonicalName: 'filesystem', displayName: 'filesystem', kind: 'static', capture: 'managed', lifecycle: 'active' },
+        ],
+        selectionError: 'Failed to load retained backend logs. Live entries will continue to appear.',
+      },
+    });
+
+    expect(screen.getByRole('alert')).toHaveTextContent('Failed to load retained backend logs');
+    expect(screen.queryByText('No captured stderr in retained runtime history.')).not.toBeInTheDocument();
+  });
   it('renders setup-required guidance without authenticated console chrome', () => {
     render(
       <MantineProvider>
