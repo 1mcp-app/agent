@@ -135,6 +135,33 @@ describe('StreamableSessionLifecycle', () => {
     });
   });
 
+  it('rejects persisted unsigned template context in verified mode', async () => {
+    sessionRepository.getSessionData.mockReturnValue({
+      initializeResponse: {
+        protocolVersion: '2024-11-05',
+        capabilities: {},
+        serverInfo: { name: 'test', version: '1.0' },
+      },
+    });
+    sessionRepository.get.mockReturnValue({
+      context: {
+        project: { name: 'legacy' },
+        user: { username: 'remote' },
+        environment: { variables: {} },
+        sessionId: 'restored-session',
+      },
+    });
+
+    const result = await lifecycle.resolveExistingSession('restored-session');
+
+    expect(result).toMatchObject({
+      status: StreamableSessionStatus.Missing,
+      reason: StreamableSessionMissingReason.RestoreFailed,
+      restoreErrorType: StreamableSessionRestoreErrorType.ContextInvalid,
+    });
+    expect(serverManager.connectTransport).not.toHaveBeenCalled();
+  });
+
   it('recovers a missing POST session only for initialize requests', async () => {
     const config: InboundConnectionConfig = { tags: ['init'], enablePagination: false };
     const sessionId = 'rest-0123456789abcdef';

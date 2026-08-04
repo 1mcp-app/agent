@@ -12,7 +12,11 @@ import {
 import tagsExtractor from '@src/transport/http/middlewares/tagsExtractor.js';
 import { StreamableSessionRepository } from '@src/transport/http/storage/streamableSessionRepository.js';
 import { StreamableSessionLifecycle, StreamableSessionStatus } from '@src/transport/http/streamableSessionLifecycle.js';
-import { extractContextFromMeta } from '@src/transport/http/utils/contextExtractor.js';
+import { extractTemplateContextRequest } from '@src/transport/http/utils/contextExtractor.js';
+import {
+  authorizeRequestTemplateContext,
+  redactTemplateContextBodyForLogging,
+} from '@src/transport/http/utils/templateContextAuthority.js';
 import { sendBadRequest, sendInternalError, sendNotFound } from '@src/transport/http/utils/httpErrorHandler.js';
 import { logError, logWarn } from '@src/transport/http/utils/unifiedLogger.js';
 
@@ -82,7 +86,7 @@ function wrapResponseForLogging(req: Request, res: Response, sessionId: string |
     // Log request/response details at debug level for troubleshooting
     logger.debug('SDK error details', {
       sessionId,
-      requestBody: req.body as unknown,
+      requestBody: redactTemplateContextBodyForLogging(req.body),
       responseBody,
     });
   };
@@ -191,12 +195,20 @@ export function setupStreamableHttpRoutes(
     try {
       const sessionId = req.headers['mcp-session-id'] as string | undefined;
       const isInitialize = isInitializeRequest(req.body);
+      const extractedContext = extractTemplateContextRequest(req);
+      const authorization = extractedContext
+        ? authorizeRequestTemplateContext({ ...extractedContext, transportSessionId: sessionId })
+        : undefined;
       const result = await lifecycle.resolvePostSession({
         sessionId,
         isInitializeRequest: isInitialize,
         createSessionData: () => ({
           config: buildConfigFromRequest(res, req, customTemplate),
-          context: extractContextFromMeta(req) || undefined,
+          context: authorization?.status === 'trusted' ? authorization.context : undefined,
+          contextProof:
+            authorization?.status === 'trusted' && authorization.provenance === 'verified-local'
+              ? extractedContext?.proof
+              : undefined,
         }),
       });
 

@@ -1,7 +1,13 @@
 import { Request } from 'express';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { deriveContextSessionId, extractContextFromMeta, extractRequestContext } from './contextExtractor.js';
+import {
+  deriveContextSessionId,
+  encodeContextValue,
+  extractContextFromMeta,
+  extractRequestContext,
+  extractTemplateContextRequest,
+} from './contextExtractor.js';
 
 // Mock logger to avoid console output during tests
 vi.mock('@src/logger/logger.js', () => ({
@@ -309,6 +315,63 @@ describe('contextExtractor', () => {
         transport: {
           type: 'inspect',
         },
+      });
+    });
+
+    it('extracts a detached proof alongside readable POST context', () => {
+      const proof = {
+        version: 1 as const,
+        runtimeScopeId: 'scope-a',
+        sessionId: 'session-a',
+        contextHash: 'hash-a',
+        issuedAt: '2026-08-04T00:00:00.000Z',
+        signature: 'signature-a',
+      };
+      mockRequest.body = {
+        params: {
+          _meta: {
+            context: {
+              project: { name: 'agent' },
+              user: { username: 'alice' },
+              environment: { variables: {} },
+              sessionId: 'session-a',
+            },
+            contextProof: proof,
+          },
+        },
+      };
+
+      expect(extractTemplateContextRequest(mockRequest as Request)).toEqual({
+        context: expect.objectContaining({ sessionId: 'session-a' }),
+        proof,
+        source: 'meta',
+      });
+    });
+
+    it('keeps GET context and proof base64url-compatible', () => {
+      const context = {
+        project: { name: 'agent' },
+        user: { username: 'alice' },
+        environment: { variables: {} },
+        sessionId: 'session-a',
+      };
+      const proof = {
+        version: 1 as const,
+        runtimeScopeId: 'scope-a',
+        sessionId: 'session-a',
+        contextHash: 'hash-a',
+        issuedAt: '2026-08-04T00:00:00.000Z',
+        signature: 'signature-a',
+      };
+      mockRequest.query = {
+        context: encodeContextValue(context),
+        contextProof: encodeContextValue(proof),
+      };
+
+      expect(extractTemplateContextRequest(mockRequest as Request)).toEqual({
+        context,
+        proof,
+        source: 'query',
       });
     });
   });

@@ -11,6 +11,8 @@ import logger from '@src/logger/logger.js';
 import { RestorableStreamableHTTPServerTransport } from '@src/transport/http/restorableStreamableTransport.js';
 import { StreamableSessionRepository } from '@src/transport/http/storage/streamableSessionRepository.js';
 import { logError } from '@src/transport/http/utils/unifiedLogger.js';
+import { authorizeRequestTemplateContext } from '@src/transport/http/utils/templateContextAuthority.js';
+import type { TemplateContextProof } from '@src/core/context/templateContextTrust.js';
 import type { ContextData } from '@src/types/context.js';
 import { withCanonicalSessionId } from '@src/utils/context/sessionIdentity.js';
 
@@ -79,6 +81,7 @@ export type StreamablePostSessionResult = StreamableSessionLookupResult | Stream
 export interface StreamableSessionCreateData {
   config: InboundConnectionConfig;
   context?: Partial<ContextData>;
+  contextProof?: TemplateContextProof;
 }
 
 export interface ResolvePostSessionInput {
@@ -164,8 +167,8 @@ export class StreamableSessionLifecycle {
           reason: StreamableSessionMissingReason.InitializeRequired,
         };
       }
-      const { config, context } = input.createSessionData();
-      return this.createSession(config, context);
+      const { config, context, contextProof } = input.createSessionData();
+      return this.createSession(config, context, undefined, StreamableSessionStatus.Created, contextProof);
     }
 
     const existing = await this.resolveExistingSession(input.sessionId);
@@ -189,8 +192,14 @@ export class StreamableSessionLifecycle {
       };
     }
 
-    const { config, context } = input.createSessionData();
-    return this.createSession(config, context, input.sessionId, StreamableSessionStatus.InitializeRecovered);
+    const { config, context, contextProof } = input.createSessionData();
+    return this.createSession(
+      config,
+      context,
+      input.sessionId,
+      StreamableSessionStatus.InitializeRecovered,
+      contextProof,
+    );
   }
 
   async resolveExistingSession(sessionId: string): Promise<StreamableSessionLookupResult> {
@@ -269,9 +278,29 @@ export class StreamableSessionLifecycle {
       logger.info(`Restoring streamable session: ${sessionId}`);
       const transport = this.createRestorableTransportImpl(sessionId);
       const contextData = buildContextData(config, sessionId);
+      const authorization = contextData
+        ? authorizeRequestTemplateContext({
+            context: contextData,
+            proof: config.contextProof,
+            transportSessionId: sessionId,
+            source: 'persisted',
+          })
+        : undefined;
+      if (authorization && authorization.status !== 'trusted') {
+        return {
+          transport: null,
+          errorType: StreamableSessionRestoreErrorType.ContextInvalid,
+          error: 'Persisted template context is not trusted. Please initialize a new session.',
+        };
+      }
 
       try {
-        await this.serverManager.connectTransport(transport, sessionId, config, contextData);
+        await this.serverManager.connectTransport(
+          transport,
+          sessionId,
+          config,
+          authorization?.status === 'trusted' ? authorization.context : undefined,
+        );
       } catch (connectError) {
         const errorMessage = connectError instanceof Error ? connectError.message : String(connectError);
         logger.error(`Failed to connect transport ${sessionId}:`, connectError);
@@ -314,6 +343,7 @@ export class StreamableSessionLifecycle {
     context?: Partial<ContextData>,
     providedSessionId?: string,
     status: StreamableSessionCreateResult['status'] = StreamableSessionStatus.Created,
+    contextProof?: TemplateContextProof,
   ): Promise<StreamableSessionCreateResult> {
     const sessionId = providedSessionId || AUTH_CONFIG.SERVER.STREAMABLE_SESSION.ID_PREFIX + randomUUID();
 
@@ -341,6 +371,7 @@ export class StreamableSessionLifecycle {
     const configWithContext: InboundConnectionConfig & { context?: Partial<ContextData> } = {
       ...config,
       context: canonicalContext,
+      contextProof,
     };
 
     try {

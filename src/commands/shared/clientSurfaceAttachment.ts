@@ -1,3 +1,5 @@
+import path from 'node:path';
+
 import { type AuthProfile, loadAuthProfile, normalizeServerUrl } from '@src/commands/shared/authProfileStore.js';
 import { buildCliContext, generateStreamableSessionId } from '@src/commands/shared/cliContext.js';
 import {
@@ -14,6 +16,12 @@ import {
   resolveServeTarget,
 } from '@src/commands/shared/serveTargetResolver.js';
 import type { ProjectConfig } from '@src/config/projectConfigTypes.js';
+import {
+  createTemplateContextProof,
+  type TemplateContextProof,
+  TemplateContextCapabilityStore,
+} from '@src/core/context/templateContextTrust.js';
+import { isProcessAlive, readPidFile } from '@src/core/server/pidFileManager.js';
 import type { RuntimeIdentityWarning } from '@src/domains/runtime-targets/runtimeIdentityVerification.js';
 import { RuntimeTargetStore } from '@src/domains/runtime-targets/runtimeTargetStore.js';
 import type { ContextData } from '@src/types/context.js';
@@ -40,6 +48,10 @@ export interface ResolvedAttachmentTarget<
     kind: 'local' | 'remote';
     runtimeScopeId?: string;
   };
+  localRuntimeScope?: {
+    storagePath: string;
+    runtimeScopeId?: string;
+  };
   runtimeIdentityWarnings?: RuntimeIdentityWarning[];
 }
 
@@ -50,6 +62,10 @@ export interface ClientSurfaceAttachmentPorts<TOptions extends ResolvableServeTa
   readSessionCache: (cachePath: string, serverUrl: string, contextHash: string) => Promise<CliSessionCache | null>;
   writeSessionCache: (cachePath: string, cache: CliSessionCache) => Promise<void>;
   deleteSessionCache: (cachePath: string) => Promise<void>;
+  createContextProof: (
+    target: ResolvedAttachmentTarget<TOptions>,
+    context: ContextData,
+  ) => Promise<TemplateContextProof | undefined>;
   now: () => number;
 }
 
@@ -62,6 +78,7 @@ export interface ClientSurfaceAttachmentContext<
   serverUrl: URL;
   bearerToken?: string;
   context: ContextData;
+  contextProof?: TemplateContextProof;
   contextHash: string;
   cachePath: string;
   cachedSession: CliSessionCache | null;
@@ -85,6 +102,8 @@ export interface FreshClientSurfaceAttachmentResult<TOptions extends ResolvableS
   serverUrl: URL;
   bearerToken?: string;
   context: ContextData;
+  contextProof?: TemplateContextProof;
+  createContextProof: (context: ContextData) => Promise<TemplateContextProof | undefined>;
   contextHash: string;
   requestSessionId: string;
   sessionId: string;
@@ -139,6 +158,7 @@ export type ReusableClientSurfaceAttachmentResult<TOptions extends ResolvableSer
       sessionId?: string;
       requestSessionId: string;
       context: ContextData;
+      contextProof?: TemplateContextProof;
       contextHash: string;
       cachePath: string;
       target: ResolvedAttachmentTarget<TOptions>;
@@ -153,6 +173,7 @@ export type ReusableClientSurfaceAttachmentResult<TOptions extends ResolvableSer
       message: string;
       requestSessionId: string;
       context: ContextData;
+      contextProof?: TemplateContextProof;
       contextHash: string;
       cachePath: string;
       target: ResolvedAttachmentTarget<TOptions>;
@@ -206,6 +227,7 @@ export async function attachFreshClientSurface<TOptions extends ResolvableServeT
   const bearerToken = await loadBearerToken(ports, target, options, baseUrl);
   const requestSessionId = resolveCanonicalSessionId({ context: baseContext, transportSessionId: freshSessionId });
   const context = withCanonicalSessionId(baseContext, requestSessionId);
+  const contextProof = await ports.createContextProof(target, context);
 
   return {
     target,
@@ -214,6 +236,8 @@ export async function attachFreshClientSurface<TOptions extends ResolvableServeT
     serverUrl: target.serverUrl,
     bearerToken,
     context,
+    contextProof,
+    createContextProof: (updatedContext) => ports.createContextProof(target, updatedContext),
     contextHash,
     requestSessionId,
     sessionId: requestSessionId,
@@ -247,20 +271,22 @@ export async function attachReusableClientSurface<TOptions extends ResolvableSer
     bearerTokenPromise,
     ports.readSessionCache(cachePath, target.serverUrl.toString(), contextHash),
   ]);
-  const requestSessionId = resolveCanonicalSessionId({
+  let requestSessionId = resolveCanonicalSessionId({
     context: baseContext,
     transportSessionId: cachedSession?.sessionId,
   });
-  const context = withCanonicalSessionId(baseContext, requestSessionId);
+  let context = withCanonicalSessionId(baseContext, requestSessionId);
+  let contextProof = await ports.createContextProof(target, context);
   let restSupport = cachedSession?.hasRestEndpoint;
 
-  const attachmentContext: ClientSurfaceAttachmentContext<TOptions> = {
+  let attachmentContext: ClientSurfaceAttachmentContext<TOptions> = {
     target,
     options,
     baseUrl,
     serverUrl: target.serverUrl,
     bearerToken,
     context,
+    contextProof,
     contextHash,
     cachePath,
     cachedSession,
@@ -288,6 +314,7 @@ export async function attachReusableClientSurface<TOptions extends ResolvableSer
         sessionId,
         requestSessionId,
         context,
+        contextProof,
         contextHash,
         cachePath,
         target,
@@ -305,6 +332,7 @@ export async function attachReusableClientSurface<TOptions extends ResolvableSer
         message: restResponse.message,
         requestSessionId,
         context,
+        contextProof,
         contextHash,
         cachePath,
         target,
@@ -323,16 +351,26 @@ export async function attachReusableClientSurface<TOptions extends ResolvableSer
 
   let mcpResponse = await input.mcp({
     ...attachmentContext,
-    sessionId: cachedSession?.sessionId,
+    sessionId: cachedSession?.sessionId ?? requestSessionId,
     restSupport,
     sendInitialize: !cachedSession?.sessionId,
   });
 
   if (mcpResponse.status === 'stale_session') {
     await ports.deleteSessionCache(cachePath);
+    requestSessionId = generateStreamableSessionId();
+    context = withCanonicalSessionId(baseContext, requestSessionId);
+    contextProof = await ports.createContextProof(target, context);
+    attachmentContext = {
+      ...attachmentContext,
+      context,
+      contextProof,
+      requestSessionId,
+      sessionId: requestSessionId,
+    };
     mcpResponse = await input.mcp({
       ...attachmentContext,
-      sessionId: undefined,
+      sessionId: requestSessionId,
       restSupport,
       sendInitialize: true,
     });
@@ -353,6 +391,7 @@ export async function attachReusableClientSurface<TOptions extends ResolvableSer
       sessionId,
       requestSessionId,
       context,
+      contextProof,
       contextHash,
       cachePath,
       target,
@@ -369,6 +408,7 @@ export async function attachReusableClientSurface<TOptions extends ResolvableSer
     message: mcpResponse.status === 'error' ? mcpResponse.message : 'Cached session expired.',
     requestSessionId,
     context,
+    contextProof,
     contextHash,
     cachePath,
     target,
@@ -394,8 +434,37 @@ function withDefaultPorts<TOptions extends ResolvableServeTargetOptions>(
     readSessionCache: ports?.readSessionCache ?? readCliSessionCache,
     writeSessionCache: ports?.writeSessionCache ?? writeCliSessionCache,
     deleteSessionCache: ports?.deleteSessionCache ?? deleteCliSessionCache,
+    createContextProof: ports?.createContextProof ?? createLocalTemplateContextProof,
     now: ports?.now ?? Date.now,
   };
+}
+
+async function createLocalTemplateContextProof<TOptions extends ResolvableServeTargetOptions>(
+  target: ResolvedAttachmentTarget<TOptions>,
+  context: ContextData,
+): Promise<TemplateContextProof | undefined> {
+  const localScope = target.localRuntimeScope;
+  if (!localScope) {
+    return undefined;
+  }
+
+  const runtimeInfo = readPidFile(localScope.storagePath);
+  if (
+    !runtimeInfo ||
+    !isProcessAlive(runtimeInfo.pid) ||
+    path.resolve(runtimeInfo.configDir) !== path.resolve(localScope.storagePath) ||
+    (target.serverPid !== undefined && runtimeInfo.pid !== target.serverPid) ||
+    normalizeServerUrl(runtimeInfo.url) !== normalizeServerUrl(target.discoveredUrl)
+  ) {
+    return undefined;
+  }
+
+  const capability = new TemplateContextCapabilityStore({
+    storageDir: localScope.storagePath,
+    runtimeScopeId: localScope.runtimeScopeId,
+  }).read();
+
+  return capability ? createTemplateContextProof(context, capability) : undefined;
 }
 
 async function loadBearerToken<TOptions extends ResolvableServeTargetOptions>(

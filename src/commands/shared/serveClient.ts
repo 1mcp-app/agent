@@ -13,6 +13,7 @@ import {
 
 import { MCP_SERVER_NAME, MCP_SERVER_VERSION } from '@src/constants.js';
 import { resolveFilterSelection } from '@src/core/filtering/filterSelection.js';
+import type { TemplateContextProof } from '@src/core/context/templateContextTrust.js';
 import logger from '@src/logger/logger.js';
 import type { ContextData } from '@src/types/context.js';
 import { createContextHash } from '@src/utils/context/contextHash.js';
@@ -111,7 +112,7 @@ export class StreamableServeClient {
     await this.transport.start();
   }
 
-  async initialize(context?: ContextData): Promise<JsonRpcResponse<InitializeResult>> {
+  async initialize(context?: ContextData, contextProof?: TemplateContextProof): Promise<JsonRpcResponse<InitializeResult>> {
     const response = await this.sendRequest<InitializeResult>('initialize', {
       protocolVersion: LATEST_PROTOCOL_VERSION,
       capabilities: {},
@@ -123,6 +124,7 @@ export class StreamableServeClient {
         ? {
             _meta: {
               context,
+              ...(contextProof ? { contextProof } : {}),
             },
           }
         : {}),

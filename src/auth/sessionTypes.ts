@@ -2,6 +2,7 @@
 import { OAuthClientInformationFull } from '@modelcontextprotocol/sdk/shared/auth.js';
 
 import { ContextNamespace, EnvironmentContext, UserContext } from '@src/types/context.js';
+import type { TemplateContextProof } from '@src/core/context/templateContextTrust.js';
 
 import { z } from 'zod';
 
@@ -127,4 +128,5 @@ export interface StreamableSessionData extends ExpirableData {
       };
     };
   };
+  contextProof?: TemplateContextProof;
 }

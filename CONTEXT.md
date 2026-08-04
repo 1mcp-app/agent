@@ -108,6 +108,22 @@ _Avoid_: command setup, connection helper, proxy setup
 Project, user, environment, and optional transport data supplied by a caller so the **Aggregated Runtime** can resolve contextual behavior.
 _Avoid_: metadata, payload extras
 
+**Trusted Request Context**:
+A **Request Context** that the **Aggregated Runtime** has authorized for **Template Server** rendering under its current **Template Context Trust Mode**. Decoding or logging a Request Context does not make it trusted.
+_Avoid_: valid context, parsed context, authenticated client context
+
+**Template Context Capability**:
+The random owner-only secret held by one local **Runtime Scope** and used by first-party local **Client Surfaces** to sign template-context proofs. It is not PID metadata, an OAuth credential, or a remote-client secret.
+_Avoid_: API key, auth token, context header
+
+**Template Context Proof**:
+A detached HMAC proof binding a readable **Request Context** hash to one Runtime Scope identity and canonical **Request Session**. It authorizes template rendering but does not authorize general session access.
+_Avoid_: context token, session token, encoded context
+
+**Template Context Trust Mode**:
+The server-owned policy (`verified`, `disabled`, or `legacy`) deciding whether a supplied Request Context can become a **Trusted Request Context**.
+_Avoid_: client trust flag, auth mode, template setting
+
 **Request Session**:
 The runtime identity used to associate a request or client connection with template rendering or routing.
 _Avoid_: HTTP session, connection id

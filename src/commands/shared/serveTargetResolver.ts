@@ -1,6 +1,7 @@
 import { buildServerUrl, type ServeUrlOptions } from '@src/commands/shared/serveClient.js';
 import { normalizeTags, resolveProjectContext } from '@src/config/projectConfigLoader.js';
 import type { ProjectConfig } from '@src/config/projectConfigTypes.js';
+import { getConfigDir } from '@src/constants.js';
 import {
   type RuntimeIdentityWarning,
   type RuntimeTargetTlsOptions,
@@ -44,6 +45,10 @@ export interface ResolvedServeTarget<TOptions extends ResolvableServeTargetOptio
   runtimeTargetContext?: {
     name: string;
     kind: 'local' | 'remote';
+    runtimeScopeId?: string;
+  };
+  localRuntimeScope?: {
+    storagePath: string;
     runtimeScopeId?: string;
   };
   runtimeIdentityWarnings?: RuntimeIdentityWarning[];
@@ -214,12 +219,18 @@ export async function resolveServeTarget<TOptions extends ResolvableServeTargetO
     source,
     projectContextSource: resolvedProjectContext.source,
     runtimeTargetContext: localRuntimeIdentity
+      && !mergedOptions.url
+      && mergedOptions.context === 'local'
       ? {
           name: 'local',
           kind: 'local',
           runtimeScopeId: localRuntimeIdentity.identity.runtimeScopeId,
         }
       : undefined,
+    localRuntimeScope: {
+      storagePath: getConfigDir(mergedOptions['config-dir']),
+      runtimeScopeId: localRuntimeIdentity?.identity.runtimeScopeId,
+    },
     runtimeIdentityWarnings: localRuntimeIdentity?.warnings,
   };
 }

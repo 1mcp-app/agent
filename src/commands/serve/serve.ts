@@ -5,6 +5,10 @@ import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 
 import { ConfigManager } from '@src/config/configManager.js';
 import { getDefaultInstructionsTemplatePath, HOST, PORT } from '@src/constants.js';
+import {
+  type TemplateContextTrustMode,
+  TemplateContextCapabilityStore,
+} from '@src/core/context/templateContextTrust.js';
 import { ClientManager } from '@src/core/client/clientManager.js';
 import { InstructionAggregator } from '@src/core/instructions/instructionAggregator.js';
 import { formatValidationError, validateTemplateContent } from '@src/core/instructions/templateValidator.js';
@@ -20,6 +24,7 @@ import {
 } from '@src/core/server/runtimeScopeOwnership.js';
 import { ServerManager } from '@src/core/server/serverManager.js';
 import { resetBackendLogBroker } from '@src/domains/backend-logs/backendLogRuntime.js';
+import { RuntimeIdentityService } from '@src/core/runtime/runtimeIdentityService.js';
 import { GlobalOptions } from '@src/globalOptions.js';
 import { configureGlobalLogger } from '@src/logger/configureGlobalLogger.js';
 import logger, { debugIf } from '@src/logger/logger.js';
@@ -31,6 +36,7 @@ import { displayLogo } from '@src/utils/ui/logo.js';
 import { resolveAsyncLoadingOptions } from './asyncLoadingOptions.js';
 import { resolveServeConfigPaths } from './runtimeScope.js';
 import { parseCommaSeparatedList, parseInternalToolsList, resolveStdioFilterConfig } from './serveOptions.js';
+import { resolveTemplateContextTrust } from './templateContextTrust.js';
 
 export interface ServeOptions {
   config?: string;
@@ -67,6 +73,8 @@ export interface ServeOptions {
   'rate-limit-window'?: number;
   'rate-limit-max'?: number;
   'trust-proxy'?: string;
+  'template-context-trust'?: TemplateContextTrustMode;
+  'confirm-untrusted-template-context'?: boolean;
   'health-info-level': string;
   'enable-async-loading'?: boolean;
   'async-min-servers'?: number;
@@ -396,6 +404,13 @@ export async function serveCommand(parsedArgv: ServeOptions): Promise<void> {
     const effectiveTransport = parsedArgv.transport ?? appConfig.transport ?? 'http';
     const effectivePort = parsedArgv.port ?? appConfig.port ?? PORT;
     const effectiveHost = parsedArgv.host ?? appConfig.host ?? HOST;
+    const templateContextTrust = resolveTemplateContextTrust({
+      cliTrust: parsedArgv['template-context-trust'],
+      configTrust: appConfig.templateContext?.trust,
+      host: effectiveHost,
+      confirmUntrusted: parsedArgv['confirm-untrusted-template-context'] ?? false,
+      transport: effectiveTransport,
+    });
     // Resolve logging from normalized CLI/config sources. ONE_MCP_* env vars
     // are already merged into parsedArgv by yargs; legacy LOG_LEVEL handling is
     // centralized in logger.configureLogger when no explicit level is supplied.
@@ -473,6 +488,9 @@ export async function serveCommand(parsedArgv: ServeOptions): Promise<void> {
       admin: {
         enabled: appConfig.admin?.enabled ?? true,
       },
+      templateContext: {
+        trust: templateContextTrust,
+      },
       auth: {
         enabled: authEnabled,
         sessionTtlMinutes,
@@ -529,6 +547,16 @@ export async function serveCommand(parsedArgv: ServeOptions): Promise<void> {
         backgroundFlushSeconds: parsedArgv['session-background-flush'],
       },
     });
+
+    if (effectiveTransport !== 'stdio') {
+      const runtimeScopeId = new RuntimeIdentityService({ storageDir: runtimeScope }).getRuntimeScopeId();
+      new TemplateContextCapabilityStore({ storageDir: runtimeScope, runtimeScopeId }).getOrCreate();
+      if (templateContextTrust === 'legacy') {
+        logger.warn(
+          'Template context trust is LEGACY: unverified clients may render command, args, cwd, and env templates',
+        );
+      }
+    }
 
     // Initialize PresetManager with config directory option before server setup
     // This ensures the singleton is created with the correct config directory

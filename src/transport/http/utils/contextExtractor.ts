@@ -1,5 +1,6 @@
 import logger from '@src/logger/logger.js';
-import type { ClientInfo, ContextData, ContextNamespace, EnvironmentContext, UserContext } from '@src/types/context.js';
+import type { TemplateContextProof } from '@src/core/context/templateContextTrust.js';
+import type { ContextData } from '@src/types/context.js';
 
 import type { Request } from 'express';
 
@@ -10,17 +11,16 @@ export const CONTEXT_HEADERS = {
   SESSION_ID: 'mcp-session-id', // Use standard streamable HTTP header
 } as const;
 
+export interface ExtractedTemplateContextRequest {
+  context: ContextData;
+  proof?: TemplateContextProof;
+  source: 'meta' | 'query';
+}
+
 /**
  * Type guard to check if a value is a valid ContextData
  */
-function isContextData(value: unknown): value is {
-  project: ContextNamespace;
-  user: UserContext;
-  environment: EnvironmentContext;
-  timestamp?: string;
-  version?: string;
-  sessionId?: string;
-} {
+export function isContextData(value: unknown): value is ContextData {
   if (typeof value !== 'object' || value === null) {
     return false;
   }
@@ -44,20 +44,7 @@ function isContextData(value: unknown): value is {
 /**
  * Extract context data from _meta field in request body (from STDIO proxy)
  */
-export function extractContextFromMeta(req: Request): {
-  project?: ContextNamespace;
-  user?: UserContext;
-  environment?: EnvironmentContext;
-  timestamp?: string;
-  version?: string;
-  sessionId?: string;
-  transport?: {
-    type: string;
-    connectionId?: string;
-    connectionTimestamp?: string;
-    client?: ClientInfo;
-  };
-} | null {
+export function extractContextFromMeta(req: Request): ContextData | null {
   try {
     // Check if request body exists and has _meta in either:
     // - JSON-RPC shape: body.params._meta.context
@@ -84,46 +71,7 @@ export function extractContextFromMeta(req: Request): {
       return null;
     }
 
-    logger.info(`📊 Extracted context from _meta field: ${contextData.project.name} (${contextData.sessionId})`);
-
-    const result: {
-      project?: ContextNamespace;
-      user?: UserContext;
-      environment?: EnvironmentContext;
-      timestamp?: string;
-      version?: string;
-      sessionId?: string;
-      transport?: {
-        type: string;
-        connectionId?: string;
-        connectionTimestamp?: string;
-        client?: ClientInfo;
-      };
-    } = {
-      project: contextData.project,
-      user: contextData.user,
-      environment: contextData.environment,
-      timestamp: contextData.timestamp,
-      version: contextData.version,
-      sessionId: contextData.sessionId,
-    };
-
-    // Include transport info if present
-    if (
-      'transport' in contextData &&
-      contextData.transport &&
-      typeof contextData.transport === 'object' &&
-      'type' in contextData.transport
-    ) {
-      result.transport = contextData.transport as {
-        type: string;
-        connectionId?: string;
-        connectionTimestamp?: string;
-        client?: ClientInfo;
-      };
-    }
-
-    return result;
+    return contextData;
   } catch (error) {
     logger.error(
       'Failed to extract context from _meta field:',
@@ -133,8 +81,8 @@ export function extractContextFromMeta(req: Request): {
   }
 }
 
-export function encodeContextValue(context: ContextData): string {
-  return Buffer.from(JSON.stringify(context), 'utf8').toString('base64url');
+export function encodeContextValue(value: unknown): string {
+  return Buffer.from(JSON.stringify(value), 'utf8').toString('base64url');
 }
 
 export function extractContextFromQuery(req: Request): ContextData | null {
@@ -166,4 +114,64 @@ export function extractContextFromQuery(req: Request): ContextData | null {
 
 export function extractRequestContext(req: Request): ContextData | null {
   return (extractContextFromMeta(req) as ContextData | null) ?? extractContextFromQuery(req);
+}
+
+export function extractTemplateContextRequest(req: Request): ExtractedTemplateContextRequest | null {
+  const metaContext = extractContextFromMeta(req) as ContextData | null;
+  if (metaContext) {
+    return {
+      context: metaContext,
+      proof: extractProofFromMeta(req) ?? undefined,
+      source: 'meta',
+    };
+  }
+
+  const queryContext = extractContextFromQuery(req);
+  if (!queryContext) {
+    return null;
+  }
+
+  return {
+    context: queryContext,
+    proof: extractProofFromQuery(req) ?? undefined,
+    source: 'query',
+  };
+}
+
+function extractProofFromMeta(req: Request): TemplateContextProof | null {
+  const body = req.body as {
+    _meta?: { contextProof?: unknown };
+    params?: { _meta?: { contextProof?: unknown } };
+  };
+  const value = body?.params?._meta?.contextProof ?? body?._meta?.contextProof;
+  return isTemplateContextProof(value) ? value : null;
+}
+
+function extractProofFromQuery(req: Request): TemplateContextProof | null {
+  try {
+    const queryValue = req.query?.contextProof;
+    const encoded = Array.isArray(queryValue) ? queryValue[0] : queryValue;
+    if (!encoded || typeof encoded !== 'string') {
+      return null;
+    }
+    const parsed = JSON.parse(Buffer.from(encoded, 'base64url').toString('utf8')) as unknown;
+    return isTemplateContextProof(parsed) ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+function isTemplateContextProof(value: unknown): value is TemplateContextProof {
+  if (!value || typeof value !== 'object') {
+    return false;
+  }
+  const proof = value as Partial<TemplateContextProof>;
+  return (
+    proof.version === 1 &&
+    typeof proof.runtimeScopeId === 'string' &&
+    typeof proof.sessionId === 'string' &&
+    typeof proof.contextHash === 'string' &&
+    typeof proof.issuedAt === 'string' &&
+    typeof proof.signature === 'string'
+  );
 }

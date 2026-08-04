@@ -167,6 +167,59 @@ describe('StdioProxyTransport', () => {
       expect(proxy['httpTransport'].send).toHaveBeenCalledWith(expectedMessage);
     });
 
+    it('should sign the context after adding downstream client identity', async () => {
+      const createContextProof = vi.fn(async (context) => ({
+        version: 1 as const,
+        runtimeScopeId: 'scope-a',
+        sessionId: context.sessionId!,
+        contextHash: 'context-hash',
+        issuedAt: '2026-08-05T00:00:00.000Z',
+        signature: 'signature',
+      }));
+      proxy = new StdioProxyTransport({
+        serverUrl: 'http://localhost:3050/mcp',
+        context: {
+          project: { path: '/tmp/custom', name: 'custom' },
+          user: { username: 'tester' },
+          environment: { variables: {} },
+          sessionId: 'stream-custom',
+          transport: { type: 'stdio-proxy' },
+        },
+        createContextProof,
+      });
+
+      await proxy.start();
+      await proxy['stdioTransport'].onmessage!({
+        jsonrpc: '2.0',
+        method: 'initialize',
+        id: 1,
+        params: {
+          protocolVersion: '2025-06-18',
+          capabilities: {},
+          clientInfo: { name: 'claude-code', version: '1.0.0', title: 'Claude Code' },
+        },
+      });
+
+      expect(createContextProof).toHaveBeenCalledWith(
+        expect.objectContaining({
+          sessionId: 'stream-custom',
+          transport: expect.objectContaining({
+            type: 'stdio-proxy',
+            client: { name: 'claude-code', version: '1.0.0', title: 'Claude Code' },
+          }),
+        }),
+      );
+      expect(proxy['httpTransport'].send).toHaveBeenCalledWith(
+        expect.objectContaining({
+          params: expect.objectContaining({
+            _meta: expect.objectContaining({
+              contextProof: expect.objectContaining({ signature: 'signature' }),
+            }),
+          }),
+        }),
+      );
+    });
+
     it('should forward messages from HTTP to STDIO', async () => {
       proxy = new StdioProxyTransport({
         serverUrl: 'http://localhost:3050/mcp',

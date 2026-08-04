@@ -5,6 +5,7 @@ import { JSONRPCMessage } from '@modelcontextprotocol/sdk/types.js';
 import { buildCliContext, generateStreamableSessionId } from '@src/commands/shared/cliContext.js';
 import { MCP_SERVER_VERSION } from '@src/constants/mcp.js';
 import logger from '@src/logger/logger.js';
+import type { TemplateContextProof } from '@src/core/context/templateContextTrust.js';
 import type { ClientInfo, ContextData } from '@src/types/context.js';
 import { ClientInfoExtractor } from '@src/utils/client/clientInfoExtractor.js';
 
@@ -19,6 +20,8 @@ export interface StdioProxyTransportOptions {
   tags?: string[];
   timeout?: number;
   context?: ContextData;
+  contextProof?: TemplateContextProof;
+  createContextProof?: (context: ContextData) => Promise<TemplateContextProof | undefined>;
 }
 
 /**
@@ -175,7 +178,7 @@ export class StdioProxyTransport {
         }
 
         // Add context metadata to message _meta field
-        const enhancedMessage = this.addContextMeta(message);
+        const enhancedMessage = await this.addContextMeta(message);
 
         // Forward to HTTP server
         await this.httpTransport.send(enhancedMessage);
@@ -264,7 +267,7 @@ export class StdioProxyTransport {
   /**
    * Add context metadata to message using _meta field
    */
-  private addContextMeta(message: JSONRPCMessage): JSONRPCMessage {
+  private async addContextMeta(message: JSONRPCMessage): Promise<JSONRPCMessage> {
     // Create context with client info if available
     const contextWithClient = {
       ...this.context,
@@ -276,6 +279,9 @@ export class StdioProxyTransport {
         },
       }),
     };
+    const contextProof = this.options.createContextProof
+      ? await this.options.createContextProof(contextWithClient)
+      : this.options.contextProof;
 
     // Only add _meta to messages that are requests (have params)
     if (this.isRequest(message) && message.params !== undefined) {
@@ -288,6 +294,7 @@ export class StdioProxyTransport {
           _meta: {
             ...((params._meta as Record<string, unknown>) || {}), // Preserve existing _meta
             context: contextWithClient, // Add our context data
+            ...(contextProof ? { contextProof } : {}),
           },
         },
       };
