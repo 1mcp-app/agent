@@ -156,6 +156,10 @@ _Avoid_: rendered hash, session ID, process PID
 A static server definition or **Template Server** definition addressed by a **Config Change** before runtime rendering.
 _Avoid_: server config, target config, raw server
 
+**Configured Server Target Identity**:
+The source-qualified identity of one **Configured Server Target**, combining whether it is a static or **Template Server** definition with its configured name. It remains unambiguous when both sources contain the same name.
+_Avoid_: server name, bare target ID
+
 **Global Transport Config**:
 Shared transport settings inherited by **Configured Server Targets** unless a target sets its own override.
 _Avoid_: global server config, default target config
@@ -298,7 +302,7 @@ A restorable snapshot of a **Runtime Scope** configuration created before a risk
 _Avoid_: temp copy, old config file
 
 **Server Installation Workflow**:
-The domain workflow that turns registry or direct-install input into an installable **Configured Server Target** and structured installation facts.
+The domain workflow that turns installation input into an installable static **Configured Server Target** and structured installation facts. It does not create **Template Server** definitions.
 _Avoid_: install command, installation adapter, registry install
 
 ## Relationships
@@ -335,13 +339,14 @@ _Avoid_: install command, installation adapter, registry install
 - A **Config Change** belongs to exactly one **Runtime Scope**.
 - A **Config Change** can add, update, or remove one **Configured Server Target**.
 - A **Configured Server Target** is either a static server definition or a **Template Server** definition.
+- A **Configured Server Target Identity** distinguishes static and template definitions that share the same configured name; the template definition is authoritative for runtime use and the static definition is shadowed.
 - The **Admin Console** presents **Configured Server Targets** for configuration changes and **Template Server Instances** for runtime observation.
 - A **Configured Tool Selection** belongs to one **Configured Server Target** and may retain tool names absent from the current **Capability Snapshot**.
 - A **Configured Tool Selection** on a **Template Server** definition is inherited by every **Template Server Instance** rendered from it.
 - A **Config Change** may create one **Config Backup** before persisting the change.
 - A **Config Backup** belongs to exactly one **Runtime Scope**.
 - A **Config Change** may affect the **Aggregated Runtime** for that **Runtime Scope**.
-- A **Server Installation Workflow** produces or updates one **Configured Server Target** through a **Config Change**.
+- A **Server Installation Workflow** produces or updates one static **Configured Server Target** through a **Config Change**.
 - A **Client Surface** can provide a **Request Context**.
 - A **Client Surface Attachment** belongs to one **Client Surface**.
 - A **Client Surface Attachment** can reuse an existing **Streamable Transport Session** or create a fresh one depending on the **Client Surface**.
