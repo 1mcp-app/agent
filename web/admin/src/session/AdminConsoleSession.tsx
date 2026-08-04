@@ -11,6 +11,7 @@ import type {
 } from '../api/adminApi';
 import { AdminConsoleApp } from '../components/AdminConsoleApp';
 import { ConfirmationDialogProvider, useConfirmationDialog } from '../components/ConfirmationDialogProvider';
+import { useConfiguredServerCreate } from '../configuredServerCreate/useConfiguredServerCreate';
 import { useConfiguredServerEdit } from '../configuredServerEdit/useConfiguredServerEdit';
 import { type AdminConsoleAction, createInitialState, reduceAdminConsoleState } from '../state/adminConsoleState';
 import { pollingDelayForVisibility, shouldPollConsole } from '../state/polling';
@@ -103,6 +104,7 @@ export function useAdminConsoleSession({
   const stateRef = useRef(state);
   const timerRef = useRef<ReturnType<Window['setTimeout']> | null>(null);
   const configuredServerAppliedRef = useRef<() => void | Promise<void>>();
+  const configuredServerCreatedRef = useRef<() => void | Promise<void>>();
   const presetSaveBusyRef = useRef(false);
   const presetDeleteBusyRef = useRef(false);
   const oauthOperationBusyRef = useRef(false);
@@ -176,6 +178,15 @@ export function useAdminConsoleSession({
     browser: configuredServerEditBrowser,
     onUnauthenticated: invalidateAdminSession,
     onApplied: () => configuredServerAppliedRef.current?.(),
+    onPathCommitted: commitBrowserPath,
+  });
+  const configuredServerCreate = useConfiguredServerCreate({
+    api,
+    session: state.session,
+    browser: configuredServerEditBrowser,
+    onUnauthenticated: invalidateAdminSession,
+    onCreated: () => configuredServerCreatedRef.current?.(),
+    onOpenCreated: configuredServerEdit.open,
     onPathCommitted: commitBrowserPath,
   });
   const backendLogs = useBackendLogs({
@@ -292,10 +303,15 @@ export function useAdminConsoleSession({
   const navigate = useCallback(
     async (nextRoute: AdminConsoleRoute) => {
       const pathname = adminRoutePath(nextRoute);
+      if (configuredServerCreate.state.status !== 'idle') {
+        if (!(await configuredServerCreate.close(pathname))) return;
+        setRoute(nextRoute);
+        return;
+      }
       if (!(await configuredServerEdit.close(pathname))) return;
       setRoute(nextRoute);
     },
-    [configuredServerEdit],
+    [configuredServerCreate, configuredServerEdit],
   );
 
   const refreshConsole = useCallback(
@@ -329,6 +345,7 @@ export function useAdminConsoleSession({
     [api, dispatch, formatNow, handleUnauthenticated, isCurrentSession],
   );
   configuredServerAppliedRef.current = () => refreshConsole('');
+  configuredServerCreatedRef.current = () => refreshConsole('');
 
   const schedulePoll = useCallback(() => {
     clearPoll();
@@ -488,6 +505,13 @@ export function useAdminConsoleSession({
     refresh: () => refreshConsole('Manual refresh failed: '),
     navigation: { route, navigate },
     configuredServers: {
+      create: {
+        ...configuredServerCreate,
+        open: async () => {
+          if (!(await configuredServerEdit.close('/admin/servers'))) return;
+          await configuredServerCreate.open();
+        },
+      },
       edit: configuredServerEdit,
       mutate: mutateServer,
       copy: copyText,

@@ -140,6 +140,18 @@ npx -y @1mcp/agent mcp add remote-api --type=http --url="https://mcp.example.com
 
 Server-Sent Events 是已弃用的传输类型。建议改用 HTTP 传输。
 
+## 在 Admin Console 中配置自定义服务器
+
+需要添加一个静态服务器、但不希望手动编辑运行时配置文件时，请打开 **Server inventory → Configure Custom Server**。该表单支持本地 STDIO、远程 HTTP 和旧版 SSE 目标。Registry 发现与 Template Server 定义属于独立工作流。
+
+1. 选择传输类型并填写对应的结构化字段。STDIO 必须提供命令；HTTP 和 SSE 必须提供 URL。
+2. 添加标签，并选择目标创建后是否立即启用。
+3. 凭据优先使用 **Environment Secret Reference**。配置中只保存环境变量名或替换表达式，不保存密钥内容。内联密钥仅作为高级备用方式。
+4. 选择 **Preview server**。预览会验证目标、报告名称冲突、隐藏密钥内容，并在适用时执行有界连接检查。预览不会写入配置。
+5. 检查差异与运行时信息，然后明确确认 **Create server**。
+
+创建流程绝不会替换已有的静态目标或 Template Server 目标。如果预览后有其他写入者占用了同一名称，确认操作会被拒绝，必须重新预览。写入成功后，Admin Console 会刷新服务器清单并打开新目标，以便核对其生效配置和重载状态。
+
 ## Server Configuration Details
 
 Each server you define in 1MCP has a set of common configuration options:

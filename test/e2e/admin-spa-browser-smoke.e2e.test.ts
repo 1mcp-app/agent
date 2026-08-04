@@ -3,10 +3,11 @@ import { createServer, type Server } from 'node:http';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
-import type {
-  AdminConfiguredServerOperations,
-  ConfiguredServerMutationResult,
-  ConfiguredServerReadModel,
+import {
+  AdminConfiguredServerApplyError,
+  type AdminConfiguredServerOperations,
+  type ConfiguredServerMutationResult,
+  type ConfiguredServerReadModel,
 } from '@src/domains/admin/adminConfiguredServerService.js';
 import { AdminIdentityService } from '@src/domains/admin/adminIdentityService.js';
 import type { AdminOperationResult } from '@src/domains/admin/adminOperationService.js';
@@ -240,6 +241,175 @@ describe('admin SPA browser smoke', () => {
     }
   });
 
+  it('configures all custom transport controls and creates a static server from the packaged console', async () => {
+    const page = await newPage({ width: 1280, height: 980 });
+    try {
+      await expectCenteredLoginGate(page);
+      await login(page, { skipNavigation: true });
+      await page.getByRole('link', { name: 'Server inventory' }).click();
+      await page.waitForURL(`${baseUrl}/admin/servers`);
+      await page.getByRole('button', { name: 'Configure Custom Server' }).click();
+      await page.waitForURL(`${baseUrl}/admin/servers/new`);
+      expect(await page.getByLabel(/registry id|version|package metadata/i).count()).toBe(0);
+
+      const transport = page.getByLabel('Transport Type');
+      await expectVisible(page.getByLabel('Command'));
+      expect(await page.getByLabel('URL').count()).toBe(0);
+      await transport.selectOption('http');
+      await expectVisible(page.getByLabel('URL'));
+      expect(await page.getByLabel('Command').count()).toBe(0);
+      await transport.selectOption('sse');
+      await expectText(page, 'SSE is deprecated');
+      await expectVisible(page.getByLabel('URL'));
+      await transport.selectOption('stdio');
+
+      await page.getByLabel('Server Name').fill('custom server');
+      await page.getByLabel('Command').fill('node');
+      await page.getByRole('button', { name: 'Add secret' }).click();
+      await page.getByLabel('Environment variable').fill('API_TOKEN');
+      await page.getByLabel('Environment reference for API_TOKEN').fill('CUSTOM_SERVER_TOKEN');
+      expect(page.url()).not.toContain('CUSTOM_SERVER_TOKEN');
+      const browserPersistence = await page.evaluate(() => ({
+        history: JSON.stringify(globalThis.history.state),
+        local: Object.entries(globalThis.localStorage),
+        session: Object.entries(globalThis.sessionStorage),
+      }));
+      expect(JSON.stringify(browserPersistence)).not.toContain('CUSTOM_SERVER_TOKEN');
+
+      await page.getByRole('button', { name: 'Preview server' }).click();
+      await expectText(page, 'Preview only - no config has been written.');
+      await page.getByRole('button', { name: 'Create server' }).click();
+      const dialog = page.getByRole('dialog');
+      await expectVisible(dialog);
+      await expectVisible(dialog.getByText('Create configured server custom server?'));
+      const createResponsePromise = page.waitForResponse(
+        (response) =>
+          response.url().endsWith('/admin/api/configured-servers') && response.request().method() === 'POST',
+      );
+      await dialog.getByRole('button', { name: 'Create server' }).click();
+      const createResponse = await createResponsePromise;
+      expect(createResponse.status(), await createResponse.text()).toBe(200);
+
+      await page.waitForURL(`${baseUrl}/admin/servers/custom%20server`);
+      await expectVisible(page.getByRole('heading', { name: 'custom server', exact: true }));
+      await expectText(page, '3 configured targets');
+      expect(await page.locator('body').innerText()).not.toContain('CUSTOM_SERVER_TOKEN');
+      await expectNoPageOverflow(page);
+    } finally {
+      await page.context().close();
+    }
+  });
+
+  it('keeps a name conflict in preview and never offers replacement', async () => {
+    const page = await newPage({ width: 1280, height: 900 });
+    try {
+      await expectCenteredLoginGate(page);
+      await login(page, { skipNavigation: true });
+      await page.getByRole('link', { name: 'Server inventory' }).click();
+      await page.getByRole('button', { name: 'Configure Custom Server' }).click();
+      await page.getByLabel('Server Name').fill('github');
+      await page.getByLabel('Command').fill('node');
+      await page.getByRole('button', { name: 'Preview server' }).click();
+      await expectText(page, 'configured_server_destination_conflict');
+      expect(await page.getByRole('button', { name: /force|replace/i }).count()).toBe(0);
+      expect(await page.getByRole('button', { name: 'Create server' }).isDisabled()).toBe(true);
+      await page.getByRole('button', { name: 'Edit existing server' }).click();
+      await page.getByRole('dialog').getByRole('button', { name: 'Discard draft' }).click();
+      await page.waitForURL(`${baseUrl}/admin/servers/github`);
+      await expectVisible(page.getByRole('heading', { name: 'github', exact: true }));
+    } finally {
+      await page.context().close();
+    }
+  });
+
+  it.each(['http', 'sse'] as const)('creates a remote %s target from its transport-specific controls', async (type) => {
+    const page = await newPage({ width: 1280, height: 900 });
+    try {
+      await expectCenteredLoginGate(page);
+      await login(page, { skipNavigation: true });
+      await page.getByRole('link', { name: 'Server inventory' }).click();
+      await page.getByRole('button', { name: 'Configure Custom Server' }).click();
+      await page.getByLabel('Transport Type').selectOption(type);
+      await page.getByLabel('Server Name').fill(`remote-${type}`);
+      await page.getByLabel('URL').fill(`https://${type}.example/mcp`);
+      await page.getByRole('button', { name: 'Preview server' }).click();
+      await expectText(page, 'passed');
+      await page.getByRole('button', { name: 'Create server' }).click();
+      await page.getByRole('dialog').getByRole('button', { name: 'Create server' }).click();
+      await page.waitForURL(`${baseUrl}/admin/servers/remote-${type}`);
+      await expectVisible(page.getByRole('heading', { name: `remote-${type}`, exact: true }));
+    } finally {
+      await page.context().close();
+    }
+  });
+
+  it('requires an explicit browser confirmation to override failed remote connectivity', async () => {
+    const page = await newPage({ width: 1280, height: 900 });
+    try {
+      await expectCenteredLoginGate(page);
+      await login(page, { skipNavigation: true });
+      await page.getByRole('link', { name: 'Server inventory' }).click();
+      await page.getByRole('button', { name: 'Configure Custom Server' }).click();
+      await page.getByLabel('Transport Type').selectOption('http');
+      await page.getByLabel('Server Name').fill('connectivity-failure');
+      await page.getByLabel('URL').fill('https://unreachable.example/mcp');
+      await page.getByRole('button', { name: 'Preview server' }).click();
+      await expectText(page, 'Connection refused');
+      await page.getByRole('button', { name: 'Create server' }).click();
+      const dialog = page.getByRole('dialog');
+      await expectVisible(dialog.getByText('Create connectivity-failure despite failed connectivity?'));
+      await dialog.getByRole('button', { name: 'Create despite failure' }).click();
+      await page.waitForURL(`${baseUrl}/admin/servers/connectivity-failure`);
+    } finally {
+      await page.context().close();
+    }
+  });
+
+  it.each([
+    { name: 'apply-failure', message: 'could not be persisted' },
+    { name: 'post-preview-conflict', message: 'already in use' },
+  ])('keeps $name actionable without adding the target', async ({ name, message }) => {
+    const page = await newPage({ width: 1280, height: 900 });
+    try {
+      await expectCenteredLoginGate(page);
+      await login(page, { skipNavigation: true });
+      await page.getByRole('link', { name: 'Server inventory' }).click();
+      await page.getByRole('button', { name: 'Configure Custom Server' }).click();
+      await page.getByLabel('Server Name').fill(name);
+      await page.getByLabel('Command').fill('node');
+      await page.getByRole('button', { name: 'Preview server' }).click();
+      await page.getByRole('button', { name: 'Create server' }).click();
+      await page.getByRole('dialog').getByRole('button', { name: 'Create server' }).click();
+      await expectText(page, message);
+      await page.getByRole('button', { name: 'Back' }).click();
+      await page.getByRole('dialog').getByRole('button', { name: 'Discard draft' }).click();
+      await expectText(page, '2 configured targets');
+    } finally {
+      await page.context().close();
+    }
+  });
+
+  it('shows a truthful reload warning after creation before opening detail', async () => {
+    const page = await newPage({ width: 1280, height: 900 });
+    try {
+      await expectCenteredLoginGate(page);
+      await login(page, { skipNavigation: true });
+      await page.getByRole('link', { name: 'Server inventory' }).click();
+      await page.getByRole('button', { name: 'Configure Custom Server' }).click();
+      await page.getByLabel('Server Name').fill('reload-failure');
+      await page.getByLabel('Command').fill('node');
+      await page.getByRole('button', { name: 'Preview server' }).click();
+      await page.getByRole('button', { name: 'Create server' }).click();
+      await page.getByRole('dialog').getByRole('button', { name: 'Create server' }).click();
+      await page.waitForURL(`${baseUrl}/admin/servers/reload-failure`);
+      await expectText(page, 'reload observation timed out');
+      await page.getByRole('button', { name: 'Open server detail' }).click();
+      await expectVisible(page.getByRole('heading', { name: 'reload-failure', exact: true }));
+    } finally {
+      await page.context().close();
+    }
+  });
+
   it.each([
     { width: 390, height: 844, compactInventory: true },
     { width: 800, height: 900, compactInventory: false },
@@ -419,6 +589,117 @@ function createConfiguredServerFixture(): ResettableConfiguredServerFixture {
     reset() {
       servers = createConfiguredServerReadModels();
     },
+    async getConfiguredServerCreateContract() {
+      return operationSuccess('getConfiguredServerCreateContract', 'op_create_contract', {
+        schemaVersion: 1,
+        capabilities: {
+          create: { supported: true },
+          forceReplacement: { supported: false },
+          rawJson: { supported: false },
+          preview: { supported: true },
+          apply: { supported: true },
+        },
+        secretPolicy: {
+          allowedActions: ['replace'],
+          environmentReference: {
+            recommended: true,
+            storesSecretMaterial: false,
+            guidance: 'Keep secret material in the runtime environment.',
+          },
+          inlineReplacement: {
+            emphasis: 'secondary',
+            guidance: 'Use inline replacement only when an environment reference is unsuitable.',
+          },
+        },
+        fieldGroups: createFieldGroups(),
+      });
+    },
+    async previewConfiguredServerCreate(input) {
+      const draft = input.draft as {
+        name?: string;
+        enabled?: boolean;
+        tags?: string[];
+        transport?: Record<string, unknown>;
+      };
+      const name = draft.name ?? '';
+      const exists = servers.some((server) => server.id === name);
+      return operationSuccess('previewConfiguredServerCreate', 'op_create_preview', {
+        targetName: name,
+        previewFingerprint: `preview_create_${name}`,
+        validation: exists
+          ? {
+              status: 'invalid' as const,
+              errors: [
+                {
+                  fieldPath: ['name'],
+                  code: 'configured_server_destination_conflict',
+                  message: 'A configured target already uses this name.',
+                },
+              ],
+            }
+          : { status: 'valid' as const, errors: [] },
+        diff: exists ? [] : [{ fieldPath: ['name'], oldValue: undefined, newValue: name, riskFlags: [] }],
+        configChange: {
+          status: exists ? 'destination_conflict' : 'changed',
+          operation: 'create_static',
+          configPath: '[redacted]',
+          target: { name, source: 'mcpServers' },
+          changed: !exists,
+          backup: { created: false },
+          retentionCleanup: { attempted: false, deletedPaths: [], warnings: [] },
+          reload: { status: 'skipped' },
+          warnings: [],
+        },
+        connectivityCheck:
+          draft.transport?.type === 'stdio'
+            ? { status: 'skipped' as const, reason: 'local_stdio_transport' as const }
+            : String(draft.transport?.url).includes('unreachable')
+              ? { status: 'failed' as const, mode: 'bounded_dry_run' as const, message: 'Connection refused' }
+              : { status: 'passed' as const, mode: 'bounded_dry_run' as const },
+        expectedReload: {
+          policy: 'observe_after_write' as const,
+          possibleStatuses: ['observed', 'runtime_not_running', 'reload_disabled', 'failed'] as const,
+        },
+      });
+    },
+    async applyConfiguredServerCreate(input) {
+      const draft = input.draft as {
+        name?: string;
+        enabled?: boolean;
+        tags?: string[];
+        transport?: Record<string, unknown>;
+      };
+      const name = draft.name ?? 'custom';
+      if (name === 'apply-failure') {
+        throw new AdminConfiguredServerApplyError('configured_server_create_failed');
+      }
+      if (name === 'post-preview-conflict') {
+        throw new AdminConfiguredServerApplyError('configured_server_destination_conflict');
+      }
+      const type = String(draft.transport?.type ?? 'stdio');
+      const label = type === 'stdio' ? String(draft.transport?.command ?? '') : String(draft.transport?.url ?? '');
+      servers.push({
+        id: name,
+        source: 'mcpServers',
+        target: { type: 'configured_server', id: name, source: 'mcpServers' },
+        enabled: draft.enabled !== false,
+        tags: draft.tags ?? [],
+        transportSummary: { kind: type, label },
+        mutationAvailability: { available: true, operations: ['enable', 'disable'] },
+        actionState: actionState(name, draft.enabled !== false),
+        transport: { ...(draft.transport ?? {}) },
+        secretInputs: [],
+      });
+      const configChange = configChangeResult(name, true);
+      if (name === 'reload-failure') {
+        configChange.reload = { status: 'failed', error: 'reload observation timed out' };
+      }
+      return operationSuccess('applyConfiguredServerCreate', 'op_create_apply', {
+        targetName: name,
+        previewFingerprint: input.previewFingerprint,
+        configChange,
+      });
+    },
     async listConfiguredServers() {
       return operationSuccess('listConfiguredServers', 'op_list', { servers });
     },
@@ -531,6 +812,74 @@ function createConfiguredServerFixture(): ResettableConfiguredServerFixture {
       ];
     },
   };
+}
+
+function createFieldGroups() {
+  return [
+    {
+      id: 'identity',
+      label: 'Identity',
+      fields: [
+        { fieldPath: ['name'], label: 'Server Name', control: 'text' as const, value: '', editable: true },
+        { fieldPath: ['enabled'], label: 'Enabled', control: 'switch' as const, value: true, editable: true },
+        { fieldPath: ['tags'], label: 'Tags', control: 'tag-list' as const, value: [], editable: true },
+      ],
+    },
+    {
+      id: 'transport',
+      label: 'Transport',
+      fields: [
+        {
+          fieldPath: ['transport', 'type'],
+          label: 'Transport Type',
+          control: 'select' as const,
+          value: 'stdio',
+          options: ['stdio', 'http', 'sse'],
+          editable: true,
+        },
+        {
+          fieldPath: ['transport', 'command'],
+          label: 'Command',
+          control: 'text' as const,
+          value: '',
+          editable: true,
+          applicableTransportTypes: ['stdio' as const],
+        },
+        {
+          fieldPath: ['transport', 'args'],
+          label: 'Args',
+          control: 'string-list' as const,
+          value: [],
+          editable: true,
+          applicableTransportTypes: ['stdio' as const],
+        },
+        {
+          fieldPath: ['transport', 'env'],
+          label: 'Environment',
+          control: 'record' as const,
+          value: {},
+          editable: true,
+          applicableTransportTypes: ['stdio' as const],
+        },
+        {
+          fieldPath: ['transport', 'url'],
+          label: 'URL',
+          control: 'text' as const,
+          value: '',
+          editable: true,
+          applicableTransportTypes: ['http' as const, 'sse' as const],
+        },
+        {
+          fieldPath: ['transport', 'headers'],
+          label: 'Headers',
+          control: 'record' as const,
+          value: {},
+          editable: true,
+          applicableTransportTypes: ['http' as const, 'sse' as const],
+        },
+      ],
+    },
+  ];
 }
 
 function createConfiguredServerReadModels(): ConfiguredServerReadModel[] {

@@ -7,7 +7,11 @@ import ConfigContext from '@src/config/configContext.js';
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { createConfigChangeService, fingerprintConfiguredServerTarget } from './configChange.js';
+import {
+  createConfigChangeService,
+  fingerprintConfiguredServerConfigDocument,
+  fingerprintConfiguredServerTarget,
+} from './configChange.js';
 
 const mockAgentConfig = {
   get: vi.fn().mockImplementation((key: string) => {
@@ -261,6 +265,105 @@ describe('Config Change', () => {
         },
       },
     });
+  });
+
+  it('creates a static configured target only when the name is absent', async () => {
+    await writeConfig({
+      mcpServers: { existing: { type: 'stdio', command: 'node' } },
+      mcpTemplates: { templated: { type: 'stdio', command: 'template' } },
+    });
+    const service = createConfigChangeService({ reloadConfig: reload });
+
+    const result = await service.createStaticConfiguredServerTarget({
+      targetName: 'custom',
+      serverConfig: { type: 'http', url: 'https://example.com/mcp' },
+      operation: 'install',
+    });
+
+    expect(result).toMatchObject({
+      status: 'changed',
+      operation: 'create_static',
+      target: { name: 'custom', source: 'mcpServers' },
+      changed: true,
+      backup: { created: false },
+      reload: { status: 'observed' },
+    });
+    expect(await readConfig()).toMatchObject({
+      mcpServers: {
+        existing: { type: 'stdio', command: 'node' },
+        custom: { type: 'http', url: 'https://example.com/mcp' },
+      },
+    });
+  });
+
+  it.each([
+    ['mcpServers', 'destination_conflict'],
+    ['mcpTemplates', 'template_conflict'],
+  ] as const)('atomically rejects create-only conflicts in %s', async (collection, status) => {
+    await writeConfig({
+      [collection]: { occupied: { type: 'stdio', command: 'original' } },
+    });
+    const service = createConfigChangeService({ reloadConfig: reload });
+
+    const result = await service.createStaticConfiguredServerTarget({
+      targetName: 'occupied',
+      serverConfig: { type: 'stdio', command: 'replacement' },
+      operation: 'install',
+    });
+
+    expect(result).toMatchObject({
+      status,
+      operation: 'create_static',
+      changed: false,
+      backup: { created: false },
+      reload: { status: 'skipped' },
+    });
+    expect(await readConfig()).toEqual({
+      [collection]: { occupied: { type: 'stdio', command: 'original' } },
+    });
+    expect(reload).not.toHaveBeenCalled();
+  });
+
+  it('rejects a create when the locked config revision differs from preview', async () => {
+    const previewed = { mcpServers: {}, unrelated: { revision: 1 } };
+    await writeConfig({ mcpServers: {}, unrelated: { revision: 2 } });
+    const service = createConfigChangeService({ reloadConfig: reload });
+
+    const result = await service.createStaticConfiguredServerTarget({
+      targetName: 'custom',
+      serverConfig: { type: 'stdio', command: 'node' },
+      expectedConfigFingerprint: fingerprintConfiguredServerConfigDocument(previewed),
+    });
+
+    expect(result).toMatchObject({
+      status: 'source_conflict',
+      operation: 'create_static',
+      changed: false,
+      backup: { created: false },
+      reload: { status: 'skipped' },
+    });
+    expect(await readConfig()).toEqual({ mcpServers: {}, unrelated: { revision: 2 } });
+    expect(reload).not.toHaveBeenCalled();
+  });
+
+  it('serializes concurrent create-only writers so exactly one can claim a name', async () => {
+    await writeConfig({ mcpServers: {} });
+    const service = createConfigChangeService({ reloadConfig: reload });
+
+    const results = await Promise.all([
+      service.createStaticConfiguredServerTarget({
+        targetName: 'custom',
+        serverConfig: { type: 'stdio', command: 'first' },
+      }),
+      service.createStaticConfiguredServerTarget({
+        targetName: 'custom',
+        serverConfig: { type: 'stdio', command: 'second' },
+      }),
+    ]);
+
+    expect(results.map((result) => result.status).sort()).toEqual(['changed', 'destination_conflict']);
+    expect(['first', 'second']).toContain((await readConfig()).mcpServers.custom.command);
+    expect(reload).toHaveBeenCalledTimes(1);
   });
 
   it('creates a backup before replacing a static configured target when requested', async () => {

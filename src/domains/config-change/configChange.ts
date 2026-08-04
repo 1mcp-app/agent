@@ -32,6 +32,7 @@ import type {
   ConfigReloadResult,
   ConfigRetentionCleanupResult,
   ConfiguredServerTargetRef,
+  CreateStaticConfiguredServerTargetInput,
   EditConfiguredServerTargetInput,
   MutableConfigDocument,
   RemoveConfiguredServerTargetInput,
@@ -53,6 +54,7 @@ export type {
   ConfigRetentionCleanupResult,
   ConfiguredServerTargetRef,
   ConfiguredServerTargetSource,
+  CreateStaticConfiguredServerTargetInput,
   EditConfiguredServerTargetInput,
   RemoveConfiguredServerTargetInput,
   SetConfiguredServerTargetEnabledStateInput,
@@ -71,6 +73,16 @@ export function fingerprintConfiguredServerTarget(serverConfig: MCPServerParams)
 
 export function fingerprintConfiguredServerDefaults(serverDefaults: unknown): string {
   return `configured_server_defaults_${keyedConfiguredServerFingerprint('defaults', stableStringify(serverDefaults ?? {}))}`;
+}
+
+export function fingerprintConfiguredServerConfigDocument(config: unknown): string {
+  const record =
+    config && typeof config === 'object' && !Array.isArray(config) ? (config as Record<string, unknown>) : {};
+  const normalized = {
+    ...record,
+    mcpServers: record.mcpServers && typeof record.mcpServers === 'object' ? record.mcpServers : {},
+  };
+  return `configured_server_config_${keyedConfiguredServerFingerprint('config-document', stableStringify(normalized))}`;
 }
 
 export function fingerprintConfiguredServerSecretValue(value: string): string {
@@ -238,6 +250,93 @@ class DefaultConfigChangeService implements ConfigChangeService {
       ...resultWithoutReload,
       reload: this.reloadConfig(configPath),
     };
+  }
+
+  async createStaticConfiguredServerTarget(
+    input: CreateStaticConfiguredServerTargetInput,
+  ): Promise<ConfigChangeResult> {
+    const configPath = this.resolveConfigPath();
+    let releaseLock: ReleaseConfigLock;
+
+    try {
+      releaseLock = await acquireConfigLock(configPath, this.ports.lockTimeoutMs ?? DEFAULT_LOCK_TIMEOUT_MS);
+    } catch (error) {
+      if (error instanceof ConfigLockTimeoutError) {
+        return {
+          status: 'failed',
+          operation: 'create_static',
+          configPath,
+          target: { name: input.targetName },
+          changed: false,
+          backup: { created: false },
+          retentionCleanup: retentionSkipped(),
+          reload: { status: 'skipped' },
+          warnings: [],
+          error: error.message,
+        };
+      }
+      throw error;
+    }
+
+    let resultWithoutReload: ConfigChangeResult;
+    try {
+      const config = this.loadConfigForSet(configPath);
+      if (
+        input.expectedConfigFingerprint !== undefined &&
+        fingerprintConfiguredServerConfigDocument(config) !== input.expectedConfigFingerprint
+      ) {
+        return {
+          status: 'source_conflict',
+          operation: 'create_static',
+          configPath,
+          target: { name: input.targetName },
+          changed: false,
+          backup: { created: false },
+          retentionCleanup: retentionSkipped(),
+          reload: { status: 'skipped' },
+          warnings: [],
+          error: 'Configured server state changed after preview',
+        };
+      }
+      const target = resolveConfiguredServerTarget(config, input.targetName);
+      if (target.source) {
+        const templateConflict = target.source === 'mcpTemplates';
+        return {
+          status: templateConflict ? 'template_conflict' : 'destination_conflict',
+          operation: 'create_static',
+          configPath,
+          target,
+          changed: false,
+          backup: { created: false },
+          retentionCleanup: retentionSkipped(),
+          reload: { status: 'skipped' },
+          warnings: [],
+          error: `Configured server target '${input.targetName}' already exists`,
+        };
+      }
+
+      const backup = this.createBackupIfNeeded(configPath, input.backup ?? 'skip');
+      config.mcpServers = normalizeServerRecord(config.mcpServers);
+      config.mcpServers[input.targetName] = input.serverConfig;
+      this.validateConfig(configPath, config);
+      this.writeConfig(configPath, config);
+      const retentionCleanup = this.cleanupBackups(configPath, backup);
+      resultWithoutReload = {
+        status: 'changed',
+        operation: 'create_static',
+        configPath,
+        target: { name: input.targetName, source: 'mcpServers' },
+        changed: true,
+        backup,
+        retentionCleanup,
+        reload: { status: 'skipped' },
+        warnings: retentionCleanup.warnings,
+      };
+    } finally {
+      releaseLock();
+    }
+
+    return { ...resultWithoutReload, reload: this.reloadConfig(configPath) };
   }
 
   async setConfiguredServerTargetEnabledState(
