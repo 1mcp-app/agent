@@ -268,6 +268,8 @@ export interface ConfiguredServerCreateContractResponse {
     schemaVersion: 1;
     capabilities: {
       create: { supported: true };
+      forceReplacement: { supported: false };
+      rawJson: { supported: false };
       preview: { supported: true };
       apply: { supported: boolean };
     };

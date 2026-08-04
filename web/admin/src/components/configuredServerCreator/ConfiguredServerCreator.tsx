@@ -133,7 +133,10 @@ export function ConfiguredServerCreator({ model }: { model: ConfiguredServerCrea
         <DynamicSecrets
           transport={selectedTransport}
           secrets={state.secrets}
-          inlineSupported
+          inlineSupported={
+            Boolean(state.contract.createContract.secretPolicy.inlineReplacement) &&
+            state.contract.createContract.secretPolicy.allowedActions.includes('replace')
+          }
           onAdd={model.addSecret}
           onChange={model.changeSecret}
           onRemove={model.removeSecret}

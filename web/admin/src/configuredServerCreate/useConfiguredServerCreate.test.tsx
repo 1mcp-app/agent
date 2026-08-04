@@ -1,7 +1,7 @@
 import { act, renderHook, waitFor } from '@testing-library/react';
 
 import { AdminApiError } from '../api/adminApi';
-import type { AdminApiClient, AdminSession, ConfiguredServerPreviewResponse } from '../api/adminApi';
+import type { AdminApiClient, AdminSession, ConfiguredServerCreatePreviewResponse } from '../api/adminApi';
 import { configuredServerCreateContract } from './configuredServerCreate.fixtures';
 import type { ConfiguredServerCreateBrowser } from './useConfiguredServerCreate';
 import { useConfiguredServerCreate } from './useConfiguredServerCreate';
@@ -41,7 +41,13 @@ function browser(initialPathname = '/admin/servers') {
   };
 }
 
-function preview(fingerprint = 'preview-1'): ConfiguredServerPreviewResponse {
+function preview(
+  fingerprint = 'preview-1',
+  connectivityCheck: ConfiguredServerCreatePreviewResponse['preview']['connectivityCheck'] = {
+    status: 'skipped',
+    reason: 'local_stdio_transport',
+  },
+): ConfiguredServerCreatePreviewResponse {
   return {
     ok: true,
     operationId: 'preview-op',
@@ -67,7 +73,11 @@ function preview(fingerprint = 'preview-1'): ConfiguredServerPreviewResponse {
         retentionCleanup: { attempted: false, deletedPaths: [], warnings: [] },
         reload: { status: 'not_attempted' },
       },
-      connectivityCheck: { status: 'skipped', reason: 'local_stdio_transport' },
+      connectivityCheck,
+      expectedReload: {
+        policy: 'observe_after_write',
+        possibleStatuses: ['observed', 'runtime_not_running', 'reload_disabled', 'failed'],
+      },
     },
   };
 }
@@ -129,6 +139,61 @@ describe('useConfiguredServerCreate', () => {
     );
   });
 
+  it('keeps a dirty draft when reopening creation is not confirmed', async () => {
+    const adminApi = api();
+    const browserAdapter = browser('/admin/servers/new');
+    browserAdapter.adapter.confirm = vi.fn(async () => false);
+    const { result } = renderHook(() =>
+      useConfiguredServerCreate({
+        api: adminApi,
+        session,
+        browser: browserAdapter.adapter,
+        onUnauthenticated: vi.fn(),
+      }),
+    );
+    await waitFor(() => expect(result.current.state.status).toBe('editing'));
+    act(() => result.current.changeField(['name'], 'keep-me'));
+
+    await act(() => result.current.open());
+
+    expect(browserAdapter.adapter.confirm).toHaveBeenCalledOnce();
+    expect(browserAdapter.adapter.push).not.toHaveBeenCalled();
+    expect(adminApi.getConfiguredServerCreateContract).toHaveBeenCalledOnce();
+    expect(result.current.state).toMatchObject({ status: 'editing', fieldDraft: { name: 'keep-me' } });
+  });
+
+  it('allows an enabled remote create when the connectivity checker is unavailable', async () => {
+    const create = vi.fn(async () => api().createConfiguredServer({} as never));
+    const adminApi = api({
+      previewConfiguredServerCreate: vi.fn(async () =>
+        preview('preview-unchecked', { status: 'skipped', reason: 'checker_unavailable' }),
+      ),
+      createConfiguredServer: create,
+    });
+    const browserAdapter = browser('/admin/servers/new');
+    const { result } = renderHook(() =>
+      useConfiguredServerCreate({
+        api: adminApi,
+        session,
+        browser: browserAdapter.adapter,
+        onUnauthenticated: vi.fn(),
+      }),
+    );
+    await waitFor(() => expect(result.current.state.status).toBe('editing'));
+    act(() => result.current.changeField(['name'], 'remote'));
+    act(() => result.current.changeField(['transport', 'type'], 'http'));
+    act(() => result.current.changeField(['transport', 'url'], 'https://mcp.example'));
+    await act(() => result.current.preview('auto'));
+    await act(() => result.current.apply());
+
+    expect(create).toHaveBeenCalledOnce();
+    expect(create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        confirmationFacts: expect.not.objectContaining({ connectivityFailureOverrideConfirmed: true }),
+      }),
+    );
+  });
+
   it('confirms once, applies the preview, refreshes inventory, and opens the created detail', async () => {
     const adminApi = api();
     const browserAdapter = browser('/admin/servers/new');
@@ -162,8 +227,8 @@ describe('useConfiguredServerCreate', () => {
   });
 
   it('invalidates an in-flight preview when the draft changes', async () => {
-    let resolvePreview!: (value: ConfiguredServerPreviewResponse) => void;
-    const pending = new Promise<ConfiguredServerPreviewResponse>((resolve) => {
+    let resolvePreview!: (value: ConfiguredServerCreatePreviewResponse) => void;
+    const pending = new Promise<ConfiguredServerCreatePreviewResponse>((resolve) => {
       resolvePreview = resolve;
     });
     const browserAdapter = browser('/admin/servers/new');

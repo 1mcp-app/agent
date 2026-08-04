@@ -157,8 +157,8 @@ Server-Sent Events 是已弃用的传输类型。建议改用 HTTP 传输。
 Each server you define in 1MCP has a set of common configuration options:
 
 - **Name**: A unique, human-readable name for the server (e.g., `my-git-server`).
-- **Transport**: The transport type (`stdio` or `http`).
-- **Command/URL**: The command to execute for `stdio` transports, or the URL for `http` transports.
+- **Transport**: The transport type (`stdio`, `http`, or deprecated `sse`).
+- **Command/URL**: The command to execute for `stdio` transports, or the URL for `http` and deprecated `sse` transports.
 - **Arguments**: An array of command-line arguments for `stdio` servers.
 - **Environment**: Key-value pairs of environment variables for `stdio` servers.
 - **Tags**: A list of tags for organizing and filtering servers.

@@ -508,6 +508,10 @@ export function useAdminConsoleSession({
       create: {
         ...configuredServerCreate,
         open: async () => {
+          if (configuredServerCreate.state.status !== 'idle') {
+            await configuredServerCreate.open();
+            return;
+          }
           if (!(await configuredServerEdit.close('/admin/servers'))) return;
           await configuredServerCreate.open();
         },

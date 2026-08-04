@@ -389,10 +389,12 @@ function serverIdFromPath(pathname: string): string | null {
   const prefix = '/admin/servers/';
   if (!pathname.startsWith(prefix)) return null;
   const encoded = pathname.slice(prefix.length).split('#', 1)[0];
-  if (!encoded || encoded === 'new') return null;
+  if (!encoded) return null;
+  let decoded: string;
   try {
-    return decodeURIComponent(encoded);
+    decoded = decodeURIComponent(encoded);
   } catch {
-    return encoded;
+    decoded = encoded;
   }
+  return decoded === 'new' ? null : decoded;
 }

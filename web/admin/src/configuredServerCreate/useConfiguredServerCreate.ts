@@ -109,10 +109,13 @@ export function useConfiguredServerCreate({
   }, [dispatch, handleUnauthenticated]);
 
   const open = useCallback(async () => {
+    const current = stateRef.current;
+    if (current.status === 'editing' && current.dirty && !(await confirmDiscard(browser))) return;
+    reset();
     browser.push('/admin/servers/new');
     onPathCommitted?.('/admin/servers/new');
     await load();
-  }, [browser, load, onPathCommitted]);
+  }, [browser, load, onPathCommitted, reset]);
 
   const close = useCallback(
     async (destination = '/admin/servers') => {
@@ -321,7 +324,11 @@ export function configuredServerCreateApplyEligibility(state: ReturnType<typeof 
     draft.transport.type !== 'stdio' &&
     connectionCritical &&
     state.preview.connectivityCheck.status !== 'passed' &&
-    state.preview.connectivityCheck.status !== 'failed'
+    state.preview.connectivityCheck.status !== 'failed' &&
+    !(
+      state.preview.connectivityCheck.status === 'skipped' &&
+      state.preview.connectivityCheck.reason === 'checker_unavailable'
+    )
   )
     return { eligible: false, reason: 'A connectivity check must run before creation.' };
   return { eligible: true };

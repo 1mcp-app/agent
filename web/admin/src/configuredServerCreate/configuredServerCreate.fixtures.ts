@@ -6,7 +6,13 @@ export function configuredServerCreateContract(): ConfiguredServerCreateContract
     operationId: 'contract-op',
     createContract: {
       schemaVersion: 1,
-      capabilities: { create: { supported: true }, preview: { supported: true }, apply: { supported: true } },
+      capabilities: {
+        create: { supported: true },
+        forceReplacement: { supported: false },
+        rawJson: { supported: false },
+        preview: { supported: true },
+        apply: { supported: true },
+      },
       fieldGroups: [
         {
           id: 'identity',

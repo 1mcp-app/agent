@@ -883,6 +883,9 @@ export class AdminConfiguredServerService implements AdminConfiguredServerOperat
           !wouldUseLocalStdioTransport(prepared.config) &&
           preview.connectivityCheck.status !== 'passed' &&
           !(
+            preview.connectivityCheck.status === 'skipped' && preview.connectivityCheck.reason === 'checker_unavailable'
+          ) &&
+          !(
             preview.connectivityCheck.status === 'failed' &&
             input.context.confirmationFacts?.connectivityFailureOverrideConfirmed === true
           )

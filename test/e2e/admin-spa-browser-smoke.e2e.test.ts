@@ -638,7 +638,17 @@ function createConfiguredServerFixture(): ResettableConfiguredServerFixture {
               ],
             }
           : { status: 'valid' as const, errors: [] },
-        diff: exists ? [] : [{ fieldPath: ['name'], oldValue: undefined, newValue: name, riskFlags: [] }],
+        diff: exists
+          ? []
+          : [
+              { fieldPath: ['name'], oldValue: undefined, newValue: name, riskFlags: [] },
+              {
+                fieldPath: ['enabled'],
+                oldValue: undefined,
+                newValue: draft.enabled !== false,
+                riskFlags: ['connection_critical' as const],
+              },
+            ],
         configChange: {
           status: exists ? 'destination_conflict' : 'changed',
           operation: 'create_static',

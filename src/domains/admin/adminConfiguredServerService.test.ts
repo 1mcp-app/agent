@@ -4149,6 +4149,34 @@ describe('AdminConfiguredServerService', () => {
     expect(applied.ok).toBe(true);
   });
 
+  it('creates an enabled remote target when the connectivity checker is unavailable', async () => {
+    const service = createService();
+    const draft = { name: 'remote-unchecked', enabled: true, transport: { type: 'http', url: 'https://mcp.example' } };
+    const preview = await service.previewConfiguredServerCreate({ context: context(), draft });
+    expect(preview).toMatchObject({
+      ok: true,
+      result: { connectivityCheck: { status: 'skipped', reason: 'checker_unavailable' } },
+    });
+    if (!preview.ok) return;
+
+    const applied = await service.applyConfiguredServerCreate({
+      context: context({
+        idempotencyKey: 'create-remote-unchecked',
+        requestFingerprint: 'create-remote-unchecked:fingerprint',
+        confirmationFacts: {
+          previewConfirmed: preview.result.previewFingerprint,
+          targetNameConfirmed: draft.name,
+          connectionCriticalConfirmed: true,
+        },
+      }),
+      draft,
+      previewFingerprint: preview.result.previewFingerprint,
+    });
+
+    expect(applied.ok).toBe(true);
+    expect(readConfig().mcpServers[draft.name]).toMatchObject({ type: 'http', url: 'https://mcp.example' });
+  });
+
   it('returns non-secret validation facts for malformed create secrets', async () => {
     const result = await createService().previewConfiguredServerCreate({
       context: context({ idempotencyKey: undefined, requestFingerprint: undefined }),
