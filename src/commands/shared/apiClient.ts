@@ -1,6 +1,6 @@
 import { MCP_SERVER_VERSION } from '@src/constants.js';
-import { CONTEXT_HEADERS, encodeContextValue } from '@src/transport/http/utils/contextExtractor.js';
 import type { TemplateContextProof } from '@src/core/context/templateContextTrust.js';
+import { CONTEXT_HEADERS, encodeContextValue } from '@src/transport/http/utils/contextExtractor.js';
 import type { ContextData } from '@src/types/context.js';
 
 export interface ApiClientOptions {

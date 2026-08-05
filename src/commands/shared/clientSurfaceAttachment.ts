@@ -18,8 +18,8 @@ import {
 import type { ProjectConfig } from '@src/config/projectConfigTypes.js';
 import {
   createTemplateContextProof,
-  type TemplateContextProof,
   TemplateContextCapabilityStore,
+  type TemplateContextProof,
 } from '@src/core/context/templateContextTrust.js';
 import { isProcessAlive, readPidFile } from '@src/core/server/pidFileManager.js';
 import type { RuntimeIdentityWarning } from '@src/domains/runtime-targets/runtimeIdentityVerification.js';

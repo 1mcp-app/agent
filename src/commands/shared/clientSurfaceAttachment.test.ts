@@ -1,16 +1,13 @@
+import { createMockCliSessionCache } from '@test/unit-utils/MockFactories.js';
+
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
-import { createMockCliSessionCache } from '@test/unit-utils/MockFactories.js';
-
 import type { ProjectConfig } from '@src/config/projectConfigTypes.js';
-import type { ContextData } from '@src/types/context.js';
-import {
-  authorizeTemplateContext,
-  TemplateContextCapabilityStore,
-} from '@src/core/context/templateContextTrust.js';
+import { authorizeTemplateContext, TemplateContextCapabilityStore } from '@src/core/context/templateContextTrust.js';
 import { writePidFile } from '@src/core/server/pidFileManager.js';
+import type { ContextData } from '@src/types/context.js';
 
 import { describe, expect, it, vi } from 'vitest';
 
@@ -635,8 +632,10 @@ describe('local template context proof attachment', () => {
   it('signs only a live PID-owned URL in the selected Runtime Scope', async () => {
     const storagePath = fs.mkdtempSync(path.join(os.tmpdir(), '1mcp-local-proof-'));
     try {
-      const capability = new TemplateContextCapabilityStore({ storageDir: storagePath, runtimeScopeId: 'scope-a' })
-        .getOrCreate();
+      const capability = new TemplateContextCapabilityStore({
+        storageDir: storagePath,
+        runtimeScopeId: 'scope-a',
+      }).getOrCreate();
       writePidFile(storagePath, {
         pid: process.pid,
         url: 'http://127.0.0.1:3050/mcp',

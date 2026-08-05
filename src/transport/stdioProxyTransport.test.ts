@@ -1,5 +1,5 @@
-import { JSONRPCMessage } from '@modelcontextprotocol/sdk/types.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
+import { JSONRPCMessage } from '@modelcontextprotocol/sdk/types.js';
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -97,10 +97,7 @@ describe('StdioProxyTransport', () => {
       proxy = new StdioProxyTransport({
         serverUrl: 'https://runtime.example.com/mcp',
       });
-      const [, options] = vi.mocked(StreamableHTTPClientTransport).mock.calls[0] as [
-        URL,
-        { fetch: typeof fetch },
-      ];
+      const [, options] = vi.mocked(StreamableHTTPClientTransport).mock.calls[0] as [URL, { fetch: typeof fetch }];
 
       await options.fetch('https://runtime.example.com/mcp', { redirect: 'follow' });
 

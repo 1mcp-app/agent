@@ -1,8 +1,8 @@
 import {
   authorizeTemplateContext,
   type TemplateContextAuthorization,
-  type TemplateContextProof,
   TemplateContextCapabilityStore,
+  type TemplateContextProof,
 } from '@src/core/context/templateContextTrust.js';
 import { RuntimeIdentityService } from '@src/core/runtime/runtimeIdentityService.js';
 import { AgentConfigManager } from '@src/core/server/agentConfig.js';

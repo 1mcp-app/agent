@@ -4,6 +4,7 @@ import path from 'node:path';
 
 import type { ContextData } from '@src/types/context.js';
 import { createContextHash } from '@src/utils/context/contextHash.js';
+
 import { z } from 'zod';
 
 export const TEMPLATE_CONTEXT_CAPABILITY_FILE = 'template-context-capability.json';
@@ -146,9 +147,7 @@ export class TemplateContextCapabilityStore {
       throw new TemplateContextCapabilityError(`Template context capability is not a regular file: ${filePath}`);
     }
     if (process.platform !== 'win32' && (stat.mode & 0o077) !== 0) {
-      throw new TemplateContextCapabilityError(
-        `Template context capability must be owner-only (0600): ${filePath}`,
-      );
+      throw new TemplateContextCapabilityError(`Template context capability must be owner-only (0600): ${filePath}`);
     }
 
     let value: unknown;
@@ -230,7 +229,11 @@ export function authorizeTemplateContext(input: AuthorizeTemplateContextInput): 
   }
 
   const canonicalSessionId = input.transportSessionId;
-  if (!canonicalSessionId || input.proof.sessionId !== canonicalSessionId || input.context.sessionId !== canonicalSessionId) {
+  if (
+    !canonicalSessionId ||
+    input.proof.sessionId !== canonicalSessionId ||
+    input.context.sessionId !== canonicalSessionId
+  ) {
     return { status: 'untrusted', reason: 'session_mismatch', contextHash, runtimeScopeId };
   }
   if (input.proof.contextHash !== contextHash) {

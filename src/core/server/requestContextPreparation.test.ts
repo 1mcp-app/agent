@@ -1,5 +1,5 @@
-import type { MCPServerParams } from '@src/core/types/index.js';
 import type { TrustedTemplateContext } from '@src/core/context/templateContextTrust.js';
+import type { MCPServerParams } from '@src/core/types/index.js';
 
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 

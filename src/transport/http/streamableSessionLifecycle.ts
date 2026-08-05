@@ -5,14 +5,14 @@ import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/
 import { InitializeResponseData } from '@src/auth/sessionTypes.js';
 import { AUTH_CONFIG } from '@src/constants.js';
 import { AsyncLoadingOrchestrator } from '@src/core/capabilities/asyncLoadingOrchestrator.js';
+import type { TemplateContextProof } from '@src/core/context/templateContextTrust.js';
 import { ServerManager } from '@src/core/server/serverManager.js';
 import { InboundConnectionConfig, ServerStatus } from '@src/core/types/index.js';
 import logger from '@src/logger/logger.js';
 import { RestorableStreamableHTTPServerTransport } from '@src/transport/http/restorableStreamableTransport.js';
 import { StreamableSessionRepository } from '@src/transport/http/storage/streamableSessionRepository.js';
-import { logError } from '@src/transport/http/utils/unifiedLogger.js';
 import { authorizeRequestTemplateContext } from '@src/transport/http/utils/templateContextAuthority.js';
-import type { TemplateContextProof } from '@src/core/context/templateContextTrust.js';
+import { logError } from '@src/transport/http/utils/unifiedLogger.js';
 import type { ContextData } from '@src/types/context.js';
 import { withCanonicalSessionId } from '@src/utils/context/sessionIdentity.js';
 

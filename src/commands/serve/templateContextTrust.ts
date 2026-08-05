@@ -13,12 +13,7 @@ interface ResolveTemplateContextTrustInput {
 export function resolveTemplateContextTrust(input: ResolveTemplateContextTrustInput): TemplateContextTrustMode {
   const trust = input.cliTrust ?? input.configTrust ?? 'verified';
 
-  if (
-    trust === 'legacy' &&
-    input.transport !== 'stdio' &&
-    !isLoopbackHost(input.host) &&
-    !input.confirmUntrusted
-  ) {
+  if (trust === 'legacy' && input.transport !== 'stdio' && !isLoopbackHost(input.host) && !input.confirmUntrusted) {
     throw new Error(
       'Template context trust mode "legacy" on a non-loopback host requires ' +
         '--confirm-untrusted-template-context because remote clients can control template command, args, cwd, and env',
@@ -29,7 +24,10 @@ export function resolveTemplateContextTrust(input: ResolveTemplateContextTrustIn
 }
 
 export function isLoopbackHost(host: string): boolean {
-  const normalized = host.trim().replace(/^\[|\]$/g, '').toLowerCase();
+  const normalized = host
+    .trim()
+    .replace(/^\[|\]$/g, '')
+    .toLowerCase();
   if (normalized === 'localhost' || normalized.endsWith('.localhost')) {
     return true;
   }

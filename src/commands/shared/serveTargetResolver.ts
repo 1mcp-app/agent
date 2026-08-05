@@ -218,15 +218,14 @@ export async function resolveServeTarget<TOptions extends ResolvableServeTargetO
     serverPid,
     source,
     projectContextSource: resolvedProjectContext.source,
-    runtimeTargetContext: localRuntimeIdentity
-      && !mergedOptions.url
-      && mergedOptions.context === 'local'
-      ? {
-          name: 'local',
-          kind: 'local',
-          runtimeScopeId: localRuntimeIdentity.identity.runtimeScopeId,
-        }
-      : undefined,
+    runtimeTargetContext:
+      localRuntimeIdentity && !mergedOptions.url && mergedOptions.context === 'local'
+        ? {
+            name: 'local',
+            kind: 'local',
+            runtimeScopeId: localRuntimeIdentity.identity.runtimeScopeId,
+          }
+        : undefined,
     localRuntimeScope: {
       storagePath: getConfigDir(mergedOptions['config-dir']),
       runtimeScopeId: localRuntimeIdentity?.identity.runtimeScopeId,

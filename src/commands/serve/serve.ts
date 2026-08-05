@@ -5,15 +5,16 @@ import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 
 import { ConfigManager } from '@src/config/configManager.js';
 import { getDefaultInstructionsTemplatePath, HOST, PORT } from '@src/constants.js';
-import {
-  type TemplateContextTrustMode,
-  TemplateContextCapabilityStore,
-} from '@src/core/context/templateContextTrust.js';
 import { ClientManager } from '@src/core/client/clientManager.js';
+import {
+  TemplateContextCapabilityStore,
+  type TemplateContextTrustMode,
+} from '@src/core/context/templateContextTrust.js';
 import { InstructionAggregator } from '@src/core/instructions/instructionAggregator.js';
 import { formatValidationError, validateTemplateContent } from '@src/core/instructions/templateValidator.js';
 import { LoadingSummary } from '@src/core/loading/loadingStateTracker.js';
 import { McpLoadingManager } from '@src/core/loading/mcpLoadingManager.js';
+import { RuntimeIdentityService } from '@src/core/runtime/runtimeIdentityService.js';
 import { AgentConfigManager } from '@src/core/server/agentConfig.js';
 import { getBackgroundLaunchConfigPath, readBackgroundLaunchConfig } from '@src/core/server/backgroundLaunchConfig.js';
 import { cleanupPidFileOnExit, registerPidFileCleanup, writePidFile } from '@src/core/server/pidFileManager.js';
@@ -24,7 +25,6 @@ import {
 } from '@src/core/server/runtimeScopeOwnership.js';
 import { ServerManager } from '@src/core/server/serverManager.js';
 import { resetBackendLogBroker } from '@src/domains/backend-logs/backendLogRuntime.js';
-import { RuntimeIdentityService } from '@src/core/runtime/runtimeIdentityService.js';
 import { GlobalOptions } from '@src/globalOptions.js';
 import { configureGlobalLogger } from '@src/logger/configureGlobalLogger.js';
 import logger, { debugIf } from '@src/logger/logger.js';

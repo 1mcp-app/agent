@@ -1,5 +1,5 @@
-import logger from '@src/logger/logger.js';
 import type { TemplateContextProof } from '@src/core/context/templateContextTrust.js';
+import logger from '@src/logger/logger.js';
 import type { ContextData } from '@src/types/context.js';
 
 import type { Request } from 'express';

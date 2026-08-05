@@ -4,8 +4,8 @@ import { JSONRPCMessage } from '@modelcontextprotocol/sdk/types.js';
 
 import { buildCliContext, generateStreamableSessionId } from '@src/commands/shared/cliContext.js';
 import { MCP_SERVER_VERSION } from '@src/constants/mcp.js';
-import logger from '@src/logger/logger.js';
 import type { TemplateContextProof } from '@src/core/context/templateContextTrust.js';
+import logger from '@src/logger/logger.js';
 import type { ClientInfo, ContextData } from '@src/types/context.js';
 import { ClientInfoExtractor } from '@src/utils/client/clientInfoExtractor.js';
 
