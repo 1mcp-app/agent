@@ -4,6 +4,8 @@ import { render } from '@testing-library/react';
 import { useReducer } from 'react';
 
 import type { ConfiguredServerReadModel } from '../api/adminApi';
+import { createConfiguredServerCreateState } from '../configuredServerCreate/configuredServerCreateState';
+import type { ConfiguredServerCreateModel } from '../configuredServerCreate/useConfiguredServerCreate';
 import {
   type ConfiguredServerEditState,
   createConfiguredServerEditState,
@@ -16,6 +18,7 @@ import { createInitialState } from '../state/adminConsoleState';
 import { AdminConsoleApp } from './AdminConsoleApp';
 
 interface ConfiguredServerOverrides {
+  create?: ConfiguredServerCreateModel;
   editor?: ConfiguredServerEditState;
   mutate?: AdminConsoleSessionModel['configuredServers']['mutate'];
   open?: ConfiguredServerEditModel['open'];
@@ -81,6 +84,7 @@ export function fixtureSession(
       navigate: overrides.navigation?.navigate ?? (() => undefined),
     },
     configuredServers: {
+      create: overrides.configuredServers?.create ?? staticConfiguredServerCreateModel(),
       edit,
       mutate: overrides.configuredServers?.mutate ?? (() => undefined),
       copy: overrides.configuredServers?.copy ?? (() => undefined),
@@ -116,6 +120,21 @@ export function fixtureSession(
       save: overrides.presets?.save ?? (() => true),
       delete: overrides.presets?.delete ?? (() => undefined),
     },
+  };
+}
+
+function staticConfiguredServerCreateModel(): ConfiguredServerCreateModel {
+  return {
+    state: createConfiguredServerCreateState(),
+    open: () => undefined,
+    close: async () => true,
+    editExisting: () => undefined,
+    changeField: () => undefined,
+    addSecret: () => undefined,
+    changeSecret: () => undefined,
+    removeSecret: () => undefined,
+    preview: () => undefined,
+    apply: () => undefined,
   };
 }
 

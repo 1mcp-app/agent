@@ -7,6 +7,7 @@ import { describe, expect, it, vi } from 'vitest';
 
 import { AdminApiError } from './api/adminApi';
 import type { AdminApiClient } from './api/adminApi';
+import { configuredServerCreateContract } from './configuredServerCreate/configuredServerCreate.fixtures';
 import { AdminConsoleRoot } from './session/AdminConsoleSession';
 
 const session = {
@@ -68,6 +69,33 @@ describe('AdminConsoleRoot', () => {
     await user.click(screen.getByRole('button', { name: /log out/i }));
     expect(api.logout).toHaveBeenCalledWith('csrf_123');
     expect(await screen.findByRole('heading', { name: /operator login/i })).toBeInTheDocument();
+  });
+
+  it('keeps a dirty create draft and route when reopening creation is cancelled', async () => {
+    const user = userEvent.setup();
+    const routeWindow = createRouteWindow('/admin/servers');
+    const api = apiClient({
+      getSession: vi.fn(async () => session),
+      getStatus: vi.fn(async () => status),
+      listConfiguredServers: vi.fn(async () => []),
+      getConfiguredServerCreateContract: vi.fn(async () => configuredServerCreateContract()),
+    });
+
+    renderRoot(api, { windowRef: routeWindow });
+
+    expect(await screen.findByRole('heading', { name: /server inventory/i })).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: /configure custom server/i }));
+    const nameInput = await screen.findByLabelText('Name');
+    await user.type(nameInput, 'keep-me');
+    expect(routeWindow.location.pathname).toBe('/admin/servers/new');
+
+    await user.click(screen.getByRole('button', { name: /configure custom server/i }));
+    expect(await screen.findByRole('dialog', { name: /discard custom server/i })).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Cancel' }));
+
+    expect(routeWindow.location.pathname).toBe('/admin/servers/new');
+    expect(nameInput).toHaveValue('keep-me');
+    expect(api.getConfiguredServerCreateContract).toHaveBeenCalledOnce();
   });
 
   it('shows setup guidance for setup-required unauthenticated sessions', async () => {

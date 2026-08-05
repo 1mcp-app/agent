@@ -1,7 +1,7 @@
 import { Badge, Button, Group, SegmentedControl, Table, Text, TextInput } from '@mantine/core';
 import { useMediaQuery } from '@mantine/hooks';
 
-import { Pencil, Search, ServerCog } from 'lucide-react';
+import { Pencil, Plus, Search, ServerCog } from 'lucide-react';
 import { useMemo, useState } from 'react';
 
 import type { ConfiguredServerReadModel } from '../api/adminApi';
@@ -22,10 +22,12 @@ export function ConfiguredServersPanel({
   state,
   onServerAction,
   onOpenServerDetail,
+  onConfigureCustomServer,
 }: {
   state: AdminConsoleState;
   onServerAction?: (serverId: string, action: 'enable' | 'disable') => void | Promise<void>;
   onOpenServerDetail?: (serverId: string) => void | Promise<void>;
+  onConfigureCustomServer?: () => void | Promise<void>;
 }) {
   const [query, setQuery] = useState('');
   const [filter, setFilter] = useState<ServerFilter>('all');
@@ -60,6 +62,9 @@ export function ConfiguredServersPanel({
             { label: 'Disabled', value: 'disabled' },
           ]}
         />
+        <Button leftSection={<Plus size={16} />} onClick={() => void onConfigureCustomServer?.()}>
+          Configure Custom Server
+        </Button>
       </Group>
       {servers.length === 0 ? (
         <EmptyState message="No servers match the current filter." />

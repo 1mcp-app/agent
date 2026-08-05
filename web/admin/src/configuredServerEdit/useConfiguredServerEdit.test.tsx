@@ -69,6 +69,17 @@ function api(overrides: Partial<AdminApiClient> = {}): AdminApiClient {
 }
 
 describe('useConfiguredServerEdit', () => {
+  it('does not load the reserved create route after decoding its path segment', async () => {
+    const adminApi = api();
+    const browserAdapter = browser('/admin/servers/%6E%65%77');
+    const { result } = renderHook(() =>
+      useConfiguredServerEdit({ api: adminApi, session, browser: browserAdapter.adapter, onUnauthenticated: vi.fn() }),
+    );
+
+    await waitFor(() => expect(result.current.state).toEqual({ status: 'list' }));
+    expect(adminApi.getConfiguredServerDetail).not.toHaveBeenCalled();
+  });
+
   it('loads a deep link and owns normalized preview input', async () => {
     const browserAdapter = browser('/admin/servers/github');
     const adminApi = api({

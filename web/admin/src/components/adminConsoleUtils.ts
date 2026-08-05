@@ -1,4 +1,5 @@
 import type {
+  ConfiguredServerCreatePreviewResponse,
   ConfiguredServerPreviewResponse,
   ConfiguredServerReadModel,
   OAuthServiceStatus,
@@ -67,7 +68,9 @@ export function serverActionState(server: ConfiguredServerReadModel, action: 'en
   );
 }
 
-export function connectivityMeta(preview: ConfiguredServerPreviewResponse['preview']): string | undefined {
+export function connectivityMeta(
+  preview: ConfiguredServerPreviewResponse['preview'] | ConfiguredServerCreatePreviewResponse['preview'],
+): string | undefined {
   const check = preview.connectivityCheck;
   if (check.status === 'skipped') {
     return connectivitySkipReason(check.reason);

@@ -40,6 +40,8 @@ export interface DirectInstallationSource {
   headers?: Record<string, string>;
   tags?: string[];
   timeout?: number;
+  connectionTimeout?: number;
+  requestTimeout?: number;
   enabled?: boolean;
   cwd?: string;
   autoRestart?: boolean;
@@ -96,6 +98,12 @@ export interface ServerInstallationWorkflowPorts {
   getRegistryServer?: (registryId: string, version?: string) => Promise<RegistryServer | null>;
   findConfiguredTarget?: (targetName: string) => ConfiguredServerTargetRef | null;
   applyConfigChange?: (input: {
+    targetName: string;
+    serverConfig: MCPServerParams;
+    operation: 'install';
+    backup: ConfigBackupPolicy;
+  }) => Promise<ConfigChangeResult>;
+  createConfigChange?: (input: {
     targetName: string;
     serverConfig: MCPServerParams;
     operation: 'install';

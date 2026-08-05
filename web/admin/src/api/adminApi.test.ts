@@ -130,6 +130,55 @@ describe('admin API client', () => {
     });
   });
 
+  it('loads, previews, and confirms configured-server creation without a force flag', async () => {
+    const calls: Array<{ input: RequestInfo | URL; init?: RequestInit }> = [];
+    const api = createAdminApi({
+      fetch: async (input, init) => {
+        calls.push({ input, init });
+        return jsonResponse({ ok: true, createContract: {}, preview: {}, result: {} });
+      },
+    });
+    const draft = {
+      name: 'custom',
+      enabled: true,
+      tags: ['local'],
+      transport: { type: 'stdio' as const, command: 'node', args: ['server.js'] },
+    };
+
+    await api.getConfiguredServerCreateContract();
+    await api.previewConfiguredServerCreate({ draft, connectivityCheck: 'auto', csrfToken: 'csrf_123' });
+    await api.createConfiguredServer({
+      draft,
+      previewFingerprint: 'preview_1',
+      confirmationFacts: { previewConfirmed: 'preview_1' },
+      idempotencyKey: 'create-key',
+      csrfToken: 'csrf_123',
+    });
+
+    expect(calls[0]).toMatchObject({ input: '/admin/api/configured-servers/create-contract' });
+    expect(calls[1]).toMatchObject({
+      input: '/admin/api/configured-servers/create-preview',
+      init: {
+        method: 'POST',
+        headers: expect.objectContaining({ 'X-CSRF-Token': 'csrf_123' }),
+        body: JSON.stringify({ draft, connectivityCheck: 'auto' }),
+      },
+    });
+    expect(calls[2]).toMatchObject({
+      input: '/admin/api/configured-servers',
+      init: {
+        method: 'POST',
+        headers: expect.objectContaining({ 'X-CSRF-Token': 'csrf_123', 'Idempotency-Key': 'create-key' }),
+        body: JSON.stringify({
+          draft,
+          previewFingerprint: 'preview_1',
+          confirmationFacts: { previewConfirmed: 'preview_1' },
+        }),
+      },
+    });
+    expect(calls[2].init?.body).not.toContain('force');
+  });
+
   it('authorizes and restarts full OAuth service ids with CSRF, unique idempotency, and redirect results', async () => {
     const calls: Array<{ input: RequestInfo | URL; init?: RequestInit }> = [];
     const api = createAdminApi({

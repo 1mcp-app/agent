@@ -1,4 +1,5 @@
 import type { AdminPresetDraft, AdminPresetListItem, AdminPresetPreview, AdminPresetTarget } from '../api/adminApi';
+import type { ConfiguredServerCreateModel } from '../configuredServerCreate/useConfiguredServerCreate';
 import type { ConfiguredServerEditModel } from '../configuredServerEdit/useConfiguredServerEdit';
 import type { AdminConsoleState } from '../state/adminConsoleState';
 import type { BackendLogsModel } from './useBackendLogs';
@@ -21,6 +22,7 @@ export interface AdminConsoleSessionModel {
     navigate(route: AdminConsoleRoute): void | Promise<void>;
   };
   configuredServers: {
+    create: ConfiguredServerCreateModel;
     edit: ConfiguredServerEditModel;
     mutate(serverId: string, action: 'enable' | 'disable'): void | Promise<void>;
     copy(label: string, value: string): void | Promise<void>;

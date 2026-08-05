@@ -10,11 +10,17 @@ import {
 import {
   type ConfigChangeResult,
   type ConfigChangeService,
+  fingerprintConfiguredServerConfigDocument,
   fingerprintConfiguredServerDefaults,
   fingerprintConfiguredServerSecretValue,
   fingerprintConfiguredServerTarget,
   isConfiguredServerTargetDisabled,
 } from '@src/domains/config-change/configChange.js';
+import {
+  createServerInstallationWorkflow,
+  type DirectInstallationSource,
+  type ServerInstallationWorkflowResult,
+} from '@src/domains/installation/serverInstallationWorkflow.js';
 
 import { z } from 'zod';
 
@@ -45,6 +51,433 @@ interface AdminConfiguredServerServiceOptions {
   checkConnectivity?: ConfiguredServerConnectivityChecker;
 }
 
+interface PreparedConfiguredServerCreate {
+  draft: ConfiguredServerCreateDraft;
+  source: DirectInstallationSource;
+  targetName: string;
+  enabled: boolean;
+  workflow: ServerInstallationWorkflowResult;
+  config?: MCPServerParams;
+  validation: ConfiguredServerPreviewValidation;
+}
+
+const configuredServerCreateSecretSchema = z
+  .object({
+    fieldPath: z.array(z.string()).min(2),
+    action: z.literal('replace'),
+    replacement: z.object({
+      kind: z.enum(['environmentReference', 'inlineSecret']),
+      value: z.string(),
+    }),
+  })
+  .strict();
+
+const configuredServerCreateDraftSchema = z
+  .object({
+    name: z.string(),
+    enabled: z.boolean().optional(),
+    tags: z.array(z.string()).optional(),
+    transport: z
+      .object({
+        type: z.enum(['stdio', 'http', 'sse']),
+        command: z.string().optional(),
+        url: z.string().optional(),
+        args: z.array(z.string()).optional(),
+        cwd: z.string().optional(),
+        env: z.record(z.string(), z.string()).optional(),
+        headers: z.record(z.string(), z.string()).optional(),
+        timeout: z.number().optional(),
+        connectionTimeout: z.number().optional(),
+        requestTimeout: z.number().optional(),
+        restartOnExit: z.boolean().optional(),
+        maxRestarts: z.number().optional(),
+        restartDelay: z.number().optional(),
+      })
+      .strict(),
+    secrets: z.array(configuredServerCreateSecretSchema).optional(),
+  })
+  .strict();
+
+const CONFIGURED_SERVER_CREATE_TRANSPORT_FIELD_KEYS = new Set([
+  'type',
+  'timeout',
+  'connectionTimeout',
+  'requestTimeout',
+  'url',
+  'headers',
+  'command',
+  'args',
+  'cwd',
+  'env',
+  'restartOnExit',
+  'maxRestarts',
+  'restartDelay',
+]);
+
+function normalizeConfiguredServerCreateDraft(value: unknown): {
+  draft: ConfiguredServerCreateDraft;
+  source: DirectInstallationSource;
+  validation: ConfiguredServerPreviewValidation;
+} {
+  const parsed = configuredServerCreateDraftSchema.safeParse(value);
+  if (!parsed.success) {
+    const record =
+      value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
+    const transport =
+      record.transport && typeof record.transport === 'object' && !Array.isArray(record.transport)
+        ? (record.transport as Record<string, unknown>)
+        : {};
+    const transportType = transport.type === 'http' || transport.type === 'sse' ? transport.type : 'stdio';
+    return {
+      draft: {},
+      source: {
+        type: 'direct',
+        localName: typeof record.name === 'string' ? record.name : '',
+        transport: transportType,
+      },
+      validation: {
+        status: 'invalid',
+        errors: parsed.error.issues.map((issue) => ({
+          fieldPath: issue.path.map(String),
+          code: 'invalid_create_field',
+          message: issue.message,
+        })),
+      },
+    };
+  }
+
+  const { transport } = parsed.data;
+  const draft: ConfiguredServerCreateDraft = {
+    name: parsed.data.name,
+    enabled: parsed.data.enabled,
+    tags: parsed.data.tags,
+    transport: { ...transport },
+    secrets: parsed.data.secrets,
+  };
+  const secretContainer = transport.type === 'stdio' ? 'env' : 'headers';
+  const secretValues = configuredServerCreateSecretValues(draft, secretContainer);
+  const source: DirectInstallationSource = {
+    type: 'direct',
+    localName: parsed.data.name,
+    transport: transport.type,
+    enabled: parsed.data.enabled,
+    tags: parsed.data.tags,
+    command: transport.command,
+    url: transport.url,
+    args: transport.args,
+    cwd: transport.cwd,
+    env: mergeConfiguredServerCreateRecord(transport.env, secretContainer === 'env' ? secretValues : undefined),
+    headers: mergeConfiguredServerCreateRecord(
+      transport.headers,
+      secretContainer === 'headers' ? secretValues : undefined,
+    ),
+    timeout: transport.timeout,
+    connectionTimeout: transport.connectionTimeout,
+    requestTimeout: transport.requestTimeout,
+    autoRestart: transport.restartOnExit,
+    maxRestarts: transport.maxRestarts,
+    restartDelay: transport.restartDelay,
+  };
+  return { draft, source, validation: { status: 'valid', errors: [] } };
+}
+
+function configuredServerCreateSecretValues(
+  draft: ConfiguredServerCreateDraft,
+  container: 'env' | 'headers',
+): Record<string, string> {
+  const values: Record<string, string> = {};
+  for (const secret of draft.secrets ?? []) {
+    if (secret.fieldPath.length !== 2 || secret.fieldPath[0] !== container || !isValidFieldPath(secret.fieldPath)) {
+      continue;
+    }
+    if (!secret.replacement) continue;
+    values[secret.fieldPath[1]] = replacementValue(secret.replacement);
+  }
+  return values;
+}
+
+function mergeConfiguredServerCreateRecord(
+  base: Record<string, string> | undefined,
+  additions: Record<string, string> | undefined,
+): Record<string, string> | undefined {
+  const merged = { ...base, ...additions };
+  return Object.keys(merged).length > 0 ? merged : undefined;
+}
+
+function createWorkflowValidation(
+  workflow: ServerInstallationWorkflowResult,
+  config: MCPServerParams | undefined,
+): ConfiguredServerPreviewValidation {
+  const errors: ConfiguredServerPreviewValidationError[] = [];
+  for (const [field, messages] of Object.entries(workflow.fieldErrors ?? {})) {
+    for (const message of messages) {
+      errors.push({
+        fieldPath: field === 'localName' ? ['name'] : ['transport', field],
+        code: 'invalid_create_field',
+        message,
+      });
+    }
+  }
+  if (workflow.status === 'exists' || workflow.status === 'template_conflict') {
+    errors.push({
+      fieldPath: ['name'],
+      code: workflow.status === 'template_conflict' ? 'template_name_conflict' : 'configured_server_name_conflict',
+      message: 'A configured server or Template Server definition already uses this name.',
+    });
+  }
+  if (config) {
+    const parsed = previewTransportConfigSchema.safeParse(config);
+    if (!parsed.success) {
+      for (const issue of parsed.error.issues) {
+        errors.push({
+          fieldPath: ['transport', ...issue.path.map(String)],
+          code: 'invalid_transport_config',
+          message: issue.message,
+        });
+      }
+    }
+  }
+  return { status: errors.length === 0 ? 'valid' : 'invalid', errors };
+}
+
+function validateConfiguredServerCreateSecrets(draft: ConfiguredServerCreateDraft): ConfiguredServerPreviewValidation {
+  const errors: ConfiguredServerPreviewValidationError[] = [];
+  const expectedContainer = draft.transport?.type === 'stdio' ? 'env' : 'headers';
+  for (const [index, secret] of (draft.secrets ?? []).entries()) {
+    const basePath = ['secrets', String(index)];
+    if (
+      !isValidFieldPath(secret.fieldPath) ||
+      secret.fieldPath.length !== 2 ||
+      secret.fieldPath[0] !== expectedContainer
+    ) {
+      errors.push({
+        fieldPath: [...basePath, 'fieldPath'],
+        code: 'unsupported_secret_field',
+        message: `Secret replacement must target ${expectedContainer} for the selected transport.`,
+      });
+    }
+    if (!secret.replacement) {
+      errors.push({
+        fieldPath: [...basePath, 'replacement'],
+        code: 'missing_secret_replacement',
+        message: 'Create secret actions require a replacement.',
+      });
+      continue;
+    }
+    if (secret.replacement.kind === 'environmentReference' && !isEnvironmentReferenceInput(secret.replacement.value)) {
+      errors.push({
+        fieldPath: [...basePath, 'replacement', 'value'],
+        code: 'invalid_environment_reference',
+        message: 'Environment reference must be an environment variable name or substitution expression.',
+      });
+    }
+    if (secret.replacement.kind === 'inlineSecret' && secret.replacement.value.length === 0) {
+      errors.push({
+        fieldPath: [...basePath, 'replacement', 'value'],
+        code: 'empty_inline_secret',
+        message: 'Inline secret replacement cannot be empty.',
+      });
+    }
+  }
+  return { status: errors.length === 0 ? 'valid' : 'invalid', errors };
+}
+
+function createConfiguredServerCreateContract(): ConfiguredServerCreateContract {
+  const transportFields = TRANSPORT_FIELD_DEFINITIONS.filter((definition) =>
+    CONFIGURED_SERVER_CREATE_TRANSPORT_FIELD_KEYS.has(definition.key),
+  ).map((definition) => ({
+    fieldPath: ['transport', definition.key],
+    label: definition.label,
+    control: definition.control,
+    value: definition.defaultValue,
+    options: definition.key === 'type' ? ['stdio', 'http', 'sse'] : definition.options,
+    editable: true,
+    applicableTransportTypes: definition.applicableTransportTypes?.filter((type) => type !== 'streamableHttp'),
+  }));
+  return {
+    schemaVersion: 1,
+    capabilities: {
+      create: { supported: true },
+      forceReplacement: { supported: false },
+      rawJson: { supported: false },
+      preview: { supported: true },
+      apply: { supported: true },
+    },
+    secretPolicy: {
+      allowedActions: ['replace'],
+      environmentReference: {
+        recommended: true,
+        storesSecretMaterial: false,
+        guidance: 'Store an environment variable name or substitution expression instead of secret material.',
+      },
+      inlineReplacement: {
+        emphasis: 'secondary',
+        guidance: 'Inline secret material is stored in the Runtime Scope configuration.',
+      },
+    },
+    fieldGroups: [
+      {
+        id: 'identity',
+        label: 'Identity',
+        fields: [
+          { fieldPath: ['name'], label: 'Server Name', control: 'text', editable: true },
+          { fieldPath: ['enabled'], label: 'Enabled', control: 'switch', value: true, editable: true },
+          { fieldPath: ['tags'], label: 'Tags', control: 'tag-list', value: [], editable: true },
+        ],
+      },
+      { id: 'transport', label: 'Transport', fields: transportFields },
+    ],
+  };
+}
+
+function createConfiguredServerCreateDiff(
+  proposed: ConfiguredServerReadModel,
+  draft: ConfiguredServerCreateDraft,
+): ConfiguredServerPreviewDiffEntry[] {
+  const diff: ConfiguredServerPreviewDiffEntry[] = [
+    { fieldPath: ['name'], oldValue: undefined, newValue: proposed.id, riskFlags: [] },
+    { fieldPath: ['enabled'], oldValue: undefined, newValue: proposed.enabled, riskFlags: ['connection_critical'] },
+    { fieldPath: ['tags'], oldValue: undefined, newValue: proposed.tags, riskFlags: [] },
+  ];
+  for (const [key, value] of Object.entries(proposed.transport)) {
+    diff.push({
+      fieldPath: ['transport', key],
+      oldValue: undefined,
+      newValue: value,
+      riskFlags: previewRiskFlags([key]),
+    });
+  }
+  for (const secret of draft.secrets ?? []) {
+    diff.push({
+      fieldPath: secret.fieldPath,
+      oldValue: undefined,
+      newValue: previewSecretNewValue(secret),
+      secretAction: 'replace',
+      riskFlags: ['connection_critical', 'secret'],
+    });
+  }
+  return diff;
+}
+
+function previewSecretNewValue(secret: ConfiguredServerSecretEditDraft): unknown {
+  const replacement = secret.replacement;
+  if (!replacement) return { present: false, value: '[REDACTED]', secret: true };
+  if (replacement.kind === 'environmentReference') {
+    return {
+      kind: 'environmentReference',
+      value: normalizeEnvironmentReference(replacement.value),
+      storesSecretMaterial: false,
+    };
+  }
+  return { present: true, value: '[REDACTED]', secret: true };
+}
+
+function configuredServerCreatePreviewFingerprint(input: {
+  configFingerprint: string;
+  draft: ConfiguredServerCreateDraft;
+  proposed?: ConfiguredServerReadModel;
+  diff: ConfiguredServerPreviewDiffEntry[];
+  validation: ConfiguredServerPreviewValidation;
+  connectivityCheck: ConfiguredServerConnectivityCheckResult;
+}): string {
+  const redactedDraft = {
+    ...input.draft,
+    secrets: input.draft.secrets?.map((secret) => ({
+      fieldPath: secret.fieldPath,
+      action: secret.action,
+      replacement: secret.replacement ? fingerprintSecretReplacement(secret.replacement) : undefined,
+    })),
+  };
+  return `preview_${createHash('sha256')
+    .update(
+      stableStringify({
+        schemaVersion: 1,
+        configFingerprint: input.configFingerprint,
+        draft: redactedDraft,
+        proposed: input.proposed,
+        diff: input.diff,
+        validation: input.validation,
+        connectivityCheck: connectivityFingerprintFacts(input.connectivityCheck),
+      }),
+    )
+    .digest('hex')}`;
+}
+
+function connectivityFingerprintFacts(
+  connectivityCheck: ConfiguredServerConnectivityCheckResult,
+):
+  | Omit<ConfiguredServerConnectivityCheckPassed, 'checkedAt'>
+  | ConfiguredServerConnectivityCheckFailed
+  | ConfiguredServerConnectivityCheckSkipped {
+  if (connectivityCheck.status !== 'passed') return connectivityCheck;
+  return { status: connectivityCheck.status, mode: connectivityCheck.mode };
+}
+
+function previewCreateConfigChange(
+  targetName: string,
+  workflowStatus: ServerInstallationWorkflowResult['status'],
+  changed: boolean,
+): ConfigChangeResult {
+  const status =
+    workflowStatus === 'template_conflict'
+      ? 'template_conflict'
+      : workflowStatus === 'exists'
+        ? 'destination_conflict'
+        : changed
+          ? 'changed'
+          : 'failed';
+  return {
+    status,
+    operation: 'create_static',
+    configPath: '[redacted]',
+    target: {
+      name: targetName,
+      ...(workflowStatus === 'template_conflict'
+        ? { source: 'mcpTemplates' as const }
+        : workflowStatus === 'exists'
+          ? { source: 'mcpServers' as const }
+          : {}),
+    },
+    changed,
+    backup: { created: false },
+    retentionCleanup: { attempted: false, deletedPaths: [], warnings: [] },
+    reload: { status: 'skipped' },
+    warnings: [],
+  };
+}
+
+function createDraftCandidateName(value: unknown): string {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return '';
+  const name = (value as Record<string, unknown>).name;
+  return typeof name === 'string' ? name : '';
+}
+
+function sanitizeCreateConfirmationFacts(
+  facts: Record<string, unknown> | undefined,
+): Record<string, unknown> | undefined {
+  if (!facts) return undefined;
+  const allowed = [
+    'previewConfirmed',
+    'targetNameConfirmed',
+    'secretChangeConfirmed',
+    'connectionCriticalConfirmed',
+    'connectivityFailureOverrideConfirmed',
+  ];
+  const sanitized = Object.fromEntries(allowed.filter((key) => key in facts).map((key) => [key, facts[key]]));
+  return Object.keys(sanitized).length ? sanitized : undefined;
+}
+
+function assertSuccessfulConfiguredServerCreate(configChange: ConfigChangeResult): void {
+  if (configChange.status === 'changed') return;
+  if (configChange.status === 'source_conflict') {
+    throw new AdminConfiguredServerApplyError('configured_server_stale_preview');
+  }
+  if (configChange.status === 'destination_conflict' || configChange.status === 'template_conflict') {
+    throw new AdminConfiguredServerApplyError('configured_server_destination_conflict');
+  }
+  throw new AdminConfiguredServerApplyError('configured_server_create_failed');
+}
+
 interface ConfiguredServerMutationInput {
   context: AdminOperationContext;
   targetName: string;
@@ -68,6 +501,22 @@ interface ConfiguredServerApplyInput {
   context: AdminOperationContext;
   targetName: string;
   edit: unknown;
+  previewFingerprint: string;
+}
+
+interface ConfiguredServerCreateContractInput {
+  context: AdminOperationContext;
+}
+
+interface ConfiguredServerCreatePreviewInput {
+  context: AdminOperationContext;
+  draft: unknown;
+  connectivityCheck?: 'auto' | 'manual';
+}
+
+interface ConfiguredServerCreateApplyInput {
+  context: AdminOperationContext;
+  draft: unknown;
   previewFingerprint: string;
 }
 
@@ -221,6 +670,52 @@ export interface ConfiguredServerApplyResult {
   configChange: ConfigChangeResult;
 }
 
+export interface ConfiguredServerCreateContract {
+  schemaVersion: 1;
+  capabilities: {
+    create: { supported: true };
+    forceReplacement: { supported: false };
+    rawJson: { supported: false };
+    preview: { supported: true };
+    apply: { supported: true };
+  };
+  secretPolicy: {
+    allowedActions: ['replace'];
+    environmentReference: { recommended: true; storesSecretMaterial: false; guidance: string };
+    inlineReplacement: { emphasis: 'secondary'; guidance: string };
+  };
+  fieldGroups: ConfiguredServerEditFieldGroup[];
+}
+
+export interface ConfiguredServerCreateDraft {
+  name?: string;
+  enabled?: boolean;
+  tags?: string[];
+  transport?: Record<string, unknown>;
+  secrets?: ConfiguredServerSecretEditDraft[];
+}
+
+export interface ConfiguredServerCreatePreviewResult {
+  targetName: string;
+  previewFingerprint: string;
+  validation: ConfiguredServerPreviewValidation;
+  diff: ConfiguredServerPreviewDiffEntry[];
+  configChange: ConfigChangeResult;
+  connectivityCheck: ConfiguredServerConnectivityCheckResult;
+  expectedReload: ConfiguredServerExpectedReload;
+}
+
+export interface ConfiguredServerExpectedReload {
+  policy: 'observe_after_write';
+  possibleStatuses: readonly ['observed', 'runtime_not_running', 'reload_disabled', 'failed'];
+}
+
+export interface ConfiguredServerCreateApplyResult {
+  targetName: string;
+  previewFingerprint: string;
+  configChange: ConfigChangeResult;
+}
+
 export type ConfiguredServerEditFieldControl =
   'text' | 'number' | 'switch' | 'tag-list' | 'select' | 'string-list' | 'secret' | 'record' | 'readonly';
 
@@ -288,9 +783,19 @@ export interface ConfiguredServerDetailResult {
 export interface ConfiguredServerConfigDocument {
   serverDefaults?: GlobalTransportConfig;
   mcpServers?: Record<string, MCPServerParams>;
+  mcpTemplates?: Record<string, MCPServerParams>;
 }
 
 export interface AdminConfiguredServerOperations {
+  getConfiguredServerCreateContract(
+    input: ConfiguredServerCreateContractInput,
+  ): Promise<AdminOperationResult<ConfiguredServerCreateContract>>;
+  previewConfiguredServerCreate(
+    input: ConfiguredServerCreatePreviewInput,
+  ): Promise<AdminOperationResult<ConfiguredServerCreatePreviewResult>>;
+  applyConfiguredServerCreate(
+    input: ConfiguredServerCreateApplyInput,
+  ): Promise<AdminOperationResult<ConfiguredServerCreateApplyResult>>;
   listConfiguredServers(input: {
     context: AdminOperationContext;
   }): Promise<AdminOperationResult<{ servers: ConfiguredServerReadModel[] }>>;
@@ -323,6 +828,106 @@ export class AdminConfiguredServerNotFoundError extends Error {
 
 export class AdminConfiguredServerService implements AdminConfiguredServerOperations {
   constructor(private readonly options: AdminConfiguredServerServiceOptions) {}
+
+  async getConfiguredServerCreateContract(
+    input: ConfiguredServerCreateContractInput,
+  ): Promise<AdminOperationResult<ConfiguredServerCreateContract>> {
+    return this.options.operationService.executeReadOnly({
+      context: input.context,
+      operationName: 'getConfiguredServerCreateContract',
+      run: async () => createConfiguredServerCreateContract(),
+    });
+  }
+
+  async previewConfiguredServerCreate(
+    input: ConfiguredServerCreatePreviewInput,
+  ): Promise<AdminOperationResult<ConfiguredServerCreatePreviewResult>> {
+    return this.options.operationService.executeDryRun({
+      context: input.context,
+      operationName: 'previewConfiguredServerCreate',
+      run: async () => this.previewConfiguredServerCreateResult(input),
+    });
+  }
+
+  async applyConfiguredServerCreate(
+    input: ConfiguredServerCreateApplyInput,
+  ): Promise<AdminOperationResult<ConfiguredServerCreateApplyResult>> {
+    const candidateName = createDraftCandidateName(input.draft);
+    const context = {
+      ...input.context,
+      target: { type: 'configured_server', id: candidateName },
+      confirmationFacts: sanitizeCreateConfirmationFacts(input.context.confirmationFacts),
+    };
+    return this.options.operationService.executeMutation({
+      context,
+      operationName: 'applyConfiguredServerCreate',
+      prepare: async () => {
+        const document = this.options.readConfigDocument() ?? {};
+        const preview = await this.previewConfiguredServerCreateResult(
+          { ...input, connectivityCheck: 'auto' },
+          true,
+          document,
+        );
+        if (preview.previewFingerprint !== input.previewFingerprint) {
+          throw new AdminConfiguredServerApplyError('configured_server_stale_preview');
+        }
+        if (preview.validation.status !== 'valid' || !preview.configChange.changed) {
+          throw new AdminConfiguredServerApplyError('configured_server_create_invalid');
+        }
+        const prepared = await this.resolveConfiguredServerCreate(input.draft, document);
+        if (!prepared.config) {
+          throw new AdminConfiguredServerApplyError('configured_server_create_invalid');
+        }
+        if (
+          prepared.enabled &&
+          !wouldUseLocalStdioTransport(prepared.config) &&
+          preview.connectivityCheck.status !== 'passed' &&
+          !(
+            preview.connectivityCheck.status === 'skipped' && preview.connectivityCheck.reason === 'checker_unavailable'
+          ) &&
+          !(
+            preview.connectivityCheck.status === 'failed' &&
+            input.context.confirmationFacts?.connectivityFailureOverrideConfirmed === true
+          )
+        ) {
+          throw new AdminConfiguredServerApplyError('configured_server_connectivity_blocked');
+        }
+        const secretChange = prepared.draft.secrets?.length;
+        const configFingerprint = fingerprintConfiguredServerConfigDocument(document);
+        return {
+          confirmationRequirements: [
+            { code: 'previewConfirmed', expected: input.previewFingerprint },
+            { code: 'targetNameConfirmed', expected: prepared.targetName },
+            { code: 'connectionCriticalConfirmed', expected: true },
+            ...(secretChange ? [{ code: 'secretChangeConfirmed', expected: true }] : []),
+            ...(preview.connectivityCheck.status === 'failed'
+              ? [{ code: 'connectivityFailureOverrideConfirmed', expected: true }]
+              : []),
+          ],
+          run: async () => {
+            let configChange: ConfigChangeResult;
+            try {
+              configChange = await this.options.configChangeService.createStaticConfiguredServerTarget({
+                targetName: prepared.targetName,
+                serverConfig: prepared.config!,
+                operation: 'install',
+                backup: 'skip',
+                expectedConfigFingerprint: configFingerprint,
+              });
+            } catch {
+              throw new AdminConfiguredServerApplyError('configured_server_create_failed');
+            }
+            assertSuccessfulConfiguredServerCreate(configChange);
+            return {
+              targetName: prepared.targetName,
+              previewFingerprint: preview.previewFingerprint,
+              configChange,
+            };
+          },
+        };
+      },
+    });
+  }
 
   async listConfiguredServers(input: {
     context: AdminOperationContext;
@@ -672,6 +1277,83 @@ export class AdminConfiguredServerService implements AdminConfiguredServerOperat
       targetName: input.targetName,
       serverConfig: input.serverConfig,
     });
+  }
+
+  private async previewConfiguredServerCreateResult(
+    input: ConfiguredServerCreatePreviewInput,
+    forceConnectivity = false,
+    document: ConfiguredServerConfigDocument = this.options.readConfigDocument() ?? {},
+  ): Promise<ConfiguredServerCreatePreviewResult> {
+    const prepared = await this.resolveConfiguredServerCreate(input.draft, document);
+    const proposedReadModel = prepared.config
+      ? createConfiguredServerReadModel(
+          prepared.targetName,
+          mergeGlobalAndServerConfig(document.serverDefaults, prepared.config),
+        )
+      : undefined;
+    const validation = prepared.validation;
+    const diff = proposedReadModel ? createConfiguredServerCreateDiff(proposedReadModel, prepared.draft) : [];
+    const changed = validation.status === 'valid' && prepared.workflow.status === 'preview';
+    const connectivityCheck = prepared.config
+      ? await this.previewConnectivityCheck({
+          targetName: prepared.targetName,
+          serverConfig: prepared.config,
+          enabled: prepared.enabled,
+          validationStatus: validation.status,
+          connectionCriticalChanged: true,
+          force: forceConnectivity || input.connectivityCheck === 'manual',
+          endpointChangedWithPreservedSecrets: false,
+        })
+      : ({ status: 'skipped', reason: 'validation_failed' } as const);
+    const preview = {
+      targetName: prepared.targetName,
+      previewFingerprint: configuredServerCreatePreviewFingerprint({
+        configFingerprint: fingerprintConfiguredServerConfigDocument(document),
+        draft: prepared.draft,
+        proposed: proposedReadModel,
+        diff,
+        validation,
+        connectivityCheck,
+      }),
+      validation,
+      diff,
+      configChange: previewCreateConfigChange(prepared.targetName, prepared.workflow.status, changed),
+      connectivityCheck,
+      expectedReload: {
+        policy: 'observe_after_write' as const,
+        possibleStatuses: ['observed', 'runtime_not_running', 'reload_disabled', 'failed'] as const,
+      },
+    };
+    return preview;
+  }
+
+  private async resolveConfiguredServerCreate(
+    draftValue: unknown,
+    document: ConfiguredServerConfigDocument = this.options.readConfigDocument() ?? {},
+  ): Promise<PreparedConfiguredServerCreate> {
+    const normalized = normalizeConfiguredServerCreateDraft(draftValue);
+    const workflow = createServerInstallationWorkflow({
+      findConfiguredTarget: (targetName) => {
+        if (document.mcpTemplates?.[targetName]) return { name: targetName, source: 'mcpTemplates' };
+        if (document.mcpServers?.[targetName]) return { name: targetName, source: 'mcpServers' };
+        return null;
+      },
+    });
+    const workflowResult = await workflow.run({ mode: 'preview', source: normalized.source });
+    const config = workflowResult.config;
+    const validation = mergeValidation(
+      mergeValidation(normalized.validation, validateConfiguredServerCreateSecrets(normalized.draft)),
+      createWorkflowValidation(workflowResult, config),
+    );
+    return {
+      draft: normalized.draft,
+      source: normalized.source,
+      targetName: normalized.source.localName,
+      enabled: normalized.source.enabled !== false,
+      workflow: workflowResult,
+      config,
+      validation,
+    };
   }
 }
 
