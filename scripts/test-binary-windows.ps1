@@ -10,6 +10,7 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+$Utf8NoBom = [System.Text.UTF8Encoding]::new($false)
 
 Write-Host "Testing $Platform binary at $BinaryPath..."
 
@@ -42,7 +43,7 @@ try {
     Write-Host "3. Testing tiktoken functionality..."
     $configContent = '{"mcpServers": {"test-server": {"command": "echo", "args": ["test"]}}}'
     $configPath = Join-Path $PWD "test-config.json"
-    $configContent | Out-File -FilePath $configPath -Encoding utf8
+    [System.IO.File]::WriteAllText($configPath, $configContent, $Utf8NoBom)
 
     # Try a simpler approach - just run the command and check if it completes without crashing
     try {
@@ -77,10 +78,11 @@ try {
     Write-Host "4. Testing embedded Admin Console assets..."
     $adminSmokeDir = Join-Path ([System.IO.Path]::GetTempPath()) ("1mcp-admin-smoke-" + [guid]::NewGuid())
     $adminConfigDir = Join-Path $adminSmokeDir "config"
+    $adminConfigPath = Join-Path $adminConfigDir "mcp.json"
     $adminStdout = Join-Path $adminSmokeDir "runtime.stdout.log"
     $adminStderr = Join-Path $adminSmokeDir "runtime.stderr.log"
     New-Item -ItemType Directory -Force -Path $adminConfigDir | Out-Null
-    '{"mcpServers":{}}' | Out-File -FilePath (Join-Path $adminConfigDir "mcp.json") -Encoding utf8
+    [System.IO.File]::WriteAllText($adminConfigPath, '{"mcpServers":{}}', $Utf8NoBom)
     $listener = [System.Net.Sockets.TcpListener]::new([System.Net.IPAddress]::Loopback, 0)
     $listener.Start()
     $adminPort = $listener.LocalEndpoint.Port
