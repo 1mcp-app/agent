@@ -5,9 +5,10 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.35.0-beta.3] - 2026-08-02
+## [0.35.0-beta.3] - 2026-08-05
 
 ### 🚀 Features
+- Add per-server backend logs by @xizhibei in [#423](https://github.com/1mcp-app/agent/pull/423)
 - Add async server wait workflow by @xizhibei in [#410](https://github.com/1mcp-app/agent/pull/410)
 - Add rotating refresh tokens by @xizhibei in [#408](https://github.com/1mcp-app/agent/pull/408)
 - Add route-based OAuth operations by @xizhibei in [#400](https://github.com/1mcp-app/agent/pull/400)
@@ -18,9 +19,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Ship Admin Console operations cockpit by @xizhibei in [#375](https://github.com/1mcp-app/agent/pull/375)
 
 ### 🐛 Bug Fixes
+- Write Windows smoke configs without BOM by @xizhibei in [#438](https://github.com/1mcp-app/agent/pull/438)
+- Reconnect backends automatically after they lose their session by @Quentin-M in [#414](https://github.com/1mcp-app/agent/pull/414)
+- Isolate slow backend discovery by @xizhibei in [#421](https://github.com/1mcp-app/agent/pull/421)
+- Preserve runtime probe failures during discovery by @xizhibei in [#427](https://github.com/1mcp-app/agent/pull/427)
+- Isolate managed stderr ingestion by @xizhibei in [#422](https://github.com/1mcp-app/agent/pull/422)
+- Clean up code formatting and import statements across multiple files by @xizhibei
 - Resolve server visibility per request by @xizhibei in [#409](https://github.com/1mcp-app/agent/pull/409)
 - Package Admin Console in Docker and binaries by @xizhibei in [#420](https://github.com/1mcp-app/agent/pull/420)
 - Replace system tar command with npm tar package in archive test by @Congee-wine in [#416](https://github.com/1mcp-app/agent/pull/416)
+
+### 🚜 Refactor
+- Clean up imports and improve code formatting across test files by @xizhibei
 
 ### 📚 Documentation
 - Add ADRs for OAuth refresh tokens and managed backend log delivery by @xizhibei
@@ -34,6 +44,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Add .agents/skills to .gitignore by @xizhibei
 
 ## New Contributors
+* @Quentin-M made their first contribution in [#414](https://github.com/1mcp-app/agent/pull/414)
 * @Congee-wine made their first contribution in [#416](https://github.com/1mcp-app/agent/pull/416)
 * @adity982 made their first contribution in [#398](https://github.com/1mcp-app/agent/pull/398)
 
