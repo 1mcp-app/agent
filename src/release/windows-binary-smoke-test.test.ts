@@ -15,4 +15,14 @@ describe('Windows binary smoke test', () => {
     expect(script.match(/\[System\.IO\.File\]::WriteAllText/g)).toHaveLength(2);
     expect(script).not.toMatch(/Out-File[^\r\n]+-Encoding utf8/);
   });
+
+  it('uses basic response parsing for Windows PowerShell 5.1 web requests', () => {
+    const script = readWindowsBinarySmokeTest();
+    const webRequests = script.match(/Invoke-WebRequest[^\r\n]+/g);
+
+    expect(webRequests).toHaveLength(3);
+    for (const request of webRequests ?? []) {
+      expect(request).toContain('-UseBasicParsing');
+    }
+  });
 });
