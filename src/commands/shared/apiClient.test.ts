@@ -197,6 +197,7 @@ describe('ApiClient', () => {
     expect(parsed.searchParams.get('target')).toBe('runner');
     expect(parsed.searchParams.get('context')).toBeTruthy();
     expect(parsed.searchParams.get('contextProof')).toBeTruthy();
+    expect(init.redirect).toBe('error');
     expect((init.headers as Record<string, string>)['x-1mcp-context']).toBeUndefined();
   });
 });

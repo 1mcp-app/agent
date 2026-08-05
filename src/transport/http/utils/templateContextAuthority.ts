@@ -6,7 +6,7 @@ import {
 } from '@src/core/context/templateContextTrust.js';
 import { RuntimeIdentityService } from '@src/core/runtime/runtimeIdentityService.js';
 import { AgentConfigManager } from '@src/core/server/agentConfig.js';
-import logger from '@src/logger/logger.js';
+import { debugIf, infoIf, warnIf } from '@src/logger/logger.js';
 import { isContextData } from '@src/transport/http/utils/contextExtractor.js';
 import type { ContextData } from '@src/types/context.js';
 
@@ -40,7 +40,7 @@ export function authorizeRequestTemplateContext(
     maxAgeMs: sessionTtlMinutes * 60 * 1000,
   });
 
-  const audit = {
+  const createAudit = () => ({
     source: input.source,
     trustMode: mode,
     verification: result.status,
@@ -51,13 +51,16 @@ export function authorizeRequestTemplateContext(
     contextHash: result.contextHash,
     projectName: input.context.project.name,
     projectPath: input.context.project.path,
-  };
-  const log = result.status === 'trusted' ? logger.info.bind(logger) : logger.warn.bind(logger);
-  log('Template context audit', audit);
-  logger.debug('Template context audit detail', {
-    ...audit,
-    context: redactContextForAudit(input.context),
   });
+  const auditLog = result.status === 'trusted' ? infoIf : warnIf;
+  auditLog(() => ({ message: 'Template context audit', meta: createAudit() }));
+  debugIf(() => ({
+    message: 'Template context audit detail',
+    meta: {
+      ...createAudit(),
+      context: redactContextForAudit(input.context),
+    },
+  }));
 
   return result;
 }

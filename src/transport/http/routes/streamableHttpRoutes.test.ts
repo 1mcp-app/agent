@@ -10,6 +10,19 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { setupStreamableHttpRoutes } from './streamableHttpRoutes.js';
 
+const mockedExtractTemplateContextRequest = vi.hoisted(() => vi.fn());
+const mockedAuthorizeRequestTemplateContext = vi.hoisted(() => vi.fn());
+
+vi.mock('@src/transport/http/utils/contextExtractor.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@src/transport/http/utils/contextExtractor.js')>()),
+  extractTemplateContextRequest: mockedExtractTemplateContextRequest,
+}));
+
+vi.mock('@src/transport/http/utils/templateContextAuthority.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@src/transport/http/utils/templateContextAuthority.js')>()),
+  authorizeRequestTemplateContext: mockedAuthorizeRequestTemplateContext,
+}));
+
 // Mock all external dependencies
 vi.mock('@modelcontextprotocol/sdk/server/streamableHttp.js', () => ({
   StreamableHTTPServerTransport: vi.fn().mockImplementation(function (options) {
@@ -143,6 +156,8 @@ describe('Streamable HTTP Routes', () => {
       sessionId: 'unknown-session',
       reason: StreamableSessionMissingReason.NotFound,
     });
+    mockedExtractTemplateContextRequest.mockReturnValue(null);
+    mockedAuthorizeRequestTemplateContext.mockReset();
   });
 
   afterEach(() => {
@@ -248,6 +263,47 @@ describe('Streamable HTTP Routes', () => {
       expect(mockLifecycle.resolvePostSession).toHaveBeenCalledWith(expect.objectContaining({ sessionId: undefined }));
       // Response is wrapped for logging, so we check with expect.any(Object)
       expect(mockTransport.handleRequest).toHaveBeenCalledWith(mockRequest, expect.any(Object), mockRequest.body);
+    });
+
+    it('uses the signed proof session for a headerless initialize request', async () => {
+      const context = {
+        project: { name: 'agent', path: '/work/agent' },
+        user: { username: 'alice' },
+        environment: { variables: {} },
+        sessionId: 'stream-11111111-1111-4111-8111-111111111111',
+      };
+      const proof = {
+        version: 1 as const,
+        runtimeScopeId: 'scope-a',
+        sessionId: context.sessionId,
+        contextHash: 'context-hash',
+        issuedAt: '2026-08-05T00:00:00.000Z',
+        signature: 'signature',
+      };
+      mockedExtractTemplateContextRequest.mockReturnValue({ context, proof, source: 'meta' });
+      mockedAuthorizeRequestTemplateContext.mockReturnValue({
+        status: 'trusted',
+        provenance: 'verified-local',
+        context,
+      });
+      mockRequest.headers = {};
+      mockRequest.body = {
+        jsonrpc: '2.0',
+        id: 1,
+        method: 'initialize',
+        params: { protocolVersion: '2024-11-05', capabilities: {}, clientInfo: { name: 'test', version: '1.0' } },
+      };
+
+      await postHandler(mockRequest, mockResponse);
+
+      expect(mockedAuthorizeRequestTemplateContext).toHaveBeenCalledWith(
+        expect.objectContaining({ transportSessionId: proof.sessionId }),
+      );
+      expect(mockLifecycle.resolvePostSession).toHaveBeenCalledWith(
+        expect.objectContaining({ sessionId: proof.sessionId, isInitializeRequest: true }),
+      );
+      const createSessionData = mockLifecycle.resolvePostSession.mock.calls[0]?.[0].createSessionData;
+      expect(createSessionData()).toMatchObject({ context, contextProof: proof });
     });
 
     it('should use existing session when sessionId header provided and session found', async () => {

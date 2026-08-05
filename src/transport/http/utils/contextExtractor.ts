@@ -3,6 +3,7 @@ import type { TemplateContextProof } from '@src/core/context/templateContextTrus
 import type { ContextData } from '@src/types/context.js';
 
 import type { Request } from 'express';
+import { z } from 'zod';
 
 export { deriveContextSessionId } from '@src/utils/context/sessionIdentity.js';
 
@@ -17,28 +18,90 @@ export interface ExtractedTemplateContextRequest {
   source: 'meta' | 'query';
 }
 
+const gitInfoSchema = z
+  .object({
+    branch: z.string().optional(),
+    commit: z.string().optional(),
+    repository: z.string().optional(),
+    isRepo: z.boolean().optional(),
+  })
+  .strict();
+
+const contextNamespaceSchema = z
+  .object({
+    path: z.string().optional(),
+    cwd: z.string().optional(),
+    name: z.string().optional(),
+    git: gitInfoSchema.optional(),
+    environment: z.string().optional(),
+    custom: z.record(z.string(), z.unknown()).optional(),
+  })
+  .strict();
+
+const userContextSchema = z
+  .object({
+    name: z.string().optional(),
+    email: z.string().optional(),
+    home: z.string().optional(),
+    username: z.string().optional(),
+    uid: z.string().optional(),
+    gid: z.string().optional(),
+    shell: z.string().optional(),
+  })
+  .strict();
+
+const environmentContextSchema = z
+  .object({
+    variables: z.record(z.string(), z.string()).optional(),
+    prefixes: z.array(z.string()).optional(),
+  })
+  .strict();
+
+const clientInfoSchema = z
+  .object({
+    name: z.string(),
+    version: z.string(),
+    title: z.string().optional(),
+  })
+  .strict();
+
+const contextDataSchema = z
+  .object({
+    project: contextNamespaceSchema,
+    user: userContextSchema,
+    environment: environmentContextSchema,
+    timestamp: z.string().optional(),
+    sessionId: z.string().optional(),
+    version: z.string().optional(),
+    transport: z
+      .object({
+        type: z.string(),
+        url: z.string().optional(),
+        connectionId: z.string().optional(),
+        connectionTimestamp: z.string().optional(),
+        client: clientInfoSchema.optional(),
+      })
+      .strict()
+      .optional(),
+  })
+  .strict() satisfies z.ZodType<ContextData>;
+
+const templateContextProofSchema = z
+  .object({
+    version: z.literal(1),
+    runtimeScopeId: z.string().min(1),
+    sessionId: z.string().min(1),
+    contextHash: z.string().min(1),
+    issuedAt: z.string().datetime(),
+    signature: z.string().min(1),
+  })
+  .strict() satisfies z.ZodType<TemplateContextProof>;
+
 /**
  * Type guard to check if a value is a valid ContextData
  */
 export function isContextData(value: unknown): value is ContextData {
-  if (typeof value !== 'object' || value === null) {
-    return false;
-  }
-
-  const candidate = value as {
-    project?: unknown;
-    user?: unknown;
-    environment?: unknown;
-  };
-
-  return (
-    typeof candidate.project === 'object' &&
-    candidate.project !== null &&
-    typeof candidate.user === 'object' &&
-    candidate.user !== null &&
-    typeof candidate.environment === 'object' &&
-    candidate.environment !== null
-  );
+  return contextDataSchema.safeParse(value).success;
 }
 
 /**
@@ -66,12 +129,13 @@ export function extractContextFromMeta(req: Request): ContextData | null {
     }
 
     // Validate that the context has the correct structure
-    if (!isContextData(contextData)) {
+    const parsed = contextDataSchema.safeParse(contextData);
+    if (!parsed.success) {
       logger.warn('Invalid context structure in _meta field, ignoring context');
       return null;
     }
 
-    return contextData;
+    return parsed.data;
   } catch (error) {
     logger.error(
       'Failed to extract context from _meta field:',
@@ -81,7 +145,7 @@ export function extractContextFromMeta(req: Request): ContextData | null {
   }
 }
 
-export function encodeContextValue(value: unknown): string {
+export function encodeContextValue(value: ContextData | TemplateContextProof): string {
   return Buffer.from(JSON.stringify(value), 'utf8').toString('base64url');
 }
 
@@ -97,12 +161,13 @@ export function extractContextFromQuery(req: Request): ContextData | null {
     const decoded = Buffer.from(encoded, 'base64url').toString('utf8');
     const parsed = JSON.parse(decoded) as unknown;
 
-    if (!isContextData(parsed)) {
+    const context = contextDataSchema.safeParse(parsed);
+    if (!context.success) {
       logger.warn('Invalid context structure in request query, ignoring context');
       return null;
     }
 
-    return parsed as ContextData;
+    return context.data;
   } catch (error) {
     logger.error(
       'Failed to extract context from request query:',
@@ -162,16 +227,5 @@ function extractProofFromQuery(req: Request): TemplateContextProof | null {
 }
 
 function isTemplateContextProof(value: unknown): value is TemplateContextProof {
-  if (!value || typeof value !== 'object') {
-    return false;
-  }
-  const proof = value as Partial<TemplateContextProof>;
-  return (
-    proof.version === 1 &&
-    typeof proof.runtimeScopeId === 'string' &&
-    typeof proof.sessionId === 'string' &&
-    typeof proof.contextHash === 'string' &&
-    typeof proof.issuedAt === 'string' &&
-    typeof proof.signature === 'string'
-  );
+  return templateContextProofSchema.safeParse(value).success;
 }

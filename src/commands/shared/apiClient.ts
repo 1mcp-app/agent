@@ -98,6 +98,7 @@ export class ApiClient {
         method,
         headers,
         body: body !== undefined ? JSON.stringify(body) : undefined,
+        redirect: this.contextProof ? 'error' : 'follow',
         signal: controller.signal,
       });
 

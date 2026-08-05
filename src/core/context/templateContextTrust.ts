@@ -4,6 +4,7 @@ import path from 'node:path';
 
 import type { ContextData } from '@src/types/context.js';
 import { createContextHash } from '@src/utils/context/contextHash.js';
+import { z } from 'zod';
 
 export const TEMPLATE_CONTEXT_CAPABILITY_FILE = 'template-context-capability.json';
 
@@ -24,6 +25,14 @@ export interface TemplateContextCapability {
   runtimeScopeId: string;
   secret: string;
 }
+
+const templateContextCapabilitySchema = z
+  .object({
+    version: z.literal(1),
+    runtimeScopeId: z.string().min(1),
+    secret: z.string().refine(isCanonicalCapabilitySecret),
+  })
+  .strict() satisfies z.ZodType<TemplateContextCapability>;
 
 declare const trustedTemplateContextBrand: unique symbol;
 export type TrustedTemplateContext = ContextData & {
@@ -142,30 +151,34 @@ export class TemplateContextCapabilityStore {
       );
     }
 
-    let parsed: Partial<TemplateContextCapability>;
+    let value: unknown;
     try {
-      parsed = JSON.parse(fs.readFileSync(filePath, 'utf8')) as Partial<TemplateContextCapability>;
+      value = JSON.parse(fs.readFileSync(filePath, 'utf8')) as unknown;
     } catch (error) {
       throw new TemplateContextCapabilityError(
         `Template context capability is unreadable: ${error instanceof Error ? error.message : String(error)}`,
       );
     }
 
+    const parsed = templateContextCapabilitySchema.safeParse(value);
     if (
-      parsed.version !== 1 ||
-      (this.options.runtimeScopeId !== undefined && parsed.runtimeScopeId !== this.options.runtimeScopeId) ||
-      typeof parsed.secret !== 'string' ||
-      Buffer.from(parsed.secret, 'base64url').length < 32
+      !parsed.success ||
+      (this.options.runtimeScopeId !== undefined && parsed.data.runtimeScopeId !== this.options.runtimeScopeId)
     ) {
       throw new TemplateContextCapabilityError('Template context capability does not match this Runtime Scope');
     }
 
-    return parsed as TemplateContextCapability;
+    return parsed.data;
   }
 
   private filePath(): string {
     return path.join(this.options.storageDir, TEMPLATE_CONTEXT_CAPABILITY_FILE);
   }
+}
+
+function isCanonicalCapabilitySecret(value: string): boolean {
+  const decoded = Buffer.from(value, 'base64url');
+  return decoded.length >= 32 && decoded.toString('base64url') === value;
 }
 
 export function createTemplateContextProof(
@@ -216,7 +229,7 @@ export function authorizeTemplateContext(input: AuthorizeTemplateContextInput): 
     return { status: 'untrusted', reason: 'runtime_scope_mismatch', contextHash, runtimeScopeId };
   }
 
-  const canonicalSessionId = input.transportSessionId ?? input.context.sessionId;
+  const canonicalSessionId = input.transportSessionId;
   if (!canonicalSessionId || input.proof.sessionId !== canonicalSessionId || input.context.sessionId !== canonicalSessionId) {
     return { status: 'untrusted', reason: 'session_mismatch', contextHash, runtimeScopeId };
   }

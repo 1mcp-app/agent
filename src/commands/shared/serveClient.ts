@@ -94,6 +94,7 @@ export class StreamableServeClient {
       sessionId,
       requestInit: {
         headers,
+        redirect: 'error',
       },
     });
 

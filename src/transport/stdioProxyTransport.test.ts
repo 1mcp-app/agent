@@ -1,4 +1,5 @@
 import { JSONRPCMessage } from '@modelcontextprotocol/sdk/types.js';
+import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -89,6 +90,24 @@ describe('StdioProxyTransport', () => {
         sessionId: 'stream-custom',
         version: 'custom-version',
       });
+    });
+
+    it('rejects redirects before forwarding proof-bearing requests', async () => {
+      const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response());
+      proxy = new StdioProxyTransport({
+        serverUrl: 'https://runtime.example.com/mcp',
+      });
+      const [, options] = vi.mocked(StreamableHTTPClientTransport).mock.calls[0] as [
+        URL,
+        { fetch: typeof fetch },
+      ];
+
+      await options.fetch('https://runtime.example.com/mcp', { redirect: 'follow' });
+
+      expect(fetchSpy).toHaveBeenCalledWith(
+        'https://runtime.example.com/mcp',
+        expect.objectContaining({ redirect: 'error' }),
+      );
     });
   });
 

@@ -267,10 +267,11 @@ export async function attachReusableClientSurface<TOptions extends ResolvableSer
   });
   const baseUrl = stripMcpSuffix(target.discoveredUrl);
   const bearerTokenPromise = loadBearerToken(ports, target, options, baseUrl);
-  const [bearerToken, cachedSession] = await Promise.all([
+  const [bearerToken, loadedCachedSession] = await Promise.all([
     bearerTokenPromise,
     ports.readSessionCache(cachePath, target.serverUrl.toString(), contextHash),
   ]);
+  let cachedSession = loadedCachedSession;
   let requestSessionId = resolveCanonicalSessionId({
     context: baseContext,
     transportSessionId: cachedSession?.sessionId,
@@ -358,6 +359,7 @@ export async function attachReusableClientSurface<TOptions extends ResolvableSer
 
   if (mcpResponse.status === 'stale_session') {
     await ports.deleteSessionCache(cachePath);
+    cachedSession = null;
     requestSessionId = generateStreamableSessionId();
     context = withCanonicalSessionId(baseContext, requestSessionId);
     contextProof = await ports.createContextProof(target, context);
@@ -365,6 +367,7 @@ export async function attachReusableClientSurface<TOptions extends ResolvableSer
       ...attachmentContext,
       context,
       contextProof,
+      cachedSession,
       requestSessionId,
       sessionId: requestSessionId,
     };
@@ -448,6 +451,10 @@ async function createLocalTemplateContextProof<TOptions extends ResolvableServeT
     return undefined;
   }
 
+  if (!isProtectedTemplateContextProofTransport(target.serverUrl)) {
+    return undefined;
+  }
+
   const runtimeInfo = readPidFile(localScope.storagePath);
   if (
     !runtimeInfo ||
@@ -465,6 +472,18 @@ async function createLocalTemplateContextProof<TOptions extends ResolvableServeT
   }).read();
 
   return capability ? createTemplateContextProof(context, capability) : undefined;
+}
+
+function isProtectedTemplateContextProofTransport(url: URL): boolean {
+  if (url.protocol === 'https:') {
+    return true;
+  }
+  if (url.protocol !== 'http:') {
+    return false;
+  }
+
+  const hostname = url.hostname.replace(/^\[|\]$/g, '').toLowerCase();
+  return hostname === 'localhost' || hostname === '::1' || /^127(?:\.\d{1,3}){3}$/.test(hostname);
 }
 
 async function loadBearerToken<TOptions extends ResolvableServeTargetOptions>(

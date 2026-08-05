@@ -61,6 +61,24 @@ describe('template context trust', () => {
     expect(() => store.read()).toThrow(/owner-only/);
   });
 
+  it('rejects capability JSON with undeclared properties', () => {
+    const filePath = path.join(storageDir, 'template-context-capability.json');
+    fs.writeFileSync(
+      filePath,
+      JSON.stringify({
+        version: 1,
+        runtimeScopeId: 'scope-a',
+        secret: Buffer.alloc(32, 7).toString('base64url'),
+        inheritedTrust: true,
+      }),
+      { mode: 0o600 },
+    );
+
+    const store = new TemplateContextCapabilityStore({ storageDir, runtimeScopeId: 'scope-a' });
+
+    expect(() => store.read()).toThrow(/does not match this Runtime Scope/);
+  });
+
   it('accepts a signed context only for the bound Runtime Scope and session', () => {
     const capability = new TemplateContextCapabilityStore({
       storageDir,
@@ -98,6 +116,20 @@ describe('template context trust', () => {
         transportSessionId: 'session-b',
       }),
     ).toMatchObject({ status: 'untrusted', reason: 'session_mismatch' });
+  });
+
+  it('rejects a signed context when no canonical transport session is supplied', () => {
+    const capability = new TemplateContextCapabilityStore({
+      storageDir,
+      runtimeScopeId: 'scope-a',
+      createSecret: () => Buffer.alloc(32, 7),
+    }).getOrCreate();
+    const proof = createTemplateContextProof(context, capability);
+
+    expect(authorizeTemplateContext({ mode: 'verified', context, proof, capability })).toMatchObject({
+      status: 'untrusted',
+      reason: 'session_mismatch',
+    });
   });
 
   it('rejects a proof when readable context is modified', () => {

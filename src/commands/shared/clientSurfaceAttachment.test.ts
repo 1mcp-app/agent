@@ -407,6 +407,7 @@ describe('attachReusableClientSurface', () => {
     expect(mcp).toHaveBeenNthCalledWith(
       2,
       expect.objectContaining({
+        cachedSession: null,
         sessionId: expect.stringMatching(/^stream-[0-9a-f-]{36}$/),
         sendInitialize: true,
       }),
@@ -695,6 +696,39 @@ describe('local template context proof attachment', () => {
         clientSurface: 'stdio-proxy',
         version: 'proxy',
         options: { url: 'http://127.0.0.1:3050/mcp', 'config-dir': storagePath },
+        ports: makePorts({ target }),
+      });
+
+      expect(attachment.contextProof).toBeUndefined();
+    } finally {
+      fs.rmSync(storagePath, { recursive: true, force: true });
+    }
+  });
+
+  it('does not sign for a non-loopback cleartext Runtime Target', async () => {
+    const storagePath = fs.mkdtempSync(path.join(os.tmpdir(), '1mcp-local-proof-cleartext-'));
+    try {
+      new TemplateContextCapabilityStore({ storageDir: storagePath, runtimeScopeId: 'scope-a' }).getOrCreate();
+      writePidFile(storagePath, {
+        pid: process.pid,
+        url: 'http://192.0.2.10:3050/mcp',
+        port: 3050,
+        host: '192.0.2.10',
+        transport: 'http',
+        startedAt: '2026-08-04T00:00:00.000Z',
+        configDir: storagePath,
+      });
+      const target = makeResolvedTarget({
+        discoveredUrl: 'http://192.0.2.10:3050/mcp',
+        serverUrl: new URL('http://192.0.2.10:3050/mcp'),
+        serverPid: process.pid,
+        localRuntimeScope: { storagePath },
+      });
+
+      const attachment = await attachFreshClientSurface({
+        clientSurface: 'stdio-proxy',
+        version: 'proxy',
+        options: { 'config-dir': storagePath },
         ports: makePorts({ target }),
       });
 

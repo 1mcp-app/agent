@@ -215,6 +215,34 @@ describe('contextExtractor', () => {
       expect(extractContextFromMeta(mockRequest as Request)).toBeNull();
     });
 
+    it.each([
+      {
+        name: 'array namespaces',
+        context: { project: [], user: {}, environment: {} },
+      },
+      {
+        name: 'non-string environment variables',
+        context: { project: {}, user: {}, environment: { variables: { PORT: 3050 } } },
+      },
+      {
+        name: 'incomplete transport client information',
+        context: {
+          project: {},
+          user: {},
+          environment: {},
+          transport: { type: 'http', client: { name: 'codex' } },
+        },
+      },
+      {
+        name: 'unknown top-level properties',
+        context: { project: {}, user: {}, environment: {}, elevated: true },
+      },
+    ])('should reject $name', ({ context }) => {
+      mockRequest.body = { params: { _meta: { context } } };
+
+      expect(extractContextFromMeta(mockRequest as Request)).toBeNull();
+    });
+
     it('should preserve existing _meta fields when extracting context', () => {
       mockRequest.body = {
         jsonrpc: '2.0',
@@ -344,6 +372,35 @@ describe('contextExtractor', () => {
       expect(extractTemplateContextRequest(mockRequest as Request)).toEqual({
         context: expect.objectContaining({ sessionId: 'session-a' }),
         proof,
+        source: 'meta',
+      });
+    });
+
+    it('rejects a detached proof with empty identifiers', () => {
+      mockRequest.body = {
+        params: {
+          _meta: {
+            context: {
+              project: { name: 'agent' },
+              user: { username: 'alice' },
+              environment: { variables: {} },
+              sessionId: 'session-a',
+            },
+            contextProof: {
+              version: 1,
+              runtimeScopeId: '',
+              sessionId: '',
+              contextHash: '',
+              issuedAt: '',
+              signature: '',
+            },
+          },
+        },
+      };
+
+      expect(extractTemplateContextRequest(mockRequest as Request)).toEqual({
+        context: expect.objectContaining({ sessionId: 'session-a' }),
+        proof: undefined,
         source: 'meta',
       });
     });

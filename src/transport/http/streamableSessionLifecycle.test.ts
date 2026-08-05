@@ -9,6 +9,9 @@ import {
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('@src/logger/logger.js', () => ({
+  debugIf: vi.fn(),
+  infoIf: vi.fn(),
+  warnIf: vi.fn(),
   default: {
     info: vi.fn(),
     error: vi.fn(),

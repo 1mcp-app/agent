@@ -193,9 +193,10 @@ export function setupStreamableHttpRoutes(
 
   router.post(STREAMABLE_HTTP_ENDPOINT, ...middlewares, async (req: Request, res: Response) => {
     try {
-      const sessionId = req.headers['mcp-session-id'] as string | undefined;
+      const headerSessionId = req.headers['mcp-session-id'] as string | undefined;
       const isInitialize = isInitializeRequest(req.body);
       const extractedContext = extractTemplateContextRequest(req);
+      const sessionId = headerSessionId ?? (isInitialize ? extractedContext?.proof?.sessionId : undefined);
       const authorization = extractedContext
         ? authorizeRequestTemplateContext({ ...extractedContext, transportSessionId: sessionId })
         : undefined;

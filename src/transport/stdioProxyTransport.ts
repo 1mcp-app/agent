@@ -247,6 +247,7 @@ export class StdioProxyTransport {
       const updatedInit: RequestInit = {
         ...init,
         headers,
+        redirect: 'error',
       };
 
       // Call global fetch with updated headers
