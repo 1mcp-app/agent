@@ -66,6 +66,8 @@ const BACKGROUND_STARTUP_OPTION_KEYS = [
   'rate-limit-window',
   'rate-limit-max',
   'trust-proxy',
+  'template-context-trust',
+  'confirm-untrusted-template-context',
   'health-info-level',
   'enable-async-loading',
   'async-min-servers',

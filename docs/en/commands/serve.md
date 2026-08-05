@@ -73,6 +73,10 @@ For runtime-wide configuration details, see the **[Configuration Guide](/guide/e
 - **`--enable-auth`**: Enable OAuth-backed auth on the runtime.
 - **`--enable-enhanced-security`**: Enable additional security middleware.
 - **`--trust-proxy <config>`**: Configure trusted reverse-proxy behavior.
+- **`--template-context-trust <verified|disabled|legacy>`**: Control whether request context may render template servers. Default: `verified`.
+- **`--confirm-untrusted-template-context`**: Required with `legacy` when binding HTTP to a non-loopback host.
+
+`verified` preserves zero-configuration template rendering for first-party local `run`, `inspect`, `wait`, and `proxy` clients. Unsigned remote or third-party clients still connect and use static servers, but their context cannot affect template `command`, `args`, `cwd`, or `env`. `legacy` restores the historical unsigned behavior and should be a temporary compatibility mode.
 
 ### Runtime behavior
 

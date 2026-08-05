@@ -159,6 +159,9 @@ export interface ApplicationConfig {
   readonly admin?: {
     readonly enabled?: boolean;
   };
+  readonly templateContext?: {
+    readonly trust?: 'verified' | 'disabled' | 'legacy';
+  };
 }
 
 /**
@@ -369,6 +372,11 @@ export const applicationConfigSchema = z.object({
   admin: z
     .object({
       enabled: z.boolean().optional().describe('Enable Admin Console and CLI Admin Adapter HTTP surfaces'),
+    })
+    .optional(),
+  templateContext: z
+    .object({
+      trust: z.enum(['verified', 'disabled', 'legacy']).optional().describe('Template context trust policy'),
     })
     .optional(),
 });

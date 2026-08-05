@@ -372,6 +372,25 @@ enabled = true
 
 CLI 参数优先于 `config.toml`。旧的 `--lazy-mode`、`[lazyLoading].mode` 和 `--lazy-direct-expose` 输入会在一个兼容周期内继续接受，但将被忽略并产生弃用警告；`enabled` 是唯一有效的开关。
 
+### 模板上下文信任
+
+模板上下文能够控制可执行字段，因此运行时会独立于传输连接和 OAuth 对其进行验证。默认采用本地优先的验证模式：
+
+```toml
+[templateContext]
+trust = "verified"
+```
+
+对应的 CLI 参数是 `--template-context-trust verified`；CLI 输入优先于 `config.toml`。
+
+| 模式       | 行为 |
+| ---------- | ---- |
+| `verified` | 只有带 Runtime Scope 证明的第一方本地上下文可以渲染模板；未签名客户端只能使用静态服务器。 |
+| `disabled` | 请求上下文永远不能渲染模板。 |
+| `legacy`   | 未签名的本地或远程上下文可以渲染模板，并重新开放对模板 `command`、`args`、`cwd` 和 `env` 的控制。 |
+
+在非回环 HTTP 地址上使用 `legacy` 时，还必须提供 `--confirm-untrusted-template-context`。GET REST 客户端继续使用现有的 base64url `context` 查询格式。运行时会将其解码为结构化、已脱敏的审计日志，通用请求日志不会打印原始 base64 值或证明签名。
+
 ### 配置重载
 
 控制配置文件热重载行为以实现无缝更新。

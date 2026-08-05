@@ -48,6 +48,7 @@ export class StreamableSessionRepository {
       enablePagination: config.enablePagination,
       customTemplate: config.customTemplate,
       context: config.context,
+      contextProof: config.contextProof,
       expires: Date.now() + AUTH_CONFIG.SERVER.STREAMABLE_SESSION.TTL_MS,
       createdAt: Date.now(),
       lastAccessedAt: Date.now(),
@@ -161,6 +162,7 @@ export class StreamableSessionRepository {
       enablePagination: sessionData.enablePagination,
       customTemplate: sessionData.customTemplate,
       context: sessionData.context,
+      contextProof: sessionData.contextProof,
     };
 
     return config;

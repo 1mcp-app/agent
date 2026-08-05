@@ -7,8 +7,9 @@ import { ServerManager } from '@src/core/server/serverManager.js';
 import {
   CONTEXT_HEADERS,
   deriveContextSessionId,
-  extractRequestContext,
+  extractTemplateContextRequest,
 } from '@src/transport/http/utils/contextExtractor.js';
+import { authorizeRequestTemplateContext } from '@src/transport/http/utils/templateContextAuthority.js';
 
 import { Request, Response } from 'express';
 
@@ -77,11 +78,19 @@ export async function ensureRequestContextInitialized(
   res: Response,
   filterConfig: ReturnType<typeof buildFilterConfig>,
 ): Promise<string | undefined> {
-  const context = extractRequestContext(req);
+  const extracted = extractTemplateContextRequest(req);
+  const transportSessionId = getHeaderSessionId(req);
+  const authorization = extracted
+    ? authorizeRequestTemplateContext({
+        ...extracted,
+        transportSessionId,
+      })
+    : undefined;
+  const context = authorization?.status === 'trusted' ? authorization.context : undefined;
   const result = await prepareRequestContext({
     deps: createPreparationDependencies(serverManager),
     context,
-    transportSessionId: getHeaderSessionId(req),
+    transportSessionId,
     filterConfig,
   });
 
@@ -89,7 +98,7 @@ export async function ensureRequestContextInitialized(
     return undefined;
   }
 
-  if (context) {
+  if (authorization?.status === 'trusted') {
     res.setHeader?.(CONTEXT_HEADERS.SESSION_ID, result.sessionId);
   }
 

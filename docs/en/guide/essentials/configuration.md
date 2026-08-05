@@ -378,6 +378,25 @@ enabled = true
 
 The CLI flag takes precedence over `config.toml`. Legacy `--lazy-mode`, `[lazyLoading].mode`, and `--lazy-direct-expose` inputs are accepted temporarily but ignored with a deprecation warning; `enabled` is the only working switch.
 
+### Template context trust
+
+Template context can control executable template fields, so the runtime verifies it independently from transport connectivity and OAuth. The default is local-first verification:
+
+```toml
+[templateContext]
+trust = "verified"
+```
+
+The equivalent CLI option is `--template-context-trust verified`; CLI input takes precedence over `config.toml`.
+
+| Mode       | Behavior |
+| ---------- | -------- |
+| `verified` | First-party local context with a Runtime Scope proof renders templates. Unsigned clients use static servers only. |
+| `disabled` | Request context never renders templates. |
+| `legacy`   | Unsigned local or remote context renders templates, reopening control of template `command`, `args`, `cwd`, and `env`. |
+
+Using `legacy` with a non-loopback HTTP host also requires `--confirm-untrusted-template-context`. GET REST clients keep the existing base64url `context` query format. The runtime decodes it into a structured redacted audit entry and never prints the raw base64 value or proof signature in general request logs.
+
 ### Configuration Reload
 
 Control configuration file hot-reload behavior for seamless updates.

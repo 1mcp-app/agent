@@ -102,6 +102,14 @@ Tags are mapped to OAuth 2.1 scopes using the format `tag:{tag-name}` (e.g., `ta
 - **Robot exclusion**: Prevents indexing of OAuth endpoints
 - **Timing attack prevention**: Random delays for authentication endpoints
 
+## Template Context Trust
+
+Request context is an execution input because template values can reach backend `command`, `args`, `cwd`, and `env`. The default `verified` policy accepts context for rendering only when a first-party local Client Surface signs it with the owner-only capability of the selected Runtime Scope. The detached proof binds the readable context hash, `runtimeScopeId`, and canonical request session.
+
+Unsigned clients are not disconnected: they retain static-server access. Operators can select `disabled` to ignore all template context, or `legacy` to restore unsigned rendering. `legacy` is intentionally unsafe for untrusted clients and requires `--confirm-untrusted-template-context` on non-loopback HTTP listeners.
+
+Normal audit logs include context source, project name/path, session, context hash, Runtime Scope identity, and verification outcome. Environment and custom values plus user home/email/shell are redacted. General HTTP logs omit raw base64 context and proof signatures.
+
 ## Audit Logging
 
 ### Comprehensive Audit Trail (`src/utils/scopeValidation.ts`)
