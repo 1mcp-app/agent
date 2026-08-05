@@ -97,7 +97,7 @@ try {
         $ready = $false
         for ($attempt = 0; $attempt -lt 50; $attempt++) {
             try {
-                $response = Invoke-WebRequest -Uri "$adminBaseUrl/health/ready" -TimeoutSec 1 -ErrorAction Stop
+                $response = Invoke-WebRequest -UseBasicParsing -Uri "$adminBaseUrl/health/ready" -TimeoutSec 1 -ErrorAction Stop
                 if ($response.StatusCode -eq 200) {
                     $ready = $true
                     break
@@ -113,14 +113,14 @@ try {
             throw "Standalone binary did not become ready. $((Get-Content $adminStdout -Raw -ErrorAction SilentlyContinue) + (Get-Content $adminStderr -Raw -ErrorAction SilentlyContinue))"
         }
 
-        $adminHtml = (Invoke-WebRequest -Uri "$adminBaseUrl/admin/" -TimeoutSec 5 -ErrorAction Stop).Content
+        $adminHtml = (Invoke-WebRequest -UseBasicParsing -Uri "$adminBaseUrl/admin/" -TimeoutSec 5 -ErrorAction Stop).Content
         $jsMatch = [regex]::Match($adminHtml, 'src="/admin/(assets/[^"]+\.js)"')
         $cssMatch = [regex]::Match($adminHtml, 'href="/admin/(assets/[^"]+\.css)"')
         if (-not $jsMatch.Success -or -not $cssMatch.Success) {
             throw "Admin Console HTML did not reference JavaScript and CSS assets"
         }
         foreach ($asset in @($jsMatch.Groups[1].Value, $cssMatch.Groups[1].Value)) {
-            $assetResponse = Invoke-WebRequest -Uri "$adminBaseUrl/admin/$asset" -TimeoutSec 5 -ErrorAction Stop
+            $assetResponse = Invoke-WebRequest -UseBasicParsing -Uri "$adminBaseUrl/admin/$asset" -TimeoutSec 5 -ErrorAction Stop
             if ($assetResponse.StatusCode -ne 200 -or [string]::IsNullOrWhiteSpace($assetResponse.Content)) {
                 throw "Embedded Admin Console asset was missing or empty: $asset"
             }
