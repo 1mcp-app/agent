@@ -19,6 +19,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Ship Admin Console operations cockpit by @xizhibei in [#375](https://github.com/1mcp-app/agent/pull/375)
 
 ### 🐛 Bug Fixes
+- Use basic parsing in Windows smoke test by @xizhibei in [#441](https://github.com/1mcp-app/agent/pull/441)
 - Write Windows smoke configs without BOM by @xizhibei in [#438](https://github.com/1mcp-app/agent/pull/438)
 - Reconnect backends automatically after they lose their session by @Quentin-M in [#414](https://github.com/1mcp-app/agent/pull/414)
 - Isolate slow backend discovery by @xizhibei in [#421](https://github.com/1mcp-app/agent/pull/421)
