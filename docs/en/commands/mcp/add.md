@@ -47,18 +47,18 @@ This command supports all global options:
 - **`--type <type>`**
   - The transport type for the server.
   - **Required**: Yes (or auto-detected when using " -- " pattern)
-  - **Values**: `stdio`, `http`
+  - **Values**: `stdio`, `http`, `sse`
 
 - **`--command <command>`**
   - The command to execute for `stdio` servers.
   - **Required for `stdio`**
 
 - **`--args <args>`**
-  - Comma-separated list of arguments for the `stdio` command.
+  - One argument for the `stdio` command. Repeat the flag for each argument: `--args=--root --args=./`.
 
 - **`--url <url>`**
-  - The URL for `http` servers.
-  - **Required for `http`**
+  - The URL for `http` or `sse` servers.
+  - **Required for `http` and `sse`**
 
 - **`--tags <tags>`**
   - Comma-separated list of tags for organization.
@@ -75,14 +75,17 @@ This command supports all global options:
 - **`--cwd <path>`**
   - Working directory for `stdio` servers. The process will be started in this directory.
 
+- **`--headers <key=value>`**
+  - HTTP headers for `http` or `sse` servers. Repeat the flag for multiple headers.
+
 - **`--restart-on-exit`**
   - Enable automatic restart when the process exits (for `stdio` servers only).
 
 - **`--max-restarts <number>`**
-  - Maximum consecutive automatic restart attempts (for `stdio` servers only). Omitted means `5`; `0` means unlimited.
+  - Maximum restart attempts (for `stdio` servers only). Omit it for unlimited attempts.
 
 - **`--restart-delay <ms>`**
-  - Initial restart delay in milliseconds (for `stdio` servers only). Defaults to `1000`; consecutive failures use exponential backoff capped at 16 times this value.
+  - Delay in milliseconds between automatic restarts (for `stdio` servers only). Default: `1000`.
 
 ## Examples
 
@@ -90,7 +93,7 @@ This command supports all global options:
 
 ```bash
 # Add a local filesystem server
-npx -y @1mcp/agent mcp add files --type=stdio --command="mcp-server-fs" --args="--root,./"
+npx -y @1mcp/agent mcp add files --type=stdio --command=mcp-server-fs --args=--root --args=./
 
 # Add a remote HTTP server with tags
 npx -y @1mcp/agent mcp add remote-api --type=http --url="https://api.example.com/mcp" --tags="api,prod"

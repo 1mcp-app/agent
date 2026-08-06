@@ -43,6 +43,7 @@ Before a REST-to-MCP fallback, `run` checks the client-facing inspect status. A 
 
 - **`<server>/<tool>`** - Tool reference in qualified form
 - **`--url, -u <url>`** - Override auto-detected 1MCP server URL
+- **`--context <name>`** - Use a named Runtime Target Context and its saved bearer token, if any
 - **`--preset, -p <name>`** - Use a preset when calling the running server
 - **`--tag-filter, -f <expression>`** - Apply an advanced tag filter expression
 - **`--tags <tag>`** - Apply simple comma-separated tags
@@ -85,6 +86,12 @@ npx -y @1mcp/agent run summarizer/summarize < README.md
 
 ```bash
 npx -y @1mcp/agent run --preset development validator/validate --args '{"path":"./schema.json"}'
+```
+
+### Call Through a Runtime Target Context
+
+```bash
+1mcp run --context prod filesystem/read_file --args '{"path":"./README.md"}'
 ```
 
 ### Use Script-Friendly JSON Output

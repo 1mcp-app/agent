@@ -80,8 +80,8 @@ Servers can be tagged in your configuration, and presets use these tags to deter
 
 Once created, presets can be used via URL query parameters:
 
-- `http://localhost:3050/?preset=development` - Use development servers
-- `http://localhost:3050/?preset=production` - Use production servers
+- `http://localhost:3050/mcp?preset=development` - Use development servers
+- `http://localhost:3050/mcp?preset=production` - Use production servers
 - `http://localhost:3050/` - Use all servers (no preset)
 
 ## Commands
@@ -188,7 +188,7 @@ Share preset configurations across team members:
 
    ```bash
    1mcp preset url team-dev
-   # Share: http://localhost:3050/?preset=team-dev
+   # Share: http://localhost:3050/mcp?preset=team-dev
    ```
 
 3. **Team members configure clients** with shared URLs
@@ -241,7 +241,7 @@ Use presets in different MCP client configurations:
       "command": "npx",
       "args": ["-y", "@1mcp/agent", "serve"],
       "env": {
-        "ONE_MCP_PRESET_URL": "http://localhost:3050/?preset=development"
+        "ONE_MCP_PRESET_URL": "http://localhost:3050/mcp?preset=development"
       }
     }
   }
@@ -254,7 +254,7 @@ Use presets in different MCP client configurations:
 {
   "mcp.servers": {
     "1mcp-production": {
-      "url": "http://localhost:3050/?preset=production"
+      "url": "http://localhost:3050/mcp?preset=production"
     }
   }
 }

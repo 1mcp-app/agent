@@ -1,106 +1,43 @@
 ---
-title: 安装工具
-description: MCP 内部工具，用于安装、更新和管理 MCP 服务器的完整生命周期
-head:
-  - ['meta', { name: 'keywords', content: 'MCP 安装,服务器管理,生命周期,AI 助手' }]
-  - ['meta', { property: 'og:title', content: '安装工具 - 1MCP 内部工具' }]
-  - ['meta', { property: 'og:description', content: 'MCP 内部工具，用于服务器安装和生命周期管理' }]
+title: 内部安装工具
+description: 内部 MCP 安装工具的输入和输出查询参考。
 ---
 
 # 安装工具
 
-安装工具使 AI 助手能够管理 MCP 服务器的完整生命周期，从初始安装到更新和移除。这些工具提供灵活的安装选项、依赖管理和安全操作处理。
+这些工具会修改 MCP 服务器配置。调用前请通过 `tools/list` 查询其精确 schema。
 
-## 工具概述
+## mcp_install
 
-### mcp_install
+必填输入：
 
-从各种来源安装 MCP 服务器，包括注册表、Git 仓库或自定义 URL。支持版本指定、依赖解析和自动配置。
+- `name`：本地 MCP 服务器配置名称。
 
-### mcp_uninstall
+可选输入：
 
-安全地移除 MCP 服务器，具有依赖检查、备份选项和相关资源清理。确保在不影响其他服务器的情况下干净移除。
+- `version`、`package`、`command`、`args`、`url`、`transport`（`stdio`、`sse` 或 `http`）、`tags`、`env`。
+- `force`（默认 `false`）、`backup`（默认 `true`）、`enabled`（默认 `true`）、`autoRestart`（默认 `false`）。
+- 已知时使用 `registryId`、`installationMethod`（`package` 或 `remote`）和 `prerequisites`。
 
-### mcp_update
+直接安装 stdio 包时，使用 `name`、`package`、`command` 和 `args`：
 
-将 MCP 服务器更新到更新版本，具有兼容性检查、回滚功能和迁移支持。自动处理版本冲突和依赖更新。
+```json
+{
+  "name": "project-dependencies",
+  "package": "@scope/project-mcp",
+  "command": "npx",
+  "args": ["-y", "@scope/project-mcp"]
+}
+```
 
-## 使用模式
+结果包含 `name`、`status` 和 `message`，也可能包含 `package`、`version`、`configPath`、`backupPath`、`warnings`、`reloadRecommended` 和 `error`。
 
-### 服务器安装工作流
+## mcp_uninstall
 
-AI 助手通常遵循此安装模式：
+必填输入为 `name`。可选布尔值：`preserveConfig`（默认 `false`）、`force`（默认 `false`）、`graceful`（默认 `true`）、`backup`（默认 `true`）和 `removeAll`（默认 `false`）。
 
-1. **发现**：使用发现工具找到合适的服务器
-2. **安装**：使用 `mcp_install` 配合适当的源和版本
-3. **验证**：使用管理工具确认安装成功
-4. **配置**：应用必要的设置并启用服务器
+## mcp_update
 
-### 安装来源
+必填输入为 `name`。可选输入为 `version`、`package`、`autoRestart`（默认 `true`）、`backup`（默认 `true`）、`force`（默认 `false`）和 `dryRun`（默认 `false`）。
 
-AI 助手可以从多个来源安装服务器：
-
-- **注册表安装**：从官方或第三方注册表安装
-- **Git 仓库**：直接从 Git 仓库安装
-- **自定义来源**：从特定 URL 或本地路径安装
-- **版本指定**：安装特定版本或最新的稳定版本
-
-### 更新管理
-
-AI 助手通过以下方式处理更新：
-
-- **兼容性检查**：在更新前验证版本兼容性
-- **依赖解析**：自动处理依赖更新
-- **回滚支持**：如果出现问题则恢复到以前版本
-- **迁移协助**：帮助配置迁移
-
-## AI 助手使用场景
-
-### 自动环境设置
-
-AI 助手可以通过识别特定任务所需的服务器、安装正确版本的服务器、自动解析依赖以及配置服务器以立即使用来自动设置完整环境。
-
-### 维护和更新
-
-AI 助手可以通过监控可用更新、在维护窗口期间安排更新、在应用更新前测试兼容性以及如果出现问题则处理回滚来维护服务器环境。
-
-### 服务器管理
-
-AI 助手可以通过跟踪已安装的服务器和版本、识别未使用或已弃用的服务器、协调服务器组的更新以及确保跨部署的一致环境来管理服务器群体。
-
-## 工具交互
-
-安装工具与其他工具类别有效协作：
-
-- **发现到安装**：发现工具 → `mcp_install` → 管理工具验证
-- **更新工作流**：管理工具状态检查 → `mcp_update` → `mcp_reload`
-- **移除过程**：管理工具依赖检查 → `mcp_uninstall` → 清理
-- **完整生命周期**：发现 → 安装 → 管理 → 更新 → 移除
-
-## AI 助手最佳实践
-
-1. **在安装尝试前验证先决条件**
-2. **根据系统要求使用兼容版本**
-3. **检查依赖** 以避免冲突
-4. **在主要更新前创建备份**
-5. **首先在安全环境中测试安装**
-6. **监控安装进度** 并适当处理错误
-7. **记录自定义配置** 以确保可重现性
-8. **在应用更新前规划回滚策略**
-
-## 安全注意事项
-
-AI 助手应通过以下方式优先考虑安全性：
-
-- 在安装前检查系统兼容性
-- 验证来源真实性和安全性
-- 使用适当的版本约束
-- 在可能的情况下在非生产环境中测试
-- 维护关键配置的备份副本
-- 遵循依赖最佳实践以避免冲突
-
-## 另请参阅
-
-- [发现工具](./discovery) - 服务器发现和搜索
-- [管理工具](./management) - 服务器运营控制
-- [MCP 命令参考](../../commands/mcp/) - CLI 安装命令
+另请参阅[内部工具](/zh/reference/internal-tools/)和 [MCP CLI 命令](/zh/commands/mcp/)。

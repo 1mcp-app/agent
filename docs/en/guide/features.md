@@ -31,7 +31,7 @@ head:
 - **🖥️ I use Claude Desktop** → [Claude Desktop Integration](/guide/integrations/claude-desktop)
 - **⚙️ I need server management** → [Server Management](/guide/essentials/server-management)
 - **🏷️ I want server filtering** → [Server Filtering](/guide/advanced/server-filtering)
-- **🤖 I need AI automation** → [Internal Tools for AI Assistants](/reference/internal-tools)
+- **🤖 I need AI automation** → [Internal Tools for AI Assistants](/reference/internal-tools/)
 - **⚡ I need fast startup** → [Fast Startup](/guide/advanced/fast-startup)
 
 ---
@@ -148,7 +148,7 @@ Perfect for: Multi-tenant environments, role-based access, environment separatio
 
 ---
 
-## 🤖 [Internal Tools for AI Assistants](/reference/internal-tools)
+## 🤖 [Internal Tools for AI Assistants](/reference/internal-tools/)
 
 Empower AI assistants with programmatic MCP server management capabilities:
 
@@ -216,7 +216,7 @@ Perfect for: Development workflows, unreliable networks, large server configurat
 - **Claude Desktop** → [Claude Desktop Integration](/guide/integrations/claude-desktop)
 - **Server Management** → [Server Management Guide](/guide/essentials/server-management)
 - **Server Filtering** → [Server Filtering Guide](/guide/advanced/server-filtering)
-- **AI Automation** → [Internal Tools Reference](/reference/internal-tools)
+- **AI Automation** → [Internal Tools Reference](/reference/internal-tools/)
 - **Performance** → [Fast Startup Guide](/guide/advanced/fast-startup)
 - **Architecture** → [System Architecture](/reference/architecture)
 

@@ -324,7 +324,7 @@ ONE_MCP_ENABLE_INTERNAL_TOOLS=true npx -y @1mcp/agent
 ONE_MCP_INTERNAL_TOOLS="discovery,management" npx -y @1mcp/agent
 ```
 
-**Important**: Internal tools are different from CLI commands. CLI commands are for human users, while internal tools are MCP protocol tools that AI assistants can use to automate server management tasks. For detailed information about available internal tools, see the **[Internal Tools Reference](/reference/internal-tools)**.
+**Important**: Internal tools are different from CLI commands. CLI commands are for human users, while internal tools are MCP protocol tools that AI assistants can use to automate server management tasks. For detailed information about available internal tools, see the **[Internal Tools Reference](/reference/internal-tools/)**.
 
 ### Performance Options
 

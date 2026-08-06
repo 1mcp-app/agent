@@ -61,6 +61,7 @@
 ### 连接
 
 - **`--url, -u <url>`**：覆盖自动发现的运行时地址。
+- **`--context <name>`**：使用具名 Runtime Target Context；存在保存的 bearer token 时一并使用。
 - **`--config-dir, -d <path>`**：在发现运行时时使用特定配置目录。
 
 ### 暴露控制
@@ -125,23 +126,22 @@
 http://127.0.0.1:3050/mcp?app=cursor
 ```
 
-## 认证注意事项
+## 身份验证
 
-这是本页最重要的限制：
+`proxy --context <name>` 会解析具名 Runtime Target Context，并在存在时向运行时发送其保存的 bearer token。先创建并认证 context：
 
-- stdio 传输不会给客户端带来 OAuth 浏览器认证流程
-- `proxy` 不会神奇地让 stdio 客户端变得“支持认证”
-- 如果运行时要求认证，无法完成 HTTP 认证的客户端无法通过 `proxy` 使用它
+```bash
+1mcp target add prod https://mcp.example.com/mcp --use
+1mcp auth login --context prod --token "$TOKEN"
+1mcp proxy --context prod
+```
 
-实际建议是：
-
-- 对 agent loop，尽量使用 CLI 模式
-- 对既能认证、又不需要项目上下文的客户端，优先使用直接 HTTP
-- 只在运行时不要求认证时使用 `proxy`
-- 如果 stdio 客户端仍然需要兼容接入，请单独运行一个不启用认证的 `serve` 实例
+`proxy --url <url>` 是临时连接，不会加载或附加已保存的凭据，因此保持无凭据状态。stdio 客户端仍不会获得交互式 OAuth 浏览器流程；当代理需要调用 bearer 保护的运行时时，请使用具名 context。
 
 ## 另请参阅
 
 - **[CLI 模式指南](/zh/guide/integrations/cli-mode)**
 - **[Serve 命令](/zh/commands/serve)**
+- **[Runtime Target Context 命令](/zh/commands/target)**
+- **[Auth 命令](/zh/commands/auth)**
 - **[架构](/zh/reference/architecture)**

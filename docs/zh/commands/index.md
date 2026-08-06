@@ -26,6 +26,8 @@ head:
 - **`run`** - 通过运行中的 1MCP 服务器调用工具
 - **`cli-setup`** - 安装 Codex 或 Claude 的引导 hooks 和启动文档
 - **`auth`** - 管理受保护服务器的认证配置
+- **`target`** - 管理已验证的 Runtime Target Context
+- **`admin`** - 管理 Runtime Target Context 的 CLI Admin 会话
 - **`app`** - 管理桌面应用程序 MCP 配置
 - **`mcp`** - 管理 MCP 服务器配置
 - **`preset`** - 管理用于动态过滤的服务器预设
@@ -138,6 +140,20 @@ npx -y @1mcp/agent proxy                            # 自动发现并连接
 npx -y @1mcp/agent proxy --url http://localhost:3051/mcp  # 连接到特定 URL
 npx -y @1mcp/agent proxy --filter "web,api"         # 使用标签过滤连接
 ```
+
+### Runtime Target 和 Admin 会话
+
+当远程运行时需要保存的 bearer 或 Admin 凭据时，使用具名 target。
+
+```bash
+1mcp target add prod https://mcp.example.com/mcp --use
+1mcp auth login --context prod --token "$TOKEN"
+1mcp instructions --context prod
+1mcp admin login --context prod --username operator
+```
+
+- **[Runtime Target Context](/zh/commands/target)** - 添加、验证、导入和选择具名 target
+- **[Admin 命令](/zh/commands/admin)** - 初始化、登录、检查和撤销 Admin 会话
 
 ### Agent 引导安装
 

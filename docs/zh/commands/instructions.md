@@ -41,6 +41,7 @@ npx -y @1mcp/agent instructions [选项]
 ## 选项
 
 - **`--url, -u <url>`** - 覆盖自动发现到的 1MCP 服务器 URL
+- **`--context <name>`** - 使用具名 Runtime Target Context 及其保存的 bearer token（如有）
 - **`--preset, -p <name>`** - 查询运行中服务器时使用预设
 - **`--tag-filter, -f <expression>`** - 应用高级标签过滤表达式
 - **`--tags <tag>`** - 应用简单的逗号分隔标签
@@ -63,6 +64,12 @@ npx -y @1mcp/agent instructions --tags backend
 
 ```bash
 npx -y @1mcp/agent instructions --preset development
+```
+
+### 使用 Runtime Target Context
+
+```bash
+1mcp instructions --context prod
 ```
 
 ## 推荐工作流

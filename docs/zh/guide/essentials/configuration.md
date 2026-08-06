@@ -318,7 +318,7 @@ ONE_MCP_ENABLE_INTERNAL_TOOLS=true npx -y @1mcp/agent
 ONE_MCP_INTERNAL_TOOLS="discovery,management" npx -y @1mcp/agent
 ```
 
-**重要提示**：内部工具与 CLI 命令不同。CLI 命令是为人类用户设计的，而内部工具是 MCP 协议工具，AI 助手可以用来自动化服务器管理任务。有关可用内部工具的详细信息，请参阅**[内部工具参考](/zh/reference/internal-tools)**。
+**重要提示**：内部工具与 CLI 命令不同。CLI 命令是为人类用户设计的，而内部工具是 MCP 协议工具，AI 助手可以用来自动化服务器管理任务。有关可用内部工具的详细信息，请参阅**[内部工具参考](/zh/reference/internal-tools/)**。
 
 ### 性能选项
 

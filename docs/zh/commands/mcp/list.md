@@ -31,6 +31,9 @@ npx -y @1mcp/agent mcp list [options]
 - **`--verbose`**
   - 显示详细信息，包括请求头和环境变量。
 
+- **`--outdated`**
+  - 只显示有可用更新的服务器。
+
 ## 示例
 
 ```bash
@@ -42,6 +45,9 @@ npx -y @1mcp/agent mcp list --show-disabled
 
 # 列出所有带有"prod"标签的服务器
 npx -y @1mcp/agent mcp list --tags=prod
+
+# 只列出有可用更新的服务器
+npx -y @1mcp/agent mcp list --outdated
 
 # 显示所有服务器的详细信息（详细模式）
 npx -y @1mcp/agent mcp list --verbose
