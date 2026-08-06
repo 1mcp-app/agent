@@ -26,34 +26,23 @@
 
 ## 概述
 
-### Codex 版本兼容性
+### Codex 配置作用域
 
-#### Codex < 0.44.0（有限支持）
+Codex 支持在用户配置和受信任项目配置中定义 MCP server：
 
-[0.44.0](https://github.com/openai/codex/releases/tag/rust-v0.44.0) 之前的 Codex 版本对 MCP 服务器的支持有限：
+- `~/.codex/config.toml` 提供用户级默认设置。
+- 受信任项目的 `.codex/config.toml` 可以提供项目级覆盖，其中包括 `[mcp_servers]` 条目。
 
-- **无 HTTP 传输**：无法直接连接到 HTTP/SSE 端点
-- **仅支持 STDIO**：仅支持通过 STDIO 传输的 MCP 服务器
-- **无项目特定设置**：仅全局配置，没有项目特定的服务器管理
+当 MCP server 只应在这个受信任仓库中生效时，请使用项目文件。不要把 provider、身份验证或遥测设置放进项目配置文件。
 
-#### Codex ≥ 0.44.0（HTTP 传输支持）
+### 为什么使用 1MCP Proxy？
 
-Codex 0.44.0 及更高版本原生支持基于 HTTP 的 MCP 服务器：
-
-- **HTTP 传输**：可直接连接到 HTTP/SSE 端点
-- **全局配置**：HTTP 服务器在 `config.toml` 中全局配置
-- **无项目特定设置**：仍然缺乏项目特定的服务器管理
-
-**注意**：Codex 项目特定配置尚未实现（[参见 codex pr#4007](https://github.com/openai/codex/pull/4007)）。
-
-### 为什么即使在 Codex ≥ 0.44.0 时仍推荐使用 1MCP 代理？
-
-虽然 Codex ≥ 0.44.0 可以直接连接 HTTP MCP 服务器，但**仍然推荐使用 1MCP 代理**，原因如下：
+直接 HTTP 是有效的 Codex 路径。当你明确需要 stdio 桥接或 1MCP 侧的选择行为时，再使用 `1mcp proxy`：
 
 #### 1. **项目特定服务器管理**
 
 ```toml
-# 直接 Codex HTTP（全局 - 影响所有项目）
+# 受信任项目 .codex/config.toml 中的直接 Codex HTTP
 [mcp_servers.1mcp]
 url="http://localhost:3050/mcp"
 
@@ -113,7 +102,7 @@ npx -y @1mcp/agent preset create backend --filter "backend OR api"
 Codex (STDIO) ← 1MCP Proxy (STDIO↔HTTP) ← 1MCP Server (HTTP) ← MCP Servers
 ```
 
-## 备选方案：直接 HTTP 传输（Codex ≥ 0.44.0）
+## 备选方案：直接 HTTP 传输
 
 对于更简单的设置，将 Codex 直接连接到 1MCP Server 通过 HTTP：
 
@@ -121,14 +110,14 @@ Codex (STDIO) ← 1MCP Proxy (STDIO↔HTTP) ← 1MCP Server (HTTP) ← MCP Serve
 1mcp serve  # 启动 1MCP 服务器
 ```
 
-编辑 `config.toml`：
+需要用户级默认设置时，添加到 `~/.codex/config.toml`；需要项目级作用域时，添加到受信任项目的 `.codex/config.toml`：
 
 ```toml
 [mcp_servers.1mcp]
 url = "http://localhost:3051/mcp"
 ```
 
-**限制**：所有服务器全局可用（无项目特定过滤，无基于标签的选择）。**使用 1MCP 代理**进行项目特定服务器管理和团队协作。
+直接 HTTP 使用 Codex 的标准 MCP 配置。它不会应用 `1mcp proxy` 的 `.1mcprc` 预设和过滤选择；当需要这些 1MCP 特有行为时，请使用代理路径。
 
 ## 前置条件
 
@@ -184,13 +173,13 @@ mkdir -p ~/.codex  # Linux/macOS
 
 ### 已知问题
 
-> **⚠️ 重要**：Codex 0.44.0 的 HTTP 传输支持是实验性的。如果直接 HTTP 连接遇到问题，请改用 1MCP 代理方法。详情请参见[故障排除](#故障排除)。
+> **⚠️ 重要**：只有信任项目后才会加载 `.codex/config.toml`。如果需要 1MCP 预设或 `.1mcprc` 选择，请使用代理路径。连接诊断见[故障排除](#故障排除)。
 
 ### 验证清单
 
 在继续之前，请验证：
 
-- [ ] 已安装 Codex 版本 ≥ 0.44.0（或代理方法的任何版本）
+- [ ] 使用 `.codex/config.toml` 时，项目已经被信任
 - [ ] 已安装 Node.js `^20.19.0 || ^22.12.0 || >=24.0.0`（与包的 `engines.node` 契约一致）
 - [ ] 可以成功运行 `1mcp --version`（或 `npx -y @1mcp/agent --version`）
 - [ ] 配置目录存在于 `~/.codex/`
@@ -327,33 +316,33 @@ Codex 连接成功后，推荐按以下顺序使用 1MCP：
 6. **能力聚合**：过滤后的服务器暴露给 Codex
 7. **双向通信**：MCP 协议通过代理桥接流动
 
-### 直接 HTTP 集成（Codex ≥ 0.44.0）
+### 直接 HTTP 集成
 
 ```
 ┌─────────────────┐     HTTP/SSE   ┌──────────────────┐
 │      Codex      │ ◄────────────► │   1MCP Server    │
-│   (≥ 0.44.0)    │                │   (global config)│
+│  （受信任项目） │                │  （HTTP 运行时） │
 └─────────────────┘                └──────────────────┘
         │                                   │
         ▼                                   ▼
 ┌─────────────────┐                ┌─────────────────┐
-│ config.toml     │                │   MCP Servers   │
-│ (HTTP URL only) │                │ (all servers,   │
-└─────────────────┘                │  no filtering)  │
+│ .codex/config.toml│              │   MCP Servers   │
+│ （项目级覆盖）  │                │ （已配置端点）  │
+└─────────────────┘                │                │
                                    └─────────────────┘
 ```
 
-**限制**：无项目特定配置，无标签过滤，仅全局服务器
+**作用域**：直接 HTTP 支持受信任项目配置，但不会使用代理的 `.1mcprc` 预设或过滤选择。
 
 ### 关键差异
 
-| 方面             | 1MCP 代理                 | 直接 HTTP                 |
-| ---------------- | ------------------------- | ------------------------- |
-| **项目特定配置** | ✅ `.1mcprc` 文件         | ❌ 仅全局                 |
-| **服务器过滤**   | ✅ 基于标签的预设         | ❌ 所有服务器             |
-| **项目隔离**     | ✅ 不同项目使用不同服务器 | ❌ 所有地方使用相同服务器 |
-| **团队共享**     | ✅ 可共享的预设           | ❌ 手动同步               |
-| **设置复杂性**   | ⚠️ 中等                   | ✅ 简单                   |
+| 方面             | 1MCP 代理               | 直接 HTTP                        |
+| ---------------- | ----------------------- | -------------------------------- |
+| **项目特定配置** | ✅ `.1mcprc` 预设和过滤 | ✅ 受信任的 `.codex/config.toml` |
+| **1MCP 选择**    | ✅ 基于标签的预设       | ❌ 没有代理预设或过滤层          |
+| **项目隔离**     | ✅ 选择不同的运行时视图 | ✅ 配置不同的 MCP server         |
+| **团队共享**     | ✅ 可共享的预设         | ✅ 共享 `.codex/config.toml`     |
+| **设置复杂性**   | ⚠️ 中等                 | ✅ 简单                          |
 
 ## 工作目录要求
 

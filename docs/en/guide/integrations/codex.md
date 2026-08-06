@@ -41,34 +41,23 @@ Do not keep both configured for the same Codex setup. If you choose CLI mode, re
 
 ## Overview
 
-### Codex Version Compatibility
+### Codex Configuration Scope
 
-#### Codex < 0.44.0 (Limited Support)
+Codex supports MCP server configuration in both user and trusted project configuration:
 
-Codex versions before [0.44.0](https://github.com/openai/codex/releases/tag/rust-v0.44.0) have limited MCP server support:
+- `~/.codex/config.toml` provides user-level defaults.
+- A trusted project's `.codex/config.toml` can provide project-scoped overrides, including `[mcp_servers]` entries.
 
-- **No HTTP Transport**: Cannot connect to HTTP/SSE endpoints directly
-- **STDIO Only**: Only supports STDIO transport for MCP servers
-- **No Per-Project Settings**: Global configuration only, no project-specific server management
+Use the project file when an MCP server should apply only in that trusted repository. Do not place provider, authentication, or telemetry settings in a project configuration file.
 
-#### Codex ≥ 0.44.0 (HTTP Transport Support)
+### Why Use 1MCP Proxy?
 
-Codex 0.44.0 and later supports HTTP-based MCP servers natively:
-
-- **HTTP Transport**: Can connect directly to HTTP/SSE endpoints
-- **Global Configuration**: HTTP servers are configured globally in `config.toml`
-- **No Per-Project Settings**: Still lacks project-specific server management
-
-**Note**: Codex per-project configuration is not yet implemented ([see pr#4007 on codex](https://github.com/openai/codex/pull/4007)).
-
-### Why Use 1MCP Proxy Even with Codex ≥ 0.44.0?
-
-While Codex ≥ 0.44.0 can connect directly to HTTP MCP servers, **1MCP proxy is still recommended** for several reasons:
+Direct HTTP is a valid Codex path. Use `1mcp proxy` when you specifically need its stdio bridge or 1MCP-side selection behavior:
 
 #### 1. **Per-Project Server Management**
 
 ```toml
-# Direct Codex HTTP (Global - affects all projects)
+# Direct Codex HTTP in a trusted project's .codex/config.toml
 [mcp_servers.1mcp]
 url="http://localhost:3050/mcp"
 
@@ -128,7 +117,7 @@ To avoid confusion, this guide uses the following terms consistently:
 Codex (STDIO) ← 1MCP Proxy (STDIO↔HTTP) ← 1MCP Server (HTTP) ← MCP Servers
 ```
 
-## Alternative: Direct HTTP Transport (Codex ≥ 0.44.0)
+## Alternative: Direct HTTP Transport
 
 For simpler setups, connect Codex directly to 1MCP Server via HTTP:
 
@@ -136,14 +125,14 @@ For simpler setups, connect Codex directly to 1MCP Server via HTTP:
 1mcp serve  # Start 1MCP server
 ```
 
-Edit `config.toml`:
+Add the server to `~/.codex/config.toml` for a user default, or to `.codex/config.toml` in a trusted project for project scope:
 
 ```toml
 [mcp_servers.1mcp]
 url = "http://localhost:3051/mcp"
 ```
 
-**Limitations**: All servers available globally (no per-project filtering, no tag-based selection). **Use 1MCP Proxy** for project-specific server management and team collaboration.
+Direct HTTP uses Codex's standard MCP configuration. It does not apply `1mcp proxy`'s `.1mcprc` preset and filter selection, so use the proxy path when that 1MCP-specific behavior is required.
 
 ## Prerequisites
 
@@ -199,13 +188,13 @@ This writes the managed `1MCP.md` bootstrap doc, updates Codex hook configuratio
 
 ### Known Issues
 
-> **⚠️ Important**: Codex 0.44.0's HTTP transport support is experimental. If you experience problems with direct HTTP connections, use the 1MCP proxy method instead. See [Troubleshooting](#troubleshooting) for details.
+> **⚠️ Important**: Trusted project configuration is required for `.codex/config.toml` to load. If you need 1MCP presets or `.1mcprc` selection instead, use the proxy path. See [Troubleshooting](#troubleshooting) for connection diagnostics.
 
 ### Verification Checklist
 
 Before proceeding, verify:
 
-- [ ] Codex version ≥ 0.44.0 installed (or any version for proxy method)
+- [ ] The project is trusted when using `.codex/config.toml`
 - [ ] Node.js `^20.19.0 || ^22.12.0 || >=24.0.0` installed (the package `engines.node` contract)
 - [ ] Can run `1mcp --version` successfully (or `npx -y @1mcp/agent --version`)
 - [ ] Configuration directory exists at `~/.codex/`
@@ -343,33 +332,33 @@ Once Codex is connected, the recommended 1MCP workflow is:
 6. **Capability Aggregation**: Filtered servers are exposed to Codex
 7. **Bidirectional Communication**: MCP protocol flows through the proxy bridge
 
-### Direct HTTP Integration (Codex ≥ 0.44.0)
+### Direct HTTP Integration
 
 ```
 ┌─────────────────┐     HTTP/SSE   ┌──────────────────┐
 │      Codex      │ ◄────────────► │   1MCP Server    │
-│   (≥ 0.44.0)    │                │   (global config)│
+│ (trusted project)│               │   (HTTP runtime) │
 └─────────────────┘                └──────────────────┘
         │                                   │
         ▼                                   ▼
 ┌─────────────────┐                ┌─────────────────┐
-│ config.toml     │                │   MCP Servers   │
-│ (HTTP URL only) │                │ (all servers,   │
-└─────────────────┘                │  no filtering)  │
+│ .codex/config.toml│              │   MCP Servers   │
+│ (project override)│              │ (configured endpoint)│
+└─────────────────┘                │                    │
                                    └─────────────────┘
 ```
 
-**Limitations**: No per-project configuration, no tag filtering, global servers only
+**Scope**: Direct HTTP supports trusted project configuration. It does not use the proxy's `.1mcprc` presets or filter selection.
 
 ### Key Differences
 
-| Aspect                 | 1MCP Proxy                       | Direct HTTP                |
-| ---------------------- | -------------------------------- | -------------------------- |
-| **Per-Project Config** | ✅ `.1mcprc` files               | ❌ Global only             |
-| **Server Filtering**   | ✅ Tag-based presets             | ❌ All servers             |
-| **Project Isolation**  | ✅ Different servers per project | ❌ Same servers everywhere |
-| **Team Sharing**       | ✅ Shareable presets             | ❌ Manual sync             |
-| **Setup Complexity**   | ⚠️ Moderate                      | ✅ Simple                  |
+| Aspect                 | 1MCP Proxy                         | Direct HTTP                         |
+| ---------------------- | ---------------------------------- | ----------------------------------- |
+| **Per-Project Config** | ✅ `.1mcprc` presets and filters   | ✅ Trusted `.codex/config.toml`     |
+| **1MCP Selection**     | ✅ Tag-based presets               | ❌ No proxy preset or filter layer  |
+| **Project Isolation**  | ✅ Different selected runtime view | ✅ Different configured MCP servers |
+| **Team Sharing**       | ✅ Shareable presets               | ✅ Share `.codex/config.toml`       |
+| **Setup Complexity**   | ⚠️ Moderate                        | ✅ Simple                           |
 
 ## Working Directory Requirements
 

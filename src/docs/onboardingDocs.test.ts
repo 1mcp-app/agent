@@ -66,6 +66,18 @@ describe('onboarding documentation', () => {
       expect(page).toContain('不会');
     }
 
+    expect(enCodex).toContain("trusted project's `.codex/config.toml`");
+    expect(enCodex).toContain('including `[mcp_servers]` entries');
+    expect(enCodex).not.toContain('0.44.0');
+    expect(enCodex).not.toContain('HTTP transport support is experimental');
+    expect(enCodex).not.toContain('No per-project configuration');
+
+    expect(zhCodex).toContain('受信任项目的 `.codex/config.toml`');
+    expect(zhCodex).toContain('其中包括 `[mcp_servers]` 条目');
+    expect(zhCodex).not.toContain('0.44.0');
+    expect(zhCodex).not.toContain('HTTP 传输支持是实验性的');
+    expect(zhCodex).not.toContain('无项目特定配置');
+
     for (const page of [enDevelopment, zhDevelopment]) {
       expect(page).toContain('ONE_MCP_CONFIG=./mcp.json');
       expect(page).toContain('serve --transport stdio --filter filesystem');
