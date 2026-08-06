@@ -1,10 +1,42 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
+import { BACKUP_DIR_NAME, getAppBackupDir, getGlobalBackupDir, getGlobalConfigDir } from '@src/constants/paths.js';
+import { applicationConfigSchema, mcpServerConfigSchema } from '@src/core/types/transport.js';
+import { parse as parseToml } from 'smol-toml';
+
 const root = process.cwd();
 
 function readDoc(path: string): string {
   return readFileSync(join(root, path), 'utf8');
+}
+
+function extractCodeBlock(page: string, language: string, requiredContent: string): string {
+  const openingDelimiter = `\`\`\`${language}\n`;
+  const closingDelimiter = '\n```';
+  let start = 0;
+
+  while (start < page.length) {
+    const openingIndex = page.indexOf(openingDelimiter, start);
+    if (openingIndex === -1) {
+      break;
+    }
+
+    const contentStart = openingIndex + openingDelimiter.length;
+    const closingIndex = page.indexOf(closingDelimiter, contentStart);
+    if (closingIndex === -1) {
+      break;
+    }
+
+    const block = page.slice(contentStart, closingIndex);
+    if (block.includes(requiredContent)) {
+      return block;
+    }
+
+    start = closingIndex + closingDelimiter.length;
+  }
+
+  throw new Error(`Missing ${language} example containing ${requiredContent}`);
 }
 
 describe('configuration and operations documentation', () => {
@@ -27,12 +59,21 @@ describe('configuration and operations documentation', () => {
     const zhServerManagement = readDoc('docs/zh/guide/essentials/server-management.md');
 
     for (const page of [enConfiguration, zhConfiguration]) {
-      expect(page).toContain('mcpServers');
-      expect(page).toContain('config.toml');
-      expect(page).toContain('"type": "stdio"');
-      expect(page).toContain('"disabled": false');
-      expect(page).toContain('[auth]');
-      expect(page).toContain('[asyncLoading]');
+      const inventory = mcpServerConfigSchema.parse(
+        JSON.parse(extractCodeBlock(page, 'json', '"mcpServers"')),
+      );
+      const runtime = applicationConfigSchema.parse(
+        parseToml(extractCodeBlock(page, 'toml', '[asyncLoading]')),
+      );
+
+      expect(inventory.mcpServers.filesystem).toMatchObject({ type: 'stdio' });
+      expect(inventory.mcpServers['remote-api']).toMatchObject({ type: 'http', disabled: false });
+      expect(runtime.auth).toMatchObject({ enabled: true });
+      expect(runtime.asyncLoading).toMatchObject({
+        enabled: true,
+        batchNotifications: true,
+        batchDelay: 250,
+      });
     }
 
     for (const page of [enReference, zhReference]) {
@@ -69,9 +110,14 @@ describe('configuration and operations documentation', () => {
       expect(page).toContain('APP_PRESETS');
       expect(page).toContain('gemini-code');
       expect(page).toContain('augment-code');
-      expect(page).toContain('backups/apps/<app-name>');
+      expect(page).toContain('<global-config-dir>/backups/<app-name>/');
+      expect(page).not.toContain('backups/apps/');
       expect(page).toContain('Copilot');
     }
+    const appName = 'claude-desktop';
+    expect(getGlobalBackupDir()).toBe(`${getGlobalConfigDir()}/${BACKUP_DIR_NAME}`);
+    expect(getAppBackupDir(appName)).toBe(`${getGlobalBackupDir()}/${appName}`);
+    expect(getAppBackupDir(appName)).not.toContain('/apps/');
     expect(enApps).toContain('not an `APP_PRESETS` target');
     expect(zhApps).toContain('不是 `APP_PRESETS` 目标');
 

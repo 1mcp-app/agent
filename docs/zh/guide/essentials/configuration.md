@@ -21,7 +21,6 @@ head:
 - `config.toml` 包含身份验证、异步加载、日志和运行时默认值等应用设置；其中不包含 `mcpServers`。
 
 ```json
-// mcp.json
 {
   "mcpServers": {
     "filesystem": {

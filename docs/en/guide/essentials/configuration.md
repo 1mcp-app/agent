@@ -27,7 +27,6 @@ Keep backend inventory and 1MCP runtime settings in separate files. They are loa
 - `config.toml` contains application settings such as authentication, async loading, logging, and runtime defaults. It does not contain `mcpServers`.
 
 ```json
-// mcp.json
 {
   "mcpServers": {
     "filesystem": {
