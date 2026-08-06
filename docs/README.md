@@ -47,7 +47,7 @@ pnpm test:unit src/docs/publishingDocs.test.ts
 pnpm docs:build
 ```
 
-The contract check verifies canonical LLM routes and known removed commands, excludes `research/**` from publication, requires Chinese title and description frontmatter, and checks ADR numbering and OAuth supersession records.
+The contract check applies an explicit locale policy to each LLM artifact, resolves every route without locale remapping, and checks every backticked `1mcp` invocation against the current yargs command builders and documented option forms. It also excludes `research/**` from publication, requires Chinese title and description frontmatter, and checks ADR numbering and OAuth supersession records.
 
 ## Core Writing Model
 
