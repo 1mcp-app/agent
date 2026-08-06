@@ -1,3 +1,8 @@
+---
+title: preset edit 命令
+description: 交互式编辑已有预设的服务器选择和描述。
+---
+
 # preset edit
 
 以可视化服务器选择交互式编辑现有预设。

@@ -1,3 +1,8 @@
+---
+title: preset url 命令
+description: 为命名预设生成带筛选参数的 MCP 客户端 URL。
+---
+
 # preset url
 
 为预设生成客户端 URL。

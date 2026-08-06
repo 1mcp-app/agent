@@ -1,3 +1,8 @@
+---
+title: Proxy 命令
+description: 将本地 stdio 客户端连接到运行中的 1MCP HTTP 运行时。
+---
+
 # Proxy 命令
 
 `1mcp proxy` 是建立在运行中 1MCP 运行时之上的“最大兼容性”桥接路径。

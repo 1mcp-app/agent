@@ -1,3 +1,8 @@
+---
+title: mcp list 命令
+description: 列出配置的 MCP 服务器及其筛选和更新状态。
+---
+
 # mcp list
 
 列出所有已配置的 MCP 服务器。

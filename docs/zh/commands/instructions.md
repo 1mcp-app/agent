@@ -1,3 +1,8 @@
+---
+title: Instructions 命令
+description: 获取 CLI 模式 agent 工作流和当前服务器发现信息。
+---
+
 # Instructions 命令
 
 显示面向 AI agent 的 CLI 模式工作流和当前服务器清单。

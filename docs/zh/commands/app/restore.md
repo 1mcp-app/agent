@@ -1,3 +1,8 @@
+---
+title: app restore 命令
+description: 从整合前的备份恢复桌面应用 MCP 配置。
+---
+
 # app restore
 
 使用备份文件将应用程序恢复到整合前的状态。

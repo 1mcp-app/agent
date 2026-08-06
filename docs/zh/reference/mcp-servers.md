@@ -1,3 +1,8 @@
+---
+title: MCP 服务器配置参考
+description: 参考 mcp.json 中 MCP 服务器、传输和共享默认值的配置结构。
+---
+
 # MCP 服务器配置参考
 
 本文档提供了在 1MCP 代理中配置 MCP (Model Context Protocol) 服务器的全面参考文档。

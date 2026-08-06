@@ -1,3 +1,8 @@
+---
+title: app discover 命令
+description: 扫描受支持桌面应用中的可检测 MCP 配置。
+---
+
 # app discover
 
 发现已安装的具有 MCP 配置的桌面应用程序。

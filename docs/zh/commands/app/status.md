@@ -1,3 +1,8 @@
+---
+title: app status 命令
+description: 检查桌面应用当前是否已整合到 1MCP。
+---
+
 # app status
 
 显示您的桌面应用程序的当前整合状态。

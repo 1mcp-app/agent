@@ -1,3 +1,8 @@
+---
+title: app list 命令
+description: 列出支持 MCP 整合的桌面应用及其配置能力。
+---
+
 # app list
 
 列出应用程序整合功能支持的所有桌面应用程序。

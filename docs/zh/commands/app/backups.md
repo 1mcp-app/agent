@@ -1,3 +1,8 @@
+---
+title: app backups 命令
+description: 列出、清理和验证应用整合过程中创建的配置备份。
+---
+
 # app backups
 
 管理在整合过程中创建的配置备份。

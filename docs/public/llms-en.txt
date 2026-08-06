@@ -1,55 +1,40 @@
 # 1MCP Agent - English Documentation
 
-> Comprehensive English documentation for 1MCP, covering installation, configuration, server management, and advanced deployment scenarios.
+1MCP aggregates MCP servers behind one runtime. English documentation is served from root routes.
 
-## Essential Guides
+## Start Here
 
-- [Installation & Setup](/en/guide/installation.md): Complete setup guide for binary and npm installations
-- [Quick Start Guide](/en/guide/quick-start.md): 5-minute setup walkthrough with examples
-- [Getting Started](/en/guide/getting-started.md): Complete setup and configuration guide
-- [CLI Mode](/en/guide/integrations/cli-mode.md): Preferred agent workflow using progressive server and tool disclosure
-- [Server Management](/en/guide/essentials/server-management.md): Add, configure, and manage MCP servers
-- [Basic Configuration](/en/guide/essentials/configuration.md): Core configuration options and setup
-
-## CLI Reference
-
-- [Instructions Command](/en/commands/instructions.md): Print the CLI playbook and current server inventory for agent sessions
-- [Inspect Command](/en/commands/inspect.md): Discover exposed servers, tools, and tool schemas from a running 1MCP instance
-- [Run Command](/en/commands/run.md): Call a tool through a running 1MCP instance with JSON args or stdin mapping
-- [CLI Setup Command](/en/commands/cli-setup.md): Install Codex or Claude bootstrap docs and hooks
-- [Auth Command](/en/commands/auth.md): Save, check, and remove bearer tokens for secured 1MCP servers
-- [MCP Commands](/en/commands/mcp/): Server management commands (add, remove, list, install, uninstall)
-- [App Commands](/en/commands/app/): Backup, restore, and application management
-- [Preset Commands](/en/commands/preset/): Configuration preset management
-- [Registry Commands](/en/commands/registry/): MCP server registry integration
-- [Proxy & Serve Commands](/en/commands/serve.md, /en/commands/proxy.md): HTTP proxy configuration and serving
+- [Installation](/guide/installation): Install from npm, a released archive, or Docker.
+- [Quick Start](/guide/quick-start): Configure a server and verify a first runtime.
+- [Getting Started](/guide/getting-started): Choose an installation, authentication, or deployment path.
+- [Configuration](/guide/essentials/configuration): Keep MCP inventory in `mcp.json` and runtime settings in `config.toml`.
+- [CLI Mode](/guide/integrations/cli-mode): Progressive server and tool discovery for agent sessions.
 
 ## Agent Workflow
 
-- CLI mode is the preferred workflow for Codex, Claude, and similar agent sessions
-- MCP remains the backend interoperability layer behind `1mcp serve`
-- CLI mode changes the agent-facing flow from broad direct MCP exposure to progressive disclosure
-- For a given agent, choose one mode only; if switching to CLI mode, remove that agent's direct MCP server config
-- The user-facing setup command is `1mcp cli-setup`
-- The `instructions`, `inspect`, and `run` commands are primarily intended to be run by the AI agent after bootstrap, though users may run them manually for testing
-- Start with `1mcp instructions` to fetch the current CLI playbook and server inventory
-- Use `1mcp inspect <server>` and `1mcp inspect <server>/<tool>` before calling a tool
-- Use `1mcp run <server>/<tool> --args '<json>'` to execute the selected tool
-- Use `1mcp cli-setup --codex` or `1mcp cli-setup --claude` to install bootstrap docs and hooks for supported CLIs
+Use one agent-facing integration mode per client. For CLI mode, run `1mcp cli-setup --codex` or `1mcp cli-setup --claude`; it prints any required local configuration changes.
 
-## Advanced Configuration
+1. Run `1mcp instructions` to obtain the current playbook and server inventory.
+2. Run `1mcp inspect <server>` and then `1mcp inspect <server>/<tool>` before selecting a tool.
+3. Run `1mcp run <server>/<tool> --args '<json>'` only after confirming the tool schema.
 
-- [Architecture Overview](/en/reference/architecture.md): System design and component interaction
-- [Security Best Practices](/en/reference/security.md): Authentication, authorization, and hardening
-- [Performance Optimization](/en/guide/advanced/performance.md): Scaling and optimization techniques
-- [Client Integration](/en/guide/integrations/): Setup for various AI assistants and tools
-- [Enterprise Setup](/en/guide/advanced/enterprise.md): Enterprise deployment configuration
-- [Advanced Authentication](/en/guide/advanced/authentication.md): OAuth and advanced security setup
+- [instructions](/commands/instructions)
+- [inspect](/commands/inspect)
+- [run](/commands/run)
+- [cli-setup](/commands/cli-setup)
+- [Runtime Target Contexts](/commands/target)
+- [Authentication](/commands/auth)
 
-## Optional
+## Command And Reference Indexes
 
-- [Internal Tools](/en/reference/internal-tools/): Built-in discovery, installation, and management tools
-- [Health Check](/en/reference/health-check.md): Health monitoring and status endpoints
-- [MCP Servers](/en/reference/mcp-servers.md): MCP server configuration reference
-- [Feature Comparison](/en/reference/feature-comparison.md): Version and feature comparisons
-- [Core Features](/en/guide/essentials/core-features.md): Overview of main 1MCP capabilities
+- [Command reference](/commands/)
+- [MCP server management](/commands/mcp/)
+- [Registry](/commands/registry/)
+- [Presets](/commands/preset/)
+- [Application integration](/commands/app/)
+- [serve](/commands/serve)
+- [proxy](/commands/proxy)
+- [Admin commands](/commands/admin)
+- [Architecture](/reference/architecture)
+- [Security](/reference/security)
+- [Internal tools](/reference/internal-tools/)

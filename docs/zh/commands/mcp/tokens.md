@@ -1,3 +1,8 @@
+---
+title: mcp tokens 命令
+description: 连接 MCP 服务器后估算其工具、资源和提示的令牌用量。
+---
+
 # mcp tokens
 
 通过连接到服务器并分析其工具、资源和提示来估算 MCP 令牌使用量。

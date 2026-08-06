@@ -1,55 +1,40 @@
 # 1MCP Agent - 中文文档
 
-> 1MCP 代理的完整中文文档，包含安装、配置、服务器管理和高级部署场景。
+1MCP 将多个 MCP 服务器聚合到统一运行时。中文文档使用 `/zh/` 规范路由。
 
-## 基础指南
+## 从这里开始
 
-- [安装与设置](/zh/guide/installation.md): 二进制和 npm 安装的完整设置指南
-- [快速开始](/zh/guide/quick-start.md): 5分钟设置 walkthrough 及示例
-- [入门指南](/zh/guide/getting-started.md): 完整的设置和配置指南
-- [CLI 模式](/zh/guide/integrations/cli-mode.md): 面向 agent 的推荐工作流，采用渐进式 server 与 tool 披露
-- [服务器管理](/zh/guide/essentials/server-management.md): 添加、配置和管理 MCP 服务器
-- [基础配置](/zh/guide/essentials/configuration.md): 核心配置选项和设置
-
-## 命令行参考
-
-- [Instructions 命令](/zh/commands/instructions.md): 为 agent 会话打印 CLI playbook 和当前服务器清单
-- [Inspect 命令](/zh/commands/inspect.md): 从运行中的 1MCP 实例发现服务器、工具和工具 schema
-- [Run 命令](/zh/commands/run.md): 通过运行中的 1MCP 实例使用 JSON 参数或 stdin 映射调用工具
-- [CLI Setup 命令](/zh/commands/cli-setup.md): 安装 Codex 或 Claude 的引导文档和 hooks
-- [Auth 命令](/zh/commands/auth.md): 为受保护的 1MCP 服务器保存、查看和删除 Bearer Token
-- [MCP 命令](/zh/commands/mcp/): 服务器管理命令（添加、移除、列表、安装、卸载）
-- [应用命令](/zh/commands/app/): 备份、恢复和应用管理
-- [预设命令](/zh/commands/preset/): 配置预设管理
-- [注册表命令](/zh/commands/registry/): MCP 服务器注册表集成
-- [代理和服务命令](/zh/commands/serve.md, /zh/commands/proxy.md): HTTP 代理配置和服务
+- [安装](/zh/guide/installation)：通过 npm、发布归档或 Docker 安装。
+- [快速开始](/zh/guide/quick-start)：配置服务器并验证首次运行。
+- [入门指南](/zh/guide/getting-started)：选择安装、身份验证或部署路径。
+- [基础配置](/zh/guide/essentials/configuration)：将 MCP 清单保存在 `mcp.json`，运行时设置保存在 `config.toml`。
+- [CLI 模式](/zh/guide/integrations/cli-mode)：面向 agent 会话的渐进式服务器和工具发现。
 
 ## Agent 工作流
 
-- CLI 模式是 Codex、Claude 等 agent 会话的推荐工作流
-- MCP 仍然是 `1mcp serve` 背后的后端互操作层
-- CLI 模式把 agent 侧流程从直接暴露整个 MCP 工具面改成渐进式披露
-- 对于同一个 agent，只能选择一种模式；切换到 CLI 模式时，要移除该 agent 的直接 MCP server 配置
-- 用户侧主要执行的初始化命令是 `1mcp cli-setup`
-- `instructions`、`inspect`、`run` 主要是给 AI agent 在引导完成后执行的，用户也可以手动运行它们来测试
-- 先运行 `1mcp instructions` 获取当前 CLI playbook 和服务器清单
-- 在调用工具前，先执行 `1mcp inspect <server>` 与 `1mcp inspect <server>/<tool>`
-- 使用 `1mcp run <server>/<tool> --args '<json>'` 执行选中的工具
-- 使用 `1mcp cli-setup --codex` 或 `1mcp cli-setup --claude` 为支持的 CLI 安装引导文档和 hooks
+每个客户端只能选择一种面向 agent 的集成模式。CLI 模式使用 `1mcp cli-setup --codex` 或 `1mcp cli-setup --claude`；该命令会打印所需的本地配置修改。
 
-## 高级配置
+1. 运行 `1mcp instructions` 获取当前 playbook 和服务器清单。
+2. 选择工具前运行 `1mcp inspect <server>`，再运行 `1mcp inspect <server>/<tool>`。
+3. 确认工具 schema 后才运行 `1mcp run <server>/<tool> --args '<json>'`。
 
-- [架构概述](/zh/reference/architecture.md): 系统设计和组件交互
-- [安全最佳实践](/zh/reference/security.md): 身份验证、授权和加固
-- [性能优化](/zh/guide/advanced/performance.md): 扩展和优化技术
-- [客户端集成](/zh/guide/integrations/): 各种 AI 助手和工具的设置
-- [企业设置](/zh/guide/advanced/enterprise.md): 企业部署配置
-- [高级身份验证](/zh/guide/advanced/authentication.md): OAuth 和高级安全设置
+- [instructions 命令](/zh/commands/instructions)
+- [inspect 命令](/zh/commands/inspect)
+- [run 命令](/zh/commands/run)
+- [cli-setup 命令](/zh/commands/cli-setup)
+- [运行时目标上下文](/zh/commands/target)
+- [认证命令](/zh/commands/auth)
 
-## 可选
+## 命令和参考索引
 
-- [内部工具](/zh/reference/internal-tools/): 内置发现、安装和管理工具
-- [健康检查](/zh/reference/health-check.md): 健康监控和状态端点
-- [MCP 服务器](/zh/reference/mcp-servers.md): MCP 服务器配置参考
-- [功能比较](/zh/reference/feature-comparison.md): 版本和功能比较
-- [核心功能](/zh/guide/essentials/core-features.md): 主要 1MCP 功能概述
+- [命令参考](/zh/commands/)
+- [MCP 服务器管理](/zh/commands/mcp/)
+- [注册表](/zh/commands/registry/)
+- [预设](/zh/commands/preset/)
+- [应用整合](/zh/commands/app/)
+- [serve 命令](/zh/commands/serve)
+- [proxy 命令](/zh/commands/proxy)
+- [Admin 命令](/zh/commands/admin)
+- [架构](/zh/reference/architecture)
+- [安全](/zh/reference/security)
+- [内部工具](/zh/reference/internal-tools/)

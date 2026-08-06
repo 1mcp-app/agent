@@ -1,3 +1,8 @@
+---
+title: mcp remove 命令
+description: 从 1MCP 配置中删除指定的 MCP 服务器。
+---
+
 # mcp remove
 
 从 1MCP 配置中删除 MCP 服务器。

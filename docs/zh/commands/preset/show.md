@@ -1,3 +1,8 @@
+---
+title: preset show 命令
+description: 显示指定预设的筛选条件和详细信息。
+---
+
 # preset show
 
 显示特定预设的详细信息。
