@@ -119,10 +119,10 @@ Visit the [latest release page](https://github.com/1mcp-app/agent/releases/lates
 
 - ✅ **No Dependencies**: No Node.js installation required
 - ✅ **Fast Startup**: Instant execution, no package resolution
-- ✅ **Portable**: Single file that works anywhere
-- ✅ **Secure**: Pre-built and signed by GitHub Actions
+- ✅ **Portable**: Platform-specific executable that can run without a Node.js installation
+- ✅ **Release Builds**: Platform archives are built by the release workflow
 - ✅ **Compressed Archives**: tar.gz/zip format for faster downloads (~67% smaller)
-- ✅ **Multi-Architecture**: Supports x64 and ARM64 on all platforms
+- ✅ **Platform Coverage**: Linux and macOS support x64 and ARM64; Windows releases support x64
 - ✅ **Standard Formats**: No special extraction tools needed, works everywhere
 
 ## Package Managers

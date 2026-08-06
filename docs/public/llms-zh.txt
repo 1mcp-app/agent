@@ -12,7 +12,7 @@
 
 ## Agent 工作流
 
-每个客户端只能选择一种面向 agent 的集成模式。CLI 模式使用 `1mcp cli-setup --codex` 或 `1mcp cli-setup --claude`；该命令会打印所需的本地配置修改。
+每个客户端只能选择一种面向 agent 的集成模式。CLI 模式使用 `1mcp cli-setup --codex` 或 `1mcp cli-setup --claude`；该命令会为所选目标写入设置文件。只有 Codex 目标还会打印需手动加入的 `config.toml` 提示；Claude 设置没有这一步手动配置。
 
 1. 运行 `1mcp instructions` 获取当前 playbook 和服务器清单。
 2. 选择工具前运行 `1mcp inspect <server>`，再运行 `1mcp inspect <server>/<tool>`。

@@ -23,6 +23,7 @@ describe('onboarding documentation', () => {
     const zhDevelopment = readRepoFile('docs/zh/guide/development.md');
     const enHome = readRepoFile('docs/en/index.md');
     const zhHome = readRepoFile('docs/zh/index.md');
+    const releaseWorkflow = readRepoFile('.github/workflows/build-binaries.yml');
 
     expect(packageJson.engines?.node).toBe(nodeContract);
 
@@ -53,6 +54,15 @@ describe('onboarding documentation', () => {
       expect(page).toContain('ONE_MCP_CONFIG=/usr/src/app/mcp.json');
       expect(page).toContain('/usr/src/app/mcp.json:ro');
     }
+
+    expect(releaseWorkflow).toContain('platform: win32-x64');
+    for (const platform of ['linux-x64', 'linux-arm64', 'darwin-x64', 'darwin-arm64']) {
+      expect(releaseWorkflow).toContain(`platform: ${platform}`);
+    }
+    expect(enInstallation).toContain('Linux and macOS support x64 and ARM64; Windows releases support x64');
+    expect(zhInstallation).toContain('Linux 和 macOS 支持 x64 与 ARM64；Windows 发布版支持 x64');
+    expect(enInstallation).not.toContain('signed by GitHub Actions');
+    expect(zhInstallation).not.toContain('GitHub Actions 预构建和签名');
 
     for (const page of [enQuickStart, enCodex, enHome]) {
       expect(page).toContain('config.toml');

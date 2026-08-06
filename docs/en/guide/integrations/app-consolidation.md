@@ -28,7 +28,7 @@ Run `1mcp app list` or `1mcp app discover --show-paths` on the target machine to
 
 ## Backups and Restore
 
-Consolidation stores backups under the global 1MCP configuration root, at `<global-config-dir>/backups/<app-name>/`. With the default global root, this is `~/.config/1mcp/backups/<app-name>/` on macOS and Linux, or `%APPDATA%\\1mcp\\backups\\<app-name>\\` on Windows. This location is not changed by `--config-dir`. Existing legacy backups remain discoverable, but new consolidation backups use the centralized location.
+Consolidation stores backups under the global 1MCP configuration root, at `<global-config-dir>/backups/<app-name>/`. With the default global root, this is `~/.config/1mcp/backups/<app-name>/` on macOS and Linux, or `%APPDATA%\1mcp\backups\<app-name>\` on Windows. This location is not changed by `--config-dir`. Existing legacy backups remain discoverable, but new consolidation backups use the centralized location.
 
 ```bash
 1mcp app backups

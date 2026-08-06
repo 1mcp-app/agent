@@ -28,7 +28,7 @@ description: 将受支持桌面客户端的 MCP 配置整合到 1MCP，并从集
 
 ## 备份和恢复
 
-整合会将备份集中存储在 1MCP 全局配置根目录下的 `<global-config-dir>/backups/<app-name>/`。使用默认全局根目录时，macOS 和 Linux 为 `~/.config/1mcp/backups/<app-name>/`，Windows 为 `%APPDATA%\\1mcp\\backups\\<app-name>\\`。该位置不受 `--config-dir` 影响。已有的旧备份仍可被发现，但新的整合备份使用集中位置。
+整合会将备份集中存储在 1MCP 全局配置根目录下的 `<global-config-dir>/backups/<app-name>/`。使用默认全局根目录时，macOS 和 Linux 为 `~/.config/1mcp/backups/<app-name>/`，Windows 为 `%APPDATA%\1mcp\backups\<app-name>\`。该位置不受 `--config-dir` 影响。已有的旧备份仍可被发现，但新的整合备份使用集中位置。
 
 ```bash
 1mcp app backups

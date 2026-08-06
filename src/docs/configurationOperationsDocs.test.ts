@@ -3,6 +3,7 @@ import { join } from 'node:path';
 
 import { BACKUP_DIR_NAME, getAppBackupDir, getGlobalBackupDir, getGlobalConfigDir } from '@src/constants/paths.js';
 import { applicationConfigSchema, mcpServerConfigSchema } from '@src/core/types/transport.js';
+
 import { parse as parseToml } from 'smol-toml';
 
 const root = process.cwd();
@@ -120,6 +121,10 @@ describe('configuration and operations documentation', () => {
     expect(getAppBackupDir(appName)).not.toContain('/apps/');
     expect(enApps).toContain('not an `APP_PRESETS` target');
     expect(zhApps).toContain('不是 `APP_PRESETS` 目标');
+    expect(enApps).toContain('%APPDATA%\\1mcp\\backups\\<app-name>\\');
+    expect(zhApps).toContain('%APPDATA%\\1mcp\\backups\\<app-name>\\');
+    expect(enApps).not.toContain('%APPDATA%\\\\1mcp\\\\backups\\\\<app-name>\\\\');
+    expect(zhApps).not.toContain('%APPDATA%\\\\1mcp\\\\backups\\\\<app-name>\\\\');
 
     for (const page of [enCodex, zhCodex]) {
       expect(page).toContain('`.codex/config.toml`');

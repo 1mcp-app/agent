@@ -1,6 +1,8 @@
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
+import { LATEST_PROTOCOL_VERSION } from '@modelcontextprotocol/sdk/types.js';
+
 const root = process.cwd();
 
 function readRepoFile(path: string): string {
@@ -139,6 +141,19 @@ describe('CLI reference documentation', () => {
       expect(list).toContain('--outdated');
     }
 
+    const supervisor = readRepoFile('src/core/server/backendStdioSupervisor.ts');
+    expect(supervisor).toContain('const DEFAULT_MAX_RESTARTS = 5');
+    expect(supervisor).toContain('options.policy.maxRestarts === 0 ? null');
+    expect(supervisor).toContain('2 ** Math.min(nextAttempt - 1, 4)');
+    expect(readRepoFile('docs/en/commands/mcp/add.md')).toContain(
+      'The default is `5`; only `0` enables unlimited attempts.',
+    );
+    expect(readRepoFile('docs/zh/commands/mcp/add.md')).toContain('默认值为 `5`；只有设置为 `0` 才会无限次重试。');
+    expect(readRepoFile('docs/en/commands/mcp/add.md')).toContain(
+      'Each later delay doubles, capped at 16 times this value.',
+    );
+    expect(readRepoFile('docs/zh/commands/mcp/add.md')).toContain('后续延迟每次翻倍，最大为该值的 16 倍。');
+
     for (const locale of ['en', 'zh']) {
       const overview = `docs/${locale}/reference/internal-tools/index.md`;
       expect(existsSync(join(root, overview))).toBe(true);
@@ -147,6 +162,17 @@ describe('CLI reference documentation', () => {
       );
       expect(readRepoFile(overview)).toContain('notifications/initialized');
       expect(readRepoFile(overview)).toContain('"name":"project-dependencies"');
+      expect(readRepoFile(overview)).toContain(`"protocolVersion":"${LATEST_PROTOCOL_VERSION}"`);
+      expect(readRepoFile(overview)).toContain('"name":"1mcp_1mcp_mcp_install"');
+      const example = readRepoFile(overview).match(/```json\n([\s\S]*?)\n```/)?.[1];
+      expect(example).toBeDefined();
+      const [initialize, initialized, call] = example!.split('\n').map((message) => JSON.parse(message));
+      expect(initialize).toMatchObject({ method: 'initialize', params: { protocolVersion: LATEST_PROTOCOL_VERSION } });
+      expect(initialized).toMatchObject({ method: 'notifications/initialized' });
+      expect(call).toMatchObject({
+        method: 'tools/call',
+        params: { name: '1mcp_1mcp_mcp_install', arguments: { name: 'project-dependencies' } },
+      });
       expect(readRepoFile(`docs/${locale}/reference/internal-tools/installation.md`)).toContain('`name`');
     }
   });

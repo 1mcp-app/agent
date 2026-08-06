@@ -12,7 +12,7 @@
 
 ## Agent Workflow
 
-Use one agent-facing integration mode per client. For CLI mode, run `1mcp cli-setup --codex` or `1mcp cli-setup --claude`; it prints any required local configuration changes.
+Use one agent-facing integration mode per client. For CLI mode, run `1mcp cli-setup --codex` or `1mcp cli-setup --claude`; it writes setup files for the selected target. Only the Codex target also prints a manual `config.toml` notice; Claude setup does not have that manual post-step.
 
 1. Run `1mcp instructions` to obtain the current playbook and server inventory.
 2. Run `1mcp inspect <server>` and then `1mcp inspect <server>/<tool>` before selecting a tool.

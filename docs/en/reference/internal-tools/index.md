@@ -20,12 +20,12 @@ Internal Tools are optional MCP tools exposed by a running 1MCP server for progr
 
 ## Initialized MCP Request Example
 
-On a stateful MCP connection, send `initialize`, then the `notifications/initialized` notification, before a `tools/call` request. The following messages use the current protocol version and the `mcp_install` argument name `name`:
+On a stateful MCP connection, send `initialize`, then the `notifications/initialized` notification, before a `tools/call` request. The following messages use the current protocol version and the exact qualified installation-tool name returned by `tools/list` for the built-in `1mcp` provider:
 
 ```json
-{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"example-client","version":"1.0.0"}}}
+{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-11-25","capabilities":{},"clientInfo":{"name":"example-client","version":"1.0.0"}}}
 {"jsonrpc":"2.0","method":"notifications/initialized","params":{}}
-{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"mcp_install","arguments":{"name":"project-dependencies","package":"@scope/project-mcp","command":"npx","args":["-y","@scope/project-mcp"]}}}
+{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"1mcp_1mcp_mcp_install","arguments":{"name":"project-dependencies","package":"@scope/project-mcp","command":"npx","args":["-y","@scope/project-mcp"]}}}
 ```
 
 Use `tools/list` on the initialized connection to obtain the exact current schemas before calling a tool. Installation and management operations can change runtime configuration.

@@ -15,7 +15,7 @@ MCP inventory belongs in `mcp.json` under `mcpServers`. Runtime settings, includ
 
 ## CLI Mode
 
-CLI mode narrows discovery before execution. Bootstrap with `1mcp cli-setup --codex` or `1mcp cli-setup --claude`; the command prints required local configuration changes rather than applying them.
+CLI mode narrows discovery before execution. Bootstrap with `1mcp cli-setup --codex` or `1mcp cli-setup --claude`; it writes setup files for the selected target. Only Codex also prints a manual `config.toml` notice rather than applying that configuration; Claude setup does not have that manual post-step.
 
 1. `1mcp instructions`
 2. `1mcp inspect <server>`

@@ -192,6 +192,22 @@ describe('publishing documentation', () => {
     );
   });
 
+  it('describes CLI setup writes and the Codex-only manual notice accurately', () => {
+    const cliSetup = readRepoFile('src/commands/cliSetup/cliSetup.ts');
+    const enArtifact = readRepoFile('docs/public/llms-en.txt');
+    const zhArtifact = readRepoFile('docs/public/llms-zh.txt');
+    const fullArtifact = readRepoFile('docs/public/llms-full.txt');
+
+    expect(cliSetup).toContain('writeCliSetupFiles');
+    expect(cliSetup).toContain("targets.includes('codex')");
+    expect(enArtifact).toContain('writes setup files for the selected target');
+    expect(enArtifact).toContain('Only the Codex target also prints a manual `config.toml` notice');
+    expect(zhArtifact).toContain('会为所选目标写入设置文件');
+    expect(zhArtifact).toContain('只有 Codex 目标还会打印需手动加入的 `config.toml` 提示');
+    expect(fullArtifact).toContain('writes setup files for the selected target');
+    expect(fullArtifact).toContain('Only Codex also prints a manual `config.toml` notice');
+  });
+
   it('keeps non-public research, ADR history, and Chinese metadata governed', () => {
     const vitepressConfig = readRepoFile('docs/.vitepress/config/index.ts');
     const roadmap = readRepoFile('docs/ROADMAP.md');
