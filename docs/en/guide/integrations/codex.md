@@ -26,6 +26,8 @@ For Codex sessions, the recommended 1MCP workflow is CLI mode:
 - bootstrap Codex with `1mcp cli-setup --codex`
 - let Codex use `instructions`, `inspect`, and `run` progressively
 
+`cli-setup --codex` prints required changes to Codex `config.toml`, but does not apply them. Add the printed snippet to `config.toml` before opening the next Codex session.
+
 This is the preferred agent-facing path because it reduces unnecessary tool and schema context inside the agent loop without changing the MCP backend that 1MCP is aggregating.
 
 For the conceptual background, see [CLI Mode](/guide/integrations/cli-mode).
@@ -147,10 +149,10 @@ url = "http://localhost:3051/mcp"
 
 ### System Requirements
 
-- **Node.js**: Version 18+ required for MCP servers and 1MCP agent
+- **Node.js**: `^20.19.0 || ^22.12.0 || >=24.0.0` required for MCP servers and 1MCP agent (the package `engines.node` contract)
 
   ```bash
-  node --version  # Should be v18.0.0 or higher
+  node --version  # Must satisfy ^20.19.0 || ^22.12.0 || >=24.0.0
   ```
 
 - **1MCP Agent**: Latest version recommended
@@ -193,7 +195,7 @@ If you want Codex sessions to start with the 1MCP bootstrap docs and hooks alrea
 1mcp cli-setup --codex
 ```
 
-This writes the managed `1MCP.md` bootstrap doc, updates Codex hook configuration, and prints the `config.toml` snippet required to enable Codex hooks and the correct sandbox settings.
+This writes the managed `1MCP.md` bootstrap doc, updates Codex hook configuration, and prints the `config.toml` snippet required to enable Codex hooks and the correct sandbox settings. It does not apply the printed `config.toml` change; add it before opening the next Codex session.
 
 ### Known Issues
 
@@ -204,7 +206,7 @@ This writes the managed `1MCP.md` bootstrap doc, updates Codex hook configuratio
 Before proceeding, verify:
 
 - [ ] Codex version ≥ 0.44.0 installed (or any version for proxy method)
-- [ ] Node.js version ≥ 18 installed
+- [ ] Node.js `^20.19.0 || ^22.12.0 || >=24.0.0` installed (the package `engines.node` contract)
 - [ ] Can run `1mcp --version` successfully (or `npx -y @1mcp/agent --version`)
 - [ ] Configuration directory exists at `~/.codex/`
 - [ ] Have a working directory for testing (e.g., `~/test-codex-integration/`)
@@ -244,6 +246,8 @@ The installed bootstrap files tell Codex sessions to start with:
 1mcp inspect <server>/<tool>
 1mcp run <server>/<tool> --args '<json>'
 ```
+
+The command prints, but does not write, the required `config.toml` change. Apply that printed change before treating CLI mode as configured.
 
 ### 2. Create Project Configuration
 

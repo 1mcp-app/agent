@@ -11,6 +11,8 @@
 - 用 `1mcp cli-setup --codex` 为 Codex 做引导
 - 让 Codex 按 `instructions`、`inspect`、`run` 的顺序渐进式工作
 
+`cli-setup --codex` 会打印必须加入 Codex `config.toml` 的改动，但不会自动写入。请在打开下一次 Codex 会话前，把打印出的片段加入 `config.toml`。
+
 这是面向 agent 的推荐路径，因为它能减少 agent loop 中不必要的工具和 schema 上下文，同时不改变 1MCP 聚合的 MCP 后端。
 
 概念背景请参阅 [CLI 模式](/zh/guide/integrations/cli-mode)。
@@ -132,10 +134,10 @@ url = "http://localhost:3051/mcp"
 
 ### 系统要求
 
-- **Node.js**：MCP 服务器和 1MCP agent 需要 18+ 版本
+- **Node.js**：MCP 服务器和 1MCP agent 需要 `^20.19.0 || ^22.12.0 || >=24.0.0`（与包的 `engines.node` 契约一致）
 
   ```bash
-  node --version  # 应该是 v18.0.0 或更高
+  node --version  # 应满足 ^20.19.0 || ^22.12.0 || >=24.0.0
   ```
 
 - **1MCP Agent**：推荐最新版本
@@ -178,7 +180,7 @@ mkdir -p ~/.codex  # Linux/macOS
 1mcp cli-setup --codex
 ```
 
-该命令会写入受管理的 `1MCP.md` 引导文档，更新 Codex hook 配置，并输出启用 Codex hooks 和正确沙箱设置所需的 `config.toml` 片段。
+该命令会写入受管理的 `1MCP.md` 引导文档，更新 Codex hook 配置，并输出启用 Codex hooks 和正确沙箱设置所需的 `config.toml` 片段。它不会应用打印出的 `config.toml` 改动；请在打开下一次 Codex 会话前手动加入。
 
 ### 已知问题
 
@@ -189,7 +191,7 @@ mkdir -p ~/.codex  # Linux/macOS
 在继续之前，请验证：
 
 - [ ] 已安装 Codex 版本 ≥ 0.44.0（或代理方法的任何版本）
-- [ ] 已安装 Node.js 版本 ≥ 18
+- [ ] 已安装 Node.js `^20.19.0 || ^22.12.0 || >=24.0.0`（与包的 `engines.node` 契约一致）
 - [ ] 可以成功运行 `1mcp --version`（或 `npx -y @1mcp/agent --version`）
 - [ ] 配置目录存在于 `~/.codex/`
 - [ ] 有一个用于测试的工作目录（例如 `~/test-codex-integration/`）
@@ -229,6 +231,8 @@ mkdir -p ~/.codex  # Linux/macOS
 1mcp inspect <server>/<tool>
 1mcp run <server>/<tool> --args '<json>'
 ```
+
+该命令会打印所需的 `config.toml` 改动，但不会写入文件。只有应用打印出的改动后，CLI 模式才算配置完成。
 
 ### 2. 创建项目配置
 

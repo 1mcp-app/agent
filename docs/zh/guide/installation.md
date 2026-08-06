@@ -123,6 +123,8 @@ Remove-Item "1mcp-win32-x64.zip"
 
 ### npm/pnpm
 
+npm 和源码安装路径需要 Node.js `^20.19.0 || ^22.12.0 || >=24.0.0`（与包的 `engines.node` 契约一致）。
+
 ```bash
 # 全局安装
 npm install -g @1mcp/agent
@@ -146,7 +148,8 @@ docker run -p 3050:3050 \
   -e ONE_MCP_HOST=0.0.0.0 \
   -e ONE_MCP_PORT=3050 \
   -e ONE_MCP_EXTERNAL_URL=http://127.0.0.1:3050 \
-  -v $(pwd)/mcp.json:/app/mcp.json \
+  -e ONE_MCP_CONFIG=/usr/src/app/mcp.json \
+  -v "$(pwd)/mcp.json:/usr/src/app/mcp.json:ro" \
   ghcr.io/1mcp-app/agent:latest
 
 # 拉取并运行 (轻量级镜像) 带正确的网络配置
@@ -154,7 +157,8 @@ docker run -p 3050:3050 \
   -e ONE_MCP_HOST=0.0.0.0 \
   -e ONE_MCP_PORT=3050 \
   -e ONE_MCP_EXTERNAL_URL=http://127.0.0.1:3050 \
-  -v $(pwd)/mcp.json:/app/mcp.json \
+  -e ONE_MCP_CONFIG=/usr/src/app/mcp.json \
+  -v "$(pwd)/mcp.json:/usr/src/app/mcp.json:ro" \
   ghcr.io/1mcp-app/agent:lite
 
 # 中国用户 - 更快的包安装速度
@@ -165,7 +169,8 @@ docker run -p 3050:3050 \
   -e npm_config_registry=https://registry.npmmirror.com \
   -e UV_INDEX=http://mirrors.aliyun.com/pypi/simple \
   -e UV_DEFAULT_INDEX=http://mirrors.aliyun.com/pypi/simple \
-  -v $(pwd)/mcp.json:/app/mcp.json \
+  -e ONE_MCP_CONFIG=/usr/src/app/mcp.json \
+  -v "$(pwd)/mcp.json:/usr/src/app/mcp.json:ro" \
   ghcr.io/1mcp-app/agent:latest
 
 # 使用 docker-compose (推荐)
@@ -176,13 +181,13 @@ services:
     ports:
       - "3050:3050"
     volumes:
-      - ./mcp.json:/app/mcp.json
+      - ./mcp.json:/usr/src/app/mcp.json:ro
     environment:
       - ONE_MCP_HOST=0.0.0.0
       - ONE_MCP_PORT=3050
       - ONE_MCP_EXTERNAL_URL=http://127.0.0.1:3050
       - ONE_MCP_LOG_LEVEL=info
-      - ONE_MCP_CONFIG=/app/mcp.json
+      - ONE_MCP_CONFIG=/usr/src/app/mcp.json
       # 可选：中国大陆用户加速
       # - npm_config_registry=https://registry.npmmirror.com
       # - UV_INDEX=http://mirrors.aliyun.com/pypi/simple
@@ -225,7 +230,8 @@ docker compose up -d
 
 ### 先决条件
 
-- Node.js (来自 `.node-version` 的版本 - 目前为 22)
+- Node.js `^20.19.0 || ^22.12.0 || >=24.0.0`（与包的 `engines.node` 契约一致）
+- 对贡献者，建议使用 `.node-version` 记录的版本；它是仓库默认版本，而不是包的最低版本。
 - pnpm 包管理器
 
 ### 构建步骤
@@ -272,7 +278,7 @@ npx @1mcp/agent --version
 - **磁盘**：用于 Node.js 依赖和日志的空间
 - **网络**：MCP 服务器的 HTTP/HTTPS 出站访问
 - **操作系统**：Linux (x64/ARM64)、macOS (ARM64/x64)、Windows (x64)
-- **运行时**：Node.js 21+
+- **运行时**：Node.js `^20.19.0 || ^22.12.0 || >=24.0.0`
 
 ## 下一步
 
