@@ -1,3 +1,8 @@
+---
+title: mcp enable 和 disable 命令
+description: 在不删除配置的情况下启用或禁用 MCP 服务器。
+---
+
 # mcp enable / disable
 
 启用或禁用 MCP 服务器，而无需删除其配置。

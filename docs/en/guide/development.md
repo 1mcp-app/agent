@@ -16,9 +16,11 @@ This guide covers how to set up a development environment for 1MCP Agent, build 
 
 ## Prerequisites
 
-- [Node.js](https://nodejs.org/) (version 21 or higher)
+- [Node.js](https://nodejs.org/) `^20.19.0 || ^22.12.0 || >=24.0.0` (the package `engines.node` contract)
 - [pnpm](https://pnpm.io/) package manager
 - Git
+
+For contributor environments, use the version recorded in `.node-version`. It is the repository default, not the package minimum.
 
 ## Installation from Source
 
@@ -114,7 +116,7 @@ The `.env` file contains development-specific configurations including:
 - `ONE_MCP_PORT=3051` - Development server port
 - `ONE_MCP_ENABLE_AUTH=true` - Authentication enabled
 - `ONE_MCP_ENABLE_ASYNC_LOADING=true` - Async loading enabled
-- `ONE_MCP_CONFIG_DIR=./config` - Custom config directory for development
+- `ONE_MCP_CONFIG=./mcp.json` - Selected development configuration file
 
 ## Architecture Overview
 
@@ -239,8 +241,8 @@ ONE_MCP_CONFIG_DIR=.tmp-test node build/index.js mcp add test-server -- echo '{"
 # Test HTTP transport with different client types
 curl "http://localhost:3050/mcp?app=cursor&tags=filesystem"
 
-# Test STDIO transport with tag filtering
-echo '{"jsonrpc":"2.0","method":"initialize","params":{}}' | node build/index.js --transport stdio --tag-filter filesystem
+# Test STDIO transport with the current selector
+echo '{"jsonrpc":"2.0","method":"initialize","params":{}}' | node build/index.js serve --transport stdio --filter filesystem
 ```
 
 ## Contributing

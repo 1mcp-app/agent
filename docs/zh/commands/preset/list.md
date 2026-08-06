@@ -1,3 +1,8 @@
+---
+title: preset list 命令
+description: 列出已配置预设及其筛选摘要。
+---
+
 # preset list
 
 以格式化表格显示所有可用的预设。

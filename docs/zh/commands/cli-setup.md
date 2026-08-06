@@ -1,3 +1,8 @@
+---
+title: CLI Setup 命令
+description: 为 Codex 或 Claude 安装 1MCP CLI 模式的引导文档和 hooks。
+---
+
 # CLI Setup 命令
 
 为 Codex 或 Claude 安装 1MCP CLI 的引导文档和钩子配置。

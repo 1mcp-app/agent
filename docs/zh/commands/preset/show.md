@@ -1,3 +1,8 @@
+---
+title: preset show 命令
+description: 显示指定预设的筛选条件和详细信息。
+---
+
 # preset show
 
 显示特定预设的详细信息。
@@ -57,7 +62,7 @@ npx -y @1mcp/agent preset show production
 │ Created: 9/6/2025                     │
 │                                       │
 │ Client URL:                           │
-│ http://127.0.0.1:3050/?preset=dev     │
+│ http://127.0.0.1:3050/mcp?preset=dev     │
 │                                       │
 │ Tag Query:                            │
 │ {                                     │
@@ -90,7 +95,7 @@ npx -y @1mcp/agent preset show production
 
 用于配置 MCP 客户端的生成 URL：
 
-- **格式**：`http://host:port/?preset=name`
+- **格式**：`http://host:port/mcp?preset=name`
 - **用法**：将此 URL 复制到您的 MCP 客户端配置中
 - **动态**：自动解析到适当的服务器子集
 

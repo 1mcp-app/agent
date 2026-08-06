@@ -172,7 +172,12 @@ function sidebar(): DefaultTheme.Sidebar {
           {
             text: 'registry',
             link: '/commands/registry/',
-            items: [{ text: 'search', link: '/commands/registry/search' }],
+            items: [
+              { text: 'search', link: '/commands/registry/search' },
+              { text: 'status', link: '/commands/registry/status' },
+              { text: 'show', link: '/commands/registry/show' },
+              { text: 'versions', link: '/commands/registry/versions' },
+            ],
           },
           {
             text: 'preset',
@@ -198,6 +203,8 @@ function sidebar(): DefaultTheme.Sidebar {
           { text: 'wait', link: '/commands/wait' },
           { text: 'cli-setup', link: '/commands/cli-setup' },
           { text: 'auth', link: '/commands/auth' },
+          { text: 'Runtime Target Contexts', link: '/commands/target' },
+          { text: 'admin', link: '/commands/admin' },
         ],
       },
       {

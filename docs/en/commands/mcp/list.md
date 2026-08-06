@@ -46,6 +46,9 @@ This command supports all global options:
 - **`--verbose`**
   - Show detailed information, including headers and environment variables.
 
+- **`--outdated`**
+  - Show only servers with available updates.
+
 ## Examples
 
 ```bash
@@ -57,6 +60,9 @@ npx -y @1mcp/agent mcp list --show-disabled
 
 # List all servers with the "prod" tag
 npx -y @1mcp/agent mcp list --tags=prod
+
+# List only servers with available updates
+npx -y @1mcp/agent mcp list --outdated
 
 # Show detailed information for all servers (verbose mode)
 npx -y @1mcp/agent mcp list --verbose

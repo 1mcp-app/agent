@@ -48,6 +48,7 @@ This is the command that turns the broad inventory from `instructions` into a sc
 ### Connection and Filtering
 
 - **`--url, -u <url>`** - Override auto-detected 1MCP server URL
+- **`--context <name>`** - Use a named Runtime Target Context and its saved bearer token, if any
 - **`--preset, -p <name>`** - Use a preset when querying the running server
 - **`--tag-filter, -f <expression>`** - Apply an advanced tag filter expression
 - **`--tags <tag>`** - Apply simple comma-separated tags
@@ -88,6 +89,12 @@ npx -y @1mcp/agent inspect filesystem/read_file
 
 ```bash
 npx -y @1mcp/agent inspect filesystem --format json
+```
+
+### Inspect Through a Runtime Target Context
+
+```bash
+1mcp inspect --context prod filesystem/read_file
 ```
 
 ### Fetch Every Tool for a Server

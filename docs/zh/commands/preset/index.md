@@ -1,3 +1,8 @@
+---
+title: 预设命令
+description: 管理用于选择 MCP 服务器的命名筛选预设。
+---
+
 # 预设命令
 
 预设命令提供了一个强大的系统来动态管理服务器配置。创建命名的预设来定义服务器选择标准，然后使用它们来切换服务器上下文，而无需重新配置您的 MCP 客户端。
@@ -59,9 +64,9 @@
 
 创建后，预设可以通过 URL 查询参数使用：
 
-- `http://localhost:3050/?preset=development` - 使用开发服务器
-- `http://localhost:3050/?preset=production` - 使用生产服务器
-- `http://localhost:3050/` - 使用所有服务器（无预设）
+- `http://localhost:3050/mcp?preset=development` - 使用开发服务器
+- `http://localhost:3050/mcp?preset=production` - 使用生产服务器
+- `http://localhost:3050/mcp` - 使用所有服务器（无预设）
 
 ## 命令
 
@@ -167,7 +172,7 @@
 
    ```bash
    1mcp preset url team-dev
-   # 共享：http://localhost:3050/?preset=team-dev
+   # 共享：http://localhost:3050/mcp?preset=team-dev
    ```
 
 3. **团队成员使用共享 URL 配置客户端**
@@ -203,7 +208,7 @@
       "command": "npx",
       "args": ["-y", "@1mcp/agent", "serve"],
       "env": {
-        "ONE_MCP_PRESET_URL": "http://localhost:3050/?preset=development"
+        "ONE_MCP_PRESET_URL": "http://localhost:3050/mcp?preset=development"
       }
     }
   }
@@ -216,7 +221,7 @@
 {
   "mcp.servers": {
     "1mcp-production": {
-      "url": "http://localhost:3050/?preset=production"
+      "url": "http://localhost:3050/mcp?preset=production"
     }
   }
 }

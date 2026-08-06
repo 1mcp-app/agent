@@ -19,6 +19,44 @@ The 1MCP Agent provides extensive configuration options for runtime behavior, tr
 
 For MCP server configuration (backend servers, environment management, process control), see the **[MCP Servers Reference](/reference/mcp-servers)**.
 
+## Two Configuration Files
+
+Keep backend inventory and 1MCP runtime settings in separate files. They are loaded together from the configuration directory, but they use different schemas.
+
+- `mcp.json` contains `mcpServers`: the backend MCP inventory. A server uses `type` (`stdio`, `http`, `sse`, or `streamableHttp`) and `disabled` when it should not start.
+- `config.toml` contains application settings such as authentication, async loading, logging, and runtime defaults. It does not contain `mcpServers`.
+
+```json
+{
+  "mcpServers": {
+    "filesystem": {
+      "type": "stdio",
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-filesystem", "/tmp"],
+      "tags": ["files"]
+    },
+    "remote-api": {
+      "type": "http",
+      "url": "https://api.example.com/mcp",
+      "disabled": false
+    }
+  }
+}
+```
+
+```toml
+# config.toml
+[auth]
+enabled = true
+
+[asyncLoading]
+enabled = true
+batchNotifications = true
+batchDelay = 250
+```
+
+CLI flags and their `ONE_MCP_*` environment-variable equivalents override these runtime settings for that process. Do not copy `[auth]` or `[asyncLoading]` into `mcp.json`, and do not put `mcpServers` in `config.toml`.
+
 ## Configuration Methods
 
 The agent supports three configuration methods, applied in this order of precedence:
@@ -324,7 +362,7 @@ ONE_MCP_ENABLE_INTERNAL_TOOLS=true npx -y @1mcp/agent
 ONE_MCP_INTERNAL_TOOLS="discovery,management" npx -y @1mcp/agent
 ```
 
-**Important**: Internal tools are different from CLI commands. CLI commands are for human users, while internal tools are MCP protocol tools that AI assistants can use to automate server management tasks. For detailed information about available internal tools, see the **[Internal Tools Reference](/reference/internal-tools)**.
+**Important**: Internal tools are different from CLI commands. CLI commands are for human users, while internal tools are MCP protocol tools that AI assistants can use to automate server management tasks. For detailed information about available internal tools, see the **[Internal Tools Reference](/reference/internal-tools/)**.
 
 ### Performance Options
 

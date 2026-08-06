@@ -34,6 +34,21 @@ pnpm docs:preview
 
 Before finishing any docs change, run `pnpm docs:build`.
 
+## Static Agent Artifacts And Metadata
+
+The public `llms.txt`, `llms-en.txt`, `llms-zh.txt`, and `llms-full.txt` files are maintained static indexes. Keep English links at their root canonical paths and Chinese links under `/zh/`; do not include `.md` suffixes or commands that are not implemented by the current CLI.
+
+Every public Markdown page needs frontmatter with a clear `title` and `description`. When adding or materially changing a public English page, update the paired Chinese page with equivalent intent and meaningful Chinese metadata.
+
+Run the publishing contract check after changing static LLM artifacts, VitePress exclusions, public Chinese metadata, ADR history, or maintainer guidance:
+
+```bash
+pnpm test:unit src/docs/publishingDocs.test.ts
+pnpm docs:build
+```
+
+The contract check applies an explicit locale policy to each LLM artifact, resolves every route without locale remapping, and checks every backticked `1mcp` invocation against the current yargs command builders and documented option forms. It also excludes `research/**` from publication, requires Chinese title and description frontmatter, and checks ADR numbering and OAuth supersession records.
+
 ## Core Writing Model
 
 The site should follow a simple rule: one page should answer one primary reader question.

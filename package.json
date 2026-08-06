@@ -32,6 +32,9 @@
     "access": "public"
   },
   "type": "module",
+  "engines": {
+    "node": "^20.19.0 || ^22.12.0 || >=24.0.0"
+  },
   "bin": {
     "1mcp": "./build/index.js"
   },
@@ -79,7 +82,7 @@
     "test:e2e:coverage": "vitest run --config vitest.e2e.config.ts --coverage",
     "test:e2e:performance": "node scripts/test-e2e-performance.js",
     "docs:dev": "vitepress dev docs",
-    "docs:build": "vitepress build docs",
+    "docs:build": "vitepress build docs && node scripts/validate-docs-seo.mjs",
     "docs:preview": "vitepress preview docs",
     "sea:build": "node scripts/build-sea.cjs",
     "sea:binary": "node scripts/build-binary.cjs",

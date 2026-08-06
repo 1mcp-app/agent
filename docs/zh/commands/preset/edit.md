@@ -1,3 +1,8 @@
+---
+title: preset edit 命令
+description: 交互式编辑已有预设的服务器选择和描述。
+---
+
 # preset edit
 
 以可视化服务器选择交互式编辑现有预设。
@@ -82,7 +87,7 @@ npx -y @1mcp/agent preset edit development
 [交互式 TUI 打开，加载当前配置]
 
 ✅ 预设 'development' 更新成功！
-🔗 URL：http://127.0.0.1:3050/?preset=development
+🔗 URL：http://127.0.0.1:3050/mcp?preset=development
 ```
 
 ## 交互模式详情

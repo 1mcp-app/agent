@@ -41,18 +41,18 @@ npx -y @1mcp/agent mcp add <name> [options] -- <command> [args...]
 - **`--type <type>`**
   - 服务器的传输类型。
   - **必需**：是（或在使用" -- "模式时自动检测）
-  - **值**：`stdio`、`http`
+  - **值**：`stdio`、`http`、`sse`
 
 - **`--command <command>`**
   - 为 `stdio` 服务器执行的命令。
   - **`stdio` 必需**
 
 - **`--args <args>`**
-  - `stdio` 命令的逗号分隔的参数列表。
+  - `stdio` 命令的一个参数。为每个参数重复标志：`--args=--root --args=./`。
 
 - **`--url <url>`**
-  - `http` 服务器的 URL。
-  - **`http` 必需**
+  - `http` 或 `sse` 服务器的 URL。
+  - **`http` 和 `sse` 必需**
 
 - **`--tags <tags>`**
   - 用于组织的逗号分隔的标签列表。
@@ -76,10 +76,10 @@ npx -y @1mcp/agent mcp add <name> [options] -- <command> [args...]
   - 为 `stdio` 服务器启用进程退出时自动重启（仅限 stdio）。
 
 - **`--max-restarts <number>`**
-  - 连续自动重启的最大尝试次数（仅限 stdio）。省略时为 `5`，设为 `0` 表示不限制次数。
+  - 最大自动重启尝试次数（仅限 stdio）。默认值为 `5`；只有设置为 `0` 才会无限次重试。
 
 - **`--restart-delay <ms>`**
-  - 自动重启的初始延迟（毫秒，仅限 stdio）。默认为 `1000`；连续失败采用指数退避，最大为该值的 16 倍。
+  - 第一次自动重启前的初始延迟（毫秒，仅限 stdio）。后续延迟每次翻倍，最大为该值的 16 倍。默认值：`1000`。
 
 ## 示例
 
@@ -87,16 +87,16 @@ npx -y @1mcp/agent mcp add <name> [options] -- <command> [args...]
 
 ```bash
 # 添加一个本地文件系统服务器
-npx -y @1mcp/agent mcp add files --type=stdio --command="mcp-server-fs" --args="--root,./"
+npx -y @1mcp/agent mcp add files --type=stdio --command=mcp-server-fs --args=--root --args=./
 
 # 添加一个带有标签的远程 HTTP 服务器
 npx -y @1mcp/agent mcp add remote-api --type=http --url="https://api.example.com/mcp" --tags="api,prod"
 
 # 添加禁用状态的服务器
-npx -y @1mcp/agent mcp add test-server --type=stdio --command="echo" --args="test" --disabled
+npx -y @1mcp/agent mcp add test-server --type=stdio --command=echo --args=test --disabled
 
 # 添加具有重启配置的服务器
-npx -y @1mcp/agent mcp add my-server --type=stdio --command="node" --args="server.js" --restart-on-exit --max-restarts=3 --restart-delay=2000
+npx -y @1mcp/agent mcp add my-server --type=stdio --command=node --args=server.js --restart-on-exit --max-restarts=3 --restart-delay=2000
 
 # 添加具有工作目录的服务器
 npx -y @1mcp/agent mcp add local-server --type=stdio --command="pwd" --cwd="/tmp"

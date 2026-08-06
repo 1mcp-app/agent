@@ -21,7 +21,7 @@ export default withMermaid(
     lastUpdated: true,
     cleanUrls: true,
     metaChunk: true,
-    srcExclude: ['agents/**', 'adr/**', 'CLAUDE.md', 'README.md', 'ROADMAP.md'],
+    srcExclude: ['agents/**', 'adr/**', 'research/**', 'CLAUDE.md', 'README.md', 'ROADMAP.md'],
 
     rewrites: {
       'en/:rest*': ':rest*',
@@ -46,14 +46,6 @@ export default withMermaid(
       [
         'meta',
         {
-          name: 'description',
-          content:
-            '1MCP Agent - One unified Model Context Protocol server that aggregates multiple MCP servers for Claude Desktop, Cursor, and other AI assistants.',
-        },
-      ],
-      [
-        'meta',
-        {
           name: 'keywords',
           content:
             'MCP,Model Context Protocol,AI proxy,AI aggregator,Claude Desktop,LLM integration,mcp-server,agent,ai assistant',
@@ -72,7 +64,6 @@ export default withMermaid(
         },
       ],
       ['meta', { property: 'og:image', content: 'https://docs.1mcp.app/images/logo.png' }],
-      ['meta', { property: 'og:url', content: 'https://docs.1mcp.app/' }],
       ['meta', { property: 'og:site_name', content: '1MCP Agent Docs' }],
 
       // Twitter Card
@@ -179,27 +170,27 @@ export default withMermaid(
       const currentPath = pageData.relativePath.replace(/\.md$/, '');
       const isZh = pageData.frontmatter?.lang === 'zh' || currentPath.startsWith('zh/');
       const canonicalPath = isZh ? currentPath : currentPath.replace(/^en\//, '');
-      const url = `https://docs.1mcp.app${canonicalPath === 'index' ? '' : `/${canonicalPath}`}`;
+      const toPublicUrl = (path: string) => `https://docs.1mcp.app/${path.replace(/(^|\/)index$/, '$1')}`;
+      const url = toPublicUrl(canonicalPath);
 
       const head: Array<[string, Record<string, string>]> = [];
 
       // Add canonical link
       head.push(['link', { rel: 'canonical', href: url }]);
+      head.push(['meta', { property: 'og:url', content: url }]);
 
       // Add alternate language links
       if (isZh) {
         const enPath = currentPath.replace(/^zh\//, '');
-        head.push([
-          'link',
-          { rel: 'alternate', hreflang: 'en', href: `https://docs.1mcp.app${enPath === 'index' ? '' : `/${enPath}`}` },
-        ]);
+        head.push(['link', { rel: 'alternate', hreflang: 'en', href: toPublicUrl(enPath) }]);
       } else {
+        const zhPath = `zh/${currentPath.replace(/^en\//, '')}`;
         head.push([
           'link',
           {
             rel: 'alternate',
             hreflang: 'zh',
-            href: `https://docs.1mcp.app/zh${currentPath === 'index' ? '' : `/${currentPath}`}`,
+            href: toPublicUrl(zhPath),
           },
         ]);
       }

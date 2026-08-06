@@ -1,3 +1,8 @@
+---
+title: app consolidate 命令
+description: 将桌面应用的 MCP 配置导入统一的 1MCP 运行时。
+---
+
 # app consolidate
 
 将桌面应用程序的 MCP 服务器整合到 1MCP 中。

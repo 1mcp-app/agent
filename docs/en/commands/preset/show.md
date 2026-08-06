@@ -72,7 +72,7 @@ npx -y @1mcp/agent preset show production
 │ Created: 9/6/2025                     │
 │                                       │
 │ Client URL:                           │
-│ http://127.0.0.1:3050/?preset=dev     │
+│ http://127.0.0.1:3050/mcp?preset=dev     │
 │                                       │
 │ Tag Query:                            │
 │ {                                     │
@@ -105,7 +105,7 @@ npx -y @1mcp/agent preset show production
 
 The generated URL for configuring MCP clients:
 
-- **Format**: `http://host:port/?preset=name`
+- **Format**: `http://host:port/mcp?preset=name`
 - **Usage**: Copy this URL into your MCP client configuration
 - **Dynamic**: Automatically resolves to the appropriate server subset
 
