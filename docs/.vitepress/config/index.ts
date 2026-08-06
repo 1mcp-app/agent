@@ -64,7 +64,6 @@ export default withMermaid(
         },
       ],
       ['meta', { property: 'og:image', content: 'https://docs.1mcp.app/images/logo.png' }],
-      ['meta', { property: 'og:url', content: 'https://docs.1mcp.app/' }],
       ['meta', { property: 'og:site_name', content: '1MCP Agent Docs' }],
 
       // Twitter Card
@@ -177,6 +176,7 @@ export default withMermaid(
 
       // Add canonical link
       head.push(['link', { rel: 'canonical', href: url }]);
+      head.push(['meta', { property: 'og:url', content: url }]);
 
       // Add alternate language links
       if (isZh) {

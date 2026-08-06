@@ -1,6 +1,6 @@
 ---
 title: App Consolidation Guide
-description: Consolidate supported desktop MCP configurations into 1MCP and restore them from centralized backups.
+description: Consolidate supported application MCP configurations into 1MCP and restore them from centralized backups.
 head:
   - ['meta', { name: 'keywords', content: '1MCP app consolidation,MCP configuration backup,Claude Desktop,Cursor' }]
   - ['meta', { property: 'og:title', content: '1MCP App Consolidation Guide' }]
@@ -8,7 +8,7 @@ head:
       'meta',
       {
         property: 'og:description',
-        content: 'Consolidate supported desktop MCP configurations into 1MCP with dry runs, backups, and restoration.',
+        content: 'Consolidate supported application MCP configurations into 1MCP with dry runs, backups, and restoration.',
       },
     ]
 ---

@@ -1,13 +1,10 @@
 ---
 title: 应用整合指南
-description: 将受支持桌面客户端的 MCP 配置整合到 1MCP，并从集中备份中恢复。
+description: 将受支持应用的 MCP 配置整合到 1MCP，并从集中备份中恢复。
 head:
   - ['meta', { name: 'keywords', content: '1MCP 应用整合,MCP 配置备份,Claude Desktop,Cursor' }]
   - ['meta', { property: 'og:title', content: '1MCP 应用整合指南' }]
-  - [
-      'meta',
-      { property: 'og:description', content: '通过预览、备份和恢复，将受支持桌面客户端的 MCP 配置整合到 1MCP。' },
-    ]
+  - ['meta', { property: 'og:description', content: '通过预览、备份和恢复，将受支持应用的 MCP 配置整合到 1MCP。' }]
 ---
 
 # 应用整合指南

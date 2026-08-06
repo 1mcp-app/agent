@@ -121,6 +121,10 @@ describe('configuration and operations documentation', () => {
     expect(getAppBackupDir(appName)).not.toContain('/apps/');
     expect(enApps).toContain('not an `APP_PRESETS` target');
     expect(zhApps).toContain('不是 `APP_PRESETS` 目标');
+    expect(enApps).toContain('supported application MCP configurations');
+    expect(enApps).not.toContain('supported desktop MCP configurations');
+    expect(zhApps).toContain('受支持应用的 MCP 配置');
+    expect(zhApps).not.toContain('受支持桌面客户端的 MCP 配置');
     expect(enApps).toContain('%APPDATA%\\1mcp\\backups\\<app-name>\\');
     expect(zhApps).toContain('%APPDATA%\\1mcp\\backups\\<app-name>\\');
     expect(enApps).not.toContain('%APPDATA%\\\\1mcp\\\\backups\\\\<app-name>\\\\');

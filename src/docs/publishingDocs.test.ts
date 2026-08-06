@@ -201,7 +201,10 @@ describe('publishing documentation', () => {
       );
     }
 
-    expect(readRepoFile('docs/.vitepress/config/index.ts')).not.toMatch(/name:\s*'description'/);
+    const vitepressConfig = readRepoFile('docs/.vitepress/config/index.ts');
+    expect(vitepressConfig).not.toMatch(/name:\s*'description'/);
+    expect(vitepressConfig).not.toContain("property: 'og:url', content: 'https://docs.1mcp.app/'");
+    expect(vitepressConfig).toContain("head.push(['meta', { property: 'og:url', content: url }])");
 
     for (const enPath of preservedSeoHeadPages.filter(
       (path) => path.startsWith('docs/en/') && !path.endsWith('/codex.md'),
