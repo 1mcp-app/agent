@@ -170,7 +170,8 @@ export default withMermaid(
       const currentPath = pageData.relativePath.replace(/\.md$/, '');
       const isZh = pageData.frontmatter?.lang === 'zh' || currentPath.startsWith('zh/');
       const canonicalPath = isZh ? currentPath : currentPath.replace(/^en\//, '');
-      const url = `https://docs.1mcp.app${canonicalPath === 'index' ? '' : `/${canonicalPath}`}`;
+      const toPublicUrl = (path: string) => `https://docs.1mcp.app/${path.replace(/(^|\/)index$/, '$1')}`;
+      const url = toPublicUrl(canonicalPath);
 
       const head: Array<[string, Record<string, string>]> = [];
 
@@ -181,17 +182,15 @@ export default withMermaid(
       // Add alternate language links
       if (isZh) {
         const enPath = currentPath.replace(/^zh\//, '');
-        head.push([
-          'link',
-          { rel: 'alternate', hreflang: 'en', href: `https://docs.1mcp.app${enPath === 'index' ? '' : `/${enPath}`}` },
-        ]);
+        head.push(['link', { rel: 'alternate', hreflang: 'en', href: toPublicUrl(enPath) }]);
       } else {
+        const zhPath = `zh/${currentPath.replace(/^en\//, '')}`;
         head.push([
           'link',
           {
             rel: 'alternate',
             hreflang: 'zh',
-            href: `https://docs.1mcp.app/zh${currentPath === 'index' ? '' : `/${currentPath}`}`,
+            href: toPublicUrl(zhPath),
           },
         ]);
       }

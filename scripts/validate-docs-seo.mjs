@@ -160,14 +160,63 @@ for (const page of restoredPages) {
 
 const dist = join(root, 'docs/.vitepress/dist');
 const generatedPages = htmlFiles(dist);
+const sitemap = readFileSync(join(dist, 'sitemap.xml'), 'utf8');
+const sitemapByPage = new Map(
+  [...sitemap.matchAll(/<url>([\s\S]*?)<\/url>/g)].map((match) => {
+    const block = match[1];
+    const url = decodeHtml(block.match(/<loc>(.*?)<\/loc>/)?.[1] ?? '');
+    assert.ok(url, 'every sitemap entry must have a URL');
+    const pathname = new URL(url).pathname;
+    const pagePath = pathname.endsWith('/') ? `${pathname.slice(1)}index.html` : `${pathname.slice(1)}.html`;
+    const alternates = Object.fromEntries(readElements(block, 'xhtml:link').map((link) => [link.hreflang, link.href]));
+    return [pagePath, { url, alternates }];
+  }),
+);
+
+const routeCases = [
+  {
+    pagePath: 'index.html',
+    expected: 'https://docs.1mcp.app/',
+    rejected: ['https://docs.1mcp.app/index'],
+  },
+  {
+    pagePath: 'zh/index.html',
+    expected: 'https://docs.1mcp.app/zh/',
+    rejected: ['https://docs.1mcp.app/zh/index'],
+  },
+  {
+    pagePath: 'commands/registry/index.html',
+    expected: 'https://docs.1mcp.app/commands/registry/',
+    rejected: ['https://docs.1mcp.app/commands/registry/index'],
+  },
+  {
+    pagePath: 'commands/registry/search.html',
+    expected: 'https://docs.1mcp.app/commands/registry/search',
+    rejected: ['https://docs.1mcp.app/commands/registry/search/'],
+  },
+];
+const sitemapUrls = new Set([...sitemapByPage.values()].map((entry) => entry.url));
+for (const routeCase of routeCases) {
+  assert.equal(sitemapByPage.get(routeCase.pagePath)?.url, routeCase.expected, `${routeCase.pagePath} public route`);
+  for (const rejected of routeCase.rejected) {
+    assert.ok(!sitemapUrls.has(rejected), `sitemap must not contain the non-canonical route ${rejected}`);
+  }
+}
+
+const pagesMissingFromSitemap = [];
 for (const path of generatedPages) {
   const html = readFileSync(path, 'utf8');
   const meta = readElements(html, 'meta');
   const links = readElements(html, 'link');
   const pagePath = relative(dist, path).replaceAll('\\', '/');
-  const route = pagePath === 'index.html' ? '' : `/${pagePath.slice(0, -'.html'.length)}`;
-  const expectedUrl = `https://docs.1mcp.app${route}`;
-  const isChinese = pagePath.startsWith('zh/');
+  const sitemapEntry = sitemapByPage.get(pagePath);
+  const isNotFound = pagePath === '404.html';
+  if (!sitemapEntry) {
+    pagesMissingFromSitemap.push(pagePath);
+  }
+  assert.ok(sitemapEntry || isNotFound, `${pagePath} must have a sitemap route`);
+  const expectedUrl = sitemapEntry?.url ?? 'https://docs.1mcp.app/404';
+  const isChinese = sitemapEntry ? new URL(sitemapEntry.url).pathname.startsWith('/zh/') : false;
 
   for (const selector of [
     { name: 'description' },
@@ -188,7 +237,15 @@ for (const path of generatedPages) {
   const canonical = select(links, { rel: 'canonical' });
   assert.equal(canonical.length, 1, `${pagePath} must render exactly one canonical link`);
   assert.equal(canonical[0].href, expectedUrl, `${pagePath} canonical must match its public route`);
+
+  const alternateLanguage = isChinese ? 'en' : 'zh';
+  const alternate = select(links, { rel: 'alternate', hreflang: alternateLanguage });
+  const expectedAlternate = sitemapEntry?.alternates[isChinese ? 'en-US' : 'zh-CN'] ?? 'https://docs.1mcp.app/zh/404';
+  assert.equal(alternate.length, 1, `${pagePath} must render exactly one ${alternateLanguage} alternate link`);
+  assert.equal(alternate[0].href, expectedAlternate, `${pagePath} hreflang must match the sitemap alternate`);
 }
 
+assert.deepEqual(pagesMissingFromSitemap, ['404.html'], 'only the generated 404 page may be absent from the sitemap');
+
 console.log(`Validated page-specific SEO metadata in ${restoredPages.length} restored pages.`);
-console.log(`Validated canonical and social metadata in ${generatedPages.length} generated pages.`);
+console.log(`Validated sitemap, canonical, and social metadata in ${generatedPages.length} generated pages.`);
