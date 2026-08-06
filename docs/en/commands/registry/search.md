@@ -1,6 +1,19 @@
 ---
 title: registry search
 description: Search entries in the configured MCP registry.
+head:
+  - [
+      'meta',
+      { name: 'keywords', content: '1MCP registry search,MCP server discovery,registry filters,registry pagination' },
+    ]
+  - ['meta', { property: 'og:title', content: '1MCP registry search' }]
+  - [
+      'meta',
+      {
+        property: 'og:description',
+        content: 'Search a configured MCP registry by text, status, package type, or transport with the 1MCP CLI.',
+      },
+    ]
 ---
 
 # registry search

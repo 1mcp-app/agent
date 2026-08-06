@@ -1,6 +1,16 @@
 ---
 title: Codex Integration
 description: "Choose one 1MCP workflow for Codex: CLI mode, direct HTTP, or the stdio proxy."
+head:
+  - ['meta', { name: 'keywords', content: '1MCP Codex integration,Codex MCP,config.toml,stdio proxy' }]
+  - ['meta', { property: 'og:title', content: '1MCP Codex Integration' }]
+  - [
+      'meta',
+      {
+        property: 'og:description',
+        content: 'Choose one 1MCP workflow for Codex: CLI mode, direct HTTP, or the stdio proxy.',
+      },
+    ]
 ---
 
 # Codex Integration

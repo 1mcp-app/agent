@@ -1,6 +1,13 @@
 ---
 title: 性能与恢复
 description: 准确配置有界 stdio 后端恢复并使用 1MCP 运维信号。
+head:
+  - ['meta', { name: 'keywords', content: '1MCP stdio 恢复,restartOnExit,maxRestarts,健康检查' }]
+  - ['meta', { property: 'og:title', content: '1MCP 性能与恢复' }]
+  - [
+      'meta',
+      { property: 'og:description', content: '配置有界 stdio 后端恢复，并使用 1MCP 日志和健康检查路由进行运维。' },
+    ]
 ---
 
 # 性能与恢复

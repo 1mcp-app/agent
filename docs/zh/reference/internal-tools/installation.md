@@ -1,6 +1,13 @@
 ---
 title: 内部安装工具
 description: 内部 MCP 安装工具的输入和输出查询参考。
+head:
+  - ['meta', { name: 'keywords', content: '1MCP 安装工具,mcp_install,mcp_uninstall,mcp_update,MCP 工具 schema' }]
+  - ['meta', { property: 'og:title', content: '1MCP 内部安装工具' }]
+  - [
+      'meta',
+      { property: 'og:description', content: '1MCP mcp_install、mcp_uninstall 和 mcp_update 工具的输入与输出参考。' },
+    ]
 ---
 
 # 安装工具

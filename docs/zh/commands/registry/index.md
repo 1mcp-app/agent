@@ -1,6 +1,16 @@
 ---
 title: 注册表命令
 description: 1MCP 注册表发现命令参考。
+head:
+  - ['meta', { name: 'keywords', content: '1MCP 注册表,MCP 注册表命令,注册表搜索,注册表状态' }]
+  - ['meta', { property: 'og:title', content: '1MCP 注册表命令' }]
+  - [
+      'meta',
+      {
+        property: 'og:description',
+        content: '使用 1MCP 的 search、status、show 和 versions 命令查询已配置的 MCP 注册表。',
+      },
+    ]
 ---
 
 # 注册表命令

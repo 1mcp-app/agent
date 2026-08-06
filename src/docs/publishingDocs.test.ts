@@ -4,6 +4,24 @@ import { join } from 'node:path';
 const root = process.cwd();
 const llmArtifacts = ['llms.txt', 'llms-en.txt', 'llms-zh.txt', 'llms-full.txt'] as const;
 
+const preservedSeoHeadPages = [
+  'docs/en/commands/registry/index.md',
+  'docs/en/commands/registry/search.md',
+  'docs/en/guide/advanced/performance.md',
+  'docs/en/guide/integrations/app-consolidation.md',
+  'docs/en/guide/integrations/codex.md',
+  'docs/en/reference/internal-tools.md',
+  'docs/en/reference/internal-tools/index.md',
+  'docs/en/reference/internal-tools/installation.md',
+  'docs/zh/commands/registry/index.md',
+  'docs/zh/commands/registry/search.md',
+  'docs/zh/guide/advanced/performance.md',
+  'docs/zh/guide/integrations/app-consolidation.md',
+  'docs/zh/reference/internal-tools.md',
+  'docs/zh/reference/internal-tools/index.md',
+  'docs/zh/reference/internal-tools/installation.md',
+] as const;
+
 const artifactRoutePolicies = {
   'llms.txt': { allowRoot: false, allowZh: false, allowStatic: true },
   'llms-en.txt': { allowRoot: true, allowZh: false, allowStatic: false },
@@ -164,6 +182,35 @@ function validateLlmCommandForms(artifacts: string[]): void {
 }
 
 describe('publishing documentation', () => {
+  it('preserves page-specific SEO heads from the documentation rewrite', () => {
+    expect(preservedSeoHeadPages).toHaveLength(15);
+
+    for (const path of preservedSeoHeadPages) {
+      const content = readRepoFile(path);
+      const frontmatter = content.match(/^---\n([\s\S]*?)\n---\n/)?.[1];
+      const rawDescription = frontmatter?.match(/^description:\s*(.+)$/m)?.[1];
+      const description = rawDescription?.replace(/^(["'])(.*)\1$/, '$2');
+
+      expect(frontmatter, `${path} needs frontmatter`).toBeDefined();
+      expect(description, `${path} needs a description`).toBeDefined();
+      expect(frontmatter, `${path} needs a page-specific head`).toContain('\nhead:\n');
+      expect(frontmatter, `${path} needs page-specific keywords`).toContain("name: 'keywords'");
+      expect(frontmatter, `${path} needs a page-specific Open Graph title`).toContain("property: 'og:title'");
+      expect(frontmatter, `${path} needs a page-specific Open Graph description`).toContain(
+        "property: 'og:description'",
+      );
+    }
+
+    expect(readRepoFile('docs/.vitepress/config/index.ts')).not.toMatch(/name:\s*'description'/);
+
+    for (const enPath of preservedSeoHeadPages.filter(
+      (path) => path.startsWith('docs/en/') && !path.endsWith('/codex.md'),
+    )) {
+      const zhPath = enPath.replace('docs/en/', 'docs/zh/');
+      expect(preservedSeoHeadPages).toContain(zhPath as (typeof preservedSeoHeadPages)[number]);
+    }
+  });
+
   it('keeps static LLM artifact routes canonical for their intended locales', () => {
     const artifacts = llmArtifacts.map((name) => ({
       name,

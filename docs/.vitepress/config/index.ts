@@ -46,14 +46,6 @@ export default withMermaid(
       [
         'meta',
         {
-          name: 'description',
-          content:
-            '1MCP Agent - One unified Model Context Protocol server that aggregates multiple MCP servers for Claude Desktop, Cursor, and other AI assistants.',
-        },
-      ],
-      [
-        'meta',
-        {
           name: 'keywords',
           content:
             'MCP,Model Context Protocol,AI proxy,AI aggregator,Claude Desktop,LLM integration,mcp-server,agent,ai assistant',

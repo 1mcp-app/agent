@@ -1,6 +1,16 @@
 ---
 title: Performance and Recovery
 description: Configure bounded stdio backend recovery and use 1MCP operational signals accurately.
+head:
+  - ['meta', { name: 'keywords', content: '1MCP stdio recovery,restartOnExit,maxRestarts,health checks' }]
+  - ['meta', { property: 'og:title', content: '1MCP Performance and Recovery' }]
+  - [
+      'meta',
+      {
+        property: 'og:description',
+        content: 'Configure bounded stdio backend recovery and use 1MCP logs and health routes for operations.',
+      },
+    ]
 ---
 
 # Performance and Recovery

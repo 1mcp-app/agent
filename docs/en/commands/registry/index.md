@@ -1,6 +1,16 @@
 ---
 title: Registry Commands
 description: Reference for the 1MCP registry discovery commands.
+head:
+  - ['meta', { name: 'keywords', content: '1MCP registry,MCP registry commands,registry search,registry status' }]
+  - ['meta', { property: 'og:title', content: '1MCP Registry Commands' }]
+  - [
+      'meta',
+      {
+        property: 'og:description',
+        content: 'Query a configured MCP registry with the 1MCP search, status, show, and versions commands.',
+      },
+    ]
 ---
 
 # Registry Commands

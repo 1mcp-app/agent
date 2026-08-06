@@ -1,6 +1,16 @@
 ---
 title: Internal Tools
 description: MCP protocol reference for 1MCP internal management tools.
+head:
+  - ['meta', { name: 'keywords', content: '1MCP internal tools,MCP management tools,tools call,server management' }]
+  - ['meta', { property: 'og:title', content: '1MCP Internal Tools' }]
+  - [
+      'meta',
+      {
+        property: 'og:description',
+        content: 'MCP protocol reference for optional 1MCP discovery, installation, and management tools.',
+      },
+    ]
 ---
 
 # Internal Tools

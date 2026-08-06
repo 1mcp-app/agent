@@ -1,6 +1,19 @@
 ---
 title: Internal Installation Tools
 description: Input and output lookup for the internal MCP installation tools.
+head:
+  - [
+      'meta',
+      { name: 'keywords', content: '1MCP installation tools,mcp_install,mcp_uninstall,mcp_update,MCP tool schema' },
+    ]
+  - ['meta', { property: 'og:title', content: '1MCP Internal Installation Tools' }]
+  - [
+      'meta',
+      {
+        property: 'og:description',
+        content: 'Input and output reference for the 1MCP mcp_install, mcp_uninstall, and mcp_update tools.',
+      },
+    ]
 ---
 
 # Installation Tools

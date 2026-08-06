@@ -1,6 +1,10 @@
 ---
 title: 内部工具
 description: 1MCP 内部管理工具的 MCP 协议参考。
+head:
+  - ['meta', { name: 'keywords', content: '1MCP 内部工具,MCP 管理工具,tools call,服务器管理' }]
+  - ['meta', { property: 'og:title', content: '1MCP 内部工具' }]
+  - ['meta', { property: 'og:description', content: '1MCP 可选发现、安装和管理工具的 MCP 协议参考。' }]
 ---
 
 # 内部工具

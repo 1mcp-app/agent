@@ -1,6 +1,13 @@
 ---
 title: registry search
 description: 在已配置的 MCP 注册表中搜索条目。
+head:
+  - ['meta', { name: 'keywords', content: '1MCP 注册表搜索,MCP 服务器发现,注册表筛选,注册表分页' }]
+  - ['meta', { property: 'og:title', content: '1MCP registry search' }]
+  - [
+      'meta',
+      { property: 'og:description', content: '使用 1MCP CLI 按文本、状态、包类型或传输方式搜索已配置的 MCP 注册表。' },
+    ]
 ---
 
 # registry search
