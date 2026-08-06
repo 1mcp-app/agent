@@ -14,10 +14,10 @@ description: Manage CLI Admin sessions for Runtime Target Contexts.
 ## bootstrap
 
 ```bash
-1mcp admin bootstrap [--username <name>] [--password <password>] [--json]
+1mcp admin bootstrap --username <name> --password <password> [--json]
 ```
 
-Create the first Admin Account for the selected local Runtime Scope. `--json` defaults to `false`.
+Create the first Admin Account for the selected local Runtime Scope. Both `--username` and `--password` are required. `--json` defaults to `false`.
 
 ## login
 
@@ -26,6 +26,8 @@ Create the first Admin Account for the selected local Runtime Scope. `--json` de
 ```
 
 Create a CLI Admin session for a named context. `--json` defaults to `false`.
+
+On an interactive terminal, omitted credentials can be prompted. With `--json` or a non-interactive stdin, both `--username` and `--password` are required.
 
 ## status
 

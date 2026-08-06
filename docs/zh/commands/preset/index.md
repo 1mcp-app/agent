@@ -61,7 +61,7 @@
 
 - `http://localhost:3050/mcp?preset=development` - 使用开发服务器
 - `http://localhost:3050/mcp?preset=production` - 使用生产服务器
-- `http://localhost:3050/` - 使用所有服务器（无预设）
+- `http://localhost:3050/mcp` - 使用所有服务器（无预设）
 
 ## 命令
 

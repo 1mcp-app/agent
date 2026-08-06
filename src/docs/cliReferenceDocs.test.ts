@@ -47,6 +47,7 @@ describe('CLI reference documentation', () => {
   it('keeps target, admin, proxy, and CLI workflow context selectors discoverable', () => {
     const targetBuilder = readRepoFile('src/commands/target/index.ts');
     const adminBuilder = readRepoFile('src/commands/admin/index.ts');
+    const adminCommands = readRepoFile('src/commands/admin/admin.ts');
     const config = [readRepoFile('docs/.vitepress/config/en.ts'), readRepoFile('docs/.vitepress/config/zh.ts')].join(
       '\n',
     );
@@ -69,6 +70,9 @@ describe('CLI reference documentation', () => {
     for (const command of ['bootstrap', 'login', 'status', 'logout']) {
       expect(adminBuilder).toContain(`'${command}`);
     }
+    expect(adminCommands).toContain("requireOption(options.username, 'admin username')");
+    expect(adminCommands).toContain("requireOption(options.password, 'admin password')");
+    expect(adminCommands).toContain('options.json || (!dependencies.promptForCredentials && !process.stdin.isTTY)');
 
     for (const locale of ['en', 'zh']) {
       const target = readRepoFile(`docs/${locale}/commands/target.md`);
@@ -92,6 +96,15 @@ describe('CLI reference documentation', () => {
         expect(admin).toContain(`admin ${command}`);
       }
       expect(admin).toContain('admin logout --context local --all-local');
+      expect(admin).toContain('admin bootstrap --username <name> --password <password>');
+      expect(admin).toContain(
+        locale === 'en'
+          ? 'Both `--username` and `--password` are required.'
+          : '`--username` 和 `--password` 均为必填项。',
+      );
+      expect(admin).toContain(
+        locale === 'en' ? 'With `--json` or a non-interactive stdin' : '使用 `--json` 或 stdin 为非交互式时',
+      );
       for (const command of ['instructions', 'inspect', 'run', 'proxy']) {
         expect(readRepoFile(`docs/${locale}/commands/${command}.md`)).toContain('--context <name>');
       }
@@ -108,6 +121,11 @@ describe('CLI reference documentation', () => {
 
     expect(docs).not.toContain('/?preset=');
     expect(docs).toContain('/mcp?preset=');
+    for (const locale of ['en', 'zh']) {
+      const presetIndex = readRepoFile(`docs/${locale}/commands/preset/index.md`);
+      expect(presetIndex).toContain('`http://localhost:3050/mcp`');
+      expect(presetIndex).not.toContain('`http://localhost:3050/`');
+    }
     expect(readRepoFile('docs/en/commands/preset/url.md')).toContain('HTTP `400`');
     expect(readRepoFile('docs/zh/commands/preset/url.md')).toContain('HTTP `400`');
 

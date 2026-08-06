@@ -82,7 +82,7 @@ Once created, presets can be used via URL query parameters:
 
 - `http://localhost:3050/mcp?preset=development` - Use development servers
 - `http://localhost:3050/mcp?preset=production` - Use production servers
-- `http://localhost:3050/` - Use all servers (no preset)
+- `http://localhost:3050/mcp` - Use all servers (no preset)
 
 ## Commands
 

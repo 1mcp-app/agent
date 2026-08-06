@@ -14,10 +14,10 @@ description: 管理 Runtime Target Context 的 CLI Admin 会话。
 ## bootstrap
 
 ```bash
-1mcp admin bootstrap [--username <name>] [--password <password>] [--json]
+1mcp admin bootstrap --username <name> --password <password> [--json]
 ```
 
-为选定的本地 Runtime Scope 创建第一个 Admin Account。`--json` 默认值为 `false`。
+为选定的本地 Runtime Scope 创建第一个 Admin Account。`--username` 和 `--password` 均为必填项。`--json` 默认值为 `false`。
 
 ## login
 
@@ -26,6 +26,8 @@ description: 管理 Runtime Target Context 的 CLI Admin 会话。
 ```
 
 为具名 context 创建 CLI Admin 会话。`--json` 默认值为 `false`。
+
+在交互式终端中，省略的凭据可以通过提示输入。使用 `--json` 或 stdin 为非交互式时，`--username` 和 `--password` 均为必填项。
 
 ## status
 
