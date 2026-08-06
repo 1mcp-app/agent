@@ -1,3 +1,4 @@
+import { StreamableHTTPClientTransport, StreamableHTTPError } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import type { Tool } from '@modelcontextprotocol/sdk/types.js';
 
 import type { TemplateHashProvider } from '@src/core/server/connectionResolver.js';
@@ -123,6 +124,34 @@ describe('CapabilityCatalog', () => {
       name: 'template_tool',
       arguments: { message: 'hi' },
     });
+  });
+
+  it('recovers OAuth when a lazy direct tool invocation gets a terminal post-authentication 401', async () => {
+    const oauthProvider = { invalidateCredentials: vi.fn().mockResolvedValue(undefined) };
+    const transport = {
+      _url: new URL('https://example.com/mcp'),
+      oauthProvider,
+      close: vi.fn().mockResolvedValue(undefined),
+    } as any;
+    Object.setPrototypeOf(transport, StreamableHTTPClientTransport.prototype);
+    const unauthorized = new StreamableHTTPError(401, 'Server returned 401 after successful authentication');
+    const connection = outboundConnections.get('filesystem')!;
+    connection.transport = transport;
+    (connection.client as any).transport = transport;
+    (connection.client as any).close = vi.fn().mockResolvedValue(undefined);
+    mockClient.callTool.mockRejectedValue(unauthorized);
+
+    const result = await createCatalog().invokeVisibleTool({
+      server: 'filesystem',
+      toolName: 'read_file',
+      args: { path: '/tmp/example' },
+    });
+
+    expect(result.error?.type).toBe('upstream');
+    expect(connection.status).toBe(ClientStatus.AwaitingOAuth);
+    expect(oauthProvider.invalidateCredentials).toHaveBeenCalledWith('tokens');
+    expect(connection.client.close).toHaveBeenCalledOnce();
+    expect(connection.transport).not.toBe(transport);
   });
 
   it('does not fall back to another template instance when a request session has no mapping', async () => {

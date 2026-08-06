@@ -9,6 +9,7 @@ import { McpConfigManager } from '@src/config/mcpConfigManager.js';
 import { MCP_URI_SEPARATOR } from '@src/constants.js';
 import { InternalCapabilitiesProvider } from '@src/core/capabilities/internalCapabilitiesProvider.js';
 import { LazyLoadingOrchestrator } from '@src/core/capabilities/lazyLoadingOrchestrator.js';
+import { executeWithPostAuthOAuthRecovery } from '@src/core/client/postAuthOAuthRecovery.js';
 import { byCapabilities } from '@src/core/filtering/clientFiltering.js';
 import { FilteringService } from '@src/core/filtering/filteringService.js';
 import { getDisabledToolError } from '@src/core/server/disabledTools.js';
@@ -160,9 +161,11 @@ export function registerToolHandlers(
           },
         });
       }
-      return outboundConn.client.callTool({ ...request.params, name: extractedToolName }, CallToolResultSchema, {
-        timeout: getRequestTimeout(outboundConn.transport),
-      });
+      return executeWithPostAuthOAuthRecovery(clientName, outboundConn, () =>
+        outboundConn.client.callTool({ ...request.params, name: extractedToolName }, CallToolResultSchema, {
+          timeout: getRequestTimeout(outboundConn.transport),
+        }),
+      );
     }, 'Error calling tool'),
   );
 }

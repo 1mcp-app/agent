@@ -1,5 +1,6 @@
 import type { Tool } from '@modelcontextprotocol/sdk/types.js';
 
+import { executeWithPostAuthOAuthRecovery } from '@src/core/client/postAuthOAuthRecovery.js';
 import { ConnectionResolver, type TemplateHashProvider } from '@src/core/server/connectionResolver.js';
 import { getDisabledToolError, isToolDisabled } from '@src/core/server/disabledTools.js';
 import { ClientStatus, type MCPServerParams, type OutboundConnections } from '@src/core/types/index.js';
@@ -198,10 +199,12 @@ export class CapabilityCatalog {
     }
 
     try {
-      const result = await connection.client.callTool({
-        name: route.toolName,
-        arguments: args.args as Record<string, unknown>,
-      });
+      const result = await executeWithPostAuthOAuthRecovery(route.server, connection, () =>
+        connection.client.callTool({
+          name: route.toolName,
+          arguments: args.args as Record<string, unknown>,
+        }),
+      );
       return { result, server: route.server, tool: route.toolName, route, refresh };
     } catch (error) {
       logger.error(`Tool invocation failed: ${route.server}:${route.toolName}`, { error });

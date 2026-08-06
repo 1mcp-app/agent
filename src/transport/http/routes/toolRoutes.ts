@@ -9,12 +9,13 @@ import {
 } from '@src/core/capabilities/capabilityVisibility.js';
 import { ToolInvokeOutput, ToolListOutput } from '@src/core/capabilities/schemas/metaToolSchemas.js';
 import { ToolRegistry } from '@src/core/capabilities/toolRegistry.js';
+import { executeWithPostAuthOAuthRecovery } from '@src/core/client/postAuthOAuthRecovery.js';
 import { FilteringService } from '@src/core/filtering/filteringService.js';
 import { type ServerAdapter, ServerType } from '@src/core/server/adapters/types.js';
 import { createConnectionResolver, type TemplateHashProvider } from '@src/core/server/connectionResolver.js';
 import { getDisabledToolError } from '@src/core/server/disabledTools.js';
 import { ServerManager } from '@src/core/server/serverManager.js';
-import { ClientStatus } from '@src/core/types/client.js';
+import { ClientStatus, type OutboundConnection } from '@src/core/types/client.js';
 import logger from '@src/logger/logger.js';
 import { CONTEXT_HEADERS } from '@src/transport/http/utils/contextExtractor.js';
 
@@ -284,17 +285,18 @@ export function createToolInvocationsHandler(serverManager: ServerManager): Requ
         const connection = (sessionConnection ??
           (allowGenericFallback ? resolveConnectionByServerName(filteredConnections, target.serverName) : undefined) ??
           (allowGenericFallback ? serverManager.getClient(target.serverName) : undefined)) as
-          | { client?: { callTool: (input: { name: string; arguments: Record<string, unknown> }) => Promise<unknown> } }
-          | undefined;
+          OutboundConnection | undefined;
         if (!connection || !connection.client) {
           res.status(503).json({ error: `Server not connected: ${target.serverName}` });
           return;
         }
         try {
-          const upstreamResult = await connection.client.callTool({
-            name: target.toolName,
-            arguments: toolArgs,
-          });
+          const upstreamResult = await executeWithPostAuthOAuthRecovery(target.serverName, connection, () =>
+            connection.client.callTool({
+              name: target.toolName,
+              arguments: toolArgs,
+            }),
+          );
           res.json({ result: upstreamResult, server: target.serverName, tool: target.toolName });
         } catch (error) {
           logger.error('Direct tool invocation error:', error);
