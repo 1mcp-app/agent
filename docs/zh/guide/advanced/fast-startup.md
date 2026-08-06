@@ -68,9 +68,18 @@ npx -y @1mcp/agent --config mcp.json --enable-async-loading \
 
 ## 配置
 
-您可以在 JSON 配置文件的 `loading` 部分自定义异步加载行为，例如超时和重试逻辑。
+请在 `config.toml` 中持久化异步加载设置，而不是写入 `mcp.json` 后端清单：
 
-有关选项的完整列表，请参阅 **[配置深入探讨](/guide/essentials/configuration#loading-section-async-loading)**。
+```toml
+[asyncLoading]
+enabled = true
+batchNotifications = true
+batchDelay = 250
+```
+
+`batchDelay` 是以毫秒为单位的通知合并窗口。CLI 参数会覆盖当前进程的这些值。`asyncLoading.minServers` 和 `asyncLoading.timeout` 是已弃用的兼容空操作，不是就绪控制。
+
+有关两个配置文件模型和运行时优先级，请参阅 **[配置深入指南](/zh/guide/essentials/configuration)**。
 
 ```bash
 1mcp inspect

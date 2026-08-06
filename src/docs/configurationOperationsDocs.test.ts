@@ -1,0 +1,97 @@
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+
+const root = process.cwd();
+
+function readDoc(path: string): string {
+  return readFileSync(join(root, path), 'utf8');
+}
+
+describe('configuration and operations documentation', () => {
+  it('keeps configuration schemas, recovery, and integration modes aligned', () => {
+    const enConfiguration = readDoc('docs/en/guide/essentials/configuration.md');
+    const zhConfiguration = readDoc('docs/zh/guide/essentials/configuration.md');
+    const enReference = readDoc('docs/en/reference/mcp-servers.md');
+    const zhReference = readDoc('docs/zh/reference/mcp-servers.md');
+    const enAuth = readDoc('docs/en/guide/advanced/authentication.md');
+    const zhAuth = readDoc('docs/zh/guide/advanced/authentication.md');
+    const enPerformance = readDoc('docs/en/guide/advanced/performance.md');
+    const zhPerformance = readDoc('docs/zh/guide/advanced/performance.md');
+    const enFastStartup = readDoc('docs/en/guide/advanced/fast-startup.md');
+    const zhFastStartup = readDoc('docs/zh/guide/advanced/fast-startup.md');
+    const enApps = readDoc('docs/en/guide/integrations/app-consolidation.md');
+    const zhApps = readDoc('docs/zh/guide/integrations/app-consolidation.md');
+    const enCodex = readDoc('docs/en/guide/integrations/codex.md');
+    const zhCodex = readDoc('docs/zh/guide/integrations/codex.md');
+    const enServerManagement = readDoc('docs/en/guide/essentials/server-management.md');
+    const zhServerManagement = readDoc('docs/zh/guide/essentials/server-management.md');
+
+    for (const page of [enConfiguration, zhConfiguration]) {
+      expect(page).toContain('mcpServers');
+      expect(page).toContain('config.toml');
+      expect(page).toContain('"type": "stdio"');
+      expect(page).toContain('"disabled": false');
+      expect(page).toContain('[auth]');
+      expect(page).toContain('[asyncLoading]');
+    }
+
+    for (const page of [enReference, zhReference]) {
+      expect(page).toContain('`type`');
+      expect(page).toContain('`disabled`');
+      expect(page).not.toContain('"transport":');
+      expect(page).not.toContain('`enabled` (');
+    }
+
+    expect(enAuth).toContain('MCP');
+    expect(enAuth).toContain('Admin');
+    expect(enAuth).toContain('health routes');
+    expect(zhAuth).toContain('MCP');
+    expect(zhAuth).toContain('Admin');
+    expect(zhAuth).toContain('健康检查路由');
+
+    for (const page of [enPerformance, zhPerformance]) {
+      expect(page).toContain('restartOnExit');
+      expect(page).toContain('maxRestarts');
+      expect(page).not.toContain('Circuit Breaker');
+      expect(page).not.toContain('Load Balancing');
+      expect(page).not.toContain('Connection Pooling');
+      expect(page).not.toContain('99.9%');
+    }
+
+    for (const page of [enFastStartup, zhFastStartup]) {
+      expect(page).toContain('[asyncLoading]');
+      expect(page).toContain('batchDelay = 250');
+      expect(page).not.toContain('loading` section of your JSON');
+      expect(page).not.toContain('loading` 部分');
+    }
+
+    for (const page of [enApps, zhApps]) {
+      expect(page).toContain('APP_PRESETS');
+      expect(page).toContain('gemini-code');
+      expect(page).toContain('augment-code');
+      expect(page).toContain('backups/apps/<app-name>');
+      expect(page).toContain('Copilot');
+    }
+    expect(enApps).toContain('not an `APP_PRESETS` target');
+    expect(zhApps).toContain('不是 `APP_PRESETS` 目标');
+
+    for (const page of [enCodex, zhCodex]) {
+      expect(page).toContain('`.codex/config.toml`');
+      expect(page).toContain('[mcp_servers.1mcp]');
+      expect(page).toContain('http://localhost:3050/mcp');
+      expect(page).toContain('CLI');
+      expect(page).toContain('proxy');
+      expect(page).not.toContain('3051');
+      expect(page).not.toContain('0.44.0');
+      expect(page).not.toContain('(no auth)');
+    }
+
+    for (const page of [enServerManagement, zhServerManagement]) {
+      expect(page).toContain('registry search filesystem --type=npm --transport=stdio');
+      expect(page).toContain('mcp install --interactive');
+      expect(page).not.toContain('registry search --category');
+      expect(page).not.toContain('registry search --updates');
+      expect(page).not.toContain('mcp wizard');
+    }
+  });
+});

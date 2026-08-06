@@ -149,12 +149,12 @@ This is a dictionary of all the backend MCP servers the agent will manage.
 
 **Common Properties:**
 
-- `transport` (string, optional): `stdio` or `http`. Defaults to `stdio` if `command` is present, `http` if `url` is present.
+- `type` (string, optional): `stdio`, `http`, `sse`, or `streamableHttp`. Defaults to `stdio` if `command` is present and `http` if `url` is present.
 - `tags` (array of strings, optional): Tags for routing and access control. Required for preset filtering to work correctly.
 - `connectionTimeout` (number, optional): Connection timeout in milliseconds. Used when establishing initial connection. Takes precedence over `timeout`.
 - `requestTimeout` (number, optional): Request timeout in milliseconds. Used for individual MCP operations (callTool, readResource, etc.). Takes precedence over `timeout`.
 - `timeout` (number, optional): **Deprecated** fallback timeout in milliseconds. Used when specific timeouts are not set. New configurations should use `connectionTimeout` and `requestTimeout`.
-- `enabled` (boolean, optional): Set to `false` to disable the server. Defaults to `true`.
+- `disabled` (boolean or template string, optional): Set to `true` to prevent the server from starting. Omit it or set it to `false` to enable the server.
 - `disabledTools` (array of strings, optional): Hide selected tools from this server without disabling the entire server.
 
 **HTTP Transport Properties:**
@@ -195,7 +195,7 @@ This is a dictionary of all the backend MCP servers the agent will manage.
       "tags": ["files", "local-data"]
     },
     "remote-api": {
-      "transport": "http",
+      "type": "http",
       "url": "https://api.example.com/mcp",
       "headers": {
         "Authorization": "Bearer local-token"
@@ -466,21 +466,21 @@ Set a custom working directory for the process:
 {
   "mcpServers": {
     "fast-api": {
-      "transport": "http",
+      "type": "http",
       "url": "https://fast-api.example.com/mcp",
       "connectionTimeout": 3000,
       "requestTimeout": 10000,
       "tags": ["api", "fast"]
     },
     "heavy-processor": {
-      "transport": "http",
+      "type": "http",
       "url": "https://heavy.example.com/mcp",
       "connectionTimeout": 10000,
       "requestTimeout": 120000,
       "tags": ["processing", "slow"]
     },
     "backward-compatible": {
-      "transport": "http",
+      "type": "http",
       "url": "https://legacy.example.com/mcp",
       "timeout": 30000,
       "tags": ["legacy"]

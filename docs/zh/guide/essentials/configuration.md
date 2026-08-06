@@ -13,6 +13,45 @@ head:
 
 有关 MCP 服务器配置（后端服务器、环境管理、进程控制），请参阅 **[MCP 服务器参考](/zh/reference/mcp-servers)**。
 
+## 两个配置文件
+
+请将后端清单与 1MCP 运行时设置分到不同文件中。它们会从同一配置目录加载，但使用不同的 schema。
+
+- `mcp.json` 包含 `mcpServers`，即后端 MCP 清单。服务器使用 `type`（`stdio`、`http`、`sse` 或 `streamableHttp`），需要暂时不启动时使用 `disabled`。
+- `config.toml` 包含身份验证、异步加载、日志和运行时默认值等应用设置；其中不包含 `mcpServers`。
+
+```json
+// mcp.json
+{
+  "mcpServers": {
+    "filesystem": {
+      "type": "stdio",
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-filesystem", "/tmp"],
+      "tags": ["files"]
+    },
+    "remote-api": {
+      "type": "http",
+      "url": "https://api.example.com/mcp",
+      "disabled": false
+    }
+  }
+}
+```
+
+```toml
+# config.toml
+[auth]
+enabled = true
+
+[asyncLoading]
+enabled = true
+batchNotifications = true
+batchDelay = 250
+```
+
+CLI 参数及其 `ONE_MCP_*` 环境变量等价项会覆盖当前进程的这些运行时设置。不要把 `[auth]` 或 `[asyncLoading]` 写进 `mcp.json`，也不要把 `mcpServers` 写进 `config.toml`。
+
 ## 配置方法
 
 Agent 支持三种配置方法，按以下优先级顺序应用：

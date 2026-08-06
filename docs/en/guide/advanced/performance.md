@@ -1,130 +1,40 @@
 ---
-title: Performance & Reliability - Production-Ready MCP Management
-description: Optimize 1MCP performance with efficient request handling, automatic retry, recovery strategies, monitoring, and reliability features.
-head:
-  - ['meta', { name: 'keywords', content: '1MCP performance,reliability,retry logic,monitoring,production' }]
-  - ['meta', { property: 'og:title', content: '1MCP Performance & Reliability Guide' }]
-  - [
-      'meta',
-      {
-        property: 'og:description',
-        content: 'Optimize 1MCP for production. Performance tuning, reliability, and monitoring features.',
-      },
-    ]
+title: Performance and Recovery
+description: Configure bounded stdio backend recovery and use 1MCP operational signals accurately.
 ---
 
-# Performance & Reliability
+# Performance and Recovery
 
-> **⚡ Built for Production**: Reliable, fast, and resilient MCP server management with intelligent recovery
+1MCP forwards MCP traffic to the configured backend. Size connection and request timeouts for each backend, then use logs and health routes to investigate slow or unavailable services. It does not provide load balancing, a circuit breaker, connection pooling, or an uptime guarantee.
 
-## 🔄 Efficient Request Handling
+## Bounded Stdio Recovery
 
-**What it does**: Direct request forwarding to backend MCP servers with proper error handling
-**Why you need it**: Reliable communication between AI assistants and MCP servers
-**How it helps**: Consistent request processing, error recovery, connection management
+Automatic recovery is opt-in and applies only to `stdio` backend servers. Set `restartOnExit` in `mcp.json` when a child process should be supervised after it exits:
 
-**⏱️ Setup Time**: Built-in functionality
-**🎯 Perfect For**: Reliable MCP server communication, error handling
-**✅ You Get**: Stable connections, proper error handling, request forwarding
-
----
-
-## 🔄 Automatic Retry & Recovery
-
-**What it does**: Intelligent retry logic with exponential backoff for failed connections
-**Why you need it**: Handle temporary server failures gracefully without manual intervention
-**How it helps**: Automatic recovery, circuit breaker pattern, minimal service disruption
-
-**Recovery Strategy**:
-
-```
-Connection Failure → Wait 1s → Retry
-Still Failing → Wait 2s → Retry
-Still Failing → Wait 4s → Retry
-Still Failing → Wait 8s → Mark server unavailable
-Server Recovers → Immediate reconnection
+```json
+{
+  "mcpServers": {
+    "local-tool": {
+      "type": "stdio",
+      "command": "node",
+      "args": ["server.js"],
+      "restartOnExit": true,
+      "maxRestarts": 5,
+      "restartDelay": 1000
+    }
+  }
+}
 ```
 
-**Reliability Impact**:
+`maxRestarts` is the maximum number of consecutive restart attempts; omit it for `5`, use `0` for no limit, or set a positive bound. After five stable minutes, the attempt counter resets. `restartDelay` is the initial delay in milliseconds. Consecutive failures wait 1x, 2x, 4x, 8x, then at most 16x that delay.
 
-- **Individual Server Uptime**: 95% typical
-- **Effective System Uptime**: 99.9% with retry logic
-- **Recovery Time**: Seconds instead of manual intervention
+HTTP, SSE, and streamable HTTP backend entries ignore these supervision settings. Recovery does not promise that a failed backend is available, so callers must still handle MCP errors and check their intended service before critical work.
 
-**⏱️ Setup Time**: Built-in resilience
-**🎯 Perfect For**: Production systems, unreliable networks, critical workflows
-**✅ You Get**: Automatic recovery, improved uptime, reduced maintenance
+## Operational Signals
 
----
+- Use `/health/ready` to determine whether the HTTP runtime can accept traffic. It does not mean every backend is ready.
+- Use `/health/mcp` to observe backend loading and retry progress.
+- Use the authenticated `inspect` API or `1mcp inspect` for the client-facing state before invoking a known backend.
+- Configure `ONE_MCP_LOG_LEVEL=debug` while investigating an incident, then return it to the appropriate production level.
 
-## ⚡️ Request Pagination
-
-**What it does**: Paginates responses for `list` methods to handle large result sets from multiple servers efficiently.
-**Why you need it**: Prevents memory overload and slow responses when aggregating thousands of items (tools, resources, etc.) from many servers.
-**How it helps**: Instead of returning all results at once, it returns them in manageable "pages" that the client can navigate through.
-
-**Key Details**:
-
-- **Opt-in Feature**: Disabled by default to ensure compatibility with all clients.
-- **Cursor-Based**: Uses a `nextCursor` token to fetch subsequent pages.
-- **Improves Scalability**: Essential for environments with 5 or more MCP servers.
-
-> For a complete guide on how to enable and use this feature, see the **[Pagination Support Guide](/reference/pagination.md)**.
-
----
-
-## 📊 Basic Monitoring & Logging
-
-**What it does**: Structured logging and basic monitoring for system status
-**Why you need it**: Track system status and troubleshoot issues
-**How it helps**: Winston-based logging, request/error tracking, connection monitoring
-
-**Available Monitoring**:
-
-```bash
-# Health endpoint
-GET /health
-
-# OAuth management dashboard
-GET /oauth
-
-# Application logs for monitoring
-# Request/response logging
-# Error tracking with stack traces
-```
-
-**⏱️ Setup Time**: Built-in logging
-**🎯 Perfect For**: Basic monitoring, troubleshooting, system status
-**✅ You Get**: Structured logs, error tracking, request monitoring
-
----
-
-## Performance Optimization Tips
-
-### Connection Management
-
-- **Connection Pooling**: Automatically manages MCP server connections
-- **Keep-Alive**: Maintains persistent connections for better performance
-- **Load Balancing**: Distributes requests across available servers
-
-### Error Handling Best Practices
-
-- **Circuit Breaker**: Prevents cascading failures
-- **Graceful Degradation**: Continues operation when servers are unavailable
-- **Timeout Management**: Prevents resource exhaustion from hanging requests
-
-### Monitoring and Observability
-
-- **Log Analysis**: Use structured logs for performance insights
-- **Error Tracking**: Monitor error rates and patterns
-- **Health Checks**: Regular server status verification
-
-### Next Steps
-
-- **Advanced Monitoring** → [Enterprise Features](/guide/advanced/enterprise)
-- **Security** → [Security Features](/guide/advanced/security)
-- **Development** → [Developer Features](/guide/integrations/developer-tools)
-
----
-
-> **⚡ Performance Note**: These features work automatically to ensure your MCP servers stay responsive and available. For advanced monitoring and observability, see the Enterprise features.
+For startup behavior and catalog publication, see [Fast Startup](/guide/advanced/fast-startup). For the server configuration contract, see [MCP Servers Reference](/reference/mcp-servers).

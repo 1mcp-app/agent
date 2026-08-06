@@ -33,8 +33,6 @@ describe('onboarding documentation', () => {
       zhQuickStart,
       enInstallation,
       zhInstallation,
-      enCodex,
-      zhCodex,
       enDevelopment,
       zhDevelopment,
     ]) {
@@ -67,13 +65,15 @@ describe('onboarding documentation', () => {
     }
 
     expect(enCodex).toContain("trusted project's `.codex/config.toml`");
-    expect(enCodex).toContain('including `[mcp_servers]` entries');
+    expect(enCodex).toContain('[mcp_servers.1mcp]');
+    expect(enCodex).toContain('Choose exactly one agent-facing 1MCP mode');
     expect(enCodex).not.toContain('0.44.0');
     expect(enCodex).not.toContain('HTTP transport support is experimental');
     expect(enCodex).not.toContain('No per-project configuration');
 
     expect(zhCodex).toContain('受信任项目的 `.codex/config.toml`');
-    expect(zhCodex).toContain('其中包括 `[mcp_servers]` 条目');
+    expect(zhCodex).toContain('[mcp_servers.1mcp]');
+    expect(zhCodex).toContain('每个 Codex 项目只能选择一种面向 agent 的 1MCP 模式');
     expect(zhCodex).not.toContain('0.44.0');
     expect(zhCodex).not.toContain('HTTP 传输支持是实验性的');
     expect(zhCodex).not.toContain('无项目特定配置');

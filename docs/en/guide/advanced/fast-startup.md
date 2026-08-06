@@ -68,9 +68,18 @@ npx -y @1mcp/agent --config mcp.json --enable-async-loading \
 
 ## Configuration
 
-You can customize the async loading behavior, such as timeouts and retry logic, in the `loading` section of your JSON configuration file.
+Persist async-loading settings in `config.toml`, not in the `mcp.json` backend inventory:
 
-For a complete list of options, see the **[Configuration Deep Dive](/guide/essentials/configuration#loading-section-async-loading)**.
+```toml
+[asyncLoading]
+enabled = true
+batchNotifications = true
+batchDelay = 250
+```
+
+`batchDelay` is the notification coalescing window in milliseconds. CLI flags override these values for the process. `asyncLoading.minServers` and `asyncLoading.timeout` are deprecated compatibility no-ops; they are not readiness controls.
+
+See the **[Configuration Deep Dive](/guide/essentials/configuration)** for the two-file model and runtime precedence.
 
 ```bash
 1mcp inspect

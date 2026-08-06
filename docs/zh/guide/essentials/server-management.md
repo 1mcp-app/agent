@@ -21,13 +21,13 @@ head:
 
 ```bash
 # 搜索可用的服务器
-npx -y @1mcp/agent registry search --category=filesystem
+npx -y @1mcp/agent registry search filesystem --type=npm --transport=stdio
 
 # 安装文件系统服务器
 npx -y @1mcp/agent mcp install filesystem
 
-# 或使用交互式向导
-npx -y @1mcp/agent mcp wizard
+# 或使用交互式安装
+npx -y @1mcp/agent mcp install --interactive
 ```
 
 ### 注册表工作流程
@@ -69,11 +69,8 @@ npx -y @1mcp/agent mcp install git --repository /path/to/project
 启动配置向导进行引导安装：
 
 ```bash
-# 启动交互式向导
-npx -y @1mcp/agent mcp wizard
-
-# 使用预定义模板启动
-npx -y @1mcp/agent mcp wizard --template development
+# 启动交互式安装
+npx -y @1mcp/agent mcp install --interactive
 ```
 
 向导提供：
@@ -134,7 +131,7 @@ npx -y @1mcp/agent mcp add remote-api --type=http --url="https://mcp.example.com
 
 - **远程访问**：连接到本地网络或互联网上的服务器。
 - **自定义标头**：添加自定义 HTTP 标头用于身份验证或其他目的。
-- **连接池**：高效管理到远程服务器的连接。
+- **端点配置**：配置远程 MCP 端点及其请求标头。
 
 ### SSE 传输（已弃用）
 
@@ -163,10 +160,10 @@ The modern workflow using the registry provides automatic dependency resolution 
 
     ```bash
     # Search for development servers
-    npx -y @1mcp/agent registry search --category=development
+    npx -y @1mcp/agent registry search development --type=npm
 
     # Browse all available servers
-    npx -y @1mcp/agent mcp wizard
+    npx -y @1mcp/agent mcp install --interactive
     ```
 
 2.  **Install Servers**: Install servers with automatic configuration.
@@ -189,8 +186,8 @@ The modern workflow using the registry provides automatic dependency resolution 
 4.  **Manage Updates**: Keep servers updated with latest versions.
 
     ```bash
-    # Check for available updates
-    npx -y @1mcp/agent registry search --updates
+    # 更新前先检查已安装的服务器
+    npx -y @1mcp/agent mcp status filesystem
 
     # Update specific server
     npx -y @1mcp/agent mcp update filesystem
