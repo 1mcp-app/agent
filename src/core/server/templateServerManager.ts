@@ -1,6 +1,7 @@
 import { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
 
 import { ClientManager } from '@src/core/client/clientManager.js';
+import { registerCapabilityPaginationNotifications } from '@src/core/capabilities/capabilityPagination.js';
 import { ClientTemplateTracker, TemplateFilteringService, TemplateIndex } from '@src/core/filtering/index.js';
 import { InstructionAggregator } from '@src/core/instructions/instructionAggregator.js';
 import type { BackendSupervisionSnapshot } from '@src/core/server/backendStdioSupervisor.js';
@@ -165,6 +166,7 @@ export class TemplateServerManager {
           status: ClientStatus.Connected, // Template servers should be connected
           capabilities: undefined, // Will be populated by setupCapabilities
         });
+        registerCapabilityPaginationNotifications(outboundConns, outboundConns.get(outboundKey)!);
         if (instance.supervision) {
           this.publishTemplateSupervision(instance, instance.supervision);
         }

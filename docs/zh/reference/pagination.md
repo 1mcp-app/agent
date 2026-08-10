@@ -60,14 +60,9 @@ pnpm inspector
 
 ### 游标格式
 
-1MCP 使用 **base64 编码的游标**，包含：
+1MCP 返回不透明且带版本的游标。游标绑定能力类型、当前运行时世代、有效过滤条件、提供方位置和提供方的不透明游标。客户端必须原样返回该值，不应解码或自行构造游标。
 
-- 客户端名称（从哪个 MCP 服务器继续）
-- 服务器特定游标（用于在该服务器内继续）
-
-```
-游标格式：base64(clientName:serverCursor)
-```
+提供方按确定性的名称顺序遍历。每个聚合页最多包含一个提供方页，1MCP 自身的能力也位于同一序列中。
 
 ### 分页流程
 
@@ -84,7 +79,7 @@ sequenceDiagram
     1MCP-->>Client: 结果 + 编码游标
 
     Client->>1MCP: resources/list（带游标）
-    Note over 1MCP: 解码游标：Server1:abc123
+    Note over 1MCP: 校验不透明游标和运行时世代
     1MCP->>Server1: 获取下一页（游标：abc123）
     Server1-->>1MCP: 资源（无更多页）
     1MCP->>Server2: 获取第一页
@@ -92,7 +87,7 @@ sequenceDiagram
     1MCP-->>Client: 结果 + 新编码游标
 
     Client->>1MCP: resources/list（带游标）
-    Note over 1MCP: 解码游标：Server2:def456
+    Note over 1MCP: 校验不透明游标和运行时世代
     1MCP->>Server2: 获取下一页（游标：def456）
     Server2-->>1MCP: 资源（无更多页）
     1MCP-->>Client: 最终结果（无 nextCursor）
@@ -185,32 +180,34 @@ sequenceDiagram
 
 ### 无效游标
 
-如果游标变得无效（服务器已移除、数据损坏）：
+格式错误、旧格式、跨方法、过滤条件不匹配和过期世代的游标会返回 MCP `InvalidParams` 错误。提供方集合、过滤条件或能力世代变化后，请不带游标开始新的遍历。
 
 ```json
 {
   "jsonrpc": "2.0",
   "id": 1,
-  "result": {
-    "resources": [],
-    "nextCursor": "bmV3LWN1cnNvcg=="
+  "error": {
+    "code": -32602,
+    "message": "Invalid capability pagination cursor"
   }
 }
 ```
 
-1MCP 会自动：
-
-- 回退到第一个可用服务器
-- 记录关于无效游标的警告
-- 从有效起始点继续分页
-
 ### 服务器不可用
 
-当分页序列中的服务器变得不可用时：
+提供方列表请求失败时，1MCP 会继续返回健康提供方的数据，并将该次遍历之后的所有响应标记为部分结果。经过清理的失败信息位于 `_meta["app.1mcp/capability-pagination"]`，不会暴露提供方返回的错误文本。
 
-- 1MCP 跳过不可用的服务器
-- 继续处理下一个可用服务器
-- 记录服务器状态以供监控
+```json
+{
+  "_meta": {
+    "app.1mcp/capability-pagination": {
+      "partial": true,
+      "failures": [{ "provider": "example", "code": "upstream_list_failed" }],
+      "recovery": { "action": "restart_without_cursor" }
+    }
+  }
+}
+```
 
 ## 配置示例
 

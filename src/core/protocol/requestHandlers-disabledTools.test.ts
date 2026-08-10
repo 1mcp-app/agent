@@ -6,7 +6,6 @@ import { ClientStatus } from '@src/core/types/index.js';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mockGetTransportConfig = vi.fn().mockReturnValue({});
-const mockHandlePagination = vi.fn();
 const mockParseUri = vi.fn();
 
 vi.mock('@src/config/mcpConfigManager.js', () => ({
@@ -15,10 +14,6 @@ vi.mock('@src/config/mcpConfigManager.js', () => ({
       getTransportConfig: mockGetTransportConfig,
     })),
   },
-}));
-
-vi.mock('@src/utils/ui/pagination.js', () => ({
-  handlePagination: mockHandlePagination,
 }));
 
 vi.mock('@src/utils/core/parsing.js', () => ({
@@ -129,29 +124,6 @@ describe('requestHandlers disabled tools enforcement', () => {
       },
     });
 
-    mockHandlePagination.mockImplementation(
-      async (
-        filteredConnections: OutboundConnections,
-        _params: unknown,
-        _listFn: unknown,
-        mapResult: (
-          connection: OutboundConnection,
-          result: { tools?: Array<{ name: string; description: string }> },
-        ) => unknown,
-      ) => {
-        const connection = Array.from(filteredConnections.values())[0];
-        return {
-          items: mapResult(connection, {
-            tools: [
-              { name: 'read_file', description: 'Read file' },
-              { name: 'write_file', description: 'Write file' },
-            ],
-          }),
-          nextCursor: undefined,
-        };
-      },
-    );
-
     registerRequestHandlers(outboundConnections, {
       server: mockServer,
       enablePagination: true,
@@ -161,7 +133,6 @@ describe('requestHandlers disabled tools enforcement', () => {
     const result = await handler({ params: {} });
 
     expect(result.tools.map((tool: { name: string }) => tool.name)).toEqual(['filesystem/read_file']);
-    expect(mockHandlePagination).not.toHaveBeenCalled();
   });
 
   it('re-reads disabled tools config for listTools after config reload', async () => {
@@ -178,29 +149,6 @@ describe('requestHandlers disabled tools enforcement', () => {
         disabledTools: ['write_file'],
       },
     });
-
-    mockHandlePagination.mockImplementation(
-      async (
-        filteredConnections: OutboundConnections,
-        _params: unknown,
-        _listFn: unknown,
-        mapResult: (
-          connection: OutboundConnection,
-          result: { tools?: Array<{ name: string; description: string }> },
-        ) => unknown,
-      ) => {
-        const connection = Array.from(filteredConnections.values())[0];
-        return {
-          items: mapResult(connection, {
-            tools: [
-              { name: 'read_file', description: 'Read file' },
-              { name: 'write_file', description: 'Write file' },
-            ],
-          }),
-          nextCursor: undefined,
-        };
-      },
-    );
 
     registerRequestHandlers(outboundConnections, {
       server: mockServer,
