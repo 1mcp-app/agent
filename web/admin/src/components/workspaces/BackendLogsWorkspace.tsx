@@ -10,7 +10,9 @@ export function BackendLogsWorkspace({ logs }: { logs: BackendLogsModel }) {
       <header className="workspace-heading backend-logs-heading">
         <Group justify="space-between" align="flex-end">
           <div>
-            <Text className="eyebrow" size="xs">Runtime diagnostics</Text>
+            <Text className="eyebrow" size="xs">
+              Runtime diagnostics
+            </Text>
             <Title order={2}>Backend logs</Title>
           </div>
           <Badge color={connectionColor(logs.connection)} variant="light">
@@ -20,7 +22,9 @@ export function BackendLogsWorkspace({ logs }: { logs: BackendLogsModel }) {
       </header>
       {logs.sources.length === 0 ? (
         <div className="backend-log-empty" role="status">
-          {logs.connection === 'loading' ? 'Loading backend log sources...' : 'No stdio backend log sources are available.'}
+          {logs.connection === 'loading'
+            ? 'Loading backend log sources...'
+            : 'No stdio backend log sources are available.'}
         </div>
       ) : (
         <div className="backend-log-layout">
@@ -63,12 +67,18 @@ function SourceButton({
       onClick={onSelect}
     >
       <span className="backend-log-source-copy">
-        <Text component="span" fw={800} size="sm">{source.displayName}</Text>
+        <Text component="span" fw={800} size="sm">
+          {source.displayName}
+        </Text>
         <Text component="span" c="dimmed" size="xs">
           {sourceStatus(source)}
         </Text>
       </span>
-      {unread > 0 ? <Badge size="xs" color="orange">{unread > 99 ? '99+' : unread}</Badge> : null}
+      {unread > 0 ? (
+        <Badge size="xs" color="orange">
+          {unread > 99 ? '99+' : unread}
+        </Badge>
+      ) : null}
     </UnstyledButton>
   );
 }
@@ -85,7 +95,9 @@ function SelectedSource({ source, logs }: { source: BackendLogSource; logs: Back
       <Group className="backend-log-source-header" justify="space-between" wrap="nowrap">
         <div className="truncate">
           <Text fw={900}>{source.displayName}</Text>
-          <Text className="backend-log-canonical truncate" size="xs">{source.canonicalName}</Text>
+          <Text className="backend-log-canonical truncate" size="xs">
+            {source.canonicalName}
+          </Text>
         </div>
         <Badge color={source.capture === 'not-captured' ? 'red' : source.lifecycle === 'ended' ? 'orange' : 'teal'}>
           {source.capture === 'not-captured' ? 'Unavailable' : source.lifecycle === 'ended' ? 'Ended' : 'Live'}
@@ -96,16 +108,24 @@ function SelectedSource({ source, logs }: { source: BackendLogSource; logs: Back
           This server sends stderr to an explicit destination, so the runtime does not capture it.
         </div>
       ) : logs.selectionLoading ? (
-        <div className="backend-log-empty" role="status">Loading retained log history...</div>
+        <div className="backend-log-empty" role="status">
+          Loading retained log history...
+        </div>
       ) : logs.selectionError ? (
-        <div className="backend-log-empty" role="alert">{logs.selectionError}</div>
+        <div className="backend-log-empty" role="alert">
+          {logs.selectionError}
+        </div>
       ) : entries.length === 0 ? (
         <div className="backend-log-empty" role="status">
-          {source.lifecycle === 'ended' ? 'This source ended without retained log entries.' : 'No captured stderr in retained runtime history.'}
+          {source.lifecycle === 'ended'
+            ? 'This source ended without retained log entries.'
+            : 'No captured stderr in retained runtime history.'}
         </div>
       ) : (
         <div aria-label={`${source.displayName} retained log entries`} className="backend-log-well" role="log">
-          {entries.map((entry) => <LogRow key={entry.sequence} entry={entry} />)}
+          {entries.map((entry) => (
+            <LogRow key={entry.sequence} entry={entry} />
+          ))}
         </div>
       )}
     </>

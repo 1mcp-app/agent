@@ -1,4 +1,5 @@
 import { AUTH_CONFIG, HOST, PORT, RATE_LIMIT_CONFIG, STREAMABLE_HTTP_ENDPOINT } from '@src/constants.js';
+import type { TemplateContextTrustMode } from '@src/core/context/templateContextTrust.js';
 
 /**
  * Deep merge utility for nested objects
@@ -36,6 +37,9 @@ export interface AgentConfig {
   trustProxy: string | boolean;
   admin: {
     enabled: boolean;
+  };
+  templateContext: {
+    trust: TemplateContextTrustMode;
   };
   auth: {
     enabled: boolean;
@@ -133,6 +137,9 @@ export class AgentConfigManager {
       trustProxy: 'loopback',
       admin: {
         enabled: true,
+      },
+      templateContext: {
+        trust: 'verified',
       },
       auth: {
         enabled: AUTH_CONFIG.SERVER.DEFAULT_ENABLED,

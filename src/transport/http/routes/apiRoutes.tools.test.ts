@@ -9,6 +9,9 @@ const mockedLoadDeclaredServerConfigs = vi.hoisted(() => vi.fn());
 const mockedLoadConfigWithTemplates = vi.hoisted(() => vi.fn());
 const mockedExtractRequestContext = vi.hoisted(() => vi.fn());
 const mockedGetTransportConfig = vi.hoisted(() => vi.fn());
+const mockedAuthorizeRequestTemplateContext = vi.hoisted(() =>
+  vi.fn(({ context }: { context: unknown }): Record<string, unknown> => ({ status: 'trusted', context })),
+);
 
 vi.mock('@src/config/configManager.js', () => ({
   ConfigManager: {
@@ -33,6 +36,14 @@ vi.mock('@src/transport/http/utils/contextExtractor.js', () => ({
   },
   deriveContextSessionId: vi.fn(() => 'derived-session-id'),
   extractRequestContext: mockedExtractRequestContext,
+  extractTemplateContextRequest: vi.fn(() => {
+    const context = mockedExtractRequestContext();
+    return context ? { context, source: 'meta' } : null;
+  }),
+}));
+
+vi.mock('@src/transport/http/utils/templateContextAuthority.js', () => ({
+  authorizeRequestTemplateContext: mockedAuthorizeRequestTemplateContext,
 }));
 
 vi.mock('@src/logger/logger.js', () => ({
@@ -86,6 +97,7 @@ describe('apiRoutes /api/tools', () => {
     mockedGetTransportConfig.mockReturnValue({});
     mockedExtractRequestContext.mockReset();
     mockedExtractRequestContext.mockReturnValue(undefined);
+    mockedAuthorizeRequestTemplateContext.mockImplementation(({ context }) => ({ status: 'trusted', context }));
   });
 
   it('returns empty tool list when lazy orchestrator is unavailable', async () => {
@@ -503,6 +515,32 @@ describe('apiRoutes /api/tools', () => {
       expect.objectContaining({ sessionId: 'derived-session-id', serverCandidates: expect.any(Map) }),
     );
     expect(res.setHeader).toHaveBeenCalledWith('mcp-session-id', 'derived-session-id');
+  });
+
+  it('keeps unsigned context out of template rendering when verification rejects it', async () => {
+    mockedLoadConfigWithTemplates.mockClear();
+    mockedExtractRequestContext.mockReturnValue({
+      project: { name: 'untrusted', path: '/tmp/untrusted' },
+      user: { username: 'remote' },
+      environment: { variables: {} },
+      sessionId: 'untrusted-session',
+    });
+    mockedAuthorizeRequestTemplateContext.mockReturnValue({
+      status: 'untrusted',
+      reason: 'proof_missing',
+      contextHash: 'hash',
+    });
+    const serverManager = {
+      getLazyLoadingOrchestrator: vi.fn(() => undefined),
+      getClients: vi.fn(() => new Map()),
+    };
+    const handler = createToolsHandler(serverManager as never);
+    const res = createMockResponse();
+
+    await invokeInspectRoute(handler, { query: {} }, res);
+
+    expect(res.statusCode).toBe(200);
+    expect(mockedLoadConfigWithTemplates).not.toHaveBeenCalled();
   });
 
   it('returns 400 on validation error from meta-tool', async () => {

@@ -1,4 +1,8 @@
 import logger from '@src/logger/logger.js';
+import {
+  redactTemplateContextBodyForLogging,
+  redactTemplateContextQueryForLogging,
+} from '@src/transport/http/utils/templateContextAuthority.js';
 import { sanitizeHeaders } from '@src/utils/validation/sanitization.js';
 
 import { NextFunction, Request, Response } from 'express';
@@ -21,8 +25,8 @@ export function httpRequestLogger(req: Request, res: Response, next: NextFunctio
 
   // Log the incoming request
   logger.info(`[${req.method}] ${req.path}`, {
-    query: req.query,
-    body: req.body as unknown,
+    query: redactTemplateContextQueryForLogging(req.query),
+    body: redactTemplateContextBodyForLogging(req.body),
     headers: sanitizeHeaders(req.headers),
     userAgent: req.get('User-Agent'),
     ip: req.ip,

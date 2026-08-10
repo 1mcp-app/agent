@@ -178,16 +178,26 @@ describe('ApiClient', () => {
     expect(url).toBe('http://localhost:3050/api/inspect');
   });
 
-  it('encodes context into GET query params instead of headers', async () => {
+  it('encodes context and its proof into GET query params instead of headers', async () => {
     mockFetch.mockResolvedValueOnce(makeResponse(200, {}));
 
-    const client = new ApiClient({ baseUrl: 'http://localhost:3050', context: mockContext });
+    const proof = {
+      version: 1 as const,
+      runtimeScopeId: 'scope-a',
+      sessionId: 'session-a',
+      contextHash: 'hash-a',
+      issuedAt: '2026-08-04T00:00:00.000Z',
+      signature: 'signature-a',
+    };
+    const client = new ApiClient({ baseUrl: 'http://localhost:3050', context: mockContext, contextProof: proof });
     await client.get('/api/inspect', { target: 'runner' });
 
     const [url, init] = mockFetch.mock.calls[0] as [string, RequestInit];
     const parsed = new URL(url);
     expect(parsed.searchParams.get('target')).toBe('runner');
     expect(parsed.searchParams.get('context')).toBeTruthy();
+    expect(parsed.searchParams.get('contextProof')).toBeTruthy();
+    expect(init.redirect).toBe('error');
     expect((init.headers as Record<string, string>)['x-1mcp-context']).toBeUndefined();
   });
 });

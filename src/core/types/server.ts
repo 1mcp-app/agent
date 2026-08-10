@@ -1,6 +1,7 @@
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { ServerCapabilities } from '@modelcontextprotocol/sdk/types.js';
 
+import type { TemplateContextProof } from '@src/core/context/templateContextTrust.js';
 import { TemplateConfig } from '@src/core/instructions/templateTypes.js';
 import { TagExpression } from '@src/domains/preset/parsers/tagQueryParser.js';
 import { TagQuery } from '@src/domains/preset/types/presetTypes.js';
@@ -45,6 +46,7 @@ export interface InboundConnectionConfig extends TemplateConfig {
       };
     };
   };
+  readonly contextProof?: TemplateContextProof;
 }
 
 /**

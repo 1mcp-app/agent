@@ -9,6 +9,9 @@ import {
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('@src/logger/logger.js', () => ({
+  debugIf: vi.fn(),
+  infoIf: vi.fn(),
+  warnIf: vi.fn(),
   default: {
     info: vi.fn(),
     error: vi.fn(),
@@ -133,6 +136,33 @@ describe('StreamableSessionLifecycle', () => {
       restoreErrorType: StreamableSessionRestoreErrorType.ConnectionFailed,
       error: 'backend unavailable',
     });
+  });
+
+  it('rejects persisted unsigned template context in verified mode', async () => {
+    sessionRepository.getSessionData.mockReturnValue({
+      initializeResponse: {
+        protocolVersion: '2024-11-05',
+        capabilities: {},
+        serverInfo: { name: 'test', version: '1.0' },
+      },
+    });
+    sessionRepository.get.mockReturnValue({
+      context: {
+        project: { name: 'legacy' },
+        user: { username: 'remote' },
+        environment: { variables: {} },
+        sessionId: 'restored-session',
+      },
+    });
+
+    const result = await lifecycle.resolveExistingSession('restored-session');
+
+    expect(result).toMatchObject({
+      status: StreamableSessionStatus.Missing,
+      reason: StreamableSessionMissingReason.RestoreFailed,
+      restoreErrorType: StreamableSessionRestoreErrorType.ContextInvalid,
+    });
+    expect(serverManager.connectTransport).not.toHaveBeenCalled();
   });
 
   it('recovers a missing POST session only for initialize requests', async () => {

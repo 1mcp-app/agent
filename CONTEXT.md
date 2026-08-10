@@ -108,6 +108,22 @@ _Avoid_: command setup, connection helper, proxy setup
 Project, user, environment, and optional transport data supplied by a caller so the **Aggregated Runtime** can resolve contextual behavior.
 _Avoid_: metadata, payload extras
 
+**Trusted Request Context**:
+A **Request Context** that the **Aggregated Runtime** has authorized for **Template Server** rendering under its current **Template Context Trust Mode**. Decoding or logging a Request Context does not make it trusted.
+_Avoid_: valid context, parsed context, authenticated client context
+
+**Template Context Capability**:
+The random owner-only secret held by one local **Runtime Scope** and used by first-party local **Client Surfaces** to sign template-context proofs. It is not PID metadata, an OAuth credential, or a remote-client secret.
+_Avoid_: API key, auth token, context header
+
+**Template Context Proof**:
+A detached HMAC proof binding a readable **Request Context** hash to one Runtime Scope identity and canonical **Request Session**. It authorizes template rendering but does not authorize general session access.
+_Avoid_: context token, session token, encoded context
+
+**Template Context Trust Mode**:
+The server-owned policy (`verified`, `disabled`, or `legacy`) deciding whether a supplied Request Context can become a **Trusted Request Context**.
+_Avoid_: client trust flag, auth mode, template setting
+
 **Request Session**:
 The runtime identity used to associate a request or client connection with template rendering or routing.
 _Avoid_: HTTP session, connection id
@@ -139,6 +155,10 @@ _Avoid_: rendered hash, session ID, process PID
 **Configured Server Target**:
 A static server definition or **Template Server** definition addressed by a **Config Change** before runtime rendering.
 _Avoid_: server config, target config, raw server
+
+**Configured Server Target Identity**:
+The source-qualified identity of one **Configured Server Target**, combining whether it is a static or **Template Server** definition with its configured name. It remains unambiguous when both sources contain the same name.
+_Avoid_: server name, bare target ID
 
 **Global Transport Config**:
 Shared transport settings inherited by **Configured Server Targets** unless a target sets its own override.
@@ -282,7 +302,7 @@ A restorable snapshot of a **Runtime Scope** configuration created before a risk
 _Avoid_: temp copy, old config file
 
 **Server Installation Workflow**:
-The domain workflow that turns registry or direct-install input into an installable **Configured Server Target** and structured installation facts.
+The domain workflow that turns installation input into an installable static **Configured Server Target** and structured installation facts. It does not create **Template Server** definitions.
 _Avoid_: install command, installation adapter, registry install
 
 ## Relationships
@@ -319,13 +339,14 @@ _Avoid_: install command, installation adapter, registry install
 - A **Config Change** belongs to exactly one **Runtime Scope**.
 - A **Config Change** can add, update, or remove one **Configured Server Target**.
 - A **Configured Server Target** is either a static server definition or a **Template Server** definition.
+- A **Configured Server Target Identity** distinguishes static and template definitions that share the same configured name; the template definition is authoritative for runtime use and the static definition is shadowed.
 - The **Admin Console** presents **Configured Server Targets** for configuration changes and **Template Server Instances** for runtime observation.
 - A **Configured Tool Selection** belongs to one **Configured Server Target** and may retain tool names absent from the current **Capability Snapshot**.
 - A **Configured Tool Selection** on a **Template Server** definition is inherited by every **Template Server Instance** rendered from it.
 - A **Config Change** may create one **Config Backup** before persisting the change.
 - A **Config Backup** belongs to exactly one **Runtime Scope**.
 - A **Config Change** may affect the **Aggregated Runtime** for that **Runtime Scope**.
-- A **Server Installation Workflow** produces or updates one **Configured Server Target** through a **Config Change**.
+- A **Server Installation Workflow** produces or updates one static **Configured Server Target** through a **Config Change**.
 - A **Client Surface** can provide a **Request Context**.
 - A **Client Surface Attachment** belongs to one **Client Surface**.
 - A **Client Surface Attachment** can reuse an existing **Streamable Transport Session** or create a fresh one depending on the **Client Surface**.
