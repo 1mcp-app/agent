@@ -2,6 +2,7 @@ import { ErrorCode } from '@modelcontextprotocol/sdk/types.js';
 
 import { STREAMABLE_HTTP_ENDPOINT } from '@src/constants.js';
 import {
+  StreamableSessionLifecycle,
   StreamableSessionMissingReason,
   StreamableSessionStatus,
 } from '@src/transport/http/streamableSessionLifecycle.js';
@@ -304,6 +305,112 @@ describe('Streamable HTTP Routes', () => {
       );
       const createSessionData = mockLifecycle.resolvePostSession.mock.calls[0]?.[0].createSessionData;
       expect(createSessionData()).toMatchObject({ context, contextProof: proof });
+    });
+
+    it('restores a proof-bound headerless initialize session after restart', async () => {
+      const context = {
+        project: { name: 'agent', path: '/work/agent' },
+        user: { username: 'alice' },
+        environment: { variables: {} },
+        sessionId: 'stream-11111111-1111-4111-8111-111111111111',
+      };
+      const proof = {
+        version: 1 as const,
+        runtimeScopeId: 'scope-a',
+        sessionId: context.sessionId,
+        contextHash: 'context-hash',
+        issuedAt: '2026-08-05T00:00:00.000Z',
+        signature: 'signature',
+      };
+      let persistedConfig: any;
+      let persistedSession: any;
+      const repository = {
+        create: vi.fn((sessionId, config) => {
+          persistedConfig = config;
+          persistedSession = { ...config, sessionId };
+        }),
+        get: vi.fn(() => persistedConfig),
+        getSessionData: vi.fn(() => persistedSession),
+        storeInitializeResponse: vi.fn((_sessionId, initializeResponse) => {
+          persistedSession.initializeResponse = initializeResponse;
+        }),
+        updateAccess: vi.fn(),
+        delete: vi.fn(),
+      };
+      const createTransport = (sessionId: string) => ({
+        sessionId,
+        handleRequest: vi.fn().mockResolvedValue(undefined),
+        onclose: undefined,
+        onerror: undefined,
+      });
+      const createRestorableTransport = (sessionId: string) => ({
+        ...createTransport(sessionId),
+        _webStandardTransport: { _initialized: false, sessionId },
+        markAsRestored: vi.fn(),
+        isRestored: vi.fn(() => true),
+      });
+      const lifecycleOptions = {
+        createTransport: createTransport as any,
+        createRestorableTransport: createRestorableTransport as any,
+        isStreamableTransport: (() => true) as any,
+      };
+      const initialLifecycle = new StreamableSessionLifecycle(
+        mockServerManager,
+        repository as any,
+        undefined,
+        lifecycleOptions,
+      );
+
+      mockRouter.post.mockReset();
+      setupStreamableHttpRoutes(
+        mockRouter,
+        mockServerManager,
+        repository as any,
+        vi.fn((_req, _res, next) => next()),
+        undefined,
+        undefined,
+        undefined,
+        initialLifecycle,
+      );
+      postHandler = mockRouter.post.mock.calls[0][3];
+      mockedExtractTemplateContextRequest.mockReturnValue({ context, proof, source: 'meta' });
+      mockedAuthorizeRequestTemplateContext.mockImplementation((input) =>
+        input.transportSessionId === proof.sessionId
+          ? { status: 'trusted', provenance: 'verified-local', context }
+          : { status: 'untrusted', reason: 'session_mismatch' },
+      );
+      mockRequest.headers = {};
+      mockRequest.body = {
+        jsonrpc: '2.0',
+        id: 1,
+        method: 'initialize',
+        params: { protocolVersion: '2024-11-05', capabilities: {}, clientInfo: { name: 'test', version: '1.0' } },
+      };
+
+      await postHandler(mockRequest, mockResponse);
+
+      expect(repository.create).toHaveBeenCalledWith(
+        proof.sessionId,
+        expect.objectContaining({ context, contextProof: proof }),
+      );
+      expect(repository.storeInitializeResponse).toHaveBeenCalledWith(proof.sessionId, expect.any(Object));
+
+      mockServerManager.connectTransport.mockClear();
+      const restartedLifecycle = new StreamableSessionLifecycle(
+        mockServerManager,
+        repository as any,
+        undefined,
+        lifecycleOptions,
+      );
+      const restored = await restartedLifecycle.resolveExistingSession(proof.sessionId);
+
+      expect(restored).toMatchObject({ status: StreamableSessionStatus.Restored, sessionId: proof.sessionId });
+      expect(mockServerManager.connectTransport).toHaveBeenCalledWith(
+        expect.objectContaining({ sessionId: proof.sessionId }),
+        proof.sessionId,
+        expect.objectContaining({ contextProof: proof }),
+        context,
+      );
     });
 
     it('should use existing session when sessionId header provided and session found', async () => {
