@@ -257,9 +257,11 @@ describe('Runtime Scope ownership', () => {
     );
 
     const originalRenameSync = fs.renameSync;
+    let collisionInjected = false;
     vi.spyOn(fs, 'renameSync').mockImplementation(((source: fs.PathLike, destination: fs.PathLike) => {
       // Simulate Windows EPERM directory collision error
-      if (String(source).endsWith('.candidate') && destination === ownerPath) {
+      if (!collisionInjected && String(source).endsWith('.candidate') && destination === ownerPath) {
+        collisionInjected = true;
         throw Object.assign(new Error('operation not permitted'), { code: 'EPERM' });
       }
       return originalRenameSync(source, destination);
