@@ -31,6 +31,14 @@ vi.mock('@src/transport/http/utils/contextExtractor.js', () => ({
   },
   deriveContextSessionId: vi.fn(() => 'derived-session-id'),
   extractRequestContext: mockedExtractRequestContext,
+  extractTemplateContextRequest: vi.fn(() => {
+    const context = mockedExtractRequestContext();
+    return context ? { context, source: 'meta' } : null;
+  }),
+}));
+
+vi.mock('@src/transport/http/utils/templateContextAuthority.js', () => ({
+  authorizeRequestTemplateContext: vi.fn(({ context }) => ({ status: 'trusted', context })),
 }));
 
 vi.mock('@src/logger/logger.js', () => ({

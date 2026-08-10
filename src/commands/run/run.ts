@@ -87,6 +87,7 @@ export async function runCommand(options: RunCommandOptions): Promise<void> {
         stdinText,
         resolveTool: options.args === undefined,
         initializeContext: context.context,
+        initializeContextProof: context.contextProof,
         sendInitialize: context.sendInitialize,
       });
       return response.retryWithFreshSession
@@ -132,6 +133,7 @@ async function tryRunRest(
     bearerToken: context.bearerToken,
     sessionId: context.sessionId,
     context: context.context,
+    contextProof: context.contextProof,
   });
   const needsSchemaForStdin = options.args === undefined && stdinText !== undefined;
   const needsSchemaForValidation = options.args !== undefined;
@@ -203,6 +205,7 @@ async function tryRunRest(
     args: resolvedArguments,
     _meta: {
       context: context.context,
+      ...(context.contextProof ? { contextProof: context.contextProof } : {}),
     },
   });
 
@@ -407,6 +410,7 @@ export async function invokeTool(options: {
   stdinText?: string;
   resolveTool: boolean;
   initializeContext?: ContextData;
+  initializeContextProof?: import('@src/core/context/templateContextTrust.js').TemplateContextProof;
   sendInitialize?: boolean;
 }): Promise<{
   rawResponse: JsonRpcResponse<CallToolResult>;
@@ -421,7 +425,7 @@ export async function invokeTool(options: {
     const shouldSendInitialize = options.sendInitialize ?? !options.sessionId;
 
     if (shouldSendInitialize) {
-      const initializeResponse = await client.initialize(options.initializeContext);
+      const initializeResponse = await client.initialize(options.initializeContext, options.initializeContextProof);
       if ('error' in initializeResponse) {
         return {
           rawResponse: initializeResponse,

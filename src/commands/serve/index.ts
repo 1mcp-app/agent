@@ -127,6 +127,16 @@ export const serverOptions = {
       'Trust proxy configuration for Express.js (boolean, IP address, subnet, or preset: loopback, linklocal, uniquelocal)',
     type: 'string' as const,
   },
+  'template-context-trust': {
+    describe: 'Template context trust policy (verified, disabled, or legacy)',
+    type: 'string' as const,
+    choices: ['verified', 'disabled', 'legacy'] as const,
+  },
+  'confirm-untrusted-template-context': {
+    describe: 'Confirm legacy template context trust when listening on a non-loopback host',
+    type: 'boolean' as const,
+    default: false,
+  },
   'health-info-level': {
     describe: 'Health endpoint information detail level (full, basic, minimal)',
     type: 'string' as const,

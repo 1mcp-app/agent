@@ -419,6 +419,20 @@ minServers = 2
       expect(result.asyncLoading?.minServers).toBe(2);
     });
 
+    it('loads template context trust mode from config.toml', async () => {
+      await fsPromises.writeFile(join(tempConfigDir, 'config.toml'), '[templateContext]\ntrust = "legacy"\n');
+
+      const result = loader.loadAppConfigFromToml();
+
+      expect(result.templateContext?.trust).toBe('legacy');
+    });
+
+    it('rejects an invalid template context trust mode', async () => {
+      await fsPromises.writeFile(join(tempConfigDir, 'config.toml'), '[templateContext]\ntrust = "sometimes"\n');
+
+      expect(loader.loadAppConfigFromToml()).toEqual({});
+    });
+
     it('accepts the legacy lazy mode while warning that enabled controls runtime behavior', async () => {
       const warnSpy = vi.spyOn(logger, 'warn').mockImplementation(() => logger);
       await fsPromises.writeFile(

@@ -159,19 +159,15 @@ describe('ClientInstancePool', () => {
       expect(instance.status).toBe('active');
       expect(instance.clientIds.has('client-1')).toBe(true);
       expect(instance.id).toMatch(/^[0-9a-f]{64}$/);
-      expect(createTransportsWithContext).toHaveBeenCalledWith(
-        { testTemplate: expect.any(Object) },
-        undefined,
-        {
-          backendLogSources: {
-            testTemplate: expect.objectContaining({
-              id: `template:${instance.id}`,
-              canonicalName: instance.id,
-              displayName: `testTemplate (${instance.id.slice(0, 12)})`,
-            }),
-          },
+      expect(createTransportsWithContext).toHaveBeenCalledWith({ testTemplate: expect.any(Object) }, undefined, {
+        backendLogSources: {
+          testTemplate: expect.objectContaining({
+            id: `template:${instance.id}`,
+            canonicalName: instance.id,
+            displayName: `testTemplate (${instance.id.slice(0, 12)})`,
+          }),
         },
-      );
+      });
     });
 
     it('recovers a supervised template with the same logical ID, rendered config, and memberships', async () => {

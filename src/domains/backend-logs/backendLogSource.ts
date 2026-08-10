@@ -2,10 +2,7 @@ import { formatTemplateInstanceId } from '@src/core/server/templateIdentity.js';
 
 import type { BackendLogCapture, BackendLogSource } from './backendLogTypes.js';
 
-export function staticBackendLogSource(
-  name: string,
-  capture: BackendLogCapture = 'managed',
-): BackendLogSource {
+export function staticBackendLogSource(name: string, capture: BackendLogCapture = 'managed'): BackendLogSource {
   return {
     id: `static:${name}`,
     canonicalName: name,
@@ -30,4 +27,3 @@ export function templateBackendLogSource(input: {
     lifecycle: 'active',
   };
 }
-

@@ -14,6 +14,7 @@ import type { ClientSurfaceAttachmentContext } from '@src/commands/shared/client
 import type { InspectServerSummary } from '@src/commands/shared/inspectApiSchemas.js';
 import type { CliSessionCache } from '@src/commands/shared/serveClient.js';
 import type { ResolvableServeTargetOptions } from '@src/commands/shared/serveTargetResolver.js';
+import type { BackendLogEntry, BackendLogSource } from '@src/domains/backend-logs/backendLogTypes.js';
 
 import { vi } from 'vitest';
 
@@ -186,6 +187,33 @@ export function createMockInspectServerSummary(overrides?: Partial<InspectServer
     status: 'connected',
     available: true,
     loadTracked: true,
+    ...overrides,
+  };
+}
+
+export function createMockBackendLogSource(overrides: Partial<BackendLogSource> = {}): BackendLogSource {
+  return {
+    id: 'static:filesystem',
+    canonicalName: 'filesystem',
+    displayName: 'filesystem',
+    kind: 'static',
+    capture: 'managed',
+    lifecycle: 'active',
+    ...overrides,
+  };
+}
+
+export function createMockBackendLogEntry(overrides: Partial<BackendLogEntry> = {}): BackendLogEntry {
+  return {
+    sequence: 1,
+    timestamp: '2026-08-02T00:00:00.000Z',
+    sourceId: 'static:filesystem',
+    canonicalName: 'filesystem',
+    displayName: 'filesystem',
+    sourceKind: 'static',
+    kind: 'line',
+    content: 'backend log entry',
+    truncated: false,
     ...overrides,
   };
 }

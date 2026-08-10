@@ -10,9 +10,11 @@ function readWindowsBinarySmokeTest(): string {
 describe('Windows binary smoke test', () => {
   it('writes JSON fixtures as UTF-8 without a byte-order mark', () => {
     const script = readWindowsBinarySmokeTest();
+    const writeCalls = script.match(/\[System\.IO\.File\]::WriteAllText[^\r\n]+/g) ?? [];
 
     expect(script).toContain('[System.Text.UTF8Encoding]::new($false)');
-    expect(script.match(/\[System\.IO\.File\]::WriteAllText/g)).toHaveLength(2);
+    expect(writeCalls).toHaveLength(2);
+    expect(writeCalls.every((call) => call.includes('$Utf8NoBom'))).toBe(true);
     expect(script).not.toMatch(/Out-File[^\r\n]+-Encoding utf8/);
   });
 
