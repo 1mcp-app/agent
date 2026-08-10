@@ -727,7 +727,7 @@ function removeCandidateDirectoryIfPresent(candidateDir: string): void {
 }
 
 function isOwnershipExistsError(error: unknown): boolean {
-  return isCode(error, 'EEXIST') || isCode(error, 'ENOTEMPTY');
+  return isCode(error, 'EEXIST') || isCode(error, 'ENOTEMPTY') || isCode(error, 'EPERM');
 }
 
 function isCode(error: unknown, code: string): boolean {

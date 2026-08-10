@@ -245,6 +245,35 @@ describe('Runtime Scope ownership', () => {
     owner.release();
   });
 
+  it('reclaims valid ownership on Windows when fs.renameSync throws EPERM', () => {
+    writeOwnerRecord(
+      JSON.stringify({
+        version: 1,
+        pid: 99999999,
+        claimId: 'dead-owner',
+        kind: 'foreground-http',
+        claimedAt: '2026-07-22T00:00:00.000Z',
+      }),
+    );
+
+    const originalRenameSync = fs.renameSync;
+    vi.spyOn(fs, 'renameSync').mockImplementation(((source: fs.PathLike, destination: fs.PathLike) => {
+      // Simulate Windows EPERM directory collision error
+      if (String(source).endsWith('.candidate') && destination === ownerPath) {
+        throw Object.assign(new Error('operation not permitted'), { code: 'EPERM' });
+      }
+      return originalRenameSync(source, destination);
+    }) as typeof fs.renameSync);
+
+    const owner = claimRuntimeScope(configDir, { kind: 'foreground-stdio', pid: process.pid });
+
+    expect(owner.record.pid).toBe(process.pid);
+    expect(owner.record.kind).toBe('foreground-stdio');
+    expect(owner.record.claimId).not.toBe('dead-owner');
+
+    owner.release();
+  });
+
   it('does not let an ownership release remove a replacement published before directory removal', () => {
     const staleRecord = {
       version: 1 as const,
