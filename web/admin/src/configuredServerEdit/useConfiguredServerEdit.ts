@@ -3,6 +3,7 @@ import { useCallback, useEffect, useReducer, useRef } from 'react';
 import { AdminApiError, createConfiguredServerApplyIdempotencyKey } from '../api/adminApi';
 import type { AdminApiClient, AdminSession } from '../api/adminApi';
 import type { ConfirmationRequest } from '../components/ConfirmationDialogProvider';
+import { useConfiguredServerMutationLifecycle } from '../configuredServerMutation/useConfiguredServerMutationLifecycle';
 import { type SecretDraftState, selectedTransportType } from './configuredServerEditDraft';
 import {
   configuredServerEditDraft,
@@ -50,24 +51,21 @@ export function useConfiguredServerEdit({
   const sessionRef = useRef(session);
   const apiRef = useRef(api);
   const onUnauthenticatedRef = useRef(onUnauthenticated);
-  const detailRequestRef = useRef(0);
-  const previewRequestRef = useRef(0);
-  const applyRequestRef = useRef(0);
-  const applyInteractionRef = useRef(false);
-  const applyAttemptRef = useRef<{ previewFingerprint: string; idempotencyKey: string }>();
   stateRef.current = state;
   sessionRef.current = session;
   apiRef.current = api;
   onUnauthenticatedRef.current = onUnauthenticated;
 
-  const reset = useCallback(() => {
-    detailRequestRef.current += 1;
-    previewRequestRef.current += 1;
-    applyRequestRef.current += 1;
-    applyInteractionRef.current = false;
-    applyAttemptRef.current = undefined;
-    dispatch({ type: 'closed' });
-  }, []);
+  const {
+    loadRequestRef: detailRequestRef,
+    previewRequestRef,
+    applyRequestRef,
+    applyInteractionRef,
+    applyAttemptRef,
+    invalidatePreview,
+    invalidateApply,
+    reset,
+  } = useConfiguredServerMutationLifecycle(() => dispatch({ type: 'closed' }));
 
   const handleUnauthenticated = useCallback(
     (error: unknown) => {
@@ -83,12 +81,11 @@ export function useConfiguredServerEdit({
     async (serverId: string) => {
       const activeSession = sessionRef.current;
       if (!activeSession) return;
-      applyRequestRef.current += 1;
-      applyAttemptRef.current = undefined;
+      invalidateApply();
       const sessionKey = activeSession.csrfToken;
       const requestId = detailRequestRef.current + 1;
       detailRequestRef.current = requestId;
-      previewRequestRef.current += 1;
+      invalidatePreview();
       dispatch({ type: 'detailLoadStarted', serverId });
       try {
         const detail = await apiRef.current.getConfiguredServerDetail(serverId);
@@ -104,7 +101,7 @@ export function useConfiguredServerEdit({
         dispatch({ type: 'detailFailed', serverId, message: `Server detail failed: ${failureMessage(error)}` });
       }
     },
-    [handleUnauthenticated],
+    [handleUnauthenticated, invalidateApply, invalidatePreview],
   );
 
   const open = useCallback(
@@ -137,23 +134,29 @@ export function useConfiguredServerEdit({
     [browser, reset],
   );
 
-  const changeField = useCallback((fieldPath: string[], value: unknown) => {
-    previewRequestRef.current += 1;
-    applyAttemptRef.current = undefined;
-    dispatch({ type: 'fieldChanged', fieldPath, value });
-  }, []);
+  const changeField = useCallback(
+    (fieldPath: string[], value: unknown) => {
+      invalidatePreview();
+      dispatch({ type: 'fieldChanged', fieldPath, value });
+    },
+    [invalidatePreview],
+  );
 
-  const changeSecret = useCallback((fieldPath: string[], value: SecretDraftState[string]) => {
-    previewRequestRef.current += 1;
-    applyAttemptRef.current = undefined;
-    dispatch({ type: 'secretChanged', fieldPath, value });
-  }, []);
+  const changeSecret = useCallback(
+    (fieldPath: string[], value: SecretDraftState[string]) => {
+      invalidatePreview();
+      dispatch({ type: 'secretChanged', fieldPath, value });
+    },
+    [invalidatePreview],
+  );
 
-  const changeTransportOverride = useCallback((key: string, clear: boolean) => {
-    previewRequestRef.current += 1;
-    applyAttemptRef.current = undefined;
-    dispatch({ type: 'transportOverrideChanged', key, clear });
-  }, []);
+  const changeTransportOverride = useCallback(
+    (key: string, clear: boolean) => {
+      invalidatePreview();
+      dispatch({ type: 'transportOverrideChanged', key, clear });
+    },
+    [invalidatePreview],
+  );
 
   const preview = useCallback(
     async (connectivityCheck: 'auto' | 'manual' = 'auto') => {
@@ -387,9 +390,11 @@ function serverIdFromPath(pathname: string): string | null {
   if (!pathname.startsWith(prefix)) return null;
   const encoded = pathname.slice(prefix.length).split('#', 1)[0];
   if (!encoded) return null;
+  let decoded: string;
   try {
-    return decodeURIComponent(encoded);
+    decoded = decodeURIComponent(encoded);
   } catch {
-    return encoded;
+    decoded = encoded;
   }
+  return decoded === 'new' ? null : decoded;
 }

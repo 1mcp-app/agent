@@ -4,6 +4,7 @@ import path from 'node:path';
 import type { BackendOAuthDashboardResult, OAuthAuthorizationFlow } from '@src/auth/oauthAuthorizationFlow.js';
 import type { AdminBackendRestartOperations } from '@src/domains/admin/adminBackendRestartService.js';
 import {
+  AdminConfiguredServerApplyError,
   AdminConfiguredServerNotFoundError,
   type AdminConfiguredServerOperations,
   AdminConfiguredServerService,
@@ -47,6 +48,15 @@ describe('admin routes', () => {
   let oauthFlow: OAuthAuthorizationFlow;
   let storageDir: string;
   let configuredServerService: {
+    getConfiguredServerCreateContract: ReturnType<
+      typeof vi.fn<AdminConfiguredServerOperations['getConfiguredServerCreateContract']>
+    >;
+    previewConfiguredServerCreate: ReturnType<
+      typeof vi.fn<AdminConfiguredServerOperations['previewConfiguredServerCreate']>
+    >;
+    applyConfiguredServerCreate: ReturnType<
+      typeof vi.fn<AdminConfiguredServerOperations['applyConfiguredServerCreate']>
+    >;
     listConfiguredServers: ReturnType<typeof vi.fn<AdminConfiguredServerOperations['listConfiguredServers']>>;
     getConfiguredServerDetail: ReturnType<typeof vi.fn<AdminConfiguredServerOperations['getConfiguredServerDetail']>>;
     previewConfiguredServerEdit: ReturnType<
@@ -71,6 +81,9 @@ describe('admin routes', () => {
     });
     oauthFlow = createOAuthFlow();
     configuredServerService = {
+      getConfiguredServerCreateContract: vi.fn<AdminConfiguredServerOperations['getConfiguredServerCreateContract']>(),
+      previewConfiguredServerCreate: vi.fn<AdminConfiguredServerOperations['previewConfiguredServerCreate']>(),
+      applyConfiguredServerCreate: vi.fn<AdminConfiguredServerOperations['applyConfiguredServerCreate']>(),
       listConfiguredServers: vi.fn<AdminConfiguredServerOperations['listConfiguredServers']>(),
       getConfiguredServerDetail: vi.fn<AdminConfiguredServerOperations['getConfiguredServerDetail']>(),
       previewConfiguredServerEdit: vi.fn<AdminConfiguredServerOperations['previewConfiguredServerEdit']>(),
@@ -2228,7 +2241,7 @@ describe('admin routes', () => {
       ok: false,
       error: 'configured_server_stale_preview',
       code: 'configured_server_stale_preview',
-      message: 'The configured server changed after preview. Preview the edit again.',
+      message: 'The Runtime Scope configuration changed after preview. Preview the server again.',
     });
   });
 
@@ -2736,6 +2749,202 @@ describe('admin routes', () => {
       }),
       targetName: 'filesystem',
     });
+  });
+
+  it('serves configured-server create contract, preview, and confirmed apply through the agreed wire shape', async () => {
+    await adminService.bootstrapFirstAdmin({ username: 'operator', password: 'correct horse battery staple' });
+    configuredServerService.getConfiguredServerCreateContract.mockResolvedValue({
+      ok: true,
+      status: 'completed',
+      operationId: 'op_contract',
+      operationName: 'getConfiguredServerCreateContract',
+      replayed: false,
+      result: {
+        schemaVersion: 1,
+        capabilities: {
+          create: { supported: true },
+          forceReplacement: { supported: false },
+          rawJson: { supported: false },
+          preview: { supported: true },
+          apply: { supported: true },
+        },
+        secretPolicy: {
+          allowedActions: ['replace'],
+          environmentReference: { recommended: true, storesSecretMaterial: false, guidance: 'Use an env reference.' },
+          inlineReplacement: { emphasis: 'secondary', guidance: 'Stored inline.' },
+        },
+        fieldGroups: [],
+      },
+    });
+    configuredServerService.previewConfiguredServerCreate.mockResolvedValue({
+      ok: true,
+      status: 'completed',
+      operationId: 'op_preview_create',
+      operationName: 'previewConfiguredServerCreate',
+      replayed: false,
+      result: {
+        targetName: 'custom',
+        previewFingerprint: 'preview_123',
+        validation: { status: 'valid', errors: [] },
+        diff: [],
+        configChange: {
+          status: 'changed',
+          operation: 'create_static',
+          configPath: '[redacted]',
+          target: { name: 'custom' },
+          changed: true,
+          backup: { created: false },
+          retentionCleanup: { attempted: false, deletedPaths: [], warnings: [] },
+          reload: { status: 'skipped' },
+          warnings: [],
+        },
+        connectivityCheck: { status: 'skipped', reason: 'local_stdio_transport' },
+        expectedReload: {
+          policy: 'observe_after_write',
+          possibleStatuses: ['observed', 'runtime_not_running', 'reload_disabled', 'failed'],
+        },
+      },
+    });
+    configuredServerService.applyConfiguredServerCreate.mockResolvedValue({
+      ok: true,
+      status: 'completed',
+      operationId: 'op_apply_create',
+      operationName: 'applyConfiguredServerCreate',
+      replayed: false,
+      result: {
+        targetName: 'custom',
+        previewFingerprint: 'preview_123',
+        configChange: {
+          status: 'changed',
+          operation: 'create_static',
+          configPath: '/tmp/mcp.json',
+          target: { name: 'custom', source: 'mcpServers' },
+          changed: true,
+          backup: { created: false },
+          retentionCleanup: { attempted: false, deletedPaths: [], warnings: [] },
+          reload: { status: 'failed', error: 'runtime reload was not observed' },
+          warnings: [],
+        },
+      },
+    });
+    const draft = { name: 'custom', enabled: true, transport: { type: 'stdio', command: 'node' } };
+    const app = mountAdminRoutes();
+    const loginResponse = await request(app)
+      .post('/admin/api/session/login')
+      .send({ username: 'operator', password: 'correct horse battery staple' });
+    const cookie = loginResponse.headers['set-cookie']?.[0] as string;
+    const csrfToken = loginResponse.body.csrfToken as string;
+
+    const contract = await request(app).get('/admin/api/configured-servers/create-contract').set('Cookie', cookie);
+    const preview = await request(app)
+      .post('/admin/api/configured-servers/create-preview')
+      .set('Cookie', cookie)
+      .set('X-CSRF-Token', csrfToken)
+      .send({ draft, connectivityCheck: 'auto' });
+    const rejected = await request(app)
+      .post('/admin/api/configured-servers')
+      .set('Cookie', cookie)
+      .set('X-CSRF-Token', csrfToken)
+      .send({ draft, previewFingerprint: 'preview_123', confirmationFacts: {} });
+    const applied = await request(app)
+      .post('/admin/api/configured-servers')
+      .set('Cookie', cookie)
+      .set('X-CSRF-Token', csrfToken)
+      .set('Idempotency-Key', 'create-custom')
+      .send({
+        draft,
+        previewFingerprint: 'preview_123',
+        confirmationFacts: {
+          previewConfirmed: 'preview_123',
+          targetNameConfirmed: 'custom',
+          connectionCriticalConfirmed: true,
+        },
+      });
+
+    expect(contract.status).toBe(200);
+    expect(contract.body).toMatchObject({ ok: true, operationId: 'op_contract', createContract: { schemaVersion: 1 } });
+    expect(preview.status).toBe(200);
+    expect(preview.body).toMatchObject({
+      ok: true,
+      operationId: 'op_preview_create',
+      preview: { targetName: 'custom' },
+    });
+    expect(rejected.status).toBe(400);
+    expect(applied.status).toBe(200);
+    expect(applied.body).toMatchObject({
+      ok: true,
+      operationId: 'op_apply_create',
+      result: { targetName: 'custom', configChange: { reload: { status: 'failed' } } },
+    });
+    expect(configuredServerService.applyConfiguredServerCreate).toHaveBeenCalledWith({
+      context: expect.objectContaining({
+        idempotencyKey: 'create-custom',
+        requestFingerprint: expect.stringMatching(/^configured_server_create_/u),
+        confirmationFacts: expect.objectContaining({ previewConfirmed: 'preview_123' }),
+      }),
+      draft,
+      previewFingerprint: 'preview_123',
+    });
+  });
+
+  it('maps stale or conflicting configured-server create apply to actionable non-secret 409 responses', async () => {
+    await adminService.bootstrapFirstAdmin({ username: 'operator', password: 'correct horse battery staple' });
+    configuredServerService.applyConfiguredServerCreate.mockRejectedValue(
+      new AdminConfiguredServerApplyError('configured_server_stale_preview'),
+    );
+    const app = mountAdminRoutes();
+    const loginResponse = await request(app)
+      .post('/admin/api/session/login')
+      .send({ username: 'operator', password: 'correct horse battery staple' });
+    const cookie = loginResponse.headers['set-cookie']?.[0] as string;
+
+    const response = await request(app)
+      .post('/admin/api/configured-servers')
+      .set('Cookie', cookie)
+      .set('X-CSRF-Token', loginResponse.body.csrfToken as string)
+      .set('Idempotency-Key', 'create-conflict')
+      .send({
+        draft: {
+          name: 'custom',
+          transport: { type: 'stdio', command: 'node' },
+          secrets: [
+            {
+              fieldPath: ['env', 'API_TOKEN'],
+              action: 'replace',
+              replacement: { kind: 'inlineSecret', value: 'secret-sentinel' },
+            },
+          ],
+        },
+        previewFingerprint: 'preview_old',
+        confirmationFacts: { previewConfirmed: 'preview_old' },
+      });
+
+    expect(response.status).toBe(409);
+    expect(response.body).toMatchObject({ ok: false, code: 'configured_server_stale_preview' });
+    expect(JSON.stringify(response.body)).not.toContain('secret-sentinel');
+
+    configuredServerService.applyConfiguredServerCreate.mockResolvedValueOnce({
+      ok: false,
+      status: 'mutation_failed',
+      code: 'mutation_failed',
+      retryable: false,
+      operationName: 'applyConfiguredServerCreate',
+      error: 'configured_server_create_failed',
+    });
+    const persistenceFailure = await request(app)
+      .post('/admin/api/configured-servers')
+      .set('Cookie', cookie)
+      .set('X-CSRF-Token', loginResponse.body.csrfToken as string)
+      .set('Idempotency-Key', 'create-persistence-failure')
+      .send({
+        draft: { name: 'custom', transport: { type: 'stdio', command: 'node' } },
+        previewFingerprint: 'preview_current',
+        confirmationFacts: { previewConfirmed: 'preview_current' },
+      });
+
+    expect(persistenceFailure.status).toBe(409);
+    expect(persistenceFailure.body).toMatchObject({ ok: false, code: 'configured_server_create_failed' });
+    expect(JSON.stringify(persistenceFailure.body)).not.toMatch(/secret|configPath|stack/iu);
   });
 
   it('bootstraps the first admin from environment only when no account exists', async () => {

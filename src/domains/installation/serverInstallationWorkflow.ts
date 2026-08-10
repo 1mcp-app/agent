@@ -91,12 +91,15 @@ class DefaultServerInstallationWorkflow implements ServerInstallationWorkflow {
     }
 
     const backup = input.backup ?? (conflict?.source === 'mcpServers' ? 'required' : 'skip');
-    const configChange = await this.applyConfigChange({
+    const configChangeInput = {
       targetName: resolved.targetName,
       serverConfig: resolved.config,
-      operation: 'install',
+      operation: 'install' as const,
       backup,
-    });
+    };
+    const configChange = input.force
+      ? await this.applyConfigChange(configChangeInput)
+      : await this.createConfigChange(configChangeInput);
 
     if (configChange.status === 'changed') {
       return {
@@ -109,7 +112,12 @@ class DefaultServerInstallationWorkflow implements ServerInstallationWorkflow {
 
     return {
       ...resultFromResolved(input.mode, resolved),
-      status: configChange.status === 'template_conflict' ? 'template_conflict' : 'failed',
+      status:
+        configChange.status === 'template_conflict'
+          ? 'template_conflict'
+          : configChange.status === 'destination_conflict'
+            ? 'exists'
+            : 'failed',
       configChange,
       warnings: [...resolved.warnings, ...configChange.warnings],
       error: configChange.error ?? `Config Change returned ${configChange.status}`,
@@ -190,6 +198,19 @@ class DefaultServerInstallationWorkflow implements ServerInstallationWorkflow {
     }
 
     return createConfigChangeService().setStaticConfiguredServerTarget(input);
+  }
+
+  private createConfigChange(input: {
+    targetName: string;
+    serverConfig: MCPServerParams;
+    operation: 'install';
+    backup: ConfigBackupPolicy;
+  }): Promise<ConfigChangeResult> {
+    if (this.ports.createConfigChange) {
+      return this.ports.createConfigChange(input);
+    }
+
+    return createConfigChangeService().createStaticConfiguredServerTarget(input);
   }
 }
 
