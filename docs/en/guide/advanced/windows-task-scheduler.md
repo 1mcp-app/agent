@@ -66,6 +66,11 @@ New-Item -ItemType Directory -Force -Path $configDir | Out-Null
   "mcpServers": {}
 }
 '@ | Set-Content -Path "$configDir\mcp.json" -Encoding UTF8
+
+# Grant the task account Modify access so it can write server.pid, state files, and logs.
+# Replace '.\1mcp-svc' with the actual account that will run the task.
+$taskAccount = Read-Host 'Task account that will run 1mcp (DOMAIN\user or .\user)'
+icacls $configDir /grant "${taskAccount}:(OI)(CI)M" | Out-Null
 ```
 
 ## Step 2: Register the Scheduled Task
@@ -98,9 +103,11 @@ $settings = New-ScheduledTaskSettingsSet `
     -MultipleInstances IgnoreNew
 
 $principal = New-ScheduledTaskPrincipal `
-    -UserId (Read-Host 'Enter the Windows account that will run 1mcp (DOMAIN\user or .\user)') `
     -LogonType Password `
     -RunLevel Limited
+
+# Prompts for account and password interactively — credentials are never embedded in scripts
+$cred = Get-Credential -Message 'Enter the Windows account that will run 1mcp'
 
 Register-ScheduledTask `
     -TaskName $taskName `
@@ -108,17 +115,13 @@ Register-ScheduledTask `
     -Trigger $trigger `
     -Settings $settings `
     -Principal $principal `
+    -User $cred.UserName `
+    -Password $cred.GetNetworkCredential().Password `
     -Description '1MCP aggregated MCP runtime' `
     -Force
-
-# You will be prompted for the account password here
-$task = Get-ScheduledTask -TaskName $taskName
-Set-ScheduledTask -InputObject $task -Password (Read-Host 'Password' -AsSecureString | `
-    [System.Runtime.InteropServices.Marshal]::PtrToStringAuto(
-        [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($_)))
 ```
 
-> **Credential handling:** The password is supplied interactively at registration and stored by the Task Scheduler service in its encrypted credential store. Never put passwords in scripts or environment variables.
+> **Credential handling:** `Get-Credential` shows a secure dialog; the password is passed directly to `Register-ScheduledTask` and stored by the Task Scheduler service in its encrypted credential store. Never put passwords in scripts or environment variables.
 
 ### Secondary path: npm installation
 
@@ -141,15 +144,15 @@ $action = New-ScheduledTaskAction `
 
 ## Key Settings Explained
 
-| Setting                            | Value                     | Why                                                                                                                                                                                            |
-| ---------------------------------- | ------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `MultipleInstances`                | `IgnoreNew`               | Prevents a second daemon from starting if the first has not exited yet after a fast reboot                                                                                                     |
-| `ExecutionTimeLimit`               | `PT0S` (zero = unlimited) | A running daemon must not be killed by a default 72-hour execution cap                                                                                                                         |
-| `RestartCount` / `RestartInterval` | 5 × 2 min                 | Gives time for transient failures to recover without spinning immediately                                                                                                                      |
-| `StartWhenAvailable`               | `true`                    | Starts the task as soon as possible if it was missed during boot (e.g. the machine was off)                                                                                                    |
-| `RunLevel`                         | `Limited`                 | Runs without elevated privileges; use the minimum permissions needed                                                                                                                           |
-| `LogonType`                        | `Password`                | Non-interactive logon with supplied credentials; the task runs whether or not the user is logged on                                                                                            |
-| No boot delay                      | —                         | `StartWhenAvailable` handles late-boot gracefully. Add a fixed delay only if your environment requires a VPN or domain authentication to be established before 1MCP can reach upstream servers |
+| Setting                            | Value                     | Why                                                                                                                                                                                                                     |
+| ---------------------------------- | ------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `MultipleInstances`                | `IgnoreNew`               | Prevents a second daemon from starting if the first has not exited yet after a fast reboot                                                                                                                              |
+| `ExecutionTimeLimit`               | `PT0S` (zero = unlimited) | A running daemon must not be killed by a default 72-hour execution cap                                                                                                                                                  |
+| `RestartCount` / `RestartInterval` | 5 × 2 min                 | Gives time for transient failures to recover without spinning immediately                                                                                                                                               |
+| `StartWhenAvailable`               | `true`                    | If the task is eligible to run but conditions temporarily prevent it (e.g. another instance is still stopping), start it as soon as conditions allow. Does **not** recover a missed boot — `AtStartup` fires every boot |
+| `RunLevel`                         | `Limited`                 | Runs without elevated privileges; use the minimum permissions needed                                                                                                                                                    |
+| `LogonType`                        | `Password`                | Non-interactive logon with supplied credentials; the task runs whether or not the user is logged on                                                                                                                     |
+| No boot delay                      | —                         | Add a fixed delay only if your environment requires a VPN or domain authentication to be established before 1MCP can reach upstream servers                                                                             |
 
 ## Runtime Scope and `--config-dir`
 
@@ -172,16 +175,18 @@ $taskName = '1mcp-daemon'
 # Start the daemon now (without waiting for next boot)
 Start-ScheduledTask -TaskName $taskName
 
-# Stop the daemon (Task Scheduler will restart it on the next boot trigger)
+# Stop the daemon gracefully
 Stop-ScheduledTask -TaskName $taskName
 
-# Stop and prevent automatic restart on reboot
+# Stop first, then prevent automatic restart on reboot
+Stop-ScheduledTask -TaskName $taskName
 Disable-ScheduledTask -TaskName $taskName
 
 # Re-enable automatic restart
 Enable-ScheduledTask -TaskName $taskName
 
-# Remove the task entirely
+# Stop first, then remove the task entirely
+Stop-ScheduledTask -TaskName $taskName
 Unregister-ScheduledTask -TaskName $taskName -Confirm:$false
 ```
 
@@ -198,8 +203,8 @@ Start-ScheduledTask -TaskName $taskName
 Start-Sleep -Seconds 5
 
 # 2. Task Scheduler state
-schtasks /query /tn "\$taskName" /fo LIST /v | Select-String 'Status'
-# Expected: Status: Running
+(Get-ScheduledTask -TaskName $taskName).State
+# Expected: Running
 
 # 3. 1MCP runtime status
 1mcp serve --status --config-dir $configDir
@@ -235,7 +240,7 @@ Invoke-WebRequest -UseBasicParsing 'http://127.0.0.1:3050/health/mcp' | Select-O
 
 ## Advanced: S4U Logon (Local-Only)
 
-S4U logon (`LogonType ServiceAccount` with no password) avoids storing credentials but has significant restrictions on Windows: it has **no access to network resources or encrypted files**. Use S4U only on machines where the config directory is on a local unencrypted drive and no upstream MCP servers require network authentication.
+S4U logon (`LogonType S4U` with no password) avoids storing credentials but has significant restrictions on Windows: it has **no access to network resources or encrypted files**. Use S4U only on machines where the config directory is on a local unencrypted drive and no upstream MCP servers require network authentication.
 
 ```powershell
 # S4U principal — local only, no network access

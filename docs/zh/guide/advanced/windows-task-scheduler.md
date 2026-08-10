@@ -60,6 +60,11 @@ New-Item -ItemType Directory -Force -Path $configDir | Out-Null
   "mcpServers": {}
 }
 '@ | Set-Content -Path "$configDir\mcp.json" -Encoding UTF8
+
+# 授予任务账户对配置目录的 Modify 权限，使其可写入 server.pid、状态文件和日志。
+# 将 '.\1mcp-svc' 替换为实际运行任务的账户。
+$taskAccount = Read-Host '运行 1mcp 的任务账户（格式：DOMAIN\user 或 .\user）'
+icacls $configDir /grant "${taskAccount}:(OI)(CI)M" | Out-Null
 ```
 
 ## 第二步：注册计划任务
@@ -92,9 +97,11 @@ $settings = New-ScheduledTaskSettingsSet `
     -MultipleInstances IgnoreNew
 
 $principal = New-ScheduledTaskPrincipal `
-    -UserId (Read-Host '输入运行 1mcp 的 Windows 账户（格式：DOMAIN\user 或 .\user）') `
     -LogonType Password `
     -RunLevel Limited
+
+# 通过 Get-Credential 安全提示输入账户和密码，凭据不嵌入脚本
+$cred = Get-Credential -Message '输入运行 1mcp 的 Windows 账户'
 
 Register-ScheduledTask `
     -TaskName $taskName `
@@ -102,17 +109,13 @@ Register-ScheduledTask `
     -Trigger $trigger `
     -Settings $settings `
     -Principal $principal `
+    -User $cred.UserName `
+    -Password $cred.GetNetworkCredential().Password `
     -Description '1MCP 聚合 MCP 运行时' `
     -Force
-
-# 此处会提示输入账户密码
-$task = Get-ScheduledTask -TaskName $taskName
-Set-ScheduledTask -InputObject $task -Password (Read-Host '密码' -AsSecureString | `
-    [System.Runtime.InteropServices.Marshal]::PtrToStringAuto(
-        [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($_)))
 ```
 
-> **凭据处理：** 密码在注册时通过交互方式提供，由任务计划程序服务以加密方式存储。请勿将密码写入脚本或环境变量。
+> **凭据处理：** `Get-Credential` 显示安全输入对话框，密码直接传递给 `Register-ScheduledTask`，由任务计划程序服务以加密方式存储。请勿将密码写入脚本或环境变量。
 
 ### 次路径：npm 安装
 
@@ -135,15 +138,15 @@ $action = New-ScheduledTaskAction `
 
 ## 关键参数说明
 
-| 参数                               | 值                  | 原因                                                                                                     |
-| ---------------------------------- | ------------------- | -------------------------------------------------------------------------------------------------------- |
-| `MultipleInstances`                | `IgnoreNew`         | 快速重启后若上一个实例尚未退出，阻止第二个守护进程启动                                                   |
-| `ExecutionTimeLimit`               | `PT0S`（零=无限制） | 防止默认 72 小时执行上限将运行中的守护进程强制终止                                                       |
-| `RestartCount` / `RestartInterval` | 5 次 × 2 分钟       | 给瞬时故障留出恢复时间，避免立即循环重启                                                                 |
-| `StartWhenAvailable`               | `true`              | 若任务在启动时被错过（如机器关机），尽快启动                                                             |
-| `RunLevel`                         | `Limited`           | 以非提升权限运行，使用所需的最小权限                                                                     |
-| `LogonType`                        | `Password`          | 使用提供的凭据进行非交互式登录；无论用户是否登录，任务均可运行                                           |
-| 无固定启动延迟                     | —                   | `StartWhenAvailable` 已能优雅处理延迟启动。仅当环境需要 VPN 或域认证先于 1MCP 建立时，才考虑添加固定延迟 |
+| 参数                               | 值                  | 原因                                                                                                                           |
+| ---------------------------------- | ------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
+| `MultipleInstances`                | `IgnoreNew`         | 快速重启后若上一个实例尚未退出，阻止第二个守护进程启动                                                                         |
+| `ExecutionTimeLimit`               | `PT0S`（零=无限制） | 防止默认 72 小时执行上限将运行中的守护进程强制终止                                                                             |
+| `RestartCount` / `RestartInterval` | 5 次 × 2 分钟       | 给瞬时故障留出恢复时间，避免立即循环重启                                                                                       |
+| `StartWhenAvailable`               | `true`              | 若任务符合运行条件但暂时无法启动（如上一实例仍在停止），则尽快启动。**不负责**恢复错过的开机触发——`AtStartup` 每次开机都会触发 |
+| `RunLevel`                         | `Limited`           | 以非提升权限运行，使用所需的最小权限                                                                                           |
+| `LogonType`                        | `Password`          | 使用提供的凭据进行非交互式登录；无论用户是否登录，任务均可运行                                                                 |
+| 无固定启动延迟                     | —                   | 仅当环境需要 VPN 或域认证先于 1MCP 建立时，才考虑添加固定延迟                                                                  |
 
 ## 运行时范围与 `--config-dir`
 
@@ -166,16 +169,18 @@ $taskName = '1mcp-daemon'
 # 立即启动守护进程（无需等待下次开机触发）
 Start-ScheduledTask -TaskName $taskName
 
-# 停止守护进程（任务计划程序将在下次开机触发时重新启动）
+# 停止守护进程
 Stop-ScheduledTask -TaskName $taskName
 
-# 停止并阻止重启后自动启动
+# 先停止，再阻止重启后自动启动
+Stop-ScheduledTask -TaskName $taskName
 Disable-ScheduledTask -TaskName $taskName
 
 # 重新启用自动启动
 Enable-ScheduledTask -TaskName $taskName
 
-# 完全删除任务
+# 先停止，再完全删除任务
+Stop-ScheduledTask -TaskName $taskName
 Unregister-ScheduledTask -TaskName $taskName -Confirm:$false
 ```
 
@@ -192,8 +197,8 @@ Start-ScheduledTask -TaskName $taskName
 Start-Sleep -Seconds 5
 
 # 2. 任务计划程序状态
-schtasks /query /tn "\$taskName" /fo LIST /v | Select-String '状态'
-# 预期：状态: 正在运行
+(Get-ScheduledTask -TaskName $taskName).State
+# 预期：Running
 
 # 3. 1MCP 运行时状态
 1mcp serve --status --config-dir $configDir
@@ -229,7 +234,7 @@ Invoke-WebRequest -UseBasicParsing 'http://127.0.0.1:3050/health/mcp' | Select-O
 
 ## 高级选项：S4U 登录（仅限本地）
 
-S4U 登录（`LogonType ServiceAccount`，无需密码）可以避免存储凭据，但在 Windows 上有明显限制：**无法访问网络资源或加密文件**。仅当配置目录位于本地未加密驱动器且所有上游 MCP 服务器不需要网络认证时，才考虑使用 S4U。
+S4U 登录（`LogonType S4U`，无需密码）可以避免存储凭据，但在 Windows 上有明显限制：**无法访问网络资源或加密文件**。仅当配置目录位于本地未加密驱动器且所有上游 MCP 服务器不需要网络认证时，才考虑使用 S4U。
 
 ```powershell
 # S4U 主体 —— 仅限本地，无网络访问
