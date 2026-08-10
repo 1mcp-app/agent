@@ -486,7 +486,7 @@ describe('runCommand REST-first path', () => {
       'tools/call',
     ]);
     expect(initializeContext.context.sessionId).toMatch(/^rest-[a-f0-9]{16}$/);
-    expect(instance.initialSessionId).toBeUndefined();
+    expect(instance.initialSessionId).toBe(initializeContext.context.sessionId);
   });
 
   it('falls back to MCP when REST endpoint is missing', async () => {

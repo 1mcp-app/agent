@@ -64,6 +64,9 @@ describe('AgentConfigManager', () => {
         admin: {
           enabled: true,
         },
+        templateContext: {
+          trust: 'verified',
+        },
         auth: {
           enabled: false,
           sessionTtlMinutes: 1440,

@@ -133,6 +133,7 @@ export async function waitForServers(
     bearerToken: context.bearerToken,
     sessionId: context.sessionId,
     context: context.context,
+    contextProof: context.contextProof,
   });
   const startedAt = Date.now();
   const deadline = startedAt + timeout;

@@ -374,6 +374,8 @@ interface ContextData {
 - 系统信息（用户详细信息）
 - 连接详细信息（传输、客户端信息）
 
+收集或解码上下文本身并不授权模板渲染。在默认的 `verified` 信任模式下，第一方本地客户端入口会附带 Runtime Scope 证明；未签名客户端仍可连接，但只能使用静态服务器。参见[安全功能](/zh/reference/security#模板上下文信任)。
+
 ### 步骤 2：模板查找
 
 1MCP 从 `mcp.json` 的 `mcpTemplates` 中查找与客户端的过滤条件（标签、预设）匹配的模板。

@@ -287,10 +287,10 @@ describe('publishing documentation', () => {
     expect(identifiers).not.toContain(undefined);
     expect(new Set(identifiers).size).toBe(identifiers.length);
 
-    const canonicalOauth = readRepoFile('docs/adr/0013-oauth-refresh-tokens-use-rotating-families.md');
-    const duplicateRecord = readRepoFile('docs/adr/0014-oauth-refresh-token-duplicate-record.md');
+    const canonicalOauth = readRepoFile('docs/adr/0014-oauth-refresh-tokens-use-rotating-families.md');
+    const duplicateRecord = readRepoFile('docs/adr/0015-oauth-refresh-token-duplicate-record.md');
     expect(canonicalOauth).toContain('status: accepted');
     expect(duplicateRecord).toContain('status: superseded');
-    expect(duplicateRecord).toContain('superseded_by: 0013-oauth-refresh-tokens-use-rotating-families');
+    expect(duplicateRecord).toContain('superseded_by: 0014-oauth-refresh-tokens-use-rotating-families');
   });
 });

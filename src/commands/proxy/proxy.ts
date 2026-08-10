@@ -49,6 +49,8 @@ export async function proxyCommand(options: ProxyOptions): Promise<void> {
       serverUrl: discoveredUrl,
       bearerToken: attachment.bearerToken,
       context: attachment.context,
+      contextProof: attachment.contextProof,
+      createContextProof: attachment.createContextProof,
     });
 
     await proxyTransport.start();

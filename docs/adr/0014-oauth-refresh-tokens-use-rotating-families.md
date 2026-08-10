@@ -2,7 +2,7 @@
 status: accepted
 ---
 
-# OAuth Refresh Tokens Use Rotating Families
+# ADR 0014: OAuth Refresh Tokens Use Rotating Families
 
 1MCP issues refresh tokens only to registered clients that request the `refresh_token` grant. Each approved authorization creates an independent, client-, resource-, and scope-bound Refresh Token Family that persists in its Runtime Scope for a fixed 30 days. Every successful refresh rotates a single-use opaque token; only token digests and family lineage are stored.
 

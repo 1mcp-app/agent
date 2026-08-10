@@ -63,6 +63,10 @@ CLI 模式依赖一个正在运行的 `serve` 实例。
 - **`--enable-auth`**：为运行时启用基于 OAuth 的认证。
 - **`--enable-enhanced-security`**：启用额外的安全中间件。
 - **`--trust-proxy <config>`**：配置受信任反向代理行为。
+- **`--template-context-trust <verified|disabled|legacy>`**：控制请求上下文能否渲染模板服务器，默认值为 `verified`。
+- **`--confirm-untrusted-template-context`**：HTTP 绑定到非回环地址并使用 `legacy` 时必须显式提供。
+
+`verified` 会继续为第一方本地 `run`、`inspect`、`wait` 和 `proxy` 客户端提供零配置模板渲染。未签名的远程或第三方客户端仍可连接并使用静态服务器，但其上下文不能影响模板的 `command`、`args`、`cwd` 或 `env`。`legacy` 会恢复历史上的未验证行为，只应作为临时兼容模式使用。
 
 ### 运行时行为
 

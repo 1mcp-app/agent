@@ -149,13 +149,25 @@ npx -y @1mcp/agent mcp add remote-api --type=http --url="https://mcp.example.com
 
 Server-Sent Events is a deprecated transport type. It is recommended to use the HTTP transport instead.
 
+## Configure a Custom Server in the Admin Console
+
+Use **Server inventory → Configure Custom Server** when you need to add one static server without editing the runtime configuration file. The form supports local STDIO, remote HTTP, and legacy SSE targets. Registry discovery and Template Server definitions are separate workflows.
+
+1. Choose the transport and complete its structured fields. STDIO requires a command; HTTP and SSE require a URL.
+2. Add tags and choose whether the target starts enabled.
+3. For credentials, prefer **Environment Secret Reference**. The configuration stores the environment variable name or substitution expression instead of the secret material. Inline secret replacement is an advanced fallback.
+4. Select **Preview server**. Preview validates the target, reports name conflicts, redacts secret material, and runs a bounded connectivity check when applicable. Preview does not write configuration.
+5. Review the diff and runtime facts, then explicitly confirm **Create server**.
+
+Creation never replaces an existing static or Template Server target. If another writer creates the same name after preview, the confirmation is rejected and you must preview again. After a successful write, the Admin Console refreshes the inventory and opens the created target so you can verify its effective configuration and reload status.
+
 ## Server Configuration Details
 
 Each server you define in 1MCP has a set of common configuration options:
 
 - **Name**: A unique, human-readable name for the server (e.g., `my-git-server`).
-- **Transport**: The transport type (`stdio` or `http`).
-- **Command/URL**: The command to execute for `stdio` transports, or the URL for `http` transports.
+- **Transport**: The transport type (`stdio`, `http`, or deprecated `sse`).
+- **Command/URL**: The command to execute for `stdio` transports, or the URL for `http` and deprecated `sse` transports.
 - **Arguments**: An array of command-line arguments for `stdio` servers.
 - **Environment**: Key-value pairs of environment variables for `stdio` servers.
 - **Tags**: A list of tags for organizing and filtering servers.

@@ -4,6 +4,7 @@ import userEvent from '@testing-library/user-event';
 
 import { vi } from 'vitest';
 
+import { createMockBackendLogEntry, createMockBackendLogSource } from '../../../../test/unit-utils/MockFactories';
 import { createInitialState } from '../state/adminConsoleState';
 import { AdminConsoleApp } from './AdminConsoleApp';
 import { configuredServerDetailState, consoleState, fixtureSession, renderApp } from './AdminConsoleApp.fixtures';
@@ -18,12 +19,26 @@ describe('AdminConsoleApp', () => {
         connection: 'active',
         selectedSourceId: 'static:filesystem',
         sources: [
-          { id: 'static:filesystem', canonicalName: 'filesystem', displayName: 'filesystem', kind: 'static', capture: 'managed', lifecycle: 'active' },
-          { id: 'static:manual', canonicalName: 'manual', displayName: 'manual', kind: 'static', capture: 'not-captured', lifecycle: 'active' },
-          { id: 'template:0123456789abcdef', canonicalName: '0123456789abcdef', displayName: 'search (0123456789ab)', kind: 'template', capture: 'managed', lifecycle: 'ended' },
+          createMockBackendLogSource(),
+          createMockBackendLogSource({
+            id: 'static:manual',
+            canonicalName: 'manual',
+            displayName: 'manual',
+            capture: 'not-captured',
+          }),
+          createMockBackendLogSource({
+            id: 'template:0123456789abcdef',
+            canonicalName: '0123456789abcdef',
+            displayName: 'search (0123456789ab)',
+            kind: 'template',
+            lifecycle: 'ended',
+          }),
         ],
         entries: [
-          { sequence: 7, timestamp: '2026-08-02T00:00:00.000Z', sourceId: 'static:filesystem', canonicalName: 'filesystem', displayName: 'filesystem', sourceKind: 'static', kind: 'line', content: '<script>window.injected=true</script>', truncated: false },
+          createMockBackendLogEntry({
+            sequence: 7,
+            content: '<script>window.injected=true</script>',
+          }),
         ],
         unread: { 'template:0123456789abcdef': 2 },
         cursors: { 'static:filesystem': 7 },
@@ -47,9 +62,7 @@ describe('AdminConsoleApp', () => {
       logs: {
         connection: 'active',
         selectedSourceId: 'static:filesystem',
-        sources: [
-          { id: 'static:filesystem', canonicalName: 'filesystem', displayName: 'filesystem', kind: 'static', capture: 'managed', lifecycle: 'active' },
-        ],
+        sources: [createMockBackendLogSource()],
         selectionError: 'Failed to load retained backend logs. Live entries will continue to appear.',
       },
     });
@@ -131,6 +144,26 @@ describe('AdminConsoleApp', () => {
 
     await user.click(screen.getByRole('button', { name: /copy runtime scope/i }));
     expect(onCopyText).toHaveBeenCalledWith('runtimeScopeId', 'scope_123');
+  });
+
+  it('keeps custom server creation available when the inventory is empty', async () => {
+    const open = vi.fn();
+    const state = { ...consoleState(), configuredServers: [] };
+    const create = {
+      state: { status: 'idle' as const },
+      open,
+      close: async () => true,
+      changeField: vi.fn(),
+      addSecret: vi.fn(),
+      changeSecret: vi.fn(),
+      removeSecret: vi.fn(),
+      preview: vi.fn(),
+      apply: vi.fn(),
+    };
+    renderApp(state, { navigation: { route: 'servers' }, configuredServers: { create } });
+
+    await userEvent.click(screen.getByRole('button', { name: 'Configure Custom Server' }));
+    expect(open).toHaveBeenCalledOnce();
   });
 
   it('renders the full inventory and editor only in the servers workspace', async () => {

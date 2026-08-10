@@ -247,6 +247,41 @@ export interface ConfiguredServerEditContract {
   fieldGroups: ConfiguredServerEditFieldGroup[];
 }
 
+export type ConfiguredServerCreateTransport = 'stdio' | 'http' | 'sse';
+
+export interface ConfiguredServerCreateDraft {
+  name: string;
+  enabled: boolean;
+  tags: string[];
+  transport: Record<string, unknown> & { type: ConfiguredServerCreateTransport };
+  secrets?: Array<{
+    fieldPath: string[];
+    action: 'replace';
+    replacement: ConfiguredServerSecretReplacement;
+  }>;
+}
+
+export interface ConfiguredServerCreateContractResponse {
+  ok: true;
+  operationId: string;
+  createContract: {
+    schemaVersion: 1;
+    capabilities: {
+      create: { supported: true };
+      forceReplacement: { supported: false };
+      rawJson: { supported: false };
+      preview: { supported: true };
+      apply: { supported: boolean };
+    };
+    fieldGroups: ConfiguredServerEditFieldGroup[];
+    secretPolicy: {
+      allowedActions: ['replace'];
+      environmentReference: { recommended: true; storesSecretMaterial: false; guidance: string };
+      inlineReplacement: { emphasis: 'secondary'; guidance: string };
+    };
+  };
+}
+
 export interface ConfiguredServerDetailResponse {
   ok: true;
   operationId: string;
@@ -354,6 +389,28 @@ export interface ConfiguredServerApplyResponse {
   operationId: string;
   result: {
     originalTargetName: string;
+    targetName: string;
+    previewFingerprint: string;
+    configChange: ConfiguredServerPreviewConfigChange;
+  };
+}
+
+export interface ConfiguredServerCreatePreviewResponse {
+  ok: true;
+  operationId: string;
+  preview: Omit<ConfiguredServerPreviewResponse['preview'], 'proposedTargetName'> & {
+    proposedTargetName?: string;
+    expectedReload: {
+      policy: 'observe_after_write';
+      possibleStatuses: readonly ['observed', 'runtime_not_running', 'reload_disabled', 'failed'];
+    };
+  };
+}
+
+export interface ConfiguredServerCreateResponse {
+  ok: true;
+  operationId: string;
+  result: {
     targetName: string;
     previewFingerprint: string;
     configChange: ConfiguredServerPreviewConfigChange;
@@ -662,6 +719,46 @@ export function createAdminApi(options: AdminApiOptions = {}) {
       return response.servers ?? [];
     },
 
+    getConfiguredServerCreateContract(): Promise<ConfiguredServerCreateContractResponse> {
+      return request('/admin/api/configured-servers/create-contract');
+    },
+
+    previewConfiguredServerCreate(input: {
+      draft: ConfiguredServerCreateDraft;
+      csrfToken: string;
+      connectivityCheck?: 'auto' | 'manual';
+    }): Promise<ConfiguredServerCreatePreviewResponse> {
+      return request('/admin/api/configured-servers/create-preview', {
+        method: 'POST',
+        headers: { 'X-CSRF-Token': input.csrfToken },
+        body: JSON.stringify({
+          draft: input.draft,
+          ...(input.connectivityCheck ? { connectivityCheck: input.connectivityCheck } : {}),
+        }),
+      });
+    },
+
+    createConfiguredServer(input: {
+      draft: ConfiguredServerCreateDraft;
+      csrfToken: string;
+      idempotencyKey: string;
+      previewFingerprint: string;
+      confirmationFacts: Record<string, unknown>;
+    }): Promise<ConfiguredServerCreateResponse> {
+      return request('/admin/api/configured-servers', {
+        method: 'POST',
+        headers: {
+          'X-CSRF-Token': input.csrfToken,
+          'Idempotency-Key': input.idempotencyKey,
+        },
+        body: JSON.stringify({
+          draft: input.draft,
+          previewFingerprint: input.previewFingerprint,
+          confirmationFacts: input.confirmationFacts,
+        }),
+      });
+    },
+
     getConfiguredServerDetail(name: string): Promise<ConfiguredServerDetailResponse> {
       return request(`/admin/api/configured-servers/${encodeURIComponent(name)}`);
     },
@@ -722,6 +819,10 @@ export function createAdminApi(options: AdminApiOptions = {}) {
 
 export function createConfiguredServerApplyIdempotencyKey(name: string): string {
   return `admin-console-server-apply-${encodeIdempotencyKeyPart(name)}-${Date.now()}-${crypto.getRandomValues(new Uint32Array(2)).join('-')}`;
+}
+
+export function createConfiguredServerCreateIdempotencyKey(name: string): string {
+  return `admin-console-server-create-${encodeIdempotencyKeyPart(name)}-${Date.now()}-${crypto.getRandomValues(new Uint32Array(2)).join('-')}`;
 }
 
 function defaultPresetIdempotencyKey(action: string, name: string): string {

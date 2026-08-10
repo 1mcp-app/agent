@@ -525,6 +525,18 @@ export function createAdminRoutes(options: AdminRoutesOptions): Router | null {
     });
   });
 
+  router.get('/api/configured-servers/create-contract', async (req, res) => {
+    await handleConfiguredServerCreateContract(req, res, options);
+  });
+
+  router.post('/api/configured-servers/create-preview', async (req, res) => {
+    await handleConfiguredServerCreatePreview(req, res, options);
+  });
+
+  router.post('/api/configured-servers', async (req, res) => {
+    await handleConfiguredServerCreateApply(req, res, options);
+  });
+
   router.get('/api/configured-servers/:name', async (req, res) => {
     await handleConfiguredServerDetail(req, res, options);
   });
@@ -983,6 +995,104 @@ async function handleConfiguredServerDetail(req: Request, res: Response, options
   }
 }
 
+async function handleConfiguredServerCreateContract(
+  req: Request,
+  res: Response,
+  options: AdminRoutesOptions,
+): Promise<void> {
+  if (!options.configuredServerService) {
+    res.status(404).json({ error: 'admin_configured_servers_unavailable' });
+    return;
+  }
+  const result = await options.configuredServerService.getConfiguredServerCreateContract({
+    context: buildAdminOperationContext(req, options, { type: 'configured_server_collection' }),
+  });
+  if (!result.ok) {
+    sendAdminOperationResult(res, result);
+    return;
+  }
+  res.status(200).json({ ok: true, operationId: result.operationId, createContract: result.result });
+}
+
+async function handleConfiguredServerCreatePreview(
+  req: Request,
+  res: Response,
+  options: AdminRoutesOptions,
+): Promise<void> {
+  if (!options.configuredServerService) {
+    res.status(404).json({ error: 'admin_configured_servers_unavailable' });
+    return;
+  }
+  const draft = getBodyValue(req.body, 'draft') ?? {};
+  const result = await options.configuredServerService.previewConfiguredServerCreate({
+    context: buildAdminOperationContext(req, options, {
+      type: 'configured_server',
+      id: configuredServerCreateDraftName(draft),
+    }),
+    draft,
+    connectivityCheck: getBodyString(req.body, 'connectivityCheck') === 'manual' ? 'manual' : 'auto',
+  });
+  if (!result.ok) {
+    sendAdminOperationResult(res, result);
+    return;
+  }
+  res.status(200).json({ ok: true, operationId: result.operationId, preview: result.result });
+}
+
+async function handleConfiguredServerCreateApply(
+  req: Request,
+  res: Response,
+  options: AdminRoutesOptions,
+): Promise<void> {
+  if (!options.configuredServerService) {
+    res.status(404).json({ error: 'admin_configured_servers_unavailable' });
+    return;
+  }
+  if (!req.header('Idempotency-Key')?.trim()) {
+    res.status(400).json({ ok: false, error: 'idempotency_key_required', code: 'idempotency_key_required' });
+    return;
+  }
+  if (isMutationLocked(options)) {
+    sendAdminOperationResult(res, {
+      ok: false,
+      status: 'runtime_scope_locked',
+      code: 'runtime_scope_locked',
+      retryable: true,
+      operationName: 'applyConfiguredServerCreate',
+      reason: 'writer_lock_unavailable',
+    });
+    return;
+  }
+  const draft = getBodyValue(req.body, 'draft') ?? {};
+  try {
+    const result = await options.configuredServerService.applyConfiguredServerCreate({
+      context: buildAdminOperationContext(req, options, {
+        type: 'configured_server',
+        id: configuredServerCreateDraftName(draft),
+      }),
+      draft,
+      previewFingerprint: getBodyString(req.body, 'previewFingerprint'),
+    });
+    if (!result.ok && result.status === 'mutation_failed' && isConfiguredServerApplyErrorCode(result.error)) {
+      sendConfiguredServerApplyError(res, result.error);
+      return;
+    }
+    sendAdminOperationResult(res, result);
+  } catch (error) {
+    if (error instanceof AdminConfiguredServerApplyError) {
+      sendConfiguredServerApplyError(res, error.code);
+      return;
+    }
+    throw error;
+  }
+}
+
+function configuredServerCreateDraftName(draft: unknown): string {
+  if (!draft || typeof draft !== 'object' || Array.isArray(draft)) return '';
+  const name = (draft as Record<string, unknown>).name;
+  return typeof name === 'string' ? name : '';
+}
+
 async function handleConfiguredServerPreview(req: Request, res: Response, options: AdminRoutesOptions): Promise<void> {
   if (!options.configuredServerService) {
     res.status(404).json({ error: 'admin_configured_servers_unavailable' });
@@ -1083,7 +1193,7 @@ function sendConfiguredServerApplyError(res: Response, code: string): void {
 function configuredServerApplyErrorMessage(code: string): string {
   switch (code) {
     case 'configured_server_stale_preview':
-      return 'The configured server changed after preview. Preview the edit again.';
+      return 'The Runtime Scope configuration changed after preview. Preview the server again.';
     case 'configured_server_destination_conflict':
       return 'The requested configured server target name is already in use.';
     case 'configured_server_connectivity_blocked':
@@ -1092,6 +1202,10 @@ function configuredServerApplyErrorMessage(code: string): string {
       return 'The configured server edit is invalid.';
     case 'configured_server_edit_unchanged':
       return 'The configured server edit does not contain any changes.';
+    case 'configured_server_create_invalid':
+      return 'The proposed configured server is invalid. Correct the fields and preview it again.';
+    case 'configured_server_create_failed':
+      return 'The configured server could not be persisted. Inspect the Runtime Scope configuration and retry with a new idempotency key.';
     case 'configured_server_not_found':
       return 'Configured server target was not found.';
     default:
@@ -1703,6 +1817,16 @@ function configuredServerRequestFingerprint(
           ),
         }
       : {}),
+    ...(operationName === 'applyConfiguredServerCreate'
+      ? {
+          previewFingerprint,
+          draftDigest: keyedRequestFingerprint(
+            previewFingerprint,
+            'configured-server-create-draft',
+            stableJsonStringify(getBodyValue(body, 'draft') ?? {}),
+          ),
+        }
+      : {}),
     ...(operationName === 'restartBackend'
       ? {
           restartSelection: {
@@ -1712,6 +1836,9 @@ function configuredServerRequestFingerprint(
         }
       : {}),
   });
+  if (operationName === 'applyConfiguredServerCreate') {
+    return `configured_server_create_${keyedRequestFingerprint(previewFingerprint, 'configured-server-create', normalized)}`;
+  }
   return operationName === 'applyConfiguredServerEdit'
     ? `configured_server_apply_${keyedRequestFingerprint(previewFingerprint, 'configured-server-apply', normalized)}`
     : normalized;
@@ -1818,6 +1945,15 @@ function operationNameForRequest(req: Request): string {
   }
   if (req.path.endsWith('/disable') || req.path.endsWith('/disable-server')) {
     return 'disableConfiguredServer';
+  }
+  if (req.path === '/api/configured-servers/create-preview') {
+    return 'previewConfiguredServerCreate';
+  }
+  if (req.method === 'POST' && req.path === '/api/configured-servers') {
+    return 'applyConfiguredServerCreate';
+  }
+  if (req.method === 'GET' && req.path === '/api/configured-servers/create-contract') {
+    return 'getConfiguredServerCreateContract';
   }
   if (req.path.endsWith('/preview')) {
     return 'previewConfiguredServerEdit';
