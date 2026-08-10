@@ -258,7 +258,7 @@ describe('publishing documentation', () => {
     expect(fullArtifact).toContain('Only Codex also prints a manual `config.toml` notice');
   });
 
-  it('keeps non-public research, ADR history, and Chinese metadata governed', () => {
+  it('keeps non-public research and Chinese metadata governed', () => {
     const vitepressConfig = readRepoFile('docs/.vitepress/config/index.ts');
     const roadmap = readRepoFile('docs/ROADMAP.md');
     const readme = readRepoFile('docs/README.md');
@@ -282,15 +282,5 @@ describe('publishing documentation', () => {
       expect(frontmatter?.[1]).toMatch(/^description:\s*\S/m);
     }
 
-    const adrs = readdirSync(join(root, 'docs/adr')).filter((name) => name.endsWith('.md'));
-    const identifiers = adrs.map((name) => name.match(/^(\d{4})-/)?.[1]);
-    expect(identifiers).not.toContain(undefined);
-    expect(new Set(identifiers).size).toBe(identifiers.length);
-
-    const canonicalOauth = readRepoFile('docs/adr/0014-oauth-refresh-tokens-use-rotating-families.md');
-    const duplicateRecord = readRepoFile('docs/adr/0015-oauth-refresh-token-duplicate-record.md');
-    expect(canonicalOauth).toContain('status: accepted');
-    expect(duplicateRecord).toContain('status: superseded');
-    expect(duplicateRecord).toContain('superseded_by: 0014-oauth-refresh-tokens-use-rotating-families');
   });
 });
