@@ -130,6 +130,7 @@ function sidebar(): DefaultTheme.Sidebar {
           { text: '快速启动', link: '/zh/guide/advanced/fast-startup' },
           { text: '反向代理', link: '/zh/guide/advanced/reverse-proxy' },
           { text: '云端部署', link: '/zh/guide/advanced/cloud-deployment' },
+          { text: 'Windows 任务计划程序', link: '/zh/guide/advanced/windows-task-scheduler' },
           { text: '后端日志', link: '/zh/guide/advanced/backend-logs' },
           { text: '服务器过滤', link: '/zh/guide/advanced/server-filtering' },
         ],

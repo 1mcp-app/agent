@@ -111,6 +111,8 @@ Expand-Archive -Path "1mcp-win32-x64.zip" -DestinationPath "."
 Remove-Item "1mcp-win32-x64.zip"
 ```
 
+To keep 1MCP running across Windows reboots, continue with **[Run 1MCP with Windows Task Scheduler](/guide/advanced/windows-task-scheduler)**.
+
 **Manual Download:**
 
 Visit the [latest release page](https://github.com/1mcp-app/agent/releases/latest) and download the appropriate binary for your platform.

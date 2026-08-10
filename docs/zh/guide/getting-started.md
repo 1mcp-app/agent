@@ -337,6 +337,8 @@ curl -X POST http://localhost:3050/token \
 
 如果要公开云端运行时、Admin Console 和本地 CLI target，完成这个基础服务设置后，请使用推荐的 **[使用 Caddy 进行云端部署](/zh/guide/advanced/cloud-deployment)** 路径。
 
+在 Windows 上，请使用 **[通过 Windows 任务计划程序运行 1MCP](/zh/guide/advanced/windows-task-scheduler)**，不要执行下面的 systemd 步骤。
+
 ### **步骤 1：生产配置** (5 分钟)
 
 ```bash

@@ -282,5 +282,6 @@ Use this when the client can authenticate against the HTTP runtime. Do not assum
 - **[CLI Mode Guide](/guide/integrations/cli-mode)**
 - **[Proxy Command](/commands/proxy)**
 - **[Cloud Deployment with Caddy](/guide/advanced/cloud-deployment)**
+- **[Windows Task Scheduler Deployment](/guide/advanced/windows-task-scheduler)**
 - **[Architecture](/reference/architecture)**
 - **[Configuration Guide](/guide/essentials/configuration)**

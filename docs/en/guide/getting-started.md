@@ -348,6 +348,8 @@ curl -X POST http://localhost:3050/token \
 
 For a public cloud runtime with Admin Console access and local CLI targets, use the blessed **[Cloud Deployment with Caddy](/guide/advanced/cloud-deployment)** path after this basic service setup.
 
+On Windows, follow **[Run 1MCP with Windows Task Scheduler](/guide/advanced/windows-task-scheduler)** instead of the systemd steps below.
+
 ### **What You'll Achieve**
 
 - ✅ Systemd service for automatic startup

@@ -105,6 +105,8 @@ Expand-Archive -Path "1mcp-win32-x64.zip" -DestinationPath "."
 Remove-Item "1mcp-win32-x64.zip"
 ```
 
+如需让 1MCP 在 Windows 重启后持续运行，请继续阅读 **[通过 Windows 任务计划程序运行 1MCP](/zh/guide/advanced/windows-task-scheduler)**。
+
 **手动下载:**
 
 访问[最新发布页面](https://github.com/1mcp-app/agent/releases/latest)并下载适合您平台的二进制文件。
