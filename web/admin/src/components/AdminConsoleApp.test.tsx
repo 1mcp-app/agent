@@ -146,6 +146,26 @@ describe('AdminConsoleApp', () => {
     expect(onCopyText).toHaveBeenCalledWith('runtimeScopeId', 'scope_123');
   });
 
+  it('keeps custom server creation available when the inventory is empty', async () => {
+    const open = vi.fn();
+    const state = { ...consoleState(), configuredServers: [] };
+    const create = {
+      state: { status: 'idle' as const },
+      open,
+      close: async () => true,
+      changeField: vi.fn(),
+      addSecret: vi.fn(),
+      changeSecret: vi.fn(),
+      removeSecret: vi.fn(),
+      preview: vi.fn(),
+      apply: vi.fn(),
+    };
+    renderApp(state, { navigation: { route: 'servers' }, configuredServers: { create } });
+
+    await userEvent.click(screen.getByRole('button', { name: 'Configure Custom Server' }));
+    expect(open).toHaveBeenCalledOnce();
+  });
+
   it('renders the full inventory and editor only in the servers workspace', async () => {
     const user = userEvent.setup();
     const onServerAction = vi.fn();

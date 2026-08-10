@@ -6,6 +6,7 @@ import { type MouseEvent, useState } from 'react';
 import type { AdminConsoleRoute, OperatorWorkspaceModel } from '../../session/AdminConsoleSessionModel';
 import { DetailRow, Panel } from '../AdminConsoleShared';
 import { disabledServers, enabledServers, humanize, isOAuthAttention } from '../adminConsoleUtils';
+import { ConfiguredServerCreator } from '../configuredServerCreator';
 import { ConfiguredServerEditor } from '../configuredServerEditor';
 import { ConfiguredServersPanel } from '../ConfiguredServersPanel';
 import { AuditPanel } from '../OperationsStatusPanels';
@@ -116,10 +117,15 @@ export function ServersWorkspace({ model }: { model: OperatorWorkspaceModel }) {
             state={state}
             onServerAction={configuredServers.mutate}
             onOpenServerDetail={configuredServers.edit.open}
+            onConfigureCustomServer={configuredServers.create.open}
           />
         </div>
         <div className="inspector-column">
-          <ConfiguredServerEditor model={configuredServers.edit} />
+          {configuredServers.create.state.status === 'idle' ? (
+            <ConfiguredServerEditor model={configuredServers.edit} />
+          ) : (
+            <ConfiguredServerCreator model={configuredServers.create} />
+          )}
         </div>
       </div>
     </section>

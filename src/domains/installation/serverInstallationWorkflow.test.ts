@@ -22,6 +22,8 @@ describe('Server Installation Workflow', () => {
         args: ['server.js'],
         env: { NODE_ENV: 'test' },
         tags: ['local'],
+        connectionTimeout: 2_000,
+        requestTimeout: 5_000,
       },
     });
 
@@ -35,6 +37,8 @@ describe('Server Installation Workflow', () => {
         args: ['server.js'],
         env: { NODE_ENV: 'test' },
         tags: ['local'],
+        connectionTimeout: 2_000,
+        requestTimeout: 5_000,
       },
     });
     expect(result.configChange).toBeUndefined();
@@ -178,6 +182,67 @@ describe('Server Installation Workflow', () => {
       operation: 'install',
       backup: 'required',
     });
+  });
+
+  it('uses create-only Config Change for a non-force direct apply', async () => {
+    const createConfigChange = vi.fn().mockResolvedValue({
+      status: 'changed',
+      operation: 'create_static',
+      configPath: '/tmp/mcp.json',
+      target: { name: 'custom', source: 'mcpServers' },
+      changed: true,
+      backup: { created: false },
+      retentionCleanup: { attempted: false, deletedPaths: [], warnings: [] },
+      reload: { status: 'observed' },
+      warnings: [],
+    });
+    const applyConfigChange = vi.fn();
+    const workflow = createWorkflow({ createConfigChange, applyConfigChange });
+
+    const result = await workflow.run({
+      mode: 'apply',
+      source: {
+        type: 'direct',
+        localName: 'custom',
+        transport: 'http',
+        url: 'https://example.com/mcp',
+      },
+    });
+
+    expect(result).toMatchObject({ status: 'applied', targetName: 'custom' });
+    expect(createConfigChange).toHaveBeenCalledWith({
+      targetName: 'custom',
+      serverConfig: { type: 'http', url: 'https://example.com/mcp' },
+      operation: 'install',
+      backup: 'skip',
+    });
+    expect(applyConfigChange).not.toHaveBeenCalled();
+  });
+
+  it('reports an atomic create-only race as exists without falling back to replacement', async () => {
+    const applyConfigChange = vi.fn();
+    const workflow = createWorkflow({
+      applyConfigChange,
+      createConfigChange: vi.fn().mockResolvedValue({
+        status: 'destination_conflict',
+        operation: 'create_static',
+        configPath: '/tmp/mcp.json',
+        target: { name: 'custom', source: 'mcpServers' },
+        changed: false,
+        backup: { created: false },
+        retentionCleanup: { attempted: false, deletedPaths: [], warnings: [] },
+        reload: { status: 'skipped' },
+        warnings: [],
+      }),
+    });
+
+    const result = await workflow.run({
+      mode: 'apply',
+      source: { type: 'direct', localName: 'custom', transport: 'stdio', command: 'node' },
+    });
+
+    expect(result).toMatchObject({ status: 'exists', targetName: 'custom' });
+    expect(applyConfigChange).not.toHaveBeenCalled();
   });
 
   it('uses registry endpoint priority and result-only metadata', async () => {

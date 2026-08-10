@@ -1,11 +1,15 @@
 import { Alert, Badge, Code, Group, Paper, SimpleGrid, Stack, Text } from '@mantine/core';
 
-import type { ConfiguredServerPreviewResponse } from '../../api/adminApi';
+import type { ConfiguredServerCreatePreviewResponse, ConfiguredServerPreviewResponse } from '../../api/adminApi';
 import { fieldKey, formatPreviewValue } from '../../configuredServerEdit/configuredServerEditDraft';
 import { DetailRow } from '../AdminConsoleShared';
 import { connectivityMeta, connectivitySummary, riskFlagColor, riskFlagLabel } from '../adminConsoleUtils';
 
-export function PreviewResult({ preview }: { preview: ConfiguredServerPreviewResponse['preview'] }) {
+export function PreviewResult({
+  preview,
+}: {
+  preview: ConfiguredServerPreviewResponse['preview'] | ConfiguredServerCreatePreviewResponse['preview'];
+}) {
   const connectivity = preview.connectivityCheck;
   const validationTone = preview.validation.status === 'valid' ? 'teal' : 'red';
   const connectivityTone =
@@ -27,7 +31,11 @@ export function PreviewResult({ preview }: { preview: ConfiguredServerPreviewRes
           Preview only - no config has been written.
         </Alert>
         <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="xs">
-          <DetailRow label="Target" value={preview.targetName} meta={`Proposed: ${preview.proposedTargetName}`} />
+          <DetailRow
+            label="Target"
+            value={preview.targetName}
+            meta={`Proposed: ${preview.proposedTargetName ?? preview.targetName}`}
+          />
           <DetailRow
             label="Validation"
             value={preview.validation.status}
@@ -42,11 +50,19 @@ export function PreviewResult({ preview }: { preview: ConfiguredServerPreviewRes
             value={preview.configChange.status}
             meta={`${preview.configChange.operation} / ${preview.configChange.changed ? 'changed' : 'unchanged'}`}
           />
-          <DetailRow
-            label="Reload"
-            value={preview.configChange.reload.status}
-            meta={preview.configChange.reload.error}
-          />
+          {'expectedReload' in preview ? (
+            <DetailRow
+              label="Expected reload"
+              value={preview.expectedReload.policy.replaceAll('_', ' ')}
+              meta={preview.expectedReload.possibleStatuses.join(', ')}
+            />
+          ) : (
+            <DetailRow
+              label="Reload"
+              value={preview.configChange.reload.status}
+              meta={preview.configChange.reload.error}
+            />
+          )}
           <DetailRow
             label="Backup"
             value={preview.configChange.backup.created ? 'created' : 'not created'}

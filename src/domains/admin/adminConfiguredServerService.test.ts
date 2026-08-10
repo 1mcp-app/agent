@@ -3916,6 +3916,520 @@ describe('AdminConfiguredServerService', () => {
     expect(JSON.stringify(service.getRecentAuditFacts())).not.toContain('secret-value');
   });
 
+  it('publishes a normalized create contract for stdio, HTTP, and SSE only', async () => {
+    const result = await createService().getConfiguredServerCreateContract({
+      context: context({ idempotencyKey: undefined, requestFingerprint: undefined }),
+    });
+
+    expect(result).toMatchObject({
+      ok: true,
+      result: {
+        schemaVersion: 1,
+        capabilities: {
+          create: { supported: true },
+          forceReplacement: { supported: false },
+          rawJson: { supported: false },
+        },
+      },
+    });
+    expect(result.ok && result.result.fieldGroups).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          fields: expect.arrayContaining([
+            expect.objectContaining({ fieldPath: ['transport', 'type'], options: ['stdio', 'http', 'sse'] }),
+          ]),
+        }),
+      ]),
+    );
+    if (!result.ok) return;
+    expect(
+      result.result.fieldGroups
+        .flatMap((group) => group.fields)
+        .filter((field) => field.fieldPath[0] === 'transport')
+        .map((field) => field.fieldPath[1]),
+    ).toEqual([
+      'type',
+      'timeout',
+      'connectionTimeout',
+      'requestTimeout',
+      'url',
+      'headers',
+      'command',
+      'args',
+      'cwd',
+      'env',
+      'restartOnExit',
+      'maxRestarts',
+      'restartDelay',
+    ]);
+  });
+
+  it('previews a direct create with an opaque secret-bound fingerprint and no inline secret exposure', async () => {
+    const service = createService();
+    const draft = {
+      name: 'custom',
+      enabled: true,
+      tags: ['local'],
+      transport: { type: 'stdio', command: 'node', args: ['server.js'] },
+      secrets: [
+        {
+          fieldPath: ['env', 'API_TOKEN'],
+          action: 'replace',
+          replacement: { kind: 'inlineSecret', value: 'super-secret-value' },
+        },
+      ],
+    };
+
+    const result = await service.previewConfiguredServerCreate({
+      context: context({ idempotencyKey: undefined, requestFingerprint: undefined }),
+      draft,
+    });
+
+    expect(result).toMatchObject({
+      ok: true,
+      result: {
+        targetName: 'custom',
+        previewFingerprint: expect.stringMatching(/^preview_[a-f0-9]{64}$/u),
+        validation: { status: 'valid', errors: [] },
+        configChange: {
+          status: 'changed',
+          operation: 'create_static',
+          changed: true,
+          backup: { created: false },
+          reload: { status: 'skipped' },
+        },
+        connectivityCheck: { status: 'skipped', reason: 'local_stdio_transport' },
+        expectedReload: {
+          policy: 'observe_after_write',
+          possibleStatuses: ['observed', 'runtime_not_running', 'reload_disabled', 'failed'],
+        },
+      },
+    });
+    expect(JSON.stringify(result)).not.toContain('super-secret-value');
+    if (!result.ok) return;
+
+    const applied = await service.applyConfiguredServerCreate({
+      context: context({
+        idempotencyKey: 'create-secret',
+        requestFingerprint: 'create-secret:fingerprint',
+        confirmationFacts: {
+          previewConfirmed: result.result.previewFingerprint,
+          targetNameConfirmed: 'custom',
+          connectionCriticalConfirmed: true,
+          secretChangeConfirmed: true,
+        },
+      }),
+      draft,
+      previewFingerprint: result.result.previewFingerprint,
+    });
+    expect(applied.ok).toBe(true);
+    expect(JSON.stringify(service.getRecentAuditFacts())).not.toContain('super-secret-value');
+  });
+
+  it('binds the semantic connectivity result into the create preview fingerprint', async () => {
+    const checkConnectivity = vi
+      .fn<ConfiguredServerConnectivityChecker>()
+      .mockResolvedValueOnce({
+        status: 'passed',
+        mode: 'bounded_dry_run',
+        checkedAt: '2026-08-05T00:00:00.000Z',
+      })
+      .mockResolvedValueOnce({
+        status: 'passed',
+        mode: 'bounded_dry_run',
+        checkedAt: '2026-08-05T00:00:01.000Z',
+      })
+      .mockResolvedValueOnce({ status: 'failed', mode: 'bounded_dry_run', message: 'Connection refused' });
+    const service = createService({ checkConnectivity });
+    const draft = { name: 'remote', enabled: true, transport: { type: 'http', url: 'https://mcp.example' } };
+
+    const first = await service.previewConfiguredServerCreate({ context: context(), draft });
+    const second = await service.previewConfiguredServerCreate({ context: context(), draft });
+    const failed = await service.previewConfiguredServerCreate({ context: context(), draft });
+
+    expect(first.ok && second.ok && first.result.previewFingerprint).toBe(
+      second.ok ? second.result.previewFingerprint : '',
+    );
+    expect(first.ok && failed.ok && first.result.previewFingerprint).not.toBe(
+      failed.ok ? failed.result.previewFingerprint : '',
+    );
+  });
+
+  it.each(['http', 'sse'] as const)(
+    'previews and creates an enabled %s target after connectivity passes',
+    async (type) => {
+      const checkConnectivity = vi.fn<ConfiguredServerConnectivityChecker>().mockResolvedValue({
+        status: 'passed',
+        mode: 'bounded_dry_run',
+        checkedAt: '2026-08-05T00:00:00.000Z',
+      });
+      const service = createService({ checkConnectivity });
+      const draft = {
+        name: `remote-${type}`,
+        enabled: true,
+        transport: { type, url: `https://${type}.example/mcp`, connectionTimeout: 2_000, requestTimeout: 5_000 },
+      };
+      const preview = await service.previewConfiguredServerCreate({ context: context(), draft });
+      expect(preview).toMatchObject({
+        ok: true,
+        result: {
+          validation: { status: 'valid' },
+          connectivityCheck: { status: 'passed' },
+          configChange: { changed: true },
+        },
+      });
+      if (!preview.ok) return;
+
+      const applied = await service.applyConfiguredServerCreate({
+        context: context({
+          idempotencyKey: `create-${type}`,
+          requestFingerprint: `create-${type}:fingerprint`,
+          confirmationFacts: {
+            previewConfirmed: preview.result.previewFingerprint,
+            targetNameConfirmed: draft.name,
+            connectionCriticalConfirmed: true,
+          },
+        }),
+        draft,
+        previewFingerprint: preview.result.previewFingerprint,
+      });
+
+      expect(applied.ok).toBe(true);
+      expect(readConfig().mcpServers[draft.name]).toMatchObject({
+        type,
+        url: draft.transport.url,
+        connectionTimeout: 2_000,
+        requestTimeout: 5_000,
+      });
+    },
+  );
+
+  it('requires an explicit override to create after a failed remote connectivity preview', async () => {
+    const checkConnectivity = vi.fn<ConfiguredServerConnectivityChecker>().mockResolvedValue({
+      status: 'failed',
+      mode: 'bounded_dry_run',
+      message: 'Connection refused',
+    });
+    const service = createService({ checkConnectivity });
+    const draft = { name: 'remote-failed', enabled: true, transport: { type: 'http', url: 'https://bad.example/mcp' } };
+    const preview = await service.previewConfiguredServerCreate({ context: context(), draft });
+    expect(preview).toMatchObject({ ok: true, result: { connectivityCheck: { status: 'failed' } } });
+    if (!preview.ok) return;
+
+    await expect(
+      service.applyConfiguredServerCreate({
+        context: context({
+          idempotencyKey: 'create-failed-without-override',
+          requestFingerprint: 'create-failed-without-override:fingerprint',
+          confirmationFacts: {
+            previewConfirmed: preview.result.previewFingerprint,
+            targetNameConfirmed: draft.name,
+            connectionCriticalConfirmed: true,
+          },
+        }),
+        draft,
+        previewFingerprint: preview.result.previewFingerprint,
+      }),
+    ).rejects.toMatchObject({ code: 'configured_server_connectivity_blocked' });
+
+    const applied = await service.applyConfiguredServerCreate({
+      context: context({
+        idempotencyKey: 'create-failed-with-override',
+        requestFingerprint: 'create-failed-with-override:fingerprint',
+        confirmationFacts: {
+          previewConfirmed: preview.result.previewFingerprint,
+          targetNameConfirmed: draft.name,
+          connectionCriticalConfirmed: true,
+          connectivityFailureOverrideConfirmed: true,
+        },
+      }),
+      draft,
+      previewFingerprint: preview.result.previewFingerprint,
+    });
+    expect(applied.ok).toBe(true);
+  });
+
+  it('creates an enabled remote target when the connectivity checker is unavailable', async () => {
+    const service = createService();
+    const draft = { name: 'remote-unchecked', enabled: true, transport: { type: 'http', url: 'https://mcp.example' } };
+    const preview = await service.previewConfiguredServerCreate({ context: context(), draft });
+    expect(preview).toMatchObject({
+      ok: true,
+      result: { connectivityCheck: { status: 'skipped', reason: 'checker_unavailable' } },
+    });
+    if (!preview.ok) return;
+
+    const applied = await service.applyConfiguredServerCreate({
+      context: context({
+        idempotencyKey: 'create-remote-unchecked',
+        requestFingerprint: 'create-remote-unchecked:fingerprint',
+        confirmationFacts: {
+          previewConfirmed: preview.result.previewFingerprint,
+          targetNameConfirmed: draft.name,
+          connectionCriticalConfirmed: true,
+        },
+      }),
+      draft,
+      previewFingerprint: preview.result.previewFingerprint,
+    });
+
+    expect(applied.ok).toBe(true);
+    expect(readConfig().mcpServers[draft.name]).toMatchObject({ type: 'http', url: 'https://mcp.example' });
+  });
+
+  it('returns non-secret validation facts for malformed create secrets', async () => {
+    const result = await createService().previewConfiguredServerCreate({
+      context: context({ idempotencyKey: undefined, requestFingerprint: undefined }),
+      draft: {
+        name: 'custom',
+        transport: { type: 'stdio', command: 'node' },
+        secrets: [
+          {
+            fieldPath: ['unsupported', 'API_TOKEN'],
+            action: 'replace',
+            replacement: { kind: 'inlineSecret', value: '' },
+          },
+        ],
+      },
+    });
+
+    expect(result).toMatchObject({
+      ok: true,
+      result: {
+        validation: {
+          status: 'invalid',
+          errors: expect.arrayContaining([
+            expect.objectContaining({ code: 'unsupported_secret_field' }),
+            expect.objectContaining({ code: 'empty_inline_secret' }),
+          ]),
+        },
+      },
+    });
+  });
+
+  it('rejects secret fields that do not apply to the selected create transport', async () => {
+    const result = await createService().previewConfiguredServerCreate({
+      context: context({ idempotencyKey: undefined, requestFingerprint: undefined }),
+      draft: {
+        name: 'custom',
+        transport: { type: 'stdio', command: 'node' },
+        secrets: [
+          {
+            fieldPath: ['headers', 'Authorization'],
+            action: 'replace',
+            replacement: { kind: 'environmentReference', value: 'API_TOKEN' },
+          },
+        ],
+      },
+    });
+
+    expect(result).toMatchObject({
+      ok: true,
+      result: {
+        validation: {
+          status: 'invalid',
+          errors: expect.arrayContaining([expect.objectContaining({ code: 'unsupported_secret_field' })]),
+        },
+        configChange: { changed: false },
+      },
+    });
+  });
+
+  it.each([
+    ['mcpServers', 'mcpServers'],
+    ['mcpTemplates', 'mcpTemplates'],
+  ] as const)('identifies an existing %s target in the create preview', async (collection, source) => {
+    writeConfig({ [collection]: { occupied: { type: 'stdio', command: 'external' } } });
+
+    const result = await createService().previewConfiguredServerCreate({
+      context: context({ idempotencyKey: undefined, requestFingerprint: undefined }),
+      draft: { name: 'occupied', enabled: true, transport: { type: 'stdio', command: 'node' } },
+    });
+
+    expect(result).toMatchObject({
+      ok: true,
+      result: {
+        configChange: {
+          status: collection === 'mcpServers' ? 'destination_conflict' : 'template_conflict',
+          target: { name: 'occupied', source },
+          changed: false,
+        },
+      },
+    });
+  });
+
+  it.each(['mcpServers', 'mcpTemplates'] as const)(
+    'atomically rejects a post-preview create conflict in %s without replacing the occupant',
+    async (collection) => {
+      writeConfig({ mcpServers: {}, mcpTemplates: {} });
+      const service = createService();
+      const draft = { name: 'occupied', enabled: true, transport: { type: 'stdio', command: 'node' } };
+      const preview = await service.previewConfiguredServerCreate({
+        context: context({ idempotencyKey: undefined, requestFingerprint: undefined }),
+        draft,
+      });
+      expect(preview.ok).toBe(true);
+      if (!preview.ok) return;
+      writeConfig({ [collection]: { occupied: { type: 'stdio', command: 'external' } } });
+
+      await expect(
+        service.applyConfiguredServerCreate({
+          context: context({
+            idempotencyKey: `create-${collection}`,
+            requestFingerprint: `create-${collection}:fingerprint`,
+            confirmationFacts: {
+              previewConfirmed: preview.result.previewFingerprint,
+              targetNameConfirmed: 'occupied',
+              connectionCriticalConfirmed: true,
+            },
+          }),
+          draft,
+          previewFingerprint: preview.result.previewFingerprint,
+        }),
+      ).rejects.toMatchObject({ code: 'configured_server_stale_preview' });
+      expect(readConfig()).toEqual({ [collection]: { occupied: { type: 'stdio', command: 'external' } } });
+      expect(reload).not.toHaveBeenCalled();
+      expect(fs.readdirSync(tempDir).filter((name) => name.includes('.backup.'))).toEqual([]);
+    },
+  );
+
+  it('replays a completed create before re-reading config and leaves a later external occupant untouched', async () => {
+    writeConfig({ mcpServers: {} });
+    const service = createService();
+    const draft = { name: 'custom', enabled: true, transport: { type: 'stdio', command: 'node' } };
+    const preview = await service.previewConfiguredServerCreate({
+      context: context({ idempotencyKey: undefined, requestFingerprint: undefined }),
+      draft,
+    });
+    expect(preview.ok).toBe(true);
+    if (!preview.ok) return;
+    const applyInput = {
+      context: context({
+        idempotencyKey: 'create-custom',
+        requestFingerprint: 'create-custom:fingerprint',
+        confirmationFacts: {
+          previewConfirmed: preview.result.previewFingerprint,
+          targetNameConfirmed: 'custom',
+          connectionCriticalConfirmed: true,
+        },
+      }),
+      draft,
+      previewFingerprint: preview.result.previewFingerprint,
+    };
+
+    const first = await service.applyConfiguredServerCreate(applyInput);
+    writeConfig({ mcpServers: { custom: { type: 'stdio', command: 'external' } } });
+    const replay = await service.applyConfiguredServerCreate(applyInput);
+
+    expect(first).toMatchObject({ ok: true, replayed: false, result: { targetName: 'custom' } });
+    expect(replay).toMatchObject({ ok: true, replayed: true, result: { targetName: 'custom' } });
+    expect(readConfig().mcpServers.custom).toEqual({ type: 'stdio', command: 'external' });
+    expect(reload).toHaveBeenCalledTimes(1);
+  });
+
+  it('rejects a create preview after any config document revision changes', async () => {
+    writeConfig({ mcpServers: {}, unrelated: { revision: 1 } });
+    const service = createService();
+    const draft = { name: 'custom', enabled: true, transport: { type: 'stdio', command: 'node' } };
+    const preview = await service.previewConfiguredServerCreate({
+      context: context({ idempotencyKey: undefined, requestFingerprint: undefined }),
+      draft,
+    });
+    expect(preview.ok).toBe(true);
+    if (!preview.ok) return;
+    writeConfig({ mcpServers: {}, unrelated: { revision: 2 } });
+
+    await expect(
+      service.applyConfiguredServerCreate({
+        context: context({
+          confirmationFacts: {
+            previewConfirmed: preview.result.previewFingerprint,
+            targetNameConfirmed: 'custom',
+            connectionCriticalConfirmed: true,
+          },
+        }),
+        draft,
+        previewFingerprint: preview.result.previewFingerprint,
+      }),
+    ).rejects.toMatchObject({ code: 'configured_server_stale_preview' });
+    expect(readConfig().mcpServers).toEqual({});
+    expect(reload).not.toHaveBeenCalled();
+  });
+
+  it('completes and replays a create whose write succeeded but reload observation failed', async () => {
+    writeConfig({ mcpServers: {} });
+    reload.mockImplementationOnce(() => {
+      throw new Error('reload sentinel should be reported');
+    });
+    const service = createService();
+    const draft = { name: 'custom', enabled: true, transport: { type: 'stdio', command: 'node' } };
+    const preview = await service.previewConfiguredServerCreate({
+      context: context({ idempotencyKey: undefined, requestFingerprint: undefined }),
+      draft,
+    });
+    expect(preview.ok).toBe(true);
+    if (!preview.ok) return;
+    const applyInput = {
+      context: context({
+        idempotencyKey: 'reload-create',
+        requestFingerprint: 'reload-create:fingerprint',
+        confirmationFacts: {
+          previewConfirmed: preview.result.previewFingerprint,
+          targetNameConfirmed: 'custom',
+          connectionCriticalConfirmed: true,
+        },
+      }),
+      draft,
+      previewFingerprint: preview.result.previewFingerprint,
+    };
+
+    const first = await service.applyConfiguredServerCreate(applyInput);
+    const replay = await service.applyConfiguredServerCreate(applyInput);
+
+    expect(first).toMatchObject({
+      ok: true,
+      replayed: false,
+      result: {
+        configChange: { status: 'changed', reload: { status: 'failed', error: 'reload sentinel should be reported' } },
+      },
+    });
+    expect(replay).toMatchObject({ ok: true, replayed: true, result: first.ok ? first.result : undefined });
+    expect(readConfig().mcpServers.custom).toEqual({ type: 'stdio', command: 'node', disabled: false });
+  });
+
+  it('keeps create preview available but rejects apply when the runtime-scope writer lock is unavailable', async () => {
+    writeConfig({ mcpServers: {} });
+    const service = createService({ mutationAvailability: { available: false, reason: 'writer_lock_unavailable' } });
+    const draft = { name: 'custom', enabled: true, transport: { type: 'stdio', command: 'node' } };
+    const preview = await service.previewConfiguredServerCreate({
+      context: context({ idempotencyKey: undefined, requestFingerprint: undefined }),
+      draft,
+    });
+    expect(preview.ok).toBe(true);
+    if (!preview.ok) return;
+
+    const result = await service.applyConfiguredServerCreate({
+      context: context({
+        confirmationFacts: {
+          previewConfirmed: preview.result.previewFingerprint,
+          targetNameConfirmed: 'custom',
+          connectionCriticalConfirmed: true,
+        },
+      }),
+      draft,
+      previewFingerprint: preview.result.previewFingerprint,
+    });
+
+    expect(result).toMatchObject({
+      ok: false,
+      status: 'runtime_scope_locked',
+      code: 'runtime_scope_locked',
+      retryable: true,
+      reason: 'writer_lock_unavailable',
+    });
+    expect(readConfig().mcpServers).toEqual({});
+  });
+
   function createService(
     options: {
       readConfigDocument?: () => { serverDefaults?: Record<string, any>; mcpServers?: Record<string, any> } | null;
