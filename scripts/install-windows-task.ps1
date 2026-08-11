@@ -95,7 +95,14 @@ if ($PSCmdlet.ParameterSetName -eq 'Npm') {
     try {
         $cmdWrapper = (Get-Command '1mcp.cmd' -ErrorAction Stop).Source
     } catch [System.Management.Automation.CommandNotFoundException] {
-        Write-Error "1mcp.cmd not found in PATH. Ensure the package is installed globally (e.g., 'npm install -g @1mcp/agent') or use -BinaryPath instead."
+        # Fallback: Check npm global prefix if not in PATH
+        $npmPrefix = ''
+        try { $npmPrefix = npm prefix -g 2>$null } catch {}
+        
+        $cmdWrapper = if ($npmPrefix) { Join-Path $npmPrefix '1mcp.cmd' } else { '' }
+        if (-not $cmdWrapper -or -not (Test-Path $cmdWrapper -PathType Leaf)) {
+            Write-Error "1mcp.cmd not found in PATH or npm global prefix. Ensure the package is installed globally (e.g., 'npm install -g @1mcp/agent') or use -BinaryPath instead."
+        }
     }
 }
 
