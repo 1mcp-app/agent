@@ -1,6 +1,70 @@
 # 服务器指令覆盖
 
-自定义模板最强大的功能之一是能够使用 Handlebars 逻辑覆盖、过滤或自定义服务器指令。这使您可以完全控制如何向 LLM 呈现服务器指令。
+服务器指令覆盖允许运维人员替换或抑制某个已配置服务器的上游指令，无需在每个指令模板中重复添加针对该服务器的条件逻辑。
+
+## 配置覆盖
+
+在 Admin Console 中打开已配置的服务器，然后选择以下三种状态之一：
+
+| 状态         | 存储值                             | 生效的指令                |
+| ------------ | ---------------------------------- | ------------------------- |
+| **Upstream** | 不存在 `instructionOverride`       | 使用 MCP 服务器返回的指令 |
+| **Replace**  | `instructionOverride` 为非空字符串 | 使用配置文本替换上游指令  |
+| **Suppress** | `instructionOverride` 为空字符串   | 不发布该服务器的指令      |
+
+移除覆盖会删除该字段并恢复上游行为。因此，空值表示有意抑制，与移除字段不是同一种操作。仅包含空白字符的值也会被视为字面替换。
+
+覆盖内容是字面文本。1MCP 不会渲染 `instructionOverride` 中的 Handlebars 表达式；例如 `{{title}}` 会原样保留在生效的服务器指令中。
+
+### 静态服务器与模板服务器定义
+
+覆盖属于具体的配置定义，其标识同时包含来源和名称：
+
+- `mcpServers/<name>` 表示静态服务器定义。
+- `mcpTemplates/<name>` 表示模板服务器定义。
+
+当静态服务器和模板定义同名时，这种带来源的标识尤其重要。编辑其中一个不会改变另一个。配置在 `mcpTemplates` 定义上的覆盖会由该定义创建的服务器继承，并始终作为字面文本使用；它不会随模板服务器参数展开。
+
+等价的 `mcp.json` 配置如下：
+
+```json
+{
+  "mcpServers": {
+    "filesystem": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-filesystem", "/workspace"],
+      "instructionOverride": "仅使用此服务器访问 /workspace 下的文件。"
+    },
+    "noisy-server": {
+      "command": "noisy-server",
+      "instructionOverride": ""
+    }
+  },
+  "mcpTemplates": {
+    "tenant-api": {
+      "command": "tenant-api",
+      "args": ["--tenant", "{{project.name}}"],
+      "instructionOverride": "遵循已配置的租户策略。"
+    }
+  }
+}
+```
+
+## 优先级与运行时更新
+
+对于每个已配置服务器，1MCP 会先解析其生效的服务器指令：
+
+1. 如果 `instructionOverride` 存在，则使用其值，包括空字符串。
+2. 否则，使用服务器返回的上游指令。
+3. 应用客户端或预览过滤器，再把生效值提供给活动指令模板。
+
+该解析发生在渲染 `initialization` 或 `cli` 模板之前。因此，两个输出面会看到相同的替换或抑制结果，同时保留各自的输出结构。
+
+修改覆盖后，无需重启后端服务器，后续的指令渲染就会使用新值。已经完成初始化的 MCP 会话不会改变，因为初始化响应已经发送。新连接、Admin 预览以及之后执行的 `1mcp instructions` 会使用更新后的值。
+
+## 模板层自定义
+
+当需要跨多个服务器进行展示逻辑处理，例如分组、排序或添加条件包装文本时，下面的模式仍然适用。它们处理的是已经解析后的生效指令。若只是直接替换或抑制某个已配置服务器，建议使用 `instructionOverride`，这样两个模板变体会共享同一行为。
 
 ## 基本服务器指令覆盖模式
 

@@ -26,6 +26,65 @@ By default, 1MCP generates educational instruction templates that help LLMs unde
 - Variable substitution with real-time server data
 - Conditional content based on connected servers
 
+## Manage Templates in the Admin Console
+
+Open **Admin Console > Instructions** to manage named instruction templates without editing the configuration file directly. Each template contains two independent variants:
+
+- **Initialization** is returned to a new MCP client during initialization.
+- **CLI** is rendered by `1mcp instructions` and the corresponding HTTP endpoint.
+
+The built-in `default` template always provides both variants. It is protected: you cannot edit or delete it, but you can clone it as the starting point for a managed template.
+
+The editor supports this workflow:
+
+1. Create or clone a template and edit either variant.
+2. Save the draft. Drafts may be saved even when one variant contains invalid Handlebars, so unfinished work is not lost.
+3. Validate both variants and preview them against an explicit server context.
+4. Activate the template. Activation succeeds only when both variants are valid.
+
+Only one template is active at a time. An active template cannot be deleted; activate another template first. The Admin Console also shows a delete preview before it applies a deletion.
+
+### Preview Context and Filters
+
+Preview uses an explicit, ephemeral context. Choose the servers and the same preset, tags, or advanced tag filter that the target client will use. The preview applies that filter before building variables such as <span v-pre>`{{servers}}`</span>, <span v-pre>`{{serverNames}}`</span>, and <span v-pre>`{{filterContext}}`</span>. It does not create a persistent client session or change the active template.
+
+Preview both variants when a change affects shared variables. The initialization and CLI variants may intentionally produce different structures from the same filtered server data.
+
+### Runtime Behavior and Fallback
+
+Activating a template updates configuration for future rendering. Existing initialized MCP sessions keep the instructions they already received; new MCP connections and subsequent `1mcp instructions` calls use the active selection.
+
+If the active variant fails during rendering, 1MCP renders the built-in variant for that surface and records a structured Admin error. The active selection is preserved so operators can inspect and repair the template. A failure in `cli` does not replace a valid `initialization` variant, and vice versa.
+
+## Managed Configuration
+
+The Admin Console stores managed templates in `mcp.json`:
+
+```json
+{
+  "instructionTemplates": {
+    "team": {
+      "initialization": "# {{title}}\n\n{{instructions}}",
+      "cli": "Use `1mcp inspect <server>` before `1mcp run`.\n\n{{instructions}}"
+    }
+  },
+  "activeInstructionTemplate": "team"
+}
+```
+
+Do not add a `default` entry to `instructionTemplates`; that identity is reserved for the built-in template. `activeInstructionTemplate` must be `default` or the identity of a configured managed template.
+
+When `activeInstructionTemplate` is present, the managed selection takes precedence for both surfaces. When it is absent, initialization keeps the legacy file or `--instructions-template` behavior described below, while CLI output uses the built-in CLI template.
+
+## Migrate a Legacy Template
+
+Use **Import legacy template** in the Admin Console to copy the currently configured legacy initialization template into a named draft. Import does not overwrite the legacy file and does not activate the draft. The new template receives:
+
+- the legacy content as its `initialization` variant;
+- the built-in content as its `cli` variant.
+
+Review and validate both variants, preview the intended filter context, and then activate the managed template. Once a managed selection is active, it takes precedence over the legacy initialization template. Keep the legacy file until new connections and CLI output have been verified, then remove the old serve option or file when convenient.
+
 ## Template Variables
 
 Your custom templates have access to the following variables:
@@ -106,9 +165,9 @@ By default, 1MCP looks for `instructions-template.md` in your config directory:
 
 You can also specify a custom path using the CLI option.
 
-### Configuration Override
+### Move to Managed Configuration
 
-You can also override template settings per client by extending the configuration system to include template options in your MCP server configurations.
+For a supported configuration workflow, import the legacy file into a managed template as described above. To replace or suppress instructions from one configured server, use a [server instruction override](./server-instructions-overrides.md) instead of adding per-client template settings.
 
 ## Template Syntax
 
