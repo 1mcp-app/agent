@@ -55,6 +55,19 @@ export async function createCapabilityCatalogFromConnections(
   });
 }
 
+/** Create the runtime Capability Catalog used by protocol capability walks. */
+export function createProtocolCapabilityCatalog(
+  connections: OutboundConnections,
+  getServerConfigs: () => Record<string, MCPServerParams> = () => McpConfigManager.getInstance().getTransportConfig(),
+): CapabilityCatalog {
+  return new CapabilityCatalog({
+    getToolRegistry: ToolRegistry.empty,
+    schemaCache: new SchemaCache({ maxEntries: 100 }),
+    outboundConnections: connections,
+    getServerConfigs,
+  });
+}
+
 export function resolveOutboundConnection(
   clientName: string,
   sessionId: string | undefined,
@@ -83,16 +96,35 @@ export function resolveLazyCapabilityVisibility(
   inboundConn: InboundConnection,
   sessionId: string | undefined,
 ): CapabilityVisibility {
+  return resolveCapabilityVisibility(outboundConns, inboundConn, sessionId, 'tools');
+}
+
+/** Resolve request-time Filter Selection into a catalog-enforced Server Candidate Set. */
+export function resolveCapabilityVisibility(
+  outboundConns: OutboundConnections,
+  inboundConn: InboundConnection,
+  sessionId: string | undefined,
+  capability: 'tools' | 'resources' | 'prompts',
+): CapabilityVisibility {
   // Scope template instances before applying client filters and availability.
   const sessionScoped = filterConnectionsForSession(outboundConns, sessionId);
   const tagAndPresetScoped = FilteringService.getFilteredConnections(sessionScoped, inboundConn);
-  const toolCapable = byCapabilities({ tools: {} })(tagAndPresetScoped);
+  const capabilityRequirement =
+    capability === 'tools' ? { tools: {} } : capability === 'resources' ? { resources: {} } : { prompts: {} };
+  const capable = byCapabilities(capabilityRequirement)(tagAndPresetScoped);
 
   return createCapabilityVisibility(
     Array.from(
-      toolCapable.entries(),
+      capable.entries(),
       ([connectionKey, connection]) => [connectionKey, connection.name || connectionKey.split(':')[0]] as const,
     ),
     sessionId,
+    {
+      tagFilterMode: inboundConn.tagFilterMode,
+      tags: inboundConn.tags,
+      tagExpression: inboundConn.tagExpression,
+      tagQuery: inboundConn.tagQuery,
+      presetName: inboundConn.presetName,
+    },
   );
 }
