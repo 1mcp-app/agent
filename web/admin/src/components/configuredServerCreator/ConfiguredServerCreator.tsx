@@ -13,7 +13,9 @@ import {
 } from '@mantine/core';
 
 import { Pencil, Plus, ServerCog, ShieldCheck, Trash2 } from 'lucide-react';
+import { useEffect, useRef } from 'react';
 
+import type { ConfiguredServerEditField } from '../../api/adminApi';
 import type { ConfiguredServerCreateSecretDraft } from '../../configuredServerCreate/configuredServerCreateState';
 import {
   configuredServerCreateApplyEligibility,
@@ -26,6 +28,15 @@ import { PreviewResult } from '../configuredServerEditor/PreviewResult';
 
 export function ConfiguredServerCreator({ model }: { model: ConfiguredServerCreateModel }) {
   const { state } = model;
+  const advancedSettingsRef = useRef<HTMLDetailsElement>(null);
+  const hasAdvancedPreviewErrors =
+    state.status === 'editing' &&
+    Boolean(state.preview?.validation.errors.some((error) => !isPrimaryCreateField(error.fieldPath)));
+
+  useEffect(() => {
+    if (hasAdvancedPreviewErrors && advancedSettingsRef.current) advancedSettingsRef.current.open = true;
+  }, [hasAdvancedPreviewErrors]);
+
   if (state.status === 'idle') return null;
   if (state.status === 'loading') {
     return (
@@ -78,6 +89,15 @@ export function ConfiguredServerCreator({ model }: { model: ConfiguredServerCrea
       fields: group.fields.filter((field) => fieldAppliesToTransport(field, selectedTransport)),
     }))
     .filter((group) => group.fields.length > 0);
+  const primaryGroups = groups
+    .map((group) => ({
+      ...group,
+      fields: group.fields.filter((field) => isPrimaryCreateField(field.fieldPath)),
+    }))
+    .filter((group) => group.fields.length > 0);
+  const advancedFields = groups
+    .flatMap((group) => group.fields)
+    .filter((field) => !isPrimaryCreateField(field.fieldPath));
   const eligibility = configuredServerCreateApplyEligibility(state);
   const staticNameConflict =
     state.preview?.configChange.target.source === 'mcpServers' &&
@@ -107,7 +127,7 @@ export function ConfiguredServerCreator({ model }: { model: ConfiguredServerCrea
             SSE is deprecated. Use HTTP for new remote servers when the endpoint supports it.
           </Alert>
         ) : null}
-        {groups.map((group) => (
+        {primaryGroups.map((group) => (
           <Paper key={group.id} className="edit-section" withBorder>
             <Stack gap="xs">
               <Group justify="space-between" align="flex-start">
@@ -119,28 +139,37 @@ export function ConfiguredServerCreator({ model }: { model: ConfiguredServerCrea
                 </div>
                 <Badge variant="outline">{group.fields.length} fields</Badge>
               </Group>
-              {group.fields.map((field) => (
-                <ConfiguredServerFieldDraft
-                  key={fieldKey(field.fieldPath)}
-                  field={field}
-                  value={state.fieldDraft[fieldKey(field.fieldPath)]}
-                  onChange={(value) => model.changeField(field.fieldPath, value)}
-                />
-              ))}
+              {group.fields.map((field) => renderCreateField(field, state.fieldDraft, model.changeField))}
             </Stack>
           </Paper>
         ))}
-        <DynamicSecrets
-          transport={selectedTransport}
-          secrets={state.secrets}
-          inlineSupported={
-            Boolean(state.contract.createContract.secretPolicy.inlineReplacement) &&
-            state.contract.createContract.secretPolicy.allowedActions.includes('replace')
-          }
-          onAdd={model.addSecret}
-          onChange={model.changeSecret}
-          onRemove={model.removeSecret}
-        />
+        <details ref={advancedSettingsRef} className="advanced-settings">
+          <summary>Advanced settings</summary>
+          <Stack gap="sm" mt="sm">
+            {advancedFields.length > 0 ? (
+              <Paper className="edit-section" withBorder>
+                <Stack gap="xs">
+                  <Text fw={800}>Optional transport settings</Text>
+                  <Text c="dimmed" size="xs">
+                    Timeouts use milliseconds. Prefer Connection Timeout and Request Timeout over Deprecated Timeout.
+                  </Text>
+                  {advancedFields.map((field) => renderCreateField(field, state.fieldDraft, model.changeField))}
+                </Stack>
+              </Paper>
+            ) : null}
+            <DynamicSecrets
+              transport={selectedTransport}
+              secrets={state.secrets}
+              inlineSupported={
+                Boolean(state.contract.createContract.secretPolicy.inlineReplacement) &&
+                state.contract.createContract.secretPolicy.allowedActions.includes('replace')
+              }
+              onAdd={model.addSecret}
+              onChange={model.changeSecret}
+              onRemove={model.removeSecret}
+            />
+          </Stack>
+        </details>
         <Group className="draft-action-bar" justify="space-between" gap="sm">
           <div>
             <Badge color={state.dirty ? 'yellow' : 'gray'} variant={state.dirty ? 'light' : 'outline'}>
@@ -177,7 +206,6 @@ export function ConfiguredServerCreator({ model }: { model: ConfiguredServerCrea
         ) : null}
         {state.preview ? (
           <>
-            <PreviewResult preview={state.preview} />
             <Group justify="flex-end" align="center">
               {staticNameConflict ? (
                 <Button
@@ -202,10 +230,34 @@ export function ConfiguredServerCreator({ model }: { model: ConfiguredServerCrea
                 Create server
               </Button>
             </Group>
+            <PreviewResult preview={state.preview} />
           </>
         ) : null}
       </Stack>
     </Panel>
+  );
+}
+
+function isPrimaryCreateField(fieldPath: string[]): boolean {
+  if (fieldPath[0] === 'secrets') return false;
+  return fieldPath[0] !== 'transport' || ['type', 'command', 'args', 'url'].includes(fieldPath[1] ?? '');
+}
+
+function renderCreateField(
+  field: ConfiguredServerEditField,
+  fieldDraft: Record<string, unknown>,
+  changeField: ConfiguredServerCreateModel['changeField'],
+) {
+  const key = fieldKey(field.fieldPath);
+  const timeout = ['timeout', 'connectionTimeout', 'requestTimeout'].includes(field.fieldPath[1] ?? '');
+  const presentedField = timeout ? { ...field, label: `${field.label} (ms)` } : field;
+  return (
+    <ConfiguredServerFieldDraft
+      key={key}
+      field={presentedField}
+      value={fieldDraft[key]}
+      onChange={(value) => changeField(field.fieldPath, value)}
+    />
   );
 }
 

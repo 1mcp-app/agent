@@ -1,4 +1,17 @@
-import { Badge, Button, Group, SegmentedControl, Table, Text, TextInput } from '@mantine/core';
+import {
+  ActionIcon,
+  Badge,
+  Button,
+  Group,
+  Loader,
+  SegmentedControl,
+  Stack,
+  Switch,
+  Table,
+  Text,
+  TextInput,
+  Tooltip,
+} from '@mantine/core';
 import { useMediaQuery } from '@mantine/hooks';
 
 import { Pencil, Plus, Search, ServerCog } from 'lucide-react';
@@ -36,6 +49,7 @@ export function ConfiguredServersPanel({
     () => filterServers(state.configuredServers, query, filter),
     [filter, query, state.configuredServers],
   );
+  const inventoryEmpty = state.configuredServers.length === 0;
 
   return (
     <Panel
@@ -43,31 +57,56 @@ export function ConfiguredServersPanel({
       utility={`${servers.length} of ${state.configuredServers.length} targets`}
       icon={<ServerCog size={17} />}
     >
-      <Group align="flex-end" gap="sm" className="server-filter-row">
-        <TextInput
-          className="server-search"
-          leftSection={<Search size={16} />}
-          label="Search servers"
-          type="search"
-          value={query}
-          onChange={(event) => setQuery(event.currentTarget.value)}
-        />
-        <SegmentedControl
-          aria-label="Server status filter"
-          value={filter}
-          onChange={(value) => setFilter(value as ServerFilter)}
-          data={[
-            { label: 'All', value: 'all' },
-            { label: 'Enabled', value: 'enabled' },
-            { label: 'Disabled', value: 'disabled' },
-          ]}
-        />
-        <Button leftSection={<Plus size={16} />} onClick={() => void onConfigureCustomServer?.()}>
-          Configure Custom Server
-        </Button>
-      </Group>
-      {servers.length === 0 ? (
-        <EmptyState message="No servers match the current filter." />
+      {!inventoryEmpty ? (
+        <Group align="flex-end" gap="sm" className="server-filter-row">
+          <TextInput
+            className="server-search"
+            leftSection={<Search size={16} />}
+            label="Search servers"
+            type="search"
+            value={query}
+            onChange={(event) => setQuery(event.currentTarget.value)}
+          />
+          <SegmentedControl
+            aria-label="Server status filter"
+            value={filter}
+            onChange={(value) => setFilter(value as ServerFilter)}
+            data={[
+              { label: 'All', value: 'all' },
+              { label: 'Enabled', value: 'enabled' },
+              { label: 'Disabled', value: 'disabled' },
+            ]}
+          />
+          <Button leftSection={<Plus size={16} />} onClick={() => void onConfigureCustomServer?.()}>
+            Configure Custom Server
+          </Button>
+        </Group>
+      ) : null}
+      {inventoryEmpty ? (
+        <Stack gap="sm" className="actionable-empty-state">
+          <div>
+            <Text fw={800}>No servers configured</Text>
+            <Text c="dimmed" size="sm">
+              Configure a target to start routing MCP capabilities and observing runtime activity.
+            </Text>
+          </div>
+          <Button leftSection={<Plus size={16} />} onClick={() => void onConfigureCustomServer?.()}>
+            Configure server
+          </Button>
+        </Stack>
+      ) : servers.length === 0 ? (
+        <Stack gap="sm" className="actionable-empty-state">
+          <EmptyState message="No servers match the current search and status filter." />
+          <Button
+            variant="default"
+            onClick={() => {
+              setQuery('');
+              setFilter('all');
+            }}
+          >
+            Clear filters
+          </Button>
+        </Stack>
       ) : compactLayout ? (
         <div className="server-mobile-list">
           {servers.map((server) => (
@@ -159,27 +198,25 @@ function ServerCard({
           {mutation.message}
         </Text>
       ) : null}
-      <Group gap="xs" grow>
-        <Button
-          aria-label={`Edit ${server.id} server`}
-          leftSection={<Pencil size={14} />}
-          size="xs"
-          variant="default"
-          onClick={() => void onOpenServerDetail?.(server.id)}
-        >
-          Edit server
-        </Button>
-        <Button
-          aria-label={actionState.label}
-          size="xs"
-          color={action === 'disable' ? 'red' : 'teal'}
-          variant={action === 'disable' ? 'light' : 'filled'}
-          loading={busy}
+      <Group gap="sm" justify="space-between" wrap="nowrap" className="server-mobile-actions">
+        <Tooltip label={`Edit ${server.id}`}>
+          <ActionIcon
+            aria-label={`Edit ${server.id} server`}
+            size="lg"
+            variant="default"
+            onClick={() => void onOpenServerDetail?.(server.id)}
+          >
+            <Pencil size={16} />
+          </ActionIcon>
+        </Tooltip>
+        <ServerStateControl
+          server={server}
+          busy={busy}
+          action={action}
+          actionLabel={actionState.label}
           disabled={busy || actionUnavailable}
-          onClick={() => void onServerAction?.(server.id, action)}
-        >
-          {action === 'enable' ? 'Enable' : 'Disable'}
-        </Button>
+          onChange={() => void onServerAction?.(server.id, action)}
+        />
       </Group>
     </article>
   );
@@ -225,28 +262,60 @@ function ServerRow({
       <Table.Td>{transportSummaryLabel(server)}</Table.Td>
       <Table.Td>{secretSummary(server)}</Table.Td>
       <Table.Td>
-        <Group gap="xs" wrap="wrap">
-          <Button
-            aria-label={`Edit ${server.id} server`}
-            leftSection={<Pencil size={14} />}
-            size="xs"
-            variant="default"
-            onClick={() => void onOpenServerDetail?.(server.id)}
-          >
-            Edit server
-          </Button>
-          <Button
-            size="xs"
-            color={action === 'disable' ? 'red' : 'teal'}
-            variant={action === 'disable' ? 'light' : 'filled'}
-            loading={busy}
+        <Group gap="sm" wrap="nowrap" justify="flex-end">
+          <Tooltip label={`Edit ${server.id}`}>
+            <ActionIcon
+              aria-label={`Edit ${server.id} server`}
+              size="lg"
+              variant="default"
+              onClick={() => void onOpenServerDetail?.(server.id)}
+            >
+              <Pencil size={16} />
+            </ActionIcon>
+          </Tooltip>
+          <ServerStateControl
+            server={server}
+            busy={busy}
+            action={action}
+            actionLabel={actionState.label}
             disabled={busy || actionUnavailable}
-            onClick={() => void onServerAction?.(server.id, action)}
-          >
-            {actionState.label}
-          </Button>
+            onChange={() => void onServerAction?.(server.id, action)}
+          />
         </Group>
       </Table.Td>
     </Table.Tr>
+  );
+}
+
+function ServerStateControl({
+  server,
+  busy,
+  action,
+  actionLabel,
+  disabled,
+  onChange,
+}: {
+  server: ConfiguredServerReadModel;
+  busy: boolean;
+  action: 'enable' | 'disable';
+  actionLabel: string;
+  disabled: boolean;
+  onChange(): void;
+}) {
+  return (
+    <Group gap={7} wrap="nowrap" className="server-state-control">
+      {busy ? <Loader aria-label={`Updating ${server.id}`} size={14} /> : null}
+      <Switch
+        aria-label={actionLabel}
+        checked={server.enabled}
+        color="teal"
+        disabled={disabled}
+        onChange={onChange}
+        styles={{ input: { cursor: 'pointer', zIndex: 1 } }}
+      />
+      <Text className="server-state-label" size="xs" fw={700}>
+        {action === 'disable' ? 'Enabled' : 'Disabled'}
+      </Text>
+    </Group>
   );
 }

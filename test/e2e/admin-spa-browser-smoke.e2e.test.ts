@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, rmSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, rmSync } from 'node:fs';
 import { createServer, type Server } from 'node:http';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -22,6 +22,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 const ADMIN_BUILD_DIR = path.join(process.cwd(), 'build', 'admin');
 const ADMIN_BUILD_INDEX = path.join(ADMIN_BUILD_DIR, 'index.html');
 const PASSWORD = 'correct horse battery staple';
+const SCREENSHOT_DIR = process.env.ADMIN_UI_SCREENSHOT_DIR;
 
 describe('admin SPA browser smoke', () => {
   let browser: Browser | null = null;
@@ -129,7 +130,7 @@ describe('admin SPA browser smoke', () => {
 
       await expectText(page, 'Runtime operations');
       await expectVisible(page.getByRole('navigation', { name: 'Operations navigation' }));
-      await expectText(page, 'Operations dashboard');
+      await expectText(page, 'Overview');
       await expectText(page, 'Runtime online');
       await expectText(page, 'Enabled servers');
       await expectText(page, 'Disabled servers');
@@ -166,7 +167,7 @@ describe('admin SPA browser smoke', () => {
       await waitForRowCount(page, 1);
       await expectText(page, 'https://mcp.example/github');
 
-      await page.getByRole('button', { name: 'Enable github' }).click();
+      await page.getByRole('switch', { name: 'Enable github' }).click();
       await expectText(page, 'Server enable completed.');
       await expectVisible(page.locator('tbody tr', { hasText: 'github' }).getByText('enabled', { exact: true }));
 
@@ -265,6 +266,7 @@ describe('admin SPA browser smoke', () => {
 
       await page.getByLabel('Server Name').fill('custom server');
       await page.getByLabel('Command').fill('node');
+      await page.locator('summary').filter({ hasText: 'Advanced settings' }).click();
       await page.getByRole('button', { name: 'Add secret' }).click();
       await page.getByLabel('Environment variable').fill('API_TOKEN');
       await page.getByLabel('Environment reference for API_TOKEN').fill('CUSTOM_SERVER_TOKEN');
@@ -411,20 +413,20 @@ describe('admin SPA browser smoke', () => {
   });
 
   it.each([
-    { width: 390, height: 844, compactInventory: true },
+    { width: 375, height: 812, compactInventory: true },
     { width: 800, height: 900, compactInventory: false },
   ])(
     'keeps the built console usable at $width px without page-level horizontal overflow',
     async ({ width, height, compactInventory }) => {
-      const page = await newPage({ width, height, isMobile: width === 390 });
+      const page = await newPage({ width, height, isMobile: width === 375 });
 
       try {
         await expectCenteredLoginGate(page);
         await login(page, { skipNavigation: true });
 
         await expectText(page, 'Runtime operations');
-        await expectText(page, 'Operations dashboard');
-        await expectVisible(page.getByRole('button', { name: 'Refresh' }));
+        await expectText(page, 'Overview');
+        await expectVisible(page.getByRole('button', { name: 'Refresh runtime data' }));
         await expectVisible(page.getByRole('button', { name: 'Log out' }));
         await expectNoPageOverflow(page);
 
@@ -456,31 +458,182 @@ describe('admin SPA browser smoke', () => {
     },
   );
 
-  it('stacks the inspector below inventory at 1440 px', async () => {
-    const page = await newPage({ width: 1440, height: 1100 });
+  it('creates and reopens the first stdio server from a zero-server runtime at 375x812', async () => {
+    configuredServerFixture.clear();
+    const page = await newPage({ width: 375, height: 812, isMobile: true });
+
+    try {
+      await expectCenteredLoginGate(page);
+      const visibilityToggle = page.getByRole('button', { name: 'Show password' });
+      const toggleSize = await visibilityToggle.evaluate((element) => {
+        const rect = element.getBoundingClientRect();
+        return { width: rect.width, height: rect.height };
+      });
+      expect(toggleSize.width).toBeGreaterThanOrEqual(44);
+      expect(toggleSize.height).toBeGreaterThanOrEqual(44);
+      await visibilityToggle.focus();
+      await page.keyboard.press('Enter');
+      await expectVisible(page.getByRole('button', { name: 'Hide password' }));
+      await login(page, { skipNavigation: true });
+
+      await page.getByRole('button', { name: 'Open operations navigation' }).click();
+      await page.getByRole('link', { name: 'Server inventory' }).click();
+      await page.waitForURL(`${baseUrl}/admin/servers`);
+      await expectText(page, 'No servers configured');
+      await page.getByRole('button', { name: 'Configure server' }).click();
+      await page.waitForURL(`${baseUrl}/admin/servers/new`);
+      expect(await page.getByRole('heading', { name: 'Server inventory' }).count()).toBe(0);
+      await page.getByLabel('Server Name').fill('first-stdio');
+      await page.getByLabel('Command').fill('node');
+      await page.getByRole('button', { name: 'Preview server' }).click();
+      await page.getByRole('button', { name: 'Create server' }).click();
+      await page.getByRole('dialog').getByRole('button', { name: 'Create server' }).click();
+      await page.waitForURL(`${baseUrl}/admin/servers/first-stdio`);
+      await expectVisible(page.getByRole('heading', { name: 'first-stdio', exact: true }));
+      await expectNoPageOverflow(page);
+
+      await page.getByRole('button', { name: 'Back' }).click();
+      await page.waitForURL(`${baseUrl}/admin/servers`);
+      await expectText(page, '1 configured target');
+      await page.getByRole('button', { name: 'Edit first-stdio server' }).click();
+      await page.waitForURL(`${baseUrl}/admin/servers/first-stdio`);
+      await expectVisible(page.getByRole('heading', { name: 'first-stdio', exact: true }));
+      await expectNoPageOverflow(page);
+    } finally {
+      await page.context().close();
+    }
+  });
+
+  it('uses mutually exclusive browse and task workspaces at 1440 px and restores filters on Back', async () => {
+    const page = await newPage({ width: 1440, height: 900 });
 
     try {
       await expectCenteredLoginGate(page);
       await login(page, { skipNavigation: true });
       await page.getByRole('link', { name: 'Server inventory' }).click();
       await page.waitForURL(`${baseUrl}/admin/servers`);
+      await page.getByLabel('Search servers').fill('github');
+      await waitForRowCount(page, 1);
       await expectNoPageOverflow(page);
 
-      const layout = await page.locator('.workspace-grid').evaluate((element) => {
-        const inventory = element.querySelector('.inventory-column')?.getBoundingClientRect();
-        const inspector = element.querySelector('.inspector-column')?.getBoundingClientRect();
-        return {
-          columns: globalThis.getComputedStyle(element).gridTemplateColumns.split(' ').length,
-          inventoryBottom: inventory?.bottom ?? 0,
-          inspectorTop: inspector?.top ?? 0,
-        };
+      await page.getByRole('button', { name: 'Edit github server' }).click();
+      await page.waitForURL(`${baseUrl}/admin/servers/github`);
+      expect(await page.locator('.server-table-view').isVisible()).toBe(false);
+      expect(await page.getByRole('heading', { name: 'Server inventory' }).count()).toBe(0);
+      const widthRatio = await page.locator('.server-task-workspace').evaluate((element) => {
+        const taskWidth = element.getBoundingClientRect().width;
+        const workspaceWidth = element.closest('.operations-workspace')?.getBoundingClientRect().width ?? taskWidth;
+        return taskWidth / workspaceWidth;
       });
-      expect(layout.columns).toBe(1);
-      expect(layout.inspectorTop).toBeGreaterThanOrEqual(layout.inventoryBottom);
+      expect(widthRatio).toBeGreaterThan(0.95);
+      await expectNoPageOverflow(page);
+
+      await page.getByRole('button', { name: 'Back' }).click();
+      await page.waitForURL(`${baseUrl}/admin/servers`);
+      await expectVisible(page.getByRole('heading', { name: 'Server inventory' }));
+      expect(await page.getByLabel('Search servers').inputValue()).toBe('github');
+      await waitForRowCount(page, 1);
     } finally {
       await page.context().close();
     }
   });
+
+  it('keeps the 26-tag matrix controls separated and removes nested vertical scrolling', async () => {
+    const page = await newPage({ width: 1440, height: 1100 });
+
+    try {
+      await expectCenteredLoginGate(page);
+      await login(page, { skipNavigation: true });
+      await page.getByRole('link', { name: 'Presets' }).click();
+      await page.waitForURL(`${baseUrl}/admin/presets`);
+      await expectVisible(page.getByRole('heading', { name: 'Tag matrix' }));
+      expect(await page.locator('.preset-tag-row').count()).toBeGreaterThanOrEqual(26);
+
+      for (const matrixWidth of [350, 520, 800]) {
+        await page.locator('.workspace-grid').evaluate((element) => {
+          (element as HTMLElement).style.display = 'block';
+        });
+        await page.locator('.preset-tag-builder').evaluate((element, width) => {
+          const builder = element as HTMLElement;
+          builder.style.width = `${width}px`;
+          builder.style.maxWidth = 'none';
+        }, matrixWidth);
+
+        const result = await page.locator('.preset-tag-builder').evaluate((builder) => {
+          const list = builder.querySelector('.preset-tag-list') as HTMLElement | null;
+          const rows = Array.from(builder.querySelectorAll('.preset-tag-row')) as HTMLElement[];
+          const overlap = rows.some((row) => {
+            const identity = row.querySelector('.preset-tag-identity')?.getBoundingClientRect();
+            const state = row.querySelector('.preset-tag-state')?.getBoundingClientRect();
+            const servers = row.querySelector('.preset-tag-servers')?.getBoundingClientRect();
+            if (!identity || !state || !servers) return true;
+            const intersects = (left: DOMRect, right: DOMRect) =>
+              left.left < right.right && left.right > right.left && left.top < right.bottom && left.bottom > right.top;
+            return intersects(identity, state) || intersects(servers, state);
+          });
+          const controlHeights = rows.map(
+            (row) => row.querySelector('.mantine-SegmentedControl-root')?.getBoundingClientRect().height ?? 0,
+          );
+          return {
+            overlap,
+            nestedScroll: list ? list.scrollHeight > list.clientHeight + 1 : true,
+            minControlHeight: Math.min(...controlHeights),
+          };
+        });
+
+        expect(result.overlap, `tag content overlaps at ${matrixWidth}px`).toBe(false);
+        expect(result.nestedScroll, `tag list scrolls internally at ${matrixWidth}px`).toBe(false);
+        expect(result.minControlHeight, `tag state control is too short at ${matrixWidth}px`).toBeGreaterThanOrEqual(
+          44,
+        );
+      }
+    } finally {
+      await page.context().close();
+    }
+  });
+
+  it('persists light and dark themes across the supported screenshot viewports', async () => {
+    const viewports = [
+      { width: 1440, height: 900 },
+      { width: 1024, height: 768 },
+      { width: 768, height: 1024 },
+      { width: 375, height: 812 },
+    ];
+
+    if (SCREENSHOT_DIR) mkdirSync(SCREENSHOT_DIR, { recursive: true });
+
+    for (const theme of ['light', 'dark'] as const) {
+      for (const viewport of viewports) {
+        const page = await newPage({ ...viewport, isMobile: viewport.width === 375 });
+
+        try {
+          await expectCenteredLoginGate(page);
+          await login(page, { skipNavigation: true });
+          await page.getByRole('button', { name: 'Choose color theme' }).click();
+          await page.getByRole('menuitem', { name: theme === 'light' ? /^Light theme/ : /^Dark theme/ }).click();
+          await page.reload();
+          await page.waitForFunction(
+            (expectedTheme) => globalThis.document.documentElement.dataset.mantineColorScheme === expectedTheme,
+            theme,
+          );
+
+          await page.goto(`${baseUrl}/admin/presets`);
+          await page.waitForURL(`${baseUrl}/admin/presets`);
+          await expectVisible(page.getByRole('heading', { name: 'Tag matrix' }));
+          await expectNoPageOverflow(page);
+
+          if (SCREENSHOT_DIR) {
+            await page.locator('.preset-tag-row').first().scrollIntoViewIfNeeded();
+            await page.screenshot({
+              path: path.join(SCREENSHOT_DIR, `preset-matrix-${theme}-${viewport.width}x${viewport.height}.png`),
+            });
+          }
+        } finally {
+          await page.context().close();
+        }
+      }
+    }
+  }, 60000);
 
   async function newPage(viewport: { width: number; height: number; isMobile?: boolean }): Promise<Page> {
     if (!browser) {
@@ -529,7 +682,7 @@ describe('admin SPA browser smoke', () => {
       await page.goto(`${baseUrl}/admin`);
     }
     await page.getByLabel('Username').fill('operator');
-    await page.getByLabel('Password').fill(PASSWORD);
+    await page.locator('input[autocomplete="current-password"]').fill(PASSWORD);
     const loginResponsePromise = page.waitForResponse((response) =>
       response.url().endsWith('/admin/api/session/login'),
     );
@@ -550,7 +703,7 @@ describe('admin SPA browser smoke', () => {
   }
 });
 
-type ResettableConfiguredServerFixture = AdminConfiguredServerOperations & { reset: () => void };
+type ResettableConfiguredServerFixture = AdminConfiguredServerOperations & { reset: () => void; clear: () => void };
 
 async function expectText(page: Page, text: string): Promise<void> {
   try {
@@ -588,6 +741,9 @@ function createConfiguredServerFixture(): ResettableConfiguredServerFixture {
   return {
     reset() {
       servers = createConfiguredServerReadModels();
+    },
+    clear() {
+      servers = [];
     },
     async getConfiguredServerCreateContract() {
       return operationSuccess('getConfiguredServerCreateContract', 'op_create_contract', {
@@ -893,13 +1049,19 @@ function createFieldGroups() {
 }
 
 function createConfiguredServerReadModels(): ConfiguredServerReadModel[] {
+  const filesystemTags = Array.from({ length: 13 }, (_, index) =>
+    index === 0 ? 'local-filesystem-and-document-storage' : `filesystem-tag-${String(index + 1).padStart(2, '0')}`,
+  );
+  const githubTags = Array.from({ length: 13 }, (_, index) =>
+    index === 0 ? 'remote-source-code-and-collaboration' : `github-tag-${String(index + 1).padStart(2, '0')}`,
+  );
   return [
     {
       id: 'filesystem',
       source: 'mcpServers',
       target: { type: 'configured_server', id: 'filesystem', source: 'mcpServers' },
       enabled: true,
-      tags: [],
+      tags: filesystemTags,
       transportSummary: { kind: 'stdio', label: 'node ./servers/filesystem.js' },
       mutationAvailability: { available: true, operations: ['enable', 'disable'] },
       actionState: actionState('filesystem', true),
@@ -911,7 +1073,7 @@ function createConfiguredServerReadModels(): ConfiguredServerReadModel[] {
       source: 'mcpServers',
       target: { type: 'configured_server', id: 'github', source: 'mcpServers' },
       enabled: false,
-      tags: [],
+      tags: githubTags,
       transportSummary: { kind: 'http', label: 'https://mcp.example/github' },
       mutationAvailability: { available: true, operations: ['enable', 'disable'] },
       actionState: actionState('github', false),

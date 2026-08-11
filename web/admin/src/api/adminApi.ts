@@ -509,7 +509,7 @@ export function createAdminApi(options: AdminApiOptions = {}) {
       });
     },
 
-    getSession(): Promise<AdminSession> {
+    getSession(): Promise<AdminSession | UnauthenticatedSession> {
       return request('/admin/api/session');
     },
 

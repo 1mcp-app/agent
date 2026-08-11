@@ -46,7 +46,7 @@ describe('AdminConsoleApp', () => {
       },
     });
 
-    expect(screen.getByRole('heading', { name: 'Backend logs' })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: 'Backend logs' })).toBeInTheDocument();
     expect(screen.getByText('<script>window.injected=true</script>')).toBeInTheDocument();
     expect(document.querySelector('.backend-log-content script')).toBeNull();
     expect(screen.getByText('Not captured')).toBeInTheDocument();
@@ -56,7 +56,7 @@ describe('AdminConsoleApp', () => {
     expect(select).toHaveBeenCalledWith('static:manual');
   });
 
-  it('distinguishes a retained-history load failure from an empty log', () => {
+  it('distinguishes a retained-history load failure from an empty log', async () => {
     renderApp(consoleState(), {
       navigation: { route: 'logs' },
       logs: {
@@ -67,8 +67,27 @@ describe('AdminConsoleApp', () => {
       },
     });
 
-    expect(screen.getByRole('alert')).toHaveTextContent('Failed to load retained backend logs');
+    expect(await screen.findByRole('alert')).toHaveTextContent('Failed to load retained backend logs');
     expect(screen.queryByText('No captured stderr in retained runtime history.')).not.toBeInTheDocument();
+  });
+
+  it('guides operators from empty logs without claiming a live stream', async () => {
+    const open = vi.fn();
+    renderApp(consoleState(), {
+      navigation: { route: 'logs' },
+      configuredServers: { create: idleCreateModel(open) },
+      logs: { connection: 'active', sources: [] },
+    });
+
+    expect(await screen.findByText('Waiting for sources')).toBeInTheDocument();
+    expect(screen.queryByText('Live stream')).not.toBeInTheDocument();
+    expect(screen.getByText(/Configure a stdio server/i)).toBeInTheDocument();
+    const configureLink = screen.getByRole('link', { name: /configure stdio server/i });
+    expect(configureLink).toHaveAttribute('href', '/admin/servers/new');
+    fireEvent.click(configureLink, { metaKey: true });
+    expect(open).not.toHaveBeenCalled();
+    await userEvent.click(configureLink);
+    expect(open).toHaveBeenCalledOnce();
   });
   it('renders setup-required guidance without authenticated console chrome', () => {
     render(
@@ -86,14 +105,23 @@ describe('AdminConsoleApp', () => {
     expect(screen.queryByText('1mcp admin bootstrap')).not.toBeInTheDocument();
   });
 
-  it('renders login and loading states without account-management controls', () => {
+  it('renders login and loading states without account-management controls', async () => {
+    const user = userEvent.setup();
     const { rerender } = renderApp({ ...createInitialState(), view: 'login' });
 
     expect(screen.getByRole('heading', { name: /operator login/i })).toBeInTheDocument();
     expect(screen.queryByRole('banner', { name: /admin console/i })).not.toBeInTheDocument();
     expect(screen.queryByRole('region', { name: /runtime identity/i })).not.toBeInTheDocument();
     expect(screen.getByLabelText(/username/i)).toHaveAttribute('autocomplete', 'username');
-    expect(screen.getByLabelText(/password/i)).toHaveAttribute('autocomplete', 'current-password');
+    const passwordInput = screen.getByLabelText(/^Password/, { selector: 'input' });
+    expect(passwordInput).toHaveAttribute('autocomplete', 'current-password');
+    const visibilityToggle = screen.getByRole('button', { name: 'Show password' });
+    expect(visibilityToggle).toHaveAttribute('aria-pressed', 'false');
+    visibilityToggle.focus();
+    await user.keyboard('{Enter}');
+    expect(screen.getByRole('button', { name: 'Hide password' })).toHaveAttribute('aria-pressed', 'true');
+    expect(passwordInput).toHaveAttribute('type', 'text');
+    expect(screen.getByRole('button', { name: 'Hide password' })).toHaveFocus();
     expect(screen.queryByText(/create account|disable account|delete account|password reset/i)).not.toBeInTheDocument();
 
     rerender(
@@ -111,12 +139,18 @@ describe('AdminConsoleApp', () => {
   it('renders a summary-only dashboard with direct workspace links', async () => {
     const user = userEvent.setup();
     const onCopyText = vi.fn();
+    const onConfigureServer = vi.fn();
+    const onNavigate = vi.fn();
 
-    renderApp(consoleState(), { configuredServers: { copy: onCopyText } });
+    renderApp(consoleState(), {
+      navigation: { navigate: onNavigate },
+      configuredServers: { copy: onCopyText, create: idleCreateModel(onConfigureServer) },
+    });
 
     const navigation = screen.getByRole('navigation', { name: /operations navigation/i });
     expect(screen.getByRole('banner', { name: /admin console/i })).toHaveTextContent(/runtime online/i);
-    expect(screen.getByRole('heading', { name: /operations dashboard/i })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: /^overview$/i })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: /needs attention/i })).toBeInTheDocument();
     expect(screen.getByText('Enabled servers')).toBeInTheDocument();
     expect(screen.getAllByText('1').length).toBeGreaterThanOrEqual(4);
     expect(screen.getByText('Disabled servers')).toBeInTheDocument();
@@ -132,7 +166,7 @@ describe('AdminConsoleApp', () => {
     expect(screen.queryByText('awaiting_oauth')).not.toBeInTheDocument();
     expect(screen.queryByText('enableConfiguredServer')).not.toBeInTheDocument();
 
-    expect(within(navigation).getByRole('link', { name: 'Dashboard' })).toHaveAttribute('href', '/admin');
+    expect(within(navigation).getByRole('link', { name: 'Overview' })).toHaveAttribute('href', '/admin');
     expect(within(navigation).getByRole('link', { name: 'Server inventory' })).toHaveAttribute(
       'href',
       '/admin/servers',
@@ -144,6 +178,11 @@ describe('AdminConsoleApp', () => {
 
     await user.click(screen.getByRole('button', { name: /copy runtime scope/i }));
     expect(onCopyText).toHaveBeenCalledWith('runtimeScopeId', 'scope_123');
+    await user.click(screen.getByRole('button', { name: /copy external url/i }));
+    expect(onCopyText).toHaveBeenCalledWith('externalUrl', 'https://runtime.example.com');
+    await user.click(screen.getByRole('button', { name: 'Configure server' }));
+    expect(onConfigureServer).toHaveBeenCalledOnce();
+    expect(onNavigate).not.toHaveBeenCalled();
   });
 
   it('keeps custom server creation available when the inventory is empty', async () => {
@@ -162,8 +201,42 @@ describe('AdminConsoleApp', () => {
     };
     renderApp(state, { navigation: { route: 'servers' }, configuredServers: { create } });
 
-    await userEvent.click(screen.getByRole('button', { name: 'Configure Custom Server' }));
+    expect(screen.getByText('No servers configured')).toBeInTheDocument();
+    expect(screen.queryByRole('searchbox', { name: /search servers/i })).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'Configure server' }));
     expect(open).toHaveBeenCalledOnce();
+  });
+
+  it('clears a filtered empty server inventory without changing true-empty guidance', async () => {
+    const user = userEvent.setup();
+    renderApp(consoleState(), { navigation: { route: 'servers' } });
+
+    await user.type(screen.getByRole('searchbox', { name: /search servers/i }), 'missing');
+    expect(screen.getByText(/No servers match the current search/i)).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Clear filters' }));
+
+    expect(screen.getByRole('searchbox', { name: /search servers/i })).toHaveValue('');
+    expect(screen.getByText('filesystem')).toBeInTheDocument();
+  });
+
+  it('uses the full workspace for an active server task and hides the browse inventory', () => {
+    const create = {
+      state: { status: 'loading' as const },
+      open: vi.fn(),
+      close: vi.fn(async () => true),
+      editExisting: vi.fn(),
+      changeField: vi.fn(),
+      addSecret: vi.fn(),
+      changeSecret: vi.fn(),
+      removeSecret: vi.fn(),
+      preview: vi.fn(),
+      apply: vi.fn(),
+    };
+    renderApp(consoleState(), { navigation: { route: 'servers' }, configuredServers: { create } });
+
+    expect(screen.getByRole('heading', { name: /configure custom server/i })).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: /server inventory/i })).not.toBeInTheDocument();
+    expect(document.querySelector('.server-task-workspace')).toBeInTheDocument();
   });
 
   it('renders the full inventory and editor only in the servers workspace', async () => {
@@ -187,7 +260,7 @@ describe('AdminConsoleApp', () => {
     expect(screen.getByText(/No servers match/i)).toBeInTheDocument();
 
     await user.click(screen.getByRole('radio', { name: /disabled/i }));
-    await user.click(screen.getByRole('button', { name: /enable github/i }));
+    await user.click(screen.getByRole('switch', { name: /enable github/i }));
     expect(onServerAction).toHaveBeenCalledWith('github', 'enable');
   });
 
@@ -259,6 +332,25 @@ describe('AdminConsoleApp', () => {
     expect(onOperate).toHaveBeenNthCalledWith(2, 'github', 'restart');
   });
 
+  it('links an empty OAuth workspace to server configuration', async () => {
+    const state = consoleState();
+    state.status!.oauth.services = [];
+    const open = vi.fn();
+    renderApp(state, {
+      navigation: { route: 'oauth' },
+      configuredServers: { create: idleCreateModel(open) },
+    });
+
+    expect(await screen.findByText('No OAuth services reported')).toBeInTheDocument();
+    expect(screen.getByText(/appear when a configured server requires/i)).toBeInTheDocument();
+    const configureLink = screen.getByRole('link', { name: /configure server/i });
+    expect(configureLink).toHaveAttribute('href', '/admin/servers/new');
+    fireEvent.click(configureLink, { ctrlKey: true });
+    expect(open).not.toHaveBeenCalled();
+    await userEvent.click(configureLink);
+    expect(open).toHaveBeenCalledOnce();
+  });
+
   it('shows OAuth callback, busy, and operation feedback in the OAuth workspace', () => {
     const state = consoleState();
     state.status!.oauth.services.push({
@@ -293,25 +385,25 @@ describe('AdminConsoleApp', () => {
     expect(screen.getByRole('button', { name: 'Close operations navigation' })).toBeInTheDocument();
   });
 
-  it('renders compatible version skew without warning and unavailable optional metadata', () => {
+  it('renders compatible version skew without warning and unavailable optional metadata', async () => {
     const state = consoleState();
     state.status!.about.adminUiBuildVersion = '9.9.9';
     state.status!.about.build = {};
     renderApp(state, { navigation: { route: 'about' } });
 
-    expect(screen.getByRole('heading', { name: /About 1MCP Agent/i })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: /About 1MCP Agent/i })).toBeInTheDocument();
     expect(screen.getByText('9.9.9')).toBeInTheDocument();
     expect(screen.getAllByText('Unavailable')).toHaveLength(2);
     expect(screen.queryByText(/protocol incompatibility/i)).not.toBeInTheDocument();
     expect(screen.getByRole('link', { name: /Repository.*new tab/i })).toHaveAttribute('rel', 'noopener noreferrer');
   });
 
-  it('warns when the Admin UI and API protocol contracts are incompatible', () => {
+  it('warns when the Admin UI and API protocol contracts are incompatible', async () => {
     const state = consoleState();
     state.status!.about.adminUiProtocolVersion = '2';
     state.status!.about.protocolCompatible = false;
     renderApp(state, { navigation: { route: 'about' } });
-    expect(screen.getByText(/Admin UI protocol incompatibility/i)).toBeInTheDocument();
+    expect(await screen.findByText(/Admin UI protocol incompatibility/i)).toBeInTheDocument();
   });
 
   it('blocks lossy conversion from advanced JSON to structured mode', async () => {
@@ -330,7 +422,7 @@ describe('AdminConsoleApp', () => {
         ],
       },
     });
-    await user.click(screen.getByRole('button', { name: 'Edit' }));
+    await user.click(await screen.findByRole('button', { name: 'Edit' }));
     expect(screen.getByRole('button', { name: /Match any included tag/i })).toBeDisabled();
     expect(screen.getByRole('button', { name: /Match all included tags/i })).toBeDisabled();
   });
@@ -353,8 +445,8 @@ describe('AdminConsoleApp', () => {
       presets: { preview: onPreviewPreset, save: onSavePreset },
     });
 
-    await user.type(screen.getByLabelText('Preset name'), 'web');
-    await user.click(screen.getByRole('button', { name: /Include local/i }));
+    await user.type(await screen.findByLabelText('Preset name'), 'web');
+    await user.click(getTagStateRadio('local', 'Include'));
     await user.click(screen.getByRole('button', { name: /Preview matches/i }));
     expect(await screen.findByText(/disabled-web · disabled/i)).toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: /Confirm and save/i }));
@@ -364,6 +456,35 @@ describe('AdminConsoleApp', () => {
         preview: expect.objectContaining({ previewFingerprint: 'preview' }),
       }),
     );
+  });
+
+  it('uses a single first-preset workspace and validates preview inputs locally', async () => {
+    const user = userEvent.setup();
+    const preview = vi.fn();
+    renderApp(consoleState(), {
+      navigation: { route: 'presets' },
+      presets: { items: [], preview },
+    });
+
+    expect(await screen.findByRole('heading', { name: 'Create preset' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'New preset' })).not.toBeInTheDocument();
+    expect(document.querySelector('.preset-workspace-grid-empty')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /preview matches/i })).toBeDisabled();
+    expect(screen.getByText(/Enter a preset name before previewing/i)).toBeInTheDocument();
+
+    await user.type(screen.getByLabelText('Preset name'), 'invalid name');
+    expect(screen.getByText(/Use only letters, numbers/i)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /preview matches/i })).toBeDisabled();
+    await user.clear(screen.getByLabelText('Preset name'));
+    await user.type(screen.getByLabelText('Preset name'), 'first-preset');
+    expect(screen.getByRole('button', { name: /preview matches/i })).toBeEnabled();
+    expect(screen.getByText(/empty tag query is allowed/i)).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Advanced JSON' }));
+    await user.clear(screen.getByLabelText('Advanced JSON'));
+    fireEvent.change(screen.getByLabelText('Advanced JSON'), { target: { value: '{' } });
+    expect(screen.getByRole('button', { name: /preview matches/i })).toBeDisabled();
+    expect(screen.getByText(/valid object before previewing/i)).toBeInTheDocument();
+    expect(preview).not.toHaveBeenCalled();
   });
 
   it('builds presets from discovered tags with include, exclude, and live server impact', async () => {
@@ -383,19 +504,19 @@ describe('AdminConsoleApp', () => {
     });
     renderApp(consoleState(), { navigation: { route: 'presets' }, presets: { preview: onPreviewPreset } });
 
-    expect(screen.getByRole('heading', { name: /Tag matrix/i })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /Include local, 1 server/i })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /Exclude storage, 1 server/i })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: /Tag matrix/i })).toBeInTheDocument();
+    expect(getTagStateRadio('local', 'Include')).toBeInTheDocument();
+    expect(getTagStateRadio('storage', 'Exclude')).toBeInTheDocument();
     expect(screen.getByText(/filesystem · enabled/i)).toBeInTheDocument();
 
     await user.type(screen.getByLabelText('Preset name'), 'local-only');
     await user.click(screen.getByRole('button', { name: /Match all included tags/i }));
-    await user.click(screen.getByRole('button', { name: /Include local/i }));
-    await user.click(screen.getByRole('button', { name: /Exclude storage/i }));
+    await user.click(getTagStateRadio('local', 'Include'));
+    await user.click(getTagStateRadio('storage', 'Exclude'));
 
     expect(screen.getByText(/INCLUDE local/i)).toBeInTheDocument();
     expect(screen.getByText(/EXCLUDE storage/i)).toBeInTheDocument();
-    expect(screen.getByText(/0 of 2 configured targets match this draft/i)).toBeInTheDocument();
+    expect(document.querySelector('.preset-query-strip')).toHaveTextContent(/0 of 2 targets match/i);
 
     await user.click(screen.getByRole('button', { name: /Preview matches/i }));
     expect(onPreviewPreset).toHaveBeenCalledWith(
@@ -426,10 +547,10 @@ describe('AdminConsoleApp', () => {
       },
     });
 
-    await user.click(screen.getByRole('button', { name: 'Edit' }));
+    await user.click(await screen.findByRole('button', { name: 'Edit' }));
 
-    expect(screen.getByRole('button', { name: /Include local/i })).toHaveAttribute('aria-pressed', 'true');
-    expect(screen.getByRole('button', { name: /Exclude storage/i })).toHaveAttribute('aria-pressed', 'true');
+    expect(getTagStateRadio('local', 'Include')).toBeChecked();
+    expect(getTagStateRadio('storage', 'Exclude')).toBeChecked();
     expect(screen.getByText(/INCLUDE local/i)).toBeInTheDocument();
     expect(screen.getByText(/EXCLUDE storage/i)).toBeInTheDocument();
   });
@@ -446,9 +567,12 @@ describe('AdminConsoleApp', () => {
       },
     });
 
-    expect(screen.getByRole('button', { name: /Include template, 1 server/i })).toBeInTheDocument();
-    expect(screen.getAllByText(/0 enabled · 1 disabled · template-search/i)).toHaveLength(2);
-    await user.click(screen.getByRole('button', { name: /Include template/i }));
+    expect(await screen.findByRole('heading', { name: /Tag matrix/i })).toBeInTheDocument();
+    expect(getTagStateRadio('template', 'Include')).toBeInTheDocument();
+    expect(screen.getAllByText(/0 enabled/i).length).toBeGreaterThanOrEqual(1);
+    expect(screen.getAllByText(/1 disabled/i).length).toBeGreaterThanOrEqual(1);
+    expect(screen.getAllByText('template-search').length).toBeGreaterThanOrEqual(1);
+    await user.click(getTagStateRadio('template', 'Include'));
     await user.click(screen.getByRole('button', { name: /Advanced JSON/i }));
     expect(screen.getByLabelText('Advanced JSON')).toHaveValue(JSON.stringify({ tag: 'template' }, null, 2));
   });
@@ -464,11 +588,45 @@ describe('AdminConsoleApp', () => {
         ],
       },
     });
-    await user.click(screen.getByRole('button', { name: 'Edit' }));
+    await user.click(await screen.findByRole('button', { name: 'Edit' }));
     const retiredGroup = screen.getByRole('group', { name: /retired tag state/i }).parentElement;
-    expect(retiredGroup).toHaveTextContent(/retired.*no longer discovered/i);
-    await user.click(screen.getByRole('button', { name: /Include retired/i }));
+    expect(retiredGroup).toHaveTextContent(/retired.*Retired/i);
+    await user.click(getTagStateRadio('retired', 'Neutral'));
     expect(screen.queryByText(/INCLUDE retired/i)).not.toBeInTheDocument();
+  });
+
+  it('searches and filters tag states while expanding long server coverage', async () => {
+    const user = userEvent.setup();
+    renderApp(consoleState(), {
+      navigation: { route: 'presets' },
+      presets: {
+        targets: [
+          { name: 'alpha-documentation-server', tags: ['shared', 'docs'], enabled: true },
+          { name: 'beta-documentation-server', tags: ['shared'], enabled: true },
+          { name: 'gamma-documentation-server', tags: ['shared'], enabled: false },
+          { name: 'delta-documentation-server', tags: ['shared'], enabled: true },
+        ],
+      },
+    });
+
+    await user.type(await screen.findByRole('searchbox', { name: /search tags and servers/i }), 'docs');
+    expect(screen.getByRole('group', { name: 'docs tag state' })).toBeInTheDocument();
+    expect(screen.queryByRole('group', { name: 'shared tag state' })).not.toBeInTheDocument();
+
+    await user.clear(screen.getByRole('searchbox', { name: /search tags and servers/i }));
+    await user.click(getTagStateRadio('shared', 'Include'));
+    await user.click(screen.getByRole('radio', { name: 'Included' }));
+    expect(screen.getByRole('group', { name: 'shared tag state' })).toBeInTheDocument();
+    expect(screen.queryByRole('group', { name: 'docs tag state' })).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: /show all servers tagged shared/i }));
+    const sharedRow = screen.getByRole('group', { name: 'shared tag state' }).closest('article');
+    expect(sharedRow).not.toBeNull();
+    expect(within(sharedRow!).getByText(/gamma-documentation-server/)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /collapse servers tagged shared/i })).toHaveAttribute(
+      'aria-expanded',
+      'true',
+    );
   });
 
   it('shows visible copy feedback when clipboard writing fails', async () => {
@@ -535,8 +693,8 @@ describe('AdminConsoleApp', () => {
   it('explains how to start editing when no configured server is selected', () => {
     renderApp(consoleState(), { navigation: { route: 'servers' } });
 
-    expect(screen.getByText(/Select Edit server to change target settings/i)).toBeInTheDocument();
-    expect(screen.getByText(/Edit fields -> Preview change -> Review result/i)).toBeInTheDocument();
+    expect(screen.queryByText(/Select Edit server to change target settings/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Edit fields -> Preview change -> Review result/i)).not.toBeInTheDocument();
   });
 
   it('normalizes configured-server structured edit controls without raw JSON', async () => {
@@ -590,7 +748,7 @@ describe('AdminConsoleApp', () => {
               label: 'Secrets',
               fields: [
                 {
-                  fieldPath: ['headers', 'authorization'],
+                  fieldPath: ['url', 'query', 'token'],
                   label: 'headers.authorization',
                   control: 'secret',
                   editable: true,
@@ -758,7 +916,7 @@ describe('AdminConsoleApp', () => {
     await user.type(screen.getByLabelText('URL'), 'https://example.com/v2/mcp');
     await user.click(screen.getByRole('button', { name: /^back$/i }));
 
-    expect(onCloseServerDetail).toHaveBeenCalledWith();
+    expect(onCloseServerDetail).toHaveBeenCalledWith('/admin/servers');
   });
 
   it('reruns preview connectivity on demand after a preview exists', async () => {
@@ -796,6 +954,46 @@ describe('AdminConsoleApp', () => {
     await user.click(screen.getByRole('button', { name: /rerun connectivity/i }));
 
     expect(onPreviewServerEdit).toHaveBeenCalledWith('manual');
+  });
+
+  it('opens advanced edit settings when preview errors target a hidden secret field', () => {
+    renderApp(consoleState(), {
+      navigation: { route: 'servers' },
+      configuredServers: {
+        editor: {
+          ...configuredServerDetailState(),
+          preview: {
+            targetName: 'github',
+            proposedTargetName: 'github',
+            previewFingerprint: 'preview_advanced_error',
+            validation: {
+              status: 'invalid',
+              errors: [
+                {
+                  fieldPath: ['url', 'query', 'token'],
+                  code: 'invalid_secret_reference',
+                  message: 'Secret reference is invalid.',
+                },
+              ],
+            },
+            diff: [],
+            configChange: {
+              status: 'unchanged',
+              operation: 'set_static',
+              target: { name: 'github', source: 'mcpServers' },
+              changed: false,
+              backup: { created: false },
+              retentionCleanup: { attempted: false, deletedPaths: [], warnings: [] },
+              reload: { status: 'skipped' },
+              warnings: [],
+            },
+            connectivityCheck: { status: 'skipped', reason: 'validation_failed' },
+          },
+        },
+      },
+    });
+
+    expect(screen.getByText('Advanced settings').closest('details')).toHaveAttribute('open');
   });
 
   it('renders preview validation, diff, config-change, and connectivity facts', () => {
@@ -869,7 +1067,7 @@ describe('AdminConsoleApp', () => {
     );
 
     expect(screen.getByText('node')).toBeInTheDocument();
-    await user.click(screen.getByRole('button', { name: /enable legacy/i }));
+    await user.click(screen.getByRole('switch', { name: /enable legacy/i }));
     expect(onServerAction).toHaveBeenCalledWith('legacy', 'enable');
   });
 
@@ -901,9 +1099,9 @@ describe('AdminConsoleApp', () => {
       { navigation: { route: 'servers' }, configuredServers: { mutate: onServerAction } },
     );
 
-    const button = screen.getByRole('button', { name: /enable locked/i });
-    expect(button).toBeDisabled();
-    await user.click(button);
+    const control = screen.getByRole('switch', { name: /enable locked/i });
+    expect(control).toBeDisabled();
+    await user.click(control);
     expect(onServerAction).not.toHaveBeenCalled();
   });
 
@@ -920,7 +1118,7 @@ describe('AdminConsoleApp', () => {
     );
 
     await user.type(screen.getByLabelText(/username/i), 'operator');
-    await user.type(screen.getByLabelText(/password/i), 'correct horse battery staple');
+    await user.type(screen.getByLabelText(/^Password/, { selector: 'input' }), 'correct horse battery staple');
     await user.click(screen.getByRole('button', { name: /log in/i }));
     expect(onLogin).toHaveBeenCalledWith({ username: 'operator', password: 'correct horse battery staple' });
 
@@ -938,8 +1136,8 @@ describe('AdminConsoleApp', () => {
       </MantineProvider>,
     );
 
-    await user.click(screen.getByRole('button', { name: /refresh/i }));
-    await user.click(screen.getByRole('button', { name: /disable filesystem/i }));
+    await user.click(screen.getByRole('button', { name: /refresh runtime data/i }));
+    await user.click(screen.getByRole('switch', { name: /disable filesystem/i }));
     await user.click(screen.getByRole('button', { name: /log out/i }));
 
     expect(onRefresh).toHaveBeenCalled();
@@ -947,3 +1145,22 @@ describe('AdminConsoleApp', () => {
     expect(onLogout).toHaveBeenCalled();
   });
 });
+
+function getTagStateRadio(tag: string, state: 'Neutral' | 'Include' | 'Exclude') {
+  return within(screen.getByRole('group', { name: `${tag} tag state` })).getByRole('radio', { name: state });
+}
+
+function idleCreateModel(open = vi.fn()) {
+  return {
+    state: { status: 'idle' as const },
+    open,
+    close: async () => true,
+    editExisting: vi.fn(),
+    changeField: vi.fn(),
+    addSecret: vi.fn(),
+    changeSecret: vi.fn(),
+    removeSecret: vi.fn(),
+    preview: vi.fn(),
+    apply: vi.fn(),
+  };
+}
