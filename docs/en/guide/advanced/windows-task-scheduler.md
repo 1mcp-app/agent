@@ -229,14 +229,14 @@ Invoke-WebRequest -UseBasicParsing 'http://127.0.0.1:3050/health/mcp' | Select-O
 
 ## Troubleshooting
 
-| Symptom                               | Likely cause                                    | Fix                                                                  |
-| ------------------------------------- | ----------------------------------------------- | -------------------------------------------------------------------- |
-| Task shows **Ready** but never starts | Trigger fired before network was ready          | Enable `StartWhenAvailable`, or start the task manually once         |
-| Task starts but exits immediately     | Wrong binary path or missing `--config-dir`     | Check the task action path and that `$configDir` exists              |
-| `server.pid` missing after start      | Daemon crashed on startup                       | Check the log file in `$configDir\logs\server.log`                   |
-| Two daemon processes running          | `MultipleInstances` not set to `IgnoreNew`      | Re-register with the settings from Step 2                            |
-| `1mcp proxy` cannot find the daemon   | `--config-dir` mismatch between task and client | Ensure both use the same absolute path                               |
-| Credentials rejected at registration  | Wrong user format                               | Use `DOMAIN\user` for domain accounts or `.\user` for local accounts |
+| Symptom                               | Likely cause                                       | Fix                                                                                                                                                                                     |
+| ------------------------------------- | -------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Task shows **Ready** but never starts | System not fully ready when the boot trigger fired | Start the task manually once to confirm it works, then add `-Delay (New-TimeSpan -Minutes 1)` to `New-ScheduledTaskTrigger -AtStartup` if the daemon consistently needs extra boot time |
+| Task starts but exits immediately     | Wrong binary path or missing `--config-dir`        | Check the task action path and that `$configDir` exists                                                                                                                                 |
+| `server.pid` missing after start      | Daemon crashed on startup                          | Check the log file in `$configDir\logs\server.log`                                                                                                                                      |
+| Two daemon processes running          | `MultipleInstances` not set to `IgnoreNew`         | Re-register with the settings from Step 2                                                                                                                                               |
+| `1mcp proxy` cannot find the daemon   | `--config-dir` mismatch between task and client    | Ensure both use the same absolute path                                                                                                                                                  |
+| Credentials rejected at registration  | Wrong user format                                  | Use `DOMAIN\user` for domain accounts or `.\user` for local accounts                                                                                                                    |
 
 ## Advanced: S4U Logon (Local-Only)
 
