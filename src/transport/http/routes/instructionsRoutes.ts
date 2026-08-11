@@ -40,7 +40,6 @@ export function createInstructionsHandler(serverManager: ServerManager): Request
         activeAggregator,
         declaredServers,
         filterConfig,
-        { includeTemplateInstances: false },
       );
       const runtimeConfiguration = configManager.getRuntimeInstructionConfiguration();
 
