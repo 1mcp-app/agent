@@ -109,6 +109,7 @@ if ($PSCmdlet.ParameterSetName -eq 'Npm') {
 # ── 2. Path resolution ────────────────────────────────────────────────────────
 $resolvedConfigDir = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($ConfigDir)
 $vbsPath = Join-Path $resolvedConfigDir '1mcp-start.vbs'
+$currentUser = [System.Security.Principal.WindowsIdentity]::GetCurrent().Name
 
 # ── 3. Uninstall path ─────────────────────────────────────────────────────────
 if ($Uninstall) {
@@ -145,7 +146,7 @@ $action = New-ScheduledTaskAction `
     -WorkingDirectory $resolvedConfigDir
 
 # ── 5. Trigger / settings ────────────────────────────────────────────────────
-$trigger  = New-ScheduledTaskTrigger -AtLogon
+$trigger  = New-ScheduledTaskTrigger -AtLogon -User $currentUser
 $settings = New-ScheduledTaskSettingsSet `
     -AllowStartIfOnBatteries `
     -DontStopIfGoingOnBatteries `
@@ -161,8 +162,6 @@ if ($PSCmdlet.ShouldProcess($TaskName, 'Register-ScheduledTask')) {
     if (-not $isAdmin) {
         Write-Error 'This script must run from an elevated (Administrator) PowerShell session.'
     }
-
-    $currentUser = [System.Security.Principal.WindowsIdentity]::GetCurrent().Name
 
     $existingTask = Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue
     if ($existingTask) {
