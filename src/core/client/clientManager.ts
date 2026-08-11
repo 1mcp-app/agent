@@ -4,6 +4,7 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 
 import { MCP_SERVER_NAME } from '@src/constants.js';
 import { DEFAULT_MAX_CONCURRENT_LOADS } from '@src/constants/mcp.js';
+import { registerCapabilityPaginationNotifications } from '@src/core/capabilities/capabilityPagination.js';
 import { InstructionAggregator } from '@src/core/instructions/instructionAggregator.js';
 import { ParallelExecutor } from '@src/core/loading/parallelExecutor.js';
 import { BackendStdioSupervisor, type BackendSupervisionSnapshot } from '@src/core/server/backendStdioSupervisor.js';
@@ -190,6 +191,11 @@ export class ClientManager extends EventEmitter {
         this.recoverFromSessionLoss(name, client);
       }
     };
+
+    const connection = this.outboundConns.get(name);
+    if (connection?.client === client) {
+      registerCapabilityPaginationNotifications(this.outboundConns, connection);
+    }
   }
 
   /**

@@ -72,14 +72,9 @@ pnpm inspector
 
 ### Cursor Format
 
-1MCP uses **base64-encoded cursors** that contain:
+1MCP returns an opaque, versioned cursor. It binds the walk to the capability kind, current runtime generation, active filters, provider position, and the provider's opaque cursor. Clients must return the value unchanged and must not decode or construct cursors.
 
-- Client name (which MCP server to continue from)
-- Server-specific cursor (for continuing within that server)
-
-```
-Cursor format: base64(clientName:serverCursor)
-```
+Providers are visited in deterministic name order, with provider ID used as the tie-breaker. Each aggregate page contains at most one provider page, and 1MCP's own capabilities participate in the same sequence.
 
 ### Pagination Flow
 
@@ -96,16 +91,20 @@ sequenceDiagram
     1MCP-->>Client: Results + encoded cursor
 
     Client->>1MCP: resources/list (with cursor)
-    Note over 1MCP: Decode cursor: Server1:abc123
-    1MCP->>Server1: Fetch next page (cursor: abc123)
+    Note over 1MCP: Validate opaque cursor and generation
+    1MCP->>Server1: Fetch next page (cursor: [opaque-provider-cursor-1])
     Server1-->>1MCP: Resources (no more pages)
-    1MCP->>Server2: Fetch first page
-    Server2-->>1MCP: Resources + nextCursor
-    1MCP-->>Client: Results + new encoded cursor
+    1MCP-->>Client: Results + new opaque cursor
 
     Client->>1MCP: resources/list (with cursor)
-    Note over 1MCP: Decode cursor: Server2:def456
-    1MCP->>Server2: Fetch next page (cursor: def456)
+    Note over 1MCP: Validate opaque cursor and generation
+    1MCP->>Server2: Fetch first page
+    Server2-->>1MCP: Resources + nextCursor
+    1MCP-->>Client: Results + new opaque cursor
+
+    Client->>1MCP: resources/list (with cursor)
+    Note over 1MCP: Validate opaque cursor and generation
+    1MCP->>Server2: Fetch next page (cursor: [opaque-provider-cursor-2])
     Server2-->>1MCP: Resources (no more pages)
     1MCP-->>Client: Final results (no nextCursor)
 ```
@@ -197,32 +196,34 @@ Pagination works with these MCP protocol methods:
 
 ### Invalid Cursor
 
-If a cursor becomes invalid (server removed, corrupted data):
+Malformed, legacy, cross-method, filter-mismatched, and stale-generation cursors are rejected with an MCP `InvalidParams` error. Start a new walk without a cursor after the provider set, filters, or capability generation changes.
 
 ```json
 {
   "jsonrpc": "2.0",
   "id": 1,
-  "result": {
-    "resources": [],
-    "nextCursor": "bmV3LWN1cnNvcg=="
+  "error": {
+    "code": -32602,
+    "message": "Invalid capability pagination cursor"
   }
 }
 ```
 
-1MCP automatically:
-
-- Falls back to the first available server
-- Logs a warning about the invalid cursor
-- Continues pagination from a valid starting point
-
 ### Server Unavailable
 
-When a server in the pagination sequence becomes unavailable:
+When a provider listing fails, 1MCP continues with healthy providers and marks every remaining response in that walk as partial. Failure facts are sanitized and returned under `_meta["app.1mcp/capability-pagination"]`; provider error text is never exposed.
 
-- 1MCP skips the unavailable server
-- Continues with the next available server
-- Logs the server status for monitoring
+```json
+{
+  "_meta": {
+    "app.1mcp/capability-pagination": {
+      "partial": true,
+      "failures": [{ "provider": "example", "code": "upstream_list_failed" }],
+      "recovery": { "action": "restart_without_cursor" }
+    }
+  }
+}
+```
 
 ## Configuration Examples
 

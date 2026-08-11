@@ -4,46 +4,57 @@ import {
   ListResourceTemplatesRequest,
   ListResourceTemplatesRequestSchema,
   ReadResourceRequestSchema,
+  type Resource,
+  type ResourceTemplate,
   SubscribeRequestSchema,
   UnsubscribeRequestSchema,
 } from '@modelcontextprotocol/sdk/types.js';
 
 import { MCP_URI_SEPARATOR } from '@src/constants.js';
-import { byCapabilities } from '@src/core/filtering/clientFiltering.js';
-import { FilteringService } from '@src/core/filtering/filteringService.js';
 import { InboundConnection, OutboundConnections } from '@src/core/types/index.js';
 import { withErrorHandling } from '@src/utils/core/errorHandling.js';
 import { buildUri, parseUri } from '@src/utils/core/parsing.js';
 import { getRequestTimeout } from '@src/utils/core/timeoutUtils.js';
-import { handlePagination } from '@src/utils/ui/pagination.js';
 
-import { filterConnectionsForSession, getRequestSession, resolveOutboundConnection } from './requestHandlerUtils.js';
+import {
+  createProtocolCapabilityCatalog,
+  getRequestSession,
+  resolveCapabilityVisibility,
+  resolveOutboundConnection,
+} from './requestHandlerUtils.js';
 
 export function registerResourceHandlers(outboundConns: OutboundConnections, inboundConn: InboundConnection): void {
   const sessionId = getRequestSession(inboundConn);
+  const catalog = createProtocolCapabilityCatalog(outboundConns);
 
   inboundConn.server.setRequestHandler(
     ListResourcesRequestSchema,
     withErrorHandling(async (request: ListResourcesRequest) => {
-      const sessionFilteredConns = filterConnectionsForSession(outboundConns, sessionId);
-      const capabilityFilteredClients = byCapabilities({ resources: {} })(sessionFilteredConns);
-      const filteredClients = FilteringService.getFilteredConnections(capabilityFilteredClients, inboundConn);
-
-      const result = await handlePagination(
-        filteredClients,
-        request.params || {},
-        (client, params, opts) => client.listResources(params as ListResourcesRequest['params'], opts),
-        (outboundConn, result) =>
-          result.resources?.map((resource) => ({
-            ...resource,
-            uri: buildUri(outboundConn.name, resource.uri, MCP_URI_SEPARATOR),
-          })) ?? [],
-        inboundConn.enablePagination ?? false,
-      );
+      const visibility = resolveCapabilityVisibility(outboundConns, inboundConn, sessionId, 'resources');
+      const result = await catalog.listVisibleCapabilityPages<Resource>({
+        kind: 'resources',
+        visibility,
+        cursor: request.params?.cursor,
+        list: async (outboundConn, cursor, serverName) => {
+          const upstream = await outboundConn.client.listResources(
+            { cursor },
+            { timeout: getRequestTimeout(outboundConn.transport) },
+          );
+          return {
+            items: (upstream.resources ?? []).map((resource) => ({
+              ...resource,
+              uri: buildUri(serverName, resource.uri, MCP_URI_SEPARATOR),
+            })),
+            nextCursor: upstream.nextCursor,
+          };
+        },
+        enablePagination: inboundConn.enablePagination ?? false,
+      });
 
       return {
         resources: result.items,
         nextCursor: result.nextCursor,
+        _meta: result._meta,
       };
     }, 'Error listing resources'),
   );
@@ -51,25 +62,31 @@ export function registerResourceHandlers(outboundConns: OutboundConnections, inb
   inboundConn.server.setRequestHandler(
     ListResourceTemplatesRequestSchema,
     withErrorHandling(async (request: ListResourceTemplatesRequest) => {
-      const sessionFilteredConns = filterConnectionsForSession(outboundConns, sessionId);
-      const capabilityFilteredClients = byCapabilities({ resources: {} })(sessionFilteredConns);
-      const filteredClients = FilteringService.getFilteredConnections(capabilityFilteredClients, inboundConn);
-
-      const result = await handlePagination(
-        filteredClients,
-        request.params || {},
-        (client, params, opts) => client.listResourceTemplates(params as ListResourceTemplatesRequest['params'], opts),
-        (outboundConn, result) =>
-          result.resourceTemplates?.map((template) => ({
-            ...template,
-            uriTemplate: buildUri(outboundConn.name, template.uriTemplate, MCP_URI_SEPARATOR),
-          })) ?? [],
-        inboundConn.enablePagination ?? false,
-      );
+      const visibility = resolveCapabilityVisibility(outboundConns, inboundConn, sessionId, 'resources');
+      const result = await catalog.listVisibleCapabilityPages<ResourceTemplate>({
+        kind: 'resourceTemplates',
+        visibility,
+        cursor: request.params?.cursor,
+        list: async (outboundConn, cursor, serverName) => {
+          const upstream = await outboundConn.client.listResourceTemplates(
+            { cursor },
+            { timeout: getRequestTimeout(outboundConn.transport) },
+          );
+          return {
+            items: (upstream.resourceTemplates ?? []).map((template) => ({
+              ...template,
+              uriTemplate: buildUri(serverName, template.uriTemplate, MCP_URI_SEPARATOR),
+            })),
+            nextCursor: upstream.nextCursor,
+          };
+        },
+        enablePagination: inboundConn.enablePagination ?? false,
+      });
 
       return {
         resourceTemplates: result.items,
         nextCursor: result.nextCursor,
+        _meta: result._meta,
       };
     }, 'Error listing resource templates'),
   );
