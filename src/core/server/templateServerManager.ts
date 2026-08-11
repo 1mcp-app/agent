@@ -178,7 +178,11 @@ export class TemplateServerManager {
             const instructions = instance.client.getInstructions();
             if (instructions?.trim()) {
               // Use clean template name (not the hash-suffixed outboundKey)
-              this.instructionAggregator.setInstructions(templateName, instructions);
+              this.instructionAggregator.setInstructions(
+                { source: 'mcpTemplates', name: templateName },
+                instructions,
+                outboundKey,
+              );
               debugIf(() => ({
                 message: `Cached instructions for template server: ${templateName}`,
                 meta: { templateName, instructionLength: instructions.length },
@@ -412,13 +416,14 @@ export class TemplateServerManager {
   private refreshTemplateInstructions(templateName: string): void {
     if (!this.instructionAggregator) return;
 
-    const instructions = Array.from(this.outboundConns?.values() ?? []).find(
-      (connection) =>
-        connection.name === templateName &&
-        connection.status === ClientStatus.Connected &&
-        Boolean(connection.instructions?.trim()),
-    )?.instructions;
-    this.instructionAggregator.setInstructions(templateName, instructions);
+    for (const [outboundKey, connection] of this.outboundConns ?? []) {
+      if (connection.name !== templateName) continue;
+      this.instructionAggregator.setInstructions(
+        { source: 'mcpTemplates', name: templateName },
+        connection.status === ClientStatus.Connected ? connection.instructions : undefined,
+        outboundKey,
+      );
+    }
   }
 
   /**

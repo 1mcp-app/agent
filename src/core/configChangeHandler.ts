@@ -55,6 +55,7 @@ export class ConfigChangeHandler {
    */
   private async handleConfigChanges(changes: ConfigChange[]): Promise<void> {
     this.reconcileDeclaredTemplates();
+    this.refreshRuntimeInstructionConfiguration();
     if (changes.length === 0) {
       return;
     }
@@ -77,6 +78,12 @@ export class ConfigChangeHandler {
 
     // Notify clients if capabilities changed
     await this.notifyClientsIfNeeded(appliedChanges, newConfig);
+  }
+
+  private refreshRuntimeInstructionConfiguration(): void {
+    if (typeof this.configManager.getRuntimeInstructionConfiguration !== 'function') return;
+    const aggregator = this.getServerManager().getInstructionAggregator();
+    aggregator?.setRuntimeInstructionConfiguration(this.configManager.getRuntimeInstructionConfiguration());
   }
 
   private reconcileDeclaredTemplates(): void {
@@ -215,9 +222,9 @@ export class ConfigChangeHandler {
       return true; // Conservative approach - restart if we don't know what changed
     }
 
-    // Only restart if non-tag fields changed
-    const nonTagFields = fieldsChanged.filter((field) => field !== 'tags');
-    return nonTagFields.length > 0;
+    // Tags and instruction overrides are runtime metadata and do not change the backend process.
+    const backendFields = fieldsChanged.filter((field) => field !== 'tags' && field !== 'instructionOverride');
+    return backendFields.length > 0;
   }
 
   /**

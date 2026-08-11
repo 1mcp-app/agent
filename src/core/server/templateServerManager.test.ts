@@ -620,13 +620,25 @@ describe('TemplateServerManager', () => {
       const manager = templateServerManager as any;
       const publisher = manager.clientInstancePool.setSupervisionPublisher.mock.calls[0][0];
       publisher(first, snapshot('restarting', null));
-      expect(aggregator.setInstructions).toHaveBeenLastCalledWith('test-template', 'instructions-b');
+      expect(aggregator.setInstructions).toHaveBeenLastCalledWith(
+        { source: 'mcpTemplates', name: 'test-template' },
+        'instructions-b',
+        'test-template:client-b',
+      );
 
       publisher(second, snapshot('crash-loop', null));
-      expect(aggregator.setInstructions).toHaveBeenLastCalledWith('test-template', undefined);
+      expect(aggregator.setInstructions).toHaveBeenLastCalledWith(
+        { source: 'mcpTemplates', name: 'test-template' },
+        undefined,
+        'test-template:client-b',
+      );
 
       publisher(first, snapshot('connected', 201));
-      expect(aggregator.setInstructions).toHaveBeenLastCalledWith('test-template', 'instructions-a');
+      expect(aggregator.setInstructions).toHaveBeenCalledWith(
+        { source: 'mcpTemplates', name: 'test-template' },
+        'instructions-a',
+        'test-template:client-a',
+      );
     });
   });
 

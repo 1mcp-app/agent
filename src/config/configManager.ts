@@ -352,6 +352,26 @@ export class ConfigManager extends EventEmitter {
     return [...this.templateProcessingErrors];
   }
 
+  /** Return the unrendered instruction configuration used by both runtime surfaces. */
+  public getRuntimeInstructionConfiguration(): {
+    instructionTemplates?: MCPServerConfiguration['instructionTemplates'];
+    activeInstructionTemplate?: string;
+    configuredTargets: {
+      mcpServers: MCPServerConfiguration['mcpServers'];
+      mcpTemplates: NonNullable<MCPServerConfiguration['mcpTemplates']>;
+    };
+  } {
+    const config = mcpServerConfigSchema.parse(this.loadRawConfig());
+    return {
+      instructionTemplates: config.instructionTemplates,
+      activeInstructionTemplate: config.activeInstructionTemplate,
+      configuredTargets: {
+        mcpServers: config.mcpServers,
+        mcpTemplates: config.mcpTemplates ?? {},
+      },
+    };
+  }
+
   /**
    * Check if there are any template processing errors
    * @returns True if there are template processing errors

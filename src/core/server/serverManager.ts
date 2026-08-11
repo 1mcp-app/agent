@@ -288,6 +288,7 @@ export class ServerManager {
 
     // IMPORTANT: Get filtered instructions AFTER template servers are created
     // This ensures template server instructions are included in the initialize response
+    this.instructionAggregator?.setRuntimeInstructionConfiguration(configManager.getRuntimeInstructionConfiguration());
     const filteredInstructions = this.instructionAggregator?.getFilteredInstructions(opts, this.outboundConns) || '';
 
     // Connect the transport

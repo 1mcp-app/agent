@@ -1,3 +1,5 @@
+import { formatInstructionsOutput } from '@src/commands/instructions/instructionsUtils.js';
+
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { InstructionAggregator } from './instructionAggregator.js';
@@ -75,6 +77,86 @@ describe('InstructionAggregator', () => {
       aggregator.setInstructions('server1', instructions);
 
       expect(mockListener).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('managed surface rendering', () => {
+    const connections = new Map([
+      ['shared', { name: 'shared', status: 'connected' } as any],
+      ['shared:instance', { name: 'shared', status: 'connected' } as any],
+    ]);
+
+    it('renders both active variants from the same source-qualified effective instructions', () => {
+      aggregator.setRuntimeInstructionConfiguration({
+        activeInstructionTemplate: 'team',
+        instructionTemplates: {
+          team: {
+            initialization: 'INIT {{#each servers}}[{{source}}:{{name}}={{instructions}}]{{/each}}',
+            cli: 'CLI {{#each servers}}[{{source}}:{{name}}={{instructions}}]{{/each}}',
+          },
+        },
+        configuredTargets: {
+          mcpServers: { shared: { instructionOverride: 'static replacement' } },
+          mcpTemplates: { shared: { instructionOverride: '' } },
+        },
+      });
+      aggregator.setInstructions({ source: 'mcpServers', name: 'shared' }, 'static upstream', 'shared');
+      aggregator.setInstructions({ source: 'mcpTemplates', name: 'shared' }, 'template upstream', 'shared:instance');
+
+      expect(aggregator.renderInstructions('initialization', { tagFilterMode: 'none' }, connections)).toBe(
+        'INIT [mcpServers:shared=static replacement][mcpTemplates:shared=]',
+      );
+      expect(aggregator.renderInstructions('cli', { tagFilterMode: 'none' }, connections)).toBe(
+        'CLI [mcpServers:shared=static replacement][mcpTemplates:shared=]',
+      );
+    });
+
+    it('keeps legacy custom templates initialization-only when managed selection is absent', () => {
+      aggregator.setInstructions('shared', 'upstream');
+      const config = { tagFilterMode: 'none' as const, customTemplate: 'LEGACY {{instructions}}' };
+
+      const legacyConnections = new Map([['shared', { name: 'shared', status: 'connected' } as any]]);
+      expect(aggregator.renderInstructions('initialization', config, legacyConnections)).toBe(
+        'LEGACY <shared>\nupstream\n</shared>',
+      );
+      expect(aggregator.renderInstructions('cli', config, legacyConnections)).toContain('1MCP CLI Instructions');
+    });
+
+    it('falls back per surface without clearing the active managed identity', () => {
+      aggregator.setRuntimeInstructionConfiguration({
+        activeInstructionTemplate: 'broken',
+        instructionTemplates: {
+          broken: { initialization: 'managed initialization', cli: '{{#if invalid}}' },
+        },
+        configuredTargets: { mcpServers: {}, mcpTemplates: {} },
+      });
+
+      expect(aggregator.renderInstructions('initialization', { tagFilterMode: 'none' }, new Map())).toBe(
+        'managed initialization',
+      );
+      expect(aggregator.renderInstructions('cli', { tagFilterMode: 'none' }, new Map())).toContain(
+        '1MCP CLI Instructions',
+      );
+      expect(aggregator.getRenderFailures()).toMatchObject({
+        cli: { surface: 'cli', templateIdentity: 'broken', error: expect.stringContaining('Parse error') },
+      });
+      expect(aggregator.getActiveInstructionTemplate()).toBe('broken');
+    });
+
+    it('keeps the built-in CLI output semantically aligned with the existing formatter', () => {
+      const cliConnections = new Map([['alpha', { name: 'alpha', status: 'connected' } as any]]);
+      aggregator.setInstructions('alpha', 'Alpha instructions');
+      const metadata = {
+        alpha: { type: 'external', status: 'connected', available: true, loadTracked: true, toolCount: 2 },
+      };
+
+      const rendered = aggregator.renderInstructions('cli', { tagFilterMode: 'none' }, cliConnections, metadata);
+      const established = formatInstructionsOutput({
+        servers: [{ server: 'alpha', ...metadata.alpha, hasInstructions: true }],
+        details: [{ server: 'alpha', ...metadata.alpha, hasInstructions: true, instructions: 'Alpha instructions' }],
+      });
+
+      expect(normalizeWhitespace(rendered)).toBe(normalizeWhitespace(established));
     });
   });
 
@@ -517,3 +599,7 @@ describe('InstructionAggregator', () => {
     });
   });
 });
+
+function normalizeWhitespace(value: string): string {
+  return value.replace(/\s+/g, ' ').trim();
+}

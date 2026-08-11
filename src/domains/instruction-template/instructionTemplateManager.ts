@@ -1,6 +1,9 @@
 import { promises as fs } from 'node:fs';
 
-import { DEFAULT_INSTRUCTION_TEMPLATE } from '@src/core/instructions/templateTypes.js';
+import {
+  DEFAULT_CLI_INSTRUCTION_TEMPLATE,
+  DEFAULT_INSTRUCTION_TEMPLATE,
+} from '@src/core/instructions/templateTypes.js';
 import { type TemplateValidationResult, validateTemplateContent } from '@src/core/instructions/templateValidator.js';
 import type { InstructionTemplateConfig } from '@src/core/types/transport.js';
 import {
@@ -9,7 +12,7 @@ import {
   fingerprintConfiguredServerConfigDocument,
 } from '@src/domains/config-change/configChange.js';
 
-export const DEFAULT_CLI_INSTRUCTION_TEMPLATE = '{{instructions}}';
+export { DEFAULT_CLI_INSTRUCTION_TEMPLATE } from '@src/core/instructions/templateTypes.js';
 
 const DEFAULT_IDENTITY = 'default';
 const DEFAULT_VARIANTS: InstructionTemplateConfig = {

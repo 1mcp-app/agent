@@ -125,7 +125,7 @@ export class ClientManager extends EventEmitter {
       const cleanName = connectionInfo?.name || name;
 
       if (this.instructionAggregator) {
-        this.instructionAggregator.setInstructions(cleanName, instructions);
+        this.instructionAggregator.setInstructions({ source: 'mcpServers', name: cleanName }, instructions, name);
       }
 
       if (instructions?.trim()) {
@@ -176,7 +176,7 @@ export class ClientManager extends EventEmitter {
       }
       // Use cleanName for removal to match the key used during caching
       const cleanName = clientInfo?.name || name;
-      this.instructionAggregator?.removeServer(cleanName);
+      this.instructionAggregator?.removeServer({ source: 'mcpServers', name: cleanName }, name);
       logger.info(`Client ${name} disconnected`);
     };
 
@@ -628,7 +628,7 @@ export class ClientManager extends EventEmitter {
 
       this.outboundConns.delete(name);
       delete this.transports[name];
-      this.instructionAggregator?.removeServer(name);
+      this.instructionAggregator?.removeServer({ source: 'mcpServers', name }, name);
 
       logger.info(`Client ${name} removed successfully`);
     } catch (error) {
@@ -700,7 +700,7 @@ export class ClientManager extends EventEmitter {
           logger.warn(`Error closing client during shutdown for ${name}: ${errorMessage}`);
           await connection.transport.close().catch(() => undefined);
         }
-        this.instructionAggregator?.removeServer(connection.name);
+        this.instructionAggregator?.removeServer({ source: 'mcpServers', name: connection.name }, name);
       }),
     );
 
@@ -801,14 +801,14 @@ export class ClientManager extends EventEmitter {
         connection.capabilities = undefined;
         connection.instructions = undefined;
         if (snapshot.backendId.startsWith('static:')) {
-          this.instructionAggregator?.removeServer(connection.name);
+          this.instructionAggregator?.removeServer({ source: 'mcpServers', name: connection.name }, name);
         }
       } else if (snapshot.state === 'crash-loop') {
         connection.status = ClientStatus.CrashLoop;
         connection.capabilities = undefined;
         connection.instructions = undefined;
         if (snapshot.backendId.startsWith('static:')) {
-          this.instructionAggregator?.removeServer(connection.name);
+          this.instructionAggregator?.removeServer({ source: 'mcpServers', name: connection.name }, name);
         }
       } else if (snapshot.state === 'connected') {
         connection.status = ClientStatus.Connected;

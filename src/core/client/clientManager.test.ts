@@ -741,7 +741,11 @@ describe('ClientManager (Integration)', () => {
       await clientManager.createClients(mockTransports as Record<string, AuthProviderTransport>);
       await vi.runAllTimersAsync();
 
-      expect(mockAggregator.setInstructions).toHaveBeenCalledWith('test-client', 'test instructions');
+      expect(mockAggregator.setInstructions).toHaveBeenCalledWith(
+        { source: 'mcpServers', name: 'test-client' },
+        'test instructions',
+        'test-client',
+      );
     });
   });
 

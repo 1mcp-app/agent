@@ -20,6 +20,7 @@ vi.mock('@src/core/server/serverManager.js', () => ({
       getTemplateServerManager: vi.fn().mockReturnValue({
         rebuildTemplateIndex: vi.fn(),
       }),
+      getInstructionAggregator: vi.fn().mockReturnValue(undefined),
     },
   },
 }));
@@ -960,6 +961,40 @@ describe('ConfigChangeHandler', () => {
 
       const { ServerManager } = await import('@src/core/server/serverManager.js');
       expect(ServerManager.current.loadMcpServer).not.toHaveBeenCalled();
+    });
+
+    it('refreshes instruction metadata without restarting for an override-only change', async () => {
+      const runtimeConfiguration = {
+        configuredTargets: {
+          mcpServers: { 'test-server': { command: 'node', instructionOverride: 'replacement' } },
+          mcpTemplates: {},
+        },
+      };
+      const setRuntimeInstructionConfiguration = vi.fn();
+      const changes = [
+        {
+          serverName: 'test-server',
+          type: ConfigChangeType.MODIFIED,
+          fieldsChanged: ['instructionOverride'],
+        },
+      ];
+      mockConfigManager.getTransportConfig = vi.fn(() => runtimeConfiguration.configuredTargets.mcpServers);
+      mockConfigManager.getRuntimeInstructionConfiguration = vi.fn(() => runtimeConfiguration);
+
+      const { ServerManager } = await import('@src/core/server/serverManager.js');
+      vi.mocked(ServerManager.current.getInstructionAggregator).mockReturnValue({
+        setRuntimeInstructionConfiguration,
+      } as any);
+
+      const changeHandler = (mockConfigManager.on as any).mock.calls[0][1];
+      await changeHandler(changes);
+
+      expect(ServerManager.current.loadMcpServer).not.toHaveBeenCalled();
+      expect(ServerManager.current.updateServerMetadata).toHaveBeenCalledWith(
+        'test-server',
+        runtimeConfiguration.configuredTargets.mcpServers['test-server'],
+      );
+      expect(setRuntimeInstructionConfiguration).toHaveBeenCalledWith(runtimeConfiguration);
     });
 
     it('should return true for mixed field changes (including tags)', async () => {
