@@ -610,7 +610,7 @@ describe('admin SPA browser smoke', () => {
           await expectCenteredLoginGate(page);
           await login(page, { skipNavigation: true });
           await page.getByRole('button', { name: 'Choose color theme' }).click();
-          await page.getByRole('menuitem', { name: theme === 'light' ? 'Light' : 'Dark', exact: true }).click();
+          await page.getByRole('menuitem', { name: theme === 'light' ? /^Light theme/ : /^Dark theme/ }).click();
           await page.reload();
           await page.waitForFunction(
             (expectedTheme) => globalThis.document.documentElement.dataset.mantineColorScheme === expectedTheme,

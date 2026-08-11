@@ -139,8 +139,13 @@ describe('AdminConsoleApp', () => {
   it('renders a summary-only dashboard with direct workspace links', async () => {
     const user = userEvent.setup();
     const onCopyText = vi.fn();
+    const onConfigureServer = vi.fn();
+    const onNavigate = vi.fn();
 
-    renderApp(consoleState(), { configuredServers: { copy: onCopyText } });
+    renderApp(consoleState(), {
+      navigation: { navigate: onNavigate },
+      configuredServers: { copy: onCopyText, create: idleCreateModel(onConfigureServer) },
+    });
 
     const navigation = screen.getByRole('navigation', { name: /operations navigation/i });
     expect(screen.getByRole('banner', { name: /admin console/i })).toHaveTextContent(/runtime online/i);
@@ -175,6 +180,9 @@ describe('AdminConsoleApp', () => {
     expect(onCopyText).toHaveBeenCalledWith('runtimeScopeId', 'scope_123');
     await user.click(screen.getByRole('button', { name: /copy external url/i }));
     expect(onCopyText).toHaveBeenCalledWith('externalUrl', 'https://runtime.example.com');
+    await user.click(screen.getByRole('button', { name: 'Configure server' }));
+    expect(onConfigureServer).toHaveBeenCalledOnce();
+    expect(onNavigate).not.toHaveBeenCalled();
   });
 
   it('keeps custom server creation available when the inventory is empty', async () => {
@@ -740,7 +748,7 @@ describe('AdminConsoleApp', () => {
               label: 'Secrets',
               fields: [
                 {
-                  fieldPath: ['headers', 'authorization'],
+                  fieldPath: ['url', 'query', 'token'],
                   label: 'headers.authorization',
                   control: 'secret',
                   editable: true,
@@ -946,6 +954,46 @@ describe('AdminConsoleApp', () => {
     await user.click(screen.getByRole('button', { name: /rerun connectivity/i }));
 
     expect(onPreviewServerEdit).toHaveBeenCalledWith('manual');
+  });
+
+  it('opens advanced edit settings when preview errors target a hidden secret field', () => {
+    renderApp(consoleState(), {
+      navigation: { route: 'servers' },
+      configuredServers: {
+        editor: {
+          ...configuredServerDetailState(),
+          preview: {
+            targetName: 'github',
+            proposedTargetName: 'github',
+            previewFingerprint: 'preview_advanced_error',
+            validation: {
+              status: 'invalid',
+              errors: [
+                {
+                  fieldPath: ['url', 'query', 'token'],
+                  code: 'invalid_secret_reference',
+                  message: 'Secret reference is invalid.',
+                },
+              ],
+            },
+            diff: [],
+            configChange: {
+              status: 'unchanged',
+              operation: 'set_static',
+              target: { name: 'github', source: 'mcpServers' },
+              changed: false,
+              backup: { created: false },
+              retentionCleanup: { attempted: false, deletedPaths: [], warnings: [] },
+              reload: { status: 'skipped' },
+              warnings: [],
+            },
+            connectivityCheck: { status: 'skipped', reason: 'validation_failed' },
+          },
+        },
+      },
+    });
+
+    expect(screen.getByText('Advanced settings').closest('details')).toHaveAttribute('open');
   });
 
   it('renders preview validation, diff, config-change, and connectivity facts', () => {

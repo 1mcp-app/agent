@@ -116,4 +116,46 @@ describe('ConfiguredServerCreator', () => {
     expect(screen.getByText(/stores secret material in configuration/i)).toBeInTheDocument();
     expect(screen.getByLabelText(/Inline secret for API_TOKEN/i)).toHaveAttribute('type', 'password');
   });
+
+  it('opens advanced settings when preview errors target a secret input', () => {
+    render(
+      <MantineProvider>
+        <CreatorHarness
+          preview={{
+            targetName: 'qa-echo',
+            previewFingerprint: 'preview_secret_error',
+            validation: {
+              status: 'invalid',
+              errors: [
+                {
+                  fieldPath: ['secrets', '0', 'replacementValue'],
+                  code: 'invalid_secret_reference',
+                  message: 'Secret reference is invalid.',
+                },
+              ],
+            },
+            diff: [],
+            configChange: {
+              status: 'unchanged',
+              operation: 'set_static',
+              target: { name: 'qa-echo', source: 'mcpServers' },
+              changed: false,
+              backup: { created: false },
+              retentionCleanup: { attempted: false, deletedPaths: [], warnings: [] },
+              reload: { status: 'skipped' },
+              warnings: [],
+            },
+            connectivityCheck: { status: 'skipped', reason: 'validation_failed' },
+            expectedReload: {
+              policy: 'observe_after_write',
+              possibleStatuses: ['observed', 'runtime_not_running', 'reload_disabled', 'failed'],
+            },
+          }}
+        />
+      </MantineProvider>,
+    );
+
+    expect(screen.getByText('Advanced settings').closest('details')).toHaveAttribute('open');
+    expect(screen.getByRole('button', { name: 'Add secret' })).toBeVisible();
+  });
 });

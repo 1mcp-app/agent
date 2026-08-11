@@ -239,6 +239,7 @@ export function ConfiguredServerCreator({ model }: { model: ConfiguredServerCrea
 }
 
 function isPrimaryCreateField(fieldPath: string[]): boolean {
+  if (fieldPath[0] === 'secrets') return false;
   return fieldPath[0] !== 'transport' || ['type', 'command', 'args', 'url'].includes(fieldPath[1] ?? '');
 }
 

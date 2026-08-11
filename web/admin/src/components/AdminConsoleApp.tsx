@@ -363,6 +363,7 @@ function ThemeMenu() {
         {options.map((option) => (
           <Menu.Item
             key={option.value}
+            aria-label={`${option.label} theme${colorScheme === option.value ? ', selected' : ''}`}
             leftSection={option.icon}
             rightSection={colorScheme === option.value ? <Check size={14} /> : null}
             onClick={() => setColorScheme(option.value)}

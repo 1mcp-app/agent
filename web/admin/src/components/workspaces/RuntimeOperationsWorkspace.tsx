@@ -27,7 +27,6 @@ export function DashboardWorkspace({
 
   async function configureServer() {
     await configuredServers.create.open();
-    await navigate('servers');
   }
 
   async function copyText(label: string, value: string): Promise<void> {

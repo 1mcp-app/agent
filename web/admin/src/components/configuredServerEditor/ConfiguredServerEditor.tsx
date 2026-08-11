@@ -1,6 +1,7 @@
 import { Alert, Badge, Button, Group, Paper, Stack, Text, Title } from '@mantine/core';
 
 import { Pencil, ServerCog, ShieldCheck } from 'lucide-react';
+import { useEffect, useRef } from 'react';
 
 import type { ConfiguredServerEditField } from '../../api/adminApi';
 import {
@@ -17,6 +18,20 @@ import { PreviewResult } from './PreviewResult';
 
 export function ConfiguredServerEditor({ model }: { model: ConfiguredServerEditModel }) {
   const { state } = model;
+  const advancedSettingsRef = useRef<HTMLDetailsElement>(null);
+  const hasAdvancedPreviewErrors =
+    state.status === 'loaded' &&
+    Boolean(
+      state.preview?.validation.errors.some((error) =>
+        state.detail.editContract.fieldGroups
+          .flatMap((group) => group.fields)
+          .some((field) => fieldKey(field.fieldPath) === fieldKey(error.fieldPath) && !isPrimaryEditField(field)),
+      ),
+    );
+
+  useEffect(() => {
+    if (hasAdvancedPreviewErrors && advancedSettingsRef.current) advancedSettingsRef.current.open = true;
+  }, [hasAdvancedPreviewErrors]);
 
   if (state.status === 'list') {
     return (
@@ -212,7 +227,7 @@ export function ConfiguredServerEditor({ model }: { model: ConfiguredServerEditM
           </Paper>
         ))}
         {advancedFields.length > 0 ? (
-          <details className="advanced-settings">
+          <details ref={advancedSettingsRef} className="advanced-settings">
             <summary>Advanced settings</summary>
             <Stack gap="sm" mt="sm">
               <Text c="dimmed" size="xs">
