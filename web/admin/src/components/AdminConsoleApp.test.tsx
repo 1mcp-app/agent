@@ -660,40 +660,53 @@ describe('AdminConsoleApp', () => {
       configuredServers: { open: onOpenServerDetail },
     });
 
-    await user.click(screen.getByRole('button', { name: /edit github server/i }));
+    await user.click(screen.getByRole('button', { name: /edit static github server/i }));
 
     expect(onOpenServerDetail).toHaveBeenCalledWith({ source: 'mcpServers', id: 'github' });
   });
 
-  it('authors explicit upstream, replacement, and suppression instruction outcomes', async () => {
+  it('keeps same-name static and template targets distinct and template lifecycle read-only', async () => {
+    const user = userEvent.setup();
+    const onOpenServerDetail = vi.fn();
+    const state = consoleState();
+    const staticGithub = state.configuredServers.find((server) => server.id === 'github');
+    if (!staticGithub) throw new Error('Expected github fixture');
+    state.configuredServers.push({
+      ...staticGithub,
+      source: 'mcpTemplates',
+      target: { ...staticGithub.target, source: 'mcpTemplates' },
+      mutationAvailability: { available: false, operations: [] },
+    });
+
+    renderApp(state, {
+      navigation: { route: 'servers' },
+      configuredServers: { open: onOpenServerDetail },
+    });
+
+    expect(screen.getByRole('button', { name: 'Edit static github server' })).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Edit template github server' }));
+    expect(onOpenServerDetail).toHaveBeenCalledWith({ source: 'mcpTemplates', id: 'github' });
+    expect(screen.getAllByRole('button', { name: 'Enable github' })).toHaveLength(1);
+  });
+
+  it('routes instruction outcomes through the shared dirty preview lifecycle', async () => {
     const user = userEvent.setup();
     const changeInstructionOverride = vi.fn();
-    const saveInstructionOverride = vi.fn();
 
     renderApp(consoleState(), {
       navigation: { route: 'servers' },
       configuredServers: {
         editor: configuredServerDetailState(),
-        instructionOverride: {
-          mode: 'suppress',
-          value: '',
-          dirty: true,
-          busy: false,
-          available: true,
-          error: null,
-          success: null,
-        },
         changeInstructionOverride,
-        saveInstructionOverride,
       },
     });
 
-    expect(screen.getByText('Effective: suppress')).toBeInTheDocument();
-    expect(screen.getByText('Effective instructions are an intentional empty value.')).toBeInTheDocument();
+    expect(screen.getByText('Effective: upstream')).toBeInTheDocument();
     await user.click(screen.getByRole('radio', { name: 'Replace' }));
-    expect(changeInstructionOverride).toHaveBeenCalledWith('replace');
-    await user.click(screen.getByRole('button', { name: 'Save instruction outcome' }));
-    expect(saveInstructionOverride).toHaveBeenCalledOnce();
+    expect(changeInstructionOverride).toHaveBeenCalledWith('replace', undefined);
+    expect(screen.getByText('Unsaved changes')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Preview change' })).toBeEnabled();
+    expect(screen.queryByRole('button', { name: 'Save instruction outcome' })).not.toBeInTheDocument();
   });
 
   it('renders configured-server detail controls from the normalized contract without raw JSON or apply controls', async () => {

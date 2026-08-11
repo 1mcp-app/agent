@@ -21,6 +21,8 @@ interface LoadedConfiguredServerEditState {
   initialFieldDraft: FieldDraftState;
   secretDraft: SecretDraftState;
   clearedTransportOverrides: string[];
+  instructionOverride: { mode: 'upstream' | 'replace' | 'suppress'; value: string };
+  initialInstructionOverride: { mode: 'upstream' | 'replace' | 'suppress'; value: string };
   dirty: boolean;
   preview?: ConfiguredServerPreviewResponse['preview'];
   previewBusy: boolean;
@@ -49,6 +51,7 @@ export type ConfiguredServerEditAction =
   | { type: 'fieldChanged'; fieldPath: string[]; value: unknown }
   | { type: 'secretChanged'; fieldPath: string[]; value: SecretDraftState[string] }
   | { type: 'transportOverrideChanged'; key: string; clear: boolean }
+  | { type: 'instructionOverrideChanged'; mode: 'upstream' | 'replace' | 'suppress'; value?: string }
   | { type: 'previewStarted' }
   | { type: 'previewSucceeded'; preview: ConfiguredServerPreviewResponse['preview'] }
   | { type: 'previewFailed'; message: string }
@@ -70,7 +73,7 @@ export function createConfiguredServerEditState(): ConfiguredServerEditState {
 export function configuredServerEditDraft(state: ConfiguredServerEditState): ConfiguredServerEditDraft {
   if (state.status !== 'loaded') return {};
   const transportType = selectedTransportType(state.fieldDraft, state.detail.server.transport.type);
-  return buildPreviewEdit(
+  const edit = buildPreviewEdit(
     state.detail.editContract.fieldGroups,
     state.fieldDraft,
     state.initialFieldDraft,
@@ -78,6 +81,15 @@ export function configuredServerEditDraft(state: ConfiguredServerEditState): Con
     transportType,
     state.clearedTransportOverrides,
   );
+  const current = state.instructionOverride;
+  const initial = state.initialInstructionOverride;
+  if (current.mode !== initial.mode || (current.mode === 'replace' && current.value !== initial.value)) {
+    edit.instructionOverride =
+      current.mode === 'upstream'
+        ? { action: 'remove' }
+        : { action: 'set', value: current.mode === 'suppress' ? '' : current.value };
+  }
+  return edit;
 }
 
 export function reduceConfiguredServerEditState(
@@ -98,6 +110,7 @@ export function reduceConfiguredServerEditState(
     case 'fieldChanged':
       if (state.status !== 'loaded') return state;
       if (state.applyBusy) return state;
+      if (state.detail.server.source === 'mcpTemplates') return state;
       return withDraftChange(state, {
         fieldDraft: { ...state.fieldDraft, [fieldKey(action.fieldPath)]: action.value },
         clearedTransportOverrides:
@@ -108,15 +121,25 @@ export function reduceConfiguredServerEditState(
     case 'secretChanged':
       if (state.status !== 'loaded') return state;
       if (state.applyBusy) return state;
+      if (state.detail.server.source === 'mcpTemplates') return state;
       return withDraftChange(state, {
         secretDraft: { ...state.secretDraft, [fieldKey(action.fieldPath)]: action.value },
       });
     case 'transportOverrideChanged':
       if (state.status !== 'loaded' || state.applyBusy) return state;
+      if (state.detail.server.source === 'mcpTemplates') return state;
       return withDraftChange(state, {
         clearedTransportOverrides: action.clear
           ? Array.from(new Set([...state.clearedTransportOverrides, action.key]))
           : state.clearedTransportOverrides.filter((key) => key !== action.key),
+      });
+    case 'instructionOverrideChanged':
+      if (state.status !== 'loaded' || state.applyBusy) return state;
+      return withDraftChange(state, {
+        instructionOverride: {
+          mode: action.mode,
+          value: action.mode === 'replace' ? (action.value ?? state.instructionOverride.value) : '',
+        },
       });
     case 'previewStarted':
       if (state.status !== 'loaded') return state;
@@ -192,6 +215,8 @@ function loadedState(serverId: string, detail: ConfiguredServerDetailResponse): 
     initialFieldDraft: fieldDraft,
     secretDraft,
     clearedTransportOverrides: [],
+    instructionOverride: instructionOverrideDraft(detail.server.instructionOverride),
+    initialInstructionOverride: instructionOverrideDraft(detail.server.instructionOverride),
     dirty: false,
     previewBusy: false,
     applyBusy: false,
@@ -200,7 +225,12 @@ function loadedState(serverId: string, detail: ConfiguredServerDetailResponse): 
 
 function withDraftChange(
   state: LoadedConfiguredServerEditState,
-  change: Partial<Pick<LoadedConfiguredServerEditState, 'fieldDraft' | 'secretDraft' | 'clearedTransportOverrides'>>,
+  change: Partial<
+    Pick<
+      LoadedConfiguredServerEditState,
+      'fieldDraft' | 'secretDraft' | 'clearedTransportOverrides' | 'instructionOverride'
+    >
+  >,
 ): LoadedConfiguredServerEditState {
   const next = {
     ...state,
@@ -213,6 +243,14 @@ function withDraftChange(
     applySuccess: undefined,
   };
   return { ...next, dirty: Object.keys(configuredServerEditDraft(next)).length > 0 };
+}
+
+function instructionOverrideDraft(
+  override: ConfiguredServerDetailResponse['server']['instructionOverride'],
+): LoadedConfiguredServerEditState['instructionOverride'] {
+  if (override?.state === 'replace') return { mode: 'replace', value: override.value };
+  if (override?.state === 'suppress') return { mode: 'suppress', value: '' };
+  return { mode: 'upstream', value: '' };
 }
 
 function configuredServerReloadWarning(result: ConfiguredServerApplyResponse['result']): string | undefined {

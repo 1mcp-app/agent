@@ -129,7 +129,8 @@ export function ConfiguredServerEditor({ model }: { model: ConfiguredServerEditM
   }
 
   const transportType = selectedTransportType(state.fieldDraft, state.detail.server.transport.type);
-  const fieldGroups = state.detail.editContract.fieldGroups
+  const templateTarget = state.detail.server.source === 'mcpTemplates';
+  const fieldGroups = (templateTarget ? [] : state.detail.editContract.fieldGroups)
     .map((group) => ({
       ...group,
       fields: group.fields.filter((field) => fieldAppliesToTransport(field, transportType)),
@@ -237,74 +238,47 @@ export function ConfiguredServerEditor({ model }: { model: ConfiguredServerEditM
             </Stack>
           </details>
         ) : null}
-        {model.instructionOverride ? (
-        {model.instructionOverride ? (
-          <Paper className="edit-section instruction-override-editor" withBorder>
-            <Stack gap="xs">
-              <Group justify="space-between" align="flex-start">
-                <div>
-                  <Text fw={800}>Server instructions</Text>
-                  <Text c="dimmed" size="xs">
-                    Choose whether clients receive upstream instructions, an operator replacement, or no instructions.
-                  </Text>
-                </div>
-                <Badge variant="outline">
-                  Effective:{' '}
-                  {model.instructionOverride.mode === 'replace' ? 'replacement' : model.instructionOverride.mode}
-                </Badge>
-              </Group>
-              <SegmentedControl
-                fullWidth
-                aria-label="Instruction override outcome"
-                value={model.instructionOverride.mode}
-                onChange={(value) => model.changeInstructionOverride?.(value as 'upstream' | 'replace' | 'suppress')}
-                data={[
-                  { value: 'upstream', label: 'Use upstream' },
-                  { value: 'replace', label: 'Replace' },
-                  { value: 'suppress', label: 'Suppress' },
-                ]}
-              />
-              {model.instructionOverride.mode === 'replace' ? (
-                <Textarea
-                  label="Replacement instructions"
-                  minRows={5}
-                  value={model.instructionOverride.value}
-                  onChange={(event) => model.changeInstructionOverride?.('replace', event.currentTarget.value)}
-                />
-              ) : (
-                <Text size="sm" className="instruction-override-readonly">
-                  {model.instructionOverride.mode === 'upstream'
-                    ? 'Upstream state is preserved. Effective instructions are resolved when the server connects.'
-                    : 'Effective instructions are an intentional empty value.'}
+        <Paper className="edit-section instruction-override-editor" withBorder>
+          <Stack gap="xs">
+            <Group justify="space-between" align="flex-start">
+              <div>
+                <Text fw={800}>Server instructions</Text>
+                <Text c="dimmed" size="xs">
+                  Choose whether clients receive upstream instructions, an operator replacement, or no instructions.
                 </Text>
-              )}
-              {model.instructionOverride.error ? (
-                <Alert color="red" role="alert">
-                  {model.instructionOverride.error}
-                </Alert>
-              ) : null}
-              {model.instructionOverride.success ? (
-                <Alert color="teal" role="status">
-                  {model.instructionOverride.success}
-                </Alert>
-              ) : null}
-              <Group justify="flex-end">
-                <Button
-                  variant="default"
-                  loading={model.instructionOverride.busy}
-                  disabled={
-                    !model.instructionOverride.available ||
-                    !model.instructionOverride.dirty ||
-                    model.instructionOverride.busy
-                  }
-                  onClick={() => void model.saveInstructionOverride?.()}
-                >
-                  Save instruction outcome
-                </Button>
-              </Group>
-            </Stack>
-          </Paper>
-        ) : null}
+              </div>
+              <Badge variant="outline">
+                Effective:{' '}
+                {state.instructionOverride.mode === 'replace' ? 'replacement' : state.instructionOverride.mode}
+              </Badge>
+            </Group>
+            <SegmentedControl
+              fullWidth
+              aria-label="Instruction override outcome"
+              value={state.instructionOverride.mode}
+              onChange={(value) => model.changeInstructionOverride(value as 'upstream' | 'replace' | 'suppress')}
+              data={[
+                { value: 'upstream', label: 'Use upstream' },
+                { value: 'replace', label: 'Replace' },
+                { value: 'suppress', label: 'Suppress' },
+              ]}
+            />
+            {state.instructionOverride.mode === 'replace' ? (
+              <Textarea
+                label="Replacement instructions"
+                minRows={5}
+                value={state.instructionOverride.value}
+                onChange={(event) => model.changeInstructionOverride('replace', event.currentTarget.value)}
+              />
+            ) : (
+              <Text size="sm" className="instruction-override-readonly">
+                {state.instructionOverride.mode === 'upstream'
+                  ? 'Upstream state is preserved. Effective instructions are resolved when the server connects.'
+                  : 'Effective instructions are an intentional empty value.'}
+              </Text>
+            )}
+          </Stack>
+        </Paper>
         <Group className="draft-action-bar" justify="space-between" gap="sm">
           <div>
             <Badge color={state.dirty ? 'yellow' : 'gray'} variant={state.dirty ? 'light' : 'outline'}>

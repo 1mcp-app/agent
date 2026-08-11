@@ -27,9 +27,7 @@ interface ConfiguredServerOverrides {
   preview?: ConfiguredServerEditModel['preview'];
   apply?: ConfiguredServerEditModel['apply'];
   copy?: AdminConsoleSessionModel['configuredServers']['copy'];
-  instructionOverride?: NonNullable<ConfiguredServerEditModel['instructionOverride']>;
-  changeInstructionOverride?: NonNullable<ConfiguredServerEditModel['changeInstructionOverride']>;
-  saveInstructionOverride?: NonNullable<ConfiguredServerEditModel['saveInstructionOverride']>;
+  changeInstructionOverride?: ConfiguredServerEditModel['changeInstructionOverride'];
 }
 
 interface SessionOverrides {
@@ -62,14 +60,15 @@ function FixtureAdminConsoleApp({ state, overrides }: { state: AdminConsoleState
   );
   const edit: ConfiguredServerEditModel = {
     state: editState,
-    instructionOverride: configuredServers?.instructionOverride ?? staticInstructionOverride(),
     open: configuredServers?.open ?? (() => undefined),
     close: configuredServers?.close ?? (async () => true),
     changeField: (fieldPath, value) => editDispatch({ type: 'fieldChanged', fieldPath, value }),
     changeSecret: (fieldPath, value) => editDispatch({ type: 'secretChanged', fieldPath, value }),
     changeTransportOverride: (key, clear) => editDispatch({ type: 'transportOverrideChanged', key, clear }),
-    changeInstructionOverride: configuredServers?.changeInstructionOverride ?? (() => undefined),
-    saveInstructionOverride: configuredServers?.saveInstructionOverride ?? (() => undefined),
+    changeInstructionOverride: (mode, value) => {
+      editDispatch({ type: 'instructionOverrideChanged', mode, value });
+      configuredServers?.changeInstructionOverride?.(mode, value);
+    },
     preview: configuredServers?.preview ?? (() => undefined),
     apply: configuredServers?.apply ?? (() => undefined),
   };
@@ -183,28 +182,14 @@ function staticConfiguredServerCreateModel(): ConfiguredServerCreateModel {
 function staticConfiguredServerEditModel(overrides?: ConfiguredServerOverrides): ConfiguredServerEditModel {
   return {
     state: configuredServerEditStateFromFixture(overrides?.editor),
-    instructionOverride: overrides?.instructionOverride ?? staticInstructionOverride(),
     open: overrides?.open ?? (() => undefined),
     close: overrides?.close ?? (async () => true),
     changeField: () => undefined,
     changeSecret: () => undefined,
     changeTransportOverride: () => undefined,
     changeInstructionOverride: overrides?.changeInstructionOverride ?? (() => undefined),
-    saveInstructionOverride: overrides?.saveInstructionOverride ?? (() => undefined),
     preview: () => undefined,
     apply: overrides?.apply ?? (() => undefined),
-  };
-}
-
-function staticInstructionOverride(): NonNullable<ConfiguredServerEditModel['instructionOverride']> {
-  return {
-    mode: 'upstream',
-    value: '',
-    dirty: false,
-    busy: false,
-    available: true,
-    error: null,
-    success: null,
   };
 }
 

@@ -215,11 +215,11 @@ describe('AdminConsoleRoot', () => {
     renderRoot(api, { windowRef: routeWindow });
 
     expect(await screen.findByRole('heading', { name: /server inventory/i })).toBeInTheDocument();
-    await user.click(screen.getByRole('button', { name: /edit github\/api server/i }));
+    await user.click(screen.getByRole('button', { name: /edit static github\/api server/i }));
 
     expect(routeWindow.history.pushState).toHaveBeenCalledWith(null, '', '/admin/servers/github%2Fapi');
     expect(await screen.findByRole('heading', { name: /github\/api/i })).toBeInTheDocument();
-    expect(api.getConfiguredServerDetail).toHaveBeenCalledWith('github/api');
+    expect(api.getConfiguredServerDetail).toHaveBeenCalledWith({ source: 'mcpServers', id: 'github/api' });
     expect(screen.getByDisplayValue('https://api.example.com/mcp?token=REDACTED')).toBeInTheDocument();
     expect(screen.queryByText(/raw-token|Bearer raw/i)).not.toBeInTheDocument();
 
@@ -228,7 +228,7 @@ describe('AdminConsoleRoot', () => {
     await user.click(screen.getByRole('button', { name: /preview change/i }));
 
     expect(api.previewConfiguredServerEdit).toHaveBeenCalledWith({
-      name: 'github/api',
+      target: { source: 'mcpServers', id: 'github/api' },
       csrfToken: 'csrf_123',
       connectivityCheck: 'auto',
       edit: {
@@ -247,7 +247,7 @@ describe('AdminConsoleRoot', () => {
     await user.click(screen.getByRole('button', { name: /rerun connectivity/i }));
 
     expect(api.previewConfiguredServerEdit).toHaveBeenLastCalledWith({
-      name: 'github/api',
+      target: { source: 'mcpServers', id: 'github/api' },
       csrfToken: 'csrf_123',
       connectivityCheck: 'manual',
       edit: {
@@ -575,7 +575,7 @@ describe('AdminConsoleRoot', () => {
     renderRoot(api, { windowRef: routeWindow });
 
     expect(await screen.findByRole('heading', { name: /server inventory/i })).toBeInTheDocument();
-    await user.click(screen.getByRole('button', { name: /edit github\/api server/i }));
+    await user.click(screen.getByRole('button', { name: /edit static github\/api server/i }));
     expect(await screen.findByRole('heading', { name: /github\/api/i })).toBeInTheDocument();
     await user.clear(screen.getByLabelText('URL'));
     await user.type(screen.getByLabelText('URL'), 'https://api.example.com/v2/mcp');
@@ -601,26 +601,25 @@ describe('AdminConsoleRoot', () => {
         configuredServerListItem('github/api'),
         configuredServerListItem('filesystem'),
       ]),
-      getConfiguredServerDetail: vi.fn(async (serverId: string) => configuredServerDetail(serverId)),
+      getConfiguredServerDetail: vi.fn(async (target: string | { id: string }) =>
+        configuredServerDetail(typeof target === 'string' ? target : target.id),
+      ),
     });
 
     renderRoot(api, { windowRef: routeWindow });
 
     expect(await screen.findByRole('heading', { name: /server inventory/i })).toBeInTheDocument();
-    await user.click(screen.getByRole('button', { name: /edit github\/api server/i }));
+    await user.click(screen.getByRole('button', { name: /edit static github\/api server/i }));
     expect(await screen.findByRole('heading', { name: /github\/api/i })).toBeInTheDocument();
     await user.clear(screen.getByLabelText('URL'));
     await user.type(screen.getByLabelText('URL'), 'https://api.example.com/v2/mcp');
 
-    routeWindow.location.pathname = '/admin/servers/filesystem';
-    await act(async () => {
-      routeWindow.emitPopState();
-    });
+    await user.click(screen.getByRole('button', { name: /edit static filesystem server/i }));
 
     expect(await screen.findByRole('dialog', { name: /discard unsaved changes/i })).toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: /^cancel$/i }));
-    expect(api.getConfiguredServerDetail).not.toHaveBeenCalledWith('filesystem');
-    expect(routeWindow.history.replaceState).toHaveBeenLastCalledWith(null, '', '/admin/servers/github%2Fapi');
+    expect(api.getConfiguredServerDetail).not.toHaveBeenCalledWith({ source: 'mcpServers', id: 'filesystem' });
+    expect(routeWindow.history.pushState).toHaveBeenLastCalledWith(null, '', '/admin/servers/github%2Fapi');
     expect(screen.getByRole('heading', { name: /github\/api/i })).toBeInTheDocument();
   });
 
@@ -678,14 +677,16 @@ describe('AdminConsoleRoot', () => {
         configuredServerListItem('github/api'),
         configuredServerListItem('filesystem'),
       ]),
-      getConfiguredServerDetail: vi.fn(async (serverId: string) => configuredServerDetail(serverId)),
+      getConfiguredServerDetail: vi.fn(async (target: string | { id: string }) =>
+        configuredServerDetail(typeof target === 'string' ? target : target.id),
+      ),
       previewConfiguredServerEdit: vi.fn(() => stalePreview.promise),
     });
 
     renderRoot(api, { windowRef: routeWindow });
 
     expect(await screen.findByRole('heading', { name: /server inventory/i })).toBeInTheDocument();
-    await user.click(screen.getByRole('button', { name: /edit github\/api server/i }));
+    await user.click(screen.getByRole('button', { name: /edit static github\/api server/i }));
     expect(await screen.findByRole('heading', { name: /github\/api/i })).toBeInTheDocument();
     await user.click(screen.getByRole('radio', { name: /replace url\.query\.token/i }));
     await user.type(screen.getByLabelText(/environment variable for url\.query\.token/i), 'GITHUB_TOKEN');
@@ -693,10 +694,7 @@ describe('AdminConsoleRoot', () => {
     const previewButton = screen.getByRole('button', { name: /preview change/i });
     fireEvent.click(previewButton);
     expect(api.previewConfiguredServerEdit).toHaveBeenCalledTimes(1);
-    routeWindow.location.pathname = '/admin/servers/filesystem';
-    await act(async () => {
-      routeWindow.emitPopState();
-    });
+    await user.click(screen.getByRole('button', { name: /edit static filesystem server/i }));
     await user.click(await screen.findByRole('button', { name: /discard changes/i }));
     expect(await screen.findByRole('heading', { name: /^filesystem$/i })).toBeInTheDocument();
 

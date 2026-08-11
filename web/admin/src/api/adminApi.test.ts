@@ -79,7 +79,7 @@ describe('admin API client', () => {
     ]);
   });
 
-  it('addresses configured targets by source and sends explicit instruction override mutations', async () => {
+  it('previews instruction overrides through the source-qualified configured editor', async () => {
     const calls: Array<{ input: RequestInfo | URL; init?: RequestInit }> = [];
     const api = createAdminApi({
       fetch: async (input, init) => {
@@ -89,25 +89,19 @@ describe('admin API client', () => {
     });
 
     await api.getConfiguredServerDetail({ source: 'mcpTemplates', id: 'github/api' });
-    await api.setConfiguredServerInstructionOverride({
+    await api.previewConfiguredServerEdit({
       target: { source: 'mcpTemplates', id: 'github/api' },
-      mutation: { action: 'set', value: '' },
-      expectedSourceFingerprint: 'source_1',
-      expectedConfigFingerprint: 'config_1',
+      edit: { instructionOverride: { action: 'set', value: '' } },
       csrfToken: 'csrf_123',
     });
 
     expect(calls[0].input).toBe('/admin/api/configured-servers/mcpTemplates/github%2Fapi');
     expect(calls[1]).toMatchObject({
-      input: '/admin/api/configured-servers/mcpTemplates/github%2Fapi/instruction-override',
+      input: '/admin/api/configured-servers/mcpTemplates/github%2Fapi/preview',
       init: {
         method: 'POST',
         headers: expect.objectContaining({ 'X-CSRF-Token': 'csrf_123' }),
-        body: JSON.stringify({
-          mutation: { action: 'set', value: '' },
-          expectedSourceFingerprint: 'source_1',
-          expectedConfigFingerprint: 'config_1',
-        }),
+        body: JSON.stringify({ edit: { instructionOverride: { action: 'set', value: '' } } }),
       },
     });
   });
@@ -431,7 +425,7 @@ describe('admin API client', () => {
     });
 
     const response = await api.previewConfiguredServerEdit({
-      name: 'github/api server',
+      target: 'github/api server',
       csrfToken: 'csrf_123',
       idempotencyKey: 'apply-attempt-123',
       connectivityCheck: 'manual',
@@ -492,7 +486,7 @@ describe('admin API client', () => {
     });
 
     await api.applyConfiguredServerEdit({
-      name: 'github/api server',
+      target: 'github/api server',
       csrfToken: 'csrf_123',
       idempotencyKey: 'apply-attempt-123',
       edit: { id: 'github-renamed' },
@@ -532,7 +526,7 @@ describe('admin API client', () => {
 
     await expect(
       api.applyConfiguredServerEdit({
-        name: 'github',
+        target: 'github',
         csrfToken: 'csrf',
         idempotencyKey: 'apply-1',
         edit: { enabled: true },

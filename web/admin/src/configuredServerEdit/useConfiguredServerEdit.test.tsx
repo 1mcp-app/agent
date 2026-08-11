@@ -13,7 +13,6 @@ import { createConfiguredServerEditState, reduceConfiguredServerEditState } from
 import type { ConfiguredServerEditBrowser } from './useConfiguredServerEdit';
 import { useConfiguredServerEdit } from './useConfiguredServerEdit';
 import { configuredServerApplyEligibility } from './useConfiguredServerEdit';
-import { configuredServerInstructionOverrideMutation } from './useConfiguredServerEdit';
 
 const session: AdminSession = {
   authenticated: true,
@@ -59,8 +58,6 @@ function browser(initialPathname: string) {
 function api(overrides: Partial<AdminApiClient> = {}): AdminApiClient {
   return {
     getConfiguredServerDetail: vi.fn(async () => detail()),
-    getConfiguredServerCatalog: vi.fn(async () => ({ servers: [detail().server], configFingerprint: 'config-1' })),
-    setConfiguredServerInstructionOverride: vi.fn(async () => ({ ok: true })),
     previewConfiguredServerEdit: vi.fn(async () => {
       throw new Error('not implemented');
     }),
@@ -72,15 +69,7 @@ function api(overrides: Partial<AdminApiClient> = {}): AdminApiClient {
 }
 
 describe('useConfiguredServerEdit', () => {
-  it.each([
-    ['upstream', 'ignored', { action: 'remove' }],
-    ['replace', 'operator guidance', { action: 'set', value: 'operator guidance' }],
-    ['suppress', 'ignored', { action: 'set', value: '' }],
-  ] as const)('maps the %s outcome to an explicit override mutation', (mode, value, expected) => {
-    expect(configuredServerInstructionOverrideMutation(mode, value)).toEqual(expected);
-  });
-
-  it('loads a source-qualified template and persists explicit suppress and upstream outcomes', async () => {
+  it('previews a template instruction override through the source-qualified editor', async () => {
     const templateDetail = {
       ...detail(),
       server: {
@@ -91,14 +80,28 @@ describe('useConfiguredServerEdit', () => {
         revision: 'configured_server_1',
         instructionOverride: { state: 'upstream' as const },
       },
+      editContract: {
+        ...detail().editContract,
+        capabilities: {
+          ...detail().editContract.capabilities,
+          apply: { supported: true },
+        },
+      },
     };
     const adminApi = api({
       getConfiguredServerDetail: vi.fn(async () => templateDetail),
-      getConfiguredServerCatalog: vi.fn(async () => ({
-        servers: [templateDetail.server],
-        configFingerprint: 'config_1',
+      previewConfiguredServerEdit: vi.fn(async () => ({
+        ...applyPreview(),
+        preview: {
+          ...applyPreview().preview,
+          diff: [{ fieldPath: ['instructionOverride'], oldValue: 'upstream', newValue: 'suppress', riskFlags: [] }],
+          configChange: {
+            ...applyPreview().preview.configChange,
+            target: { name: 'shared', source: 'mcpTemplates' as const },
+          },
+        },
       })),
-      setConfiguredServerInstructionOverride: vi.fn(async () => ({ ok: true })),
+      applyConfiguredServerEdit: vi.fn(async () => applyResponse('shared')),
     });
     const browserAdapter = browser('/admin');
     const { result } = renderHook(() =>
@@ -109,15 +112,25 @@ describe('useConfiguredServerEdit', () => {
     expect(adminApi.getConfiguredServerDetail).toHaveBeenCalledWith({ source: 'mcpTemplates', id: 'shared' });
     expect(browserAdapter.adapter.push).toHaveBeenCalledWith('/admin/servers/mcpTemplates/shared');
 
-    act(() => result.current.changeInstructionOverride?.('suppress'));
-    await act(() => result.current.saveInstructionOverride?.());
-    expect(adminApi.setConfiguredServerInstructionOverride).toHaveBeenCalledWith({
+    act(() => result.current.changeInstructionOverride('suppress'));
+    expect(result.current.state).toMatchObject({ status: 'loaded', dirty: true, preview: undefined });
+    await act(() => result.current.preview());
+    expect(adminApi.previewConfiguredServerEdit).toHaveBeenCalledWith({
       target: { source: 'mcpTemplates', id: 'shared' },
-      mutation: { action: 'set', value: '' },
-      expectedSourceFingerprint: 'configured_server_1',
-      expectedConfigFingerprint: 'config_1',
       csrfToken: 'csrf-token',
+      connectivityCheck: 'auto',
+      edit: { instructionOverride: { action: 'set', value: '' } },
     });
+
+    await act(() => result.current.apply());
+    expect(browserAdapter.adapter.confirm).toHaveBeenCalledOnce();
+    expect(adminApi.applyConfiguredServerEdit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        target: { source: 'mcpTemplates', id: 'shared' },
+        edit: { instructionOverride: { action: 'set', value: '' } },
+        previewFingerprint: 'preview-retry',
+      }),
+    );
   });
 
   it('does not load the reserved create route after decoding its path segment', async () => {
@@ -166,7 +179,7 @@ describe('useConfiguredServerEdit', () => {
     await act(() => result.current.preview('auto'));
 
     expect(adminApi.previewConfiguredServerEdit).toHaveBeenCalledWith({
-      name: 'github',
+      target: { source: 'mcpServers', id: 'github' },
       csrfToken: 'csrf-token',
       connectivityCheck: 'auto',
       edit: { transport: { url: 'https://example.com/v2/mcp' } },
@@ -339,7 +352,7 @@ describe('useConfiguredServerEdit', () => {
     await act(() => result.current.apply());
 
     expect(adminApi.applyConfiguredServerEdit).toHaveBeenCalledWith({
-      name: 'github',
+      target: { source: 'mcpServers', id: 'github' },
       csrfToken: 'csrf-token',
       idempotencyKey: expect.stringMatching(/^admin-console-server-apply-/),
       edit: { transport: { url: 'https://example.com/renamed' } },

@@ -387,6 +387,7 @@ export interface ConfiguredServerEditDraft {
   transport?: Record<string, unknown>;
   secrets?: ConfiguredServerSecretEditDraft[];
   clearTransportOverrides?: string[];
+  instructionOverride?: { action: 'set'; value: string } | { action: 'remove' };
 }
 
 export type ConfiguredServerPreviewRiskFlag = 'rename' | 'connection_critical' | 'secret' | 'template_risk';
@@ -1005,31 +1006,13 @@ export function createAdminApi(options: AdminApiOptions = {}) {
       });
     },
 
-    setConfiguredServerInstructionOverride(input: {
-      target: ConfiguredServerTargetIdentity;
-      mutation: { action: 'set'; value: string } | { action: 'remove' };
-      expectedSourceFingerprint: string;
-      expectedConfigFingerprint: string;
-      csrfToken: string;
-    }): Promise<unknown> {
-      return request(`${configuredServerPath(input.target)}/instruction-override`, {
-        method: 'POST',
-        headers: { 'X-CSRF-Token': input.csrfToken },
-        body: JSON.stringify({
-          mutation: input.mutation,
-          expectedSourceFingerprint: input.expectedSourceFingerprint,
-          expectedConfigFingerprint: input.expectedConfigFingerprint,
-        }),
-      });
-    },
-
     previewConfiguredServerEdit(input: {
-      name: string;
+      target: string | ConfiguredServerTargetIdentity;
       csrfToken: string;
       edit: ConfiguredServerEditDraft;
       connectivityCheck?: 'auto' | 'manual';
     }): Promise<ConfiguredServerPreviewResponse> {
-      return request(`/admin/api/configured-servers/${encodeURIComponent(input.name)}/preview`, {
+      return request(`${configuredServerPath(input.target)}/preview`, {
         method: 'POST',
         headers: {
           'X-CSRF-Token': input.csrfToken,
@@ -1042,14 +1025,14 @@ export function createAdminApi(options: AdminApiOptions = {}) {
     },
 
     applyConfiguredServerEdit(input: {
-      name: string;
+      target: string | ConfiguredServerTargetIdentity;
       csrfToken: string;
       idempotencyKey: string;
       edit: ConfiguredServerEditDraft;
       previewFingerprint: string;
       confirmationFacts: Record<string, unknown>;
     }): Promise<ConfiguredServerApplyResponse> {
-      return request(`/admin/api/configured-servers/${encodeURIComponent(input.name)}/apply`, {
+      return request(`${configuredServerPath(input.target)}/apply`, {
         method: 'POST',
         headers: {
           'X-CSRF-Token': input.csrfToken,

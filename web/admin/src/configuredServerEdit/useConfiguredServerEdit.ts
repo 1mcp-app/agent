@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useReducer, useRef, useState } from 'react';
+import { useCallback, useEffect, useReducer, useRef } from 'react';
 
 import { AdminApiError, createConfiguredServerApplyIdempotencyKey } from '../api/adminApi';
 import type { AdminApiClient, AdminSession, ConfiguredServerTargetIdentity } from '../api/adminApi';
@@ -22,35 +22,14 @@ export interface ConfiguredServerEditBrowser {
 
 export interface ConfiguredServerEditModel {
   state: ConfiguredServerEditState;
-  instructionOverride?: {
-    mode: 'upstream' | 'replace' | 'suppress';
-    value: string;
-    dirty: boolean;
-    busy: boolean;
-    available: boolean;
-    error: string | null;
-    success: string | null;
-  };
   open(server: string | ConfiguredServerTargetIdentity): void | Promise<void>;
   close(pathname?: string): Promise<boolean>;
   changeField(fieldPath: string[], value: unknown): void;
   changeSecret(fieldPath: string[], value: SecretDraftState[string]): void;
   changeTransportOverride(key: string, clear: boolean): void;
-  changeInstructionOverride?(mode: 'upstream' | 'replace' | 'suppress', value?: string): void;
-  saveInstructionOverride?(): void | Promise<void>;
+  changeInstructionOverride(mode: 'upstream' | 'replace' | 'suppress', value?: string): void;
   preview(connectivityCheck?: 'auto' | 'manual'): void | Promise<void>;
   apply(): void | Promise<void>;
-}
-
-interface InstructionOverrideDraftState {
-  mode: 'upstream' | 'replace' | 'suppress';
-  value: string;
-  initialMode: 'upstream' | 'replace' | 'suppress';
-  initialValue: string;
-  busy: boolean;
-  available: boolean;
-  error: string | null;
-  success: string | null;
 }
 
 export function useConfiguredServerEdit({
@@ -61,14 +40,7 @@ export function useConfiguredServerEdit({
   onApplied,
   onPathCommitted,
 }: {
-  api: Pick<
-    AdminApiClient,
-    | 'getConfiguredServerDetail'
-    | 'previewConfiguredServerEdit'
-    | 'applyConfiguredServerEdit'
-    | 'setConfiguredServerInstructionOverride'
-    | 'getConfiguredServerCatalog'
-  >;
+  api: Pick<AdminApiClient, 'getConfiguredServerDetail' | 'previewConfiguredServerEdit' | 'applyConfiguredServerEdit'>;
   session: AdminSession | null;
   browser: ConfiguredServerEditBrowser;
   onUnauthenticated(adminStatus: 'setupRequired' | 'loginRequired'): void;
@@ -76,21 +48,10 @@ export function useConfiguredServerEdit({
   onPathCommitted?(path: string): void;
 }): ConfiguredServerEditModel {
   const [state, dispatch] = useReducer(reduceConfiguredServerEditState, undefined, createConfiguredServerEditState);
-  const [instructionOverride, setInstructionOverride] = useState<InstructionOverrideDraftState>({
-    mode: 'upstream',
-    value: '',
-    initialMode: 'upstream',
-    initialValue: '',
-    busy: false,
-    available: false,
-    error: null as string | null,
-    success: null as string | null,
-  });
   const stateRef = useRef(state);
   const sessionRef = useRef(session);
   const apiRef = useRef(api);
   const onUnauthenticatedRef = useRef(onUnauthenticated);
-  const configFingerprintRef = useRef('');
   stateRef.current = state;
   sessionRef.current = session;
   apiRef.current = api;
@@ -129,28 +90,8 @@ export function useConfiguredServerEdit({
       invalidatePreview();
       dispatch({ type: 'detailLoadStarted', serverId });
       try {
-        const detailTarget = typeof server !== 'string' && server.source === 'mcpServers' ? server.id : server;
-        const [detail, catalog] = await Promise.all([
-          apiRef.current.getConfiguredServerDetail(detailTarget),
-          apiRef.current.getConfiguredServerCatalog
-            ? apiRef.current.getConfiguredServerCatalog()
-            : Promise.resolve({ servers: [], configFingerprint: '' }),
-        ]);
+        const detail = await apiRef.current.getConfiguredServerDetail(server);
         if (requestId !== detailRequestRef.current || sessionRef.current?.csrfToken !== sessionKey) return;
-        configFingerprintRef.current = catalog.configFingerprint;
-        const currentOverride = detail.server.instructionOverride ?? { state: 'upstream' as const };
-        const mode = currentOverride.state;
-        const value = currentOverride.state === 'replace' ? currentOverride.value : '';
-        setInstructionOverride({
-          mode,
-          value,
-          initialMode: mode,
-          initialValue: value,
-          busy: false,
-          available: Boolean(detail.server.revision && catalog.configFingerprint),
-          error: null,
-          success: null,
-        });
         dispatch({ type: 'detailLoaded', serverId, detail });
       } catch (error) {
         if (requestId !== detailRequestRef.current || sessionRef.current?.csrfToken !== sessionKey) return;
@@ -167,11 +108,10 @@ export function useConfiguredServerEdit({
 
   const open = useCallback(
     async (server: string | ConfiguredServerTargetIdentity) => {
-      const serverId = typeof server === 'string' ? server : server.id;
       const current = stateRef.current;
       if (
         current.status === 'loaded' &&
-        current.serverId !== serverId &&
+        !sameConfiguredServerTarget(current, server) &&
         current.dirty &&
         !(await confirmDiscard(browser))
       ) {
@@ -220,57 +160,13 @@ export function useConfiguredServerEdit({
     [invalidatePreview],
   );
 
-  const changeInstructionOverride = useCallback((mode: 'upstream' | 'replace' | 'suppress', value = '') => {
-    setInstructionOverride((current) => ({ ...current, mode, value, error: null, success: null }));
-  }, []);
-
-  const saveInstructionOverride = useCallback(async () => {
-    const activeSession = sessionRef.current;
-    const current = stateRef.current;
-    if (!activeSession || current.status !== 'loaded' || instructionOverride.busy) return;
-    const revision = current.detail.server.revision;
-    const expectedConfigFingerprint = configFingerprintRef.current;
-    if (!revision || !expectedConfigFingerprint) return;
-    const target = current.detail.server.target;
-    const outcomeMode = instructionOverride.mode;
-    setInstructionOverride((value) => ({ ...value, busy: true, error: null, success: null }));
-    try {
-      await apiRef.current.setConfiguredServerInstructionOverride({
-        target: { source: target.source, id: target.id },
-        mutation: configuredServerInstructionOverrideMutation(instructionOverride.mode, instructionOverride.value),
-        expectedSourceFingerprint: revision,
-        expectedConfigFingerprint,
-        csrfToken: activeSession.csrfToken,
-      });
-      await onApplied?.();
-      await load({ source: target.source, id: target.id });
-      setInstructionOverride((value) => ({
-        ...value,
-        busy: false,
-        success:
-          outcomeMode === 'upstream'
-            ? 'Upstream instructions restored.'
-            : outcomeMode === 'suppress'
-              ? 'Instructions suppressed.'
-              : 'Instruction replacement saved.',
-      }));
-    } catch (error) {
-      if (!handleUnauthenticated(error)) {
-        setInstructionOverride((value) => ({
-          ...value,
-          busy: false,
-          error: `Instruction override failed: ${failureMessage(error)}`,
-        }));
-      }
-    }
-  }, [
-    handleUnauthenticated,
-    instructionOverride.busy,
-    instructionOverride.mode,
-    instructionOverride.value,
-    load,
-    onApplied,
-  ]);
+  const changeInstructionOverride = useCallback(
+    (mode: 'upstream' | 'replace' | 'suppress', value?: string) => {
+      invalidatePreview();
+      dispatch({ type: 'instructionOverrideChanged', mode, value });
+    },
+    [invalidatePreview],
+  );
 
   const preview = useCallback(
     async (connectivityCheck: 'auto' | 'manual' = 'auto') => {
@@ -284,7 +180,7 @@ export function useConfiguredServerEdit({
       dispatch({ type: 'previewStarted' });
       try {
         const response = await apiRef.current.previewConfiguredServerEdit({
-          name: serverId,
+          target: configuredServerTarget(current),
           csrfToken: sessionKey,
           connectivityCheck,
           edit: configuredServerEditDraft(current),
@@ -354,7 +250,7 @@ export function useConfiguredServerEdit({
       let response: Awaited<ReturnType<AdminApiClient['applyConfiguredServerEdit']>>;
       try {
         response = await apiRef.current.applyConfiguredServerEdit({
-          name: serverId,
+          target: configuredServerTarget(current),
           csrfToken: sessionKey,
           idempotencyKey: attempt.idempotencyKey,
           edit: configuredServerEditDraft(current),
@@ -395,7 +291,11 @@ export function useConfiguredServerEdit({
       }
 
       try {
-        const detail = await apiRef.current.getConfiguredServerDetail(finalName);
+        const detail = await apiRef.current.getConfiguredServerDetail(
+          current.detail.server.source === 'mcpTemplates'
+            ? { source: 'mcpTemplates', id: finalName }
+            : { source: 'mcpServers', id: finalName },
+        );
         if (requestId !== applyRequestRef.current || sessionRef.current?.csrfToken !== sessionKey) return;
         dispatch({ type: 'applySucceeded', serverId: finalName, detail, result: response.result });
       } catch (error) {
@@ -429,8 +329,7 @@ export function useConfiguredServerEdit({
           const current = stateRef.current;
           const requestedPath = browser.pathname();
           const nextServer = serverTargetFromPath(requestedPath);
-          const nextServerId = typeof nextServer === 'string' ? nextServer : nextServer?.id;
-          const changingTarget = current.status === 'loaded' && nextServerId !== current.serverId;
+          const changingTarget = current.status === 'loaded' && !sameConfiguredServerTarget(current, nextServer);
           if (changingTarget && current.dirty) {
             browser.replace(serverPath(current.detail.server.target));
             if (!(await confirmDiscard(browser))) return;
@@ -446,35 +345,15 @@ export function useConfiguredServerEdit({
 
   return {
     state,
-    instructionOverride: {
-      mode: instructionOverride.mode,
-      value: instructionOverride.value,
-      dirty:
-        instructionOverride.mode !== instructionOverride.initialMode ||
-        instructionOverride.value !== instructionOverride.initialValue,
-      busy: instructionOverride.busy,
-      available: instructionOverride.available,
-      error: instructionOverride.error,
-      success: instructionOverride.success,
-    },
     open,
     close,
     changeField,
     changeSecret,
     changeTransportOverride,
     changeInstructionOverride,
-    saveInstructionOverride,
     preview,
     apply,
   };
-}
-
-export function configuredServerInstructionOverrideMutation(
-  mode: 'upstream' | 'replace' | 'suppress',
-  value: string,
-): { action: 'set'; value: string } | { action: 'remove' } {
-  if (mode === 'upstream') return { action: 'remove' };
-  return { action: 'set', value: mode === 'suppress' ? '' : value };
 }
 
 export function configuredServerApplyEligibility(state: ConfiguredServerEditState): {
@@ -489,6 +368,12 @@ export function configuredServerApplyEligibility(state: ConfiguredServerEditStat
   if (!state.preview.configChange.changed || state.preview.diff.length === 0) {
     return { eligible: false, reason: 'The preview contains no changes.' };
   }
+  if (
+    state.detail.server.source === 'mcpTemplates' &&
+    state.preview.diff.some((entry) => entry.fieldPath.join('.') !== 'instructionOverride')
+  ) {
+    return { eligible: false, reason: 'Template targets only support instruction overrides.' };
+  }
   const connectionCritical = state.preview.diff.some((entry) => entry.riskFlags.includes('connection_critical'));
   const transportType = selectedTransportType(state.fieldDraft, state.detail.server.transport.type);
   const proposedEnabled = configuredServerEditDraft(state).enabled ?? state.detail.server.enabled;
@@ -502,6 +387,20 @@ export function configuredServerApplyEligibility(state: ConfiguredServerEditStat
     return { eligible: false, reason: 'A connectivity check must run before applying these changes.' };
   }
   return { eligible: true };
+}
+
+function configuredServerTarget(state: Extract<ConfiguredServerEditState, { status: 'loaded' }>) {
+  return { source: state.detail.server.source, id: state.serverId };
+}
+
+function sameConfiguredServerTarget(
+  state: Extract<ConfiguredServerEditState, { status: 'loaded' }>,
+  target: string | ConfiguredServerTargetIdentity | null,
+): boolean {
+  if (!target) return false;
+  const source = typeof target === 'string' ? 'mcpServers' : target.source;
+  const id = typeof target === 'string' ? target : target.id;
+  return state.serverId === id && state.detail.server.source === source;
 }
 
 function isStalePreviewFailure(error: unknown): boolean {

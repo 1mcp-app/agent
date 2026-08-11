@@ -206,7 +206,7 @@ function ServerCard({
       <Group gap="sm" justify="space-between" wrap="nowrap" className="server-mobile-actions">
         <Tooltip label={`Edit ${server.id}`}>
           <ActionIcon
-            aria-label={`Edit ${server.id} server`}
+            aria-label={`Edit ${server.source === 'mcpTemplates' ? 'template' : 'static'} ${server.id} server`}
             size="lg"
             variant="default"
             onClick={() => void onOpenServerDetail?.({ source: server.source, id: server.id })}
@@ -214,14 +214,16 @@ function ServerCard({
             <Pencil size={16} />
           </ActionIcon>
         </Tooltip>
-        <ServerStateControl
-          server={server}
-          busy={busy}
-          action={action}
-          actionLabel={actionState.label}
-          disabled={busy || actionUnavailable}
-          onChange={() => void onServerAction?.(server.id, action)}
-        />
+        {server.source === 'mcpServers' ? (
+          <ServerStateControl
+            server={server}
+            busy={busy}
+            action={action}
+            actionLabel={actionState.label}
+            disabled={busy || actionUnavailable}
+            onChange={() => void onServerAction?.(server.id, action)}
+          />
+        ) : null}
       </Group>
     </article>
   );
@@ -275,7 +277,7 @@ function ServerRow({
         <Group gap="sm" wrap="nowrap" justify="flex-end">
           <Tooltip label={`Edit ${server.id}`}>
             <ActionIcon
-              aria-label={`Edit ${server.id} server`}
+              aria-label={`Edit ${server.source === 'mcpTemplates' ? 'template' : 'static'} ${server.id} server`}
               size="lg"
               variant="default"
               onClick={() => void onOpenServerDetail?.({ source: server.source, id: server.id })}
@@ -283,14 +285,16 @@ function ServerRow({
               <Pencil size={16} />
             </ActionIcon>
           </Tooltip>
-          <ServerStateControl
-            server={server}
-            busy={busy}
-            action={action}
-            actionLabel={actionState.label}
-            disabled={busy || actionUnavailable}
-            onChange={() => void onServerAction?.(server.id, action)}
-          />
+          {server.source === 'mcpServers' ? (
+            <ServerStateControl
+              server={server}
+              busy={busy}
+              action={action}
+              actionLabel={actionState.label}
+              disabled={busy || actionUnavailable}
+              onChange={() => void onServerAction?.(server.id, action)}
+            />
+          ) : null}
         </Group>
       </Table.Td>
     </Table.Tr>
