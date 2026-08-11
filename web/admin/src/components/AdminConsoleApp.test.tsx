@@ -46,7 +46,7 @@ describe('AdminConsoleApp', () => {
       },
     });
 
-    expect(screen.getByRole('heading', { name: 'Backend logs' })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: 'Backend logs' })).toBeInTheDocument();
     expect(screen.getByText('<script>window.injected=true</script>')).toBeInTheDocument();
     expect(document.querySelector('.backend-log-content script')).toBeNull();
     expect(screen.getByText('Not captured')).toBeInTheDocument();
@@ -56,7 +56,7 @@ describe('AdminConsoleApp', () => {
     expect(select).toHaveBeenCalledWith('static:manual');
   });
 
-  it('distinguishes a retained-history load failure from an empty log', () => {
+  it('distinguishes a retained-history load failure from an empty log', async () => {
     renderApp(consoleState(), {
       navigation: { route: 'logs' },
       logs: {
@@ -67,7 +67,7 @@ describe('AdminConsoleApp', () => {
       },
     });
 
-    expect(screen.getByRole('alert')).toHaveTextContent('Failed to load retained backend logs');
+    expect(await screen.findByRole('alert')).toHaveTextContent('Failed to load retained backend logs');
     expect(screen.queryByText('No captured stderr in retained runtime history.')).not.toBeInTheDocument();
   });
   it('renders setup-required guidance without authenticated console chrome', () => {
@@ -294,25 +294,25 @@ describe('AdminConsoleApp', () => {
     expect(screen.getByRole('button', { name: 'Close operations navigation' })).toBeInTheDocument();
   });
 
-  it('renders compatible version skew without warning and unavailable optional metadata', () => {
+  it('renders compatible version skew without warning and unavailable optional metadata', async () => {
     const state = consoleState();
     state.status!.about.adminUiBuildVersion = '9.9.9';
     state.status!.about.build = {};
     renderApp(state, { navigation: { route: 'about' } });
 
-    expect(screen.getByRole('heading', { name: /About 1MCP Agent/i })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: /About 1MCP Agent/i })).toBeInTheDocument();
     expect(screen.getByText('9.9.9')).toBeInTheDocument();
     expect(screen.getAllByText('Unavailable')).toHaveLength(2);
     expect(screen.queryByText(/protocol incompatibility/i)).not.toBeInTheDocument();
     expect(screen.getByRole('link', { name: /Repository.*new tab/i })).toHaveAttribute('rel', 'noopener noreferrer');
   });
 
-  it('warns when the Admin UI and API protocol contracts are incompatible', () => {
+  it('warns when the Admin UI and API protocol contracts are incompatible', async () => {
     const state = consoleState();
     state.status!.about.adminUiProtocolVersion = '2';
     state.status!.about.protocolCompatible = false;
     renderApp(state, { navigation: { route: 'about' } });
-    expect(screen.getByText(/Admin UI protocol incompatibility/i)).toBeInTheDocument();
+    expect(await screen.findByText(/Admin UI protocol incompatibility/i)).toBeInTheDocument();
   });
 
   it('blocks lossy conversion from advanced JSON to structured mode', async () => {
@@ -331,7 +331,7 @@ describe('AdminConsoleApp', () => {
         ],
       },
     });
-    await user.click(screen.getByRole('button', { name: 'Edit' }));
+    await user.click(await screen.findByRole('button', { name: 'Edit' }));
     expect(screen.getByRole('button', { name: /Match any included tag/i })).toBeDisabled();
     expect(screen.getByRole('button', { name: /Match all included tags/i })).toBeDisabled();
   });
@@ -354,7 +354,7 @@ describe('AdminConsoleApp', () => {
       presets: { preview: onPreviewPreset, save: onSavePreset },
     });
 
-    await user.type(screen.getByLabelText('Preset name'), 'web');
+    await user.type(await screen.findByLabelText('Preset name'), 'web');
     await user.click(getTagStateRadio('local', 'Include'));
     await user.click(screen.getByRole('button', { name: /Preview matches/i }));
     expect(await screen.findByText(/disabled-web · disabled/i)).toBeInTheDocument();
@@ -384,7 +384,7 @@ describe('AdminConsoleApp', () => {
     });
     renderApp(consoleState(), { navigation: { route: 'presets' }, presets: { preview: onPreviewPreset } });
 
-    expect(screen.getByRole('heading', { name: /Tag matrix/i })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: /Tag matrix/i })).toBeInTheDocument();
     expect(getTagStateRadio('local', 'Include')).toBeInTheDocument();
     expect(getTagStateRadio('storage', 'Exclude')).toBeInTheDocument();
     expect(screen.getByText(/filesystem · enabled/i)).toBeInTheDocument();
@@ -427,7 +427,7 @@ describe('AdminConsoleApp', () => {
       },
     });
 
-    await user.click(screen.getByRole('button', { name: 'Edit' }));
+    await user.click(await screen.findByRole('button', { name: 'Edit' }));
 
     expect(getTagStateRadio('local', 'Include')).toBeChecked();
     expect(getTagStateRadio('storage', 'Exclude')).toBeChecked();
@@ -447,6 +447,7 @@ describe('AdminConsoleApp', () => {
       },
     });
 
+    expect(await screen.findByRole('heading', { name: /Tag matrix/i })).toBeInTheDocument();
     expect(getTagStateRadio('template', 'Include')).toBeInTheDocument();
     expect(screen.getAllByText(/0 enabled/i).length).toBeGreaterThanOrEqual(1);
     expect(screen.getAllByText(/1 disabled/i).length).toBeGreaterThanOrEqual(1);
@@ -467,7 +468,7 @@ describe('AdminConsoleApp', () => {
         ],
       },
     });
-    await user.click(screen.getByRole('button', { name: 'Edit' }));
+    await user.click(await screen.findByRole('button', { name: 'Edit' }));
     const retiredGroup = screen.getByRole('group', { name: /retired tag state/i }).parentElement;
     expect(retiredGroup).toHaveTextContent(/retired.*Retired/i);
     await user.click(getTagStateRadio('retired', 'Neutral'));
@@ -488,7 +489,7 @@ describe('AdminConsoleApp', () => {
       },
     });
 
-    await user.type(screen.getByRole('searchbox', { name: /search tags and servers/i }), 'docs');
+    await user.type(await screen.findByRole('searchbox', { name: /search tags and servers/i }), 'docs');
     expect(screen.getByRole('group', { name: 'docs tag state' })).toBeInTheDocument();
     expect(screen.queryByRole('group', { name: 'shared tag state' })).not.toBeInTheDocument();
 

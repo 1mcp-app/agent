@@ -35,16 +35,25 @@ import {
   SunMoon,
   UserRound,
 } from 'lucide-react';
-import { type MouseEvent, type ReactNode, useState } from 'react';
+import { lazy, type MouseEvent, type ReactNode, Suspense, useState } from 'react';
 
 import type { AdminConsoleRoute, AdminConsoleSessionModel } from '../session/AdminConsoleSessionModel';
 import type { AdminConsoleState } from '../state/adminConsoleState';
 import { runtimeEndpointSummary, runtimeSummary, viewBadgeColor, viewLabel } from './adminConsoleUtils';
-import { AboutRuntimeWorkspace } from './workspaces/AboutRuntimeWorkspace';
-import { BackendLogsWorkspace } from './workspaces/BackendLogsWorkspace';
-import { OAuthServicesWorkspace } from './workspaces/OAuthServicesWorkspace';
-import { PresetAuthoringWorkspace } from './workspaces/PresetAuthoringWorkspace';
 import { AuditTrailWorkspace, DashboardWorkspace, ServersWorkspace } from './workspaces/RuntimeOperationsWorkspace';
+
+const AboutRuntimeWorkspace = lazy(() =>
+  import('./workspaces/AboutRuntimeWorkspace').then((module) => ({ default: module.AboutRuntimeWorkspace })),
+);
+const BackendLogsWorkspace = lazy(() =>
+  import('./workspaces/BackendLogsWorkspace').then((module) => ({ default: module.BackendLogsWorkspace })),
+);
+const OAuthServicesWorkspace = lazy(() =>
+  import('./workspaces/OAuthServicesWorkspace').then((module) => ({ default: module.OAuthServicesWorkspace })),
+);
+const PresetAuthoringWorkspace = lazy(() =>
+  import('./workspaces/PresetAuthoringWorkspace').then((module) => ({ default: module.PresetAuthoringWorkspace })),
+);
 
 export interface AdminConsoleAppProps {
   session: AdminConsoleSessionModel;
@@ -218,7 +227,9 @@ export function AdminConsoleApp({ session }: AdminConsoleAppProps) {
         <AppShell.Main id="admin-main" className="admin-shell-main">
           <Stack gap="md" className="admin-console">
             <Banner state={state} />
-            <ConsoleWorkspace session={session} />
+            <Suspense fallback={<WorkspaceLoading />}>
+              <ConsoleWorkspace session={session} />
+            </Suspense>
           </Stack>
         </AppShell.Main>
       </AppShell>
@@ -229,6 +240,14 @@ export function AdminConsoleApp({ session }: AdminConsoleAppProps) {
     void navigation.navigate(route);
     setMobileNavigationOpened(false);
   }
+}
+
+function WorkspaceLoading() {
+  return (
+    <Paper className="operations-panel" role="status" withBorder>
+      <Text c="dimmed">Loading workspace...</Text>
+    </Paper>
+  );
 }
 
 function ConsoleWorkspace({ session }: { session: AdminConsoleSessionModel }) {
